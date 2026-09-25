@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024"><defs><clipPath id="glassClip"><path d="M 288 201 L 581 201 Q 596 201 607 212 L 702 307 Q 713 318 713 333 L 713 769 Q 713 809 673 809 L 288 809 Q 248 809 248 769 L 248 241 Q 248 201 288 201 Z"/></clipPath><linearGradient id="reflection" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="white" stop-opacity="0.04"/><stop offset="0.42" stop-color="white" stop-opacity="0.36"/><stop offset="0.55" stop-color="white" stop-opacity="0.03"/><stop offset="1" stop-color="white" stop-opacity="0"/></linearGradient></defs>
+<g transform="matrix(0.94 0.23 -0.36 0.69 223 34)">
+<path d="M 288 201 L 581 201 Q 596 201 607 212 L 702 307 Q 713 318 713 333 L 713 769 Q 713 809 673 809 L 288 809 Q 248 809 248 769 L 248 241 Q 248 201 288 201 Z" transform="translate(0 9)" fill="none" stroke="#8EAFCB" stroke-width="7" stroke-opacity="0.50"/>
+<path d="M 288 201 L 581 201 Q 596 201 607 212 L 702 307 Q 713 318 713 333 L 713 769 Q 713 809 673 809 L 288 809 Q 248 809 248 769 L 248 241 Q 248 201 288 201 Z" fill="url(#reflection)" stroke="white" stroke-opacity="0.74" stroke-width="6"/>
+<path d="M 266 768 L 266 242 Q 266 217 292 217 L 576 217" fill="none" stroke="white" stroke-opacity="0.86" stroke-width="3"/>
+<path d="M 694 343 L 694 763 Q 694 790 665 790 L 295 790" fill="none" stroke="#91B5D1" stroke-opacity="0.75" stroke-width="3"/>
+</g></svg>

@@ -1,0 +1,9 @@
+{
+  "types": {
+    "rating": "number",
+    "finished": "date",
+    "due": "date",
+    "done": "checkbox",
+    "isbn": "text"
+  }
+}

@@ -1,0 +1,15 @@
+OPTION 1 — CHARCOAL GRAPHITE
+
+Use case: precise-object-edit.
+This icon is APPROVED. Perform only an exact localized color edit. Preserve the glass paper, its exact position and geometry, 10–11 o'clock orientation, all glass material and highlights and refraction, the entire matte graphite pen's shape, size, position, angle, volume, blue side accent, background transparency and padding. Keep the exact ".md" glyph shapes and all three handwritten stroke shapes, widths and locations. Do not redraw, resize or restyle anything. Preserve the nib's precise contact with the last stroke. Keep the same square dimensions and genuine transparent alpha background.
+Change only the color of all three handwritten ink strokes, the ".md" label, and the tiny writing tip. These three elements must use the SAME coherent ink hue. Make the ink feel like the material deposited by that exact pencil tip, not a different navy-blue material. Keep the pen barrel and its blue side accent UNCHANGED. Keep soft lighting on the physical nib but its base material must match the ink.
+
+Ink/tip palette for this option: rich neutral CHARCOAL GRAPHITE, base color approximately #292E35. Clearly remove the current blue cast from the handwriting and .md label. This should be the strongest natural match to the approved graphite pen nib.
+
+OPTION 2 — BLUE GRAPHITE
+
+Use case: precise-object-edit.
+This icon is APPROVED. Perform only an exact localized color edit. Preserve the glass paper, its exact position and geometry, 10–11 o'clock orientation, all glass material and highlights and refraction, the entire matte graphite pen's shape, size, position, angle, volume, blue side accent, background transparency and padding. Keep the exact ".md" glyph shapes and all three handwritten stroke shapes, widths and locations. Do not redraw, resize or restyle anything. Preserve the nib's precise contact with the last stroke. Keep the same square dimensions and genuine transparent alpha background.
+Change only the color of all three handwritten ink strokes, the ".md" label, and the tiny writing tip. These three elements must use the SAME coherent ink hue. Make the ink feel like the material deposited by that exact pencil tip, not a different navy-blue material. Keep the pen barrel and its blue side accent UNCHANGED. Keep soft lighting on the physical nib but its base material must match the ink.
+
+Ink/tip palette for this option: refined muted BLUE GRAPHITE, base color approximately #3B4D60. A soft cool blue-gray, distinct from pure charcoal but restrained. Match the tiny nib to this exact ink color while preserving its dark shading and keeping the rest of the pen unchanged.

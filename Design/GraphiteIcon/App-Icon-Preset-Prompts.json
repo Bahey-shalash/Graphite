@@ -1,0 +1,18 @@
+{
+  "mode": "Built-in image_gen, precise-object-edit",
+  "reference": "Graphite-MatteStylus.icon/Assets/GlassNoteAndStylus.png",
+  "variants": [
+    {
+      "name": "Blue",
+      "prompt": "Exact localized color edit of this APPROVED app icon. Preserve composition, geometry, paper rotated toward 10–11 o'clock, glass highlights and refraction, matte graphite stylus shape, size and raised writing angle, narrow blue side accent, transparent background and padding. Preserve exact .md glyphs and all three handwriting stroke shapes. Change ONLY all three handwritten ink strokes, .md label, and the small writing nib/tip to one matching color. Keep the barrel graphite. Color should be clearly visible and rich but professionally restrained. Genuine transparent alpha, square dimensions, no background or new elements. The matching ink and tip color is #3068E8, sRGB 48 104 232, a clear medium royal blue."
+    },
+    {
+      "name": "Red",
+      "prompt": "Exact localized color edit of this APPROVED app icon. Preserve composition, geometry, paper rotated toward 10–11 o'clock, glass highlights and refraction, matte graphite stylus shape, size and raised writing angle, narrow blue side accent, transparent background and padding. Preserve exact .md glyphs and all three handwriting stroke shapes. Change ONLY all three handwritten ink strokes, .md label, and the small writing nib/tip to one matching color. Keep the barrel graphite. Color should be clearly visible and rich but professionally restrained. Genuine transparent alpha, square dimensions, no background or new elements. The matching ink and tip color is #C9434D, a rich restrained crimson red."
+    },
+    {
+      "name": "Black",
+      "prompt": "Exact localized color edit of this APPROVED app icon. Preserve composition, geometry, paper rotated toward 10–11 o'clock, glass highlights and refraction, matte graphite stylus shape, size and raised writing angle, narrow blue side accent, transparent background and padding. Preserve exact .md glyphs and all three handwriting stroke shapes. Change ONLY all three handwritten ink strokes, .md label, and the small writing nib/tip to one matching color. Keep the barrel graphite. Color should be clearly visible and rich but professionally restrained. Genuine transparent alpha, square dimensions, no background or new elements. The matching ink and tip color is #15171B, near-black neutral ink."
+    }
+  ]
+}

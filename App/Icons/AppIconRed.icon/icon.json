@@ -1,0 +1,55 @@
+{
+  "features": [
+    "specular-location"
+  ],
+  "fill-specializations": [
+    {
+      "value": {
+        "linear-gradient": [
+          "srgb:0.96078,0.97255,0.98824,1.00000",
+          "srgb:0.84314,0.89020,0.93725,1.00000"
+        ]
+      }
+    },
+    {
+      "appearance": "dark",
+      "value": {
+        "linear-gradient": [
+          "srgb:0.21961,0.27451,0.34902,1.00000",
+          "srgb:0.08627,0.12157,0.18431,1.00000"
+        ]
+      }
+    }
+  ],
+  "groups": [
+    {
+      "name": "Red ink and pencil tip",
+      "layers": [
+        {
+          "image-name": "GlassNoteAndStylus.png",
+          "name": "Rendered glass artwork",
+          "position": {
+            "scale": 0.72,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "lighting": "combined",
+      "specular": false,
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.12
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}

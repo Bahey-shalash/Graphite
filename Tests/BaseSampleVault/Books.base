@@ -1,0 +1,77 @@
+filters:
+  and:
+    - file.hasTag("book")
+    - file.inFolder("Books")
+formulas:
+  reading_time: 'if(pages, (pages * 2 / 60).round(1).toString() + " h", "")'
+  status_icon: 'if(status == "reading", "📖", if(status == "done", "✅", if(status == "dropped", "🗑️", "📚")))'
+  finished_year: 'if(finished, date(finished).year, "")'
+  per_page: 'rating / (pages - 777)'
+properties:
+  author:
+    displayName: Author
+  formula.status_icon:
+    displayName: ""
+  formula.reading_time:
+    displayName: Est. time
+  note.rating:
+    displayName: Rating
+summaries:
+  rounded_mean: 'values.mean().round(2)'
+views:
+  - type: table
+    name: Library
+    order:
+      - formula.status_icon
+      - file.name
+      - author
+      - genre
+      - pages
+      - rating
+      - formula.reading_time
+      - finished
+      - formula.per_page
+    sort:
+      - property: rating
+        direction: DESC
+      - property: file.name
+        direction: ASC
+    summaries:
+      pages: Sum
+      rating: rounded_mean
+      finished: Latest
+    columnSize:
+      file.name: 260
+      note.author: 190
+  - type: table
+    name: By status
+    groupBy:
+      property: status
+      direction: ASC
+    order:
+      - file.name
+      - status
+      - pages
+    summaries:
+      pages: Average
+  - type: cards
+    name: Gallery
+    image: note.cover
+    imageFit: cover
+    imageAspectRatio: 1.4
+    cardSize: 200
+    order:
+      - file.name
+      - author
+      - rating
+      - formula.status_icon
+  - type: list
+    name: Reading list
+    markers: numbers
+    filters:
+      not:
+        - 'status == "dropped"'
+    order:
+      - file.name
+      - author
+      - formula.reading_time

@@ -1,0 +1,9 @@
+filters: file.inFolder("Courses") && file.ext == "md"
+formulas:
+  backlink_count: file.backlinks.length
+views:
+  - type: table
+    name: Lectures
+    order: [file.name, title, topic, tags, related, formula.backlink_count, file.mtime]
+  - type: kanban
+    name: Board

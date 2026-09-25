@@ -1,0 +1,48 @@
+filters:
+  and:
+    - categories.containsAny(link("Places"))
+formulas:
+  Type icon: list(type)[0].asFile().properties.icon
+  Type color: list(type)[0].asFile().properties.color
+properties:
+  file.name:
+    displayName: Place
+  note.rating:
+    displayName: Rating
+  note.address:
+    displayName: Address
+views:
+  - type: map
+    name: Map
+    order:
+      - file.name
+      - address
+      - rating
+    coordinates: note.coordinates
+    markerIcon: formula.Type icon
+    markerColor: formula.Type color
+  - type: map
+    name: Type map
+    filters:
+      and:
+        - list(type).contains(this)
+    order:
+      - file.name
+      - address
+    coordinates: note.coordinates
+    markerIcon: formula.Type icon
+    markerColor: formula.Type color
+    center: this.center
+    defaultZoom: 13
+    mapHeight: 360
+  - type: table
+    name: All places
+    order:
+      - file.name
+      - type
+      - address
+      - rating
+      - coordinates
+    summaries:
+      rating: Average
+      coordinates: Empty

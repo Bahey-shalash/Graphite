@@ -1,0 +1,113 @@
+{
+  "features": [
+    "specular-location"
+  ],
+  "fill-specializations": [
+    {
+      "value": {
+        "linear-gradient": [
+          "srgb:0.96471,0.96863,0.97647,1.00000",
+          "srgb:0.81961,0.84314,0.87451,1.00000"
+        ]
+      }
+    },
+    {
+      "appearance": "dark",
+      "value": {
+        "linear-gradient": [
+          "srgb:0.18431,0.20392,0.23922,1.00000",
+          "srgb:0.07843,0.09020,0.11373,1.00000"
+        ]
+      }
+    }
+  ],
+  "groups": [
+    {
+      "name": "Sculpted Graphite",
+      "layers": [
+        {
+          "name": "Graphite pencil point",
+          "image-name": "PencilPoint.svg",
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "srgb:0.10588,0.11765,0.14118,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:0.56078,0.61176,0.68627,1.00000"
+              }
+            },
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "extended-gray:1.00000,1.00000"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Silver pencil facet",
+          "image-name": "PencilFacet.svg",
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "srgb:0.64314,0.69020,0.75686,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:0.96863,0.97647,0.99216,1.00000"
+              }
+            },
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "extended-gray:1.00000,1.00000"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Graphite letterform",
+          "image-name": "GraphiteBody.svg",
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "srgb:0.18824,0.20392,0.23137,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:0.83922,0.86275,0.89804,1.00000"
+              }
+            },
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "extended-gray:1.00000,1.00000"
+              }
+            }
+          ]
+        }
+      ],
+      "lighting": "combined",
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.18
+      },
+      "specular": "outside",
+      "translucency": {
+        "enabled": true,
+        "value": 0.12
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}

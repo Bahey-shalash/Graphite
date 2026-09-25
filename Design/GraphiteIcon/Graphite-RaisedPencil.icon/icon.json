@@ -1,0 +1,200 @@
+{
+  "features": [
+    "specular-location",
+    "refractivity"
+  ],
+  "fill-specializations": [
+    {
+      "value": {
+        "linear-gradient": [
+          "srgb:0.93333,0.95686,0.97647,1.00000",
+          "srgb:0.65098,0.74902,0.83922,1.00000"
+        ]
+      }
+    },
+    {
+      "appearance": "dark",
+      "value": {
+        "linear-gradient": [
+          "srgb:0.22353,0.28627,0.35686,1.00000",
+          "srgb:0.10588,0.14902,0.20392,1.00000"
+        ]
+      }
+    }
+  ],
+  "groups": [
+    {
+      "layers": [
+        {
+          "name": "Raised rounded graphite pencil",
+          "image-name": "RaisedPencil.svg"
+        }
+      ],
+      "lighting": "combined",
+      "name": "Raised three dimensional pencil",
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.24
+      },
+      "specular": "outside",
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      },
+      "refractivity": {
+        "enabled": false,
+        "depth": 0,
+        "strength": 0
+      }
+    },
+    {
+      "layers": [
+        {
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "srgb:0.21176,0.32157,0.42353,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:0.80000,0.87059,0.92549,1.00000"
+              }
+            },
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "extended-gray:1.00000,1.00000"
+              }
+            }
+          ],
+          "image-name": "MarkdownLabel.svg",
+          "name": "Markdown file label"
+        },
+        {
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "srgb:0.21176,0.32157,0.42353,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:0.80000,0.87059,0.92549,1.00000"
+              }
+            },
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "extended-gray:1.00000,1.00000"
+              }
+            }
+          ],
+          "image-name": "HandwrittenInk.svg",
+          "name": "Handwritten ink"
+        }
+      ],
+      "lighting": "combined",
+      "name": "Markdown and handwriting",
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0
+      },
+      "specular": false,
+      "translucency": {
+        "enabled": false,
+        "value": 0.0
+      }
+    },
+    {
+      "name": "Glass edge reflections",
+      "layers": [
+        {
+          "name": "Transparent bevel and surface reflection",
+          "image-name": "GlassBevel.svg"
+        }
+      ],
+      "lighting": "combined",
+      "specular": false,
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      }
+    },
+    {
+      "layers": [
+        {
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "srgb:0.76863,0.87843,0.95686,0.45000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:0.66667,0.81569,0.92157,0.50000"
+              }
+            },
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "extended-gray:1.00000,1.00000"
+              }
+            }
+          ],
+          "image-name": "FoldedCorner.svg",
+          "name": "Glass folded corner"
+        },
+        {
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "srgb:0.87843,0.93725,0.98824,0.30000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:0.63137,0.76471,0.88627,0.35000"
+              }
+            },
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "extended-gray:1.00000,1.00000"
+              }
+            }
+          ],
+          "image-name": "GlassNote.svg",
+          "name": "Frosted glass note"
+        }
+      ],
+      "lighting": "combined",
+      "name": "Clear refractive glass note",
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.18
+      },
+      "specular": "outside",
+      "translucency": {
+        "enabled": true,
+        "value": 0.86
+      },
+      "refractivity": {
+        "enabled": true,
+        "depth": 0.42,
+        "strength": 0.68
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}

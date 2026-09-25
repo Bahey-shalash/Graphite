@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024"><defs>
+<linearGradient id="barrel" x1="-62" y1="0" x2="62" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#3B586D"/><stop offset="0.2" stop-color="#7FA9C4"/><stop offset="0.4" stop-color="#C0DBEB"/><stop offset="0.56" stop-color="#7DACC9"/><stop offset="0.8" stop-color="#537F9D"/><stop offset="1" stop-color="#2D4C64"/></linearGradient>
+<linearGradient id="silver" x1="-62" y1="0" x2="62" y2="0" gradientUnits="userSpaceOnUse"><stop stop-color="#627B91"/><stop offset="0.23" stop-color="#D4E4EF"/><stop offset="0.43" stop-color="#F7FCFF"/><stop offset="0.59" stop-color="#A3B9C9"/><stop offset="0.84" stop-color="#718C9F"/><stop offset="1" stop-color="#425E74"/></linearGradient>
+<linearGradient id="cap" x1="0" y1="-492" x2="0" y2="-449" gradientUnits="userSpaceOnUse"><stop stop-color="#E0F1FD"/><stop offset="0.55" stop-color="#9CBFD6"/><stop offset="1" stop-color="#5A7B91"/></linearGradient>
+<linearGradient id="tip" x1="-20" y1="0" x2="20" y2="0" gradientUnits="userSpaceOnUse"><stop stop-color="#101E2A"/><stop offset="0.42" stop-color="#647988"/><stop offset="0.7" stop-color="#293E4D"/><stop offset="1" stop-color="#142735"/></linearGradient>
+</defs><g transform="translate(460.0 670.0) rotate(31)">
+<path d="M -62 -464 C -62 -494 62 -494 62 -464 L 62 -152 C 62 -125 -62 -125 -62 -152 Z" fill="url(#barrel)"/>
+<ellipse cx="0" cy="-464" rx="62" ry="21" fill="url(#cap)"/>
+<path d="M -60 -152 C -47 -133 46 -133 60 -152 L 18 -36 C 12 -26 -12 -26 -18 -36 Z" fill="url(#silver)"/>
+<path d="M -18 -36 Q 0 -22 18 -36 L 2 -1 Q 0 3 -2 -1 Z" fill="url(#tip)"/>
+<path d="M -32 -442 L -32 -174" fill="none" stroke="#E6F6FF" stroke-opacity="0.60" stroke-width="4" stroke-linecap="round"/>
+<path d="M -60 -157 C -40 -135 41 -135 60 -157" fill="none" stroke="#D1E6F3" stroke-width="3"/>
+</g></svg>

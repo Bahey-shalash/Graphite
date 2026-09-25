@@ -1,0 +1,297 @@
+{
+  "features": [
+    "specular-location",
+    "refractivity"
+  ],
+  "fill-specializations": [
+    {
+      "value": {
+        "linear-gradient": [
+          "srgb:0.94118,0.96078,0.98039,1.00000",
+          "srgb:0.76471,0.82353,0.87843,1.00000"
+        ]
+      }
+    },
+    {
+      "appearance": "dark",
+      "value": {
+        "linear-gradient": [
+          "srgb:0.22353,0.28627,0.35686,1.00000",
+          "srgb:0.10588,0.14902,0.20392,1.00000"
+        ]
+      }
+    }
+  ],
+  "groups": [
+    {
+      "layers": [
+        {
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "srgb:0.10196,0.11373,0.13725,1.00000"
+              }
+            },
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "extended-gray:1.00000,1.00000"
+              }
+            }
+          ],
+          "image-name": "GraphitePoint.svg",
+          "name": "Graphite point"
+        },
+        {
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "srgb:0.75294,0.78824,0.83922,1.00000"
+              }
+            },
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "extended-gray:1.00000,1.00000"
+              }
+            }
+          ],
+          "image-name": "SilverCut.svg",
+          "name": "Silver sharpened face"
+        },
+        {
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "srgb:0.45490,0.50980,0.58431,1.00000"
+              }
+            },
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "extended-gray:1.00000,1.00000"
+              }
+            }
+          ],
+          "image-name": "ShadowCut.svg",
+          "name": "Shaded sharpened face"
+        },
+        {
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "srgb:0.37647,0.56863,0.70588,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:0.49020,0.67059,0.79608,1.00000"
+              }
+            },
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "extended-gray:1.00000,1.00000"
+              }
+            }
+          ],
+          "image-name": "GraphiteLeftFace.svg",
+          "name": "Graphite broad face"
+        },
+        {
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "srgb:0.19216,0.28627,0.37647,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:0.24706,0.35686,0.45490,1.00000"
+              }
+            },
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "extended-gray:1.00000,1.00000"
+              }
+            }
+          ],
+          "image-name": "GraphiteRightFace.svg",
+          "name": "Graphite dark face"
+        },
+        {
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "srgb:0.62353,0.75686,0.84314,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:0.71765,0.82745,0.91373,1.00000"
+              }
+            },
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "extended-gray:1.00000,1.00000"
+              }
+            }
+          ],
+          "image-name": "GraphiteTopFace.svg",
+          "name": "Graphite end face"
+        }
+      ],
+      "lighting": "combined",
+      "name": "Slate blue graphite pencil",
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.19
+      },
+      "specular": "outside",
+      "translucency": {
+        "enabled": true,
+        "value": 0.06
+      },
+      "refractivity": {
+        "enabled": true,
+        "depth": 0.06,
+        "strength": 0.18
+      }
+    },
+    {
+      "layers": [
+        {
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "srgb:0.21176,0.32157,0.42353,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:0.18039,0.28627,0.38824,1.00000"
+              }
+            },
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "extended-gray:1.00000,1.00000"
+              }
+            }
+          ],
+          "image-name": "MarkdownLabel.svg",
+          "name": "Markdown file label"
+        },
+        {
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "srgb:0.21176,0.32157,0.42353,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:0.18039,0.28627,0.38824,1.00000"
+              }
+            },
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "extended-gray:1.00000,1.00000"
+              }
+            }
+          ],
+          "image-name": "HandwrittenInk.svg",
+          "name": "Handwritten ink"
+        }
+      ],
+      "lighting": "combined",
+      "name": "Markdown and handwriting",
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0
+      },
+      "specular": false,
+      "translucency": {
+        "enabled": false,
+        "value": 0.0
+      }
+    },
+    {
+      "layers": [
+        {
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "srgb:0.68235,0.80392,0.88235,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:0.56471,0.72549,0.84314,1.00000"
+              }
+            },
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "extended-gray:1.00000,1.00000"
+              }
+            }
+          ],
+          "image-name": "FoldedCorner.svg",
+          "name": "Glass folded corner"
+        },
+        {
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "srgb:0.90588,0.94902,0.98431,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:0.79216,0.88235,0.95294,1.00000"
+              }
+            },
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "extended-gray:1.00000,1.00000"
+              }
+            }
+          ],
+          "image-name": "GlassNote.svg",
+          "name": "Frosted glass note"
+        }
+      ],
+      "lighting": "combined",
+      "name": "Liquid glass note",
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.22
+      },
+      "specular": "outside",
+      "translucency": {
+        "enabled": true,
+        "value": 0.6
+      },
+      "refractivity": {
+        "enabled": true,
+        "depth": 0.14,
+        "strength": 0.42
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}
