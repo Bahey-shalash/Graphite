@@ -26,7 +26,7 @@ public enum InlineMathRendering {
       content: Math(latex)
         .mathFont(font(size: fontSize))
         .mathTypesettingStyle(.text)
-        .mathRenderingMode(.monochrome)
+        .mathRenderingMode(.multicolor(base: color))
         .foregroundStyle(color)
         .fixedSize()
     )

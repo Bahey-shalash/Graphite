@@ -25,7 +25,63 @@ public enum LaTeXCompatibility {
             guard let pattern = replacement.pattern else { continue }
             text = pattern.stringByReplacingMatches(in: text, range: NSRange(location: 0, length: (text as NSString).length), withTemplate: replacement.template)
         }
-        return rewritingAlignments(in: text)
+        return rewritingColorDeclarationsAndOperatorNames(in: rewritingAlignments(in: text))
+    }
+
+    /// MathJax's `\color{…}` changes the remainder of its brace group; the native
+    /// typesetter instead consumes just one following atom. Convert declarations to
+    /// explicit `\textcolor` groups, closing them before the enclosing brace. Nested
+    /// declarations override their parent color without leaking out of their group.
+    /// The typesetter also lacks `\operatorname`; upright names use `\mathrm`.
+    /// Starred operators (which need limit placement) are deliberately left unchanged.
+    private static func rewritingColorDeclarationsAndOperatorNames(in latex: String) -> String {
+        let characters = Array(latex)
+        var output = ""
+        var pendingColorClosures = [0]
+        var position = 0
+        while position < characters.count {
+            let character = characters[position]
+            if character == "\\", position + 1 < characters.count {
+                let commandStart = position
+                position += 1
+                while position < characters.count, characters[position].isASCII, characters[position].isLetter {
+                    position += 1
+                }
+                if position == commandStart + 1 {
+                    // Escaped braces and row breaks are not group boundaries.
+                    output += String(characters[commandStart...position])
+                    position += 1
+                    continue
+                }
+                let command = String(characters[(commandStart + 1)..<position])
+                var argumentStart = position
+                while argumentStart < characters.count, characters[argumentStart].isWhitespace { argumentStart += 1 }
+                if command == "color", argumentStart < characters.count, characters[argumentStart] == "{",
+                   let argumentEnd = characters[(argumentStart + 1)...].firstIndex(of: "}"),
+                   !characters[(argumentStart + 1)..<argumentEnd].contains("{") {
+                    output += "\\textcolor" + String(characters[argumentStart...argumentEnd]) + "{"
+                    pendingColorClosures[pendingColorClosures.count - 1] += 1
+                    position = argumentEnd + 1
+                } else if command == "operatorname", argumentStart < characters.count, characters[argumentStart] == "{" {
+                    output += "\\mathrm"
+                } else {
+                    output += String(characters[commandStart..<position])
+                }
+                continue
+            }
+            if character == "{" {
+                pendingColorClosures.append(0)
+            } else if character == "}", pendingColorClosures.count > 1 {
+                output += String(repeating: "}", count: pendingColorClosures.removeLast())
+            }
+            output.append(character)
+            position += 1
+        }
+        // Leave malformed, unclosed source groups for the typesetter to reject.
+        if pendingColorClosures.count == 1 {
+            output += String(repeating: "}", count: pendingColorClosures[0])
+        }
+        return output
     }
 
     /// Removes `\tag{…}`, `\tag*{…}` and `\label{…}` with their whole braced argument.

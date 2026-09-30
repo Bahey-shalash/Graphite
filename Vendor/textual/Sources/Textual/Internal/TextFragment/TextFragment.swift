@@ -27,6 +27,9 @@ import SwiftUI
 
 struct TextFragment<Content: AttributedStringProtocol>: View {
   @Environment(\.textEnvironment) private var textEnvironment
+  // Graphite patch: a table cell gives its own width, which its attachments fit instead of
+  // the width of the whole text container.
+  @Environment(\.attachmentContainerWidth) private var attachmentContainerWidth
   @State private var textBuilder: TextBuilder?
 
   private let content: Content
@@ -39,11 +42,24 @@ struct TextFragment<Content: AttributedStringProtocol>: View {
     text
       .customAttribute(TextFragmentAttribute())
       .onGeometryChange(for: CGSize?.self, of: \.textContainerSize) { size in
-        guard let size, let textBuilder else { return }
+        guard let size, let textBuilder, attachmentContainerWidth == nil else { return }
         textBuilder.sizeChanged(size, environment: textEnvironment)
       }
       .onChange(of: content, initial: true) { _, newValue in
-        self.textBuilder = TextBuilder(newValue, environment: textEnvironment)
+        self.textBuilder = TextBuilder(
+          newValue,
+          attachmentProposal: attachmentContainerWidth.map { width in
+            ProposedViewSize(width: width, height: nil)
+          } ?? .unspecified,
+          environment: textEnvironment
+        )
+      }
+      .onChange(of: attachmentContainerWidth) { _, newWidth in
+        guard let newWidth, let textBuilder else { return }
+        textBuilder.proposalChanged(
+          ProposedViewSize(width: newWidth, height: nil),
+          environment: textEnvironment
+        )
       }
       .modifier(TextSelectionBackground())
       .modifier(AttachmentOverlay(attachments: content.attachments()))
@@ -74,4 +90,10 @@ extension GeometryProxy {
   fileprivate var textContainerSize: CGSize? {
     bounds(of: .textContainer)?.size
   }
+}
+
+extension EnvironmentValues {
+  /// Graphite patch: the width a text fragment's attachments fit, in place of the text
+  /// container's width; nil outside a table cell.
+  @Entry var attachmentContainerWidth: CGFloat? = nil
 }

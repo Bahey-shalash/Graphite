@@ -1,8 +1,9 @@
 import XCTest
+import AppKit
 import SwiftUI
 import ImageIO
 import UniformTypeIdentifiers
-import Textual
+@testable import Textual
 import GraphiteCore
 import GraphiteIndex
 @testable import GraphiteUI
@@ -381,4 +382,84 @@ final class UiReadingViewTests: XCTestCase {
         XCTAssertEqual(image.height, 25)
         XCTAssertNil(cache.lastThumbnail(for: location, kind: .block))
     }
+
+    // MARK: Images in tables
+
+    /// Three images side by side, each nearly as wide as the note: they shrink until the
+    /// table fits the note, as in Obsidian. They used to keep their full width, so the
+    /// table was three notes wide and scrolled sideways.
+    func testImagesInATableShrinkUntilTheTableFitsTheNote() async throws {
+        let images = try ["a", "b", "c"].map { name in try imageMarkdown(named: name, width: 500, height: 250) }
+        let table = "| One | Two | Six |\n| --- | --- | --- |\n| \(images.joined(separator: " | ")) |\n"
+        let noteWidth: CGFloat = 600
+        let cellFrames = try await tableCellFrames(ofMarkdown: table, noteWidth: noteWidth) { cellFrames in
+            cellFrames.count == 6 && (cellFrames[.init(row: 1, column: 0)]?.height ?? 0) > 60
+        }
+        let imageCells = (0..<3).compactMap { column in cellFrames[.init(row: 1, column: column)] }
+        XCTAssertEqual(imageCells.count, 3)
+        XCTAssertLessThanOrEqual(imageCells.map(\.maxX).max() ?? .infinity, noteWidth, "the table ends inside the note")
+        for imageCell in imageCells {
+            // The columns share the note's width, less the gaps between them and the border.
+            XCTAssertGreaterThan(imageCell.width, noteWidth / 3 - 10)
+            XCTAssertLessThan(imageCell.width, noteWidth / 3)
+            // An image is half as tall as it is wide; the cell adds its padding around it.
+            XCTAssertEqual(imageCell.height, imageCell.width / 2, accuracy: 20)
+        }
+    }
+
+    /// An image narrower than its share of the note keeps its own size, and the table does
+    /// not stretch to the note's width.
+    func testSmallImagesInATableKeepTheirSize() async throws {
+        let images = try ["a", "b"].map { name in try imageMarkdown(named: name, width: 80, height: 40) }
+        let table = "| One | Two |\n| --- | --- |\n| \(images.joined(separator: " | ")) |\n"
+        let cellFrames = try await tableCellFrames(ofMarkdown: table, noteWidth: 600) { cellFrames in
+            cellFrames.count == 4 && (cellFrames[.init(row: 1, column: 0)]?.height ?? 0) > 40
+        }
+        let firstImageCell = try XCTUnwrap(cellFrames[.init(row: 1, column: 0)])
+        XCTAssertGreaterThanOrEqual(firstImageCell.width, 80)
+        XCTAssertLessThan(firstImageCell.width, 120, "the image's width and the cell's padding")
+        XCTAssertGreaterThanOrEqual(firstImageCell.height, 40)
+        XCTAssertLessThan(firstImageCell.height, 70)
+    }
+
+    /// Writes an image into the vault and returns the Markdown reading view makes for an
+    /// embed of it.
+    private func imageMarkdown(named name: String, width: Int, height: Int) throws -> String {
+        let location = vault.appendingPathComponent("\(name).png")
+        try writePNG(width: width, height: height, to: location)
+        return "![\(name)](\(PreviewImageFragment.url(for: location, displaySize: nil, version: 0).absoluteString))"
+    }
+
+    /// Where the cells of the table in `markdown` lie in a note `noteWidth` wide, once they
+    /// satisfy `isSettled`: images load, and the table learns the note's width, after the
+    /// first layout.
+    private func tableCellFrames(ofMarkdown markdown: String, noteWidth: CGFloat,
+                                 isSettled: ([StructuredText.TableCell.Identifier: CGRect]) -> Bool) async throws -> [StructuredText.TableCell.Identifier: CGRect] {
+        let recorder = TableCellFrameRecorder()
+        let note = ObsidianMarkdownText(markdown: markdown, root: vault, textSize: 17, navigate: { _, _ in }, scrollToHeading: { _ in })
+            .overlayPreferenceValue(StructuredText.TableCell.BoundsKey.self) { cellBounds in
+                GeometryReader { geometry in
+                    // Recorded as the overlay is built: in a window that is never shown,
+                    // `onChange` drops all but the first change of a frame that never ends.
+                    let _ = MainActor.assumeIsolated { recorder.cellFrames = cellBounds.mapValues { bounds in geometry[bounds] } }
+                    Color.clear
+                }
+            }
+            .frame(width: noteWidth, alignment: .leading)
+        let hostingView = NSHostingView(rootView: note)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: noteWidth, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = hostingView
+        defer { window.contentView = nil }
+        for _ in 0..<80 {
+            hostingView.layoutSubtreeIfNeeded()
+            if isSettled(recorder.cellFrames) { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        return recorder.cellFrames
+    }
+}
+
+@MainActor
+private final class TableCellFrameRecorder {
+    var cellFrames: [StructuredText.TableCell.Identifier: CGRect] = [:]
 }

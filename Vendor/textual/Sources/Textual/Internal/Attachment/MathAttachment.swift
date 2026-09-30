@@ -90,7 +90,8 @@ private struct MathView: View {
         )
       )
       .mathTypesettingStyle(.init(style))
-      .mathRenderingMode(.monochrome)
+      // Explicit LaTeX colors take precedence; ordinary formulas keep the surrounding style.
+      .mathRenderingMode(latex.contains("\\color") || latex.contains("\\textcolor") ? .multicolor : .monochrome)
     // Graphite patch: math is drawn at its natural size. A frame a fraction of a point
     // narrower than the formula (the attachment's measured width, rounded) made it
     // line-break mid-formula, e.g. `E = mc^2` with the exponent on a second line.

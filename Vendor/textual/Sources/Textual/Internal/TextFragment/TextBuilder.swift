@@ -23,8 +23,14 @@ extension TextFragment {
     @ObservationIgnored private let content: Content
     @ObservationIgnored private let cache: NSCache<KeyBox<[AttachmentKey: CGSize]>, Box<Text>>
 
-    init(_ content: Content, environment: TextEnvironmentValues) {
-      let attachmentSizes = content.attachmentSizes(for: .unspecified, in: environment)
+    // Graphite patch: `attachmentProposal` sizes the attachments from the start, so a
+    // fragment built again inside a table cell keeps the sizes its column gives them.
+    init(
+      _ content: Content,
+      attachmentProposal: ProposedViewSize = .unspecified,
+      environment: TextEnvironmentValues
+    ) {
+      let attachmentSizes = content.attachmentSizes(for: attachmentProposal, in: environment)
 
       self.text = Text(
         attributedString: content,
@@ -39,7 +45,11 @@ extension TextFragment {
     }
 
     func sizeChanged(_ size: CGSize, environment: TextEnvironmentValues) {
-      let attachmentSizes = content.attachmentSizes(for: .init(size), in: environment)
+      proposalChanged(.init(size), environment: environment)
+    }
+
+    func proposalChanged(_ proposal: ProposedViewSize, environment: TextEnvironmentValues) {
+      let attachmentSizes = content.attachmentSizes(for: proposal, in: environment)
       let cacheKey = KeyBox(attachmentSizes)
 
       if let text = cache.object(forKey: cacheKey) {
@@ -59,6 +69,21 @@ extension TextFragment {
 }
 
 extension Text {
+  /// Graphite patch: text whose attachments have the sizes they take for `attachmentProposal`.
+  /// A table measures it to learn how wide a cell's content is; it is never shown, so it
+  /// carries no layout for selection, links, or drawing attachments.
+  init(
+    attributedString: some AttributedStringProtocol,
+    attachmentProposal: ProposedViewSize,
+    in environment: TextEnvironmentValues
+  ) {
+    self.init(
+      attributedString: attributedString,
+      attachmentSizes: attributedString.attachmentSizes(for: attachmentProposal, in: environment),
+      in: environment
+    )
+  }
+
   fileprivate init(
     attributedString: some AttributedStringProtocol,
     attachmentSizes: [AttachmentKey: CGSize],

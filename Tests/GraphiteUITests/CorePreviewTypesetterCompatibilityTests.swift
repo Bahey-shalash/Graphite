@@ -8,6 +8,7 @@ import GraphiteCore
 final class CorePreviewTypesetterCompatibilityTests: XCTestCase {
     func testRewrittenMathJaxFormulasParse() {
         let formulas = [
+            #"\color{#7852ee} A^{T}A:\mathbb{R}^{n}\to\mathbb{R}^{n},\qquad (A^{T}A)^{T}=A^{T}A, \qquad \operatorname{rank}(A^{T}A)=r."#,
             "\\begin{eqnarray} a &=& b \\\\ c &=& d \\end{eqnarray}",
             "\\begin{eqnarray*} a &=& b \\\\ c &=& d \\end{eqnarray*}",
             "\\begin{alignat}{2} a &= b &\\quad c &= d \\end{alignat}",

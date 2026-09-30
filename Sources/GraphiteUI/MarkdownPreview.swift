@@ -1150,37 +1150,85 @@ struct ObsidianHeadingStyle: StructuredText.HeadingStyle {
     }
 }
 
+/// Tables as in Obsidian: a table wider than the note wraps its text and shrinks its images
+/// until it fits, and scrolls sideways only when it cannot become that narrow.
 struct ObsidianTableStyle: StructuredText.TableStyle {
     func makeBody(configuration: Configuration) -> some View {
-        Overflow { _ in
+        Overflow { overflowState in
             configuration.label
                 .fixedSize(horizontal: false, vertical: true)
                 .textual.tableCellSpacing(horizontal: 1, vertical: 1)
                 .textual.tableBackground { layout in
-                    Canvas { context, _ in
-                        guard layout.numberOfRows > 0 else { return }
-                        // The header shading reaches the middle of the gap below it.
-                        var headerBounds = layout.rowBounds(0)
-                        if let firstDivider = layout.horizontalDividers().first { headerBounds.size.height = firstDivider.midY - headerBounds.minY }
-                        context.fill(Path(headerBounds.integral), with: .color(.secondary.opacity(0.12)))
-                    }
+                    FilledRectangles(rectangles: Self.headerShading(in: layout), style: .secondary.opacity(0.12))
                 }
                 .textual.tableOverlay { layout in
-                    // Gaps between cells include padding, so draw a hairline in their middle.
-                    Canvas { context, _ in
-                        let lineColor = GraphicsContext.Shading.color(.secondary.opacity(0.35))
-                        for divider in layout.horizontalDividers() {
-                            context.fill(Path(CGRect(x: divider.minX, y: divider.midY - 0.5, width: divider.width, height: 1)), with: lineColor)
-                        }
-                        for divider in layout.verticalDividers() {
-                            context.fill(Path(CGRect(x: divider.midX - 0.5, y: divider.minY, width: 1, height: divider.height)), with: lineColor)
-                        }
-                    }
+                    FilledRectangles(rectangles: Self.hairlines(in: layout), style: .secondary.opacity(0.35))
                 }
                 .padding(1)
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(.secondary.opacity(0.35), lineWidth: 1))
+                .offeredScrollContainerWidth(overflowState.containerWidth)
         }
         .textual.blockSpacing(.init(top: 4, bottom: 12))
+    }
+
+    /// The header shading reaches the middle of the gap below it.
+    private static func headerShading(in layout: StructuredText.TableLayout) -> [CGRect] {
+        guard layout.numberOfRows > 0 else { return [] }
+        var headerBounds = layout.rowBounds(0)
+        if let firstDivider = layout.horizontalDividers().first { headerBounds.size.height = firstDivider.midY - headerBounds.minY }
+        return [headerBounds.integral]
+    }
+
+    /// Gaps between cells include padding, so a hairline is drawn in their middle.
+    private static func hairlines(in layout: StructuredText.TableLayout) -> [CGRect] {
+        layout.horizontalDividers().map { divider in CGRect(x: divider.minX, y: divider.midY - 0.5, width: divider.width, height: 1) }
+            + layout.verticalDividers().map { divider in CGRect(x: divider.midX - 0.5, y: divider.minY, width: 1, height: divider.height) }
+    }
+}
+
+/// Rectangles of one color, each a view of its own. A `Canvas` over the whole table is drawn
+/// into one texture, and a long table is taller than a texture can be: its lines and header
+/// shading were then not drawn at all.
+private struct FilledRectangles<Style: ShapeStyle>: View {
+    let rectangles: [CGRect]
+    let style: Style
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            ForEach(rectangles.indices, id: \.self) { rectangleIndex in
+                let rectangle = rectangles[rectangleIndex]
+                Rectangle().fill(style)
+                    .frame(width: rectangle.width, height: rectangle.height)
+                    .offset(x: rectangle.minX, y: rectangle.minY)
+            }
+        }
+    }
+}
+
+extension View {
+    /// Offers the view the width of the scroll view around it; see `ScrollContainerWidthProposal`.
+    fileprivate func offeredScrollContainerWidth(_ containerWidth: CGFloat?) -> some View {
+        ScrollContainerWidthProposal(containerWidth: containerWidth) { self }
+    }
+}
+
+/// Offers its content the width of the scroll view around it. A scroll view offers no width
+/// along the way it scrolls, so a table inside one would never wrap. The content keeps the
+/// width it answers with, which is wider than the scroll view when it cannot fit.
+private struct ScrollContainerWidthProposal: Layout {
+    /// Nil until the scroll view has been laid out; the content then takes the width it likes.
+    let containerWidth: CGFloat?
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        subviews.first?.sizeThatFits(contentProposal(for: proposal)) ?? .zero
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: contentProposal(for: proposal))
+    }
+
+    private func contentProposal(for proposal: ProposedViewSize) -> ProposedViewSize {
+        ProposedViewSize(width: containerWidth ?? proposal.width, height: proposal.height)
     }
 }
 
@@ -1311,9 +1359,12 @@ private struct VaultImageAttachment: Attachment {
         let width = Double(image.width), height = Double(image.height)
         guard width > 0, height > 0 else { return CGSize(width: 300, height: 200) }
         let naturalWidth = displaySize?.fittedWidth(aspectRatio: width / height) ?? width
-        let fittedWidth = min(proposal.width ?? naturalWidth, naturalWidth)
+        let fittedWidth = min(max(proposal.width ?? naturalWidth, Self.narrowestFittedWidth), naturalWidth)
         return CGSize(width: fittedWidth, height: fittedWidth * height / width)
     }
+    /// The narrowest, in points, an image is drawn where it is offered less, as in a table
+    /// too crowded to fit the note: narrower, a figure can no longer be made out.
+    private static let narrowestFittedWidth: Double = 48
     /// Encoded only when the text is copied or exported: showing the image never needs it.
     func pngData() -> Data? { try? ImageEncoding.pngData(from: image) }
 }
