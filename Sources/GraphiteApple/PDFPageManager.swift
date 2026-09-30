@@ -397,6 +397,14 @@ public actor PDFFileService {
         try PDFPageManager.replay(edits, on: document)
         return try PDFPageManager.export(pages: pages, from: document)
     }
+
+    /// One PDF for each run of pages, from a single replay of the edits, each carrying its
+    /// pages exactly as `export(pages:from:)` writes them.
+    public func export(baselineURL: URL, edits: [PDFEdit], pageRuns: [[Int]]) throws -> [Data] {
+        guard let document = PDFDocument(url: baselineURL) else { throw GraphiteError.invalidFile("The PDF snapshot is unavailable.") }
+        try PDFPageManager.replay(edits, on: document)
+        return try pageRuns.map { pageRun in try PDFPageManager.export(pages: pageRun, from: document) }
+    }
 }
 
 public extension PDFAnnotation {

@@ -503,6 +503,17 @@ struct HeadingScrollRequest: Equatable {
     }
 }
 
+/// A lightweight viewport checkpoint owned by the open note, not by its rendered view.
+@MainActor
+final class ReadingPosition {
+    var verticalOffset: CGFloat = 0
+}
+
+private struct ReadingViewport: Equatable {
+    let verticalOffset: CGFloat
+    let maximumVerticalOffset: CGFloat
+}
+
 struct MarkdownPreview: View {
     let source: String
     let path: VaultPath
@@ -524,6 +535,10 @@ struct MarkdownPreview: View {
     /// Keeps the last build of the note across switches between reading and editing, which
     /// discard this view; nil builds the note each time it is shown.
     var blocksCache: ReadingBlocksCache? = nil
+    var savedPosition: ReadingPosition? = nil
+    @State private var scrollPosition = ScrollPosition(y: 0)
+    @State private var hasRestoredPosition = false
+    @State private var pendingRestorationOffset: CGFloat?
     @State private var blocks: [RenderedBlock] = []
     @State private var errorMessage: String?
     /// Whether the last build had embeds it could not find, which may appear once indexed.
@@ -543,6 +558,7 @@ struct MarkdownPreview: View {
                             .padding(.bottom, 6)
                     }
                     ReadingBlocksView(blocks: blocks, root: root, textSize: configuration.textSize, navigate: navigate, scrollToHeading: { anchor in
+                        pendingRestorationOffset = nil
                         withAnimation { scrollProxy.scrollTo(anchor, anchor: .top) }
                     }, openPDF: openPDF, updateProperties: updateProperties, folding: folding, declaredPropertyTypes: configuration.declaredPropertyTypes)
                     if let errorMessage { Text(errorMessage).foregroundStyle(.secondary) }
@@ -551,13 +567,43 @@ struct MarkdownPreview: View {
                 .padding(.horizontal, 28).padding(.vertical, 32)
                 .frame(maxWidth: .infinity)
             }
+            .scrollPosition($scrollPosition)
+            .onScrollGeometryChange(for: ReadingViewport.self) { geometry in
+                ReadingViewport(verticalOffset: max(0, geometry.contentOffset.y + geometry.contentInsets.top),
+                                maximumVerticalOffset: max(0, geometry.contentSize.height + geometry.contentInsets.top + geometry.contentInsets.bottom - geometry.containerSize.height))
+            } action: { _, viewport in
+                guard hasRestoredPosition else { return }
+                if let pendingRestorationOffset {
+                    let reachableOffset = min(pendingRestorationOffset, viewport.maximumVerticalOffset)
+                    guard abs(viewport.verticalOffset - reachableOffset) < 1 else { return }
+                    self.pendingRestorationOffset = nil
+                }
+                savedPosition?.verticalOffset = viewport.verticalOffset
+            }
+            .onScrollPhaseChange { _, phase in
+                // Direct scrolling always takes precedence over an old checkpoint,
+                // including when edits have shortened the document since it was read.
+                if phase == .interacting { pendingRestorationOffset = nil }
+            }
             .environment(\.baseEmbedContext, baseContext)
             .environment(\.readingMediaPlayers, mediaPlayers)
             .environment(\.embeddedImageColumnWidth, configuration.usesReadableLineLength ? ReadingConfiguration.readableColumnWidth : nil)
             // Runs again once blocks exist: a note opened by a link or a search match is
             // asked to scroll before it has built anything to scroll to.
             .task(id: "\(blocks.count)-\(headingScrollRequest?.token.uuidString ?? "")") {
-                guard let request = headingScrollRequest, request.token != handledScrollToken, !blocks.isEmpty else { return }
+                guard !blocks.isEmpty else { return }
+                if !hasRestoredPosition {
+                    hasRestoredPosition = true
+                    if headingScrollRequest == nil || headingScrollRequest?.token == handledScrollToken,
+                       let verticalOffset = savedPosition?.verticalOffset, verticalOffset > 0 {
+                        pendingRestorationOffset = verticalOffset
+                        await Task.yield()
+                        guard !Task.isCancelled else { return }
+                        scrollPosition.scrollTo(y: verticalOffset)
+                    }
+                }
+                guard let request = headingScrollRequest, request.token != handledScrollToken else { return }
+                pendingRestorationOffset = nil
                 handledScrollToken = request.token
                 guard !request.anchor.isEmpty else { return }
                 let target = request.readingScrollTarget(in: blocks)

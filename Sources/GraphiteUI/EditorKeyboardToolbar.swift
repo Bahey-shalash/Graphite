@@ -176,9 +176,13 @@ final class EditorKeyboardToolbar: UIInputView {
     }
 
     private func buildButtons(actions: EditorActions) {
-        add("Undo", "arrow.uturn.backward", .undo)
-        add("Redo", "arrow.uturn.forward", .redo)
-        addSeparator()
+        // The iPad keyboard's shortcut bar and the note's toolbar already offer Undo and
+        // Redo; a third pair would crowd the formatting buttons. The iPhone keyboard has none.
+        if UIDevice.current.userInterfaceIdiom != .pad {
+            add("Undo", "arrow.uturn.backward", .undo)
+            add("Redo", "arrow.uturn.forward", .redo)
+            addSeparator()
+        }
         addHeadingMenu()
         add("Bold", "bold", .bold)
         add("Italic", "italic", .italic)

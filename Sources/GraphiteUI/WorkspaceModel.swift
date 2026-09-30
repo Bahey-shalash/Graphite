@@ -53,6 +53,8 @@ final class WorkspaceModel {
     var layoutVaultIdentifier: UUID?
     /// The documents open in the tabs, by tab.
     @ObservationIgnored var tabDocuments: [UUID: TabDocument] = [:]
+    /// The native editors of recently hidden notes, kept with their undo history.
+    @ObservationIgnored let markdownEditorRetention = MarkdownEditorRetention()
     /// Bases inside the open vault's notes keep their results here while scrolled out of
     /// sight. Replaced when another vault opens, since its models read the old vault.
     @ObservationIgnored private(set) var embeddedBaseModelCache = EmbeddedBaseModelCache()
@@ -228,6 +230,7 @@ final class WorkspaceModel {
         // Nothing open in the vault being left is saved into the new vault's layout.
         layoutVaultIdentifier = nil
         layout = TabLayout(); tabDocuments = [:]; pdfPasswords = [:]
+        markdownEditorRetention.discardHiddenEditors()
         graphCache = nil; graphPositions = [:]
         embeddedBaseModelCache = EmbeddedBaseModelCache()
         // `expandedFolders` is replaced below, once the new vault is current: clearing it
@@ -366,7 +369,7 @@ final class WorkspaceModel {
         // A tab made for a file that could not be opened goes away again.
         if !didOpen, !existingTabIDs.contains(tabID), layout.tab(withID: tabID)?.path == nil {
             layout.closeTab(tabID)
-            tabDocuments[tabID] = nil
+            removeTabDocuments([tabID])
         }
         return layout.tabID(showing: path)
     }
@@ -1066,7 +1069,7 @@ final class WorkspaceModel {
 
     /// Closes the tabs of a deleted file or folder, without saving into it, and forgets it.
     func forgetInNavigation(_ removedPath: VaultPath) {
-        for tabID in layout.removeTabs(inside: removedPath) { tabDocuments[tabID] = nil }
+        removeTabDocuments(layout.removeTabs(inside: removedPath))
         recentFiles.remove(inside: removedPath)
         forgetFolds(inside: removedPath)
     }

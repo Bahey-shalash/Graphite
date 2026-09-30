@@ -2,7 +2,7 @@
 
 What Graphite does today, how each part is verified, and what is still missing. `OBJECTIVE.md` describes the complete product; this file tracks progress toward it. Update it with every change that adds, removes, or re-verifies behavior.
 
-Last updated: 2026-09-25.
+Last updated: 2026-09-30.
 
 ## How to run the checks
 
@@ -12,7 +12,7 @@ The repository sits in an iCloud-synced Desktop folder. iCloud adds extended att
 swift test --scratch-path /tmp/graphite-build
 ```
 
-iPad-only tests (PencilKit) run on a simulator through the app project. The Graphite scheme's `GraphiteIntegrationTests` target compiles and runs six files of `Tests/GraphiteAppleTests` (`InteroperabilityTests`, `PencilDrawingTests`, `PDFAnnotationTests`, `PDFPencilInkTests`, `VaultLocatorTests`, `VectorDrawingTests`) plus `AppIconBundleTests`, so copying the package outside the project (the `Graphite-Package` scheme) is no longer needed for them:
+iPad-only tests (PencilKit) run on a simulator through the app project. The Graphite scheme's `GraphiteIntegrationTests` target compiles and runs six files of `Tests/GraphiteAppleTests` (`InteroperabilityTests`, `PencilDrawingTests`, `PDFAnnotationTests`, `PDFPencilInkTests`, `VaultLocatorTests`, `VectorDrawingTests`) plus `AppIconBundleTests`, `PencilWorkspaceTests`, `EditingContinuityTests` and `PDFInkHistoryTests` from `App/Tests`, so copying the package outside the project (the `Graphite-Package` scheme) is no longer needed for them:
 
 ```bash
 xcodebuild -project Graphite.xcodeproj -scheme Graphite -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M5)' test
@@ -20,7 +20,47 @@ xcodebuild -project Graphite.xcodeproj -scheme Graphite -destination 'platform=i
 
 The other files of `Tests/GraphiteAppleTests` are not in that target, so their UIKit-only tests (`testSecondEraserCutInsideAStrokeIsConvertedAgain` and `testDeferredRecordIsWrittenOnceByTheTracker` in `ApplePdfFixTests`) run nowhere yet.
 
-Latest results (2026-09-25, after the bug-fix merge): `swift test` on macOS ran 1,117 tests: 1,116 passed and one was skipped (`UiBasesReloadMeasurementTests.testMeasureRepeatedReloadOfLargeBase`, which measures only when `GRAPHITE_MEASURE_BASES` is set). By target: 568 core, 127 index, 123 Apple, 299 UI. The app also builds for iOS (`xcodebuild -project Graphite.xcodeproj -scheme Graphite -destination 'generic/platform=iOS Simulator' build`). No test ran on an iPad simulator or a device after the merge: the iPad-only tests above were last run before the search and editing changes of 2026-09-23 (evening) and need a fresh run, and the iOS-only code the merge changed is verified only by that build (see "Implemented but not yet verified").
+Full-suite results (2026-09-25, after the bug-fix merge): `swift test` on macOS ran 1,117 tests: 1,116 passed and one was skipped (`UiBasesReloadMeasurementTests.testMeasureRepeatedReloadOfLargeBase`, which measures only when `GRAPHITE_MEASURE_BASES` is set). By target: 568 core, 127 index, 123 Apple, 299 UI. The app also builds for iOS (`xcodebuild -project Graphite.xcodeproj -scheme Graphite -destination 'generic/platform=iOS Simulator' build`). At that point, no test had run on an iPad simulator or a device after the merge: the iPad-only tests above were last run before the search and editing changes of 2026-09-23 (evening) and need a fresh run, and the iOS-only code the merge changed is verified only by that build (see "Implemented but not yet verified").
+
+## Reading and writing controls: 2026-09-29
+
+The first increment of `Premium-experience-plan.md` adds explicit Read/Write controls to the iPad/iPhone PDF pane, separate from palette visibility. Compact layouts place these controls in a row below the navigation bar so they do not disappear into overflow. The drawing editor adds Show/Hide Tools, an explicit remembered Draw with Finger option (Pencil-only by default), and Fit to Width. Export a Copy now sits in Drawing Options, and Insert/Done uses the dedicated confirmation placement. In compact layouts, Show Tools is in Drawing Options. Newly created PDF canvases inherit the native picker's ruler state.
+
+Verification:
+
+- `PencilWorkspaceTests` is included in the app's `GraphiteIntegrationTests` target. Its three hosted-view tests pass on the iPad Pro 11-inch (M5) and iPhone 17 simulators, both running iOS 27.0. They check that Read releases page touch routing and displays PDF ink, returning to Write keeps the stroke, saving retains one ink annotation, mode changes without edits leave the file byte-for-byte unchanged, changing finger policy preserves the drawing canvas, and Fit to Width returns from a zoomed view.
+- The iPad run of `PencilWorkspaceTests`, `PencilDrawingTests`, `PDFAnnotationTests`, and `PDFPencilInkTests` passed all 30 tests. The final adaptive-toolbar changes were then checked with the three workspace tests on both simulators.
+- The macOS package run filtered to `UiPdfViewsTests|UiRootSettingsTests` passed all 30 tests. This is targeted validation, not a rerun of the full suite recorded above.
+- Hosted-view screenshots were inspected for regular iPad and compact iPhone layouts. The initial compact layout hid Read/Write and Insert in overflow; the revised layout keeps them visible. Screenshots cover the hosted editors, not the complete vault workspace or the separate system Pencil palette window.
+
+Still unverified: real Pencil input and latency, palm rejection, double-tap/squeeze/hover behavior, ruler continuity during physical writing, palette hiding/showing with a Pencil, Dynamic Type extremes, and iPad multitasking layouts. The Read/Write choice lasts for the open PDF session; reopening an evicted document returns to Write. Undo across tab switches and page-canvas eviction was addressed later the same week (see "Undo continuity and workspace controls").
+
+## Shared workspace controls and continuity: 2026-09-30
+
+Markdown and PDF now share the Read/Write control, including compact placement below navigation. Focus mode hides the side panels and tab bars, restores their previous visibility when closed, and is available from the navigation toolbar and command palette. Opening a side panel exits focus mode. Reading view keeps a vertical offset in its open note session, restores it after rebuilding, and gives new heading requests priority over that checkpoint.
+
+- The five `PencilWorkspaceTests` pass on iPad Pro 11-inch (M5) and iPhone 17 simulators, running iOS 27.0. The two added tests verify reading position across view destruction/recreation and heading-request precedence, and verify that hiding/restoring the tab bar retains the native Markdown editor, selection, and working undo history. These tests also retain the three drawing/PDF checks from the previous increment.
+- `WorkspaceFocusModeTests`, `UiRootSettingsTests`, and `UiEditorAreaHandoffTests` pass on macOS (32 tests). The focus tests cover restoring all supported prior column arrangements with the inspector open or closed, repeated entry, and leaving an inactive focus state.
+- Hosted Markdown and PDF layouts were reviewed in simulator screenshots. The full root window's sidebar interactions, hardware keyboard navigation in focus mode, accessibility-size extremes, and iPad multitasking need interactive validation. These checks do not establish a completed visual redesign or physical Pencil quality.
+
+Reading position is retained only while the note session remains open, as a pixel offset rather than a semantic passage anchor. Editing the note or changing its width, folding, or late-loading embeds can change the passage at that offset. Undo across actual tab changes and PDF page-canvas eviction is covered in "Undo continuity and workspace controls" below.
+
+## Undo continuity and workspace controls: 2026-09-30
+
+Notes keep their undo history when their tab is hidden, moved to the other side, or switched to reading view and back: the workspace keeps the native editors of the three most recently hidden notes (`MarkdownEditorRetention`, at most 2,000,000 UTF-16 units together, none after a memory warning). Each PDF has its own undo history, owned by its session, covering Pencil ink, markup, and page changes (rotate, move, duplicate, insert paper, import, delete). It survives page canvases being released and the view being rebuilt, and never mixes two PDFs. Undo and Redo sit just before Read/Write in every workspace; when the documents area is narrower than 1,100 points they move with Read/Write to the row below the tab bar, because the toolbar's overflow menu drops a segmented control.
+
+Verification:
+
+- `EditingContinuityTests` (6 hosted-workspace tests in the app's integration target): undo and redo after switching tabs, with each note's history separate from the other's; after moving a tab to the other side (the same text view is reused); after reading view and back; text inserted while the note was hidden adopted as an undoable edit; the bound (the note hidden longest is recreated with its text and without history, the three most recent keep theirs, a memory warning releases every hidden editor while the one on screen stays); closing a tab releases its kept editor.
+- `PDFInkHistoryTests` (7): ink undone and redone after the page's canvas was released by scrolling through 20 pages (the page is shown again, a new canvas restores the redone stroke, and the saved file has it); ink undo after the PDF view was destroyed and rebuilt; two PDFs side by side keep separate histories, their views return their own history, and page canvases keep PencilKit's steps out of the window's history; the stroke-level change type (a new stroke stored alone, an erased middle stroke put back in place, reordered strokes, and refusal of a drawing it did not produce).
+- `PDFEditHistoryTests` (6, macOS): rotate, move, duplicate and insert undone and redone in order, and the saved file matches the document; deleted pages come back with unsaved markup and rotation, and an earlier step reaches the restored copy; undoing an insertion and then editing clears redo and saves consistently; a step whose page is gone reports it and leaves the history; large kept pages go to a private temporary file removed with the step; consecutive-run grouping.
+- `MarkdownEditorRetentionTests` (6, macOS): the retention policy (count and text budget, stale tabs, takeover by a new view of the same note, one history per note, releasing every hidden editor).
+- `UiEditorMacEditorTests.testEachNoteHasItsOwnHistoryThatSurvivesBeingHiddenAndShownAgain` (macOS): per-note undo managers instead of the window's, and a suspended editor shown in a new container undoes its edit.
+- Existing markup-undo tests (`UiWorkspaceAreaHandoffTests`, `UiPdfSessionFixTests`) now read the session's history. One test moved a page with `movePage`, which now records a step and clears redo, so it moves the page with a plain edit to keep checking that redo follows the page.
+- Full runs on 2026-09-30: `swift test` on macOS ran 1,132 tests (568 core, 127 index, 123 Apple, 314 UI): 1,131 passed and `UiBasesReloadMeasurementTests.testMeasureRepeatedReloadOfLargeBase` was skipped as before; `WorkspaceFocusModeTests` then gained one test for the control-row width rule, run on its own (3 tests passed). The app's `GraphiteIntegrationTests` target passed all 67 tests on the iPad Pro 11-inch (M5) simulator, iOS 27.0, and the 18 tests of `EditingContinuityTests`, `PDFInkHistoryTests` and `PencilWorkspaceTests` passed on the iPhone 17 simulator, iOS 27.0, whose screenshots show Read/Write, Undo and Redo in the row below navigation for notes and PDFs.
+- In the running app on the "Graphite Sidebar iPad" simulator (iPad Pro 13-inch, portrait, test vault): typing in a note, opening another note in a new tab, returning and pressing Undo removed the typed line, and a second Undo left the file byte-identical to the vault's copy; a finger stroke on a PDF (Draw with Finger on) enabled both the row's and the Pencil palette's Undo, and one Undo removed it, so PencilKit's own steps did not also reach the PDF's history; Read/Write, Undo and Redo stayed visible in portrait with and without the sidebar, where before the toolbar overflow had dropped Read/Write; light and dark appearance of the note, PDF and drawing editor toolbars.
+
+Not established: physical Pencil strokes (the simulator strokes were finger drags through PencilKit), the lasso, pixel eraser and ruler through the new history on hardware, the Pencil palette's Undo with a real Pencil double-tap or squeeze, landscape and Split View widths in the running app (the 1,100-point threshold is estimated from portrait layouts), Dynamic Type extremes, hardware-keyboard ⌘Z routing for PDFs, memory use of kept editors on a device, and deletion undo on large PDFs (the copy replays the whole file). Reading position remains a pixel offset kept only while the note session is open.
 
 ## The test vault
 
@@ -335,6 +375,8 @@ Checked on 2026-09-25 on "Graphite Sidebar iPad", after the bug-fix merge:
 
 ## Not implemented yet
 
+Obsidian community plugin installation and execution are not implemented. The future target is to run existing plugin packages obtained from Obsidian's community directory, GitHub releases, or other sources without a Graphite-specific version, preserving their settings and file formats. Compatibility has not been validated. New plugin integrations and runtime implementation are deferred until the app feels premium; UI and interaction polish, Pencil quality, essential handwriting tools, and daily Obsidian workflows take priority. See `OBJECTIVE.md` for the scope and `Docs/Architecture.md` for runtime constraints.
+
 A full comparison with Obsidian mobile, ranked for studying on an iPad, is in `Docs/Obsidian-mobile-gaps.md`. The defects it found in existing features are fixed (see above). The main remaining items:
 
 - Live Preview reveals markup a whole line at a time around the cursor, not one element at a time as Obsidian does.
@@ -342,14 +384,14 @@ A full comparison with Obsidian mobile, ranked for studying on an iPad, is in `D
 - Resizable table columns in Bases (`columnSize`), custom map tiles (`mapTiles`), Kanban views, and `html()`.
 - Choosing a different format for an existing drawing (use Export a Copy).
 - Native text selection handles, magnifier, Look Up and Translate on PDFs while annotating: a long press selects a word and dragging extends it, Graphite's own implementation. Outside annotation, PDFKit's native selection is used.
-- Undo for PDF page operations; undo history for pages scrolled far away is dropped.
+- Undo for PDF bookmark changes (toggle the bookmark again). A PDF's undo history ends when its hidden session is released or the file reopens after an external change, and is not kept across launches.
 - Embeds of one PDF now coordinate: before an embed annotates, the other embeds and a PDF view showing the file are saved. The PDF view does not do the same before its own edits, so editing a PDF in its view while an embed of it has unsaved annotations can still end in a conflict.
 - Filling PDF forms: form fields are shown read-only.
 - Lecture video recording; recording is audio only.
 - Conflict versions kept by iCloud or another file provider (`NSFileVersion`) are neither detected nor shown. Graphite's own revision checks still refuse to overwrite a file changed elsewhere.
-- Hidden tabs keep their note sessions open; only hidden PDFs beyond the most recently visible one are released.
+- Hidden tabs keep their note sessions open; only hidden PDFs beyond the most recently visible one are released. Note editors are bounded (three kept hidden), sessions are not.
 - Rendering SVG files made by other applications inside the reading view (they open with the system preview instead).
-- Tabs: undo history does not survive switching tabs or moving a tab to the other side (the editor is rebuilt; the note's text, cursor and scroll position are kept); reading view does not keep its scroll position across tab switches; a file is open in at most one tab, so "Open in New Tab" on a file already open shows its tab; tab history is not saved between launches; tabs stack at most two sides, left and right; no workspaces.
+- Tabs: undo history survives switching tabs, moving a tab to the other side, and reading view for the three most recently hidden notes; beyond them, after a memory warning, and when a tab opens another file, the editor is rebuilt without its history (the note's text, cursor and scroll position are kept); a file is open in at most one tab, so "Open in New Tab" on a file already open shows its tab; tab history is not saved between launches; tabs stack at most two sides, left and right; no saved named workspaces. Reading view now retains its vertical offset for the open session, with the limitations recorded above.
 - Opening a second vault in its own window, as Obsidian does on the desktop; one vault is open at a time.
 - Bases issues found with the edge-case vault and not fixed yet: a date Range across a daylight-saving change reads one hour short; anchors inside an entry Graphite rewrites are written out as copies, and custom tags there are dropped; an embed naming a missing view shows the first view without saying so; an invalid filter group is dropped with a warning, so the view lists every row; `inFolder` ignores case; `date(1980)` is read as milliseconds; `duration("")` is an error rather than empty.
 - Equation numbers from `\tag` and numbered environments are not drawn (the equations are).

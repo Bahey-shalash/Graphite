@@ -45,6 +45,11 @@ private struct PDFPaneContent: View {
     @State private var showsSignatureConfirmation = false
     @AppStorage(PDFAnnotationPreferenceKey.drawsWithFinger) private var drawsWithFinger = false
     @AppStorage(PDFAnnotationPreferenceKey.showsToolPicker) private var showsToolPicker = true
+    #if canImport(UIKit)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.usesDocumentControlRow) private var usesDocumentControlRowSetting
+    private var usesDocumentControlRow: Bool { usesDocumentControlRowSetting ?? (horizontalSizeClass == .compact) }
+    #endif
 
     init(session: PDFSession, isFocused: Bool, focus: @escaping () -> Void, linkActions: PDFLinkActions?, resolveConflict: @escaping (URL) -> Void) {
         self.session = session
@@ -68,12 +73,22 @@ private struct PDFPaneContent: View {
                 // The tool picker belongs to the focused side; it would cover the other one.
                 // A protected PDF is not annotated, so PDFKit's own text selection applies.
                 GraphitePDFView(session: session,
-                                input: PDFAnnotationInput(isEnabled: !session.isProtected, drawsWithFinger: drawsWithFinger,
-                                                          showsToolPicker: showsToolPicker && isFocused && !session.isProtected),
+                                input: PDFAnnotationInput(isEnabled: session.isWriting && !session.isProtected, drawsWithFinger: drawsWithFinger,
+                                                          showsToolPicker: showsToolPicker && isFocused && session.isWriting && !session.isProtected),
                                 initialPageIndex: session.currentPageIndex > 0 ? session.currentPageIndex : nil, beginInteraction: focus,
                                 linkActions: linkActions)
                     .ignoresSafeArea(edges: .bottom)
             }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            #if canImport(UIKit)
+            if usesDocumentControlRow, isFocused, !session.isProtected {
+                DocumentControlRow(isWriting: $session.isWriting) {
+                    if session.isWriting { toolPickerButton }
+                    UndoRedoButtons(availability: session.undoAvailability)
+                }
+            }
+            #endif
         }
         .onAppear {
             // Maps the snapshot now, before an autosave can replace it, so thumbnails are
@@ -181,12 +196,16 @@ private struct PDFPaneContent: View {
                 .presentationCompactAdaptation(.popover)
             }
             if !session.isProtected {
-                #if canImport(UIKit)
-                Button(showsToolPicker ? "Hide Tools" : "Show Tools", systemImage: showsToolPicker ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle") {
-                    showsToolPicker.toggle()
-                }
-                #endif
                 PDFAddPageMenu(commands: commands, insertionIndexAfter: session.currentPageIndex + 1, insertionIndexBefore: session.currentPageIndex)
+                #if canImport(UIKit)
+                if !usesDocumentControlRow {
+                    if session.isWriting { toolPickerButton }
+                    UndoRedoButtons(availability: session.undoAvailability)
+                    DocumentModePicker(isWriting: $session.isWriting)
+                }
+                #else
+                UndoRedoButtons(availability: session.undoAvailability)
+                #endif
             }
             Menu("More", systemImage: "ellipsis.circle") {
                 if let linkActions {
@@ -203,6 +222,15 @@ private struct PDFPaneContent: View {
             }
         }.tint(.primary) }
     }
+
+    #if canImport(UIKit)
+    private var toolPickerButton: some View {
+        Button(showsToolPicker ? "Hide Tools" : "Show Tools", systemImage: showsToolPicker ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle") {
+            showsToolPicker.toggle()
+        }
+        .help("Show or hide the Pencil tools. Choose Read to stop drawing.")
+    }
+    #endif
 }
 
 /// A number field that moves to a page, as in Preview's "Go to Page".
@@ -305,13 +333,12 @@ final class PDFPageCommands {
 
     func duplicate(pages pageIndices: [Int]) {
         changingPageStructure { [session] in
-            // From the last page back, so earlier duplicates do not shift later indices.
-            perform(session) { for pageIndex in pageIndices.sorted(by: >) { try session.apply(.duplicate(page: pageIndex)) } }
+            perform(session) { try session.duplicatePages(pageIndices) }
         }
     }
 
     func rotate(pages pageIndices: [Int], clockwise: Bool) {
-        perform(session) { for pageIndex in pageIndices { try session.apply(.rotate(page: pageIndex, clockwise: clockwise)) } }
+        perform(session) { try session.rotatePages(pageIndices, clockwise: clockwise) }
     }
 
     func move(page pageIndex: Int, to destinationIndex: Int) {
@@ -337,7 +364,12 @@ final class PDFPageCommands {
     func confirmDeletion() {
         let pageIndices = pagesPendingDeletion
         pagesPendingDeletion = []
-        changingPageStructure { [session] in perform(session) { try session.apply(.delete(pages: pageIndices)) } }
+        changingPageStructure { [session] in
+            Task {
+                do { try await session.deletePages(at: pageIndices) }
+                catch { session.errorMessage = error.localizedDescription }
+            }
+        }
     }
 
     func toggleBookmark(page pageIndex: Int) {
@@ -426,7 +458,7 @@ struct PDFPageCommandDialogs: ViewModifier {
                                 isPresented: $commands.isConfirmingDeletion, titleVisibility: .visible) {
                 Button(commands.pagesPendingDeletion.count == 1 ? "Delete Page" : "Delete Pages", role: .destructive) { commands.confirmDeletion() }
             } message: {
-                Text("The page and its annotations are removed from the PDF.")
+                Text("The page and its annotations are removed from the PDF. Undo puts them back while the PDF stays open.")
             }
             .confirmationDialog("Change the pages of this PDF?", isPresented: $commands.isConfirmingStructureRewrite, titleVisibility: .visible) {
                 Button("Continue") { commands.confirmStructureRewrite() }

@@ -168,21 +168,32 @@ extension WorkspaceModel {
     func closeTab(_ tabID: UUID) async {
         guard await saveBeforeClosing([tabID]) else { return }
         layout.closeTab(tabID)
-        tabDocuments[tabID] = nil
+        removeTabDocuments([tabID])
     }
 
     func closeOtherTabs(keeping tabID: UUID) async {
         guard let group = layout.group(containing: tabID) else { return }
         let closingTabs = group.tabs.filter { tab in tab.id != tabID && !tab.isPinned }.map(\.id)
         guard await saveBeforeClosing(closingTabs) else { return }
-        for closedTabID in layout.closeOtherTabs(keeping: tabID) { tabDocuments[closedTabID] = nil }
+        removeTabDocuments(layout.closeOtherTabs(keeping: tabID))
     }
 
     /// Closes one side of the split with its tabs.
     func closeGroup(_ groupID: UUID) async {
         guard let group = layout.groups.first(where: { group in group.id == groupID }) else { return }
         guard await saveBeforeClosing(group.tabs.map(\.id)) else { return }
-        for closedTabID in layout.closeGroup(groupID) { tabDocuments[closedTabID] = nil }
+        removeTabDocuments(layout.closeGroup(groupID))
+    }
+
+    /// Forgets the documents of closed tabs. Each is unloaded first: a note editor kept
+    /// with its undo history (see `MarkdownEditorRetention`) can still reference the tab's
+    /// document, which then no longer shows that note, so the editor is let go of too.
+    func removeTabDocuments(_ tabIDs: [UUID]) {
+        for tabID in tabIDs {
+            tabDocuments[tabID]?.unload()
+            tabDocuments[tabID] = nil
+        }
+        markdownEditorRetention.discardStaleEditors()
     }
 
     func reopenClosedTab() async {
@@ -337,6 +348,8 @@ extension WorkspaceModel {
             document.loadFailure = nil
             document.releasedPDFPage = nil
             document.markdownSession = newMarkdown; document.pdfSession = newPDF; document.loadedPath = path
+            // The editor of the note this tab showed before goes with its session.
+            markdownEditorRetention.discardStaleEditors()
             layout.show(path, inTab: tabID, recordsHistory: recordsHistory)
             recentFiles.record(path)
             if let currentVaultIdentifier { vaultLibrary.setLastOpenedDocument(path, inVault: currentVaultIdentifier) }

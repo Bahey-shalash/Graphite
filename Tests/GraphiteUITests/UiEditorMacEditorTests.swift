@@ -202,6 +202,49 @@ final class UiEditorMacEditorTests: XCTestCase {
         XCTAssertEqual(textView.string, oldText)
     }
 
+    /// Each note keeps its own history, as on the iPad, rather than the window's shared one,
+    /// and a hidden editor shown again in a new container still undoes its edits.
+    func testEachNoteHasItsOwnHistoryThatSurvivesBeingHiddenAndShownAgain() async throws {
+        let (lectureCoordinator, lectureTextView, lectureScrollView) = try await makeEditor(text: "Lecture\n")
+        let (slidesCoordinator, slidesTextView, slidesScrollView) = try await makeEditor(text: "Slides\n")
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 400), styleMask: [.titled], backing: .buffered, defer: true)
+        let firstContainer = MarkdownEditorContainerView(frame: NSRect(x: 0, y: 0, width: 400, height: 400))
+        let secondContainer = MarkdownEditorContainerView(frame: NSRect(x: 400, y: 0, width: 400, height: 400))
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 400))
+        content.addSubview(firstContainer)
+        content.addSubview(secondContainer)
+        window.contentView = content
+        firstContainer.host(lectureScrollView)
+        secondContainer.host(slidesScrollView)
+        lectureCoordinator.replaceText(with: "Lecture edited\n", in: lectureTextView)
+        slidesCoordinator.replaceText(with: "Slides edited\n", in: slidesTextView)
+        XCTAssertTrue(lectureTextView.undoManager === lectureCoordinator.noteUndoManager)
+        XCTAssertFalse(lectureTextView.undoManager === window.undoManager)
+        XCTAssertFalse(window.undoManager?.canUndo == true, "Nothing goes to the window's shared history.")
+
+        // The slides changed last, yet undo in the lecture undoes the lecture.
+        lectureTextView.undoManager?.undo()
+        XCTAssertEqual(lectureTextView.string, "Lecture\n")
+        XCTAssertEqual(slidesTextView.string, "Slides edited\n")
+        lectureTextView.undoManager?.redo()
+
+        // Hidden, then shown in a new container, as when its tab returns.
+        lectureCoordinator.suspend(lectureScrollView)
+        XCTAssertFalse(lectureCoordinator.session.isEditorAttached)
+        XCTAssertNil(lectureScrollView.superview)
+        let returningContainer = MarkdownEditorContainerView(frame: NSRect(x: 0, y: 0, width: 400, height: 400))
+        content.addSubview(returningContainer)
+        returningContainer.host(lectureScrollView)
+        lectureCoordinator.resume(lectureScrollView)
+        XCTAssertTrue(lectureCoordinator.session.isEditorAttached)
+        XCTAssertTrue(lectureCoordinator.session.undoAvailability.canUndo)
+        lectureCoordinator.session.undoAvailability.undo()
+        XCTAssertEqual(lectureTextView.string, "Lecture\n")
+        // The note's text follows on the next turn of the run loop.
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(lectureCoordinator.session.text, "Lecture\n")
+    }
+
     // MARK: Pasted and dropped attachments (F173, F667)
 
     /// Two files pasted over a selected word, or dropped at a point: the first takes the

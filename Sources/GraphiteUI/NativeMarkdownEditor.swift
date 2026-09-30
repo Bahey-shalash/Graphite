@@ -333,6 +333,26 @@ final class MarkdownTextView: UITextView {
     override func toggleItalics(_ sender: Any?) { runCommand?(.italic) }
 }
 
+/// Hosts a note's text view for one SwiftUI view. The text view can outlive it: a hidden
+/// note's text view is kept by `MarkdownEditorRetention` and shown again in a new container.
+final class MarkdownEditorContainerView: UIView {
+    private(set) weak var hostedTextView: MarkdownTextView?
+
+    func host(_ textView: MarkdownTextView) {
+        textView.removeFromSuperview()
+        textView.frame = bounds
+        textView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        addSubview(textView)
+        hostedTextView = textView
+    }
+
+    /// The text view, while this container still shows it rather than a newer one.
+    var textViewShownHere: MarkdownTextView? {
+        guard let hostedTextView, hostedTextView.superview === self else { return nil }
+        return hostedTextView
+    }
+}
+
 struct NativeMarkdownEditor: UIViewRepresentable {
     @Bindable var session: MarkdownSession
     let configuration: EditorConfiguration
@@ -340,22 +360,52 @@ struct NativeMarkdownEditor: UIViewRepresentable {
     let headingScrollRequest: HeadingScrollRequest?
     var actions = EditorActions()
     let follow: (String, Bool) -> Void
+    /// Keeps this editor, with its undo history, after it leaves the screen; see
+    /// `MarkdownEditorRetention`. Without it the editor is torn down when hidden.
+    var retention: MarkdownEditorRetention?
+    /// The tab the note is open in, which decides whether a kept editor is still wanted.
+    var retentionOwner: TabDocument?
 
     init(session: MarkdownSession, configuration: EditorConfiguration, environment: LivePreviewEnvironment? = nil,
-         headingScrollRequest: HeadingScrollRequest?, actions: EditorActions = EditorActions(), follow: @escaping (String, Bool) -> Void) {
+         headingScrollRequest: HeadingScrollRequest?, actions: EditorActions = EditorActions(),
+         retention: MarkdownEditorRetention? = nil, retentionOwner: TabDocument? = nil, follow: @escaping (String, Bool) -> Void) {
         self.session = session
         self.configuration = configuration
         self.environment = environment
         self.headingScrollRequest = headingScrollRequest
         self.actions = actions
+        self.retention = retention
+        self.retentionOwner = retentionOwner
         self.follow = follow
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(session: session, configuration: configuration) }
+    func makeCoordinator() -> Coordinator {
+        if let retention, let retentionOwner, let keptEditor = retention.takeEditor(for: session, owner: retentionOwner) as? Coordinator {
+            return keptEditor
+        }
+        return Coordinator(session: session, configuration: configuration)
+    }
 
-    func makeUIView(context: Context) -> MarkdownTextView {
-        let textView = MarkdownTextView(usingTextLayoutManager: true)
+    func makeUIView(context: Context) -> MarkdownEditorContainerView {
+        let container = MarkdownEditorContainerView()
         let coordinator = context.coordinator
+        coordinator.retention = retention
+        coordinator.retentionOwner = retentionOwner
+        if let keptTextView = coordinator.textView {
+            // The same text view, cursor, layout, and undo history as when it was hidden.
+            container.host(keptTextView)
+            coordinator.resume(keptTextView)
+        } else {
+            let textView = makeTextView(coordinator: coordinator)
+            coordinator.textView = textView
+            container.host(textView)
+        }
+        retention?.editorDidAttach(coordinator)
+        return container
+    }
+
+    private func makeTextView(coordinator: Coordinator) -> MarkdownTextView {
+        let textView = MarkdownTextView(usingTextLayoutManager: true)
         coordinator.environment = environment
         coordinator.follow = follow
         textView.textLayoutManager?.delegate = coordinator
@@ -404,7 +454,9 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         textView.delegate = coordinator
         coordinator.observeCharacterEdits(in: textView)
         coordinator.observeMemoryWarnings()
+        session.undoAvailability.follow(textView.undoManager)
         textView.didLayout = { [weak coordinator] layoutView in
+            coordinator?.returnToScrollLocationIfWidthChangedWhileHidden(in: layoutView)
             coordinator?.schedulePendingJumpIfReady(in: layoutView)
             coordinator?.positionWidgets(in: layoutView)
             coordinator?.positionFoldButtons(in: layoutView)
@@ -428,7 +480,9 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         return textView
     }
 
-    func updateUIView(_ textView: MarkdownTextView, context: Context) {
+    func updateUIView(_ container: MarkdownEditorContainerView, context: Context) {
+        // A newer view of this note took the text view over; this one is about to go.
+        guard let textView = container.textViewShownHere else { return }
         let coordinator = context.coordinator
         coordinator.session = session
         // Rendered drawings must be rebuilt after a drawing file is rewritten.
@@ -478,19 +532,27 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         coordinator.performPendingJumpIfReady(in: textView)
     }
 
-    static func dismantleUIView(_ textView: MarkdownTextView, coordinator: Coordinator) {
-        coordinator.session.isEditorAttached = false
-        coordinator.stopObservingCharacterEdits()
-        coordinator.stopObservingMemoryWarnings()
-        textView.findInteraction?.dismissFindNavigator()
-        textView.didLayout = nil
-        coordinator.recordScrollLocation(of: textView)
-        coordinator.removeAllWidgets()
+    static func dismantleUIView(_ container: MarkdownEditorContainerView, coordinator: Coordinator) {
+        // A tab moved to the other side is shown there before this view goes; the text
+        // view already belongs to the new container.
+        guard let textView = container.textViewShownHere else { return }
+        coordinator.suspend(textView)
+        if coordinator.retention?.keepHiddenEditor(coordinator, owner: coordinator.retentionOwner) != true {
+            coordinator.discardRetainedEditor()
+        }
     }
 
     @MainActor
-    final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate, NSTextLayoutManagerDelegate {
+    final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate, NSTextLayoutManagerDelegate, RetainableMarkdownEditor {
         var session: MarkdownSession
+        /// The text view this coordinator styles and edits through. It lives as long as the
+        /// coordinator, which a hidden note's retention can keep beyond its SwiftUI view.
+        var textView: MarkdownTextView?
+        weak var retention: MarkdownEditorRetention?
+        weak var retentionOwner: TabDocument?
+        /// The text view's width when it left the screen; a new width reflows the note,
+        /// so it returns to its top line rather than to the old pixel offset.
+        private var widthWhenHidden: CGFloat?
         var configuration: EditorConfiguration
         var environment: LivePreviewEnvironment?
         var follow: (String, Bool) -> Void = { _, _ in }
@@ -589,6 +651,60 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         init(session: MarkdownSession, configuration: EditorConfiguration) {
             self.session = session
             self.configuration = configuration
+        }
+
+        // MARK: Lifetime
+
+        var editedSession: MarkdownSession { session }
+        var retainedTextLength: Int { textView?.textStorage.length ?? 0 }
+
+        /// Takes the editor off screen without ending it: the text view keeps its text,
+        /// selection, and undo history. Rendered blocks are released and rebuilt when it
+        /// returns, and insertions requested meanwhile go into the session's text, which
+        /// the editor adopts as an undoable edit when it is shown again.
+        func suspend(_ textView: MarkdownTextView) {
+            // Ends editing first, so leaving editing does not place rendered blocks again.
+            if textView.isFirstResponder { textView.resignFirstResponder() }
+            session.isEditorAttached = false
+            stopObservingCharacterEdits()
+            stopObservingMemoryWarnings()
+            textView.findInteraction?.dismissFindNavigator()
+            recordScrollLocation(of: textView)
+            widthWhenHidden = textView.bounds.width
+            removeAllWidgets()
+            textView.removeFromSuperview()
+            session.undoAvailability.follow(nil)
+        }
+
+        /// Shows a suspended editor again, in a new container.
+        func resume(_ textView: MarkdownTextView) {
+            observeCharacterEdits(in: textView)
+            observeMemoryWarnings()
+            session.completion.performEdits = { [weak self, weak textView] edits in
+                guard let self, let textView else { return }
+                self.performCompletionEdits(edits, in: textView)
+            }
+            session.isEditorAttached = true
+            session.undoAvailability.follow(textView.undoManager)
+            placeWidgetsAgain(in: textView)
+        }
+
+        /// Ends the editor for good; its undo history goes with the text view.
+        func discardRetainedEditor() {
+            guard let textView else { return }
+            textView.didLayout = nil
+            textView.removeFromSuperview()
+            self.textView = nil
+        }
+
+        /// A kept text view shown at another width (the other side of a split, a rotation
+        /// while hidden) returns to the line that was at its top.
+        func returnToScrollLocationIfWidthChangedWhileHidden(in textView: MarkdownTextView) {
+            guard let widthWhenHidden, textView.window != nil, textView.bounds.width > 0 else { return }
+            self.widthWhenHidden = nil
+            guard abs(textView.bounds.width - widthWhenHidden) > 0.5, pendingJump == nil,
+                  let savedScrollLocation = session.savedScrollLocation else { return }
+            pendingJump = .topOfCharacter(savedScrollLocation)
         }
 
         private var styler: MarkdownTextStyler {
@@ -1234,6 +1350,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             session.text = text
             lastSynchronizedText = text
             session.selection = textView.selectedRange
+            session.undoAvailability.refresh()
             // An edit moves the text again, so rendered blocks get a fresh set of placement
             // passes; a budget spent earlier would otherwise leave a block unplaced.
             unsettledPlacementPasses = 0
@@ -2046,31 +2163,78 @@ enum UndrawnReplacementStyling {
     }
 }
 
+/// Hosts a note's scroll view and text view for one SwiftUI view; see the iPad container.
+final class MarkdownEditorContainerView: NSView {
+    private(set) weak var hostedScrollView: NSScrollView?
+
+    func host(_ scrollView: NSScrollView) {
+        scrollView.removeFromSuperview()
+        scrollView.frame = bounds
+        scrollView.autoresizingMask = [.width, .height]
+        addSubview(scrollView)
+        hostedScrollView = scrollView
+    }
+
+    /// The scroll view, while this container still shows it rather than a newer one.
+    var scrollViewShownHere: NSScrollView? {
+        guard let hostedScrollView, hostedScrollView.superview === self else { return nil }
+        return hostedScrollView
+    }
+}
+
 struct NativeMarkdownEditor: NSViewRepresentable {
     @Bindable var session: MarkdownSession
     let configuration: EditorConfiguration
     let headingScrollRequest: HeadingScrollRequest?
     let actions: EditorActions
     let follow: (String, Bool) -> Void
+    /// Keeps this editor, with its undo history, after it leaves the screen; see
+    /// `MarkdownEditorRetention`.
+    var retention: MarkdownEditorRetention?
+    var retentionOwner: TabDocument?
 
     /// Rendered blocks are iPad-only, so the Mac does not use `environment`; it is accepted
     /// so both editors share one call. The Mac has no keyboard toolbar either: of `actions`,
     /// it uses pasting, dropping, following links elsewhere, and focusing the note's side.
     init(session: MarkdownSession, configuration: EditorConfiguration, environment: LivePreviewEnvironment? = nil,
-         headingScrollRequest: HeadingScrollRequest?, actions: EditorActions = EditorActions(), follow: @escaping (String, Bool) -> Void) {
+         headingScrollRequest: HeadingScrollRequest?, actions: EditorActions = EditorActions(),
+         retention: MarkdownEditorRetention? = nil, retentionOwner: TabDocument? = nil, follow: @escaping (String, Bool) -> Void) {
         self.session = session
         self.configuration = configuration
         self.headingScrollRequest = headingScrollRequest
         self.actions = actions
+        self.retention = retention
+        self.retentionOwner = retentionOwner
         self.follow = follow
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(session: session, configuration: configuration) }
+    func makeCoordinator() -> Coordinator {
+        if let retention, let retentionOwner, let keptEditor = retention.takeEditor(for: session, owner: retentionOwner) as? Coordinator {
+            return keptEditor
+        }
+        return Coordinator(session: session, configuration: configuration)
+    }
 
-    func makeNSView(context: Context) -> NSScrollView {
+    func makeNSView(context: Context) -> MarkdownEditorContainerView {
+        let container = MarkdownEditorContainerView()
+        let coordinator = context.coordinator
+        coordinator.retention = retention
+        coordinator.retentionOwner = retentionOwner
+        if let keptScrollView = coordinator.scrollView {
+            container.host(keptScrollView)
+            coordinator.resume(keptScrollView)
+        } else {
+            let scrollView = makeScrollView(coordinator: coordinator)
+            coordinator.scrollView = scrollView
+            container.host(scrollView)
+        }
+        retention?.editorDidAttach(coordinator)
+        return container
+    }
+
+    private func makeScrollView(coordinator: Coordinator) -> NSScrollView {
         let scrollView = MarkdownMacTextView.scrollableTextView()
         guard let textView = scrollView.documentView as? MarkdownMacTextView else { return scrollView }
-        let coordinator = context.coordinator
         coordinator.actions = actions
         coordinator.follow = follow
         textView.isRichText = false
@@ -2092,11 +2256,14 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         textView.updateDragTypeRegistration()
         if let savedScrollLocation = session.savedScrollLocation { coordinator.pendingJump = .topOfCharacter(savedScrollLocation) }
         session.isEditorAttached = true
+        session.undoAvailability.follow(coordinator.noteUndoManager)
         coordinator.restyleEverything(in: textView)
         return scrollView
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+    func updateNSView(_ container: MarkdownEditorContainerView, context: Context) {
+        // A newer view of this note took the editor over; this one is about to go.
+        guard let scrollView = container.scrollViewShownHere else { return }
         let coordinator = context.coordinator
         coordinator.session = session
         coordinator.actions = actions
@@ -2123,19 +2290,28 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         coordinator.performPendingJumpIfReady(in: textView)
     }
 
-    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
-        coordinator.session.isEditorAttached = false
-        coordinator.stopObservingCharacterEdits()
-        guard let textView = scrollView.documentView as? NSTextView else { return }
-        coordinator.recordScrollLocation(of: textView)
+    static func dismantleNSView(_ container: MarkdownEditorContainerView, coordinator: Coordinator) {
+        guard let scrollView = container.scrollViewShownHere else { return }
+        coordinator.suspend(scrollView)
+        if coordinator.retention?.keepHiddenEditor(coordinator, owner: coordinator.retentionOwner) != true {
+            coordinator.discardRetainedEditor()
+        }
     }
 
     /// On the Mac, Live Preview conceals markup away from the cursor's line; rendered blocks
     /// are iPad-only for now, so they stay as styled source here.
     @MainActor
-    final class Coordinator: NSObject, NSTextViewDelegate {
+    final class Coordinator: NSObject, NSTextViewDelegate, RetainableMarkdownEditor {
         var session: MarkdownSession
         var configuration: EditorConfiguration
+        /// The editor's views, which live as long as it: a hidden note's retention can keep
+        /// them beyond their SwiftUI view.
+        var scrollView: NSScrollView?
+        weak var retention: MarkdownEditorRetention?
+        weak var retentionOwner: TabDocument?
+        /// The note's own history. AppKit text views otherwise record in the window's,
+        /// which every note in the window shares.
+        let noteUndoManager = UndoManager()
         var actions = EditorActions()
         var follow: (String, Bool) -> Void = { _, _ in }
         var appliedInsertionIdentifier: UUID?
@@ -2166,6 +2342,36 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         }
 
         private var styler: MarkdownTextStyler { MarkdownTextStyler(configuration: configuration, accentColor: NSColor(graphiteHex: configuration.accentHex) ?? .controlAccentColor) }
+
+        func undoManager(for view: NSTextView) -> UndoManager? { noteUndoManager }
+
+        // MARK: Lifetime
+
+        var editedSession: MarkdownSession { session }
+        var retainedTextLength: Int { (scrollView?.documentView as? NSTextView)?.textStorage?.length ?? 0 }
+
+        /// Takes the editor off screen without ending it; see the iPad editor's `suspend`.
+        func suspend(_ scrollView: NSScrollView) {
+            session.isEditorAttached = false
+            stopObservingCharacterEdits()
+            if let textView = scrollView.documentView as? NSTextView {
+                if textView.window?.firstResponder === textView { textView.window?.makeFirstResponder(nil) }
+                recordScrollLocation(of: textView)
+            }
+            scrollView.removeFromSuperview()
+            session.undoAvailability.follow(nil)
+        }
+
+        func resume(_ scrollView: NSScrollView) {
+            if let textView = scrollView.documentView as? NSTextView { observeCharacterEdits(in: textView) }
+            session.isEditorAttached = true
+            session.undoAvailability.follow(noteUndoManager)
+        }
+
+        func discardRetainedEditor() {
+            scrollView?.removeFromSuperview()
+            scrollView = nil
+        }
 
         /// Connects the view's paste, drop, click, and focus handling, and follows its edits.
         func connect(_ textView: MarkdownMacTextView) {

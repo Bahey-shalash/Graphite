@@ -36,6 +36,10 @@ final class MarkdownSession {
     @ObservationIgnored var handledHeadingScrollToken: UUID?
     /// The last reading-view build of this note, so switching from editing back to reading shows it at once.
     @ObservationIgnored let readingBlocksCache = ReadingBlocksCache()
+    @ObservationIgnored let readingPosition = ReadingPosition()
+    /// Whether the note's editor can undo or redo. It follows the text view's own history
+    /// while an editor shows the note, and nothing otherwise.
+    @ObservationIgnored let undoAvailability = UndoAvailability()
     /// Insertions waiting for the editor view, which applies them one at a time so native
     /// undo stays intact. Each range is in the text as it will be once every earlier
     /// insertion in the queue is applied, so requests made before the editor catches up,

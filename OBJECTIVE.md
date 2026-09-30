@@ -83,7 +83,9 @@ Measure latency, memory, and responsiveness on representative physical iPads, in
 
 Do not redefine Graphite as an MVP, prototype, or demonstration to avoid core requirements. Implementation is incremental, but the architecture represents the complete intended product. Track incomplete work honestly and keep it in scope. No fake features, inert buttons, or TODO-only implementations presented as complete.
 
-Future Obsidian plugin compatibility is desirable but is not the current priority. Preserve file and syntax compatibility now. Investigate a later extension boundary without inheriting a main-thread plugin runtime or proprietary storage model. Do not promise unchanged execution of plugins that require Electron, Node.js, or Obsidian internals.
+The long-term plugin goal is to install existing Obsidian community plugin packages from Obsidian's community directory, GitHub releases, or other distribution sources and run them in Graphite without requiring a Graphite-specific version. This means execution compatibility, beyond preserving plugin syntax or recreating selected features natively. Aim to support the APIs and runtime those packages expect and preserve their existing settings and file formats. Report unsupported dependencies clearly. Universal compatibility is an ambition, not an implemented or verified promise, particularly for plugins requiring Electron, Node.js, or undocumented Obsidian internals.
+
+Defer community plugin installation, new plugin integrations, and compatibility runtime implementation until the app feels premium. The current priority order is polished UI and interactions, an excellent Apple Pencil experience, complete essential handwriting tools, and remaining daily Obsidian workflows. Preserve file and syntax compatibility throughout this work and keep future execution compatibility in architectural decisions, without building speculative plugin infrastructure now. A future runtime must protect native input responsiveness and the ordinary-file storage model.
 
 ## Definition of success
 

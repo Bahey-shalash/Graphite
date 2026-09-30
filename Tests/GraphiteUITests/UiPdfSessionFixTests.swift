@@ -390,7 +390,8 @@ final class UiPdfSessionFixTests: XCTestCase {
         let pdfView = PDFView()
         window.contentView = pdfView
         session.pdfView = pdfView
-        let undoManager = try XCTUnwrap(pdfView.undoManager)
+        // Markup steps go to the session's own history, whichever view shows the PDF.
+        let undoManager = session.undoManager
         undoManager.groupsByEvent = false
 
         let highlightedPage = try XCTUnwrap(session.document.page(at: 2))
@@ -409,8 +410,9 @@ final class UiPdfSessionFixTests: XCTestCase {
         let pageNowAtOldIndex = try XCTUnwrap(session.document.page(at: 2))
         XCTAssertFalse(pageNowAtOldIndex.annotations.contains { annotation in annotation.persistentName == "Result" })
 
-        // Redo removes it from the same page, wherever it is now.
-        try session.movePage(from: 3, to: 0)
+        // Redo removes it from the same page, wherever it is now. The move is an edit
+        // outside the history: `movePage` would record a step and clear the redo.
+        try session.apply(.move(from: 3, to: 0))
         undoManager.redo()
         XCTAssertNil(session.errorMessage)
         XCTAssertFalse(highlightedPage.annotations.contains { annotation in annotation.persistentName == "Result" })

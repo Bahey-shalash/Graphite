@@ -16,6 +16,7 @@ public struct GraphiteRootView: View {
     @State private var showsInspector = false
     @State private var activePalette: ActivePalette?
     @State private var columnVisibility = NavigationSplitViewVisibility.automatic
+    @State private var focusMode = WorkspaceFocusMode()
     /// In automatic mode an iPad shows only the detail column when the window is taller
     /// than wide, so toggling the sidebar has to know the window's shape.
     @State private var isWindowTallerThanWide = false
@@ -39,6 +40,18 @@ public struct GraphiteRootView: View {
             isWindowTallerThanWide = isTallerThanWide
         }
         .tint(workspace.preferences.accentColor)
+        .onChange(of: columnVisibility) { _, requestedVisibility in
+            if focusMode.isActive, requestedVisibility != .detailOnly {
+                focusMode.leave(columnVisibility: &columnVisibility, showsInspector: &showsInspector)
+                columnVisibility = requestedVisibility
+            }
+        }
+        .onChange(of: showsInspector) { _, requestedInspector in
+            if focusMode.isActive, requestedInspector {
+                focusMode.leave(columnVisibility: &columnVisibility, showsInspector: &showsInspector)
+                showsInspector = true
+            }
+        }
         .environment(\.accent, workspace.preferences.accentColor)
         // The menu bar's commands and their shortcuts act on this window (`GraphiteCommands`).
         .focusedSceneValue(\.workspaceMenuActions, WorkspaceMenuActions(workspace: workspace, window: windowActions,
@@ -189,15 +202,23 @@ public struct GraphiteRootView: View {
     @ToolbarContentBuilder private var detailToolbar: some ToolbarContent {
         if workspace.store != nil {
             ToolbarItemGroup(placement: .navigation) {
-                Group {
-                    Button("Back", systemImage: "chevron.left") { Task { await workspace.goBack() } }
-                        .disabled(!workspace.history.canGoBack)
-                    Button("Forward", systemImage: "chevron.right") { Task { await workspace.goForward() } }
-                        .disabled(!workspace.history.canGoForward)
-                    Button("Quick Switcher", systemImage: "doc.text.magnifyingglass") { activePalette = .quickSwitcher }
-                    Button("Command Palette", systemImage: "command") { activePalette = .commandPalette }
+                Button(focusMode.isActive ? "Exit Focus" : "Focus", systemImage: focusMode.isActive ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right") {
+                    toggleFocusMode()
                 }
+                .accessibilityIdentifier("workspaceFocusMode")
+                .help(focusMode.isActive ? "Restore sidebars and tabs" : "Hide sidebars and tabs")
                 .tint(.primary)
+                if !focusMode.isActive {
+                    Group {
+                        Button("Back", systemImage: "chevron.left") { Task { await workspace.goBack() } }
+                            .disabled(!workspace.history.canGoBack)
+                        Button("Forward", systemImage: "chevron.right") { Task { await workspace.goForward() } }
+                            .disabled(!workspace.history.canGoForward)
+                        Button("Quick Switcher", systemImage: "doc.text.magnifyingglass") { activePalette = .quickSwitcher }
+                        Button("Command Palette", systemImage: "command") { activePalette = .commandPalette }
+                    }
+                    .tint(.primary)
+                }
             }
         }
         if workspace.store != nil && (workspace.preferences.isEnabled(.audioRecorder) || workspace.recording.state.isActive) {
@@ -239,7 +260,7 @@ public struct GraphiteRootView: View {
             WorkspacePanes(workspace: workspace, showsLinksInspector: $showsInspector,
                            create: { kind in creation = CreationRequest(kind: kind) },
                            showQuickSwitcher: { activePalette = .quickSwitcher },
-                           acceptsFocusTouches: activePalette == nil)
+                           acceptsFocusTouches: activePalette == nil, showsTabBar: !focusMode.isActive)
         }
     }
 
@@ -254,7 +275,8 @@ public struct GraphiteRootView: View {
                       showSidebar: showSidebar,
                       showLinksInspector: { showsInspector = true },
                       create: { kind in creation = CreationRequest(kind: kind) },
-                      showTemplatePicker: showTemplatePicker)
+                      showTemplatePicker: showTemplatePicker,
+                      toggleFocusMode: toggleFocusMode)
     }
 
     private var templatePickerAction: TemplatePickerAction? {
@@ -321,7 +343,18 @@ public struct GraphiteRootView: View {
     }
 
     private func showSidebar() {
+        focusMode.leave(columnVisibility: &columnVisibility, showsInspector: &showsInspector)
         columnVisibility = Self.sidebarVisibility(revealing: columnVisibility, automaticHidesSidebar: automaticHidesSidebar)
+    }
+
+    private func toggleFocusMode() {
+        withAnimation(.snappy) {
+            if focusMode.isActive {
+                focusMode.leave(columnVisibility: &columnVisibility, showsInspector: &showsInspector)
+            } else {
+                focusMode.enter(columnVisibility: &columnVisibility, showsInspector: &showsInspector)
+            }
+        }
     }
 
     #if canImport(UIKit)

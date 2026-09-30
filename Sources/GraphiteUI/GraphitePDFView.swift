@@ -140,6 +140,9 @@ struct GraphitePDFView: UIViewRepresentable {
 /// PDFView that routes touches on a page to its Pencil canvas while annotating.
 final class GraphitePDFDisplayView: PDFView {
     weak var annotationCoordinator: PDFAnnotationCoordinator?
+    /// The PDF's own history (`PDFSession.undoManager`), for ⌘Z while the PDF has focus.
+    weak var documentUndoManager: UndoManager?
+    override var undoManager: UndoManager? { documentUndoManager ?? super.undoManager }
     /// PDFKit scrolls to a page reliably only after the first layout.
     var pendingInitialPage: PDFPage?
 
@@ -256,15 +259,22 @@ private extension UIView {
 }
 
 /// Invisible first responder that keeps the tool picker on screen while pages, and with
-/// them their canvases, scroll in and out of view.
+/// them their canvases, scroll in and out of view. Its undo manager is the PDF's own
+/// history, so the picker's Undo and Redo, ⌘Z, and the system undo gestures act on this
+/// PDF only.
 final class PDFToolPickerHostView: UIView {
+    weak var documentUndoManager: UndoManager?
     override var canBecomeFirstResponder: Bool { true }
+    override var undoManager: UndoManager? { documentUndoManager ?? super.undoManager }
 }
 
 /// A PencilKit canvas over one PDF page, in the page overlay's coordinates.
 final class PDFPageCanvasView: PKCanvasView {
     weak var page: PDFPage?
     var inkTracker: PDFPageInkTracker
+    /// The drawing as of the last change the PDF's history knows, to tell what the next
+    /// change removed and added.
+    var recordedDrawing = PKDrawing()
     /// The page's stored ink is decoded into the canvas the first time it is shown for
     /// annotating; pages only viewed never pay for it.
     var hasRestoredStoredInk = false
@@ -279,6 +289,23 @@ final class PDFPageCanvasView: PKCanvasView {
     }
 
     required init?(coder: NSCoder) { nil }
+
+    /// PencilKit records its own steps in this undo manager, which records nothing: the
+    /// PDF's history (`PDFSession.undoManager`) records each change by page instead, so
+    /// releasing this canvas loses no step.
+    private static let discardingUndoManager: UndoManager = {
+        let undoManager = UndoManager()
+        undoManager.disableUndoRegistration()
+        return undoManager
+    }()
+    override var undoManager: UndoManager? { Self.discardingUndoManager }
+
+    /// Shows a drawing the undo history produced. The canvas reports it like any change,
+    /// so the page's annotations follow, but it is not recorded as a new step.
+    func showDrawingFromHistory(_ drawing: PKDrawing) {
+        recordedDrawing = drawing
+        self.drawing = drawing
+    }
 }
 
 /// Owns the Pencil canvases of one PDF view and turns their drawings and text selections
@@ -288,8 +315,10 @@ final class PDFPageCanvasView: PKCanvasView {
 /// actor annotations, so the preconcurrency conformance checks isolation at run time.
 @MainActor
 final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayViewProvider, PKCanvasViewDelegate,
-                                      UIGestureRecognizerDelegate, @preconcurrency UIEditMenuInteractionDelegate {
-    /// Canvases of pages that scrolled away are kept for a while, with their undo history.
+                                      UIGestureRecognizerDelegate, @preconcurrency UIEditMenuInteractionDelegate, PDFInkCanvasProvider {
+    /// Canvases of pages that scrolled away are kept for a while, so scrolling back does
+    /// not decode their ink again. Undo does not depend on them: the PDF's history names
+    /// pages, not canvases.
     private static let retainedHiddenCanvasCount = 6
     private static let textSelectionPressDuration: TimeInterval = 0.35
     private static let selectionMenuIdentifier = "GraphiteTextSelection" as NSString
@@ -340,6 +369,9 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     func attach(to view: GraphitePDFDisplayView) {
         pdfView = view
         view.annotationCoordinator = self
+        view.documentUndoManager = session.undoManager
+        toolPickerHost.documentUndoManager = session.undoManager
+        session.inkCanvasProvider = self
         view.addSubview(toolPickerHost)
         toolPicker.colorUserInterfaceStyle = .light
         // The picker's own finger-drawing switch only affects canvases that follow the
@@ -373,9 +405,8 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         for canvas in canvasesByPage.values { release(canvas) }
         canvasesByPage.removeAll()
         session.unregisterPendingInkRecordWriter(for: self)
-        // The window's undo history outlives this view; its markup steps must not reach
-        // a session that is closing.
-        pdfView?.undoManager?.removeAllActions(withTarget: session)
+        // The session's history outlives this view; a later view of the session applies it.
+        if session.inkCanvasProvider === self { session.inkCanvasProvider = nil }
         restoreEnclosingScrollViews()
         pageObserver?.stop()
     }
@@ -389,7 +420,12 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         hasAppliedInput = true
         let wasEnabled = input.isEnabled
         input = newInput
-        if wasEnabled && !newInput.isEnabled { pdfView.clearSelection() }
+        if wasEnabled != newInput.isEnabled {
+            editMenuInteraction?.dismissMenu()
+            tappedMarkup = nil
+            selectionAnchor = nil
+            pdfView.clearSelection()
+        }
         for canvas in canvasesByPage.values { configure(canvas) }
         configureScrollGestures(of: pdfView)
         configureEnclosingScrollViews(of: pdfView)
@@ -400,6 +436,18 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     func windowDidChange() {
         // SwiftUI settles focus after inserting the view; claim first responder after it.
         Task { @MainActor [weak self] in self?.updateToolPickerVisibility() }
+    }
+
+    // MARK: Undo history
+
+    func editingCanvas(for page: PDFPage) -> PDFPageCanvasView? {
+        guard let canvas = canvasesByPage[ObjectIdentifier(page)], canvas.page === page, canvas.hasRestoredStoredInk,
+              !canvas.isRestoringStoredInk, canvas.delegate != nil else { return nil }
+        return canvas
+    }
+
+    func isDisplaying(_ page: PDFPage) -> Bool {
+        displayedPages.contains(ObjectIdentifier(page))
     }
 
     // MARK: Touch routing
@@ -553,6 +601,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         canvas.maximumZoomScale = 1
         canvas.contentInsetAdjustmentBehavior = .never
         toolPicker.addObserver(canvas)
+        canvas.isRulerActive = toolPicker.isRulerActive
         // Observers hear only later changes; start with the tool already selected.
         if #available(iOS 26.0, *), let selectedTool = toolPicker.selectedToolItem.tool {
             canvas.tool = selectedTool
@@ -589,10 +638,18 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
             }.value
             guard let self, let canvas, canvas.page === page, self.canvasesByPage[ObjectIdentifier(page)] === canvas else { return }
             canvas.isRestoringStoredInk = false
+            // Undo or redo may have changed the page's stored ink while it was decoded.
+            guard PDFInkGroups.editableGroup(on: page) == editableGroup else {
+                canvas.hasRestoredStoredInk = false
+                self.restoreStoredInkIfNeeded(on: canvas)
+                self.configure(canvas)
+                return
+            }
             if let decodedDrawing, let restored = PDFPageInkTracker.restoring(editableGroup, decodedDrawing: decodedDrawing) {
                 canvas.inkTracker = restored.tracker
                 // Set before the delegate, so loading the stored drawing is not recorded as an edit.
                 canvas.drawing = restored.drawing
+                canvas.recordedDrawing = restored.drawing
             }
             canvas.delegate = self
             self.configure(canvas)
@@ -618,9 +675,6 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
 
     private func release(_ canvas: PDFPageCanvasView) {
         writeDeferredInkRecord(of: canvas)
-        // Undo steps that would change a canvas that no longer exists are dropped. The
-        // canvas may already be out of the window, so ask the PDF view for the manager.
-        pdfView?.undoManager?.removeAllActions(withTarget: canvas)
         toolPicker.removeObserver(canvas)
         canvas.delegate = nil
         if let page = canvas.page { setInkAnnotationsHidden(false, on: page, group: canvas.inkTracker.group) }
@@ -644,8 +698,14 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
             let coordinates = try PageCoordinates(cropBox: page.bounds(for: .cropBox), overlaySize: canvas.bounds.size)
             // Archiving the whole drawing at every pen-up grows with the page's strokes;
             // the session asks for the record before it is needed (see `writeDeferredInkRecords`).
-            let update = canvas.inkTracker.update(for: canvas.drawing, pageIndex: pageIndex, coordinates: coordinates, defersEditableRecord: true)
+            let drawing = canvas.drawing
+            let update = canvas.inkTracker.update(for: drawing, pageIndex: pageIndex, coordinates: coordinates, defersEditableRecord: true)
             try session.apply(.updateInk(update))
+            // A drawing the history itself showed was recorded before it was shown.
+            if let change = PencilDrawingChange(from: canvas.recordedDrawing, to: drawing) {
+                session.registerInkChange(change, on: page, overlaySize: canvas.bounds.size)
+            }
+            canvas.recordedDrawing = drawing
             if displayedPages.contains(ObjectIdentifier(page)) { setInkAnnotationsHidden(true, on: page, group: canvas.inkTracker.group) }
         } catch {
             session.errorMessage = error.localizedDescription

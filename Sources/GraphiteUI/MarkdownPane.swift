@@ -21,6 +21,8 @@ struct MarkdownPane: View {
     @State private var showsLinkPicker = false
     @State private var showsReloadConfirmation = false
     @Environment(\.showTemplatePicker) private var showTemplatePicker
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.usesDocumentControlRow) private var usesDocumentControlRowSetting
     /// An editable drawing embedded where the cursor is, if any.
     @State private var drawingAtCursor: VaultPath?
 
@@ -59,17 +61,27 @@ struct MarkdownPane: View {
                                 folding: ReadingFolding(foldedKeys: session.foldedKeys) { [session] key in
                                     if session.foldedKeys.contains(key) { session.foldedKeys.remove(key) } else { session.foldedKeys.insert(key) }
                                 },
-                                blocksCache: session.readingBlocksCache)
+                                blocksCache: session.readingBlocksCache, savedPosition: session.readingPosition)
                 .environment(\.readingImageActions, ReadingImageActions(providerIdentity: ObjectIdentifier(workspace),
                                                                         viewImage: { [workspace] path in workspace.viewedImage = path },
                                                                         editDrawing: drawingEditor))
             } else {
                 NativeMarkdownEditor(session: session, configuration: editorConfiguration, environment: livePreviewEnvironment,
-                                     headingScrollRequest: document.headingScrollRequest, actions: editorActions) { target, isWiki in
+                                     headingScrollRequest: document.headingScrollRequest, actions: editorActions,
+                                     retention: workspace.markdownEditorRetention, retentionOwner: document) { target, isWiki in
                     follow(target, isWiki: isWiki)
                 }
                 .overlay(alignment: .topLeading) { completionPopup }
                 .onAppear { session.completion.suggest(from: workspace, for: session) }
+            }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if usesDocumentControlRow, isFocused {
+                DocumentControlRow(isWriting: isWritingBinding) {
+                    #if canImport(UIKit)
+                    if isEditing { UndoRedoButtons(availability: session.undoAvailability) }
+                    #endif
+                }
             }
         }
         .overlay(alignment: .bottomTrailing) {
@@ -293,10 +305,12 @@ struct MarkdownPane: View {
                 }
                 #endif
             }
-            Button(isEditing ? "Read" : "Edit", systemImage: isEditing ? "book" : "pencil.line") {
-                session.toggleReadingView(editingMode: preferences.defaultEditingMode)
+            if !usesDocumentControlRow {
+                #if canImport(UIKit)
+                if isEditing { UndoRedoButtons(availability: session.undoAvailability) }
+                #endif
+                DocumentModePicker(isWriting: isWritingBinding)
             }
-            .help(isEditing ? "Current view: editing. Switch to reading." : "Current view: reading. Switch to editing.")
             Menu("More", systemImage: "ellipsis.circle") {
                 Picker("View", selection: $session.viewMode) {
                     Label("Reading view", systemImage: "book").tag(NoteViewMode.reading)
@@ -321,6 +335,16 @@ struct MarkdownPane: View {
             }
             Button("Sidebar", systemImage: "sidebar.right") { showsLinksInspector.toggle() }
         }.tint(.primary) }
+    }
+
+    private var usesDocumentControlRow: Bool {
+        usesDocumentControlRowSetting ?? (horizontalSizeClass == .compact)
+    }
+
+    private var isWritingBinding: Binding<Bool> {
+        Binding(get: { isEditing }, set: { shouldWrite in
+            if shouldWrite != isEditing { session.toggleReadingView(editingMode: preferences.defaultEditingMode) }
+        })
     }
 
     /// The selected text, or a placeholder so the markup is visible when nothing is selected.

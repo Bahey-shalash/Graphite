@@ -91,12 +91,13 @@ final class UiWorkspaceAreaPDFHandoffTests: XCTestCase {
     }
 
     #if canImport(AppKit)
+    /// Markup steps go to the session's own history, whichever view shows the PDF.
     private func attachView(to session: PDFSession) throws -> (window: NSWindow, undoManager: UndoManager) {
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 400, height: 500), styleMask: [.titled], backing: .buffered, defer: true)
         let pdfView = PDFView()
         window.contentView = pdfView
         session.pdfView = pdfView
-        let undoManager = try XCTUnwrap(pdfView.undoManager)
+        let undoManager = session.undoManager
         undoManager.groupsByEvent = false
         return (window, undoManager)
     }

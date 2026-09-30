@@ -44,6 +44,7 @@ struct DrawingEditor: View {
     let removeDraft: () -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var canvasController: DrawingCanvasController
     private let format: DrawingFormat
     private let background: DrawingBackground
@@ -53,6 +54,8 @@ struct DrawingEditor: View {
     @State private var failedPNGSave = false
     @State private var showsDiscardConfirmation = false
     @State private var sharedFile: SharedFile?
+    @AppStorage("GraphiteDrawingDrawsWithFinger") private var drawsWithFinger = false
+    @State private var showsToolPicker = true
 
     init(request: DrawingEditorRequest,
          save: @escaping (DrawingContent, DrawingFormat) async throws -> Void,
@@ -71,7 +74,8 @@ struct DrawingEditor: View {
 
     var body: some View {
         NavigationStack {
-            DrawingCanvas(controller: canvasController, initialStrokeData: request.initialStrokeData, canvasWidth: request.resolvedCanvasWidth)
+            DrawingCanvas(controller: canvasController, initialStrokeData: request.initialStrokeData, canvasWidth: request.resolvedCanvasWidth,
+                          drawsWithFinger: drawsWithFinger, showsToolPicker: showsToolPicker)
                 .ignoresSafeArea(edges: .bottom)
                 .background(Color.white)
                 .navigationTitle(request.title)
@@ -116,18 +120,35 @@ struct DrawingEditor: View {
             Button("Cancel") { if canvasController.hasChanges { showsDiscardConfirmation = true } else { close() } }
                 .disabled(isSaving)
         }
+        // The same order as the note and PDF toolbars: tools, then Undo and Redo, then the
+        // options menu; Insert or Done takes the place of Read/Write.
         ToolbarItemGroup(placement: .primaryAction) {
+            if horizontalSizeClass != .compact {
+                Button(showsToolPicker ? "Hide Tools" : "Show Tools", systemImage: showsToolPicker ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle") {
+                    showsToolPicker.toggle()
+                }
+            }
             Button("Undo", systemImage: "arrow.uturn.backward") { canvasController.undo() }
                 .disabled(!canvasController.canUndo)
             Button("Redo", systemImage: "arrow.uturn.forward") { canvasController.redo() }
                 .disabled(!canvasController.canRedo)
-            // The file format and background come from Settings › Pencil drawings.
-            Menu("Export a Copy", systemImage: "square.and.arrow.up") {
-                ForEach(DrawingFormat.allCases) { drawingFormat in
-                    Button(drawingFormat.title) { Task { await shareCopy(as: drawingFormat) } }
+            Menu("Drawing Options", systemImage: "ellipsis.circle") {
+                if horizontalSizeClass == .compact {
+                    Toggle("Show Tools", systemImage: "pencil.tip.crop.circle", isOn: $showsToolPicker)
                 }
+                Toggle("Draw with Finger", systemImage: "hand.draw", isOn: $drawsWithFinger)
+                Button("Fit to Width", systemImage: "arrow.left.and.right") { canvasController.fitToWidth() }
+                Divider()
+                // The original format stays fixed; exporting makes a separate file.
+                Menu("Export a Copy", systemImage: "square.and.arrow.up") {
+                    ForEach(DrawingFormat.allCases) { drawingFormat in
+                        Button(drawingFormat.title) { Task { await shareCopy(as: drawingFormat) } }
+                    }
+                }
+                .disabled(!canvasController.hasInk)
             }
-            .disabled(!canvasController.hasInk)
+        }
+        ToolbarItem(placement: .confirmationAction) {
             Button(request.isNewDrawing ? "Insert" : "Done") { Task { await saveAndClose(as: format) } }
                 .fontWeight(.semibold)
                 .disabled(isSaving || !canvasController.isReady || (request.isNewDrawing && !canvasController.hasInk))
@@ -198,6 +219,9 @@ final class DrawingCanvasController {
 
     func undo() { canvasView?.undoManager?.undo(); refreshState() }
     func redo() { canvasView?.undoManager?.redo(); refreshState() }
+    func fitToWidth() {
+        canvasView?.fitToWidth()
+    }
     func strokeData() -> Data { canvasView?.drawing.dataRepresentation() ?? Data() }
 
     fileprivate func refreshState() {
@@ -219,6 +243,10 @@ final class InfiniteCanvasView: PKCanvasView {
     override var undoManager: UndoManager? { canvasUndoManager }
     var onCanvasWidthResolved: ((CGFloat) -> Void)?
     private var fittedBoundsWidth: CGFloat = 0
+
+    func fitToWidth() {
+        setZoomScale(minimumZoomScale, animated: true)
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -251,6 +279,8 @@ private struct DrawingCanvas: UIViewRepresentable {
     let controller: DrawingCanvasController
     let initialStrokeData: Data
     let canvasWidth: Double
+    let drawsWithFinger: Bool
+    let showsToolPicker: Bool
 
     func makeCoordinator() -> Coordinator { Coordinator(controller: controller) }
 
@@ -260,7 +290,7 @@ private struct DrawingCanvas: UIViewRepresentable {
         canvasView.isOpaque = true
         // Drawings are saved as they look on white paper, so ink never adapts to dark mode.
         canvasView.overrideUserInterfaceStyle = .light
-        canvasView.drawingPolicy = .default
+        canvasView.drawingPolicy = drawsWithFinger ? .anyInput : .pencilOnly
         canvasView.alwaysBounceVertical = true
         canvasView.showsHorizontalScrollIndicator = false
         canvasView.tool = PKInkingTool(.pen, color: .black, width: 3)
@@ -275,8 +305,9 @@ private struct DrawingCanvas: UIViewRepresentable {
         controller.canvasView = canvasView
         context.coordinator.toolPicker.overrideUserInterfaceStyle = .light
         context.coordinator.toolPicker.colorUserInterfaceStyle = .light
+        context.coordinator.toolPicker.showsDrawingPolicyControls = false
         context.coordinator.toolPicker.addObserver(canvasView)
-        context.coordinator.toolPicker.setVisible(true, forFirstResponder: canvasView)
+        context.coordinator.toolPicker.setVisible(showsToolPicker, forFirstResponder: canvasView)
         DispatchQueue.main.async {
             canvasView.becomeFirstResponder()
             controller.refreshState()
@@ -284,7 +315,10 @@ private struct DrawingCanvas: UIViewRepresentable {
         return canvasView
     }
 
-    func updateUIView(_ canvasView: InfiniteCanvasView, context: Context) {}
+    func updateUIView(_ canvasView: InfiniteCanvasView, context: Context) {
+        canvasView.drawingPolicy = drawsWithFinger ? .anyInput : .pencilOnly
+        context.coordinator.toolPicker.setVisible(showsToolPicker, forFirstResponder: canvasView)
+    }
 
     static func dismantleUIView(_ canvasView: InfiniteCanvasView, coordinator: Coordinator) {
         coordinator.toolPicker.setVisible(false, forFirstResponder: canvasView)

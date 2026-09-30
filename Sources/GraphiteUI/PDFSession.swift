@@ -179,6 +179,8 @@ struct PDFOutlineEntry: Identifiable, Equatable {
 @MainActor @Observable
 final class PDFSession {
     static let autosaveDelay = Duration.seconds(2)
+    /// Steps of ink, markup, and page changes the history keeps; older steps are dropped.
+    static let maximumUndoSteps = 100
     /// Autosave waits this many times as long as the last save took, so a PDF whose full
     /// rewrite is slow (a heavily annotated textbook) is not rewritten after every pause.
     private static let autosaveDelayPerSaveDuration = 10
@@ -223,6 +225,9 @@ final class PDFSession {
     let identifier = UUID()
 
     var currentPageIndex = 0
+    /// Keep the pane's input mode while its view is rebuilt, without modifying the PDF.
+    /// Writing is the default for this Pencil-first workspace; Read restores PDFKit selection.
+    var isWriting = true
     private(set) var pageCount: Int
     /// Document settings the next page change would remove from the file (see
     /// `PDFStructureInspection`). Empty when page changes lose nothing.
@@ -240,6 +245,26 @@ final class PDFSession {
     @ObservationIgnored private var cachedOutlineEntries: (version: Int, entries: [PDFOutlineEntry])?
     var errorMessage: String?
     weak var pdfView: PDFView?
+    /// This PDF's undo history: ink, markup, and page changes. It belongs to the session,
+    /// not to a view or a page canvas, so it survives the view being rebuilt (switching
+    /// tabs) and page canvases being released far from the page shown, and never mixes
+    /// with another document's steps. See `PDFEditHistory.swift`.
+    let undoManager: UndoManager = {
+        let undoManager = UndoManager()
+        undoManager.levelsOfUndo = PDFSession.maximumUndoSteps
+        return undoManager
+    }()
+    /// Whether Undo and Redo can run, for the toolbar.
+    @ObservationIgnored let undoAvailability = UndoAvailability()
+    /// The pages the history's steps name, each kept in one box that follows the page when
+    /// undo or redo puts a new copy of it in the document.
+    @ObservationIgnored var historyPages = NSMapTable<PDFPage, PDFHistoryPage>(keyOptions: [.weakMemory, .objectPointerPersonality],
+                                                                              valueOptions: .strongMemory)
+    #if canImport(UIKit)
+    /// The view whose Pencil canvases edit this PDF's pages now, which applies undone and
+    /// redone ink to a page's canvas when it has one.
+    @ObservationIgnored weak var inkCanvasProvider: (any PDFInkCanvasProvider)?
+    #endif
 
     var isSaving: Bool { runningSave != nil }
     var hasUnsavedChanges: Bool { changeVersion != savedVersion }
@@ -266,6 +291,7 @@ final class PDFSession {
         baseline = loaded.baseline
         pageCount = loaded.document.pageCount
         structureEntriesLostByPageChanges = loaded.structureEntriesLostByPageChanges
+        undoAvailability.follow(undoManager)
     }
 
     /// - Parameters:
@@ -440,6 +466,16 @@ final class PDFSession {
         return exported
     }
 
+    /// Each run of pages as a PDF, as saving would write them now; the history keeps them
+    /// to put deleted pages back.
+    func export(pageRuns: [[Int]]) async throws -> [Data] {
+        writePendingInkRecords()
+        let currentBaseline = baseline
+        let exported = try await fileService.export(baselineURL: currentBaseline.location, edits: edits, pageRuns: pageRuns)
+        withExtendedLifetime(currentBaseline) {}
+        return exported
+    }
+
     func hasChangedExternally() async throws -> Bool {
         guard !isSaving else { return false }
         let location = location
@@ -481,8 +517,9 @@ final class PDFSession {
         let referenceBounds = document.page(at: min(currentPageIndex, max(0, pageCount - 1)))?.bounds(for: .cropBox) ?? CGRect(x: 0, y: 0, width: 595.28, height: 841.89)
         let pageSize = referenceBounds.size
         let paperData = try await Task.detached { try PDFTemplateGenerator.pageData(template: template, matching: pageSize) }.value
-        try apply(.insert(data: paperData, at: min(max(0, insertionIndex), pageCount)))
-        go(to: insertionIndex)
+        let clampedIndex = min(max(0, insertionIndex), pageCount)
+        try insertPages(paperData, at: clampedIndex, actionName: "Insert Page")
+        go(to: clampedIndex)
     }
 
     /// The file is read in the background. Copying its pages into the displayed document
@@ -493,14 +530,9 @@ final class PDFSession {
             defer { if hasAccess { sourceLocation.stopAccessingSecurityScopedResource() } }
             return try AtomicFileWriter().read(sourceLocation, maximumBytes: Self.maximumImportedPDFBytes)
         }.value
-        try apply(.insert(data: snapshot.data, at: min(max(0, insertionIndex), pageCount)))
-        go(to: insertionIndex)
-    }
-
-    /// Moves one page so that it ends up at `destinationIndex`.
-    func movePage(from sourceIndex: Int, to destinationIndex: Int) throws {
-        guard sourceIndex != destinationIndex else { return }
-        try apply(.move(from: sourceIndex, to: destinationIndex))
+        let clampedIndex = min(max(0, insertionIndex), pageCount)
+        try insertPages(snapshot.data, at: clampedIndex, actionName: "Import Pages")
+        go(to: clampedIndex)
     }
 
     // MARK: Bookmarks and outline
@@ -543,21 +575,20 @@ final class PDFSession {
 
     // MARK: Text markup
 
-    // Undo and redo keep the page object, not its index, and look the index up when they
-    // run: pages inserted, deleted, or moved in between would otherwise put the markup on
-    // another page.
+    // Undo and redo name the page through its history box, not its index: pages inserted,
+    // deleted, or moved in between would otherwise put the markup on another page.
 
     func addMarkup(_ kind: PDFMarkupKind, color: PDFMarkupColor, for selection: PDFSelection) throws {
         let linesByPage = selection.markupLinesByPage(in: document)
         guard !linesByPage.isEmpty else { throw GraphiteError.unavailable("Select some PDF text first.") }
-        var added: [(page: PDFPage, markup: PDFMarkup)] = []
+        var added: [(page: PDFHistoryPage, markup: PDFMarkup)] = []
         for (pageIndex, lineBounds) in linesByPage {
             guard let page = document.page(at: pageIndex) else { throw GraphiteError.invalidFile("Page no longer exists.") }
             let markup = PDFMarkup(kind: kind, color: color, lineBounds: lineBounds)
             try apply(.addMarkup(page: pageIndex, markup: markup))
-            added.append((page, markup))
+            added.append((historyPage(for: page), markup))
         }
-        registerUndo(actionName: kind.title) { session in
+        registerStep(named: kind.title) { session in
             for (page, markup) in added.reversed() { try session.removeMarkup(markup, on: page) }
         } redo: { session in
             for (page, markup) in added { try session.apply(.addMarkup(page: session.currentIndex(of: page), markup: markup)) }
@@ -568,10 +599,11 @@ final class PDFSession {
         let pageIndex = document.index(for: page)
         guard pageIndex != NSNotFound, let markup = PDFMarkup(annotation: annotation) else { return }
         try apply(.removeAnnotation(PDFAnnotationReference(annotation: annotation, pageIndex: pageIndex)))
-        registerUndo(actionName: "Remove \(markup.kind.title)") { session in
-            try session.apply(.addMarkup(page: session.currentIndex(of: page), markup: markup))
+        let markedPage = historyPage(for: page)
+        registerStep(named: "Remove \(markup.kind.title)") { session in
+            try session.apply(.addMarkup(page: session.currentIndex(of: markedPage), markup: markup))
         } redo: { session in
-            try session.removeMarkup(markup, on: page)
+            try session.removeMarkup(markup, on: markedPage)
         }
     }
 
@@ -580,11 +612,12 @@ final class PDFSession {
         guard pageIndex != NSNotFound, let previousMarkup = PDFMarkup(annotation: annotation) else { return }
         let reference = PDFAnnotationReference(annotation: annotation, pageIndex: pageIndex)
         try apply(.recolorMarkup(reference, color: color))
+        let markedPage = historyPage(for: page)
         func currentReference(in session: PDFSession) throws -> PDFAnnotationReference {
-            PDFAnnotationReference(pageIndex: try session.currentIndex(of: page), name: reference.name,
+            PDFAnnotationReference(pageIndex: try session.currentIndex(of: markedPage), name: reference.name,
                                    annotationType: reference.annotationType, bounds: reference.bounds)
         }
-        registerUndo(actionName: "Change Color") { session in
+        registerStep(named: "Change Color") { session in
             // The exact original color: `previousMarkup.color` is only the nearest palette color.
             try session.apply(.restoreMarkupColor(currentReference(in: session), from: previousMarkup))
         } redo: { session in
@@ -594,30 +627,9 @@ final class PDFSession {
 
     /// The reference carries the bounds, so the markup is still found after an older
     /// build's page change dropped its name from the file.
-    private func removeMarkup(_ markup: PDFMarkup, on page: PDFPage) throws {
+    private func removeMarkup(_ markup: PDFMarkup, on page: PDFHistoryPage) throws {
         let reference = PDFAnnotationReference(pageIndex: try currentIndex(of: page), name: markup.name,
                                                annotationType: markup.kind.annotationTypeName, bounds: markup.bounds)
         try apply(.removeAnnotation(reference))
-    }
-
-    /// Where the page is now; it throws when the page was deleted.
-    private func currentIndex(of page: PDFPage) throws -> Int {
-        let pageIndex = document.index(for: page)
-        guard pageIndex != NSNotFound else { throw GraphiteError.invalidFile("Page no longer exists.") }
-        return pageIndex
-    }
-
-    /// Registers an undoable markup change with the undo manager of the view showing the
-    /// PDF, the same history PencilKit records strokes in. Undo and redo register each
-    /// other again, so the change can be undone and redone repeatedly.
-    private func registerUndo(actionName: String, undo: @escaping (PDFSession) throws -> Void, redo: @escaping (PDFSession) throws -> Void) {
-        guard let undoManager = pdfView?.undoManager else { return }
-        undoManager.registerUndo(withTarget: self) { session in
-            do {
-                try undo(session)
-                session.registerUndo(actionName: actionName, undo: redo, redo: undo)
-            } catch { session.errorMessage = error.localizedDescription }
-        }
-        undoManager.setActionName(actionName)
     }
 }

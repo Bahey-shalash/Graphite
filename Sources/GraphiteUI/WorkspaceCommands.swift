@@ -15,6 +15,7 @@ struct WindowActions {
     let create: (CreationKind) -> Void
     /// Lists the Templates folder's notes to insert one into the current note.
     let showTemplatePicker: () -> Void
+    var toggleFocusMode: (() -> Void)? = nil
 }
 
 /// The command palette's commands, named as Obsidian names them where they match.
@@ -54,6 +55,9 @@ enum WorkspaceCommandList {
         }
         if let path = workspace.selection {
             commands.append(PaletteCommand(id: "copy-url", title: "Copy Graphite URL", systemImage: "link") { Pasteboard.copy(workspace.openingLink(to: path)) })
+        }
+        if let toggleFocusMode = window.toggleFocusMode {
+            commands.append(PaletteCommand(id: "workspace-focus", title: "Workspace: Toggle focus mode", systemImage: "arrow.up.left.and.arrow.down.right", run: toggleFocusMode))
         }
         if workspace.preferences.isEnabled(.graph) {
             commands.append(PaletteCommand(id: "graph-open", title: "Graph view: Open graph view", systemImage: "point.3.connected.trianglepath.dotted") {

@@ -27,16 +27,22 @@ struct WorkspacePanes: View {
     /// False while something covers the panes, such as the quick switcher, so a touch on
     /// it does not focus the side beneath.
     var acceptsFocusTouches = true
+    var showsTabBar = true
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     /// The split when a divider drag began.
     @State private var dragStartFraction: Double?
     /// Where each side is in the window, to focus the side a touch lands on.
     @State private var groupFrames: [UUID: CGRect] = [:]
+    /// The documents area's width, which decides where documents put Read/Write, Undo and
+    /// Redo: the window's toolbar spans this area, whichever side is focused.
+    @State private var detailWidth: CGFloat?
 
     private var showsBothGroups: Bool { workspace.layout.isSplit && horizontalSizeClass != .compact }
 
     var body: some View {
         panes
+            .onGeometryChange(for: CGFloat.self) { geometry in geometry.size.width } action: { width in detailWidth = width }
+            .environment(\.usesDocumentControlRow, DocumentToolbarLayout.usesControlRow(detailWidth: detailWidth, horizontalSizeClass: horizontalSizeClass))
             #if canImport(UIKit)
             // A touch anywhere on a side focuses it, so the toolbar and new files follow. The
             // touch is only observed: a SwiftUI gesture over the editor would compete with
@@ -87,7 +93,7 @@ struct WorkspacePanes: View {
     private func pane(for group: TabGroup) -> some View {
         TabGroupPane(workspace: workspace, group: group, isFocused: group.id == workspace.layout.focusedGroupID,
                      showsBothGroups: showsBothGroups, showsLinksInspector: $showsLinksInspector,
-                     create: create, showQuickSwitcher: showQuickSwitcher)
+                     create: create, showQuickSwitcher: showQuickSwitcher, showsTabBar: showsTabBar)
             .id(group.id)
             .onGeometryChange(for: CGRect.self) { geometry in geometry.frame(in: .global) } action: { frame in groupFrames[group.id] = frame }
             .onDisappear { groupFrames[group.id] = nil }
@@ -103,12 +109,15 @@ private struct TabGroupPane: View {
     @Binding var showsLinksInspector: Bool
     let create: (CreationKind) -> Void
     let showQuickSwitcher: () -> Void
+    let showsTabBar: Bool
 
     var body: some View {
         let tab = group.activeTab
         VStack(spacing: 0) {
-            TabBar(workspace: workspace, group: group, isFocused: isFocused, showsBothGroups: showsBothGroups)
-            Divider()
+            if showsTabBar {
+                TabBar(workspace: workspace, group: group, isFocused: isFocused, showsBothGroups: showsBothGroups)
+                Divider()
+            }
             TabDocumentView(workspace: workspace, tab: tab, document: workspace.document(for: tab.id), isFocused: isFocused,
                             showsLinksInspector: $showsLinksInspector, create: create, showQuickSwitcher: showQuickSwitcher)
                 .id(tab.id)
