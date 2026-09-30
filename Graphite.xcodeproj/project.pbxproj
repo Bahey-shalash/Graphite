@@ -25,6 +25,9 @@
 		A00000000000000000000081 /* App/Tests/PencilWorkspaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000080 /* App/Tests/PencilWorkspaceTests.swift */; };
 		A00000000000000000000083 /* App/Tests/EditingContinuityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000082 /* App/Tests/EditingContinuityTests.swift */; };
 		A00000000000000000000085 /* App/Tests/PDFInkHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000084 /* App/Tests/PDFInkHistoryTests.swift */; };
+		A00000000000000000000087 /* App/Tests/PencilToolsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000086 /* App/Tests/PencilToolsTests.swift */; };
+		A0000000000000000000008B /* Tests/GraphiteAppleTests/PDFPictureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000008A /* Tests/GraphiteAppleTests/PDFPictureTests.swift */; };
+		A00000000000000000000089 /* App/Tests/PicturesAndPaperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000088 /* App/Tests/PicturesAndPaperTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -57,6 +60,9 @@
 		A00000000000000000000080 /* App/Tests/PencilWorkspaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/PencilWorkspaceTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000082 /* App/Tests/EditingContinuityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/EditingContinuityTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000084 /* App/Tests/PDFInkHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/PDFInkHistoryTests.swift; sourceTree = "<group>"; };
+		A00000000000000000000086 /* App/Tests/PencilToolsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/PencilToolsTests.swift; sourceTree = "<group>"; };
+		A0000000000000000000008A /* Tests/GraphiteAppleTests/PDFPictureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/PDFPictureTests.swift; sourceTree = "<group>"; };
+		A00000000000000000000088 /* App/Tests/PicturesAndPaperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/PicturesAndPaperTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -84,6 +90,9 @@
 				A00000000000000000000080 /* App/Tests/PencilWorkspaceTests.swift */,
 				A00000000000000000000082 /* App/Tests/EditingContinuityTests.swift */,
 				A00000000000000000000084 /* App/Tests/PDFInkHistoryTests.swift */,
+				A00000000000000000000086 /* App/Tests/PencilToolsTests.swift */,
+				A0000000000000000000008A /* Tests/GraphiteAppleTests/PDFPictureTests.swift */,
+				A00000000000000000000088 /* App/Tests/PicturesAndPaperTests.swift */,
 				A00000000000000000000070 /* App/Tests/AppIconBundleTests.swift */,
 				A00000000000000000000050 /* App/Icons/AppIcon.icon */,
 				A00000000000000000000051 /* App/Icons/AppIconRed.icon */,
@@ -217,6 +226,9 @@
 				A00000000000000000000081 /* App/Tests/PencilWorkspaceTests.swift in Sources */,
 				A00000000000000000000083 /* App/Tests/EditingContinuityTests.swift in Sources */,
 				A00000000000000000000085 /* App/Tests/PDFInkHistoryTests.swift in Sources */,
+				A00000000000000000000087 /* App/Tests/PencilToolsTests.swift in Sources */,
+				A0000000000000000000008B /* Tests/GraphiteAppleTests/PDFPictureTests.swift in Sources */,
+				A00000000000000000000089 /* App/Tests/PicturesAndPaperTests.swift in Sources */,
 				A00000000000000000000071 /* App/Tests/AppIconBundleTests.swift in Sources */,
 				A00000000000000000000076 /* Tests/GraphiteAppleTests/PDFAnnotationTests.swift in Sources */,
 				A00000000000000000000077 /* Tests/GraphiteAppleTests/PDFPencilInkTests.swift in Sources */,

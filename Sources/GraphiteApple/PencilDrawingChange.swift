@@ -53,6 +53,14 @@ public struct PencilDrawingChange {
     /// How many strokes the change removed and added together.
     public var changedStrokeCount: Int { removedStrokes.count + addedStrokes.count }
 
+    /// The position of the one stroke the change added after all the others, as when a
+    /// stroke has just been drawn; nil for any other change.
+    public var appendedStrokeIndex: Int? {
+        guard removedStrokes.isEmpty, addedStrokes.count == 1, let added = addedStrokes.first,
+              added.index == strokeCountAfter - 1 else { return nil }
+        return added.index
+    }
+
     /// The drawing as it was before the change, from the drawing the change produced; nil
     /// when `drawing` is not that drawing, as after a change the history did not record.
     public func reverting(_ drawing: PKDrawing) -> PKDrawing? {
@@ -76,9 +84,17 @@ public struct PencilDrawingChange {
         // Ascending: each stroke's position counts the strokes before it once those are back.
         for placed in incomingStrokes {
             guard placed.index <= strokes.count else { return nil }
-            strokes.insert(placed.stroke, at: placed.index)
+            strokes.insert(redrawn(placed.stroke), at: placed.index)
         }
         return PKDrawing(strokes: strokes)
+    }
+
+    /// The same stroke as a new one. PencilKit tells strokes apart by an identity of their
+    /// own, and a canvas keeps showing the version it already shows: a stroke the lasso
+    /// moved is the same stroke to PencilKit, so putting the earlier one back left the
+    /// canvas unchanged. A stroke built from its parts is a new stroke that looks the same.
+    private static func redrawn(_ stroke: PKStroke) -> PKStroke {
+        PKStroke(ink: stroke.ink, path: stroke.path, transform: stroke.transform, mask: stroke.mask, randomSeed: stroke.randomSeed)
     }
 
     /// Matches equal strokes of the two drawings, earliest first. Returns the positions

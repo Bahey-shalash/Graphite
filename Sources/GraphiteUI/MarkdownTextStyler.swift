@@ -433,8 +433,9 @@ struct MarkdownTextStyler {
             textStorage.addAttribute(.font, value: fonts.codeFont, range: range)
             textStorage.addAttribute(.backgroundColor, value: Self.codeBackgroundColor, range: range)
         case .math:
+            // Quiet, like code: the formula's source is not a link, so it takes no color of its own.
             textStorage.addAttribute(.font, value: fonts.codeFont, range: range)
-            textStorage.addAttribute(.foregroundColor, value: PlatformColor.systemIndigo, range: range)
+            textStorage.addAttribute(.foregroundColor, value: Self.secondaryTextColor, range: range)
         case .link, .embed, .tag, .subpathSeparator:
             textStorage.addAttribute(.foregroundColor, value: accentColor, range: range)
         case .listMarker, .taskMarker:

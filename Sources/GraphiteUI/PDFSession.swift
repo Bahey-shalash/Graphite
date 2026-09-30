@@ -225,6 +225,11 @@ final class PDFSession {
     let identifier = UUID()
 
     var currentPageIndex = 0
+    /// The picture being moved or resized, if any; see `PDFSessionPictures.swift`.
+    var selectedPicture: PDFPictureSelection?
+    /// Where a new picture goes: the middle of what the view shows of the current page, in
+    /// the page's coordinates. The view keeps it current; nil means the page's middle.
+    @ObservationIgnored var visiblePageCenter: (() -> (pageIndex: Int, center: CGPoint)?)?
     /// Keep the pane's input mode while its view is rebuilt, without modifying the PDF.
     /// Writing is the default for this Pencil-first workspace; Read restores PDFKit selection.
     var isWriting = true

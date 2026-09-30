@@ -418,6 +418,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         textView.accessibilityLabel = "Markdown note"
         // The system's find and replace bar, opened with ⌘F or the toolbar.
         textView.isFindInteractionEnabled = true
+        textView.addInteraction(UIPencilInteraction(delegate: coordinator))
         coordinator.actions = actions
         textView.runCommand = { [weak coordinator, weak textView] command in
             guard let coordinator, let textView else { return }
@@ -543,7 +544,8 @@ struct NativeMarkdownEditor: UIViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate, NSTextLayoutManagerDelegate, RetainableMarkdownEditor {
+    final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate, NSTextLayoutManagerDelegate, RetainableMarkdownEditor,
+                             UIPencilInteractionDelegate {
         var session: MarkdownSession
         /// The text view this coordinator styles and edits through. It lives as long as the
         /// coordinator, which a hidden note's retention can keep beyond its SwiftUI view.
@@ -708,7 +710,45 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         }
 
         private var styler: MarkdownTextStyler {
-            MarkdownTextStyler(configuration: configuration, accentColor: UIColor(graphiteHex: configuration.accentHex) ?? .tintColor)
+            MarkdownTextStyler(configuration: configuration, accentColor: UIColor.graphiteAccent(hex: configuration.accentHex) ?? .tintColor)
+        }
+
+        // MARK: Apple Pencil
+
+        func pencilInteraction(_ interaction: UIPencilInteraction, didReceiveTap tap: UIPencilInteraction.Tap) {
+            guard let textView else { return }
+            handlePencilDoubleTap(hoverLocation: tap.hoverPose?.location, in: textView)
+        }
+
+        /// Starts a drawing, at the hovering Pencil's place in the text when it hovers, else
+        /// at the cursor. The iPadOS setting to ignore double-tap is honored.
+        func handlePencilDoubleTap(hoverLocation: CGPoint?, in textView: MarkdownTextView,
+                                   preferredTapAction: UIPencilPreferredAction = UIPencilInteraction.preferredTapAction) {
+            guard preferredTapAction != .ignore else { return }
+            startDrawingAtPencil(hoverLocation: hoverLocation, in: textView)
+        }
+
+        func pencilInteraction(_ interaction: UIPencilInteraction, didReceiveSqueeze squeeze: UIPencilInteraction.Squeeze) {
+            guard squeeze.phase == .ended, let textView else { return }
+            handlePencilSqueeze(hoverLocation: squeeze.hoverPose?.location, in: textView)
+        }
+
+        /// A squeeze of Apple Pencil Pro starts a drawing as a double-tap does, when iPadOS
+        /// leaves the squeeze to the app to show its tools; a note's tools are its drawing.
+        func handlePencilSqueeze(hoverLocation: CGPoint?, in textView: MarkdownTextView,
+                                 preferredSqueezeAction: UIPencilPreferredAction = UIPencilInteraction.preferredSqueezeAction) {
+            guard preferredSqueezeAction == .showContextualPalette else { return }
+            startDrawingAtPencil(hoverLocation: hoverLocation, in: textView)
+        }
+
+        private func startDrawingAtPencil(hoverLocation: CGPoint?, in textView: MarkdownTextView) {
+            guard let drawOnPencilDoubleTap = actions.drawOnPencilDoubleTap, textView.window != nil else { return }
+            if let hoverLocation, let position = textView.closestPosition(to: hoverLocation) {
+                let offset = textView.offset(from: textView.beginningOfDocument, to: position)
+                textView.selectedRange = NSRange(location: offset, length: 0)
+                session.selection = textView.selectedRange
+            }
+            drawOnPencilDoubleTap()
         }
         private var isLivePreview: Bool { configuration.mode == .livePreview && environment != nil }
         /// What decides which blocks are rendered besides the configuration.
@@ -1504,7 +1544,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         /// appearance and accent are passed in explicitly. A host is reused while its block
         /// moves with edits elsewhere, so its actions find the block by key when they run.
         private func widgetRootView(for entry: LivePreviewBlockEntry, environment: LivePreviewEnvironment, textView: MarkdownTextView) -> AnyView {
-            let accent = Color(graphiteHex: configuration.accentHex) ?? .accentColor
+            let accent = Color.graphiteAccent(hex: configuration.accentHex) ?? .accentColor
             let key = entry.key
             let widget = LivePreviewWidgetView(block: entry.block, environment: environment, revealSource: { [weak self, weak textView] in
                 guard let self, let textView, self.canStyle(textView),
@@ -1892,7 +1932,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             guard let start = textView.position(from: textView.beginningOfDocument, offset: range.location),
                   let end = textView.position(from: start, offset: range.length),
                   let textRange = textView.textRange(from: start, to: end) else { return }
-            let accent = UIColor(graphiteHex: configuration.accentHex) ?? .tintColor
+            let accent = UIColor.graphiteAccent(hex: configuration.accentHex) ?? .tintColor
             let rects = textView.selectionRects(for: textRange).map(\.rect).filter { rect in rect.width > 1 && rect.height > 1 }
             let marks = rects.map { rect -> UIView in
                 let mark = UIView(frame: rect.insetBy(dx: -2, dy: -1))
@@ -2135,7 +2175,7 @@ enum UndrawnReplacementStyling {
             case .inlineMath:
                 // Styled as Source mode styles math.
                 textStorage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: baseFont.pointSize * 0.9, weight: .regular), range: replacedRange)
-                textStorage.addAttribute(.foregroundColor, value: NSColor.systemIndigo, range: replacedRange)
+                textStorage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: replacedRange)
             case .uncheckedTask, .checkedTask:
                 textStorage.addAttribute(.foregroundColor, value: color, range: replacedRange)
                 showListMarker(before: replacedRange.location, in: textStorage, baseFont: baseFont)
@@ -2341,7 +2381,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             self.configuration = configuration
         }
 
-        private var styler: MarkdownTextStyler { MarkdownTextStyler(configuration: configuration, accentColor: NSColor(graphiteHex: configuration.accentHex) ?? .controlAccentColor) }
+        private var styler: MarkdownTextStyler { MarkdownTextStyler(configuration: configuration, accentColor: NSColor.graphiteAccent(hex: configuration.accentHex) ?? .controlAccentColor) }
 
         func undoManager(for view: NSTextView) -> UndoManager? { noteUndoManager }
 

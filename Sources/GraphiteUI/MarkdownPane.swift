@@ -25,6 +25,8 @@ struct MarkdownPane: View {
     @Environment(\.usesDocumentControlRow) private var usesDocumentControlRowSetting
     /// An editable drawing embedded where the cursor is, if any.
     @State private var drawingAtCursor: VaultPath?
+    /// An image embedded where the cursor is that can be drawn on, if any.
+    @State private var imageAtCursor: VaultPath?
 
     init(session: MarkdownSession, workspace: WorkspaceModel, document: TabDocument, tabID: UUID, isFocused: Bool, showsLinksInspector: Binding<Bool>) {
         self.session = session
@@ -63,8 +65,7 @@ struct MarkdownPane: View {
                                 },
                                 blocksCache: session.readingBlocksCache, savedPosition: session.readingPosition)
                 .environment(\.readingImageActions, ReadingImageActions(providerIdentity: ObjectIdentifier(workspace),
-                                                                        viewImage: { [workspace] path in workspace.viewedImage = path },
-                                                                        editDrawing: drawingEditor))
+                                                                        viewImage: viewImage, editDrawing: drawingEditor, drawOnImage: imageDrawing))
             } else {
                 NativeMarkdownEditor(session: session, configuration: editorConfiguration, environment: livePreviewEnvironment,
                                      headingScrollRequest: document.headingScrollRequest, actions: editorActions,
@@ -92,7 +93,7 @@ struct MarkdownPane: View {
         // them, so typing and moving the cursor do not rebuild the pane and its toolbar.
         .background {
             AutosaveDriver(session: session)
-            DrawingAtCursorTracker(session: session, workspace: workspace, drawingAtCursor: $drawingAtCursor)
+            DrawingAtCursorTracker(session: session, workspace: workspace, drawingAtCursor: $drawingAtCursor, imageAtCursor: $imageAtCursor)
         }
         // The Properties view reads the types assigned in `.obsidian/types.json`; they are
         // read again as the index takes in changed files.
@@ -192,7 +193,14 @@ struct MarkdownPane: View {
             Task { await workspace.insertLink(to: path, into: session, at: range) }
         }
         #if canImport(UIKit)
-        if preferences.isEnabled(.drawings) { actions.draw = { [workspace, session] in workspace.beginNewDrawing(in: session) } }
+        if preferences.isEnabled(.drawings) {
+            actions.draw = { [workspace, session] in workspace.beginNewDrawing(in: session) }
+            // Only the focused side answers, so a PDF on the other side keeps its double-tap.
+            // On a drawing or an image it opens that; elsewhere it starts a new drawing.
+            if isFocused && preferences.drawsOnPencilDoubleTap {
+                actions.drawOnPencilDoubleTap = { [workspace, session] in Task { await workspace.beginDrawingAtCursor(in: session) } }
+            }
+        }
         #endif
         actions.beginEditing = { [workspace, tabID] in workspace.activateTab(tabID) }
         actions.followLinkElsewhere = { [workspace, session] target, isWiki, placement in
@@ -228,13 +236,30 @@ struct MarkdownPane: View {
             updateProperties: preferences.isEnabled(.properties) ? { [session] properties in session.replaceProperties(properties) } : nil,
             declaredPropertyTypes: session.declaredPropertyTypes,
             baseContext: workspace.baseEmbedContext(for: notePath),
-            viewImage: { [workspace] path in workspace.viewedImage = path },
-            editDrawing: drawingEditor, indexVersion: workspace.indexVersion,
+            viewImage: viewImage, editDrawing: drawingEditor, drawOnImage: imageDrawing, indexVersion: workspace.indexVersion,
             // Reading view's column, a little wider than Live Preview's, bounds the decode.
             embeddedImageColumnWidth: preferences.usesReadableLineLength ? ReadingConfiguration.readableColumnWidth : nil)
     }
 
     /// Opens a drawing in the editor, where the platform and preferences allow it.
+    /// Shows an image full screen, remembering its note so the viewer can offer to draw on it.
+    private var viewImage: (VaultPath) -> Void {
+        { [workspace, session] path in
+            workspace.viewedImageNote = session.path
+            workspace.viewedImage = path
+        }
+    }
+
+    /// Opens the drawing editor over an image of this note; the note then shows the drawing.
+    private var imageDrawing: ((VaultPath) -> Void)? {
+        #if canImport(UIKit)
+        guard preferences.isEnabled(.drawings) else { return nil }
+        return { [workspace, session] path in Task { await workspace.beginDrawingOnImage(at: path, fromNote: session.path) } }
+        #else
+        return nil
+        #endif
+    }
+
     private var drawingEditor: ((VaultPath) -> Void)? {
         #if canImport(UIKit)
         guard preferences.isEnabled(.drawings) else { return nil }
@@ -299,6 +324,10 @@ struct MarkdownPane: View {
                 if preferences.isEnabled(.drawings) {
                     if let drawingAtCursor {
                         Button("Edit Drawing", systemImage: "pencil.tip.crop.circle") { Task { await workspace.beginEditingDrawing(at: drawingAtCursor) } }
+                    } else if let imageAtCursor {
+                        Button("Draw on Image", systemImage: "pencil.tip.crop.circle.badge.plus") {
+                            Task { await workspace.beginDrawingOnImage(at: imageAtCursor, fromNote: session.path) }
+                        }
                     } else {
                         Button("Draw", systemImage: "pencil.tip.crop.circle.badge.plus") { workspace.beginNewDrawing(in: session) }
                     }
@@ -403,15 +432,16 @@ private struct AutosaveDriver: View {
     }
 }
 
-/// Finds an editable drawing embedded where the cursor rests, for the toolbar's Edit
-/// Drawing button.
+/// Finds an editable drawing, or an image that can be drawn on, embedded where the cursor
+/// rests, for the toolbar's Edit Drawing and Draw on Image buttons.
 private struct DrawingAtCursorTracker: View {
     let session: MarkdownSession
     let workspace: WorkspaceModel
     @Binding var drawingAtCursor: VaultPath?
+    @Binding var imageAtCursor: VaultPath?
     /// The embed last checked and what it was found to be, so moving the cursor within one
     /// embed does not read its file again.
-    @State private var lastCheck: (key: DrawingCheckKey, drawing: VaultPath?)?
+    @State private var lastCheck: (key: DrawingCheckKey, drawing: VaultPath?, image: VaultPath?)?
 
     /// What decides whether an embed is an editable drawing: its link, and the drawing and
     /// index versions, which change when a drawing is saved or a file changes.
@@ -429,34 +459,45 @@ private struct DrawingAtCursorTracker: View {
     private func findDrawingAtCursor() async {
         do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
         guard let root = workspace.folderAccess?.root,
-              let embed = EmbedLocator.embed(at: session.selection.location, in: session.text as NSString),
-              DrawingFormat(fileExtension: (WikiLinkResolver.pathPart(embed.target) as NSString).pathExtension) != nil else {
+              let embed = EmbedLocator.embed(at: session.selection.location, in: session.text as NSString) else {
             drawingAtCursor = nil
+            imageAtCursor = nil
+            return
+        }
+        let fileExtension = (WikiLinkResolver.pathPart(embed.target) as NSString).pathExtension
+        let isDrawingFormat = DrawingFormat(fileExtension: fileExtension) != nil
+        guard isDrawingFormat || DocumentKind(fileExtension: fileExtension) == .image else {
+            drawingAtCursor = nil
+            imageAtCursor = nil
             return
         }
         let key = DrawingCheckKey(target: embed.target, isWiki: embed.isWiki, drawingVersion: workspace.drawingVersion, indexVersion: workspace.indexVersion)
         if let lastCheck, lastCheck.key == key {
             drawingAtCursor = lastCheck.drawing
+            imageAtCursor = lastCheck.image
             return
         }
         guard let path = await workspace.resolveLink(embed.target, from: session.path, isWiki: embed.isWiki),
               let location = try? path.url(in: root) else {
             guard !Task.isCancelled else { return }
-            lastCheck = (key, nil)
+            lastCheck = (key, nil, nil)
             drawingAtCursor = nil
+            imageAtCursor = nil
             return
         }
         // The check reads the file; it is cancelled with this lookup when the cursor moves on
         // before it starts, so quick cursor moves do not stack reads.
         let check = Task.detached(priority: .userInitiated) { () -> Bool in
-            guard !Task.isCancelled else { return false }
+            guard isDrawingFormat, !Task.isCancelled else { return false }
             return DrawingMetadataReader.hasEditableStrokes(at: location)
         }
         let isEditable = await withTaskCancellationHandler { await check.value } onCancel: { check.cancel() }
         guard !Task.isCancelled else { return }
         let drawing = isEditable ? path : nil
-        lastCheck = (key, drawing)
+        let image = !isEditable && DrawableImages.canDrawOn(path) ? path : nil
+        lastCheck = (key, drawing, image)
         drawingAtCursor = drawing
+        imageAtCursor = image
     }
 }
 

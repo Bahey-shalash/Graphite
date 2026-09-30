@@ -23,6 +23,10 @@ public enum PDFEdit: Sendable {
     /// color change of markup another application made.
     case restoreMarkupColor(PDFAnnotationReference, from: PDFMarkup)
     case removeAnnotation(PDFAnnotationReference)
+    /// Places a picture on a page, under the page's Pencil ink.
+    case addPicture(page: Int, picture: PDFPicture)
+    /// Moves or resizes a picture Graphite placed.
+    case movePicture(PDFAnnotationReference, to: CGRect)
     case bookmark(page: Int, label: String)
     /// Removes the outline item at this path of child indices from the outline root.
     case removeOutlineItem(path: [Int])
@@ -45,9 +49,10 @@ public enum PDFEdit: Sendable {
     /// The page whose appearance the edit changes, for thumbnail invalidation.
     public var changedPageIndex: Int? {
         switch self {
-        case .rotate(let pageIndex, _), .addMarkup(let pageIndex, _): pageIndex
+        case .rotate(let pageIndex, _), .addMarkup(let pageIndex, _), .addPicture(let pageIndex, _): pageIndex
         case .updateInk(let update): update.pageIndex
-        case .recolorMarkup(let reference, _), .restoreMarkupColor(let reference, _), .removeAnnotation(let reference): reference.pageIndex
+        case .recolorMarkup(let reference, _), .restoreMarkupColor(let reference, _), .removeAnnotation(let reference),
+             .movePicture(let reference, _): reference.pageIndex
         default: nil
         }
     }
@@ -61,9 +66,14 @@ public enum PDFPageManager {
     /// Repeats the annotation's `/NM` name. PDFKit drops `/NM` when a save also changes the
     /// page tree (inserting, deleting, or moving pages), but keeps custom keys.
     public static let annotationNameKey = PDFAnnotationKey(rawValue: "GraphiteAnnotationName")
+    /// The bytes of a picture placed on a page, as prefixed base64 text; see `PDFPicture`.
+    public static let pictureKey = PDFAnnotationKey(rawValue: "GraphitePictureV1")
+    /// The quarter turns a picture is drawn turned back by.
+    public static let pictureTurnsKey = PDFAnnotationKey(rawValue: "GraphitePictureTurns")
 
     /// Applies one edit. Documents that will be written pass `drawsInkOutlines` so Pencil
-    /// ink is saved with its variable-width appearance; see `PDFOutlinedInkAnnotation`.
+    /// ink is saved with its variable-width appearance (see `PDFOutlinedInkAnnotation`) and
+    /// pictures draw their appearance rather than themselves (see `PDFPictureAnnotation`).
     public static func apply(_ edit: PDFEdit, to document: PDFDocument, drawsInkOutlines: Bool = false) throws {
         func page(at index: Int) throws -> PDFPage {
             guard index >= 0, index < document.pageCount, let page = document.page(at: index) else { throw GraphiteError.invalidFile("Page no longer exists.") }
@@ -116,6 +126,18 @@ public enum PDFPageManager {
             // popup without a parent.
             if let popup = annotation.popup, popup.page === targetPage { targetPage.removeAnnotation(popup) }
             targetPage.removeAnnotation(annotation)
+        case .addPicture(let pageIndex, let picture):
+            try addPicture(picture, to: page(at: pageIndex), isForWrittenDocument: drawsInkOutlines)
+        case .movePicture(let reference, let newBounds):
+            let targetPage = try page(at: reference.pageIndex)
+            guard let annotation = referencedAnnotation(reference, on: targetPage), var picture = PDFPicture(annotation: annotation) else {
+                throw GraphiteError.invalidFile("This image no longer exists.")
+            }
+            // A new annotation rather than new bounds: an annotation read from a file shows
+            // the appearance it was written with, at the size it was written.
+            targetPage.removeAnnotation(annotation)
+            picture.bounds = newBounds
+            try addPicture(picture, to: targetPage, isForWrittenDocument: drawsInkOutlines)
         case .bookmark(let pageIndex, let label):
             let targetPage = try page(at: pageIndex)
             let outline = PDFOutline()
@@ -138,6 +160,20 @@ public enum PDFPageManager {
             item = child
         }
         return item
+    }
+
+    /// Adds the picture and puts the page's Pencil ink after it, so the ink stays over the
+    /// picture in the file as it is on screen, where the Pencil canvas covers the page.
+    private static func addPicture(_ picture: PDFPicture, to page: PDFPage, isForWrittenDocument: Bool) throws {
+        page.addAnnotation(try picture.makeAnnotation(isForWrittenDocument: isForWrittenDocument))
+        let inkAnnotations = page.annotations.filter { annotation in annotation.value(forAnnotationKey: groupKey) != nil }
+        for annotation in inkAnnotations { page.removeAnnotation(annotation) }
+        for annotation in inkAnnotations { page.addAnnotation(annotation) }
+    }
+
+    /// The pictures Graphite placed on a page, the lowest first.
+    public static func pictures(on page: PDFPage) -> [PDFPicture] {
+        page.annotations.compactMap(PDFPicture.init(annotation:))
     }
 
     /// The annotation a reference names, or, when its name was lost, the unnamed
@@ -201,7 +237,7 @@ public enum PDFPageManager {
     /// in `annotationNameKey`; another application's named markup gets the same backup
     /// here, so edits recorded against its name still find it in the written file.
     public static func preserveGraphiteKeysThroughPageTreeRewrite(in document: PDFDocument) {
-        let graphiteKeys = [groupKey, drawingKey, strokeNamesKey, annotationNameKey]
+        let graphiteKeys = [groupKey, drawingKey, strokeNamesKey, annotationNameKey, pictureKey, pictureTurnsKey]
         for pageIndex in 0..<document.pageCount {
             for annotation in document.page(at: pageIndex)?.annotations ?? [] {
                 for key in graphiteKeys {

@@ -42,6 +42,8 @@ struct ImagePane: View {
     /// toolbar show its button.
     var isFocused = true
     let editDrawing: () -> Void
+    /// Opens the drawing editor over a raster image; the result is saved beside it.
+    var drawOnImage: (() -> Void)? = nil
     /// Decoded once per file content, so a toolbar change does not hand the zooming view a
     /// new image and reset its zoom.
     @State private var image: DecodedPlatformImage?
@@ -61,6 +63,10 @@ struct ImagePane: View {
             if hasEditableStrokes && isFocused {
                 ToolbarItem(placement: .primaryAction) {
                     Button("Edit Drawing", systemImage: "pencil.tip.crop.circle") { editDrawing() }.tint(.primary)
+                }
+            } else if isFocused, image != nil, let drawOnImage {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Draw on Image", systemImage: "pencil.tip.crop.circle.badge.plus", action: drawOnImage).tint(.primary)
                 }
             }
             #endif
@@ -178,6 +184,8 @@ extension ImagePane {
 struct ImageViewer: View {
     let location: URL
     let title: String
+    /// Opens the drawing editor over this image; nil for drawings and outside notes.
+    var drawOnImage: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var image: UIImage?
     @State private var message: String?
@@ -197,7 +205,14 @@ struct ImageViewer: View {
             .background(Color.black)
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .toolbar {
+                if let drawOnImage {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button("Draw on Image", systemImage: "pencil.tip.crop.circle.badge.plus", action: drawOnImage)
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
         }
         .preferredColorScheme(.dark)
         .task {
@@ -335,25 +350,29 @@ struct EmbeddedImageView: View {
     let edit: (() -> Void)?
     /// Shows the image full screen.
     let view: (() -> Void)?
+    /// Opens the drawing editor over the image; nil for drawings and where drawings are off.
+    let drawOnImage: (() -> Void)?
     @State private var decodedImages = DecodedImageCache()
 
     /// Shows pixels already decoded at the size they are shown, off the main thread, so no
     /// evaluation of the body decodes anything and every one draws the same image.
-    init(image: CGImage, aspectRatio: CGFloat, displayWidth: CGFloat?, edit: (() -> Void)?, view: (() -> Void)?) {
-        self.init(imageSource: .decoded(image), aspectRatio: aspectRatio, displayWidth: displayWidth, edit: edit, view: view)
+    init(image: CGImage, aspectRatio: CGFloat, displayWidth: CGFloat?, edit: (() -> Void)?, view: (() -> Void)?, drawOnImage: (() -> Void)? = nil) {
+        self.init(imageSource: .decoded(image), aspectRatio: aspectRatio, displayWidth: displayWidth, edit: edit, view: view, drawOnImage: drawOnImage)
     }
 
     /// Shows encoded image data, decoded away from the main thread when the view appears.
-    init(imageData: Data, aspectRatio: CGFloat, displayWidth: CGFloat?, edit: (() -> Void)?, view: (() -> Void)?) {
-        self.init(imageSource: .encoded(imageData), aspectRatio: aspectRatio, displayWidth: displayWidth, edit: edit, view: view)
+    init(imageData: Data, aspectRatio: CGFloat, displayWidth: CGFloat?, edit: (() -> Void)?, view: (() -> Void)?, drawOnImage: (() -> Void)? = nil) {
+        self.init(imageSource: .encoded(imageData), aspectRatio: aspectRatio, displayWidth: displayWidth, edit: edit, view: view, drawOnImage: drawOnImage)
     }
 
-    private init(imageSource: ImageSource, aspectRatio: CGFloat, displayWidth: CGFloat?, edit: (() -> Void)?, view: (() -> Void)?) {
+    private init(imageSource: ImageSource, aspectRatio: CGFloat, displayWidth: CGFloat?, edit: (() -> Void)?, view: (() -> Void)?,
+                 drawOnImage: (() -> Void)?) {
         self.imageSource = imageSource
         self.aspectRatio = aspectRatio
         self.displayWidth = displayWidth
         self.edit = edit
         self.view = view
+        self.drawOnImage = edit == nil ? drawOnImage : nil
     }
 
     var body: some View {
@@ -375,6 +394,7 @@ struct EmbeddedImageView: View {
             .onTapGesture { (edit ?? view)?() }
             .contextMenu {
                 if let edit { Button("Edit Drawing", systemImage: "pencil.tip.crop.circle", action: edit) }
+                if let drawOnImage { Button("Draw on Image", systemImage: "pencil.tip.crop.circle.badge.plus", action: drawOnImage) }
                 if let view { Button("View Full Screen", systemImage: "arrow.up.left.and.arrow.down.right", action: view) }
                 #if canImport(UIKit)
                 Button("Copy Image", systemImage: "doc.on.doc") { copyImage() }
@@ -382,6 +402,9 @@ struct EmbeddedImageView: View {
             }
             .accessibilityAddTraits(.isButton)
             .accessibilityHint(edit != nil ? "Opens the drawing to edit" : "Opens the image to zoom")
+            .accessibilityActions {
+                if let drawOnImage { Button("Draw on Image", action: drawOnImage) }
+            }
     }
 
     #if canImport(UIKit)

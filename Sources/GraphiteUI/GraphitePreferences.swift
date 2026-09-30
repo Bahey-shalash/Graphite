@@ -151,6 +151,10 @@ final class GraphitePreferences {
         static let recentCommandIdentifiers = "GraphiteRecentCommands"
         static let snapshotIntervalMinutes = "GraphiteSnapshotIntervalMinutes"
         static let snapshotHistoryDays = "GraphiteSnapshotHistoryDays"
+        static let drawsOnPencilDoubleTap = "GraphiteDrawsOnPencilDoubleTap"
+        static let drawingPaperPattern = "GraphiteDrawingPaperPattern"
+        static let drawingPaperAppearsInNotes = "GraphiteDrawingPaperAppearsInNotes"
+        static let pencilToolbarStyle = PencilToolbarStyle.preferenceKey
     }
     static let textSizeRange: ClosedRange<Double> = 12...28
     private let defaults: UserDefaults
@@ -168,6 +172,13 @@ final class GraphitePreferences {
     /// Body text size in points for editing and reading.
     var textSize: Double { didSet { defaults.set(textSize, forKey: Key.textSize) } }
     var usesSpellChecking: Bool { didSet { defaults.set(usesSpellChecking, forKey: Key.usesSpellChecking) } }
+    /// The palette as saved, for code without the preferences object, such as the Pencil
+    /// palette's Favorite Colors menu.
+    nonisolated static func storedColorPalette(in defaults: UserDefaults = .standard) -> [PaletteColor] {
+        defaults.data(forKey: Key.colorPalette).flatMap { storedPalette in try? JSONDecoder().decode([PaletteColor].self, from: storedPalette) }
+            ?? PaletteColor.defaultPalette
+    }
+
     var colorPalette: [PaletteColor] {
         didSet { defaults.set(try? JSONEncoder().encode(colorPalette), forKey: Key.colorPalette) }
     }
@@ -183,16 +194,34 @@ final class GraphitePreferences {
     var recentCommandIdentifiers: [String] { didSet { defaults.set(recentCommandIdentifiers, forKey: Key.recentCommandIdentifiers) } }
     /// The order of search results, as in Obsidian's search.
     var searchSortOrder: SearchSortOrder { didSet { defaults.set(searchSortOrder.rawValue, forKey: Key.searchSortOrder) } }
-    var accentColor: Color { Color(graphiteHex: accentHex) ?? Color(graphiteHex: GraphiteTheme.defaultAccentHex) ?? .blue }
+    /// The accent as drawn: the chosen color, lightened in dark appearance to stay readable.
+    var accentColor: Color { Color.graphiteAccent(hex: accentHex) ?? Color.graphiteAccent(hex: GraphiteTheme.defaultAccentHex) ?? .blue }
+    /// The accent exactly as chosen, for the color picker.
+    var chosenAccentColor: Color { Color(graphiteHex: accentHex) ?? Color(graphiteHex: GraphiteTheme.defaultAccentHex) ?? .blue }
     /// File recovery's "Snapshot interval": at most one copy of a note per this many minutes.
     var snapshotIntervalMinutes: Int { didSet { defaults.set(snapshotIntervalMinutes, forKey: Key.snapshotIntervalMinutes) } }
     /// File recovery's "History length": copies older than this many days are removed.
     var snapshotHistoryDays: Int { didSet { defaults.set(snapshotHistoryDays, forKey: Key.snapshotHistoryDays) } }
+    /// Double-tapping Apple Pencil in a note being written starts a drawing at the cursor.
+    var drawsOnPencilDoubleTap: Bool { didSet { defaults.set(drawsOnPencilDoubleTap, forKey: Key.drawsOnPencilDoubleTap) } }
+    /// The paper new drawings start with: plain, squared, ruled or dotted.
+    var drawingPaperPattern: DrawingPaperPattern { didSet { defaults.set(drawingPaperPattern.rawValue, forKey: Key.drawingPaperPattern) } }
+    /// Whether the paper of new drawings is part of the saved drawing, so notes show it, or
+    /// only a guide while drawing.
+    var drawingPaperAppearsInNotes: Bool { didSet { defaults.set(drawingPaperAppearsInNotes, forKey: Key.drawingPaperAppearsInNotes) } }
+    var drawingPaper: DrawingPaper { DrawingPaper(pattern: drawingPaperPattern, appearsInSavedDrawing: drawingPaperAppearsInNotes) }
+    /// The floating palette of the system, or a bar fixed above the page. Views read the
+    /// same key with `AppStorage`.
+    var pencilToolbarStyle: PencilToolbarStyle { didSet { defaults.set(pencilToolbarStyle.rawValue, forKey: Key.pencilToolbarStyle) } }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         drawingFormat = defaults.string(forKey: Key.drawingFormat).flatMap(DrawingFormat.init(rawValue:)) ?? .png
         drawingBackground = defaults.string(forKey: Key.drawingBackground).flatMap(DrawingBackground.init(rawValue:)) ?? .white
+        drawsOnPencilDoubleTap = defaults.object(forKey: Key.drawsOnPencilDoubleTap) as? Bool ?? true
+        drawingPaperPattern = defaults.string(forKey: Key.drawingPaperPattern).flatMap(DrawingPaperPattern.init(rawValue:)) ?? .plain
+        drawingPaperAppearsInNotes = defaults.bool(forKey: Key.drawingPaperAppearsInNotes)
+        pencilToolbarStyle = defaults.string(forKey: Key.pencilToolbarStyle).flatMap(PencilToolbarStyle.init(rawValue:)) ?? .floating
         usesReadableLineLength = defaults.object(forKey: Key.usesReadableLineLength) as? Bool ?? true
         disabledCorePlugins = Set((defaults.stringArray(forKey: Key.disabledCorePlugins) ?? []).compactMap(CorePlugin.init(rawValue:)))
         defaultNoteView = defaults.string(forKey: Key.defaultNoteView).flatMap(DefaultNoteView.init(rawValue:)) ?? .editing
@@ -201,7 +230,7 @@ final class GraphitePreferences {
         let storedTextSize = defaults.double(forKey: Key.textSize)
         textSize = Self.textSizeRange.contains(storedTextSize) ? storedTextSize : 17
         usesSpellChecking = defaults.object(forKey: Key.usesSpellChecking) as? Bool ?? true
-        colorPalette = defaults.data(forKey: Key.colorPalette).flatMap { storedPalette in try? JSONDecoder().decode([PaletteColor].self, from: storedPalette) } ?? PaletteColor.defaultPalette
+        colorPalette = Self.storedColorPalette(in: defaults)
         embedsRecordingsInNote = defaults.object(forKey: Key.embedsRecordingsInNote) as? Bool ?? true
         accentHex = defaults.string(forKey: Key.accentHex).flatMap(TextColorMarkup.canonicalHex) ?? GraphiteTheme.defaultAccentHex
         showsInlineTitle = defaults.object(forKey: Key.showsInlineTitle) as? Bool ?? true

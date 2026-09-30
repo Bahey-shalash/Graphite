@@ -1739,9 +1739,12 @@ struct ReadingImageActions: Equatable {
     let viewImage: (VaultPath) -> Void
     /// Opens a Graphite drawing in the drawing editor; nil where drawings cannot be edited.
     let editDrawing: ((VaultPath) -> Void)?
+    /// Opens the drawing editor over an image; nil where drawings are off.
+    var drawOnImage: ((VaultPath) -> Void)? = nil
 
     static func == (leftActions: ReadingImageActions, rightActions: ReadingImageActions) -> Bool {
         leftActions.providerIdentity == rightActions.providerIdentity && (leftActions.editDrawing == nil) == (rightActions.editDrawing == nil)
+            && (leftActions.drawOnImage == nil) == (rightActions.drawOnImage == nil)
     }
 }
 
@@ -1771,7 +1774,8 @@ private struct ReadingImageBlock: View {
                 EmbeddedImageView(image: thumbnail.image, aspectRatio: thumbnail.aspectRatio,
                                   displayWidth: displaySize.map { size in CGFloat(size.fittedWidth(aspectRatio: thumbnail.aspectRatio)) },
                                   edit: thumbnail.isEditableDrawing ? imageActions?.editDrawing.map { editDrawing in { editDrawing(path) } } : nil,
-                                  view: imageActions.map { imageActions in { imageActions.viewImage(path) } })
+                                  view: imageActions.map { imageActions in { imageActions.viewImage(path) } },
+                                  drawOnImage: DrawableImages.canDrawOn(path) ? imageActions?.drawOnImage.map { drawOnImage in { drawOnImage(path) } } : nil)
             } else if didFail {
                 Label("“\(path.name)” can't be shown.", systemImage: "photo").font(.callout).foregroundStyle(.secondary)
             } else {

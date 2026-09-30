@@ -194,7 +194,7 @@ private struct AppearanceSettingsPage: View {
             }
             Section {
                 AccentColorGrid(selectedHex: $preferences.accentHex)
-                ColorPicker("Custom color", selection: Binding(get: { preferences.accentColor }, set: { color in
+                ColorPicker("Custom color", selection: Binding(get: { preferences.chosenAccentColor }, set: { color in
                     if let hex = color.sRGBHex { preferences.accentHex = hex }
                 }), supportsOpacity: false)
                 if preferences.accentHex != GraphiteTheme.defaultAccentHex {
@@ -203,7 +203,7 @@ private struct AppearanceSettingsPage: View {
             } header: {
                 Text("Accent color")
             } footer: {
-                Text("Used for links, checkboxes, selections, and buttons. Purple matches Obsidian's default.")
+                Text("Used for links, checkboxes, selections, and buttons. In dark appearance a dark accent is lightened so it stays readable. Purple matches Obsidian's default.")
             }
             Section {
                 Toggle("Show inline title", isOn: $preferences.showsInlineTitle)
@@ -314,7 +314,7 @@ private struct ColorsSettingsPage: View {
             } header: {
                 Text("Palette")
             } footer: {
-                Text("Format › Color writes the hex color, as the Colors plugin for Obsidian does (`~={#e93147}text=~`), so notes look the same in both apps. A note written with a name, as in `~={red}text=~`, takes the color of that name here, so renaming or removing a color changes it.")
+                Text("Format › Color writes the hex color, as the Colors plugin for Obsidian does (`~={#e93147}text=~`), so notes look the same in both apps. A note written with a name, as in `~={red}text=~`, takes the color of that name here, so renaming or removing a color changes it.\n\nThe same colors are the Favorite Colors of the Pencil tools, for drawings and PDFs.")
             }
         }
         .navigationTitle("Colors")
@@ -359,6 +359,35 @@ private struct DrawingsSettingsPage: View {
             } footer: {
                 Text("\(preferences.drawingFormat.summary) Every format opens in other apps, and Graphite can edit the strokes again later. An existing drawing keeps its format; use Export a Copy in the drawing editor for another one.")
             }
+            Section {
+                Picker("Paper", selection: $preferences.drawingPaperPattern) {
+                    ForEach(DrawingPaperPattern.allCases) { pattern in Text(pattern.title).tag(pattern) }
+                }
+                Toggle("Show paper in notes", isOn: $preferences.drawingPaperAppearsInNotes)
+                    .disabled(preferences.drawingPaperPattern == .plain)
+            } header: {
+                Text("Paper")
+            } footer: {
+                Text("Squares, lines or dots to write on. With “Show paper in notes” off, the paper is only a guide while you draw: the note shows the ink on the background chosen above. Each drawing keeps its own paper, which the drawing editor's menu changes.")
+            }
+            #if canImport(UIKit)
+            Section {
+                Picker("Tools", selection: $preferences.pencilToolbarStyle) {
+                    ForEach(PencilToolbarStyle.allCases) { style in Text(style.title).tag(style) }
+                }
+            } header: {
+                Text("Pencil tools")
+            } footer: {
+                Text("The floating palette is the system's: every tool of Apple Notes, and it can be moved or minimized. The fixed bar stays above the page, with a pen, a pencil, a highlighter, the eraser and the lasso, three widths, and your colors from Settings › Colors. On iPhone the palette is always used.")
+            }
+            Section {
+                Toggle("Double-tap or squeeze to draw in notes", isOn: $preferences.drawsOnPencilDoubleTap)
+            } header: {
+                Text("Apple Pencil")
+            } footer: {
+                Text("While you write a note, double-tap Apple Pencil, or squeeze Apple Pencil Pro, to start a drawing where the cursor is or where the Pencil hovers. When the gesture is set to something else in the Apple Pencil settings of iPadOS, Graphite leaves it alone.")
+            }
+            #endif
         }
         .navigationTitle("Pencil drawings")
     }

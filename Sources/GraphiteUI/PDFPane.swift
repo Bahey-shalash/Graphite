@@ -8,6 +8,8 @@ import GraphiteApple
 enum PDFAnnotationPreferenceKey {
     static let drawsWithFinger = "GraphitePDFDrawsWithFinger"
     static let showsToolPicker = "GraphitePDFShowsToolPicker"
+    /// Shared with the drawing editor: the shape tool is on or off for every canvas.
+    static let drawsShapes = "GraphiteDrawsShapes"
 }
 
 /// A PDF open as a notebook or slide deck: Pencil ink on every page, text markup, page
@@ -46,6 +48,12 @@ private struct PDFPaneContent: View {
     @AppStorage(PDFAnnotationPreferenceKey.drawsWithFinger) private var drawsWithFinger = false
     @AppStorage(PDFAnnotationPreferenceKey.showsToolPicker) private var showsToolPicker = true
     #if canImport(UIKit)
+    @AppStorage(PDFAnnotationPreferenceKey.drawsShapes) private var drawsShapes = false
+    @AppStorage(PencilToolbarStyle.preferenceKey) private var toolbarStyle = PencilToolbarStyle.floating
+    @State private var toolbox = PencilToolbox.shared
+    @State private var pictureSource: PDFPictureSource?
+    /// The fixed bar takes the place of the floating palette; compact layouts keep the palette.
+    private var usesFixedToolbar: Bool { toolbarStyle == .fixed && horizontalSizeClass != .compact }
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.usesDocumentControlRow) private var usesDocumentControlRowSetting
     private var usesDocumentControlRow: Bool { usesDocumentControlRowSetting ?? (horizontalSizeClass == .compact) }
@@ -73,8 +81,7 @@ private struct PDFPaneContent: View {
                 // The tool picker belongs to the focused side; it would cover the other one.
                 // A protected PDF is not annotated, so PDFKit's own text selection applies.
                 GraphitePDFView(session: session,
-                                input: PDFAnnotationInput(isEnabled: session.isWriting && !session.isProtected, drawsWithFinger: drawsWithFinger,
-                                                          showsToolPicker: showsToolPicker && isFocused && session.isWriting && !session.isProtected),
+                                input: annotationInput,
                                 initialPageIndex: session.currentPageIndex > 0 ? session.currentPageIndex : nil, beginInteraction: focus,
                                 linkActions: linkActions)
                     .ignoresSafeArea(edges: .bottom)
@@ -82,14 +89,31 @@ private struct PDFPaneContent: View {
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             #if canImport(UIKit)
-            if usesDocumentControlRow, isFocused, !session.isProtected {
-                DocumentControlRow(isWriting: $session.isWriting) {
-                    if session.isWriting { toolPickerButton }
-                    UndoRedoButtons(availability: session.undoAvailability)
+            VStack(spacing: 0) {
+                if usesDocumentControlRow, isFocused, !session.isProtected {
+                    DocumentControlRow(isWriting: $session.isWriting) {
+                        if session.isWriting { toolPickerButton }
+                        UndoRedoButtons(availability: session.undoAvailability)
+                    }
+                }
+                // The bar stays while a picture is arranged: removing it would move the page
+                // under the finger.
+                if usesFixedToolbar, showsToolPicker, isFocused, session.isWriting, !session.isProtected {
+                    PencilToolbar(toolbox: toolbox, favoriteColors: GraphitePreferences.storedColorPalette(), drawsShapes: $drawsShapes,
+                                  addImage: { pictureSource = .photoLibrary })
                 }
             }
             #endif
         }
+        #if canImport(UIKit)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if session.isWriting, session.selectedPicture != nil { PDFPictureArrangementBar(session: session) }
+        }
+        .modifier(PDFPictureAdding(session: session, source: $pictureSource))
+        // Reading is not arranging, and neither is taking up a tool.
+        .onChange(of: session.isWriting) { _, isWriting in if !isWriting { session.selectedPicture = nil } }
+        .onChange(of: toolbox.selection) { _, _ in session.selectedPicture = nil }
+        #endif
         .onAppear {
             // Maps the snapshot now, before an autosave can replace it, so thumbnails are
             // drawn from the file rather than from the live document.
@@ -112,6 +136,19 @@ private struct PDFPaneContent: View {
         } message: {
             Text("Saving any change rewrites the file, and PDF apps will then report its signature as invalid. To keep the signed original, duplicate the file and edit the copy.")
         }
+    }
+
+    private var annotationInput: PDFAnnotationInput {
+        let isAnnotating = session.isWriting && !session.isProtected
+        #if canImport(UIKit)
+        // The palette gives way to the fixed bar, and to the bar that arranges a picture.
+        return PDFAnnotationInput(isEnabled: isAnnotating, drawsWithFinger: drawsWithFinger,
+                                  showsToolPicker: showsToolPicker && isFocused && isAnnotating && !usesFixedToolbar && session.selectedPicture == nil,
+                                  drawsShapes: drawsShapes, isFocused: isFocused && isAnnotating,
+                                  fixedTool: usesFixedToolbar ? toolbox.selection : nil)
+        #else
+        return PDFAnnotationInput(isEnabled: isAnnotating, drawsWithFinger: drawsWithFinger, showsToolPicker: false)
+        #endif
     }
 
     @ViewBuilder private var statusBanner: some View {
@@ -215,6 +252,12 @@ private struct PDFPaneContent: View {
                 if !session.isProtected {
                     #if canImport(UIKit)
                     Toggle("Draw with Finger", systemImage: "hand.draw", isOn: $drawsWithFinger)
+                    Toggle("Draw Shapes", systemImage: "square.on.circle", isOn: $drawsShapes)
+                    if session.isWriting {
+                        Menu("Add Image", systemImage: "photo.badge.plus") {
+                            PDFAddImageMenuContent(session: session, source: $pictureSource)
+                        }
+                    }
                     Divider()
                     #endif
                     PDFPageActionsMenuContent(commands: commands, pageIndices: [session.currentPageIndex], isBookmarked: session.bookmarkedPageIndices.contains(session.currentPageIndex))

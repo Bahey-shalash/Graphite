@@ -1,15 +1,50 @@
 import SwiftUI
+import GraphiteCore
 
 public enum GraphiteTheme {
-    /// Graphite's blue (RGB 48, 104, 232).
-    static let defaultAccentHex = "#3068e8"
+    /// Ink blue, the color of the blue pen preset (RGB 45, 93, 161): calm on paper white, and
+    /// the app's one accent. In dark appearance it is lightened to stay readable
+    /// (`AccentLegibility`).
+    static let defaultAccentHex = "#2d5da1"
 
     /// The accents offered in Appearance. Any other color can be picked as well.
     static let accentPresets: [(name: String, hex: String)] = [
-        ("Blue", "#3068e8"), ("Indigo", "#5e6ad2"), ("Purple (Obsidian)", "#8a6cef"), ("Teal", "#1fa7a0"),
-        ("Green", "#2fa864"), ("Amber", "#e0a100"), ("Orange", "#ee7a2c"), ("Red", "#e5484d"),
-        ("Pink", "#e05295"), ("Graphite", "#8e8e93"),
+        ("Ink Blue", "#2d5da1"), ("Graphite", "#6e6e73"), ("Teal", "#1f8f8a"), ("Green", "#2f8f5b"),
+        ("Amber", "#b8860b"), ("Orange", "#d2691e"), ("Red", "#c4312b"), ("Pink", "#c2497f"),
+        ("Bright Blue", "#3068e8"), ("Purple (Obsidian)", "#8a6cef"),
     ]
+}
+
+extension PlatformColor {
+    /// An accent from its `#rrggbb` value: as chosen in light appearance, lightened just
+    /// enough to read in dark appearance.
+    static func graphiteAccent(hex: String) -> PlatformColor? {
+        guard let chosenColor = PlatformColor(graphiteHex: hex) else { return nil }
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        #if canImport(UIKit)
+        guard chosenColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else { return chosenColor }
+        #else
+        guard let components = chosenColor.usingColorSpace(.sRGB) else { return chosenColor }
+        red = components.redComponent; green = components.greenComponent; blue = components.blueComponent; alpha = components.alphaComponent
+        #endif
+        let lightened = AccentLegibility.lightenedForDarkBackground(red: red, green: green, blue: blue)
+        #if canImport(UIKit)
+        let darkAppearanceColor = UIColor(red: lightened.red, green: lightened.green, blue: lightened.blue, alpha: alpha)
+        return UIColor { traitCollection in traitCollection.userInterfaceStyle == .dark ? darkAppearanceColor : chosenColor }
+        #else
+        let darkAppearanceColor = NSColor(srgbRed: lightened.red, green: lightened.green, blue: lightened.blue, alpha: alpha)
+        return NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? darkAppearanceColor : chosenColor
+        }
+        #endif
+    }
+}
+
+extension Color {
+    /// See `PlatformColor.graphiteAccent(hex:)`.
+    static func graphiteAccent(hex: String) -> Color? {
+        PlatformColor.graphiteAccent(hex: hex).map { accent in Color(accent) }
+    }
 }
 
 extension EnvironmentValues {

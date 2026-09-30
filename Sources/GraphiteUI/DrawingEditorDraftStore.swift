@@ -9,6 +9,7 @@ struct DrawingEditorDraft: Codable, Equatable, Sendable {
     enum Target: Codable, Equatable, Sendable {
         case newDrawing(notePath: VaultPath, insertionLocation: Int, insertionLength: Int)
         case existingDrawing(path: VaultPath, revision: FileRevision)
+        case drawingOnImage(imagePath: VaultPath, notePath: VaultPath?)
     }
 
     let requestIdentifier: UUID
@@ -27,6 +28,8 @@ struct DrawingEditorDraft: Codable, Equatable, Sendable {
             target = .newDrawing(notePath: notePath, insertionLocation: insertionRange.location, insertionLength: insertionRange.length)
         case .existingDrawing(let path, _, let revision):
             target = .existingDrawing(path: path, revision: revision)
+        case .drawingOnImage(let imagePath, let notePath):
+            target = .drawingOnImage(imagePath: imagePath, notePath: notePath)
         }
         title = request.title
         background = request.background
@@ -48,15 +51,19 @@ struct RecoveredDrawingDraft: Sendable {
             requestTarget = .newDrawing(notePath: notePath, insertionRange: NSRange(location: max(insertionLocation, 0), length: max(insertionLength, 0)))
         case .existingDrawing(let path, let revision):
             requestTarget = .existingDrawing(path: path, location: try path.url(in: root), revision: revision)
+        case .drawingOnImage(let imagePath, let notePath):
+            requestTarget = .drawingOnImage(imagePath: imagePath, notePath: notePath)
         }
         return DrawingEditorRequest(id: draft.requestIdentifier, target: requestTarget, title: draft.title, initialStrokeData: payload.strokes,
-                                    canvasWidth: payload.width, background: draft.background, format: draft.format, isRecoveredDraft: true)
+                                    canvasWidth: payload.width, background: draft.background, format: draft.format, isRecoveredDraft: true,
+                                    backgroundImage: payload.backgroundImage, pictures: payload.pictures, paper: payload.paper)
     }
 }
 
 /// Keeps drawing drafts in the app's own Application Support folder, never inside a
-/// vault. Each draft is an ordinary SVG drawing, with its Pencil strokes in the standard
-/// metadata element, next to a small description of where it belongs. They are the
+/// vault. Each draft is an ordinary SVG drawing, with its Pencil strokes (and the picture of
+/// a drawing made on an image) in the standard metadata element, next to a small
+/// description of where it belongs. They are the
 /// user's unsaved work, not a cache.
 @MainActor
 final class DrawingEditorDraftStore {

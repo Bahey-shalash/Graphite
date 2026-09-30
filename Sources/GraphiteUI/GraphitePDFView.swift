@@ -22,6 +22,16 @@ struct PDFAnnotationInput: Equatable {
     var drawsWithFinger: Bool
     /// Shows the system tool picker (pens, colors, eraser, lasso, undo, redo).
     var showsToolPicker: Bool
+    /// Strokes become the lines, ellipses, and polygons they were meant to be.
+    var drawsShapes = false
+    /// The view is the one being worked in, whether or not its tool picker shows.
+    var isFocused = false
+    /// The tool of the fixed tool bar; nil while the floating palette chooses the tool.
+    var fixedTool: PencilToolSelection?
+
+    /// Whether the view keeps first responder for its document: Undo shortcuts reach the
+    /// document's history, and a lasso selection does not bring up typing suggestions.
+    var holdsFirstResponder: Bool { isEnabled && (isFocused || showsToolPicker) }
 }
 
 /// Follows what a PDF view shows, on both platforms.
@@ -238,6 +248,10 @@ final class GraphitePDFDisplayView: PDFView {
     /// canvas draws only the input its drawing policy allows; the other touches still
     /// reach the scrolling, zooming, and text selection gestures of this view.
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        // The frame of a picture being arranged is over the page and its canvas.
+        for case let pictureSelection as PictureSelectionView in subviews {
+            if let touchedView = pictureSelection.hitTest(pictureSelection.convert(point, from: self), with: event) { return touchedView }
+        }
         if let canvas = annotationCoordinator?.canvas(at: point, in: self) {
             // The drawing gesture lives on a subview of the canvas.
             return canvas.hitTest(canvas.convert(point, from: self), with: event) ?? canvas
@@ -258,23 +272,11 @@ private extension UIView {
     }
 }
 
-/// Invisible first responder that keeps the tool picker on screen while pages, and with
-/// them their canvases, scroll in and out of view. Its undo manager is the PDF's own
-/// history, so the picker's Undo and Redo, ⌘Z, and the system undo gestures act on this
-/// PDF only.
-final class PDFToolPickerHostView: UIView {
-    weak var documentUndoManager: UndoManager?
-    override var canBecomeFirstResponder: Bool { true }
-    override var undoManager: UndoManager? { documentUndoManager ?? super.undoManager }
-}
-
-/// A PencilKit canvas over one PDF page, in the page overlay's coordinates.
-final class PDFPageCanvasView: PKCanvasView {
+/// A PencilKit canvas over one PDF page, in the page overlay's coordinates. Its drawing
+/// changes are recorded in the PDF's own history (`PDFSession.undoManager`), by page.
+final class PDFPageCanvasView: HistoryCanvasView {
     weak var page: PDFPage?
     var inkTracker: PDFPageInkTracker
-    /// The drawing as of the last change the PDF's history knows, to tell what the next
-    /// change removed and added.
-    var recordedDrawing = PKDrawing()
     /// The page's stored ink is decoded into the canvas the first time it is shown for
     /// annotating; pages only viewed never pay for it.
     var hasRestoredStoredInk = false
@@ -289,23 +291,6 @@ final class PDFPageCanvasView: PKCanvasView {
     }
 
     required init?(coder: NSCoder) { nil }
-
-    /// PencilKit records its own steps in this undo manager, which records nothing: the
-    /// PDF's history (`PDFSession.undoManager`) records each change by page instead, so
-    /// releasing this canvas loses no step.
-    private static let discardingUndoManager: UndoManager = {
-        let undoManager = UndoManager()
-        undoManager.disableUndoRegistration()
-        return undoManager
-    }()
-    override var undoManager: UndoManager? { Self.discardingUndoManager }
-
-    /// Shows a drawing the undo history produced. The canvas reports it like any change,
-    /// so the page's annotations follow, but it is not recorded as a new step.
-    func showDrawingFromHistory(_ drawing: PKDrawing) {
-        recordedDrawing = drawing
-        self.drawing = drawing
-    }
 }
 
 /// Owns the Pencil canvases of one PDF view and turns their drawings and text selections
@@ -330,8 +315,9 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     var beginInteraction: (() -> Void)?
     var linkActions: PDFLinkActions?
     private weak var pdfView: GraphitePDFDisplayView?
-    private let toolPicker = PKToolPicker()
-    private let toolPickerHost = PDFToolPickerHostView()
+    private let toolPicker = PencilToolPalette.makeToolPicker()
+    private lazy var paletteAccessoryItem = PencilToolPalette.makeAccessoryItem(for: toolPicker)
+    private let toolPickerHost = PencilToolPickerHostView()
     private var canvasesByPage: [ObjectIdentifier: PDFPageCanvasView] = [:]
     private var displayedPages: Set<ObjectIdentifier> = []
     private var hiddenCanvasOrder: [ObjectIdentifier] = []
@@ -342,6 +328,11 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     private var tappedMarkup: (annotation: PDFAnnotation, page: PDFPage)?
     private var selectionAnchor: (page: PDFPage, point: CGPoint)?
     private var pageObserver: PDFViewPageObserver?
+    private var pictureSelection: PDFPictureSelectionController?
+    private var toolboxObserver: NSObjectProtocol?
+    /// For tests, which cannot send touches.
+    var pictureSelectionController: PDFPictureSelectionController? { pictureSelection }
+    private lazy var shapeFeedback = UICanvasFeedbackGenerator(view: toolPickerHost)
     private var observedScrollRecognizers: Set<ObjectIdentifier> = []
     /// The scroll views around this embed that it restricts while annotating.
     private var restrictedEnclosingScrollViews: [ObjectIdentifier] = []
@@ -371,12 +362,10 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         view.annotationCoordinator = self
         view.documentUndoManager = session.undoManager
         toolPickerHost.documentUndoManager = session.undoManager
+        toolPickerHost.canvases = { [weak self] in self.map { coordinator in Array(coordinator.canvasesByPage.values) } ?? [] }
         session.inkCanvasProvider = self
         view.addSubview(toolPickerHost)
-        toolPicker.colorUserInterfaceStyle = .light
-        // The picker's own finger-drawing switch only affects canvases that follow the
-        // system policy; Graphite's Draw with Finger setting controls these canvases.
-        toolPicker.showsDrawingPolicyControls = false
+        toolPicker.accessoryItem = paletteAccessoryItem
         let fingerAndPointer = [UITouch.TouchType.direct, .indirectPointer].map { touchType in NSNumber(value: touchType.rawValue) }
 
         let tapRecognizer = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
@@ -396,11 +385,18 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         view.addInteraction(menuInteraction)
         editMenuInteraction = menuInteraction
         pageObserver = PDFViewPageObserver(session: session, view: view)
+        toolboxObserver = NotificationCenter.default.addObserver(forName: PencilToolbox.selectionDidChange, object: PencilToolbox.shared, queue: nil) { [weak self] _ in
+            MainActor.assumeIsolated { self?.takeFixedToolFromToolbox() }
+        }
+        let pictureSelection = PDFPictureSelectionController(session: session, pdfView: view)
+        self.pictureSelection = pictureSelection
+        session.visiblePageCenter = { [weak pictureSelection] in pictureSelection?.visiblePageCenter() }
         session.registerPendingInkRecordWriter(for: self) { [weak self] in self?.writeDeferredInkRecords() }
     }
 
     func detach() {
         toolPicker.setVisible(false, forFirstResponder: toolPickerHost)
+        toolPickerHost.takesFirstResponderBackFromSelections = false
         toolPickerHost.resignFirstResponder()
         for canvas in canvasesByPage.values { release(canvas) }
         canvasesByPage.removeAll()
@@ -409,17 +405,26 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         if session.inkCanvasProvider === self { session.inkCanvasProvider = nil }
         restoreEnclosingScrollViews()
         pageObserver?.stop()
+        pictureSelection?.stop()
+        pictureSelection = nil
+        if let toolboxObserver { NotificationCenter.default.removeObserver(toolboxObserver) }
+        toolboxObserver = nil
     }
 
     func update(input newInput: PDFAnnotationInput) {
         guard let pdfView else { return }
-        defer { updateToolPickerVisibility() }
+        defer {
+            updateToolPickerVisibility()
+            // The session's selected picture may have changed; SwiftUI updates the view then.
+            pictureSelection?.update()
+        }
         // SwiftUI calls this on every update of the pane; the view tree is walked only
         // when the input actually changes.
         guard newInput != input || !hasAppliedInput else { return }
         hasAppliedInput = true
         let wasEnabled = input.isEnabled
         input = newInput
+        PencilToolPalette.updateShapesButton(paletteAccessoryItem, isOn: newInput.drawsShapes)
         if wasEnabled != newInput.isEnabled {
             editMenuInteraction?.dismissMenu()
             tappedMarkup = nil
@@ -431,6 +436,14 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         configureEnclosingScrollViews(of: pdfView)
         // With finger drawing, a long press belongs to the pen, as in Goodnotes.
         textSelectionRecognizer?.isEnabled = newInput.isEnabled && !newInput.drawsWithFinger
+    }
+
+    /// With the fixed tool bar, a canvas draws with the bar's tool from the moment it is
+    /// chosen; SwiftUI's update of this view would come a moment later.
+    private func takeFixedToolFromToolbox() {
+        guard input.fixedTool != nil else { return }
+        input.fixedTool = PencilToolbox.shared.selection
+        for canvas in canvasesByPage.values { canvas.takeTool(from: toolPicker, fixedTool: input.fixedTool) }
     }
 
     func windowDidChange() {
@@ -600,14 +613,6 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         canvas.minimumZoomScale = 1
         canvas.maximumZoomScale = 1
         canvas.contentInsetAdjustmentBehavior = .never
-        toolPicker.addObserver(canvas)
-        canvas.isRulerActive = toolPicker.isRulerActive
-        // Observers hear only later changes; start with the tool already selected.
-        if #available(iOS 26.0, *), let selectedTool = toolPicker.selectedToolItem.tool {
-            canvas.tool = selectedTool
-        } else {
-            (canvas as PKToolPickerObserver).toolPickerSelectedToolItemDidChange?(toolPicker)
-        }
         configure(canvas)
         // PencilKit's own finger long press (its Select All and Insert Space menu) waits
         // until the press is known not to select PDF text.
@@ -664,6 +669,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     /// A canvas shows the page's ink while annotating; otherwise the ink annotations do.
     private func configure(_ canvas: PDFPageCanvasView) {
         if input.isEnabled { restoreStoredInkIfNeeded(on: canvas) }
+        canvas.takeTool(from: toolPicker, fixedTool: input.fixedTool)
         canvas.drawingPolicy = input.drawsWithFinger ? .anyInput : .pencilOnly
         canvas.isHidden = !input.isEnabled
         canvas.isUserInteractionEnabled = input.isEnabled && !canvas.isRestoringStoredInk
@@ -675,7 +681,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
 
     private func release(_ canvas: PDFPageCanvasView) {
         writeDeferredInkRecord(of: canvas)
-        toolPicker.removeObserver(canvas)
+        canvas.stopFollowing(toolPicker)
         canvas.delegate = nil
         if let page = canvas.page { setInkAnnotationsHidden(false, on: page, group: canvas.inkTracker.group) }
     }
@@ -691,14 +697,24 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     // MARK: Drawing
 
     func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
-        guard let canvas = canvasView as? PDFPageCanvasView, let page = canvas.page, canvas.bounds.width > 0, canvas.bounds.height > 0 else { return }
+        guard let canvas = canvasView as? PDFPageCanvasView, !canvas.isShowingRecognizedShape, let page = canvas.page,
+              canvas.bounds.width > 0, canvas.bounds.height > 0 else { return }
         let pageIndex = session.document.index(for: page)
         guard pageIndex != NSNotFound else { return }
         do {
             let coordinates = try PageCoordinates(cropBox: page.bounds(for: .cropBox), overlaySize: canvas.bounds.size)
             // Archiving the whole drawing at every pen-up grows with the page's strokes;
             // the session asks for the record before it is needed (see `writeDeferredInkRecords`).
-            let drawing = canvas.drawing
+            var drawing = canvas.drawing
+            // The shape tool replaces the stroke just drawn; the history records the shape.
+            if input.drawsShapes, let shapedDrawing = PencilShapes.replacingNewStroke(in: drawing, previousDrawing: canvas.recordedDrawing) {
+                drawing = shapedDrawing
+                canvas.showRecognizedShape(shapedDrawing)
+                // Apple Pencil Pro taps when a stroke snaps to a shape.
+                if let shapeBounds = shapedDrawing.strokes.last?.renderBounds {
+                    shapeFeedback.pathCompleted(at: canvas.convert(CGPoint(x: shapeBounds.midX, y: shapeBounds.midY), to: toolPickerHost))
+                }
+            }
             let update = canvas.inkTracker.update(for: drawing, pageIndex: pageIndex, coordinates: coordinates, defersEditableRecord: true)
             try session.apply(.updateInk(update))
             // A drawing the history itself showed was recorded before it was shown.
@@ -733,14 +749,19 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
         beginInteraction?()
         pdfView?.clearSelection()
+        // Drawing ends arranging a picture.
+        if session.selectedPicture != nil { session.selectedPicture = nil }
         // A text field or the selection menu may have taken first responder.
-        if input.showsToolPicker, !toolPickerHost.isFirstResponder { toolPickerHost.becomeFirstResponder() }
+        if input.holdsFirstResponder, !toolPickerHost.isFirstResponder { toolPickerHost.becomeFirstResponder() }
     }
 
     private func updateToolPickerVisibility() {
-        let showsPicker = input.isEnabled && input.showsToolPicker && pdfView?.window != nil
+        let isInWindow = pdfView?.window != nil
+        let showsPicker = input.isEnabled && input.showsToolPicker && isInWindow
+        let holdsFirstResponder = input.holdsFirstResponder && isInWindow
         toolPicker.setVisible(showsPicker, forFirstResponder: toolPickerHost)
-        if showsPicker {
+        toolPickerHost.takesFirstResponderBackFromSelections = holdsFirstResponder
+        if holdsFirstResponder {
             if !toolPickerHost.isFirstResponder { toolPickerHost.becomeFirstResponder() }
         } else if toolPickerHost.isFirstResponder {
             toolPickerHost.resignFirstResponder()
@@ -824,6 +845,9 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         let viewPoint = recognizer.location(in: pdfView)
         guard let markup = markup(at: viewPoint) else {
             pdfView.clearSelection()
+            // A tap on a picture selects it; a tap beside it ends arranging.
+            let tappedPicture = input.isEnabled ? pictureSelection?.picture(at: viewPoint) : nil
+            if session.selectedPicture != tappedPicture { session.selectedPicture = tappedPicture }
             return
         }
         tappedMarkup = markup
@@ -838,7 +862,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard let pdfView else { return false }
         if gestureRecognizer === markupTapRecognizer {
-            return input.isEnabled && (markup(at: gestureRecognizer.location(in: pdfView)) != nil || pdfView.currentSelection != nil)
+            return input.isEnabled && takesTap(at: gestureRecognizer.location(in: pdfView), in: pdfView)
         }
         if gestureRecognizer === textSelectionRecognizer {
             let viewPoint = gestureRecognizer.location(in: pdfView)
@@ -850,7 +874,14 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         guard gestureRecognizer === markupTapRecognizer, let pdfView else { return true }
-        return input.isEnabled && (markup(at: touch.location(in: pdfView)) != nil || pdfView.currentSelection != nil)
+        return input.isEnabled && takesTap(at: touch.location(in: pdfView), in: pdfView)
+    }
+
+    /// The tap acts on markup or a picture under it, clears a text selection, and ends
+    /// arranging a picture; any other tap is left to the pen.
+    private func takesTap(at viewPoint: CGPoint, in pdfView: PDFView) -> Bool {
+        markup(at: viewPoint) != nil || pdfView.currentSelection != nil || session.selectedPicture != nil
+            || pictureSelection?.picture(at: viewPoint) != nil
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {

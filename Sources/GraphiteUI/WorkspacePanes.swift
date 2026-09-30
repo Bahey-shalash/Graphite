@@ -356,6 +356,17 @@ private struct TabDocumentView: View {
     let create: (CreationKind) -> Void
     let showQuickSwitcher: () -> Void
 
+    /// Drawing on a standalone image saves the drawing beside it; nil where drawings are off
+    /// or the file is not a raster image Graphite can decode.
+    private func drawOnImageAction(for path: VaultPath) -> (() -> Void)? {
+        #if canImport(UIKit)
+        guard workspace.preferences.isEnabled(.drawings), DrawableImages.canDrawOn(path) else { return nil }
+        return { Task { await workspace.beginDrawingOnImage(at: path, fromNote: nil) } }
+        #else
+        return nil
+        #endif
+    }
+
     var body: some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -425,11 +436,11 @@ private struct TabDocumentView: View {
                 .padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
             case .image, .pdf:
                 // A PDF reaches here only when it is a Graphite drawing (see WorkspaceModel.load).
-                ImagePane(location: location, path: path, drawingVersion: workspace.drawingVersion, isFocused: isFocused) {
+                ImagePane(location: location, path: path, drawingVersion: workspace.drawingVersion, isFocused: isFocused, editDrawing: {
                     #if canImport(UIKit)
                     Task { await workspace.beginEditingDrawing(at: path) }
                     #endif
-                }
+                }, drawOnImage: drawOnImageAction(for: path))
             default:
                 FilePreviewPane(location: location)
             }

@@ -22,6 +22,8 @@ struct LivePreviewEnvironment {
     var viewImage: ((VaultPath) -> Void)? = nil
     /// Opens a Graphite drawing in the drawing editor; nil when drawings are turned off.
     var editDrawing: ((VaultPath) -> Void)? = nil
+    /// Opens the drawing editor over an image; nil when drawings are turned off.
+    var drawOnImage: ((VaultPath) -> Void)? = nil
     /// Changes when the index takes in new files, so embeds not found yet look again.
     var indexVersion = 0
     /// The widest, in points, the note's column shows an embedded image; nil when the
@@ -350,7 +352,8 @@ private struct LivePreviewEmbedView: View {
                 EmbeddedImageView(image: image, aspectRatio: aspectRatio,
                                   displayWidth: embed.displaySize.map { size in CGFloat(size.fittedWidth(aspectRatio: aspectRatio)) },
                                   edit: isEditableDrawing ? environment.editDrawing.map { editDrawing in { editDrawing(path) } } : nil,
-                                  view: environment.viewImage.map { viewImage in { viewImage(path) } } ?? revealSource)
+                                  view: environment.viewImage.map { viewImage in { viewImage(path) } } ?? revealSource,
+                                  drawOnImage: DrawableImages.canDrawOn(path) ? environment.drawOnImage.map { drawOnImage in { drawOnImage(path) } } : nil)
             case .video(let location):
                 EmbeddedMediaPlayer(location: location)
             case .audio(let location, let name):

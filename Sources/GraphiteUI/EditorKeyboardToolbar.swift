@@ -34,6 +34,9 @@ struct EditorActions {
     /// Nil where the device has no camera.
     var takePhoto: (() -> Void)?
     var draw: (() -> Void)?
+    /// Starts a drawing when Apple Pencil is double-tapped; nil where the note's side is not
+    /// focused or the setting is off.
+    var drawOnPencilDoubleTap: (() -> Void)?
     /// Saves pasted or dropped data as an attachment and embeds it at the range.
     var insertAttachment: ((_ data: Data, _ stem: String, _ fileExtension: String, _ range: NSRange) -> Void)?
     /// Inserts a link to a vault file dragged from the sidebar.

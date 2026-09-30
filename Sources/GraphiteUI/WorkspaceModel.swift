@@ -115,6 +115,8 @@ final class WorkspaceModel {
     /// An unfinished recording offered back, one at a time.
     var recordingRecoveryOffer: RecoverableRecording?
     var drawingEditorRequest: DrawingEditorRequest?
+    /// The note the image shown full screen came from, so the viewer can offer to draw on it.
+    @ObservationIgnored var viewedImageNote: VaultPath?
     /// An image shown full screen, where it can be zoomed, over the open note.
     var viewedImage: VaultPath?
     /// A heading to show in the focused tab's note (from `[[Note#Heading]]` or the outline).
@@ -138,7 +140,7 @@ final class WorkspaceModel {
     private var isIndexScanRequestedDuringScan = false
     private var externalChangeTask: Task<Void, Never>?
     private var pendingExternalChanges: Set<URL> = []
-    private let resolver = AttachmentResolver()
+    let resolver = AttachmentResolver()
 
     var title: String { folderAccess?.root.lastPathComponent ?? "Graphite" }
     var currentDirectory: VaultPath { selection?.parent ?? .root }
@@ -858,7 +860,7 @@ final class WorkspaceModel {
     /// Whether no other vault file shares the file's name, so a "shortest" link can be
     /// just the name. That needs a complete index to prove; until then it is false, and
     /// the full vault path, always a valid link, is written.
-    private func isNameUnique(_ path: VaultPath, from note: VaultPath) async -> Bool {
+    func isNameUnique(_ path: VaultPath, from note: VaultPath) async -> Bool {
         guard hasCompletedIndexScan, let index, let fileCount = try? await index.fileCount(named: path.name) else { return false }
         if fileCount == 0 { return true }
         guard fileCount == 1 else { return false }
@@ -892,7 +894,7 @@ final class WorkspaceModel {
         let request = DrawingEditorRequest(
             target: .newDrawing(notePath: session.path, insertionRange: NSRange(location: NSMaxRange(session.selection), length: 0)),
             title: "New Drawing", initialStrokeData: Data(), canvasWidth: nil,
-            background: preferences.drawingBackground, format: preferences.drawingFormat)
+            background: preferences.drawingBackground, format: preferences.drawingFormat, paper: preferences.drawingPaper)
         noteTextWhenDrawingBegan = (request.id, session.text)
         drawingEditorRequest = request
     }
@@ -905,7 +907,8 @@ final class WorkspaceModel {
             drawingEditorRequest = DrawingEditorRequest(
                 target: .existingDrawing(path: path, location: location, revision: drawing.revision),
                 title: path.name, initialStrokeData: drawing.payload.strokes, canvasWidth: drawing.payload.width,
-                background: drawing.payload.background, format: drawing.format)
+                background: drawing.payload.background, format: drawing.format, backgroundImage: drawing.payload.backgroundImage,
+                pictures: drawing.payload.pictures, paper: drawing.payload.paper)
         } catch { errorMessage = error.localizedDescription }
     }
 
@@ -942,6 +945,8 @@ final class WorkspaceModel {
         case .existingDrawing(let path, let location, let revision):
             _ = try await drawingService.save(content, format: format, to: location, expecting: .revision(revision))
             refreshIndex(for: [path])
+        case .drawingOnImage(let imagePath, let notePath):
+            try await saveDrawingOnImage(content, imagePath: imagePath, notePath: notePath, service: drawingService)
         }
         drawingVersion += 1
         await refreshDirectory()

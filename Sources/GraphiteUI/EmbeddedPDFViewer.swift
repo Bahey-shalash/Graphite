@@ -41,6 +41,15 @@ struct EmbeddedPDFViewer: View {
     @State private var thumbnailRenderer = PDFThumbnailRenderer()
     @FocusState private var isEditingPageNumber: Bool
     @AppStorage(PDFAnnotationPreferenceKey.drawsWithFinger) private var drawsWithFinger = false
+    @AppStorage(PDFAnnotationPreferenceKey.drawsShapes) private var drawsShapes = false
+    #if canImport(UIKit)
+    @AppStorage(PencilToolbarStyle.preferenceKey) private var toolbarStyle = PencilToolbarStyle.floating
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var toolbox = PencilToolbox.shared
+    @State private var pictureSource: PDFPictureSource?
+    /// The fixed bar takes the place of the floating palette; compact layouts keep the palette.
+    private var usesFixedToolbar: Bool { toolbarStyle == .fixed && horizontalSizeClass != .compact }
+    #endif
     @Environment(\.scenePhase) private var scenePhase
 
     /// What the conflict banner says instead of its default text.
@@ -66,8 +75,22 @@ struct EmbeddedPDFViewer: View {
             toolbar
             Divider()
             statusBanner
+            #if canImport(UIKit)
+            if let session, isAnnotating, !session.isProtected, usesFixedToolbar {
+                PencilToolbar(toolbox: toolbox, favoriteColors: GraphitePreferences.storedColorPalette(), drawsShapes: $drawsShapes,
+                              addImage: { pictureSource = .photoLibrary })
+            }
+            #endif
             content
+            #if canImport(UIKit)
+            if let session, isAnnotating, session.selectedPicture != nil { PDFPictureArrangementBar(session: session) }
+            #endif
         }
+        #if canImport(UIKit)
+        .modifier(EmbeddedPDFPictureAdding(session: session, source: $pictureSource))
+        // Taking up a tool ends arranging a picture.
+        .onChange(of: toolbox.selection) { _, _ in session?.selectedPicture = nil }
+        #endif
         .frame(height: height)
         .frame(maxWidth: .infinity)
         .background(.background.secondary)
@@ -141,6 +164,14 @@ struct EmbeddedPDFViewer: View {
             }
             // Annotating can always be stopped, also after a conflict appeared meanwhile.
             .disabled(session == nil || isPreparingToAnnotate || (!isAnnotating && !canStartAnnotating))
+            if let session, isAnnotating, !session.isProtected {
+                Menu("Add Image", systemImage: "photo.badge.plus") {
+                    PDFAddImageMenuContent(session: session, source: $pictureSource)
+                }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .frame(width: 32, height: 32)
+            }
             #endif
             toolbarButton("Open in PDF View", systemImage: "arrow.up.left.and.arrow.down.right") { openFullPane() }
         }
@@ -227,6 +258,18 @@ struct EmbeddedPDFViewer: View {
         return !session.hasExternalConflict && !session.isProtected
     }
 
+    private func annotationInput(for session: PDFSession) -> PDFAnnotationInput {
+        let isEnabled = isAnnotating && !session.isProtected
+        #if canImport(UIKit)
+        // The palette gives way to the fixed bar, and to the bar that arranges a picture.
+        return PDFAnnotationInput(isEnabled: isEnabled, drawsWithFinger: drawsWithFinger,
+                                  showsToolPicker: isEnabled && !usesFixedToolbar && session.selectedPicture == nil, drawsShapes: drawsShapes,
+                                  isFocused: isEnabled, fixedTool: usesFixedToolbar ? toolbox.selection : nil)
+        #else
+        return PDFAnnotationInput(isEnabled: isEnabled, drawsWithFinger: drawsWithFinger, showsToolPicker: false, drawsShapes: drawsShapes)
+        #endif
+    }
+
     @ViewBuilder private var content: some View {
         if let session {
             HStack(spacing: 0) {
@@ -239,8 +282,7 @@ struct EmbeddedPDFViewer: View {
                 // A refreshed or recovered session opens where its viewer was; a new one at
                 // the start page, which loading made current.
                 GraphitePDFView(session: session,
-                                input: PDFAnnotationInput(isEnabled: isAnnotating && !session.isProtected, drawsWithFinger: drawsWithFinger,
-                                                          showsToolPicker: isAnnotating && !session.isProtected),
+                                input: annotationInput(for: session),
                                 isEmbedded: true,
                                 initialPageIndex: session.currentPageIndex)
                     // A reloaded file is a new session; its view and canvases start fresh.
@@ -620,3 +662,19 @@ final class EmbeddedPDFSessions {
         return keptSession
     }
 }
+
+#if canImport(UIKit)
+/// `PDFPictureAdding` for a viewer whose PDF may not be loaded yet.
+private struct EmbeddedPDFPictureAdding: ViewModifier {
+    let session: PDFSession?
+    @Binding var source: PDFPictureSource?
+
+    func body(content: Content) -> some View {
+        if let session {
+            content.modifier(PDFPictureAdding(session: session, source: $source))
+        } else {
+            content
+        }
+    }
+}
+#endif

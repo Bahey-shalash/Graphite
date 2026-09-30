@@ -100,7 +100,7 @@ public struct GraphiteRootView: View {
         #if canImport(UIKit)
         .fullScreenCover(item: $workspace.viewedImage) { path in
             if let root = workspace.folderAccess?.root, let location = try? path.url(in: root) {
-                ImageViewer(location: location, title: path.name)
+                ImageViewer(location: location, title: path.name, drawOnImage: drawOnViewedImage(path))
             }
         }
         .fullScreenCover(item: $workspace.drawingEditorRequest) { request in
@@ -112,7 +112,7 @@ public struct GraphiteRootView: View {
                 guard let vaultIdentifier = workspace.currentVaultIdentifier else { return }
                 Self.draftIdentifiersOpenInThisProcess.insert(request.id)
                 DrawingEditorDraftStore.shared.preserve(DrawingEditorDraft(request: request, vaultIdentifier: vaultIdentifier)) {
-                    try await DrawingFileService().fileData(for: content, format: .svg)
+                    try await DrawingFileService().draftFileData(for: content)
                 }
             } removeDraft: {
                 DrawingEditorDraftStore.shared.removeDraft(withIdentifier: request.id)
@@ -358,6 +358,16 @@ public struct GraphiteRootView: View {
     }
 
     #if canImport(UIKit)
+    /// Closes the full-screen viewer and opens the drawing editor over its image; nil where
+    /// the image did not come from a note, is not a picture to draw on, or drawings are off.
+    private func drawOnViewedImage(_ path: VaultPath) -> (() -> Void)? {
+        guard workspace.preferences.isEnabled(.drawings), DrawableImages.canDrawOn(path), let notePath = workspace.viewedImageNote else { return nil }
+        return {
+            workspace.viewedImage = nil
+            Task { await workspace.beginDrawingOnImage(at: path, fromNote: notePath) }
+        }
+    }
+
     /// Drafts whose editor this process has open or has already reopened. Only a draft left
     /// by an ended process is reopened, never one still open in another window.
     @MainActor private static var draftIdentifiersOpenInThisProcess: Set<UUID> = []
