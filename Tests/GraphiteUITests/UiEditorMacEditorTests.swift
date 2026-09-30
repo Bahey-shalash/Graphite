@@ -245,6 +245,56 @@ final class UiEditorMacEditorTests: XCTestCase {
         XCTAssertEqual(lectureCoordinator.session.text, "Lecture\n")
     }
 
+    /// SwiftUI makes a note's new view before it dismantles the old one, and can dismantle
+    /// a view it has only just made, as when the split closes. The editor ends in the
+    /// view that stays whichever way round that goes, and is never left hidden.
+    func testEditorEndsInTheViewThatStaysWhicheverViewIsDismantledFirst() async throws {
+        for dismantlesPassingViewFirst in [true, false] {
+            let (coordinator, textView, scrollView) = try await makeEditor(text: "Lecture\n")
+            let retention = MarkdownEditorRetention()
+            let document = TabDocument()
+            document.markdownSession = coordinator.session
+            coordinator.retention = retention
+            coordinator.retentionOwner = document
+            coordinator.scrollView = scrollView
+            coordinator.replaceText(with: "Lecture edited\n", in: textView)
+            coordinator.suspend(scrollView)
+
+            let splitContainer = MarkdownEditorContainerView(frame: NSRect(x: 0, y: 0, width: 400, height: 400))
+            let stayingContainer = MarkdownEditorContainerView(frame: NSRect(x: 0, y: 0, width: 800, height: 400))
+            let passingContainer = MarkdownEditorContainerView(frame: NSRect(x: 0, y: 0, width: 800, height: 400))
+            coordinator.viewWasMade(with: splitContainer)
+            XCTAssertTrue(splitContainer.scrollViewShownHere === scrollView, "A hidden editor is shown in its new view at once.")
+            XCTAssertTrue(coordinator.session.isEditorAttached)
+
+            coordinator.viewWasMade(with: stayingContainer)
+            coordinator.viewWasMade(with: passingContainer)
+            XCTAssertTrue(splitContainer.scrollViewShownHere === scrollView, "The editor stays where it is until that view is dismantled.")
+            var updatedScrollViews: [NSScrollView] = []
+            stayingContainer.updateWhenScrollViewArrives = { arrivedScrollView in updatedScrollViews.append(arrivedScrollView) }
+
+            if dismantlesPassingViewFirst {
+                coordinator.viewWasDismantled(with: passingContainer)
+                coordinator.viewWasDismantled(with: splitContainer)
+            } else {
+                coordinator.viewWasDismantled(with: splitContainer)
+                XCTAssertTrue(passingContainer.scrollViewShownHere === scrollView)
+                coordinator.viewWasDismantled(with: passingContainer)
+            }
+            XCTAssertTrue(stayingContainer.scrollViewShownHere === scrollView, "dismantlesPassingViewFirst: \(dismantlesPassingViewFirst)")
+            XCTAssertEqual(updatedScrollViews.count, 1, "The view that stays brings the editor up to date once it shows it.")
+            XCTAssertTrue(coordinator.session.isEditorAttached)
+            XCTAssertEqual(retention.hiddenEditorCount, 0, "An editor on screen is not kept as a hidden one.")
+            XCTAssertTrue(coordinator.session.undoAvailability.canUndo)
+
+            // With no view left, the editor leaves the screen and is kept with its history.
+            coordinator.viewWasDismantled(with: stayingContainer)
+            XCTAssertNil(scrollView.superview)
+            XCTAssertFalse(coordinator.session.isEditorAttached)
+            XCTAssertTrue(retention.hasHiddenEditor(for: coordinator.session))
+        }
+    }
+
     // MARK: Pasted and dropped attachments (F173, F667)
 
     /// Two files pasted over a selected word, or dropped at a point: the first takes the

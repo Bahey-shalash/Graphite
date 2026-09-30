@@ -81,6 +81,78 @@ final class EditingContinuityTests: XCTestCase {
         try await waitUntil { lectureSession.text == "Lecture.\n Moved note edit." }
     }
 
+    /// SwiftUI can make a view of a note and dismantle it again while an earlier view of
+    /// the note stays, as it did when the split closed in the app; the note's pane was
+    /// then left empty. The text view belongs in the view that stays.
+    func testTextViewEndsInTheViewThatStaysWhenANewerViewIsDismantled() async throws {
+        let workspace = try await makeWorkspace(notes: ["Lecture.md": "Lecture.\n"])
+        let lectureTab = try await openTab("Lecture.md", in: workspace, placement: .currentTab)
+        let document = workspace.document(for: lectureTab)
+        let lectureSession = try XCTUnwrap(document.markdownSession)
+        let shownViews = ShownEditorViews()
+        let controller = UIHostingController(rootView: EditorViews(shownViews: shownViews, session: lectureSession,
+                                                                   retention: workspace.markdownEditorRetention, owner: document))
+        try present(controller)
+        let editor = try await visibleEditor(in: controller, showing: lectureSession)
+        try await type(" Edited in the first view.", into: editor, session: lectureSession)
+        editor.resignFirstResponder()
+
+        // The view that stays and a passing view are made as the first view goes.
+        shownViews.showsViewThatStays = true
+        shownViews.showsPassingView = true
+        shownViews.showsFirstView = false
+        try await waitUntil { self.containers(in: controller).count == 2 && self.editors(in: controller).contains { shownEditor in shownEditor === editor } }
+        shownViews.showsPassingView = false
+        try await waitUntil { self.containers(in: controller).count == 1 }
+
+        try await waitUntil { self.editors(in: controller).contains { shownEditor in shownEditor === editor } && editor.bounds.width > 0 }
+        XCTAssertTrue(editor.superview === containers(in: controller).first, "The view that stays shows the note's text view.")
+        XCTAssertFalse(workspace.markdownEditorRetention.hasHiddenEditor(for: lectureSession), "The note is on screen, not kept for later.")
+        XCTAssertTrue(lectureSession.isEditorAttached)
+        editor.undoManager?.undo()
+        try await waitUntil { lectureSession.text == "Lecture.\n" }
+    }
+
+    /// The split opening and closing in the hosted workspace, where the note's view is
+    /// made again each time.
+    func testNoteStaysOnScreenWhenTheSplitOpensAndCloses() async throws {
+        let workspace = try await makeWorkspace(notes: ["Lecture.md": "# Lecture\n\nA paragraph.\n\n- one\n- two\n"])
+        let lectureTab = try await openTab("Lecture.md", in: workspace, placement: .currentTab)
+        let controller = try host(workspace)
+        let lectureSession = try XCTUnwrap(workspace.document(for: lectureTab).markdownSession)
+        let editor = try await visibleEditor(in: controller, showing: lectureSession)
+        try await type("Edited before the split.", into: editor, session: lectureSession)
+        editor.resignFirstResponder()
+        let widthBeforeSplit = editor.bounds.width
+
+        try await openAndCloseSplit(beside: lectureTab, in: workspace, controller: controller, editor: editor, widthBeforeSplit: widthBeforeSplit)
+        XCTAssertFalse(workspace.markdownEditorRetention.hasHiddenEditor(for: lectureSession), "The note is on screen, not kept for later.")
+        editor.undoManager?.undo()
+        try await waitUntil { lectureSession.text == "# Lecture\n\nA paragraph.\n\n- one\n- two\n" }
+        attachScreenshot(named: "Note after the split closed")
+    }
+
+    /// With the cursor in the note, the same steps used to take the keyboard from the text
+    /// view in the middle of SwiftUI's update.
+    func testNoteStaysOnScreenWhenTheSplitOpensAndClosesWhileEditing() async throws {
+        let workspace = try await makeWorkspace(notes: ["Lecture.md": "# Lecture\n\nA paragraph.\n"])
+        let lectureTab = try await openTab("Lecture.md", in: workspace, placement: .currentTab)
+        let controller = try host(workspace)
+        let lectureSession = try XCTUnwrap(workspace.document(for: lectureTab).markdownSession)
+        let editor = try await visibleEditor(in: controller, showing: lectureSession)
+        let widthBeforeSplit = editor.bounds.width
+        let heightBeforeSplit = editor.bounds.height
+
+        editor.beginEditing()
+        XCTAssertTrue(editor.isFirstResponder)
+        try await openAndCloseSplit(beside: lectureTab, in: workspace, controller: controller, editor: editor, widthBeforeSplit: widthBeforeSplit) {
+            editor.beginEditing()
+        }
+        // Once editing has ended, no room is left for a keyboard that went away.
+        try await waitUntil { editor.isFirstResponder || abs(editor.bounds.height - heightBeforeSplit) < 1 }
+        attachScreenshot(named: "Note after the split closed while editing")
+    }
+
     func testUndoSurvivesReadingViewAndReturningToWrite() async throws {
         let workspace = try await makeWorkspace(notes: ["Reading.md": "# Reading\n\nA paragraph.\n"])
         let tab = try await openTab("Reading.md", in: workspace, placement: .currentTab)
@@ -206,23 +278,49 @@ final class EditingContinuityTests: XCTestCase {
         let controller = UIHostingController(rootView: AnyView(NavigationStack {
             WorkspacePanes(workspace: workspace, showsLinksInspector: .constant(false), create: { _ in }, showQuickSwitcher: {})
         }))
+        try present(controller)
+        return controller
+    }
+
+    private func present(_ controller: UIViewController) throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
         window.frame = scene.coordinateSpace.bounds
         window.rootViewController = controller
         window.makeKeyAndVisible()
         self.window = window
-        return controller
     }
 
     private func editors(in controller: UIViewController) -> [MarkdownTextView] {
         descendants(of: controller.view, matching: MarkdownTextView.self).filter { editor in editor.window != nil }
     }
 
+    private func containers(in controller: UIViewController) -> [MarkdownEditorContainerView] {
+        descendants(of: controller.view, matching: MarkdownEditorContainerView.self).filter { container in container.window != nil }
+    }
+
     /// The text view on screen that shows the session's note.
     private func visibleEditor(in controller: UIViewController, showing session: MarkdownSession) async throws -> MarkdownTextView {
         try await waitUntil { self.editors(in: controller).contains { editor in editor.text == session.text && editor.bounds.width > 0 } }
         return try XCTUnwrap(editors(in: controller).first { editor in editor.text == session.text })
+    }
+
+    /// Opens the other side of the split and closes it again, checking after each step
+    /// that the note's text view is the one on screen, at the width of its pane.
+    private func openAndCloseSplit(beside tab: UUID, in workspace: WorkspaceModel, controller: UIViewController, editor: MarkdownTextView,
+                                   widthBeforeSplit: CGFloat, beforeClosing: () -> Void = {}) async throws {
+        let noteGroup = try XCTUnwrap(workspace.layout.group(containing: tab)?.id)
+        workspace.splitRight()
+        let otherGroup = try XCTUnwrap(workspace.layout.otherGroup(than: noteGroup)?.id)
+        try await waitUntil { self.editors(in: controller).contains { shownEditor in shownEditor === editor } && editor.bounds.width > 0 && editor.bounds.width < widthBeforeSplit - 1 }
+        XCTAssertEqual(editors(in: controller).count, 1)
+
+        beforeClosing()
+        await workspace.closeGroup(otherGroup)
+        XCTAssertFalse(workspace.layout.isSplit)
+        try await waitUntil { self.editors(in: controller).contains { shownEditor in shownEditor === editor } && abs(editor.bounds.width - widthBeforeSplit) < 1 }
+        XCTAssertEqual(editors(in: controller).count, 1, "The note's text view stays on screen in the pane that is left.")
+        XCTAssertTrue(editor.superview is MarkdownEditorContainerView)
     }
 
     private func type(_ text: String, into editor: MarkdownTextView, session: MarkdownSession) async throws {
@@ -257,6 +355,36 @@ final class EditingContinuityTests: XCTestCase {
         let deadline = Date().addingTimeInterval(5)
         while !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(25)) }
         XCTAssertTrue(condition(), "The hosted workspace did not reach the expected state.")
+    }
+}
+
+/// Which views of one note `EditorViews` shows.
+@MainActor @Observable
+private final class ShownEditorViews {
+    var showsViewThatStays = false
+    var showsFirstView = true
+    var showsPassingView = false
+}
+
+/// Several SwiftUI views of one note, made and dismantled as a test asks, which SwiftUI
+/// otherwise decides by itself.
+private struct EditorViews: View {
+    let shownViews: ShownEditorViews
+    let session: MarkdownSession
+    let retention: MarkdownEditorRetention
+    let owner: TabDocument
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if shownViews.showsViewThatStays { editor }
+            if shownViews.showsFirstView { editor }
+            if shownViews.showsPassingView { editor }
+        }
+    }
+
+    private var editor: some View {
+        NativeMarkdownEditor(session: session, configuration: EditorConfiguration(mode: .source), headingScrollRequest: nil,
+                             retention: retention, retentionOwner: owner) { _, _ in }
     }
 }
 #endif

@@ -140,3 +140,34 @@ final class MarkdownEditorRetention {
         for hidden in discarded { hidden.editor.discardRetainedEditor() }
     }
 }
+
+/// The containers of the SwiftUI views that show one note's editor, oldest first. SwiftUI
+/// makes a note's new view before it dismantles the old one, and can dismantle a view it
+/// has only just made, so which view stays is known only as the others are dismantled.
+struct EditorContainersInUse<Container: AnyObject> {
+    private struct Reference {
+        weak var container: Container?
+    }
+
+    private var references: [Reference] = []
+
+    /// The container of the newest view that has not been dismantled.
+    var newest: Container? {
+        references.reversed().lazy.compactMap(\.container).first
+    }
+
+    func contains(where isMatch: (Container) -> Bool) -> Bool {
+        references.contains { reference in reference.container.map(isMatch) ?? false }
+    }
+
+    mutating func add(_ container: Container) {
+        remove(container)
+        references.append(Reference(container: container))
+    }
+
+    /// Forgets a dismantled view's container, and any that were released without being
+    /// dismantled.
+    mutating func remove(_ container: Container) {
+        references.removeAll { reference in reference.container == nil || reference.container === container }
+    }
+}

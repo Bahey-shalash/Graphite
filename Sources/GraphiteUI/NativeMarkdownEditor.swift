@@ -337,6 +337,9 @@ final class MarkdownTextView: UITextView {
 /// note's text view is kept by `MarkdownEditorRetention` and shown again in a new container.
 final class MarkdownEditorContainerView: UIView {
     private(set) weak var hostedTextView: MarkdownTextView?
+    /// The latest update of this container's SwiftUI view, made while an earlier view of
+    /// the note still showed the text view. It runs when the text view arrives here.
+    var updateWhenTextViewArrives: ((MarkdownTextView) -> Void)?
 
     func host(_ textView: MarkdownTextView) {
         textView.removeFromSuperview()
@@ -344,9 +347,12 @@ final class MarkdownEditorContainerView: UIView {
         textView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         addSubview(textView)
         hostedTextView = textView
+        let waitingUpdate = updateWhenTextViewArrives
+        updateWhenTextViewArrives = nil
+        waitingUpdate?(textView)
     }
 
-    /// The text view, while this container still shows it rather than a newer one.
+    /// The text view, while this container shows it rather than another view of the note.
     var textViewShownHere: MarkdownTextView? {
         guard let hostedTextView, hostedTextView.superview === self else { return nil }
         return hostedTextView
@@ -391,15 +397,12 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         let coordinator = context.coordinator
         coordinator.retention = retention
         coordinator.retentionOwner = retentionOwner
-        if let keptTextView = coordinator.textView {
-            // The same text view, cursor, layout, and undo history as when it was hidden.
-            container.host(keptTextView)
-            coordinator.resume(keptTextView)
-        } else {
+        if coordinator.textView == nil {
             let textView = makeTextView(coordinator: coordinator)
             coordinator.textView = textView
             container.host(textView)
         }
+        coordinator.viewWasMade(with: container)
         retention?.editorDidAttach(coordinator)
         return container
     }
@@ -482,9 +485,17 @@ struct NativeMarkdownEditor: UIViewRepresentable {
     }
 
     func updateUIView(_ container: MarkdownEditorContainerView, context: Context) {
-        // A newer view of this note took the text view over; this one is about to go.
-        guard let textView = container.textViewShownHere else { return }
         let coordinator = context.coordinator
+        guard let textView = container.textViewShownHere else {
+            // An earlier view of this note still shows the text view; this view's state
+            // reaches the editor when the text view moves here.
+            container.updateWhenTextViewArrives = { [self] arrivedTextView in update(arrivedTextView, coordinator: coordinator) }
+            return
+        }
+        update(textView, coordinator: coordinator)
+    }
+
+    private func update(_ textView: MarkdownTextView, coordinator: Coordinator) {
         coordinator.session = session
         // Rendered drawings must be rebuilt after a drawing file is rewritten.
         if coordinator.environment?.drawingVersion != environment?.drawingVersion { coordinator.removeAllWidgets() }
@@ -534,13 +545,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ container: MarkdownEditorContainerView, coordinator: Coordinator) {
-        // A tab moved to the other side is shown there before this view goes; the text
-        // view already belongs to the new container.
-        guard let textView = container.textViewShownHere else { return }
-        coordinator.suspend(textView)
-        if coordinator.retention?.keepHiddenEditor(coordinator, owner: coordinator.retentionOwner) != true {
-            coordinator.discardRetainedEditor()
-        }
+        coordinator.viewWasDismantled(with: container)
     }
 
     @MainActor
@@ -552,6 +557,8 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         var textView: MarkdownTextView?
         weak var retention: MarkdownEditorRetention?
         weak var retentionOwner: TabDocument?
+        /// The containers of the SwiftUI views that show this note.
+        private var containersInUse = EditorContainersInUse<MarkdownEditorContainerView>()
         /// The text view's width when it left the screen; a new width reflows the note,
         /// so it returns to its top line rather than to the old pixel offset.
         private var widthWhenHidden: CGFloat?
@@ -659,6 +666,37 @@ struct NativeMarkdownEditor: UIViewRepresentable {
 
         var editedSession: MarkdownSession { session }
         var retainedTextLength: Int { textView?.textStorage.length ?? 0 }
+
+        /// Takes in the container of a new SwiftUI view of the note. A hidden note's text
+        /// view is shown in it at once. A text view that an earlier view still shows stays
+        /// there until that view is dismantled: SwiftUI makes the new view in the middle
+        /// of its update, where taking the keyboard from the text view made SwiftUI update
+        /// again from inside that update, and it can dismantle the new view before the
+        /// earlier one.
+        func viewWasMade(with container: MarkdownEditorContainerView) {
+            let isShownInEarlierView = containersInUse.contains { earlierContainer in earlierContainer.textViewShownHere != nil }
+            containersInUse.add(container)
+            guard let textView, !isShownInEarlierView, container.textViewShownHere == nil else { return }
+            // The same text view, cursor, layout, and undo history as when it was hidden.
+            container.host(textView)
+            resume(textView)
+        }
+
+        /// Lets go of the container of a dismantled SwiftUI view. The text view it showed
+        /// moves to the newest view of the note that is left (the split opening or
+        /// closing, a tab moved to the other side); with none left, the editor leaves
+        /// the screen.
+        func viewWasDismantled(with container: MarkdownEditorContainerView) {
+            containersInUse.remove(container)
+            guard let textView = container.textViewShownHere else { return }
+            if let remainingContainer = containersInUse.newest {
+                remainingContainer.host(textView)
+                placeWidgetsAgain(in: textView)
+                return
+            }
+            suspend(textView)
+            if retention?.keepHiddenEditor(self, owner: retentionOwner) != true { discardRetainedEditor() }
+        }
 
         /// Takes the editor off screen without ending it: the text view keeps its text,
         /// selection, and undo history. Rendered blocks are released and rebuilt when it
@@ -2206,6 +2244,9 @@ enum UndrawnReplacementStyling {
 /// Hosts a note's scroll view and text view for one SwiftUI view; see the iPad container.
 final class MarkdownEditorContainerView: NSView {
     private(set) weak var hostedScrollView: NSScrollView?
+    /// The latest update of this container's SwiftUI view, made while an earlier view of
+    /// the note still showed the editor. It runs when the editor arrives here.
+    var updateWhenScrollViewArrives: ((NSScrollView) -> Void)?
 
     func host(_ scrollView: NSScrollView) {
         scrollView.removeFromSuperview()
@@ -2213,9 +2254,12 @@ final class MarkdownEditorContainerView: NSView {
         scrollView.autoresizingMask = [.width, .height]
         addSubview(scrollView)
         hostedScrollView = scrollView
+        let waitingUpdate = updateWhenScrollViewArrives
+        updateWhenScrollViewArrives = nil
+        waitingUpdate?(scrollView)
     }
 
-    /// The scroll view, while this container still shows it rather than a newer one.
+    /// The scroll view, while this container shows it rather than another view of the note.
     var scrollViewShownHere: NSScrollView? {
         guard let hostedScrollView, hostedScrollView.superview === self else { return nil }
         return hostedScrollView
@@ -2260,14 +2304,12 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         let coordinator = context.coordinator
         coordinator.retention = retention
         coordinator.retentionOwner = retentionOwner
-        if let keptScrollView = coordinator.scrollView {
-            container.host(keptScrollView)
-            coordinator.resume(keptScrollView)
-        } else {
+        if coordinator.scrollView == nil {
             let scrollView = makeScrollView(coordinator: coordinator)
             coordinator.scrollView = scrollView
             container.host(scrollView)
         }
+        coordinator.viewWasMade(with: container)
         retention?.editorDidAttach(coordinator)
         return container
     }
@@ -2302,9 +2344,17 @@ struct NativeMarkdownEditor: NSViewRepresentable {
     }
 
     func updateNSView(_ container: MarkdownEditorContainerView, context: Context) {
-        // A newer view of this note took the editor over; this one is about to go.
-        guard let scrollView = container.scrollViewShownHere else { return }
         let coordinator = context.coordinator
+        guard let scrollView = container.scrollViewShownHere else {
+            // An earlier view of this note still shows the editor; this view's state
+            // reaches it when the editor moves here.
+            container.updateWhenScrollViewArrives = { [self] arrivedScrollView in update(arrivedScrollView, coordinator: coordinator) }
+            return
+        }
+        update(scrollView, coordinator: coordinator)
+    }
+
+    private func update(_ scrollView: NSScrollView, coordinator: Coordinator) {
         coordinator.session = session
         coordinator.actions = actions
         coordinator.follow = follow
@@ -2331,11 +2381,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ container: MarkdownEditorContainerView, coordinator: Coordinator) {
-        guard let scrollView = container.scrollViewShownHere else { return }
-        coordinator.suspend(scrollView)
-        if coordinator.retention?.keepHiddenEditor(coordinator, owner: coordinator.retentionOwner) != true {
-            coordinator.discardRetainedEditor()
-        }
+        coordinator.viewWasDismantled(with: container)
     }
 
     /// On the Mac, Live Preview conceals markup away from the cursor's line; rendered blocks
@@ -2349,6 +2395,8 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         var scrollView: NSScrollView?
         weak var retention: MarkdownEditorRetention?
         weak var retentionOwner: TabDocument?
+        /// The containers of the SwiftUI views that show this note.
+        private var containersInUse = EditorContainersInUse<MarkdownEditorContainerView>()
         /// The note's own history. AppKit text views otherwise record in the window's,
         /// which every note in the window shares.
         let noteUndoManager = UndoManager()
@@ -2389,6 +2437,31 @@ struct NativeMarkdownEditor: NSViewRepresentable {
 
         var editedSession: MarkdownSession { session }
         var retainedTextLength: Int { (scrollView?.documentView as? NSTextView)?.textStorage?.length ?? 0 }
+
+        /// Takes in the container of a new SwiftUI view of the note; see the iPad editor's
+        /// `viewWasMade`. An editor an earlier view still shows stays there until that
+        /// view is dismantled.
+        func viewWasMade(with container: MarkdownEditorContainerView) {
+            let isShownInEarlierView = containersInUse.contains { earlierContainer in earlierContainer.scrollViewShownHere != nil }
+            containersInUse.add(container)
+            guard let scrollView, !isShownInEarlierView, container.scrollViewShownHere == nil else { return }
+            container.host(scrollView)
+            resume(scrollView)
+        }
+
+        /// Lets go of the container of a dismantled SwiftUI view. The editor it showed
+        /// moves to the newest view of the note that is left; with none left, it leaves
+        /// the screen.
+        func viewWasDismantled(with container: MarkdownEditorContainerView) {
+            containersInUse.remove(container)
+            guard let scrollView = container.scrollViewShownHere else { return }
+            if let remainingContainer = containersInUse.newest {
+                remainingContainer.host(scrollView)
+                return
+            }
+            suspend(scrollView)
+            if retention?.keepHiddenEditor(self, owner: retentionOwner) != true { discardRetainedEditor() }
+        }
 
         /// Takes the editor off screen without ending it; see the iPad editor's `suspend`.
         func suspend(_ scrollView: NSScrollView) {

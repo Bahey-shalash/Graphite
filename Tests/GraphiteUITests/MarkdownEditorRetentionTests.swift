@@ -125,6 +125,29 @@ final class MarkdownEditorRetentionTests: XCTestCase {
         XCTAssertTrue(retention.takeEditor(for: session, owner: document) === newer)
     }
 
+    func testContainersInUseNameTheNewestViewThatIsLeft() {
+        final class Container {}
+        var containersInUse = EditorContainersInUse<Container>()
+        XCTAssertNil(containersInUse.newest)
+        let firstContainer = Container()
+        let secondContainer = Container()
+        var releasedContainer: Container? = Container()
+        containersInUse.add(firstContainer)
+        containersInUse.add(secondContainer)
+        if let releasedContainer { containersInUse.add(releasedContainer) }
+        XCTAssertTrue(containersInUse.newest === releasedContainer)
+        XCTAssertTrue(containersInUse.contains { container in container === firstContainer })
+
+        // A view released without being dismantled no longer counts.
+        releasedContainer = nil
+        XCTAssertTrue(containersInUse.newest === secondContainer)
+        containersInUse.remove(secondContainer)
+        XCTAssertTrue(containersInUse.newest === firstContainer, "The newer view went first; the earlier one is left.")
+        XCTAssertFalse(containersInUse.contains { container in container === secondContainer })
+        containersInUse.remove(firstContainer)
+        XCTAssertNil(containersInUse.newest)
+    }
+
     func testDiscardingHiddenEditorsReleasesEveryOne() async throws {
         let retention = MarkdownEditorRetention()
         var editors: [RecordingEditor] = []
