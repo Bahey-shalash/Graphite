@@ -161,6 +161,13 @@ private struct TabBar: View {
     @Environment(\.accent) private var accent
     private var layout: TabLayout { workspace.layout }
     private var groupIndex: Int { layout.groups.firstIndex { candidate in candidate.id == group.id } ?? 0 }
+    /// The room at each end of the row of tabs.
+    private static let tabsInset: CGFloat = 8
+    @AppStorage(PencilToolbarStyle.preferenceKey) private var pencilToolbarStyle = PencilToolbarStyle.floating
+    /// Whether tabs stay narrow enough for the tab area the fixed bar's tools leave them:
+    /// wherever those tools can share this tab bar, whichever tab is shown, so tabs keep
+    /// their width when a PDF and a note take turns.
+    private var keepsTabsBesidePencilTools: Bool { showsPencilTools && pencilToolbarStyle == .fixed }
 
     var body: some View {
         HStack(spacing: 4) {
@@ -171,7 +178,8 @@ private struct TabBar: View {
                             TabItem(tab: tab, title: title(of: tab), isActive: tab.id == group.activeTabID,
                                     marksFocus: isFocused && showsBothGroups,
                                     activate: { workspace.activateTab(tab.id) },
-                                    close: { Task { await workspace.closeTab(tab.id) } })
+                                    close: { Task { await workspace.closeTab(tab.id) } },
+                                    maximumWidth: keepsTabsBesidePencilTools ? DocumentToolbarLayout.minimumTabsWidthBesidePencilTools - 2 * Self.tabsInset : 220)
                                 .contextMenu { tabMenu(for: tab) }
                                 .draggable(TabTransfer(tabID: tab.id)) {
                                     Label(title(of: tab), systemImage: tab.path.map { path in DocumentKind(path: path).systemImage } ?? "doc")
@@ -182,7 +190,7 @@ private struct TabBar: View {
                                 .id(tab.id)
                         }
                     }
-                    .padding(.horizontal, 8)
+                    .padding(.horizontal, Self.tabsInset)
                     .frame(maxHeight: .infinity)
                 }
                 .frame(minWidth: showsPencilTools ? DocumentToolbarLayout.minimumTabsWidthBesidePencilTools : nil)
@@ -202,6 +210,7 @@ private struct TabBar: View {
                 let document = workspace.document(for: group.activeTabID)
                 // A tab whose file is still loading has the sessions of the file before it.
                 if let session = document.pdfSession, group.activeTab.path != nil, document.loadedPath == group.activeTab.path {
+                    Hairline(axis: .vertical).frame(height: 18)
                     TabBarPencilTools(session: session, isFocused: isFocused)
                         .layoutPriority(1)
                 }
@@ -297,6 +306,9 @@ private struct TabItem: View {
     let marksFocus: Bool
     let activate: () -> Void
     let close: () -> Void
+    /// The widest the tab grows; beside the Pencil tools, what their tab area shows, so a
+    /// long name ends with an ellipsis and keeps its close button instead of being cut off.
+    var maximumWidth: CGFloat = 220
     @Environment(\.accent) private var accent
     @State private var isPointerOver = false
 
@@ -341,7 +353,7 @@ private struct TabItem: View {
             }
         }
         .padding(.leading, 12).padding(.trailing, tab.isPinned ? 12 : 6)
-        .frame(minWidth: 88, maxWidth: 220, minHeight: 30)
+        .frame(minWidth: min(88, maximumWidth), maxWidth: maximumWidth, minHeight: 30)
         .background(isActive ? GraphiteChrome.selectedFill : Color.clear,
                     in: RoundedRectangle(cornerRadius: GraphiteChrome.cornerRadius, style: .continuous))
         .overlay(alignment: .bottom) {
