@@ -1,5 +1,71 @@
 import Foundation
 
+/// A display formula with the equation numbers its `\tag` commands give it. Obsidian's
+/// MathJax numbers nothing by itself (its `tags` option is left at `none`), so a number
+/// is drawn only where `\tag` asks for one: at the right of the formula, or of the row it
+/// is written in when the formula is an environment of rows such as `align` or `gather`.
+public struct NumberedEquation: Equatable, Sendable {
+    public struct Tag: Equatable, Sendable {
+        /// The row the tag numbers in a formula that is an environment of rows; nil for
+        /// the tag of a whole formula.
+        public let rowIndex: Int?
+        /// What `\tag` was given, as written.
+        public let content: String
+        /// False for `\tag*`, which is drawn without parentheses.
+        public let hasParentheses: Bool
+
+        /// The tag as plain text, for when the typesetter cannot draw `latex`.
+        public var text: String { hasParentheses ? "(" + content + ")" : content }
+
+        /// The tag as MathJax typesets it: text in the math font, with any `$…$` in it as math.
+        public var latex: String {
+            var latex = hasParentheses ? "\\text{(}" : ""
+            for (segmentIndex, segment) in content.components(separatedBy: "$").enumerated() where !segment.isEmpty {
+                latex += segmentIndex % 2 == 0 ? "\\text{" + segment + "}" : LaTeXCompatibility.normalized(segment)
+            }
+            return latex + (hasParentheses ? "\\text{)}" : "")
+        }
+    }
+
+    /// One row of a formula that is an environment of rows.
+    public struct Row: Equatable, Sendable {
+        /// The row's cells as one formula, which is as tall and as deep as the row.
+        public let latex: String
+        /// The row as the formula writes it, and the row break after it.
+        fileprivate let text: String
+        fileprivate let separator: String
+    }
+
+    /// The formula without its tags, as the typesetter draws it.
+    public let latex: String
+    public let tags: [Tag]
+    /// The rows of a formula that is one environment of rows, where each tag belongs to a
+    /// row; empty for any other formula, which has one tag.
+    public let rows: [Row]
+    /// The environment that holds `rows`.
+    fileprivate let rowEnvironment: String
+
+    /// A formula of one row after another, as tall as the first rows of this formula down
+    /// to the row at `rowIndex`. Its height, less that row's depth, is how far below the
+    /// top of the formula the row's baseline is: the typesetter places rows from the top,
+    /// each by the rows above it alone.
+    public func stackedRowsLatex(through rowIndex: Int) -> String {
+        let stackedRows = rows.prefix(rowIndex + 1)
+        return "\\begin{gather}" + stackedRows.dropLast().map { row in row.latex + row.separator }.joined() + (stackedRows.last?.latex ?? "") + "\\end{gather}"
+    }
+
+    /// The formula with each tag written after its row, for places that cannot put it at
+    /// the right of the text column, such as a formula inside a list item.
+    public var latexWithTagsInline: String {
+        let spaceBeforeTag = " \\qquad "
+        guard !rows.isEmpty else { return latex + (tags.first.map { tag in spaceBeforeTag + tag.latex } ?? "") }
+        let taggedRows = rows.enumerated().map { rowIndex, row in
+            row.text + (tags.first { tag in tag.rowIndex == rowIndex }.map { tag in spaceBeforeTag + tag.latex } ?? "") + row.separator
+        }
+        return "\\begin{\(rowEnvironment)}" + taggedRows.joined() + "\\end{\(rowEnvironment)}"
+    }
+}
+
 /// Rewrites LaTeX that Obsidian's MathJax accepts but Graphite's typesetter does not
 /// into an equivalent it can draw. Only the text handed to the renderer changes.
 public enum LaTeXCompatibility {
@@ -14,6 +80,12 @@ public enum LaTeXCompatibility {
     ]
     /// Numbered labels, whose argument may hold braces of its own (`\tag{\ref{a}}`).
     private static let labelCommandPattern = try? NSRegularExpression(pattern: "\\\\(?:tag\\*?|label)[ \\t]*(?=\\{)")
+    private static let tagCommandPattern = try? NSRegularExpression(pattern: "\\\\tag(\\*?)[ \\t]*(?=\\{)")
+    /// The environments whose rows MathJax numbers one by one, around a whole formula.
+    private static let numberedRowsEnvironmentPattern = try? NSRegularExpression(
+        pattern: "\\A\\s*\\\\begin\\{((?:align|alignat|flalign|gather|eqnarray|multline)\\*?)\\}(?:\\{\\d+\\})?")
+    /// What `normalized` makes of those environments.
+    private static let drawnRowsEnvironmentPattern = try? NSRegularExpression(pattern: "\\A\\s*\\\\begin\\{(aligned|gather|eqnarray)\\}")
     /// Alignment environments MathJax draws as pairs of right- and left-aligned columns.
     /// The typesetter only knows `aligned`, with exactly two columns.
     private static let alignmentBeginPattern = try? NSRegularExpression(pattern: "\\\\begin\\{(align\\*?|flalign\\*?|alignat\\*?|alignedat|aligned)\\}(?:\\{\\d+\\})?")
@@ -26,6 +98,71 @@ public enum LaTeXCompatibility {
             text = pattern.stringByReplacingMatches(in: text, range: NSRange(location: 0, length: (text as NSString).length), withTemplate: replacement.template)
         }
         return rewritingColorDeclarationsAndOperatorNames(in: rewritingAlignments(in: text))
+    }
+
+    /// The display formula `latex` with its equation numbers, or nil when it has none and
+    /// `normalized` draws all of it. A row takes its first `\tag`, as does a formula that
+    /// is not an environment of rows; MathJax reports a second one as an error, and here
+    /// it is left out. `multline` has one number, on its last row.
+    public static func numberedEquation(_ latex: String) -> NumberedEquation? {
+        guard latex.contains("\\tag") else { return nil }
+        let source = latex as NSString
+        guard let environmentMatch = numberedRowsEnvironmentPattern?.firstMatch(in: latex, range: NSRange(location: 0, length: source.length)),
+              let environmentEnd = environmentEnd(named: source.substring(with: environmentMatch.range(at: 1)), in: source, bodyStart: NSMaxRange(environmentMatch.range)),
+              source.substring(from: environmentEnd.environmentEnd).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            let (untaggedLatex, tag) = removingFirstTag(from: latex)
+            guard let tag else { return nil }
+            return NumberedEquation(latex: normalized(untaggedLatex), tags: [NumberedEquation.Tag(rowIndex: nil, content: tag.content, hasParentheses: tag.hasParentheses)],
+                                    rows: [], rowEnvironment: "")
+        }
+        let environment = source.substring(with: environmentMatch.range(at: 1))
+        let body = source.substring(with: NSRange(location: NSMaxRange(environmentMatch.range), length: environmentEnd.bodyEnd - NSMaxRange(environmentMatch.range)))
+        let sourceRows = topLevelRows(of: body)
+        var tags: [NumberedEquation.Tag] = []
+        var untaggedBody = ""
+        for (rowIndex, row) in sourceRows.enumerated() {
+            let (untaggedRow, tag) = removingFirstTag(from: row.cells.joined(separator: "&"))
+            untaggedBody += untaggedRow + row.separator
+            guard let tag else { continue }
+            let numbersWholeEnvironment = environment.hasPrefix("multline")
+            if numbersWholeEnvironment, !tags.isEmpty { continue }
+            tags.append(NumberedEquation.Tag(rowIndex: numbersWholeEnvironment ? sourceRows.count - 1 : rowIndex, content: tag.content, hasParentheses: tag.hasParentheses))
+        }
+        guard !tags.isEmpty else { return nil }
+        let untaggedLatex = source.substring(to: NSMaxRange(environmentMatch.range)) + untaggedBody + source.substring(from: environmentEnd.bodyEnd)
+        let drawnLatex = normalized(untaggedLatex)
+        guard let drawnRows = rows(ofDrawnEnvironment: drawnLatex), drawnRows.rows.count == sourceRows.count else {
+            // Without rows to stand beside, the formula keeps its first number.
+            return NumberedEquation(latex: drawnLatex, tags: [NumberedEquation.Tag(rowIndex: nil, content: tags[0].content, hasParentheses: tags[0].hasParentheses)],
+                                    rows: [], rowEnvironment: "")
+        }
+        return NumberedEquation(latex: drawnLatex, tags: tags, rows: drawnRows.rows, rowEnvironment: drawnRows.environment)
+    }
+
+    /// `latex` without its first `\tag{…}` or `\tag*{…}`, and what that tag holds.
+    private static func removingFirstTag(from latex: String) -> (latex: String, tag: (content: String, hasParentheses: Bool)?) {
+        guard let tagCommandPattern, latex.contains("\\tag") else { return (latex, nil) }
+        let source = latex as NSString
+        for match in tagCommandPattern.matches(in: latex, range: NSRange(location: 0, length: source.length)) {
+            guard let argumentEnd = balancedGroupEnd(in: source, openingBraceAt: NSMaxRange(match.range)) else { continue }
+            let content = source.substring(with: NSRange(location: NSMaxRange(match.range) + 1, length: argumentEnd - NSMaxRange(match.range) - 2))
+            let untaggedLatex = source.replacingCharacters(in: NSRange(location: match.range.location, length: argumentEnd - match.range.location), with: "")
+            return (untaggedLatex, (content.trimmingCharacters(in: .whitespaces), match.range(at: 1).length == 0))
+        }
+        return (latex, nil)
+    }
+
+    /// The rows of a formula that is one environment of rows the typesetter draws.
+    private static func rows(ofDrawnEnvironment latex: String) -> (environment: String, rows: [NumberedEquation.Row])? {
+        let source = latex as NSString
+        guard let environmentMatch = drawnRowsEnvironmentPattern?.firstMatch(in: latex, range: NSRange(location: 0, length: source.length)),
+              let environmentEnd = environmentEnd(named: source.substring(with: environmentMatch.range(at: 1)), in: source, bodyStart: NSMaxRange(environmentMatch.range)),
+              source.substring(from: environmentEnd.environmentEnd).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        let body = source.substring(with: NSRange(location: NSMaxRange(environmentMatch.range), length: environmentEnd.bodyEnd - NSMaxRange(environmentMatch.range)))
+        let rows = topLevelRows(of: body).map { row in
+            NumberedEquation.Row(latex: row.cells.joined(separator: " "), text: row.cells.joined(separator: "&"), separator: row.separator)
+        }
+        return (source.substring(with: environmentMatch.range(at: 1)), rows)
     }
 
     /// MathJax's `\color{…}` changes the remainder of its brace group; the native

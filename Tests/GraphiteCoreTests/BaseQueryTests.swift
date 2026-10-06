@@ -134,7 +134,7 @@ final class BaseDefinitionTests: XCTestCase {
         XCTAssertEqual(map.map.maximumZoom, 24, "Zoom is clamped like the Maps plugin does.")
         XCTAssertEqual(map.map.embeddedHeight, 100)
         XCTAssertEqual(map.map.tileURLs, ["https://tiles.example/{z}/{x}/{y}.png"])
-        XCTAssertEqual(definition.views[4].type, .unsupported("kanban"))
+        XCTAssertEqual(definition.views[4].type, .kanban)
     }
 
     func testMapAcceptsZoomAndHeightAndViewsKeepTheirListPositions() throws {
@@ -231,6 +231,38 @@ final class BaseQueryTests: XCTestCase {
                     - file.ext == "md"
             """)
         XCTAssertEqual(Set(names(result)), ["Meeting", "Write report", "Fix bug", "diagram"])
+    }
+
+    func testUnreadableGlobalFiltersDoNotShowAnUnfilteredVault() throws {
+        for yaml in [
+            "filters:\n  maybe:\n    - file.hasTag(\"task\")\n",
+            "filters:\n  and:\n    - file.hasTag(\"task\")\n    - unknown:\n        - priority == 1\n",
+            "filters:\n  and: file.hasTag(\"task\")\n  or: priority == 1\n"
+        ] {
+            let queryResult = try run(yaml)
+            XCTAssertTrue(queryResult.rows.isEmpty, yaml)
+            XCTAssertEqual(queryResult.matchingCount, 0)
+            XCTAssertFalse(queryResult.problems.isEmpty, yaml)
+        }
+    }
+
+    func testUnreadableViewFiltersBlockOnlyThatView() throws {
+        let yaml = """
+            views:
+              - type: table
+                name: Broken
+                filters:
+                  maybe: file.hasTag("task")
+              - type: table
+                name: Working
+                filters: file.hasTag("meeting")
+            """
+        let brokenResult = try run(yaml)
+        XCTAssertTrue(brokenResult.rows.isEmpty)
+        XCTAssertFalse(brokenResult.problems.isEmpty)
+        let workingResult = try run(yaml, view: 1)
+        XCTAssertEqual(names(workingResult), ["Meeting"])
+        XCTAssertTrue(workingResult.problems.isEmpty)
     }
 
     func testFormulasGroupsAndSummariesFromTheTaskTracker() throws {

@@ -85,6 +85,8 @@ public struct BaseSortKey: Hashable, Sendable {
 
 public enum BaseViewType: Hashable, Sendable {
     case table, cards, list, map
+    /// Obsidian's Kanban layout (1.14): columns from the view's `groupBy`, one card per file.
+    case kanban
     /// A view type Graphite does not render (for example a community plugin's).
     case unsupported(String)
 
@@ -94,6 +96,7 @@ public enum BaseViewType: Hashable, Sendable {
         case "cards": self = .cards
         case "list": self = .list
         case "map": self = .map
+        case "kanban": self = .kanban
         default: self = .unsupported(rawValue)
         }
     }
@@ -104,6 +107,7 @@ public enum BaseViewType: Hashable, Sendable {
         case .cards: "cards"
         case .list: "list"
         case .map: "map"
+        case .kanban: "kanban"
         case .unsupported(let name): name
         }
     }
@@ -153,7 +157,8 @@ public struct BaseMapOptions: Hashable, Sendable {
     public var maximumZoom = 18.0
     /// `mapHeight`, used only when the base is embedded in a note.
     public var embeddedHeight = defaultEmbeddedHeight
-    /// `mapTiles` / `mapTilesDark`: tile or style URLs. MapKit cannot draw these.
+    /// `mapTiles` / `mapTilesDark`: raster tile URL templates or a style URL. See
+    /// `background(isDark:)` for what they mean.
     public var tileURLs: [String] = []
     public var darkTileURLs: [String] = []
     public init() {}
@@ -176,8 +181,13 @@ public struct BaseView: Hashable, Sendable, Identifiable {
     /// Property → summary name (a default such as `Average`, or a key of the base's
     /// own `summaries`).
     public var summaries: [BasePropertyIdentifier: String]
-    /// `columnSize`: widths in points.
+    /// `columnSize`: the widths of resized table columns, in points. A column without
+    /// one takes its default width.
     public var columnWidths: [BasePropertyIdentifier: Double]
+    /// Obsidian's limits for a table column: a resized column is never narrower than this.
+    public static let minimumColumnWidth = 40.0
+    /// Keeps a width written in a `.base` file from laying out an absurdly wide table.
+    public static let maximumColumnWidth = 2_000.0
     public var rowHeight: String?
     public var cards = BaseCardsOptions()
     public var list = BaseListOptions()
@@ -235,6 +245,9 @@ public struct BaseDefinition: Hashable, Sendable {
     /// Base files are small configuration; a larger file is not a real base.
     public static let maximumSourceBytes = 1_048_576
     public var filters: BaseFilter?
+    /// Partial filters cannot safely be evaluated: dropping an unknown child may show
+    /// files the written filter excludes. View-local failures block only their view.
+    public var hasUnreadableFilters = false
     public var formulas: [BaseFormula]
     public var displayNames: [BasePropertyIdentifier: String]
     /// Custom summary formulas by name; `values` is the column's list of values.
@@ -334,7 +347,11 @@ public struct BaseDefinition: Hashable, Sendable {
     }
 
     private mutating func read(_ mapping: Node.Mapping) {
-        if let filtersNode = mapping["filters"] { filters = parseFilter(filtersNode, location: "filters") }
+        if let filtersNode = mapping["filters"] {
+            let issueCountBeforeFilters = issues.count
+            filters = parseFilter(filtersNode, location: "filters")
+            hasUnreadableFilters = issues.count > issueCountBeforeFilters
+        }
         if let formulasNode = mapping["formulas"] {
             if let formulasMapping = formulasNode.mapping.map(Self.readableMapping) {
                 formulas = formulasMapping.compactMap { keyNode, valueNode in
@@ -400,8 +417,11 @@ public struct BaseDefinition: Hashable, Sendable {
             view.summaries[BasePropertyIdentifier(key)] = summaryName
         }
         for (keyNode, valueNode) in mapping["columnSize"]?.mapping ?? [:] {
-            guard let key = keyNode.string, let width = valueNode.scalar.flatMap({ scalar in Double(scalar.string) }), width > 0 else { continue }
-            view.columnWidths[BasePropertyIdentifier(key)] = min(width, 2_000)
+            // Obsidian applies a width only when it is a number other than zero, and shows
+            // the column at least `minimumColumnWidth` wide.
+            guard let key = keyNode.string, let widthScalar = valueNode.scalar, widthScalar.style == .plain,
+                  let width = Double(widthScalar.string), width.isFinite, width != 0 else { continue }
+            view.columnWidths[BasePropertyIdentifier(key)] = min(max(width, BaseView.minimumColumnWidth), BaseView.maximumColumnWidth)
         }
         view.rowHeight = mapping["rowHeight"]?.scalar?.string
         view.cards = parseCardsOptions(mapping)
@@ -457,9 +477,12 @@ public struct BaseDefinition: Hashable, Sendable {
         // Swift reads `nan` as a number, and NaN passes through the clamps below into
         // MapKit, which throws on a region with a NaN span.
         func number(_ key: String) -> Double? { mapping[key]?.scalar.flatMap { scalar in Double(scalar.string) }.flatMap { number in number.isNaN ? nil : number } }
+        // As the plugin reads them: list items that are not blank, or one text trimmed.
         func textList(_ key: String) -> [String] {
-            if let sequence = mapping[key]?.sequence { return sequence.compactMap { node in node.scalar?.string }.filter { text in !text.isEmpty } }
-            if let text = mapping[key]?.scalar?.string, !text.isEmpty { return [text] }
+            if let sequence = mapping[key]?.sequence {
+                return sequence.compactMap { node in node.scalar?.string }.filter { text in !text.trimmingCharacters(in: .whitespaces).isEmpty }
+            }
+            if let text = mapping[key]?.scalar?.string.trimmingCharacters(in: .whitespaces), !text.isEmpty { return [text] }
             return []
         }
         options.coordinatesProperty = property("coordinates")

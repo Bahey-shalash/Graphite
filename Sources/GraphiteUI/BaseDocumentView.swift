@@ -366,6 +366,9 @@ struct BaseContainerView: View {
         if let actionErrorMessage = model.actionErrorMessage {
             messages.append(BannerMessage(text: actionErrorMessage, systemImage: "exclamationmark.circle", isError: true))
         }
+        if let viewSelectionErrorMessage = model.viewSelectionErrorMessage {
+            messages.append(BannerMessage(text: viewSelectionErrorMessage, systemImage: "exclamationmark.triangle", isError: true))
+        }
         if !isIndexComplete {
             messages.append(BannerMessage(text: "The vault is still being indexed, so results may be incomplete.", systemImage: "hourglass", isError: false))
         }
@@ -395,7 +398,7 @@ struct BaseContainerView: View {
             ContentUnavailableView {
                 Label("“\(typeName)” Views Aren't Supported", systemImage: "questionmark.square.dashed")
             } description: {
-                Text("Graphite shows table, cards, list and map views. Choose another view from the menu above.")
+                Text("Graphite shows table, cards, list, Kanban and map views. Choose another view from the menu above.")
             }
         } else if let result = model.result, result.view.id == model.selectedView?.id {
             if result.rows.isEmpty && result.view.type != .map {
@@ -416,17 +419,23 @@ struct BaseContainerView: View {
         let actions = viewActions
         switch result.view.type {
         case .table:
-            BaseTableView(result: result, sortKeys: model.effectiveSort, actions: actions) { property, direction in
+            let model = model
+            BaseTableView(result: result, sortKeys: model.effectiveSort, actions: actions, sort: { property, direction in
                 Task {
                     if let direction { await model.setSort(on: property, direction: direction) } else { await model.toggleSort(on: property) }
                 }
-            }
+            }, resizeColumn: model.canEditDefinition ? { property, width in await model.setColumnWidth(width, of: property) } : nil)
         case .cards:
             BaseCardsView(result: result, actions: actions)
         case .list:
             BaseListView(result: result, actions: actions)
         case .map:
             BaseMapView(result: result, actions: actions)
+        case .kanban:
+            let model = model
+            BaseKanbanView(result: result, actions: actions, moves: BaseKanbanMoves(
+                canMove: { path in model.canMoveToGroup(path) },
+                move: { path, groupKey in Task { await model.moveToGroup(path, groupKey: groupKey) } }))
         case .unsupported:
             EmptyView()
         }
@@ -544,7 +553,7 @@ struct BaseToolbar: View {
                 Button("Save Sort to View", systemImage: "arrow.up.arrow.down") { Task { await model.saveSortToView() } }
             }
             Menu("New View", systemImage: "plus") {
-                ForEach([BaseViewType.table, .cards, .list, .map], id: \.rawValue) { type in
+                ForEach([BaseViewType.table, .cards, .list, .kanban, .map], id: \.rawValue) { type in
                     Button(type.defaultViewName, systemImage: type.systemImage) { Task { await model.addView(type: type) } }
                 }
             }

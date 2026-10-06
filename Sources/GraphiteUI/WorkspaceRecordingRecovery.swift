@@ -27,7 +27,7 @@ extension WorkspaceModel {
             let directory = intended?.parent ?? newFileDirectory(nil)
             let stem = intended?.stem ?? "Recovered recording " + unfinished.startedAt.formatted(.iso8601.year().month().day().dateSeparator(.dash))
             try await store.createDirectory(directory)
-            let path = try await store.uniquePath(directory: directory, stem: stem, extension: "m4a")
+            let path = try await store.uniquePath(directory: directory, stem: stem, extension: unfinished.kind.fileExtension)
             try await recording.recover(unfinished, to: try path.url(in: root))
             await refreshDirectory()
             refreshIndex(for: [path])

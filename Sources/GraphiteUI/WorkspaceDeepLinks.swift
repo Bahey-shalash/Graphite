@@ -121,6 +121,7 @@ extension WorkspaceModel {
                 case .unique:
                     path = try await store.uniquePath(directory: path.parent, stem: path.stem, extension: "md")
                     _ = try await store.save(Data(content.utf8), at: path, expecting: .absent)
+                    await refreshDirectory()
                 case .append, .overwrite:
                     try await replaceText(of: path, keepingCopy: mode == .overwrite) { existing in
                         mode == .append ? VaultURI.appending(content, to: existing) : content

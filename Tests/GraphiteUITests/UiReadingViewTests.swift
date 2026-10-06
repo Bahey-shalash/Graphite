@@ -161,9 +161,9 @@ final class UiReadingViewTests: XCTestCase {
         // Replacing the markers one search at a time took about 40 seconds for this list.
         XCTAssertLessThan(Date().timeIntervalSince(start), 5)
 
-        let checkboxes = attributed.runs.compactMap { run in run[AttributeScopes.TextualAttributes.AttachmentAttribute.self] }
-        XCTAssertEqual(checkboxes.count, taskCount)
-        XCTAssertEqual(checkboxes.filter { checkbox in checkbox == AnyAttachment(TaskCheckboxAttachment(isChecked: true, pointSize: 17)) }.count, taskCount / 2)
+        let tasks = attributed.runs.compactMap { run in run[ReadingTaskAttribute.self] }
+        XCTAssertEqual(tasks.count, taskCount)
+        XCTAssertEqual(tasks.filter(\.isChecked).count, taskCount / 2)
         XCTAssertFalse(String(attributed.characters).contains(ObsidianInlineMarkup.checkedTaskMarker))
         let struckText = attributed.runs.filter { run in run.strikethroughStyle != nil }.map { run in String(attributed[run.range].characters) }.joined()
         XCTAssertTrue(struckText.contains("done 0"))

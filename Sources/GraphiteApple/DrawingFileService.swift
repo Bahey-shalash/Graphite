@@ -27,9 +27,6 @@ public struct DrawingContent: Sendable {
         self.pictures = pictures
         self.paper = paper
     }
-
-    /// Pictures are raster content; a vector file would only embed them again.
-    public var requiresPNG: Bool { backgroundImage != nil || !pictures.isEmpty }
 }
 
 /// A drawing file whose embedded stroke data is current and can be edited again.
@@ -144,14 +141,11 @@ public actor DrawingFileService {
               allPictures.reduce(0, { total, picture in total + picture.imageData.count }) <= DrawingLimits.maximumBackgroundImageBytes else {
             throw GraphiteError.oversized("The images on this drawing are too large to save with it. Your strokes are still open.")
         }
-        guard !content.requiresPNG || format == .png else {
-            throw GraphiteError.unavailable("A drawing with images is saved as PNG. Your strokes are still open.")
-        }
         let contentBounds = DrawingCanvasGeometry.contentBounds(inkBounds: inkBounds, pictureFrames: content.pictures.map(\.frame))
         let unalignedBounds = content.backgroundImage.map { backgroundImage in
             DrawingCanvasGeometry.exportBounds(inkBounds: contentBounds, backgroundImageFrame: backgroundImage.frame)
         } ?? DrawingCanvasGeometry.exportBounds(inkBounds: contentBounds, canvasWidth: content.canvasWidth)
-        let exportBounds = DrawingCanvasGeometry.startingOnPaperLines(unalignedBounds, of: content.paper.pattern)
+        let exportBounds = DrawingCanvasGeometry.startingOnPaperLines(unalignedBounds, of: content.paper.pattern, spacing: content.paper.spacing)
         guard exportBounds.width <= DrawingLimits.maximumCanvasWidth, exportBounds.height <= DrawingLimits.maximumCanvasHeight else {
             throw GraphiteError.oversized("This drawing is taller than Graphite can save as one file. Your strokes are still open.")
         }
@@ -161,7 +155,7 @@ public actor DrawingFileService {
         let pictures = content.pictures.map { picture in picture.offsetBy(dx: -exportBounds.minX, dy: -exportBounds.minY) }
         let payload = DrawingPayload(width: exportBounds.width, height: exportBounds.height, background: content.background,
                                      strokes: drawing.dataRepresentation(), backgroundImage: backgroundImage, pictures: pictures, paper: content.paper)
-        let visiblePaper = content.paper.isVisibleInSavedDrawing ? content.paper.pattern : DrawingPaperPattern.plain
+        let visiblePaper = content.paper.isVisibleInSavedDrawing ? content.paper : DrawingPaper.plain
         switch format {
         case .png:
             let encodedImage = try pngImage(for: drawing, size: exportBounds.size, background: content.background, backgroundImage: backgroundImage,
@@ -175,20 +169,27 @@ public actor DrawingFileService {
             try verifyEditingData(in: fileData, format: format, payload: payload)
             return fileData
         case .svg:
-            let fileData = try SVGDrawingFile.encode(Self.vectorDrawing(from: drawing, size: exportBounds.size, background: content.background, paper: visiblePaper), payload: payload)
+            let fileData = try SVGDrawingFile.encode(Self.vectorDrawing(from: drawing, size: exportBounds.size, background: content.background, paper: visiblePaper,
+                                                                        backgroundImage: backgroundImage, pictures: pictures), payload: payload)
             try verifyEditingData(in: fileData, format: format, payload: payload)
             return fileData
         case .pdf:
-            // `encode` reads the finished file back and checks its strokes and digest.
-            return try PDFDrawingFile.encode(Self.vectorDrawing(from: drawing, size: exportBounds.size, background: content.background, paper: visiblePaper), payload: payload)
+            // `encode` reads the finished file back and checks its strokes, pictures and digest.
+            return try PDFDrawingFile.encode(Self.vectorDrawing(from: drawing, size: exportBounds.size, background: content.background, paper: visiblePaper,
+                                                                backgroundImage: backgroundImage, pictures: pictures), payload: payload)
         }
     }
 
-    /// The ink as outlines, over the paper pattern when the saved drawing shows it.
-    private static func vectorDrawing(from drawing: PKDrawing, size: CGSize, background: DrawingBackground, paper: DrawingPaperPattern) -> VectorDrawing {
-        let inkDrawing = PencilVectorConverter.vectorDrawing(from: drawing, size: size, background: background)
-        guard let paperShape = DrawingPaperRenderer.shape(for: paper, in: CGRect(origin: .zero, size: size)) else { return inkDrawing }
-        return VectorDrawing(size: size, background: background, shapes: [paperShape] + inkDrawing.shapes)
+    /// The drawing as outlines, composed as `pngImage` composes a PNG: white under a picture
+    /// drawn on, the paper pattern when the saved drawing shows it, the picture drawn on and
+    /// the pictures placed on the drawing, then the ink.
+    private static func vectorDrawing(from drawing: PKDrawing, size: CGSize, background: DrawingBackground, paper: DrawingPaper,
+                                      backgroundImage: DrawingBackgroundImage?, pictures: [DrawingBackgroundImage]) -> VectorDrawing {
+        let visibleBackground = backgroundImage == nil ? background : .white
+        let inkDrawing = PencilVectorConverter.vectorDrawing(from: drawing, size: size, background: visibleBackground)
+        let paperShapes = DrawingPaperRenderer.shape(for: paper, in: CGRect(origin: .zero, size: size)).map { paperShape in [paperShape] } ?? []
+        return VectorDrawing(size: size, background: visibleBackground, shapesUnderPictures: paperShapes,
+                             pictures: [backgroundImage].compactMap { picture in picture } + pictures, shapes: inkDrawing.shapes)
     }
 
     private func verifyEditingData(in fileData: Data, format: DrawingFormat, payload: DrawingPayload) throws {
@@ -238,13 +239,14 @@ public actor DrawingFileService {
     /// Renders one horizontal band at a time and streams it into the PNG encoder, so peak
     /// memory is about one band rather than the whole bitmap (up to 192 MB at 48 MP).
     private func pngImage(for drawing: PKDrawing, size: CGSize, background: DrawingBackground, backgroundImage: DrawingBackgroundImage? = nil,
-                          pictures: [DrawingBackgroundImage] = [], paper: DrawingPaperPattern = .plain) throws -> BandedPNGEncoder.EncodedImage {
+                          pictures: [DrawingBackgroundImage] = [], paper: DrawingPaper = .plain) throws -> BandedPNGEncoder.EncodedImage {
         let decodedPictures = try ([backgroundImage].compactMap { picture in picture } + pictures).map { picture in
             UnderInk.Picture(image: try Self.decodedPicture(picture.imageData), frame: picture.frame)
         }
         // A picture drawn on fills its region with its own pixels; around it the paper is white.
-        let isOpaque = background == .white || backgroundImage != nil
-        let underInk = UnderInk(fillsWhite: isOpaque, paper: paper, pictures: decodedPictures)
+        let paperColor = DrawingPaperRenderer.paperColor(of: backgroundImage == nil ? background : .white)
+        let isOpaque = paperColor != nil
+        let underInk = UnderInk(paperColor: paperColor, paper: paper, pictures: decodedPictures)
         guard let scale = DrawingCanvasGeometry.pngScale(for: size),
               let raster = BandedPNGEncoder.Raster(size: size, preferredScale: scale, isOpaque: isOpaque) else {
             throw GraphiteError.oversized("This drawing is too large for a sharp PNG. Save it as PDF or SVG instead. Your strokes are still open.")
@@ -274,10 +276,14 @@ public actor DrawingFileService {
             let image: CGImage
             let frame: CGRect
         }
-        let fillsWhite: Bool
-        let paper: DrawingPaperPattern
+        /// Nil for a drawing without paper.
+        let paperColor: VectorInkColor?
+        let paper: DrawingPaper
         let pictures: [Picture]
-        var drawsAnything: Bool { paper != .plain || !pictures.isEmpty }
+        /// The encoder puts an opaque drawing on white by itself.
+        var drawsAnything: Bool {
+            paper.pattern != .plain || !pictures.isEmpty || (paperColor != nil && paperColor != DrawingPaperRenderer.paperColor(of: .white))
+        }
     }
 
     private static func decodedPicture(_ imageData: Data) throws -> CGImage {
@@ -294,8 +300,8 @@ public actor DrawingFileService {
               let context = CGContext(data: nil, width: inkImage.width, height: inkImage.height, bitsPerComponent: 8, bytesPerRow: 0,
                                       space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         let pixelBounds = CGRect(x: 0, y: 0, width: inkImage.width, height: inkImage.height)
-        if underInk.fillsWhite {
-            context.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+        if let paperColor = underInk.paperColor {
+            context.setFillColor(CGColor(srgbRed: paperColor.red, green: paperColor.green, blue: paperColor.blue, alpha: 1))
             context.fill(pixelBounds)
         }
         let pixelsPerPoint = Double(inkImage.width) / bandRectangle.width

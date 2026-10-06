@@ -134,12 +134,12 @@ final class BaseSampleVaultTests: XCTestCase {
         XCTAssertEqual(completed.rows.map(\.path.stem), ["Email the TA"])
     }
 
-    func testCoursesBacklinksAndUnsupportedViews() async throws {
+    func testCoursesBacklinksAndTheBoardView() async throws {
         let lectures = try await run(.file(VaultPath("Courses.base")), viewName: "Lectures")
         XCTAssertEqual(cells(lectures, .formula("backlink_count"))["4_Logic design"], .value(.number(2)), "Links in `related` properties are backlinks.")
         XCTAssertEqual(cells(lectures, .formula("backlink_count"))["12_Datapath subsystems design"], .value(.number(0)))
         let definition = try BaseDefinition.parse(try String(contentsOf: vault.appendingPathComponent("Courses.base"), encoding: .utf8))
-        XCTAssertEqual(definition.views[1].type, .unsupported("kanban"))
+        XCTAssertEqual(definition.views[1].type, .kanban)
     }
 
     func testCodeBlockBaseInsideANote() async throws {

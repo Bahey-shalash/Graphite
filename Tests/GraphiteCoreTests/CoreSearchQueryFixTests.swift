@@ -80,6 +80,54 @@ final class CoreSearchQueryFixTests: XCTestCase {
 
     // MARK: Tags inside lines and tasks
 
+    func testTaskSearchKeepsContinuationLinesWithTheirOwnTask() throws {
+        let content = "- [ ] call client\n  tomorrow morning\n- [x] book room\n  next week\n"
+        XCTAssertTrue(try matches("task:(call tomorrow)", content: content))
+        XCTAssertTrue(try matches("task-todo:tomorrow", content: content))
+        XCTAssertTrue(try matches("task-done:week", content: content))
+        XCTAssertFalse(try matches("task-todo:week", content: content))
+    }
+
+    func testTaskSearchKeepsLazyContinuationTextWithoutCrossingABlankLine() throws {
+        let content = "- [ ] call client\ntomorrow morning\n\nseparate paragraph\n"
+        XCTAssertTrue(try matches("task-todo:(call tomorrow)", content: content))
+        XCTAssertFalse(try matches("task-todo:separate", content: content))
+    }
+
+    func testAQuotedThematicBreakDoesNotTurnTasksIntoFrontmatter() throws {
+        let content = "> ---\n> - [ ] call client\n> ---\n"
+        XCTAssertTrue(try matches("task-todo:client", content: content))
+    }
+
+    func testAnEmptyTaskCannotBorrowTheFollowingCompletedTask() throws {
+        for lineEnding in ["\n", "\r\n"] {
+            let content = "- [ ]" + lineEnding + "- [x] done" + lineEnding
+            XCTAssertFalse(try matches("task-todo:done", content: content))
+            XCTAssertTrue(try matches("task-done:done", content: content))
+        }
+    }
+
+    func testTaskSearchIgnoresCodeAndFrontmatterButReadsQuotedTasks() throws {
+        let codeExamples = "---\nexample: |\n  - [ ] frontmatter\n---\n```\n- [ ] fenced\n```\n\n    - [ ] indented\n\n> ```\n> - [ ] quotedcode\n> ```\n"
+        for query in ["task:frontmatter", "task:fenced", "task:indented", "task:quotedcode"] {
+            XCTAssertFalse(try matches(query, content: codeExamples), query)
+        }
+        let quotedTasks = "> - [ ] call client\n>   tomorrow\n> - [x] done\n"
+        XCTAssertTrue(try matches("task-todo:(call tomorrow)", content: quotedTasks))
+        XCTAssertTrue(try matches("task-done:done", content: quotedTasks))
+    }
+
+    func testPropertyNullDoesNotMatchAnEmptyListOrQuotedText() throws {
+        let emptyList = [BaseFrontmatterEntry(key: "aliases", node: .sequence([]))]
+        XCTAssertFalse(try matches("[aliases:null]", content: "", properties: emptyList))
+        for text in ["", "null"] {
+            let quotedProperty = [BaseFrontmatterEntry(key: "aliases", node: .scalar(text: text, isPlain: false))]
+            XCTAssertFalse(try matches("[aliases:null]", content: "", properties: quotedProperty))
+        }
+        let emptyProperty = [BaseFrontmatterEntry(key: "aliases", node: .scalar(text: "", isPlain: true))]
+        XCTAssertTrue(try matches("[aliases:null]", content: "", properties: emptyProperty))
+    }
+
     func testATagInsideALineOrTaskMustBeWrittenThere() throws {
         let tasks = "- [ ] buy milk\n- [x] finished report #work"
         XCTAssertFalse(try matches("task-todo:#work", content: tasks, tags: ["work"]))

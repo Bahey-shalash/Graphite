@@ -90,15 +90,22 @@ public enum Footnotes {
     /// and the footnotes in number order. A reference without a definition stays as written,
     /// as does a definition nothing refers to, which Obsidian lists last.
     public static func preparedForReading(_ text: String, render: (Int) -> String) -> (text: String, notes: [Note]) {
+        let prepared = preparedForReadingKeepingOffsets(text, render: render)
+        return (prepared.text, prepared.notes)
+    }
+
+    /// `preparedForReading`, with where the characters of the prepared text were in `text`.
+    public static func preparedForReadingKeepingOffsets(_ text: String, render: (Int) -> String) -> (text: String, notes: [Note], offsets: ReplacedTextOffsets) {
         let numbering = numbered(text)
-        guard !numbering.notes.isEmpty || !numbering.definitionRanges.isEmpty else { return (text, []) }
+        guard !numbering.notes.isEmpty || !numbering.definitionRanges.isEmpty else { return (text, [], ReplacedTextOffsets(replacements: [])) }
         let replacements = numbering.referenceNumbers.map { reference in (range: reference.range, text: render(reference.number)) }
             + numbering.definitionRanges.map { range in (range: range, text: "") }
         let prepared = NSMutableString(string: text)
         for replacement in replacements.sorted(by: { first, second in first.range.location > second.range.location }) {
             prepared.replaceCharacters(in: replacement.range, with: replacement.text)
         }
-        return (prepared as String, numbering.notes.map(\.note))
+        let offsets = ReplacedTextOffsets(replacements: replacements.map { replacement in (replacement.range, replacement.text.utf16.count) })
+        return (prepared as String, numbering.notes.map(\.note), offsets)
     }
 
     /// Numbers footnotes in the order of their first reference; labels ignore case.

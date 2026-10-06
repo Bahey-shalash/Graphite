@@ -455,7 +455,7 @@ final class AppleDrawingFixTests: XCTestCase {
             context.beginPDFPage(nil)
             context.translateBy(x: 0, y: drawing.size.height)
             context.scaleBy(x: 1, y: -1)
-            VectorDrawingRenderer.draw(drawing, in: context)
+            try VectorDrawingRenderer.draw(drawing, in: context)
             context.endPDFPage()
             context.closePDF()
             return output as Data
@@ -760,6 +760,63 @@ final class AppleDrawingFixTests: XCTestCase {
             XCTAssertTrue(isInked(CGPoint(x: 552, y: 790)), "\(template): vertical line inside the grid")
             XCTAssertFalse(isInked(CGPoint(x: 552, y: 809)), "\(template): stub past the last horizontal line")
         }
+    }
+
+    func testNotebookPaperHasItsColorsAndTheNewTemplatesDrawTheirLines() throws {
+        func color(of page: (pixels: [UInt8], width: Int, height: Int), atPagePoint point: CGPoint, scale: Double) -> [Int] {
+            let column = Int((point.x * scale).rounded()), row = page.height - 1 - Int((point.y * scale).rounded())
+            return Array(pixel(page.pixels, width: page.width, column: column, row: row).prefix(3))
+        }
+        // Yellow paper with strong blue lines, in the gaps and on a line.
+        let yellow = DrawingBackground.yellow.colorHex
+        let paper = PaperSpecification(template: .ruled, paperColorHex: yellow, lineColor: .blue, lineStrength: .strong)
+        let page = try renderedFirstPage(PDFTemplateGenerator.documentData(paper: paper), scale: 2)
+        let paperPixel = color(of: page, atPagePoint: CGPoint(x: 300, y: 39), scale: 2)
+        XCTAssertEqual(paperPixel[0], 0xFC, accuracy: 3)
+        XCTAssertEqual(paperPixel[1], 0xF3, accuracy: 3)
+        XCTAssertEqual(paperPixel[2], 0xC4, accuracy: 3)
+        // The line is thinner than a pixel and blends with the yellow: the bluest pixel across
+        // it is much bluer than the paper.
+        let lineBlueness = (58...62).map { twicePoint in color(of: page, atPagePoint: CGPoint(x: 300, y: Double(twicePoint) / 2), scale: 2) }
+            .map { linePixel in linePixel[2] - linePixel[0] }.max() ?? 0
+        XCTAssertGreaterThan(lineBlueness - (paperPixel[2] - paperPixel[0]), 30, "A blue line on the first ruled line.")
+
+        // The standard style keeps the grays notebooks always had.
+        let gray = try renderedFirstPage(PDFTemplateGenerator.documentData(paper: PaperSpecification(template: .ruled)), scale: 2)
+        for twicePoint in 58...62 {
+            let grayLine = color(of: gray, atPagePoint: CGPoint(x: 300, y: Double(twicePoint) / 2), scale: 2)
+            XCTAssertEqual(grayLine[0], grayLine[2], accuracy: 2)
+        }
+        XCTAssertEqual(color(of: gray, atPagePoint: CGPoint(x: 300, y: 39), scale: 2), [255, 255, 255])
+
+        // Colored dots are drawn by the shared dot cell too.
+        let greenDots = try renderedFirstPage(PDFTemplateGenerator.documentData(paper: PaperSpecification(template: .dotted, lineColor: .green, lineStrength: .strong)), scale: 4)
+        let dot = color(of: greenDots, atPagePoint: CGPoint(x: 30, y: 30), scale: 4)
+        XCTAssertGreaterThan(dot[1] - dot[0], 20, "A green dot at the margin.")
+
+        // Isometric paper has slanted lines; music paper has staves of five lines.
+        for template in [PaperTemplate.isometric, .music] {
+            let templatePage = try renderedFirstPage(PDFTemplateGenerator.documentData(paper: PaperSpecification(template: template)), scale: 2)
+            let inkedRows = (0..<templatePage.height).filter { row in
+                pixel(templatePage.pixels, width: templatePage.width, column: templatePage.width / 2, row: row)[0] < 235
+            }
+            XCTAssertGreaterThan(inkedRows.count, 20, "\(template) draws its lines")
+        }
+        // Five lines six points apart, then a gap: the first staff under the top margin.
+        let music = try renderedFirstPage(PDFTemplateGenerator.documentData(paper: PaperSpecification(template: .music)), scale: 4)
+        let staffLineRows = (0..<(music.height / 8)).filter { row in pixel(music.pixels, width: music.width, column: music.width / 2, row: row)[0] < 245 }
+        // Each line covers a row or two at this scale; the start of each run is the line.
+        let lineStarts = staffLineRows.enumerated().filter { position, row in position == 0 || staffLineRows[position - 1] != row - 1 }.map(\.element)
+        let firstStaff = Array(lineStarts.prefix(5))
+        XCTAssertEqual(firstStaff.count, 5)
+        if let first = firstStaff.first, let last = firstStaff.last { XCTAssertEqual(last - first, 4 * 24, accuracy: 3) }
+        XCTAssertEqual(firstStaff.first ?? 0, 30 * 4, accuracy: 3, "The first staff starts at the top margin.")
+
+        // A specification written before paper colors keeps its meaning.
+        let older = Data(#"{"template":"grid","width":595.28,"height":841.89,"spacing":18}"#.utf8)
+        let decoded = try JSONDecoder().decode(PaperSpecification.self, from: older)
+        XCTAssertEqual(decoded, PaperSpecification(template: .grid))
+        XCTAssertThrowsError(try PDFTemplateGenerator.pageData(paper: PaperSpecification(template: .grid, spacing: 2), matching: CGSize(width: 100, height: 100)))
     }
 
     func testMatchingPagesAcceptEveryPageSizePDFAllows() throws {

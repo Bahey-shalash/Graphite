@@ -79,6 +79,7 @@ public struct GraphiteRootView: View {
                     case .note: await workspace.createNote(named: name, in: request.directory)
                     case .notebook: await workspace.createNotebook(named: name, paper: paper, pageCount: pageCount, in: request.directory)
                     case .base: await workspace.createBase(named: name, in: request.directory)
+                    case .canvas: await workspace.createCanvas(named: name, in: request.directory)
                     }
                 }
             }
@@ -177,6 +178,7 @@ public struct GraphiteRootView: View {
         documentArea
             // Nothing a document view holds carries over to another vault.
             .id(workspace.currentVaultIdentifier)
+            .overlay { RecordingPreviewOverlay(workspace: workspace) }
             // Editable, so the title bar's menu offers Rename, as for documents in Files.
             .navigationTitle(titleBinding)
             #if canImport(UIKit)
@@ -223,8 +225,7 @@ public struct GraphiteRootView: View {
         }
         if workspace.store != nil && (workspace.preferences.isEnabled(.audioRecorder) || workspace.recording.state.isActive) {
             ToolbarItem(placement: .primaryAction) {
-                RecordingControl(controller: workspace.recording, start: { Task { await workspace.startRecording() } },
-                                 retrySaving: { Task { await workspace.retryRecordingPublication() } })
+                RecordingControl(workspace: workspace)
                     .tint(.primary)
             }
         }
@@ -456,6 +457,8 @@ private struct CreateDocumentSheet: View {
     @State private var name = ""
     @FocusState private var isNameFocused: Bool
     @State private var paper = PaperTemplate.dotted
+    /// Spacing and colors start as Settings has them.
+    @State private var paperStyle = GraphitePreferences.storedNotebookPaper(template: .dotted)
     @State private var sizePreset = PaperSizePreset.a4
     @State private var isLandscape = false
     @State private var customWidth = 595.28
@@ -477,6 +480,22 @@ private struct CreateDocumentSheet: View {
                 if kind == .notebook {
                     Section("Paper") {
                         Picker("Template", selection: $paper) { ForEach(PaperTemplate.allCases) { template in Text(template.title).tag(template) } }
+                        if paper != .blank {
+                            Picker("Spacing", selection: $paperStyle.spacing) {
+                                ForEach(NotebookPaperSpacing.choices, id: \.self) { spacing in Text(NotebookPaperSpacing.title(of: spacing)).tag(spacing) }
+                            }
+                            Picker("Line color", selection: $paperStyle.lineColor) {
+                                ForEach(DrawingPaperLineColor.allCases) { lineColor in Text(lineColor.title).tag(lineColor) }
+                            }
+                            Picker("Line strength", selection: $paperStyle.lineStrength) {
+                                ForEach(DrawingPaperLineStrength.allCases) { strength in Text(strength.title).tag(strength) }
+                            }
+                        }
+                        Picker("Paper color", selection: Binding(
+                            get: { DrawingBackground.allCases.first { color in color.colorHex == (paperStyle.paperColorHex ?? DrawingBackground.white.colorHex) } ?? .white },
+                            set: { color in paperStyle.paperColorHex = color == .white ? nil : color.colorHex })) {
+                            ForEach(DrawingBackground.allCases.filter { color in color != .transparent }) { color in Text(color.title).tag(color) }
+                        }
                         Picker("Size", selection: $sizePreset) { ForEach(PaperSizePreset.allCases) { preset in Text(preset.title).tag(preset) } }
                         if sizePreset == .custom {
                             TextField("Width in points", value: $customWidth, format: .number)
@@ -514,82 +533,14 @@ private struct CreateDocumentSheet: View {
 
     private func createIfNamed() {
         guard nameProblem == nil, sizeProblem == nil else { return }
-        create(name.trimmingCharacters(in: .whitespacesAndNewlines), PaperSpecification(template: paper, width: pageSize.width, height: pageSize.height), pageCount)
+        var specification = paperStyle.sized(pageSize)
+        specification.template = paper
+        create(name.trimmingCharacters(in: .whitespacesAndNewlines), specification, pageCount)
         dismiss()
     }
 
     private var pageSize: CGSize {
         guard let portraitSize = sizePreset.portraitSize else { return CGSize(width: customWidth, height: customHeight) }
         return isLandscape ? CGSize(width: portraitSize.height, height: portraitSize.width) : portraitSize
-    }
-}
-
-// MARK: Recording
-
-private struct RecordingControl: View {
-    @Bindable var controller: RecordingController
-    let start: () -> Void
-    /// Saves a recording that could not be saved into the vault, to a destination the
-    /// workspace works out again.
-    let retrySaving: () -> Void
-    @State private var showsDiscardConfirmation = false
-
-    var body: some View {
-        control
-            .confirmationDialog("Delete this recording?", isPresented: $showsDiscardConfirmation, titleVisibility: .visible) {
-                Button("Delete Recording", role: .destructive) { controller.discardRecoveredRecording() }
-            } message: {
-                Text("It could not be saved into the vault, and this is its only copy.")
-            }
-    }
-
-    @ViewBuilder private var control: some View {
-        if controller.canStartRecording && controller.message == nil {
-            Button("Record Lecture", systemImage: "mic") { start() }
-        } else {
-            // One menu, not a row of buttons: a toolbar gives a custom view one narrow slot,
-            // which cut the row's Pause and Stop buttons off.
-            Menu {
-                if let message = controller.message { Text(message) }
-                if controller.state == .recording { Button("Pause", systemImage: "pause.fill") { controller.pause() } }
-                if controller.state.canResume { Button("Resume", systemImage: "record.circle") { controller.resume() } }
-                if controller.state.canStop { Button("Stop and Save", systemImage: "stop.fill") { controller.stop() } }
-                if controller.state == .requestingPermission { Button("Cancel", systemImage: "xmark") { controller.cancelStart() } }
-                if controller.state == .failed && controller.recoveryURL != nil {
-                    Button("Try Saving Again") { retrySaving() }
-                    Button("Discard Recording…", systemImage: "trash", role: .destructive) { showsDiscardConfirmation = true }
-                }
-                // A recording waiting to be saved or discarded is the only copy of its lecture.
-                if controller.canStartRecording { Button("Record Lecture", systemImage: "mic") { start() } }
-            } label: {
-                HStack(spacing: 6) {
-                    if controller.state.canStart {
-                        Image(systemName: "exclamationmark.circle").foregroundStyle(.orange)
-                    } else {
-                        Circle().fill(controller.state == .recording ? Color.red : Color.orange).frame(width: 8, height: 8)
-                        switch controller.state {
-                        case .requestingPermission: Text("Starting…")
-                        case .finalizing: Text("Saving…")
-                        default:
-                            TimelineView(.periodic(from: .now, by: 1)) { _ in
-                                Text(Duration.seconds(controller.elapsedSeconds).formatted(.time(pattern: .hourMinuteSecond))).monospacedDigit()
-                            }
-                        }
-                    }
-                }
-                .font(.callout)
-            }
-            .accessibilityLabel(accessibilityDescription)
-        }
-    }
-
-    private var accessibilityDescription: String {
-        switch controller.state {
-        case .requestingPermission: "Recording is starting"
-        case .recording: "Recording"
-        case .paused, .interrupted: "Recording paused"
-        case .finalizing: "Saving the recording"
-        case .idle, .failed: "Recording problem"
-        }
     }
 }

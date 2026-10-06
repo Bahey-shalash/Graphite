@@ -23,14 +23,14 @@ final class UiStylingFixTests: XCTestCase {
                                        hiddenRange: NSRange(location: 3, length: length), endLocation: length + 5, key: "stale")
         let styler = MarkdownTextStyler(configuration: livePreview, accentColor: .systemBlue)
         styler.applyStyles(to: textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true,
-                           revealedRange: nil, concealedBlocks: [insideBlock, staleBlock], foldedRegions: [staleFold])
+                           revealedMarkup: nil, concealedBlocks: [insideBlock, staleBlock], foldedRegions: [staleFold])
         // The block that still fits is concealed.
         let font = textStorage.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
         XCTAssertEqual(font?.pointSize ?? 0, 0.01, accuracy: 0.001)
         styler.applyStyles(to: textStorage, editedRange: NSRange(location: length - 2, length: 50), restyleEverything: false,
-                           revealedRange: nil, concealedBlocks: [staleBlock], foldedRegions: [staleFold])
+                           revealedMarkup: nil, concealedBlocks: [staleBlock], foldedRegions: [staleFold])
         styler.applyStyles(to: textStorage, editedRange: NSRange(location: -4, length: 2), restyleEverything: false,
-                           revealedRange: nil, concealedBlocks: [], foldedRegions: [])
+                           revealedMarkup: nil, concealedBlocks: [], foldedRegions: [])
     }
 
     // MARK: Replacements without a drawer
@@ -41,7 +41,7 @@ final class UiStylingFixTests: XCTestCase {
         let text = "- item\n- [ ] task\n> quote\n[[Note#Heading]]\n$x^2$ here\n"
         let textStorage = NSTextStorage(string: text)
         let styler = MarkdownTextStyler(configuration: livePreview, accentColor: .systemBlue, drawsConcealedReplacements: false)
-        styler.applyStyles(to: textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedRange: nil, concealedBlocks: [])
+        styler.applyStyles(to: textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedMarkup: nil, concealedBlocks: [])
         let source = text as NSString
         for marker in ["-", "[ ]", ">", "#", "$x^2$"] {
             let location = source.range(of: marker, options: [], range: NSRange(location: marker == "-" ? 0 : 7, length: source.length - (marker == "-" ? 0 : 7))).location
@@ -59,7 +59,7 @@ final class UiStylingFixTests: XCTestCase {
         let text = "- item\n- [ ] task\n> quote\n"
         let textStorage = NSTextStorage(string: text)
         let styler = MarkdownTextStyler(configuration: livePreview, accentColor: .systemBlue, drawsConcealedReplacements: true)
-        styler.applyStyles(to: textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedRange: nil, concealedBlocks: [])
+        styler.applyStyles(to: textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedMarkup: nil, concealedBlocks: [])
         XCTAssertEqual(textStorage.attribute(ConcealedReplacement.attributeKey, at: 0, effectiveRange: nil) as? String, ConcealedReplacement.bullet.rawValue)
         XCTAssertEqual(textStorage.attribute(ConcealedReplacement.attributeKey, at: 9, effectiveRange: nil) as? String, ConcealedReplacement.uncheckedTask.rawValue)
         XCTAssertEqual(textStorage.attribute(ConcealedReplacement.attributeKey, at: 18, effectiveRange: nil) as? String, ConcealedReplacement.quoteBar.rawValue)
@@ -67,20 +67,22 @@ final class UiStylingFixTests: XCTestCase {
 
     // MARK: Revealed lines
 
-    /// The revealed range is whole lines, so it ends where the next line starts; the next
-    /// line's markup must stay hidden.
+    /// The selection's lines end where the next line starts; the next line's markers must
+    /// stay hidden.
     func testMarkupAtTheStartOfTheNextLineStaysHidden() {
         let text = "Intro\n# Heading\n- item\n- two\n"
         let textStorage = NSTextStorage(string: text)
         let styler = MarkdownTextStyler(configuration: livePreview, accentColor: .systemBlue, drawsConcealedReplacements: true)
         let source = text as NSString
         let introLine = source.lineRange(for: NSRange(location: 0, length: 0))
-        styler.applyStyles(to: textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedRange: introLine, concealedBlocks: [])
+        styler.applyStyles(to: textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true,
+                           revealedMarkup: RevealedMarkup(selection: NSRange(location: 0, length: 0), in: source), concealedBlocks: [])
         let headingMarkerFont = textStorage.attribute(.font, at: introLine.length, effectiveRange: nil) as? NSFont
         XCTAssertEqual(headingMarkerFont?.pointSize ?? 0, 0.01, accuracy: 0.001)
 
         let headingLine = source.lineRange(for: NSRange(location: introLine.length, length: 0))
-        styler.applyStyles(to: textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedRange: headingLine, concealedBlocks: [])
+        styler.applyStyles(to: textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true,
+                           revealedMarkup: RevealedMarkup(selection: NSRange(location: headingLine.location, length: 0), in: source), concealedBlocks: [])
         XCTAssertEqual(textStorage.attribute(ConcealedReplacement.attributeKey, at: NSMaxRange(headingLine), effectiveRange: nil) as? String, ConcealedReplacement.bullet.rawValue)
         let revealedHeadingFont = textStorage.attribute(.font, at: introLine.length, effectiveRange: nil) as? NSFont
         XCTAssertGreaterThan(revealedHeadingFont?.pointSize ?? 0, 1)
@@ -112,8 +114,8 @@ final class UiStylingFixTests: XCTestCase {
         let styler = MarkdownTextStyler(configuration: livePreview, accentColor: .systemBlue)
         let source = note as NSString
         let markerLine = source.lineRange(for: NSRange(location: source.range(of: "~={").location, length: 0))
-        styler.applyStyles(to: textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedRange: nil, concealedBlocks: [])
-        styler.applyStyles(to: textStorage, editedRange: markerLine, restyleEverything: false, revealedRange: nil, concealedBlocks: [])
+        styler.applyStyles(to: textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedMarkup: nil, concealedBlocks: [])
+        styler.applyStyles(to: textStorage, editedRange: markerLine, restyleEverything: false, revealedMarkup: nil, concealedBlocks: [])
         let color = textStorage.attribute(.foregroundColor, at: source.range(of: "x=~").location, effectiveRange: nil) as? NSColor
         XCTAssertEqual(color, MarkdownTextStyler.primaryTextColor)
         let markerFont = textStorage.attribute(.font, at: markerLine.location, effectiveRange: nil) as? NSFont
@@ -135,13 +137,13 @@ final class UiStylingFixTests: XCTestCase {
         let source = note as NSString
         let styler = MarkdownTextStyler(configuration: livePreview, accentColor: .systemBlue, drawsConcealedReplacements: true)
         let expected = NSTextStorage(string: note)
-        styler.applyStyles(to: expected, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedRange: nil, concealedBlocks: [])
+        styler.applyStyles(to: expected, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedMarkup: nil, concealedBlocks: [])
         let checkpoints = MarkdownBlockContextCheckpoints()
         var lineStart = 0
         while lineStart < source.length {
             let lineRange = source.lineRange(for: NSRange(location: lineStart, length: 0))
             let restyled = NSTextStorage(attributedString: expected)
-            styler.applyStyles(to: restyled, editedRange: lineRange, restyleEverything: false, revealedRange: nil, concealedBlocks: [],
+            styler.applyStyles(to: restyled, editedRange: lineRange, restyleEverything: false, revealedMarkup: nil, concealedBlocks: [],
                                blockContextCheckpoints: usesCheckpoints ? checkpoints : nil)
             XCTAssertEqual(Self.attributeRuns(of: restyled), Self.attributeRuns(of: expected),
                            "line \(source.substring(with: lineRange).debugDescription) of \(note.debugDescription)", file: file, line: line)
@@ -258,7 +260,7 @@ final class UiStylingFixTests: XCTestCase {
         let table = "| $\\frac{a}{b}$ |\n| - |\n| 1 |\n"
         let tableStorage = NSTextStorage(string: table)
         let tableBlock = ConcealedBlock(range: NSRange(location: 0, length: tableStorage.length), reservedHeight: 40)
-        styler.applyStyles(to: tableStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedRange: nil, concealedBlocks: [tableBlock])
+        styler.applyStyles(to: tableStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedMarkup: nil, concealedBlocks: [tableBlock])
         assertNoFormulaAttributes(in: tableStorage, range: tableBlock.range)
 
         let note = "# Heading\nSee $\\frac{a}{b}$ here\n# Next\n"
@@ -267,11 +269,11 @@ final class UiStylingFixTests: XCTestCase {
         let nextHeading = source.range(of: "# Next").location
         let fold = FoldableRegion(kind: .heading(level: 1), headerRange: NSRange(location: 0, length: 9),
                                   hiddenRange: NSRange(location: 9, length: nextHeading - 9), endLocation: nextHeading, key: "heading")
-        styler.applyStyles(to: noteStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedRange: nil,
+        styler.applyStyles(to: noteStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedMarkup: nil,
                            concealedBlocks: [], foldedRegions: [fold])
         assertNoFormulaAttributes(in: noteStorage, range: fold.hiddenRange)
         // The same formula outside the fold is drawn and sized.
-        styler.applyStyles(to: noteStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedRange: nil, concealedBlocks: [])
+        styler.applyStyles(to: noteStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedMarkup: nil, concealedBlocks: [])
         XCTAssertNotNil(noteStorage.attribute(ConcealedReplacement.mathAttributeKey, at: source.range(of: "$").location, effectiveRange: nil))
     }
 
@@ -297,7 +299,7 @@ final class UiStylingFixTests: XCTestCase {
         layoutManager.textContainer = NSTextContainer(size: CGSize(width: width, height: 0))
         let textStorage = try XCTUnwrap(contentStorage.textStorage)
         textStorage.setAttributedString(NSAttributedString(string: text))
-        styler.applyStyles(to: textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedRange: nil, concealedBlocks: [])
+        styler.applyStyles(to: textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedMarkup: nil, concealedBlocks: [])
         var lines: [LaidOutLine] = []
         layoutManager.enumerateTextLayoutFragments(from: layoutManager.documentRange.location, options: [.ensuresLayout]) { fragment in
             let paragraphStart = contentStorage.offset(from: contentStorage.documentRange.location, to: fragment.rangeInElement.location)
@@ -316,7 +318,7 @@ final class UiStylingFixTests: XCTestCase {
     func testStrongTextInAHeadingIsBoldAtTheHeadingSize() {
         let textStorage = NSTextStorage(string: "# A **bold** heading\nplain *italic* text\n")
         let styler = MarkdownTextStyler(configuration: EditorConfiguration(mode: .source, textSize: 20), accentColor: .systemBlue)
-        styler.applyStyles(to: textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedRange: nil, concealedBlocks: [])
+        styler.applyStyles(to: textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedMarkup: nil, concealedBlocks: [])
         let boldFont = textStorage.attribute(.font, at: 6, effectiveRange: nil) as? NSFont
         XCTAssertEqual(boldFont?.pointSize ?? 0, 35, accuracy: 0.01)
         XCTAssertTrue(boldFont?.fontDescriptor.symbolicTraits.contains(.bold) == true)

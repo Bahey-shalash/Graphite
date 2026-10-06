@@ -101,11 +101,13 @@ final class CoreBasesEvaluatorFixTests: XCTestCase {
     }
 
     func testMillisecondIsExact() throws {
-        XCTAssertEqual(try evaluate("date(1700000000123).millisecond"), .number(123))
-        XCTAssertEqual(try evaluate("date(1700000000999).millisecond"), .number(999))
-        XCTAssertEqual(try evaluate("date(1700000000001).millisecond"), .number(1))
-        XCTAssertEqual(try evaluate("date(-500).millisecond"), .number(500))
-        XCTAssertEqual(try evaluate("date(-1000).millisecond"), .number(0))
+        XCTAssertEqual(try evaluate("date(\"2023-11-14T22:13:20.123Z\").millisecond"), .number(123))
+        XCTAssertEqual(try evaluate("date(\"2023-11-14T22:13:20.999Z\").millisecond"), .number(999))
+        XCTAssertEqual(try evaluate("date(\"2023-11-14T22:13:20.001Z\").millisecond"), .number(1))
+        // Before 1970 the time since the epoch is negative.
+        XCTAssertEqual(try evaluate("date(\"1969-12-31T23:59:59.500Z\").millisecond"), .number(500))
+        XCTAssertEqual(try evaluate("date(\"1969-12-31T23:59:59Z\").millisecond"), .number(0))
+        XCTAssertEqual(try evaluate("number(date(\"1969-12-31T23:59:59.500Z\"))"), .number(-500))
     }
 
     // MARK: Arithmetic (F109, F397)

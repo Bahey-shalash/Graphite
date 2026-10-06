@@ -5,11 +5,12 @@ import GraphiteApple
 
 /// Drawing on an image, from a note's embed or from the image itself.
 ///
-/// The image file is never changed. The drawing is saved as a new ordinary PNG, the picture
-/// with the ink over it, named after the image ("Diagram annotated.png"); its editing
-/// metadata keeps the picture, so the ink can be edited again later. A note's embeds of the
-/// image then show the new file, written in the style they were written in (a bare name, a
-/// path, a Markdown link, with any size or alias), as one edit that can be undone.
+/// The image file is never changed. The drawing is saved as a new ordinary drawing file in
+/// the format new drawings take, the picture with the ink over it, named after the image
+/// ("Diagram annotated.png"); its editing metadata keeps the picture, so the ink can be
+/// edited again later. A note's embeds of the image then show the new file, written in the
+/// style they were written in (a bare name, a path, a Markdown link, with any size or
+/// alias), as one edit that can be undone.
 extension WorkspaceModel {
     /// Bound on an image read to be drawn on; the picture kept is far smaller.
     static let maximumImageBytesToDrawOn = 64 * 1_048_576
@@ -32,7 +33,7 @@ extension WorkspaceModel {
             }.value
             drawingEditorRequest = DrawingEditorRequest(
                 target: .drawingOnImage(imagePath: imagePath, notePath: notePath), title: imagePath.name, initialStrokeData: Data(),
-                canvasWidth: canvasWidth, background: .white, format: .png, backgroundImage: picture)
+                canvasWidth: canvasWidth, background: .white, format: preferences.drawingFormat, backgroundImage: picture)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -59,9 +60,10 @@ extension WorkspaceModel {
         }
     }
 
-    /// Saves the new PNG where the note's attachments go, or beside a standalone image, then
-    /// points the note's embeds at it, or opens it when there is no note.
-    func saveDrawingOnImage(_ content: DrawingContent, imagePath: VaultPath, notePath: VaultPath?, service: DrawingFileService) async throws {
+    /// Saves the new drawing where the note's attachments go, or beside a standalone image,
+    /// then points the note's embeds at it, or opens it when there is no note.
+    func saveDrawingOnImage(_ content: DrawingContent, format: DrawingFormat, imagePath: VaultPath, notePath: VaultPath?,
+                            service: DrawingFileService) async throws {
         guard let store, let root = folderAccess?.root else { throw GraphiteError.unavailable("Open a vault first.") }
         let directory: VaultPath
         if let notePath {
@@ -72,8 +74,8 @@ extension WorkspaceModel {
         }
         try await store.createDirectory(directory)
         let stem = (imagePath.name as NSString).deletingPathExtension + " annotated"
-        let path = try await store.uniquePath(directory: directory, stem: stem, extension: DrawingFormat.png.fileExtension)
-        _ = try await service.save(content, format: .png, to: path.url(in: root), expecting: .absent)
+        let path = try await store.uniquePath(directory: directory, stem: stem, extension: format.fileExtension)
+        _ = try await service.save(content, format: format, to: path.url(in: root), expecting: .absent)
         if let notePath {
             if let session = openMarkdownSession(at: notePath), !session.hasExternalConflict {
                 let replacedCount = await replaceEmbeds(of: imagePath, with: path, in: session)

@@ -107,9 +107,10 @@ public struct AtomicFileWriter: Sendable {
     /// Orders the staged bytes before the rename that publishes them (`F_BARRIERFSYNC`), so
     /// after a power loss the destination holds the old or the new file, never a truncated
     /// one. Plain `fsync` leaves the data in the drive's cache on Apple platforms. File
-    /// systems without barriers fall back to `fsync`.
+    /// systems without barriers fall back to `fsync`. The file is opened for reading: both
+    /// flushes work on any descriptor, and a copy of a read-only file keeps its permissions.
     private static func flushBeforeLaterWrites(_ staging: URL) throws {
-        let handle = try FileHandle(forWritingTo: staging)
+        let handle = try FileHandle(forReadingFrom: staging)
         defer { try? handle.close() }
         if fcntl(handle.fileDescriptor, F_BARRIERFSYNC) == -1 { try handle.synchronize() }
     }

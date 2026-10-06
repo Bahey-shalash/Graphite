@@ -6,8 +6,8 @@ struct DrawingEditorRequest: Identifiable {
     enum Target {
         case newDrawing(notePath: VaultPath, insertionRange: NSRange)
         case existingDrawing(path: VaultPath, location: URL, revision: FileRevision)
-        /// Ink over an image, saved as a new PNG; the image stays as it is. From a note, the
-        /// note's embeds of the image then show the new file.
+        /// Ink over an image, saved as a new drawing file; the image stays as it is. From a
+        /// note, the note's embeds of the image then show the new file.
         case drawingOnImage(imagePath: VaultPath, notePath: VaultPath?)
     }
     var id = UUID()
@@ -38,14 +38,6 @@ struct DrawingEditorRequest: Identifiable {
     /// A new file is made only when there is ink or a picture to save.
     var requiresContent: Bool {
         if case .existingDrawing = target { return false }
-        return true
-    }
-
-    /// Pictures make a drawing a PNG. A new drawing takes that format when it is saved; an
-    /// existing SVG or PDF drawing keeps its name in the notes that embed it, so it takes no
-    /// pictures.
-    var acceptsPictures: Bool {
-        if case .existingDrawing = target { return format == .png }
         return true
     }
 
@@ -148,7 +140,8 @@ struct DrawingEditor: View {
                     // drawing under the finger.
                     if usesFixedToolbar, showsToolPicker {
                         PencilToolbar(toolbox: toolbox, favoriteColors: GraphitePreferences.storedColorPalette(), drawsShapes: $drawsShapes,
-                                      addImage: request.acceptsPictures ? { showsPhotoPicker = true } : nil)
+                                      addImage: { showsPhotoPicker = true },
+                                      undoAvailability: canvasController.undoAvailability)
                     }
                 }
                 .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -163,10 +156,13 @@ struct DrawingEditor: View {
                     }
                 }
                 .alert("Drawing", isPresented: Binding(get: { errorMessage != nil }, set: { isPresented in if !isPresented { errorMessage = nil; failedPNGSave = false } })) {
-                    if failedPNGSave && currentContent?.requiresPNG != true {
+                    if failedPNGSave {
                         ForEach([DrawingFormat.pdf, .svg]) { vectorFormat in
                             if request.isNewDrawing {
                                 Button("Insert as \(vectorFormat.title)") { Task { await saveAndClose(as: vectorFormat) } }
+                            } else if case .drawingOnImage = request.target {
+                                // A drawing on an image is a new file, so it can take either format.
+                                Button("Save as \(vectorFormat.title)") { Task { await saveAndClose(as: vectorFormat) } }
                             } else {
                                 // The notes embed this file by its name, so it keeps its format.
                                 Button("Export a Copy as \(vectorFormat.title)") { Task { await shareCopy(as: vectorFormat) } }
@@ -200,16 +196,30 @@ struct DrawingEditor: View {
     /// Shown while images are being arranged, where the palette otherwise is.
     private var pictureArrangementBar: some View {
         HStack(spacing: 16) {
-            Text(canvasController.selectedPictureIdentifier == nil ? "Tap an image to select it." : "Drag the image to move it, or a corner to resize it.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 8)
-            Button("Delete Image", systemImage: "trash", role: .destructive) { canvasController.deleteSelectedPicture() }
-                .labelStyle(.iconOnly)
-                .disabled(canvasController.selectedPictureIdentifier == nil)
-            Button("Done") { canvasController.finishArrangingPictures() }
-                .fontWeight(.semibold)
-                .tint(.primary)
+            if canvasController.isCroppingPicture {
+                Text("Drag a corner to choose the part to keep.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                Button("Cancel") { canvasController.cancelCroppingPicture() }
+                    .tint(.primary)
+                Button("Crop") { runPictureChange { try await canvasController.applyCrop() } }
+                    .fontWeight(.semibold)
+                    .tint(.primary)
+            } else {
+                Text(canvasController.selectedPictureIdentifier == nil ? "Tap an image to select it." : "Drag the image to move it, or a corner to resize it.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                PictureEditingButtons(isEnabled: canvasController.selectedPictureIdentifier != nil, canReorder: canvasController.pictures.count > 1,
+                                      rotate: { runPictureChange { try await canvasController.rotateSelectedPicture() } },
+                                      crop: { canvasController.beginCroppingPicture() },
+                                      moveInOrder: { toFront in canvasController.moveSelectedPictureInOrder(toFront: toFront) },
+                                      delete: { canvasController.deleteSelectedPicture() })
+                Button("Done") { canvasController.finishArrangingPictures() }
+                    .fontWeight(.semibold)
+                    .tint(.primary)
+            }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
@@ -249,6 +259,18 @@ struct DrawingEditor: View {
                     Picker("Paper", selection: $canvasController.paper.pattern) {
                         ForEach(DrawingPaperPattern.allCases) { pattern in Label(pattern.title, systemImage: pattern.symbolName).tag(pattern) }
                     }
+                    Menu("Lines", systemImage: "line.3.horizontal.decrease") {
+                        Picker("Spacing", selection: $canvasController.paper.spacing) {
+                            ForEach(DrawingPaperSpacing.allCases) { spacing in Text(spacing.title).tag(spacing) }
+                        }
+                        Picker("Color", selection: $canvasController.paper.lineColor) {
+                            ForEach(DrawingPaperLineColor.allCases) { lineColor in Text(lineColor.title).tag(lineColor) }
+                        }
+                        Picker("Strength", selection: $canvasController.paper.lineStrength) {
+                            ForEach(DrawingPaperLineStrength.allCases) { strength in Text(strength.title).tag(strength) }
+                        }
+                    }
+                    .disabled(canvasController.paper.pattern == .plain)
                     Toggle("Show Paper in the Note", isOn: $canvasController.paper.appearsInSavedDrawing)
                         .disabled(canvasController.paper.pattern == .plain)
                     // A picture drawn on has no background of its own to choose.
@@ -258,6 +280,7 @@ struct DrawingEditor: View {
                         }
                     }
                 }
+                Toggle("Preview as in the Note", systemImage: "eye", isOn: $canvasController.showsSavedAppearance)
                 Menu("Add Image", systemImage: "photo.badge.plus") {
                     Button("Photo Library…", systemImage: "photo.on.rectangle") { showsPhotoPicker = true }
                     Button("Choose File…", systemImage: "folder") { showsImageFilePicker = true }
@@ -265,14 +288,13 @@ struct DrawingEditor: View {
                         Button("Paste Image", systemImage: "doc.on.clipboard") { Task { await addPictureFromPasteboard() } }
                     }
                 }
-                .disabled(!request.acceptsPictures)
                 if !canvasController.pictures.isEmpty {
                     Button("Move or Resize Images", systemImage: "arrow.up.and.down.and.arrow.left.and.right") { canvasController.beginArrangingPictures() }
                 }
                 Divider()
                 // The original format stays fixed; exporting makes a separate file.
                 Menu("Export a Copy", systemImage: "square.and.arrow.up") {
-                    ForEach(availableFormats) { drawingFormat in
+                    ForEach(DrawingFormat.allCases) { drawingFormat in
                         Button(drawingFormat.title) { Task { await shareCopy(as: drawingFormat) } }
                     }
                 }
@@ -286,11 +308,6 @@ struct DrawingEditor: View {
         }
     }
 
-    /// Drawings with pictures are raster pictures, saved and exported as PNG only.
-    private var availableFormats: [DrawingFormat] {
-        request.backgroundImage != nil || !canvasController.pictures.isEmpty ? [.png] : DrawingFormat.allCases
-    }
-
     private var currentContent: DrawingContent? {
         guard canvasController.canvasWidth > 0 else { return nil }
         return DrawingContent(strokeData: canvasController.strokeData(), canvasWidth: canvasController.canvasWidth, background: canvasController.background,
@@ -302,15 +319,13 @@ struct DrawingEditor: View {
         guard request.requiresContent || canvasController.hasChanges else { close(); return }
         canvasController.finishArrangingPictures()
         guard let content = currentContent else { return }
-        // A new drawing with pictures becomes a PNG whatever format new drawings take.
-        let saveFormat = content.requiresPNG ? DrawingFormat.png : chosenFormat
         isSaving = true
         defer { isSaving = false }
         do {
-            try await save(content, saveFormat)
+            try await save(content, chosenFormat)
             close()
         } catch {
-            if saveFormat == .png, case GraphiteError.oversized = error { failedPNGSave = true }
+            if chosenFormat == .png, case GraphiteError.oversized = error { failedPNGSave = true }
             errorMessage = error.localizedDescription
         }
     }
@@ -352,6 +367,12 @@ struct DrawingEditor: View {
     private func addPictureFromPasteboard() async {
         guard let imageData = UIPasteboard.general.image?.pngData() else { return }
         await addPicture(imageData: imageData)
+    }
+
+    private func runPictureChange(_ change: @escaping () async throws -> Void) {
+        Task {
+            do { try await change() } catch { errorMessage = error.localizedDescription }
+        }
     }
 
     private func addPicture(imageData: Data) async {
@@ -422,13 +443,22 @@ final class DrawingCanvasController {
     var paper: DrawingPaper {
         didSet {
             guard paper != oldValue else { return }
-            canvasView?.paperPattern = paper.pattern
+            showPicturesAndPaper()
             hasChanges = true
         }
     }
-    /// White paper, or none: the note shows through a saved drawing without a background.
+    /// The paper's color, or none: the note shows through a saved drawing without a background.
     var background: DrawingBackground {
-        didSet { if background != oldValue { hasChanges = true } }
+        didSet {
+            guard background != oldValue else { return }
+            showPicturesAndPaper()
+            hasChanges = true
+        }
+    }
+    /// Shows the drawing as the note will: without a pattern that is only a guide, and with
+    /// no paper at all where there is none. Not saved.
+    var showsSavedAppearance = false {
+        didSet { if showsSavedAppearance != oldValue { showPicturesAndPaper() } }
     }
     /// While arranging, touches move and resize pictures instead of drawing.
     private(set) var isArrangingPictures = false
@@ -509,6 +539,7 @@ final class DrawingCanvasController {
     func finishArrangingPictures() {
         guard isArrangingPictures else { return }
         isArrangingPictures = false
+        isCroppingPicture = false
         selectedPictureIdentifier = nil
         showPicturesAndPaper()
     }
@@ -521,9 +552,82 @@ final class DrawingCanvasController {
         showPicturesAndPaper()
     }
 
+    // MARK: Turning, cropping and ordering pictures
+
+    /// While cropping, the selected picture's frame shows the part to keep.
+    private(set) var isCroppingPicture = false
+
+    private var selectedPictureIndex: Int? {
+        pictures.firstIndex { placed in placed.id == selectedPictureIdentifier }
+    }
+
+    /// Turns the selected picture a quarter turn clockwise about its middle.
+    func rotateSelectedPicture() async throws {
+        guard let pictureIndex = selectedPictureIndex else { return }
+        let placed = pictures[pictureIndex]
+        let pictureData = placed.picture.imageData
+        let turnedData = try await Task.detached(priority: .userInitiated) { try PictureEditing.rotatedClockwise(pictureData) }.value
+        let frame = placed.picture.frame
+        let turnedFrame = CGRect(x: frame.midX - frame.height / 2, y: frame.midY - frame.width / 2, width: frame.height, height: frame.width)
+        replacePicture(placed.id, with: DrawingBackgroundImage(imageData: turnedData, frame: turnedFrame), actionName: "Turn Image")
+    }
+
+    func beginCroppingPicture() {
+        guard selectedPictureIndex != nil else { return }
+        isCroppingPicture = true
+        showPicturesAndPaper()
+    }
+
+    func cancelCroppingPicture() {
+        isCroppingPicture = false
+        showPicturesAndPaper()
+    }
+
+    /// Keeps the part of the selected picture inside the crop frame.
+    func applyCrop() async throws {
+        defer { cancelCroppingPicture() }
+        guard let cropFrame = canvasView?.cropFrame else { return }
+        try await cropSelectedPicture(to: cropFrame)
+    }
+
+    /// Keeps the part of the selected picture inside a frame of the drawing's coordinates.
+    func cropSelectedPicture(to cropFrame: CGRect) async throws {
+        guard let pictureIndex = selectedPictureIndex else { return }
+        let placed = pictures[pictureIndex]
+        let frame = placed.picture.frame
+        let keptFrame = cropFrame.intersection(frame)
+        guard !keptFrame.isNull, keptFrame != frame, frame.width > 0, frame.height > 0 else { return }
+        let region = CGRect(x: (keptFrame.minX - frame.minX) / frame.width, y: (keptFrame.minY - frame.minY) / frame.height,
+                            width: keptFrame.width / frame.width, height: keptFrame.height / frame.height)
+        let pictureData = placed.picture.imageData
+        let croppedData = try await Task.detached(priority: .userInitiated) { try PictureEditing.cropped(pictureData, to: region) }.value
+        replacePicture(placed.id, with: DrawingBackgroundImage(imageData: croppedData, frame: keptFrame), actionName: "Crop Image")
+    }
+
+    /// Puts the selected picture over or under the drawing's other pictures; ink stays over them all.
+    func moveSelectedPictureInOrder(toFront: Bool) {
+        guard let pictureIndex = selectedPictureIndex, pictures.count > 1 else { return }
+        guard toFront ? pictureIndex < pictures.count - 1 : pictureIndex > 0 else { return }
+        var reordered = pictures
+        let placed = reordered.remove(at: pictureIndex)
+        reordered.insert(placed, at: toFront ? reordered.count : 0)
+        replacePictures(with: reordered, actionName: toFront ? "Bring Image to Front" : "Send Image to Back")
+        showPicturesAndPaper()
+    }
+
+    private func replacePicture(_ identifier: UUID, with picture: DrawingBackgroundImage, actionName: String) {
+        guard let pictureIndex = pictures.firstIndex(where: { placed in placed.id == identifier }) else { return }
+        var changedPictures = pictures
+        changedPictures[pictureIndex].picture = picture
+        replacePictures(with: changedPictures, actionName: actionName)
+        showPicturesAndPaper()
+    }
+
     /// The canvas reports a picture tapped while arranging (nil for a tap beside them all),
     /// or tapped with a finger that does not draw.
     func pictureWasTapped(_ identifier: UUID?) {
+        // A tap while cropping belongs to the crop, which ends with its own buttons.
+        guard !isCroppingPicture else { return }
         if let identifier {
             isArrangingPictures = true
             selectedPictureIdentifier = identifier
@@ -561,20 +665,32 @@ final class DrawingCanvasController {
 
     private func showPicturesAndPaper() {
         guard let canvasView else { return }
-        canvasView.paperPattern = paper.pattern
-        canvasView.showPictures(pictures, selected: selectedPictureIdentifier, isArranging: isArrangingPictures)
+        canvasView.showPaper(paper, background: background, asSaved: showsSavedAppearance)
+        canvasView.showPictures(pictures, selected: selectedPictureIdentifier, isArranging: isArrangingPictures, isCropping: isCroppingPicture)
     }
 }
 
-/// The paper pattern under a drawing's ink. It covers only what is on screen and is drawn
-/// again as the canvas scrolls and zooms, so a tall drawing needs no tall bitmap.
+/// The paper under a drawing's ink: its color and its pattern. It covers only what is on
+/// screen and is drawn again as the canvas scrolls and zooms, so a tall drawing needs no
+/// tall bitmap.
 final class DrawingPaperView: UIView {
-    var pattern: DrawingPaperPattern = .plain {
-        didSet {
-            guard pattern != oldValue else { return }
-            isHidden = pattern == .plain
-            setNeedsDisplay()
-        }
+    var paper: DrawingPaper = .plain {
+        didSet { if paper != oldValue { updateVisibility() } }
+    }
+    /// The paper's color; nil shows what is behind, or the pattern of no paper when
+    /// `showsMissingPaper` is on.
+    var paperColor: UIColor? {
+        didSet { if paperColor != oldValue { updateVisibility() } }
+    }
+    /// Shows a drawing without paper the way image editors do, with a light checkerboard.
+    var showsMissingPaper = false {
+        didSet { if showsMissingPaper != oldValue { updateVisibility() } }
+    }
+    private static let checkerboardSide = 12.0
+
+    private func updateVisibility() {
+        isHidden = paper.pattern == .plain && paperColor == nil && !showsMissingPaper
+        setNeedsDisplay()
     }
     /// The part of the drawing the view covers, in drawing points.
     var drawingRegion: CGRect = .zero {
@@ -594,11 +710,30 @@ final class DrawingPaperView: UIView {
     required init?(coder: NSCoder) { fatalError("DrawingPaperView is created in code.") }
 
     override func draw(_ rect: CGRect) {
-        guard pattern != .plain, drawingRegion.width > 0, let context = UIGraphicsGetCurrentContext() else { return }
+        guard drawingRegion.width > 0, let context = UIGraphicsGetCurrentContext() else { return }
+        if let paperColor {
+            paperColor.setFill()
+            context.fill(bounds)
+        } else if showsMissingPaper {
+            drawCheckerboard(in: context)
+        }
+        guard paper.pattern != .plain else { return }
         let pointsPerDrawingPoint = bounds.width / drawingRegion.width
         context.scaleBy(x: pointsPerDrawingPoint, y: pointsPerDrawingPoint)
         context.translateBy(x: -drawingRegion.minX, y: -drawingRegion.minY)
-        DrawingPaperRenderer.draw(pattern, in: drawingRegion, context: context)
+        DrawingPaperRenderer.draw(paper, in: drawingRegion, context: context)
+    }
+
+    private func drawCheckerboard(in context: CGContext) {
+        UIColor.white.setFill()
+        context.fill(bounds)
+        UIColor(white: 0.9, alpha: 1).setFill()
+        let side = Self.checkerboardSide
+        for row in 0...Int(bounds.height / side) {
+            for column in 0...Int(bounds.width / side) where (row + column) % 2 == 0 {
+                context.fill(CGRect(x: Double(column) * side, y: Double(row) * side, width: side, height: side))
+            }
+        }
     }
 }
 
@@ -622,14 +757,27 @@ final class InfiniteCanvasView: HistoryCanvasView {
     private var pictures: [PlacedPicture] = []
     private var pictureViews: [UUID: UIImageView] = [:]
     private var selectedPictureIdentifier: UUID?
-    private var selectionView: PictureSelectionView?
+    private var selectionView: SelectionFrameView?
+    private var shownImageData: [UUID: Data] = [:]
     private(set) var isArrangingPictures = false
+    /// While a picture is cropped, the selection frame is the crop frame.
+    private var isCroppingPicture = false {
+        didSet { if !isCroppingPicture { cropFrame = nil } }
+    }
+    /// The part of the selected picture to keep, in drawing points, while it is cropped.
+    private(set) var cropFrame: CGRect?
     private lazy var pictureTapRecognizer = UITapGestureRecognizer(target: self, action: #selector(handlePictureTap(_:)))
     private let pictureTapGate = PictureTapGate()
 
-    var paperPattern: DrawingPaperPattern {
-        get { paperView.pattern }
-        set { paperView.pattern = newValue }
+    /// The paper pattern shown under the ink.
+    var paperPattern: DrawingPaperPattern { paperView.paper.pattern }
+
+    /// Shows the paper and its color under the ink. `asSaved` shows it as the note will:
+    /// without a pattern that is only a guide, and with no paper where there is none.
+    func showPaper(_ paper: DrawingPaper, background: DrawingBackground, asSaved: Bool) {
+        paperView.paper = asSaved && !paper.appearsInSavedDrawing ? .plain : paper
+        paperView.paperColor = background.colorHex.flatMap { hex in UIColor(graphiteHex: hex) }
+        paperView.showsMissingPaper = asSaved && background == .transparent
     }
 
     override init(frame: CGRect) {
@@ -665,18 +813,20 @@ final class InfiniteCanvasView: HistoryCanvasView {
     }
 
     /// Shows the pictures placed on the drawing, the lowest first, under the ink, and the
-    /// selection frame around the selected one while they are being arranged.
-    func showPictures(_ placedPictures: [PlacedPicture], selected: UUID?, isArranging: Bool) {
+    /// selection frame around the selected one while they are being arranged, or the crop
+    /// frame while it is cropped.
+    func showPictures(_ placedPictures: [PlacedPicture], selected: UUID?, isArranging: Bool, isCropping: Bool = false) {
         pictures = placedPictures
         let identifiers = Set(placedPictures.map(\.id))
         for (identifier, imageView) in pictureViews where !identifiers.contains(identifier) {
             imageView.removeFromSuperview()
             pictureViews[identifier] = nil
+            shownImageData[identifier] = nil
         }
         var viewBelow: UIView = basePictureView ?? paperView
         for placed in placedPictures {
             let imageView = pictureViews[placed.id] ?? {
-                let newView = UIImageView(image: UIImage(data: placed.picture.imageData))
+                let newView = UIImageView()
                 newView.contentMode = .scaleToFill
                 newView.isUserInteractionEnabled = false
                 newView.isAccessibilityElement = true
@@ -684,12 +834,18 @@ final class InfiniteCanvasView: HistoryCanvasView {
                 pictureViews[placed.id] = newView
                 return newView
             }()
+            // A turned or cropped picture keeps its identity with new bytes.
+            if shownImageData[placed.id] != placed.picture.imageData {
+                imageView.image = UIImage(data: placed.picture.imageData)
+                shownImageData[placed.id] = placed.picture.imageData
+            }
             insertSubview(imageView, aboveSubview: viewBelow)
             viewBelow = imageView
         }
+        isCroppingPicture = isArranging && isCropping
         isArrangingPictures = isArranging
         // A pen must not draw while a picture is dragged under it.
-        isDrawingEnabled = !isArranging
+        isDrawingSuspended = isArranging
         selectedPictureIdentifier = isArranging ? selected : nil
         updateSelectionView()
         updateContentSize()
@@ -702,7 +858,7 @@ final class InfiniteCanvasView: HistoryCanvasView {
             return
         }
         let selection = selectionView ?? {
-            let newSelection = PictureSelectionView(frame: .zero)
+            let newSelection = SelectionFrameView(frame: .zero)
             newSelection.frameDidChange = { [weak self] frame in self?.selectionFrameDidChange(frame) }
             newSelection.frameChangeDidEnd = { [weak self] frame in self?.selectionFrameChangeDidEnd(frame) }
             // Dragging a picture must not scroll the page with it.
@@ -715,14 +871,19 @@ final class InfiniteCanvasView: HistoryCanvasView {
     }
 
     private func selectionFrameDidChange(_ frame: CGRect) {
-        guard let selectedPictureIdentifier, zoomScale > 0 else { return }
+        // A crop frame moves over the picture, which stays where it is.
+        guard let selectedPictureIdentifier, zoomScale > 0, !isCroppingPicture else { return }
         pictureViews[selectedPictureIdentifier]?.frame = frame
     }
 
     private func selectionFrameChangeDidEnd(_ frame: CGRect) {
         guard let selectedPictureIdentifier, zoomScale > 0 else { return }
         let drawingFrame = CGRect(x: frame.minX / zoomScale, y: frame.minY / zoomScale, width: frame.width / zoomScale, height: frame.height / zoomScale)
-        pictureFrameChangeDidEnd?(selectedPictureIdentifier, drawingFrame)
+        if isCroppingPicture {
+            cropFrame = drawingFrame
+        } else {
+            pictureFrameChangeDidEnd?(selectedPictureIdentifier, drawingFrame)
+        }
     }
 
     /// The topmost picture at a point of the canvas's content.
@@ -745,7 +906,9 @@ final class InfiniteCanvasView: HistoryCanvasView {
         if let basePictureView, !basePictureFrame.isNull { basePictureView.frame = zoomed(basePictureFrame) }
         for placed in pictures { pictureViews[placed.id]?.frame = zoomed(placed.picture.frame) }
         if let selectionView, let selected = pictures.first(where: { placed in placed.id == selectedPictureIdentifier }) {
-            selectionView.frame = zoomed(selected.picture.frame)
+            let pictureFrame = zoomed(selected.picture.frame)
+            selectionView.cropLimits = isCroppingPicture ? pictureFrame : nil
+            selectionView.frame = isCroppingPicture ? zoomed(cropFrame ?? selected.picture.frame) : pictureFrame
             // A picture stays where it can be reached: its middle on the canvas, not above its top.
             selectionView.centerLimits = CGRect(x: 0, y: 0, width: canvasWidth * zoomScale, height: .greatestFiniteMagnitude)
         }
@@ -811,7 +974,7 @@ private final class PictureTapGate: NSObject, UIGestureRecognizerDelegate {
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         guard let canvas, touch.type != .pencil else { return false }
-        if canvas.isArrangingPictures { return !(touch.view is PictureSelectionView) && !(touch.view?.superview is PictureSelectionView) }
+        if canvas.isArrangingPictures { return !(touch.view is SelectionFrameView) && !(touch.view?.superview is SelectionFrameView) }
         return canvas.drawingPolicy == .pencilOnly && canvas.picture(atContentPoint: touch.location(in: canvas)) != nil
     }
 }
@@ -897,7 +1060,6 @@ private struct DrawingCanvas: UIViewRepresentable {
         var drawsShapes = false
         private var usesFixedTool = false
         private var toolboxObserver: NSObjectProtocol?
-        private lazy var shapeFeedback = UICanvasFeedbackGenerator(view: toolPickerHost)
         init(controller: DrawingCanvasController) { self.controller = controller }
 
         /// The canvas takes its tool from the fixed bar, or follows the floating palette.
@@ -921,16 +1083,9 @@ private struct DrawingCanvas: UIViewRepresentable {
         }
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
-            guard let canvas = canvasView as? InfiniteCanvasView, !canvas.isShowingRecognizedShape else { return }
-            var drawing = canvas.drawing
-            if drawsShapes, let shapedDrawing = PencilShapes.replacingNewStroke(in: drawing, previousDrawing: canvas.recordedDrawing) {
-                drawing = shapedDrawing
-                canvas.showRecognizedShape(shapedDrawing)
-                // Apple Pencil Pro taps when a stroke snaps to a shape.
-                if let shapeBounds = shapedDrawing.strokes.last?.renderBounds {
-                    shapeFeedback.pathCompleted(at: canvas.convert(CGPoint(x: shapeBounds.midX * canvas.zoomScale, y: shapeBounds.midY * canvas.zoomScale), to: toolPickerHost))
-                }
-            }
+            guard let canvas = canvasView as? InfiniteCanvasView, !canvas.isShowingWithoutRecording else { return }
+            // The shape tool, or a hold at the stroke's end, replaces the stroke just drawn.
+            let drawing = canvas.drawingAfterShapeRecognition(shapeToolIsOn: drawsShapes)
             // A drawing the history itself showed was recorded before it was shown.
             if let change = PencilDrawingChange(from: canvas.recordedDrawing, to: drawing) { controller.registerChange(change) }
             canvas.recordedDrawing = drawing

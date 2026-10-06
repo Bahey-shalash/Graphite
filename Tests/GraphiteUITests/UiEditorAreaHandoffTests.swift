@@ -135,12 +135,12 @@ final class UiEditorAreaHandoffTests: XCTestCase {
     func testEditingASetextUnderlineRestylesTheTitleAboveIt() {
         let styler = MarkdownTextStyler(configuration: EditorConfiguration(), accentColor: .controlAccentColor)
         let textStorage = NSTextStorage(string: "Title\n===\nText")
-        styler.applyStyles(to: textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedRange: nil, concealedBlocks: [])
+        styler.applyStyles(to: textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedMarkup: nil, concealedBlocks: [])
         let headingFont = textStorage.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
         XCTAssertGreaterThan(headingFont?.pointSize ?? 0, styler.baseFont.pointSize, "The title is a heading at first")
 
         textStorage.replaceCharacters(in: NSRange(location: 8, length: 1), with: "x")
-        styler.applyStyles(to: textStorage, editedRange: NSRange(location: 8, length: 1), restyleEverything: false, revealedRange: nil, concealedBlocks: [])
+        styler.applyStyles(to: textStorage, editedRange: NSRange(location: 8, length: 1), restyleEverything: false, revealedMarkup: nil, concealedBlocks: [])
         let titleFont = textStorage.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
         XCTAssertEqual(titleFont?.pointSize ?? 0, styler.baseFont.pointSize, accuracy: 0.01, "The title is plain text once its underline is gone")
     }

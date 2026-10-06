@@ -26,6 +26,20 @@ final class CoreFilesSettingsFixTests: XCTestCase {
         try String(contentsOf: vault.appendingPathComponent(".obsidian/app.json"), encoding: .utf8)
     }
 
+    func testAssigningAPropertyTypeDoesNotOverwriteAnUnreadableTypesEntry() async throws {
+        let vault = try makeDirectory()
+        let location = vault.appendingPathComponent(".obsidian/types.json")
+        for originalText in [#"{"types": ["keep this"], "unknown": 1}"#, #"{"types": "keep this"}"#] {
+            try write(originalText, to: location)
+            do {
+                try await VaultStore(root: vault).setPropertyType(.text, forKey: "title")
+                XCTFail("An unreadable types mapping must be left unchanged")
+            } catch {
+                XCTAssertEqual(try String(contentsOf: location, encoding: .utf8), originalText)
+            }
+        }
+    }
+
     // MARK: Vault paths
 
     func testBackslashInAFileNameIsListedWithTheRestOfTheFolder() async throws {

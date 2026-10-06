@@ -10,6 +10,14 @@ enum PDFAnnotationPreferenceKey {
     static let showsToolPicker = "GraphitePDFShowsToolPicker"
     /// Shared with the drawing editor: the shape tool is on or off for every canvas.
     static let drawsShapes = "GraphiteDrawsShapes"
+    /// Lines or dots shown on PDF pages while writing, and their spacing; never saved.
+    static let writingGuidePattern = "GraphitePDFWritingGuidePattern"
+    static let writingGuideSpacing = "GraphitePDFWritingGuideSpacing"
+
+    /// Light gray, so the guides stay behind the page's own content.
+    static func writingGuides(pattern: DrawingPaperPattern, spacing: DrawingPaperSpacing) -> DrawingPaper {
+        DrawingPaper(pattern: pattern, appearsInSavedDrawing: false, spacing: spacing, lineColor: .gray, lineStrength: .light)
+    }
 }
 
 /// A PDF open as a notebook or slide deck: Pencil ink on every page, text markup, page
@@ -49,6 +57,8 @@ private struct PDFPaneContent: View {
     @AppStorage(PDFAnnotationPreferenceKey.showsToolPicker) private var showsToolPicker = true
     #if canImport(UIKit)
     @AppStorage(PDFAnnotationPreferenceKey.drawsShapes) private var drawsShapes = false
+    @AppStorage(PDFAnnotationPreferenceKey.writingGuidePattern) private var writingGuidePattern = DrawingPaperPattern.plain
+    @AppStorage(PDFAnnotationPreferenceKey.writingGuideSpacing) private var writingGuideSpacing = DrawingPaperSpacing.standard
     @AppStorage(PencilToolbarStyle.preferenceKey) private var toolbarStyle = PencilToolbarStyle.floating
     @State private var toolbox = PencilToolbox.shared
     @State private var pictureSource: PDFPictureSource?
@@ -56,6 +66,8 @@ private struct PDFPaneContent: View {
     private var usesFixedToolbar: Bool { toolbarStyle == .fixed && horizontalSizeClass != .compact }
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.usesDocumentControlRow) private var usesDocumentControlRowSetting
+    @Environment(\.showsDocumentControlsInTabBar) private var showsDocumentControlsInTabBar
+    @Environment(\.showsPencilToolsInTabBar) private var showsPencilToolsInTabBar
     private var usesDocumentControlRow: Bool { usesDocumentControlRowSetting ?? (horizontalSizeClass == .compact) }
     #endif
 
@@ -90,17 +102,30 @@ private struct PDFPaneContent: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             #if canImport(UIKit)
             VStack(spacing: 0) {
-                if usesDocumentControlRow, isFocused, !session.isProtected {
+                let showsControlRow = usesDocumentControlRow && !showsDocumentControlsInTabBar && isFocused && !session.isProtected
+                // The bar stays while a picture is arranged: removing it would move the page
+                // under the finger.
+                let showsFixedToolbar = !showsPencilToolsInTabBar
+                    && session.showsFixedPencilTools(style: toolbarStyle, showsTools: showsToolPicker, horizontalSizeClass: horizontalSizeClass, isFocused: isFocused)
+                if showsControlRow && showsFixedToolbar {
+                    // One row for both, as in Focus, where no tab bar holds the controls.
+                    PencilToolbar(toolbox: toolbox, favoriteColors: GraphitePreferences.storedColorPalette(), drawsShapes: $drawsShapes,
+                                  addImage: { pictureSource = .photoLibrary }, undoAvailability: session.undoAvailability) {
+                        DocumentModePicker(isWriting: $session.isWriting, isCompact: true)
+                    } trailingControls: {
+                        HStack(spacing: 14) {
+                            toolPickerButton
+                            UndoRedoButtons(availability: session.undoAvailability)
+                        }
+                    }
+                } else if showsControlRow {
                     DocumentControlRow(isWriting: $session.isWriting) {
                         if session.isWriting { toolPickerButton }
                         UndoRedoButtons(availability: session.undoAvailability)
                     }
-                }
-                // The bar stays while a picture is arranged: removing it would move the page
-                // under the finger.
-                if usesFixedToolbar, showsToolPicker, isFocused, session.isWriting, !session.isProtected {
+                } else if showsFixedToolbar {
                     PencilToolbar(toolbox: toolbox, favoriteColors: GraphitePreferences.storedColorPalette(), drawsShapes: $drawsShapes,
-                                  addImage: { pictureSource = .photoLibrary })
+                                  addImage: { pictureSource = .photoLibrary }, undoAvailability: session.undoAvailability)
                 }
             }
             #endif
@@ -145,7 +170,8 @@ private struct PDFPaneContent: View {
         return PDFAnnotationInput(isEnabled: isAnnotating, drawsWithFinger: drawsWithFinger,
                                   showsToolPicker: showsToolPicker && isFocused && isAnnotating && !usesFixedToolbar && session.selectedPicture == nil,
                                   drawsShapes: drawsShapes, isFocused: isFocused && isAnnotating,
-                                  fixedTool: usesFixedToolbar ? toolbox.selection : nil)
+                                  fixedTool: usesFixedToolbar ? toolbox.selection : nil,
+                                  writingGuides: PDFAnnotationPreferenceKey.writingGuides(pattern: writingGuidePattern, spacing: writingGuideSpacing))
         #else
         return PDFAnnotationInput(isEnabled: isAnnotating, drawsWithFinger: drawsWithFinger, showsToolPicker: false)
         #endif
@@ -253,6 +279,17 @@ private struct PDFPaneContent: View {
                     #if canImport(UIKit)
                     Toggle("Draw with Finger", systemImage: "hand.draw", isOn: $drawsWithFinger)
                     Toggle("Draw Shapes", systemImage: "square.on.circle", isOn: $drawsShapes)
+                    Menu("Writing Guides", systemImage: "square.grid.3x3") {
+                        Picker("Writing Guides", selection: $writingGuidePattern) {
+                            ForEach(DrawingPaperPattern.allCases) { pattern in
+                                Label(pattern == .plain ? "None" : pattern.title, systemImage: pattern.symbolName).tag(pattern)
+                            }
+                        }
+                        Picker("Spacing", selection: $writingGuideSpacing) {
+                            ForEach(DrawingPaperSpacing.allCases) { spacing in Text(spacing.title).tag(spacing) }
+                        }
+                        .disabled(writingGuidePattern == .plain)
+                    }
                     if session.isWriting {
                         Menu("Add Image", systemImage: "photo.badge.plus") {
                             PDFAddImageMenuContent(session: session, source: $pictureSource)
@@ -355,7 +392,7 @@ final class PDFPageCommands {
     func insertPaper(_ template: PaperTemplate, at insertionIndex: Int) {
         changingPageStructure { [session] in
             Task {
-                do { try await session.insertPaper(template, at: insertionIndex) }
+                do { try await session.insertPaper(GraphitePreferences.storedNotebookPaper(template: template), at: insertionIndex) }
                 catch { session.errorMessage = error.localizedDescription }
             }
         }
@@ -575,6 +612,8 @@ extension PaperTemplate {
         case .ruled: "line.3.horizontal"
         case .cornell: "rectangle.split.2x1"
         case .engineering: "ruler"
+        case .isometric: "triangle"
+        case .music: "music.note"
         }
     }
 }

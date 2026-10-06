@@ -23,6 +23,7 @@ struct MarkdownPane: View {
     @Environment(\.showTemplatePicker) private var showTemplatePicker
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.usesDocumentControlRow) private var usesDocumentControlRowSetting
+    @Environment(\.showsDocumentControlsInTabBar) private var showsDocumentControlsInTabBar
     /// An editable drawing embedded where the cursor is, if any.
     @State private var drawingAtCursor: VaultPath?
     /// An image embedded where the cursor is that can be drawn on, if any.
@@ -63,7 +64,8 @@ struct MarkdownPane: View {
                                 folding: ReadingFolding(foldedKeys: session.foldedKeys) { [session] key in
                                     if session.foldedKeys.contains(key) { session.foldedKeys.remove(key) } else { session.foldedKeys.insert(key) }
                                 },
-                                blocksCache: session.readingBlocksCache, savedPosition: session.readingPosition)
+                                blocksCache: session.readingBlocksCache, savedPosition: session.readingPosition,
+                                toggleTask: { [session] note, location in await workspace.toggleReadingTask(at: location, in: note, shownBy: session) })
                 .environment(\.readingImageActions, ReadingImageActions(providerIdentity: ObjectIdentifier(workspace),
                                                                         viewImage: viewImage, editDrawing: drawingEditor, drawOnImage: imageDrawing))
             } else {
@@ -77,7 +79,7 @@ struct MarkdownPane: View {
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            if usesDocumentControlRow, isFocused {
+            if usesDocumentControlRow, !showsDocumentControlsInTabBar, isFocused {
                 DocumentControlRow(isWriting: isWritingBinding) {
                     #if canImport(UIKit)
                     if isEditing { UndoRedoButtons(availability: session.undoAvailability) }

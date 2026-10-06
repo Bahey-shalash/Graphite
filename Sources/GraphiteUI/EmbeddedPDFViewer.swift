@@ -42,6 +42,8 @@ struct EmbeddedPDFViewer: View {
     @FocusState private var isEditingPageNumber: Bool
     @AppStorage(PDFAnnotationPreferenceKey.drawsWithFinger) private var drawsWithFinger = false
     @AppStorage(PDFAnnotationPreferenceKey.drawsShapes) private var drawsShapes = false
+    @AppStorage(PDFAnnotationPreferenceKey.writingGuidePattern) private var writingGuidePattern = DrawingPaperPattern.plain
+    @AppStorage(PDFAnnotationPreferenceKey.writingGuideSpacing) private var writingGuideSpacing = DrawingPaperSpacing.standard
     #if canImport(UIKit)
     @AppStorage(PencilToolbarStyle.preferenceKey) private var toolbarStyle = PencilToolbarStyle.floating
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -78,7 +80,7 @@ struct EmbeddedPDFViewer: View {
             #if canImport(UIKit)
             if let session, isAnnotating, !session.isProtected, usesFixedToolbar {
                 PencilToolbar(toolbox: toolbox, favoriteColors: GraphitePreferences.storedColorPalette(), drawsShapes: $drawsShapes,
-                              addImage: { pictureSource = .photoLibrary })
+                              addImage: { pictureSource = .photoLibrary }, undoAvailability: session.undoAvailability)
             }
             #endif
             content
@@ -264,7 +266,8 @@ struct EmbeddedPDFViewer: View {
         // The palette gives way to the fixed bar, and to the bar that arranges a picture.
         return PDFAnnotationInput(isEnabled: isEnabled, drawsWithFinger: drawsWithFinger,
                                   showsToolPicker: isEnabled && !usesFixedToolbar && session.selectedPicture == nil, drawsShapes: drawsShapes,
-                                  isFocused: isEnabled, fixedTool: usesFixedToolbar ? toolbox.selection : nil)
+                                  isFocused: isEnabled, fixedTool: usesFixedToolbar ? toolbox.selection : nil,
+                                  writingGuides: PDFAnnotationPreferenceKey.writingGuides(pattern: writingGuidePattern, spacing: writingGuideSpacing))
         #else
         return PDFAnnotationInput(isEnabled: isEnabled, drawsWithFinger: drawsWithFinger, showsToolPicker: false, drawsShapes: drawsShapes)
         #endif

@@ -9,6 +9,7 @@ public struct IndexedFile: Sendable {
     public let modified: Date
     /// Creation date for `file.ctime` in bases; the modification date when unknown.
     public let created: Date?
+    /// The file's text: a note's Markdown, or a canvas's JSON, which is read for its links only.
     public let markdown: String?
     /// The note was read and is not UTF-8 text. Its content cannot become searchable
     /// until the file changes, so an unchanged file is not read again on every scan.
@@ -254,6 +255,18 @@ public actor VaultIndex {
         /// Each frontmatter property's key and its YAML structure encoded as JSON.
         let encodedProperties: [(key: String, encodedNode: String)]
         let propertyLinkTargets: [String]
+
+        /// The text full-text search reads. A canvas has none: its JSON is not prose, and
+        /// Obsidian does not search canvases either.
+        var searchableText: String {
+            semantics == nil || DocumentKind(path: file.path) == .canvas ? "" : file.markdown ?? ""
+        }
+    }
+
+    /// Whether a scan reads the file's text: notes, and canvases for the links their cards make.
+    static func readsText(of path: VaultPath) -> Bool {
+        let kind = DocumentKind(path: path)
+        return kind == .markdown || kind == .canvas
     }
 
     /// Parses a file for the index. Static, so a scan runs it outside the actor and queries
@@ -262,7 +275,9 @@ public actor VaultIndex {
         // Parsing leaves autoreleased objects behind; releasing them per note keeps a
         // batch of large notes from accumulating them until the batch ends.
         try autoreleasepool {
-            let semantics = try file.markdown.map(MarkdownSemantics.parse)
+            let semantics = try file.markdown.map { text in
+                DocumentKind(path: file.path) == .canvas ? CanvasLinks.semantics(ofCanvasText: text) : try MarkdownSemantics.parse(text)
+            }
             let properties = semantics?.frontmatter.flatMap(BaseFrontmatter.entries(fromYAML:)) ?? []
             let encoder = JSONEncoder()
             let encodedProperties = try properties.map { entry in (key: entry.key, encodedNode: String(decoding: try encoder.encode(entry.node), as: UTF8.self)) }
@@ -314,7 +329,7 @@ public actor VaultIndex {
                 try searchDeletion.execute(arguments: [file.path.rawValue])
                 // The whole text, frontmatter included: search finds property values too,
                 // and a match's position is its position in the file.
-                try searchInsertion.execute(arguments: [title, semantics == nil ? "" : file.markdown ?? "", file.path.rawValue])
+                try searchInsertion.execute(arguments: [title, prepared.searchableText, file.path.rawValue])
                 try linkDeletion.execute(arguments: [file.path.rawValue])
                 for perFileDeletion in perFileDeletions { try perFileDeletion.execute(arguments: [file.path.rawValue]) }
                 for (position, property) in prepared.encodedProperties.enumerated() {
@@ -460,6 +475,9 @@ public actor VaultIndex {
             let target: String = row["target"]
             let isWiki: Bool = row["isWiki"]
             if foldedKey(target) == destinationKey { sources.insert(source); continue }
+            // A whole path written from the vault root names that file and no other; a
+            // canvas's file cards are stored this way (`CanvasLinks`).
+            if target.hasPrefix("/"), foldedKey(String(target.dropFirst())) == destinationKey { sources.insert(source); continue }
             let cacheKey = (isWiki ? "w" : "m") + source.parent.rawValue + "\u{0}" + target
             let isMatch: Bool
             if let cached = resolvesToDestination[cacheKey] {
@@ -505,6 +523,8 @@ public actor VaultIndex {
         let modified: Date
         let created: Date?
         let isMarkdown: Bool
+        /// A canvas, whose text is read for its links but is not searchable.
+        let isCanvas: Bool
         /// Set once the file is known to have changed: a note whose text the scan reads.
         var readsContent = false
     }
@@ -595,7 +615,8 @@ public actor VaultIndex {
             }
             state.discoveredFiles += 1
             state.scannedFiles.append(ScannedFile(path: path, location: location, size: values.fileSize ?? 0, modified: values.contentModificationDate ?? .distantPast,
-                                                  created: values.creationDate, isMarkdown: DocumentKind(path: path) == .markdown))
+                                                  created: values.creationDate, isMarkdown: DocumentKind(path: path) == .markdown,
+                                                  isCanvas: DocumentKind(path: path) == .canvas))
             if state.scannedFiles.count >= Self.unchangedCheckChunkSize { try await checkScannedFiles(&state, generation: generation) }
         }
         try await checkScannedFiles(&state, generation: generation)
@@ -621,7 +642,7 @@ public actor VaultIndex {
             // A note too large to index or still in the cloud stays unread until its
             // size, date or download state changes; reading it again would give the
             // same result. The download state is asked last, and only when it decides.
-            let isContentReadable = (storedContentState == nil || storedContentState == .notRead) && file.isMarkdown
+            let isContentReadable = (storedContentState == nil || storedContentState == .notRead) && (file.isMarkdown || file.isCanvas)
                 && file.size <= Self.maximumIndexedNoteBytes && !Self.isNotDownloaded(file.location)
             if let storedContentState, storedContentState != .notRead || !isContentReadable {
                 if file.isMarkdown, storedContentState != .indexed { state.pendingFiles += 1 }
@@ -851,7 +872,7 @@ public actor VaultIndex {
         let size = values.fileSize ?? 0
         var markdown: String?
         var isUnreadableAsText = false
-        if DocumentKind(path: path) == .markdown, values.ubiquitousItemDownloadingStatus != .notDownloaded, size <= Self.maximumIndexedNoteBytes {
+        if Self.readsText(of: path), values.ubiquitousItemDownloadingStatus != .notDownloaded, size <= Self.maximumIndexedNoteBytes {
             // `try?`: a note that cannot be read right now (removed mid-refresh, no
             // permission, grown past the limit) keeps its inventory row without text, and
             // the next scan reads it again.

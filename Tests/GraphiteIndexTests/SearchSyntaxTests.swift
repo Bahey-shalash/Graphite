@@ -28,6 +28,20 @@ final class SearchSyntaxTests: XCTestCase {
         try await index.search(query).results.map(\.path.rawValue).sorted()
     }
 
+    func testTaskBlocksAndNullPropertiesThroughTheIndex() async throws {
+        try await index.update([
+            IndexedFile(path: try VaultPath("Empty.md"), size: 1, modified: .now, markdown: "---\naliases:\n---\n- [ ]\n- [x] done"),
+            IndexedFile(path: try VaultPath("List.md"), size: 1, modified: .now, markdown: "---\naliases: []\n---\n```\n- [ ] done\n```"),
+            IndexedFile(path: try VaultPath("Multiline.md"), size: 1, modified: .now, markdown: "- [ ] call client\n  tomorrow morning"),
+        ], generation: "edge-cases")
+        let emptyProperties = try await paths("[aliases:null]")
+        XCTAssertEqual(emptyProperties, ["Empty.md"])
+        let unfinishedDone = try await paths("task-todo:done")
+        XCTAssertTrue(unfinishedDone.isEmpty)
+        let multilineTasks = try await paths("task:(call tomorrow)")
+        XCTAssertEqual(multilineTasks, ["Multiline.md"])
+    }
+
     func testExclusionOrAndPhrases() async throws {
         let excluded = try await paths("-exam")
         XCTAssertEqual(excluded, ["Media/photo.jpg", "Notes/Meetup.md", "Notes/Work.md"])

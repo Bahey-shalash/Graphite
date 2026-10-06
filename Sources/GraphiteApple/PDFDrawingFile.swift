@@ -103,7 +103,7 @@ public enum PDFDrawingFile {
         // PDF pages have a bottom-left origin; drawings use a top-left one.
         context.translateBy(x: 0, y: drawing.size.height)
         context.scaleBy(x: 1, y: -1)
-        VectorDrawingRenderer.draw(drawing, in: context)
+        try VectorDrawingRenderer.draw(drawing, in: context)
         context.endPDFPage()
         context.closePDF()
         return output as Data
@@ -142,7 +142,7 @@ public enum PDFDrawingFile {
 
     /// SHA-256 of the page box, any non-default display geometry, and the decoded content
     /// streams; then also of the resources those streams draw with (transparency, color
-    /// spaces), which change what is visible without changing the content stream.
+    /// spaces, pictures), which change what is visible without changing the content stream.
     static func pageContentDigests(of page: CGPDFPage, in file: PDFFileBytes) throws -> PageContentDigests {
         guard let pageDictionary = page.dictionary else { throw GraphiteError.invalidFile("The PDF page is unreadable.") }
         var hash = SHA256()
@@ -184,7 +184,49 @@ public enum PDFDrawingFile {
             try resourceDescription.append(object)
         }
         hash.update(data: resourceDescription.bytes)
+        try hashPictureData(of: pageDictionary, in: file, maximumDecodedBytes: maximumDecodedPageContentBytes - decodedContentBytes, into: &hash)
         return PageContentDigests(withoutResources: withoutResources, withResources: Data(hash.finalize()))
+    }
+
+    /// Adds the data of the images and forms the page's resources name, which the resource
+    /// description leaves out, in name order, with the soft mask or mask of each image. A
+    /// page without any, as every drawing without pictures is, adds nothing, so the digest
+    /// of a drawing saved before pictures were possible stays the same.
+    ///
+    /// Each stream is found in the file's bytes, every copy that could be it, so a copy
+    /// Core Graphics chose cannot go unhashed; a JPEG is hashed as its compressed bytes.
+    private static func hashPictureData(of pageDictionary: CGPDFDictionaryRef, in file: PDFFileBytes, maximumDecodedBytes: Int, into hash: inout SHA256) throws {
+        var resources: CGPDFDictionaryRef?, externalObjects: CGPDFDictionaryRef?
+        guard CGPDFDictionaryGetDictionary(pageDictionary, "Resources", &resources), let resources,
+              CGPDFDictionaryGetDictionary(resources, "XObject", &externalObjects), let externalObjects else { return }
+        var namedObjects: [(name: String, object: CGPDFObjectRef)] = []
+        CGPDFDictionaryApplyBlock(externalObjects, { namePointer, object, _ in
+            namedObjects.append((String(cString: namePointer), object))
+            return true
+        }, nil)
+        var remainingDecodedBytes = maximumDecodedBytes
+        func hashData(of stream: CGPDFStreamRef, label: String) throws {
+            hash.update(data: Data(label.utf8))
+            guard let decodedByteCount = PDFDrawingStreamDecoder.decodeEveryCandidate(of: stream, in: file, maximumDecodedBytes: remainingDecodedBytes,
+                                                                                    into: &hash, append: { hash, dataChunk in hash.update(data: dataChunk) }) else {
+                throw GraphiteError.invalidFile("A picture on the PDF page is unreadable.")
+            }
+            remainingDecodedBytes -= decodedByteCount
+            hash.update(data: Data(" \(decodedByteCount) ".utf8))
+        }
+        for namedObject in namedObjects.sorted(by: { first, second in first.name < second.name }) {
+            var stream: CGPDFStreamRef?
+            guard CGPDFObjectGetValue(namedObject.object, .stream, &stream), let stream, let streamDictionary = CGPDFStreamGetDictionary(stream) else {
+                throw GraphiteError.invalidFile("A picture on the PDF page is unreadable.")
+            }
+            try hashData(of: stream, label: "/\(namedObject.name) ")
+            for maskKey in ["SMask", "Mask"] {
+                var maskStream: CGPDFStreamRef?
+                if CGPDFDictionaryGetStream(streamDictionary, maskKey, &maskStream), let maskStream {
+                    try hashData(of: maskStream, label: "/\(namedObject.name) /\(maskKey) ")
+                }
+            }
+        }
     }
 
     /// Rotation, crop box, and user unit as text when any differs from what Graphite writes.

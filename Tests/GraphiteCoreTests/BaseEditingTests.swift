@@ -2,6 +2,38 @@ import XCTest
 @testable import GraphiteCore
 
 final class BaseDefinitionEditorTests: XCTestCase {
+    func testRewritingAFlowViewKeepsItsCustomTags() throws {
+        var editor = try BaseDefinitionEditor(yaml: "views: [{type: table, name: Books, custom: !plugin value}]\n")
+        try editor.setLimit(4, forViewAt: 0)
+        XCTAssertEqual(try editor.yaml(), "views: [{type: table, name: Books, custom: !plugin value, limit: 4}]\n")
+    }
+
+    func testRewritingAnAnchoredViewKeepsWhatItsAliasesMeant() throws {
+        var editor = try BaseDefinitionEditor(yaml: "views: [&book {type: table, name: Books}]\npluginView: *book\n")
+        try editor.setLimit(4, forViewAt: 0)
+        // The alias meant the view as it was; it cannot follow the edit and stay an alias.
+        XCTAssertEqual(try editor.yaml(), "views: [&book {type: table, name: Books, limit: 4}]\npluginView: {type: table, name: Books}\n")
+    }
+
+    func testEditingBesideAnAnchorPreservesItsSource() throws {
+        let sourceText = "plugin: &shared {color: red}\nother: *shared\nviews:\n  - type: table\n    name: Books\n"
+        var editor = try BaseDefinitionEditor(yaml: sourceText)
+        try editor.setName("Library", forViewAt: 0)
+        XCTAssertEqual(try editor.yaml(), sourceText.replacingOccurrences(of: "name: Books", with: "name: Library"))
+    }
+
+    func testDuplicatingACustomTaggedViewKeepsItsTags() throws {
+        var editor = try BaseDefinitionEditor(yaml: "views:\n  - type: table\n    name: Books\n    custom: !plugin value\n")
+        try editor.duplicateView(at: 0, name: "Books copy")
+        XCTAssertEqual(try editor.yaml().components(separatedBy: "custom: !plugin value").count - 1, 2)
+    }
+
+    func testRewritingACustomTaggedCollectionKeepsItsTag() throws {
+        var editor = try BaseDefinitionEditor(yaml: "views: !plugin [{type: table, name: Books}]\n")
+        try editor.setLimit(4, forViewAt: 0)
+        XCTAssertEqual(try editor.yaml(), "views: !plugin [{type: table, name: Books, limit: 4}]\n")
+    }
+
     private let placesYAML = """
         filters:
           and:

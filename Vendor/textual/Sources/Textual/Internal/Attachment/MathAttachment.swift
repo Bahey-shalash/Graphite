@@ -107,7 +107,7 @@ private struct MathView: View {
 
 /// Graphite patch: proposes a subview its natural width when that fits the space it is
 /// given (within `MathAttachment.naturalWidthTolerance`), and the given size otherwise.
-private struct NaturalWidthWhenItFits: Layout {
+struct NaturalWidthWhenItFits: Layout {
   private static let tolerance = MathAttachment.naturalWidthTolerance
 
   func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {

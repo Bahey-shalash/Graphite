@@ -3,13 +3,17 @@ import MapKit
 import GraphiteCore
 
 /// The Maps plugin's `map` view, drawn with MapKit: one marker per file with
-/// coordinates, colored and iconned from the configured properties.
+/// coordinates, colored and iconned from the configured properties. A background of
+/// raster tiles from `mapTiles` is drawn by `BaseTiledMapView`; otherwise the map is
+/// Apple's.
 struct BaseMapView: View {
     /// Web-map ground resolution at zoom 0 on the equator, in meters per point.
     private static let metersPerPointAtZoomZero = 156_543.033_92
 
     let result: BaseQueryResult
     @Environment(\.accent) private var accent
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.displayScale) private var displayScale
     let actions: BaseViewActions
     @State private var position: MapCameraPosition = .automatic
     @State private var selectedPath: VaultPath?
@@ -60,21 +64,17 @@ struct BaseMapView: View {
         markerLayoutSignature = hasher.finalize()
     }
 
+    /// What `mapTiles` asks for in the current appearance.
+    private var background: BaseMapBackground? { options.background(isDark: colorScheme == .dark) }
+
     var body: some View {
         GeometryReader { geometry in
-            Map(position: $position, bounds: cameraBounds(for: geometry.size)) {
-                ForEach(markers) { marker in
-                    Annotation(BaseValue.file(marker.row.path).displayText, coordinate: marker.coordinate, anchor: .center) {
-                        pin(for: marker, isSelected: selectedPath == marker.row.path)
-                            .onTapGesture { selectedPath = marker.row.path }
-                            .accessibilityAddTraits(.isButton)
-                    }
-                    .annotationTitles(.hidden)
+            Group {
+                if case .rasterTiles(let tileTemplates)? = background {
+                    tiledMap(tileTemplates, size: geometry.size)
+                } else {
+                    appleMap(size: geometry.size)
                 }
-            }
-            .mapControls {
-                MapCompass()
-                MapScaleView()
             }
             .overlay(alignment: .bottom) {
                 if let selectedPath, let marker = markers.first(where: { marker in marker.row.path == selectedPath }) {
@@ -82,11 +82,70 @@ struct BaseMapView: View {
                 }
             }
             .overlay(alignment: .topLeading) { notices.padding(10) }
-            .task(id: CameraInputs(configuration: cameraConfiguration, markerLayoutSignature: markerLayoutSignature,
-                                   width: Int(geometry.size.width), height: Int(geometry.size.height))) {
-                positionCamera(size: geometry.size)
+        }
+    }
+
+    private func appleMap(size: CGSize) -> some View {
+        Map(position: $position, bounds: cameraBounds(for: size)) {
+            ForEach(markers) { marker in
+                Annotation(BaseValue.file(marker.row.path).displayText, coordinate: marker.coordinate, anchor: .center) {
+                    pin(for: marker, isSelected: selectedPath == marker.row.path)
+                        .onTapGesture { selectedPath = marker.row.path }
+                        .accessibilityAddTraits(.isButton)
+                }
+                .annotationTitles(.hidden)
             }
         }
+        .mapControls {
+            MapCompass()
+            MapScaleView()
+        }
+        .task(id: CameraInputs(configuration: cameraConfiguration, markerLayoutSignature: markerLayoutSignature,
+                               width: Int(size.width), height: Int(size.height))) {
+            positionCamera(size: size)
+        }
+    }
+
+    private func tiledMap(_ tileTemplates: [BaseMapTileTemplate], size: CGSize) -> some View {
+        var layoutHasher = Hasher()
+        layoutHasher.combine(markerLayoutSignature)
+        layoutHasher.combine(Int(size.width))
+        layoutHasher.combine(Int(size.height))
+        return BaseTiledMapView(
+            tileTemplates: tileTemplates,
+            annotations: markers.map { marker in
+                BaseMapMarkerAnnotation(path: marker.row.path, coordinate: marker.coordinate, title: BaseValue.file(marker.row.path).displayText)
+            },
+            cameraTarget: cameraTarget(size: size),
+            cameraConfiguration: cameraConfiguration.hashValue,
+            cameraLayout: layoutHasher.finalize(),
+            cameraDistances: cameraDistances(for: size),
+            selectedPath: $selectedPath,
+            pinImage: { path, isSelected in pinImage(for: path, isSelected: isSelected) })
+        .overlay(alignment: .bottomTrailing) { tileSourceLabel(tileTemplates).padding(10) }
+    }
+
+    /// Where the tiles come from, since the map fetches them from there.
+    private func tileSourceLabel(_ tileTemplates: [BaseMapTileTemplate]) -> some View {
+        var hosts: [String] = []
+        for tileTemplate in tileTemplates {
+            guard let host = URL(string: tileTemplate.template.replacingOccurrences(of: "{", with: "").replacingOccurrences(of: "}", with: ""))?.host,
+                  !hosts.contains(host) else { continue }
+            hosts.append(host)
+        }
+        return Text("Map tiles: \(hosts.joined(separator: ", "))")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.regularMaterial, in: Capsule())
+    }
+
+    private func pinImage(for path: VaultPath, isSelected: Bool) -> CGImage? {
+        guard let marker = markers.first(where: { marker in marker.row.path == path }) else { return nil }
+        let renderer = ImageRenderer(content: pin(for: marker, isSelected: isSelected))
+        renderer.scale = displayScale
+        return renderer.cgImage
     }
 
     // MARK: Camera
@@ -102,17 +161,24 @@ struct BaseMapView: View {
         let configuration = cameraConfiguration
         if positionedCamera == configuration, position.positionedByUser { return }
         positionedCamera = configuration
-        if let center = result.mapCenter {
-            position = .region(Self.region(center: CLLocationCoordinate2D(latitude: center.latitude, longitude: center.longitude),
-                                           zoom: options.defaultZoom ?? BaseMapOptions.defaultZoom, size: size))
-        } else if let zoom = options.defaultZoom, !markers.isEmpty {
-            position = .region(Self.region(center: Self.centerCoordinate(of: markers.map(\.coordinate)), zoom: zoom, size: size))
-        } else if markers.isEmpty {
-            position = .region(Self.region(center: CLLocationCoordinate2D(latitude: 0, longitude: 0), zoom: BaseMapOptions.defaultZoom, size: size))
-        } else {
-            // Like the plugin: without a configured center and zoom, fit every marker.
-            position = .automatic
+        switch cameraTarget(size: size) {
+        case .region(let region): position = .region(region)
+        case .fittingMarkers: position = .automatic
         }
+    }
+
+    /// The configured center at the configured zoom, the markers' middle at the configured
+    /// zoom, or, like the plugin without a center and zoom, every marker in sight.
+    private func cameraTarget(size: CGSize) -> BaseMapCameraTarget {
+        if let center = result.mapCenter {
+            return .region(Self.region(center: CLLocationCoordinate2D(latitude: center.latitude, longitude: center.longitude),
+                                       zoom: options.defaultZoom ?? BaseMapOptions.defaultZoom, size: size))
+        } else if let zoom = options.defaultZoom, !markers.isEmpty {
+            return .region(Self.region(center: Self.centerCoordinate(of: markers.map(\.coordinate)), zoom: zoom, size: size))
+        } else if markers.isEmpty {
+            return .region(Self.region(center: CLLocationCoordinate2D(latitude: 0, longitude: 0), zoom: BaseMapOptions.defaultZoom, size: size))
+        }
+        return .fittingMarkers
     }
 
     /// The average position of `coordinates`. Longitudes wrap at ±180°, so markers on both
@@ -148,10 +214,15 @@ struct BaseMapView: View {
 
     /// `minZoom` and `maxZoom` become camera distance limits.
     private func cameraBounds(for size: CGSize) -> MapCameraBounds {
+        let distances = cameraDistances(for: size)
+        return MapCameraBounds(minimumDistance: distances.lowerBound, maximumDistance: distances.upperBound)
+    }
+
+    private func cameraDistances(for size: CGSize) -> ClosedRange<CLLocationDistance> {
         let viewHeight = max(Double(size.height), 100)
         let closestDistance = Self.metersPerPoint(zoom: options.maximumZoom, latitude: 0) * viewHeight
         let farthestDistance = Self.metersPerPoint(zoom: max(options.minimumZoom, 0), latitude: 0) * viewHeight
-        return MapCameraBounds(minimumDistance: max(closestDistance, 50), maximumDistance: max(farthestDistance, closestDistance * 2))
+        return max(closestDistance, 50)...max(farthestDistance, closestDistance * 2)
     }
 
     // MARK: Markers
@@ -218,8 +289,13 @@ struct BaseMapView: View {
             } else if missingCount > 0 {
                 noticeLabel("\(missingCount) \(missingCount == 1 ? "file has" : "files have") no valid coordinates", systemImage: "mappin.slash")
             }
-            if !options.tileURLs.isEmpty {
-                noticeLabel("Custom map tiles are not supported; showing Apple Maps.", systemImage: "map")
+            switch background {
+            case .style?:
+                noticeLabel("This map's background is a map style, which Graphite can't draw; showing Apple Maps.", systemImage: "map")
+            case .unusableTiles?:
+                noticeLabel("This map's tiles need a web address with {z}, {x} and {y}; showing Apple Maps.", systemImage: "map")
+            case .rasterTiles?, nil:
+                EmptyView()
             }
         }
     }

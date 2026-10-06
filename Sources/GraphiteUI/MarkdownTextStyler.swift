@@ -99,14 +99,14 @@ struct MarkdownTextStyler {
     }
 
     /// Restyles whole lines touched by `range`, or the whole document. In Live Preview,
-    /// `revealedRange` holds the lines around the cursor, whose markup stays visible (nil
-    /// while the note is only being read, so no markup shows), and `concealedBlocks` are
-    /// drawn as views. Source mode shows all markup.
+    /// `revealedMarkup` says which markup stays visible around the selection (nil while the
+    /// note is only being read, so no markup shows), and `concealedBlocks` are drawn as
+    /// views. Source mode shows all markup.
     /// `foldedRegions` are hidden, whatever the mode. `blockContextCheckpoints`, kept by the
     /// editor for its text storage, spares a restyle near the end of a long note from
     /// rescanning the note from its top; without it the scan starts at the top.
     func applyStyles(to textStorage: NSTextStorage, editedRange range: NSRange, restyleEverything: Bool,
-                     revealedRange: NSRange?, concealedBlocks: [ConcealedBlock], foldedRegions: [FoldableRegion] = [],
+                     revealedMarkup: RevealedMarkup?, concealedBlocks: [ConcealedBlock], foldedRegions: [FoldableRegion] = [],
                      blockContextCheckpoints: MarkdownBlockContextCheckpoints? = nil) {
         // A whole-note pass reads an immutable copy: the storage's mutable string proxy is
         // several times slower to scan, and the text does not change while it is styled.
@@ -115,11 +115,8 @@ struct MarkdownTextStyler {
         // Blocks and folds come from the editor's last scan, which can describe a different
         // text than the storage holds now. One that no longer fits is left out: attributes
         // applied past the end of the storage raise an exception.
-        let concealedBlocks = concealedBlocks.filter { block in block.range.location >= 0 && NSMaxRange(block.range) <= source.length }
-        let foldedRegions = foldedRegions.filter { region in
-            region.headerRange.location >= 0 && region.hiddenRange.location >= 0 && region.headerRange.location <= region.endLocation
-                && region.endLocation <= source.length && NSMaxRange(region.hiddenRange) <= source.length
-        }
+        let concealedBlocks = Self.blocks(concealedBlocks, fitting: source)
+        let foldedRegions = Self.regions(foldedRegions, fitting: source)
         let clampedLocation = min(max(range.location, 0), source.length)
         var targetRange = restyleEverything
             ? NSRange(location: 0, length: source.length)
@@ -150,47 +147,15 @@ struct MarkdownTextStyler {
         let spans = blockContextCheckpoints?.spans(in: textStorage, source: source, range: targetRange)
             ?? MarkdownStyleScanner.spans(in: source, range: targetRange)
         let styledRange = spans.reduce(targetRange) { unionRange, span in NSUnionRange(unionRange, span.range) }
-        let isLivePreview = configuration.mode == .livePreview
-        // `revealedRange` is whole lines, line breaks included, so it ends where the next
-        // line starts; markup there belongs to that next line and stays hidden.
-        func isRevealed(_ spanRange: NSRange) -> Bool {
-            guard isLivePreview else { return true }
-            guard let revealedRange else { return false }
-            return NSIntersectionRange(source.lineRange(for: spanRange), revealedRange).length > 0 || NSLocationInRange(spanRange.location, revealedRange)
-        }
         let fonts = MarkdownStyleFonts(baseFont: baseFont)
-        // A task's checkbox replaces its list bullet, as in Obsidian.
-        let taskLineStarts = drawsConcealedReplacements
-            ? Set(spans.filter { span in span.style == .taskMarker && Self.replacement(for: span, in: source) != nil }.map { span in source.lineRange(for: span.range).location })
-            : []
         textStorage.beginEditing()
         textStorage.setAttributes(baseAttributes(font: fonts.baseFont), range: styledRange)
-        for span in spans where span.range.length > 0 && NSMaxRange(span.range) <= source.length {
-            let isSpanRevealed = isRevealed(span.range)
-            if span.style == .concealableMarker && !isSpanRevealed {
-                conceal(span.range, in: textStorage)
-                continue
-            }
-            if span.style == .math && isLivePreview && !isSpanRevealed && drawsConcealedReplacements,
-               let layout = inlineMathLayout(for: source.substring(with: span.range), baseFont: fonts.baseFont) {
-                drawInlineMath(layout, over: span.range, in: textStorage)
-                continue
-            }
-            apply(span.style, to: textStorage, range: span.range, fonts: fonts)
-            if isLivePreview && span.style == .taskMarker && Self.replacement(for: span, in: source) == .checkedTask {
-                strikeCompletedTask(after: span.range, source: source, in: textStorage)
-            }
-            guard drawsConcealedReplacements, !isSpanRevealed, let replacement = Self.replacement(for: span, in: source) else { continue }
-            if replacement == .bullet && taskLineStarts.contains(source.lineRange(for: span.range).location) {
-                conceal(span.range, in: textStorage)
-            } else {
-                replace(span.range, with: replacement, in: textStorage, baseFont: fonts.baseFont)
-            }
-        }
+        apply(spans, within: [styledRange], to: textStorage, source: source, revealedMarkup: revealedMarkup, fonts: fonts)
         if configuration.colorsEnabled {
-            applyColors(in: styledRange, source: source, textStorage: textStorage, blockContextCheckpoints: blockContextCheckpoints, isRevealed: isRevealed)
+            let sections = coloredSections(touching: styledRange, source: source, textStorage: textStorage, blockContextCheckpoints: blockContextCheckpoints)
+            applyColors(of: sections, within: nil, to: textStorage, revealedMarkup: revealedMarkup)
         }
-        if isLivePreview {
+        if configuration.mode == .livePreview {
             for block in concealedBlocks where NSIntersectionRange(block.range, styledRange).length > 0 {
                 concealBlock(block, source: source, in: textStorage)
             }
@@ -200,6 +165,179 @@ struct MarkdownTextStyler {
             hideFoldedSection(region, in: textStorage)
         }
         textStorage.endEditing()
+    }
+
+    /// Restyles the markup that starts or stops showing when the revealed markup goes from
+    /// `previousMarkup` to `revealedMarkup`, and nothing else: the text was styled for
+    /// `previousMarkup`, so a cursor moving through a long note changes the attributes of
+    /// the markers it reaches and leaves, not of their lines. Markup inside
+    /// `concealedBlocks` and `foldedRegions` is hidden whatever the selection and is left
+    /// alone. Returns the ranges restyled, in text order.
+    @discardableResult
+    func applyRevealedMarkupChange(to textStorage: NSTextStorage, from previousMarkup: RevealedMarkup?, to revealedMarkup: RevealedMarkup?,
+                                   concealedBlocks: [ConcealedBlock], foldedRegions: [FoldableRegion] = [],
+                                   blockContextCheckpoints: MarkdownBlockContextCheckpoints? = nil) -> [NSRange] {
+        let source: NSString = textStorage.mutableString
+        guard configuration.mode == .livePreview, source.length > 0 else { return [] }
+        let documentRange = NSRange(location: 0, length: source.length)
+        let concealedBlocks = Self.blocks(concealedBlocks, fitting: source)
+        let foldedRegions = Self.regions(foldedRegions, fitting: source)
+        func isHidden(_ markupRange: NSRange) -> Bool {
+            LivePreviewBlockLookup.index(ofElementContaining: markupRange.location, in: concealedBlocks, range: { block in block.range }) != nil
+                || foldedRegions.contains { region in NSLocationInRange(markupRange.location, region.hiddenRange) }
+        }
+        func scannedLines(_ lines: NSRange) -> ScannedLines {
+            let spans = blockContextCheckpoints?.spans(in: textStorage, source: source, range: lines) ?? MarkdownStyleScanner.spans(in: source, range: lines)
+            let sections = configuration.colorsEnabled
+                ? coloredSections(touching: lines, source: source, textStorage: textStorage, blockContextCheckpoints: blockContextCheckpoints) : []
+            return ScannedLines(lines: lines, spans: spans, coloredSections: sections)
+        }
+        var scans: [ScannedLines] = []
+        var changingRanges: [NSRange] = []
+        for examinedLines in RevealedMarkupChange.examinedLines(from: previousMarkup, to: revealedMarkup, in: source) {
+            let scan = scannedLines(NSIntersectionRange(examinedLines, documentRange))
+            for span in scan.spans where NSLocationInRange(span.range.location, scan.lines) && NSMaxRange(span.range) <= source.length
+                && isStyledByRevealedMarkup(span, in: source)
+                && shows(span, revealedMarkup: previousMarkup) != shows(span, revealedMarkup: revealedMarkup) {
+                changingRanges.append(span.range)
+            }
+            for section in scan.coloredSections
+            where showsInlineElement(at: section.elementRange, revealedMarkup: previousMarkup) != showsInlineElement(at: section.elementRange, revealedMarkup: revealedMarkup) {
+                changingRanges.append(contentsOf: section.markerRanges.map { markerRange in NSIntersectionRange(markerRange, documentRange) })
+            }
+            scans.append(scan)
+        }
+        changingRanges = RevealedMarkupChange.merged(changingRanges.filter { changingRange in changingRange.length > 0 && !isHidden(changingRange) })
+        guard !changingRanges.isEmpty else { return [] }
+        // A color's markers can be on other lines than the ones examined, which hold the
+        // text the selection touches.
+        let otherMarkerLines = changingRanges.filter { changingRange in !scans.contains { scan in NSLocationInRange(changingRange.location, scan.lines) } }
+            .map { markerRange in source.lineRange(for: markerRange) }
+        scans.append(contentsOf: RevealedMarkupChange.merged(otherMarkerLines).map(scannedLines))
+        let fonts = MarkdownStyleFonts(baseFont: baseFont)
+        var restyledRanges: [NSRange] = []
+        textStorage.beginEditing()
+        for scan in scans {
+            let rangesInLines = wholeSpanRanges(covering: changingRanges.filter { changingRange in NSLocationInRange(changingRange.location, scan.lines) }, spans: scan.spans)
+            guard !rangesInLines.isEmpty else { continue }
+            for restyledRange in rangesInLines { textStorage.setAttributes(baseAttributes(font: fonts.baseFont), range: restyledRange) }
+            apply(scan.spans, within: rangesInLines, to: textStorage, source: source, revealedMarkup: revealedMarkup, fonts: fonts)
+            applyColors(of: scan.coloredSections, within: rangesInLines, to: textStorage, revealedMarkup: revealedMarkup)
+            restyledRanges.append(contentsOf: rangesInLines)
+        }
+        textStorage.endEditing()
+        return RevealedMarkupChange.merged(restyledRanges)
+    }
+
+    /// Lines looked at for a change of the revealed markup, with what the scanners found.
+    private struct ScannedLines {
+        let lines: NSRange
+        let spans: [MarkdownStyleSpan]
+        let coloredSections: [ColoredSection]
+    }
+
+    /// `ranges`, each grown to the whole of any span it holds a part of that is drawn as a
+    /// unit: a formula or a drawn replacement cannot be styled in part.
+    private func wholeSpanRanges(covering ranges: [NSRange], spans: [MarkdownStyleSpan]) -> [NSRange] {
+        guard !ranges.isEmpty else { return [] }
+        let unitStyles: Set<MarkdownStyle> = [.math, .subpathSeparator, .listMarker, .taskMarker, .syntaxMarker]
+        let partlyCoveredUnits = spans.filter { span in
+            guard unitStyles.contains(span.style) else { return false }
+            let coveredPieces = Self.pieces(of: span.range, within: ranges)
+            return !coveredPieces.isEmpty && coveredPieces != [span.range]
+        }
+        return RevealedMarkupChange.merged(ranges + partlyCoveredUnits.map(\.range))
+    }
+
+    private static func blocks(_ concealedBlocks: [ConcealedBlock], fitting source: NSString) -> [ConcealedBlock] {
+        concealedBlocks.filter { block in block.range.location >= 0 && NSMaxRange(block.range) <= source.length }
+    }
+
+    private static func regions(_ foldedRegions: [FoldableRegion], fitting source: NSString) -> [FoldableRegion] {
+        foldedRegions.filter { region in
+            region.headerRange.location >= 0 && region.hiddenRange.location >= 0 && region.headerRange.location <= region.endLocation
+                && region.endLocation <= source.length && NSMaxRange(region.hiddenRange) <= source.length
+        }
+    }
+
+    /// Whether `span` looks different when its markup shows: a marker that hides, a
+    /// formula drawn in place of its source, or markup a drawn replacement stands in for.
+    /// The text between an element's markers looks the same either way.
+    private func isStyledByRevealedMarkup(_ span: MarkdownStyleSpan, in source: NSString) -> Bool {
+        if span.style == .concealableMarker { return true }
+        guard drawsConcealedReplacements else { return false }
+        return (span.style == .math && span.inlineElementRange != nil) || Self.replacement(for: span, in: source) != nil
+    }
+
+    /// Whether `span`'s markup shows as written. Source mode shows all markup; Live
+    /// Preview shows none while the note is only being read.
+    private func shows(_ span: MarkdownStyleSpan, revealedMarkup: RevealedMarkup?) -> Bool {
+        guard configuration.mode == .livePreview else { return true }
+        return revealedMarkup?.shows(span) ?? false
+    }
+
+    private func showsInlineElement(at elementRange: NSRange, revealedMarkup: RevealedMarkup?) -> Bool {
+        guard configuration.mode == .livePreview else { return true }
+        return revealedMarkup?.showsInlineElement(at: elementRange) ?? false
+    }
+
+    /// The parts of `range` inside `restyledRanges`, which are in text order and do not
+    /// overlap. A binary search, because selecting a whole note restyles every marker.
+    private static func pieces(of range: NSRange, within restyledRanges: [NSRange]) -> [NSRange] {
+        var lowerBound = 0
+        var upperBound = restyledRanges.count
+        // The first restyled range that ends after `range` starts.
+        while lowerBound < upperBound {
+            let middle = (lowerBound + upperBound) / 2
+            if NSMaxRange(restyledRanges[middle]) <= range.location { lowerBound = middle + 1 } else { upperBound = middle }
+        }
+        var pieces: [NSRange] = []
+        var index = lowerBound
+        while index < restyledRanges.count, restyledRanges[index].location < NSMaxRange(range) {
+            let piece = NSIntersectionRange(restyledRanges[index], range)
+            if piece.length > 0 { pieces.append(piece) }
+            index += 1
+        }
+        return pieces
+    }
+
+    /// Styles `spans` inside `restyledRanges`, which are in text order, do not overlap, and
+    /// hold base attributes. A span that reaches outside them, such as the heading around a
+    /// restyled marker, is applied to its parts inside.
+    private func apply(_ spans: [MarkdownStyleSpan], within restyledRanges: [NSRange], to textStorage: NSTextStorage, source: NSString,
+                       revealedMarkup: RevealedMarkup?, fonts: MarkdownStyleFonts) {
+        let isLivePreview = configuration.mode == .livePreview
+        // A task's checkbox replaces its list bullet, as in Obsidian.
+        let taskLineStarts = drawsConcealedReplacements
+            ? Set(spans.filter { span in span.style == .taskMarker && Self.replacement(for: span, in: source) != nil }.map { span in source.lineRange(for: span.range).location })
+            : []
+        for span in spans where span.range.length > 0 && NSMaxRange(span.range) <= source.length {
+            let isSpanShown = shows(span, revealedMarkup: revealedMarkup)
+            for piece in Self.pieces(of: span.range, within: restyledRanges) {
+                let isWholeSpan = piece == span.range
+                if span.style == .concealableMarker && !isSpanShown {
+                    conceal(piece, in: textStorage)
+                    continue
+                }
+                if span.style == .math && isLivePreview && !isSpanShown && drawsConcealedReplacements && isWholeSpan,
+                   let layout = inlineMathLayout(for: source.substring(with: span.range), baseFont: fonts.baseFont) {
+                    drawInlineMath(layout, over: span.range, in: textStorage)
+                    continue
+                }
+                apply(span.style, to: textStorage, range: piece, fonts: fonts)
+                guard drawsConcealedReplacements, !isSpanShown, isWholeSpan, let replacement = Self.replacement(for: span, in: source) else { continue }
+                if replacement == .bullet && taskLineStarts.contains(source.lineRange(for: span.range).location) {
+                    conceal(span.range, in: textStorage)
+                } else {
+                    replace(span.range, with: replacement, in: textStorage, baseFont: fonts.baseFont)
+                }
+            }
+            if isLivePreview && span.style == .taskMarker && Self.replacement(for: span, in: source) == .checkedTask {
+                for piece in Self.pieces(of: Self.completedTaskTextRange(after: span.range, in: source), within: restyledRanges) {
+                    strikeCompletedTask(piece, in: textStorage)
+                }
+            }
+        }
     }
 
     /// Hides a folded section: its text is concealed and its lines take no height.
@@ -222,30 +360,68 @@ struct MarkdownTextStyler {
         textStorage.addAttribute(.paragraphStyle, value: collapsedParagraph, range: bodyLines)
     }
 
-    private func applyColors(in range: NSRange, source: NSString, textStorage: NSTextStorage,
-                             blockContextCheckpoints: MarkdownBlockContextCheckpoints?, isRevealed: (NSRange) -> Bool) {
+    /// A colored section where it is in the note, with the color its text takes.
+    private struct ColoredSection {
+        let openingMarkerRange: NSRange
+        let closingMarkerRange: NSRange?
+        let contentRange: NSRange
+        let color: PlatformColor
+
+        var markerRanges: [NSRange] { [openingMarkerRange, closingMarkerRange].compactMap { markerRange in markerRange } }
+
+        /// The section with its markers: an inline element, whose markers show while the
+        /// selection touches it.
+        var elementRange: NSRange {
+            NSRange(location: openingMarkerRange.location, length: NSMaxRange(closingMarkerRange ?? contentRange) - openingMarkerRange.location)
+        }
+    }
+
+    /// The colored sections that touch `range`, outermost first, so a deeper section's
+    /// color wins where they overlap.
+    private func coloredSections(touching range: NSRange, source: NSString, textStorage: NSTextStorage,
+                                 blockContextCheckpoints: MarkdownBlockContextCheckpoints?) -> [ColoredSection] {
+        if let blockContextCheckpoints, !blockContextCheckpoints.mayContainColorMarker(in: textStorage, source: source) { return [] }
         // A color cannot cross a blank line, so the colors touching `range` open and close
         // between the blank lines around it.
         let runStart = Self.paragraphRunStart(atLineContaining: range.location, in: source)
         let runEnd = Self.paragraphRunEnd(atLineContaining: NSMaxRange(range), in: source)
         // Without an opening marker there is nothing to color: the common case, answered
         // without parsing.
-        guard source.range(of: "~={", range: NSRange(location: runStart, length: runEnd - runStart)).location != NSNotFound else { return }
+        guard source.range(of: "~={", range: NSRange(location: runStart, length: runEnd - runStart)).location != NSNotFound else { return [] }
         let contextStart = colorContextStart(from: runStart, source: source, textStorage: textStorage, blockContextCheckpoints: blockContextCheckpoints)
-        let context = NSRange(location: contextStart, length: runEnd - contextStart)
-        let contextText = source.substring(with: context) as NSString
-        let documentRange = NSRange(location: 0, length: source.length)
-        for section in TextColorMarkup.sections(in: contextText, paletteHexByName: configuration.paletteHexByName).sorted(by: { firstSection, secondSection in firstSection.depth < secondSection.depth }) {
-            let contentRange = section.contentRange.shifted(by: contextStart)
-            let openingMarkerRange = section.openingMarkerRange.shifted(by: contextStart)
-            guard NSIntersectionRange(NSUnionRange(openingMarkerRange, contentRange), range).length > 0,
-                  let color = PlatformColor(graphiteHex: section.hexColor) else { continue }
-            textStorage.addAttribute(.foregroundColor, value: color, range: NSIntersectionRange(contentRange, documentRange))
-            for markerRange in [openingMarkerRange, section.closingMarkerRange?.shifted(by: contextStart)].compactMap({ markerRange in markerRange }) {
-                if isRevealed(markerRange) {
-                    textStorage.addAttribute(.foregroundColor, value: color.withAlphaComponent(0.55), range: markerRange)
+        let contextText = source.substring(with: NSRange(location: contextStart, length: runEnd - contextStart)) as NSString
+        let sections = TextColorMarkup.sections(in: contextText, paletteHexByName: configuration.paletteHexByName)
+            .sorted { firstSection, secondSection in firstSection.depth < secondSection.depth }
+        return sections.compactMap { section in
+            guard let color = PlatformColor(graphiteHex: section.hexColor) else { return nil }
+            let coloredSection = ColoredSection(openingMarkerRange: section.openingMarkerRange.shifted(by: contextStart),
+                                                closingMarkerRange: section.closingMarkerRange?.shifted(by: contextStart),
+                                                contentRange: section.contentRange.shifted(by: contextStart), color: color)
+            return NSIntersectionRange(coloredSection.elementRange, range).length > 0 ? coloredSection : nil
+        }
+    }
+
+    /// Colors the sections' text and hides or tints their markers. Given `restyledRanges`
+    /// (in text order, not overlapping, already styled otherwise), only the parts inside
+    /// them change; given none, each section is colored whole, so a color just opened
+    /// reaches the lines after the restyled ones.
+    private func applyColors(of sections: [ColoredSection], within restyledRanges: [NSRange]?, to textStorage: NSTextStorage, revealedMarkup: RevealedMarkup?) {
+        let documentRange = NSRange(location: 0, length: textStorage.length)
+        func pieces(of range: NSRange) -> [NSRange] {
+            let rangeInDocument = NSIntersectionRange(range, documentRange)
+            guard let restyledRanges else { return rangeInDocument.length > 0 ? [rangeInDocument] : [] }
+            return Self.pieces(of: rangeInDocument, within: restyledRanges)
+        }
+        for section in sections {
+            for piece in pieces(of: section.contentRange) {
+                textStorage.addAttribute(.foregroundColor, value: section.color, range: piece)
+            }
+            let showsMarkers = showsInlineElement(at: section.elementRange, revealedMarkup: revealedMarkup)
+            for piece in section.markerRanges.flatMap(pieces) {
+                if showsMarkers {
+                    textStorage.addAttribute(.foregroundColor, value: section.color.withAlphaComponent(0.55), range: piece)
                 } else {
-                    conceal(markerRange, in: textStorage)
+                    conceal(piece, in: textStorage)
                 }
             }
         }
@@ -376,16 +552,20 @@ struct MarkdownTextStyler {
         textStorage.addAttribute(.baselineOffset, value: -layout.metrics.descent, range: NSRange(location: lastCharacter.location - 1, length: 1))
     }
 
-    /// A completed task reads as done: dimmed and struck through, as in Obsidian.
-    private func strikeCompletedTask(after markerRange: NSRange, source: NSString, in textStorage: NSTextStorage) {
+    /// The text of a task after its checkbox, to the end of its line.
+    private static func completedTaskTextRange(after markerRange: NSRange, in source: NSString) -> NSRange {
         let lineRange = source.lineRange(for: markerRange)
         var lineEnd = NSMaxRange(lineRange)
         while lineEnd > NSMaxRange(markerRange), let scalar = Unicode.Scalar(source.character(at: lineEnd - 1)), CharacterSet.newlines.contains(scalar) { lineEnd -= 1 }
         let contentStart = min(NSMaxRange(markerRange) + 1, lineEnd)
-        let contentRange = NSRange(location: contentStart, length: lineEnd - contentStart)
-        guard contentRange.length > 0 else { return }
-        textStorage.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: contentRange)
-        textStorage.addAttribute(.foregroundColor, value: Self.secondaryTextColor, range: contentRange)
+        return NSRange(location: contentStart, length: lineEnd - contentStart)
+    }
+
+    /// A completed task reads as done: dimmed and struck through, as in Obsidian.
+    private func strikeCompletedTask(_ taskTextRange: NSRange, in textStorage: NSTextStorage) {
+        guard taskTextRange.length > 0 else { return }
+        textStorage.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: taskTextRange)
+        textStorage.addAttribute(.foregroundColor, value: Self.secondaryTextColor, range: taskTextRange)
     }
 
     private func conceal(_ range: NSRange, in textStorage: NSTextStorage) {

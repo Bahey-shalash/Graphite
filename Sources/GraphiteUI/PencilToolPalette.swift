@@ -7,9 +7,10 @@ import PencilKit
 /// It is the system's own tool picker, so it has every tool Apple Notes has (pen, fine
 /// liner, marker, pencil, crayon, fountain pen, reed pen, watercolor, eraser, lasso, ruler)
 /// and keeps each tool's color and width, and the tool in use, across canvases and
-/// launches. Graphite adds two buttons at its end: Favorite Colors, which gives the tool in
-/// use one of the colors of Settings › Colors, the list the notes' Format › Color menu
-/// uses, and Shapes, which turns the shape tool on and off (`PencilShapes`).
+/// launches. Graphite adds one button at its end, whose menu has Favorite Colors, which
+/// gives the tool in use one of the colors of Settings › Colors, the list the notes'
+/// Format › Color menu uses; Draw Shapes, which turns the shape tool on and off
+/// (`PencilShapes`); and Select Ink, which turns on Graphite's lasso (`InkSelectionController`).
 @MainActor
 enum PencilToolPalette {
     /// Whether strokes become the shapes they were meant to be; shared by every canvas.
@@ -21,6 +22,8 @@ enum PencilToolPalette {
         toolPicker.showsDrawingPolicyControls = false
         // Colors are chosen for white paper in every appearance.
         toolPicker.colorUserInterfaceStyle = .light
+        // Choosing any tool puts Graphite's lasso away.
+        toolPicker.addObserver(PaletteToolChoiceObserver.shared)
         return toolPicker
     }
 
@@ -35,29 +38,30 @@ enum PencilToolPalette {
     /// A button of its own rather than a plain bar item: the palette would fill a selected
     /// item with the system's blue, the one color in a row of neutral buttons.
     static func makeAccessoryItem(for toolPicker: PKToolPicker) -> UIBarButtonItem {
-        let button = UIButton(configuration: .plain())
+        let button = PaletteAccessoryButton(configuration: .plain())
         button.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             button.widthAnchor.constraint(equalToConstant: accessoryButtonSize),
             button.heightAnchor.constraint(equalToConstant: accessoryButtonSize),
         ])
-        // While the shape tool is on the button shows it, inverted like the pen in use;
-        // otherwise it is the colors button.
+        // While Graphite's lasso or the shape tool is on the button shows it, inverted like
+        // the pen in use; otherwise it is the colors button.
         button.configurationUpdateHandler = { button in
+            let selectsInk = PaletteInkSelection.isOn
             var configuration = UIButton.Configuration.plain()
-            configuration.image = UIImage(systemName: button.isSelected ? "square.fill.on.circle.fill" : "swatchpalette")
+            configuration.image = UIImage(systemName: selectsInk ? "lasso" : button.isSelected ? "square.fill.on.circle.fill" : "swatchpalette")
             configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 15, weight: .medium)
             configuration.cornerStyle = .capsule
-            configuration.baseForegroundColor = button.isSelected ? .systemBackground : .label
-            configuration.background.backgroundColor = button.isSelected ? .label : .tertiarySystemFill
+            configuration.baseForegroundColor = selectsInk || button.isSelected ? .systemBackground : .label
+            configuration.background.backgroundColor = selectsInk || button.isSelected ? .label : .tertiarySystemFill
             button.configuration = configuration
         }
-        button.accessibilityLabel = "Favorite Colors and Shapes"
-        button.accessibilityHint = "Gives the pen in use one of your colors, or turns strokes into shapes"
+        button.accessibilityLabel = "Colors, Shapes and Selection"
+        button.accessibilityHint = "Gives the pen in use one of your colors, turns strokes into shapes, or selects ink to move, resize and recolor"
         button.showsLargeContentViewer = true
-        button.largeContentTitle = "Colors and Shapes"
+        button.largeContentTitle = "Colors, Shapes and Selection"
         button.showsMenuAsPrimaryAction = true
-        // Read each time the menu opens: the colors, the tool in use and the switch change.
+        // Read each time the menu opens: the colors, the tool in use and the switches change.
         button.menu = UIMenu(children: [
             UIDeferredMenuElement.uncached { [weak toolPicker] provideElements in
                 provideElements(toolPicker.map { toolPicker in menuElements(for: toolPicker) } ?? [])
@@ -75,7 +79,7 @@ enum PencilToolPalette {
     static func updateShapesButton(_ item: UIBarButtonItem, isOn: Bool) {
         guard let button = item.customView as? UIButton else { return }
         button.isSelected = isOn
-        button.accessibilityValue = isOn ? "Shapes on" : "Shapes off"
+        button.accessibilityValue = (isOn ? "Shapes on" : "Shapes off") + (PaletteInkSelection.isOn ? ", selecting ink" : "")
     }
 
     /// Favorite colors as a row of swatches, then the Draw Shapes switch.
@@ -84,7 +88,11 @@ enum PencilToolPalette {
                                     state: drawsShapes ? .on : .off) { _ in
             UserDefaults.standard.set(!drawsShapes, forKey: drawsShapesPreferenceKey)
         }
-        return [favoriteColorsMenu(for: toolPicker, palette: palette), UIMenu(options: .displayInline, children: [shapesAction])]
+        let selectionAction = UIAction(title: "Select Ink", subtitle: "Move, resize or recolor", image: UIImage(systemName: "lasso"),
+                                       state: PaletteInkSelection.isOn ? .on : .off) { _ in
+            PaletteInkSelection.isOn.toggle()
+        }
+        return [favoriteColorsMenu(for: toolPicker, palette: palette), UIMenu(options: .displayInline, children: [shapesAction, selectionAction])]
     }
 
     // MARK: Favorite colors
@@ -125,6 +133,32 @@ enum PencilToolPalette {
         }
         var selection: any SelectedToolSetting = toolPicker
         selection.selectedTool = recoloredTool
+    }
+}
+
+/// The palette's accessory button, which also shows whether Graphite's lasso is on.
+private final class PaletteAccessoryButton: UIButton {
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        NotificationCenter.default.removeObserver(self, name: PaletteInkSelection.didChange, object: nil)
+        guard window != nil else { return }
+        NotificationCenter.default.addObserver(self, selector: #selector(inkSelectionDidChange), name: PaletteInkSelection.didChange, object: nil)
+        setNeedsUpdateConfiguration()
+    }
+
+    @objc private func inkSelectionDidChange() {
+        setNeedsUpdateConfiguration()
+        accessibilityValue = (isSelected ? "Shapes on" : "Shapes off") + (PaletteInkSelection.isOn ? ", selecting ink" : "")
+    }
+}
+
+/// Hears every palette's tool choices. PencilKit keeps its observers weakly, so one shared
+/// observer serves all palettes.
+private final class PaletteToolChoiceObserver: NSObject, PKToolPickerObserver {
+    static let shared = PaletteToolChoiceObserver()
+
+    func toolPickerSelectedToolItemDidChange(_ toolPicker: PKToolPicker) {
+        PaletteInkSelection.isOn = false
     }
 }
 

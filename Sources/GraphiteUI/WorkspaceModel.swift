@@ -114,6 +114,15 @@ final class WorkspaceModel {
     var isGraphPresented = false
     /// An unfinished recording offered back, one at a time.
     var recordingRecoveryOffer: RecoverableRecording?
+    /// Files that iCloud or another file provider keeps other versions of, among those
+    /// the sidebar lists and the tabs show (see `WorkspaceConflictVersions.swift`).
+    var conflictedPaths: Set<VaultPath> = []
+    /// The Versions sheet on screen.
+    var conflictVersionsRequest: ConflictVersionsRequest?
+    /// The provider's kept versions; tests replace it with versions of their own making.
+    @ObservationIgnored var conflictVersionStore: any ConflictVersionStore = FileProviderConflictVersions()
+    @ObservationIgnored var pendingConflictChecks: [VaultPath] = []
+    @ObservationIgnored var conflictCheckTask: Task<Void, Never>?
     var drawingEditorRequest: DrawingEditorRequest?
     /// The note the image shown full screen came from, so the viewer can offer to draw on it.
     @ObservationIgnored var viewedImageNote: VaultPath?
@@ -238,8 +247,10 @@ final class WorkspaceModel {
         // `expandedFolders` is replaced below, once the new vault is current: clearing it
         // here would save an empty list for the vault being left.
         pendingMove = nil; pendingDeletion = nil; fileSheet = nil
+        resetConflictVersions()
         searchQuery = ""; searchResults = []; searchContinuation = nil
         rootEntries = entries
+        checkConflictVersions(of: entries.lazy.filter { entry in !entry.isDirectory }.map(\.path))
         hasCompletedIndexScan = false
         // If this vault's settings cannot be read, Obsidian's defaults apply, rather than
         // the last vault's deletion or link settings.
@@ -383,8 +394,10 @@ final class WorkspaceModel {
 
     func refreshDirectory() async {
         guard let store else { return }
-        do { rootEntries = try await store.children(of: .root, sortedBy: vaultSettings.fileSortOrder); directoryVersion += 1 }
-        catch { errorMessage = error.localizedDescription }
+        do {
+            rootEntries = try await store.children(of: .root, sortedBy: vaultSettings.fileSortOrder); directoryVersion += 1
+            checkConflictVersions(of: rootEntries.lazy.filter { entry in !entry.isDirectory }.map(\.path))
+        } catch { errorMessage = error.localizedDescription }
     }
 
     // MARK: Index
@@ -946,7 +959,7 @@ final class WorkspaceModel {
             _ = try await drawingService.save(content, format: format, to: location, expecting: .revision(revision))
             refreshIndex(for: [path])
         case .drawingOnImage(let imagePath, let notePath):
-            try await saveDrawingOnImage(content, imagePath: imagePath, notePath: notePath, service: drawingService)
+            try await saveDrawingOnImage(content, format: format, imagePath: imagePath, notePath: notePath, service: drawingService)
         }
         drawingVersion += 1
         await refreshDirectory()
@@ -976,8 +989,13 @@ final class WorkspaceModel {
     /// a folder from Files can be written only while its access lasts.
     @ObservationIgnored private var recordingFolderAccess: FolderAccess?
 
-    /// Records into the attachment folder of the current note, like Obsidian's recorder.
-    func startRecording() async {
+    /// Whether the camera's picture floats over the documents while a video is recorded.
+    /// Hiding it never stops the recording.
+    var showsRecordingPreview = true
+
+    /// Records into the attachment folder of the current note, like Obsidian's recorder:
+    /// audio as `.m4a`, video as `.mp4`, both under the same name.
+    func startRecording(_ kind: RecordingKind = .audio) async {
         guard let store, let folderAccess else { return }
         // A recording that could not be saved is waiting; starting would not record, and the
         // note it will be embedded in must stay the one it was started from.
@@ -986,13 +1004,20 @@ final class WorkspaceModel {
             let notePath = markdownSession?.path
             let directory = try await recordingDirectory(note: notePath, store: store)
             try await store.createDirectory(directory)
-            let path = try await store.uniquePath(directory: directory, stem: "\(selection?.stem ?? title) Recording \(Self.recordingTimestamp())", extension: "m4a")
+            let path = try await store.uniquePath(directory: directory, stem: "\(selection?.stem ?? title) Recording \(Self.recordingTimestamp())",
+                                                  extension: kind.fileExtension)
             recordingNotePath = notePath
             recordingFolderAccess = folderAccess
+            let destination = try path.url(in: folderAccess.root)
+            let manifest = RecordingRecoveryManifest(vaultIdentifier: currentVaultIdentifier, destinationPath: path.rawValue, notePath: notePath?.rawValue, startedAt: .now)
             // The vault's presenter, so saving the recording is not reported back as a change by another app.
-            await recording.start(destination: try path.url(in: folderAccess.root), manifest: RecordingRecoveryManifest(
-                vaultIdentifier: currentVaultIdentifier, destinationPath: path.rawValue, notePath: notePath?.rawValue, startedAt: .now),
-                                  filePresenter: monitor)
+            switch kind {
+            case .audio:
+                await recording.start(destination: destination, manifest: manifest, filePresenter: monitor)
+            case .video:
+                showsRecordingPreview = true
+                await recording.startVideo(destination: destination, manifest: manifest, camera: preferences.recordingCamera, filePresenter: monitor)
+            }
         } catch { errorMessage = error.localizedDescription }
     }
 
@@ -1023,7 +1048,7 @@ final class WorkspaceModel {
         do {
             let directory = try await recordingDirectory(note: recordingNotePath, store: store)
             try await store.createDirectory(directory)
-            let path = try await store.uniquePath(directory: directory, stem: stem, extension: "m4a")
+            let path = try await store.uniquePath(directory: directory, stem: stem, extension: originalDestination.pathExtension)
             return try path.url(in: folderAccess.root)
         } catch {
             return nil
@@ -1062,6 +1087,7 @@ final class WorkspaceModel {
     /// Tabs of moved files load them again from their new place.
     func followMoveInNavigation(from oldPath: VaultPath, to newPath: VaultPath) {
         for tab in layout.allTabs where tab.path?.isInside(oldPath) == true { tabDocuments[tab.id]?.unload() }
+        followMoveInConflictVersions(from: oldPath, to: newPath)
         layout.replacePrefix(oldPath, with: newPath)
         recentFiles.replacePrefix(oldPath, with: newPath)
         followMoveInFolds(from: oldPath, to: newPath)
@@ -1074,6 +1100,7 @@ final class WorkspaceModel {
 
     /// Closes the tabs of a deleted file or folder, without saving into it, and forgets it.
     func forgetInNavigation(_ removedPath: VaultPath) {
+        followMoveInConflictVersions(from: removedPath, to: nil)
         removeTabDocuments(layout.removeTabs(inside: removedPath))
         recentFiles.remove(inside: removedPath)
         forgetFolds(inside: removedPath)
@@ -1104,8 +1131,13 @@ final class WorkspaceModel {
             // Only the open documents another app is known to have changed are read again.
             switch refresh {
             case .nothingShown: break
-            case .files(let changedPaths): await checkOpenDocumentsForExternalChanges(limitedTo: Set(changedPaths))
-            case .wholeVault: await checkOpenDocumentsForExternalChanges()
+            case .files(let changedPaths):
+                await checkOpenDocumentsForExternalChanges(limitedTo: Set(changedPaths))
+                // A provider reports a version it gained or lost as a change to the file.
+                checkConflictVersions(of: changedPaths)
+            case .wholeVault:
+                await checkOpenDocumentsForExternalChanges()
+                checkConflictVersions(of: tabDocuments.values.compactMap(\.loadedPath))
             }
             await refreshDirectory()
             // A new drawing version rebuilds every embed and image shown, so it waits for a
@@ -1205,6 +1237,7 @@ final class WorkspaceModel {
                 guard let loadedPath = document.loadedPath, changedPaths.contains(loadedPath) else { continue }
             }
             await document.markdownSession?.checkExternalChange()
+            await document.canvasSession?.checkExternalChange()
             guard let pdfSession = document.pdfSession else { continue }
             do {
                 guard try await pdfSession.hasChangedExternally(), !pdfSession.hasUnsavedChanges, document.pdfSession === pdfSession else { continue }

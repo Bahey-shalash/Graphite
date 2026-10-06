@@ -180,6 +180,15 @@ public enum BaseDateArithmetic {
         BaseDate(date: calendar.startOfDay(for: date.date), hasTime: false)
     }
 
+    /// The time from `startDate` to `endDate` as the local wall clock shows it: the duration
+    /// that `adding` turns `startDate` into `endDate` with. The elapsed time is an hour
+    /// shorter or longer when a daylight-saving change lies between them, so two midnights
+    /// would read as 29 days 23 hours apart instead of 30 days.
+    public static func wallClockDuration(from startDate: Date, to endDate: Date, calendar: Calendar) -> BaseDuration {
+        let clockShiftSeconds = calendar.timeZone.secondsFromGMT(for: endDate) - calendar.timeZone.secondsFromGMT(for: startDate)
+        return BaseDuration(milliseconds: (endDate.timeIntervalSince(startDate) + Double(clockShiftSeconds)) * 1_000)
+    }
+
     /// Adds the duration to the local wall-clock reading of `date`, held as if it were a
     /// UTC instant so that no daylight-saving change interferes, then reads the sum back
     /// as local time. Nil when a part does not fit the calendar.

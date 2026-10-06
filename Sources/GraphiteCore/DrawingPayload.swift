@@ -13,9 +13,25 @@ public enum DrawingFormat: String, CaseIterable, Codable, Sendable, Identifiable
     }
 }
 
+/// What is under a drawing's paper pattern and ink: a paper color, or nothing, so the note
+/// shows through.
 public enum DrawingBackground: String, CaseIterable, Codable, Sendable, Identifiable {
-    case white, transparent
+    case white, ivory, yellow, gray, transparent
     public var id: String { rawValue }
+
+    /// The paper's color as `#rrggbb`; nil when there is no paper.
+    public var colorHex: String? {
+        switch self {
+        case .white: "#ffffff"
+        case .ivory: "#fbf7ea"
+        case .yellow: "#fcf3c4"
+        case .gray: "#eceef1"
+        case .transparent: nil
+        }
+    }
+
+    /// A paper color a build that knows only white and none would not show.
+    var isTintedPaper: Bool { self != .white && self != .transparent }
 }
 
 /// The paper a drawing is made on: a guide of squares, lines or dots under the ink.
@@ -24,21 +40,56 @@ public enum DrawingPaperPattern: String, CaseIterable, Codable, Sendable, Identi
     public var id: String { rawValue }
 }
 
+/// How far apart a pattern's lines are, against the pattern's own standard spacing.
+public enum DrawingPaperSpacing: String, CaseIterable, Codable, Sendable, Identifiable {
+    case narrow, standard, wide
+    public var id: String { rawValue }
+    public var scale: Double {
+        switch self {
+        case .narrow: 0.75
+        case .standard: 1
+        case .wide: 1.5
+        }
+    }
+}
+
+/// The color of a pattern's lines and dots.
+public enum DrawingPaperLineColor: String, CaseIterable, Codable, Sendable, Identifiable {
+    case gray, blue, green, red
+    public var id: String { rawValue }
+}
+
+/// How strongly a pattern's lines and dots show.
+public enum DrawingPaperLineStrength: String, CaseIterable, Codable, Sendable, Identifiable {
+    case light, standard, strong
+    public var id: String { rawValue }
+}
+
 /// A drawing's paper, and whether the pattern is only a guide while drawing or part of the
 /// saved drawing, which notes and other applications then show.
 public struct DrawingPaper: Sendable, Equatable {
     public var pattern: DrawingPaperPattern
     public var appearsInSavedDrawing: Bool
+    public var spacing: DrawingPaperSpacing
+    public var lineColor: DrawingPaperLineColor
+    public var lineStrength: DrawingPaperLineStrength
 
-    public init(pattern: DrawingPaperPattern, appearsInSavedDrawing: Bool) {
+    public init(pattern: DrawingPaperPattern, appearsInSavedDrawing: Bool, spacing: DrawingPaperSpacing = .standard,
+                lineColor: DrawingPaperLineColor = .gray, lineStrength: DrawingPaperLineStrength = .standard) {
         self.pattern = pattern
         self.appearsInSavedDrawing = appearsInSavedDrawing
+        self.spacing = spacing
+        self.lineColor = lineColor
+        self.lineStrength = lineStrength
     }
 
     public static let plain = DrawingPaper(pattern: .plain, appearsInSavedDrawing: false)
 
     /// Whether the saved file shows a pattern at all.
     public var isVisibleInSavedDrawing: Bool { appearsInSavedDrawing && pattern != .plain }
+
+    /// Gray lines at the pattern's own spacing, as every build draws them.
+    public var hasStandardStyle: Bool { spacing == .standard && lineColor == .gray && lineStrength == .standard }
 }
 
 /// Where a paper pattern's lines and dots are, in drawing points. The pattern starts at the
@@ -53,19 +104,20 @@ public enum DrawingPaperGeometry {
     public static let dotDiameter = 3.0
 
     /// The distance between a pattern's lines; nil for plain paper.
-    public static func spacing(of pattern: DrawingPaperPattern) -> Double? {
+    public static func spacing(of pattern: DrawingPaperPattern, spacing paperSpacing: DrawingPaperSpacing = .standard) -> Double? {
         switch pattern {
         case .plain: nil
-        case .squared, .dotted: squareSize
-        case .ruled: ruledLineSpacing
+        case .squared, .dotted: squareSize * paperSpacing.scale
+        case .ruled: ruledLineSpacing * paperSpacing.scale
         }
     }
 
     /// The positions of the pattern's lines that cross `region`: the vertical coordinates of
     /// horizontal lines and the horizontal coordinates of vertical lines. Dots are where a
     /// dotted pattern's two sets cross.
-    public static func linePositions(of pattern: DrawingPaperPattern, in region: CGRect) -> (horizontal: [Double], vertical: [Double]) {
-        guard let spacing = spacing(of: pattern), region.width > 0, region.height > 0,
+    public static func linePositions(of pattern: DrawingPaperPattern, spacing paperSpacing: DrawingPaperSpacing = .standard,
+                                     in region: CGRect) -> (horizontal: [Double], vertical: [Double]) {
+        guard let spacing = spacing(of: pattern, spacing: paperSpacing), region.width > 0, region.height > 0,
               region.minX.isFinite, region.minY.isFinite, region.maxX.isFinite, region.maxY.isFinite else { return ([], []) }
         func positions(from minimum: Double, to maximum: Double) -> [Double] {
             let firstIndex = Int((minimum / spacing).rounded(.up)), lastIndex = Int((maximum / spacing).rounded(.down))
@@ -77,8 +129,8 @@ public enum DrawingPaperGeometry {
     }
 
     /// `coordinate` moved back to the pattern line at or before it.
-    public static func snappedToLine(_ coordinate: Double, of pattern: DrawingPaperPattern) -> Double {
-        guard let spacing = spacing(of: pattern) else { return coordinate }
+    public static func snappedToLine(_ coordinate: Double, of pattern: DrawingPaperPattern, spacing paperSpacing: DrawingPaperSpacing = .standard) -> Double {
+        guard let spacing = spacing(of: pattern, spacing: paperSpacing) else { return coordinate }
         return (coordinate / spacing).rounded(.down) * spacing
     }
 }
@@ -137,7 +189,8 @@ public struct DrawingBackgroundImage: Sendable, Equatable {
 /// Editable drawing metadata embedded in PNG, SVG, and PDF drawings. Version 1 is the
 /// original PNG `grPK` record; its field names are part of the stored format. Version 2
 /// adds the picture of a drawing made on an image. Version 3 adds pictures placed on the
-/// drawing and a paper pattern that is part of the saved drawing. A build that does not
+/// drawing and a paper pattern that is part of the saved drawing. Version 4 adds paper
+/// colors and the spacing, color and strength of a shown pattern. A build that does not
 /// know a version treats the file as an ordinary image, so it never saves the ink without
 /// what was under it. A paper pattern that is only a guide while drawing does not raise the
 /// version: a build that does not know it loses the guide and nothing visible.
@@ -156,6 +209,9 @@ public struct DrawingPayload: Codable, Sendable, Equatable {
     private let pictureFrames: [CGRect]?
     private let paperPattern: DrawingPaperPattern?
     private let paperAppearsInSavedDrawing: Bool?
+    private let paperSpacing: DrawingPaperSpacing?
+    private let paperLineColor: DrawingPaperLineColor?
+    private let paperLineStrength: DrawingPaperLineStrength?
 
     private enum CodingKeys: String, CodingKey {
         case version, width, height, background, strokes
@@ -166,11 +222,13 @@ public struct DrawingPayload: Codable, Sendable, Equatable {
         case pictureFrames
         case paperPattern
         case paperAppearsInSavedDrawing = "paperIsVisible"
+        case paperSpacing, paperLineColor, paperLineStrength
     }
 
     public init(width: Double, height: Double, background: DrawingBackground, strokes: Data, visibleContentDigest: Data = Data(),
                 backgroundImage: DrawingBackgroundImage? = nil, pictures: [DrawingBackgroundImage] = [], paper: DrawingPaper = .plain) {
-        version = !pictures.isEmpty || paper.isVisibleInSavedDrawing ? 3 : backgroundImage == nil ? 1 : 2
+        version = Self.usesVersion4Content(background: background, paper: paper) ? 4
+            : !pictures.isEmpty || paper.isVisibleInSavedDrawing ? 3 : backgroundImage == nil ? 1 : 2
         self.width = width
         self.height = height
         self.background = background
@@ -182,6 +240,18 @@ public struct DrawingPayload: Codable, Sendable, Equatable {
         pictureFrames = pictures.isEmpty ? nil : pictures.map(\.frame)
         paperPattern = paper.pattern == .plain ? nil : paper.pattern
         paperAppearsInSavedDrawing = paper.isVisibleInSavedDrawing ? true : nil
+        let keepsStyle = paper.pattern != .plain
+        paperSpacing = keepsStyle && paper.spacing != .standard ? paper.spacing : nil
+        paperLineColor = keepsStyle && paper.lineColor != .gray ? paper.lineColor : nil
+        paperLineStrength = keepsStyle && paper.lineStrength != .standard ? paper.lineStrength : nil
+    }
+
+    /// Version 4 adds paper colors and the spacing, color and strength of a pattern the
+    /// saved drawing shows. A build that knows only version 3 would draw such a drawing
+    /// differently, so it must not take it for one of its own. A style used only as a guide
+    /// raises nothing, as the guide itself does not.
+    private static func usesVersion4Content(background: DrawingBackground, paper: DrawingPaper) -> Bool {
+        background.isTintedPaper || (paper.isVisibleInSavedDrawing && !paper.hasStandardStyle)
     }
 
     /// The picture under the ink, for a drawing made on an image.
@@ -197,7 +267,8 @@ public struct DrawingPayload: Codable, Sendable, Equatable {
     }
 
     public var paper: DrawingPaper {
-        DrawingPaper(pattern: paperPattern ?? .plain, appearsInSavedDrawing: paperAppearsInSavedDrawing ?? false)
+        DrawingPaper(pattern: paperPattern ?? .plain, appearsInSavedDrawing: paperAppearsInSavedDrawing ?? false,
+                     spacing: paperSpacing ?? .standard, lineColor: paperLineColor ?? .gray, lineStrength: paperLineStrength ?? .standard)
     }
 
     public func replacingVisibleContentDigest(_ digest: Data) -> DrawingPayload {
@@ -218,7 +289,8 @@ public struct DrawingPayload: Codable, Sendable, Equatable {
         switch version {
         case 1: hasContentOfItsVersion = !hasBackgroundImageFields && !hasPictureFields && paperAppearsInSavedDrawing != true
         case 2: hasContentOfItsVersion = hasBackgroundImageFields && !hasPictureFields && paperAppearsInSavedDrawing != true
-        case 3: hasContentOfItsVersion = hasPictureFields || paper.isVisibleInSavedDrawing
+        case 3: hasContentOfItsVersion = (hasPictureFields || paper.isVisibleInSavedDrawing) && !Self.usesVersion4Content(background: background, paper: paper)
+        case 4: hasContentOfItsVersion = Self.usesVersion4Content(background: background, paper: paper)
         default: hasContentOfItsVersion = false
         }
         return width.isFinite && height.isFinite && width > 0 && height > 0
@@ -243,11 +315,11 @@ public struct DrawingPayload: Codable, Sendable, Equatable {
         guard encodedPayload.count <= DrawingLimits.maximumPayloadBytes,
               isSmallBinaryPropertyList(encodedPayload),
               let payload = try? PropertyListDecoder().decode(DrawingPayload.self, from: encodedPayload),
-              (1...3).contains(payload.version), payload.hasValidGeometry else { return nil }
+              (1...4).contains(payload.version), payload.hasValidGeometry else { return nil }
         return payload
     }
 
-    /// The record is one dictionary of at most twelve fields, about 30 property list objects,
+    /// The record is one dictionary of at most fifteen fields, about 36 property list objects,
     /// and eight more for each picture placed on the drawing.
     static let maximumPropertyListObjectCount: UInt64 = 64 + 8 * UInt64(DrawingLimits.maximumPictureCount)
 
@@ -319,10 +391,10 @@ public enum DrawingCanvasGeometry {
 
     /// `bounds` grown up and to the left to start on lines of the paper pattern, so the
     /// pattern of a saved drawing is in step with its ink when it is opened again.
-    public static func startingOnPaperLines(_ bounds: CGRect, of pattern: DrawingPaperPattern) -> CGRect {
-        guard DrawingPaperGeometry.spacing(of: pattern) != nil else { return bounds }
-        let minimumX = pattern == .ruled ? bounds.minX : DrawingPaperGeometry.snappedToLine(bounds.minX, of: pattern)
-        let minimumY = DrawingPaperGeometry.snappedToLine(bounds.minY, of: pattern)
+    public static func startingOnPaperLines(_ bounds: CGRect, of pattern: DrawingPaperPattern, spacing: DrawingPaperSpacing = .standard) -> CGRect {
+        guard DrawingPaperGeometry.spacing(of: pattern, spacing: spacing) != nil else { return bounds }
+        let minimumX = pattern == .ruled ? bounds.minX : DrawingPaperGeometry.snappedToLine(bounds.minX, of: pattern, spacing: spacing)
+        let minimumY = DrawingPaperGeometry.snappedToLine(bounds.minY, of: pattern, spacing: spacing)
         return CGRect(x: minimumX, y: minimumY, width: bounds.maxX - minimumX, height: bounds.maxY - minimumY)
     }
 

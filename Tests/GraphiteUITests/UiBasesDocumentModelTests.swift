@@ -48,6 +48,29 @@ final class UiBasesDocumentModelTests: XCTestCase {
         model.result?.rows.map(\.path.name) ?? []
     }
 
+    func testUnreadableFiltersShowAProblemWithoutLoadingVaultRecords() async throws {
+        try write("Note", to: "Notes/A.md")
+        try write("filters:\n  unknown: file.inFolder(\"Notes\")\n", to: "Broken.base")
+        let model = try await loadedModel(basePath: "Broken.base")
+        XCTAssertTrue(rowNames(model).isEmpty)
+        XCTAssertFalse(model.result?.problems.isEmpty ?? true)
+        XCTAssertEqual(model.loadedRecordCount, 0)
+    }
+
+    func testMissingPreferredViewReportsWhyTheFirstViewIsShown() async throws {
+        try write("views:\n  - type: table\n    name: Table\n", to: "Views.base")
+        _ = try await index.reconcile(root: vault)
+        let basePath = try VaultPath("Views.base")
+        let model = BaseDocumentModel(source: .file(basePath), contextPath: basePath, store: store, index: index, preferredViewName: "Missing")
+        await model.reload()
+        XCTAssertEqual(model.selectedView?.name, "Table")
+        XCTAssertTrue(model.viewSelectionErrorMessage?.contains("Missing") == true)
+        await model.selectView(named: "Table")
+        XCTAssertNil(model.viewSelectionErrorMessage)
+        await model.selectView(named: "Also missing")
+        XCTAssertTrue(model.viewSelectionErrorMessage?.contains("Also missing") == true)
+    }
+
     // MARK: Header sort
 
     func testHeaderTapOnAColumnTheViewSortsDescendingSortsItAscending() async throws {
@@ -126,6 +149,18 @@ final class UiBasesDocumentModelTests: XCTestCase {
         XCTAssertNil(editResult)
         XCTAssertNotNil(model.actionErrorMessage)
         XCTAssertEqual(try text(at: "V.base"), "views:\n  - type: table\n    name: Z\n  - type: table\n    name: A\n  - type: table\n    name: B\n")
+    }
+
+    func testAnEditThatCannotPreserveYamlTagsLeavesTheFileUntouched() async throws {
+        // `%20` is a space in the tag's name, which cannot be written back as it is.
+        let sourceText = "views: [{type: table, name: Books, custom: !my%20tag value}]\n"
+        try write(sourceText, to: "V.base")
+        let model = try await loadedModel(basePath: "V.base")
+        let editResult: Void? = await model.editDefinition { editor in try editor.setLimit(4, forViewAt: 0) }
+        XCTAssertNil(editResult)
+        XCTAssertTrue(model.actionErrorMessage?.contains("left unchanged") == true)
+        XCTAssertEqual(try text(at: "V.base"), sourceText)
+        XCTAssertNil(model.views.first?.limit)
     }
 
     func testDeletingAConfirmedViewRemovesThatViewEvenAfterTheSelectionMoved() async throws {

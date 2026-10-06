@@ -28,6 +28,8 @@ struct PDFAnnotationInput: Equatable {
     var isFocused = false
     /// The tool of the fixed tool bar; nil while the floating palette chooses the tool.
     var fixedTool: PencilToolSelection?
+    /// Lines or dots shown under the ink while writing, never saved into the PDF.
+    var writingGuides: DrawingPaper = .plain
 
     /// Whether the view keeps first responder for its document: Undo shortcuts reach the
     /// document's history, and a lasso selection does not bring up typing suggestions.
@@ -249,7 +251,7 @@ final class GraphitePDFDisplayView: PDFView {
     /// reach the scrolling, zooming, and text selection gestures of this view.
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         // The frame of a picture being arranged is over the page and its canvas.
-        for case let pictureSelection as PictureSelectionView in subviews {
+        for case let pictureSelection as SelectionFrameView in subviews {
             if let touchedView = pictureSelection.hitTest(pictureSelection.convert(point, from: self), with: event) { return touchedView }
         }
         if let canvas = annotationCoordinator?.canvas(at: point, in: self) {
@@ -284,13 +286,30 @@ final class PDFPageCanvasView: HistoryCanvasView {
     /// and takes no input meanwhile, and the page's ink annotations stay visible.
     var isRestoringStoredInk = false
 
+    /// Writing guides under the ink, which the page's file never gets.
+    private let guideView = DrawingPaperView()
+
     init(page: PDFPage, inkTracker: PDFPageInkTracker) {
         self.page = page
         self.inkTracker = inkTracker
         super.init(frame: CGRect(origin: .zero, size: page.bounds(for: .cropBox).size))
+        insertSubview(guideView, at: 0)
     }
 
     required init?(coder: NSCoder) { nil }
+
+    func showWritingGuides(_ guides: DrawingPaper) {
+        guideView.paper = guides
+    }
+
+    var writingGuides: DrawingPaper { guideView.paper }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // The guides start at the page's top-left corner, in the page's points.
+        guideView.frame = bounds
+        guideView.drawingRegion = bounds
+    }
 }
 
 /// Owns the Pencil canvases of one PDF view and turns their drawings and text selections
@@ -332,11 +351,13 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     private var toolboxObserver: NSObjectProtocol?
     /// For tests, which cannot send touches.
     var pictureSelectionController: PDFPictureSelectionController? { pictureSelection }
-    private lazy var shapeFeedback = UICanvasFeedbackGenerator(view: toolPickerHost)
     private var observedScrollRecognizers: Set<ObjectIdentifier> = []
     /// The scroll views around this embed that it restricts while annotating.
     private var restrictedEnclosingScrollViews: [ObjectIdentifier] = []
     private var hasAppliedInput = false
+    private var hasPendingFirstResponderUpdate = false
+    /// True once the view is dismantled; the coordinator is not used again.
+    private var isDetached = false
 
     /// A scroll view around annotating embeds, with the gesture settings it had before.
     private struct EnclosingScrollRestriction {
@@ -395,6 +416,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     }
 
     func detach() {
+        isDetached = true
         toolPicker.setVisible(false, forFirstResponder: toolPickerHost)
         toolPickerHost.takesFirstResponderBackFromSelections = false
         toolPickerHost.resignFirstResponder()
@@ -414,7 +436,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     func update(input newInput: PDFAnnotationInput) {
         guard let pdfView else { return }
         defer {
-            updateToolPickerVisibility()
+            updateToolPickerVisibility(isInsideViewUpdate: true)
             // The session's selected picture may have changed; SwiftUI updates the view then.
             pictureSelection?.update()
         }
@@ -671,6 +693,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         if input.isEnabled { restoreStoredInkIfNeeded(on: canvas) }
         canvas.takeTool(from: toolPicker, fixedTool: input.fixedTool)
         canvas.drawingPolicy = input.drawsWithFinger ? .anyInput : .pencilOnly
+        canvas.showWritingGuides(input.writingGuides)
         canvas.isHidden = !input.isEnabled
         canvas.isUserInteractionEnabled = input.isEnabled && !canvas.isRestoringStoredInk
         if let page = canvas.page {
@@ -697,7 +720,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     // MARK: Drawing
 
     func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
-        guard let canvas = canvasView as? PDFPageCanvasView, !canvas.isShowingRecognizedShape, let page = canvas.page,
+        guard let canvas = canvasView as? PDFPageCanvasView, !canvas.isShowingWithoutRecording, let page = canvas.page,
               canvas.bounds.width > 0, canvas.bounds.height > 0 else { return }
         let pageIndex = session.document.index(for: page)
         guard pageIndex != NSNotFound else { return }
@@ -705,16 +728,9 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
             let coordinates = try PageCoordinates(cropBox: page.bounds(for: .cropBox), overlaySize: canvas.bounds.size)
             // Archiving the whole drawing at every pen-up grows with the page's strokes;
             // the session asks for the record before it is needed (see `writeDeferredInkRecords`).
-            var drawing = canvas.drawing
-            // The shape tool replaces the stroke just drawn; the history records the shape.
-            if input.drawsShapes, let shapedDrawing = PencilShapes.replacingNewStroke(in: drawing, previousDrawing: canvas.recordedDrawing) {
-                drawing = shapedDrawing
-                canvas.showRecognizedShape(shapedDrawing)
-                // Apple Pencil Pro taps when a stroke snaps to a shape.
-                if let shapeBounds = shapedDrawing.strokes.last?.renderBounds {
-                    shapeFeedback.pathCompleted(at: canvas.convert(CGPoint(x: shapeBounds.midX, y: shapeBounds.midY), to: toolPickerHost))
-                }
-            }
+            // The shape tool, or a hold at the stroke's end, replaces the stroke just drawn;
+            // the history records the shape.
+            let drawing = canvas.drawingAfterShapeRecognition(shapeToolIsOn: input.drawsShapes)
             let update = canvas.inkTracker.update(for: drawing, pageIndex: pageIndex, coordinates: coordinates, defersEditableRecord: true)
             try session.apply(.updateInk(update))
             // A drawing the history itself showed was recorded before it was shown.
@@ -755,13 +771,32 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         if input.holdsFirstResponder, !toolPickerHost.isFirstResponder { toolPickerHost.becomeFirstResponder() }
     }
 
-    private func updateToolPickerVisibility() {
+    /// - Parameter isInsideViewUpdate: True when SwiftUI is updating its views, as in
+    ///   `updateUIView`. When the first responder changes, SwiftUI asks its views about
+    ///   focus, which it cannot do in the middle of updating them: with a note beside the
+    ///   PDF, focusing the PDF's side left the app computing without end. The first
+    ///   responder then changes on the next turn of the main queue.
+    private func updateToolPickerVisibility(isInsideViewUpdate: Bool = false) {
         let isInWindow = pdfView?.window != nil
-        let showsPicker = input.isEnabled && input.showsToolPicker && isInWindow
-        let holdsFirstResponder = input.holdsFirstResponder && isInWindow
-        toolPicker.setVisible(showsPicker, forFirstResponder: toolPickerHost)
-        toolPickerHost.takesFirstResponderBackFromSelections = holdsFirstResponder
-        if holdsFirstResponder {
+        toolPicker.setVisible(input.isEnabled && input.showsToolPicker && isInWindow, forFirstResponder: toolPickerHost)
+        toolPickerHost.takesFirstResponderBackFromSelections = input.holdsFirstResponder && isInWindow
+        guard isInsideViewUpdate else {
+            updateFirstResponder()
+            return
+        }
+        guard !hasPendingFirstResponderUpdate else { return }
+        hasPendingFirstResponderUpdate = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.hasPendingFirstResponderUpdate = false
+            self.updateFirstResponder()
+        }
+    }
+
+    private func updateFirstResponder() {
+        // A change that waited for the view update may arrive after the view is dismantled.
+        guard !isDetached, let pdfView else { return }
+        if input.holdsFirstResponder && pdfView.window != nil {
             if !toolPickerHost.isFirstResponder { toolPickerHost.becomeFirstResponder() }
         } else if toolPickerHost.isFirstResponder {
             toolPickerHost.resignFirstResponder()

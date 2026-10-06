@@ -184,6 +184,85 @@ final class AppleRecordingAccessRecordingTests: XCTestCase {
         XCTAssertEqual(controller.state, .idle)
         XCTAssertNil(controller.message)
     }
+
+    func testAnEncodingErrorFromAnOlderRecorderCannotAbandonTheCurrentRecording() async throws {
+        let recordingURL = try makeRecoveryRecording()
+        let controller = RecordingController()
+        controller.adoptRecording(at: recordingURL, destination: attachmentsFolder.appendingPathComponent("Lecture.m4a"), state: .recording)
+        let olderRecorder = try AVAudioRecorder(url: recoveryFolder.appendingPathComponent("Older.caf"), settings: RecordingController.recordingSettings)
+        controller.audioRecorderEncodeErrorDidOccur(olderRecorder, error: GraphiteError.unavailable("An earlier recorder failed."))
+        // The delegate callback crosses to the main actor before it handles the error.
+        for _ in 0..<10 { await Task.yield() }
+        XCTAssertEqual(controller.state, .recording)
+        XCTAssertEqual(controller.recoveryURL, recordingURL)
+        XCTAssertNil(controller.message)
+    }
+
+    func testStopDuringResumeWaitsForHardwareAndCannotReturnToRecording() async throws {
+        let recordingURL = try makeRecoveryRecording()
+        let resumeStarted = expectation(description: "Audio hardware started resuming")
+        let pausedRecorder = try PausingResumeRecorder(url: recoveryFolder.appendingPathComponent("Paused.caf"), settings: RecordingController.recordingSettings)
+        pausedRecorder.resumeStarted = resumeStarted
+        defer { pausedRecorder.resumeMayFinish.signal() }
+        let controller = RecordingController()
+        controller.finalizationTimeout = .milliseconds(50)
+        controller.adoptRecording(at: recordingURL, destination: attachmentsFolder.appendingPathComponent("Lecture.m4a"),
+                                  state: .paused, recorder: pausedRecorder)
+        controller.resume()
+        controller.resume()
+        await fulfillment(of: [resumeStarted], timeout: 5)
+        controller.stop()
+        XCTAssertEqual(controller.state, .finalizing)
+        XCTAssertEqual(pausedRecorder.stopCount.withLock { stopCount in stopCount }, 0, "Stop cannot touch a recorder still owned by the hardware worker")
+        pausedRecorder.resumeMayFinish.signal()
+        try await waitUntil { controller.state == .idle }
+        XCTAssertEqual(pausedRecorder.resumeCount.withLock { resumeCount in resumeCount }, 1)
+        XCTAssertEqual(pausedRecorder.stopCount.withLock { stopCount in stopCount }, 1)
+        XCTAssertNotNil(controller.lastCompletedURL)
+    }
+
+    func testAbandoningDuringResumeKeepsRecoveryUnavailableUntilTheWorkerStops() async throws {
+        let recordingURL = try makeRecoveryRecording()
+        let resumeStarted = expectation(description: "Audio hardware started resuming")
+        let pausedRecorder = try PausingResumeRecorder(url: recoveryFolder.appendingPathComponent("Paused.caf"), settings: RecordingController.recordingSettings)
+        pausedRecorder.resumeStarted = resumeStarted
+        defer { pausedRecorder.resumeMayFinish.signal() }
+        let controller = RecordingController()
+        controller.adoptRecording(at: recordingURL, destination: attachmentsFolder.appendingPathComponent("Lecture.m4a"),
+                                  state: .paused, recorder: pausedRecorder)
+        controller.resume()
+        await fulfillment(of: [resumeStarted], timeout: 5)
+        controller.abandonRecorder(reason: "Audio services restarted.")
+        XCTAssertEqual(controller.state, .finalizing)
+        controller.discardRecoveredRecording()
+        await controller.retryPublication()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: recordingURL.path))
+        XCTAssertEqual(pausedRecorder.stopCount.withLock { stopCount in stopCount }, 0)
+        pausedRecorder.resumeMayFinish.signal()
+        try await waitUntil { controller.state == .failed }
+        XCTAssertEqual(pausedRecorder.stopCount.withLock { stopCount in stopCount }, 1)
+        XCTAssertEqual(controller.recoveryURL, recordingURL)
+        await controller.retryPublication()
+        XCTAssertEqual(controller.state, .idle)
+    }
+}
+
+/// The test supplies the expectation before handing the recorder to a worker. Counters
+/// are mutex-protected; the semaphore provides a deterministic hardware delay.
+private final class PausingResumeRecorder: AVAudioRecorder {
+    var resumeStarted: XCTestExpectation?
+    let resumeMayFinish = DispatchSemaphore(value: 0)
+    let resumeCount = Mutex(0)
+    let stopCount = Mutex(0)
+
+    override func record() -> Bool {
+        resumeCount.withLock { resumeCount in resumeCount += 1 }
+        resumeStarted?.fulfill()
+        _ = resumeMayFinish.wait(timeout: .now() + 10)
+        return true
+    }
+
+    override func stop() { stopCount.withLock { stopCount in stopCount += 1 } }
 }
 
 @MainActor

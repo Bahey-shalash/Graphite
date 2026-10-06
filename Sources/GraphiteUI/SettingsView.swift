@@ -1,5 +1,6 @@
 import SwiftUI
 import GraphiteCore
+import GraphiteApple
 
 /// Settings laid out like Obsidian's: options on the left, one page per area or plugin.
 struct SettingsView: View {
@@ -363,12 +364,41 @@ private struct DrawingsSettingsPage: View {
                 Picker("Paper", selection: $preferences.drawingPaperPattern) {
                     ForEach(DrawingPaperPattern.allCases) { pattern in Text(pattern.title).tag(pattern) }
                 }
-                Toggle("Show paper in notes", isOn: $preferences.drawingPaperAppearsInNotes)
-                    .disabled(preferences.drawingPaperPattern == .plain)
+                Group {
+                    Picker("Spacing", selection: $preferences.drawingPaperSpacing) {
+                        ForEach(DrawingPaperSpacing.allCases) { spacing in Text(spacing.title).tag(spacing) }
+                    }
+                    Picker("Line color", selection: $preferences.drawingPaperLineColor) {
+                        ForEach(DrawingPaperLineColor.allCases) { lineColor in Text(lineColor.title).tag(lineColor) }
+                    }
+                    Picker("Line strength", selection: $preferences.drawingPaperLineStrength) {
+                        ForEach(DrawingPaperLineStrength.allCases) { strength in Text(strength.title).tag(strength) }
+                    }
+                    Toggle("Show paper in notes", isOn: $preferences.drawingPaperAppearsInNotes)
+                }
+                .disabled(preferences.drawingPaperPattern == .plain)
             } header: {
                 Text("Paper")
             } footer: {
-                Text("Squares, lines or dots to write on. With “Show paper in notes” off, the paper is only a guide while you draw: the note shows the ink on the background chosen above. Each drawing keeps its own paper, which the drawing editor's menu changes.")
+                Text("Squares, lines or dots to write on, as close together, in the color and as strong as you like. With “Show paper in notes” off, the paper is only a guide while you draw: the note shows the ink on the background chosen above. Each drawing keeps its own paper, which the drawing editor's menu changes.")
+            }
+            Section {
+                Picker("Spacing", selection: $preferences.notebookPaperSpacing) {
+                    ForEach(NotebookPaperSpacing.choices, id: \.self) { spacing in Text(NotebookPaperSpacing.title(of: spacing)).tag(spacing) }
+                }
+                Picker("Paper color", selection: $preferences.notebookPaperColor) {
+                    ForEach(DrawingBackground.allCases.filter { color in color != .transparent }) { color in Text(color.title).tag(color) }
+                }
+                Picker("Line color", selection: $preferences.notebookLineColor) {
+                    ForEach(DrawingPaperLineColor.allCases) { lineColor in Text(lineColor.title).tag(lineColor) }
+                }
+                Picker("Line strength", selection: $preferences.notebookLineStrength) {
+                    ForEach(DrawingPaperLineStrength.allCases) { strength in Text(strength.title).tag(strength) }
+                }
+            } header: {
+                Text("Notebook paper")
+            } footer: {
+                Text("For new notebooks and for pages inserted into a PDF. The paper is part of the PDF's pages, as printed paper is, so every PDF reader shows it.")
             }
             #if canImport(UIKit)
             Section {
@@ -378,7 +408,14 @@ private struct DrawingsSettingsPage: View {
             } header: {
                 Text("Pencil tools")
             } footer: {
-                Text("The floating palette is the system's: every tool of Apple Notes, and it can be moved or minimized. The fixed bar stays above the page, with a pen, a pencil, a highlighter, the eraser and the lasso, three widths, and your colors from Settings › Colors. On iPhone the palette is always used.")
+                Text("The floating palette is the system's: every tool of Apple Notes, and it can be moved or minimized. The fixed bar is one row above the page: your drawing tools, the eraser and the lasso, three widths, and your colors from Settings › Colors. Tap the tool in use again to make it any ink of Apple Notes, in any width and opacity, or to add another tool. On iPhone the palette is always used.")
+            }
+            Section {
+                Toggle("Hold to make a shape", isOn: $preferences.makesShapesOnHold)
+            } header: {
+                Text("Shapes")
+            } footer: {
+                Text("Draw a line, a circle, an ellipse, a triangle or a rectangle and keep the Pencil still at the end: the clean shape appears, and takes the stroke's place when you lift. The Shapes button of the tools does the same for every stroke, without holding.")
             }
             Section {
                 Toggle("Double-tap or squeeze to draw in notes", isOn: $preferences.drawsOnPencilDoubleTap)
@@ -401,7 +438,15 @@ private struct AudioRecorderSettingsPage: View {
             Section {
                 Toggle("Embed recordings in the current note", isOn: $preferences.embedsRecordingsInNote)
             } footer: {
-                Text("Recordings are saved as ordinary .m4a files in the attachment folder of the note you were in, like Obsidian's audio recorder. When this is on, the recording is also embedded at your cursor when you stop.")
+                Text("Recordings are saved as ordinary files in the attachment folder of the note you were in, like Obsidian's audio recorder: audio as .m4a, video as .mp4. When this is on, the recording is also embedded at your cursor when you stop.")
+            }
+            Section {
+                Picker("Camera for video", selection: $preferences.recordingCamera) {
+                    Text("Back").tag(CameraPosition.back)
+                    Text("Front").tag(CameraPosition.front)
+                }
+            } footer: {
+                Text("Video is recorded with sound, at up to 1080p: about 2 GB an hour. It pauses while Graphite is off screen, because apps cannot use the camera there; audio recordings go on.")
             }
         }
         .navigationTitle("Audio recorder")

@@ -130,6 +130,8 @@ struct BaseValueView: View {
             } else {
                 Text(name).foregroundStyle(.secondary).lineLimit(1)
             }
+        case .html(let source):
+            BaseHTMLValueView(source: source, lineLimit: lineLimit)
         case .duration, .object, .regularExpression:
             Text(value.displayText).lineLimit(lineLimit)
         }
@@ -157,9 +159,57 @@ struct BaseValueView: View {
             return number.formatted(.number.precision(.fractionLength(0...3)))
         case .date(let date):
             return formatted(date)
+        case .html(let source):
+            return BaseHTMLText(source: source).plainText
         default:
             return value.displayText
         }
+    }
+}
+
+/// A value from `html()`: its text with the formatting `BaseHTMLText` keeps. A web or
+/// mail link in it opens when tapped. Nothing is fetched or run to show it.
+struct BaseHTMLValueView: View {
+    let source: String
+    let lineLimit: Int
+    @Environment(\.accent) private var accent
+
+    var body: some View {
+        Text(Self.attributedText(for: BaseHTMLText(source: source), accent: accent)).lineLimit(lineLimit)
+    }
+
+    /// How far raised and lowered text (`<sup>`, `<sub>`) moves off the baseline, in points.
+    private static let raisedBaselineOffset: CGFloat = 4
+    private static let loweredBaselineOffset: CGFloat = -2
+
+    static func attributedText(for htmlText: BaseHTMLText, accent: Color) -> AttributedString {
+        var attributedText = AttributedString()
+        for run in htmlText.runs {
+            var attributedRun = AttributedString(run.text)
+            let style = run.style
+            var presentationIntents: InlinePresentationIntent = []
+            if style.isBold { presentationIntents.insert(.stronglyEmphasized) }
+            if style.isItalic { presentationIntents.insert(.emphasized) }
+            if style.isMonospaced { presentationIntents.insert(.code) }
+            if !presentationIntents.isEmpty { attributedRun.inlinePresentationIntent = presentationIntents }
+            if style.isUnderlined { attributedRun.swiftUI.underlineStyle = .single }
+            if style.isStruckThrough { attributedRun.swiftUI.strikethroughStyle = .single }
+            if style.isSmall || style.baseline != .normal { attributedRun.swiftUI.font = .caption }
+            switch style.baseline {
+            case .normal: break
+            case .raised: attributedRun.swiftUI.baselineOffset = raisedBaselineOffset
+            case .lowered: attributedRun.swiftUI.baselineOffset = loweredBaselineOffset
+            }
+            if let foregroundColor = style.foregroundColor { attributedRun.swiftUI.foregroundColor = BaseMarkerStyle.color(for: foregroundColor, accent: accent) }
+            if let backgroundColor = style.backgroundColor {
+                attributedRun.swiftUI.backgroundColor = BaseMarkerStyle.color(for: backgroundColor, accent: accent)
+            } else if style.isHighlighted {
+                attributedRun.swiftUI.backgroundColor = Color.yellow.opacity(0.35)
+            }
+            if let linkDestination = style.linkDestination { attributedRun.link = linkDestination }
+            attributedText += attributedRun
+        }
+        return attributedText
     }
 }
 
@@ -194,7 +244,7 @@ struct BaseListValueView: View {
         HStack(spacing: 4) {
             ForEach(Array(elements.prefix(Self.maximumVisibleElements).enumerated()), id: \.offset) { _, element in
                 switch element {
-                case .link, .file, .image, .icon, .boolean:
+                case .link, .file, .image, .icon, .boolean, .html:
                     BaseValueView(value: element, lineLimit: 1, actions: actions)
                         .font(.callout)
                         .padding(.horizontal, 6)
@@ -526,10 +576,14 @@ enum BaseIconMapping {
 
 enum BaseMarkerStyle {
     static func color(for text: String, accent: Color) -> Color? {
-        switch BaseColorParsing.color(from: text) {
-        case .rgba(let red, let green, let blue, let alpha)?: return Color(red: red, green: green, blue: blue, opacity: alpha)
-        case .accent?: return accent
-        case .theme(let name)?:
+        BaseColorParsing.color(from: text).map { specification in color(for: specification, accent: accent) }
+    }
+
+    static func color(for specification: BaseColorSpecification, accent: Color) -> Color {
+        switch specification {
+        case .rgba(let red, let green, let blue, let alpha): return Color(red: red, green: green, blue: blue, opacity: alpha)
+        case .accent: return accent
+        case .theme(let name):
             switch name {
             case "red": return .red
             case "orange": return .orange
@@ -541,7 +595,6 @@ enum BaseMarkerStyle {
             case "pink": return .pink
             default: return accent
             }
-        case nil: return nil
         }
     }
 }
@@ -553,6 +606,7 @@ extension BaseViewType {
         case .cards: "square.grid.2x2"
         case .list: "list.bullet"
         case .map: "map"
+        case .kanban: "rectangle.split.3x1"
         case .unsupported: "questionmark.square.dashed"
         }
     }

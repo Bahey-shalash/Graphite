@@ -89,8 +89,9 @@ public struct VaultFileOperations: Sendable {
         let moves = try await movedFiles(forMoving: path, to: destination)
         var sources = Set<VaultPath>()
         for movedPath in moves.keys { sources.formUnion(try await index.linkingNotes(to: movedPath)) }
-        // A moved note's own relative links point somewhere else from its new folder.
-        for movedPath in moves.keys where DocumentKind(path: movedPath) == .markdown { sources.insert(movedPath) }
+        // A moved note's own relative links point somewhere else from its new folder, and
+        // so do the links in a moved canvas's text cards.
+        for movedPath in moves.keys where Self.holdsLinks(movedPath) { sources.insert(movedPath) }
         // Only a file whose own name changes alters how many files share a name: files
         // carried along by a folder move keep theirs.
         let renamedFiles = moves.filter { previousPath, newPath in previousPath.name != newPath.name }
@@ -98,7 +99,7 @@ public struct VaultFileOperations: Sendable {
         var nameCounts: [String: Int] = [:]
         var updates: [LinkUpdate] = []
         var notesNotUpdated: [VaultPath: LinkUpdateFailure] = [:]
-        for source in sources.sorted() where DocumentKind(path: source) == .markdown {
+        for source in sources.sorted() where Self.holdsLinks(source) {
             let newSource = moves[source] ?? source
             let snapshot: FileSnapshot
             do {
@@ -117,50 +118,115 @@ public struct VaultFileOperations: Sendable {
                 notesNotUpdated[newSource] = .notText
                 continue
             }
-            let links = try NoteLinkScanner.links(in: text)
-            let noteText = text as NSString
-            // A link whose range does not hold that link means the scan misread the note's
-            // layout, and other links may be missing too; nothing in it is rewritten.
-            guard links.allSatisfy({ link in Self.rangeHoldsLink(link, in: noteText) }) else {
-                notesNotUpdated[newSource] = .linksNotLocated
-                continue
-            }
-            var replacements: [(range: NSRange, text: String)] = []
-            var hasLinkNotRewritable = false
-            for link in links {
-                let writtenPath = LinkRewriter.writtenPath(of: link)
-                guard !writtenPath.isEmpty, URL(string: writtenPath)?.scheme == nil,
-                      let previousTarget = try await resolvedTarget(of: link, from: source, canonicalRootPath: canonicalRootPath) else { continue }
-                let target = moves[previousTarget] ?? previousTarget
-                guard target != previousTarget || newSource != source else { continue }
-                let isNameUnique = try await nameCount(of: target.name, renamedFiles: renamedFiles, cache: &nameCounts) == 1
-                let newPathPart = LinkRewriter.pathPart(linkingTo: target, from: newSource, writtenPath: writtenPath, isWiki: link.isWiki,
-                                                        previousTarget: previousTarget, previousSource: source, isNameUnique: isNameUnique)
-                guard newPathPart != writtenPath else { continue }
-                let linkText = noteText.substring(with: link.range)
-                // A reference-style link (`[text][ref]`) holds no destination, and an image in
-                // its label must not be replaced: `replacingPath` returns nil for it. Its
-                // definition (`[ref]: Note.md`) is scanned as a link of its own and rewritten.
-                // Any other link it cannot rewrite would break silently.
-                guard let replacement = LinkRewriter.replacingPath(inLinkText: linkText, isWiki: link.isWiki, newPathPart: newPathPart) else {
-                    if link.isWiki || !Self.isReferenceStyleLink(linkText) { hasLinkNotRewritable = true }
-                    continue
+            let context = LinkRewritingContext(source: source, newSource: newSource, moves: moves, renamedFiles: renamedFiles, canonicalRootPath: canonicalRootPath)
+            if DocumentKind(path: source) == .canvas {
+                switch try await canvasUpdate(of: snapshot, context: context, nameCounts: &nameCounts) {
+                case .unchanged: break
+                case .failed(let failure): notesNotUpdated[newSource] = failure
+                case .rewritten(let updatedText, let changedLinkCount):
+                    updates.append(LinkUpdate(path: newSource, revision: snapshot.revision, updatedText: updatedText, changedLinkCount: changedLinkCount))
                 }
-                guard replacement != linkText else { continue }
-                replacements.append((link.range, replacement))
-            }
-            if hasLinkNotRewritable {
-                notesNotUpdated[newSource] = .linkNotRewritable
                 continue
             }
-            guard !replacements.isEmpty else { continue }
-            // Decoding drops a UTF-8 byte order mark; it is written back so the rest of the
-            // file keeps its bytes (a Windows editor may rely on it).
-            let hasDroppedByteOrderMark = snapshot.data.starts(with: Self.byteOrderMark) && !text.hasPrefix("\u{FEFF}")
-            let updatedText = (hasDroppedByteOrderMark ? "\u{FEFF}" : "") + LinkRewriter.applying(replacements, to: text)
-            updates.append(LinkUpdate(path: newSource, revision: snapshot.revision, updatedText: updatedText, changedLinkCount: replacements.count))
+            switch try await rewritingLinks(in: text, context: context, nameCounts: &nameCounts) {
+            case .unchanged: break
+            case .failed(let failure): notesNotUpdated[newSource] = failure
+            case .rewritten(let rewrittenText, let changedLinkCount):
+                // Decoding drops a UTF-8 byte order mark; it is written back so the rest of the
+                // file keeps its bytes (a Windows editor may rely on it).
+                let hasDroppedByteOrderMark = snapshot.data.starts(with: Self.byteOrderMark) && !text.hasPrefix("\u{FEFF}")
+                let updatedText = (hasDroppedByteOrderMark ? "\u{FEFF}" : "") + rewrittenText
+                updates.append(LinkUpdate(path: newSource, revision: snapshot.revision, updatedText: updatedText, changedLinkCount: changedLinkCount))
+            }
         }
         return LinkUpdatePlan(moves: moves, updates: updates, notesNotUpdated: notesNotUpdated)
+    }
+
+    /// Whether a file's links are rewritten when what they name moves: notes, and canvases.
+    private static func holdsLinks(_ path: VaultPath) -> Bool {
+        let kind = DocumentKind(path: path)
+        return kind == .markdown || kind == .canvas
+    }
+
+    /// What decides how the links written in one file change.
+    private struct LinkRewritingContext {
+        /// The file the links are written in, before and after the move.
+        let source: VaultPath
+        let newSource: VaultPath
+        let moves: [VaultPath: VaultPath]
+        let renamedFiles: [VaultPath: VaultPath]
+        let canonicalRootPath: String?
+    }
+
+    private enum LinkRewrite {
+        case unchanged
+        case rewritten(text: String, changedLinkCount: Int)
+        case failed(LinkUpdateFailure)
+    }
+
+    /// Markdown with its links to moved files rewritten: a note's text, or a text card's.
+    private func rewritingLinks(in text: String, context: LinkRewritingContext, nameCounts: inout [String: Int]) async throws -> LinkRewrite {
+        let links = try NoteLinkScanner.links(in: text)
+        let noteText = text as NSString
+        // A link whose range does not hold that link means the scan misread the note's
+        // layout, and other links may be missing too; nothing in it is rewritten.
+        guard links.allSatisfy({ link in Self.rangeHoldsLink(link, in: noteText) }) else { return .failed(.linksNotLocated) }
+        var replacements: [(range: NSRange, text: String)] = []
+        for link in links {
+            let writtenPath = LinkRewriter.writtenPath(of: link)
+            guard !writtenPath.isEmpty, URL(string: writtenPath)?.scheme == nil,
+                  let previousTarget = try await resolvedTarget(of: link, from: context.source, canonicalRootPath: context.canonicalRootPath) else { continue }
+            let target = context.moves[previousTarget] ?? previousTarget
+            guard target != previousTarget || context.newSource != context.source else { continue }
+            let isNameUnique = try await nameCount(of: target.name, renamedFiles: context.renamedFiles, cache: &nameCounts) == 1
+            let newPathPart = LinkRewriter.pathPart(linkingTo: target, from: context.newSource, writtenPath: writtenPath, isWiki: link.isWiki,
+                                                    previousTarget: previousTarget, previousSource: context.source, isNameUnique: isNameUnique)
+            guard newPathPart != writtenPath else { continue }
+            let linkText = noteText.substring(with: link.range)
+            // A reference-style link (`[text][ref]`) holds no destination, and an image in
+            // its label must not be replaced: `replacingPath` returns nil for it. Its
+            // definition (`[ref]: Note.md`) is scanned as a link of its own and rewritten.
+            // Any other link it cannot rewrite would break silently.
+            guard let replacement = LinkRewriter.replacingPath(inLinkText: linkText, isWiki: link.isWiki, newPathPart: newPathPart) else {
+                if link.isWiki || !Self.isReferenceStyleLink(linkText) { return .failed(.linkNotRewritable) }
+                continue
+            }
+            guard replacement != linkText else { continue }
+            replacements.append((link.range, replacement))
+        }
+        guard !replacements.isEmpty else { return .unchanged }
+        return .rewritten(text: LinkRewriter.applying(replacements, to: text), changedLinkCount: replacements.count)
+    }
+
+    /// A canvas with its file cards, group backgrounds and the links in its text cards
+    /// following the moved files. A file card names its file by the whole path, so it
+    /// changes exactly when that file moves. Only those values are rewritten; the rest of
+    /// the canvas keeps its bytes.
+    private func canvasUpdate(of snapshot: FileSnapshot, context: LinkRewritingContext, nameCounts: inout [String: Int]) async throws -> LinkRewrite {
+        // A canvas that cannot be read is left alone rather than guessed at.
+        guard let canvas = try? CanvasFile(data: snapshot.data) else { return .failed(.linksNotLocated) }
+        var replacements: [(source: CanvasLinkSource, newValue: String)] = []
+        var changedLinkCount = 0
+        for linkSource in canvas.linkSources {
+            switch linkSource.kind {
+            case .filePath, .groupBackground:
+                guard let writtenTarget = try? VaultPath(linkSource.value),
+                      let target = context.moves[storedSpelling(of: writtenTarget, canonicalRootPath: context.canonicalRootPath)] else { continue }
+                replacements.append((linkSource, target.rawValue))
+                changedLinkCount += 1
+            case .text:
+                switch try await rewritingLinks(in: linkSource.value, context: context, nameCounts: &nameCounts) {
+                case .unchanged: continue
+                case .failed(let failure): return .failed(failure)
+                case .rewritten(let text, let changedCount):
+                    replacements.append((linkSource, text))
+                    changedLinkCount += changedCount
+                }
+            }
+        }
+        guard !replacements.isEmpty else { return .unchanged }
+        guard let updatedCanvas = try? canvas.replacing(replacements) else { return .failed(.linkNotRewritable) }
+        return .rewritten(text: String(decoding: updatedCanvas.data, as: UTF8.self), changedLinkCount: changedLinkCount)
     }
 
     /// Moves `path` to `destination`, then writes the planned link updates.

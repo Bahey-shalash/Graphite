@@ -226,7 +226,16 @@ final class PDFSession {
 
     var currentPageIndex = 0
     /// The picture being moved or resized, if any; see `PDFSessionPictures.swift`.
-    var selectedPicture: PDFPictureSelection?
+    var selectedPicture: PDFPictureSelection? {
+        didSet { if selectedPicture != oldValue { pictureCrop = nil } }
+    }
+    /// While the selected picture is cropped, the part to keep, in its page's coordinates.
+    var pictureCrop: CGRect? {
+        didSet { if pictureCrop != oldValue { NotificationCenter.default.post(name: Self.picturesDidChange, object: self) } }
+    }
+    /// Posted, with the session as its object, when a picture is turned, cropped or
+    /// reordered, or a crop begins or ends, for the view that shows the selection's frame.
+    static let picturesDidChange = Notification.Name("GraphitePDFSessionPicturesDidChange")
     /// Where a new picture goes: the middle of what the view shows of the current page, in
     /// the page's coordinates. The view keeps it current; nil means the page's middle.
     @ObservationIgnored var visiblePageCenter: (() -> (pageIndex: Int, center: CGPoint)?)?
@@ -518,10 +527,12 @@ final class PDFSession {
 
     // MARK: Pages
 
-    func insertPaper(_ template: PaperTemplate, at insertionIndex: Int) async throws {
+    /// Inserts a page of paper the size of the page in view, in the spacing and colors
+    /// `paper` gives.
+    func insertPaper(_ paper: PaperSpecification, at insertionIndex: Int) async throws {
         let referenceBounds = document.page(at: min(currentPageIndex, max(0, pageCount - 1)))?.bounds(for: .cropBox) ?? CGRect(x: 0, y: 0, width: 595.28, height: 841.89)
         let pageSize = referenceBounds.size
-        let paperData = try await Task.detached { try PDFTemplateGenerator.pageData(template: template, matching: pageSize) }.value
+        let paperData = try await Task.detached { try PDFTemplateGenerator.pageData(paper: paper, matching: pageSize) }.value
         let clampedIndex = min(max(0, insertionIndex), pageCount)
         try insertPages(paperData, at: clampedIndex, actionName: "Insert Page")
         go(to: clampedIndex)

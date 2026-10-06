@@ -8,11 +8,19 @@ final class PDFFileBytes {
     let byteCount: Int
     private let readBytes: () -> Data?
     private(set) lazy var bytes: Data? = readBytes()
+    /// Every stream in the bytes, found in one pass however many streams are then read.
+    private(set) lazy var rawStreams: [PDFRawStream]? = bytes.map(PDFDrawingStreamDecoder.rawStreams(in:))
 
     init(byteCount: Int, readBytes: @escaping () -> Data?) {
         self.byteCount = byteCount
         self.readBytes = readBytes
     }
+}
+
+/// Where a stream's dictionary text and its data start, as offsets into the file's bytes.
+struct PDFRawStream {
+    let dictionaryRange: Range<Int>
+    let dataStart: Int
 }
 
 /// Decodes the streams of a possible Graphite drawing without letting a small file expand
@@ -54,7 +62,7 @@ enum PDFDrawingStreamDecoder {
                                     into accumulator: inout Accumulator, append: (inout Accumulator, Data) -> Void) -> Int? {
         guard let dictionary = CGPDFStreamGetDictionary(stream) else { return nil }
         let streamFilter = filter(of: dictionary)
-        guard streamFilter != .unsupported else { return nil }
+        guard streamFilter == .none || streamFilter == .flate else { return nil }
         let expansion = streamFilter == .flate ? maximumFlateExpansion : 1
         let (worstCaseDecodedBytes, overflowed) = file.byteCount.multipliedReportingOverflow(by: expansion)
         if !overflowed, worstCaseDecodedBytes <= min(maximumDecodedBytes, maximumDirectlyDecodedBytes) {
@@ -67,21 +75,12 @@ enum PDFDrawingStreamDecoder {
         }
         var declaredLength: CGPDFInteger = 0
         guard CGPDFDictionaryGetInteger(dictionary, "Length", &declaredLength), declaredLength >= 0, declaredLength <= file.byteCount,
-              let fileBytes = file.bytes else { return nil }
+              let fileBytes = file.bytes, let rawStreams = file.rawStreams else { return nil }
         // An incrementally updated file appends new versions of objects after the old ones.
-        for rawRange in rawStreamCandidates(in: fileBytes, declaredLength: Int(declaredLength), keys: keys(of: dictionary)).reversed() {
+        for rawRange in rawStreamCandidates(in: fileBytes, rawStreams: rawStreams, declaredLength: Int(declaredLength), keys: keys(of: dictionary)).reversed() {
             var candidateAccumulator = accumulator
-            let decodedByteCount: Int?
-            switch streamFilter {
-            case .flate:
-                decodedByteCount = inflate(fileBytes[rawRange], maximumDecodedBytes: maximumDecodedBytes, into: &candidateAccumulator, append: append)
-            case .none where rawRange.count <= maximumDecodedBytes:
-                append(&candidateAccumulator, fileBytes[rawRange])
-                decodedByteCount = rawRange.count
-            case .none, .unsupported:
-                decodedByteCount = nil
-            }
-            if let decodedByteCount {
+            if let decodedByteCount = decodeRaw(fileBytes[rawRange], filter: streamFilter, maximumDecodedBytes: maximumDecodedBytes,
+                                                into: &candidateAccumulator, append: append) {
                 accumulator = candidateAccumulator
                 return decodedByteCount
             }
@@ -89,11 +88,61 @@ enum PDFDrawingStreamDecoder {
         return nil
     }
 
-    private enum StreamFilter { case none, flate, unsupported }
+    /// Passes the decoded data of every stream in the file's bytes that could be `stream`,
+    /// in file order, to `append`, and returns how many bytes there were together. For the
+    /// pictures of a page, where several images can have the same dictionary keys and
+    /// length: whichever copy Core Graphics resolved, it is among them, so a change to it
+    /// always changes what is passed on. A JPEG (DCTDecode) stream is passed on as its
+    /// compressed bytes. Returns nil, with `accumulator` unchanged, when no stream is found
+    /// or any found one cannot be decoded within `maximumDecodedBytes` in all.
+    static func decodeEveryCandidate<Accumulator>(of stream: CGPDFStreamRef, in file: PDFFileBytes, maximumDecodedBytes: Int,
+                                                  into accumulator: inout Accumulator, append: (inout Accumulator, Data) -> Void) -> Int? {
+        guard let dictionary = CGPDFStreamGetDictionary(stream) else { return nil }
+        let streamFilter = filter(of: dictionary)
+        var declaredLength: CGPDFInteger = 0
+        guard streamFilter != .unsupported, CGPDFDictionaryGetInteger(dictionary, "Length", &declaredLength), declaredLength >= 0, declaredLength <= file.byteCount,
+              let fileBytes = file.bytes, let rawStreams = file.rawStreams else { return nil }
+        let candidates = rawStreamCandidates(in: fileBytes, rawStreams: rawStreams, declaredLength: Int(declaredLength), keys: keys(of: dictionary))
+        var candidateAccumulator = accumulator
+        var decodedByteCount = 0
+        for rawRange in candidates {
+            guard let candidateByteCount = decodeRaw(fileBytes[rawRange], filter: streamFilter, maximumDecodedBytes: maximumDecodedBytes - decodedByteCount,
+                                                     into: &candidateAccumulator, append: append) else { return nil }
+            decodedByteCount += candidateByteCount
+        }
+        guard !candidates.isEmpty else { return nil }
+        accumulator = candidateAccumulator
+        return decodedByteCount
+    }
+
+    /// Decodes stream data found in the file's bytes; a JPEG stays compressed.
+    private static func decodeRaw<Accumulator>(_ rawData: Data, filter streamFilter: StreamFilter, maximumDecodedBytes: Int,
+                                               into accumulator: inout Accumulator, append: (inout Accumulator, Data) -> Void) -> Int? {
+        switch streamFilter {
+        case .flate:
+            return inflate(rawData, maximumDecodedBytes: maximumDecodedBytes, into: &accumulator, append: append)
+        case .none, .jpeg:
+            guard rawData.count <= maximumDecodedBytes else { return nil }
+            append(&accumulator, rawData)
+            return rawData.count
+        case .unsupported:
+            return nil
+        }
+    }
+
+    private enum StreamFilter { case none, flate, jpeg, unsupported }
 
     /// Only an unfiltered stream or a single FlateDecode without parameters has a known
     /// expansion bound. Chained filters multiply it, and Graphite never writes predictors.
+    /// A single DCTDecode is recognized so that a JPEG picture can be read as it is stored.
     private static func filter(of dictionary: CGPDFDictionaryRef) -> StreamFilter {
+        func filter(named name: String) -> StreamFilter {
+            switch name {
+            case "FlateDecode": .flate
+            case "DCTDecode": .jpeg
+            default: .unsupported
+            }
+        }
         var decodeParameters: CGPDFObjectRef?
         if CGPDFDictionaryGetObject(dictionary, "DecodeParms", &decodeParameters),
            let decodeParameters, CGPDFObjectGetType(decodeParameters) != .null {
@@ -101,7 +150,7 @@ enum PDFDrawingStreamDecoder {
         }
         var filterName: UnsafePointer<CChar>?
         if CGPDFDictionaryGetName(dictionary, "Filter", &filterName), let filterName {
-            return String(cString: filterName) == "FlateDecode" ? .flate : .unsupported
+            return filter(named: String(cString: filterName))
         }
         var filterArray: CGPDFArrayRef?
         if CGPDFDictionaryGetArray(dictionary, "Filter", &filterArray), let filterArray {
@@ -110,7 +159,7 @@ enum PDFDrawingStreamDecoder {
             case 1:
                 var arrayFilterName: UnsafePointer<CChar>?
                 guard CGPDFArrayGetName(filterArray, 0, &arrayFilterName), let arrayFilterName else { return .unsupported }
-                return String(cString: arrayFilterName) == "FlateDecode" ? .flate : .unsupported
+                return filter(named: String(cString: arrayFilterName))
             default: return .unsupported
             }
         }
@@ -137,32 +186,45 @@ enum PDFDrawingStreamDecoder {
     /// compressed object stream, so every stream dictionary is plain text in the file. A
     /// candidate counts only when its dictionary names every key of the resolved one and
     /// no key that marks another kind of stream, and `endstream` follows exactly
-    /// `declaredLength` bytes of data. A wrong match can
+    /// `declaredLength` bytes of data and not sooner: otherwise the length of one stream,
+    /// counted from an earlier one, could run over the objects between them and happen to
+    /// end at a later stream's end. A wrong match can
     /// only fail to decode or fail the drawing's later checks; it never makes a file look
     /// editable, and whatever it decodes is still bounded.
-    static func rawStreamCandidates(in fileBytes: Data, declaredLength: Int, keys: Set<String>) -> [Range<Data.Index>] {
+    static func rawStreamCandidates(in fileBytes: Data, rawStreams: [PDFRawStream], declaredLength: Int, keys: Set<String>) -> [Range<Data.Index>] {
         let excludedKeys = distinguishingKeys.subtracting(keys)
-        let candidateOffsets = fileBytes.withUnsafeBytes { buffer -> [Range<Int>] in
+        let endKeyword = Array("endstream".utf8)
+        let candidateOffsets = fileBytes.withUnsafeBytes { buffer in
+            rawStreams.compactMap { rawStream -> Range<Int>? in
+                guard keys.allSatisfy({ key in containsName(key, in: buffer, range: rawStream.dictionaryRange) }),
+                      !excludedKeys.contains(where: { key in containsName(key, in: buffer, range: rawStream.dictionaryRange) }),
+                      declaredLength <= buffer.count - rawStream.dataStart,
+                      isEndOfStream(at: rawStream.dataStart + declaredLength, in: buffer),
+                      firstOffset(of: endKeyword, in: buffer, from: rawStream.dataStart, to: rawStream.dataStart + declaredLength) == nil else { return nil }
+                return rawStream.dataStart..<(rawStream.dataStart + declaredLength)
+            }
+        }
+        return candidateOffsets.map { offsets in (fileBytes.startIndex + offsets.lowerBound)..<(fileBytes.startIndex + offsets.upperBound) }
+    }
+
+    /// Every `stream` keyword that starts an object's data, with the object's dictionary
+    /// text before it, in file order.
+    static func rawStreams(in fileBytes: Data) -> [PDFRawStream] {
+        fileBytes.withUnsafeBytes { buffer in
             let streamKeyword = Array("stream".utf8), objectKeyword = Array("obj".utf8)
-            var candidates: [Range<Int>] = []
+            var rawStreams: [PDFRawStream] = []
             var searchStart = 0
             while let keywordStart = firstOffset(of: streamKeyword, in: buffer, from: searchStart, to: buffer.count) {
                 searchStart = keywordStart + streamKeyword.count
                 // `endstream` and `endobj` end in the keywords searched for.
                 guard !followsEnd(keywordStart, in: buffer),
                       let objectStart = lastOffset(of: objectKeyword, in: buffer, before: keywordStart, searchDistance: dictionarySearchDistance),
-                      !followsEnd(objectStart, in: buffer) else { continue }
-                let dictionaryRange = (objectStart + objectKeyword.count)..<keywordStart
-                guard keys.allSatisfy({ key in containsName(key, in: buffer, range: dictionaryRange) }),
-                      !excludedKeys.contains(where: { key in containsName(key, in: buffer, range: dictionaryRange) }),
-                      let dataStart = streamDataStart(after: searchStart, in: buffer),
-                      declaredLength <= buffer.count - dataStart,
-                      isEndOfStream(at: dataStart + declaredLength, in: buffer) else { continue }
-                candidates.append(dataStart..<(dataStart + declaredLength))
+                      !followsEnd(objectStart, in: buffer),
+                      let dataStart = streamDataStart(after: searchStart, in: buffer) else { continue }
+                rawStreams.append(PDFRawStream(dictionaryRange: (objectStart + objectKeyword.count)..<keywordStart, dataStart: dataStart))
             }
-            return candidates
+            return rawStreams
         }
-        return candidateOffsets.map { offsets in (fileBytes.startIndex + offsets.lowerBound)..<(fileBytes.startIndex + offsets.upperBound) }
     }
 
     private static func firstOffset(of pattern: [UInt8], in buffer: UnsafeRawBufferPointer, from start: Int, to end: Int) -> Int? {

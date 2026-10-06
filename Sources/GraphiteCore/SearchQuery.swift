@@ -834,7 +834,6 @@ public struct SearchMatcher {
     private mutating func propertyValue(_ node: BaseFrontmatterNode, matches value: SearchExpression, isCaseSensitive: Bool, context: inout FileContext) -> Bool {
         switch node {
         case .sequence(let items):
-            if items.isEmpty, case .term(let term) = value, term.text.lowercased() == "null" { return true }
             return items.contains { item in propertyValue(item, matches: value, isCaseSensitive: isCaseSensitive, context: &context) }
         case .mapping(let entries):
             return entries.contains { entry in propertyValue(entry.node, matches: value, isCaseSensitive: isCaseSensitive, context: &context) }
@@ -995,7 +994,6 @@ struct NumericComparison {
 
 /// The lines, blocks, sections, and tasks `line:`, `block:`, `section:` and `task:` look in.
 public enum SearchContentParts {
-    private static let taskPattern = try? NSRegularExpression(pattern: "^\\s*(?:>\\s*)*(?:[-*+]|\\d+[.)])\\s+\\[(.)\\]\\s?(.*)$", options: [.anchorsMatchLines])
 
     public static func parts(of content: String, scope: SearchScope) -> [String] {
         switch scope {
@@ -1051,14 +1049,44 @@ public enum SearchContentParts {
     }
 
     static func tasks(of content: String, scope: SearchScope) -> [String] {
-        guard let taskPattern else { return [] }
-        let text = content as NSString
-        return taskPattern.matches(in: content, range: NSRange(location: 0, length: text.length)).compactMap { match in
-            let status = text.substring(with: match.range(at: 1))
-            if scope == .taskTodo && status != " " { return nil }
-            if scope == .taskDone && status == " " { return nil }
-            return text.substring(with: match.range(at: 2))
+        var taskTexts: [String] = []
+        var pendingContents: [(text: String, quoteDepth: Int)] = [(content, 0)]
+        while let quotedContent = pendingContents.popLast() {
+            // The block scanner keeps a task's continuation lines together, and leaves
+            // frontmatter, fenced code, indented code and display math out of task lists.
+            let source = quotedContent.text as NSString
+            let blocks = NoteBlocks.blocks(in: quotedContent.text)
+            for (blockIndex, block) in blocks.enumerated() {
+                if block.kind == .quote, quotedContent.quoteDepth < SearchQueryParser.maximumNestingDepth {
+                    let unquotedText = lines(of: block.text).map { line in
+                        let prefixLength = MarkdownEditing.listLine(line)?.quotePrefix.utf16.count ?? 0
+                        return (line as NSString).substring(from: prefixLength)
+                    }.joined(separator: "\n")
+                    // Frontmatter exists only at the start of the actual note. A quoted
+                    // thematic break must not turn its following tasks into frontmatter.
+                    pendingContents.append(("\n" + unquotedText, quotedContent.quoteDepth + 1))
+                    continue
+                }
+                guard block.kind == .listItem,
+                      let firstLine = lines(of: block.text).first,
+                      let listLine = MarkdownEditing.listLine(firstLine), let status = listLine.taskStatus else { continue }
+                if scope == .taskTodo && status != " " { continue }
+                if scope == .taskDone && status == " " { continue }
+                var taskText = (block.text as NSString).substring(from: listLine.prefixLength)
+                var taskEnd = NSMaxRange(block.range)
+                // CommonMark allows an unindented paragraph to continue a list item
+                // lazily. Keep it with its task, but a blank line ends that continuation.
+                for continuation in blocks.dropFirst(blockIndex + 1) {
+                    guard continuation.kind == .paragraph, continuation.range.location >= taskEnd else { break }
+                    let separator = source.substring(with: NSRange(location: taskEnd, length: continuation.range.location - taskEnd))
+                    guard separator == "\n" || separator == "\r\n" || separator == "\r" else { break }
+                    taskText += separator + continuation.text
+                    taskEnd = NSMaxRange(continuation.range)
+                }
+                taskTexts.append(taskText)
+            }
         }
+        return taskTexts
     }
 
     private static func isListItem(_ trimmedLine: String) -> Bool {

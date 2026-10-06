@@ -358,12 +358,12 @@ struct UnstyledEdit {
             editedRange = NSUnionRange(editedRange, blockRange)
         }
         var ranges = [Self.extended(editedRange, toBlocks: candidateBlocks)]
-        // The styler also shows markup that starts right after the revealed lines, so when
-        // the edit moved them, as an undo far from the cursor does, the line after each
-        // starts or stops showing too.
+        // An element at the start of the line after the revealed lines shows too while the
+        // selection ends there, so when the edit moved the revealed lines, as an undo far
+        // from the cursor does, the line after each is restyled with them.
         let didMoveRevealedLines = revealedRangeBeforeEdit != revealedRange
         for revealed in [revealedRangeBeforeEdit, revealedRange].compactMap({ range in range }) {
-            let restyledRange = didMoveRevealedLines ? RevealedLinesChange.includingFollowingLine(revealed, in: source) : revealed
+            let restyledRange = didMoveRevealedLines ? RevealedMarkupChange.includingFollowingLine(revealed, in: source) : revealed
             let extendedRange = Self.extended(restyledRange, toBlocks: candidateBlocks)
             if !ranges.contains(where: { range in NSIntersectionRange(range, extendedRange) == extendedRange }) { ranges.append(extendedRange) }
         }
@@ -448,31 +448,76 @@ enum LivePreviewBlockShifting {
     }
 }
 
-/// What to restyle when the lines whose markup shows move with the cursor.
-enum RevealedLinesChange {
-    /// The pieces of `source` whose markup starts or stops showing when the revealed lines
-    /// move from `previousRange` to `newRange`. Lines revealed both times, and the lines
-    /// between two far-apart ranges, keep their styling, so a far jump restyles two lines
-    /// rather than everything between them. The styler also shows markup that starts right
-    /// after the revealed lines, so the line after each changed end is included.
-    static func restyledRanges(from previousRange: NSRange?, to newRange: NSRange?, in source: NSString) -> [NSRange] {
+/// The markup Live Preview shows as written while a note is edited, as Obsidian does. An
+/// inline element (bold, a link, a formula, a highlight, a color) shows its markup while
+/// the selection touches it; a line shows its own markers (a heading's `#`, a list, task
+/// or quote marker, a block's `^id`) while the selection is on it.
+struct RevealedMarkup: Equatable {
+    let selection: NSRange
+    /// The whole lines the selection is on, whose own markers show.
+    let lineRange: NSRange
+    /// Every line with markup that shows: `lineRange`, and the line the selection ends on,
+    /// because a selection that ends where a line starts touches an element starting there.
+    let shownLineRange: NSRange
+
+    init(selection: NSRange, in source: NSString) {
+        let location = min(max(selection.location, 0), source.length)
+        let clampedSelection = NSRange(location: location, length: min(max(selection.length, 0), source.length - location))
+        self.selection = clampedSelection
+        lineRange = source.lineRange(for: clampedSelection)
+        shownLineRange = NSUnionRange(lineRange, source.lineRange(for: NSRange(location: NSMaxRange(clampedSelection), length: 0)))
+    }
+
+    /// Whether the selection touches the inline element at `elementRange`. A cursor at
+    /// either edge of the element counts, as in Obsidian, so typing at the end of bold
+    /// text keeps its closing `**` in view.
+    func showsInlineElement(at elementRange: NSRange) -> Bool {
+        selection.location <= NSMaxRange(elementRange) && elementRange.location <= NSMaxRange(selection)
+    }
+
+    /// Whether the selection is on the line of a marker at `location`. `lineRange` ends
+    /// where the next line starts, and that line's markers stay hidden.
+    func showsLineMarker(at location: Int) -> Bool {
+        NSLocationInRange(location, lineRange)
+    }
+
+    func shows(_ span: MarkdownStyleSpan) -> Bool {
+        if let inlineElementRange = span.inlineElementRange { return showsInlineElement(at: inlineElementRange) }
+        return showsLineMarker(at: span.range.location)
+    }
+}
+
+/// What to look at again when the revealed markup moves with the selection.
+enum RevealedMarkupChange {
+    /// The lines of `source` that can hold markup which starts or stops showing when the
+    /// revealed markup goes from `previousMarkup` to `newMarkup`, in text order. Two
+    /// far-apart cursors give their two lines and nothing between them; a selection that
+    /// grows or shrinks gives only the lines around the end that moved.
+    static func examinedLines(from previousMarkup: RevealedMarkup?, to newMarkup: RevealedMarkup?, in source: NSString) -> [NSRange] {
+        guard previousMarkup != newMarkup else { return [] }
+        guard let previousSelection = previousMarkup?.selection, let newSelection = newMarkup?.selection,
+              previousSelection.location <= NSMaxRange(newSelection), newSelection.location <= NSMaxRange(previousSelection) else {
+            return merged([previousMarkup, newMarkup].compactMap { markup in markup?.shownLineRange })
+        }
+        // The selections overlap or meet, so only markup between their starts, or between
+        // their ends, is touched by one of them and not the other.
         var pieces: [NSRange] = []
-        if let previousRange, let newRange, NSIntersectionRange(previousRange, newRange).length > 0 {
-            // A selection that grows or shrinks changes only its ends.
-            let starts = [previousRange.location, newRange.location]
-            if let firstStart = starts.min(), let lastStart = starts.max(), firstStart != lastStart {
-                pieces.append(NSRange(location: firstStart, length: lastStart - firstStart))
-            }
-            let ends = [NSMaxRange(previousRange), NSMaxRange(newRange)]
-            if let firstEnd = ends.min(), let lastEnd = ends.max(), firstEnd != lastEnd {
-                pieces.append(includingFollowingLine(NSRange(location: firstEnd, length: lastEnd - firstEnd), in: source))
-            }
-        } else {
-            pieces = [previousRange, newRange].compactMap { range in range }.map { range in includingFollowingLine(range, in: source) }
+        if previousSelection.location != newSelection.location {
+            pieces.append(lines(from: min(previousSelection.location, newSelection.location), through: max(previousSelection.location, newSelection.location), in: source))
+        }
+        if NSMaxRange(previousSelection) != NSMaxRange(newSelection) {
+            pieces.append(lines(from: min(NSMaxRange(previousSelection), NSMaxRange(newSelection)), through: max(NSMaxRange(previousSelection), NSMaxRange(newSelection)), in: source))
         }
         return merged(pieces)
     }
 
+    /// The whole lines from the one holding `start` through the one holding `end`.
+    private static func lines(from start: Int, through end: Int, in source: NSString) -> NSRange {
+        NSUnionRange(source.lineRange(for: NSRange(location: start, length: 0)), source.lineRange(for: NSRange(location: end, length: 0)))
+    }
+
+    /// `range` with the line after it. An edit that moves the selection away can leave an
+    /// element at the start of that line showing: a selection ending there touched it.
     static func includingFollowingLine(_ range: NSRange, in source: NSString) -> NSRange {
         let end = NSMaxRange(range)
         guard end < source.length else { return range }
@@ -480,7 +525,7 @@ enum RevealedLinesChange {
     }
 
     /// The ranges in text order, with overlapping or adjacent ones joined.
-    private static func merged(_ ranges: [NSRange]) -> [NSRange] {
+    static func merged(_ ranges: [NSRange]) -> [NSRange] {
         var mergedRanges: [NSRange] = []
         for range in ranges.sorted(by: { leftRange, rightRange in leftRange.location < rightRange.location }) {
             if let last = mergedRanges.last, range.location <= NSMaxRange(last) {
@@ -526,6 +571,27 @@ enum LivePreviewBlockActivity {
         let endsWithLineBreak = blockEnd > 0 && Unicode.Scalar(source.character(at: blockEnd - 1)).map { scalar in CharacterSet.newlines.contains(scalar) } == true
         return !endsWithLineBreak
     }
+
+    /// The blocks the selection enters or leaves when it goes from `previousSelection` to
+    /// `newSelection` (nil while the note is not being edited), as indices into
+    /// `blockRanges`, which are in note order and do not overlap. Only the blocks at the
+    /// ends of either selection are looked at, so a long note's other blocks cost nothing.
+    static func indicesOfBlocksChangingActivity(from previousSelection: NSRange?, to newSelection: NSRange?, blockRanges: [NSRange], in source: NSString) -> [Int] {
+        var candidateIndices = Set<Int>()
+        for selection in [previousSelection, newSelection].compactMap({ selection in selection }) {
+            // The location before the cursor finds a block the cursor is right after.
+            for location in [selection.location, selection.location - 1, NSMaxRange(selection)] where location >= 0 {
+                if let index = LivePreviewBlockLookup.index(ofElementContaining: location, in: blockRanges, range: { blockRange in blockRange }) {
+                    candidateIndices.insert(index)
+                }
+            }
+        }
+        return candidateIndices.sorted().filter { index in
+            let wasActive = previousSelection.map { selection in isActive(blockRange: blockRanges[index], selection: selection, in: source) } ?? false
+            let isActiveNow = newSelection.map { selection in isActive(blockRange: blockRanges[index], selection: selection, in: source) } ?? false
+            return wasActive != isActiveNow
+        }
+    }
 }
 
 /// What a tap in Live Preview acts on. Checkboxes and links count only where the styler
@@ -559,6 +625,20 @@ enum LivePreviewTapTargets {
         let checkedLocations = [location, location - 1].filter { checkedLocation in checkedLocation >= lineRange.location }
         return MarkdownStyleScanner.spans(in: source, range: lineRange).contains { span in
             codeStyles.contains(span.style) && checkedLocations.contains { checkedLocation in NSLocationInRange(checkedLocation, span.range) }
+        }
+    }
+
+    /// Whether `characterIndex` is in a link whose markup is showing. A tap there places
+    /// the cursor in the link being edited; a tap on a link whose markup is hidden follows
+    /// the link, as in Obsidian, also on the cursor's line and inside bold text that shows
+    /// its own markup.
+    static func isInsideLinkShowingItsMarkup(_ characterIndex: Int, in source: NSString, revealedMarkup: RevealedMarkup) -> Bool {
+        guard characterIndex < source.length else { return false }
+        let lineRange = source.lineRange(for: NSRange(location: characterIndex, length: 0))
+        guard NSIntersectionRange(lineRange, revealedMarkup.shownLineRange).length > 0 else { return false }
+        return MarkdownStyleScanner.spans(in: source, range: lineRange).contains { span in
+            guard span.style == .link, let linkRange = span.inlineElementRange, NSLocationInRange(characterIndex, linkRange) else { return false }
+            return revealedMarkup.showsInlineElement(at: linkRange)
         }
     }
 }

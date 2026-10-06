@@ -13,7 +13,7 @@ public struct PDFPicture: Sendable, Equatable {
     /// The annotation's name, unique in its document.
     public let name: String
     /// PNG or JPEG data with any orientation already applied.
-    public let imageData: Data
+    public var imageData: Data
     /// Where the picture is, in the page's own coordinates.
     public var bounds: CGRect
     /// How many quarter turns clockwise the page was shown at when the picture was placed.

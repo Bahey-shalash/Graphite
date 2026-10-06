@@ -353,6 +353,12 @@ struct EmbeddedImageView: View {
     /// Opens the drawing editor over the image; nil for drawings and where drawings are off.
     let drawOnImage: (() -> Void)?
     @State private var decodedImages = DecodedImageCache()
+    @Environment(\.colorScheme) private var colorScheme
+
+    /// A drawing is saved as it looks on white paper, and a drawing without paper of its
+    /// own is transparent: on a dark note its black ink would vanish, so it is shown on
+    /// white, as it looks in every other app.
+    private var showsDrawingOnWhite: Bool { edit != nil && colorScheme == .dark }
 
     /// Shows pixels already decoded at the size they are shown, off the main thread, so no
     /// evaluation of the body decodes anything and every one draws the same image.
@@ -455,6 +461,8 @@ struct EmbeddedImageView: View {
     private func sized(_ content: some View) -> some View {
         content
             .aspectRatio(aspectRatio, contentMode: .fit)
+            .background { if showsDrawingOnWhite { Color.white } }
+            .clipShape(RoundedRectangle(cornerRadius: showsDrawingOnWhite ? 6 : 0))
             .frame(maxWidth: displayWidth ?? .infinity, alignment: .leading)
     }
 }

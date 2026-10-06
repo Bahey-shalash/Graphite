@@ -52,7 +52,7 @@ final class UiWorkspaceAreaPDFHandoffTests: XCTestCase {
         let scanSize = CGSize(width: 2480, height: 3508)
         let session = try await PDFSession.open(try makePDF(named: "Scan.pdf", pageSize: scanSize))
 
-        try await session.insertPaper(.dotted, at: 1)
+        try await session.insertPaper(PaperSpecification(template: .dotted), at: 1)
 
         XCTAssertEqual(session.pageCount, 2)
         let insertedBounds = try XCTUnwrap(session.document.page(at: 1)).bounds(for: .cropBox)

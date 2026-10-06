@@ -153,6 +153,9 @@ public actor VaultStore {
                 }
                 configuration = existing
             }
+            if let writtenAssignments = configuration["types"], !(writtenAssignments is NSNull), writtenAssignments as? [String: Any] == nil {
+                throw GraphiteError.invalidFile("The property types in “.obsidian/types.json” are not a JSON object, so Graphite leaves them unchanged.")
+            }
             var assignments = configuration["types"] as? [String: Any] ?? [:]
             let original = assignments as NSDictionary
             update(&assignments)

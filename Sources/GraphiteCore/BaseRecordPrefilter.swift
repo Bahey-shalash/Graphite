@@ -109,7 +109,7 @@ public struct BaseRecordPrefilter: Hashable, Sendable {
             let values = constants.compactMap { constant in constant }
             switch name {
             case "inFolder":
-                let folder = values[0].displayText.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                let folder = BaseEvaluator.normalizedFolderPath(values[0].displayText)
                 return folder.isEmpty ? nil : .inAnyFolder([folder])
             case "hasTag":
                 return .hasAnyTag(values.map { value in value.displayText.hasPrefix("#") ? String(value.displayText.dropFirst()) : value.displayText })

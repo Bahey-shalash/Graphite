@@ -29,7 +29,7 @@ struct ReadingConfiguration: Equatable, Sendable {
 }
 
 /// A reading-view block after links are resolved and files located.
-indirect enum RenderedBlock: Identifiable {
+indirect enum RenderedBlock: Identifiable, Sendable {
     case properties([NoteProperty])
     case markdown(id: Int, text: String)
     case displayMath(id: Int, text: String)
@@ -167,8 +167,9 @@ enum GraphiteOpenLink {
 /// or removed. Each such character is written as the escape lead followed by a stand-in,
 /// and `ObsidianMarkdownParser` puts the original back after it has read the markers.
 enum ReadingMarkerEscaping {
-    /// `ObsidianInlineMarkup`'s markers, U+E000 to U+E008, and the escape lead, U+E009.
-    static let escapedScalarValues: ClosedRange<UInt32> = 0xE000...0xE009
+    /// `ObsidianInlineMarkup`'s markers, U+E000 to U+E008 and U+E00A to U+E00B, and the
+    /// escape lead, U+E009.
+    static let escapedScalarValues: ClosedRange<UInt32> = 0xE000...0xE00B
     static let escapeLead: Unicode.Scalar = "\u{E009}"
     /// A character `escapedScalarValues.lowerBound + n` is written as the lead, then the
     /// scalar `standInOffset` above it. Stand-ins follow a lead only when written here.
@@ -203,7 +204,7 @@ enum MediaFileKind {
 
 /// A note's reading-view blocks, and whether any Wikilink embed in its text could not be
 /// found, so the note is built again once the index knows more files.
-struct ReadingViewBuild {
+struct ReadingViewBuild: Sendable {
     let blocks: [RenderedBlock]
     let hasUnresolvedEmbeds: Bool
 }
@@ -239,13 +240,17 @@ actor ReadingViewBuilder {
             rendered.append(.properties(properties))
         }
         // References become raised numbers that link to the list of footnotes at the end.
-        let (body, notes) = Footnotes.preparedForReading(sourceText.substring(from: frontmatterLength)) { number in
+        let readableBody = Footnotes.preparedForReadingKeepingOffsets(sourceText.substring(from: frontmatterLength)) { number in
             "[\(number)](\(GraphiteOpenLink.footnoteDestination(number: number)))"
         }
-        rendered += try await render(NotePreviewDocument.blocks(from: body), note: note, root: root, index: index, configuration: configuration, allowsTransclusion: allowsTransclusion)
-        if !notes.isEmpty {
+        let taskSource = TaskSource(noteText: source) { bodyOffset in
+            readableBody.offsets.originalOffset(of: bodyOffset).map { offset in offset + frontmatterLength }
+        }
+        rendered += try await render(NotePreviewDocument.locatedBlocks(from: readableBody.text), note: note, root: root, index: index, configuration: configuration,
+                                     allowsTransclusion: allowsTransclusion, taskSource: taskSource)
+        if !readableBody.notes.isEmpty {
             var renderedNotes: [RenderedFootnote] = []
-            for footnote in notes {
+            for footnote in readableBody.notes {
                 renderedNotes.append(RenderedFootnote(number: footnote.number, text: try await prepared(footnote.text, note: note, root: root, index: index, configuration: configuration)))
             }
             rendered.append(.footnotes(id: identifier(), notes: renderedNotes))
@@ -255,21 +260,36 @@ actor ReadingViewBuilder {
 
     private func identifier() -> Int { nextIdentifier += 1; return nextIdentifier }
 
+    /// The text of the note a run of blocks was split from, in which their tasks are found.
+    private struct TaskSource {
+        /// The whole note, frontmatter included, which a tap on a checkbox changes.
+        let noteText: String
+        /// Where a place in the body the blocks were split from is in `noteText`; nil for
+        /// text the note does not have, such as a footnote's number.
+        let noteOffset: (_ bodyOffset: Int) -> Int?
+    }
+
     /// - Parameter allowsTransclusion: False exactly for the body of an embedded note, which
     ///   embeds no further notes so notes that embed each other end.
-    private func render(_ blocks: [NotePreviewBlock], note: VaultPath, root: URL, index: VaultIndex, configuration: ReadingConfiguration, allowsTransclusion: Bool) async throws -> [RenderedBlock] {
+    private func render(_ blocks: [NotePreviewDocument.LocatedBlock], note: VaultPath, root: URL, index: VaultIndex, configuration: ReadingConfiguration,
+                        allowsTransclusion: Bool, taskSource: TaskSource) async throws -> [RenderedBlock] {
         var rendered: [RenderedBlock] = []
-        for block in blocks {
-            switch block {
+        for locatedBlock in blocks {
+            switch locatedBlock.block {
             case .markdown(let markdown):
-                rendered.append(.markdown(id: identifier(), text: try await prepared(markdown, note: note, root: root, index: index, configuration: configuration)))
+                let text = try await prepared(markdown, note: note, root: root, index: index, configuration: configuration) { lineIndex, status in
+                    guard locatedBlock.lineStartOffsets.indices.contains(lineIndex), let lineStart = taskSource.noteOffset(locatedBlock.lineStartOffsets[lineIndex]) else { return nil }
+                    return ReadingTasks.location(ofTaskStartingAt: lineStart, status: status, in: taskSource.noteText)
+                }
+                rendered.append(.markdown(id: identifier(), text: text))
             case .heading(let level, let text, let anchor):
                 rendered.append(.heading(id: identifier(), level: level, text: try await prepared(text, note: note, root: root, index: index, configuration: configuration),
                                          anchor: allowsTransclusion ? scrollTarget(forHeadingWithAnchor: anchor) : nil))
-            case .callout(let type, let title, let folding, let body):
+            case .callout(let type, let title, let folding, _):
                 let renderedTitle = try await prepared(title, note: note, root: root, index: index, configuration: configuration)
                 calloutDepth += 1
-                let renderedBody = try await render(body, note: note, root: root, index: index, configuration: configuration, allowsTransclusion: allowsTransclusion)
+                let renderedBody = try await render(locatedBlock.body, note: note, root: root, index: index, configuration: configuration,
+                                                    allowsTransclusion: allowsTransclusion, taskSource: taskSource)
                 calloutDepth -= 1
                 rendered.append(.callout(id: identifier(), type: type, title: renderedTitle, folding: folding, body: renderedBody))
             case .embed(let embed):
@@ -317,11 +337,14 @@ actor ReadingViewBuilder {
                 return embeddedNoteLink(to: path, subpath: subpath)
             }
             let transcludedText = transcludedSource as NSString
-            let transcludedBody = transcludedText.substring(from: FrontmatterLocator.length(in: transcludedText))
-            guard let section = NoteBlocks.embeddedPart(of: transcludedBody, subpath: subpath) else {
+            let transcludedFrontmatterLength = FrontmatterLocator.length(in: transcludedText)
+            guard let section = NoteBlocks.locatedEmbeddedPart(of: transcludedText.substring(from: transcludedFrontmatterLength), subpath: subpath) else {
                 return .missingSection(id: identifier(), path: path, subpath: subpath ?? "")
             }
-            let body = try await render(NotePreviewDocument.blocks(from: section), note: path, root: root, index: index, configuration: configuration, allowsTransclusion: false)
+            // A task of an embedded note is ticked in that note, as in Obsidian.
+            let taskSource = TaskSource(noteText: transcludedSource) { sectionOffset in transcludedFrontmatterLength + section.location + sectionOffset }
+            let body = try await render(NotePreviewDocument.locatedBlocks(from: section.text), note: path, root: root, index: index, configuration: configuration,
+                                        allowsTransclusion: false, taskSource: taskSource)
             return .transclusion(id: identifier(), path: path, heading: subpath, body: body)
         case .image, .pdf:
             // A PDF reaches here only when it is a Graphite drawing.
@@ -346,11 +369,19 @@ actor ReadingViewBuilder {
         return resolved.first
     }
 
+    /// Where the task on a line of a block's text, given by its index, is in the note.
+    private typealias TaskLocation = (_ lineIndex: Int, _ status: Unicode.Scalar) -> ReadingTasks.Location?
+
     /// Rewrites Obsidian links and embeds into standard Markdown the renderer understands.
-    private func prepared(_ markdown: String, note: VaultPath, root: URL, index: VaultIndex, configuration: ReadingConfiguration) async throws -> String {
+    /// - Parameter taskLocation: Finds the tasks of `markdown` in the note, so their
+    ///   checkboxes can be ticked; nil where the text is not lines of the note.
+    private func prepared(_ markdown: String, note: VaultPath, root: URL, index: VaultIndex, configuration: ReadingConfiguration,
+                          taskLocation: TaskLocation? = nil) async throws -> String {
         // Wikilinks need `[[`, Markdown embeds `![` and Markdown links `](`; text without any
         // of them needs no link parse, which dominates building a long note.
-        guard markdown.contains("[[") || markdown.contains("![") || markdown.contains("](") else { return readingText(markdown, configuration: configuration) }
+        guard markdown.contains("[[") || markdown.contains("![") || markdown.contains("](") else {
+            return readingText(markdown, configuration: configuration, taskLocation: taskLocation)
+        }
         // The note's frontmatter was removed before it was split into blocks, so a block that
         // starts with `---` (a heading, then a rule) has none; parsed as it is, the text up to
         // the next rule would be taken for frontmatter and its links left as text.
@@ -361,6 +392,9 @@ actor ReadingViewBuilder {
         // Links are replaced last first, so earlier ranges stay valid; a link around an image
         // already replaced, as in `[![a](a.png)](b.md)`, no longer has its parsed range.
         var earliestReplacedLocation = Int.max
+        // A link written over two lines becomes one line, after which the lines no longer
+        // have the indices `taskLocation` knows them by.
+        var keepsLines = true
         // A link whose place in the text could not be found has an empty range; replacing
         // it would insert a second copy instead of replacing the one written.
         for link in semantics.links.reversed() where link.length > 0 {
@@ -397,14 +431,16 @@ actor ReadingViewBuilder {
             } else {
                 continue
             }
+            if projected.substring(with: linkRange).contains("\n") || replacement.contains("\n") { keepsLines = false }
             projected.replaceCharacters(in: linkRange, with: replacement)
             earliestReplacedLocation = linkRange.location
         }
-        return readingText(projected as String, configuration: configuration)
+        return readingText(projected as String, configuration: configuration, taskLocation: keepsLines ? taskLocation : nil)
     }
 
-    private func readingText(_ markdown: String, configuration: ReadingConfiguration) -> String {
-        var text = ObsidianInlineMarkup.preparedForReading(ReadingMarkerEscaping.escaping(markdown), colorsEnabled: configuration.colorsEnabled, paletteHexByName: configuration.paletteHexByName)
+    private func readingText(_ markdown: String, configuration: ReadingConfiguration, taskLocation: TaskLocation? = nil) -> String {
+        var text = ObsidianInlineMarkup.preparedForReading(ReadingMarkerEscaping.escaping(markdown), colorsEnabled: configuration.colorsEnabled,
+                                                           paletteHexByName: configuration.paletteHexByName, taskLocation: taskLocation)
         if !configuration.usesStrictLineBreaks { text = ObsidianPreviewText.applyingSoftLineBreaks(to: text) }
         return text
     }
@@ -536,6 +572,9 @@ struct MarkdownPreview: View {
     /// discard this view; nil builds the note each time it is shown.
     var blocksCache: ReadingBlocksCache? = nil
     var savedPosition: ReadingPosition? = nil
+    /// Ticks or unticks a task of this note, or of a note it embeds; nil draws checkboxes
+    /// as pictures. False when the note no longer has the task at that place.
+    var toggleTask: (@MainActor (VaultPath, ReadingTasks.Location) async -> Bool)? = nil
     @State private var scrollPosition = ScrollPosition(y: 0)
     @State private var hasRestoredPosition = false
     @State private var pendingRestorationOffset: CGFloat?
@@ -546,6 +585,11 @@ struct MarkdownPreview: View {
     /// What `blocks` were built from.
     @State private var shownBuildKey: ReadingBuildKey?
     @State private var mediaPlayers = ReadingMediaPlayers()
+    /// Counts the tasks ticked in embedded notes. Their text is read from their files, so
+    /// the note is built again although its own text is the same.
+    @State private var embeddedNoteTaskEditCount = 0
+    /// Whether the next build shows a ticked task, which is not delayed as typing is.
+    @State private var buildsWithoutDelay = false
 
     var body: some View {
         ScrollViewReader { scrollProxy in
@@ -572,7 +616,9 @@ struct MarkdownPreview: View {
                 ReadingViewport(verticalOffset: max(0, geometry.contentOffset.y + geometry.contentInsets.top),
                                 maximumVerticalOffset: max(0, geometry.contentSize.height + geometry.contentInsets.top + geometry.contentInsets.bottom - geometry.containerSize.height))
             } action: { _, viewport in
-                guard hasRestoredPosition else { return }
+                // Until a saved position is restored, the view's first offsets must not
+                // replace it; with nothing saved, a scroll that comes first is recorded.
+                guard hasRestoredPosition || (savedPosition?.verticalOffset ?? 0) == 0 else { return }
                 if let pendingRestorationOffset {
                     let reachableOffset = min(pendingRestorationOffset, viewport.maximumVerticalOffset)
                     guard abs(viewport.verticalOffset - reachableOffset) < 1 else { return }
@@ -587,6 +633,9 @@ struct MarkdownPreview: View {
             }
             .environment(\.baseEmbedContext, baseContext)
             .environment(\.readingMediaPlayers, mediaPlayers)
+            .environment(\.readingTaskContext, toggleTask.map { toggleTask in
+                ReadingTaskContext(note: path) { note, location in await toggle(location, in: note, with: toggleTask) }
+            })
             .environment(\.embeddedImageColumnWidth, configuration.usesReadableLineLength ? ReadingConfiguration.readableColumnWidth : nil)
             // Runs again once blocks exist: a note opened by a link or a search match is
             // asked to scroll before it has built anything to scroll to.
@@ -610,7 +659,7 @@ struct MarkdownPreview: View {
                 withAnimation { scrollProxy.scrollTo(target, anchor: .top) }
             }
         }
-        .task(id: "\(configuration.drawingVersion)-\(configuration.hashValueForReload)-\(source.hashValue)-\(hasMissingEmbeds ? configuration.indexVersion : -1)") {
+        .task(id: "\(configuration.drawingVersion)-\(configuration.hashValueForReload)-\(source.hashValue)-\(hasMissingEmbeds ? configuration.indexVersion : -1)-\(embeddedNoteTaskEditCount)") {
             if let shownBuildKey, shownBuildKey.describesBuild(of: source, path: path, root: root, configuration: configuration) { return }
             if blocks.isEmpty, let cachedBuild = blocksCache?.lastBuild, cachedBuild.key.describesBuild(of: source, path: path, root: root, configuration: configuration) {
                 show(cachedBuild)
@@ -618,8 +667,10 @@ struct MarkdownPreview: View {
             }
             do {
                 // Changes that follow each other quickly are built once; a note just shown
-                // has nothing to show yet, so it is built at once.
-                if !blocks.isEmpty { try await Task.sleep(for: .milliseconds(150)) }
+                // has nothing to show yet, so it is built at once, as is a ticked task.
+                let isDelayed = !blocks.isEmpty && !buildsWithoutDelay
+                buildsWithoutDelay = false
+                if isDelayed { try await Task.sleep(for: .milliseconds(150)) }
                 let build = try await ReadingViewBuilder().build(source: source, note: path, root: root, index: index, configuration: configuration)
                 try Task.checkCancellation()
                 let hasMissingEmbeds = Self.containsMissingEmbed(build.blocks) || build.hasUnresolvedEmbeds
@@ -637,6 +688,22 @@ struct MarkdownPreview: View {
         hasMissingEmbeds = build.hasMissingEmbeds
         shownBuildKey = build.key
         mediaPlayers.keepPlaybacks(for: Self.mediaLocations(in: build.blocks))
+    }
+
+    /// Ticks a task and has the note drawn again without the delay typing gets.
+    private func toggle(_ location: ReadingTasks.Location, in note: VaultPath,
+                        with toggleTask: @MainActor (VaultPath, ReadingTasks.Location) async -> Bool) async -> Bool {
+        let didToggle = await toggleTask(note, location)
+        if note != path {
+            // Also after a tap that changed nothing: the embedded note has changed since
+            // it was read, and its tasks are found again.
+            shownBuildKey = nil
+            buildsWithoutDelay = true
+            embeddedNoteTaskEditCount += 1
+        } else if didToggle {
+            buildsWithoutDelay = true
+        }
+        return didToggle
     }
 }
 
@@ -735,6 +802,7 @@ struct ReadingBlocksView: View {
     var folding: ReadingFolding? = nil
     /// The types the properties block was parsed with, which also decide how it shows them.
     var declaredPropertyTypes: [String: PropertyType] = [:]
+    @Environment(\.readingTaskContext) private var taskContext
 
     /// Each block with its heading's fold key, and whether a folded heading above hides it.
     private var visibleBlocks: [(block: RenderedBlock, foldKey: String?, hasBody: Bool)] {
@@ -817,6 +885,8 @@ struct ReadingBlocksView: View {
                     }
                     .buttonStyle(.borderless)
                     ReadingBlocksView(blocks: body, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading, openPDF: openPDF, updateProperties: nil)
+                        // The embedded note's tasks are ticked in that note.
+                        .environment(\.readingTaskContext, taskContext.map { context in ReadingTaskContext(note: path, toggle: context.toggle) })
                 }
                 .padding(.leading, 16)
                 .overlay(alignment: .leading) { Rectangle().fill(.tint.opacity(0.6)).frame(width: 3) }
@@ -866,21 +936,33 @@ struct ObsidianMarkdownText: View {
     let scrollToHeading: (String) -> Void
 
     var body: some View {
-        StructuredText(markdown, parser: ObsidianMarkdownParser(baseURL: root, textSize: textSize))
-            // StructuredText parses again only when its text changes, and the parse sizes
-            // task checkboxes, so a new text size starts a new view.
-            .id(textSize)
-            .font(.system(size: textSize))
-            .textual.textSelection(.enabled)
-            .textual.inlineStyle(InlineStyle.default.link(.foregroundColor(accent)))
-            .textual.listItemStyle(ObsidianListItemStyle(textSize: textSize))
-            .textual.imageAttachmentLoader(VaultImageLoader(root: root))
-            .textual.headingStyle(ObsidianHeadingStyle())
-            .textual.tableStyle(ObsidianTableStyle())
-            .textual.tableCellStyle(ObsidianTableCellStyle())
-            .textual.blockQuoteStyle(ObsidianBlockQuoteStyle())
-            .tint(accent)
-            .environment(\.openURL, Self.linkAction(root: root, navigate: navigate, scrollToHeading: scrollToHeading))
+        if let numberedEquation {
+            NumberedEquationView(equation: numberedEquation, textSize: textSize)
+        } else {
+            StructuredText(markdown, parser: ObsidianMarkdownParser(baseURL: root, textSize: textSize))
+                // StructuredText parses again only when its text changes, and the parse sizes
+                // footnote numbers, so a new text size starts a new view.
+                .id(textSize)
+                .font(.system(size: textSize))
+                .textual.textSelection(.enabled)
+                .textual.inlineStyle(InlineStyle.default.link(.foregroundColor(accent)))
+                .textual.listItemStyle(ObsidianListItemStyle(textSize: textSize))
+                .textual.imageAttachmentLoader(VaultImageLoader(root: root))
+                .textual.headingStyle(ObsidianHeadingStyle())
+                .textual.tableStyle(ObsidianTableStyle())
+                .textual.tableCellStyle(ObsidianTableCellStyle())
+                .textual.blockQuoteStyle(ObsidianBlockQuoteStyle())
+                .tint(accent)
+                .environment(\.openURL, Self.linkAction(root: root, navigate: navigate, scrollToHeading: scrollToHeading))
+        }
+    }
+
+    /// The display formula with equation numbers that is all of the text, which is laid
+    /// out with its numbers at the right of the column. One the typesetter cannot draw is
+    /// left to the Markdown renderer, which shows it as its source.
+    private var numberedEquation: NumberedEquation? {
+        guard let equation = ObsidianInlineMarkup.numberedEquation(aloneIn: markdown), NumberedEquationView.canDraw(equation, textSize: textSize) else { return nil }
+        return equation
     }
 
     /// Follows links in rendered Markdown: Wikilinks and note links inside Graphite, files
@@ -931,7 +1013,10 @@ struct ObsidianMarkdownParser: MarkupParser {
         // The Markdown parser recurses once per nesting level; a note nested deeper than
         // this would exhaust the stack (see MarkdownNesting), so it is shown as plain text.
         if MarkdownNesting.exceedsSafeDepth(input) { return AttributedString(input) }
-        var attributed = try AttributedStringMarkdownParser(baseURL: baseURL, syntaxExtensions: [.math]).attributedString(for: input)
+        // A numbered formula that is a block of its own is drawn by `NumberedEquationView`;
+        // one that reaches here is among other text, and takes its numbers after its rows.
+        let markdown = ObsidianInlineMarkup.inliningEquationNumbers(in: input)
+        var attributed = try AttributedStringMarkdownParser(baseURL: baseURL, syntaxExtensions: [.math]).attributedString(for: markdown)
         Self.applyMarkers(start: ObsidianInlineMarkup.colorStartMarker, hexEnd: ObsidianInlineMarkup.colorHexEndMarker, end: ObsidianInlineMarkup.colorEndMarker, to: &attributed) { hex, range, text in
             if let color = Color(graphiteHex: hex) { text[range].foregroundColor = color }
         }
@@ -954,40 +1039,65 @@ struct ObsidianMarkdownParser: MarkupParser {
         return attributed
     }
 
-    /// A task's marker becomes a checkbox; a completed task's text is dimmed and struck
-    /// through, as in Obsidian.
+    /// A task marked at the start of a list item becomes that item's checkbox, which
+    /// `ObsidianListItemStyle` draws in place of the bullet; a completed task's text is
+    /// dimmed and struck through, as in Obsidian. A task marked anywhere else, as in an
+    /// indented code block or a table cell, is not a task and reads as the note has it.
     ///
     /// A long task list is one block, so this makes one pass over the text rather than
     /// searching it again for each task.
     private func replaceTaskMarkers(in text: inout AttributedString) {
-        guard let uncheckedMarker = ObsidianInlineMarkup.uncheckedTaskMarker.unicodeScalars.first,
-              let checkedMarker = ObsidianInlineMarkup.checkedTaskMarker.unicodeScalars.first else { return }
-        let markers: Set<Unicode.Scalar> = [uncheckedMarker, checkedMarker]
-        guard text.unicodeScalars.contains(where: { scalar in markers.contains(scalar) }) else { return }
-        var completedTaskRanges: [Range<AttributedString.Index>] = []
-        for (_, paragraphRange) in text.runs[\.presentationIntent] {
-            guard let markerIndex = text.unicodeScalars[paragraphRange].firstIndex(of: checkedMarker) else { continue }
-            var contentStart = text.unicodeScalars.index(after: markerIndex)
-            while contentStart < paragraphRange.upperBound, text.unicodeScalars[contentStart].properties.isWhitespace { contentStart = text.unicodeScalars.index(after: contentStart) }
-            if contentStart < paragraphRange.upperBound { completedTaskRanges.append(contentStart..<paragraphRange.upperBound) }
+        guard text.unicodeScalars.contains(where: ReadingTasks.isTaskMarker) else { return }
+        struct TaskParagraph {
+            let task: ReadingTasks.MarkedTask
+            let markerIndex: AttributedString.Index
+            /// Where the task's text starts, after the marked task and the space that follows it.
+            let contentStart: AttributedString.Index
+            let end: AttributedString.Index
         }
-        for range in completedTaskRanges {
-            text[range].strikethroughStyle = .single
-            text[range].foregroundColor = .secondary
+        var taskParagraphs: [TaskParagraph] = []
+        var previousListItem: PresentationIntent.IntentType?
+        for (presentationIntent, paragraphRange) in text.runs[\.presentationIntent] {
+            let components = presentationIntent?.components ?? []
+            // The first paragraph of a list item: a paragraph inside an item other than the
+            // one the paragraph before it is in.
+            let listItem = components.count > 1 && components[0].kind == .paragraph && Self.isListItem(components[1]) ? components[1] : nil
+            defer { previousListItem = components.first(where: Self.isListItem) }
+            guard let listItem, listItem != previousListItem,
+                  let markedTask = ReadingTasks.markedTask(at: paragraphRange.lowerBound, in: text.unicodeScalars[paragraphRange]) else { continue }
+            var contentStart = markedTask.end
+            while contentStart < paragraphRange.upperBound, text.unicodeScalars[contentStart].properties.isWhitespace { contentStart = text.unicodeScalars.index(after: contentStart) }
+            taskParagraphs.append(TaskParagraph(task: markedTask.task, markerIndex: paragraphRange.lowerBound, contentStart: contentStart, end: paragraphRange.upperBound))
+        }
+        for paragraph in taskParagraphs where paragraph.task.isChecked && paragraph.contentStart < paragraph.end {
+            text[paragraph.contentStart..<paragraph.end].strikethroughStyle = .single
+            text[paragraph.contentStart..<paragraph.end].foregroundColor = .secondary
         }
         var replaced = AttributedString()
         var sliceStart = text.startIndex
-        for markerIndex in text.unicodeScalars.indices where markers.contains(text.unicodeScalars[markerIndex]) {
-            let markerRange = markerIndex..<text.unicodeScalars.index(after: markerIndex)
+        var remainingTaskParagraphs = taskParagraphs[...]
+        for markerIndex in text.unicodeScalars.indices where markerIndex >= sliceStart && ReadingTasks.isTaskMarker(text.unicodeScalars[markerIndex]) {
+            guard let markedTask = ReadingTasks.markedTask(at: markerIndex, in: text.unicodeScalars) else { continue }
             replaced.append(text[sliceStart..<markerIndex])
-            var attributes = text[markerRange].runs.first?.attributes ?? AttributeContainer()
-            let isChecked = text.unicodeScalars[markerIndex] == checkedMarker
-            attributes[AttributeScopes.TextualAttributes.AttachmentAttribute.self] = AnyAttachment(TaskCheckboxAttachment(isChecked: isChecked, pointSize: textSize))
-            replaced.append(AttributedString("\u{FFFC}", attributes: attributes))
-            sliceStart = markerRange.upperBound
+            var attributes = text[markerIndex..<markedTask.end].runs.first?.attributes ?? AttributeContainer()
+            if let paragraph = remainingTaskParagraphs.first, paragraph.markerIndex == markerIndex {
+                remainingTaskParagraphs.removeFirst()
+                attributes[AttributeScopes.TextualAttributes.AttachmentAttribute.self] = AnyAttachment(TaskCheckboxAttachment(task: paragraph.task))
+                attributes[ReadingTaskAttribute.self] = paragraph.task
+                replaced.append(AttributedString("\u{FFFC}", attributes: attributes))
+                sliceStart = paragraph.contentStart
+            } else {
+                replaced.append(AttributedString(markedTask.task.sourceText, attributes: attributes))
+                sliceStart = markedTask.end
+            }
         }
         replaced.append(text[sliceStart..<text.endIndex])
         text = replaced
+    }
+
+    private static func isListItem(_ intent: PresentationIntent.IntentType) -> Bool {
+        if case .listItem = intent.kind { return true }
+        return false
     }
 
     /// Puts back the private-use characters of the note that `ReadingMarkerEscaping` kept
@@ -1078,18 +1188,23 @@ struct ObsidianListItemStyle: StructuredText.ListItemStyle {
     let textSize: Double
 
     func makeBody(configuration: Configuration) -> some View {
-        let isTask = isTask(configuration.content)
+        let task = configuration.content.runs.first?[ReadingTaskAttribute.self]
         HStack(alignment: .firstLineCenter, spacing: textSize * 0.5) {
-            if !isTask { configuration.marker }
+            if let task {
+                ReadingTaskCheckbox(task: task, label: Self.firstParagraphText(of: configuration.content), pointSize: textSize)
+            } else {
+                configuration.marker
+            }
             configuration.block
         }
         // The checkbox sits where the bullet would be.
-        .padding(.leading, isTask ? textSize * 0.55 : 0)
+        .padding(.leading, task != nil ? textSize * 0.55 : 0)
     }
 
-    private func isTask(_ content: AttributedSubstring) -> Bool {
-        guard let firstAttachment = content.runs.first?[AttributeScopes.TextualAttributes.AttachmentAttribute.self] else { return false }
-        return [true, false].contains { isChecked in firstAttachment == AnyAttachment(TaskCheckboxAttachment(isChecked: isChecked, pointSize: textSize)) }
+    /// The text of a list item's first paragraph, without the items nested under it.
+    private static func firstParagraphText(of content: AttributedSubstring) -> String {
+        guard let firstParagraph = content.runs[\.presentationIntent].first(where: { _ in true }) else { return "" }
+        return String(content[firstParagraph.1].characters).replacingOccurrences(of: "\u{FFFC}", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
@@ -1105,26 +1220,19 @@ extension VerticalAlignment {
     static let firstLineCenter = VerticalAlignment(FirstLineCenterAlignment.self)
 }
 
-/// A task checkbox drawn inline in reading view.
+/// Stands in the text for a task's checkbox, which `ObsidianListItemStyle` draws where the
+/// item's bullet would be. Nothing is drawn for it; copied text has the checkbox as written.
 struct TaskCheckboxAttachment: Attachment {
-    let isChecked: Bool
-    let pointSize: Double
+    let task: ReadingTasks.MarkedTask
 
     var selectionStyle: AttachmentSelectionStyle { .text }
-    var description: String { isChecked ? "[x]" : "[ ]" }
+    var description: String { task.sourceText + " " }
 
-    var body: some View {
-        Image(systemName: isChecked ? "checkmark.square.fill" : "square")
-            .font(.system(size: pointSize * 0.95))
-            .foregroundStyle(isChecked ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-            .accessibilityLabel(isChecked ? "Completed task" : "Task")
-    }
+    var body: some View { EmptyView() }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, in environment: TextEnvironmentValues) -> CGSize {
-        CGSize(width: pointSize * 1.35, height: pointSize * 1.05)
-    }
-
-    func baselineOffset(in environment: TextEnvironmentValues) -> CGFloat { -pointSize * 0.17 }
+    /// As little room as an attachment can take: for one of no size, the text shows the
+    /// picture of a missing image.
+    func sizeThatFits(_ proposal: ProposedViewSize, in environment: TextEnvironmentValues) -> CGSize { CGSize(width: 1, height: 1) }
 }
 
 extension Color {

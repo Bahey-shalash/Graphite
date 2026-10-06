@@ -42,14 +42,22 @@ public struct VectorShape: Sendable, Equatable {
     }
 }
 
-/// A drawing in a top-left coordinate system, shared by the SVG and PDF writers.
+/// A drawing in a top-left coordinate system, shared by the SVG and PDF writers. It is drawn
+/// in the order a PNG drawing is composed: the background, the shapes under the pictures
+/// (the paper of a drawing that shows it), the pictures, then the shapes over them (the ink).
 public struct VectorDrawing: Sendable, Equatable {
     public let size: CGSize
     public let background: DrawingBackground
+    public let shapesUnderPictures: [VectorShape]
+    /// Each picture's PNG or JPEG bytes as stored, stretched to its frame; the lowest first.
+    public let pictures: [DrawingBackgroundImage]
     public let shapes: [VectorShape]
-    public init(size: CGSize, background: DrawingBackground, shapes: [VectorShape]) {
+    public init(size: CGSize, background: DrawingBackground, shapesUnderPictures: [VectorShape] = [], pictures: [DrawingBackgroundImage] = [],
+                shapes: [VectorShape]) {
         self.size = size
         self.background = background
+        self.shapesUnderPictures = shapesUnderPictures
+        self.pictures = pictures
         self.shapes = shapes
     }
 }
@@ -256,15 +264,41 @@ public enum StrokeOutliner {
 }
 
 public enum VectorDrawingRenderer {
-    /// Draws into a context whose origin is the drawing's top-left corner, y down.
-    public static func draw(_ drawing: VectorDrawing, in context: CGContext) {
+    /// Draws into a context whose origin is the drawing's top-left corner, y down, with each
+    /// picture at the resolution it is stored at.
+    public static func draw(_ drawing: VectorDrawing, in context: CGContext) throws {
+        try draw(drawing, in: context, pictureImage: storedImage(of:))
+    }
+
+    /// Draws with each picture as `pictureImage` decodes it. Pictures are decoded one at a
+    /// time, as they are drawn, so no more than one is held decoded.
+    static func draw(_ drawing: VectorDrawing, in context: CGContext, pictureImage: (DrawingBackgroundImage) throws -> CGImage) throws {
         // sRGB, like the SVG writer's hex colors and PencilKit's resolved ink components.
         // `CGColor(red:green:blue:alpha:)` is Generic RGB and shifts every color.
-        if drawing.background == .white {
-            context.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+        if let paperColor = DrawingPaperRenderer.paperColor(of: drawing.background) {
+            context.setFillColor(CGColor(srgbRed: paperColor.red, green: paperColor.green, blue: paperColor.blue, alpha: 1))
             context.fill(CGRect(origin: .zero, size: drawing.size))
         }
-        for shape in drawing.shapes {
+        fill(drawing.shapesUnderPictures, in: context)
+        if !drawing.pictures.isEmpty {
+            context.saveGState()
+            context.interpolationQuality = .high
+            for picture in drawing.pictures {
+                let image = try pictureImage(picture)
+                context.saveGState()
+                // An image is drawn upright by turning its own rows back up.
+                context.translateBy(x: picture.frame.minX, y: picture.frame.maxY)
+                context.scaleBy(x: 1, y: -1)
+                context.draw(image, in: CGRect(origin: .zero, size: picture.frame.size))
+                context.restoreGState()
+            }
+            context.restoreGState()
+        }
+        fill(drawing.shapes, in: context)
+    }
+
+    private static func fill(_ shapes: [VectorShape], in context: CGContext) {
+        for shape in shapes {
             context.beginPath()
             for subpath in shape.subpaths {
                 guard let firstPoint = subpath.first else { continue }
@@ -275,6 +309,32 @@ public enum VectorDrawingRenderer {
             context.setFillColor(CGColor(srgbRed: shape.color.red, green: shape.color.green, blue: shape.color.blue, alpha: shape.color.alpha))
             context.fillPath(using: .winding)
         }
+    }
+
+    /// The picture at the resolution it is stored at, as the PDF writer draws it: JPEG
+    /// bytes are handed to Core Graphics as they are, so the PDF keeps them compressed.
+    /// Like the PNG writer, an EXIF orientation is not applied; Graphite stores pictures
+    /// upright.
+    static func storedImage(of picture: DrawingBackgroundImage) throws -> CGImage {
+        guard let image = PDFPicture.decodedImage(picture.imageData) else {
+            throw GraphiteError.invalidFile("A picture on this drawing could not be read.")
+        }
+        return image
+    }
+
+    /// The picture with no more pixels than its frame needs at `pixelsPerPoint`, for a
+    /// preview: a picture's stored pixels can be many times what a thumbnail shows.
+    static func previewImage(of picture: DrawingBackgroundImage, pixelsPerPoint: Double) throws -> CGImage {
+        let longestSide = (max(picture.frame.width, picture.frame.height) * pixelsPerPoint).rounded(.up)
+        guard longestSide.isFinite, let source = CGImageSourceCreateWithData(picture.imageData as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceThumbnailMaxPixelSize: Int(min(max(longestSide, 1), Double(PreviewPixelLimit.largestPixelDimension))),
+                kCGImageSourceShouldCacheImmediately: true
+              ] as CFDictionary) else {
+            throw GraphiteError.invalidFile("A picture on this drawing could not be read.")
+        }
+        return image
     }
 
     /// An sRGB PNG raster of the vector content, for previews.
@@ -298,7 +358,7 @@ public enum VectorDrawingRenderer {
         }
         context.translateBy(x: 0, y: Double(pixelHeight))
         context.scaleBy(x: scale, y: -scale)
-        draw(drawing, in: context)
+        try draw(drawing, in: context) { picture in try previewImage(of: picture, pixelsPerPoint: scale) }
         guard let image = context.makeImage() else { throw GraphiteError.unavailable("Cannot render the drawing preview.") }
         return image
     }

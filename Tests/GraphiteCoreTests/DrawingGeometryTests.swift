@@ -139,6 +139,49 @@ final class DrawingGeometryTests: XCTestCase {
                                       paper: DrawingPaper(pattern: .plain, appearsInSavedDrawing: true)).version, 1)
     }
 
+    func testPaperColorsAndAShownPatternsStyleAreVersionFourAndAGuidesStyleIsNot() throws {
+        let strokes = Data([1, 2, 3])
+        // A tinted paper is something a version 3 build would not show.
+        let ivory = DrawingPayload(width: 760, height: 300, background: .ivory, strokes: strokes)
+        XCTAssertEqual(ivory.version, 4)
+        XCTAssertEqual(try XCTUnwrap(DrawingPayload.decodeIfValid(try ivory.encoded())).background, .ivory)
+        XCTAssertEqual(DrawingPayload(width: 760, height: 300, background: .transparent, strokes: strokes).version, 1)
+
+        // So is the style of a pattern the saved drawing shows.
+        let styled = DrawingPaper(pattern: .ruled, appearsInSavedDrawing: true, spacing: .wide, lineColor: .blue, lineStrength: .strong)
+        let withStyledPaper = DrawingPayload(width: 760, height: 300, background: .white, strokes: strokes, paper: styled)
+        XCTAssertEqual(withStyledPaper.version, 4)
+        let decoded = try XCTUnwrap(DrawingPayload.decodeIfValid(try withStyledPaper.encoded()))
+        XCTAssertEqual(decoded.paper, styled)
+        XCTAssertEqual(decoded.replacingVisibleContentDigest(Data([9])).paper, styled)
+
+        // A guide's style is kept, but raises nothing: a reader sees none of it.
+        let styledGuide = DrawingPaper(pattern: .dotted, appearsInSavedDrawing: false, spacing: .narrow, lineColor: .green, lineStrength: .light)
+        let withGuide = DrawingPayload(width: 760, height: 300, background: .white, strokes: strokes, paper: styledGuide)
+        XCTAssertEqual(withGuide.version, 1)
+        XCTAssertEqual(try XCTUnwrap(DrawingPayload.decodeIfValid(try withGuide.encoded())).paper, styledGuide)
+        // The standard style of a shown pattern stays version 3, as before there were styles.
+        XCTAssertEqual(DrawingPayload(width: 760, height: 300, background: .white, strokes: strokes,
+                                      paper: DrawingPaper(pattern: .squared, appearsInSavedDrawing: true)).version, 3)
+        // Plain paper keeps no style.
+        let plainWithStyle = DrawingPaper(pattern: .plain, appearsInSavedDrawing: false, spacing: .wide)
+        XCTAssertEqual(try XCTUnwrap(DrawingPayload.decodeIfValid(try DrawingPayload(width: 760, height: 300, background: .white,
+                                                                                         strokes: strokes, paper: plainWithStyle).encoded())).paper, .plain)
+    }
+
+    func testSpacingMovesThePatternsLinesAndWhereASavedDrawingStarts() {
+        XCTAssertEqual(DrawingPaperGeometry.spacing(of: .squared, spacing: .narrow), 18)
+        XCTAssertEqual(DrawingPaperGeometry.spacing(of: .ruled, spacing: .wide), 48)
+        XCTAssertNil(DrawingPaperGeometry.spacing(of: .plain, spacing: .wide))
+        let wideLines = DrawingPaperGeometry.linePositions(of: .squared, spacing: .wide, in: CGRect(x: 0, y: 0, width: 100, height: 80))
+        XCTAssertEqual(wideLines.horizontal, [0, 36, 72])
+        XCTAssertEqual(wideLines.vertical, [0, 36, 72])
+        let start = DrawingCanvasGeometry.startingOnPaperLines(CGRect(x: 50, y: 50, width: 10, height: 10), of: .squared, spacing: .wide)
+        XCTAssertEqual(start.minX, 36)
+        XCTAssertEqual(start.minY, 36)
+        XCTAssertEqual(start.maxX, 60)
+    }
+
     func testPayloadRejectsTooManyOrTooLargePictures() {
         let strokes = Data([1])
         let small = DrawingBackgroundImage(imageData: Data([1]), frame: CGRect(x: 0, y: 0, width: 10, height: 10))

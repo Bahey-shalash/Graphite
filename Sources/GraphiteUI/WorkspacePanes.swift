@@ -110,18 +110,33 @@ private struct TabGroupPane: View {
     let create: (CreationKind) -> Void
     let showQuickSwitcher: () -> Void
     let showsTabBar: Bool
+    @Environment(\.usesDocumentControlRow) private var usesDocumentControlRowSetting
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    /// This side's width, which decides whether its tab bar has room for Read/Write, Undo
+    /// and Redo.
+    @State private var width: CGFloat?
 
     var body: some View {
         let tab = group.activeTab
+        let showsDocumentControlsInTabBar = DocumentToolbarLayout.showsControlsInTabBar(
+            usesControlRow: usesDocumentControlRowSetting ?? (horizontalSizeClass == .compact), showsTabBar: showsTabBar, tabBarWidth: width)
+        // Compact widths keep Apple's palette; there is no fixed bar to place.
+        let showsPencilToolsInTabBar = horizontalSizeClass != .compact && DocumentToolbarLayout.showsPencilToolsInTabBar(
+            showsTabBar: showsTabBar, tabBarWidth: width, showsDocumentControls: showsDocumentControlsInTabBar)
         VStack(spacing: 0) {
             if showsTabBar {
-                TabBar(workspace: workspace, group: group, isFocused: isFocused, showsBothGroups: showsBothGroups)
+                TabBar(workspace: workspace, group: group, isFocused: isFocused, showsBothGroups: showsBothGroups,
+                       showsDocumentControls: showsDocumentControlsInTabBar, showsPencilTools: showsPencilToolsInTabBar)
                 Divider()
             }
+            ConflictVersionsBanner(workspace: workspace, path: tab.path)
             TabDocumentView(workspace: workspace, tab: tab, document: workspace.document(for: tab.id), isFocused: isFocused,
                             showsLinksInspector: $showsLinksInspector, create: create, showQuickSwitcher: showQuickSwitcher)
                 .id(tab.id)
+                .environment(\.showsDocumentControlsInTabBar, showsDocumentControlsInTabBar)
+                .environment(\.showsPencilToolsInTabBar, showsPencilToolsInTabBar)
         }
+        .onGeometryChange(for: CGFloat.self) { geometry in geometry.size.width } action: { newWidth in width = newWidth }
         #if !canImport(UIKit)
         // A click anywhere on this side focuses it, so the toolbar and new files follow.
         .simultaneousGesture(TapGesture().onEnded { workspace.focusGroup(group.id) })
@@ -136,6 +151,10 @@ private struct TabBar: View {
     let group: TabGroup
     let isFocused: Bool
     let showsBothGroups: Bool
+    /// Whether the bar ends with Read/Write, Undo and Redo of the active tab's document.
+    let showsDocumentControls: Bool
+    /// Whether the bar has room for the fixed bar's tools, for a PDF written on in the active tab.
+    let showsPencilTools: Bool
 
     @State private var isDropTargeted = false
     @Environment(\.accent) private var accent
@@ -165,6 +184,7 @@ private struct TabBar: View {
                     .padding(.horizontal, 6)
                     .frame(maxHeight: .infinity)
                 }
+                .frame(minWidth: showsPencilTools ? DocumentToolbarLayout.minimumTabsWidthBesidePencilTools : nil)
                 // Past the last tab, a dropped tab goes to the end.
                 .dropDestination(for: TabTransfer.self) { items, _ in moveDroppedTabs(items, to: group.tabs.count) }
                 .onChange(of: group.activeTabID) { _, activeTabID in
@@ -175,6 +195,21 @@ private struct TabBar: View {
                     await Task.yield()
                     scrollProxy.scrollTo(group.activeTabID, anchor: .center)
                 }
+            }
+            #if canImport(UIKit)
+            if showsPencilTools {
+                let document = workspace.document(for: group.activeTabID)
+                // A tab whose file is still loading has the sessions of the file before it.
+                if let session = document.pdfSession, group.activeTab.path != nil, document.loadedPath == group.activeTab.path {
+                    TabBarPencilTools(session: session, isFocused: isFocused)
+                        .layoutPriority(1)
+                }
+            }
+            #endif
+            if showsDocumentControls {
+                TabBarDocumentControls(tab: group.activeTab, document: workspace.document(for: group.activeTabID),
+                                       defaultEditingMode: workspace.preferences.defaultEditingMode)
+                    .padding(.horizontal, 6)
             }
             Divider().frame(height: 20)
             groupButtons
@@ -412,6 +447,9 @@ private struct TabDocumentView: View {
             PDFPane(session: session, isFocused: isFocused, focus: { workspace.activateTab(tab.id) }, linkActions: pdfLinkActions(for: path)) { location in
                 Task { await workspace.resolvePDFConflict(opening: location, inTab: tab.id) }
             }
+        } else if let session = document.canvasSession {
+            CanvasPane(session: session, workspace: workspace, tabID: tab.id, isFocused: isFocused)
+                .id(ObjectIdentifier(session))
         } else if let root = workspace.folderAccess?.root, let location = try? path.url(in: root) {
             switch DocumentKind(path: path) {
             case .base where workspace.preferences.isEnabled(.bases):
@@ -552,6 +590,9 @@ private struct EmptyTabView: View {
                             Button("New Notebook", systemImage: "book.closed") { focusThen { create(.notebook) } }
                             if workspace.preferences.isEnabled(.bases) {
                                 Button("New Base", systemImage: "tablecells") { focusThen { create(.base) } }
+                            }
+                            if workspace.preferences.isEnabled(.canvas) {
+                                Button("New Canvas", systemImage: "rectangle.3.group") { focusThen { create(.canvas) } }
                             }
                         }
                         HStack {

@@ -62,6 +62,9 @@ public struct GraphiteCommands: Commands {
         if workspace?.preferences.isEnabled(.bases) == true {
             Button("New Base") { actions?.window.create(.base) }
         }
+        if workspace?.preferences.isEnabled(.canvas) == true {
+            Button("New Canvas") { actions?.window.create(.canvas) }
+        }
         Button("New Tab") { workspace?.openNewTab() }
             .keyboardShortcut("t", modifiers: .command)
         Divider()

@@ -52,7 +52,7 @@ final class RecordingRecoveryTests: XCTestCase {
         try Data("notes".utf8).write(to: folder.appendingPathComponent("other.txt"))
 
         let found = RecordingRecoveryFolder.recordings(in: folder)
-        XCTAssertEqual(found.map(\.audioLocation.lastPathComponent), ["first.caf", "second.caf"], "Oldest first; files without audio (a header alone) and other files left out.")
+        XCTAssertEqual(found.map(\.mediaLocation.lastPathComponent), ["first.caf", "second.caf"], "Oldest first; files without audio (a header alone) and other files left out.")
         XCTAssertEqual(found.first?.manifest, manifest)
         XCTAssertEqual(found.first?.destination, try VaultPath("Course/Attachments/Lecture Recording.m4a"))
         XCTAssertNil(found.last?.manifest)
@@ -61,6 +61,58 @@ final class RecordingRecoveryTests: XCTestCase {
         if let first = found.first { try RecordingRecoveryFolder.remove(first) }
         XCTAssertFalse(FileManager.default.fileExists(atPath: RecordingRecoveryFolder.manifestLocation(for: withManifest).path))
         XCTAssertEqual(RecordingRecoveryFolder.recordings(in: folder).count, 1)
+    }
+
+    func testTheLaterPartsOfAVideoBelongToItsFirstPart() throws {
+        func write(_ name: String, byteCount: Int = 10_000) throws -> URL {
+            let location = folder.appendingPathComponent(name)
+            try Data(repeating: 1, count: byteCount).write(to: location)
+            return location
+        }
+        let firstPart = try write("lecture.mp4")
+        XCTAssertEqual(RecordingRecoveryFolder.partLocation(1, ofRecordingAt: firstPart), firstPart)
+        let secondPart = RecordingRecoveryFolder.partLocation(2, ofRecordingAt: firstPart)
+        XCTAssertEqual(secondPart.lastPathComponent, "lecture.part-2.mp4")
+        try Data(repeating: 1, count: 20_000).write(to: secondPart)
+        // Parts are ordered by number, not by name.
+        _ = try write("lecture.part-10.mp4", byteCount: 30_000)
+        let manifest = RecordingRecoveryManifest(vaultIdentifier: UUID(), destinationPath: "Course/Lecture Recording.mp4", notePath: nil,
+                                                 startedAt: Date(timeIntervalSince1970: 1_700_000_000))
+        try RecordingRecoveryFolder.write(manifest, for: firstPart)
+        try Data("joined".utf8).write(to: RecordingRecoveryFolder.combinedMovieLocation(forRecordingAt: firstPart))
+
+        let found = RecordingRecoveryFolder.recordings(in: folder)
+        XCTAssertEqual(found.count, 1, "The parts are one recording, and a join cut short is not offered.")
+        let recording = try XCTUnwrap(found.first)
+        XCTAssertEqual(recording.kind, .video)
+        XCTAssertEqual(recording.partLocations.map(\.lastPathComponent), ["lecture.mp4", "lecture.part-2.mp4", "lecture.part-10.mp4"])
+        XCTAssertEqual(recording.byteCount, 60_000)
+        XCTAssertEqual(recording.destination, try VaultPath("Course/Lecture Recording.mp4"))
+        XCTAssertEqual(RecordingRecoveryFolder.laterPartLocations(ofRecordingAt: firstPart).map(\.lastPathComponent), ["lecture.part-2.mp4", "lecture.part-10.mp4"])
+        XCTAssertEqual(RecordingRecoveryFolder.recordings(in: folder, excluding: firstPart), [], "The parts of the video being recorded are not offered either.")
+
+        try RecordingRecoveryFolder.remove(recording)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path), [], "Every part, the manifest and the cut-short join go together.")
+    }
+
+    func testALaterPartWhoseFirstPartIsGoneIsStillOfferedWithWhereItBelongs() throws {
+        let firstPart = folder.appendingPathComponent("lecture.mp4")
+        let manifest = RecordingRecoveryManifest(vaultIdentifier: nil, destinationPath: "Lecture Recording.mp4", notePath: nil, startedAt: Date(timeIntervalSince1970: 1_700_000_000))
+        try RecordingRecoveryFolder.write(manifest, for: firstPart)
+        try Data(repeating: 1, count: 10_000).write(to: RecordingRecoveryFolder.partLocation(2, ofRecordingAt: firstPart))
+
+        let found = RecordingRecoveryFolder.recordings(in: folder)
+        XCTAssertEqual(found.map(\.mediaLocation.lastPathComponent), ["lecture.part-2.mp4"])
+        XCTAssertEqual(found.first?.manifest, manifest)
+        XCTAssertEqual(found.first?.kind, .video)
+    }
+
+    func testAnAudioRecordingIsOneFileWhateverItsName() throws {
+        _ = try recordingCutOff(after: 1, named: "audio.part-2")
+        let found = RecordingRecoveryFolder.recordings(in: folder)
+        XCTAssertEqual(found.map(\.mediaLocation.lastPathComponent), ["audio.part-2.caf"])
+        XCTAssertEqual(found.first?.kind, .audio)
+        XCTAssertEqual(found.first?.laterPartLocations, [])
     }
 
     func testAFileWithoutAudioIsRefused() async throws {

@@ -79,24 +79,86 @@ struct PDFPictureArrangementBar: View {
 
     var body: some View {
         HStack(spacing: 16) {
-            Text("Drag the image to move it, or a corner to resize it.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-            Spacer(minLength: 8)
-            Button("Delete Image", systemImage: "trash", role: .destructive) {
-                guard let selection = session.selectedPicture else { return }
-                do { try session.removePicture(selection) } catch { session.errorMessage = error.localizedDescription }
-            }
-            .labelStyle(.iconOnly)
-            Button("Done") { session.selectedPicture = nil }
+            if session.pictureCrop != nil {
+                Text("Drag a corner to choose the part to keep.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                Spacer(minLength: 8)
+                Button("Cancel") { session.pictureCrop = nil }
+                    .tint(.primary)
+                Button("Crop") {
+                    guard let selection = session.selectedPicture, let crop = session.pictureCrop else { return }
+                    run { try await session.cropPicture(selection, to: crop) }
+                    session.pictureCrop = nil
+                }
                 .fontWeight(.semibold)
                 .tint(.primary)
+            } else {
+                Text("Drag the image to move it, or a corner to resize it.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                Spacer(minLength: 8)
+                PictureEditingButtons(isEnabled: session.selectedPicture != nil, canReorder: pictureCountOnSelectedPage > 1,
+                                      rotate: { run { if let selection = session.selectedPicture { try await session.rotatePicture(selection) } } },
+                                      crop: { beginCropping() },
+                                      moveInOrder: { toFront in run { if let selection = session.selectedPicture { try session.movePictureInOrder(selection, toFront: toFront) } } },
+                                      delete: { run { if let selection = session.selectedPicture { try session.removePicture(selection) } } })
+                Button("Done") { session.selectedPicture = nil }
+                    .fontWeight(.semibold)
+                    .tint(.primary)
+            }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
         .background(.bar)
         .overlay(alignment: .top) { Divider() }
+    }
+}
+
+extension PDFPictureArrangementBar {
+    private var pictureCountOnSelectedPage: Int {
+        session.selectedPicture?.page.page.map { page in session.pictures(on: page).count } ?? 0
+    }
+
+    /// The crop starts as the whole picture.
+    private func beginCropping() {
+        guard let selection = session.selectedPicture, let page = selection.page.page,
+              let picture = session.pictures(on: page).first(where: { picture in picture.name == selection.pictureName }) else { return }
+        session.pictureCrop = picture.bounds
+    }
+
+    private func run(_ change: @escaping () async throws -> Void) {
+        Task {
+            do { try await change() } catch { session.errorMessage = error.localizedDescription }
+        }
+    }
+}
+
+/// Turn, Crop, Arrange and Delete for the image being arranged, on a drawing or a PDF page.
+struct PictureEditingButtons: View {
+    let isEnabled: Bool
+    let canReorder: Bool
+    let rotate: () -> Void
+    let crop: () -> Void
+    let moveInOrder: (_ toFront: Bool) -> Void
+    let delete: () -> Void
+
+    var body: some View {
+        Group {
+            Button("Turn Image", systemImage: "rotate.right", action: rotate)
+            Button("Crop Image", systemImage: "crop", action: crop)
+            Menu("Arrange", systemImage: "square.3.layers.3d") {
+                Button("Bring to Front", systemImage: "square.3.layers.3d.top.filled") { moveInOrder(true) }
+                Button("Send to Back", systemImage: "square.3.layers.3d.bottom.filled") { moveInOrder(false) }
+            }
+            .disabled(!canReorder)
+            Button("Delete Image", systemImage: "trash", role: .destructive, action: delete)
+        }
+        .labelStyle(.iconOnly)
+        .tint(.primary)
+        .disabled(!isEnabled)
     }
 }
 
@@ -106,7 +168,7 @@ struct PDFPictureArrangementBar: View {
 final class PDFPictureSelectionController {
     private let session: PDFSession
     private weak var pdfView: PDFView?
-    private var selectionView: PictureSelectionView?
+    private var selectionView: SelectionFrameView?
     private var scrollObservation: NSKeyValueObservation?
     private var notificationObservers: [NSObjectProtocol] = []
     /// Scroll views that wait for the selection's drags, so a drag does not scroll the page.
@@ -127,6 +189,11 @@ final class PDFPictureSelectionController {
                 MainActor.assumeIsolated { self?.update() }
             })
         }
+        // Turning, cropping and reordering change the picture under the frame, and a crop
+        // turns the frame into a crop frame.
+        notificationObservers.append(center.addObserver(forName: PDFSession.picturesDidChange, object: session, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.update() }
+        })
     }
 
     func stop() {
@@ -156,15 +223,17 @@ final class PDFPictureSelectionController {
         let selection = selectionView ?? makeSelectionView(in: pdfView)
         // Not while a drag moves the frame: the picture follows when the drag ends.
         guard !selection.dragRecognizers.contains(where: { recognizer in recognizer.state == .began || recognizer.state == .changed }) else { return }
-        selection.frame = pdfView.convert(picture.bounds, from: page)
+        let pictureFrame = pdfView.convert(picture.bounds, from: page)
+        selection.cropLimits = session.pictureCrop == nil ? nil : pictureFrame
+        selection.frame = session.pictureCrop.map { crop in pdfView.convert(crop, from: page) } ?? pictureFrame
         selection.centerLimits = pdfView.convert(page.bounds(for: .cropBox), from: page)
         // The preview is the picture as placed; on a page turned since, only the frame moves.
         let pageTurns = ((page.rotation / 90) % 4 + 4) % 4
         selection.dragPreview = pageTurns == picture.quarterTurns ? UIImage(data: picture.imageData) : nil
     }
 
-    private func makeSelectionView(in pdfView: PDFView) -> PictureSelectionView {
-        let selection = PictureSelectionView(frame: .zero)
+    private func makeSelectionView(in pdfView: PDFView) -> SelectionFrameView {
+        let selection = SelectionFrameView(frame: .zero)
         selection.frameChangeDidEnd = { [weak self] frame in self?.selectionFrameChangeDidEnd(frame) }
         pdfView.addSubview(selection)
         selectionView = selection
@@ -181,6 +250,11 @@ final class PDFPictureSelectionController {
 
     private func selectionFrameChangeDidEnd(_ frame: CGRect) {
         guard let pdfView, let selection = session.selectedPicture, let page = selection.page.page else { return }
+        // A crop frame chooses the part to keep; the picture stays where it is until Crop.
+        if session.pictureCrop != nil {
+            session.pictureCrop = pdfView.convert(frame, to: page)
+            return
+        }
         do { try session.movePicture(selection, to: pdfView.convert(frame, to: page)) }
         catch { session.errorMessage = error.localizedDescription }
         update()

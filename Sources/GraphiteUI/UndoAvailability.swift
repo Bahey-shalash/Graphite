@@ -61,6 +61,25 @@ final class UndoAvailability {
         refresh()
     }
 
+    /// Moves through the history: a negative number of steps undoes that many changes, a
+    /// positive one redoes them, as far as the history goes. Returns the steps taken, with
+    /// the same sign.
+    @discardableResult
+    func step(by steps: Int) -> Int {
+        guard let followedUndoManager else { return 0 }
+        var stepsTaken = 0
+        while stepsTaken > steps, followedUndoManager.canUndo {
+            followedUndoManager.undo()
+            stepsTaken -= 1
+        }
+        while stepsTaken < steps, followedUndoManager.canRedo {
+            followedUndoManager.redo()
+            stepsTaken += 1
+        }
+        refresh()
+        return stepsTaken
+    }
+
     /// Reads the followed history again, for changes that post no notification, such as
     /// removing every action.
     func refresh() {

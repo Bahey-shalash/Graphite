@@ -7,6 +7,17 @@ import UIKit
 import AppKit
 #endif
 
+/// Where a replaced picture goes among the pictures Graphite placed on its page.
+public enum PDFPictureOrder: Sendable, Equatable {
+    case unchanged
+    /// Over the page's other pictures.
+    case front
+    /// Under the page's other pictures.
+    case back
+    /// At this position among them, the lowest being 0.
+    case position(Int)
+}
+
 /// One immutable change to a PDF. The session applies each edit to the displayed
 /// document and replays the list on the file's snapshot when saving, so an edit must
 /// produce the same result on both.
@@ -27,6 +38,9 @@ public enum PDFEdit: Sendable {
     case addPicture(page: Int, picture: PDFPicture)
     /// Moves or resizes a picture Graphite placed.
     case movePicture(PDFAnnotationReference, to: CGRect)
+    /// Puts another picture in the place of one Graphite placed, as when it is turned or
+    /// cropped, and places it among the page's other pictures.
+    case replacePicture(PDFAnnotationReference, with: PDFPicture, order: PDFPictureOrder)
     case bookmark(page: Int, label: String)
     /// Removes the outline item at this path of child indices from the outline root.
     case removeOutlineItem(path: [Int])
@@ -52,7 +66,7 @@ public enum PDFEdit: Sendable {
         case .rotate(let pageIndex, _), .addMarkup(let pageIndex, _), .addPicture(let pageIndex, _): pageIndex
         case .updateInk(let update): update.pageIndex
         case .recolorMarkup(let reference, _), .restoreMarkupColor(let reference, _), .removeAnnotation(let reference),
-             .movePicture(let reference, _): reference.pageIndex
+             .movePicture(let reference, _), .replacePicture(let reference, _, _): reference.pageIndex
         default: nil
         }
     }
@@ -138,6 +152,12 @@ public enum PDFPageManager {
             targetPage.removeAnnotation(annotation)
             picture.bounds = newBounds
             try addPicture(picture, to: targetPage, isForWrittenDocument: drawsInkOutlines)
+        case .replacePicture(let reference, let picture, let order):
+            let targetPage = try page(at: reference.pageIndex)
+            guard let annotation = referencedAnnotation(reference, on: targetPage), isPicture(annotation) else {
+                throw GraphiteError.invalidFile("This image no longer exists.")
+            }
+            try replacePicture(annotation, with: picture, order: order, on: targetPage, isForWrittenDocument: drawsInkOutlines)
         case .bookmark(let pageIndex, let label):
             let targetPage = try page(at: pageIndex)
             let outline = PDFOutline()
@@ -169,6 +189,34 @@ public enum PDFPageManager {
         let inkAnnotations = page.annotations.filter { annotation in annotation.value(forAnnotationKey: groupKey) != nil }
         for annotation in inkAnnotations { page.removeAnnotation(annotation) }
         for annotation in inkAnnotations { page.addAnnotation(annotation) }
+    }
+
+    /// Replaces a picture and orders the page's pictures, then puts the Pencil ink after
+    /// them all. Only Graphite's own pictures and ink are taken off and put back; the
+    /// page's other annotations stay as they are.
+    private static func replacePicture(_ annotation: PDFAnnotation, with picture: PDFPicture, order: PDFPictureOrder,
+                                       on page: PDFPage, isForWrittenDocument: Bool) throws {
+        let pictureAnnotations = page.annotations.filter(isPicture)
+        guard let formerPosition = pictureAnnotations.firstIndex(where: { candidate in candidate === annotation }) else {
+            throw GraphiteError.invalidFile("This image no longer exists.")
+        }
+        var orderedPictures = pictureAnnotations
+        orderedPictures.remove(at: formerPosition)
+        let position = switch order {
+        case .unchanged: formerPosition
+        case .front: orderedPictures.count
+        case .back: 0
+        case .position(let requestedPosition): min(max(requestedPosition, 0), orderedPictures.count)
+        }
+        orderedPictures.insert(try picture.makeAnnotation(isForWrittenDocument: isForWrittenDocument), at: position)
+        let inkAnnotations = page.annotations.filter { candidate in candidate.value(forAnnotationKey: groupKey) != nil }
+        for placed in pictureAnnotations + inkAnnotations { page.removeAnnotation(placed) }
+        for placed in orderedPictures + inkAnnotations { page.addAnnotation(placed) }
+    }
+
+    /// Whether the annotation is a picture Graphite placed, without decoding its picture.
+    private static func isPicture(_ annotation: PDFAnnotation) -> Bool {
+        annotation.type == PDFPicture.annotationTypeName && annotation.value(forAnnotationKey: pictureKey) != nil
     }
 
     /// The pictures Graphite placed on a page, the lowest first.

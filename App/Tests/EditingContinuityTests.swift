@@ -20,6 +20,26 @@ final class EditingContinuityTests: XCTestCase {
         vaultDirectory = nil
     }
 
+    func testSavingAQueuedInsertionUsesTheEditorsUndoHistory() async throws {
+        let workspace = try await makeWorkspace(notes: ["Lecture.md": "Lecture.\n"])
+        let lectureTab = try await openTab("Lecture.md", in: workspace, placement: .currentTab)
+        let controller = try host(workspace)
+        let session = try XCTUnwrap(workspace.document(for: lectureTab).markdownSession)
+        session.viewMode = .source
+        let editor = try await visibleEditor(in: controller, showing: session)
+        editor.becomeFirstResponder()
+        session.insert("![[Recording.m4a]]", at: NSRange(location: (session.text as NSString).length, length: 0))
+        XCTAssertNotNil(session.pendingInsertion)
+        try await session.save()
+        XCTAssertNil(session.pendingInsertion)
+        XCTAssertEqual(session.text, "Lecture.\n![[Recording.m4a]]")
+        let savedNote = try Data(contentsOf: try XCTUnwrap(vaultDirectory).appendingPathComponent("Lecture.md"))
+        XCTAssertEqual(String(decoding: savedNote, as: UTF8.self), session.text)
+        XCTAssertTrue(editor.undoManager?.canUndo == true)
+        editor.undoManager?.undo()
+        try await waitUntil { session.text == "Lecture.\n" }
+    }
+
     func testUndoSurvivesSwitchingTabsAndStaysWithItsOwnNote() async throws {
         let workspace = try await makeWorkspace(notes: ["Alpha.md": "Alpha notes.\n", "Beta.md": "Beta notes.\n"])
         let alphaTab = try await openTab("Alpha.md", in: workspace, placement: .currentTab)
@@ -312,8 +332,13 @@ final class EditingContinuityTests: XCTestCase {
         let noteGroup = try XCTUnwrap(workspace.layout.group(containing: tab)?.id)
         workspace.splitRight()
         let otherGroup = try XCTUnwrap(workspace.layout.otherGroup(than: noteGroup)?.id)
-        try await waitUntil { self.editors(in: controller).contains { shownEditor in shownEditor === editor } && editor.bounds.width > 0 && editor.bounds.width < widthBeforeSplit - 1 }
-        XCTAssertEqual(editors(in: controller).count, 1)
+        if controller.traitCollection.horizontalSizeClass == .regular {
+            try await waitUntil { self.editors(in: controller).contains { shownEditor in shownEditor === editor } && editor.bounds.width > 0 && editor.bounds.width < widthBeforeSplit - 1 }
+            XCTAssertEqual(editors(in: controller).count, 1)
+        } else {
+            // A compact width shows one side at a time, and the new, empty side has the focus.
+            try await waitUntil { self.editors(in: controller).isEmpty }
+        }
 
         beforeClosing()
         await workspace.closeGroup(otherGroup)

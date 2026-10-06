@@ -64,6 +64,21 @@ final class VaultTests: XCTestCase {
         XCTAssertNotEqual(revision, nextRevision)
     }
 
+    /// A provider's stored version and a file shared read-only keep their permissions when
+    /// copied; the staged copy must still be flushed and published.
+    func testCopyOfAReadOnlyFileIsPublished() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("Handout.pdf")
+        let contents = Data("%PDF-1.7 read only".utf8)
+        try contents.write(to: source)
+        try FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: source.path)
+        let destination = directory.appendingPathComponent("Handout 1.pdf")
+        try AtomicFileWriter().copy(from: source, to: destination, expecting: .absent)
+        XCTAssertEqual(try Data(contentsOf: destination), contents)
+    }
+
     func testMarkdownSemanticsExcludeCodeAndPreserveSourceRanges() throws {
         let source = "---\naliases: [ADC, '转换']\ntags: [course]\n---\n# Sampling\n\n🙂 [[Quantization|Noise]] ![[Slide deck.pdf]] #signals\n\n`[[ignored]]`\n\n```swift\n[[also ignored]]\n```\n\n[Normal](../normal.md)\n"
         let semantics = try MarkdownSemantics.parse(source)

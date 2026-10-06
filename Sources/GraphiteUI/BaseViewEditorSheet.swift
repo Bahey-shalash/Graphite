@@ -165,7 +165,7 @@ struct BaseViewEditing: Equatable {
 }
 
 struct BaseViewEditorSheet: View {
-    private static let editableTypes: [BaseViewType] = [.table, .cards, .list, .map]
+    private static let editableTypes: [BaseViewType] = [.table, .cards, .list, .kanban, .map]
     private static let fileProperties: [BasePropertyIdentifier] = ["name", "basename", "path", "folder", "ext", "size", "ctime", "mtime", "tags", "links", "embeds", "backlinks"].map(BasePropertyIdentifier.file)
 
     let definition: BaseDefinition

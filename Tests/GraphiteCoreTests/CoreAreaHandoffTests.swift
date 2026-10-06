@@ -18,11 +18,11 @@ final class CoreAreaHandoffTests: XCTestCase {
     func testDateYearCountsYearsBeforeTheCommonEraAsMomentDoes() throws {
         XCTAssertEqual(try evaluate("date(\"0000-06-01\").year"), .number(0), "1 BCE is year 0.")
         XCTAssertEqual(try evaluate("date(\"2025-06-01\").year"), .number(2025))
-        let calendar = BaseDateFormatting.displayCalendar
-        let beforeCommonEra = try XCTUnwrap(calendar.date(from: DateComponents(era: 0, year: 251, month: 10, day: 19, hour: 12)))
-        let beforeCommonEraMilliseconds = Int64(beforeCommonEra.timeIntervalSince1970 * 1_000)
-        XCTAssertEqual(try evaluate("date(\(beforeCommonEraMilliseconds)).year"), .number(-250), "251 BCE is year -250.")
-        for dateSource in ["date(\"0000-06-01\")", "date(\(beforeCommonEraMilliseconds))", "date(\"0001-01-01\")", "date(\"2025-06-01\")"] {
+        // Date text has no years before 0, and date() takes no number, so 251 BCE is
+        // reached by going back from year 0.
+        let beforeCommonEraSource = "(date(\"0000-10-19 12:00\") - \"250 years\")"
+        XCTAssertEqual(try evaluate("\(beforeCommonEraSource).year"), .number(-250), "251 BCE is year -250.")
+        for dateSource in ["date(\"0000-06-01\")", beforeCommonEraSource, "date(\"0001-01-01\")", "date(\"2025-06-01\")"] {
             XCTAssertEqual(try evaluate("\(dateSource).year"), try evaluate("number(\(dateSource).format(\"YYYY\"))"), dateSource)
         }
     }

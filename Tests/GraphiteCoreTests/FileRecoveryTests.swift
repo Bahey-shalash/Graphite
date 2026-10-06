@@ -79,4 +79,70 @@ final class FileRecoveryTests: XCTestCase {
         XCTAssertEqual(Set(try store.recoverableNotes().map(\.path.rawValue)), ["Signals/Week 1.md", "Signals/Deep/Week 2.md", "Other.md"])
         XCTAssertEqual(try store.snapshots(for: try VaultPath("Signals/Deep/Week 2.md")).map { snapshot in try store.text(of: snapshot) }, ["Week 2.md"])
     }
+
+    func testDifferentSnapshotsInTheSameMillisecondRemainRecoverable() throws {
+        let store = FileRecoveryStore(directory: directory)
+        let path = try VaultPath("Lecture.md")
+        let instant = Date(timeIntervalSince1970: 1_800_000_000)
+        for text in ["first version", "second version", "third version"] {
+            XCTAssertTrue(try store.takeSnapshot(of: text, for: path, at: instant, minimumInterval: 0))
+        }
+        let snapshots = try store.snapshots(for: path)
+        XCTAssertEqual(try snapshots.map { snapshot in try store.text(of: snapshot) },
+                       ["third version", "second version", "first version"])
+        XCTAssertTrue(snapshots.allSatisfy { snapshot in snapshot.date == instant })
+        XCTAssertFalse(try store.takeSnapshot(of: "third version", for: path, at: instant, minimumInterval: 0))
+    }
+
+    func testMovingHistoryPreservesDifferentSnapshotsWithMatchingDates() throws {
+        let store = FileRecoveryStore(directory: directory)
+        let source = try VaultPath("Old.md"), destination = try VaultPath("New.md")
+        let instant = Date(timeIntervalSince1970: 1_800_000_000)
+        try store.takeSnapshot(of: "old name's history", for: source, at: instant, minimumInterval: 0)
+        try store.takeSnapshot(of: "old name's latest version", for: source, at: instant, minimumInterval: 0)
+        try store.takeSnapshot(of: "previously deleted note's history", for: destination, at: instant, minimumInterval: 0)
+
+        try store.moveSnapshots(from: source, to: destination)
+
+        XCTAssertTrue(try store.snapshots(for: source).isEmpty)
+        let snapshots = try store.snapshots(for: destination)
+        XCTAssertEqual(try snapshots.map { snapshot in try store.text(of: snapshot) },
+                       ["old name's latest version", "old name's history", "previously deleted note's history"])
+        XCTAssertTrue(snapshots.allSatisfy { snapshot in snapshot.date == instant })
+        XCTAssertEqual(try store.recoverableNotes().map(\.path), [destination])
+    }
+
+    func testConcurrentSnapshotsWithTheSameDateKeepEveryVersion() async throws {
+        let store = FileRecoveryStore(directory: directory)
+        let path = try VaultPath("Lecture.md")
+        let instant = Date(timeIntervalSince1970: 1_800_000_000)
+        let versions = (0..<8).map { number in "recoverable version \(number)" }
+        try await withThrowingTaskGroup(of: Bool.self) { group in
+            for version in versions {
+                group.addTask { try store.takeSnapshot(of: version, for: path, at: instant, minimumInterval: 0) }
+            }
+            for try await didWrite in group { XCTAssertTrue(didWrite) }
+        }
+        let snapshots = try store.snapshots(for: path)
+        XCTAssertEqual(snapshots.count, versions.count)
+        XCTAssertEqual(Set(try snapshots.map { snapshot in try store.text(of: snapshot) }), Set(versions))
+    }
+
+    func testConcurrentSnapshotsRespectTheMinimumInterval() async throws {
+        let store = FileRecoveryStore(directory: directory)
+        let path = try VaultPath("Lecture.md")
+        let instant = Date(timeIntervalSince1970: 1_800_000_000)
+        let body = String(repeating: "lecture content\n", count: 20_000)
+        var writtenCount = 0
+        try await withThrowingTaskGroup(of: Bool.self) { group in
+            for versionNumber in 0..<8 {
+                group.addTask {
+                    try store.takeSnapshot(of: "version \(versionNumber)\n" + body, for: path, at: instant, minimumInterval: 300)
+                }
+            }
+            for try await didWrite in group where didWrite { writtenCount += 1 }
+        }
+        XCTAssertEqual(writtenCount, 1)
+        XCTAssertEqual(try store.snapshots(for: path).count, 1)
+    }
 }

@@ -128,7 +128,7 @@ public enum TemplateRenderer {
         options: .caseInsensitive)
 
     public static func render(_ template: String, title: String, date: Date, dateFormat: String, timeFormat: String, timeZone: TimeZone = .current) -> String {
-        guard let variablePattern else { return template }
+        guard date.timeIntervalSinceReferenceDate.isFinite, let variablePattern else { return template }
         let source = template as NSString
         var result = ""
         var location = 0
@@ -142,10 +142,21 @@ public enum TemplateRenderer {
                 continue
             }
             var day = date
-            if name == "yesterday" { day = offset(day, by: -1, unit: "d") }
-            if name == "tomorrow" { day = offset(day, by: 1, unit: "d") }
-            if match.range(at: 2).location != NSNotFound, let amount = Int(source.substring(with: match.range(at: 2))) {
-                day = offset(day, by: amount, unit: source.substring(with: match.range(at: 3)))
+            let relativeDayOffset = name == "yesterday" ? -1 : (name == "tomorrow" ? 1 : 0)
+            if relativeDayOffset != 0 {
+                guard let shiftedDay = offset(day, by: relativeDayOffset, unit: "d", timeZone: timeZone) else {
+                    result += source.substring(with: match.range)
+                    continue
+                }
+                day = shiftedDay
+            }
+            if match.range(at: 2).location != NSNotFound {
+                guard let amount = Int(source.substring(with: match.range(at: 2))),
+                      let shiftedDay = offset(day, by: amount, unit: source.substring(with: match.range(at: 3)), timeZone: timeZone) else {
+                    result += source.substring(with: match.range)
+                    continue
+                }
+                day = shiftedDay
             }
             let defaultFormat = name == "time" ? timeFormat : dateFormat
             result += MomentDateFormat.string(from: day, format: format.flatMap { format in format.isEmpty ? nil : format } ?? defaultFormat, timeZone: timeZone)
@@ -153,20 +164,30 @@ public enum TemplateRenderer {
         return result + source.substring(from: location)
     }
 
-    private static func offset(_ date: Date, by amount: Int, unit: String) -> Date {
+    /// Keeps malformed template offsets away from integer overflow and Foundation's
+    /// extreme calendar ranges. Unrepresentable variables stay written in the template.
+    private static let maximumOffsetYears = 10_000
+
+    private static func offset(_ date: Date, by amount: Int, unit: String, timeZone: TimeZone) -> Date? {
         let component: Calendar.Component
         var multiplier = 1
+        let secondsPerComponent: Double
         switch unit {
-        case "y": component = .year
-        case "Q": component = .month; multiplier = 3
-        case "M": component = .month
-        case "w": component = .day; multiplier = 7
-        case "d": component = .day
-        case "h": component = .hour
-        case "m": component = .minute
-        default: component = .second
+        case "y": component = .year; secondsPerComponent = 366 * 86_400
+        case "Q": component = .month; multiplier = 3; secondsPerComponent = 31 * 86_400
+        case "M": component = .month; secondsPerComponent = 31 * 86_400
+        case "w": component = .day; multiplier = 7; secondsPerComponent = 86_400
+        case "d": component = .day; secondsPerComponent = 86_400
+        case "h": component = .hour; secondsPerComponent = 3_600
+        case "m": component = .minute; secondsPerComponent = 60
+        default: component = .second; secondsPerComponent = 1
         }
-        return Calendar(identifier: .gregorian).date(byAdding: component, value: amount * multiplier, to: date) ?? date
+        let scaledAmount = amount.multipliedReportingOverflow(by: multiplier)
+        guard !scaledAmount.overflow,
+              abs(Double(scaledAmount.partialValue)) * secondsPerComponent <= Double(maximumOffsetYears) * 366 * 86_400 else { return nil }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        return calendar.date(byAdding: component, value: scaledAmount.partialValue, to: date)
     }
 }
 

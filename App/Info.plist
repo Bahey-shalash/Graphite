@@ -30,9 +30,9 @@
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>Take photos of the board or a page and add them to your notes as ordinary image files.</string>
+	<string>Record lectures as ordinary video files in your selected vault, and take photos of the board or a page for your notes.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Record lectures as ordinary audio files in your selected vault.</string>
+	<string>Record lectures as ordinary audio and video files in your selected vault.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Save images you share from Graphite to your photo library.</string>
 	<key>UIApplicationSceneManifest</key>

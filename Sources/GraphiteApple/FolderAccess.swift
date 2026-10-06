@@ -167,6 +167,11 @@ public final class VaultMonitor: NSObject, NSFilePresenter, @unchecked Sendable 
     public func accommodatePresentedSubitemDeletion(at url: URL, completionHandler: @escaping (Error?) -> Void) {
         report(url); completionHandler(nil)
     }
+    // A file provider keeping a conflict version of a file, or letting one go, changes
+    // what Graphite shows for that file, though its contents may be the same.
+    public func presentedSubitem(at url: URL, didGain version: NSFileVersion) { report(url) }
+    public func presentedSubitem(at url: URL, didLose version: NSFileVersion) { report(url) }
+    public func presentedSubitem(at url: URL, didResolve version: NSFileVersion) { report(url) }
 
     private func report(_ url: URL) {
         guard !Self.isGraphiteStagingFile(url) else { return }

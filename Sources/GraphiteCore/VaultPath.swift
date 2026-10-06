@@ -153,7 +153,7 @@ public struct VaultPath: Hashable, Codable, Sendable, Comparable, Identifiable {
 }
 
 public enum DocumentKind: String, Codable, Sendable {
-    case markdown, pdf, image, media, base, other
+    case markdown, pdf, image, media, base, canvas, other
     public init(path: VaultPath) {
         self.init(fileExtension: path.fileExtension)
     }
@@ -162,6 +162,7 @@ public enum DocumentKind: String, Codable, Sendable {
         switch fileExtension.lowercased() {
         case "md", "markdown": self = .markdown
         case "base": self = .base
+        case "canvas": self = .canvas
         case "pdf": self = .pdf
         case "png", "jpg", "jpeg", "heic", "gif", "tiff", "webp", "svg": self = .image
         case "m4a", "mp4", "mov", "mp3", "wav", "aac": self = .media

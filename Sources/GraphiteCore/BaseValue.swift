@@ -275,6 +275,9 @@ public indirect enum BaseValue: Sendable {
     case image(String)
     /// A Lucide icon name, from `icon()` or a marker icon property.
     case icon(String)
+    /// Markup from `html()`, shown as formatted text (`BaseHTMLText`). As in Obsidian it
+    /// is text in every other respect: its functions and comparisons are a string's.
+    case html(String)
 
     /// Obsidian's type names, as `isType()` accepts them.
     public var typeName: String {
@@ -292,6 +295,7 @@ public indirect enum BaseValue: Sendable {
         case .regularExpression: "regexp"
         case .image: "image"
         case .icon: "icon"
+        case .html: "html"
         }
     }
 
@@ -311,6 +315,7 @@ public indirect enum BaseValue: Sendable {
         case .object(let object): !object.entries.isEmpty
         case .link, .file, .regularExpression: true
         case .image(let target), .icon(let target): !target.isEmpty
+        case .html(let source): !source.isEmpty
         }
     }
 
@@ -318,7 +323,7 @@ public indirect enum BaseValue: Sendable {
     public var isEmptyValue: Bool {
         switch self {
         case .null: true
-        case .string(let text): text.isEmpty
+        case .string(let text), .html(let text): text.isEmpty
         case .list(let elements): elements.isEmpty
         case .object(let object): object.entries.isEmpty
         default: false
@@ -364,6 +369,8 @@ extension BaseValue: Hashable {
             if case .image(let rightTarget) = rightValue { return leftTarget == rightTarget }
         case .icon(let leftName):
             if case .icon(let rightName) = rightValue { return leftName == rightName }
+        case .html(let leftSource):
+            if case .html(let rightSource) = rightValue { return leftSource == rightSource }
         }
         return false
     }
@@ -385,6 +392,7 @@ extension BaseValue: Hashable {
         case .regularExpression(let expression): hasher.combine(expression)
         case .image(let target): hasher.combine(target)
         case .icon(let name): hasher.combine(name)
+        case .html(let source): hasher.combine(source)
         }
     }
 }
@@ -409,6 +417,7 @@ extension BaseValue {
         case .regularExpression(let expression): "/\(expression.pattern)/\(expression.flags)"
         case .image(let target): target
         case .icon(let name): name
+        case .html(let source): source
         }
     }
 
@@ -471,7 +480,7 @@ extension BaseValue {
         case .number: 1
         case .date: 2
         case .duration: 3
-        case .string, .link, .file, .image, .icon: 4
+        case .string, .link, .file, .image, .icon, .html: 4
         case .list: 5
         case .object: 6
         case .regularExpression: 7
@@ -555,19 +564,20 @@ extension BaseValue {
         case (.string(let leftText), .string(let rightText)):
             // Binary order, as JavaScript's `<` compares strings; sorting uses natural order.
             return leftText < rightText ? .orderedAscending : (leftText > rightText ? .orderedDescending : .orderedSame)
-        case (.link, _), (_, .link), (.file, _), (_, .file):
-            // Links and files compare as their text, by exactly the rules text follows, so
-            // a link is never ordered against a number or list that the same text is not.
+        case (.link, _), (_, .link), (.file, _), (_, .file), (.html, _), (_, .html):
+            // Links, files and markup compare as their text, by exactly the rules text
+            // follows, so a link is never ordered against a number or list that the same
+            // text is not.
             return orderedComparison(leftValue.textForComparison, rightValue.textForComparison)
         default:
             return nil
         }
     }
 
-    /// A link or file as the text it shows; any other value unchanged.
+    /// A link, a file or markup as its text; any other value unchanged.
     private var textForComparison: BaseValue {
         switch self {
-        case .link, .file: .string(displayText)
+        case .link, .file, .html: .string(displayText)
         default: self
         }
     }

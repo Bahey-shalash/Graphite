@@ -12,6 +12,7 @@ final class TabDocument {
     var loadedPath: VaultPath?
     var markdownSession: MarkdownSession?
     var pdfSession: PDFSession?
+    var canvasSession: CanvasSession?
     /// A heading to show once the note is open (from `[[Note#Heading]]` or the outline).
     var headingScrollRequest: HeadingScrollRequest?
     /// The view a `[[Books.base#Gallery]]` link asked the tab's base to show.
@@ -27,17 +28,18 @@ final class TabDocument {
     @ObservationIgnored var lastVisibleTime = ContinuousClock.now
 
     var hasUnsavedChanges: Bool {
-        markdownSession?.hasUnsavedChanges == true || pdfSession?.hasUnsavedChanges == true
+        markdownSession?.hasUnsavedChanges == true || pdfSession?.hasUnsavedChanges == true || canvasSession?.hasUnsavedChanges == true
     }
 
     /// Forgets the sessions after their file moved; the tab loads the file again.
     func unload() {
-        loadedPath = nil; markdownSession = nil; pdfSession = nil
+        loadedPath = nil; markdownSession = nil; pdfSession = nil; canvasSession = nil
     }
 
     func save() async throws {
         try await markdownSession?.save()
         try await pdfSession?.save()
+        try await canvasSession?.save()
     }
 
     /// Saves until nothing is left unsaved. The editor stays editable while a save runs, so
@@ -315,6 +317,7 @@ extension WorkspaceModel {
             try await document.save()
             let newMarkdown: MarkdownSession?
             let newPDF: PDFSession?
+            var newCanvas: CanvasSession?
             switch DocumentKind(path: path) {
             case .markdown:
                 let snapshot = try await store.read(path, maximumBytes: MarkdownSession.maximumEditableBytes)
@@ -332,6 +335,9 @@ extension WorkspaceModel {
                     if let pdfPageIndex, let newPDF { newPDF.currentPageIndex = min(max(pdfPageIndex, 0), max(newPDF.pageCount - 1, 0)) }
                 }
                 newMarkdown = nil
+            case .canvas where preferences.isEnabled(.canvas):
+                newCanvas = try await openCanvasSession(at: path, store: store)
+                newPDF = nil; newMarkdown = nil
             default: newPDF = nil; newMarkdown = nil
             }
             // The tab's editor stayed editable while the file loaded, and its session goes away
@@ -347,13 +353,14 @@ extension WorkspaceModel {
             if document.baseViewRequest?.path != path { document.baseViewRequest = nil }
             document.loadFailure = nil
             document.releasedPDFPage = nil
-            document.markdownSession = newMarkdown; document.pdfSession = newPDF; document.loadedPath = path
+            document.markdownSession = newMarkdown; document.pdfSession = newPDF; document.canvasSession = newCanvas; document.loadedPath = path
             // The editor of the note this tab showed before goes with its session.
             markdownEditorRetention.discardStaleEditors()
             layout.show(path, inTab: tabID, recordsHistory: recordsHistory)
             recentFiles.record(path)
             if let currentVaultIdentifier { vaultLibrary.setLastOpenedDocument(path, inVault: currentVaultIdentifier) }
             releaseHiddenPDFSessions()
+            checkConflictVersions(of: [path])
             return true
         } catch let passwordRequired as PDFPasswordRequired {
             // The tab asks for the password; an alert would add nothing.

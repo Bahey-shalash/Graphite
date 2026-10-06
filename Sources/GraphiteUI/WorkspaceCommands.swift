@@ -36,6 +36,9 @@ enum WorkspaceCommandList {
         if workspace.preferences.isEnabled(.bases) {
             commands.append(PaletteCommand(id: "new-base", title: "Bases: Create new base", systemImage: "tablecells") { window.create(.base) })
         }
+        if workspace.preferences.isEnabled(.canvas) {
+            commands.append(PaletteCommand(id: "new-canvas", title: "Canvas: Create new canvas", systemImage: "rectangle.3.group") { window.create(.canvas) })
+        }
         if workspace.history.canGoBack {
             commands.append(PaletteCommand(id: "back", title: "Navigate back", systemImage: "chevron.left", shortcut: "⌘[") { Task { await workspace.goBack() } })
         }
@@ -107,6 +110,11 @@ enum WorkspaceCommandList {
                 PaletteCommand(id: "delete", title: "Delete current file", systemImage: "trash") { Task { await workspace.requestDeletion(of: path) } },
                 PaletteCommand(id: "reveal", title: "Files: Reveal current file in navigation", systemImage: "scope") { workspace.revealCurrentFile() },
             ]
+            if workspace.conflictedPaths.contains(path) {
+                commands.append(PaletteCommand(id: "review-versions", title: "Review other versions of the current file", systemImage: "square.on.square") {
+                    workspace.conflictVersionsRequest = ConflictVersionsRequest(path: path)
+                })
+            }
         }
         if let session = workspace.markdownSession {
             commands += noteCommands(session: session, workspace: workspace, window: window)
@@ -114,6 +122,7 @@ enum WorkspaceCommandList {
         if workspace.preferences.isEnabled(.audioRecorder) {
             if workspace.recording.canStartRecording {
                 commands.append(PaletteCommand(id: "record", title: "Audio recorder: Start recording", systemImage: "mic") { Task { await workspace.startRecording() } })
+                commands.append(PaletteCommand(id: "record-video", title: "Audio recorder: Start recording video", systemImage: "video") { Task { await workspace.startRecording(.video) } })
             } else if workspace.recording.state.canStop {
                 commands.append(PaletteCommand(id: "stop-recording", title: "Audio recorder: Stop recording", systemImage: "stop.fill") { workspace.recording.stop() })
             }

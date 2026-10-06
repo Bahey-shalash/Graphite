@@ -8,32 +8,47 @@ import GraphiteCore
 /// outside that element detects edits made by other applications.
 public enum SVGDrawingFile {
     public static let maximumFileBytes = 128 * 1_048_576
+    /// Bound on one picture's bytes. A picture is one attribute, and libxml2, which
+    /// Foundation's XML parser uses, refuses an attribute value of 10,000,000 bytes or more:
+    /// this much as base64 text, with its data URI prefix, stays below.
+    static let maximumPictureBytes = 7 * 1_048_576
+    /// The picture of a drawing made on an image and the pictures placed on it.
+    static let maximumPictureCount = DrawingLimits.maximumPictureCount + 1
     private static let metadataStart = "<metadata id=\"graphite-drawing\">"
     private static let metadataEnd = "</metadata>"
     private static let payloadStart = "<graphite:drawing xmlns:graphite=\"urn:graphite:drawing:1\" encoding=\"base64-binary-property-list\">"
     private static let payloadEnd = "</graphite:drawing>"
 
     public static func encode(_ drawing: VectorDrawing, payload: DrawingPayload?) throws -> Data {
+        let pictureSources = try drawing.pictures.map(SVGPictureSource.init(picture:))
         // Written as UTF-8 bytes into one buffer: a large drawing has millions of
         // coordinates, and building the text from per-number Strings and copying it for
         // the digest and the file multiplied peak memory about five times.
         var document: [UInt8] = []
-        document.reserveCapacity(estimatedByteCount(of: drawing))
+        document.reserveCapacity(estimatedByteCount(of: drawing, pictureSources: pictureSources, hasPayload: payload != nil))
         let width = formatted(drawing.size.width), height = formatted(drawing.size.height)
         document.append(contentsOf: "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n".utf8)
-        document.append(contentsOf: "<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" width=\"\(width)\" height=\"\(height)\" viewBox=\"0 0 \(width) \(height)\">\n".utf8)
-        if drawing.background == .white {
-            document.append(contentsOf: "<rect x=\"0\" y=\"0\" width=\"\(width)\" height=\"\(height)\" fill=\"#ffffff\"/>\n".utf8)
+        // `xlink:href` is the SVG 1.1 attribute for a picture, which every renderer reads;
+        // SVG 2 renderers read it as well as `href`.
+        let linkNamespace = pictureSources.isEmpty ? "" : " xmlns:xlink=\"http://www.w3.org/1999/xlink\""
+        document.append(contentsOf: "<svg xmlns=\"http://www.w3.org/2000/svg\"\(linkNamespace) version=\"1.1\" width=\"\(width)\" height=\"\(height)\" viewBox=\"0 0 \(width) \(height)\">\n".utf8)
+        if let paperHex = drawing.background.colorHex {
+            document.append(contentsOf: "<rect x=\"0\" y=\"0\" width=\"\(width)\" height=\"\(height)\" fill=\"\(paperHex)\"/>\n".utf8)
         }
-        document.append(contentsOf: "<g fill-rule=\"nonzero\" stroke=\"none\">\n".utf8)
-        for shape in drawing.shapes {
-            document.append(contentsOf: "<path fill=\"\(hexColor(shape.color))\"".utf8)
-            if shape.color.alpha < 0.999 { document.append(contentsOf: " fill-opacity=\"\(formatted(shape.color.alpha, fractionDigits: 3))\"".utf8) }
-            document.append(contentsOf: " d=\"".utf8)
-            appendPathData(shape.subpaths, to: &document)
-            document.append(contentsOf: "\"/>\n".utf8)
+        if pictureSources.isEmpty {
+            appendGroup(of: drawing.shapesUnderPictures + drawing.shapes, to: &document)
+        } else {
+            if !drawing.shapesUnderPictures.isEmpty { appendGroup(of: drawing.shapesUnderPictures, to: &document) }
+            for (picture, source) in zip(drawing.pictures, pictureSources) {
+                document.append(contentsOf: "<image x=\"\(formatted(picture.frame.minX))\" y=\"\(formatted(picture.frame.minY))\"".utf8)
+                document.append(contentsOf: " width=\"\(formatted(picture.frame.width))\" height=\"\(formatted(picture.frame.height))\"".utf8)
+                document.append(contentsOf: " preserveAspectRatio=\"none\" xlink:href=\"".utf8)
+                document.append(contentsOf: source.dataURIPrefix.utf8)
+                document.append(contentsOf: source.imageData.base64EncodedData())
+                document.append(contentsOf: "\"/>\n".utf8)
+            }
+            appendGroup(of: drawing.shapes, to: &document)
         }
-        document.append(contentsOf: "</g>\n".utf8)
         let visibleTail = Data("\n</svg>\n".utf8)
         if let payload {
             let digest = document.withUnsafeBytes { visibleHead in visibleContentDigest(head: visibleHead, tail: visibleTail) }
@@ -47,10 +62,25 @@ public enum SVGDrawingFile {
         return Data(document)
     }
 
+    private static func appendGroup(of shapes: [VectorShape], to document: inout [UInt8]) {
+        document.append(contentsOf: "<g fill-rule=\"nonzero\" stroke=\"none\">\n".utf8)
+        for shape in shapes {
+            document.append(contentsOf: "<path fill=\"\(hexColor(shape.color))\"".utf8)
+            if shape.color.alpha < 0.999 { document.append(contentsOf: " fill-opacity=\"\(formatted(shape.color.alpha, fractionDigits: 3))\"".utf8) }
+            document.append(contentsOf: " d=\"".utf8)
+            appendPathData(shape.subpaths, to: &document)
+            document.append(contentsOf: "\"/>\n".utf8)
+        }
+        document.append(contentsOf: "</g>\n".utf8)
+    }
+
     /// About 14 bytes per coordinate pair ("L123.45 678.9"), so the buffer rarely grows.
-    private static func estimatedByteCount(of drawing: VectorDrawing) -> Int {
-        let pointCount = drawing.shapes.reduce(0) { total, shape in total + shape.subpaths.reduce(0) { shapeTotal, subpath in shapeTotal + subpath.count } }
-        return min(maximumFileBytes, 1_024 + drawing.shapes.count * 64 + pointCount * 14)
+    /// Pictures are base64 text in the visible content, and again in the metadata.
+    private static func estimatedByteCount(of drawing: VectorDrawing, pictureSources: [SVGPictureSource], hasPayload: Bool) -> Int {
+        let shapes = drawing.shapesUnderPictures + drawing.shapes
+        let pointCount = shapes.reduce(0) { total, shape in total + shape.subpaths.reduce(0) { shapeTotal, subpath in shapeTotal + subpath.count } }
+        let pictureTextBytes = pictureSources.reduce(0) { total, source in total + 256 + (source.imageData.count + 2) / 3 * 4 }
+        return min(maximumFileBytes, 1_024 + shapes.count * 64 + pointCount * 14 + pictureTextBytes * (hasPayload ? 2 : 1))
     }
 
     public static func readMetadata(_ fileData: Data) -> DrawingMetadataReading {
@@ -92,7 +122,8 @@ public enum SVGDrawingFile {
         guard parser.parse(), reader.readingError == nil else {
             throw reader.readingError ?? GraphiteError.invalidFile("The SVG drawing is not valid XML.")
         }
-        return VectorDrawing(size: CGSize(width: metadataPayload.width, height: metadataPayload.height), background: reader.hasWhiteBackground ? .white : .transparent, shapes: reader.shapes)
+        return VectorDrawing(size: CGSize(width: metadataPayload.width, height: metadataPayload.height), background: reader.background,
+                             shapesUnderPictures: reader.shapesUnderPictures, pictures: reader.pictures, shapes: reader.shapes)
     }
 
     private static func visibleContentDigest<Head: DataProtocol, Tail: DataProtocol>(head: Head, tail: Tail) -> Data {
@@ -157,28 +188,105 @@ public enum SVGDrawingFile {
     }
 }
 
-/// Reads the element subset `SVGDrawingFile.encode` writes: one background rectangle
-/// and filled paths made of absolute move, line, and close commands.
+/// A picture as an SVG drawing holds it: its bytes, in a data URI of their type.
+struct SVGPictureSource {
+    static let pngDataURIPrefix = "data:image/png;base64,"
+    static let jpegDataURIPrefix = "data:image/jpeg;base64,"
+    private static let pngSignature: [UInt8] = [137, 80, 78, 71, 13, 10, 26, 10]
+    private static let jpegStart: [UInt8] = [0xFF, 0xD8]
+
+    let dataURIPrefix: String
+    let imageData: Data
+
+    /// PNG and JPEG pictures keep the bytes they are stored with, so a photo is not
+    /// compressed a second time. A picture in another format, which Graphite does not
+    /// store itself, is written as PNG.
+    init(picture: DrawingBackgroundImage) throws {
+        if picture.imageData.starts(with: Self.jpegStart) {
+            dataURIPrefix = Self.jpegDataURIPrefix
+            imageData = picture.imageData
+        } else if picture.imageData.starts(with: Self.pngSignature) {
+            dataURIPrefix = Self.pngDataURIPrefix
+            imageData = picture.imageData
+        } else {
+            dataURIPrefix = Self.pngDataURIPrefix
+            imageData = try ImageEncoding.pngData(from: VectorDrawingRenderer.storedImage(of: picture))
+        }
+        guard imageData.count <= SVGDrawingFile.maximumPictureBytes else {
+            throw GraphiteError.oversized("An image on this drawing is too large for an SVG file. Save the drawing as PNG or PDF.")
+        }
+    }
+
+    /// The picture a data URI written by `SVGDrawingFile.encode` holds. Anything else, and
+    /// above all a reference to another file or a web address, is refused: an SVG drawing
+    /// is shown only with what it contains.
+    static func imageData(fromDataURI dataURI: String) throws -> Data {
+        guard let prefix = [pngDataURIPrefix, jpegDataURIPrefix].first(where: { prefix in dataURI.hasPrefix(prefix) }) else {
+            throw GraphiteError.invalidFile("A picture in this SVG drawing is not embedded in it.")
+        }
+        let base64Text = dataURI.utf8.dropFirst(prefix.utf8.count)
+        // Refused before decoding: the text of a picture Graphite writes is never longer.
+        guard base64Text.count <= (SVGDrawingFile.maximumPictureBytes + 2) / 3 * 4,
+              let imageData = Data(base64Encoded: Data(base64Text)), !imageData.isEmpty, imageData.count <= SVGDrawingFile.maximumPictureBytes else {
+            throw GraphiteError.invalidFile("A picture in this SVG drawing cannot be read.")
+        }
+        return imageData
+    }
+}
+
+/// Reads the element subset `SVGDrawingFile.encode` writes: one background rectangle,
+/// filled paths made of absolute move, line, and close commands, and pictures in data URIs.
 private final class GraphiteSVGReader: NSObject, XMLParserDelegate {
+    var shapesUnderPictures: [VectorShape] = []
+    var pictures: [DrawingBackgroundImage] = []
     var shapes: [VectorShape] = []
-    var hasWhiteBackground = false
+    var background = DrawingBackground.transparent
     var readingError: Error?
+    private var pictureBytes = 0
 
     func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName: String?, attributes: [String: String] = [:]) {
-        switch elementName {
-        case "rect":
-            hasWhiteBackground = attributes["fill"]?.lowercased() == "#ffffff"
-        case "path":
-            do {
+        do {
+            switch elementName {
+            case "rect":
+                let fill = attributes["fill"]?.lowercased()
+                background = DrawingBackground.allCases.first { paper in paper.colorHex != nil && paper.colorHex == fill } ?? .transparent
+            case "path":
                 let color = try Self.color(fill: attributes["fill"], opacity: attributes["fill-opacity"])
                 shapes.append(VectorShape(subpaths: try Self.subpaths(fromPathData: attributes["d"] ?? ""), color: color))
-            } catch {
-                readingError = error
-                parser.abortParsing()
+            case "image":
+                try readPicture(attributes)
+            default:
+                break
             }
-        default:
-            break
+        } catch {
+            readingError = error
+            parser.abortParsing()
         }
+    }
+
+    /// Paths before the first picture are the ones drawn under the pictures.
+    private func readPicture(_ attributes: [String: String]) throws {
+        guard pictures.count < SVGDrawingFile.maximumPictureCount else {
+            throw GraphiteError.invalidFile("This SVG drawing has more pictures than a drawing holds.")
+        }
+        // Without "none", SVG keeps a picture's proportions inside its frame instead of
+        // filling it, which Graphite never writes.
+        guard attributes["preserveAspectRatio"] == "none", let dataURI = attributes["xlink:href"] ?? attributes["href"] else {
+            throw GraphiteError.invalidFile("A picture in this SVG drawing is not one Graphite wrote.")
+        }
+        let imageData = try SVGPictureSource.imageData(fromDataURI: dataURI)
+        pictureBytes += imageData.count
+        let frameNumbers = ["x", "y", "width", "height"].compactMap { name in attributes[name].flatMap(Double.init) }
+        guard pictureBytes <= DrawingLimits.maximumBackgroundImageBytes, frameNumbers.count == 4 else {
+            throw GraphiteError.invalidFile("A picture in this SVG drawing cannot be read.")
+        }
+        let picture = DrawingBackgroundImage(imageData: imageData, frame: CGRect(x: frameNumbers[0], y: frameNumbers[1], width: frameNumbers[2], height: frameNumbers[3]))
+        guard picture.hasValidGeometry else { throw GraphiteError.invalidFile("A picture in this SVG drawing cannot be read.") }
+        if pictures.isEmpty {
+            shapesUnderPictures = shapes
+            shapes = []
+        }
+        pictures.append(picture)
     }
 
     private static func color(fill: String?, opacity: String?) throws -> VectorInkColor {

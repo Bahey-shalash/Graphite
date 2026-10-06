@@ -13,13 +13,14 @@ struct CreationRequest: Identifiable {
 }
 
 enum CreationKind: String, Identifiable {
-    case note, notebook, base
+    case note, notebook, base, canvas
     var id: String { rawValue }
     var title: String {
         switch self {
         case .note: "New Note"
         case .notebook: "New Notebook"
         case .base: "New Base"
+        case .canvas: "New Canvas"
         }
     }
     var namePrompt: String {
@@ -27,6 +28,7 @@ enum CreationKind: String, Identifiable {
         case .note: "Note name"
         case .notebook: "Notebook name"
         case .base: "Base name"
+        case .canvas: "Canvas name"
         }
     }
 }
@@ -110,6 +112,7 @@ struct VaultSidebar: View {
                         Button("New Note", systemImage: "doc.text") { creation = CreationRequest(kind: .note) }
                         Button("New Notebook", systemImage: "book.closed") { creation = CreationRequest(kind: .notebook) }
                         if workspace.preferences.isEnabled(.bases) { Button("New Base", systemImage: "tablecells") { creation = CreationRequest(kind: .base) } }
+                        if workspace.preferences.isEnabled(.canvas) { Button("New Canvas", systemImage: "rectangle.3.group") { creation = CreationRequest(kind: .canvas) } }
                         if workspace.preferences.isEnabled(.dailyNotes) {
                             Button("Today's Daily Note", systemImage: "calendar") { Task { await workspace.openDailyNote() } }
                         }
@@ -430,6 +433,7 @@ private struct VaultEntryRow: View, Equatable {
                     let listedChildren = try await store.children(of: entry.path, sortedBy: workspace.vaultSettings.fileSortOrder)
                     // Every directory refresh lists the folder again; unchanged rows are left alone.
                     if listedChildren != children { children = listedChildren }
+                    workspace.checkConflictVersions(of: listedChildren.lazy.filter { child in !child.isDirectory }.map(\.path))
                 } catch {
                     // A folder another app removed or renamed goes away with its parent's next
                     // listing; that is not an error to report.
@@ -439,7 +443,10 @@ private struct VaultEntryRow: View, Equatable {
             }
         } else {
             Label {
-                Text(workspace.preferences.displayName(for: entry.path)).lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(workspace.preferences.displayName(for: entry.path)).lineLimit(1)
+                    if workspace.conflictedPaths.contains(entry.path) { ConflictVersionsMarker() }
+                }
             } icon: {
                 Image(systemName: symbol).foregroundStyle(.secondary)
             }
@@ -464,6 +471,10 @@ private struct VaultEntryRow: View, Equatable {
     }
 
     @ViewBuilder private var fileMenu: some View {
+        if workspace.conflictedPaths.contains(entry.path) {
+            Button("Review Versions…", systemImage: "square.on.square") { workspace.conflictVersionsRequest = ConflictVersionsRequest(path: entry.path) }
+            Divider()
+        }
         Button("Open in New Tab", systemImage: "plus.rectangle.on.rectangle") { Task { await workspace.open(entry.path, placement: .newTab) } }
         Button(workspace.openOnOtherSideTitle, systemImage: "rectangle.split.2x1") { Task { await workspace.open(entry.path, placement: .otherGroup) } }
         Divider()
@@ -484,6 +495,7 @@ private struct VaultEntryRow: View, Equatable {
         Button("New Note", systemImage: "doc.text") { requestCreation(.note, entry.path) }
         Button("New Notebook", systemImage: "book.closed") { requestCreation(.notebook, entry.path) }
         if workspace.preferences.isEnabled(.bases) { Button("New Base", systemImage: "tablecells") { requestCreation(.base, entry.path) } }
+        if workspace.preferences.isEnabled(.canvas) { Button("New Canvas", systemImage: "rectangle.3.group") { requestCreation(.canvas, entry.path) } }
         Button("New Folder", systemImage: "folder.badge.plus") { workspace.fileSheet = .newFolder(in: entry.path) }
         Divider()
         Button("Rename…", systemImage: "pencil") { workspace.fileSheet = .rename(entry.path) }
@@ -517,6 +529,7 @@ private struct VaultEntryRow: View, Equatable {
         case .image: "photo"
         case .media: entry.path.fileExtension == "mp4" || entry.path.fileExtension == "mov" ? "film" : "waveform"
         case .base: "tablecells"
+        case .canvas: "rectangle.3.group"
         case .other: "doc"
         }
     }
@@ -554,6 +567,10 @@ struct FileManagementPresentation: ViewModifier {
                     }
                 }
                 .tint(workspace.preferences.accentColor)
+            }
+            .sheet(item: $workspace.conflictVersionsRequest) { request in
+                ConflictVersionsSheet(workspace: workspace, request: request)
+                    .tint(workspace.preferences.accentColor)
             }
             .confirmationDialog("Update links?", isPresented: Binding(get: { workspace.pendingMove != nil }, set: { isPresented in
                 if !isPresented { workspace.pendingMove = nil }

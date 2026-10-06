@@ -101,6 +101,7 @@ extension WorkspaceModel {
         defer { pathsBeingMoved.remove(path) }
         do {
             let editedNotePaths = tabDocuments.values.compactMap(\.markdownSession).filter(\.hasUnsavedChanges).map(\.path)
+                + tabDocuments.values.compactMap(\.canvasSession).filter(\.hasUnsavedChanges).map(\.path)
             try await saveOpenDocuments()
             // Links just typed into those notes are planned only once the index has read them.
             if let index, let root = folderAccess?.root, !editedNotePaths.isEmpty { try await index.refresh(paths: editedNotePaths, root: root) }
@@ -152,6 +153,7 @@ extension WorkspaceModel {
             let changedNotes = Set(report.updatedNotes + keptEditPaths)
             for document in tabDocuments.values {
                 if let session = document.markdownSession, changedNotes.contains(session.path) { await session.checkExternalChange() }
+                if let session = document.canvasSession, changedNotes.contains(session.path) { await session.checkExternalChange() }
             }
             await refreshDirectory()
             var problems = editProblems

@@ -35,6 +35,18 @@ enum BaseTestRecords {
 }
 
 final class BaseEvaluatorTests: XCTestCase {
+    func testFolderMembershipKeepsVaultPathCaseAndFolderBoundaries() throws {
+        XCTAssertEqual(try evaluate("file.inFolder(\"library\")"), .boolean(false))
+        XCTAssertEqual(try evaluate("file.inFolder(\"Library\")"), .boolean(true))
+        XCTAssertEqual(try evaluate("file.inFolder(\"Library/Book\")"), .boolean(false))
+    }
+
+    func testEmptyDurationReturnsAnEmptyValueInsteadOfAnError() throws {
+        XCTAssertEqual(try evaluate("duration(\"\")"), .null)
+        XCTAssertEqual(try evaluate("duration(null)"), .null)
+        XCTAssertThrowsError(try evaluate("duration(\"not a duration\")"))
+    }
+
     private let book = BaseTestRecords.record("Library/Books/Dune.md", yaml: """
         title: Dune
         author: "[[Frank Herbert]]"
@@ -333,7 +345,7 @@ final class BaseEvaluatorTests: XCTestCase {
 
     func testEvaluationErrorsAreReportedNotCrashes() {
         for sourceText in ["unknown()", "pages.lower()", "1 / 0", "5 % 0", "date(\"not a date\")", "duration(\"soon\")",
-                           "[1, 2] - 3", "formula", "\"a\".repeat(-1)", "html(\"<b>\")", "status.nothing", "(2).round"] {
+                           "[1, 2] - 3", "formula", "\"a\".repeat(-1)", "html(5)", "status.nothing", "(2).round"] {
             XCTAssertThrowsError(try evaluate(sourceText), sourceText) { error in
                 XCTAssertFalse(error.localizedDescription.isEmpty)
             }

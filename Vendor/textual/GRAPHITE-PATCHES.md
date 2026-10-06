@@ -50,4 +50,12 @@ A table style decides the width to offer. Upstream's `Overflow` scroll container
 
 `Sources/Textual/Internal/Attachment/MathAttachment.swift` and `Sources/Textual/InlineMathRendering.swift`: use SwiftUIMath's multicolor rendering for explicit LaTeX colors rather than discarding them in monochrome mode. Uncolored attachments keep the inherited foreground style; inline images use their supplied text color as the base. Graphite's `LaTeXCompatibility` separately converts scoped MathJax color declarations before these renderers receive them. A regression test parses and renders the reported purple rank equation and checks colored pixels in both halves.
 
+## 10. Controls inside selectable text receive touches
+
+`Sources/Textual/TextInteractionExclusion.swift` (new): public `textual.excludedFromTextInteraction()` reports a view's frame to the text selection overlay, which leaves it out of hit testing, as the overlay already does for the scrollable regions of `Overflow` (`OverflowFrameKey`). With text selection on, the overlay covers the whole text and takes every touch and click, so a control a style draws inside `StructuredText` was never reached. Graphite's list item style draws a task's checkbox as a button in place of the bullet and uses it.
+
+## 11. Display math for views that lay out a formula themselves
+
+`Sources/Textual/DisplayMathRendering.swift` (new), `Internal/Attachment/MathAttachment.swift`: public `DisplayMathRendering.metrics(for:fontSize:fittingWidth:)` measures a formula as block math is typeset, on one line or broken to a width, and `DisplayMathView` draws it at that size. Graphite lays out a formula with its equation numbers with them. The view draws the formula as a canvas symbol, as an attachment is drawn: a view's frame is rounded to whole pixels, and in a frame a fraction of a point narrower than the formula the typesetter broke `E = mc^2` into two lines, of which only the exponent showed. `NaturalWidthWhenItFits` is no longer private to `MathAttachment.swift`, so the view shares it.
+
 Remove this vendored copy and return to the upstream package once an upstream release contains equivalents of these changes.

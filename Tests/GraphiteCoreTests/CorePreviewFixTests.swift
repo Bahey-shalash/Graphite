@@ -130,7 +130,8 @@ final class CorePreviewHeadingAndSectionTests: XCTestCase {
         let body = "# One\r\n```\r\ncode\r\n```\r\n# Two\r\ntext\r\n"
         XCTAssertEqual(NotePreviewDocument.outline(of: body).map(\.text), ["One", "Two"])
         XCTAssertEqual(NotePreviewDocument.section(of: body, headingAnchor: "one"), "# One\r\n```\r\ncode\r\n```\r")
-        let unchecked = String(ObsidianInlineMarkup.uncheckedTaskMarker)
+        // A marked task is its marker and its status character's code point.
+        let unchecked = String(ObsidianInlineMarkup.uncheckedTaskMarker) + "32"
         XCTAssertEqual(ObsidianInlineMarkup.markingTasks(in: "```\r\n- [ ] code\r\n```\r\n- [ ] real"), "```\r\n- [ ] code\r\n```\r\n- \(unchecked) real")
     }
 
@@ -196,10 +197,11 @@ final class CorePreviewInlineMarkupTests: XCTestCase {
     }
 
     func testCustomTaskStatusesAreCheckboxes() {
+        // A marked task is its marker and its status character's code point.
         let unchecked = String(ObsidianInlineMarkup.uncheckedTaskMarker)
         let checked = String(ObsidianInlineMarkup.checkedTaskMarker)
         XCTAssertEqual(ObsidianInlineMarkup.markingTasks(in: "- [/] in progress\n- [-] cancelled\n- [x] done\n- [ ] open\n- [] empty"),
-                       "- \(checked) in progress\n- \(checked) cancelled\n- \(checked) done\n- \(unchecked) open\n- [] empty")
+                       "- \(checked)47 in progress\n- \(checked)45 cancelled\n- \(checked)120 done\n- \(unchecked)32 open\n- [] empty")
     }
 
     func testHighlightsSkipCodeSpans() {

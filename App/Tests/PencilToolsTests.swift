@@ -160,6 +160,122 @@ final class PencilToolsTests: XCTestCase {
         XCTAssertEqual(canvas.drawing.strokes.first?.path.count, drawnStroke.path.count)
     }
 
+    func testHoldingAtTheEndOfAStrokeShowsItsShapeWhichTakesTheStrokesPlaceOnLift() async throws {
+        UserDefaults.standard.set(false, forKey: PDFAnnotationPreferenceKey.drawsShapes)
+        let location = FileManager.default.temporaryDirectory.appendingPathComponent("Hold-\(UUID().uuidString).pdf")
+        try PDFTemplateGenerator.documentData(paper: PaperSpecification(template: .blank)).write(to: location)
+        temporaryLocations.append(location)
+        let session = try await PDFSession.open(location)
+        _ = try host(AnyView(NavigationStack { PDFPane(session: session, resolveConflict: { _ in }) }))
+        let page = try XCTUnwrap(session.document.page(at: 0))
+        func coordinator() -> PDFAnnotationCoordinator? { (session.pdfView as? GraphitePDFDisplayView)?.annotationCoordinator }
+        try await waitUntil { coordinator()?.editingCanvas(for: page) != nil }
+        let canvas = try XCTUnwrap(coordinator()?.editingCanvas(for: page))
+        func inkAnnotationCount() -> Int { page.annotations.filter { annotation in annotation.type == "Ink" }.count }
+
+        // The canvas watches its strokes without coming between PencilKit and the touch.
+        let holdRecognizer = try XCTUnwrap(canvas.gestureRecognizers?.compactMap { recognizer in recognizer as? StrokeHoldRecognizer }.first)
+        XCTAssertFalse(holdRecognizer.cancelsTouchesInView)
+        XCTAssertFalse(holdRecognizer.delaysTouchesBegan)
+        XCTAssertFalse(holdRecognizer.canPrevent(canvas.drawingGestureRecognizer))
+        XCTAssertFalse(holdRecognizer.canBePrevented(by: canvas.drawingGestureRecognizer))
+
+        // A hold at the end of handwriting shows nothing, and the writing stays as drawn.
+        let cursivePoints = (0...60).map { pointIndex in CGPoint(x: 40 + Double(pointIndex) * 5, y: 420 + 22 * sin(Double(pointIndex) * 0.4)) }
+        canvas.strokeTouchDidRest(afterStrokeThrough: cursivePoints)
+        XCTAssertFalse(canvas.isShowingShapePreview)
+        canvas.strokeTouchDidEnd(wasCancelled: false)
+        let cursive = stroke(through: cursivePoints, color: .purple, width: 3.3)
+        canvas.tool = PKInkingTool(.pen, color: .purple, width: 7.7)
+        XCTAssertNil(HistoryCanvasView.footprint(of: PKInkingTool(.pen, color: .purple, width: 7.7)), "No stroke has been drawn with this tool yet.")
+        canvas.drawing = PKDrawing(strokes: [cursive])
+        try await waitUntil { inkAnnotationCount() == 1 }
+        XCTAssertEqual(canvas.drawing.strokes.first?.path.count, cursive.path.count)
+        endEvent(of: session.undoManager)
+
+        // With a tool that has not drawn yet, a hold at the end of a round stroke shows the
+        // circle over the stroke PencilKit is still drawing.
+        canvas.tool = PKInkingTool(.pen, color: .purple, width: 9.9)
+        let roundPoints = circlePoints(center: CGPoint(x: 200, y: 200), radius: 60)
+        canvas.strokeTouchDidRest(afterStrokeThrough: roundPoints)
+        XCTAssertTrue(canvas.isShowingShapePreview)
+        // Drawing on withdraws it, and the stroke then stays as drawn.
+        canvas.strokeTouchDidMove(to: CGPoint(x: 300, y: 300), leftRestingPlace: true)
+        XCTAssertFalse(canvas.isShowingShapePreview)
+        canvas.strokeTouchDidEnd(wasCancelled: false)
+
+        // Lifting while it shows replaces the stroke with the circle, as one undo step.
+        canvas.strokeTouchDidRest(afterStrokeThrough: roundPoints)
+        canvas.strokeTouchDidMove(to: CGPoint(x: 261, y: 216), leftRestingPlace: false)
+        canvas.strokeTouchDidEnd(wasCancelled: false)
+        XCTAssertTrue(canvas.isShowingShapePreview, "The shape stays until the stroke arrives.")
+        let roundStroke = stroke(through: roundPoints, color: .purple, width: 3.3)
+        canvas.drawing = PKDrawing(strokes: [cursive, roundStroke])
+        try await waitUntil { canvas.drawing.strokes.count == 2 && !canvas.isShowingShapePreview }
+        let circle = try XCTUnwrap(canvas.drawing.strokes.last)
+        XCTAssertNotEqual(circle.path.count, roundStroke.path.count, "The canvas shows the circle, not the wobbly stroke.")
+        for point in circle.path.interpolatedPoints(by: .distance(10)) {
+            XCTAssertEqual(hypot(point.location.x - 200, point.location.y - 200), 60, accuracy: 6)
+        }
+        endEvent(of: session.undoManager)
+        session.undoAvailability.undo()
+        try await waitUntil { canvas.drawing.strokes.count == 1 }
+        XCTAssertEqual(canvas.drawing.strokes.first?.path.count, cursive.path.count, "One undo removes the circle; the wobbly stroke does not come back.")
+
+        // The hold is used up: the same stroke, not held, stays as drawn.
+        canvas.drawing = PKDrawing(strokes: [cursive, roundStroke])
+        try await waitUntil { inkAnnotationCount() == 2 }
+        XCTAssertEqual(canvas.drawing.strokes.last?.path.count, roundStroke.path.count)
+        endEvent(of: session.undoManager)
+
+        // That stroke told the canvas how the tool marks the page. From then on the hand can
+        // move on after a hold to stretch the shape: PencilKit's own stroke is discarded, so
+        // none arrives, and the canvas adds the shape when the touch lifts.
+        let footprint = try XCTUnwrap(HistoryCanvasView.footprint(of: PKInkingTool(.pen, color: .purple, width: 9.9)))
+        XCTAssertEqual(footprint.size.width, 3.3, accuracy: 0.01, "A tool's width setting is not what it draws.")
+        let squarePoints = [CGPoint(x: 300, y: 500), CGPoint(x: 400, y: 500), CGPoint(x: 400, y: 600), CGPoint(x: 300, y: 600), CGPoint(x: 300, y: 503)]
+            .reduce(into: [CGPoint]()) { points, corner in
+                guard let last = points.last else { return points.append(corner) }
+                points += (1...20).map { step in CGPoint(x: last.x + (corner.x - last.x) * Double(step) / 20, y: last.y + (corner.y - last.y) * Double(step) / 20) }
+            }
+        canvas.strokeTouchDidRest(afterStrokeThrough: squarePoints)
+        XCTAssertTrue(canvas.isShowingShapePreview)
+        // A resting hand trembles without moving the shape; leaving the rest drags it, here
+        // to twice the distance from the square's middle.
+        canvas.strokeTouchDidMove(to: CGPoint(x: 301, y: 502), leftRestingPlace: false)
+        canvas.strokeTouchDidMove(to: CGPoint(x: 280, y: 480), leftRestingPlace: true)
+        canvas.strokeTouchDidMove(to: CGPoint(x: 250, y: 450), leftRestingPlace: false)
+        canvas.strokeTouchDidEnd(wasCancelled: false)
+        XCTAssertFalse(canvas.isShowingShapePreview)
+        try await waitUntil { inkAnnotationCount() == 3 }
+        let square = try XCTUnwrap(canvas.drawing.strokes.last)
+        XCTAssertEqual(square.ink.inkType, .pen)
+        XCTAssertEqual(square.path.first?.size.width ?? 0, 3.3, accuracy: 0.01, "The shape is drawn as the tool draws.")
+        let squareBounds = square.path.reduce(CGRect.null) { bounds, point in bounds.union(CGRect(origin: point.location, size: .zero)) }
+        XCTAssertEqual(squareBounds.midX, 350, accuracy: 3)
+        XCTAssertEqual(squareBounds.midY, 550, accuracy: 3)
+        XCTAssertEqual(squareBounds.width, 200, accuracy: 8, "Dragged to twice its size about its middle.")
+        XCTAssertEqual(squareBounds.height, 200, accuracy: 8)
+        endEvent(of: session.undoManager)
+        session.undoAvailability.undo()
+        try await waitUntil { canvas.drawing.strokes.count == 2 }
+
+        // A cancelled touch leaves neither the stroke, which was discarded, nor a shape.
+        canvas.strokeTouchDidRest(afterStrokeThrough: squarePoints)
+        canvas.strokeTouchDidMove(to: CGPoint(x: 250, y: 450), leftRestingPlace: true)
+        canvas.strokeTouchDidEnd(wasCancelled: true)
+        XCTAssertFalse(canvas.isShowingShapePreview)
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(canvas.drawing.strokes.count, 2)
+
+        // Turned off in Settings, no touch is watched.
+        let drawingTouch = UITouch()
+        XCTAssertTrue(holdRecognizer.tracksTouch(drawingTouch) || !canvas.drawingGestureRecognizer.allowedTouchTypes.contains(NSNumber(value: drawingTouch.type.rawValue)))
+        UserDefaults.standard.set(false, forKey: StrokeHoldPreference.key)
+        defer { UserDefaults.standard.removeObject(forKey: StrokeHoldPreference.key) }
+        XCTAssertFalse(holdRecognizer.tracksTouch(drawingTouch))
+    }
+
     func testDrawingEditorUsesItsOwnHistoryAndTheShapeTool() async throws {
         UserDefaults.standard.set(true, forKey: PDFAnnotationPreferenceKey.drawsShapes)
         let request = DrawingEditorRequest(target: .newDrawing(notePath: try VaultPath("Note.md"), insertionRange: NSRange(location: 0, length: 0)),
@@ -300,11 +416,13 @@ final class PencilToolsTests: XCTestCase {
         XCTAssertEqual(payload.backgroundImage?.frame.width, 760)
         XCTAssertEqual(payload.backgroundImage?.imageData, picture.imageData)
 
-        // Vector formats are refused rather than saved without the picture.
-        do {
-            _ = try await service.fileData(for: content, format: .svg)
-            XCTFail("An SVG without the picture must not be written.")
-        } catch {}
+        // The vector formats hold the picture too (`VectorDrawingPicturesTests` compares what they show).
+        for format in [DrawingFormat.svg, .pdf] {
+            let vectorData = try await service.fileData(for: content, format: format)
+            let vectorPayload = try XCTUnwrap(DrawingMetadataReader.readMetadata(vectorData, format: format).payload)
+            XCTAssertEqual(vectorPayload.backgroundImage, payload.backgroundImage)
+            XCTAssertEqual(vectorPayload.version, 2)
+        }
         // The draft kept while the app is in the background keeps the picture too.
         let draft = try await service.draftFileData(for: content)
         XCTAssertEqual(try DrawingMetadataReader.readMetadata(draft, format: .svg).payload?.backgroundImage, picture)
@@ -345,9 +463,8 @@ final class PencilToolsTests: XCTestCase {
         let request = try XCTUnwrap(workspace.drawingEditorRequest)
         guard case .drawingOnImage(let requestImage, let requestNote) = request.target else { return XCTFail("Not a drawing on an image") }
         XCTAssertEqual(requestImage, imagePath); XCTAssertEqual(requestNote, notePath)
-        XCTAssertEqual(request.format, .png)
+        XCTAssertEqual(request.format, workspace.preferences.drawingFormat, "A drawing on an image takes the format new drawings take.")
         XCTAssertEqual(request.confirmationTitle, "Done")
-        XCTAssertTrue(request.acceptsPictures)
         let picture = try XCTUnwrap(request.backgroundImage)
         XCTAssertEqual(picture.frame, CGRect(x: 0, y: 0, width: 760, height: 760 * 600 / 900.0))
 

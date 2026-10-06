@@ -244,11 +244,17 @@ public enum NoteBlocks {
     /// or the whole body when there is no subpath. Nil when the subpath names no block or
     /// heading of the note, which Obsidian reports instead of showing the whole note.
     public static func embeddedPart(of body: String, subpath: String?) -> String? {
-        guard let subpath, !subpath.isEmpty else { return body }
+        locatedEmbeddedPart(of: body, subpath: subpath)?.text
+    }
+
+    /// `embeddedPart` with the UTF-16 offset in `body` at which the part starts, so a task
+    /// of an embedded note can be found in that note.
+    public static func locatedEmbeddedPart(of body: String, subpath: String?) -> (text: String, location: Int)? {
+        guard let subpath, !subpath.isEmpty else { return (body, 0) }
         if subpath.hasPrefix("^") {
-            return block(withIdentifier: String(subpath.dropFirst()), in: body)?.text
+            return block(withIdentifier: String(subpath.dropFirst()), in: body).map { block in (block.text, block.range.location) }
         }
-        return NotePreviewDocument.sectionIfPresent(of: body, headingAnchor: NotePreviewDocument.anchor(forHeading: subpath))
+        return NotePreviewDocument.locatedSectionIfPresent(of: body, headingAnchor: NotePreviewDocument.anchor(forHeading: subpath))
     }
 
     /// What reading view and Live Preview show for an embed whose subpath names nothing,

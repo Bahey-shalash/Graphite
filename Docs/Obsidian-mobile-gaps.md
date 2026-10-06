@@ -39,7 +39,7 @@ Ranked by how often a student would hit them.
 9. ~~**PDF study tools**~~ Done: find in a PDF (the system find bar); Copy Link to Page, Copy as Quote, and "Quote in" the note on the other side from the text selection menu, and Copy Link to This Page from More; links written by Obsidian with `#page=N&selection=…` open at their page; password-protected PDFs open after asking for the password, read-only. Links point to the page, not to the selection within it.
 10. ~~**Templates and daily notes**~~ Done: the Templates and Daily notes core plugins with their own settings files (`.obsidian/templates.json`, `.obsidian/daily-notes.json`); Insert › Template… and "Templates: Insert template" fill in `{{title}}`, `{{date}}` and `{{time}}` with Moment.js formats and add the template's properties to the note's; today's daily note is created from its template, opened at startup when asked, and the previous and next daily notes are one command away. No Calendar view.
 11. ~~**Backlinks with context and unlinked mentions**~~ Done: the Backlinks panel lists linked mentions with the line of each link, and unlinked mentions (the note's name or aliases written as text, outside links, code, math, comments, tags and web addresses), each with a Link button that turns the words into a link, keeping them as written. A line opens its note there. At most 200 notes are read for either list; no filter or sort yet.
-12. **Canvas**: `.canvas` files in existing vaults cannot be opened at all. Showing them read-only first, without ever rewriting them.
+12. ~~**Canvas**~~ Done: `.canvas` files open as boards of cards and connections, to read and to edit; an edit rewrites only the bytes it changes, and renames update file cards. No web pages inside link cards, drag and drop onto the board, or canvases embedded in notes.
 
 Next in line: ~~folding headings and lists~~ (done), ~~footnotes~~ (done), ~~block links and embeds (`#^id`)~~ (done earlier), ~~file recovery snapshots~~ (done), ~~the vault-wide Tags and Properties views~~ (done), ~~bookmarks~~ (done), ~~graph view (local, then global)~~ (done), share extension, ~~deep links~~ (done), ~~crash-safe recordings~~ (done).
 
@@ -53,9 +53,9 @@ Status: **Missing**, **Partial**, or **Done**. "Desktop only" items are left out
 |---|---|---|
 | Audio recorder | Done | Recordings survive Graphite being closed or crashing and are offered back at the next launch (tested with files cut off mid-write; not yet with a real microphone) |
 | Backlinks | Done | Lines around each link, unlinked mentions with Link; no filter or sort, no "Show more context" |
-| Bases | Partial | Kanban view, `mapTiles`, `html()`; see the Bases issues in `Coverage.md` |
+| Bases | Partial | Kanban settings and folder columns, map styles (vector tiles), images in `html()`; see `Coverage.md` |
 | Bookmarks | Done | Obsidian's `bookmarks.json`: notes, headings, blocks, folders, searches and groups, opened from the left sidebar; bookmark from a note's More menu, the outline, Files and search; rename, remove, new group; follows renames. Graphs and web pages are listed and kept. No drag to reorder or into groups |
-| Canvas | Missing | `.canvas` opens in the system preview |
+| Canvas | Partial | Reading and editing boards, byte-exact writes, backlinks and renames; no web pages in link cards, no drag and drop onto the board, no "Convert to file", no group backgrounds set from Graphite |
 | Command palette | Done | About 30 commands; no custom hotkeys or pinned commands |
 | Daily notes | Done | Settings, template, startup, previous and next; no Calendar view |
 | File explorer | Done | Drag and drop between folders not yet tried on a device |
@@ -96,9 +96,9 @@ Status: **Missing**, **Partial**, or **Done**. "Desktop only" items are left out
 | Block references (`^id`) | Done | Links scroll to the block, embeds show only it |
 | Find and replace in a note | Done | The system find bar (⌘F or the toolbar); replace from its menu |
 | Keyboard shortcuts | Done | ⌘B ⌘I ⌘K ⌘L ⌘/ ⌃⌘1–6 ⌥⌘↑↓ ⇧Tab ⌥⌘F and link following in the editor, plus the menu bar's; not configurable |
-| Tick tasks in reading view | Missing | Live Preview ticks them |
+| Tick tasks in reading view | Done | In the note, and in an embedded note's file, as Obsidian does |
 | Custom task statuses (`[/]`, `[-]`, `[>]`) | Partial | Reading view draws any status as a checkbox, checked unless it is a space; Live Preview reads only `[ ]`, `[x]`, `[/]` and `[-]` as tasks; no per-status icons |
-| Live Preview reveal | Partial | Whole line, not one element at a time |
+| Live Preview reveal | Done | One element at a time; list, task and quote markers by line, as before |
 | Embeds in the middle of a line (Live Preview) | Partial | Only whole-line embeds render |
 | Nested embeds | Partial | One level deep |
 | Unresolved links | Partial | Tapping creates the note; they still look like normal links |
@@ -107,7 +107,7 @@ Status: **Missing**, **Partial**, or **Done**. "Desktop only" items are left out
 | Mermaid diagrams | Missing | Shown as code |
 | Code highlighting while editing | Partial | Highlighted in reading view only; no copy button |
 | Comments `%%` in Live Preview | Partial | Hidden in reading view; not dimmed while editing |
-| Equation numbers (`\tag`) | Partial | Equations render; numbers are not drawn |
+| Equation numbers (`\tag`) | Done | Numbers where `\tag` asks, at the right edge; nothing numbered automatically, as in Obsidian; no `\eqref` |
 | Editor settings | Partial | No line numbers, indentation guides, right-to-left, fold settings, or "properties shown as source" |
 
 ### App shell
@@ -160,6 +160,6 @@ Scale notes for 10,000–100,000 files: name matching uses `LIKE '%word%'` over 
 | PDF page and selection links, copy as quote | Partial | Page links and quotes, quotes into the note on the other side; new links do not record the selection (`&selection=`), which opens at its page only |
 | Find in PDF | Done | The system find bar; Obsidian mobile lacks it |
 | Password-protected PDFs | Done | Read-only (no ink, markup or page changes); the password is asked each launch and never stored |
-| Canvas | Missing | |
+| Canvas | Partial | See Core plugins |
 | Share notes, images or recordings out | Done | From each file's menu in the sidebar |
 | Slides | Missing | |

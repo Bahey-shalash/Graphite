@@ -77,6 +77,20 @@ final class UiWorkspaceModelFixTests: XCTestCase {
 
     // MARK: Vault settings
 
+    func testDeepLinkCreatingAUniqueNoteRefreshesTheSidebar() async throws {
+        let vault = try makeVault(files: ["Idea.md": "existing idea"])
+        let workspace = WorkspaceModel()
+        workspace.store = VaultStore(root: vault)
+        await workspace.refreshDirectory()
+        XCTAssertEqual(workspace.rootEntries.map(\.path.rawValue), ["Idea.md"])
+
+        await workspace.handle(try XCTUnwrap(URL(string: "graphite://new?file=Idea&content=another%20idea&silent=true")))
+
+        XCTAssertNil(workspace.errorMessage)
+        XCTAssertEqual(fileText("Idea 1.md", in: vault), "another idea")
+        XCTAssertEqual(Set(workspace.rootEntries.map(\.path.rawValue)), ["Idea.md", "Idea 1.md"])
+    }
+
     /// A vault whose `app.json` cannot be read used to keep the previous vault's settings,
     /// including permanent deletion without confirmation.
     func testUnreadableSettingsFallBackToObsidianDefaultsAfterSwitchingVaults() async throws {

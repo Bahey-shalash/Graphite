@@ -323,7 +323,7 @@ public final class BaseEvaluator {
             case "milliseconds": return .number(total)
             default: break
             }
-        case .string(let text):
+        case .string(let text), .html(let text):
             if name == "length" { return .number(Double(text.count)) }
         case .list(let elements):
             if name == "length" { return .number(Double(elements.count)) }
@@ -494,7 +494,8 @@ public final class BaseEvaluator {
         case (.null, .null): return true
         case (.null, _), (_, .null): return false
         case (.number(let leftNumber), .number(let rightNumber)): return leftNumber == rightNumber
-        case (.string(let leftText), .string(let rightText)): return leftText == rightText
+        case (.string(let leftText), .string(let rightText)), (.html(let leftText), .string(let rightText)), (.string(let leftText), .html(let rightText)):
+            return leftText == rightText
         case (.boolean(let leftFlag), .boolean(let rightFlag)): return leftFlag == rightFlag
         case (.date(let leftDate), .date(let rightDate)): return leftDate.date == rightDate.date
         case (.duration(let leftDuration), .duration(let rightDuration)): return leftDuration.totalMilliseconds == rightDuration.totalMilliseconds
@@ -575,14 +576,23 @@ public final class BaseEvaluator {
             return .list(leftElements + rightElements)
         default: break
         }
-        if case .string(let leftText) = leftValue { return .string(leftText + rightValue.displayText) }
-        if case .string(let rightText) = rightValue { return .string(leftValue.displayText + rightText) }
+        // Markup joins like the text it is, and the result is plain text until html() marks it again.
+        if let leftText = Self.concatenatedText(leftValue) { return .string(leftText + rightValue.displayText) }
+        if let rightText = Self.concatenatedText(rightValue) { return .string(leftValue.displayText + rightText) }
         if leftValue.isNull || rightValue.isNull { return .null }
         // As in JavaScript, true and false add as 1 and 0; text concatenates instead (above).
         if let leftNumber = Self.arithmeticNumber(leftValue, acceptsText: false), let rightNumber = Self.arithmeticNumber(rightValue, acceptsText: false) {
             return .number(leftNumber + rightNumber)
         }
         throw BaseExpressionError.evaluation("Cannot add \(Self.describe(leftValue)) and \(Self.describe(rightValue)).")
+    }
+
+    /// The text of a value that `+` joins as text rather than adding.
+    private static func concatenatedText(_ value: BaseValue) -> String? {
+        switch value {
+        case .string(let text), .html(let text): text
+        default: nil
+        }
     }
 
     private func subtraction(_ leftValue: BaseValue, _ rightValue: BaseValue) throws -> BaseValue {
@@ -676,7 +686,6 @@ public final class BaseEvaluator {
             switch values[0] {
             case .null: return .null
             case .date: return values[0]
-            case .number(let milliseconds): return .date(BaseDate(date: Date(timeIntervalSince1970: milliseconds / 1_000), hasTime: true))
             case .string(let text):
                 guard let date = BaseDateParsing.date(from: text, calendar: environment.calendar) else { throw BaseExpressionError.evaluation("“\(text)” is not a date. Use YYYY-MM-DD or YYYY-MM-DD HH:mm:ss.") }
                 return .date(date)
@@ -689,11 +698,15 @@ public final class BaseEvaluator {
                     throw BaseExpressionError.evaluation("“\(link.displayText)” is not a date.")
                 }
                 return .date(date)
+            // Obsidian's date() takes text or a date. A number is a type error there too:
+            // it is not read as a year or as milliseconds.
             default: throw BaseExpressionError.evaluation("date() needs text, not \(Self.describe(values[0])).")
             }
         case "duration":
             try requireCount(1...1)
             if values[0].isNull { return .null }
+            // Text with nothing in it, such as an empty property, holds no duration.
+            if case .string(let text) = values[0], text.trimmingCharacters(in: .whitespaces).isEmpty { return .null }
             guard let duration = duration(from: values[0]) else { throw BaseExpressionError.evaluation("“\(values[0].displayText)” is not a duration, for example \"1 day\" or \"2h\".") }
             return .duration(duration)
         case "number":
@@ -749,7 +762,15 @@ public final class BaseEvaluator {
             return .string(values[0].displayText.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
                 .replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;").replacingOccurrences(of: "'", with: "&#39;"))
         case "html":
-            throw BaseExpressionError.evaluation("html() is not supported in Graphite.")
+            try requireCount(1...1)
+            // Obsidian takes text here: a string, or a value that is one underneath (a
+            // link, an image, an icon).
+            switch values[0] {
+            case .null: return .null
+            case .string(let source), .html(let source): return .html(source)
+            case .link, .image, .icon: return .html(values[0].displayText)
+            default: throw BaseExpressionError.evaluation("html() needs text, not \(Self.describe(values[0])).")
+            }
         case "random":
             try requireCount(0...0)
             return .number(Double.random(in: 0..<1))
@@ -774,7 +795,9 @@ public final class BaseEvaluator {
         case "toString": return .string(receiver.displayText)
         case "isType":
             guard let typeName = values.first?.displayText.lowercased() else { throw BaseExpressionError.evaluation("isType() needs a type name.") }
-            return .boolean(receiver.typeName == typeName || (typeName == "regex" && receiver.typeName == "regexp"))
+            // Markup is a kind of text in Obsidian, so it is a string as well.
+            return .boolean(receiver.typeName == typeName || (typeName == "regex" && receiver.typeName == "regexp")
+                            || (typeName == "string" && receiver.typeName == "html"))
         default: break
         }
         if receiver.isNull { return name == "contains" || name.hasPrefix("contains") || name.hasPrefix("has") ? .boolean(false) : .null }
@@ -783,7 +806,7 @@ public final class BaseEvaluator {
 
     private func typedMethod(_ name: String, receiver: BaseValue, arguments: [BaseValue], in scope: Scope) throws -> BaseValue? {
         switch receiver {
-        case .string(let text): return try stringMethod(name, text: text, arguments: arguments)
+        case .string(let text), .html(let text): return try stringMethod(name, text: text, arguments: arguments)
         case .number(let number): return try numberMethod(name, number: number, arguments: arguments)
         case .list(let elements): return try listMethod(name, elements: elements, arguments: arguments)
         case .date(let date): return try dateMethod(name, date: date, arguments: arguments)
@@ -1083,10 +1106,13 @@ public final class BaseEvaluator {
             guard let propertyName = arguments.first?.displayText else { return .boolean(false) }
             return .boolean(record?.propertyEntry(named: propertyName) != nil)
         case "inFolder":
-            let folder = (arguments.first?.displayText ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            // Obsidian normalizes the folder it is given and then compares it exactly, so
+            // `inFolder("books")` does not match the folder `Books`. Swift compares text by
+            // canonical equivalence, which is Obsidian's comparison of NFC forms.
+            let folder = Self.normalizedFolderPath(arguments.first?.displayText ?? "")
             if folder.isEmpty { return .boolean(true) }
-            let parentPath = path.parent.rawValue.lowercased()
-            return .boolean(parentPath == folder.lowercased() || parentPath.hasPrefix(folder.lowercased() + "/"))
+            let parentPath = path.parent.rawValue
+            return .boolean(parentPath == folder || parentPath.hasPrefix(folder + "/"))
         case "hasLink":
             guard let argument = arguments.first, !argument.isNull else { return .boolean(false) }
             let targets = linkTargets(of: record, includesEmbeds: true)
@@ -1116,6 +1142,14 @@ public final class BaseEvaluator {
         }
     }
 
+    /// A folder path as Obsidian's `normalizePath` leaves it: one slash between names (a
+    /// backslash counts as one), none at either end, and no-break spaces as ordinary ones.
+    /// The vault root is empty.
+    static func normalizedFolderPath(_ folder: String) -> String {
+        folder.replacingOccurrences(of: "\u{A0}", with: " ").replacingOccurrences(of: "\u{202F}", with: " ")
+            .split(whereSeparator: { character in character == "/" || character == "\\" }).joined(separator: "/")
+    }
+
     static func describe(_ value: BaseValue) -> String {
         switch value {
         case .null: "an empty value"
@@ -1131,6 +1165,7 @@ public final class BaseEvaluator {
         case .regularExpression: "a regular expression"
         case .image: "an image"
         case .icon: "an icon"
+        case .html: "markup"
         }
     }
 }

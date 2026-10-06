@@ -37,6 +37,13 @@ final class VaultURITests: XCTestCase {
         XCTAssertEqual(VaultURI.appending("", to: "old"), "old")
     }
 
+    func testAppendingPreservesTheNotesLineEndings() {
+        XCTAssertEqual(VaultURI.appending("new", to: "first\r\nsecond"), "first\r\nsecond\r\nnew")
+        XCTAssertEqual(VaultURI.appending("new", to: "first\rsecond"), "first\rsecond\rnew")
+        XCTAssertEqual(VaultURI.appending("new", to: "old\r"), "old\rnew")
+        XCTAssertEqual(VaultURI.appending("new", to: "old\r\n"), "old\r\nnew")
+    }
+
     func testRefusesOtherLinks() {
         XCTAssertNil(uri("https://obsidian.md/open?vault=Physics"))
         XCTAssertNil(uri("graphite://delete?file=Note"))

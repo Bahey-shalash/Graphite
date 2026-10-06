@@ -2,6 +2,9 @@ import Foundation
 import AVFoundation
 import Observation
 import GraphiteCore
+#if canImport(UIKit)
+import UIKit
+#endif
 
 private actor RecordingPublisher {
     func publish(source: URL, destination: URL, filePresenter: (any NSFilePresenter & Sendable)?) throws {
@@ -32,7 +35,33 @@ public final class RecordingController: NSObject, AVAudioRecorderDelegate {
     public private(set) var destination: URL?
     public private(set) var lastCompletedURL: URL?
     public private(set) var recoveryURL: URL?
+    /// Whether the recording under way, or the last one made, is audio or video.
+    public private(set) var kind: RecordingKind = .audio
+    /// The camera a video recording uses, and the cameras it can switch between.
+    public private(set) var camera: CameraPosition = .back
+    public private(set) var availableCameras: [CameraPosition] = []
+    /// Why the last video recording could not use the camera or the microphone, for as
+    /// long as its message is shown; the person may be able to change it in Settings.
+    public private(set) var accessProblem: CaptureAccessProblem?
+    /// The shape of the camera's picture, width over height, for the preview.
+    public private(set) var videoAspectRatio: Double?
     private var recorder: AVAudioRecorder?
+    /// While audio hardware resumes, it owns the recorder. Stop waits for that transfer
+    /// back before touching it, and repeated Resume taps share the same operation.
+    @ObservationIgnored private var pendingResume: Task<Void, Never>?
+    @ObservationIgnored private var isAbandoningRecorder = false
+    private var videoRecording: VideoRecording?
+    /// Makes the camera and microphone of a video recording. Tests replace it with a
+    /// source that makes its own frames and sound.
+    @ObservationIgnored var makeVideoCaptureSource: @MainActor () -> any VideoCaptureSource = { CameraCaptureSource() }
+    @ObservationIgnored var videoStorage = RecordingStorage.system
+    /// Where recordings are written until they are saved into the vault.
+    @ObservationIgnored var recoveryFolderLocation: @MainActor () throws -> URL = { try RecordingRecoveryFolder.location() }
+    @ObservationIgnored private var previewRenderer: AVSampleBufferVideoRenderer?
+    /// Whether a video was being recorded, not paused, when it was interrupted; it then
+    /// goes on by itself once the camera is back.
+    @ObservationIgnored private var resumesWhenInterruptionEnds = false
+    @ObservationIgnored private var interruptionStart: ContinuousClock.Instant?
     /// The presenter of the vault that `destination` is in, so publishing the recording is
     /// not reported back to Graphite as an external change.
     @ObservationIgnored private var filePresenter: (any NSFilePresenter & Sendable)?
@@ -50,6 +79,7 @@ public final class RecordingController: NSObject, AVAudioRecorderDelegate {
     /// A stopped recorder reports 0, so the recorder's clock is read only while it runs;
     /// otherwise the time saved when it last stopped running is shown.
     public var elapsedSeconds: TimeInterval {
+        if let videoRecording { return videoRecording.recordedSeconds }
         guard state == .recording, let recorder else { return retainedElapsedSeconds }
         return recorder.currentTime
     }
@@ -75,15 +105,18 @@ public final class RecordingController: NSObject, AVAudioRecorderDelegate {
     /// vault that contains `destination`.
     public func start(destination: URL, manifest: RecordingRecoveryManifest, filePresenter: (any NSFilePresenter & Sendable)? = nil) async {
         guard canStartRecording else { return }
-        state = .requestingPermission; message = nil; retainedElapsedSeconds = 0
+        state = .requestingPermission; message = nil; accessProblem = nil; retainedElapsedSeconds = 0; kind = .audio
         let attempt = UUID()
         startAttempt = attempt
-        guard await AVCaptureDevice.requestAccess(for: .audio) else {
+        let hasMicrophonePermission = await AVCaptureDevice.requestAccess(for: .audio)
+        guard startAttempt == attempt else { return }
+        guard hasMicrophonePermission else {
+            startAttempt = nil
             state = .failed; message = "Microphone access is required. Enable it in system privacy settings."; return
         }
         var recordingURL: URL?
         do {
-            let location = try RecordingRecoveryFolder.location().appendingPathComponent("\(UUID().uuidString).caf")
+            let location = try recoveryFolderLocation().appendingPathComponent("\(UUID().uuidString).caf")
             recordingURL = location
             try RecordingRecoveryFolder.write(manifest, for: location)
             // Audio hardware can take seconds to answer (or never, as in a simulator without
@@ -146,13 +179,24 @@ public final class RecordingController: NSObject, AVAudioRecorderDelegate {
 
     public func pause() {
         guard state == .recording else { return }
+        if let videoRecording {
+            videoRecording.pause()
+            state = .paused; message = nil
+            return
+        }
         retainElapsedSeconds()
         recorder?.pause(); state = .paused
     }
     public func resume() {
-        guard state.canResume, let recorder else { return }
+        if let videoRecording {
+            resumeVideo(videoRecording)
+            return
+        }
+        guard state.canResume, let recorder, pendingResume == nil else { return }
         let handedOver = StartedRecorder(recorder: recorder)
-        Task {
+        pendingResume = Task {
+            defer { pendingResume = nil }
+            guard state.canResume, self.recorder === handedOver.recorder else { return }
             do {
                 // Off the main thread, as when starting.
                 try await Task.detached(priority: .userInitiated) {
@@ -161,16 +205,34 @@ public final class RecordingController: NSObject, AVAudioRecorderDelegate {
                     #endif
                     guard handedOver.recorder.record() else { throw GraphiteError.unavailable("The microphone could not resume. You can still stop and save this recording.") }
                 }.value
+                guard state.canResume, self.recorder === handedOver.recorder else { return }
                 state = .recording; message = nil
-            } catch { message = error.localizedDescription }
+            } catch {
+                guard state.canResume, self.recorder === handedOver.recorder else { return }
+                message = error.localizedDescription
+            }
         }
     }
     public func stop() {
         guard state.canStop else { return }
+        if let videoRecording {
+            state = .finalizing
+            Task { await finishVideo(videoRecording, notice: nil) }
+            return
+        }
         retainElapsedSeconds()
         state = .finalizing
-        recorder?.stop()
-        finishIfFinalizationStalls()
+        if let pendingResume {
+            Task {
+                await pendingResume.value
+                guard state == .finalizing, !isAbandoningRecorder else { return }
+                recorder?.stop()
+                finishIfFinalizationStalls()
+            }
+        } else {
+            recorder?.stop()
+            finishIfFinalizationStalls()
+        }
     }
     public nonisolated func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
         let finishedRecorder = ObjectIdentifier(recorder)
@@ -178,30 +240,55 @@ public final class RecordingController: NSObject, AVAudioRecorderDelegate {
             // A recorder already given up on (abandoned, or its recording already failed)
             // must not finish whatever recording is current by the time this runs.
             guard let self, self.recorder.map(ObjectIdentifier.init) == finishedRecorder else { return }
+            if let pendingResume = self.pendingResume { await pendingResume.value }
+            guard self.recorder.map(ObjectIdentifier.init) == finishedRecorder else { return }
             await finish(successfully: flag)
         }
     }
     public nonisolated func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
+        let failedRecorder = ObjectIdentifier(recorder)
         let description = error?.localizedDescription ?? "Audio encoding failed."
-        Task { @MainActor [weak self] in self?.abandonRecorder(reason: description) }
+        Task { @MainActor [weak self] in
+            guard let self, self.recorder.map(ObjectIdentifier.init) == failedRecorder else { return }
+            self.abandonRecorder(reason: description)
+        }
     }
 
     /// Stops a recorder that can no longer record, after an encoding error or when iOS
     /// restarts its audio services. Stopping writes what was recorded so far as a playable
     /// file, which stays available to Try Saving Again, and lets other apps' audio resume.
     func abandonRecorder(reason: String) {
-        guard state.canStop || (state == .finalizing && !isPublishing) else { return }
+        // A video's camera and microphone report their own failures (`VideoRecording.Notice`).
+        guard kind == .audio, !isAbandoningRecorder, state.canStop || (state == .finalizing && !isPublishing) else { return }
         retainElapsedSeconds()
+        message = recoveryURL == nil ? reason : "\(reason) The audio recorded so far has been kept."
+        if let pendingResume {
+            // Keep recovery controls unavailable until the worker releases the recorder.
+            // Otherwise Retry or Discard could read or delete audio still being written.
+            isAbandoningRecorder = true
+            state = .finalizing
+            Task {
+                await pendingResume.value
+                recorder?.stop(); recorder = nil
+                deactivateAudioSession()
+                state = .failed
+                isAbandoningRecorder = false
+            }
+            return
+        }
         // The recorder's own finish callback that follows finds `.failed` and is ignored.
         state = .failed
         recorder?.stop(); recorder = nil
         deactivateAudioSession()
-        message = recoveryURL == nil ? reason : "\(reason) The audio recorded so far has been kept."
     }
 
     private func finish(successfully: Bool) async {
         // The recorder also finishes on its own, for example when storage runs out.
-        guard state.canStop || state == .finalizing, !isPublishing else { return }
+        guard state.canStop || state == .finalizing, !isPublishing, !isAbandoningRecorder else { return }
+        guard kind == .audio else {
+            await publishVideo(notice: nil)
+            return
+        }
         retainElapsedSeconds()
         state = .finalizing
         guard successfully, let source = recoveryURL, let destination else {
@@ -256,14 +343,18 @@ public final class RecordingController: NSObject, AVAudioRecorderDelegate {
 
     /// Recordings Graphite did not finish, other than the one being made.
     public func unfinishedRecordings() -> [RecoverableRecording] {
-        guard let folder = try? RecordingRecoveryFolder.location() else { return [] }
+        guard let folder = try? recoveryFolderLocation() else { return [] }
         return RecordingRecoveryFolder.recordings(in: folder, excluding: state.isActive || state == .failed ? recoveryURL : nil)
     }
 
-    /// Saves an unfinished recording as M4A at `destination`, then removes it from the
-    /// recovery folder. `filePresenter` is the presenter of the vault that contains `destination`.
+    /// Saves an unfinished recording at `destination`, audio as M4A and video as MP4, then
+    /// removes it from the recovery folder. `filePresenter` is the presenter of the vault
+    /// that contains `destination`.
     public func recover(_ recording: RecoverableRecording, to destination: URL, filePresenter: (any NSFilePresenter & Sendable)? = nil) async throws {
-        try await Self.saveAsM4A(recording.audioLocation, to: destination, publisher: publisher, filePresenter: filePresenter)
+        switch recording.kind {
+        case .audio: try await Self.saveAsM4A(recording.mediaLocation, to: destination, publisher: publisher, filePresenter: filePresenter)
+        case .video: try await Self.saveAsMP4(partLocations: recording.partLocations, to: destination, publisher: publisher, filePresenter: filePresenter)
+        }
         try? RecordingRecoveryFolder.remove(recording)
     }
 
@@ -322,21 +413,235 @@ public final class RecordingController: NSObject, AVAudioRecorderDelegate {
             // Already gone, which is what discarding asked for.
         }
         // Its manifest, and an M4A converted from it before saving failed, would otherwise
-        // be offered again as an unfinished recording.
+        // be offered again as an unfinished recording; so would the later parts of a video.
         try? FileManager.default.removeItem(at: RecordingRecoveryFolder.manifestLocation(for: recoveryURL))
-        if recoveryURL.pathExtension.lowercased() != "m4a" {
-            try? FileManager.default.removeItem(at: recoveryURL.deletingPathExtension().appendingPathExtension("m4a"))
+        switch kind {
+        case .audio:
+            if recoveryURL.pathExtension.lowercased() != "m4a" {
+                try? FileManager.default.removeItem(at: recoveryURL.deletingPathExtension().appendingPathExtension("m4a"))
+            }
+        case .video:
+            for partLocation in RecordingRecoveryFolder.laterPartLocations(ofRecordingAt: recoveryURL) { try? FileManager.default.removeItem(at: partLocation) }
+            try? FileManager.default.removeItem(at: RecordingRecoveryFolder.combinedMovieLocation(forRecordingAt: recoveryURL))
         }
         self.recoveryURL = nil; destination = nil; filePresenter = nil; recorder = nil
         retainedElapsedSeconds = 0; message = nil; state = .idle
     }
 
-    /// Puts the controller in `state` for audio already recorded at `recoveryURL`, as if it had
+    /// Puts the controller in `state` for a recording already at `recoveryURL`, as if it had
     /// been recording to `destination`. Tests use it to reach finalization and publication
     /// without a microphone.
-    func adoptRecording(at recoveryURL: URL, destination: URL, state: RecordingState, message: String? = nil, filePresenter: (any NSFilePresenter & Sendable)? = nil) {
+    func adoptRecording(at recoveryURL: URL, destination: URL, state: RecordingState, message: String? = nil, kind: RecordingKind = .audio,
+                        filePresenter: (any NSFilePresenter & Sendable)? = nil) {
+        adoptRecording(at: recoveryURL, destination: destination, state: state, message: message, kind: kind,
+                       filePresenter: filePresenter, recorder: nil)
+    }
+
+    func adoptRecording(at recoveryURL: URL, destination: URL, state: RecordingState, message: String? = nil, kind: RecordingKind = .audio,
+                        filePresenter: (any NSFilePresenter & Sendable)? = nil, recorder: AVAudioRecorder?) {
         self.recoveryURL = recoveryURL; self.destination = destination; self.filePresenter = filePresenter
-        self.state = state; self.message = message
+        self.recorder = recorder
+        self.state = state; self.message = message; self.kind = kind
+    }
+
+    // MARK: Video
+
+    /// Starts recording video with sound. The video goes to the recovery folder first, as
+    /// an MP4 written in fragments, which stays playable up to its last fragment if Graphite
+    /// stops without closing it; `manifest` says where it belongs. Stopping closes it and
+    /// publishes it at `destination`. `filePresenter` is the presenter of the vault that
+    /// contains `destination`.
+    public func startVideo(destination: URL, manifest: RecordingRecoveryManifest, camera requestedCamera: CameraPosition,
+                           filePresenter: (any NSFilePresenter & Sendable)? = nil) async {
+        guard canStartRecording else { return }
+        state = .requestingPermission; message = nil; accessProblem = nil; retainedElapsedSeconds = 0; kind = .video
+        videoAspectRatio = nil
+        let attempt = UUID()
+        startAttempt = attempt
+        var firstPartLocation: URL?
+        var startedRecording: VideoRecording?
+        do {
+            let location = try recoveryFolderLocation().appendingPathComponent("\(UUID().uuidString).mp4")
+            firstPartLocation = location
+            try RecordingRecoveryFolder.write(manifest, for: location)
+            let recording = VideoRecording(source: makeVideoCaptureSource(), firstPartLocation: location, storage: videoStorage) { [weak self] notice in
+                Task { @MainActor in self?.handle(notice, fromRecordingAt: location) }
+            }
+            startedRecording = recording
+            try await recording.start(camera: requestedCamera)
+            guard startAttempt == attempt else {
+                // Cancelled while the permission prompt or the camera was answering.
+                await discard(recording, firstPartLocation: location)
+                return
+            }
+            startAttempt = nil
+            availableCameras = await recording.availableCameras()
+            recording.setPreviewRenderer(previewRenderer)
+            videoRecording = recording; camera = requestedCamera
+            self.destination = destination; self.filePresenter = filePresenter; recoveryURL = location
+            state = .recording
+        } catch {
+            // A recording that never started holds nothing to recover.
+            if let firstPartLocation {
+                if let startedRecording { await discard(startedRecording, firstPartLocation: firstPartLocation) }
+                try? FileManager.default.removeItem(at: RecordingRecoveryFolder.manifestLocation(for: firstPartLocation))
+            }
+            guard startAttempt == attempt else { return }
+            startAttempt = nil
+            state = .failed; message = error.localizedDescription; accessProblem = error as? CaptureAccessProblem
+        }
+    }
+
+    /// Stops a recording that is not kept, and removes what it wrote.
+    private func discard(_ recording: VideoRecording, firstPartLocation: URL) async {
+        for partLocation in await recording.finish() { try? FileManager.default.removeItem(at: partLocation) }
+        try? FileManager.default.removeItem(at: RecordingRecoveryFolder.manifestLocation(for: firstPartLocation))
+    }
+
+    /// Changes the camera of the video being recorded. The recording goes on in one file.
+    public func switchCamera(to newCamera: CameraPosition) {
+        guard let videoRecording, state == .recording || state == .paused, newCamera != camera else { return }
+        Task {
+            do {
+                try await videoRecording.switchCamera(to: newCamera)
+                if self.videoRecording === videoRecording { camera = newCamera }
+            } catch {
+                if self.videoRecording === videoRecording { message = error.localizedDescription }
+            }
+        }
+    }
+
+    /// Shows the camera of a video recording in `renderer`, or stops showing it. Nothing
+    /// about the recording depends on it.
+    public func showPreview(in renderer: AVSampleBufferVideoRenderer?) {
+        previewRenderer = renderer
+        videoRecording?.setPreviewRenderer(renderer)
+    }
+
+    /// Stops showing the camera in `renderer`, when it is the one that shows it.
+    public func stopShowingPreview(in renderer: AVSampleBufferVideoRenderer) {
+        if previewRenderer === renderer { showPreview(in: nil) }
+    }
+
+    /// Removes a message that only told the person what happened, or why a recording
+    /// could not start. One about a recording that waits to be saved stays.
+    public func dismissMessage() {
+        switch state {
+        case .recording, .idle:
+            message = nil; accessProblem = nil
+        case .failed where recoveryURL == nil:
+            message = nil; accessProblem = nil; state = .idle
+        default:
+            break
+        }
+    }
+
+    private func resumeVideo(_ recording: VideoRecording) {
+        guard state.canResume else { return }
+        let wasInterrupted = state == .interrupted
+        Task {
+            do {
+                try await recording.resume()
+                guard videoRecording === recording, state.canResume else { return }
+                state = .recording
+                message = wasInterrupted ? resumedMessage() : nil
+                interruptionStart = nil
+            } catch {
+                if videoRecording === recording { message = error.localizedDescription }
+            }
+        }
+    }
+
+    /// What the person is told once a video goes on by itself after an interruption.
+    private func resumedMessage() -> String {
+        guard let interruptionStart else { return "The video was paused for a while and is recording again." }
+        let pausedSeconds = max(1, Int((ContinuousClock.now - interruptionStart) / .seconds(1)))
+        let pausedLength = Duration.seconds(pausedSeconds).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .wide))
+        return "The video was paused for \(pausedLength) and is recording again. Nothing was recorded in that time."
+    }
+
+    private func handle(_ notice: VideoRecording.Notice, fromRecordingAt firstPartLocation: URL) {
+        guard let recording = videoRecording, recoveryURL == firstPartLocation else { return }
+        switch notice {
+        case .frameSize(let width, let height):
+            videoAspectRatio = height > 0 ? Double(width) / Double(height) : nil
+        case .interrupted(let reason):
+            guard state == .recording || state == .paused || state == .interrupted else { return }
+            if state != .interrupted {
+                resumesWhenInterruptionEnds = state == .recording
+                interruptionStart = .now
+            }
+            state = .interrupted; message = reason.explanation
+            finishClosingParts(of: recording)
+        case .interruptionEnded:
+            guard state == .interrupted else { return }
+            if resumesWhenInterruptionEnds {
+                resumeVideo(recording)
+            } else {
+                state = .paused; message = nil; interruptionStart = nil
+            }
+        case .stoppedForLackOfStorage:
+            saveAfterStopping(recording, notice: "Storage is almost full, so the video recording stopped. What was recorded has been saved.")
+        case .stoppedAfterWritingFailed(let description):
+            let reason = description.hasSuffix(".") ? description : description + "."
+            saveAfterStopping(recording, notice: "The video recording stopped: \(reason) What was recorded up to then has been saved.")
+        }
+    }
+
+    /// Saves what a recording wrote before it had to stop by itself.
+    private func saveAfterStopping(_ recording: VideoRecording, notice: String) {
+        guard state.canStop else { return }
+        state = .finalizing
+        Task { await finishVideo(recording, notice: notice) }
+    }
+
+    /// Keeps Graphite running until the part cut short by an interruption is a complete
+    /// file: the system suspends an app soon after it leaves the screen.
+    private func finishClosingParts(of recording: VideoRecording) {
+        #if canImport(UIKit)
+        let backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Close the video recording")
+        Task {
+            await recording.waitForClosingParts()
+            UIApplication.shared.endBackgroundTask(backgroundTask)
+        }
+        #endif
+    }
+
+    private func finishVideo(_ recording: VideoRecording, notice: String?) async {
+        _ = await recording.finish()
+        guard videoRecording === recording else { return }
+        retainedElapsedSeconds = recording.recordedSeconds
+        videoRecording = nil; availableCameras = []; videoAspectRatio = nil; interruptionStart = nil
+        await publishVideo(notice: notice)
+    }
+
+    /// Joins the parts of the recorded video when there are several, and publishes it.
+    /// `notice` is what the person is told when the recording stopped by itself.
+    private func publishVideo(notice: String?) async {
+        guard !isPublishing else { return }
+        state = .finalizing
+        guard let firstPartLocation = recoveryURL, let destination else {
+            state = .failed; message = "The video recording did not finish successfully."; return
+        }
+        isPublishing = true
+        defer { isPublishing = false }
+        do {
+            let partLocations = [firstPartLocation] + RecordingRecoveryFolder.laterPartLocations(ofRecordingAt: firstPartLocation)
+            try await Self.saveAsMP4(partLocations: partLocations, to: destination, publisher: publisher, filePresenter: filePresenter)
+            lastCompletedURL = destination; recoveryURL = nil; message = notice; state = .idle
+        } catch {
+            state = .failed; message = "\(error.localizedDescription) The video is kept on this device until it is saved or discarded."
+        }
+    }
+
+    /// Publishes a video at `destination`, which must not exist, as one ordinary MP4. Its
+    /// parts are removed only once the file is in place.
+    private static func saveAsMP4(partLocations: [URL], to destination: URL, publisher: RecordingPublisher, filePresenter: (any NSFilePresenter & Sendable)?) async throws {
+        guard let firstPartLocation = partLocations.first else { throw GraphiteError.invalidFile("The recording contains no playable video.") }
+        let movie = try await RecordedMovie.playableMovie(from: partLocations)
+        try await publisher.publish(source: movie, destination: destination, filePresenter: filePresenter)
+        for partLocation in partLocations where partLocation != movie { try? FileManager.default.removeItem(at: partLocation) }
+        try? FileManager.default.removeItem(at: RecordingRecoveryFolder.manifestLocation(for: firstPartLocation))
     }
 
     #if os(iOS)
@@ -355,7 +660,8 @@ public final class RecordingController: NSObject, AVAudioRecorderDelegate {
         Task { @MainActor [weak self] in self?.abandonRecorder(reason: "Audio services restarted, so the recording stopped.") }
     }
     private func interruptRecording(message interruptionMessage: String) {
-        guard state == .recording else { return }
+        // A video's capture session reports its own interruptions, with their reason.
+        guard state == .recording, videoRecording == nil else { return }
         retainElapsedSeconds()
         recorder?.pause(); state = .interrupted; message = interruptionMessage
     }

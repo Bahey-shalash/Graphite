@@ -74,6 +74,24 @@ final class TemplateTests: XCTestCase {
             """)
     }
 
+    func testDateOffsetsUseTheRequestedTimeZoneAcrossDaylightSaving() throws {
+        let newYork = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = newYork
+        let beforeSpringChange = try XCTUnwrap(calendar.date(from: DateComponents(year: 2025, month: 3, day: 8, hour: 12)))
+        let rendered = TemplateRenderer.render("{{date+1d:YYYY-MM-DD HH:mm}}", title: "", date: beforeSpringChange,
+                                               dateFormat: "YYYY-MM-DD", timeFormat: "HH:mm", timeZone: newYork)
+        XCTAssertEqual(rendered, "2025-03-09 12:00")
+    }
+
+    func testOffsetsTooLargeToRepresentKeepTheirSourceInsteadOfCrashing() {
+        for unit in ["w", "Q", "y", "d"] {
+            let template = "{{date+\(Int.max)\(unit):YYYY-MM-DD}}"
+            XCTAssertEqual(TemplateRenderer.render(template, title: "", date: sample,
+                                                   dateFormat: "YYYY-MM-DD", timeFormat: "HH:mm", timeZone: zurich), template)
+        }
+    }
+
     func testReadsAndWritesPluginSettings() throws {
         let templates = TemplateSettings(configurationData: Data(#"{"folder": "/Templates/", "dateFormat": "", "extra": 1}"#.utf8))
         XCTAssertEqual(templates, TemplateSettings(folder: "Templates", dateFormat: "YYYY-MM-DD", timeFormat: "HH:mm"))

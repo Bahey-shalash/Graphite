@@ -5,9 +5,12 @@ import Yams
 /// parsed YAML tree, so keys Graphite does not know (other view options, plugin
 /// settings) are kept with their values. Writing back replaces only the lines of the
 /// entries that changed, such as one view's `limit:` line, so comments, indentation,
-/// flow style, tags and document markers elsewhere stay exactly as written. When the
-/// changed lines cannot be replaced exactly, the whole file is written from the tree;
-/// YAML has no comment nodes, so its comments are then lost.
+/// flow style, tags and document markers elsewhere stay exactly as written. Inside a
+/// rewritten entry, the parts that did not change keep their anchors, aliases, tags and
+/// flow style (`RewrittenYAMLWriter`). When the changed lines cannot be replaced exactly,
+/// the whole file is written from the tree; YAML has no comment nodes, so its comments
+/// are then lost. Every output is read back, and an edit whose result would not mean
+/// what the edited configuration means is refused.
 ///
 /// Not `Sendable` (Yams nodes hold anchors); create and use it inside one task.
 public struct BaseDefinitionEditor {
@@ -25,16 +28,21 @@ public struct BaseDefinitionEditor {
         guard yaml.utf8.count <= BaseDefinition.maximumSourceBytes else { throw BaseDefinitionError.oversized }
         guard !YAMLNesting.exceedsSafeDepth(yaml) else { throw BaseDefinitionError.invalidYAML(BaseDefinitionError.nestedTooDeeplyReason) }
         guard !YAMLAliasExpansion.exceedsAnchorCount(yaml) else { throw BaseDefinitionError.invalidYAML(BaseDefinitionError.aliasesExpandTooFarReason) }
+        let parser: Yams.Parser
         let rootNode: Node?
-        do { rootNode = try Yams.compose(yaml: yaml) }
-        catch { throw BaseDefinitionError.invalidYAML(String(describing: error)) }
+        do {
+            parser = try Yams.Parser(yaml: yaml)
+            rootNode = try parser.singleRoot()
+        } catch { throw BaseDefinitionError.invalidYAML(String(describing: error)) }
         if let rootNode, YAMLAliasExpansion.exceedsLimits(rootNode, sourceByteCount: yaml.utf8.count) {
             throw BaseDefinitionError.invalidYAML(BaseDefinitionError.aliasesExpandTooFarReason)
         }
         originalText = yaml
         lineEnding = Self.predominantLineEnding(in: yaml)
         let sourceLines = YAMLSourceLine.lines(of: yaml)
-        originalTree = rootNode.map { node in WrittenYAMLNode(node, sourceLines: sourceLines) }
+        // Yams keeps a node's anchor only as long as its parser lives, so the tree is
+        // described, anchors included, before the parser goes.
+        originalTree = withExtendedLifetime(parser) { rootNode.map { node in WrittenYAMLNode(node, sourceLines: sourceLines) } }
         switch rootNode {
         case nil:
             rootMapping = Node.Mapping([])
@@ -57,8 +65,27 @@ public struct BaseDefinitionEditor {
         if let originalTree, case .mapping = originalTree.content { originalMeaning = originalTree }
         if editedTree.hasSameMeaning(as: originalMeaning) { return originalText }
         if let splicedText = splicedYAML(editedTree: editedTree) { return splicedText }
-        let output = try Self.serializedYAML(of: .mapping(rootMapping))
+        let sourceLines = YAMLSourceLine.lines(of: originalText)
+        // Anchors, aliases and tags are kept when the text then reads back as the edited
+        // configuration. An anchor whose value changed, for one, can leave an alias meaning
+        // something else; every value is then written out where it is used.
+        let replacedLines = sourceLines.map { lines in 0..<lines.count }
+        var output = try RewrittenYAMLWriter.yaml(of: [(editedTree, originalTree)], as: .document, replacedLines: replacedLines, sourceLines: sourceLines)
+        if !Self.reads(output, as: editedTree) {
+            output = try RewrittenYAMLWriter.yaml(of: [(editedTree, nil)], as: .document, replacedLines: nil, sourceLines: sourceLines)
+        }
+        // A write that would drop a custom tag, or change what the file means otherwise,
+        // is refused rather than saved.
+        guard Self.reads(output, as: editedTree) else {
+            throw GraphiteError.invalidFile("Graphite cannot preserve this base's YAML tags or anchors while making that edit. The file has been left unchanged. Edit it in source instead.")
+        }
         return lineEnding == "\n" ? output : output.replacingOccurrences(of: "\n", with: lineEnding)
+    }
+
+    /// Whether `yaml` is a mapping that means exactly what `editedTree` means.
+    fileprivate static func reads(_ yaml: String, as editedTree: WrittenYAMLNode) -> Bool {
+        guard let readBack = try? Yams.compose(yaml: yaml), let readBackMapping = readBack.mapping else { return false }
+        return WrittenYAMLNode(.mapping(readBackMapping), sourceLines: nil).hasSameMeaning(as: editedTree)
     }
 
     /// The original text with only the changed entries rewritten, or nil when that
@@ -72,13 +99,14 @@ public struct BaseDefinitionEditor {
             outputLines = splicer.documentLines(original: originalTree, edited: editedTree)
         } else {
             // Only comments or blank lines so far: the new keys follow them.
-            outputLines = splicer.sourceText(0..<sourceLines.count) + (splicer.serializedEntryLines(of: rootMapping, firstLinePrefix: "", continuationPrefix: "") ?? [])
+            guard case .mapping(let editedEntries) = editedTree.content else { return nil }
+            outputLines = splicer.serializedEntryLines(of: editedEntries.map { entry in YAMLSplicer.RewrittenEntry(key: entry.key, value: entry.value, original: nil) },
+                                                       replacedLines: nil, firstLinePrefix: "", continuationPrefix: "")
+                .map { entryLines in splicer.sourceText(0..<sourceLines.count) + entryLines }
         }
         guard let outputLines else { return nil }
         let splicedText = splicer.joined(outputLines)
-        guard let readBack = try? Yams.compose(yaml: splicedText), let readBackMapping = readBack.mapping,
-              WrittenYAMLNode(.mapping(readBackMapping), sourceLines: nil).hasSameMeaning(as: editedTree) else { return nil }
-        return splicedText
+        return Self.reads(splicedText, as: editedTree) ? splicedText : nil
     }
 
     /// The line ending most lines use. Lines Graphite writes get it; lines it keeps
@@ -92,6 +120,9 @@ public struct BaseDefinitionEditor {
         return ["\n", "\r\n", "\r"].max { leftEnding, rightEnding in (countsByLineEnding[leftEnding] ?? 0) < (countsByLineEnding[rightEnding] ?? 0) } ?? "\n"
     }
 
+    /// `node` as YAML text with two-space indentation, no line wrapping and Unicode kept as
+    /// written. The node must be one made for the writer (`RewrittenYAMLWriter`): the
+    /// writer resolves implicit tags in place.
     static func serializedYAML(of node: Node) throws -> String {
         // libyaml treats every character outside the Basic Multilingual Plane (emoji such
         // as 🔴) as unprintable and re-quotes the whole scalar with `\U…` escapes. Such
@@ -104,9 +135,9 @@ public struct BaseDefinitionEditor {
         var placeholderByScalar: [Unicode.Scalar: Unicode.Scalar] = [:]
         for (scalar, placeholder) in zip(supplementaryScalars, freePlaceholders) { placeholderByScalar[scalar] = placeholder }
         guard placeholderByScalar.count == supplementaryScalars.count, !placeholderByScalar.isEmpty else {
-            return try Yams.serialize(node: Self.writableNode(node) { text in text }, indent: 2, width: -1, allowUnicode: true)
+            return try Yams.serialize(node: node, indent: 2, width: -1, allowUnicode: true)
         }
-        let protectedNode = Self.writableNode(node) { text in
+        let protectedNode = Self.replacingText(in: node) { text in
             String(String.UnicodeScalarView(text.unicodeScalars.map { scalar in placeholderByScalar[scalar] ?? scalar }))
         }
         let output = try Yams.serialize(node: protectedNode, indent: 2, width: -1, allowUnicode: true)
@@ -117,7 +148,7 @@ public struct BaseDefinitionEditor {
     /// Unicode's Private Use Area in the Basic Multilingual Plane.
     private static let privateUseRange: ClosedRange<UInt32> = 0xE000...0xF8FF
 
-    private static func visitText(in node: Node, _ visit: (String) -> Void) {
+    static func visitText(in node: Node, _ visit: (String) -> Void) {
         switch node {
         case .scalar(let scalar): visit(scalar.string)
         case .sequence(let sequence): sequence.forEach { item in visitText(in: item, visit) }
@@ -126,28 +157,16 @@ public struct BaseDefinitionEditor {
         }
     }
 
-    /// A copy for the YAML writer. It has new tag objects, because the writer resolves
-    /// implicit tags in place and the editor's own tree must keep them unresolved. The
-    /// writer never writes tags, so each scalar's style is chosen to keep its type:
-    /// `!!str 123` is quoted to stay text, and `!!int "7"` is written plain to stay a
-    /// number. Other tags (a plugin's `!custom`) cannot be kept.
-    private static func writableNode(_ node: Node, _ transformText: (String) -> String) -> Node {
+    /// `node` with every scalar's text replaced; tags, styles and anchors stay.
+    private static func replacingText(in node: Node, _ transformText: (String) -> String) -> Node {
         switch node {
         case .scalar(let scalar):
-            let tagName = scalar.tag.rawValue
-            let plainTypeName = Resolver.default.resolveTag(of: Node(scalar.string)).rawValue
-            let isQuoted = scalar.style != .plain && scalar.style != .any
-            var style = scalar.style
-            if (tagName == Tag.Name.str.rawValue || tagName == Tag.Name.nonSpecific.rawValue), !isQuoted, plainTypeName != Tag.Name.str.rawValue {
-                style = .doubleQuoted
-            } else if WrittenYAMLNode.writableTypeNames.contains(tagName), tagName != Tag.Name.str.rawValue, isQuoted, plainTypeName == tagName {
-                style = .plain
-            }
-            return .scalar(Node.Scalar(transformText(scalar.string), Tag(.implicit), style))
+            return .scalar(Node.Scalar(transformText(scalar.string), scalar.tag, scalar.style, nil, scalar.anchor))
         case .sequence(let sequence):
-            return .sequence(Node.Sequence(sequence.map { item in writableNode(item, transformText) }, Tag(.implicit), sequence.style))
+            return .sequence(Node.Sequence(sequence.map { item in replacingText(in: item, transformText) }, sequence.tag, sequence.style, nil, sequence.anchor))
         case .mapping(let mapping):
-            return .mapping(Node.Mapping(mapping.map { pair in (writableNode(pair.key, transformText), writableNode(pair.value, transformText)) }, Tag(.implicit), mapping.style))
+            let pairs = mapping.map { pair in (replacingText(in: pair.key, transformText), replacingText(in: pair.value, transformText)) }
+            return .mapping(Node.Mapping(pairs, mapping.tag, mapping.style, nil, mapping.anchor))
         case .alias:
             return node
         }
@@ -207,14 +226,19 @@ public struct BaseDefinitionEditor {
         try updateView(at: viewIndex) { viewMapping in viewMapping["limit"] = limit.map { limit in Node(String(max(limit, 1))) } }
     }
 
-    /// Keeps each property's existing spelling (`status` stays `status`), and writes new
-    /// ones with their prefix as Obsidian does (`note.status`).
+    /// Keeps each property's existing entry, so its spelling (`status` stays `status`),
+    /// its quoting and its tag stay as written, and writes new ones with their prefix as
+    /// Obsidian does (`note.status`). A tag on the list itself stays too.
     public mutating func setOrder(_ order: [BasePropertyIdentifier], forViewAt viewIndex: Int) throws {
         try updateView(at: viewIndex) { viewMapping in
-            let existingSpellings = (viewMapping["order"]?.sequence ?? []).compactMap { node in node.scalar?.string }
-            var spellingByProperty: [BasePropertyIdentifier: String] = [:]
-            for spelling in existingSpellings { spellingByProperty[BasePropertyIdentifier(spelling)] = spelling }
-            viewMapping["order"] = order.isEmpty ? nil : .sequence(Node.Sequence(order.map { property in Self.textNode(spellingByProperty[property] ?? property.rawValue) }))
+            let existingOrder = viewMapping["order"]?.sequence
+            var existingNodeByProperty: [BasePropertyIdentifier: Node] = [:]
+            for node in existingOrder ?? [] {
+                guard let spelling = node.scalar?.string else { continue }
+                existingNodeByProperty[BasePropertyIdentifier(spelling)] = node
+            }
+            let orderNodes = order.map { property in existingNodeByProperty[property] ?? Self.textNode(property.rawValue) }
+            viewMapping["order"] = order.isEmpty ? nil : .sequence(Node.Sequence(orderNodes, existingOrder?.tag ?? .implicit))
         }
     }
 
@@ -242,6 +266,26 @@ public struct BaseDefinitionEditor {
             var filterMapping = Node.Mapping([])
             filterMapping["and"] = .sequence(Node.Sequence(trimmedExpressions.map(Self.textNode)))
             viewMapping["filters"] = .mapping(filterMapping)
+        }
+    }
+
+    /// Sets the width of one table column in the view's `columnSize`, or removes it with
+    /// nil so the column takes its default width again. As in Obsidian, the width is whole
+    /// points under the property's full name (`note.status`), the only spelling Obsidian
+    /// reads. The widths of other columns stay as written.
+    public mutating func setColumnWidth(_ width: Double?, of property: BasePropertyIdentifier, forViewAt viewIndex: Int) throws {
+        try updateView(at: viewIndex) { viewMapping in
+            var widths = viewMapping["columnSize"]?.mapping ?? Node.Mapping([])
+            // A width under another spelling of the property (`status`) would stay beside
+            // the new one and leave the column two widths.
+            for keyNode in widths.keys where keyNode.string != property.rawValue && keyNode.string.map(BasePropertyIdentifier.init) == property {
+                widths[keyNode] = nil
+            }
+            let keyNode = widths.keys.first { keyNode in keyNode.string == property.rawValue } ?? Self.textNode(property.rawValue)
+            widths[keyNode] = width.map { width in
+                Node(String(Int(min(max(width, BaseView.minimumColumnWidth), BaseView.maximumColumnWidth).rounded())))
+            }
+            viewMapping["columnSize"] = widths.isEmpty ? nil : .mapping(widths)
         }
     }
 
@@ -372,9 +416,10 @@ struct YAMLSourceLine {
 }
 
 /// A YAML node reduced to what it means (scalar text and type, the order of entries)
-/// and where it starts in the original text. It is taken before anything asks Yams for
-/// a resolved tag, because Yams resolves implicit tags in place on objects that copies
-/// of the tree share.
+/// and how the file writes it: where it starts, its anchor or alias, its tag, and
+/// whether it is in flow style. It is taken before anything asks Yams for a resolved
+/// tag, because Yams resolves implicit tags in place on objects that copies of the tree
+/// share.
 struct WrittenYAMLNode {
     enum Content {
         case scalar(text: String, typeName: String)
@@ -385,6 +430,11 @@ struct WrittenYAMLNode {
     /// Tags whose type survives writing, through the scalar's style.
     static let writableTypeNames = Set([Tag.Name.str, .int, .float, .bool, .null, .timestamp].map(\.rawValue))
 
+    /// Tags a node has without one being written: none, `!`, and the types plain text, a
+    /// list and a mapping resolve to. Any other tag (a plugin's `!custom`, `!!binary`,
+    /// `!!set`) must be written for the node to keep it.
+    private static let impliedTagNames = Set([Tag.Name.implicit, .nonSpecific, .str, .seq, .map, .bool, .float, .null, .int, .merge, .timestamp, .value].map(\.rawValue))
+
     let node: Node
     let content: Content
     /// Zero-based line and column (in Unicode scalars, as libyaml counts) where the
@@ -394,37 +444,104 @@ struct WrittenYAMLNode {
     let column: Int?
     /// A block-style list or mapping; flow collections are only ever replaced whole.
     let isBlockCollection: Bool
+    /// A list or mapping written in flow style (`[…]`, `{…}`) in the original text. Yams
+    /// does not report the style of a collection it read.
+    let isFlowCollection: Bool
+    /// The anchor written on the node (`&name`), or the anchor its alias (`*name`)
+    /// repeats. Yams keeps anchors only while the parser that read them lives, so this is
+    /// nil in an edited tree.
+    let anchorName: String?
+    /// Whether the original text writes this node as an alias of an earlier one.
+    let isAlias: Bool
+    /// The node's tag when it is not an implied one.
+    let customTagName: String?
 
     init(_ node: Node, sourceLines: [YAMLSourceLine]?) {
+        var anchoredPositions = Set<AnchoredPosition>()
+        self.init(node, sourceLines: sourceLines, anchoredPositions: &anchoredPositions)
+    }
+
+    private struct AnchoredPosition: Hashable {
+        let line: Int
+        let column: Int
+        let anchorName: String
+    }
+
+    /// - Parameter anchoredPositions: Where anchored nodes were seen so far, in document
+    ///   order. Yams hands an alias the anchored node itself, position included, so a
+    ///   second node at an anchored position is an alias of the first.
+    private init(_ node: Node, sourceLines: [YAMLSourceLine]?, anchoredPositions: inout Set<AnchoredPosition>) {
         self.node = node
-        var firstCharacter: Unicode.Scalar?
+        var startsFlowCollection = false
         if let sourceLines, let mark = node.mark, sourceLines.indices.contains(mark.line - 1) {
             line = mark.line - 1
             column = mark.column - 1
-            firstCharacter = sourceLines[mark.line - 1].content.unicodeScalars.dropFirst(mark.column - 1).first
+            startsFlowCollection = Self.startsFlowCollection(sourceLines[mark.line - 1], column: mark.column - 1)
         } else {
             line = nil
             column = nil
         }
+        anchorName = node.anchor?.rawValue
+        if let anchorName, let line, let column {
+            isAlias = !anchoredPositions.insert(AnchoredPosition(line: line, column: column, anchorName: anchorName)).inserted
+        } else {
+            isAlias = false
+        }
+        let isInOriginalText = line != nil
         switch node {
         case .scalar(let scalar):
             content = .scalar(text: scalar.string, typeName: Self.typeName(of: scalar))
+            customTagName = Self.customTagName(scalar.tag)
+            isFlowCollection = false
             isBlockCollection = false
         case .sequence(let sequence):
-            content = .sequence(sequence.map { item in WrittenYAMLNode(item, sourceLines: sourceLines) })
-            isBlockCollection = firstCharacter == "-"
+            content = .sequence(sequence.map { item in WrittenYAMLNode(item, sourceLines: sourceLines, anchoredPositions: &anchoredPositions) })
+            customTagName = Self.customTagName(sequence.tag)
+            isFlowCollection = startsFlowCollection
+            isBlockCollection = isInOriginalText && !startsFlowCollection && !sequence.isEmpty
         case .mapping(let mapping):
-            content = .mapping(mapping.map { pair in (key: WrittenYAMLNode(pair.key, sourceLines: sourceLines), value: WrittenYAMLNode(pair.value, sourceLines: sourceLines)) })
-            isBlockCollection = !mapping.isEmpty && firstCharacter != nil && firstCharacter != "{" && firstCharacter != "["
+            content = .mapping(mapping.map { pair in
+                (key: WrittenYAMLNode(pair.key, sourceLines: sourceLines, anchoredPositions: &anchoredPositions),
+                 value: WrittenYAMLNode(pair.value, sourceLines: sourceLines, anchoredPositions: &anchoredPositions))
+            })
+            customTagName = Self.customTagName(mapping.tag)
+            isFlowCollection = startsFlowCollection
+            isBlockCollection = isInOriginalText && !startsFlowCollection && !mapping.isEmpty
         case .alias:
             content = .scalar(text: "", typeName: Tag.Name.null.rawValue)
+            customTagName = nil
+            isFlowCollection = false
             isBlockCollection = false
         }
     }
 
+    /// Whether the text at `column` of a line, after any anchor and tag written there,
+    /// opens a flow list or mapping.
+    static func startsFlowCollection(_ sourceLine: YAMLSourceLine, column: Int) -> Bool {
+        var remainder = sourceLine.content.unicodeScalars.dropFirst(column)
+        while let first = remainder.first {
+            switch first {
+            case " ", "\t":
+                remainder = remainder.dropFirst()
+            case "&":
+                // libyaml reads an anchor name of letters, digits, `-` and `_`.
+                remainder = remainder.dropFirst().drop { scalar in scalar == "-" || scalar == "_" || (scalar.isASCII && CharacterSet.alphanumerics.contains(scalar)) }
+            case "!":
+                remainder = remainder.drop { scalar in scalar != " " && scalar != "\t" }
+            default:
+                return first == "[" || first == "{"
+            }
+        }
+        return false
+    }
+
+    private static func customTagName(_ tag: Tag) -> String? {
+        impliedTagNames.contains(tag.rawValue) ? nil : tag.rawValue
+    }
+
     /// The type a reader gives the scalar once it is written: an explicit core tag,
-    /// `str` for quoted text, and otherwise what the plain text resolves to. Other tags
-    /// are dropped by the writer, so they do not count.
+    /// `str` for quoted text, and otherwise what the plain text resolves to. A custom tag
+    /// is compared on its own (`customTagName`).
     private static func typeName(of scalar: Node.Scalar) -> String {
         let tagName = scalar.tag.rawValue
         if writableTypeNames.contains(tagName) { return tagName }
@@ -432,7 +549,19 @@ struct WrittenYAMLNode {
         return Resolver.default.resolveTag(of: Node(scalar.string)).rawValue
     }
 
+    /// The line where a block list's or mapping's first item or key starts. With an
+    /// anchor or a tag on the key's line (`order: &columns`), the collection itself
+    /// starts there, before its content.
+    var firstContentLine: Int? {
+        switch content {
+        case .scalar: nil
+        case .sequence(let items): items.first?.line
+        case .mapping(let entries): entries.first?.key.line
+        }
+    }
+
     func hasSameMeaning(as other: WrittenYAMLNode) -> Bool {
+        guard customTagName == other.customTagName else { return false }
         switch (content, other.content) {
         case (.scalar(let text, let typeName), .scalar(let otherText, let otherTypeName)):
             return text == otherText && typeName == otherTypeName
@@ -445,6 +574,219 @@ struct WrittenYAMLNode {
         default:
             return false
         }
+    }
+}
+
+/// Turns nodes Graphite rewrites into YAML text. What the file wrote on the parts that
+/// did not change is written again: an anchor (`&name`), an alias (`*name`), a tag no
+/// plain text implies (`!custom`), and flow style. Yams reads none of these back on its
+/// own: it hands an alias a copy of the anchored node, drops anchors with the parser, never
+/// writes a scalar's tag and does not report a collection's style.
+///
+/// Each node to write comes with the node it replaces in the original text, when there
+/// is one. Only a node that still means what its original meant is written as an alias,
+/// and the caller reads the result back, so a kept anchor or alias can never change
+/// what the file means.
+struct RewrittenYAMLWriter {
+    typealias ReplacingNode = (edited: WrittenYAMLNode, original: WrittenYAMLNode?)
+
+    enum Layout {
+        /// One node: the whole document.
+        case document
+        /// The entries of a mapping, as alternating keys and values.
+        case mappingEntries
+        /// The items of a list.
+        case sequenceItems
+    }
+
+    /// The original lines the written text replaces. An anchor defined within them is
+    /// written again with its node; one defined before them is still in the file for an
+    /// alias to repeat.
+    private let replacedLines: Range<Int>?
+    private let sourceLines: [YAMLSourceLine]?
+    /// Yams nodes hold their anchors weakly, so the anchors live here until the text is written.
+    private var anchors: [Anchor] = []
+    /// What each anchor written so far stands for.
+    private var definedAnchors: [String: WrittenYAMLNode] = [:]
+    /// A scalar's tag is written in place of a marker anchor, by marker name.
+    private var scalarTagTexts: [String: String] = [:]
+    /// What every marker name starts with: text that appears nowhere in what is written.
+    private let tagMarkerStem: String
+
+    /// The YAML text of `nodes`, laid out as a document, mapping entries or list items.
+    static func yaml(of nodes: [ReplacingNode], as layout: Layout, replacedLines: Range<Int>?, sourceLines: [YAMLSourceLine]?) throws -> String {
+        var tagMarkerStem = "GraphiteTagMarker"
+        while nodes.contains(where: { node in Self.contains(tagMarkerStem, in: node.edited) || (node.original.map { original in Self.contains(tagMarkerStem, in: original) } ?? false) }) {
+            tagMarkerStem += "X"
+        }
+        var writer = RewrittenYAMLWriter(replacedLines: replacedLines, sourceLines: sourceLines, tagMarkerStem: tagMarkerStem + "_")
+        let writableNodes = nodes.map { node in writer.writableNode(for: node.edited, replacing: node.original) }
+        let rootNode: Node
+        switch layout {
+        case .document:
+            guard let onlyNode = writableNodes.first, writableNodes.count == 1 else { throw GraphiteError.invalidFile("A YAML document has one root.") }
+            rootNode = onlyNode
+        case .mappingEntries:
+            var pairs: [(Node, Node)] = []
+            for pairStart in stride(from: 0, to: writableNodes.count - 1, by: 2) { pairs.append((writableNodes[pairStart], writableNodes[pairStart + 1])) }
+            rootNode = .mapping(Node.Mapping(pairs))
+        case .sequenceItems:
+            rootNode = .sequence(Node.Sequence(writableNodes))
+        }
+        return try writer.text(of: rootNode)
+    }
+
+    private init(replacedLines: Range<Int>?, sourceLines: [YAMLSourceLine]?, tagMarkerStem: String) {
+        self.replacedLines = replacedLines
+        self.sourceLines = sourceLines
+        self.tagMarkerStem = tagMarkerStem
+    }
+
+    /// Whether `text` appears in a scalar or an anchor name of the tree.
+    private static func contains(_ text: String, in node: WrittenYAMLNode) -> Bool {
+        if node.anchorName?.contains(text) == true { return true }
+        switch node.content {
+        case .scalar(let scalarText, _): return scalarText.contains(text)
+        case .sequence(let items): return items.contains { item in contains(text, in: item) }
+        case .mapping(let entries): return entries.contains { entry in contains(text, in: entry.key) || contains(text, in: entry.value) }
+        }
+    }
+
+    // MARK: Nodes for the writer
+
+    /// A node for the YAML writer. It has new tag objects, because the writer resolves
+    /// implicit tags in place and the editor's own tree must keep them unresolved.
+    private mutating func writableNode(for edited: WrittenYAMLNode, replacing original: WrittenYAMLNode?) -> Node {
+        var anchor: Anchor?
+        if let original, let anchorName = original.anchorName {
+            if let definedNode = definedAnchors[anchorName] {
+                // Already written with its anchor. A node that means something else by now
+                // is written out in full, so the anchor keeps meaning what it meant.
+                if edited.hasSameMeaning(as: definedNode) { return .alias(Node.Alias(makeAnchor(named: anchorName))) }
+            } else if !original.isAlias || original.line.map({ definitionLine in replacedLines?.contains(definitionLine) == true }) == true {
+                // The anchored node itself, or the first alias of one whose own lines are
+                // being replaced: the anchor is written here.
+                anchor = makeAnchor(named: anchorName)
+                definedAnchors[anchorName] = edited
+            } else if edited.hasSameMeaning(as: original) {
+                return .alias(Node.Alias(makeAnchor(named: anchorName)))
+            }
+        }
+        switch edited.content {
+        case .scalar:
+            guard case .scalar(let scalar) = edited.node else { return edited.node }
+            return writableScalar(scalar, customTagName: edited.customTagName, anchor: anchor)
+        case .sequence(let items):
+            var originalItems: [WrittenYAMLNode] = []
+            if case .sequence(let items)? = original?.content { originalItems = items }
+            let pairedItems = Self.pairing(items, with: originalItems)
+            var style = Node.Sequence.Style.any
+            if case .sequence(let sequence) = edited.node { style = isWrittenInFlowStyle(sequence.mark) ? .flow : sequence.style }
+            let writableItems = zip(items, pairedItems).map { item, pairedItem in writableNode(for: item, replacing: pairedItem) }
+            return .sequence(Node.Sequence(writableItems, collectionTag(edited.customTagName), style, nil, anchor))
+        case .mapping(let entries):
+            var unusedOriginalEntries: [(key: WrittenYAMLNode, value: WrittenYAMLNode)] = []
+            if case .mapping(let entries)? = original?.content { unusedOriginalEntries = entries }
+            var style = Node.Mapping.Style.any
+            if case .mapping(let mapping) = edited.node { style = isWrittenInFlowStyle(mapping.mark) ? .flow : mapping.style }
+            var pairs: [(Node, Node)] = []
+            for entry in entries {
+                let originalEntry = unusedOriginalEntries.firstIndex { originalEntry in originalEntry.key.hasSameMeaning(as: entry.key) }
+                    .map { entryIndex in unusedOriginalEntries.remove(at: entryIndex) }
+                pairs.append((writableNode(for: entry.key, replacing: originalEntry?.key), writableNode(for: entry.value, replacing: originalEntry?.value)))
+            }
+            return .mapping(Node.Mapping(pairs, collectionTag(edited.customTagName), style, nil, anchor))
+        }
+    }
+
+    /// The original item each edited item replaces: the one at its place when it means
+    /// the same, else an item elsewhere that means the same (a reordered list), else the
+    /// one at its place, changed where it is.
+    static func pairing(_ editedItems: [WrittenYAMLNode], with originalItems: [WrittenYAMLNode]) -> [WrittenYAMLNode?] {
+        var pairedOriginalIndices = [Int?](repeating: nil, count: editedItems.count)
+        var unusedOriginalIndices = Set(originalItems.indices)
+        for editedIndex in editedItems.indices where unusedOriginalIndices.contains(editedIndex) && editedItems[editedIndex].hasSameMeaning(as: originalItems[editedIndex]) {
+            pairedOriginalIndices[editedIndex] = unusedOriginalIndices.remove(editedIndex)
+        }
+        for editedIndex in editedItems.indices where pairedOriginalIndices[editedIndex] == nil {
+            guard let originalIndex = unusedOriginalIndices.sorted().first(where: { originalIndex in editedItems[editedIndex].hasSameMeaning(as: originalItems[originalIndex]) }) else { continue }
+            pairedOriginalIndices[editedIndex] = unusedOriginalIndices.remove(originalIndex)
+        }
+        for editedIndex in editedItems.indices where pairedOriginalIndices[editedIndex] == nil && unusedOriginalIndices.contains(editedIndex) {
+            pairedOriginalIndices[editedIndex] = unusedOriginalIndices.remove(editedIndex)
+        }
+        return pairedOriginalIndices.map { originalIndex in originalIndex.map { originalIndex in originalItems[originalIndex] } }
+    }
+
+    private mutating func makeAnchor(named name: String) -> Anchor {
+        let anchor = Anchor(rawValue: name)
+        anchors.append(anchor)
+        return anchor
+    }
+
+    private func collectionTag(_ customTagName: String?) -> Tag {
+        customTagName.map { tagName in Tag(Tag.Name(rawValue: tagName)) } ?? Tag(.implicit)
+    }
+
+    /// Whether the collection read at `mark` is in flow style in the original text. A
+    /// node Graphite made has no mark and takes the writer's block style.
+    private func isWrittenInFlowStyle(_ mark: Mark?) -> Bool {
+        guard let sourceLines, let mark, sourceLines.indices.contains(mark.line - 1) else { return false }
+        return WrittenYAMLNode.startsFlowCollection(sourceLines[mark.line - 1], column: mark.column - 1)
+    }
+
+    /// The writer never writes a scalar's tag, so each scalar's style is chosen to keep
+    /// its type: `!!str 123` is quoted to stay text, and `!!int "7"` is written plain to
+    /// stay a number. A tag that no style implies is written through a marker anchor,
+    /// which `text(of:)` replaces with the tag.
+    private mutating func writableScalar(_ scalar: Node.Scalar, customTagName: String?, anchor: Anchor?) -> Node {
+        if let customTagName, let tagText = Self.tagText(customTagName) {
+            let markerName = tagMarkerStem + String(scalarTagTexts.count) + "_"
+            scalarTagTexts[markerName] = (anchor.map { anchor in "&" + anchor.rawValue + " " } ?? "") + tagText
+            return .scalar(Node.Scalar(scalar.string, Tag(.implicit), scalar.style, nil, makeAnchor(named: markerName)))
+        }
+        let tagName = scalar.tag.rawValue
+        let plainTypeName = Resolver.default.resolveTag(of: Node(scalar.string)).rawValue
+        let isQuoted = scalar.style != .plain && scalar.style != .any
+        var style = scalar.style
+        if (tagName == Tag.Name.str.rawValue || tagName == Tag.Name.nonSpecific.rawValue), !isQuoted, plainTypeName != Tag.Name.str.rawValue {
+            style = .doubleQuoted
+        } else if WrittenYAMLNode.writableTypeNames.contains(tagName), tagName != Tag.Name.str.rawValue, isQuoted, plainTypeName == tagName {
+            style = .plain
+        }
+        return .scalar(Node.Scalar(scalar.string, Tag(.implicit), style, nil, anchor))
+    }
+
+    // MARK: Text
+
+    private static let standardTagPrefix = "tag:yaml.org,2002:"
+    /// Characters a tag can be written with as it is. Others would need escaping, and
+    /// such a tag is left out, which the caller's reading back then notices.
+    private static let plainTagCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.:/~")
+
+    /// A tag as YAML writes it: `!!set` for a standard type, `!custom` for a local tag,
+    /// and `!<…>` for any other.
+    private static func tagText(_ tagName: String) -> String? {
+        let writtenText: String
+        let suffix: Substring
+        if tagName.hasPrefix(standardTagPrefix) {
+            suffix = tagName.dropFirst(standardTagPrefix.count)
+            writtenText = "!!" + suffix
+        } else if tagName.hasPrefix("!") {
+            suffix = tagName.dropFirst()
+            writtenText = tagName
+        } else {
+            suffix = Substring(tagName)
+            writtenText = "!<" + tagName + ">"
+        }
+        guard !suffix.isEmpty, suffix.unicodeScalars.allSatisfy(plainTagCharacters.contains) else { return nil }
+        return writtenText
+    }
+
+    private func text(of rootNode: Node) throws -> String {
+        var output = try withExtendedLifetime(anchors) { try BaseDefinitionEditor.serializedYAML(of: rootNode) }
+        for (markerName, tagText) in scalarTagTexts { output = output.replacingOccurrences(of: "&" + markerName, with: tagText) }
+        return output
     }
 }
 
@@ -507,10 +849,16 @@ struct YAMLSplicer {
         return text
     }
 
-    /// `node` written as YAML: the first line after `firstLinePrefix`, the others after
+    /// A mapping entry to write, with the entry it replaces in the original text.
+    struct RewrittenEntry {
+        let key: WrittenYAMLNode
+        let value: WrittenYAMLNode
+        let original: (key: WrittenYAMLNode, value: WrittenYAMLNode)?
+    }
+
+    /// YAML text as lines: the first line after `firstLinePrefix`, the others after
     /// `continuationPrefix`, every line ending with the file's line ending.
-    func serializedLines(of node: Node, firstLinePrefix: String, continuationPrefix: String) -> [String]? {
-        guard let text = try? BaseDefinitionEditor.serializedYAML(of: node) else { return nil }
+    private func lines(ofYAML text: String, firstLinePrefix: String, continuationPrefix: String) -> [String] {
         var lines = text.components(separatedBy: "\n")
         if lines.last == "" { lines.removeLast() }
         if listIndentation > 0 { lines = Self.indentingListsUnderKeys(lines, by: listIndentation) }
@@ -519,12 +867,21 @@ struct YAMLSplicer {
         }
     }
 
-    /// Mapping entries written as YAML like `serializedLines`.
-    func serializedEntryLines(of mapping: Node.Mapping, firstLinePrefix: String, continuationPrefix: String) -> [String]? {
+    /// List items written as YAML lines.
+    /// - Parameter replacedLines: The original lines the items replace, if any.
+    func serializedItemLines(of items: [RewrittenYAMLWriter.ReplacingNode], replacedLines: Range<Int>?, firstLinePrefix: String, continuationPrefix: String) -> [String]? {
+        guard let text = try? RewrittenYAMLWriter.yaml(of: items, as: .sequenceItems, replacedLines: replacedLines, sourceLines: sourceLines) else { return nil }
+        return lines(ofYAML: text, firstLinePrefix: firstLinePrefix, continuationPrefix: continuationPrefix)
+    }
+
+    /// Mapping entries written as YAML lines.
+    /// - Parameter replacedLines: The original lines the entries replace, if any.
+    func serializedEntryLines(of entries: [RewrittenEntry], replacedLines: Range<Int>?, firstLinePrefix: String, continuationPrefix: String) -> [String]? {
         var output: [String] = []
-        for (entryIndex, pair) in mapping.enumerated() {
-            guard let entryLines = serializedLines(of: .mapping(Node.Mapping([pair])), firstLinePrefix: entryIndex == 0 ? firstLinePrefix : continuationPrefix, continuationPrefix: continuationPrefix) else { return nil }
-            output += entryLines
+        for (entryIndex, entry) in entries.enumerated() {
+            let nodes: [RewrittenYAMLWriter.ReplacingNode] = [(entry.key, entry.original?.key), (entry.value, entry.original?.value)]
+            guard let text = try? RewrittenYAMLWriter.yaml(of: nodes, as: .mappingEntries, replacedLines: replacedLines, sourceLines: sourceLines) else { return nil }
+            output += lines(ofYAML: text, firstLinePrefix: entryIndex == 0 ? firstLinePrefix : continuationPrefix, continuationPrefix: continuationPrefix)
         }
         return output
     }
@@ -615,7 +972,8 @@ struct YAMLSplicer {
     /// A block mapping whose first key starts on its first line and whose entries end
     /// before `regionEnd`. The first key may follow a list item's `- ` on that line.
     private func mappingLines(original: WrittenYAMLNode, edited: WrittenYAMLNode, regionEnd: Int) -> [String]? {
-        guard original.isBlockCollection, case .mapping(let originalEntries) = original.content, case .mapping(let editedEntries) = edited.content,
+        // An alias has the lines of the node it repeats, which are not its own to replace.
+        guard original.isBlockCollection, !original.isAlias, case .mapping(let originalEntries) = original.content, case .mapping(let editedEntries) = edited.content,
               let keyColumn = originalEntries.first?.key.column else { return nil }
         var startLines: [Int] = []
         for (entryIndex, entry) in originalEntries.enumerated() {
@@ -656,8 +1014,9 @@ struct YAMLSplicer {
                 } else if let valueLines = valueLines(original: originalEntry.value, edited: editedEntry.value, keyLine: entryStart, regionEnd: entryContentEnd) {
                     output += sourceText(entryStart..<entryStart + 1) + valueLines
                 } else {
-                    let entryMapping = Node.Mapping([(editedEntry.key.node, editedEntry.value.node)])
-                    guard let entryLines = serializedEntryLines(of: entryMapping, firstLinePrefix: linePrefix, continuationPrefix: continuationPrefix) else { return nil }
+                    let rewrittenEntry = RewrittenEntry(key: editedEntry.key, value: editedEntry.value, original: originalEntry)
+                    guard let entryLines = serializedEntryLines(of: [rewrittenEntry], replacedLines: entryStart..<entryEnd,
+                                                                firstLinePrefix: linePrefix, continuationPrefix: continuationPrefix) else { return nil }
                     output += entryLines
                 }
             } else if originalIndex == 0, !firstLinePrefix.allSatisfy({ character in character == " " }) {
@@ -665,8 +1024,8 @@ struct YAMLSplicer {
                 return nil
             }
             if originalIndex == originalEntries.count - 1 {
-                let newEntries = Node.Mapping(newEditedIndices.map { editedIndex in (editedEntries[editedIndex].key.node, editedEntries[editedIndex].value.node) })
-                guard let entryLines = serializedEntryLines(of: newEntries, firstLinePrefix: continuationPrefix, continuationPrefix: continuationPrefix) else { return nil }
+                let newEntries = newEditedIndices.map { editedIndex in RewrittenEntry(key: editedEntries[editedIndex].key, value: editedEntries[editedIndex].value, original: nil) }
+                guard let entryLines = serializedEntryLines(of: newEntries, replacedLines: nil, firstLinePrefix: continuationPrefix, continuationPrefix: continuationPrefix) else { return nil }
                 output += entryLines
             }
             output += sourceText(entryContentEnd..<entryEnd)
@@ -674,11 +1033,12 @@ struct YAMLSplicer {
         return output
     }
 
-    /// The lines after a key for a changed block list or mapping that starts on a later
-    /// line than its key, spliced in turn. Comment lines between the key and the value
-    /// stay.
+    /// The lines after a key for a changed block list or mapping whose content starts on a
+    /// later line than its key, spliced in turn. The key's line stays, with an anchor or a
+    /// tag written on it (`order: &columns`), and so do comment lines between the key and
+    /// the value.
     private func valueLines(original: WrittenYAMLNode, edited: WrittenYAMLNode, keyLine: Int, regionEnd: Int) -> [String]? {
-        guard original.isBlockCollection, let valueLine = original.line, valueLine > keyLine, valueLine < regionEnd else { return nil }
+        guard original.isBlockCollection, !original.isAlias, let valueLine = original.firstContentLine, valueLine > keyLine, valueLine < regionEnd else { return nil }
         let nestedLines: [String]?
         switch (original.content, edited.content) {
         case (.mapping, .mapping): nestedLines = mappingLines(original: original, edited: edited, regionEnd: regionEnd)
@@ -692,7 +1052,7 @@ struct YAMLSplicer {
     /// `regionEnd`. The editor changes items in place, or inserts or removes one; other
     /// changes (a reordered `order`) rewrite every item at the list's indentation.
     private func sequenceLines(original: WrittenYAMLNode, edited: WrittenYAMLNode, regionEnd: Int) -> [String]? {
-        guard original.isBlockCollection, case .sequence(let originalItems) = original.content, case .sequence(let editedItems) = edited.content,
+        guard original.isBlockCollection, !original.isAlias, case .sequence(let originalItems) = original.content, case .sequence(let editedItems) = edited.content,
               !originalItems.isEmpty else { return nil }
         var itemLines: [Int] = []
         var dashColumn: Int?
@@ -713,6 +1073,8 @@ struct YAMLSplicer {
         let comparedCount = min(originalItems.count, editedItems.count)
         let firstDifference = (0..<comparedCount).first { itemIndex in !originalItems[itemIndex].hasSameMeaning(as: editedItems[itemIndex]) } ?? comparedCount
         let itemPrefix = String(repeating: " ", count: dashColumn)
+        // The original item each edited item replaces, wherever it was in the list.
+        let replacedItems = RewrittenYAMLWriter.pairing(editedItems, with: originalItems)
         var insertedEditedIndex: Int?
         var removedOriginalIndex: Int?
         switch editedItems.count - originalItems.count {
@@ -723,14 +1085,15 @@ struct YAMLSplicer {
         case -1 where itemsMatch(firstDifference + 1..<originalItems.count, firstDifference..<editedItems.count):
             removedOriginalIndex = firstDifference
         default:
-            guard let lastItemLine = itemLines.last, !editedItems.isEmpty,
-                  let rewrittenLines = serializedLines(of: .sequence(Node.Sequence(editedItems.map(\.node))), firstLinePrefix: itemPrefix, continuationPrefix: itemPrefix) else { return nil }
+            guard let firstItemLine = itemLines.first, let lastItemLine = itemLines.last, !editedItems.isEmpty,
+                  let rewrittenLines = serializedItemLines(of: Array(zip(editedItems, replacedItems)), replacedLines: firstItemLine..<regionEnd,
+                                                           firstLinePrefix: itemPrefix, continuationPrefix: itemPrefix) else { return nil }
             return rewrittenLines + sourceText(contentEnd(start: lastItemLine, end: regionEnd)..<regionEnd)
         }
 
         func insertedItemLines() -> [String]? {
             guard let insertedEditedIndex else { return [] }
-            return serializedLines(of: .sequence(Node.Sequence([editedItems[insertedEditedIndex].node])), firstLinePrefix: itemPrefix, continuationPrefix: itemPrefix)
+            return serializedItemLines(of: [(editedItems[insertedEditedIndex], nil)], replacedLines: nil, firstLinePrefix: itemPrefix, continuationPrefix: itemPrefix)
         }
         var output: [String] = []
         for originalIndex in originalItems.indices {
@@ -749,10 +1112,13 @@ struct YAMLSplicer {
                 let editedItem = editedItems[editedIndex]
                 if originalItem.hasSameMeaning(as: editedItem) {
                     output += sourceText(itemStart..<itemContentEnd)
-                } else if let lines = mappingLines(original: originalItem, edited: editedItem, regionEnd: itemContentEnd) {
-                    output += lines
+                } else if let firstKeyLine = originalItem.firstContentLine, firstKeyLine >= itemStart,
+                          let lines = mappingLines(original: originalItem, edited: editedItem, regionEnd: itemContentEnd) {
+                    // An item whose keys start under its dash (`- &shared`) keeps that line.
+                    output += sourceText(itemStart..<firstKeyLine) + lines
                 } else {
-                    guard let lines = serializedLines(of: .sequence(Node.Sequence([editedItem.node])), firstLinePrefix: itemPrefix, continuationPrefix: itemPrefix) else { return nil }
+                    guard let lines = serializedItemLines(of: [(editedItem, replacedItems[editedIndex])], replacedLines: itemStart..<itemEnd,
+                                                          firstLinePrefix: itemPrefix, continuationPrefix: itemPrefix) else { return nil }
                     output += lines
                 }
             }

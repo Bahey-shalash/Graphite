@@ -127,6 +127,10 @@ public struct BaseQueryEngine {
         let view = definition.views.isEmpty ? BaseView(id: 0, type: .table, name: "Table") : definition.views[min(max(viewIndex, 0), definition.views.count - 1)]
         let evaluator = BaseEvaluator(formulas: definition.formulas, environment: environment, thisRecord: thisRecord, knownRecords: records, provider: provider)
         let columns = view.visibleProperties.map { property in BaseColumn(property: property, displayName: definition.displayName(for: property)) }
+        guard !definition.hasUnreadableFilters, !view.hasUnreadableFilters else {
+            return BaseQueryResult(view: view, columns: columns, groups: [], summaries: [:], matchingCount: 0,
+                                   problems: ["This view's filters could not be fully read. Fix the filters in the base file to see results."], mapCenter: nil)
+        }
         var problems: [String] = []
         let filters = [definition.filters, view.filters].compactMap { filter in filter }
         let filterProblems = Self.syntaxProblems(in: filters, evaluator: evaluator)
@@ -262,7 +266,7 @@ public struct BaseQueryEngine {
         case .number: 1
         case .date: 2
         case .duration: 3
-        case .string, .link, .file, .image, .icon: textSortingKind
+        case .string, .link, .file, .image, .icon, .html: textSortingKind
         case .list: 5
         case .object: 6
         case .regularExpression: 7
@@ -333,7 +337,7 @@ public struct BaseQueryEngine {
             if let formulaText = definition.summaryFormulas[summaryName] {
                 do { summaryValue = .value(try evaluator.evaluateSummary(sourceText: formulaText, values: values)) }
                 catch { summaryValue = .error(error.localizedDescription) }
-            } else if let defaultValue = BaseSummaryCalculator.summarize(summaryName, values: values, linkedFile: { link in
+            } else if let defaultValue = BaseSummaryCalculator.summarize(summaryName, values: values, calendar: environment.calendar, linkedFile: { link in
                 link.isExternal ? nil : evaluator.resolveLink(link.target, from: link.source)
             }) {
                 summaryValue = .value(defaultValue)
@@ -423,9 +427,11 @@ public enum BaseSummaryCalculator {
     public static let anySummaryNames = ["Empty", "Filled", "Unique"]
 
     /// The summary value, or nil for a name that is not a built-in summary.
+    /// - Parameter calendar: The time zone a Range of dates is measured in.
     /// - Parameter linkedFile: The file a link resolves to, so that Unique counts links
     ///   to one note once however they are written.
-    public static func summarize(_ name: String, values: [BaseValue], linkedFile: (BaseLink) -> VaultPath? = { _ in nil }) -> BaseValue? {
+    public static func summarize(_ name: String, values: [BaseValue], calendar: Calendar = BaseDateFormatting.displayCalendar,
+                                 linkedFile: (BaseLink) -> VaultPath? = { _ in nil }) -> BaseValue? {
         let numbers = values.compactMap { value -> Double? in if case .number(let number) = value { return number } else { return nil } }
         let dates = values.compactMap { value -> BaseDate? in if case .date(let date) = value { return date } else { return nil } }
         func count(_ predicate: (BaseValue) -> Bool) -> BaseValue { .number(Double(values.filter(predicate).count)) }
@@ -444,7 +450,7 @@ public enum BaseSummaryCalculator {
             if let minimum = numbers.min(), let maximum = numbers.max() { return .number(maximum - minimum) }
             guard let earliest = dates.min(by: { leftDate, rightDate in leftDate.date < rightDate.date }),
                   let latest = dates.max(by: { leftDate, rightDate in leftDate.date < rightDate.date }) else { return .null }
-            return .duration(BaseDuration(milliseconds: latest.date.timeIntervalSince(earliest.date) * 1_000))
+            return .duration(BaseDateArithmetic.wallClockDuration(from: earliest.date, to: latest.date, calendar: calendar))
         case "earliest": return dates.min { leftDate, rightDate in leftDate.date < rightDate.date }.map(BaseValue.date) ?? .null
         case "latest": return dates.max { leftDate, rightDate in leftDate.date < rightDate.date }.map(BaseValue.date) ?? .null
         case "checked": return count { value in value == .boolean(true) }

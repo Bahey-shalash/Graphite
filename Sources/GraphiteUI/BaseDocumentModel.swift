@@ -28,6 +28,7 @@ final class BaseDocumentModel {
 
     private(set) var definition: BaseDefinition?
     private(set) var loadErrorMessage: String?
+    private(set) var viewSelectionErrorMessage: String?
     private(set) var result: BaseQueryResult?
     private(set) var candidateCount = 0
     private(set) var loadedRecordCount = 0
@@ -144,9 +145,16 @@ final class BaseDocumentModel {
 
     private func restoreSelection(in parsedDefinition: BaseDefinition, previouslySelectedView: BaseView?) {
         let views = parsedDefinition.views
-        if let preferredViewName, let namedIndex = views.firstIndex(where: { view in view.name == preferredViewName }) {
-            selectedViewIndex = namedIndex
+        if let preferredViewName {
             self.preferredViewName = nil
+            if let namedIndex = views.firstIndex(where: { view in view.name == preferredViewName }) {
+                selectedViewIndex = namedIndex
+                viewSelectionErrorMessage = nil
+                return
+            }
+            viewSelectionErrorMessage = "This base has no view named “\(preferredViewName)”. Showing “\(views.first?.name ?? "Table")” instead."
+            selectedViewIndex = 0
+            sortOverride = nil
             return
         }
         guard let previouslySelectedView else {
@@ -186,6 +194,11 @@ final class BaseDocumentModel {
             try Task.checkCancellation()
             let thisRecord = indexedContext ?? BaseFileRecord(path: contextPath, size: 0, createdDate: .now, modifiedDate: .now)
             let view = definition.views[viewIndex]
+            if definition.hasUnreadableFilters || view.hasUnreadableFilters {
+                let engine = BaseQueryEngine(definition: definition, environment: environment, thisRecord: thisRecord, provider: provider)
+                return QueryOutcome(result: engine.run(viewIndex: viewIndex, records: [], sortOverride: sortOverride),
+                                    candidateCount: 0, loadedRecordCount: 0, availablePropertyKeys: [], loadedRecords: LoadedBaseRecords())
+            }
             let filters = [definition.filters, view.filters].compactMap { filter in filter }
             let prefilter = BaseRecordPrefilter.extract(from: filters, definition: definition, environment: environment, thisRecord: thisRecord, provider: provider)
             let (batch, loadedRecords) = try await index.baseRecords(matching: prefilter, reusing: previouslyLoadedRecords)
@@ -250,12 +263,17 @@ final class BaseDocumentModel {
             preferredViewName = viewName
             return
         }
-        guard let viewIndex = views.firstIndex(where: { view in view.name == viewName }) else { return }
+        guard let viewIndex = views.firstIndex(where: { view in view.name == viewName }) else {
+            viewSelectionErrorMessage = "This base has no view named “\(viewName)”. Showing “\(selectedView?.name ?? "Table")” instead."
+            return
+        }
         await selectView(viewIndex)
     }
 
     func selectView(_ viewIndex: Int) async {
-        guard views.indices.contains(viewIndex), viewIndex != selectedViewIndex else { return }
+        guard views.indices.contains(viewIndex) else { return }
+        viewSelectionErrorMessage = nil
+        guard viewIndex != selectedViewIndex else { return }
         selectedViewIndex = viewIndex
         sortOverride = nil
         result = nil
@@ -355,6 +373,17 @@ final class BaseDocumentModel {
             self.sortOverride = nil
             await runQuery()
         }
+    }
+
+    /// Writes a table column's width into the selected view's `columnSize`, as Obsidian
+    /// does when a column's edge is dragged. Nil removes the width, so the column takes
+    /// its default one again.
+    /// - Returns: Whether the base was saved.
+    @discardableResult
+    func setColumnWidth(_ width: Double?, of property: BasePropertyIdentifier) async -> Bool {
+        guard let view = selectedView else { return false }
+        let viewPosition = view.id
+        return await editDefinition(target: BaseViewTarget(view), { editor in try editor.setColumnWidth(width, of: property, forViewAt: viewPosition) }) != nil
     }
 
     func addView(type: BaseViewType) async {
@@ -516,6 +545,52 @@ final class BaseDocumentModel {
         return true
     }
 
+    // MARK: Moving cards between a board's columns
+
+    /// Whether a board's card can move to another column: the view groups by a note
+    /// property, which moving writes, and the card is a note the base may edit. Obsidian
+    /// also moves no card of a board grouped by a formula or a file property.
+    func canMoveToGroup(_ path: VaultPath) -> Bool {
+        guard let groupBy = selectedView?.groupBy else { return false }
+        return canEdit(groupBy.property, of: path)
+    }
+
+    /// Moves a card to the column of `groupKey` by writing that value into the note's
+    /// grouped property, as Obsidian does when a card is dragged. The write is the
+    /// property edit every view makes, with its checks.
+    /// - Returns: Whether the note was saved (or already had this value).
+    @discardableResult
+    func moveToGroup(_ path: VaultPath, groupKey: BaseCellValue) async -> Bool {
+        guard let groupBy = selectedView?.groupBy, canMoveToGroup(path), let value = Self.propertyValue(forGroupKey: groupKey) else { return false }
+        return await setProperty(groupBy.property, of: path, to: value)
+    }
+
+    /// The property value that puts a note into the group with this key: the key itself,
+    /// written as a note property holds it, or no value for the column of empty values.
+    /// Nil for a key no property value reads back as, such as an error or a file.
+    nonisolated static func propertyValue(forGroupKey groupKey: BaseCellValue) -> PropertyValue? {
+        guard case .value(let value) = groupKey else { return nil }
+        if value.isEmptyValue { return .empty }
+        switch value {
+        case .string(let text): return .text(text)
+        case .number(let number): return .number(number)
+        case .boolean(let isTrue): return .checkbox(isTrue)
+        case .date(let date):
+            let dateText = BaseDateFormatting.defaultText(for: date, calendar: BaseDateFormatting.displayCalendar)
+            return date.hasTime ? .dateTime(dateText) : .date(dateText)
+        case .link: return .text(BasePropertyDraft.sourceText(value))
+        case .list(let elements):
+            let items = elements.compactMap { element -> String? in
+                switch element {
+                case .string, .number, .boolean, .link: BasePropertyDraft.sourceText(element)
+                default: nil
+                }
+            }
+            return items.count == elements.count ? .list(items) : nil
+        default: return nil
+        }
+    }
+
     /// The property as written in the note's frontmatter. A base value cannot tell an
     /// embed or a Markdown link from a Wikilink, or show a date's written separator, so
     /// the cell editor starts from this text to keep them. Nil when the note or its
@@ -584,6 +659,7 @@ extension BaseViewType {
         case .cards: "Cards"
         case .list: "List"
         case .map: "Map"
+        case .kanban: "Kanban"
         case .unsupported(let name): name.capitalized
         }
     }

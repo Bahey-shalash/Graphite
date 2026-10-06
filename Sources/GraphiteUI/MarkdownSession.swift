@@ -8,7 +8,12 @@ final class MarkdownSession {
     let path: VaultPath
     private let store: VaultStore
     private let didSave: @MainActor (VaultPath) -> Void
-    var text: String
+    var text: String {
+        didSet { if text != oldValue { editVersion += 1 } }
+    }
+    /// Also counts queued insertions, so an asynchronous reload cannot erase work the
+    /// editor has not applied yet, or an edit followed by an undo back to the same text.
+    private var editVersion = 0
     var selection = NSRange(location: 0, length: 0)
     /// Reading view, Live Preview, or source mode, as for an Obsidian tab.
     var viewMode: NoteViewMode = .livePreview
@@ -54,7 +59,7 @@ final class MarkdownSession {
     private var revision: FileRevision
     private var activeSave: Task<Void, Error>?
     var isSaving: Bool { activeSave != nil }
-    var hasUnsavedChanges: Bool { text != savedText }
+    var hasUnsavedChanges: Bool { text != savedText || !pendingInsertions.isEmpty }
 
     init(path: VaultPath, snapshot: FileSnapshot, store: VaultStore, didSave: @escaping @MainActor (VaultPath) -> Void) throws {
         guard let decoded = NoteTextEncoding.decode(snapshot.data) else { throw GraphiteError.invalidFile("This note is not UTF-8 encoded.") }
@@ -72,6 +77,7 @@ final class MarkdownSession {
             // main actor and the saver that owns it would never run again.
             if activeSave == previousSave { activeSave = nil }
         }
+        flushPendingInsertions()
         guard hasUnsavedChanges else { return }
         guard !hasExternalConflict else { throw GraphiteError.conflict }
         let textToSave = text
@@ -98,17 +104,30 @@ final class MarkdownSession {
 
     func checkExternalChange() async {
         guard !isSaving else { return }
+        let revisionBeforeRead = revision
         do {
             let snapshot = try await store.read(path, maximumBytes: Self.maximumEditableBytes)
+            guard !isSaving, revision == revisionBeforeRead else { return }
             guard snapshot.revision != revision else { return }
             if hasUnsavedChanges { hasExternalConflict = true; errorMessage = GraphiteError.conflict.localizedDescription }
             else { try adopt(snapshot) }
-        } catch { errorMessage = error.localizedDescription }
+        } catch {
+            guard !isSaving, revision == revisionBeforeRead else { return }
+            errorMessage = error.localizedDescription
+        }
     }
 
     func reload() async throws {
+        let versionBeforeRead = editVersion
+        let revisionBeforeRead = revision
         guard try await store.fileExists(path) else { throw Self.removedExternallyError }
-        try adopt(await store.read(path, maximumBytes: Self.maximumEditableBytes))
+        let snapshot = try await store.read(path, maximumBytes: Self.maximumEditableBytes)
+        guard editVersion == versionBeforeRead, revision == revisionBeforeRead, !isSaving else {
+            hasExternalConflict = true
+            errorMessage = GraphiteError.conflict.localizedDescription
+            throw GraphiteError.conflict
+        }
+        try adopt(snapshot)
     }
 
     private static let removedExternallyError = GraphiteError.unavailable(
@@ -118,6 +137,7 @@ final class MarkdownSession {
         guard let decoded = NoteTextEncoding.decode(snapshot.data) else { throw GraphiteError.invalidFile("External note is not UTF-8.") }
         // The version another app replaced is kept, in case its change was unwanted.
         if decoded.text != savedText { willReplaceSavedText?(savedText) }
+        pendingInsertions = []
         text = decoded.text; savedText = decoded.text; hasByteOrderMark = decoded.hasByteOrderMark; revision = snapshot.revision
         hasExternalConflict = false; errorMessage = nil
     }
@@ -125,15 +145,26 @@ final class MarkdownSession {
     /// Writes the edits to a new note beside this one and ends the conflict: this note
     /// shows the other app's version again, or, when the other app deleted or moved it,
     /// lets the edits go from here, since they are now in the copy. Either way nothing
-    /// unsaved is left, so the person can move on to the copy or any other note. Once the
-    /// copy is written this does not throw, so the copy is never reported as failed.
+    /// unsaved is left unless more work arrived while the copy was written or the original
+    /// was reloaded. That newer work stays open in conflict. Once the copy is written this
+    /// does not throw, so the copy is never reported as failed.
     func saveSeparateCopy() async throws -> VaultPath {
+        flushPendingInsertions()
+        let bytesToCopy = NoteTextEncoding.encode(text, hasByteOrderMark: hasByteOrderMark)
+        let versionToCopy = editVersion
         let separatePath = try await store.uniquePath(directory: path.parent, stem: path.stem + " Graphite edits", extension: "md")
-        _ = try await store.save(NoteTextEncoding.encode(text, hasByteOrderMark: hasByteOrderMark), at: separatePath, expecting: .absent)
+        _ = try await store.save(bytesToCopy, at: separatePath, expecting: .absent)
+        guard editVersion == versionToCopy else {
+            hasExternalConflict = true
+            errorMessage = GraphiteError.conflict.localizedDescription
+            return separatePath
+        }
         do {
             try await reload()
         } catch {
+            guard editVersion == versionToCopy else { return separatePath }
             let isRemoved = (try? await store.fileExists(path)) == false
+            guard editVersion == versionToCopy else { return separatePath }
             text = savedText
             hasExternalConflict = false
             // The other version exists but cannot be shown, such as a file too large or
@@ -212,15 +243,25 @@ final class MarkdownSession {
     /// recovery can keep a copy.
     @ObservationIgnored var willReplaceSavedText: ((String) -> Void)?
 
+    /// A shown editor applies its waiting insertions through native undo before a save
+    /// captures the text. Without an editor, the same work is applied to the model.
+    @ObservationIgnored var applyPendingInsertionsBeforeSaving: (() -> Void)?
+
+    private func flushPendingInsertions() {
+        guard !pendingInsertions.isEmpty else { return }
+        applyPendingInsertionsBeforeSaving?()
+        let waitingInsertions = pendingInsertions
+        pendingInsertions = []
+        waitingInsertions.forEach(applyWithoutEditor)
+    }
+
     /// Whether an editor shows this note, which applies insertions so they can be undone.
     /// An editor that goes away before applying them leaves them in the text directly, so
     /// nothing requested is lost.
     @ObservationIgnored var isEditorAttached = false {
         didSet {
             guard !isEditorAttached, !pendingInsertions.isEmpty else { return }
-            let waitingInsertions = pendingInsertions
-            pendingInsertions = []
-            waitingInsertions.forEach(applyWithoutEditor)
+            flushPendingInsertions()
         }
     }
 
@@ -250,13 +291,43 @@ final class MarkdownSession {
     /// Applies an editing command's result, computed on the current text, through the
     /// editor, so it can be undone.
     func apply(_ edit: MarkdownTextEdit) {
-        let target = insertionTarget(for: edit.range)
-        let selectionAfter = insertionTarget(for: edit.selectionAfter).range
-        request(EditorInsertion(text: edit.replacement, range: target.range, selectionAfter: selectionAfter))
+        var replacementRange = edit.range
+        var sourceLength = (text as NSString).length
+        for insertion in pendingInsertions {
+            let replacedRange = Self.clamped(insertion.range, toLength: sourceLength)
+            let insertedLength = (insertion.text as NSString).length
+            if replacementRange.length == 0 {
+                replacementRange.location = Self.moved(replacementRange.location, pastReplacing: replacedRange, insertedLength: insertedLength)
+            } else {
+                let characterEdit = CharacterEdit(editedRange: NSRange(location: replacedRange.location, length: insertedLength),
+                                                  changeInLength: insertedLength - replacedRange.length)
+                guard let movedRange = TextRangeMapping.replacedRange(replacementRange, through: characterEdit) else {
+                    errorMessage = "The note changed while this command was waiting. Try the command again."
+                    return
+                }
+                replacementRange = movedRange
+            }
+            sourceLength += insertedLength - replacedRange.length
+        }
+        // The command's selection is already in the text after its replacement. Mapping
+        // it as a range of the old text can widen it across a queued insertion or move it
+        // past closing markers. Keep its offset within the unchanged replacement instead.
+        let selectionAfter = edit.selectionAfter.shifted(by: replacementRange.location - edit.range.location)
+        request(EditorInsertion(text: edit.replacement, range: replacementRange, selectionAfter: selectionAfter))
+    }
+
+    /// Ticks or unticks the task at `location`, as a tap on its checkbox in reading view
+    /// does, leaving the cursor where it is. False when the text no longer has the task
+    /// there.
+    @discardableResult
+    func toggleTask(at location: ReadingTasks.Location) -> Bool {
+        guard let edit = ReadingTasks.togglingEdit(at: location, in: text, selection: selection) else { return false }
+        apply(edit)
+        return true
     }
 
     private func request(_ insertion: EditorInsertion) {
-        if isEditorAttached { pendingInsertions.append(insertion) } else { applyWithoutEditor(insertion) }
+        if isEditorAttached { pendingInsertions.append(insertion); editVersion += 1 } else { applyWithoutEditor(insertion) }
     }
 
     /// The text a new insertion goes into, which already includes the insertions still

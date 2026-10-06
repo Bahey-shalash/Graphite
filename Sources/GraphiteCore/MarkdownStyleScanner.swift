@@ -34,9 +34,17 @@ public enum MarkdownStyle: Equatable, Hashable, Sendable {
 public struct MarkdownStyleSpan: Equatable, Sendable {
     public let range: NSRange
     public let style: MarkdownStyle
-    public init(range: NSRange, style: MarkdownStyle) {
+    /// The inline element the span is part of, with its markup: the whole `**bold**`
+    /// around either `**`, the whole `[[Note|alias]]` around its brackets and its alias.
+    /// Nil for a span that belongs to its line instead: a heading's `#`, a list, task or
+    /// quote marker, a block's `^id`. Live Preview shows an inline element's markup while
+    /// the selection touches the element, and a line's markup while the selection is on it.
+    public let inlineElementRange: NSRange?
+
+    public init(range: NSRange, style: MarkdownStyle, inlineElementRange: NSRange? = nil) {
         self.range = range
         self.style = style
+        self.inlineElementRange = inlineElementRange
     }
 }
 
@@ -356,8 +364,9 @@ public enum MarkdownStyleScanner {
         let contentLength = lengthWithoutLineEnding(line)
         guard contentLength > 0 else { return [] }
         let lineContent = NSRange(location: 0, length: contentLength)
-        func span(_ range: NSRange, _ style: MarkdownStyle) -> MarkdownStyleSpan {
-            MarkdownStyleSpan(range: NSRange(location: lineLocation + range.location, length: range.length), style: style)
+        func span(_ range: NSRange, _ style: MarkdownStyle, inlineElementRange: NSRange? = nil) -> MarkdownStyleSpan {
+            MarkdownStyleSpan(range: NSRange(location: lineLocation + range.location, length: range.length), style: style,
+                              inlineElementRange: inlineElementRange.map { elementRange in NSRange(location: lineLocation + elementRange.location, length: elementRange.length) })
         }
         let trimmedLine = line.substring(with: lineContent).trimmingCharacters(in: .whitespaces)
         let content = contentWithoutQuoteMarkers(trimmedLine)
@@ -411,11 +420,20 @@ public enum MarkdownStyleScanner {
             spans.append(span(listMatch.range(at: 1), .listMarker))
             cursor = NSMaxRange(listMatch.range)
         }
-        spans.append(contentsOf: inlineSpans(line: line, range: NSRange(location: cursor, length: contentLength - cursor)).map { inlineSpan in span(inlineSpan.range, inlineSpan.style) })
+        spans.append(contentsOf: inlineSpans(line: line, range: NSRange(location: cursor, length: contentLength - cursor)).map { inlineSpan in
+            span(inlineSpan.range, inlineSpan.style, inlineElementRange: inlineSpan.inlineElementRange)
+        })
         return spans
     }
 
+    /// Stands in for a code span, formula, footnote or link while emphasis is looked for:
+    /// neither a space, a word character nor a delimiter, like the punctuation those start
+    /// and end with.
+    private static let claimedTextPlaceholder = "\u{FFFC}"
+
     /// Inline constructs in priority order; code and math hide everything inside them.
+    /// Each span carries the range of its whole element. A block's `^id` and a footnote
+    /// definition's label belong to their line.
     private static func inlineSpans(line: NSString, range: NSRange) -> [MarkdownStyleSpan] {
         guard range.length > 0 else { return [] }
         var spans: [MarkdownStyleSpan] = []
@@ -423,10 +441,13 @@ public enum MarkdownStyleScanner {
         func isUnclaimed(_ candidate: NSRange) -> Bool {
             !claimedRanges.contains { claimedRange in NSIntersectionRange(claimedRange, candidate).length > 0 }
         }
+        func add(_ spanRange: NSRange, _ style: MarkdownStyle, in elementRange: NSRange) {
+            spans.append(MarkdownStyleSpan(range: spanRange, style: style, inlineElementRange: elementRange))
+        }
         func addDelimited(_ whole: NSRange, style: MarkdownStyle, delimiterLength: Int) {
-            spans.append(MarkdownStyleSpan(range: NSRange(location: whole.location, length: delimiterLength), style: .concealableMarker))
-            spans.append(MarkdownStyleSpan(range: NSRange(location: whole.location + delimiterLength, length: whole.length - 2 * delimiterLength), style: style))
-            spans.append(MarkdownStyleSpan(range: NSRange(location: NSMaxRange(whole) - delimiterLength, length: delimiterLength), style: .concealableMarker))
+            add(NSRange(location: whole.location, length: delimiterLength), .concealableMarker, in: whole)
+            add(NSRange(location: whole.location + delimiterLength, length: whole.length - 2 * delimiterLength), style, in: whole)
+            add(NSRange(location: NSMaxRange(whole) - delimiterLength, length: delimiterLength), .concealableMarker, in: whole)
         }
         let lineString = line as String
         for codeSpan in MarkdownCodeRanges.codeSpans(in: line, range: range) {
@@ -440,7 +461,7 @@ public enum MarkdownStyleScanner {
         }
         for pattern in [Patterns.inlineDisplayMath, Patterns.inlineMath] {
             for match in pattern.matches(in: lineString, range: range) where isUnclaimed(match.range) {
-                spans.append(MarkdownStyleSpan(range: match.range, style: .math))
+                add(match.range, .math, in: match.range)
                 claimedRanges.append(match.range)
             }
         }
@@ -453,9 +474,9 @@ public enum MarkdownStyleScanner {
         for pattern in [Patterns.footnoteReference, Patterns.inlineFootnote] {
             for match in pattern.matches(in: lineString, range: range) where isUnclaimed(match.range) {
                 let content = match.range(at: 1)
-                spans.append(MarkdownStyleSpan(range: NSRange(location: match.range.location, length: content.location - match.range.location), style: .concealableMarker))
-                spans.append(MarkdownStyleSpan(range: content, style: .footnote))
-                spans.append(MarkdownStyleSpan(range: NSRange(location: NSMaxRange(content), length: NSMaxRange(match.range) - NSMaxRange(content)), style: .concealableMarker))
+                add(NSRange(location: match.range.location, length: content.location - match.range.location), .concealableMarker, in: match.range)
+                add(content, .footnote, in: match.range)
+                add(NSRange(location: NSMaxRange(content), length: NSMaxRange(match.range) - NSMaxRange(content)), .concealableMarker, in: match.range)
                 claimedRanges.append(match.range)
             }
         }
@@ -467,46 +488,57 @@ public enum MarkdownStyleScanner {
             let subpathSeparator = line.range(of: "#", range: contentRange)
             if !isEmbed && aliasSeparator.location != NSNotFound {
                 // `[[target|alias]]` reads as "alias": the target is markup like the brackets.
-                spans.append(MarkdownStyleSpan(range: NSRange(location: match.range.location, length: NSMaxRange(aliasSeparator) - match.range.location), style: .concealableMarker))
-                spans.append(MarkdownStyleSpan(range: NSRange(location: NSMaxRange(aliasSeparator), length: NSMaxRange(contentRange) - NSMaxRange(aliasSeparator)), style: .link))
+                add(NSRange(location: match.range.location, length: NSMaxRange(aliasSeparator) - match.range.location), .concealableMarker, in: match.range)
+                add(NSRange(location: NSMaxRange(aliasSeparator), length: NSMaxRange(contentRange) - NSMaxRange(aliasSeparator)), .link, in: match.range)
             } else if !isEmbed && line.substring(with: contentRange).hasPrefix("#") {
                 // `[[#Heading]]` reads as "Heading", as in Obsidian.
-                spans.append(MarkdownStyleSpan(range: NSRange(location: match.range.location, length: openingLength + 1), style: .concealableMarker))
-                spans.append(MarkdownStyleSpan(range: NSRange(location: contentRange.location + 1, length: contentRange.length - 1), style: .link))
+                add(NSRange(location: match.range.location, length: openingLength + 1), .concealableMarker, in: match.range)
+                add(NSRange(location: contentRange.location + 1, length: contentRange.length - 1), .link, in: match.range)
             } else if !isEmbed && subpathSeparator.location != NSNotFound {
-                spans.append(MarkdownStyleSpan(range: NSRange(location: match.range.location, length: openingLength), style: .concealableMarker))
-                spans.append(MarkdownStyleSpan(range: NSRange(location: contentRange.location, length: subpathSeparator.location - contentRange.location), style: .link))
-                spans.append(MarkdownStyleSpan(range: subpathSeparator, style: .subpathSeparator))
-                spans.append(MarkdownStyleSpan(range: NSRange(location: NSMaxRange(subpathSeparator), length: NSMaxRange(contentRange) - NSMaxRange(subpathSeparator)), style: .link))
+                add(NSRange(location: match.range.location, length: openingLength), .concealableMarker, in: match.range)
+                add(NSRange(location: contentRange.location, length: subpathSeparator.location - contentRange.location), .link, in: match.range)
+                add(subpathSeparator, .subpathSeparator, in: match.range)
+                add(NSRange(location: NSMaxRange(subpathSeparator), length: NSMaxRange(contentRange) - NSMaxRange(subpathSeparator)), .link, in: match.range)
             } else {
-                spans.append(MarkdownStyleSpan(range: NSRange(location: match.range.location, length: openingLength), style: .concealableMarker))
-                spans.append(MarkdownStyleSpan(range: contentRange, style: isEmbed ? .embed : .link))
+                add(NSRange(location: match.range.location, length: openingLength), .concealableMarker, in: match.range)
+                add(contentRange, isEmbed ? .embed : .link, in: match.range)
             }
-            spans.append(MarkdownStyleSpan(range: NSRange(location: NSMaxRange(match.range) - 2, length: 2), style: .concealableMarker))
+            add(NSRange(location: NSMaxRange(match.range) - 2, length: 2), .concealableMarker, in: match.range)
             claimedRanges.append(match.range)
         }
         for match in Patterns.markdownLink.matches(in: lineString, range: range) where isUnclaimed(match.range) {
             let isEmbed = match.range(at: 1).length > 0
             let labelRange = match.range(at: 2)
-            spans.append(MarkdownStyleSpan(range: NSRange(location: match.range.location, length: labelRange.location - match.range.location), style: .concealableMarker))
-            spans.append(MarkdownStyleSpan(range: labelRange, style: isEmbed ? .embed : .link))
-            spans.append(MarkdownStyleSpan(range: NSRange(location: NSMaxRange(labelRange), length: NSMaxRange(match.range) - NSMaxRange(labelRange)), style: .concealableMarker))
+            add(NSRange(location: match.range.location, length: labelRange.location - match.range.location), .concealableMarker, in: match.range)
+            add(labelRange, isEmbed ? .embed : .link, in: match.range)
+            add(NSRange(location: NSMaxRange(labelRange), length: NSMaxRange(match.range) - NSMaxRange(labelRange)), .concealableMarker, in: match.range)
             claimedRanges.append(match.range)
         }
-        for match in Patterns.strong.matches(in: lineString, range: range) where isUnclaimed(match.range) {
+        // Emphasis can hold any of the elements above (`**bold with a [[link]]**`), and a
+        // delimiter inside one is that element's text. With each element replaced by
+        // placeholders of the same length, a match can only contain elements whole.
+        var emphasisLine = lineString
+        if !claimedRanges.isEmpty {
+            let placeholderLine = NSMutableString(string: lineString)
+            for claimedRange in claimedRanges {
+                placeholderLine.replaceCharacters(in: claimedRange, with: String(repeating: claimedTextPlaceholder, count: claimedRange.length))
+            }
+            emphasisLine = placeholderLine as String
+        }
+        for match in Patterns.strong.matches(in: emphasisLine, range: range) {
             addDelimited(match.range, style: .strong, delimiterLength: 2)
         }
-        for match in Patterns.emphasis.matches(in: lineString, range: range) where isUnclaimed(match.range) {
+        for match in Patterns.emphasis.matches(in: emphasisLine, range: range) {
             addDelimited(match.range, style: .emphasis, delimiterLength: 1)
         }
-        for match in Patterns.strikethrough.matches(in: lineString, range: range) where isUnclaimed(match.range) {
+        for match in Patterns.strikethrough.matches(in: emphasisLine, range: range) {
             addDelimited(match.range, style: .strikethrough, delimiterLength: 2)
         }
-        for match in Patterns.highlight.matches(in: lineString, range: range) where isUnclaimed(match.range) {
+        for match in Patterns.highlight.matches(in: emphasisLine, range: range) {
             addDelimited(match.range, style: .highlight, delimiterLength: 2)
         }
         for match in TagSyntax.pattern.matches(in: lineString, range: range) where isUnclaimed(match.range) {
-            spans.append(MarkdownStyleSpan(range: match.range, style: .tag))
+            add(match.range, .tag, in: match.range)
         }
         return spans
     }

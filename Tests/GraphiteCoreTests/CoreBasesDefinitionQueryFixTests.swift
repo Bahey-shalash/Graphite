@@ -325,13 +325,13 @@ final class CoreBasesDefinitionQueryFixTests: XCTestCase {
         XCTAssertTrue(addedOutput.contains("  # Gallery of covers\n"), addedOutput)
 
         var duplicated = try BaseDefinitionEditor(yaml: commentedBase)
-        try duplicated.duplicateView(at: 0, name: "Books copy")
+        try duplicated.duplicateView(at: 1, name: "Covers copy")
         let duplicatedOutput = try duplicated.yaml()
         XCTAssertTrue(duplicatedOutput.contains("    custom: !mytag value\n    label: !!str 123\n"), "The original view keeps its tags:\n\(duplicatedOutput)")
-        let copy = try XCTUnwrap(try Yams.compose(yaml: duplicatedOutput)?["views"]?.sequence?[1].mapping)
-        XCTAssertEqual(copy["name"]?.string, "Books copy")
-        XCTAssertEqual(copy["label"]?.scalar?.style, .doubleQuoted, "A copied `!!str 123` stays text:\n\(duplicatedOutput)")
-        XCTAssertEqual(try BaseDefinition.parse(duplicatedOutput).views.map(\.name), ["Books", "Books copy", "Covers"])
+        let copy = try XCTUnwrap(try Yams.compose(yaml: duplicatedOutput)?["views"]?.sequence?[2].mapping)
+        XCTAssertEqual(copy["name"]?.string, "Covers copy")
+        XCTAssertEqual(copy["limit"]?.int, 20)
+        XCTAssertEqual(try BaseDefinition.parse(duplicatedOutput).views.map(\.name), ["Books", "Covers", "Covers copy"])
 
         var removed = try BaseDefinitionEditor(yaml: commentedBase)
         try removed.removeView(at: 0)
@@ -396,4 +396,3 @@ final class CoreBasesDefinitionQueryFixTests: XCTestCase {
 private final class SmallStackResultBox<Value>: @unchecked Sendable {
     var value: Value?
 }
-

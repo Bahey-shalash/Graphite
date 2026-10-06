@@ -83,7 +83,17 @@ public struct VaultURI: Equatable, Sendable {
     /// `content` added at the end of a note, on a line of its own, for `new` with `append`.
     public static func appending(_ content: String, to text: String) -> String {
         guard !text.isEmpty, !content.isEmpty else { return text + content }
-        return text + (text.hasSuffix("\n") ? "" : "\n") + content
+        // CRLF is one Swift Character, so hasSuffix("\n") misses it. Inspect scalars
+        // and keep the note's existing separator when its last line needs one.
+        let scalars = text.unicodeScalars
+        if let last = scalars.last, CharacterSet.newlines.contains(last) { return text + content }
+        guard let separatorIndex = scalars.firstIndex(where: { scalar in CharacterSet.newlines.contains(scalar) }) else {
+            return text + "\n" + content
+        }
+        let separator = scalars[separatorIndex]
+        let nextIndex = scalars.index(after: separatorIndex)
+        let lineEnding = separator == "\r" && nextIndex < scalars.endIndex && scalars[nextIndex] == "\n" ? "\r\n" : String(separator)
+        return text + lineEnding + content
     }
 
     /// Percent-encodes everything but unreserved characters and `/`, as `encodeURIComponent`

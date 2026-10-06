@@ -45,7 +45,10 @@ final class CoreBasesDatesFixTests: XCTestCase {
     func testFarDatesAndHugeDurationsEvaluateWithoutTrapping() throws {
         let record = BaseTestRecords.record("Notes/Far.md")
         let evaluator = BaseEvaluator(formulas: [], environment: BaseTestRecords.environment(), thisRecord: nil, knownRecords: [record])
-        for formula in ["date(1e300).relative()", "date(1e300).format(\"x X YYYY\")", "(file.mtime + \"99999999999999999999999999999 years\").relative()",
+        // 1e300 milliseconds, written out: duration text has no exponent form.
+        let hugeMilliseconds = "1" + String(repeating: "0", count: 300) + " ms"
+        for formula in ["(file.mtime + \"\(hugeMilliseconds)\").relative()", "(file.mtime + \"\(hugeMilliseconds)\").format(\"x X YYYY\")",
+                        "(file.mtime + \"99999999999999999999999999999 years\").relative()",
                         "duration(\"99999999999999999999999999999 years\")", "file.mtime - date(\"0001-01-01\") + duration(\"99999999999999999999999999999 ms\")"] {
             XCTAssertFalse(try evaluator.evaluate(sourceText: formula, for: record).displayText.isEmpty, formula)
         }

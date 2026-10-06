@@ -304,6 +304,7 @@ extension DocumentKind {
         case .image: "photo"
         case .media: "play.rectangle"
         case .base: "tablecells"
+        case .canvas: "rectangle.3.group"
         case .other: "doc"
         }
     }

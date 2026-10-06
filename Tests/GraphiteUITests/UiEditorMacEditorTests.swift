@@ -53,6 +53,25 @@ final class UiEditorMacEditorTests: XCTestCase {
         return isVisible
     }
 
+    func testSavingAQueuedInsertionKeepsNativeUndo() async throws {
+        let (coordinator, textView, scrollView) = try await makeEditor(text: "Lecture.\n", mode: .source)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: true)
+        window.contentView = scrollView
+        coordinator.resume(scrollView)
+        let session = coordinator.session
+        session.insert("![[Recording.m4a]]", at: NSRange(location: (session.text as NSString).length, length: 0))
+        XCTAssertNotNil(session.pendingInsertion)
+        try await session.save()
+        XCTAssertEqual(textView.string, "Lecture.\n![[Recording.m4a]]")
+        XCTAssertEqual(session.text, textView.string)
+        XCTAssertNil(session.pendingInsertion)
+        XCTAssertTrue(coordinator.noteUndoManager.canUndo)
+        coordinator.noteUndoManager.undo()
+        XCTAssertEqual(textView.string, "Lecture.\n")
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(session.text, "Lecture.\n")
+    }
+
     // MARK: Markup the Mac cannot draw stays visible (F168)
 
     func testBulletsCheckboxesQuotesAndMathStayVisibleAwayFromTheCursor() {
@@ -61,8 +80,8 @@ final class UiEditorMacEditorTests: XCTestCase {
         // The Mac's default styler already leaves this markup visible; a styler that draws
         // replacements hides it, which is what `showSource` must undo.
         let styler = MarkdownTextStyler(configuration: EditorConfiguration(), accentColor: .controlAccentColor, drawsConcealedReplacements: true)
-        let revealedRange = source.lineRange(for: NSRange(location: source.length, length: 0))
-        styler.applyStyles(to: textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedRange: revealedRange, concealedBlocks: [])
+        let revealedMarkup = RevealedMarkup(selection: NSRange(location: source.length, length: 0), in: source)
+        styler.applyStyles(to: textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedMarkup: revealedMarkup, concealedBlocks: [])
         let markers = ["- ", "[ ]", "- b", ">"].map { marker in source.range(of: marker) }
         let hiddenBefore = markers.filter { marker in !isVisible(marker, in: textStorage) }
         XCTAssertFalse(hiddenBefore.isEmpty, "The shared styler hides markup it expects a drawing for")
@@ -97,14 +116,17 @@ final class UiEditorMacEditorTests: XCTestCase {
         XCTAssertGreaterThan(headingFont.pointSize, EditorConfiguration().textSize)
         XCTAssertNotNil(textStorage.attribute(sentinelKey, at: farLine.location + 2, effectiveRange: nil), "Typing restyled the whole note")
 
-        // Moving the cursor reveals its new line's markup and conceals the old line's again.
+        // Moving the cursor into bold text reveals its markup; the first line's heading
+        // marker hides again, and its bold text was never touched.
         let editedSource = NSString(string: textStorage.string)
         let targetLine = editedSource.lineRange(for: NSRange(location: editedSource.range(of: "Paragraph 20 ").location, length: 0))
-        textView.setSelectedRange(NSRange(location: targetLine.location + 3, length: 0))
-        coordinator.textViewDidChangeSelection(Notification(name: NSTextView.didChangeSelectionNotification, object: textView))
-        XCTAssertEqual(coordinator.revealedRange, targetLine)
         let revealedMarker = editedSource.range(of: "**", range: targetLine)
+        XCTAssertTrue(isVisible(NSRange(location: 0, length: 2), in: textStorage))
+        textView.setSelectedRange(NSRange(location: NSMaxRange(revealedMarker) + 2, length: 0))
+        coordinator.textViewDidChangeSelection(Notification(name: NSTextView.didChangeSelectionNotification, object: textView))
+        XCTAssertEqual(coordinator.revealedMarkup?.lineRange, targetLine)
         XCTAssertTrue(isVisible(revealedMarker, in: textStorage))
+        XCTAssertFalse(isVisible(NSRange(location: 0, length: 2), in: textStorage))
         let firstLineMarker = editedSource.range(of: "**")
         XCTAssertFalse(isVisible(firstLineMarker, in: textStorage))
         XCTAssertNotNil(textStorage.attribute(sentinelKey, at: farLine.location + 2 + 2, effectiveRange: nil), "Moving the cursor restyled the whole note")
@@ -135,9 +157,134 @@ final class UiEditorMacEditorTests: XCTestCase {
         let lastLine = source.lineRange(for: NSRange(location: source.length, length: 0))
         textView.setSelectedRange(NSRange(location: lastLine.location + 3, length: 0))
         coordinator.textViewDidChangeSelection(Notification(name: NSTextView.didChangeSelectionNotification, object: textView))
-        XCTAssertEqual(coordinator.revealedRange, lastLine)
+        XCTAssertEqual(coordinator.revealedMarkup?.lineRange, lastLine)
         XCTAssertTrue(isVisible(NSRange(location: lastLine.location, length: 1), in: textStorage))
         XCTAssertNotNil(textStorage.attribute(sentinelKey, at: middleLine.location + 2, effectiveRange: nil), "A far jump restyled the lines between")
+    }
+
+    // MARK: One element at a time
+
+    /// Whether the editor's text is styled as styling the whole note afresh for its
+    /// selection would style it, so nothing an earlier selection showed is left over.
+    private func assertStyledForItsSelection(_ coordinator: NativeMarkdownEditor.Coordinator, _ textView: NSTextView, _ message: String = "",
+                                             file: StaticString = #filePath, line: UInt = #line) throws {
+        let textStorage = try XCTUnwrap(textView.textStorage)
+        let source = NSString(string: textStorage.string)
+        let expected = NSTextStorage(string: source as String)
+        let styler = MarkdownTextStyler(configuration: coordinator.configuration, accentColor: NSColor.graphiteAccent(hex: coordinator.configuration.accentHex) ?? .controlAccentColor)
+        styler.applyStyles(to: expected, editedRange: NSRange(location: 0, length: 0), restyleEverything: true,
+                           revealedMarkup: RevealedMarkup(selection: textView.selectedRange(), in: source), concealedBlocks: [])
+        // Compared character by character, so a failure names the first one that differs.
+        // The accent is a new color object for every styler, so colors are compared as
+        // the components they resolve to.
+        func comparableAttributes(of styledText: NSTextStorage, at location: Int) -> [String: String] {
+            var comparable: [String: String] = [:]
+            for (key, value) in styledText.attributes(at: location, effectiveRange: nil) {
+                comparable[key.rawValue] = (value as? NSColor)?.usingColorSpace(.sRGB).map { color in "\(color.redComponent) \(color.greenComponent) \(color.blueComponent) \(color.alphaComponent)" } ?? "\(value)"
+            }
+            return comparable
+        }
+        for location in 0..<source.length {
+            let attributes = comparableAttributes(of: textStorage, at: location)
+            let expectedAttributes = comparableAttributes(of: expected, at: location)
+            guard attributes != expectedAttributes else { continue }
+            let differingKeys = Set(attributes.keys).union(expectedAttributes.keys).filter { key in attributes[key] != expectedAttributes[key] }.sorted()
+            return XCTFail("\(message): character \(location) of \(source.substring(with: source.lineRange(for: NSRange(location: location, length: 0))).debugDescription) differs in \(differingKeys)", file: file, line: line)
+        }
+    }
+
+    private func moveCursor(to selection: NSRange, in textView: NSTextView, _ coordinator: NativeMarkdownEditor.Coordinator) {
+        textView.setSelectedRange(selection)
+        coordinator.textViewDidChangeSelection(Notification(name: NSTextView.didChangeSelectionNotification, object: textView))
+    }
+
+    private func type(_ typedText: String, in textView: NSTextView, _ coordinator: NativeMarkdownEditor.Coordinator) {
+        textView.insertText(typedText, replacementRange: textView.selectedRange())
+        coordinator.textDidChange(Notification(name: NSText.didChangeNotification, object: textView))
+    }
+
+    func testOnlyTheElementUnderTheCursorShowsItsMarkupAsTheCursorMoves() async throws {
+        let text = "# Title with **bold**\nPlain **bold** and [[Note|alias]] and ==mark==\n- item with `code`\n"
+        let (coordinator, textView, _) = try await makeEditor(text: text)
+        let textStorage = try XCTUnwrap(textView.textStorage)
+        let source = text as NSString
+        let secondLine = source.lineRange(for: NSRange(location: source.range(of: "Plain").location, length: 0))
+        let bold = source.range(of: "**bold**", range: secondLine)
+        let link = source.range(of: "[[Note|alias]]")
+        let mark = source.range(of: "==mark==")
+        func shown() -> [Bool] { [bold, link, mark].map { element in isVisible(NSRange(location: element.location, length: 2), in: textStorage) } }
+
+        moveCursor(to: NSRange(location: secondLine.location + 2, length: 0), in: textView, coordinator)
+        XCTAssertEqual(shown(), [false, false, false], "The cursor's line stays rendered away from the cursor.")
+        XCTAssertFalse(isVisible(NSRange(location: 0, length: 2), in: textStorage), "The heading's marks hide when the cursor leaves its line.")
+        moveCursor(to: NSRange(location: bold.location + 4, length: 0), in: textView, coordinator)
+        XCTAssertEqual(shown(), [true, false, false])
+        moveCursor(to: NSRange(location: NSMaxRange(link) - 3, length: 0), in: textView, coordinator)
+        XCTAssertEqual(shown(), [false, true, false])
+        XCTAssertTrue(isVisible(NSRange(location: link.location, length: 7), in: textStorage), "The link's target shows with its brackets.")
+        // A selection from inside the bold text to inside the highlight touches all three.
+        moveCursor(to: NSRange(location: bold.location + 4, length: mark.location + 4 - bold.location - 4), in: textView, coordinator)
+        XCTAssertEqual(shown(), [true, true, true])
+        XCTAssertEqual(textView.selectedRange(), NSRange(location: bold.location + 4, length: mark.location - bold.location), "Showing markup never moves the selection.")
+        try assertStyledForItsSelection(coordinator, textView)
+        moveCursor(to: NSRange(location: 3, length: 0), in: textView, coordinator)
+        XCTAssertEqual(shown(), [false, false, false])
+        XCTAssertTrue(isVisible(NSRange(location: 0, length: 2), in: textStorage), "The heading's marks show on the cursor's line.")
+        XCTAssertFalse(isVisible(source.range(of: "**"), in: textStorage), "Bold text in the heading stays rendered until the cursor reaches it.")
+        try assertStyledForItsSelection(coordinator, textView)
+    }
+
+    /// Typing at the end of bold text keeps its closing markup in view, the cursor stays
+    /// where typing left it, and undo and redo leave the note styled for where they put
+    /// the cursor.
+    func testTypingDeletingAndUndoKeepTheMarkupOfTheElementBeingEdited() async throws {
+        let text = "Intro line\nSome **bold** text and [[Note]] here\nLast line with ==mark==\n"
+        let (coordinator, textView, _) = try await makeEditor(text: text)
+        let textStorage = try XCTUnwrap(textView.textStorage)
+        let source = text as NSString
+        let bold = source.range(of: "**bold**")
+        func boldMarkers() -> [NSRange] {
+            let currentBold = NSString(string: textStorage.string).range(of: "\\*\\*[a-z ]+\\*\\*", options: .regularExpression)
+            return [NSRange(location: currentBold.location, length: 2), NSRange(location: NSMaxRange(currentBold) - 2, length: 2)]
+        }
+
+        // The cursor at the end of the word, before the closing `**`.
+        moveCursor(to: NSRange(location: NSMaxRange(bold) - 2, length: 0), in: textView, coordinator)
+        type("er", in: textView, coordinator)
+        XCTAssertEqual(textStorage.string, text.replacingOccurrences(of: "**bold**", with: "**bolder**"))
+        XCTAssertEqual(textView.selectedRange(), NSRange(location: NSMaxRange(bold), length: 0))
+        XCTAssertTrue(boldMarkers().allSatisfy { marker in isVisible(marker, in: textStorage) })
+        try assertStyledForItsSelection(coordinator, textView, "after typing inside bold text")
+
+        // After the closing `**`, the edge still counts; one space further it does not.
+        moveCursor(to: NSRange(location: NSMaxRange(bold) + 2, length: 0), in: textView, coordinator)
+        XCTAssertTrue(boldMarkers().allSatisfy { marker in isVisible(marker, in: textStorage) })
+        type("!", in: textView, coordinator)
+        XCTAssertFalse(boldMarkers().contains { marker in isVisible(marker, in: textStorage) }, "A character typed after the bold text separates the cursor from it.")
+        try assertStyledForItsSelection(coordinator, textView, "after typing past bold text")
+
+        // Deleting that character brings the cursor back to the edge.
+        textView.insertText("", replacementRange: NSRange(location: textView.selectedRange().location - 1, length: 1))
+        coordinator.textDidChange(Notification(name: NSText.didChangeNotification, object: textView))
+        XCTAssertTrue(boldMarkers().allSatisfy { marker in isVisible(marker, in: textStorage) })
+        try assertStyledForItsSelection(coordinator, textView, "after deleting back to the edge")
+
+        // Undo and redo from far away: the cursor goes where the edit was.
+        moveCursor(to: NSRange(location: textStorage.length - 4, length: 0), in: textView, coordinator)
+        try assertStyledForItsSelection(coordinator, textView, "after moving to the highlight")
+        let undoManager = try XCTUnwrap(textView.undoManager)
+        for step in 0..<3 where undoManager.canUndo {
+            undoManager.undo()
+            coordinator.textDidChange(Notification(name: NSText.didChangeNotification, object: textView))
+            try assertStyledForItsSelection(coordinator, textView, "after undo \(step)")
+        }
+        XCTAssertEqual(textStorage.string, text)
+        for step in 0..<3 where undoManager.canRedo {
+            undoManager.redo()
+            coordinator.textDidChange(Notification(name: NSText.didChangeNotification, object: textView))
+            try assertStyledForItsSelection(coordinator, textView, "after redo \(step)")
+        }
+        XCTAssertEqual(coordinator.session.text, textStorage.string)
     }
 
     // MARK: Jumps, links, and undo (F173, F171)
@@ -162,15 +309,19 @@ final class UiEditorMacEditorTests: XCTestCase {
     }
 
     func testClickedLinksFollowOnlyWhereTheirMarkupIsConcealed() async throws {
-        let text = "Cursor line [[Here]]\nSee [[Target]] now\n`[[Code]]`"
+        let text = "Cursor in [[Here]] not [[There]]\nSee [[Target]] now\n`[[Code]]`"
         let (coordinator, textView, _) = try await makeEditor(text: text)
         var followed: [String] = []
         coordinator.follow = { target, _ in followed.append(target) }
         let source = text as NSString
+        textView.setSelectedRange(NSRange(location: source.range(of: "Here").location + 2, length: 0))
+        coordinator.textViewDidChangeSelection(Notification(name: NSTextView.didChangeSelectionNotification, object: textView))
         XCTAssertTrue(coordinator.followLink(atCharacter: source.range(of: "Target").location + 1, modifierFlags: [], in: textView))
         XCTAssertEqual(followed, ["Target"])
-        // The cursor's line shows its markup and is being edited.
+        // The link the cursor is in shows its markup and is being edited; the other link
+        // on the cursor's line stays a link.
         XCTAssertNil(coordinator.link(atCharacter: source.range(of: "Here").location + 1, in: textView))
+        XCTAssertNotNil(coordinator.link(atCharacter: source.range(of: "There").location + 1, in: textView))
         XCTAssertNil(coordinator.link(atCharacter: source.range(of: "Code").location + 1, in: textView))
 
         var openedElsewhere: [(String, TabPlacement)] = []

@@ -108,6 +108,77 @@ extension PDFSession {
         if selectedPicture?.pictureName == picture.name { selectedPicture = nil }
     }
 
+    // MARK: Turning, cropping and ordering
+
+    /// Turns the picture a quarter turn clockwise as it is shown, about its middle.
+    func rotatePicture(_ selection: PDFPictureSelection) async throws {
+        let (page, picture) = try pageAndPicture(of: selection)
+        let pictureData = picture.imageData
+        var turned = picture
+        turned.imageData = try await Task.detached(priority: .userInitiated) { try PictureEditing.rotatedClockwise(pictureData) }.value
+        let bounds = picture.bounds
+        turned.bounds = Self.keepingCenter(of: CGRect(x: bounds.midX - bounds.height / 2, y: bounds.midY - bounds.width / 2,
+                                                      width: bounds.height, height: bounds.width), inside: page.bounds(for: .cropBox))
+        try replacePicture(picture, with: turned, order: .unchanged, on: selection.page, actionName: "Turn Image")
+    }
+
+    /// Keeps the part of the picture shown inside `pageBounds`, a rectangle of the page's
+    /// coordinates inside the picture's bounds.
+    func cropPicture(_ selection: PDFPictureSelection, to pageBounds: CGRect) async throws {
+        let (_, picture) = try pageAndPicture(of: selection)
+        let pictureBounds = picture.bounds
+        let croppedBounds = pageBounds.intersection(pictureBounds)
+        guard !croppedBounds.isNull, croppedBounds != pictureBounds, pictureBounds.width > 0, pictureBounds.height > 0 else { return }
+        // The crop as fractions of the picture on the page as it would be shown unturned, from
+        // the top-left corner: page coordinates count up from the bottom. The image is drawn
+        // turned counterclockwise by `quarterTurns` on that page; the page's own turn, if it
+        // has one, turns the picture and the crop alike.
+        let unturnedRegion = CGRect(x: (croppedBounds.minX - pictureBounds.minX) / pictureBounds.width,
+                                    y: (pictureBounds.maxY - croppedBounds.maxY) / pictureBounds.height,
+                                    width: croppedBounds.width / pictureBounds.width, height: croppedBounds.height / pictureBounds.height)
+        let imageRegion = PictureEditing.imageRegion(forDisplayedRegion: unturnedRegion, turnedClockwise: -picture.quarterTurns)
+        let pictureData = picture.imageData
+        var cropped = picture
+        cropped.imageData = try await Task.detached(priority: .userInitiated) { try PictureEditing.cropped(pictureData, to: imageRegion) }.value
+        cropped.bounds = croppedBounds
+        try replacePicture(picture, with: cropped, order: .unchanged, on: selection.page, actionName: "Crop Image")
+    }
+
+    /// Puts the picture over or under the page's other pictures; the ink stays over them all.
+    func movePictureInOrder(_ selection: PDFPictureSelection, toFront: Bool) throws {
+        let (page, picture) = try pageAndPicture(of: selection)
+        let names = pictures(on: page).map(\.name)
+        guard names.count > 1, names.last != picture.name || !toFront, names.first != picture.name || toFront else { return }
+        try replacePicture(picture, with: picture, order: toFront ? .front : .back, on: selection.page,
+                           actionName: toFront ? "Bring Image to Front" : "Send Image to Back")
+    }
+
+    private func pageAndPicture(of selection: PDFPictureSelection) throws -> (PDFPage, PDFPicture) {
+        guard let page = selection.page.page, let picture = pictures(on: page).first(where: { picture in picture.name == selection.pictureName }) else {
+            throw GraphiteError.invalidFile("This image no longer exists.")
+        }
+        return (page, picture)
+    }
+
+    /// One step: undo puts the former picture back at its former place among the pictures.
+    private func replacePicture(_ picture: PDFPicture, with replacement: PDFPicture, order: PDFPictureOrder, on historyPage: PDFHistoryPage, actionName: String) throws {
+        guard let page = historyPage.page else { throw GraphiteError.invalidFile("Page no longer exists.") }
+        let formerPosition = pictures(on: page).firstIndex { candidate in candidate.name == picture.name } ?? 0
+        func replace(in session: PDFSession, _ current: PDFPicture, with next: PDFPicture, order: PDFPictureOrder) throws {
+            try session.apply(.replacePicture(current.reference(onPageAt: try session.currentIndex(of: historyPage)), with: next, order: order))
+        }
+        func replaceAndTell(in session: PDFSession, _ current: PDFPicture, with next: PDFPicture, order: PDFPictureOrder) throws {
+            try replace(in: session, current, with: next, order: order)
+            NotificationCenter.default.post(name: PDFSession.picturesDidChange, object: session)
+        }
+        try replaceAndTell(in: self, picture, with: replacement, order: order)
+        registerStep(named: actionName) { session in
+            try replaceAndTell(in: session, replacement, with: picture, order: .position(formerPosition))
+        } redo: { session in
+            try replaceAndTell(in: session, picture, with: replacement, order: order)
+        }
+    }
+
     /// The topmost picture at a point of the page, in the page's coordinates.
     func picture(at pagePoint: CGPoint, on page: PDFPage) -> PDFPicture? {
         pictures(on: page).last { picture in picture.bounds.contains(pagePoint) }

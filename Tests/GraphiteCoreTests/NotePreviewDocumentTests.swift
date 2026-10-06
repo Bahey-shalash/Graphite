@@ -111,11 +111,12 @@ final class NotePreviewDocumentTests: XCTestCase {
     }
 
     func testTaskCheckboxesAreMarkedOutsideCode() {
+        // A marked task is its marker and its status character's code point.
         let unchecked = String(ObsidianInlineMarkup.uncheckedTaskMarker)
         let checked = String(ObsidianInlineMarkup.checkedTaskMarker)
         let markdown = "- [ ] open\n  1. [x] done\n> - [X] quoted\n- [/] other\n[ ] not a list\n```\n- [ ] code\n```"
         XCTAssertEqual(ObsidianInlineMarkup.markingTasks(in: markdown),
-                       "- \(unchecked) open\n  1. \(checked) done\n> - \(checked) quoted\n- \(checked) other\n[ ] not a list\n```\n- [ ] code\n```")
+                       "- \(unchecked)32 open\n  1. \(checked)120 done\n> - \(checked)88 quoted\n- \(checked)47 other\n[ ] not a list\n```\n- [ ] code\n```")
     }
 }
 

@@ -27,6 +27,9 @@ public struct FileRecoveryStore: Sendable {
     public static let maximumSnapshotBytes = 2 * 1_048_576
 
     public let directory: URL
+    /// Copies passed to background tasks share this lock. Keep the interval check,
+    /// publication, pruning and moves together, so one operation cannot undo another.
+    private let mutationLock = NSRecursiveLock()
 
     public init(directory: URL) {
         self.directory = directory
@@ -44,6 +47,8 @@ public struct FileRecoveryStore: Sendable {
     /// nothing to recover and is not copied. Returns whether one was written.
     @discardableResult
     public func takeSnapshot(of text: String, for path: VaultPath, at date: Date = .now, minimumInterval: TimeInterval) throws -> Bool {
+        mutationLock.lock()
+        defer { mutationLock.unlock() }
         let data = Data(text.utf8)
         guard data.count <= Self.maximumSnapshotBytes, !text.allSatisfy(\.isWhitespace) else { return false }
         let noteDirectory = directory(for: path)
@@ -56,8 +61,9 @@ public struct FileRecoveryStore: Sendable {
         }
         try FileManager.default.createDirectory(at: noteDirectory, withIntermediateDirectories: true)
         try Data(path.rawValue.utf8).write(to: noteDirectory.appendingPathComponent("path.txt"), options: .atomic)
-        let name = Self.fileName(for: date)
-        try data.write(to: noteDirectory.appendingPathComponent(name), options: .atomic)
+        try publishSnapshot(in: noteDirectory, at: date) { location in
+            try AtomicFileWriter().write(data, to: location, expecting: .absent)
+        }
         // The oldest go first once a note has too many.
         for old in try snapshots(inNoteDirectory: noteDirectory).dropFirst(Self.maximumSnapshotsPerNote) {
             try? FileManager.default.removeItem(at: old.location)
@@ -89,6 +95,8 @@ public struct FileRecoveryStore: Sendable {
 
     /// Removes snapshots older than `historyLength`, and notes left without any.
     public func pruneSnapshots(olderThan historyLength: TimeInterval, now: Date = .now) throws {
+        mutationLock.lock()
+        defer { mutationLock.unlock() }
         guard FileManager.default.fileExists(atPath: directory.path) else { return }
         for noteDirectory in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
             let snapshots = (try? snapshots(inNoteDirectory: noteDirectory)) ?? []
@@ -103,6 +111,8 @@ public struct FileRecoveryStore: Sendable {
 
     /// Keeps snapshots with their notes when a note or a folder is renamed or moved.
     public func followMove(from oldPath: VaultPath, to newPath: VaultPath) throws {
+        mutationLock.lock()
+        defer { mutationLock.unlock() }
         for note in try recoverableNotes() where note.path.isInside(oldPath) {
             try moveSnapshots(from: note.path, to: try note.path.replacingPrefix(oldPath, with: newPath))
         }
@@ -110,13 +120,18 @@ public struct FileRecoveryStore: Sendable {
 
     /// Keeps a note's snapshots with it when it is renamed or moved.
     public func moveSnapshots(from oldPath: VaultPath, to newPath: VaultPath) throws {
+        mutationLock.lock()
+        defer { mutationLock.unlock() }
         let source = directory(for: oldPath)
         guard FileManager.default.fileExists(atPath: source.path), oldPath != newPath else { return }
         let destination = directory(for: newPath)
         if FileManager.default.fileExists(atPath: destination.path) {
-            for snapshot in try snapshots(inNoteDirectory: source) {
-                let target = destination.appendingPathComponent(snapshot.location.lastPathComponent)
-                if !FileManager.default.fileExists(atPath: target.path) { try FileManager.default.moveItem(at: snapshot.location, to: target) }
+            for snapshot in try snapshots(inNoteDirectory: source).reversed() {
+                // A deleted note may already have history at the new path. Equal dates
+                // do not mean equal content; publish every source before removing it.
+                try publishSnapshot(in: destination, at: snapshot.date) { location in
+                    try AtomicFileWriter().copy(from: snapshot.location, to: location, expecting: .absent)
+                }
             }
             try FileManager.default.removeItem(at: source)
         } else {
@@ -127,6 +142,8 @@ public struct FileRecoveryStore: Sendable {
     }
 
     public func removeAllSnapshots() throws {
+        mutationLock.lock()
+        defer { mutationLock.unlock() }
         if FileManager.default.fileExists(atPath: directory.path) { try FileManager.default.removeItem(at: directory) }
     }
 
@@ -142,7 +159,38 @@ public struct FileRecoveryStore: Sendable {
         return try FileManager.default.contentsOfDirectory(at: noteDirectory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]).compactMap { location in
             guard location.pathExtension == "md", let date = Self.date(fromFileName: location.lastPathComponent) else { return nil }
             return Snapshot(location: location, date: date)
-        }.sorted { first, second in first.date > second.date }
+        }.sorted { first, second in
+            if first.date != second.date { return first.date > second.date }
+            return Self.sequenceNumber(in: first.location) > Self.sequenceNumber(in: second.location)
+        }
+    }
+
+    /// The coordinated absence check protects simultaneous copies as well as successive
+    /// snapshots within one millisecond. Suffixes retain the original time and order.
+    private func publishSnapshot(in noteDirectory: URL, at date: Date, publish: (URL) throws -> FileRevision) throws {
+        let name = Self.fileName(for: date)
+        let stem = (name as NSString).deletingPathExtension
+        let existing = try snapshots(inNoteDirectory: noteDirectory).filter { snapshot in
+            Self.fileName(for: snapshot.date) == name
+        }
+        var sequenceNumber = existing.map { snapshot in Self.sequenceNumber(in: snapshot.location) }.max() ?? -1
+        for _ in 0..<1_000 {
+            guard sequenceNumber < Int.max else { break }
+            sequenceNumber += 1
+            let location = noteDirectory.appendingPathComponent(sequenceNumber == 0 ? name : "\(stem)_\(sequenceNumber).md")
+            do {
+                _ = try publish(location)
+                return
+            } catch GraphiteError.conflict {
+                continue
+            }
+        }
+        throw GraphiteError.unavailable("The recovery snapshot could not be saved because its name kept being taken. Existing copies are unchanged.")
+    }
+
+    private static func sequenceNumber(in location: URL) -> Int {
+        let components = location.deletingPathExtension().lastPathComponent.split(separator: "_", maxSplits: 1)
+        return components.count == 2 ? Int(components[1]) ?? 0 : 0
     }
 
     private static func fileName(for date: Date) -> String {
@@ -151,7 +199,9 @@ public struct FileRecoveryStore: Sendable {
     }
 
     private static func date(fromFileName name: String) -> Date? {
-        guard let milliseconds = Double((name as NSString).deletingPathExtension) else { return nil }
+        let stem = (name as NSString).deletingPathExtension
+        guard let timestamp = stem.split(separator: "_", maxSplits: 1).first,
+              let milliseconds = Double(timestamp), milliseconds.isFinite else { return nil }
         return Date(timeIntervalSince1970: milliseconds / 1000)
     }
 }
