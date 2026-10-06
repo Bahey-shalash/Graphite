@@ -290,10 +290,13 @@ struct MarkdownPane: View {
         // keyboard's toolbar formats, attaches, draws, undoes and redoes while typing.
         ToolbarItemGroup(placement: .primaryAction) { Group {
             if isEditing && !isCompactWidth {
-                Menu("Format", systemImage: "textformat") { formatMenuItems }
-                Menu("Insert", systemImage: "paperclip") { insertMenuItems }
+                // On an iPad the keyboard's toolbar formats and inserts while typing, so
+                // Format and Insert wait in More, as on a phone; the Mac has no such toolbar.
                 #if canImport(UIKit)
                 drawButton
+                #else
+                Menu("Format", systemImage: "textformat") { formatMenuItems }
+                Menu("Insert", systemImage: "paperclip") { insertMenuItems }
                 #endif
             }
             if !usesDocumentControlRow {
@@ -381,14 +384,17 @@ struct MarkdownPane: View {
             Label("Source mode", systemImage: "chevron.left.forwardslash.chevron.right").tag(NoteViewMode.source)
         }
         .pickerStyle(.inline)
+        #if canImport(UIKit)
+        if isEditing {
+            Section {
+                Menu("Format", systemImage: "textformat") { formatMenuItems }
+                Menu("Insert", systemImage: "paperclip") { insertMenuItems }
+                if isCompactWidth { drawButton }
+            }
+        }
+        #endif
         if isCompactWidth {
             Section {
-                if isEditing {
-                    Menu("Insert", systemImage: "paperclip") { insertMenuItems }
-                    #if canImport(UIKit)
-                    drawButton
-                    #endif
-                }
                 Button("Links and Outline", systemImage: "sidebar.right") { showsLinksInspector.toggle() }
                 if let renameDocument { Button("Rename…", systemImage: "pencil") { renameDocument.rename() } }
             }
