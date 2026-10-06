@@ -40,16 +40,20 @@ struct LivePreviewWidgetView: View {
     @State private var parsedSource = LivePreviewParsedSource()
 
     var body: some View {
-        // The source button has its own column so it never covers a player's or viewer's controls.
-        HStack(alignment: .top, spacing: 8) {
-            // The vertical stack keeps dividers inside the content horizontal.
-            VStack(alignment: .leading, spacing: 0) { content }.frame(maxWidth: .infinity, alignment: .leading)
-            if block.kind != .horizontalRule {
-                Button("Edit Source", systemImage: "chevron.left.forwardslash.chevron.right") { revealSource() }
-                    .labelStyle(.iconOnly).font(.caption).foregroundStyle(.secondary).buttonStyle(.borderless)
-                    .frame(width: 28, height: 28)
-                    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
-                    .accessibilityLabel("Edit source")
+        Group {
+            if block.kind == .frontmatter {
+                // The properties' heading row is empty at its end, so the button sits there
+                // and the properties are as wide as in reading view.
+                VStack(alignment: .leading, spacing: 0) { content }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .overlay(alignment: .topTrailing) { sourceButton }
+            } else {
+                // The source button has its own column so it never covers a player's or viewer's controls.
+                HStack(alignment: .top, spacing: 8) {
+                    // The vertical stack keeps dividers inside the content horizontal.
+                    VStack(alignment: .leading, spacing: 0) { content }.frame(maxWidth: .infinity, alignment: .leading)
+                    if block.kind != .horizontalRule { sourceButton }
+                }
             }
         }
         // The reserved space follows the view's natural height, not the frame it was given.
@@ -65,6 +69,14 @@ struct LivePreviewWidgetView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var sourceButton: some View {
+        Button("Edit Source", systemImage: "chevron.left.forwardslash.chevron.right") { revealSource() }
+            .labelStyle(.iconOnly).font(.caption).foregroundStyle(.secondary).buttonStyle(.borderless)
+            .frame(width: 28, height: 28)
+            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+            .accessibilityLabel("Edit source")
     }
 
     @ViewBuilder private var content: some View {

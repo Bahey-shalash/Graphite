@@ -21,11 +21,14 @@ struct PropertiesPanel: View {
     @FocusState private var isNewPropertyNameFocused: Bool
 
     /// The names take up to 210 points, and less in a narrow pane (a split, or beside the
-    /// right sidebar), so the values keep at least half the width.
+    /// right sidebar), so the values keep at least half the width; on a phone's width a
+    /// little less again, which lets two tags share a line.
     private var keyColumnWidth: CGFloat {
         guard panelWidth > 0 else { return PropertyRow.maximumKeyColumnWidth }
-        return min(PropertyRow.maximumKeyColumnWidth, max(PropertyRow.iconWidth + 70, panelWidth * 0.38))
+        let share: CGFloat = panelWidth < Self.narrowPanelWidth ? 0.32 : 0.38
+        return min(PropertyRow.maximumKeyColumnWidth, max(PropertyRow.iconWidth + 70, panelWidth * share))
     }
+    private static let narrowPanelWidth: CGFloat = 420
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -171,11 +174,12 @@ private struct PropertyRow: View {
 
     var body: some View {
         HStack(alignment: rowAlignment, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 9) {
                 Image(systemName: typeImage)
                     .foregroundStyle(.secondary)
                     .frame(width: Self.iconWidth)
-                Text(property.key).foregroundStyle(.secondary).lineLimit(1)
+                // A step smaller than the values, as in Obsidian's Minimal theme.
+                Text(property.key).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
             }
             .frame(width: keyColumnWidth, alignment: .leading)
             valueEditor.frame(maxWidth: .infinity, alignment: .leading)
@@ -225,7 +229,7 @@ private struct PropertyRow: View {
             .accessibilityValue(isChecked ? "Checked" : "Unchecked")
         case .list(let items):
             // Items wrap like text, and the field for a new item follows the last one.
-            WrappingRowLayout(horizontalSpacing: 10, verticalSpacing: 8) {
+            WrappingRowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
                 PropertyItems(items: items, style: declaredType == .tags ? .tags : .plain, isEditable: isEditable, follow: follow) { remainingItems in
                     commit(.list(remainingItems))
                 }
@@ -569,12 +573,13 @@ private struct PropertyItems: View {
                     removeButton(for: itemIndex, item: item).foregroundStyle(.secondary)
                 }
             } else {
-                HStack(spacing: 6) {
+                HStack(spacing: 5) {
                     Text(style == .tags && item.hasPrefix("#") ? String(item.dropFirst()) : item).lineLimit(1)
                     removeButton(for: itemIndex, item: item)
                 }
+                .font(.subheadline)
                 .foregroundStyle(style == .tags ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
-                .padding(.horizontal, 12).padding(.vertical, 4)
+                .padding(.horizontal, 9).padding(.vertical, 3)
                 .background(style == .tags ? AnyShapeStyle(.tint.opacity(0.16)) : AnyShapeStyle(Color.secondary.opacity(0.16)), in: Capsule())
             }
         }
@@ -587,7 +592,8 @@ private struct PropertyItems: View {
                 remainingItems.remove(at: itemIndex)
                 commit(remainingItems)
             } label: {
-                Image(systemName: "xmark").font(.caption.weight(.semibold))
+                // Quiet, so the tag's name reads first.
+                Image(systemName: "xmark").font(.caption2.weight(.semibold)).opacity(0.6)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Remove \(item)")
