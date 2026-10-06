@@ -30,6 +30,10 @@ final class MarkdownSession {
     /// Whether the editor should start editing as soon as it shows, as for a note just
     /// created. Observed, so an editor already on screen notices it.
     var startsEditingWhenShown = false
+    /// Whether the note's editor is taking typing. On a phone the bar that moves between
+    /// files gives way to the keyboard's own toolbar meanwhile, also with a hardware
+    /// keyboard, where the toolbar shows alone and no keyboard notification says so.
+    var isTyping = false
     /// The find bar to open once the editor shows, with replace or without, for Obsidian's
     /// "Search current file" from the command palette.
     var findRequest: FindRequest?

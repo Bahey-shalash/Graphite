@@ -155,6 +155,11 @@ final class GraphitePDFDisplayView: PDFView {
     /// The PDF's own history (`PDFSession.undoManager`), for ⌘Z while the PDF has focus.
     weak var documentUndoManager: UndoManager?
     override var undoManager: UndoManager? { documentUndoManager ?? super.undoManager }
+    /// PDFKit makes its document view first responder, and a view without an accessory of
+    /// its own shows its ancestor's: a PDF embedded in a note raised the note's formatting
+    /// toolbar as the note opened, over the bottom of the screen with no text to format.
+    private let emptyInputAccessoryView = UIView(frame: .zero)
+    override var inputAccessoryView: UIView? { emptyInputAccessoryView }
     /// PDFKit scrolls to a page reliably only after the first layout.
     var pendingInitialPage: PDFPage?
 

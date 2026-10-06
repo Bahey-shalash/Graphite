@@ -21,6 +21,7 @@ struct MarkdownPane: View {
     @State private var showsLinkPicker = false
     @State private var showsReloadConfirmation = false
     @Environment(\.showTemplatePicker) private var showTemplatePicker
+    @Environment(\.renameDocument) private var renameDocument
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.usesDocumentControlRow) private var usesDocumentControlRowSetting
     @Environment(\.showsDocumentControlsInTabBar) private var showsDocumentControlsInTabBar
@@ -388,6 +389,7 @@ struct MarkdownPane: View {
                     #endif
                 }
                 Button("Links and Outline", systemImage: "sidebar.right") { showsLinksInspector.toggle() }
+                if let renameDocument { Button("Rename…", systemImage: "pencil") { renameDocument.rename() } }
             }
         }
         Button("Fold All", systemImage: "rectangle.compress.vertical") { session.foldAll() }

@@ -17,6 +17,7 @@ struct CanvasPane: View {
     @State private var filePicker: CanvasFilePicker.Kind?
     @State private var showsReloadConfirmation = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.renameDocument) private var renameDocument
     @Environment(\.usesDocumentControlRow) private var usesDocumentControlRowSetting
     @Environment(\.showsDocumentControlsInTabBar) private var showsDocumentControlsInTabBar
 
@@ -149,6 +150,7 @@ struct CanvasPane: View {
             Menu("More", systemImage: "ellipsis.circle") {
                 Button("Zoom to Fit", systemImage: "arrow.up.left.and.arrow.down.right") { session.zoomToFit() }
                 Button("Actual Size", systemImage: "1.magnifyingglass") { session.resetZoom() }
+                if let renameDocument { Button("Rename…", systemImage: "pencil") { renameDocument.rename() } }
                 if session.isWriting {
                     Divider()
                     Button("Select All", systemImage: "checkmark.circle") { session.selectAll() }

@@ -422,4 +422,14 @@ struct TemplatePickerAction: Equatable {
 extension EnvironmentValues {
     /// Nil where Templates is off.
     @Entry var showTemplatePicker: TemplatePickerAction? = nil
+    /// Renames the document on screen, for its More menu where the navigation bar's title
+    /// has no Rename menu (a compact width); nil elsewhere.
+    @Entry var renameDocument: DocumentRenameAction? = nil
+}
+
+/// Asks for a new name for the document on screen. Like `TemplatePickerAction`, any two
+/// values are equal, so views that read it do not update needlessly.
+struct DocumentRenameAction: Equatable {
+    let rename: () -> Void
+    static func == (leftAction: DocumentRenameAction, rightAction: DocumentRenameAction) -> Bool { true }
 }

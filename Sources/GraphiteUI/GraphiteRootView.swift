@@ -20,6 +20,9 @@ public struct GraphiteRootView: View {
     /// mobile, and the file list is a step back.
     @State private var preferredCompactColumn = NavigationSplitViewColumn.detail
     @State private var showsTabSwitcher = false
+    /// Whether the software keyboard, or the note's keyboard toolbar alone with a hardware
+    /// keyboard, is on screen.
+    @State private var isKeyboardShown = false
     @State private var focusMode = WorkspaceFocusMode()
     /// In automatic mode an iPad shows only the detail column when the window is taller
     /// than wide, so toggling the sidebar has to know the window's shape.
@@ -162,6 +165,10 @@ public struct GraphiteRootView: View {
         .onChange(of: workspace.selection) { _, selection in
             if selection != nil { showDocumentColumn() }
         }
+        #if canImport(UIKit)
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in isKeyboardShown = true }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in isKeyboardShown = false }
+        #endif
         .onOpenURL { url in
             if isVaultRestored { Task { await workspace.handle(url) } } else { pendingLinks.append(url) }
         }
@@ -199,7 +206,7 @@ public struct GraphiteRootView: View {
             .id(workspace.currentVaultIdentifier)
             .overlay { RecordingPreviewOverlay(workspace: workspace) }
             // Editable, so the title bar's menu offers Rename, as for documents in Files.
-            .navigationTitle(titleBinding)
+            .modifier(DocumentTitle(title: titleBinding, isCompactWidth: isCompactWidth))
             #if canImport(UIKit)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -208,6 +215,9 @@ public struct GraphiteRootView: View {
             .toolbar { compactBottomBar }
             #endif
             .environment(\.showTemplatePicker, templatePickerAction)
+            .environment(\.renameDocument, isCompactWidth ? DocumentRenameAction {
+                if let path = workspace.selection { workspace.fileSheet = .rename(path) }
+            } : nil)
             .inspector(isPresented: Binding(get: { showsInspector && workspace.markdownSession != nil }, set: { isPresented in showsInspector = isPresented })) {
                 if let note = workspace.markdownSession { NoteLinksInspector(session: note, workspace: workspace).inspectorColumnWidth(min: 240, ideal: 280) }
             }
@@ -247,7 +257,7 @@ public struct GraphiteRootView: View {
                 }
             }
         }
-        if workspace.store != nil && (workspace.preferences.isEnabled(.audioRecorder) || workspace.recording.state.isActive) {
+        if workspace.store != nil && showsRecordingControl {
             ToolbarItem(placement: .primaryAction) {
                 RecordingControl(workspace: workspace)
                     .tint(.primary)
@@ -255,12 +265,25 @@ public struct GraphiteRootView: View {
         }
     }
 
+    /// Whether the window's toolbar shows the recording control. A compact width shows it
+    /// only while there is a recording to follow or a message about one: its navigation bar
+    /// holds the document's own controls beside the title, and a recording starts from the
+    /// command palette.
+    private var showsRecordingControl: Bool {
+        let recording = workspace.recording
+        let hasRecordingToFollow = !recording.canStartRecording || recording.message != nil
+        if isCompactWidth { return hasRecordingToFollow }
+        return workspace.preferences.isEnabled(.audioRecorder) || recording.state.isActive
+    }
+
     #if canImport(UIKit)
     /// Obsidian mobile's navigation bar: back and forward through the files seen, find a
     /// file, a new note, the open tabs, and the command palette. Only in compact widths;
     /// a PDF hides it while the palette docks at the bottom of the screen.
     @ToolbarContentBuilder private var compactBottomBar: some ToolbarContent {
-        if workspace.store != nil && isCompactWidth {
+        // The keyboard, and the note's keyboard toolbar, take over while typing, as in
+        // Obsidian mobile; the two bars would otherwise stand one over the other.
+        if workspace.store != nil && isCompactWidth && !isKeyboardShown && workspace.markdownSession?.isTyping != true {
             ToolbarItemGroup(placement: .bottomBar) {
                 Group {
                     Button("Back", systemImage: "arrow.left") { Task { await workspace.goBack() } }
@@ -608,5 +631,22 @@ private struct CreateDocumentSheet: View {
     private var pageSize: CGSize {
         guard let portraitSize = sizePreset.portraitSize else { return CGSize(width: customWidth, height: customHeight) }
         return isLandscape ? CGSize(width: portraitSize.height, height: portraitSize.width) : portraitSize
+    }
+}
+
+/// The document's name in the navigation bar. A compact width shows it as a plain title,
+/// which truncates to make room for the document's controls; the editable title, with its
+/// Rename menu, kept its full width beside a long file name and sent Write, Undo and More
+/// into an overflow menu. Rename is in the document's More menu there.
+private struct DocumentTitle: ViewModifier {
+    @Binding var title: String
+    let isCompactWidth: Bool
+
+    func body(content: Content) -> some View {
+        if isCompactWidth {
+            content.navigationTitle(title)
+        } else {
+            content.navigationTitle($title)
+        }
     }
 }

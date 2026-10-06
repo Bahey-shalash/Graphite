@@ -55,6 +55,7 @@ private struct PDFPaneContent: View {
     @State private var showsSignatureConfirmation = false
     @AppStorage(PDFAnnotationPreferenceKey.drawsWithFinger) private var drawsWithFinger = false
     @AppStorage(PDFAnnotationPreferenceKey.showsToolPicker) private var showsToolPicker = true
+    @Environment(\.renameDocument) private var renameDocument
     #if canImport(UIKit)
     @AppStorage(PDFAnnotationPreferenceKey.drawsShapes) private var drawsShapes = false
     @AppStorage(PDFAnnotationPreferenceKey.writingGuidePattern) private var writingGuidePattern = DrawingPaperPattern.plain
@@ -294,8 +295,16 @@ private struct PDFPaneContent: View {
                 Button(showsPages ? "Hide Pages" : "Show Pages", systemImage: "square.grid.2x2") {
                     withAnimation(.snappy) { showsPages.toggle() }
                 }
-                Button("Go to Page… (\(session.currentPageIndex + 1) of \(session.pageCount))", systemImage: "number") {
+                // The page shown is the menu item's subtitle, which a phone's menu has room for.
+                Button {
                     showsPageJump = true
+                } label: {
+                    Label {
+                        Text("Go to Page…")
+                        Text("Page \(session.currentPageIndex + 1) of \(session.pageCount)")
+                    } icon: {
+                        Image(systemName: "number")
+                    }
                 }
                 #if canImport(UIKit)
                 Button("Find in PDF", systemImage: "magnifyingglass") { presentFindNavigator() }
@@ -303,6 +312,7 @@ private struct PDFPaneContent: View {
                 if !session.isProtected {
                     PDFAddPageMenu(commands: commands, insertionIndexAfter: session.currentPageIndex + 1, insertionIndexBefore: session.currentPageIndex)
                 }
+                if let renameDocument { Button("Rename…", systemImage: "pencil") { renameDocument.rename() } }
             }
         }
         if let linkActions {

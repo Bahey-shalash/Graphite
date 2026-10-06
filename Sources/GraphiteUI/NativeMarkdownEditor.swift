@@ -1335,6 +1335,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         func textViewDidBeginEditing(_ textView: UITextView) {
             actions.beginEditing?()
             isEditing = true
+            session.isTyping = true
             // A tap that starts editing is turned into a cursor position after this call.
             // Revealing the markup at the old cursor now would invalidate the layout below
             // it, and the tap would land at the end of the note; the markup is revealed
@@ -1348,6 +1349,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
 
         func textViewDidEndEditing(_ textView: UITextView) {
             isEditing = false
+            session.isTyping = false
             // A suggestion chosen as the keyboard closes still gets its edits.
             recordAcceptedCompletion()
             completionContextRevision = nil
