@@ -35,7 +35,11 @@ struct QuickPalette: View {
     @State private var hasMovedSelection = false
     @State private var resultsHeight: CGFloat = 0
     @FocusState private var isFieldFocused: Bool
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     private static let maximumResultsHeight: CGFloat = 420
+    /// On a phone the keyboard takes the lower half of the screen; the results stay above it.
+    private static let maximumCompactResultsHeight: CGFloat = 300
+    private var isCompactWidth: Bool { horizontalSizeClass == .compact }
     #if canImport(UIKit)
     private static let secondaryColor = Color(uiColor: .secondaryLabel)
     #else
@@ -95,8 +99,9 @@ struct QuickPalette: View {
                     }
                 }
                 // As tall as the results, up to a limit, instead of filling the screen.
-                .frame(height: min(max(resultsHeight, 52), Self.maximumResultsHeight))
-                if items.contains(where: { item in item.openElsewhere != nil }) {
+                .frame(height: min(max(resultsHeight, 52), isCompactWidth ? Self.maximumCompactResultsHeight : Self.maximumResultsHeight))
+                // The keyboard shortcuts mean nothing on a phone, where tabs have no sides.
+                if !isCompactWidth && items.contains(where: { item in item.openElsewhere != nil }) {
                     Divider()
                     // The text variation selector keeps ↩ from being drawn as an emoji.
                     Text("⌘↩\u{FE0E} new tab    ⌥⌘↩\u{FE0E} other side    long press for more")
@@ -195,11 +200,13 @@ struct QuickPalette: View {
 struct PaletteOverlay<Palette: View>: View {
     let close: () -> Void
     @ViewBuilder let palette: Palette
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     var body: some View {
         ZStack(alignment: .top) {
             Color.black.opacity(0.2).ignoresSafeArea().onTapGesture(perform: close)
-            palette.padding(.horizontal, 16).padding(.top, 70)
+            // Just under the navigation bar on a phone, leaving room above the keyboard.
+            palette.padding(.horizontal, horizontalSizeClass == .compact ? 10 : 16).padding(.top, horizontalSizeClass == .compact ? 8 : 70)
         }
         .transition(.opacity)
     }

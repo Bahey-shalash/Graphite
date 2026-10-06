@@ -125,6 +125,18 @@ Started on 2026-09-30 at the owner's request to implement everything still liste
 - The lasso straightens a line of handwriting and smooths strokes (Apple's handwriting refinement has no public API).
 - Drawings with pictures, and drawings made on an image, are saved as PDF and SVG as well as PNG.
 
+## Eighth increment: a quieter interface and a phone layout
+
+Started on 2026-10-06 at the owner's request, with Obsidian's Minimal theme as the reference: the interface and the Pencil bar felt cluttered and unclean, and the iPhone layout looked like an afterthought. `Coverage.md` has a section of the same date; none of it has been built or run yet.
+
+- One Write toggle instead of the segmented Read/Write control, everywhere it appeared; Show Pencil Tools moved into the PDF's More menu.
+- Quiet chrome: bars in the page's color with a hairline, muted tabs with a faint fill for the one in use and its close button only there and under the pointer, no icon on note tabs, an empty tab that is a short column of links, muted folder and keyboard-toolbar icons, denser sidebar rows.
+- One heading scale and weight for Live Preview, Source and Reading view, so headings no longer change size when a note switches between reading and writing.
+- A phone layout after Obsidian mobile: document first, no tab bar, a bottom bar (back, forward, find, new note, tabs, commands), a tab switcher sheet, and a navigation bar with only the document's controls.
+- The fixed bar and the squeeze palette draw their tools upright with ink-colored tips, the tool in use raised, as Apple's palette does.
+
+Still to judge on a device: hold-to-shape (0.45 seconds at rest after a stroke of 24 points) may catch pauses in handwriting; it is unchanged until it can be tried with a Pencil.
+
 ## Remaining: coherent workspace design
 
 Continue reviewing the Markdown workspace, PDF notebook workspace, and drawing editor together: typography, icon weights, popovers, menus, selection states, and light/dark appearance beyond the toolbars. Check landscape, Split View and Slide Over widths in the running app (the control-row threshold is estimated from portrait layouts), Dynamic Type extremes, hardware-keyboard use including ⌘Z for PDFs, and left- and right-handed writing. Extend accessibility validation of the shared controls and focus mode.

@@ -597,7 +597,7 @@ struct MarkdownPreview: View {
                 LazyVStack(alignment: .leading, spacing: 14) {
                     if let inlineTitle = configuration.inlineTitle {
                         Text(inlineTitle)
-                            .font(.system(size: configuration.textSize * InlineTitleStyle.fontScale, weight: .bold))
+                            .font(.system(size: configuration.textSize * InlineTitleStyle.fontScale, weight: .semibold))
                             .accessibilityAddTraits(.isHeader)
                             .padding(.bottom, 6)
                     }
@@ -1247,14 +1247,14 @@ extension Color {
 
 // MARK: Obsidian-like styles
 
+/// The sizes Live Preview gives headings (`HeadingTypography`), so a heading does not jump
+/// when the note switches to reading.
 struct ObsidianHeadingStyle: StructuredText.HeadingStyle {
-    private static let fontScales: [CGFloat] = [1.8, 1.6, 1.4, 1.27, 1.13, 1.0]
     func makeBody(configuration: Configuration) -> some View {
-        let level = min(max(configuration.headingLevel, 1), 6)
         configuration.label
-            .textual.fontScale(Self.fontScales[level - 1])
+            .textual.fontScale(HeadingTypography.fontScale(level: configuration.headingLevel))
             .textual.blockSpacing(.fontScaled(top: 1.2, bottom: 0.5))
-            .fontWeight(.bold)
+            .fontWeight(.semibold)
     }
 }
 

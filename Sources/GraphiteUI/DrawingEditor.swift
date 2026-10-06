@@ -239,7 +239,7 @@ struct DrawingEditor: View {
                 }
         }
         // The same order as the note and PDF toolbars: tools, then Undo and Redo, then the
-        // options menu; Insert or Done takes the place of Read/Write.
+        // options menu; Insert or Done takes the place of Write.
         ToolbarItemGroup(placement: .primaryAction) {
             if horizontalSizeClass != .compact {
                 Button(showsToolPicker ? "Hide Tools" : "Show Tools", systemImage: showsToolPicker ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle") {

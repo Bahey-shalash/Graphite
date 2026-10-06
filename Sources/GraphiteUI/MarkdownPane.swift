@@ -278,99 +278,130 @@ struct MarkdownPane: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         // Neutral icons, as in Obsidian; the accent is kept for links, selection, and toggles.
+        // A compact width shows only Write and More, as Obsidian mobile's header does: the
+        // keyboard's toolbar formats, attaches, draws, undoes and redoes while typing.
         ToolbarItemGroup(placement: .primaryAction) { Group {
-            if isEditing {
-                Menu("Format", systemImage: "textformat") {
-                    Menu("Heading", systemImage: "number") {
-                        ForEach(1...6, id: \.self) { level in
-                            Button("Heading \(level)") { run(.heading(level)) }
-                        }
-                    }
-                    Button("Bold", systemImage: "bold") { run(.bold) }
-                    Button("Italic", systemImage: "italic") { run(.italic) }
-                    Button("Strikethrough", systemImage: "strikethrough") { run(.strikethrough) }
-                    Button("Highlight", systemImage: "highlighter") { run(.highlight) }
-                    Button("Code", systemImage: "chevron.left.forwardslash.chevron.right") { run(.code) }
-                    Button("Inline Math", systemImage: "function") { run(.math) }
-                    Button("Comment", systemImage: "eye.slash") { run(.comment) }
-                    if preferences.isEnabled(.colors) {
-                        Menu("Color", systemImage: "paintpalette") {
-                            ForEach(preferences.colorPalette) { color in
-                                Button(color.name) { session.insert("~={\(color.hex)}\(Self.selectedText(in: session, placeholder: color.name))=~") }
-                            }
-                        }
-                    }
-                    Divider()
-                    Button("Bulleted List", systemImage: "list.bullet") { run(.bulletList) }
-                    Button("Numbered List", systemImage: "list.number") { run(.numberedList) }
-                    Button("Task", systemImage: "checklist") { run(.task) }
-                    Button("Table", systemImage: "tablecells") { session.insertBlock("| Column | Column |\n| --- | --- |\n|  |  |") }
-                    Button("Math Block", systemImage: "function") { session.insertBlock("$$\n\n$$") }
-                    Button("Callout", systemImage: "text.bubble") { session.insertBlock("> [!note]\n> ") }
-                }
-                Menu("Insert", systemImage: "paperclip") {
-                    Button("Link to Note…", systemImage: "link") { showsLinkPicker = true }
-                    Button("Photo Library…", systemImage: "photo.on.rectangle") { showsPhotoPicker = true }
-                    #if canImport(UIKit)
-                    if UIImagePickerController.isSourceTypeAvailable(.camera) { Button("Take Photo…", systemImage: "camera") { showsCamera = true } }
-                    #endif
-                    Button("Attachment…", systemImage: "doc.badge.plus") { showsAttachmentPicker = true }
-                    if let showTemplatePicker {
-                        Button("Template…", systemImage: "doc.on.doc") {
-                            workspace.activateTab(tabID)
-                            showTemplatePicker.show()
-                        }
-                    }
-                }
+            if isEditing && !isCompactWidth {
+                Menu("Format", systemImage: "textformat") { formatMenuItems }
+                Menu("Insert", systemImage: "paperclip") { insertMenuItems }
                 #if canImport(UIKit)
-                if preferences.isEnabled(.drawings) {
-                    if let drawingAtCursor {
-                        Button("Edit Drawing", systemImage: "pencil.tip.crop.circle") { Task { await workspace.beginEditingDrawing(at: drawingAtCursor) } }
-                    } else if let imageAtCursor {
-                        Button("Draw on Image", systemImage: "pencil.tip.crop.circle.badge.plus") {
-                            Task { await workspace.beginDrawingOnImage(at: imageAtCursor, fromNote: session.path) }
-                        }
-                    } else {
-                        Button("Draw", systemImage: "pencil.tip.crop.circle.badge.plus") { workspace.beginNewDrawing(in: session) }
-                    }
-                }
+                drawButton
                 #endif
             }
             if !usesDocumentControlRow {
                 #if canImport(UIKit)
-                if isEditing { UndoRedoButtons(availability: session.undoAvailability) }
+                if isEditing && !isCompactWidth { UndoRedoButtons(availability: session.undoAvailability) }
                 #endif
-                DocumentModePicker(isWriting: isWritingBinding)
+                DocumentModeToggle(isWriting: isWritingBinding)
             }
-            Menu("More", systemImage: "ellipsis.circle") {
-                Picker("View", selection: $session.viewMode) {
-                    Label("Reading view", systemImage: "book").tag(NoteViewMode.reading)
-                    Label("Live Preview", systemImage: "eye").tag(NoteViewMode.livePreview)
-                    Label("Source mode", systemImage: "chevron.left.forwardslash.chevron.right").tag(NoteViewMode.source)
-                }
-                .pickerStyle(.inline)
-                Button("Fold All", systemImage: "rectangle.compress.vertical") { session.foldAll() }
-                Button("Unfold All", systemImage: "rectangle.expand.vertical") { session.unfoldAll() }
-                    .disabled(session.foldedKeys.isEmpty)
-                Button("Save Now", systemImage: "square.and.arrow.down") { Task { try? await session.save() } }
-                Button("Copy Graphite URL", systemImage: "link") { Pasteboard.copy(workspace.openingLink(to: session.path)) }
-                if preferences.isEnabled(.bookmarks) {
-                    let isBookmarked = workspace.bookmarks.fileBookmark(for: session.path) != nil
-                    Button(isBookmarked ? "Remove Bookmark" : "Bookmark", systemImage: isBookmarked ? "bookmark.slash" : "bookmark") {
-                        Task { await workspace.toggleBookmark(session.path) }
-                    }
-                }
-                if preferences.isEnabled(.fileRecovery) {
-                    Button("File Recovery…", systemImage: "clock.arrow.circlepath") { workspace.fileRecoveryRequest = FileRecoveryRequest(path: session.path) }
-                }
+            Menu("More", systemImage: "ellipsis.circle") { moreMenuItems }
+            if !isCompactWidth {
+                Button("Sidebar", systemImage: "sidebar.right") { showsLinksInspector.toggle() }
             }
-            Button("Sidebar", systemImage: "sidebar.right") { showsLinksInspector.toggle() }
         }.tint(.primary) }
     }
 
-    private var usesDocumentControlRow: Bool {
-        usesDocumentControlRowSetting ?? (horizontalSizeClass == .compact)
+    @ViewBuilder private var formatMenuItems: some View {
+        Menu("Heading", systemImage: "number") {
+            ForEach(1...6, id: \.self) { level in
+                Button("Heading \(level)") { run(.heading(level)) }
+            }
+        }
+        Button("Bold", systemImage: "bold") { run(.bold) }
+        Button("Italic", systemImage: "italic") { run(.italic) }
+        Button("Strikethrough", systemImage: "strikethrough") { run(.strikethrough) }
+        Button("Highlight", systemImage: "highlighter") { run(.highlight) }
+        Button("Code", systemImage: "chevron.left.forwardslash.chevron.right") { run(.code) }
+        Button("Inline Math", systemImage: "function") { run(.math) }
+        Button("Comment", systemImage: "eye.slash") { run(.comment) }
+        if preferences.isEnabled(.colors) {
+            Menu("Color", systemImage: "paintpalette") {
+                ForEach(preferences.colorPalette) { color in
+                    Button(color.name) { session.insert("~={\(color.hex)}\(Self.selectedText(in: session, placeholder: color.name))=~") }
+                }
+            }
+        }
+        Divider()
+        Button("Bulleted List", systemImage: "list.bullet") { run(.bulletList) }
+        Button("Numbered List", systemImage: "list.number") { run(.numberedList) }
+        Button("Task", systemImage: "checklist") { run(.task) }
+        Button("Table", systemImage: "tablecells") { session.insertBlock("| Column | Column |\n| --- | --- |\n|  |  |") }
+        Button("Math Block", systemImage: "function") { session.insertBlock("$$\n\n$$") }
+        Button("Callout", systemImage: "text.bubble") { session.insertBlock("> [!note]\n> ") }
     }
+
+    @ViewBuilder private var insertMenuItems: some View {
+        Button("Link to Note…", systemImage: "link") { showsLinkPicker = true }
+        Button("Photo Library…", systemImage: "photo.on.rectangle") { showsPhotoPicker = true }
+        #if canImport(UIKit)
+        if UIImagePickerController.isSourceTypeAvailable(.camera) { Button("Take Photo…", systemImage: "camera") { showsCamera = true } }
+        #endif
+        Button("Attachment…", systemImage: "doc.badge.plus") { showsAttachmentPicker = true }
+        if let showTemplatePicker {
+            Button("Template…", systemImage: "doc.on.doc") {
+                workspace.activateTab(tabID)
+                showTemplatePicker.show()
+            }
+        }
+    }
+
+    #if canImport(UIKit)
+    /// Edits the drawing at the cursor, draws on the image there, or starts a new drawing.
+    @ViewBuilder private var drawButton: some View {
+        if preferences.isEnabled(.drawings) {
+            if let drawingAtCursor {
+                Button("Edit Drawing", systemImage: "pencil.tip.crop.circle") { Task { await workspace.beginEditingDrawing(at: drawingAtCursor) } }
+            } else if let imageAtCursor {
+                Button("Draw on Image", systemImage: "pencil.tip.crop.circle.badge.plus") {
+                    Task { await workspace.beginDrawingOnImage(at: imageAtCursor, fromNote: session.path) }
+                }
+            } else {
+                Button("Draw", systemImage: "pencil.tip.crop.circle.badge.plus") { workspace.beginNewDrawing(in: session) }
+            }
+        }
+    }
+    #endif
+
+    @ViewBuilder private var moreMenuItems: some View {
+        Picker("View", selection: $session.viewMode) {
+            Label("Reading view", systemImage: "book").tag(NoteViewMode.reading)
+            Label("Live Preview", systemImage: "eye").tag(NoteViewMode.livePreview)
+            Label("Source mode", systemImage: "chevron.left.forwardslash.chevron.right").tag(NoteViewMode.source)
+        }
+        .pickerStyle(.inline)
+        if isCompactWidth {
+            Section {
+                if isEditing {
+                    Menu("Insert", systemImage: "paperclip") { insertMenuItems }
+                    #if canImport(UIKit)
+                    drawButton
+                    #endif
+                }
+                Button("Links and Outline", systemImage: "sidebar.right") { showsLinksInspector.toggle() }
+            }
+        }
+        Button("Fold All", systemImage: "rectangle.compress.vertical") { session.foldAll() }
+        Button("Unfold All", systemImage: "rectangle.expand.vertical") { session.unfoldAll() }
+            .disabled(session.foldedKeys.isEmpty)
+        Button("Save Now", systemImage: "square.and.arrow.down") { Task { try? await session.save() } }
+        Button("Copy Graphite URL", systemImage: "link") { Pasteboard.copy(workspace.openingLink(to: session.path)) }
+        if preferences.isEnabled(.bookmarks) {
+            let isBookmarked = workspace.bookmarks.fileBookmark(for: session.path) != nil
+            Button(isBookmarked ? "Remove Bookmark" : "Bookmark", systemImage: isBookmarked ? "bookmark.slash" : "bookmark") {
+                Task { await workspace.toggleBookmark(session.path) }
+            }
+        }
+        if preferences.isEnabled(.fileRecovery) {
+            Button("File Recovery…", systemImage: "clock.arrow.circlepath") { workspace.fileRecoveryRequest = FileRecoveryRequest(path: session.path) }
+        }
+    }
+
+    private var usesDocumentControlRow: Bool {
+        usesDocumentControlRowSetting ?? DocumentToolbarLayout.usesControlRow(detailWidth: nil, horizontalSizeClass: horizontalSizeClass)
+    }
+
+    /// A phone, or an iPad window as narrow as one: no tab bar, and a lean navigation bar.
+    private var isCompactWidth: Bool { horizontalSizeClass == .compact }
 
     private var isWritingBinding: Binding<Bool> {
         Binding(get: { isEditing }, set: { shouldWrite in

@@ -23,11 +23,12 @@ final class WorkspaceFocusModeTests: XCTestCase {
         }
     }
 
-    /// Read/Write, Undo and Redo leave the toolbar before iPadOS would hide them in its
-    /// overflow menu, which drops a segmented control altogether.
+    /// Write, Undo and Redo leave a wide window's toolbar before iPadOS would hide them in
+    /// its overflow menu; a compact width keeps them in its navigation bar, which holds
+    /// nothing else.
     func testDocumentControlsMoveBelowTheToolbarWhenTheDocumentsAreaIsNarrow() {
         let threshold = DocumentToolbarLayout.minimumDetailWidthForToolbarControls
-        XCTAssertTrue(DocumentToolbarLayout.usesControlRow(detailWidth: 1_376, horizontalSizeClass: .compact))
+        XCTAssertFalse(DocumentToolbarLayout.usesControlRow(detailWidth: 1_376, horizontalSizeClass: .compact), "A compact width keeps them in the navigation bar")
         XCTAssertTrue(DocumentToolbarLayout.usesControlRow(detailWidth: 1_032, horizontalSizeClass: .regular), "iPad portrait")
         XCTAssertTrue(DocumentToolbarLayout.usesControlRow(detailWidth: threshold - 1, horizontalSizeClass: .regular))
         XCTAssertFalse(DocumentToolbarLayout.usesControlRow(detailWidth: threshold, horizontalSizeClass: .regular))

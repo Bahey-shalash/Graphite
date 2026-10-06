@@ -15,6 +15,40 @@ public enum GraphiteTheme {
     ]
 }
 
+/// The quiet chrome every workspace shares, after Obsidian's Minimal theme: bars take the
+/// page's own background and are set off from it by a hairline, icons stay muted until
+/// they are in use, and the tab, tool or row in use is marked by a faint fill and full
+/// strength text rather than by a colored block.
+enum GraphiteChrome {
+    /// The height of the tab bar and of the rows below the navigation bar.
+    static let barHeight: CGFloat = 40
+    /// The corner radius of a tab, a tool or a row in use.
+    static let cornerRadius: CGFloat = 8
+    /// The fill behind the tab, tool or row in use.
+    static let selectedFill = Color.primary.opacity(0.07)
+    /// The page's background, which the bars share so a document and its controls read
+    /// as one surface.
+    #if canImport(UIKit)
+    static let barBackground = Color(uiColor: .systemBackground)
+    #else
+    static let barBackground = Color(nsColor: .textBackgroundColor)
+    #endif
+}
+
+/// A line one pixel thick and lighter than `Divider`, between a bar and the page.
+struct Hairline: View {
+    var axis: Axis = .horizontal
+    @Environment(\.displayScale) private var displayScale
+
+    var body: some View {
+        let thickness = 1 / max(displayScale, 1)
+        Rectangle()
+            .fill(Color.primary.opacity(0.1))
+            .frame(width: axis == .vertical ? thickness : nil, height: axis == .horizontal ? thickness : nil)
+            .accessibilityHidden(true)
+    }
+}
+
 extension PlatformColor {
     /// An accent from its `#rrggbb` value: as chosen in light appearance, lightened just
     /// enough to read in dark appearance.

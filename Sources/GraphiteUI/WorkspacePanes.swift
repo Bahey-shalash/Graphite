@@ -33,8 +33,8 @@ struct WorkspacePanes: View {
     @State private var dragStartFraction: Double?
     /// Where each side is in the window, to focus the side a touch lands on.
     @State private var groupFrames: [UUID: CGRect] = [:]
-    /// The documents area's width, which decides where documents put Read/Write, Undo and
-    /// Redo: the window's toolbar spans this area, whichever side is focused.
+    /// The documents area's width, which decides where documents put Write, Undo and Redo:
+    /// the window's toolbar spans this area, whichever side is focused.
     @State private var detailWidth: CGFloat?
 
     private var showsBothGroups: Bool { workspace.layout.isSplit && horizontalSizeClass != .compact }
@@ -112,8 +112,8 @@ private struct TabGroupPane: View {
     let showsTabBar: Bool
     @Environment(\.usesDocumentControlRow) private var usesDocumentControlRowSetting
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    /// This side's width, which decides whether its tab bar has room for Read/Write, Undo
-    /// and Redo.
+    /// This side's width, which decides whether its tab bar has room for Write, Undo and
+    /// Redo.
     @State private var width: CGFloat?
 
     var body: some View {
@@ -127,7 +127,7 @@ private struct TabGroupPane: View {
             if showsTabBar {
                 TabBar(workspace: workspace, group: group, isFocused: isFocused, showsBothGroups: showsBothGroups,
                        showsDocumentControls: showsDocumentControlsInTabBar, showsPencilTools: showsPencilToolsInTabBar)
-                Divider()
+                Hairline()
             }
             ConflictVersionsBanner(workspace: workspace, path: tab.path)
             TabDocumentView(workspace: workspace, tab: tab, document: workspace.document(for: tab.id), isFocused: isFocused,
@@ -151,7 +151,7 @@ private struct TabBar: View {
     let group: TabGroup
     let isFocused: Bool
     let showsBothGroups: Bool
-    /// Whether the bar ends with Read/Write, Undo and Redo of the active tab's document.
+    /// Whether the bar ends with Undo, Redo and Write of the active tab's document.
     let showsDocumentControls: Bool
     /// Whether the bar has room for the fixed bar's tools, for a PDF written on in the active tab.
     let showsPencilTools: Bool
@@ -181,7 +181,7 @@ private struct TabBar: View {
                                 .id(tab.id)
                         }
                     }
-                    .padding(.horizontal, 6)
+                    .padding(.horizontal, 8)
                     .frame(maxHeight: .infinity)
                 }
                 .frame(minWidth: showsPencilTools ? DocumentToolbarLayout.minimumTabsWidthBesidePencilTools : nil)
@@ -209,14 +209,18 @@ private struct TabBar: View {
             if showsDocumentControls {
                 TabBarDocumentControls(tab: group.activeTab, document: workspace.document(for: group.activeTabID),
                                        defaultEditingMode: workspace.preferences.defaultEditingMode)
-                    .padding(.horizontal, 6)
+                    .padding(.horizontal, 4)
             }
-            Divider().frame(height: 20)
+            if showsDocumentControls || showsPencilTools {
+                Hairline(axis: .vertical).frame(height: 18)
+            }
             groupButtons
-                .padding(.leading, 6).padding(.trailing, 8)
+                .padding(.leading, 2).padding(.trailing, 8)
         }
-        .frame(height: 40)
-        .background(isDropTargeted ? AnyShapeStyle(accent.opacity(0.18)) : AnyShapeStyle(TabBarColors.bar))
+        .frame(height: GraphiteChrome.barHeight)
+        // The page's own color, so the tabs read as the document's header rather than a
+        // band of their own.
+        .background(isDropTargeted ? AnyShapeStyle(accent.opacity(0.12)) : AnyShapeStyle(GraphiteChrome.barBackground))
         // A file dragged from the sidebar opens in a new tab on this side.
         .dropDestination(for: VaultItemTransfer.self) { items, _ in
             let paths = items.compactMap { item in try? VaultPath(item.path) }.filter { path in !workspace.isDirectory(path) }
@@ -234,7 +238,7 @@ private struct TabBar: View {
     }
 
     @ViewBuilder private var groupButtons: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 2) {
             Button("New Tab", systemImage: "plus") { workspace.openNewTab(inGroup: group.id) }
                 .help("New tab (⌘T)")
             if layout.isSplit && !showsBothGroups {
@@ -251,8 +255,7 @@ private struct TabBar: View {
             }
         }
         .labelStyle(.iconOnly)
-        .buttonStyle(.borderless)
-        .tint(.primary)
+        .buttonStyle(QuietIconButtonStyle())
     }
 
     @ViewBuilder private func tabMenu(for tab: WorkspaceTab) -> some View {
@@ -280,6 +283,11 @@ private struct TabBar: View {
     }
 }
 
+/// A tab as Minimal draws one: the name alone, muted until it is the tab in use, which
+/// takes full strength text and a faint fill. Notes, which most tabs show, go without an
+/// icon; other files keep a small one. The close button shows on the tab in use and under
+/// the pointer, and keeps its room on the others so a tab does not change width when it
+/// is chosen; every tab can be closed from its menu and by VoiceOver.
 private struct TabItem: View {
     let tab: WorkspaceTab
     let title: String
@@ -289,57 +297,78 @@ private struct TabItem: View {
     let activate: () -> Void
     let close: () -> Void
     @Environment(\.accent) private var accent
+    @State private var isPointerOver = false
+
+    private var kindSymbol: String? {
+        guard let path = tab.path else { return nil }
+        let kind = DocumentKind(path: path)
+        return kind == .markdown ? nil : kind.systemImage
+    }
+
+    private var showsCloseButton: Bool { isActive || isPointerOver }
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: tab.path.map { path in DocumentKind(path: path).systemImage } ?? "doc")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            if let kindSymbol {
+                Image(systemName: kindSymbol)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+            }
             Text(title)
-                .font(.callout)
+                .font(.subheadline)
+                .fontWeight(isActive ? .medium : .regular)
                 .foregroundStyle(isActive ? .primary : .secondary)
                 .lineLimit(1)
             if tab.isPinned {
                 Image(systemName: "pin.fill")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
                     .accessibilityLabel("Pinned")
             } else {
                 Button(action: close) {
                     Image(systemName: "xmark")
-                        .font(.caption2.weight(.semibold))
+                        .font(.system(size: 9, weight: .semibold))
                         .frame(width: 20, height: 20)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.borderless)
                 .tint(.secondary)
+                .opacity(showsCloseButton ? 1 : 0)
+                .allowsHitTesting(showsCloseButton)
+                .accessibilityHidden(!showsCloseButton)
                 .accessibilityLabel("Close \(title)")
             }
         }
-        .padding(.leading, 10).padding(.trailing, tab.isPinned ? 10 : 4)
-        .frame(minWidth: 96, maxWidth: 220, minHeight: 32)
-        .background(isActive ? TabBarColors.activeTab : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+        .padding(.leading, 12).padding(.trailing, tab.isPinned ? 12 : 6)
+        .frame(minWidth: 88, maxWidth: 220, minHeight: 30)
+        .background(isActive ? GraphiteChrome.selectedFill : Color.clear,
+                    in: RoundedRectangle(cornerRadius: GraphiteChrome.cornerRadius, style: .continuous))
         .overlay(alignment: .bottom) {
             if isActive && marksFocus {
-                Capsule().fill(accent).frame(height: 2).padding(.horizontal, 10)
+                Capsule().fill(accent).frame(height: 2).padding(.horizontal, 12)
             }
         }
-        .contentShape(RoundedRectangle(cornerRadius: 8))
+        .contentShape(RoundedRectangle(cornerRadius: GraphiteChrome.cornerRadius, style: .continuous))
         .onTapGesture(perform: activate)
+        .onHover { isOver in isPointerOver = isOver }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isActive ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction(named: "Close", close)
     }
 }
 
-private enum TabBarColors {
-    #if canImport(UIKit)
-    static let bar = Color(uiColor: .secondarySystemBackground)
-    static let activeTab = Color(uiColor: .systemBackground)
-    #else
-    static let bar = Color(nsColor: .underPageBackgroundColor)
-    static let activeTab = Color(nsColor: .textBackgroundColor)
-    #endif
+/// A muted icon button with a faint fill while pressed, for the small buttons of bars
+/// outside the window's toolbar.
+struct QuietIconButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 15))
+            .foregroundStyle(.secondary)
+            .frame(width: 32, height: 30)
+            .background(configuration.isPressed ? GraphiteChrome.selectedFill : Color.clear,
+                        in: RoundedRectangle(cornerRadius: GraphiteChrome.cornerRadius, style: .continuous))
+            .contentShape(Rectangle())
+    }
 }
 
 // MARK: Divider
@@ -562,12 +591,14 @@ private struct PDFPasswordPrompt: View {
     }
 }
 
-/// A new tab, as Obsidian shows it: ways to create or find a file, and recent files.
+/// A new tab, as Obsidian shows it: a short column of quiet links to create or find a
+/// file, then recent files. It fits a phone's width, where a row of buttons did not.
 private struct EmptyTabView: View {
     @Bindable var workspace: WorkspaceModel
     let tabID: UUID
     let create: (CreationKind) -> Void
     let showQuickSwitcher: () -> Void
+    @Environment(\.accent) private var accent
     private static let recentFileCount = 6
 
     private var recentFiles: [VaultPath] {
@@ -578,53 +609,77 @@ private struct EmptyTabView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 28) {
-                ContentUnavailableView {
-                    Label("No File Open", systemImage: "doc.text")
-                } description: {
-                    Text("Choose a file in the sidebar, find one, or create a new one.")
-                } actions: {
-                    VStack(spacing: 12) {
-                        HStack {
-                            Button("New Note", systemImage: "square.and.pencil") { focusThen { create(.note) } }
-                            Button("New Notebook", systemImage: "book.closed") { focusThen { create(.notebook) } }
-                            if workspace.preferences.isEnabled(.bases) {
-                                Button("New Base", systemImage: "tablecells") { focusThen { create(.base) } }
-                            }
-                            if workspace.preferences.isEnabled(.canvas) {
-                                Button("New Canvas", systemImage: "rectangle.3.group") { focusThen { create(.canvas) } }
-                            }
-                        }
-                        HStack {
-                            Button("Go to File…", systemImage: "doc.text.magnifyingglass") { focusThen(showQuickSwitcher) }
-                            if canClose {
-                                Button("Close Tab", systemImage: "xmark") { Task { await workspace.closeTab(tabID) } }
-                            }
-                        }
+            VStack(alignment: .leading, spacing: 36) {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("No file is open")
+                        .font(.title3.weight(.semibold))
+                        .padding(.bottom, 4)
+                    action("Create new note", shortcut: "⌘N") { focusThen { create(.note) } }
+                    action("Create new notebook") { focusThen { create(.notebook) } }
+                    if workspace.preferences.isEnabled(.bases) {
+                        action("Create new base") { focusThen { create(.base) } }
                     }
-                    .buttonStyle(.bordered)
+                    if workspace.preferences.isEnabled(.canvas) {
+                        action("Create new canvas") { focusThen { create(.canvas) } }
+                    }
+                    action("Go to file", shortcut: "⌘O") { focusThen(showQuickSwitcher) }
+                    if canClose {
+                        action("Close", shortcut: "⌘W") { Task { await workspace.closeTab(tabID) } }
+                    }
                 }
                 if !recentFiles.isEmpty {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Recent files").font(.headline).padding(.bottom, 4)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Recent files")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.bottom, 6)
                         ForEach(recentFiles, id: \.self) { path in
                             Button {
                                 focusThen { Task { await workspace.open(path) } }
                             } label: {
-                                Label(workspace.preferences.displayName(for: path), systemImage: DocumentKind(path: path).systemImage)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .contentShape(Rectangle())
+                                HStack(spacing: 8) {
+                                    Text(workspace.preferences.displayName(for: path))
+                                        .foregroundStyle(Color.primary)
+                                        .lineLimit(1)
+                                    if !path.parent.rawValue.isEmpty {
+                                        Text(path.parent.rawValue)
+                                            .font(.footnote)
+                                            .foregroundStyle(Color.secondary)
+                                            .lineLimit(1)
+                                            .truncationMode(.head)
+                                    }
+                                    Spacer(minLength: 0)
+                                }
+                                .padding(.vertical, 6)
+                                .contentShape(Rectangle())
                             }
-                            .buttonStyle(.borderless)
-                            .padding(.vertical, 4)
+                            .buttonStyle(.plain)
                         }
                     }
-                    .frame(maxWidth: 360)
                 }
             }
-            .padding(.vertical, 40)
+            .frame(maxWidth: 360, alignment: .leading)
+            .padding(.horizontal, 28)
+            .padding(.vertical, 56)
             .frame(maxWidth: .infinity)
         }
+    }
+
+    /// A link in the accent, with its keyboard shortcut muted beside it where it has one.
+    private func action(_ title: String, shortcut: String? = nil, perform: @escaping () -> Void) -> some View {
+        Button(action: perform) {
+            HStack(spacing: 8) {
+                Text(title).foregroundStyle(accent)
+                if let shortcut {
+                    Text(shortcut)
+                        .font(.footnote.monospaced())
+                        .foregroundStyle(Color.secondary)
+                        .accessibilityHidden(true)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     /// Focuses this tab first, so what is created or chosen opens here.

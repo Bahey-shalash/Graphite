@@ -68,7 +68,12 @@ private struct PDFPaneContent: View {
     @Environment(\.usesDocumentControlRow) private var usesDocumentControlRowSetting
     @Environment(\.showsDocumentControlsInTabBar) private var showsDocumentControlsInTabBar
     @Environment(\.showsPencilToolsInTabBar) private var showsPencilToolsInTabBar
-    private var usesDocumentControlRow: Bool { usesDocumentControlRowSetting ?? (horizontalSizeClass == .compact) }
+    private var usesDocumentControlRow: Bool {
+        usesDocumentControlRowSetting ?? DocumentToolbarLayout.usesControlRow(detailWidth: nil, horizontalSizeClass: horizontalSizeClass)
+    }
+    /// A phone, or an iPad window as narrow as one: a lean navigation bar, and the bottom
+    /// bar gives way to the palette while writing.
+    private var isCompactWidth: Bool { horizontalSizeClass == .compact }
     #endif
 
     init(session: PDFSession, isFocused: Bool, focus: @escaping () -> Void, linkActions: PDFLinkActions?, resolveConflict: @escaping (URL) -> Void) {
@@ -111,16 +116,17 @@ private struct PDFPaneContent: View {
                     // One row for both, as in Focus, where no tab bar holds the controls.
                     PencilToolbar(toolbox: toolbox, favoriteColors: GraphitePreferences.storedColorPalette(), drawsShapes: $drawsShapes,
                                   addImage: { pictureSource = .photoLibrary }, undoAvailability: session.undoAvailability) {
-                        DocumentModePicker(isWriting: $session.isWriting, isCompact: true)
+                        EmptyView()
                     } trailingControls: {
-                        HStack(spacing: 14) {
-                            toolPickerButton
+                        HStack(spacing: 12) {
                             UndoRedoButtons(availability: session.undoAvailability)
+                                .buttonStyle(.borderless)
+                                .tint(.secondary)
+                            DocumentModeToggle(isWriting: $session.isWriting, drawsOwnBackground: true)
                         }
                     }
                 } else if showsControlRow {
                     DocumentControlRow(isWriting: $session.isWriting) {
-                        if session.isWriting { toolPickerButton }
                         UndoRedoButtons(availability: session.undoAvailability)
                     }
                 } else if showsFixedToolbar {
@@ -134,6 +140,9 @@ private struct PDFPaneContent: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if session.isWriting, session.selectedPicture != nil { PDFPictureArrangementBar(session: session) }
         }
+        // A phone's palette docks at the bottom of the screen, over the bar that moves
+        // between files; the bar comes back when the palette goes.
+        .toolbar(isCompactWidth && annotationInput.showsToolPicker ? .hidden : .automatic, for: .bottomBar)
         .modifier(PDFPictureAdding(session: session, source: $pictureSource))
         // Reading is not arranging, and neither is taking up a tool.
         .onChange(of: session.isWriting) { _, isWriting in if !isWriting { session.selectedPicture = nil } }
@@ -234,81 +243,116 @@ private struct PDFPaneContent: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        // Neutral icons, as in Obsidian; the accent is kept for selection and toggles.
+        // Neutral icons, as in Obsidian; the accent is kept for selection and toggles. A
+        // compact width shows only Undo, Redo, Write and More: the pages, the search and
+        // adding pages are in More, and while writing, the palette has its own Undo and Redo.
         ToolbarItemGroup(placement: .primaryAction) { Group {
-            Button(showsPages ? "Hide Pages" : "Show Pages", systemImage: "square.grid.2x2") {
-                withAnimation(.snappy) { showsPages.toggle() }
-            }
-            #if canImport(UIKit)
-            Button("Find in PDF", systemImage: "magnifyingglass") {
-                session.pdfView?.findInteraction.presentFindNavigator(showingReplace: false)
-            }
-            #endif
-            Button {
-                showsPageJump = true
-            } label: {
-                Text("\(session.currentPageIndex + 1) of \(session.pageCount)").monospacedDigit()
-            }
-            .accessibilityLabel("Page \(session.currentPageIndex + 1) of \(session.pageCount). Go to page")
-            .popover(isPresented: $showsPageJump) {
-                PDFPageJumpField(pageCount: session.pageCount, currentPageNumber: session.currentPageIndex + 1) { pageNumber in
-                    session.go(to: pageNumber - 1)
-                    showsPageJump = false
+            if !isCompactWidthOnAnyPlatform {
+                Button(showsPages ? "Hide Pages" : "Show Pages", systemImage: "square.grid.2x2") {
+                    withAnimation(.snappy) { showsPages.toggle() }
                 }
-                .padding()
-                .presentationCompactAdaptation(.popover)
+                #if canImport(UIKit)
+                Button("Find in PDF", systemImage: "magnifyingglass") { presentFindNavigator() }
+                #endif
+                Button {
+                    showsPageJump = true
+                } label: {
+                    Text("\(session.currentPageIndex + 1) of \(session.pageCount)").monospacedDigit()
+                }
+                .accessibilityLabel("Page \(session.currentPageIndex + 1) of \(session.pageCount). Go to page")
+                .popover(isPresented: $showsPageJump) { pageJumpPopover }
             }
             if !session.isProtected {
-                PDFAddPageMenu(commands: commands, insertionIndexAfter: session.currentPageIndex + 1, insertionIndexBefore: session.currentPageIndex)
+                if !isCompactWidthOnAnyPlatform {
+                    PDFAddPageMenu(commands: commands, insertionIndexAfter: session.currentPageIndex + 1, insertionIndexBefore: session.currentPageIndex)
+                }
                 #if canImport(UIKit)
                 if !usesDocumentControlRow {
-                    if session.isWriting { toolPickerButton }
-                    UndoRedoButtons(availability: session.undoAvailability)
-                    DocumentModePicker(isWriting: $session.isWriting)
+                    if !isCompactWidth || (session.isWriting && !annotationInput.showsToolPicker) {
+                        UndoRedoButtons(availability: session.undoAvailability)
+                    }
+                    DocumentModeToggle(isWriting: $session.isWriting)
                 }
                 #else
                 UndoRedoButtons(availability: session.undoAvailability)
                 #endif
             }
-            Menu("More", systemImage: "ellipsis.circle") {
-                if let linkActions {
-                    Button("Copy Link to This Page", systemImage: "link") { linkActions.copyLink(session.currentPageIndex) }
-                    Divider()
-                }
-                if !session.isProtected {
-                    #if canImport(UIKit)
-                    Toggle("Draw with Finger", systemImage: "hand.draw", isOn: $drawsWithFinger)
-                    Toggle("Draw Shapes", systemImage: "square.on.circle", isOn: $drawsShapes)
-                    Menu("Writing Guides", systemImage: "square.grid.3x3") {
-                        Picker("Writing Guides", selection: $writingGuidePattern) {
-                            ForEach(DrawingPaperPattern.allCases) { pattern in
-                                Label(pattern == .plain ? "None" : pattern.title, systemImage: pattern.symbolName).tag(pattern)
-                            }
-                        }
-                        Picker("Spacing", selection: $writingGuideSpacing) {
-                            ForEach(DrawingPaperSpacing.allCases) { spacing in Text(spacing.title).tag(spacing) }
-                        }
-                        .disabled(writingGuidePattern == .plain)
-                    }
-                    if session.isWriting {
-                        Menu("Add Image", systemImage: "photo.badge.plus") {
-                            PDFAddImageMenuContent(session: session, source: $pictureSource)
-                        }
-                    }
-                    Divider()
-                    #endif
-                    PDFPageActionsMenuContent(commands: commands, pageIndices: [session.currentPageIndex], isBookmarked: session.bookmarkedPageIndices.contains(session.currentPageIndex))
-                }
-            }
+            Menu("More", systemImage: "ellipsis.circle") { moreMenuItems }
+                .popover(isPresented: isCompactWidthOnAnyPlatform ? $showsPageJump : .constant(false)) { pageJumpPopover }
         }.tint(.primary) }
     }
 
-    #if canImport(UIKit)
-    private var toolPickerButton: some View {
-        Button(showsToolPicker ? "Hide Tools" : "Show Tools", systemImage: showsToolPicker ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle") {
-            showsToolPicker.toggle()
+    @ViewBuilder private var moreMenuItems: some View {
+        if isCompactWidthOnAnyPlatform {
+            Section {
+                Button(showsPages ? "Hide Pages" : "Show Pages", systemImage: "square.grid.2x2") {
+                    withAnimation(.snappy) { showsPages.toggle() }
+                }
+                Button("Go to Page… (\(session.currentPageIndex + 1) of \(session.pageCount))", systemImage: "number") {
+                    showsPageJump = true
+                }
+                #if canImport(UIKit)
+                Button("Find in PDF", systemImage: "magnifyingglass") { presentFindNavigator() }
+                #endif
+                if !session.isProtected {
+                    PDFAddPageMenu(commands: commands, insertionIndexAfter: session.currentPageIndex + 1, insertionIndexBefore: session.currentPageIndex)
+                }
+            }
         }
-        .help("Show or hide the Pencil tools. Choose Read to stop drawing.")
+        if let linkActions {
+            Button("Copy Link to This Page", systemImage: "link") { linkActions.copyLink(session.currentPageIndex) }
+            Divider()
+        }
+        if !session.isProtected {
+            #if canImport(UIKit)
+            if session.isWriting {
+                Toggle("Show Pencil Tools", systemImage: "pencil.tip.crop.circle", isOn: $showsToolPicker)
+            }
+            Toggle("Draw with Finger", systemImage: "hand.draw", isOn: $drawsWithFinger)
+            Toggle("Draw Shapes", systemImage: "square.on.circle", isOn: $drawsShapes)
+            Menu("Writing Guides", systemImage: "square.grid.3x3") {
+                Picker("Writing Guides", selection: $writingGuidePattern) {
+                    ForEach(DrawingPaperPattern.allCases) { pattern in
+                        Label(pattern == .plain ? "None" : pattern.title, systemImage: pattern.symbolName).tag(pattern)
+                    }
+                }
+                Picker("Spacing", selection: $writingGuideSpacing) {
+                    ForEach(DrawingPaperSpacing.allCases) { spacing in Text(spacing.title).tag(spacing) }
+                }
+                .disabled(writingGuidePattern == .plain)
+            }
+            if session.isWriting {
+                Menu("Add Image", systemImage: "photo.badge.plus") {
+                    PDFAddImageMenuContent(session: session, source: $pictureSource)
+                }
+            }
+            Divider()
+            #endif
+            PDFPageActionsMenuContent(commands: commands, pageIndices: [session.currentPageIndex], isBookmarked: session.bookmarkedPageIndices.contains(session.currentPageIndex))
+        }
+    }
+
+    private var pageJumpPopover: some View {
+        PDFPageJumpField(pageCount: session.pageCount, currentPageNumber: session.currentPageIndex + 1) { pageNumber in
+            session.go(to: pageNumber - 1)
+            showsPageJump = false
+        }
+        .padding()
+        .presentationCompactAdaptation(.popover)
+    }
+
+    /// Whether the width is compact; never on macOS, which has no size classes to speak of.
+    private var isCompactWidthOnAnyPlatform: Bool {
+        #if canImport(UIKit)
+        isCompactWidth
+        #else
+        false
+        #endif
+    }
+
+    #if canImport(UIKit)
+    private func presentFindNavigator() {
+        session.pdfView?.findInteraction.presentFindNavigator(showingReplace: false)
     }
     #endif
 }

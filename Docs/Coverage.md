@@ -2,7 +2,21 @@
 
 What Graphite does today, how each part is verified, and what is still missing. `OBJECTIVE.md` describes the complete product; this file tracks progress toward it. Update it with every change that adds, removes, or re-verifies behavior.
 
-Last updated: 2026-09-30.
+Last updated: 2026-10-06.
+
+## A quieter interface and a phone layout: 2026-10-06
+
+At the owner's request, after Obsidian's Minimal theme: the interface and the Pencil bar felt cluttered, and the iPhone layout unconsidered. The eighth increment of `Premium-experience-plan.md` lists the changes; `Architecture.md` describes them under the shared document controls and the fixed tool bar.
+
+- One Write toggle (`DocumentModeToggle`) replaces the segmented Read/Write control in notes, PDFs and canvases, in the toolbar, the tab bar and the control row. Show/Hide Tools left the PDF's toolbar and tab bar for a Show Pencil Tools switch in its More menu.
+- Bars take the page's color with a hairline; tabs are muted names with a faint fill for the tab in use and a close button on that tab and under the pointer; the empty tab is a column of links that fits a phone; folder icons, the vault bar and the keyboard toolbar's icons are muted; sidebar rows are denser.
+- Headings have one scale and weight in Live Preview, Source mode and Reading view (`HeadingTypography`); the inline title is semibold.
+- Compact widths: the document comes first and the file list is a step back; no tab bar; a bottom bar with back, forward, the quick switcher, a new note, the tab switcher (`TabSwitcher`) and the command palette; the navigation bar holds only the document's controls; a PDF hides the bottom bar while the palette is docked; the quick switcher keeps its results above the keyboard.
+- The fixed bar and the squeeze palette draw each tool standing upright with its tip in the ink's color, the tool in use raised (`PencilToolGlyph`).
+
+Verification, all of it limited: this change was made in a Linux container without Xcode or a Swift compiler. Nothing was built, and no test, simulator or device check ran. Every changed Swift file was parsed with tree-sitter's Swift grammar, which finds syntax errors but not type errors, unknown symbols or API availability; it reported none in the changed files (the three error nodes it reports elsewhere predate this change). The tool drawings were checked as an SVG prototype of the same coordinates rendered in Chromium, light and dark, not as the SwiftUI view. Three unit tests were updated to the new behavior and not run: `UiStylingFixTests.testStrongTextInAHeadingIsBoldAtTheHeadingSize` (the first-level heading is 1.6 times the text size), `WorkspaceFocusModeTests.testDocumentControlsMoveBelowTheToolbarWhenTheDocumentsAreaIsNarrow` (a compact width keeps the controls in the navigation bar) and a message in `PencilToolboxTests`. `DocumentToolbarLayout.documentControlsWidth` is now 160 points; the tab-bar tests' cases still hold by arithmetic.
+
+Not established: that the package and the app build; every layout above in the running app, on iPhone and iPad, in light and dark appearance, at large Dynamic Type sizes and with VoiceOver; the bottom bar's spacing and the Liquid Glass grouping of the toolbars on iOS 26 and later; that the split view shows the document first on an iPhone and returns to it when the open file is chosen again; the bottom bar giving way to the docked palette; the toggle's appearance in toolbars on iOS 18; the tool drawings at their real size beside the bar's other controls. The next run on a Mac should be `swift build`, `swift test`, the app's `GraphiteIntegrationTests` on the iPad and iPhone simulators, and screenshots of the workspace on both.
 
 ## SOLID compliance review: 2026-09-30
 

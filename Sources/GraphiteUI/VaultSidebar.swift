@@ -53,6 +53,9 @@ struct VaultSidebar: View {
     @Binding var creation: CreationRequest?
     @Binding var showsSettings: Bool
     @Binding var showsVaultManager: Bool
+    /// Shows the document column on a phone, where the list and the document take turns
+    /// on screen; also for the file already open, whose selection does not change.
+    var showDocument: () -> Void = {}
     @State private var isRootDropTargeted = false
     /// The file "Reveal Current File" scrolls to once the folders above it have listed their contents.
     @State private var fileToReveal: VaultPath?
@@ -171,6 +174,7 @@ struct VaultSidebar: View {
 
     private var sidebarList: some View {
         List(selection: Binding(get: { workspace.selection }, set: { newSelection in
+            if newSelection != nil { showDocument() }
             if let newSelection, newSelection != workspace.selection {
                 #if canImport(UIKit)
                 // The search field keeps its results but lets go of the keyboard, or focus
@@ -203,6 +207,8 @@ struct VaultSidebar: View {
         // Folders expanded in one vault must not stay expanded, with stale contents, in the next.
         .id(workspace.currentVaultIdentifier)
         .listStyle(.sidebar)
+        // Denser than the system's sidebar, as Obsidian's file explorer, with room for a finger.
+        .environment(\.defaultMinListRowHeight, 36)
         // Dropping on the list outside any folder or file moves the item to the vault's root.
         .dropDestination(for: VaultItemTransfer.self) { items, _ in
             moveDroppedItems(items, into: .root)
@@ -413,8 +419,13 @@ private struct VaultEntryRow: View, Equatable {
             } label: {
                 // A folder is never opened as a document: tapping its name folds it, as in Obsidian.
                 Button { withAnimation(.snappy) { isExpanded.wrappedValue.toggle() } } label: {
-                    Label(entry.path.name, systemImage: isDropTargeted ? "folder.fill" : "folder")
-                        .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                    // A muted icon, as for files: the accent marks only the file that is open.
+                    Label {
+                        Text(entry.path.name)
+                    } icon: {
+                        Image(systemName: isDropTargeted ? "folder.fill" : "folder").foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .contextMenu { folderMenu }

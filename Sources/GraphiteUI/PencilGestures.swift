@@ -123,12 +123,14 @@ struct PencilPalette: View {
                 buttons.toolButton(.eraser)
                 buttons.toolButton(.lasso)
             }
+            // The tools stand on a line, as on the bar.
+            .overlay(alignment: .bottom) { Hairline() }
             if toolbox.toolInUse == .ink {
                 HStack(spacing: 2) {
                     ForEach(Array(toolbox.presetInUse.ink.widthChoices.enumerated()), id: \.offset) { choiceIndex, width in
                         buttons.sizeButton(choiceIndex: choiceIndex, isChosen: toolbox.presetInUse.width == width) { toolbox.chooseWidth(width) }
                     }
-                    Divider().frame(height: 22).padding(.horizontal, 5)
+                    Hairline(axis: .vertical).frame(height: 20).padding(.horizontal, 6)
                     buttons.colorButton(name: "black", hex: PencilInk.pen.defaultColorHex)
                     ForEach(favoriteColors.prefix(6)) { favorite in buttons.colorButton(name: favorite.name, hex: favorite.hex) }
                 }

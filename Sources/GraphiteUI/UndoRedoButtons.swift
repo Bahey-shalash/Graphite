@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Undo and Redo for a document's toolbar. Every workspace puts them just before its
-/// Read/Write control (the drawing editor, which has none, just before Insert or Done),
+/// Write toggle (the drawing editor, which has none, just before Insert or Done),
 /// and they act on that document's own history.
 ///
 /// A tap undoes or redoes one change; a long press offers "Move Through Changes…", which

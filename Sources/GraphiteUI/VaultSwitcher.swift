@@ -31,10 +31,10 @@ struct VaultSwitcherBar: View {
                 Button("Manage Vaults…", systemImage: "folder.badge.gearshape") { manageVaults() }
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: "books.vertical").foregroundStyle(.tint)
                     // Concrete colors: a menu label's hierarchical styles would take the tint.
-                    Text(workspace.store == nil ? "Choose a Vault" : workspace.title).font(.headline).foregroundStyle(Color.primary).lineLimit(1)
-                    Image(systemName: "chevron.up.chevron.down").font(.caption.weight(.semibold)).foregroundStyle(Color.secondary)
+                    Image(systemName: "books.vertical").foregroundStyle(Color.secondary)
+                    Text(workspace.store == nil ? "Choose a Vault" : workspace.title).font(.subheadline.weight(.semibold)).foregroundStyle(Color.primary).lineLimit(1)
+                    Image(systemName: "chevron.up.chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(Color.secondary)
                     Spacer(minLength: 0)
                 }
                 .contentShape(Rectangle())
@@ -52,7 +52,7 @@ struct VaultSwitcherBar: View {
         .padding(.horizontal, 20).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.bar)
-        .overlay(alignment: .top) { Divider() }
+        .overlay(alignment: .top) { Hairline() }
     }
 }
 

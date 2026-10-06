@@ -320,7 +320,7 @@ final class UiStylingFixTests: XCTestCase {
         let styler = MarkdownTextStyler(configuration: EditorConfiguration(mode: .source, textSize: 20), accentColor: .systemBlue)
         styler.applyStyles(to: textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedMarkup: nil, concealedBlocks: [])
         let boldFont = textStorage.attribute(.font, at: 6, effectiveRange: nil) as? NSFont
-        XCTAssertEqual(boldFont?.pointSize ?? 0, 35, accuracy: 0.01)
+        XCTAssertEqual(boldFont?.pointSize ?? 0, 20 * HeadingTypography.fontScale(level: 1), accuracy: 0.01)
         XCTAssertTrue(boldFont?.fontDescriptor.symbolicTraits.contains(.bold) == true)
         let italicFont = textStorage.attribute(.font, at: (textStorage.string as NSString).range(of: "italic").location, effectiveRange: nil) as? NSFont
         XCTAssertEqual(italicFont?.pointSize ?? 0, 20, accuracy: 0.01)

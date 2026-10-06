@@ -214,8 +214,10 @@ final class EditorKeyboardToolbar: UIInputView {
 
     private func makeButton(_ title: String, _ systemImage: String) -> UIButton {
         var configuration = UIButton.Configuration.plain()
-        configuration.image = UIImage(systemName: systemImage, withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .regular))
-        configuration.baseForegroundColor = .label
+        configuration.image = UIImage(systemName: systemImage, withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .regular))
+        // Muted, as Obsidian mobile's editing toolbar: the text being written stays the
+        // strongest thing on screen.
+        configuration.baseForegroundColor = .secondaryLabel
         configuration.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 10, bottom: 8, trailing: 10)
         let button = UIButton(configuration: configuration)
         button.accessibilityLabel = title

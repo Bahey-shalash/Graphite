@@ -378,7 +378,7 @@ final class PencilToolboxTests: XCTestCase {
         XCTAssertTrue(DocumentToolbarLayout.showsControlsInTabBar(usesControlRow: true, showsTabBar: true, tabBarWidth: 510), "Half of iPad portrait")
         XCTAssertTrue(DocumentToolbarLayout.showsControlsInTabBar(usesControlRow: true, showsTabBar: true, tabBarWidth: minimumWidth))
         XCTAssertFalse(DocumentToolbarLayout.showsControlsInTabBar(usesControlRow: true, showsTabBar: true, tabBarWidth: minimumWidth - 1))
-        XCTAssertFalse(DocumentToolbarLayout.showsControlsInTabBar(usesControlRow: true, showsTabBar: true, tabBarWidth: 402), "iPhone keeps the row")
+        XCTAssertFalse(DocumentToolbarLayout.showsControlsInTabBar(usesControlRow: true, showsTabBar: true, tabBarWidth: 402), "Too narrow beside two tabs")
         XCTAssertFalse(DocumentToolbarLayout.showsControlsInTabBar(usesControlRow: true, showsTabBar: false, tabBarWidth: 1_032), "Focus hides the tab bar")
         XCTAssertFalse(DocumentToolbarLayout.showsControlsInTabBar(usesControlRow: false, showsTabBar: true, tabBarWidth: 1_376), "The toolbar has room")
         XCTAssertFalse(DocumentToolbarLayout.showsControlsInTabBar(usesControlRow: true, showsTabBar: true, tabBarWidth: nil), "Not measured yet")

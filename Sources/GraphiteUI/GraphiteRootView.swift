@@ -16,6 +16,10 @@ public struct GraphiteRootView: View {
     @State private var showsInspector = false
     @State private var activePalette: ActivePalette?
     @State private var columnVisibility = NavigationSplitViewVisibility.automatic
+    /// On a phone the split view is one stack: the document comes first, as in Obsidian
+    /// mobile, and the file list is a step back.
+    @State private var preferredCompactColumn = NavigationSplitViewColumn.detail
+    @State private var showsTabSwitcher = false
     @State private var focusMode = WorkspaceFocusMode()
     /// In automatic mode an iPad shows only the detail column when the window is taller
     /// than wide, so toggling the sidebar has to know the window's shape.
@@ -24,15 +28,22 @@ public struct GraphiteRootView: View {
     /// not flash up before the vault appears.
     @State private var isRestoringVault = true
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private enum ActivePalette { case quickSwitcher, commandPalette, templatePicker }
+
+    /// A phone, or an iPad window as narrow as one. Tabs then live behind the tab button of
+    /// the bottom bar, which also moves between files, and the navigation bar holds only the
+    /// document's own controls.
+    private var isCompactWidth: Bool { horizontalSizeClass == .compact }
 
     public init() {}
 
     public var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            VaultSidebar(workspace: workspace, creation: $creation, showsSettings: $showsSettings, showsVaultManager: $showsVaultManager)
-                .navigationSplitViewColumnWidth(min: 260, ideal: 360, max: 480)
+        NavigationSplitView(columnVisibility: $columnVisibility, preferredCompactColumn: $preferredCompactColumn) {
+            VaultSidebar(workspace: workspace, creation: $creation, showsSettings: $showsSettings, showsVaultManager: $showsVaultManager,
+                         showDocument: showDocumentColumn)
+                .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 480)
         } detail: {
             detailColumn
         }
@@ -70,6 +81,10 @@ public struct GraphiteRootView: View {
             NavigationStack { VaultManagerView(workspace: workspace) }
                 .tint(workspace.preferences.accentColor)
                 .frame(minWidth: 420, minHeight: 480)
+        }
+        .sheet(isPresented: $showsTabSwitcher) {
+            TabSwitcher(workspace: workspace)
+                .tint(workspace.preferences.accentColor)
         }
         .sheet(item: $creation) { request in
             let directory = workspace.newFileDirectory(request.directory)
@@ -143,6 +158,10 @@ public struct GraphiteRootView: View {
         }
         // A search asked for from anywhere (⇧⌘F, a tag, a link) shows where it happens.
         .onChange(of: workspace.searchFocusRequest) { showSidebar() }
+        // A file opened from the list, a link or a search shows on a phone at once.
+        .onChange(of: workspace.selection) { _, selection in
+            if selection != nil { showDocumentColumn() }
+        }
         .onOpenURL { url in
             if isVaultRestored { Task { await workspace.handle(url) } } else { pendingLinks.append(url) }
         }
@@ -185,6 +204,9 @@ public struct GraphiteRootView: View {
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar { detailToolbar }
+            #if canImport(UIKit)
+            .toolbar { compactBottomBar }
+            #endif
             .environment(\.showTemplatePicker, templatePickerAction)
             .inspector(isPresented: Binding(get: { showsInspector && workspace.markdownSession != nil }, set: { isPresented in showsInspector = isPresented })) {
                 if let note = workspace.markdownSession { NoteLinksInspector(session: note, workspace: workspace).inspectorColumnWidth(min: 240, ideal: 280) }
@@ -202,7 +224,9 @@ public struct GraphiteRootView: View {
     }
 
     @ToolbarContentBuilder private var detailToolbar: some ToolbarContent {
-        if workspace.store != nil {
+        // A compact width moves these to the bottom bar (`compactBottomBar`), as Obsidian
+        // mobile does, where they do not crowd the back button and the title.
+        if workspace.store != nil && !isCompactWidth {
             ToolbarItemGroup(placement: .navigation) {
                 Button(focusMode.isActive ? "Exit Focus" : "Focus", systemImage: focusMode.isActive ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right") {
                     toggleFocusMode()
@@ -230,6 +254,37 @@ public struct GraphiteRootView: View {
             }
         }
     }
+
+    #if canImport(UIKit)
+    /// Obsidian mobile's navigation bar: back and forward through the files seen, find a
+    /// file, a new note, the open tabs, and the command palette. Only in compact widths;
+    /// a PDF hides it while the palette docks at the bottom of the screen.
+    @ToolbarContentBuilder private var compactBottomBar: some ToolbarContent {
+        if workspace.store != nil && isCompactWidth {
+            ToolbarItemGroup(placement: .bottomBar) {
+                Group {
+                    Button("Back", systemImage: "arrow.left") { Task { await workspace.goBack() } }
+                        .disabled(!workspace.history.canGoBack)
+                    Button("Forward", systemImage: "arrow.right") { Task { await workspace.goForward() } }
+                        .disabled(!workspace.history.canGoForward)
+                    Spacer()
+                    Button("Quick Switcher", systemImage: "magnifyingglass") { activePalette = .quickSwitcher }
+                    Spacer()
+                    Button("New Note", systemImage: "square.and.pencil") { creation = CreationRequest(kind: .note) }
+                    Spacer()
+                    Button { showsTabSwitcher = true } label: {
+                        TabCountLabel(count: workspace.layout.allTabs.count)
+                    }
+                    .accessibilityLabel("Tabs")
+                    .accessibilityValue(workspace.layout.allTabs.count == 1 ? "1 open" : "\(workspace.layout.allTabs.count) open")
+                    Spacer()
+                    Button("Command Palette", systemImage: "command") { activePalette = .commandPalette }
+                }
+                .tint(.primary)
+            }
+        }
+    }
+    #endif
 
     @ViewBuilder private var paletteOverlay: some View {
         if let activePalette, workspace.store != nil {
@@ -261,7 +316,7 @@ public struct GraphiteRootView: View {
             WorkspacePanes(workspace: workspace, showsLinksInspector: $showsInspector,
                            create: { kind in creation = CreationRequest(kind: kind) },
                            showQuickSwitcher: { activePalette = .quickSwitcher },
-                           acceptsFocusTouches: activePalette == nil, showsTabBar: !focusMode.isActive)
+                           acceptsFocusTouches: activePalette == nil, showsTabBar: !focusMode.isActive && !isCompactWidth)
         }
     }
 
@@ -271,7 +326,11 @@ public struct GraphiteRootView: View {
                       showVaultManager: { showsVaultManager = true },
                       toggleLinksInspector: { showsInspector.toggle() },
                       toggleSidebar: {
-                          columnVisibility = Self.sidebarVisibility(toggling: columnVisibility, automaticHidesSidebar: automaticHidesSidebar)
+                          if isCompactWidth {
+                              preferredCompactColumn = preferredCompactColumn == .sidebar ? .detail : .sidebar
+                          } else {
+                              columnVisibility = Self.sidebarVisibility(toggling: columnVisibility, automaticHidesSidebar: automaticHidesSidebar)
+                          }
                       },
                       showSidebar: showSidebar,
                       showLinksInspector: { showsInspector = true },
@@ -345,7 +404,14 @@ public struct GraphiteRootView: View {
 
     private func showSidebar() {
         focusMode.leave(columnVisibility: &columnVisibility, showsInspector: &showsInspector)
+        if isCompactWidth { preferredCompactColumn = .sidebar }
         columnVisibility = Self.sidebarVisibility(revealing: columnVisibility, automaticHidesSidebar: automaticHidesSidebar)
+    }
+
+    /// On a phone, shows the document rather than the file list; elsewhere both are shown
+    /// as they are.
+    private func showDocumentColumn() {
+        if isCompactWidth { preferredCompactColumn = .detail }
     }
 
     private func toggleFocusMode() {

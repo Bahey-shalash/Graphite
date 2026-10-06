@@ -26,9 +26,22 @@ struct EditorConfiguration: Equatable {
     var inlineTitle: String?
 }
 
-/// Obsidian's inline title: the note's name in bold, larger than a first-level heading.
+/// Obsidian's inline title: the note's name, larger than a first-level heading.
 enum InlineTitleStyle {
-    static let fontScale = 1.9
+    static let fontScale = 1.75
+}
+
+/// Heading sizes and weight shared by Live Preview, Source mode and Reading view, so a
+/// heading keeps its size when a note switches between reading and writing. Restrained,
+/// as in Obsidian's Minimal theme: semibold rather than bold, with a gentle step between
+/// levels.
+enum HeadingTypography {
+    /// Multiples of the note's text size, from a first-level heading to a sixth.
+    static let fontScales: [CGFloat] = [1.6, 1.4, 1.25, 1.12, 1.05, 1.0]
+
+    static func fontScale(level: Int) -> CGFloat {
+        fontScales[min(max(level, 1), fontScales.count) - 1]
+    }
 }
 
 /// A region Live Preview draws as a rendered view: its source is concealed and the space
@@ -682,8 +695,7 @@ private final class MarkdownStyleFonts {
     func headingFont(level: Int) -> PlatformFont {
         let clampedLevel = min(max(level, 1), 6)
         if let font = headingFontsByLevel[clampedLevel] { return font }
-        let scale: CGFloat = [1.75, 1.5, 1.3, 1.15, 1.05, 1.0][clampedLevel - 1]
-        let font = PlatformFont.systemFont(ofSize: baseFont.pointSize * scale, weight: .bold)
+        let font = PlatformFont.systemFont(ofSize: baseFont.pointSize * HeadingTypography.fontScale(level: clampedLevel), weight: .semibold)
         headingFontsByLevel[clampedLevel] = font
         return font
     }

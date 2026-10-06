@@ -5,7 +5,7 @@ import GraphiteIndex
 
 /// A `.canvas` file open in a tab: Obsidian's Canvas, the JSON Canvas format. Read shows
 /// the board and follows links; Write selects, moves, resizes, connects, adds and edits,
-/// with the same Read/Write control, Undo, Redo and automatic saving as notes and PDFs.
+/// with the same Write toggle, Undo, Redo and automatic saving as notes and PDFs.
 struct CanvasPane: View {
     @Bindable var session: CanvasSession
     @Bindable var workspace: WorkspaceModel
@@ -21,7 +21,9 @@ struct CanvasPane: View {
     @Environment(\.showsDocumentControlsInTabBar) private var showsDocumentControlsInTabBar
 
     private var preferences: GraphitePreferences { workspace.preferences }
-    private var usesDocumentControlRow: Bool { usesDocumentControlRowSetting ?? (horizontalSizeClass == .compact) }
+    private var usesDocumentControlRow: Bool {
+        usesDocumentControlRowSetting ?? DocumentToolbarLayout.usesControlRow(detailWidth: nil, horizontalSizeClass: horizontalSizeClass)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -141,7 +143,7 @@ struct CanvasPane: View {
             #if canImport(UIKit)
             if !usesDocumentControlRow {
                 if session.isWriting { UndoRedoButtons(availability: session.undoAvailability) }
-                DocumentModePicker(isWriting: $session.isWriting)
+                DocumentModeToggle(isWriting: $session.isWriting)
             }
             #endif
             Menu("More", systemImage: "ellipsis.circle") {

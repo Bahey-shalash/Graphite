@@ -96,7 +96,7 @@ final class MarkdownTextView: UITextView {
         }
         let label = inlineTitleLabel ?? UILabel()
         label.text = inlineTitle.text
-        label.font = .systemFont(ofSize: inlineTitle.fontSize, weight: .bold)
+        label.font = .systemFont(ofSize: inlineTitle.fontSize, weight: .semibold)
         label.textColor = .label
         label.numberOfLines = 0
         label.accessibilityTraits = .header
