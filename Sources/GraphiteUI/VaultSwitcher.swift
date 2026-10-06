@@ -14,21 +14,7 @@ struct VaultSwitcherBar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Menu {
-                if !workspace.vaultLibrary.vaults.isEmpty {
-                    Picker("Vaults", selection: Binding(get: { workspace.currentVaultIdentifier }, set: { identifier in
-                        guard let identifier, let vault = workspace.vaultLibrary.vault(withIdentifier: identifier) else { return }
-                        Task {
-                            do { try await workspace.openVault(vault) }
-                            catch { workspace.errorMessage = error.localizedDescription }
-                        }
-                    })) {
-                        ForEach(workspace.vaultLibrary.vaults) { vault in
-                            Text(vault.name).tag(Optional(vault.id))
-                        }
-                    }
-                    .pickerStyle(.inline)
-                }
-                Button("Manage Vaults…", systemImage: "folder.badge.gearshape") { manageVaults() }
+                VaultSwitcherMenuItems(workspace: workspace, manageVaults: manageVaults, showsIndexingMessage: false)
             } label: {
                 HStack(spacing: 8) {
                     // Concrete colors: a menu label's hierarchical styles would take the tint.
@@ -53,6 +39,35 @@ struct VaultSwitcherBar: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.bar)
         .overlay(alignment: .top) { Hairline() }
+    }
+}
+
+/// Every known vault for a one-tap switch, and the vault manager: the vault bar's menu, and
+/// on a phone the file list's title menu, which also says how far indexing has come.
+struct VaultSwitcherMenuItems: View {
+    @Bindable var workspace: WorkspaceModel
+    let manageVaults: () -> Void
+    var showsIndexingMessage = true
+
+    var body: some View {
+        if !workspace.vaultLibrary.vaults.isEmpty {
+            Picker("Vaults", selection: Binding(get: { workspace.currentVaultIdentifier }, set: { identifier in
+                guard let identifier, let vault = workspace.vaultLibrary.vault(withIdentifier: identifier) else { return }
+                Task {
+                    do { try await workspace.openVault(vault) }
+                    catch { workspace.errorMessage = error.localizedDescription }
+                }
+            })) {
+                ForEach(workspace.vaultLibrary.vaults) { vault in
+                    Text(vault.name).tag(Optional(vault.id))
+                }
+            }
+            .pickerStyle(.inline)
+        }
+        Button("Manage Vaults…", systemImage: "folder.badge.gearshape") { manageVaults() }
+        if showsIndexingMessage, workspace.store != nil, !workspace.indexingMessage.isEmpty {
+            Section { Text(workspace.indexingMessage) }
+        }
     }
 }
 

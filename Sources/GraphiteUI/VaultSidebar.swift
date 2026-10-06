@@ -61,6 +61,7 @@ struct VaultSidebar: View {
     @State private var fileToReveal: VaultPath?
     @FocusState private var isSearchFocused: Bool
     @Environment(\.accent) private var accent
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @AppStorage(SidebarPanelSettingKey.panel) private var storedPanel = SidebarPanel.files
     @State private var overview = VaultOverviewModel()
     @AppStorage(SidebarPanelSettingKey.tagSortOrder) private var tagSortOrder = VaultListSortOrder.frequencyDescending
@@ -90,6 +91,15 @@ struct VaultSidebar: View {
                 }
         }
         .navigationTitle(workspace.title)
+        #if canImport(UIKit)
+        // On a phone the list fills the screen: a large title would sit under the panel
+        // picker, blurred by the bar's edge, so the title is inline and switches vaults, as
+        // the vault bar does beside a document.
+        .navigationBarTitleDisplayMode(isCompactWidth ? .inline : .automatic)
+        .toolbarTitleMenu {
+            if isCompactWidth { VaultSwitcherMenuItems(workspace: workspace) { showsVaultManager = true } }
+        }
+        #endif
         .task(id: "\(panel.rawValue)-\(workspace.indexVersion)-\(workspace.propertyTypesVersion)-\(showsNestedTags)-\(workspace.currentVaultIdentifier?.uuidString ?? "")") {
             await overview.load(panel, workspace: workspace, showsNestedTags: showsNestedTags)
         }
@@ -138,15 +148,21 @@ struct VaultSidebar: View {
                     ForEach(availablePanels) { panel in Label(panel.title, systemImage: panel.systemImage).tag(panel) }
                 }
                 .pickerStyle(.segmented)
+                // Symbols, which fit four panels in a phone's width or a narrow sidebar where
+                // their names were cut off; VoiceOver reads the names.
+                .labelStyle(.iconOnly)
                 .padding(.horizontal, 16).padding(.vertical, 6)
                 // Rows scroll under the picker; without a background they would show through.
                 .background(.bar)
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            VaultSwitcherBar(workspace: workspace) { showsVaultManager = true }
+            // A phone switches vaults from the title, and its search field is at the bottom.
+            if !isCompactWidth { VaultSwitcherBar(workspace: workspace) { showsVaultManager = true } }
         }
     }
+
+    private var isCompactWidth: Bool { horizontalSizeClass == .compact }
 
     /// The options of the list shown, as each Obsidian sidebar view has its own.
     @ViewBuilder private var panelMenu: some View {
@@ -206,9 +222,11 @@ struct VaultSidebar: View {
         }
         // Folders expanded in one vault must not stay expanded, with stale contents, in the next.
         .id(workspace.currentVaultIdentifier)
-        .listStyle(.sidebar)
+        // The sidebar style beside a document; on a phone, where it draws a card of rows
+        // with separators, a plain list in the page's color, as Obsidian mobile's explorer.
+        .modifier(SidebarListStyle(isCompactWidth: isCompactWidth))
         // Denser than the system's sidebar, as Obsidian's file explorer, with room for a finger.
-        .environment(\.defaultMinListRowHeight, 36)
+        .environment(\.defaultMinListRowHeight, FileTreeMetrics.rowHeight(for: horizontalSizeClass))
         // Dropping on the list outside any folder or file moves the item to the vault's root.
         .dropDestination(for: VaultItemTransfer.self) { items, _ in
             moveDroppedItems(items, into: .root)
@@ -386,22 +404,28 @@ private struct SearchResultRow: View {
 
 // MARK: Files and folders
 
+/// A file or folder of the file tree, as Obsidian's file explorer draws one: the name alone,
+/// a folder marked by the chevron before it, a level of nesting by an indent and a faint
+/// guide line, and a file's extension muted after its name. An expanded folder's contents
+/// follow it as rows of their own.
 private struct VaultEntryRow: View, Equatable {
     let entry: VaultEntry
+    /// How deep in the vault the row is: 0 at its root.
+    var depth = 0
     @Bindable var workspace: WorkspaceModel
     let requestCreation: (CreationKind, VaultPath) -> Void
     @State private var children: [VaultEntry] = []
     @State private var isDropTargeted = false
     @Environment(\.accent) private var accent
 
-    /// Rows compare by their entry alone, so an update of the list does not rebuild every
-    /// row: `requestCreation` is a new closure each time but always sets the same binding,
-    /// and what a row reads from the workspace is tracked by Observation on its own.
+    /// Rows compare by their entry and depth alone, so an update of the list does not rebuild
+    /// every row: `requestCreation` is a new closure each time but always sets the same
+    /// binding, and what a row reads from the workspace is tracked by Observation on its own.
     /// SwiftUI uses this comparison without an `.equatable()` wrapper, and the wrapper must
     /// not be added: it makes a row a single view, so an expanded folder's contents are drawn
     /// inside the folder's row, centered and squeezed, instead of as rows of the list.
     nonisolated static func ==(leftRow: VaultEntryRow, rightRow: VaultEntryRow) -> Bool {
-        leftRow.entry == rightRow.entry
+        leftRow.entry == rightRow.entry && leftRow.depth == rightRow.depth
     }
 
     private var isExpanded: Binding<Bool> {
@@ -412,68 +436,97 @@ private struct VaultEntryRow: View, Equatable {
 
     var body: some View {
         if entry.isDirectory {
-            DisclosureGroup(isExpanded: isExpanded) {
+            folderRow
+            if isExpanded.wrappedValue {
                 ForEach(children, id: \.path.rawValue) { child in
-                    VaultEntryRow(entry: child, workspace: workspace, requestCreation: requestCreation)
-                }
-            } label: {
-                // A folder is never opened as a document: tapping its name folds it, as in Obsidian.
-                Button { withAnimation(.snappy) { isExpanded.wrappedValue.toggle() } } label: {
-                    // A muted icon, as for files: the accent marks only the file that is open.
-                    Label {
-                        Text(entry.path.name)
-                    } icon: {
-                        Image(systemName: isDropTargeted ? "folder.fill" : "folder").foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .contextMenu { folderMenu }
-                .draggable(VaultItemTransfer(path: entry.path.rawValue)) { dragPreview }
-                .dropDestination(for: VaultItemTransfer.self) { items, _ in
-                    let paths = items.compactMap { item in try? VaultPath(item.path) }.filter { path in path != entry.path }
-                    guard !paths.isEmpty else { return false }
-                    Task { for path in paths { await workspace.move(path, into: entry.path) } }
-                    return true
-                } isTargeted: { isTargeted in isDropTargeted = isTargeted }
-            }
-            .listRowBackground(isDropTargeted ? RoundedRectangle(cornerRadius: 8).fill(accent.opacity(0.18)) : nil)
-            .task(id: "\(isExpanded.wrappedValue)-\(workspace.directoryVersion)-\(workspace.vaultSettings.fileSortOrder.rawValue)") {
-                guard isExpanded.wrappedValue, let store = workspace.store else { return }
-                do {
-                    let listedChildren = try await store.children(of: entry.path, sortedBy: workspace.vaultSettings.fileSortOrder)
-                    // Every directory refresh lists the folder again; unchanged rows are left alone.
-                    if listedChildren != children { children = listedChildren }
-                    workspace.checkConflictVersions(of: listedChildren.lazy.filter { child in !child.isDirectory }.map(\.path))
-                } catch {
-                    // A folder another app removed or renamed goes away with its parent's next
-                    // listing; that is not an error to report.
-                    guard !Task.isCancelled, workspace.isDirectory(entry.path) else { return }
-                    workspace.errorMessage = error.localizedDescription
+                    VaultEntryRow(entry: child, depth: depth + 1, workspace: workspace, requestCreation: requestCreation)
                 }
             }
         } else {
-            Label {
-                HStack(spacing: 6) {
-                    Text(workspace.preferences.displayName(for: entry.path)).lineLimit(1)
-                    if workspace.conflictedPaths.contains(entry.path) { ConflictVersionsMarker() }
-                }
-            } icon: {
-                Image(systemName: symbol).foregroundStyle(.secondary)
-            }
-            .tag(entry.path)
-            .contextMenu { fileMenu }
-            .draggable(VaultItemTransfer(path: entry.path.rawValue)) { dragPreview }
-            // A drop on a file lands in the file's folder, as in Obsidian. Without this the
-            // list's own destination would take it and move the item to the vault's root.
-            .dropDestination(for: VaultItemTransfer.self) { items, _ in
-                let folder = entry.path.parent
-                let paths = items.compactMap { item in try? VaultPath(item.path) }.filter { path in path.parent != folder }
-                guard !paths.isEmpty else { return false }
-                Task { for path in paths { await workspace.move(path, into: folder) } }
-                return true
+            fileRow
+        }
+    }
+
+    private var folderRow: some View {
+        // A folder is never opened as a document: tapping its name folds it, as in Obsidian.
+        Button { withAnimation(.snappy) { isExpanded.wrappedValue.toggle() } } label: {
+            FileTreeRowLabel(depth: depth) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(isDropTargeted ? AnyShapeStyle(accent) : AnyShapeStyle(.tertiary))
+                    .rotationEffect(.degrees(isExpanded.wrappedValue ? 90 : 0))
+            } title: {
+                Text(entry.path.name).lineLimit(1)
             }
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel(entry.path.name)
+        .accessibilityValue(isExpanded.wrappedValue ? "Expanded" : "Collapsed")
+        .accessibilityHint("Folder")
+        .contextMenu { folderMenu }
+        .draggable(VaultItemTransfer(path: entry.path.rawValue)) { dragPreview }
+        .dropDestination(for: VaultItemTransfer.self) { items, _ in
+            let paths = items.compactMap { item in try? VaultPath(item.path) }.filter { path in path != entry.path }
+            guard !paths.isEmpty else { return false }
+            Task { for path in paths { await workspace.move(path, into: entry.path) } }
+            return true
+        } isTargeted: { isTargeted in isDropTargeted = isTargeted }
+        .fileTreeRow()
+        .listRowBackground(isDropTargeted ? RoundedRectangle(cornerRadius: GraphiteChrome.cornerRadius).fill(accent.opacity(0.18)) : nil)
+        .task(id: "\(isExpanded.wrappedValue)-\(workspace.directoryVersion)-\(workspace.vaultSettings.fileSortOrder.rawValue)") {
+            guard isExpanded.wrappedValue, let store = workspace.store else { return }
+            do {
+                let listedChildren = try await store.children(of: entry.path, sortedBy: workspace.vaultSettings.fileSortOrder)
+                // Every directory refresh lists the folder again; unchanged rows are left alone.
+                if listedChildren != children { children = listedChildren }
+                workspace.checkConflictVersions(of: listedChildren.lazy.filter { child in !child.isDirectory }.map(\.path))
+            } catch {
+                // A folder another app removed or renamed goes away with its parent's next
+                // listing; that is not an error to report.
+                guard !Task.isCancelled, workspace.isDirectory(entry.path) else { return }
+                workspace.errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private var fileRow: some View {
+        FileTreeRowLabel(depth: depth) {
+            // An empty slot where a folder has its chevron, so names line up.
+            Color.clear.frame(height: 1)
+        } title: {
+            HStack(spacing: 0) {
+                Text(entry.path.stem).lineLimit(1)
+                if let extensionSuffix {
+                    Text(extensionSuffix).foregroundStyle(.tertiary).lineLimit(1).layoutPriority(1)
+                }
+            }
+            if workspace.conflictedPaths.contains(entry.path) { ConflictVersionsMarker() }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(workspace.preferences.displayName(for: entry.path))
+        .tag(entry.path)
+        .contextMenu { fileMenu }
+        .draggable(VaultItemTransfer(path: entry.path.rawValue)) { dragPreview }
+        // A drop on a file lands in the file's folder, as in Obsidian. Without this the
+        // list's own destination would take it and move the item to the vault's root.
+        .dropDestination(for: VaultItemTransfer.self) { items, _ in
+            let folder = entry.path.parent
+            let paths = items.compactMap { item in try? VaultPath(item.path) }.filter { path in path.parent != folder }
+            guard !paths.isEmpty else { return false }
+            Task { for path in paths { await workspace.move(path, into: folder) } }
+            return true
+        }
+        .fileTreeRow()
+    }
+
+    /// The extension after the name, muted so the name reads first: always for files other
+    /// than notes, which tells a lecture's note from its slides, and for notes where Settings
+    /// shows extensions.
+    private var extensionSuffix: String? {
+        let fileExtension = (entry.path.name as NSString).pathExtension
+        guard !fileExtension.isEmpty else { return nil }
+        if entry.kind == .markdown && !workspace.preferences.showsFileExtensions { return nil }
+        return "." + fileExtension
     }
 
     private var dragPreview: some View {
@@ -543,6 +596,69 @@ private struct VaultEntryRow: View, Equatable {
         case .canvas: "rectangle.3.group"
         case .other: "doc"
         }
+    }
+}
+
+/// The layout every file tree row shares: indented by its depth, with a guide line for each
+/// level above it, a slot for a folder's chevron so names line up, and the title.
+private struct FileTreeRowLabel<Marker: View, Title: View>: View {
+    let depth: Int
+    @ViewBuilder var marker: Marker
+    @ViewBuilder var title: Title
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    static var indentWidth: CGFloat { 14 }
+    static var markerWidth: CGFloat { 16 }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            marker.frame(width: Self.markerWidth)
+            title
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, CGFloat(depth) * Self.indentWidth)
+        .frame(maxWidth: .infinity, minHeight: FileTreeMetrics.rowHeight(for: horizontalSizeClass), alignment: .leading)
+        .overlay(alignment: .leading) {
+            // One faint line under each enclosing folder's chevron, as Obsidian draws them.
+            ZStack(alignment: .leading) {
+                ForEach(0..<depth, id: \.self) { level in
+                    Rectangle()
+                        .fill(Color.primary.opacity(0.08))
+                        .frame(width: 1)
+                        .offset(x: CGFloat(level) * Self.indentWidth + Self.markerWidth / 2)
+                }
+            }
+            .accessibilityHidden(true)
+        }
+        .contentShape(Rectangle())
+    }
+}
+
+private struct SidebarListStyle: ViewModifier {
+    let isCompactWidth: Bool
+
+    func body(content: Content) -> some View {
+        if isCompactWidth {
+            content.listStyle(.plain)
+        } else {
+            content.listStyle(.sidebar)
+        }
+    }
+}
+
+/// The file tree's row height: room for a finger on a phone, denser beside a document.
+enum FileTreeMetrics {
+    static func rowHeight(for horizontalSizeClass: UserInterfaceSizeClass?) -> CGFloat {
+        horizontalSizeClass == .compact ? 40 : 32
+    }
+}
+
+private extension View {
+    /// A file tree row reaches from top to bottom of its row, with no separator: the guide
+    /// lines join from row to row, and the indent alone shows the nesting.
+    func fileTreeRow() -> some View {
+        listRowInsets(EdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 10))
+            .listRowSeparator(.hidden)
     }
 }
 

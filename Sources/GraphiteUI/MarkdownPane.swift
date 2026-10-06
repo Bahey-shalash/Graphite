@@ -168,8 +168,14 @@ struct MarkdownPane: View {
     private var readingConfiguration: ReadingConfiguration {
         ReadingConfiguration(usesReadableLineLength: preferences.usesReadableLineLength, usesStrictLineBreaks: workspace.vaultSettings.usesStrictLineBreaks,
                              colorsEnabled: preferences.isEnabled(.colors), paletteHexByName: paletteHexByName,
-                             showsProperties: preferences.isEnabled(.properties), declaredPropertyTypes: session.declaredPropertyTypes, inlineTitle: preferences.showsInlineTitle ? preferences.displayName(for: session.path) : nil,
+                             showsProperties: preferences.isEnabled(.properties), declaredPropertyTypes: session.declaredPropertyTypes, inlineTitle: inlineTitle,
                              textSize: preferences.textSize, drawingVersion: workspace.drawingVersion, indexVersion: workspace.indexVersion)
+    }
+
+    /// The note's name above its text, as Obsidian's inline title shows it: without `.md`,
+    /// whether or not lists show extensions, since the title is the name to edit.
+    private var inlineTitle: String? {
+        preferences.showsInlineTitle ? session.path.stem : nil
     }
 
     private var editorConfiguration: EditorConfiguration {
@@ -177,7 +183,7 @@ struct MarkdownPane: View {
                             textSize: preferences.textSize, usesSpellChecking: preferences.usesSpellChecking,
                             colorsEnabled: preferences.isEnabled(.colors), paletteHexByName: paletteHexByName,
                             editingBehavior: EditingBehavior(settings: workspace.vaultSettings), accentHex: preferences.accentHex,
-                            inlineTitle: preferences.showsInlineTitle ? preferences.displayName(for: session.path) : nil)
+                            inlineTitle: inlineTitle)
     }
 
     /// The editor toolbar's buttons that need this pane.
