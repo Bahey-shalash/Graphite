@@ -457,6 +457,45 @@ final class UiReadingViewTests: XCTestCase {
         }
         return recorder.cellFrames
     }
+
+    /// The build says where each of the note's blocks starts in its text, frontmatter
+    /// included, and the reading position turns the blocks' frames into the character at the
+    /// top of the view, and a character back into a block to show.
+    func testTheReadingViewKnowsWhichCharacterOfTheNoteIsAtItsTop() async throws {
+        let source = "---\ntags: [a]\n---\n# Title\n\nFirst line\nSecond line\nThird line\nFourth line\n\n## Next\nMore\n"
+        let readingBuild = try await build(source, note: "Placed.md")
+        let text = source as NSString
+        func offset(of line: String) -> Int { text.range(of: line).location }
+        XCTAssertEqual(readingBuild.blockLocations.map(\.blockIdentifier), readingBuild.blocks.map(\.id))
+        // A run of Markdown starts with the blank line under the title and ends with the one
+        // above the next heading.
+        XCTAssertEqual(readingBuild.blockLocations.map(\.noteOffset), [0, offset(of: "# Title"), offset(of: "First line") - 1, offset(of: "## Next"), offset(of: "More")])
+        let paragraph = readingBuild.blockLocations[2]
+        XCTAssertEqual(paragraph.lineNoteOffsets, [offset(of: "First line") - 1, offset(of: "First line"), offset(of: "Second line"), offset(of: "Third line"),
+                                                    offset(of: "Fourth line"), offset(of: "## Next") - 1])
+
+        let position = ReadingPosition()
+        position.blockLocations = readingBuild.blockLocations
+        position.visibleTop = 50
+        XCTAssertNil(position.topLocation(), "At the top of the note")
+        position.verticalOffset = 300
+        // The properties and the title scrolled away; the paragraph is half hidden.
+        position.record(CGRect(x: 0, y: -400, width: 700, height: 200), ofBlock: readingBuild.blocks[0].id)
+        position.record(CGRect(x: 0, y: -150, width: 700, height: 40), ofBlock: readingBuild.blocks[1].id)
+        position.record(CGRect(x: 0, y: -30, width: 700, height: 160), ofBlock: paragraph.blockIdentifier)
+        position.record(CGRect(x: 0, y: 150, width: 700, height: 40), ofBlock: readingBuild.blocks[3].id)
+        XCTAssertEqual(position.topLocation(), offset(of: "Third line"), "Half of four lines hidden")
+        // A block the lazy stack let go is not on screen, whatever frame it last had.
+        position.record(CGRect(x: 0, y: -60, width: 700, height: 400), ofBlock: readingBuild.blocks[0].id)
+        XCTAssertNil(position.topLocation(), "The note's first block at the top is the top of the note")
+        position.forget(readingBuild.blocks[0].id)
+        XCTAssertEqual(position.topLocation(), offset(of: "Third line"))
+
+        let shown = try XCTUnwrap(position.block(containing: offset(of: "Third line") + 3))
+        XCTAssertEqual(shown.identifier, paragraph.blockIdentifier)
+        XCTAssertEqual(shown.fractionDown, 0.5, accuracy: 0.001)
+        XCTAssertEqual(position.block(containing: offset(of: "## Next"))?.identifier, readingBuild.blocks[3].id)
+    }
 }
 
 @MainActor

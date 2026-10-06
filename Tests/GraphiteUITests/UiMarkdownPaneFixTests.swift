@@ -365,4 +365,34 @@ final class UiMarkdownPaneFixTests: XCTestCase {
             XCTAssertEqual(counts.characterCount, parsedBody.count, sample)
         }
     }
+
+    /// Switching between reading and writing hands each view the place the other was at:
+    /// the editor the character at the top of the reading view, the reading view the line
+    /// at the top of the editor, each once.
+    func testSwitchingBetweenReadingAndWritingKeepsThePlace() async throws {
+        let (session, _) = try await makeSession(contents: Data("# Title\n\nOne\nTwo\n\n## Next\nMore\n".utf8))
+        let source = session.text as NSString
+        session.viewMode = .reading
+        XCTAssertEqual(session.takeReadingStartLocation(), 0, "The editor was at the top")
+        XCTAssertNil(session.takeReadingStartLocation(), "Once")
+
+        let nextHeading = source.range(of: "## Next").location
+        let position = session.readingPosition
+        position.blockLocations = [ReadingBlockLocation(blockIdentifier: "block-1", noteOffset: 0, lineNoteOffsets: []),
+                                   ReadingBlockLocation(blockIdentifier: "block-2", noteOffset: nextHeading, lineNoteOffsets: [])]
+        position.verticalOffset = 120
+        position.record(CGRect(x: 0, y: -120, width: 600, height: 100), ofBlock: "block-1")
+        position.record(CGRect(x: 0, y: -20, width: 600, height: 40), ofBlock: "block-2")
+        session.viewMode = .livePreview
+        XCTAssertEqual(session.takeEditingStartLocation(), nextHeading)
+        XCTAssertNil(session.takeEditingStartLocation(), "Once")
+        XCTAssertEqual(session.savedScrollLocation, nextHeading, "A new editor starts there too")
+
+        // Live Preview and Source are both writing: no place is handed over.
+        session.viewMode = .source
+        XCTAssertNil(session.takeEditingStartLocation())
+        session.savedScrollLocation = source.range(of: "More").location
+        session.viewMode = .reading
+        XCTAssertEqual(session.takeReadingStartLocation(), source.range(of: "More").location)
+    }
 }

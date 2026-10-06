@@ -118,6 +118,20 @@ final class NotePreviewDocumentTests: XCTestCase {
         XCTAssertEqual(ObsidianInlineMarkup.markingTasks(in: markdown),
                        "- \(unchecked)32 open\n  1. \(checked)120 done\n> - \(checked)88 quoted\n- \(checked)47 other\n[ ] not a list\n```\n- [ ] code\n```")
     }
+
+    /// Each block knows where its first line starts in the body, so a note keeps its place
+    /// when it switches between reading and writing.
+    func testEveryBlockKnowsWhereItStartsInTheBody() {
+        let body = "Intro\n## Heading\nText one\nText two\n$$\nx = 1\n$$\n![[Slides.pdf]]\n> [!note] Title\n> Body\n```base\nviews: []\n```\n"
+        let blocks = NotePreviewDocument.locatedBlocks(from: body)
+        let text = body as NSString
+        func offset(of line: String) -> Int { text.range(of: line).location }
+        XCTAssertEqual(blocks.map(\.startOffset), [0, offset(of: "## Heading"), offset(of: "Text one"), offset(of: "$$\nx"),
+                                                    offset(of: "![[Slides.pdf]]"), offset(of: "> [!note]"), offset(of: "```base")])
+        XCTAssertEqual(blocks[2].lineStartOffsets, [offset(of: "Text one"), offset(of: "Text two")])
+        // A callout's body is located in the same body.
+        XCTAssertEqual(blocks[5].body.first?.startOffset, offset(of: "Body"))
+    }
 }
 
 final class MarkdownCodeRangeTests: XCTestCase {

@@ -35,6 +35,9 @@ public enum NotePreviewDocument {
     /// A reading-view block with where its text is in the body it was split from.
     public struct LocatedBlock: Equatable, Sendable {
         public let block: NotePreviewBlock
+        /// The UTF-16 offset in the body at which the block's first line starts, which
+        /// keeps a note's place when it switches between reading and writing.
+        public let startOffset: Int
         /// For a Markdown run, the UTF-16 offset in the body at which each of its lines
         /// starts, so a task on one of them can be found in the note. Empty for other blocks.
         public let lineStartOffsets: [Int]
@@ -70,7 +73,9 @@ public enum NotePreviewDocument {
         var blocks: [LocatedBlock] = []
         var pendingMarkdown: [String] = []
         var pendingLineStartOffsets: [Int] = []
-        func append(_ block: NotePreviewBlock) { blocks.append(LocatedBlock(block: block, lineStartOffsets: [], body: [])) }
+        func append(_ block: NotePreviewBlock, startingAtLine lineIndex: Int) {
+            blocks.append(LocatedBlock(block: block, startOffset: lineStartOffsets[lineIndex], lineStartOffsets: [], body: []))
+        }
         func appendMarkdown(_ lineIndices: ClosedRange<Int>) {
             pendingMarkdown.append(contentsOf: lines[lineIndices])
             pendingLineStartOffsets.append(contentsOf: lineStartOffsets[lineIndices])
@@ -78,7 +83,7 @@ public enum NotePreviewDocument {
         func flushMarkdown() {
             let markdown = pendingMarkdown.joined(separator: "\n")
             if !markdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                blocks.append(LocatedBlock(block: .markdown(markdown), lineStartOffsets: pendingLineStartOffsets, body: []))
+                blocks.append(LocatedBlock(block: .markdown(markdown), startOffset: pendingLineStartOffsets.first ?? 0, lineStartOffsets: pendingLineStartOffsets, body: []))
             }
             pendingMarkdown.removeAll()
             pendingLineStartOffsets.removeAll()
@@ -95,7 +100,7 @@ public enum NotePreviewDocument {
                 let lastFenceLineIndex = min(closingIndex, lines.count - 1)
                 if language == "base" {
                     flushMarkdown()
-                    append(.baseDefinition(lines[lineIndex...lastFenceLineIndex].dropFirst().dropLast(closingIndex < lines.count ? 1 : 0).joined(separator: "\n")))
+                    append(.baseDefinition(lines[lineIndex...lastFenceLineIndex].dropFirst().dropLast(closingIndex < lines.count ? 1 : 0).joined(separator: "\n")), startingAtLine: lineIndex)
                 } else {
                     appendMarkdown(lineIndex...lastFenceLineIndex)
                 }
@@ -108,7 +113,7 @@ public enum NotePreviewDocument {
                 if let opening, opening.isAtLineStart {
                     flushMarkdown()
                     let lastIndex = opening.closingLineIndex ?? lines.count - 1
-                    append(.displayMath(lines[lineIndex...lastIndex].joined(separator: "\n")))
+                    append(.displayMath(lines[lineIndex...lastIndex].joined(separator: "\n")), startingAtLine: lineIndex)
                     lineIndex = lastIndex + 1
                     continue
                 }
@@ -116,14 +121,14 @@ public enum NotePreviewDocument {
                 // it (`$$E=mc^2$$ is famous`) it is inline math in a paragraph.
                 if opening == nil, trimmedLine.hasSuffix("$$") {
                     flushMarkdown()
-                    append(.displayMath(line))
+                    append(.displayMath(line), startingAtLine: lineIndex)
                     lineIndex += 1
                     continue
                 }
             }
             if let heading = heading(in: line) {
                 flushMarkdown()
-                append(.heading(level: heading.level, text: heading.text, anchor: anchor(forHeading: heading.text)))
+                append(.heading(level: heading.level, text: heading.text, anchor: anchor(forHeading: heading.text)), startingAtLine: lineIndex)
                 lineIndex += 1
                 continue
             }
@@ -140,13 +145,13 @@ public enum NotePreviewDocument {
                 }
                 let body = Self.blocks(fromLines: bodyLines, lineStartOffsets: bodyLineStartOffsets, calloutDepth: calloutDepth + 1)
                 blocks.append(LocatedBlock(block: .callout(type: callout.type, title: callout.title, folding: callout.folding, body: body.map(\.block)),
-                                           lineStartOffsets: [], body: body))
+                                           startOffset: lineStartOffsets[lineIndex], lineStartOffsets: [], body: body))
                 lineIndex = bodyIndex
                 continue
             }
             if let embed = standaloneEmbed(in: line) {
                 flushMarkdown()
-                append(.embed(embed))
+                append(.embed(embed), startingAtLine: lineIndex)
                 lineIndex += 1
                 continue
             }

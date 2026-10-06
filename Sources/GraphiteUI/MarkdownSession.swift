@@ -16,7 +16,38 @@ final class MarkdownSession {
     private var editVersion = 0
     var selection = NSRange(location: 0, length: 0)
     /// Reading view, Live Preview, or source mode, as for an Obsidian tab.
-    var viewMode: NoteViewMode = .livePreview
+    var viewMode: NoteViewMode = .livePreview {
+        didSet {
+            guard (oldValue == .reading) != (viewMode == .reading) else { return }
+            if viewMode == .reading {
+                // The editor records the line at its top as it goes off screen, after this.
+                readingStartsWhereEditorWas = true
+            } else {
+                let location = readingPosition.topLocation()
+                savedScrollLocation = location
+                pendingEditingLocation = location ?? 0
+            }
+        }
+    }
+    /// Whether the reading view, about to be shown, starts at the line that was at the top
+    /// of the editor rather than where it was itself.
+    @ObservationIgnored private var readingStartsWhereEditorWas = false
+    /// Where the editor, about to be shown, starts: the character that was at the top of
+    /// the reading view, in the note's text.
+    @ObservationIgnored private var pendingEditingLocation: Int?
+
+    /// The character the reading view starts at, once, after the note switched from writing.
+    func takeReadingStartLocation() -> Int? {
+        guard readingStartsWhereEditorWas else { return nil }
+        readingStartsWhereEditorWas = false
+        return savedScrollLocation ?? 0
+    }
+
+    /// The character the editor starts at, once, after the note switched from reading.
+    func takeEditingStartLocation() -> Int? {
+        defer { pendingEditingLocation = nil }
+        return pendingEditingLocation
+    }
     /// Link and tag suggestions at the cursor.
     let completion = CompletionModel()
     var errorMessage: String?

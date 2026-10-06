@@ -211,6 +211,18 @@ enum MediaFileKind {
 struct ReadingViewBuild: Sendable {
     let blocks: [RenderedBlock]
     let hasUnresolvedEmbeds: Bool
+    /// Where each of the note's own top-level blocks starts in its text.
+    var blockLocations: [ReadingBlockLocation] = []
+}
+
+/// Where one of the reading view's top-level blocks starts in the note's text, and for a
+/// run of Markdown where each of its lines does, to keep the note's place when it switches
+/// between reading and writing.
+struct ReadingBlockLocation: Equatable, Sendable {
+    let blockIdentifier: String
+    /// UTF-16 offsets in the note, frontmatter included.
+    let noteOffset: Int
+    let lineNoteOffsets: [Int]
 }
 
 /// Builds rendered blocks off the main actor: resolves links against the vault and index,
@@ -250,8 +262,17 @@ actor ReadingViewBuilder {
         let taskSource = TaskSource(noteText: source) { bodyOffset in
             readableBody.offsets.originalOffset(of: bodyOffset).map { offset in offset + frontmatterLength }
         }
-        rendered += try await render(NotePreviewDocument.locatedBlocks(from: readableBody.text), note: note, root: root, index: index, configuration: configuration,
-                                     allowsTransclusion: allowsTransclusion, taskSource: taskSource)
+        let locatedBlocks = NotePreviewDocument.locatedBlocks(from: readableBody.text)
+        let renderedBody = try await render(locatedBlocks, note: note, root: root, index: index, configuration: configuration,
+                                            allowsTransclusion: allowsTransclusion, taskSource: taskSource)
+        // Each located block renders as one block, in order.
+        var blockLocations = rendered.map { block in ReadingBlockLocation(blockIdentifier: block.id, noteOffset: 0, lineNoteOffsets: []) }
+        for (locatedBlock, renderedBlock) in zip(locatedBlocks, renderedBody) {
+            blockLocations.append(ReadingBlockLocation(blockIdentifier: renderedBlock.id,
+                                                       noteOffset: taskSource.noteOffset(locatedBlock.startOffset) ?? frontmatterLength + locatedBlock.startOffset,
+                                                       lineNoteOffsets: locatedBlock.lineStartOffsets.compactMap(taskSource.noteOffset)))
+        }
+        rendered += renderedBody
         if !readableBody.notes.isEmpty {
             var renderedNotes: [RenderedFootnote] = []
             for footnote in readableBody.notes {
@@ -259,7 +280,7 @@ actor ReadingViewBuilder {
             }
             rendered.append(.footnotes(id: identifier(), notes: renderedNotes))
         }
-        return ReadingViewBuild(blocks: rendered, hasUnresolvedEmbeds: hasUnresolvedEmbeds)
+        return ReadingViewBuild(blocks: rendered, hasUnresolvedEmbeds: hasUnresolvedEmbeds, blockLocations: blockLocations)
     }
 
     private func identifier() -> Int { nextIdentifier += 1; return nextIdentifier }
@@ -543,15 +564,73 @@ struct HeadingScrollRequest: Equatable {
     }
 }
 
-/// A lightweight viewport checkpoint owned by the open note, not by its rendered view.
+/// A lightweight viewport checkpoint owned by the open note, not by its rendered view. It
+/// also follows where the note's blocks are on screen, to tell which character of the note
+/// is at the top of the reading view.
 @MainActor
 final class ReadingPosition {
     var verticalOffset: CGFloat = 0
+    /// Where the blocks shown start in the note.
+    var blockLocations: [ReadingBlockLocation] = [] {
+        didSet { if blockLocations != oldValue { blockFrames = blockFrames.filter { identifier, _ in blockLocations.contains { location in location.blockIdentifier == identifier } } } }
+    }
+    /// Where the visible part of the reading view begins in its own coordinates, below any
+    /// bar it scrolls under.
+    var visibleTop: CGFloat = 0
+    /// Each block's frame in the reading view's coordinates, as last laid out, for the
+    /// blocks the lazy stack holds.
+    private var blockFrames: [String: CGRect] = [:]
+
+    func record(_ frame: CGRect, ofBlock identifier: String) {
+        blockFrames[identifier] = frame
+    }
+
+    func forget(_ identifier: String) {
+        blockFrames[identifier] = nil
+    }
+
+    /// The note's character at the top of the reading view: the first line of the block
+    /// there, or for a run of Markdown the line as far down it as the view has scrolled.
+    /// Nil at the very top, with the note's first block there, or before any block was
+    /// laid out.
+    func topLocation() -> Int? {
+        let location = blockLocationAtTop()
+        return location == 0 ? nil : location
+    }
+
+    private func blockLocationAtTop() -> Int? {
+        guard verticalOffset > 1 else { return nil }
+        let shownBlocks = blockLocations.compactMap { location in blockFrames[location.blockIdentifier].map { frame in (location, frame) } }
+            .filter { _, frame in frame.maxY > visibleTop + 1 }
+        guard let (location, frame) = shownBlocks.min(by: { first, second in first.1.minY < second.1.minY }) else { return nil }
+        let hiddenHeight = visibleTop - frame.minY
+        guard hiddenHeight > 0, !location.lineNoteOffsets.isEmpty, frame.height > 0 else { return location.noteOffset }
+        let lineIndex = min(Int(Double(hiddenHeight / frame.height) * Double(location.lineNoteOffsets.count)), location.lineNoteOffsets.count - 1)
+        return location.lineNoteOffsets[lineIndex]
+    }
+
+    /// The block to show at the top for a character of the note, and how far down the
+    /// block that character is, from 0 to 1.
+    func block(containing noteLocation: Int) -> (identifier: String, fractionDown: Double)? {
+        guard let location = blockLocations.last(where: { location in location.noteOffset <= noteLocation }) ?? blockLocations.first else { return nil }
+        guard !location.lineNoteOffsets.isEmpty, let lineIndex = location.lineNoteOffsets.lastIndex(where: { offset in offset <= noteLocation }) else {
+            return (location.blockIdentifier, 0)
+        }
+        return (location.blockIdentifier, Double(lineIndex) / Double(location.lineNoteOffsets.count))
+    }
+
+    func frame(ofBlock identifier: String) -> CGRect? { blockFrames[identifier] }
+}
+
+/// The reading view's scroll view, in whose coordinates blocks report their frames.
+enum ReadingCoordinateSpace {
+    static let name = "GraphiteReadingView"
 }
 
 private struct ReadingViewport: Equatable {
     let verticalOffset: CGFloat
     let maximumVerticalOffset: CGFloat
+    let topInset: CGFloat
 }
 
 struct MarkdownPreview: View {
@@ -576,6 +655,9 @@ struct MarkdownPreview: View {
     /// discard this view; nil builds the note each time it is shown.
     var blocksCache: ReadingBlocksCache? = nil
     var savedPosition: ReadingPosition? = nil
+    /// The note's character to start at, once, where the editor was when the note switched
+    /// to reading; nil keeps the reading view's own saved position.
+    var takeStartingLocation: (() -> Int?)? = nil
     /// Ticks or unticks a task of this note, or of a note it embeds; nil draws checkboxes
     /// as pictures. False when the note no longer has the task at that place.
     var toggleTask: (@MainActor (VaultPath, ReadingTasks.Location) async -> Bool)? = nil
@@ -608,7 +690,8 @@ struct MarkdownPreview: View {
                     ReadingBlocksView(blocks: blocks, root: root, textSize: configuration.textSize, navigate: navigate, scrollToHeading: { anchor in
                         pendingRestorationOffset = nil
                         withAnimation { scrollProxy.scrollTo(anchor, anchor: .top) }
-                    }, openPDF: openPDF, updateProperties: updateProperties, folding: folding, declaredPropertyTypes: configuration.declaredPropertyTypes)
+                    }, openPDF: openPDF, updateProperties: updateProperties, folding: folding, declaredPropertyTypes: configuration.declaredPropertyTypes,
+                       blockPositions: savedPosition)
                     if let errorMessage { Text(errorMessage).foregroundStyle(.secondary) }
                 }
                 .frame(maxWidth: configuration.usesReadableLineLength ? ReadingConfiguration.readableColumnWidth : .infinity, alignment: .leading)
@@ -616,10 +699,13 @@ struct MarkdownPreview: View {
                 .frame(maxWidth: .infinity)
             }
             .scrollPosition($scrollPosition)
+            .coordinateSpace(.named(ReadingCoordinateSpace.name))
             .onScrollGeometryChange(for: ReadingViewport.self) { geometry in
                 ReadingViewport(verticalOffset: max(0, geometry.contentOffset.y + geometry.contentInsets.top),
-                                maximumVerticalOffset: max(0, geometry.contentSize.height + geometry.contentInsets.top + geometry.contentInsets.bottom - geometry.containerSize.height))
+                                maximumVerticalOffset: max(0, geometry.contentSize.height + geometry.contentInsets.top + geometry.contentInsets.bottom - geometry.containerSize.height),
+                                topInset: geometry.contentInsets.top)
             } action: { _, viewport in
+                savedPosition?.visibleTop = viewport.topInset
                 // Until a saved position is restored, the view's first offsets must not
                 // replace it; with nothing saved, a scroll that comes first is recorded.
                 guard hasRestoredPosition || (savedPosition?.verticalOffset ?? 0) == 0 else { return }
@@ -645,6 +731,11 @@ struct MarkdownPreview: View {
             // asked to scroll before it has built anything to scroll to.
             .task(id: "\(blocks.count)-\(headingScrollRequest?.token.uuidString ?? "")") {
                 guard !blocks.isEmpty else { return }
+                // Switched from writing: the line that was at the top of the editor.
+                if !hasRestoredPosition, let startingLocation = takeStartingLocation?() {
+                    hasRestoredPosition = true
+                    await scrollToTop(of: startingLocation, scrollProxy: scrollProxy)
+                }
                 if !hasRestoredPosition {
                     hasRestoredPosition = true
                     if headingScrollRequest == nil || headingScrollRequest?.token == handledScrollToken,
@@ -679,7 +770,7 @@ struct MarkdownPreview: View {
                 try Task.checkCancellation()
                 let hasMissingEmbeds = Self.containsMissingEmbed(build.blocks) || build.hasUnresolvedEmbeds
                 let key = ReadingBuildKey(source: source, path: path, root: root, configuration: configuration, dependsOnIndex: hasMissingEmbeds)
-                let cachedBuild = ReadingBlocksCache.Build(key: key, blocks: build.blocks, hasMissingEmbeds: hasMissingEmbeds)
+                let cachedBuild = ReadingBlocksCache.Build(key: key, blocks: build.blocks, hasMissingEmbeds: hasMissingEmbeds, blockLocations: build.blockLocations)
                 show(cachedBuild)
                 blocksCache?.lastBuild = cachedBuild
             } catch is CancellationError {
@@ -687,7 +778,22 @@ struct MarkdownPreview: View {
         }
     }
 
+    /// Brings the note's character to the top: its block first, then as far down the block
+    /// as the character is, once the block's height is known.
+    private func scrollToTop(of noteLocation: Int, scrollProxy: ScrollViewProxy) async {
+        pendingRestorationOffset = nil
+        // A reading view is made anew for each switch and starts at the top. Asking for the
+        // top edge would hold the view there, and SwiftUI applied it again over later scrolls.
+        guard noteLocation > 0, let (identifier, fractionDown) = savedPosition?.block(containing: noteLocation) else { return }
+        scrollProxy.scrollTo(identifier, anchor: .top)
+        guard fractionDown > 0 else { return }
+        try? await Task.sleep(for: .milliseconds(50))
+        guard let savedPosition, let frame = savedPosition.frame(ofBlock: identifier) else { return }
+        scrollPosition.scrollTo(y: savedPosition.verticalOffset + (frame.minY - savedPosition.visibleTop) + fractionDown * frame.height)
+    }
+
     private func show(_ build: ReadingBlocksCache.Build) {
+        savedPosition?.blockLocations = build.blockLocations
         blocks = build.blocks; errorMessage = nil
         hasMissingEmbeds = build.hasMissingEmbeds
         shownBuildKey = build.key
@@ -745,6 +851,7 @@ final class ReadingBlocksCache {
         let key: ReadingBuildKey
         let blocks: [RenderedBlock]
         let hasMissingEmbeds: Bool
+        var blockLocations: [ReadingBlockLocation] = []
     }
 
     var lastBuild: Build?
@@ -806,6 +913,8 @@ struct ReadingBlocksView: View {
     var folding: ReadingFolding? = nil
     /// The types the properties block was parsed with, which also decide how it shows them.
     var declaredPropertyTypes: [String: PropertyType] = [:]
+    /// Follows where the note's own blocks are as the view scrolls; nil for embedded notes.
+    var blockPositions: ReadingPosition? = nil
     @Environment(\.readingTaskContext) private var taskContext
 
     /// Each block with its heading's fold key, and whether a folded heading above hides it.
@@ -842,6 +951,12 @@ struct ReadingBlocksView: View {
 
     var body: some View {
         ForEach(visibleBlocks, id: \.block.id) { entry in
+            blockView(for: entry)
+                .modifier(ReadingBlockPositionReporter(blockIdentifier: entry.block.id, positions: blockPositions))
+        }
+    }
+
+    @ViewBuilder private func blockView(for entry: (block: RenderedBlock, foldKey: String?, hasBody: Bool)) -> some View {
             let block = entry.block
             switch block {
             case .properties(let properties):
@@ -926,6 +1041,27 @@ struct ReadingBlocksView: View {
                 }
                 .buttonStyle(.plain)
             }
+    }
+}
+
+/// Reports a block's frame in the reading view as it scrolls, where the note's place is
+/// followed (`ReadingPosition`); does nothing for embedded notes.
+private struct ReadingBlockPositionReporter: ViewModifier {
+    let blockIdentifier: String
+    let positions: ReadingPosition?
+
+    func body(content: Content) -> some View {
+        if let positions {
+            content.onGeometryChange(for: CGRect.self) { geometry in
+                geometry.frame(in: .named(ReadingCoordinateSpace.name))
+            } action: { frame in
+                positions.record(frame, ofBlock: blockIdentifier)
+            }
+            // A block the lazy stack lets go stops reporting, possibly from a frame still
+            // across the top after a fast scroll; it is not on screen.
+            .onDisappear { positions.forget(blockIdentifier) }
+        } else {
+            content
         }
     }
 }

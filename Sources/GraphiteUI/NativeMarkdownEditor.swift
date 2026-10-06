@@ -470,6 +470,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         textView.didMoveIntoWindow = { [weak coordinator] windowedView in
             coordinator?.startEditingIfRequested(in: windowedView)
             coordinator?.presentFindIfRequested(in: windowedView)
+            coordinator?.goToReadingPlaceIfSwitched(in: windowedView)
         }
         if let savedScrollLocation = session.savedScrollLocation { coordinator.pendingJump = .topOfCharacter(savedScrollLocation) }
         session.isEditorAttached = true
@@ -1004,6 +1005,20 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                 self.session.startsEditingWhenShown = false
                 textView.beginEditing()
             }
+        }
+
+        /// After the note switched from reading, shows the line that was at the top of the
+        /// reading view: a kept editor would otherwise return to where it was itself.
+        func goToReadingPlaceIfSwitched(in textView: MarkdownTextView) {
+            guard textView.window != nil, let location = session.takeEditingStartLocation() else { return }
+            // The note's start is the top of the view, with the inline title above the text.
+            guard location > 0 else {
+                pendingJump = nil
+                textView.setContentOffset(CGPoint(x: textView.contentOffset.x, y: -textView.adjustedContentInset.top), animated: false)
+                return
+            }
+            pendingJump = .topOfCharacter(location)
+            performPendingJumpIfReady(in: textView)
         }
 
         /// Opens the find bar the command palette asked for, once the editor is on screen.

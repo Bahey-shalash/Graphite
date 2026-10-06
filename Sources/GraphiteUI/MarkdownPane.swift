@@ -66,6 +66,7 @@ struct MarkdownPane: View {
                                     if session.foldedKeys.contains(key) { session.foldedKeys.remove(key) } else { session.foldedKeys.insert(key) }
                                 },
                                 blocksCache: session.readingBlocksCache, savedPosition: session.readingPosition,
+                                takeStartingLocation: { [session] in session.takeReadingStartLocation() },
                                 toggleTask: { [session] note, location in await workspace.toggleReadingTask(at: location, in: note, shownBy: session) })
                 .environment(\.readingImageActions, ReadingImageActions(providerIdentity: ObjectIdentifier(workspace),
                                                                         viewImage: viewImage, editDrawing: drawingEditor, drawOnImage: imageDrawing))
