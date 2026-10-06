@@ -137,7 +137,10 @@ final class ReadingTasksAndEquationsTests: XCTestCase {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         vaultDirectory = directory
         let index = try VaultIndex(databaseURL: directory.appendingPathComponent("index.sqlite"))
-        for width in [700, 170] as [CGFloat] {
+        // The wide case needs a window at least as wide: on a phone only the narrow one runs.
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { scene in scene as? UIWindowScene }.first)
+        let widths: [CGFloat] = scene.coordinateSpace.bounds.width >= 700 ? [700, 170] : [170]
+        for width in widths {
             let controller = try host(AnyView(
                 MarkdownPreview(source: note, path: try VaultPath("Equations.md"), root: directory, index: index, configuration: ReadingConfiguration(),
                                 headingScrollRequest: .constant(nil), handledScrollToken: .constant(nil), navigate: { _, _ in }, openPDF: { _, _ in }, updateProperties: nil)
