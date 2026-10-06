@@ -190,7 +190,10 @@ struct VaultSidebar: View {
 
     private var sidebarList: some View {
         List(selection: Binding(get: { workspace.selection }, set: { newSelection in
-            if newSelection != nil { showDocument() }
+            // The file already open shows at once. Another one shows when it is loaded and
+            // becomes the selection (`GraphiteRootView`), so a phone does not slide in the
+            // note it had before and swap it for the new one after the slide.
+            if let newSelection, newSelection == workspace.selection { showDocument() }
             if let newSelection, newSelection != workspace.selection {
                 #if canImport(UIKit)
                 // The search field keeps its results but lets go of the keyboard, or focus
