@@ -58,6 +58,29 @@ class HistoryCanvasView: PKCanvasView {
     /// Whether the canvas takes its tool from the floating palette.
     private(set) var followsToolPicker = false
     private var fixedTool: PencilToolSelection?
+    /// The palette followed, to draw with its tool again when `toolForDrawing` changes.
+    private weak var followedToolPicker: PKToolPicker?
+    /// Hears the palette's changes after the canvas has taken its tool, where the canvas
+    /// draws with tools changed by `toolForDrawing`.
+    private var paletteToolCorrection: PaletteToolCorrection?
+
+    /// The tool the canvas draws with for a tool chosen in the palette or the bar: the same
+    /// one, except on a canvas zoomed to draw sharper (`PDFPageCanvasView`).
+    func toolForDrawing(_ chosenTool: PKTool) -> PKTool { chosenTool }
+
+    /// Takes the chosen tool again, after what `toolForDrawing` returns has changed.
+    func retakeChosenTool() {
+        if let fixedTool {
+            if fixedTool.kind != .lasso { tool = toolForDrawing(fixedTool.tool) }
+        } else if followsToolPicker, let followedToolPicker, let selectedTool = Self.selectedTool(of: followedToolPicker) {
+            tool = toolForDrawing(selectedTool)
+        }
+    }
+
+    private static func selectedTool(of toolPicker: PKToolPicker) -> PKTool? {
+        if #available(iOS 26.0, *) { return toolPicker.selectedToolItem.tool }
+        return toolPicker.selectedTool
+    }
 
     /// Gives the canvas its tool: the fixed tool bar's when there is one, else the floating
     /// palette's, whose changes the canvas then follows. Either can ask for Graphite's
@@ -69,18 +92,23 @@ class HistoryCanvasView: PKCanvasView {
             fixedTool = newFixedTool
             selectsInk = newFixedTool.kind == .lasso
             // The lasso is Graphite's own; PencilKit's tool stays what it was and draws nothing.
-            if newFixedTool.kind != .lasso { tool = newFixedTool.tool }
+            if newFixedTool.kind != .lasso { tool = toolForDrawing(newFixedTool.tool) }
             isRulerActive = newFixedTool.isRulerActive
         } else if !followsToolPicker {
             fixedTool = nil
             followsToolPicker = true
+            followedToolPicker = toolPicker
             toolPicker.addObserver(self)
+            let correction = PaletteToolCorrection(canvas: self)
+            toolPicker.addObserver(correction)
+            paletteToolCorrection = correction
             isRulerActive = toolPicker.isRulerActive
             // Observers hear only later changes; start with the tool already selected.
             if #available(iOS 26.0, *), let selectedTool = toolPicker.selectedToolItem.tool {
-                tool = selectedTool
+                tool = toolForDrawing(selectedTool)
             } else {
                 (self as PKToolPickerObserver).toolPickerSelectedToolItemDidChange?(toolPicker)
+                retakeChosenTool()
             }
             selectsInk = PaletteInkSelection.isOn
             paletteInkSelectionObserver = NotificationCenter.default.addObserver(forName: PaletteInkSelection.didChange, object: nil, queue: nil) { [weak self] _ in
@@ -92,6 +120,9 @@ class HistoryCanvasView: PKCanvasView {
     /// Stops following the palette, before the canvas is released or takes the fixed bar's tool.
     func stopFollowing(_ toolPicker: PKToolPicker) {
         toolPicker.removeObserver(self)
+        if let paletteToolCorrection { toolPicker.removeObserver(paletteToolCorrection) }
+        paletteToolCorrection = nil
+        followedToolPicker = nil
         followsToolPicker = false
         if let paletteInkSelectionObserver { NotificationCenter.default.removeObserver(paletteInkSelectionObserver) }
         paletteInkSelectionObserver = nil
@@ -395,6 +426,24 @@ final class PencilToolPickerHostView: UIView {
         guard takesFirstResponderBackFromSelections, window != nil, !isFirstResponder,
               canvases().contains(where: { canvas in canvas.containsFirstResponder }) else { return }
         becomeFirstResponder()
+    }
+}
+
+/// Hears the floating palette's tool changes beside the canvas, which takes the palette's
+/// tool as it is: on the next turn of the main queue, after the canvas has, it gives the
+/// canvas the tool `toolForDrawing` makes of it, where that differs.
+@MainActor
+private final class PaletteToolCorrection: NSObject, PKToolPickerObserver {
+    private weak var canvas: HistoryCanvasView?
+
+    init(canvas: HistoryCanvasView) {
+        self.canvas = canvas
+    }
+
+    nonisolated func toolPickerSelectedToolItemDidChange(_ toolPicker: PKToolPicker) {
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated { self?.canvas?.retakeChosenTool() }
+        }
     }
 }
 #endif

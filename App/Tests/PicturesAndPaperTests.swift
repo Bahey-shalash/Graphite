@@ -407,9 +407,11 @@ final class PicturesAndPaperTests: XCTestCase {
         try await waitUntil { canvas.writingGuides.pattern == .squared }
         XCTAssertEqual(canvas.writingGuides.lineStrength, .light)
         XCTAssertFalse(canvas.writingGuides.appearsInSavedDrawing)
-        let paperView = try XCTUnwrap(descendants(of: canvas, matching: DrawingPaperView.self).first)
+        // Under the canvas, the size of the page: the canvas is enlarged to draw ink at its zoom.
+        let overlayView = try XCTUnwrap(canvas.overlayView)
+        let paperView = try XCTUnwrap(descendants(of: overlayView, matching: DrawingPaperView.self).first)
         XCTAssertFalse(paperView.isHidden)
-        XCTAssertEqual(paperView.frame, canvas.bounds)
+        XCTAssertEqual(paperView.frame, overlayView.bounds)
 
         // Writing on the page saves the ink and nothing of the guides.
         canvas.drawing = PKDrawing(strokes: [stroke(atHeight: 100)])

@@ -168,7 +168,9 @@ final class InkSelectionTests: XCTestCase {
         let pasteboardDrawing = try PKDrawing(data: try XCTUnwrap(UIPasteboard.general.data(forPasteboardType: PKAppleDrawingTypeIdentifier as String)))
         XCTAssertEqual(pasteboardDrawing.strokes.count, 1)
         XCTAssertNotNil(UIPasteboard.general.image)
-        selection.pasteInk(at: CGPoint(x: 300, y: 500))
+        // The place is in the canvas's points, which its zoom (`PDFPageOverlayView`) makes
+        // larger than the drawing's.
+        selection.pasteInk(at: CGPoint(x: 300 * canvas.zoomScale, y: 500 * canvas.zoomScale))
         try await waitUntil { self.inkAnnotationCount(on: page) == 4 }
         XCTAssertEqual(selection.selectedStrokeIndices, [3])
         XCTAssertEqual(canvas.drawing.strokes[3].renderBounds.midX, 300, accuracy: 1)

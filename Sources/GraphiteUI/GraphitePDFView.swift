@@ -274,8 +274,10 @@ private extension UIView {
     }
 }
 
-/// A PencilKit canvas over one PDF page, in the page overlay's coordinates. Its drawing
-/// changes are recorded in the PDF's own history (`PDFSession.undoManager`), by page.
+/// A PencilKit canvas over one PDF page. Its drawing is in the page's points; the canvas
+/// zooms itself by its overlay's rendering scale (`PDFPageOverlayView`), so its ink is drawn
+/// as sharp as the page around it. Its drawing changes are recorded in the PDF's own
+/// history (`PDFSession.undoManager`), by page.
 final class PDFPageCanvasView: HistoryCanvasView {
     weak var page: PDFPage?
     var inkTracker: PDFPageInkTracker
@@ -285,30 +287,144 @@ final class PDFPageCanvasView: HistoryCanvasView {
     /// True while the stored drawing is decoded in the background. The canvas is empty
     /// and takes no input meanwhile, and the page's ink annotations stay visible.
     var isRestoringStoredInk = false
-
-    /// Writing guides under the ink, which the page's file never gets.
-    private let guideView = DrawingPaperView()
+    /// The view PDFKit places over the page, which holds this canvas and the writing guides.
+    private(set) weak var overlayView: PDFPageOverlayView?
 
     init(page: PDFPage, inkTracker: PDFPageInkTracker) {
         self.page = page
         self.inkTracker = inkTracker
         super.init(frame: CGRect(origin: .zero, size: page.bounds(for: .cropBox).size))
-        insertSubview(guideView, at: 0)
     }
 
     required init?(coder: NSCoder) { nil }
 
-    func showWritingGuides(_ guides: DrawingPaper) {
-        guideView.paper = guides
+    /// The size of the drawing's space: the page overlay's size, in the page's points,
+    /// whatever the scale the canvas draws at.
+    var drawingSize: CGSize {
+        guard zoomScale > 0 else { return bounds.size }
+        return CGSize(width: bounds.width / zoomScale, height: bounds.height / zoomScale)
     }
 
-    var writingGuides: DrawingPaper { guideView.paper }
+    func showWritingGuides(_ guides: DrawingPaper) {
+        overlayView?.writingGuides = guides
+    }
+
+    /// PencilKit draws a tool as wide on screen at any zoom of its canvas, so a canvas zoomed
+    /// to draw sharper would write finer on the page. It draws with the width multiplied by
+    /// its zoom instead, and a stroke is as wide on the page at any zoom of the PDF, as on
+    /// paper. Inks with a narrow range (pen, pencil, highlighter) stop at their widest.
+    override func toolForDrawing(_ chosenTool: PKTool) -> PKTool {
+        Self.tool(chosenTool, scaledBy: zoomScale)
+    }
+
+    /// Draws with the chosen tool at the canvas's new zoom.
+    fileprivate func zoomScaleDidChange() {
+        retakeChosenTool()
+    }
+
+    static func tool(_ tool: PKTool, scaledBy scale: CGFloat) -> PKTool {
+        guard scale > 0, scale != 1 else { return tool }
+        if let inkingTool = tool as? PKInkingTool {
+            if #available(iOS 26.0, *) {
+                return PKInkingTool(inkingTool.inkType, color: inkingTool.color, width: inkingTool.width * scale, azimuth: inkingTool.azimuth)
+            }
+            return PKInkingTool(inkingTool.inkType, color: inkingTool.color, width: inkingTool.width * scale)
+        }
+        if let eraserTool = tool as? PKEraserTool {
+            return PKEraserTool(eraserTool.eraserType, width: eraserTool.width * scale)
+        }
+        return tool
+    }
+
+    var writingGuides: DrawingPaper { overlayView?.writingGuides ?? .plain }
+
+    fileprivate func placeIn(_ overlayView: PDFPageOverlayView) {
+        self.overlayView = overlayView
+    }
+}
+
+/// What PDFKit places over a page: the page's canvas, and the writing guides under it.
+///
+/// PDFKit zooms a page by scaling the view that draws it, overlays included, so a canvas
+/// the size of the page drew its ink at the screen's resolution and PDFKit magnified it:
+/// zoomed in to write on a slide, the ink was soft and showed the edges of PencilKit's
+/// tiles. PencilKit draws its tiles at its own zoom, so the canvas is made
+/// `renderingScale` times the page's size, zoomed by as much, and scaled back down to the
+/// page: its ink is drawn at the resolution it is seen at, and its drawing stays in the
+/// page's points. The writing guides stay at the page's size; they are only a guide.
+final class PDFPageOverlayView: UIView {
+    let canvas: PDFPageCanvasView
+    private let guideView = DrawingPaperView()
+    /// How many times the page's size the canvas draws at.
+    private(set) var renderingScale: CGFloat = 1
+
+    /// The most the canvas is enlarged: PencilKit keeps tiles for the whole canvas, and
+    /// past this a page's tiles take more memory than the sharper ink is worth.
+    static let maximumRenderingScale: CGFloat = 3
+
+    /// The scale to draw ink at for a PDF view's zoom: never below the page's own size,
+    /// and in steps, so the canvas is not redrawn for every small change of the zoom.
+    static func renderingScale(forZoom zoom: CGFloat) -> CGFloat {
+        guard zoom.isFinite, zoom > 1 else { return 1 }
+        let step: CGFloat = 0.5
+        return min((zoom / step).rounded(.up) * step, maximumRenderingScale)
+    }
+
+    init(canvas: PDFPageCanvasView) {
+        self.canvas = canvas
+        super.init(frame: canvas.frame)
+        backgroundColor = .clear
+        isOpaque = false
+        addSubview(guideView)
+        addSubview(canvas)
+        canvas.placeIn(self)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    /// Writing guides under the ink, which the page's file never gets.
+    var writingGuides: DrawingPaper {
+        get { guideView.paper }
+        set { guideView.paper = newValue }
+    }
+
+    /// Whether the guides show: only while writing, like the canvas over them.
+    var showsWritingGuides = true {
+        didSet { guideView.alpha = showsWritingGuides ? 1 : 0 }
+    }
+
+    func setRenderingScale(_ scale: CGFloat) {
+        guard scale != renderingScale else { return }
+        renderingScale = scale
+        setNeedsLayout()
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         // The guides start at the page's top-left corner, in the page's points.
         guideView.frame = bounds
         guideView.drawingRegion = bounds
+        let scale = renderingScale
+        let canvasBounds = CGRect(x: 0, y: 0, width: bounds.width * scale, height: bounds.height * scale)
+        if canvas.bounds.size != canvasBounds.size || canvas.zoomScale != scale {
+            canvas.transform = .identity
+            canvas.bounds = canvasBounds
+            canvas.minimumZoomScale = min(scale, canvas.zoomScale)
+            canvas.maximumZoomScale = max(scale, canvas.zoomScale)
+            canvas.zoomScale = scale
+            canvas.minimumZoomScale = scale
+            canvas.maximumZoomScale = scale
+            canvas.contentOffset = .zero
+            canvas.transform = CGAffineTransform(scaleX: 1 / scale, y: 1 / scale)
+            canvas.zoomScaleDidChange()
+        }
+        canvas.center = CGPoint(x: bounds.midX, y: bounds.midY)
+    }
+
+    /// Touches outside the canvas are the page's: PDFKit's scrolling and selection.
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let touchedView = super.hitTest(point, with: event)
+        return touchedView === self ? nil : touchedView
     }
 }
 
@@ -349,6 +465,9 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     private var pageObserver: PDFViewPageObserver?
     private var pictureSelection: PDFPictureSelectionController?
     private var toolboxObserver: NSObjectProtocol?
+    private var zoomObserver: NSObjectProtocol?
+    /// Draws the canvases at the zoom once it has settled, not at every step of a pinch.
+    private var renderingScaleUpdate: DispatchWorkItem?
     /// For tests, which cannot send touches.
     var pictureSelectionController: PDFPictureSelectionController? { pictureSelection }
     private var observedScrollRecognizers: Set<ObjectIdentifier> = []
@@ -413,6 +532,26 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         self.pictureSelection = pictureSelection
         session.visiblePageCenter = { [weak pictureSelection] in pictureSelection?.visiblePageCenter() }
         session.registerPendingInkRecordWriter(for: self) { [weak self] in self?.writeDeferredInkRecords() }
+        zoomObserver = NotificationCenter.default.addObserver(forName: .PDFViewScaleChanged, object: view, queue: nil) { [weak self] _ in
+            MainActor.assumeIsolated { self?.scheduleRenderingScaleUpdate() }
+        }
+    }
+
+    /// Ink drawn while zooming is magnified, as PencilKit's own canvas does it; it is drawn
+    /// again at the new scale once the zoom has stayed for a moment.
+    private func scheduleRenderingScaleUpdate() {
+        renderingScaleUpdate?.cancel()
+        let update = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated { self?.updateRenderingScale() }
+        }
+        renderingScaleUpdate = update
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: update)
+    }
+
+    private func updateRenderingScale() {
+        guard !isDetached, let pdfView else { return }
+        let scale = PDFPageOverlayView.renderingScale(forZoom: pdfView.scaleFactor)
+        for canvas in canvasesByPage.values { canvas.overlayView?.setRenderingScale(scale) }
     }
 
     func detach() {
@@ -431,6 +570,9 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         pictureSelection = nil
         if let toolboxObserver { NotificationCenter.default.removeObserver(toolboxObserver) }
         toolboxObserver = nil
+        if let zoomObserver { NotificationCenter.default.removeObserver(zoomObserver) }
+        zoomObserver = nil
+        renderingScaleUpdate?.cancel()
     }
 
     func update(input newInput: PDFAnnotationInput) {
@@ -598,14 +740,16 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
 
     func pdfView(_ view: PDFView, overlayViewFor page: PDFPage) -> UIView? {
         let identifier = ObjectIdentifier(page)
-        if let existing = canvasesByPage[identifier], existing.page === page { return existing }
+        if let existing = canvasesByPage[identifier], existing.page === page, let overlayView = existing.overlayView { return overlayView }
         let canvas = makeCanvas(for: page)
         canvasesByPage[identifier] = canvas
-        return canvas
+        let overlayView = PDFPageOverlayView(canvas: canvas)
+        overlayView.setRenderingScale(PDFPageOverlayView.renderingScale(forZoom: view.scaleFactor))
+        return overlayView
     }
 
     func pdfView(_ pdfView: PDFView, willDisplayOverlayView overlayView: UIView, for page: PDFPage) {
-        guard let canvas = overlayView as? PDFPageCanvasView else { return }
+        guard let canvas = (overlayView as? PDFPageOverlayView)?.canvas else { return }
         let identifier = ObjectIdentifier(page)
         displayedPages.insert(identifier)
         hiddenCanvasOrder.removeAll { hiddenIdentifier in hiddenIdentifier == identifier }
@@ -613,7 +757,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     }
 
     func pdfView(_ pdfView: PDFView, willEndDisplayingOverlayView overlayView: UIView, for page: PDFPage) {
-        guard let canvas = overlayView as? PDFPageCanvasView else { return }
+        guard let canvas = (overlayView as? PDFPageOverlayView)?.canvas else { return }
         let identifier = ObjectIdentifier(page)
         displayedPages.remove(identifier)
         // Thumbnails and other views show the saved ink while no canvas covers the page.
@@ -632,8 +776,8 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         // Pages are white paper; dark-mode ink adaptation would make black ink invisible.
         canvas.overrideUserInterfaceStyle = .light
         canvas.isScrollEnabled = false
-        canvas.minimumZoomScale = 1
-        canvas.maximumZoomScale = 1
+        // Its overlay zooms it to the scale it draws at, which nothing else changes.
+        canvas.pinchGestureRecognizer?.isEnabled = false
         canvas.contentInsetAdjustmentBehavior = .never
         configure(canvas)
         // PencilKit's own finger long press (its Select All and Insert Space menu) waits
@@ -694,6 +838,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         canvas.takeTool(from: toolPicker, fixedTool: input.fixedTool)
         canvas.drawingPolicy = input.drawsWithFinger ? .anyInput : .pencilOnly
         canvas.showWritingGuides(input.writingGuides)
+        canvas.overlayView?.showsWritingGuides = input.isEnabled
         canvas.isHidden = !input.isEnabled
         canvas.isUserInteractionEnabled = input.isEnabled && !canvas.isRestoringStoredInk
         if let page = canvas.page {
@@ -725,7 +870,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         let pageIndex = session.document.index(for: page)
         guard pageIndex != NSNotFound else { return }
         do {
-            let coordinates = try PageCoordinates(cropBox: page.bounds(for: .cropBox), overlaySize: canvas.bounds.size)
+            let coordinates = try PageCoordinates(cropBox: page.bounds(for: .cropBox), overlaySize: canvas.drawingSize)
             // Archiving the whole drawing at every pen-up grows with the page's strokes;
             // the session asks for the record before it is needed (see `writeDeferredInkRecords`).
             // The shape tool, or a hold at the stroke's end, replaces the stroke just drawn;
@@ -735,7 +880,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
             try session.apply(.updateInk(update))
             // A drawing the history itself showed was recorded before it was shown.
             if let change = PencilDrawingChange(from: canvas.recordedDrawing, to: drawing) {
-                session.registerInkChange(change, on: page, overlaySize: canvas.bounds.size)
+                session.registerInkChange(change, on: page, overlaySize: canvas.drawingSize)
             }
             canvas.recordedDrawing = drawing
             if displayedPages.contains(ObjectIdentifier(page)) { setInkAnnotationsHidden(true, on: page, group: canvas.inkTracker.group) }
