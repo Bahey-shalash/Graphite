@@ -278,7 +278,13 @@ private struct PDFPaneContent: View {
                 #endif
             }
             Menu("More", systemImage: "ellipsis.circle") { moreMenuItems }
-                .popover(isPresented: isCompactWidthOnAnyPlatform ? $showsPageJump : .constant(false)) { pageJumpPopover }
+                // A sheet rather than a popover from the menu, which may not show once the
+                // menu has closed.
+                .sheet(isPresented: isCompactWidthOnAnyPlatform ? $showsPageJump : .constant(false)) {
+                    pageJumpField
+                        .padding(20)
+                        .presentationDetents([.height(140)])
+                }
         }.tint(.primary) }
     }
 
@@ -332,13 +338,17 @@ private struct PDFPaneContent: View {
         }
     }
 
-    private var pageJumpPopover: some View {
+    private var pageJumpField: some View {
         PDFPageJumpField(pageCount: session.pageCount, currentPageNumber: session.currentPageIndex + 1) { pageNumber in
             session.go(to: pageNumber - 1)
             showsPageJump = false
         }
-        .padding()
-        .presentationCompactAdaptation(.popover)
+    }
+
+    private var pageJumpPopover: some View {
+        pageJumpField
+            .padding()
+            .presentationCompactAdaptation(.popover)
     }
 
     /// Whether the width is compact; never on macOS, which has no size classes to speak of.

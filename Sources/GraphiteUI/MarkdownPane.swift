@@ -290,7 +290,11 @@ struct MarkdownPane: View {
             }
             if !usesDocumentControlRow {
                 #if canImport(UIKit)
-                if isEditing && !isCompactWidth { UndoRedoButtons(availability: session.undoAvailability) }
+                // An iPad's keyboard toolbar leaves Undo and Redo to the toolbar, also when
+                // the window is as narrow as a phone's.
+                if isEditing && (!isCompactWidth || UIDevice.current.userInterfaceIdiom == .pad) {
+                    UndoRedoButtons(availability: session.undoAvailability)
+                }
                 #endif
                 DocumentModeToggle(isWriting: isWritingBinding)
             }

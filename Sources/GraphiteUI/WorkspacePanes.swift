@@ -119,7 +119,8 @@ private struct TabGroupPane: View {
     var body: some View {
         let tab = group.activeTab
         let showsDocumentControlsInTabBar = DocumentToolbarLayout.showsControlsInTabBar(
-            usesControlRow: usesDocumentControlRowSetting ?? (horizontalSizeClass == .compact), showsTabBar: showsTabBar, tabBarWidth: width)
+            usesControlRow: usesDocumentControlRowSetting ?? DocumentToolbarLayout.usesControlRow(detailWidth: nil, horizontalSizeClass: horizontalSizeClass),
+            showsTabBar: showsTabBar, tabBarWidth: width)
         // Compact widths keep Apple's palette; there is no fixed bar to place.
         let showsPencilToolsInTabBar = horizontalSizeClass != .compact && DocumentToolbarLayout.showsPencilToolsInTabBar(
             showsTabBar: showsTabBar, tabBarWidth: width, showsDocumentControls: showsDocumentControlsInTabBar)
@@ -599,6 +600,7 @@ private struct EmptyTabView: View {
     let create: (CreationKind) -> Void
     let showQuickSwitcher: () -> Void
     @Environment(\.accent) private var accent
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     private static let recentFileCount = 6
 
     private var recentFiles: [VaultPath] {
@@ -670,7 +672,8 @@ private struct EmptyTabView: View {
         Button(action: perform) {
             HStack(spacing: 8) {
                 Text(title).foregroundStyle(accent)
-                if let shortcut {
+                // A phone has no keyboard to press them on.
+                if let shortcut, horizontalSizeClass != .compact {
                     Text(shortcut)
                         .font(.footnote.monospaced())
                         .foregroundStyle(Color.secondary)
