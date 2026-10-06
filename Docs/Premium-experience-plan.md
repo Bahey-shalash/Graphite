@@ -127,7 +127,7 @@ Started on 2026-09-30 at the owner's request to implement everything still liste
 
 ## Eighth increment: a quieter interface and a phone layout
 
-Started on 2026-10-06 at the owner's request, with Obsidian's Minimal theme as the reference: the interface and the Pencil bar felt cluttered and unclean, and the iPhone layout looked like an afterthought. `Coverage.md` has a section of the same date; none of it has been built or run yet.
+Started on 2026-10-06 at the owner's request, with Obsidian's Minimal theme as the reference: the interface and the Pencil bar felt cluttered and unclean, and the iPhone layout looked like an afterthought. `Coverage.md` has a section of the same date. It was written without a compiler, then built, tested and looked at in the iPad and iPhone simulators the same day, and corrected and extended there (below).
 
 - One Write toggle instead of the segmented Read/Write control, everywhere it appeared; Show Pencil Tools moved into the PDF's More menu.
 - Quiet chrome: bars in the page's color with a hairline, muted tabs with a faint fill for the one in use and its close button only there and under the pointer, no icon on note tabs, an empty tab that is a short column of links, muted folder and keyboard-toolbar icons, denser sidebar rows.
@@ -135,7 +135,15 @@ Started on 2026-10-06 at the owner's request, with Obsidian's Minimal theme as t
 - A phone layout after Obsidian mobile: document first, no tab bar, a bottom bar (back, forward, find, new note, tabs, commands), a tab switcher sheet, and a navigation bar with only the document's controls.
 - The fixed bar and the squeeze palette draw their tools upright with ink-colored tips, the tool in use raised, as Apple's palette does.
 
-Still to judge on a device: hold-to-shape (0.45 seconds at rest after a stroke of 24 points) may catch pauses in handwriting; it is unchanged until it can be tried with a Pencil.
+Added after running it in the simulators, on 2026-10-06 and 2026-10-07, at the owner's request that the app feel premium on both and that the iPhone be "Obsidian in Swift", fast, with drawing secondary there:
+
+- PDF ink drawn at the zoom it is seen at, where it had been drawn at the page's size and magnified (soft even at a page fitted to an iPad's width, with PencilKit's tile edges showing when zoomed in); a stroke stays as wide on the page at any zoom.
+- The file list drawn as Obsidian's file explorer, and on a phone a plain list whose title switches vaults.
+- On a phone: the document's controls fit the navigation bar (a truncating title, Rename in More, Record only while recording), no keyboard toolbar raised by a PDF embedded in a note, the bottom bar giving way to typing, properties that fit, and a chosen note sliding in itself rather than the note before it.
+- A note keeps its place, and its text its column, when it switches between reading and writing.
+- On the iPad, a note's Format and Insert menus in More, and tabs beside the fixed bar's tools that keep their close button and their width.
+
+Still to judge on a device: the sharper PDF ink with an Apple Pencil, and its memory at three times a page's size; scrolling and opening notes on an iPhone (in the simulator a 54 KB note slid in 35 ms after the touch, and the main thread was busy 74 ms over 12 seconds of flicking, figures from a fast Mac); hold-to-shape (0.45 seconds at rest after a stroke of 24 points), which may catch pauses in handwriting and is unchanged until it can be tried with a Pencil. Read mode draws PDF ink 16 to 29% heavier than Write mode, older than this increment: the saved outlines take PencilKit's point sizes, which PencilKit does not draw at in full.
 
 ## Remaining: coherent workspace design
 
