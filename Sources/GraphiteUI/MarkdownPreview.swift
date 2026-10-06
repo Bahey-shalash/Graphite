@@ -8,9 +8,13 @@ import GraphiteApple
 
 /// Settings that shape how a note reads, gathered so the builder stays independent of views.
 struct ReadingConfiguration: Equatable, Sendable {
-    /// The widest reading view's column is, in points, with readable line length on. Live
-    /// Preview's column is a little narrower.
-    static let readableColumnWidth: CGFloat = 760
+    /// The widest the reading view's text is, in points, with readable line length on: the
+    /// width of Live Preview's text (its 740-point column less the text container's 5-point
+    /// padding on each side), so the text stays in place when a note switches between
+    /// reading and writing.
+    static let readableColumnWidth: CGFloat = 730
+    /// The least room beside the text: Live Preview's 28-point inset and its 5-point padding.
+    static let minimumHorizontalMargin: CGFloat = 33
 
     var usesReadableLineLength = true
     var usesStrictLineBreaks = false
@@ -608,7 +612,7 @@ struct MarkdownPreview: View {
                     if let errorMessage { Text(errorMessage).foregroundStyle(.secondary) }
                 }
                 .frame(maxWidth: configuration.usesReadableLineLength ? ReadingConfiguration.readableColumnWidth : .infinity, alignment: .leading)
-                .padding(.horizontal, 28).padding(.vertical, 32)
+                .padding(.horizontal, ReadingConfiguration.minimumHorizontalMargin).padding(.vertical, 32)
                 .frame(maxWidth: .infinity)
             }
             .scrollPosition($scrollPosition)

@@ -51,7 +51,7 @@ final class UiEmbeddedImageDecodingTests: XCTestCase {
 
     func testDisplayWidthIsTheNarrowerOfTheColumnAndTheEmbedsSize() {
         let column = ReadingConfiguration.readableColumnWidth
-        XCTAssertEqual(EmbeddedImageDisplayWidth.pixelWidth(columnWidth: column, displaySize: nil, displayScale: 2), 1520)
+        XCTAssertEqual(EmbeddedImageDisplayWidth.pixelWidth(columnWidth: column, displaySize: nil, displayScale: 2), Int(column * 2))
         XCTAssertEqual(EmbeddedImageDisplayWidth.pixelWidth(columnWidth: column, displaySize: EmbedDisplaySize(width: 300, height: nil), displayScale: 2), 600)
         XCTAssertEqual(EmbeddedImageDisplayWidth.pixelWidth(columnWidth: nil, displaySize: EmbedDisplaySize(width: 300, height: 100), displayScale: 3), 900)
         // A column as wide as the window leaves only the longest side to bound the image.
@@ -59,7 +59,7 @@ final class UiEmbeddedImageDecodingTests: XCTestCase {
         // Wider than the longest side a block image may have: that side bounds it anyway.
         XCTAssertEqual(EmbeddedImageDisplayWidth.pixelWidth(columnWidth: 1400, displaySize: nil, displayScale: 2), ReadingThumbnailKind.block.maximumDimension)
         // A view not yet on a screen reports no scale; it is decoded again once it is.
-        XCTAssertEqual(EmbeddedImageDisplayWidth.pixelWidth(columnWidth: column, displaySize: nil, displayScale: 0), 760)
+        XCTAssertEqual(EmbeddedImageDisplayWidth.pixelWidth(columnWidth: column, displaySize: nil, displayScale: 0), Int(column))
     }
 
     func testBlockThumbnailIsDecodedForTheWidthItIsShownAt() async throws {
