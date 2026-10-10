@@ -485,6 +485,7 @@ final class CommunityPluginHost {
     /// Runs a plugin's command for the focused document, as Obsidian's palette does.
     func run(_ command: CommunityPluginCommand) async {
         guard isRuntimeRunning else { return }
+        await waitForQueuedInsertions()
         do {
             let answer = try await send(["operation": "command.run", "commandIdentifier": command.id, "activeDocument": activeDocumentDescription(includingEditor: true)])
             switch answer["outcome"] as? String {
@@ -499,6 +500,7 @@ final class CommunityPluginHost {
 
     func run(_ ribbonAction: CommunityPluginRibbonAction) async {
         guard isRuntimeRunning else { return }
+        await waitForQueuedInsertions()
         _ = try? await send(["operation": "workspace.activeDocument", "activeDocument": activeDocumentDescription(includingEditor: true)])
         _ = try? await send(["operation": "ribbon.run", "ribbonIdentifier": ribbonAction.id])
     }
@@ -526,6 +528,14 @@ final class CommunityPluginHost {
     }
 
     // MARK: The focused document
+
+    /// Waits a moment for insertions the note's editor has not applied yet (a paste, a
+    /// recording's link), so a plugin's editor starts from the note as the person sees it.
+    /// Otherwise the plugin's change would be refused for a note that changed meanwhile.
+    private func waitForQueuedInsertions() async {
+        guard let session = workspace?.markdownSession else { return }
+        for _ in 0..<50 where session.pendingInsertion != nil { try? await Task.sleep(for: .milliseconds(10)) }
+    }
 
     /// Tells plugins which file is focused (`file-open`, `getActiveFile`, the active
     /// `MarkdownView`), with the note's text for its editor.
