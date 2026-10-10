@@ -19,7 +19,7 @@ public struct CommunityPluginCompatibility: Equatable, Sendable {
     public enum ModuleKind: Equatable, Sendable {
         /// Node.js or Electron, which only Obsidian's desktop app has.
         case desktopOnly
-        /// CodeMirror, Obsidian's editor; Graphite's editor is native.
+        /// A part of CodeMirror that Obsidian does not give plugins either.
         case codeMirror
         /// A module Obsidian does not provide to plugins either.
         case unknown
@@ -43,6 +43,13 @@ public struct CommunityPluginCompatibility: Equatable, Sendable {
         "querystring", "string_decoder", "timers", "tty", "dgram", "cluster", "perf_hooks", "v8", "original-fs",
     ]
 
+    /// The CodeMirror 6 and Lezer modules Obsidian gives plugins, which the runtime vendors
+    /// (`Resources/CommunityPluginRuntime/Vendor/VERSIONS.md`): plugins that require them load.
+    static let providedCodeMirrorModuleNames: Set<String> = [
+        "@codemirror/autocomplete", "@codemirror/commands", "@codemirror/language", "@codemirror/lint", "@codemirror/search",
+        "@codemirror/state", "@codemirror/view", "@lezer/common", "@lezer/highlight", "@lezer/lr",
+    ]
+
     private static let requirePattern = try? NSRegularExpression(pattern: #"\brequire\(\s*["']([^"'\s]{1,200})["']\s*\)"#)
 
     public static func assess(manifest: CommunityPluginManifest, mainScript: String?, providedApiVersion: String = CommunityPluginCompatibility.providedApiVersion) -> Self {
@@ -62,7 +69,7 @@ public struct CommunityPluginCompatibility: Equatable, Sendable {
         var modules: [RequiredModule] = []
         for match in requirePattern.matches(in: mainScript, range: NSRange(location: 0, length: source.length)) {
             let name = source.substring(with: match.range(at: 1))
-            guard name != "obsidian", !name.hasPrefix("."), seenNames.insert(name).inserted else { continue }
+            guard name != "obsidian", !name.hasPrefix("."), !providedCodeMirrorModuleNames.contains(name), seenNames.insert(name).inserted else { continue }
             let baseName = name.hasPrefix("node:") ? String(name.dropFirst("node:".count)) : name
             let kind: ModuleKind
             if desktopModuleNames.contains(baseName) || desktopModuleNames.contains(String(baseName.split(separator: "/").first ?? "")) {

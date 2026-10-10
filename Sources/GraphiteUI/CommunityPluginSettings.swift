@@ -223,12 +223,7 @@ struct CommunityPluginBrowser: View {
     private var host: CommunityPluginHost { workspace.communityPlugins }
 
     private var matchingEntries: [CommunityPluginDirectoryEntry] {
-        let trimmedQuery = query.trimmingCharacters(in: .whitespaces)
-        guard !trimmedQuery.isEmpty else { return Array(entries.prefix(300)) }
-        return Array(entries.filter { entry in
-            entry.name.localizedCaseInsensitiveContains(trimmedQuery) || entry.description.localizedCaseInsensitiveContains(trimmedQuery)
-                || entry.author.localizedCaseInsensitiveContains(trimmedQuery) || entry.id.localizedCaseInsensitiveContains(trimmedQuery)
-        }.prefix(300))
+        Array(CommunityPluginDirectoryEntry.search(entries, for: query).prefix(300))
     }
 
     var body: some View {

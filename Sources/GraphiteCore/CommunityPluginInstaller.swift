@@ -13,6 +13,24 @@ public struct CommunityPluginDirectoryEntry: Decodable, Identifiable, Equatable,
     public init(id: String, name: String, author: String, description: String, repo: String) {
         self.id = id; self.name = name; self.author = author; self.description = description; self.repo = repo
     }
+
+    /// The entries matching `query` in their name, description, author or identifier, best
+    /// first: the plugin with that name, names that start with it, names that contain it, then
+    /// the rest, each group in the directory's order. Searching "Tasks" finds Tasks first,
+    /// not every plugin that mentions tasks.
+    public static func search(_ entries: [Self], for query: String) -> [Self] {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespaces)
+        guard !trimmedQuery.isEmpty else { return entries }
+        func rank(of entry: Self) -> Int? {
+            if entry.name.compare(trimmedQuery, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame { return 0 }
+            if entry.name.range(of: trimmedQuery, options: [.caseInsensitive, .diacriticInsensitive, .anchored]) != nil { return 1 }
+            if entry.name.localizedCaseInsensitiveContains(trimmedQuery) { return 2 }
+            let otherFields = [entry.description, entry.author, entry.id]
+            return otherFields.contains { field in field.localizedCaseInsensitiveContains(trimmedQuery) } ? 3 : nil
+        }
+        let rankedEntries = entries.enumerated().compactMap { position, entry in rank(of: entry).map { entryRank in (entryRank, position, entry) } }
+        return rankedEntries.sorted { first, second in (first.0, first.1) < (second.0, second.1) }.map { ranked in ranked.2 }
+    }
 }
 
 /// Installs community plugins the way Obsidian does: the plugin's current manifest from its

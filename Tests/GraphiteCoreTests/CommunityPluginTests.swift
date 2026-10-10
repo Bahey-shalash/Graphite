@@ -89,15 +89,18 @@ final class CommunityPluginTests: XCTestCase {
 
     func testInstalledPluginsAreListedWithWhatTheyNeed() async throws {
         try write(sampleManifest, to: ".obsidian/plugins/sample/manifest.json")
-        try write("var obsidian = require(\"obsidian\"); var view = require('@codemirror/view'); if (desktop) require(\"fs\"); require(\"./local\");", to: ".obsidian/plugins/sample/main.js")
+        try write("var obsidian = require(\"obsidian\"); var view = require('@codemirror/view'); var modes = require('@codemirror/legacy-modes/mode/javascript'); if (desktop) require(\"fs\"); require(\"./local\");",
+                  to: ".obsidian/plugins/sample/main.js")
         try write("{\"id\": \"desk\", \"name\": \"Desk\", \"isDesktopOnly\": true, \"minAppVersion\": \"9.0.0\"}", to: ".obsidian/plugins/desk/manifest.json")
         try write("not json", to: ".obsidian/plugins/broken/manifest.json")
         let inventory = try await VaultStore(root: vault).installedCommunityPlugins()
         XCTAssertEqual(inventory.plugins.map(\.id), ["desk", "sample"])
         let sample = try XCTUnwrap(inventory.plugins.first { plugin in plugin.id == "sample" })
         XCTAssertTrue(sample.compatibility.canLoad)
+        // The runtime provides the CodeMirror modules Obsidian gives plugins, such as
+        // @codemirror/view; only the parts Obsidian does not provide are missing.
         XCTAssertEqual(sample.compatibility.missingModules, [
-            .init(name: "@codemirror/view", kind: .codeMirror), .init(name: "fs", kind: .desktopOnly),
+            .init(name: "@codemirror/legacy-modes/mode/javascript", kind: .codeMirror), .init(name: "fs", kind: .desktopOnly),
         ])
         let desk = try XCTUnwrap(inventory.plugins.first { plugin in plugin.id == "desk" })
         XCTAssertEqual(desk.compatibility.blockers, [.desktopOnly, .needsNewerApi(required: "9.0.0"), .missingMainScript])
@@ -211,6 +214,20 @@ final class CommunityPluginTests: XCTestCase {
         for repository in ["owner", "owner/", "/name", "owner/name/extra", "../name", "owner/..", "owner/na me"] {
             XCTAssertFalse(CommunityPluginInstaller.isUsableRepository(repository), repository)
         }
+    }
+
+    func testDirectorySearchPutsThePluginWithThatNameFirst() {
+        func entry(_ name: String, description: String = "", author: String = "someone") -> CommunityPluginDirectoryEntry {
+            CommunityPluginDirectoryEntry(id: name.lowercased().replacingOccurrences(of: " ", with: "-"), name: name, author: author, description: description, repo: "owner/" + name)
+        }
+        let directory = [
+            entry("Rewarder", description: "Reward yourself for completing tasks."), entry("Task Collector"), entry("Calendar"),
+            entry("Big Tasks Board"), entry("Tasks", description: "Track tasks across your vault."), entry("Tasks Calendar Wrapper"),
+            entry("Daily", author: "tasks-lover"),
+        ]
+        XCTAssertEqual(CommunityPluginDirectoryEntry.search(directory, for: " tasks ").map(\.name),
+                       ["Tasks", "Tasks Calendar Wrapper", "Big Tasks Board", "Rewarder", "Daily"])
+        XCTAssertEqual(CommunityPluginDirectoryEntry.search(directory, for: "").map(\.name), directory.map(\.name))
     }
 
     func testMarkdownIsRenderedForPluginViews() throws {
