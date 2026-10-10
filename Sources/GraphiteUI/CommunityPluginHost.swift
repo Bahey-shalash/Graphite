@@ -777,8 +777,12 @@ final class CommunityPluginHost {
     // MARK: Notices and menus
 
     func showNotice(_ message: String, pluginIdentifier: String?) {
+        let pluginName = pluginIdentifier.flatMap(pluginName(of:))
+        // A plugin that keeps failing the same way (retried writes) shows its problem once.
+        guard !notices.contains(where: { notice in notice.message == message && notice.pluginName == pluginName }) else { return }
         let noticeIdentifier = "graphite-" + UUID().uuidString
-        notices.append(CommunityPluginNotice(id: noticeIdentifier, message: message, pluginName: pluginIdentifier.flatMap(pluginName(of:))))
+        notices.append(CommunityPluginNotice(id: noticeIdentifier, message: message, pluginName: pluginName))
+        if notices.count > 4 { notices.removeFirst() }
         scheduleNoticeRemoval(noticeIdentifier, afterMilliseconds: 6000)
     }
 

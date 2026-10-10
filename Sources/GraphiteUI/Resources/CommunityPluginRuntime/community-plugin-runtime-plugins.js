@@ -502,6 +502,9 @@
         constructor(app) {
             this.app = app;
             this.types = {};
+            this.unsavedTypes = {};
+            this.isSaveScheduled = false;
+            this.typesSave = Promise.resolve();
         }
         typesPath() { return normalizePath(this.app.vault.configDir + '/types.json'); }
         async loadTypes() {
@@ -531,21 +534,37 @@
             const inferred = this.getPropertyInfo(name);
             return { expected: { type: assigned || (inferred ? inferred.type : 'text') }, inferred: { type: inferred ? inferred.type : 'text' } };
         }
-        /// Assigns a type as Obsidian's Properties view does, keeping the rest of the file.
-        async setType(name, type) {
-            await this.app.vault.adapter.process(this.typesPath(), (existingText) => {
+        /// Assigns a type as Obsidian's Properties view does: at once in memory, then saved,
+        /// keeping the rest of the file. Plugins set several types without waiting (Tasks sets
+        /// 22 as it loads), so the types set meanwhile are written together, in one save.
+        setType(name, type) {
+            this.types[name] = type;
+            this.unsavedTypes[name] = type;
+            if (!this.isSaveScheduled) {
+                this.isSaveScheduled = true;
+                this.typesSave = this.typesSave.catch(() => {}).then(() => this.saveUnsavedTypes());
+            }
+            return this.typesSave;
+        }
+        async saveUnsavedTypes() {
+            this.isSaveScheduled = false;
+            const unsavedTypes = this.unsavedTypes;
+            this.unsavedTypes = {};
+            const merge = (existingText) => {
                 const configuration = existingText.trim() ? JSON.parse(existingText) : {};
                 const types = configuration.types && typeof configuration.types === 'object' ? configuration.types : {};
-                if (types[name] === type) return existingText;
-                types[name] = type;
+                if (Object.keys(unsavedTypes).every((name) => types[name] === unsavedTypes[name])) return existingText;
+                Object.assign(types, unsavedTypes);
                 configuration.types = types;
-                this.types = types;
+                this.types = Object.assign({}, types, this.unsavedTypes);
                 return JSON.stringify(configuration, null, 2);
-            }).catch(async (error) => {
+            };
+            try {
+                await this.app.vault.adapter.process(this.typesPath(), merge);
+            } catch (error) {
                 if (await this.app.vault.adapter.exists(this.typesPath())) throw error;
-                this.types = { [name]: type };
-                await this.app.vault.adapter.write(this.typesPath(), JSON.stringify({ types: this.types }, null, 2));
-            });
+                await this.app.vault.adapter.write(this.typesPath(), merge(''));
+            }
         }
         on() { return { events: new exportedApi.Events(), name: '', callback() {} }; }
         offref() {}

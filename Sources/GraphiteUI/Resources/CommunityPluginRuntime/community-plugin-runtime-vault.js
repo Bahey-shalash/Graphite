@@ -89,6 +89,7 @@
         constructor(vault) {
             this.vault = vault;
             this.revisionsByPath = new Map();
+            this.processCallsByPath = new Map();
         }
         getName() {
             return this.vault.vaultName;
@@ -177,17 +178,34 @@
         getFullPath(path) {
             runtime.unsupported('DataAdapter.getFullPath (“' + path + '”)', 'Plugins reach vault files through the vault, not by their place on the device.');
         }
+        /// Calls for the same file run one after another, as in Obsidian, where `process` reads
+        /// and writes in one step: each transform sees the text the one before it wrote.
         async process(path, transform, options) {
             const normalizedPath = normalizePath(path);
             const pluginIdentifier = runtime.callingPluginIdentifier();
+            const previousCall = this.processCallsByPath.get(normalizedPath) || Promise.resolve();
+            const call = previousCall.catch(() => {}).then(() => this.processNow(normalizedPath, transform, options, pluginIdentifier));
+            this.processCallsByPath.set(normalizedPath, call);
+            try {
+                return await call;
+            } finally {
+                if (this.processCallsByPath.get(normalizedPath) === call) this.processCallsByPath.delete(normalizedPath);
+            }
+        }
+        async processNow(normalizedPath, transform, options, pluginIdentifier) {
             // A file changed between the read and the write is read and transformed again,
             // so the transform always applies to the file as it is.
             for (let attempt = 0; attempt < 3; attempt += 1) {
-                const existingText = await this.read(normalizedPath);
+                const response = await hostBridge.send('vault.read', { path: normalizedPath, encoding: 'text' });
+                this.revisionsByPath.set(normalizedPath, response.revision);
+                const existingText = response.text;
                 const transformedText = transform(existingText);
                 if (transformedText === existingText) return transformedText;
+                // The write expects the revision this attempt read, whatever other reads of the
+                // file recorded meanwhile.
+                const expectation = { kind: 'revision', revision: response.revision };
                 try {
-                    await this.writeData(normalizedPath, { text: transformedText }, this.writeExpectation(normalizedPath), attempt === 2, pluginIdentifier);
+                    await this.writeData(normalizedPath, { text: transformedText }, expectation, attempt === 2, pluginIdentifier);
                     if (options) await this.applyTimes(normalizedPath, options);
                     return transformedText;
                 } catch (error) {

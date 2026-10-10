@@ -75,6 +75,39 @@ test('process reads again when the file changed and applies the change to the ne
     }
 });
 
+test('process calls made at the same time each apply, one after another, as in Obsidian', async () => {
+    const harness = await startRuntime({ files: { 'Log.md': '' } });
+    try {
+        const vault = harness.app.vault;
+        const log = vault.getFileByPath('Log.md');
+        const letters = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+        await Promise.all(letters.map((letter) => vault.process(log, (text) => text + letter + '\n')));
+        assert.equal(harness.readVaultFile('Log.md'), letters.map((letter) => letter + '\n').join(''));
+        assert.equal(harness.host.notificationsOf('plugin.writeConflict').length, 0);
+    } finally {
+        harness.close();
+    }
+});
+
+test('property types a plugin sets without waiting are all written to types.json together', async () => {
+    const harness = await startRuntime({ files: { 'Note.md': 'a', '.obsidian/types.json': '{\n  "types": {\n    "tags": "tags"\n  }\n}' } });
+    try {
+        const typeManager = harness.app.metadataTypeManager;
+        const names = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'];
+        // As Tasks does at load: each call starts before the one before it has finished.
+        const saves = names.map((name) => typeManager.setType(name, 'checkbox'));
+        assert.equal(typeManager.getAssignedType('tenth'), 'checkbox', 'the type is known at once, as in Obsidian');
+        await Promise.all(saves);
+        const expectedTypes = { tags: 'tags' };
+        for (const name of names) expectedTypes[name] = 'checkbox';
+        assert.equal(harness.readVaultFile('.obsidian/types.json'), JSON.stringify({ types: expectedTypes }, null, 2));
+        assert.equal(harness.host.notificationsOf('plugin.writeConflict').length, 0);
+        assert.equal(harness.host.notificationsOf('plugin.failure').length, 0);
+    } finally {
+        harness.close();
+    }
+});
+
 test('create, rename, copy and delete keep the tree and its events in step', async () => {
     const harness = await startRuntime({ files: { 'Existing.md': 'x' } });
     try {
