@@ -2,70 +2,138 @@ import SwiftUI
 import WebKit
 import GraphiteCore
 
+#if canImport(UIKit)
+typealias CommunityPluginPlatformView = UIView
+#elseif canImport(AppKit)
+typealias CommunityPluginPlatformView = NSView
+#endif
+
+/// Moving the plugin web view between the places that show it. There is one web view per
+/// vault, so showing it in one place takes it from wherever it was.
+@MainActor
+enum CommunityPluginWebViewPlacement {
+    /// Fills `container` with the web view.
+    static func show(_ webView: WKWebView, in container: CommunityPluginPlatformView) {
+        guard webView.superview !== container else { return }
+        webView.removeFromSuperview()
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(webView)
+        NSLayoutConstraint.activate([
+            webView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            webView.topAnchor.constraint(equalTo: container.topAnchor),
+            webView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
+    }
+
+    /// Puts the web view in the window's parking place when nothing shows it. Outside a
+    /// window, WebKit treats the page as hidden: it slows the plugins' timers to about one a
+    /// second and draws no animation frames (measured in the iPad simulator, 2026-10-10).
+    static func parkIfDetached(_ webView: WKWebView?, in parkingView: CommunityPluginPlatformView?) {
+        guard let webView, let parkingView, webView.superview == nil else { return }
+        webView.translatesAutoresizingMaskIntoConstraints = true
+        webView.frame = parkingView.bounds
+        #if canImport(UIKit)
+        webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        #elseif canImport(AppKit)
+        webView.autoresizingMask = [.width, .height]
+        #endif
+        parkingView.addSubview(webView)
+    }
+}
+
 /// The plugin web view where a view shows it: the plugin panel's sheet, or a plugin's
-/// options page in Settings. There is one web view per vault, so showing it here takes it
-/// from wherever it was.
+/// options page in Settings. When the view goes away, the web view returns to its parking place.
 @MainActor
 struct CommunityPluginWebViewContainer {
-    let webView: WKWebView?
+    let host: CommunityPluginHost
+
+    final class Coordinator {
+        let host: CommunityPluginHost
+        init(host: CommunityPluginHost) { self.host = host }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(host: host) }
 }
 
 #if canImport(UIKit)
 extension CommunityPluginWebViewContainer: UIViewRepresentable {
     func makeUIView(context: Context) -> UIView {
         let container = UIView()
-        attachWebView(to: container)
+        if let webView = host.webView { CommunityPluginWebViewPlacement.show(webView, in: container) }
         return container
     }
 
     func updateUIView(_ container: UIView, context: Context) {
-        attachWebView(to: container)
+        if let webView = host.webView { CommunityPluginWebViewPlacement.show(webView, in: container) }
     }
 
-    static func dismantleUIView(_ container: UIView, coordinator: ()) {
+    static func dismantleUIView(_ container: UIView, coordinator: Coordinator) {
         for subview in container.subviews { subview.removeFromSuperview() }
-    }
-
-    private func attachWebView(to container: UIView) {
-        guard let webView, webView.superview !== container else { return }
-        webView.removeFromSuperview()
-        webView.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(webView)
-        NSLayoutConstraint.activate([
-            webView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            webView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            webView.topAnchor.constraint(equalTo: container.topAnchor),
-            webView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-        ])
+        coordinator.host.parkWebViewIfDetached()
     }
 }
 #elseif canImport(AppKit)
 extension CommunityPluginWebViewContainer: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let container = NSView()
-        attachWebView(to: container)
+        if let webView = host.webView { CommunityPluginWebViewPlacement.show(webView, in: container) }
         return container
     }
 
     func updateNSView(_ container: NSView, context: Context) {
-        attachWebView(to: container)
+        if let webView = host.webView { CommunityPluginWebViewPlacement.show(webView, in: container) }
     }
 
-    static func dismantleNSView(_ container: NSView, coordinator: ()) {
+    static func dismantleNSView(_ container: NSView, coordinator: Coordinator) {
         for subview in container.subviews { subview.removeFromSuperview() }
+        coordinator.host.parkWebViewIfDetached()
+    }
+}
+#endif
+
+/// Where the plugin web view waits while no panel shows it: in the window, behind
+/// everything, invisible and not touchable, so WebKit runs the plugins as a visible page.
+@MainActor
+struct CommunityPluginWebViewParking {
+    let host: CommunityPluginHost
+}
+
+#if canImport(UIKit)
+extension CommunityPluginWebViewParking: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView {
+        let parkingView = UIView()
+        parkingView.alpha = 0
+        parkingView.isUserInteractionEnabled = false
+        parkingView.accessibilityElementsHidden = true
+        host.parkingView = parkingView
+        return parkingView
     }
 
-    private func attachWebView(to container: NSView) {
-        guard let webView, webView.superview !== container else { return }
-        webView.removeFromSuperview()
-        webView.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(webView)
-        NSLayoutConstraint.activate([
-            webView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            webView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            webView.topAnchor.constraint(equalTo: container.topAnchor),
-            webView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-        ])
+    func updateUIView(_ parkingView: UIView, context: Context) {
+        host.parkingView = parkingView
+        // Reading the web view here makes a new one (a restart, another vault) park too.
+        CommunityPluginWebViewPlacement.parkIfDetached(host.webView, in: parkingView)
+    }
+}
+#elseif canImport(AppKit)
+extension CommunityPluginWebViewParking: NSViewRepresentable {
+    /// A view that never takes clicks, so the parked web view cannot either.
+    final class ParkingView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let parkingView = ParkingView()
+        parkingView.alphaValue = 0
+        parkingView.setAccessibilityElement(false)
+        host.parkingView = parkingView
+        return parkingView
+    }
+
+    func updateNSView(_ parkingView: NSView, context: Context) {
+        host.parkingView = parkingView
+        CommunityPluginWebViewPlacement.parkIfDetached(host.webView, in: parkingView)
     }
 }
 #endif
@@ -76,7 +144,7 @@ struct CommunityPluginPanel: View {
 
     var body: some View {
         NavigationStack {
-            CommunityPluginWebViewContainer(webView: host.webView)
+            CommunityPluginWebViewContainer(host: host)
                 .ignoresSafeArea(edges: .bottom)
                 .navigationTitle(host.panelTitle)
                 #if canImport(UIKit)
@@ -133,6 +201,7 @@ struct CommunityPluginPresentation: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            .background { CommunityPluginWebViewParking(host: host) }
             .overlay(alignment: .top) { CommunityPluginNoticeStack(host: host) }
             .sheet(isPresented: Binding(get: { host.isPanelPresented }, set: { isPresented in if !isPresented { host.panelDidClose() } })) {
                 CommunityPluginPanel(host: host)

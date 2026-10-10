@@ -130,6 +130,8 @@ final class CommunityPluginHost {
     @ObservationIgnored private weak var workspace: WorkspaceModel?
     /// Observed, so a panel showing it follows a restart to the new one.
     private(set) var webView: WKWebView?
+    /// The place in the window where the web view waits while no panel shows it.
+    @ObservationIgnored weak var parkingView: CommunityPluginPlatformView?
     @ObservationIgnored private var schemeHandler: CommunityPluginSchemeHandler?
     @ObservationIgnored private let messageReceiver = CommunityPluginMessageReceiver()
     @ObservationIgnored private var bridge: CommunityPluginVaultBridge?
@@ -249,6 +251,7 @@ final class CommunityPluginHost {
         pluginWebView.isInspectable = true
         #endif
         webView = pluginWebView
+        parkWebViewIfDetached()
         isPageLoaded = false
         pageLoadFailure = nil
         guard let pageAddress = CommunityPluginSchemeHandler.runtimePageAddress else {
@@ -508,6 +511,11 @@ final class CommunityPluginHost {
     func showSettings(of pluginIdentifier: String) async -> Bool {
         guard isRuntimeRunning, let answer = try? await send(["operation": "settings.show", "pluginIdentifier": pluginIdentifier]) else { return false }
         return answer["hasSettingTab"] as? Bool == true
+    }
+
+    /// Returns the web view to the window's parking place when no panel shows it.
+    func parkWebViewIfDetached() {
+        CommunityPluginWebViewPlacement.parkIfDetached(webView, in: parkingView)
     }
 
     /// The panel was closed by the person (a swipe, Done, or leaving a settings page).

@@ -192,7 +192,7 @@ struct CommunityPluginOptionsPage: View {
     var body: some View {
         Group {
             if hasSettings {
-                CommunityPluginWebViewContainer(webView: host.webView)
+                CommunityPluginWebViewContainer(host: host)
             } else {
                 ContentUnavailableView("No Options", systemImage: "puzzlepiece.extension", description: Text("This plugin has no settings, or it is not running."))
             }
