@@ -171,7 +171,12 @@ final class CommunityPluginHost {
     static func forgetVault(_ vaultIdentifier: UUID) {
         UserDefaults.standard.removeObject(forKey: consentKey(for: vaultIdentifier))
         CommunityPluginSecretStore(vaultIdentifier: vaultIdentifier).removeAllSecrets()
-        Task { try? await WKWebsiteDataStore.remove(forIdentifier: vaultIdentifier) }
+        Task {
+            // Removing a store before anything in the app has started WebKit crashes inside
+            // WebKit (its main run loop is not set up yet); asking for the default store starts it.
+            _ = WKWebsiteDataStore.default()
+            try? await WKWebsiteDataStore.remove(forIdentifier: vaultIdentifier)
+        }
     }
 
     // MARK: Vault lifecycle
