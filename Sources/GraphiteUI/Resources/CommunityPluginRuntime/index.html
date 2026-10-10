@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Community plugins</title>
+<link rel="stylesheet" href="community-plugin-runtime.css">
+<!-- The order matters: each runtime file builds on the ones before it. The Node tests read this list. -->
+<script src="Vendor/moment.min.js"></script>
+<script src="Vendor/js-yaml.min.js"></script>
+<script src="Vendor/lucide.min.js"></script>
+<script src="Vendor/codemirror-modules.min.js"></script>
+<script src="community-plugin-dom-extensions.js"></script>
+<script src="community-plugin-runtime-foundation.js"></script>
+<script src="community-plugin-runtime-vault.js"></script>
+<script src="community-plugin-runtime-metadata.js"></script>
+<script src="community-plugin-runtime-workspace.js"></script>
+<script src="community-plugin-runtime-interface.js"></script>
+<script src="community-plugin-runtime-settings.js"></script>
+<script src="community-plugin-runtime-bases.js"></script>
+<script src="community-plugin-runtime-plugins.js"></script>
+<script src="community-plugin-runtime-host-connection.js"></script>
+</head>
+<body class="graphite-plugin-runtime theme-light is-mobile is-ios">
+<div class="app-container"><div class="graphite-plugin-surface"></div></div>
+</body>
+</html>

@@ -211,14 +211,15 @@ public actor VaultStore {
         try saveConfiguration(at: DailyNoteSettings.configurationPath) { existingData in try settings.mergedConfigurationData(existingData: existingData) }
     }
 
-    private func configurationData(at relativePath: String) -> Data? {
+    /// Internal so other Obsidian settings files in Core (community plugins) read the same way.
+    func configurationData(at relativePath: String) -> Data? {
         guard let url = try? VaultPath(relativePath).url(in: root), FileManager.default.fileExists(atPath: url.path) else { return nil }
         return try? writer.read(url, maximumBytes: Self.maximumConfigurationBytes).data
     }
 
     /// Rewrites an Obsidian settings file with `merge`, failing instead of overwriting
     /// when the file changes in the meantime.
-    private func saveConfiguration(at relativePath: String, merge: (Data?) throws -> Data) throws {
+    func saveConfiguration(at relativePath: String, merge: (Data?) throws -> Data) throws {
         let path = try VaultPath(relativePath)
         let url = try path.url(in: root)
         try createDirectory(path.parent)

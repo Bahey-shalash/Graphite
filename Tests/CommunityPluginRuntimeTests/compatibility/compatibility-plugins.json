@@ -1,0 +1,12 @@
+[
+  {"repository": "obsidianmd/obsidian-sample-plugin", "commit": "07ceb81d1fb3384af611ebf665a1ec42a7e5926d", "buildCommands": [["node", "esbuild.config.mjs", "production"]]},
+  {"repository": "argenos/nldates-obsidian", "commit": "ab5701a8db701dd51aa6e37fd055401d3393a4ef", "buildCommands": [["npx", "rollup", "--config", "rollup.config.js"]]},
+  {"repository": "tgrosinger/recent-files-obsidian", "commit": "c45fede1b4bf2f9d36d6695331a56ef7e4d9b391", "buildCommands": [["node", "esbuild.config.mjs", "production"]]},
+  {"repository": "mgmeyers/obsidian-style-settings", "commit": "8ecefa956cf663ed11cb015769b3959df6419c40", "buildCommands": [["node", "esbuild.config.mjs", "production"]]},
+  {"repository": "mirnovov/obsidian-homepage", "commit": "e80151e0fbb3667c5dcb8bff2c82a62101b759bd", "buildCommands": [["node", "build.mjs", "prod"]], "outputFolders": ["out", "."]},
+  {"repository": "pjeby/tag-wrangler", "commit": "5930a24235d8290fb1eafb04938a882c201c3d1f", "buildCommands": [["node", "ophidian.config.mjs", "production"]], "outputFolders": ["dist", "build", "."]},
+  {"repository": "liamcain/obsidian-calendar-plugin", "commit": "ef3f2696da11aa1d11a272179caea062d6144640", "buildCommands": [["npx", "rollup", "-c"]]},
+  {"repository": "SilentVoid13/Templater", "commit": "c51cf118fd8ad0c451dc75bc602955b8f5667145", "buildCommands": [["node", "esbuild.config.mjs", "production"]]},
+  {"repository": "blacksmithgu/obsidian-dataview", "commit": "5ad0994ff384cbb797de382e7edff2388141b73a", "buildCommands": [["npx", "rollup", "--config", "rollup.config.js", "--environment", "BUILD:production"]], "outputFolders": ["build", "."]},
+  {"repository": "chhoumann/quickadd", "commit": "2201fa7cacd5e073a1d4816a765398cefb1fcdbe", "buildCommands": [["node", "esbuild.config.mjs", "production"]]}
+]
