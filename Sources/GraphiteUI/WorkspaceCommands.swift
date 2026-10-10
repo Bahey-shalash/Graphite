@@ -143,7 +143,7 @@ enum WorkspaceCommandList {
         }
         commands += host.ribbonActions.map { ribbonAction in
             let pluginName = host.pluginName(of: ribbonAction.pluginIdentifier) ?? ribbonAction.pluginIdentifier
-            return PaletteCommand(id: "community-plugin-ribbon:" + ribbonAction.pluginIdentifier + ":" + ribbonAction.title, title: pluginName + ": " + ribbonAction.title,
+            return PaletteCommand(id: "community-plugin-ribbon:" + ribbonAction.id, title: pluginName + ": " + ribbonAction.title,
                                   systemImage: "puzzlepiece") { Task { await host.run(ribbonAction) } }
         }
         commands += host.pluginViews.map { pluginView in

@@ -128,7 +128,8 @@ final class CommunityPluginHost {
     // MARK: Ownership
 
     @ObservationIgnored private weak var workspace: WorkspaceModel?
-    @ObservationIgnored private(set) var webView: WKWebView?
+    /// Observed, so a panel showing it follows a restart to the new one.
+    private(set) var webView: WKWebView?
     @ObservationIgnored private var schemeHandler: CommunityPluginSchemeHandler?
     @ObservationIgnored private let messageReceiver = CommunityPluginMessageReceiver()
     @ObservationIgnored private var bridge: CommunityPluginVaultBridge?
@@ -137,6 +138,7 @@ final class CommunityPluginHost {
     /// Waiters for the runtime page to finish loading.
     @ObservationIgnored private var pageLoadWaiters: [CheckedContinuation<Void, Never>] = []
     @ObservationIgnored private var isPageLoaded = false
+    @ObservationIgnored private var pageLoadFailure: String?
     /// The text each editor snapshot sent to the runtime was taken from, by identifier.
     @ObservationIgnored private var editorSnapshots: [String: (path: VaultPath, text: String)] = [:]
     @ObservationIgnored private var editorSnapshotOrder: [String] = []
@@ -243,12 +245,26 @@ final class CommunityPluginHost {
         #endif
         webView = pluginWebView
         isPageLoaded = false
-        guard let pageAddress = CommunityPluginSchemeHandler.runtimePageAddress else { return }
+        pageLoadFailure = nil
+        guard let pageAddress = CommunityPluginSchemeHandler.runtimePageAddress else {
+            await stopRuntime()
+            return
+        }
         pluginWebView.load(URLRequest(url: pageAddress))
         await waitForPageLoad()
+        // A stop or another vault while waiting leaves this start behind.
         guard webView === pluginWebView else { return }
+        guard isPageLoaded else {
+            workspace.errorMessage = "Graphite could not start community plugins. " + (pageLoadFailure ?? "")
+            await stopRuntime()
+            return
+        }
         await startRuntime(in: workspace)
-        for plugin in enabledPlugins { await load(plugin, isEnabledByPerson: false) }
+        for plugin in enabledPlugins {
+            guard webView === pluginWebView else { return }
+            await load(plugin, isEnabledByPerson: false)
+        }
+        guard webView === pluginWebView else { return }
         _ = try? await send(["operation": "plugins.layoutReady"])
         activeDocumentDidChange()
     }
@@ -258,15 +274,24 @@ final class CommunityPluginHost {
         await withCheckedContinuation { continuation in pageLoadWaiters.append(continuation) }
     }
 
-    func runtimePageDidLoad() {
+    func runtimePageDidLoad(in loadedWebView: WKWebView) {
+        guard loadedWebView === webView else { return }
         isPageLoaded = true
         for waiter in pageLoadWaiters { waiter.resume() }
         pageLoadWaiters = []
     }
 
+    /// The runtime's page did not load; the start that waits for it gives up.
+    func runtimePageDidFail(in failedWebView: WKWebView, error: Error) {
+        guard failedWebView === webView, !isPageLoaded else { return }
+        pageLoadFailure = error.localizedDescription
+        for waiter in pageLoadWaiters { waiter.resume() }
+        pageLoadWaiters = []
+    }
+
     /// WebKit's content process ended (memory pressure): everything starts again.
-    func runtimeProcessDidEnd() {
-        guard let workspace, isRuntimeRunning else { return }
+    func runtimeProcessDidEnd(in endedWebView: WKWebView) {
+        guard endedWebView === webView, let workspace, isRuntimeRunning else { return }
         for plugin in inventory.plugins where loadStates[plugin.id] == .loaded { loadStates[plugin.id] = .failed("The plugin stopped when iOS ended its web content process. Graphite restarted it.") }
         Task {
             await stopRuntime()
@@ -374,6 +399,7 @@ final class CommunityPluginHost {
             let package = try await store.communityPluginPackage(for: plugin)
             var manifest = (try? JSONSerialization.jsonObject(with: plugin.manifest.manifestData) as? [String: Any]) ?? [:]
             manifest["dir"] = plugin.folder.rawValue
+            guard isRuntimeRunning else { return }
             let answer = try await send([
                 "operation": "plugin.load",
                 "manifest": manifest,
@@ -387,15 +413,17 @@ final class CommunityPluginHost {
                 loadStates[plugin.id] = .failed(answer["errorMessage"] as? String ?? "The plugin did not load.")
             }
         } catch {
-            loadStates[plugin.id] = .failed(error.localizedDescription)
+            // A runtime stopped meanwhile does not leave failures behind for the next one.
+            if isRuntimeRunning { loadStates[plugin.id] = .failed(error.localizedDescription) }
         }
     }
 
     /// Turns a plugin on or off in `community-plugins.json`, and loads or unloads it.
     func setEnabled(_ plugin: InstalledCommunityPlugin, _ isEnabled: Bool) async {
         guard let store = workspace?.store, let workspace else { return }
+        let pluginIdentifier = plugin.id
         do {
-            enabledList = try await store.updateCommunityPluginList { list in list.setEnabled(plugin.id, isEnabled) }
+            enabledList = try await store.updateCommunityPluginList { @Sendable list in list.setEnabled(pluginIdentifier, isEnabled) }
         } catch {
             workspace.errorMessage = error.localizedDescription
             return
@@ -551,7 +579,14 @@ final class CommunityPluginHost {
         let anchor = message["selectionAnchor"] as? Int ?? 0
         let head = message["selectionHead"] as? Int ?? anchor
         if let edit = CommunityPluginEditorChange.edit(from: snapshot.text, to: changedText, selectionAnchor: anchor, selectionHead: head) {
+            let previousProblem = session.errorMessage
             session.apply(edit)
+            // The session refuses an edit that a queued insertion overlaps, and says so.
+            if let problem = session.errorMessage, problem != previousProblem {
+                var failure = Self.failure("conflict", problem)
+                failure["snapshot"] = editorSnapshot(of: session)
+                return failure
+            }
         }
         editorSnapshots[snapshotIdentifier] = (path, changedText)
         return ["snapshot": [
@@ -601,10 +636,17 @@ final class CommunityPluginHost {
         guard let message = body as? [String: Any], let operation = message["operation"] as? String else {
             return Self.failure("invalidData", "Graphite could not read the plugin runtime's message.")
         }
+        // A message WebKit made from a plugin's values can hold dates or infinite numbers,
+        // which JSON cannot; JSONSerialization would raise an exception nothing catches.
+        guard JSONSerialization.isValidJSONObject(message) else {
+            return Self.failure("invalidData", "The plugin sent a value Graphite cannot read, such as a date object.")
+        }
         if CommunityPluginVaultBridge.handles(operation) {
             guard let bridge, let messageData = try? JSONSerialization.data(withJSONObject: message) else { return Self.failure("unavailable", "Community plugins are not running.") }
             let answerData = await bridge.respond(to: messageData)
-            return (try? JSONSerialization.jsonObject(with: answerData)) ?? Self.failure("failed", "Graphite could not answer.")
+            // Answered as JSON text, which the runtime parses in WebKit's process: a note or a
+            // listing of the vault is not decoded on the app's main thread.
+            return String(decoding: answerData, as: UTF8.self)
         }
         return await answerHostOperation(operation, message)
     }
@@ -632,7 +674,8 @@ final class CommunityPluginHost {
         case "workspace.renameFile":
             return await renameFileUpdatingLinks(message)
         case "menu.show":
-            return ["chosenPosition": await showMenu(message["items"] as? [[String: Any]] ?? []) ?? NSNull()]
+            let chosenPosition: Any = await showMenu(message["items"] as? [[String: Any]] ?? []) ?? NSNull()
+            return ["chosenPosition": chosenPosition] as [String: Any]
         default:
             receiveNotification(operation, message)
             return [:] as [String: Any]
@@ -645,13 +688,18 @@ final class CommunityPluginHost {
         guard let workspace, let source = (message["path"] as? String).flatMap({ path in try? VaultPath(path) }),
               let destination = (message["destinationPath"] as? String).flatMap({ path in try? VaultPath(path) }),
               let root = workspace.folderAccess?.root else { return Self.failure("invalidPath", "The plugin named no file to rename.") }
+        func hasMoved() -> Bool {
+            (try? destination.url(in: root)).map { location in FileManager.default.fileExists(atPath: location.path) } == true
+        }
         await workspace.move(source, to: destination)
-        // The person may be asked whether to update links; the plugin waits for the answer.
-        while workspace.pendingMove?.path == source || workspace.pathsBeingMoved.contains(source) {
+        // The person may be asked whether to update links, or the move may wait behind
+        // another; the plugin waits for the answer and the move it starts.
+        while workspace.pendingMove?.path == source || workspace.pendingMove?.queuedMoves.requests.contains(where: { request in request.path == source }) == true {
             try? await Task.sleep(for: .milliseconds(200))
         }
-        let didMove = (try? destination.url(in: root)).map { location in FileManager.default.fileExists(atPath: location.path) } == true
-        return didMove ? ["stat": NSNull()] as [String: Any] : Self.failure("cancelled", "“\(source.name)” was not renamed.")
+        let deadline = ContinuousClock.now + .seconds(10)
+        while !hasMoved(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(100)) }
+        return hasMoved() ? ["stat": NSNull()] as [String: Any] : Self.failure("cancelled", "“\(source.name)” was not renamed.")
     }
 
     private func receiveNotification(_ operation: String, _ message: [String: Any]) {

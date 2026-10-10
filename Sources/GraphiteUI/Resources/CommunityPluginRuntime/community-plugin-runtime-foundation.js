@@ -31,7 +31,12 @@
         async send(operation, parameters) {
             if (!this.transport) throw new HostOperationError('unavailable', 'Graphite is not connected to this plugin runtime.');
             const response = await this.transport(Object.assign({ operation }, parameters || {}));
-            if (response && response.failure) throw new HostOperationError(response.failure.kind, response.failure.message);
+            if (response && response.failure) {
+                const error = new HostOperationError(response.failure.kind, response.failure.message);
+                // A refused editor change brings the note as it is now, for the plugin's editor.
+                if (response.snapshot) error.snapshot = response.snapshot;
+                throw error;
+            }
             return response || {};
         },
         /// A message that needs no answer, such as a changed command list.

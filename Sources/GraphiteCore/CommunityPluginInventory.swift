@@ -45,7 +45,7 @@ public struct CommunityPluginCompatibility: Equatable, Sendable {
 
     private static let requirePattern = try? NSRegularExpression(pattern: #"\brequire\(\s*["']([^"'\s]{1,200})["']\s*\)"#)
 
-    public static func assess(manifest: CommunityPluginManifest, mainScript: String?, providedApiVersion: String = providedApiVersion) -> Self {
+    public static func assess(manifest: CommunityPluginManifest, mainScript: String?, providedApiVersion: String = CommunityPluginCompatibility.providedApiVersion) -> Self {
         var blockers: [Blocker] = []
         if manifest.isDesktopOnly { blockers.append(.desktopOnly) }
         if let required = manifest.minimumApplicationVersion, ObsidianVersionNumber.compare(required, providedApiVersion) == .orderedDescending {
@@ -104,6 +104,11 @@ public struct UnreadableCommunityPlugin: Identifiable, Equatable, Sendable {
 public struct CommunityPluginInventory: Equatable, Sendable {
     public let plugins: [InstalledCommunityPlugin]
     public let unreadableFolders: [UnreadableCommunityPlugin]
+
+    public init(plugins: [InstalledCommunityPlugin] = [], unreadableFolders: [UnreadableCommunityPlugin] = []) {
+        self.plugins = plugins
+        self.unreadableFolders = unreadableFolders
+    }
 }
 
 public extension VaultStore {

@@ -98,7 +98,14 @@ public struct CommunityPluginInstaller: Sendable {
         let folder = try VaultPath(CommunityPluginList.pluginsFolderPath).appending(releaseManifest.identifier)
         try await write(mainScript, to: folder.appending("main.js"))
         try await write(releaseManifestData, to: folder.appending("manifest.json"))
-        if let styles { try await write(styles, to: folder.appending("styles.css")) }
+        let stylesPath = try folder.appending("styles.css")
+        let hasOldStyles = try await store.fileExists(stylesPath)
+        if let styles {
+            try await write(styles, to: stylesPath)
+        } else if hasOldStyles {
+            // An update whose release has no styles drops the old release's.
+            _ = try await store.delete(stylesPath, method: .permanent)
+        }
         return Installation(manifest: releaseManifest, folder: folder, isOlderReleaseForCompatibility: isOlderRelease)
     }
 

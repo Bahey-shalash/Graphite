@@ -8,7 +8,9 @@
     const messageHandlers = globalScope.webkit && globalScope.webkit.messageHandlers;
     const graphiteHandler = messageHandlers && messageHandlers.graphitePlugins;
     if (!graphiteHandler) return;
-    runtime.hostBridge.transport = (message) => graphiteHandler.postMessage(message);
+    // Graphite answers vault reads and listings as JSON text, parsed here rather than on the
+    // app's main thread; other answers arrive as objects.
+    runtime.hostBridge.transport = (message) => graphiteHandler.postMessage(message).then((reply) => (typeof reply === 'string' ? JSON.parse(reply) : reply));
 
     // Plugin errors that nothing caught reach Graphite's log of the plugin's problems.
     globalScope.addEventListener('error', (event) => {

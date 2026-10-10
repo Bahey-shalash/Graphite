@@ -5,6 +5,7 @@ import GraphiteCore
 /// The plugin web view where a view shows it: the plugin panel's sheet, or a plugin's
 /// options page in Settings. There is one web view per vault, so showing it here takes it
 /// from wherever it was.
+@MainActor
 struct CommunityPluginWebViewContainer {
     let webView: WKWebView?
 }
@@ -138,10 +139,11 @@ struct CommunityPluginPresentation: ViewModifier {
                     .tint(workspace.preferences.accentColor)
             }
             .confirmationDialog("", isPresented: Binding(get: { host.pendingMenu != nil }, set: { isPresented in
-                if !isPresented {
-                    host.pendingMenu?.finish(choosing: nil)
-                    host.pendingMenu = nil
-                }
+                guard !isPresented, let menu = host.pendingMenu else { return }
+                host.pendingMenu = nil
+                // SwiftUI closes the dialog before a button's action runs; the dismissal's
+                // answer waits, so a chosen item answers first.
+                Task { menu.finish(choosing: nil) }
             }), presenting: host.pendingMenu) { menu in
                 ForEach(menu.items) { item in
                     Button(item.isChecked ? "✓ " + item.title : item.title, role: item.isWarning ? .destructive : nil) {

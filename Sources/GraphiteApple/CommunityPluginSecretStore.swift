@@ -15,7 +15,9 @@ public struct CommunityPluginSecretStore: Sendable {
     }
 
     private var baseQuery: [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: Self.service, kSecAttrAccount as String: vaultIdentifier.uuidString]
+        // The data protection keychain, so the accessibility below applies on macOS too.
+        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: Self.service, kSecAttrAccount as String: vaultIdentifier.uuidString,
+         kSecUseDataProtectionKeychain as String: true]
     }
 
     /// Every secret of the vault, by identifier; none when nothing is stored or the stored

@@ -50,12 +50,19 @@ async function startRuntime(options) {
     for (const level of ['log', 'info', 'warn', 'error', 'debug']) {
         window.console[level] = (...messageParts) => consoleMessages.push({ level, text: messageParts.map((part) => (part && part.stack) || String(part)).join(' ') });
     }
+    // WebKit's message handler, as Graphite installs it: the page's connection script finds
+    // it and posts every message to it. Like CommunityPluginHost, the host answers vault
+    // operations as JSON text and everything else as objects.
+    const host = new TestVaultHost(vaultFolder);
+    const hostTransport = host.transport();
+    window.webkit = { messageHandlers: { graphitePlugins: {
+        postMessage: (message) => hostTransport(JSON.parse(JSON.stringify(message))).then((answer) => (
+            String(message.operation).startsWith('vault.') ? JSON.stringify(answer) : answer)),
+    } } };
     for (const scriptPath of runtimeScriptPaths()) {
         window.eval(fileSystem.readFileSync(scriptPath, 'utf8') + '\n//# sourceURL=' + path.basename(scriptPath));
     }
     const runtime = window.GraphitePluginRuntime;
-    const host = new TestVaultHost(vaultFolder);
-    runtime.hostBridge.transport = host.transport();
     const harness = { dom, window, runtime, host, vaultFolder, consoleMessages, jsdomProblems, obsidian: runtime.obsidianModule };
     harness.send = (message) => runtime.receive(message);
     if (settings.isStarting) {

@@ -121,7 +121,7 @@ public struct CommunityPluginVaultBridge: Sendable {
                 throw GraphiteError.unavailable("Graphite could not list “\(folder.rawValue)”.")
             }
             var entries: [ListedEntry] = []
-            for case let location as URL in enumerator {
+            while let location = enumerator.nextObject() as? URL {
                 try Task.checkCancellation()
                 guard let values = try? location.resourceValues(forKeys: Set(keys)), values.isSymbolicLink != true,
                       let path = Self.vaultPath(of: location, under: folderLocation, folder: folder) else { continue }
@@ -225,8 +225,9 @@ public struct CommunityPluginVaultBridge: Sendable {
             guard let revision = request.expectation.revision else { throw BridgeFailure(kind: "invalidData", message: "A revision-checked write named no revision.") }
             expectation = .revision(revision)
         case "replace":
-            // Whatever is there now: the plugin asked to replace the file outright.
-            expectation = exists ? .revision(try await store.read(path, maximumBytes: nil).revision) : .absent
+            // Whatever is there now: the plugin asked to replace the file outright. The
+            // revision is read in chunks; the coordinated write checks it again.
+            expectation = exists ? .revision(try FileRevision.read(location)) : .absent
         default:
             throw BridgeFailure(kind: "invalidData", message: "Unknown write expectation “\(request.expectation.kind)”.")
         }

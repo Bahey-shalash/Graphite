@@ -140,7 +140,7 @@ final class CommunityPluginTests: XCTestCase {
         let readAnswer = try await respond(["operation": "vault.read", "path": "Marked.md", "encoding": "text"])
         XCTAssertEqual(readAnswer["text"] as? String, "text")
         let revision = try XCTUnwrap(readAnswer["revision"] as? [String: Any])
-        let writeAnswer = try await respond(["operation": "vault.write", "path": "Marked.md", "text": "new", "expectation": ["kind": "revision", "revision": revision]])
+        let writeAnswer = try await respond(["operation": "vault.write", "path": "Marked.md", "text": "new", "expectation": ["kind": "revision", "revision": revision] as [String: Any]])
         XCTAssertNil(writeAnswer["failure"])
         XCTAssertEqual(try Data(contentsOf: vault.appendingPathComponent("Marked.md")), Data([0xEF, 0xBB, 0xBF]) + Data("new".utf8))
     }
@@ -150,7 +150,7 @@ final class CommunityPluginTests: XCTestCase {
         let readAnswer = try await respond(["operation": "vault.read", "path": "Note.md", "encoding": "text"])
         let revision = try XCTUnwrap(readAnswer["revision"] as? [String: Any])
         try write("changed in another app", to: "Note.md")
-        let writeAnswer = try await respond(["operation": "vault.write", "path": "Note.md", "text": "plugin", "expectation": ["kind": "revision", "revision": revision]])
+        let writeAnswer = try await respond(["operation": "vault.write", "path": "Note.md", "text": "plugin", "expectation": ["kind": "revision", "revision": revision] as [String: Any]])
         XCTAssertEqual(failureKind(writeAnswer), "conflict")
         XCTAssertEqual(try read("Note.md"), "changed in another app")
         let createAnswer = try await respond(["operation": "vault.write", "path": "Note.md", "text": "again", "expectation": ["kind": "absent"]])

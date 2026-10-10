@@ -86,7 +86,8 @@ final class CommunityPluginSchemeHandler: NSObject, WKURLSchemeHandler {
 
     /// The file an address names, if it is one this handler serves.
     private func location(for address: URL) -> URL? {
-        let relativePath = address.path.removingPercentEncoding.map { path in String(path.drop { character in character == "/" }) } ?? ""
+        // `URL.path` is already percent-decoded; decoding again would misread “100%.png”.
+        let relativePath = String(address.path.drop { character in character == "/" })
         switch address.host {
         case Self.runtimeHost:
             guard let runtimeFolder, let path = try? VaultPath(relativePath), !path.rawValue.isEmpty,
@@ -118,12 +119,20 @@ final class CommunityPluginMessageReceiver: NSObject, WKScriptMessageHandlerWith
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
-        host?.runtimePageDidLoad()
+        host?.runtimePageDidLoad(in: webView)
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation?, withError error: any Error) {
+        host?.runtimePageDidFail(in: webView, error: error)
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: any Error) {
+        host?.runtimePageDidFail(in: webView, error: error)
     }
 
     /// iOS ends a web view's content process under memory pressure; the plugins start again.
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        host?.runtimeProcessDidEnd()
+        host?.runtimeProcessDidEnd(in: webView)
     }
 
     /// The runtime's page stays where it is. Web links plugins open go to the browser.

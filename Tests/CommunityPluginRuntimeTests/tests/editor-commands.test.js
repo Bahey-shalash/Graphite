@@ -153,3 +153,44 @@ test('workspace reports the active file and its view to plugins', async () => {
         harness.close();
     }
 });
+
+test('a refused change brings the note as it is now, so the plugin\'s next change applies', async () => {
+    const harness = await startRuntime({ files: { 'Note.md': 'first' } });
+    try {
+        await installAndLoadPlugin(harness, { manifest, mainSource: editingPlugin(`
+        this.addCommand({ id: 'append', name: 'Append', editorCallback: (editor) => { this.editor = editor; editor.replaceRange('!', editor.offsetToPos(editor.getValue().length)); } });`) });
+        await runCommand(harness, 'editing:append', 'Note.md', 0);
+        await settle();
+        assert.equal(harness.host.editorSessions.get('Note.md').text, 'first!');
+        // The person typed meanwhile; Graphite refuses a change based on the old text and
+        // answers with the note as it is.
+        const session = harness.host.editorSessions.get('Note.md');
+        session.text = 'first! typed';
+        const originalApply = harness.host.applyEditorChange.bind(harness.host);
+        harness.host.applyEditorChange = (message) => {
+            if (message.text !== 'first! typed?') {
+                const { HostFailure } = require('../support/test-vault-host');
+                const failure = new HostFailure('conflict', 'The note changed while the plugin was working.');
+                throw failure;
+            }
+            return originalApply(message);
+        };
+        const transport = harness.runtime.hostBridge.transport;
+        harness.runtime.hostBridge.transport = async (message) => {
+            const answer = await transport(message);
+            if (answer.failure && message.operation === 'editor.apply') {
+                answer.snapshot = { path: 'Note.md', snapshotIdentifier: session.snapshotIdentifier, text: session.text, selectionAnchor: 0, selectionHead: 0 };
+            }
+            return answer;
+        };
+        const plugin = harness.app.plugins.getPlugin('editing');
+        plugin.editor.replaceRange('?', plugin.editor.offsetToPos(plugin.editor.getValue().length));
+        await settle();
+        assert.equal(plugin.editor.getValue(), 'first! typed', 'the plugin\'s editor took the note as it is now');
+        plugin.editor.replaceRange('?', plugin.editor.offsetToPos(plugin.editor.getValue().length));
+        await settle();
+        assert.equal(session.text, 'first! typed?');
+    } finally {
+        harness.close();
+    }
+});
