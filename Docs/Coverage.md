@@ -2,7 +2,20 @@
 
 What Graphite does today, how each part is verified, and what is still missing. `OBJECTIVE.md` describes the complete product; this file tracks progress toward it. Update it with every change that adds, removes, or re-verifies behavior.
 
-Last updated: 2026-10-06.
+Last updated: 2026-10-10.
+
+## Apple Pencil double-tap in the drawing editor: 2026-10-10
+
+Reported by the owner on their iPad: a double-tap of Apple Pencil in the drawing editor closed the editor and opened it again. Cause, found by reading the code: a Pencil gesture reaches every `UIPencilInteraction` in the window, and the note's text view stays in the window under the full-screen drawing editor. The note's handler checked only that its text view had a window, so it answered too and asked for the drawing at the note's cursor. The editor is presented with `fullScreenCover(item:)`, so the new request closed it and presented another, without the strokes not yet saved. Neither tool layout nor the kind of drawing changes this: the note's handler runs the same with the floating palette and the fixed bar, for a new drawing and for a drawing opened from its embed.
+
+Fix: the note answers a double-tap or squeeze only when no screen is presented over it (`NativeMarkdownEditor.Coordinator`), and `WorkspaceModel.beginDrawingAtCursor` does nothing while a drawing is open. The editor's own answer is unchanged: Apple's palette, or the fixed bar's `PencilGestureReceiver`, following Settings › Apple Pencil.
+
+Checked: the change was written in a Linux container without Xcode, then built and run on a Mac the same day (Xcode 27.0, macOS 27.0.1) in iOS 27.0 simulators, an iPad Pro 11-inch (M5) and an iPhone 17 Pro. With only the two new hosted tests on top of the code before the fix, both failed on the iPad simulator as the report describes: the note stayed in the window under the editor, its double-tap replaced the open drawing's request, and the editor closed and was presented again; the other 14 tests of `PencilToolsTests` passed. With the fix, all 16 passed on both simulators. `swift test` on macOS ran 1,616 tests (792 core, 137 index, 191 Apple, 496 UI) with the measurement test skipped as before and one failure, `UiEditorMacEditorTests.testHeadingJumpWaitsForAWindowThenSelectsAndScrollsToTheHeading`, in the Mac editor, which this change does not touch, while a simulator build ran at the same time; on its own it passed three times out of three. The two new tests:
+
+- `testPencilDoubleTapInTheDrawingEditorKeepsItOpenWithItsStrokes` presents the drawing editor over the note as `GraphiteRootView` does, opens it with the note's double-tap handler, draws a stroke, then gives the note the double-tap and squeeze again, as UIKit does. The request, the presented editor and the stroke stay. With the fixed bar (regular width only), the bar's receiver switches to the eraser and the editor stays. A drawing embedded in the note opens as itself and keeps a stroke added to it. The test first checks that the note is still in the window under the editor, which is what the cause depends on.
+- `testANoteLeavesPencilGesturesToAScreenOverItAndNeverReplacesAnOpenDrawing`: with a screen presented over the note, the handlers start nothing; while a drawing is requested but its editor is not on screen yet, a double-tap does not replace it; with neither, the double-tap starts a drawing.
+
+Not verified: everything with a real Apple Pencil on a device, that is, that the editor stays open and that the double-tap does what Settings › Apple Pencil asks, with each layout and with an embedded drawing.
 
 ## A quieter interface and a phone layout: 2026-10-06
 

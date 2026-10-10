@@ -563,7 +563,151 @@ final class PencilToolsTests: XCTestCase {
         workspace.preferences.drawsOnPencilDoubleTap = true
     }
 
+    /// A double-tap or squeeze made in the drawing editor reaches every Pencil interaction in
+    /// the window, the note's under the editor too. The editor stays open with its unsaved
+    /// strokes, with either tool layout, for a new drawing and for one embedded in the note.
+    func testPencilDoubleTapInTheDrawingEditorKeepsItOpenWithItsStrokes() async throws {
+        let toolbox = PencilToolbox.shared
+        let toolInUseBefore = toolbox.toolInUse, presetInUseIndexBefore = toolbox.presetInUseIndex
+        let toolbarStyleBefore = UserDefaults.standard.string(forKey: PencilToolbarStyle.preferenceKey)
+        defer {
+            toolbox.usePreset(at: presetInUseIndexBefore)
+            toolbox.use(toolInUseBefore)
+            UserDefaults.standard.set(toolbarStyleBefore, forKey: PencilToolbarStyle.preferenceKey)
+        }
+        UserDefaults.standard.set(PencilToolbarStyle.floating.rawValue, forKey: PencilToolbarStyle.preferenceKey)
+        UserDefaults.standard.set(false, forKey: PDFAnnotationPreferenceKey.drawsShapes)
+        let noteText = "First line.\n\n![[Sketch.png]]\n\nLast line.\n"
+        let (workspace, directory) = try await makeWorkspace(notes: ["Note.md": noteText])
+        let sketch = PKDrawing(strokes: [stroke(through: [CGPoint(x: 80, y: 120), CGPoint(x: 240, y: 140), CGPoint(x: 420, y: 110)])])
+        _ = try await DrawingFileService().save(DrawingContent(strokeData: sketch.dataRepresentation(), canvasWidth: 760, background: .white),
+                                                format: .png, to: directory.appendingPathComponent("Sketch.png"), expecting: .absent)
+        await workspace.open(try VaultPath("Note.md"))
+        let session = try XCTUnwrap(workspace.markdownSession)
+        session.viewMode = .source
+        let controller = try host(AnyView(WorkspaceWithDrawingEditor(workspace: workspace)))
+        try await waitUntil { !self.descendants(of: controller.view, matching: MarkdownTextView.self).isEmpty }
+        let textView = try XCTUnwrap(descendants(of: controller.view, matching: MarkdownTextView.self).first)
+        let coordinator = try XCTUnwrap(textView.delegate as? NativeMarkdownEditor.Coordinator)
+        try await waitUntil { coordinator.actions.drawOnPencilDoubleTap != nil }
+
+        // A new drawing, with Apple's floating palette, which answers the Pencil itself.
+        textView.selectedRange = NSRange(location: 5, length: 0)
+        session.selection = textView.selectedRange
+        let (editor, canvas) = try await openDrawingEditor(byDoubleTapIn: textView, coordinator: coordinator, over: controller)
+        guard case .newDrawing = try XCTUnwrap(workspace.drawingEditorRequest).target else { return XCTFail("Not a new drawing") }
+        canvas.drawing = PKDrawing(strokes: [stroke(through: [CGPoint(x: 100, y: 100), CGPoint(x: 260, y: 180), CGPoint(x: 400, y: 120)])])
+        try await waitUntil { canvas.drawing.strokes.count == 1 }
+        try await sendPencilGesturesToTheNote(under: editor, canvas: canvas, textView: textView, coordinator: coordinator,
+                                              workspace: workspace, controller: controller)
+
+        // The fixed bar answers the Pencil in the palette's place; compact widths keep the palette.
+        UserDefaults.standard.set(PencilToolbarStyle.fixed.rawValue, forKey: PencilToolbarStyle.preferenceKey)
+        if controller.traitCollection.horizontalSizeClass == .regular {
+            try await waitUntil { !self.descendants(of: editor.view, matching: PencilGestureReceiverView.self).isEmpty }
+            let receiver = try XCTUnwrap(descendants(of: editor.view, matching: PencilGestureReceiverView.self).first)
+            toolbox.usePreset(at: 0)
+            receiver.respond(.switchToEraser, at: Date.timeIntervalSinceReferenceDate, hoverLocation: nil)
+            XCTAssertEqual(toolbox.toolInUse, .eraser, "The double-tap does what Settings › Apple Pencil asks for.")
+            try await sendPencilGesturesToTheNote(under: editor, canvas: canvas, textView: textView, coordinator: coordinator,
+                                                  workspace: workspace, controller: controller)
+            XCTAssertEqual(toolbox.toolInUse, .eraser)
+        }
+        UserDefaults.standard.set(PencilToolbarStyle.floating.rawValue, forKey: PencilToolbarStyle.preferenceKey)
+        workspace.drawingEditorRequest = nil
+        try await waitUntil { controller.presentedViewController == nil }
+
+        // A drawing embedded in the note opens as itself, and stays open with strokes added.
+        let embedLocation = (noteText as NSString).range(of: "![[Sketch.png]]").location + 4
+        textView.selectedRange = NSRange(location: embedLocation, length: 0)
+        session.selection = textView.selectedRange
+        let (embeddedDrawingEditor, embeddedDrawingCanvas) = try await openDrawingEditor(byDoubleTapIn: textView, coordinator: coordinator, over: controller)
+        guard case .existingDrawing(let drawingPath, _, _) = try XCTUnwrap(workspace.drawingEditorRequest).target else {
+            return XCTFail("The embedded drawing does not open as itself")
+        }
+        XCTAssertEqual(drawingPath, try VaultPath("Sketch.png"))
+        try await waitUntil { embeddedDrawingCanvas.drawing.strokes.count == 1 }
+        let addedStroke = stroke(through: [CGPoint(x: 100, y: 300), CGPoint(x: 300, y: 320)])
+        embeddedDrawingCanvas.drawing = embeddedDrawingCanvas.drawing.appending(PKDrawing(strokes: [addedStroke]))
+        try await waitUntil { embeddedDrawingCanvas.drawing.strokes.count == 2 }
+        try await sendPencilGesturesToTheNote(under: embeddedDrawingEditor, canvas: embeddedDrawingCanvas, textView: textView, coordinator: coordinator,
+                                              workspace: workspace, controller: controller)
+        workspace.drawingEditorRequest = nil
+        try await waitUntil { controller.presentedViewController == nil }
+    }
+
+    /// The note answers Apple Pencil only when nothing is presented over it, and a drawing
+    /// already asked for is never replaced, even before its editor is on screen.
+    func testANoteLeavesPencilGesturesToAScreenOverItAndNeverReplacesAnOpenDrawing() async throws {
+        let (workspace, _) = try await makeWorkspace(notes: ["Note.md": "First line.\n"])
+        await workspace.open(try VaultPath("Note.md"))
+        let session = try XCTUnwrap(workspace.markdownSession)
+        session.viewMode = .source
+        let controller = try host(AnyView(NavigationStack {
+            WorkspacePanes(workspace: workspace, showsLinksInspector: .constant(false), create: { _ in }, showQuickSwitcher: {})
+        }))
+        try await waitUntil { !self.descendants(of: controller.view, matching: MarkdownTextView.self).isEmpty }
+        let textView = try XCTUnwrap(descendants(of: controller.view, matching: MarkdownTextView.self).first)
+        let coordinator = try XCTUnwrap(textView.delegate as? NativeMarkdownEditor.Coordinator)
+        try await waitUntil { coordinator.actions.drawOnPencilDoubleTap != nil }
+
+        // A screen presented over the note, which stays in the window under it, has the gesture.
+        let coveringScreen = UIViewController()
+        coveringScreen.modalPresentationStyle = .overFullScreen
+        controller.present(coveringScreen, animated: false)
+        XCTAssertNotNil(textView.window)
+        coordinator.handlePencilDoubleTap(hoverLocation: nil, in: textView, preferredTapAction: .switchEraser)
+        coordinator.handlePencilSqueeze(hoverLocation: nil, in: textView, preferredSqueezeAction: .showContextualPalette)
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertNil(workspace.drawingEditorRequest)
+        coveringScreen.dismiss(animated: false)
+        try await waitUntil { controller.presentedViewController == nil }
+
+        // A drawing asked for whose editor is not on screen yet is not replaced by another.
+        workspace.beginNewDrawing(in: session)
+        let openRequest = try XCTUnwrap(workspace.drawingEditorRequest)
+        coordinator.handlePencilDoubleTap(hoverLocation: nil, in: textView, preferredTapAction: .switchEraser)
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(workspace.drawingEditorRequest?.id, openRequest.id)
+
+        // With nothing over it and no drawing open, the note has the double-tap again.
+        workspace.drawingEditorRequest = nil
+        coordinator.handlePencilDoubleTap(hoverLocation: nil, in: textView, preferredTapAction: .switchEraser)
+        try await waitUntil { workspace.drawingEditorRequest != nil }
+    }
+
     // MARK: Helpers
+
+    /// Double-taps in the note and waits for the drawing editor it opens over the note.
+    private func openDrawingEditor(byDoubleTapIn textView: MarkdownTextView, coordinator: NativeMarkdownEditor.Coordinator,
+                                   over controller: UIViewController) async throws -> (editor: UIViewController, canvas: InfiniteCanvasView) {
+        coordinator.handlePencilDoubleTap(hoverLocation: nil, in: textView, preferredTapAction: .switchEraser)
+        try await waitUntil {
+            guard let editor = controller.presentedViewController else { return false }
+            return !self.descendants(of: editor.view, matching: InfiniteCanvasView.self).isEmpty
+        }
+        let editor = try XCTUnwrap(controller.presentedViewController)
+        let canvas = try XCTUnwrap(descendants(of: editor.view, matching: InfiniteCanvasView.self).first)
+        return (editor, canvas)
+    }
+
+    /// Gives the note under the drawing editor the double-tap and squeeze made in the editor,
+    /// as UIKit does, then checks the editor neither closed nor lost a stroke.
+    private func sendPencilGesturesToTheNote(under editor: UIViewController, canvas: InfiniteCanvasView, textView: MarkdownTextView,
+                                             coordinator: NativeMarkdownEditor.Coordinator, workspace: WorkspaceModel,
+                                             controller: UIViewController, file: StaticString = #filePath, line: UInt = #line) async throws {
+        let requestIdentifier = try XCTUnwrap(workspace.drawingEditorRequest?.id, file: file, line: line)
+        let strokeCount = canvas.drawing.strokes.count
+        XCTAssertNotNil(textView.window, "The note stays in the window under the editor, so the gesture reaches it.", file: file, line: line)
+        coordinator.handlePencilDoubleTap(hoverLocation: nil, in: textView, preferredTapAction: .switchEraser)
+        coordinator.handlePencilSqueeze(hoverLocation: nil, in: textView, preferredSqueezeAction: .showContextualPalette)
+        // Long enough for a replaced drawing to be read and its editor presented.
+        try await Task.sleep(for: .milliseconds(600))
+        XCTAssertEqual(workspace.drawingEditorRequest?.id, requestIdentifier, "The open drawing is not replaced.", file: file, line: line)
+        XCTAssertTrue(controller.presentedViewController === editor, "The editor neither closed nor opened again.", file: file, line: line)
+        XCTAssertNotNil(canvas.window, file: file, line: line)
+        XCTAssertEqual(canvas.drawing.strokes.count, strokeCount, "Unsaved strokes stay.", file: file, line: line)
+    }
 
     private func makeWorkspace(notes: [String: String]) async throws -> (WorkspaceModel, URL) {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("PencilTools-\(UUID().uuidString)")
@@ -655,6 +799,21 @@ final class PencilToolsTests: XCTestCase {
         let deadline = Date().addingTimeInterval(5)
         while !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(25)) }
         XCTAssertTrue(condition(), "The hosted workspace did not reach the expected state.")
+    }
+}
+
+/// The workspace with the drawing editor presented over it as `GraphiteRootView` presents it.
+private struct WorkspaceWithDrawingEditor: View {
+    @Bindable var workspace: WorkspaceModel
+
+    var body: some View {
+        NavigationStack {
+            WorkspacePanes(workspace: workspace, showsLinksInspector: .constant(false), create: { _ in }, showQuickSwitcher: {})
+        }
+        .fullScreenCover(item: $workspace.drawingEditorRequest) { request in
+            DrawingEditor(request: request, save: { _, _ in }, exportCopy: { _, _ in throw CocoaError(.featureUnsupported) },
+                          preserveDraft: { _ in }, removeDraft: {})
+        }
     }
 }
 #endif

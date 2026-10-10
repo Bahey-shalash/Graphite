@@ -783,7 +783,8 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         }
 
         private func startDrawingAtPencil(hoverLocation: CGPoint?, in textView: MarkdownTextView) {
-            guard let drawOnPencilDoubleTap = actions.drawOnPencilDoubleTap, textView.window != nil else { return }
+            guard let drawOnPencilDoubleTap = actions.drawOnPencilDoubleTap, textView.window != nil,
+                  !isCoveredByPresentedScreen(textView) else { return }
             if let hoverLocation, let position = textView.closestPosition(to: hoverLocation) {
                 let offset = textView.offset(from: textView.beginningOfDocument, to: position)
                 textView.selectedRange = NSRange(location: offset, length: 0)
@@ -791,6 +792,17 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             }
             drawOnPencilDoubleTap()
         }
+
+        /// Whether a screen presented over the note, such as the drawing editor, covers it.
+        /// Apple Pencil's double-tap and squeeze reach every Pencil interaction in the window,
+        /// so one made in the drawing editor reaches the note under it too; answering it
+        /// would replace the open drawing, unsaved strokes and all.
+        private func isCoveredByPresentedScreen(_ textView: MarkdownTextView) -> Bool {
+            guard var topController = textView.window?.rootViewController else { return false }
+            while let presentedController = topController.presentedViewController { topController = presentedController }
+            return !textView.isDescendant(of: topController.view)
+        }
+
         private var isLivePreview: Bool { configuration.mode == .livePreview && environment != nil }
         /// What decides which blocks are rendered besides the configuration.
         var renderedBlockPolicy: [Bool] { [environment != nil, environment?.updateProperties != nil] }

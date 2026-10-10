@@ -41,7 +41,9 @@ extension WorkspaceModel {
 
     /// What an Apple Pencil double-tap starts: the drawing under the cursor opens for
     /// editing, an image under it is drawn on, and anywhere else a new drawing starts.
+    /// While a drawing is open the double-tap is its tools', and never replaces it.
     func beginDrawingAtCursor(in session: MarkdownSession) async {
+        guard drawingEditorRequest == nil else { return }
         guard let root = folderAccess?.root,
               let embed = EmbedLocator.embed(at: session.selection.location, in: session.text as NSString),
               let path = await resolveLink(embed.target, from: session.path, isWiki: embed.isWiki),
