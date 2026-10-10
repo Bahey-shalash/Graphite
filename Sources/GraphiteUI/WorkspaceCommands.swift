@@ -127,6 +127,28 @@ enum WorkspaceCommandList {
                 commands.append(PaletteCommand(id: "stop-recording", title: "Audio recorder: Stop recording", systemImage: "stop.fill") { workspace.recording.stop() })
             }
         }
+        commands += communityPluginCommands(for: workspace)
+        return commands
+    }
+
+    /// The commands of the vault's community plugins, named as Obsidian names them
+    /// ("Plugin: Command"), with their ribbon buttons and open views. Editor commands are
+    /// listed only while a note is open for editing, as in Obsidian.
+    private static func communityPluginCommands(for workspace: WorkspaceModel) -> [PaletteCommand] {
+        let host = workspace.communityPlugins
+        guard host.isRuntimeRunning else { return [] }
+        let isEditingNote = workspace.markdownSession.map { session in session.viewMode != .reading } ?? false
+        var commands = host.commands.filter { command in !command.needsEditor || isEditingNote }.map { command in
+            PaletteCommand(id: "community-plugin:" + command.id, title: command.name, systemImage: "puzzlepiece.extension") { Task { await host.run(command) } }
+        }
+        commands += host.ribbonActions.map { ribbonAction in
+            let pluginName = host.pluginName(of: ribbonAction.pluginIdentifier) ?? ribbonAction.pluginIdentifier
+            return PaletteCommand(id: "community-plugin-ribbon:" + ribbonAction.pluginIdentifier + ":" + ribbonAction.title, title: pluginName + ": " + ribbonAction.title,
+                                  systemImage: "puzzlepiece") { Task { await host.run(ribbonAction) } }
+        }
+        commands += host.pluginViews.map { pluginView in
+            PaletteCommand(id: "community-plugin-view:" + pluginView.id, title: "Show " + pluginView.title, systemImage: "rectangle.on.rectangle") { Task { await host.show(pluginView) } }
+        }
         return commands
     }
 

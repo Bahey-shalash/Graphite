@@ -103,6 +103,7 @@ public struct GraphiteRootView: View {
             }
         }
         .modifier(FileManagementPresentation(workspace: workspace))
+        .modifier(CommunityPluginPresentation(workspace: workspace) { showsSettings = true })
         #if canImport(UIKit)
         .fullScreenCover(isPresented: $workspace.isGraphPresented) {
             VaultGraphScreen(workspace: workspace).tint(workspace.preferences.accentColor)

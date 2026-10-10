@@ -2,7 +2,21 @@
 
 What Graphite does today, how each part is verified, and what is still missing. `OBJECTIVE.md` describes the complete product; this file tracks progress toward it. Update it with every change that adds, removes, or re-verifies behavior.
 
-Last updated: 2026-10-06.
+Last updated: 2026-10-10.
+
+## Obsidian community plugins: 2026-10-10
+
+At the owner's request, ahead of the order `OBJECTIVE.md` had set: Graphite runs Obsidian community plugins from `.obsidian/plugins`, installs them from Obsidian's community directory or a GitHub repository, and shares `community-plugins.json` and each plugin's `data.json` with Obsidian. `Community-plugins.md` describes the runtime, the six real plugins it was run with, and every gap; `Architecture.md` adds the storage contract and the risks.
+
+- The runtime (`Sources/GraphiteUI/Resources/CommunityPluginRuntime`): Graphite's implementation of the `obsidian` module for a web view, with CodeMirror 6, Lezer, moment, js-yaml and Lucide vendored at the versions Obsidian 1.14.4 declares. All 103 classes of `obsidian.d.ts` 1.14.4, 422 of its 442 class methods and 51 of its 56 functions and constants exist (`Community-plugin-API-coverage.md`); some report themselves as unsupported when called.
+- GraphiteCore: `CommunityPluginManifest`, `CommunityPluginList`, `installedCommunityPlugins` with `CommunityPluginCompatibility`, `CommunityPluginVaultBridge`, `CommunityPluginEditorChange`, `CommunityPluginMarkdownRendering`, `CommunityPluginNetworkRequest`, `CommunityPluginInstaller`. GraphiteApple: `CommunityPluginSecretStore` (keychain). GraphiteUI: `CommunityPluginHost` (the web view and its messages), the scheme handler, the plugin panel, notices and menus, the palette's plugin commands, and Settings › Community plugins with the directory browser. `VaultStore`'s two settings-file helpers became internal so `community-plugins.json` is read and merged like Obsidian's other settings files.
+
+Checked in a Linux container without Xcode or a Swift compiler:
+
+- `npm test` in `Tests/CommunityPluginRuntimeTests`: 41 tests, all passing, in jsdom 26 against a vault folder on disk, among them Sample Plugin, Natural Language Dates, Templater, QuickAdd, Tag Wrangler and Dataview, built from their sources at fixed commits. Templater replaced templates in a note through the vault, Natural Language Dates inserted the date through the editor change, Sample Plugin's editor command replaced the selection. jsdom is not WebKit: it lacks CSS nesting, Web Workers and IndexedDB (Dataview ran with a worker stand-in and fake-indexeddb).
+- The Swift was not compiled. Every new and changed Swift file parses with tree-sitter-swift 0.6.0, and the code was reviewed by reading against the declarations it calls. `CommunityPluginTests` (Core) was written and not run.
+
+Not established: that the package and the app build; anything in WebKit, the simulator or on a device; installation from GitHub's releases (unreachable from the container); the runtime's memory and start-up time; large vaults. Not implemented: CodeMirror editor extensions in Graphite's native editor, plugins' post-processors and code blocks in the reading view, typing suggestions and live editor events, plugins' items in context menus, hover previews, plugin views as tabs or panels (`Community-plugins.md`, What does not work yet).
 
 ## A quieter interface and a phone layout: 2026-10-06
 
@@ -88,6 +102,12 @@ The repository sits in an iCloud-synced Desktop folder. iCloud adds extended att
 
 ```bash
 swift test --scratch-path /tmp/graphite-build
+```
+
+The community plugin runtime's tests run in Node (22 or later), outside Xcode; `Docs/Community-plugins.md` lists the commands that build the real plugins and regenerate the API coverage:
+
+```bash
+cd Tests/CommunityPluginRuntimeTests && npm ci && npm test
 ```
 
 iPad-only tests (PencilKit) run on a simulator through the app project. The Graphite scheme's `GraphiteIntegrationTests` target compiles and runs six files of `Tests/GraphiteAppleTests` (`InteroperabilityTests`, `PencilDrawingTests`, `PDFAnnotationTests`, `PDFPencilInkTests`, `VaultLocatorTests`, `VectorDrawingTests`) plus `AppIconBundleTests`, `PencilWorkspaceTests`, `EditingContinuityTests` and `PDFInkHistoryTests` from `App/Tests`, so copying the package outside the project (the `Graphite-Package` scheme) is no longer needed for them:
@@ -687,7 +707,7 @@ Checked on 2026-09-25 on "Graphite Sidebar iPad", after the bug-fix merge:
 
 ## Not implemented yet
 
-Obsidian community plugin installation and execution are not implemented. The future target is to run existing plugin packages obtained from Obsidian's community directory, GitHub releases, or other sources without a Graphite-specific version, preserving their settings and file formats. Compatibility has not been validated. New plugin integrations and runtime implementation are deferred until the app feels premium; UI and interaction polish, Pencil quality, essential handwriting tools, and daily Obsidian workflows take priority. See `OBJECTIVE.md` for the scope and `Docs/Architecture.md` for runtime constraints.
+Obsidian community plugins run and install (see the 2026-10-10 section), but not yet everything plugins do: CodeMirror editor extensions, plugins' code blocks and post-processors in the reading view, typing suggestions, live editor events, context menu items, hover previews, and plugin views as tabs or panels are missing, and none of it has run in WebKit or on a device yet. `Docs/Community-plugins.md` keeps the list.
 
 A full comparison with Obsidian mobile, ranked for studying on an iPad, is in `Docs/Obsidian-mobile-gaps.md`. The defects it found in existing features are fixed (see above). The main remaining items:
 

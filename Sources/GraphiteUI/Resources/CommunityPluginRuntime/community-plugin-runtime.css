@@ -1,0 +1,196 @@
+/* The plugin panel's look. Obsidian plugins style themselves with Obsidian's CSS variables
+   and class names, so those are defined here, in Graphite's colors and Apple's system font. */
+
+:root {
+    color-scheme: light dark;
+    -webkit-text-size-adjust: 100%;
+}
+
+body {
+    --font-interface: -apple-system, system-ui, sans-serif;
+    --font-text: -apple-system, system-ui, sans-serif;
+    --font-monospace: ui-monospace, "SF Mono", Menlo, monospace;
+    --font-ui-smaller: 12px;
+    --font-ui-small: 13px;
+    --font-ui-medium: 15px;
+    --font-ui-large: 20px;
+    --font-text-size: 16px;
+    --font-normal: 400;
+    --font-medium: 500;
+    --font-semibold: 600;
+    --font-bold: 700;
+    --size-2-1: 2px; --size-2-2: 4px; --size-2-3: 6px;
+    --size-4-1: 4px; --size-4-2: 8px; --size-4-3: 12px; --size-4-4: 16px; --size-4-5: 20px; --size-4-6: 24px; --size-4-8: 32px; --size-4-9: 36px; --size-4-12: 48px;
+    --radius-s: 4px; --radius-m: 8px; --radius-l: 12px; --radius-xl: 16px;
+    --border-width: 1px;
+    --icon-size: 18px; --icon-xs: 14px; --icon-s: 16px; --icon-m: 18px; --icon-l: 18px;
+    --icon-stroke: 1.75px;
+    --toggle-width: 44px; --toggle-thumb-height: 22px; --toggle-thumb-width: 22px; --toggle-radius: 18px;
+    --input-height: 34px;
+    --line-height-normal: 1.5;
+    --line-height-tight: 1.3;
+    --accent-h: 211; --accent-s: 100%; --accent-l: 50%;
+    --color-red: #ff3b30; --color-orange: #ff9500; --color-yellow: #ffcc00; --color-green: #34c759;
+    --color-cyan: #32ade6; --color-blue: #007aff; --color-purple: #af52de; --color-pink: #ff2d55;
+    --color-accent: hsl(var(--accent-h), var(--accent-s), var(--accent-l));
+    --text-error: var(--color-red);
+    --text-warning: var(--color-orange);
+    --text-success: var(--color-green);
+    font-family: var(--font-interface);
+    font-size: var(--font-ui-medium);
+    line-height: var(--line-height-normal);
+    margin: 0;
+}
+
+body.theme-light {
+    --background-primary: #ffffff;
+    --background-primary-alt: #f6f6f8;
+    --background-secondary: #f2f2f7;
+    --background-secondary-alt: #e9e9ee;
+    --background-modifier-border: #d9d9de;
+    --background-modifier-border-hover: #c7c7cc;
+    --background-modifier-hover: rgba(0, 0, 0, 0.05);
+    --background-modifier-active-hover: rgba(0, 122, 255, 0.12);
+    --background-modifier-form-field: #ffffff;
+    --background-modifier-error: rgba(255, 59, 48, 0.12);
+    --background-modifier-success: rgba(52, 199, 89, 0.12);
+    --background-modifier-cover: rgba(0, 0, 0, 0.3);
+    --text-normal: #1c1c1e;
+    --text-muted: #6c6c70;
+    --text-faint: #aeaeb2;
+    --text-on-accent: #ffffff;
+    --text-accent: var(--color-accent);
+    --text-selection: rgba(0, 122, 255, 0.2);
+    --interactive-normal: #f2f2f7;
+    --interactive-hover: #e5e5ea;
+    --interactive-accent: var(--color-accent);
+    --interactive-accent-hover: hsl(var(--accent-h), var(--accent-s), calc(var(--accent-l) - 6%));
+    --code-background: #f2f2f7;
+    --code-normal: #1c1c1e;
+}
+
+body.theme-dark {
+    --background-primary: #1c1c1e;
+    --background-primary-alt: #232325;
+    --background-secondary: #2c2c2e;
+    --background-secondary-alt: #3a3a3c;
+    --background-modifier-border: #3a3a3c;
+    --background-modifier-border-hover: #48484a;
+    --background-modifier-hover: rgba(255, 255, 255, 0.06);
+    --background-modifier-active-hover: rgba(10, 132, 255, 0.2);
+    --background-modifier-form-field: #2c2c2e;
+    --background-modifier-error: rgba(255, 69, 58, 0.2);
+    --background-modifier-success: rgba(48, 209, 88, 0.2);
+    --background-modifier-cover: rgba(0, 0, 0, 0.5);
+    --text-normal: #f2f2f7;
+    --text-muted: #aeaeb2;
+    --text-faint: #636366;
+    --text-on-accent: #ffffff;
+    --text-accent: var(--color-accent);
+    --text-selection: rgba(10, 132, 255, 0.3);
+    --interactive-normal: #2c2c2e;
+    --interactive-hover: #3a3a3c;
+    --interactive-accent: var(--color-accent);
+    --interactive-accent-hover: hsl(var(--accent-h), var(--accent-s), calc(var(--accent-l) + 6%));
+    --code-background: #2c2c2e;
+    --code-normal: #f2f2f7;
+}
+
+body { background: var(--background-primary); color: var(--text-normal); }
+a { color: var(--text-accent); }
+.app-container { min-height: 100vh; }
+.graphite-plugin-surface { padding: var(--size-4-4); padding-bottom: calc(var(--size-4-8) + env(safe-area-inset-bottom)); }
+
+/* Icons */
+.svg-icon { width: var(--icon-size); height: var(--icon-size); stroke-width: var(--icon-stroke); vertical-align: middle; }
+.clickable-icon { display: inline-flex; align-items: center; justify-content: center; padding: var(--size-2-2) var(--size-2-3); border-radius: var(--radius-s); color: var(--text-muted); cursor: pointer; }
+.clickable-icon:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+.clickable-icon.is-disabled { opacity: 0.4; pointer-events: none; }
+
+/* Form controls */
+input[type="text"], input[type="search"], input[type="password"], input[type="number"], input[type="email"], input[type="url"], textarea, select {
+    font: inherit; font-size: var(--font-ui-small); color: var(--text-normal); background: var(--background-modifier-form-field);
+    border: var(--border-width) solid var(--background-modifier-border); border-radius: var(--radius-m); padding: 6px 10px; min-height: var(--input-height); box-sizing: border-box;
+}
+textarea { min-height: 80px; width: 100%; }
+input:focus, textarea:focus, select:focus { outline: 2px solid var(--interactive-accent); outline-offset: -1px; }
+button {
+    font: inherit; font-size: var(--font-ui-small); font-weight: var(--font-medium); color: var(--text-normal); background: var(--interactive-normal);
+    border: none; border-radius: var(--radius-m); padding: 7px 14px; cursor: pointer; min-height: var(--input-height);
+}
+button:hover { background: var(--interactive-hover); }
+button.mod-cta { background: var(--interactive-accent); color: var(--text-on-accent); }
+button.mod-cta:hover { background: var(--interactive-accent-hover); }
+button.mod-warning, button.mod-destructive { background: var(--color-red); color: #ffffff; }
+button:disabled { opacity: 0.5; cursor: default; }
+input[type="range"] { accent-color: var(--interactive-accent); }
+.slider-value { margin-left: var(--size-4-2); color: var(--text-muted); font-size: var(--font-ui-small); }
+
+/* Toggles, as Obsidian draws them */
+.checkbox-container { position: relative; display: inline-block; width: var(--toggle-width); height: 26px; border-radius: var(--toggle-radius); background: var(--background-modifier-border); cursor: pointer; transition: background 0.15s; flex-shrink: 0; }
+.checkbox-container input { display: none; }
+.checkbox-container::after { content: ""; position: absolute; top: 2px; left: 2px; width: var(--toggle-thumb-width); height: var(--toggle-thumb-height); border-radius: 50%; background: #ffffff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); transition: transform 0.15s; }
+.checkbox-container.is-enabled { background: var(--interactive-accent); }
+.checkbox-container.is-enabled::after { transform: translateX(18px); }
+.checkbox-container.is-disabled { opacity: 0.5; pointer-events: none; }
+
+/* Settings */
+.vertical-tab-content { max-width: 760px; margin: 0 auto; }
+.setting-item { display: flex; align-items: center; gap: var(--size-4-3); padding: var(--size-4-3) 0; border-top: var(--border-width) solid var(--background-modifier-border); }
+.setting-item:first-child { border-top: none; }
+.setting-item-info { flex: 1 1 auto; min-width: 0; }
+.setting-item-name { font-size: var(--font-ui-medium); color: var(--text-normal); }
+.setting-item-description { font-size: var(--font-ui-smaller); color: var(--text-muted); padding-top: 2px; }
+.setting-item-control { display: flex; flex: 0 1 auto; align-items: center; justify-content: flex-end; gap: var(--size-4-2); flex-wrap: wrap; }
+.setting-item-heading .setting-item-name { font-weight: var(--font-semibold); font-size: var(--font-ui-medium); }
+.setting-item-heading { border-top: none; padding-top: var(--size-4-6); }
+.setting-item.is-disabled { opacity: 0.5; }
+.setting-item-error { color: var(--text-error); font-size: var(--font-ui-smaller); padding-top: 4px; }
+.setting-item.mod-clickable { cursor: pointer; }
+.setting-group { margin-bottom: var(--size-4-6); }
+.setting-group-heading { display: flex; align-items: center; justify-content: space-between; font-weight: var(--font-semibold); color: var(--text-muted); font-size: var(--font-ui-small); text-transform: none; padding: var(--size-4-2) 0; }
+.setting-group-heading-controls { display: flex; gap: var(--size-4-2); align-items: center; }
+.setting-items { background: var(--background-secondary); border-radius: var(--radius-l); padding: 0 var(--size-4-4); }
+.setting-display-value { color: var(--text-muted); font-size: var(--font-ui-small); }
+.setting-display-value.mod-warning { color: var(--text-warning); }
+.setting-page-back { margin-bottom: var(--size-4-2); gap: var(--size-2-2); }
+.setting-progress-bar { width: 160px; height: 6px; border-radius: 3px; background: var(--background-modifier-border); overflow: hidden; }
+.setting-progress-bar-inner { height: 100%; background: var(--interactive-accent); }
+.search-input-container { position: relative; display: inline-flex; align-items: center; }
+.search-input-clear-button { position: absolute; right: 6px; width: 16px; height: 16px; border-radius: 50%; background: var(--text-faint); cursor: pointer; display: none; }
+
+/* Modals: the panel is already the dialog, so a modal fills it. */
+.modal-container { position: fixed; inset: 0; z-index: 30; display: flex; align-items: flex-start; justify-content: center; }
+.modal-bg { position: absolute; inset: 0; background: var(--background-primary); }
+.modal { position: relative; width: 100%; max-width: 760px; max-height: 100%; overflow: auto; padding: var(--size-4-4); padding-bottom: calc(var(--size-4-8) + env(safe-area-inset-bottom)); box-sizing: border-box; }
+.modal-close-button { position: absolute; top: var(--size-4-3); right: var(--size-4-3); width: 28px; height: 28px; border-radius: 50%; cursor: pointer; display: none; }
+.modal-title { font-size: var(--font-ui-large); font-weight: var(--font-semibold); margin-bottom: var(--size-4-3); }
+.modal-title:empty { display: none; }
+.modal-button-container { display: flex; gap: var(--size-4-2); justify-content: flex-end; margin-top: var(--size-4-4); flex-wrap: wrap; }
+
+/* Suggestion lists (quick pickers) */
+.prompt { padding: 0; }
+.prompt-input { width: 100%; font-size: var(--font-ui-medium); border-radius: var(--radius-l); }
+.prompt-results { margin-top: var(--size-4-3); }
+.suggestion-item { padding: 10px 12px; border-radius: var(--radius-m); cursor: pointer; }
+.suggestion-item.is-selected { background: var(--background-modifier-active-hover); }
+.suggestion-highlight { color: var(--text-accent); font-weight: var(--font-semibold); }
+.suggestion-empty { color: var(--text-muted); padding: 10px 12px; }
+.prompt-instructions { display: flex; gap: var(--size-4-4); color: var(--text-muted); font-size: var(--font-ui-smaller); padding-top: var(--size-4-3); }
+.prompt-instruction-command { font-weight: var(--font-semibold); margin-right: 4px; }
+.suggestion-container { position: fixed; z-index: 40; background: var(--background-primary); border: var(--border-width) solid var(--background-modifier-border); border-radius: var(--radius-m); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18); max-height: 300px; overflow: auto; }
+
+/* Plugin views */
+.workspace-leaf, .workspace-leaf-content { height: 100%; }
+.view-header { display: flex; align-items: center; justify-content: space-between; padding-bottom: var(--size-4-2); }
+.view-header-title { display: none; }
+.view-actions { display: flex; gap: var(--size-2-2); margin-left: auto; }
+.view-content { overflow: auto; }
+
+/* Rendered Markdown in plugin views */
+.markdown-rendered, .markdown-preview-view { font-family: var(--font-text); font-size: var(--font-text-size); }
+code { font-family: var(--font-monospace); background: var(--code-background); border-radius: var(--radius-s); padding: 0.1em 0.3em; font-size: 0.9em; }
+pre code { display: block; padding: var(--size-4-3); overflow: auto; }
+.internal-link { color: var(--text-accent); text-decoration: none; }
+.internal-link.is-unresolved { opacity: 0.6; }
+.graphite-plugin-error { color: var(--text-error); white-space: pre-wrap; }

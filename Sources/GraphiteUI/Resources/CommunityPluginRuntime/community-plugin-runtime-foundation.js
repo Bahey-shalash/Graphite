@@ -202,7 +202,7 @@
     function frontmatterValue(frontmatter, keyPattern) {
         if (!frontmatter) return null;
         for (const key of Object.keys(frontmatter)) {
-            const matches = keyPattern instanceof RegExp ? keyPattern.test(key) : key === keyPattern;
+            const matches = keyPattern && typeof keyPattern.test === 'function' ? keyPattern.test(key) : key === keyPattern;
             if (matches && frontmatter[key] !== null && frontmatter[key] !== undefined) return frontmatter[key];
         }
         return null;
@@ -532,9 +532,10 @@
             }
             return result;
         })();
-        responsePromise.arrayBuffer = responsePromise.then((response) => response.arrayBuffer);
-        responsePromise.json = responsePromise.then((response) => response.json);
-        responsePromise.text = responsePromise.then((response) => response.text);
+        // Made when asked for, so a failed request rejects only the promises a plugin holds.
+        for (const propertyName of ['arrayBuffer', 'json', 'text']) {
+            Object.defineProperty(responsePromise, propertyName, { get: () => responsePromise.then((response) => response[propertyName]) });
+        }
         return responsePromise;
     }
 

@@ -270,7 +270,8 @@ public struct CommunityPluginVaultBridge: Sendable {
         case "vaultSetting": method = await deletionMethod()
         default: throw BridgeFailure(kind: "invalidData", message: "Unknown way to remove a file: “\(request.method)”.")
         }
-        switch try await store.delete(path, method: method) {
+        let outcome = try await store.delete(path, method: method)
+        switch outcome {
         case .movedToSystemTrash: return ["outcome": "systemTrash"]
         case .movedToVaultTrash(let trashPath): return ["outcome": "vaultTrash", "trashPath": trashPath.rawValue]
         case .deleted: return ["outcome": "deleted"]

@@ -1,6 +1,6 @@
 # Premium experience implementation plan
 
-This plan follows `OBJECTIVE.md`. It tracks the work toward a polished daily study application, not a claim that Graphite has reached Goodnotes or Obsidian parity. Community plugin installation, integrations, and runtime implementation remain deferred.
+This plan follows `OBJECTIVE.md`. It tracks the work toward a polished daily study application, not a claim that Graphite has reached Goodnotes or Obsidian parity. Community plugin installation and the runtime began on 2026-10-10, at the owner's request; see `Community-plugins.md`.
 
 ## Immediate priorities: images, paper, and Pencil interaction
 
@@ -173,6 +173,6 @@ Completion evidence: agreed feature scope, device interaction checks, undo behav
 
 Use `Obsidian-mobile-gaps.md` and a real course vault to prioritize remaining editor, table, Canvas, navigation, and settings gaps. Update `Coverage.md` as behavior is implemented and verified.
 
-## Future: existing Obsidian plugin execution
+## Started: existing Obsidian plugin execution
 
-After the premium experience work, investigate running existing packages from Obsidian's community directory, GitHub, and other sources without Graphite-specific versions. Preserve settings and file formats, document supported APIs and unsupported dependencies, and protect native input responsiveness. Universal compatibility is not yet validated.
+Begun on 2026-10-10, at the owner's request, ahead of the order above. `Community-plugins.md` describes the runtime (a web view running Graphite's `obsidian` module), installation from Obsidian's directory and GitHub, what six real plugins do in it, what is reported as unsupported, and the order of the remaining work: running it on a device first, then plugins' code blocks in the reading view, context menus, typing suggestions, and plugin views as tabs and panels. Universal compatibility is not yet validated.

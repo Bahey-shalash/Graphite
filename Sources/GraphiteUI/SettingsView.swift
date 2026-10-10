@@ -11,8 +11,10 @@ struct SettingsView: View {
     @State private var vaultSettingsChanges = VaultSettingsChanges()
 
     enum SettingsPage: Hashable {
-        case general, editor, filesAndLinks, appearance, corePlugins
+        case general, editor, filesAndLinks, appearance, corePlugins, communityPlugins
         case plugin(CorePlugin)
+        /// A community plugin's own settings tab, by plugin identifier.
+        case communityPlugin(String)
     }
 
     /// Plugins that have options of their own, like Obsidian's plugin tabs.
@@ -27,12 +29,22 @@ struct SettingsView: View {
                     Label("Files and links", systemImage: "folder").tag(SettingsPage.filesAndLinks)
                     Label("Appearance", systemImage: "paintbrush").tag(SettingsPage.appearance)
                     Label("Core plugins", systemImage: "puzzlepiece.extension").tag(SettingsPage.corePlugins)
+                    Label("Community plugins", systemImage: "puzzlepiece").tag(SettingsPage.communityPlugins)
                 }
                 let enabledConfigurablePlugins = Self.configurablePlugins.filter(workspace.preferences.isEnabled)
                 if !enabledConfigurablePlugins.isEmpty {
                     Section("Core plugins") {
                         ForEach(enabledConfigurablePlugins) { plugin in
                             Label(plugin.title, systemImage: plugin.systemImage).tag(SettingsPage.plugin(plugin))
+                        }
+                    }
+                }
+                let communityPlugins = workspace.communityPlugins
+                let configurableCommunityPlugins = communityPlugins.inventory.plugins.filter { plugin in communityPlugins.pluginsWithSettings.contains(plugin.id) }
+                if !configurableCommunityPlugins.isEmpty {
+                    Section("Community plugins") {
+                        ForEach(configurableCommunityPlugins) { plugin in
+                            Label(plugin.manifest.name, systemImage: "puzzlepiece.extension").tag(SettingsPage.communityPlugin(plugin.id))
                         }
                     }
                 }
@@ -56,6 +68,15 @@ struct SettingsView: View {
         .alert("Graphite", isPresented: Binding(get: { workspace.errorMessage != nil }, set: { isPresented in if !isPresented { workspace.errorMessage = nil } })) {
             Button("OK", role: .cancel) {}
         } message: { Text(workspace.errorMessage ?? "") }
+        // A plugin asked to show settings (`app.setting.open` or `openTabById`).
+        .onAppear { showRequestedCommunityPluginSettings() }
+        .onChange(of: workspace.communityPlugins.requestedSettingsPlugin) { showRequestedCommunityPluginSettings() }
+    }
+
+    private func showRequestedCommunityPluginSettings() {
+        guard let requestedPlugin = workspace.communityPlugins.requestedSettingsPlugin else { return }
+        workspace.communityPlugins.requestedSettingsPlugin = nil
+        selectedPage = requestedPlugin.isEmpty ? .communityPlugins : .communityPlugin(requestedPlugin)
     }
 
     @ViewBuilder private var page: some View {
@@ -65,6 +86,8 @@ struct SettingsView: View {
         case .filesAndLinks: FilesAndLinksSettingsPage(workspace: workspace, vaultSettingsChanges: vaultSettingsChanges)
         case .appearance: AppearanceSettingsPage(preferences: workspace.preferences)
         case .corePlugins: CorePluginsSettingsPage(preferences: workspace.preferences)
+        case .communityPlugins: CommunityPluginsSettingsPage(workspace: workspace) { pluginIdentifier in selectedPage = .communityPlugin(pluginIdentifier) }
+        case .communityPlugin(let pluginIdentifier): CommunityPluginOptionsPage(host: workspace.communityPlugins, pluginIdentifier: pluginIdentifier)
         case .plugin(.colors): ColorsSettingsPage(preferences: workspace.preferences)
         case .plugin(.drawings): DrawingsSettingsPage(preferences: workspace.preferences)
         case .plugin(.audioRecorder): AudioRecorderSettingsPage(preferences: workspace.preferences)

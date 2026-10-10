@@ -24,7 +24,10 @@ let package = Package(
         ]),
         .target(name: "GraphiteIndex", dependencies: ["GraphiteCore", .product(name: "GRDB", package: "GRDB.swift")]),
         .target(name: "GraphiteApple", dependencies: ["GraphiteCore"]),
-        .target(name: "GraphiteUI", dependencies: ["GraphiteCore", "GraphiteIndex", "GraphiteApple", .product(name: "Textual", package: "textual")]),
+        .target(name: "GraphiteUI", dependencies: ["GraphiteCore", "GraphiteIndex", "GraphiteApple", .product(name: "Textual", package: "textual")],
+                // The Obsidian plugin runtime's page, scripts and vendored libraries, copied as
+                // one folder so the page's relative script paths keep working.
+                resources: [.copy("Resources/CommunityPluginRuntime")]),
         .executableTarget(name: "GraphiteBenchmarks", dependencies: ["GraphiteCore", "GraphiteIndex"]),
         .testTarget(name: "GraphiteCoreTests", dependencies: ["GraphiteCore"]),
         .testTarget(name: "GraphiteIndexTests", dependencies: ["GraphiteIndex", "GraphiteBenchmarks"]),
