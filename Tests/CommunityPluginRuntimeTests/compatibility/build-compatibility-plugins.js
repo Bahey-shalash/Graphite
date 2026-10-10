@@ -4,6 +4,9 @@
 // and its own build runs; `main.js`, `manifest.json` and `styles.css` are then copied to
 // `compatibility/built/<plugin id>/`. Nothing built is committed.
 //
+// A plugin's entry in compatibility-plugins.json can list `filesBeforeBuilding`, files its
+// README asks a developer to create before building (name → contents).
+//
 // Usage: node compatibility/build-compatibility-plugins.js [cache folder]
 'use strict';
 
@@ -13,20 +16,23 @@ const os = require('node:os');
 const { execFileSync } = require('node:child_process');
 
 const compatibilityPlugins = require('./compatibility-plugins.json');
-const cacheFolder = path.resolve(process.argv[2] || path.join(os.tmpdir(), 'graphite-compatibility-plugin-sources'));
+const requestedCacheFolder = path.resolve(process.argv[2] || path.join(os.tmpdir(), 'graphite-compatibility-plugin-sources'));
 const builtFolder = path.join(__dirname, 'built');
 
 function run(command, commandArguments, workingFolder) {
     return execFileSync(command, commandArguments, { cwd: workingFolder, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 15 * 60 * 1000 });
 }
 
-/// Installs with the plugin's own package manager; when that cannot reach its registry
-/// (yarn's and pnpm's lockfiles name their own hosts), npm resolves the same dependency
-/// ranges from package.json instead.
+/// Installs with the plugin's own package manager and lockfile, so the build uses the
+/// versions its author built with: newer releases within package.json's ranges can break an
+/// old build (picomatch 2.3.2 no longer reads the pattern Rollup's TypeScript plugin 8 uses to
+/// find source files). When that fails (yarn's and pnpm's lockfiles name their own hosts),
+/// npm resolves the dependency ranges from package.json instead.
 function installDependencies(sourceFolder) {
     try {
         if (fileSystem.existsSync(path.join(sourceFolder, 'pnpm-lock.yaml'))) { run('npx', ['--yes', 'pnpm@10', 'install', '--no-frozen-lockfile'], sourceFolder); return; }
         if (fileSystem.existsSync(path.join(sourceFolder, 'yarn.lock'))) { run('npx', ['--yes', 'yarn@1', 'install', '--ignore-engines'], sourceFolder); return; }
+        if (fileSystem.existsSync(path.join(sourceFolder, 'package-lock.json'))) { run('npm', ['ci', '--no-audit', '--no-fund', '--legacy-peer-deps'], sourceFolder); return; }
     } catch (error) {
         console.warn('  the plugin\'s package manager failed; installing with npm from package.json');
     }
@@ -63,7 +69,12 @@ function isAlreadyBuilt(plugin) {
     });
 }
 
-fileSystem.mkdirSync(cacheFolder, { recursive: true });
+fileSystem.mkdirSync(requestedCacheFolder, { recursive: true });
+// Plugins build in the folder's real path. macOS's temporary folder is behind a symbolic link
+// (/var is /private/var), and Rollup's TypeScript plugin, which matches source files against
+// the working folder's path, would then skip every one of them. A cache folder whose path has
+// a hidden component (`~/.cache`) fails the same way, so the default is the temporary folder.
+const cacheFolder = fileSystem.realpathSync(requestedCacheFolder);
 fileSystem.mkdirSync(builtFolder, { recursive: true });
 const report = [];
 for (const plugin of compatibilityPlugins) {
@@ -81,6 +92,9 @@ for (const plugin of compatibilityPlugins) {
         run('git', ['fetch', '--quiet', '--depth', '1', 'origin', plugin.commit], sourceFolder);
         run('git', ['checkout', '--quiet', plugin.commit], sourceFolder);
         installDependencies(sourceFolder);
+        for (const [fileName, contents] of Object.entries(plugin.filesBeforeBuilding || {})) {
+            fileSystem.writeFileSync(path.join(sourceFolder, fileName), contents);
+        }
         build(sourceFolder, plugin);
         const mainScript = findBuiltFile(sourceFolder, plugin, 'main.js');
         const manifestFile = findBuiltFile(sourceFolder, plugin, 'manifest.json') || path.join(sourceFolder, 'manifest.json');

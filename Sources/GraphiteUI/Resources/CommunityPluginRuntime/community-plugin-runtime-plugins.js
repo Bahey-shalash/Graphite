@@ -268,9 +268,9 @@
             return item.element;
         }
 
-        /// Obsidian mobile has no status bar, so the item exists but is not shown.
+        /// Obsidian mobile does not show its status bar, so the item exists but is not shown.
         addStatusBarItem() {
-            const element = createDiv({ cls: 'status-bar-item plugin-' + this.manifest.id.replace(/[^A-Za-z0-9_-]/g, '-') });
+            const element = this.app.statusBar.containerEl.createDiv({ cls: 'status-bar-item plugin-' + this.manifest.id.replace(/[^A-Za-z0-9_-]/g, '-') });
             this.register(() => element.detach());
             return element;
         }
@@ -604,6 +604,9 @@
             this.secretStorage = new exportedApi.SecretStorage();
             this.metadataTypeManager = new MetadataTypeManager(this);
             this.embedRegistry = makeEmbedRegistry();
+            // Obsidian's status bar, which its mobile app keeps hidden. Plugins that reach for it
+            // (Commander adds its buttons there) get an element that is never shown.
+            this.statusBar = { containerEl: createDiv({ cls: 'status-bar' }) };
             this.lastEvent = null;
             this.isMobile = true;
             this.appId = '';
@@ -611,6 +614,7 @@
                 open: () => hostBridge.notify('settings.open', { pluginIdentifier: null }),
                 openTabById: (tabIdentifier) => hostBridge.notify('settings.open', { pluginIdentifier: tabIdentifier }),
                 close: () => runtime.pluginSurface.handleClosedByPerson(),
+                closeActiveTab: () => runtime.pluginSurface.handleClosedByPerson(),
             };
         }
         loadLocalStorage(key) {

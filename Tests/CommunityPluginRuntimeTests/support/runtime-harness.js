@@ -46,6 +46,8 @@ async function startRuntime(options) {
     if (!window.TextDecoder) window.TextDecoder = TextDecoder;
     if (!window.CSS) window.CSS = {};
     if (!window.CSS.escape) window.CSS.escape = (value) => String(value).replace(/[^a-zA-Z0-9_-]/g, (character) => '\\' + character);
+    // WebKit scrolls an element into view; jsdom has no layout and no such method.
+    if (!window.Element.prototype.scrollIntoView) window.Element.prototype.scrollIntoView = () => {};
     const consoleMessages = [];
     for (const level of ['log', 'info', 'warn', 'error', 'debug']) {
         window.console[level] = (...messageParts) => consoleMessages.push({ level, text: messageParts.map((part) => (part && part.stack) || String(part)).join(' ') });

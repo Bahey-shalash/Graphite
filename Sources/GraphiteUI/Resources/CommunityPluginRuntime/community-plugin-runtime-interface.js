@@ -215,9 +215,19 @@
         showSettingTab(settingTab, title) {
             this.clearShownContent();
             this.shownSettingTab = settingTab;
+            this.addSettingsHeader();
             this.hostElement().appendChild(settingTab.containerEl);
             this.drawSettingTab(settingTab);
             this.present(title);
+        },
+        /// Obsidian mobile's settings header, with its back button and title, which some plugins
+        /// look up (Commander gives the back button its own pages). Graphite's settings have
+        /// their own navigation, so the header stays hidden.
+        addSettingsHeader() {
+            if (globalScope.document.querySelector('.modal-setting-nav-bar')) return;
+            const header = this.hostElement().createDiv({ cls: 'modal-setting-nav-bar' });
+            header.createDiv({ cls: 'clickable-icon modal-setting-back-button' });
+            header.createDiv({ cls: 'modal-setting-title' });
         },
         /// From its definitions (Obsidian 1.13) when it has them, otherwise by `display()`.
         drawSettingTab(settingTab) {

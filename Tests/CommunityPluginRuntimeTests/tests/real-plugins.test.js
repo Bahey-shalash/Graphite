@@ -224,3 +224,129 @@ test('Kanban: refused at load, because it borrows Obsidian\'s CodeMirror note ed
         harness.close();
     }
 });
+
+/// The text the plugin panel shows, with runs of white space as one space.
+function surfaceText(harness) {
+    return harness.window.document.querySelector('.graphite-plugin-surface').textContent.replace(/\s+/g, ' ');
+}
+
+test('Recent Files: lists the notes opened in Graphite in its view and keeps them in data.json', { skip: !builtPlugin('recent-files-obsidian') }, async () => {
+    const { harness, answer, commandNames, unsupported, pageErrors } = await loadInStudyVault('recent-files-obsidian');
+    try {
+        assert.deepEqual(answer, { isLoaded: true });
+        assert.deepEqual(commandNames, ['Recent Files: Open']);
+        assert.deepEqual(unsupported, []);
+        assert.deepEqual(pageErrors, []);
+        assert.deepEqual(await settingRowCount(harness, 'recent-files-obsidian'), { hasSettingTab: true, count: 5 });
+        await harness.send({ operation: 'workspace.activeDocument', activeDocument: { path: 'Other.md', mode: 'livePreview', editorSnapshot: harness.host.openNote('Other.md', 0) } });
+        await settle();
+        assert.deepEqual(plain(await harness.send({ operation: 'command.run', commandIdentifier: 'recent-files-obsidian:recent-files-open' })), { outcome: 'ran' });
+        await settle();
+        const views = plain(harness.host.notificationsOf('views.changed').at(-1).views);
+        assert.deepEqual(views.map((view) => view.title), ['Recent files']);
+        assert.match(surfaceText(harness), /Recent files.*Other/);
+        const recentFiles = JSON.parse(harness.readVaultFile('.obsidian/plugins/recent-files-obsidian/data.json')).recentFiles;
+        assert.ok(recentFiles.some((file) => file.path === 'Other.md'), 'the opened note is kept in the plugin\'s data.json');
+    } finally {
+        harness.close();
+    }
+});
+
+test('Style Settings: loads and says no theme or snippet offers settings', { skip: !builtPlugin('obsidian-style-settings') }, async () => {
+    const { harness, answer, commandNames, unsupported, pageErrors } = await loadInStudyVault('obsidian-style-settings');
+    try {
+        assert.deepEqual(answer, { isLoaded: true });
+        assert.deepEqual(commandNames, ['Style Settings: Show style settings view']);
+        assert.deepEqual(unsupported, []);
+        assert.deepEqual(pageErrors, []);
+        await harness.send({ operation: 'settings.show', pluginIdentifier: 'obsidian-style-settings' });
+        await settle();
+        assert.match(surfaceText(harness), /No style settings found/);
+    } finally {
+        harness.close();
+    }
+});
+
+test('Homepage: loads, adds its commands and ribbon button, draws its settings', { skip: !builtPlugin('homepage') }, async () => {
+    const { harness, answer, commandNames, unsupported, pageErrors } = await loadInStudyVault('homepage');
+    try {
+        assert.deepEqual(answer, { isLoaded: true });
+        assert.deepEqual(commandNames, ['Homepage: Copy debug info', 'Homepage: Open homepage', 'Homepage: Set to active file']);
+        assert.deepEqual(unsupported, ['Command-line handlers']);
+        assert.deepEqual(pageErrors, []);
+        assert.deepEqual(plain(harness.host.notificationsOf('ribbon.changed').at(-1).items.map((item) => item.title)), ['Open homepage']);
+        const settings = await settingRowCount(harness, 'homepage');
+        assert.equal(settings.hasSettingTab, true);
+        assert.ok(settings.count >= 10, 'Homepage\'s settings are drawn (' + settings.count + ' rows)');
+    } finally {
+        harness.close();
+    }
+});
+
+test('Calendar: opens its view with the current month', { skip: !builtPlugin('calendar') }, async () => {
+    const { harness, answer, commandNames, unsupported, pageErrors } = await loadInStudyVault('calendar');
+    try {
+        assert.deepEqual(answer, { isLoaded: true });
+        assert.deepEqual(commandNames, ['Calendar: Open view', 'Calendar: Open Weekly Note', 'Calendar: Reveal active note']);
+        assert.deepEqual(unsupported, []);
+        assert.deepEqual(pageErrors, []);
+        assert.deepEqual(await settingRowCount(harness, 'calendar'), { hasSettingTab: true, count: 5 });
+        const views = plain(harness.host.notificationsOf('views.changed').at(-1).views);
+        assert.deepEqual(views.map((view) => view.title), ['Calendar']);
+        assert.deepEqual(plain(await harness.send({ operation: 'view.show', leafIdentifier: views[0].leafIdentifier })), { isShown: true });
+        await settle();
+        assert.ok(surfaceText(harness).includes(harness.window.moment().format('MMM YYYY')), 'the month grid shows the current month');
+    } finally {
+        harness.close();
+    }
+});
+
+test('Advanced Tables: formats the table at the cursor through the editor change; its editor extensions do not run', { skip: !builtPlugin('table-editor-obsidian') }, async () => {
+    const { harness, answer, commandNames, unsupported, pageErrors } = await loadInStudyVault('table-editor-obsidian');
+    try {
+        assert.deepEqual(answer, { isLoaded: true });
+        assert.equal(commandNames.length, 22);
+        assert.ok(commandNames.includes('Advanced Tables: Format table at the cursor'));
+        assert.deepEqual(unsupported, ['CodeMirror editor extensions']);
+        assert.deepEqual(pageErrors, []);
+        assert.deepEqual(await settingRowCount(harness, 'table-editor-obsidian'), { hasSettingTab: true, count: 4 });
+        harness.writeVaultFile('Table.md', '| a | bb |\n|-|-|\n| 1 | 22222 |\n');
+        const outcome = plain(await harness.send({ operation: 'command.run', commandIdentifier: 'table-editor-obsidian:format-table', activeDocument: { path: 'Table.md', mode: 'livePreview', editorSnapshot: harness.host.openNote('Table.md', 2) } }));
+        assert.deepEqual(outcome, { outcome: 'ran' });
+        await settle();
+        assert.equal(harness.host.editorSessions.get('Table.md').text, '| a   | bb    |\n| --- | ----- |\n| 1   | 22222 |\n');
+    } finally {
+        harness.close();
+    }
+});
+
+test('Commander: loads and draws its settings pages, with Obsidian\'s hidden status bar and settings header', { skip: !builtPlugin('cmdr') }, async () => {
+    const { harness, answer, commandNames, unsupported, pageErrors } = await loadInStudyVault('cmdr');
+    try {
+        assert.deepEqual(answer, { isLoaded: true });
+        assert.deepEqual(commandNames, ['Commander: Open Commander Settings']);
+        assert.deepEqual(unsupported, []);
+        assert.deepEqual(pageErrors, []);
+        await harness.send({ operation: 'settings.show', pluginIdentifier: 'cmdr' });
+        await settle();
+        assert.match(surfaceText(harness), /General.*Ribbon.*Mobile Toolbar.*Macros/);
+        assert.deepEqual(plain(harness.host.notificationsOf('plugin.failure')), []);
+    } finally {
+        harness.close();
+    }
+});
+
+test('Iconize: loads and draws its settings; its icons in notes need reading view and editor changes', { skip: !builtPlugin('obsidian-icon-folder') }, async () => {
+    const { harness, answer, commandNames, unsupported, pageErrors } = await loadInStudyVault('obsidian-icon-folder');
+    try {
+        assert.deepEqual(answer, { isLoaded: true });
+        assert.deepEqual(commandNames, ['Iconize: Set icon for file']);
+        assert.deepEqual(unsupported, ['Changing how notes look in reading view', 'Suggestions while typing in a note', 'CodeMirror editor extensions']);
+        assert.deepEqual(pageErrors, []);
+        const settings = await settingRowCount(harness, 'obsidian-icon-folder');
+        assert.equal(settings.hasSettingTab, true);
+        assert.ok(settings.count >= 15, 'Iconize\'s settings are drawn (' + settings.count + ' rows)');
+    } finally {
+        harness.close();
+    }
+});

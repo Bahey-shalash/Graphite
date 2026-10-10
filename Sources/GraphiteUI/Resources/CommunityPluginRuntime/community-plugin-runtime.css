@@ -184,6 +184,7 @@ input[type="range"] { accent-color: var(--interactive-accent); }
 .workspace-leaf, .workspace-leaf-content { height: 100%; }
 .view-header { display: flex; align-items: center; justify-content: space-between; padding-bottom: var(--size-4-2); }
 .view-header-title { display: none; }
+.modal-setting-nav-bar { display: none; }
 .view-actions { display: flex; gap: var(--size-2-2); margin-left: auto; }
 .view-content { overflow: auto; }
 
