@@ -15,7 +15,7 @@ Checked: the change was written in a Linux container without Xcode, then built a
 - `testPencilDoubleTapInTheDrawingEditorKeepsItOpenWithItsStrokes` presents the drawing editor over the note as `GraphiteRootView` does, opens it with the note's double-tap handler, draws a stroke, then gives the note the double-tap and squeeze again, as UIKit does. The request, the presented editor and the stroke stay. With the fixed bar (regular width only), the bar's receiver switches to the eraser and the editor stays. A drawing embedded in the note opens as itself and keeps a stroke added to it. The test first checks that the note is still in the window under the editor, which is what the cause depends on.
 - `testANoteLeavesPencilGesturesToAScreenOverItAndNeverReplacesAnOpenDrawing`: with a screen presented over the note, the handlers start nothing; while a drawing is requested but its editor is not on screen yet, a double-tap does not replace it; with neither, the double-tap starts a drawing.
 
-Not verified: everything with a real Apple Pencil on a device, that is, that the editor stays open and that the double-tap does what Settings › Apple Pencil asks, with each layout and with an embedded drawing.
+Checked by the owner on their iPad Pro 11-inch (3rd generation), iPadOS 27.0, with a Release build of this change and the fixed bar: a double-tap of Apple Pencil while drawing in a note's drawing no longer closes it and opens it again; a Debug build made the same day before the change still did. Not verified on the device: the floating palette, and that the double-tap does what Settings › Apple Pencil asks with each layout.
 
 ## A quieter interface and a phone layout: 2026-10-06
 
