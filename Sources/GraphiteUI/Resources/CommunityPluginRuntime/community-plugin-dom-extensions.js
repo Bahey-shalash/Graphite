@@ -334,8 +334,15 @@
     defineMissing(globalScope, 'fish', function fish(selector) { return globalScope.document.querySelector(selector); });
     defineMissing(globalScope, 'fishAll', function fishAll(selector) { return Array.from(globalScope.document.querySelectorAll(selector)); });
     defineMissing(globalScope, 'sleep', function sleep(milliseconds) { return new Promise((resolve) => globalScope.setTimeout(resolve, milliseconds)); });
+    // WebKit draws no frames for a web view that is not on screen, which the plugin panel
+    // usually is not, so a frame that does not come within 50 ms is not waited for.
     defineMissing(globalScope, 'nextFrame', function nextFrame() {
-        return new Promise((resolve) => (globalScope.requestAnimationFrame || ((callback) => globalScope.setTimeout(callback, 16)))(() => resolve()));
+        return new Promise((resolve) => {
+            let isResolved = false;
+            const finish = () => { if (!isResolved) { isResolved = true; resolve(); } };
+            if (globalScope.requestAnimationFrame) globalScope.requestAnimationFrame(finish);
+            globalScope.setTimeout(finish, 50);
+        });
     });
     defineMissing(globalScope, 'ready', function ready(callback) {
         if (globalScope.document.readyState !== 'loading') callback();
