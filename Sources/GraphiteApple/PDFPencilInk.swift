@@ -7,6 +7,13 @@ import GraphiteCore
 /// Identifies a PencilKit stroke's visible state without comparing its points. A stroke
 /// the lasso moved, recolored or resized, or the pixel eraser cut, gets a new fingerprint.
 ///
+/// A stroke keeps its fingerprint through the page's stored drawing record, which undo
+/// relies on after a page's canvas is made again. PencilKit stores a stroke's color and
+/// transform as 32-bit numbers, so a stroke in a color made from a hex value, or one the
+/// lasso moved, reads back a little different from the stroke drawn; the fingerprint
+/// keeps those numbers at the stored precision. Point locations and the creation date
+/// read back as they were.
+///
 /// Built for every stroke of the page on every change, so it stores only values and
 /// references, never arrays.
 struct PDFStrokeFingerprint: Hashable {
@@ -32,12 +39,21 @@ struct PDFStrokeFingerprint: Hashable {
         pointCount = stroke.path.count
         firstLocation = stroke.path.first?.location ?? .zero
         lastLocation = stroke.path.last?.location ?? .zero
-        transform = stroke.transform
+        let strokeTransform = stroke.transform
+        transform = CGAffineTransform(a: Self.atStoredPrecision(strokeTransform.a), b: Self.atStoredPrecision(strokeTransform.b),
+                                      c: Self.atStoredPrecision(strokeTransform.c), d: Self.atStoredPrecision(strokeTransform.d),
+                                      tx: Self.atStoredPrecision(strokeTransform.tx), ty: Self.atStoredPrecision(strokeTransform.ty))
         maskPath = stroke.mask?.cgPath
         inkType = stroke.ink.inkType
         var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
         stroke.ink.color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
-        self.red = red; self.green = green; self.blue = blue; self.alpha = alpha
+        self.red = Self.atStoredPrecision(red); self.green = Self.atStoredPrecision(green)
+        self.blue = Self.atStoredPrecision(blue); self.alpha = Self.atStoredPrecision(alpha)
+    }
+
+    /// A number as PencilKit's stored drawing gives it back.
+    private static func atStoredPrecision(_ number: CGFloat) -> CGFloat {
+        CGFloat(Float(number))
     }
 
     static func == (leftFingerprint: Self, rightFingerprint: Self) -> Bool {

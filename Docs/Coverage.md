@@ -4,6 +4,19 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-10.
 
+## PDF ink undo after the page's ink is read back: 2026-10-10
+
+Reported by the owner on their iPad: Undo on a PDF page answered "The ink on this page changed in a way this step does not know, so it was not undone." Cause, found by experiment in the iPad simulator: PencilKit stores a stroke's color and transform as 32-bit numbers. A stroke in a color made from a hex value, as the fixed bar's colors are, or a stroke the lasso moved, reads back from the page's stored drawing a little different from the stroke drawn (a red component of 0.8313725490 reads back as 0.8313725590), and `PDFStrokeFingerprint` compared those numbers at full precision. Undo then refused every step drawn before the page's ink was read back, which happens when a tab switch rebuilds the PDF view and when a page's canvas, released far from the page shown, is made again. Black ink and strokes the eraser cut read back exactly. Locations and creation dates read back exactly too.
+
+Fix: the fingerprint keeps a stroke's color and transform at the precision PencilKit stores them with (`PDFStrokeFingerprint`, GraphiteApple). A recolored or moved stroke still counts as changed.
+
+Checked in iOS 27.0 simulators (iPad Pro 11-inch (M5) and iPhone 17 Pro), Xcode 27.0:
+
+- `PDFInkHistoryTests.testColoredAndMovedStrokesAreUndoneAfterThePageInkIsReadBackFromTheFile` draws a colored stroke and a moved one on a page, switches to another tab and back, undoes and redoes, then scrolls far enough to release the page's canvas and undoes both. `testColoredAndMovedStrokesKeepTheirPlaceInTheHistoryThroughTheStoredDrawing` undoes a change against the drawing read back from its stored form, and checks that reading it back is no change while a recolored stroke still is. Without the fix both failed on the iPad simulator with the owner's message; the other seven tests of the class, which draw black ink at whole-number points, passed.
+- With the fix, the whole `GraphiteIntegrationTests` target passed: 194 tests on the iPad simulator, and on the iPhone simulator 191 with 3 Canvas tests skipped, as they are at a phone's width. The changed file is built only for UIKit, so the macOS suite does not run it and was not run again.
+
+Not verified: Undo with real Pencil strokes on the owner's iPad after this change.
+
 ## Apple Pencil double-tap in the drawing editor: 2026-10-10
 
 Reported by the owner on their iPad: a double-tap of Apple Pencil in the drawing editor closed the editor and opened it again. Cause, found by reading the code: a Pencil gesture reaches every `UIPencilInteraction` in the window, and the note's text view stays in the window under the full-screen drawing editor. The note's handler checked only that its text view had a window, so it answered too and asked for the drawing at the note's cursor. The editor is presented with `fullScreenCover(item:)`, so the new request closed it and presented another, without the strokes not yet saved. Neither tool layout nor the kind of drawing changes this: the note's handler runs the same with the floating palette and the fixed bar, for a new drawing and for a drawing opened from its embed.

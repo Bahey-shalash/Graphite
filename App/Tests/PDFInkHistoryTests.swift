@@ -89,6 +89,51 @@ final class PDFInkHistoryTests: XCTestCase {
         XCTAssertEqual(newCanvas.drawing.strokes.count, 1)
     }
 
+    /// Strokes drawn in a color from a hex value, and strokes the lasso moved, read back a
+    /// little different from the page's stored drawing. Undo found them changed and refused
+    /// ("The ink on this page changed in a way this step does not know") once the view was
+    /// rebuilt, as on a tab switch, or the page's canvas was released far from it.
+    func testColoredAndMovedStrokesAreUndoneAfterThePageInkIsReadBackFromTheFile() async throws {
+        let session = try await openNotebook(pageCount: 20)
+        let controller = try host(AnyView(NavigationStack { PDFPane(session: session, resolveConflict: { _ in }) }))
+        let firstPage = try XCTUnwrap(session.document.page(at: 0))
+        let canvas = try await editingCanvas(for: firstPage, in: session)
+        canvas.drawing = PKDrawing(strokes: [coloredStroke(atHeight: 100.37)])
+        try await waitUntil { self.inkCount(on: firstPage) == 1 }
+        endEvent(of: session)
+        canvas.drawing = PKDrawing(strokes: canvas.drawing.strokes + [movedStroke(atHeight: 200.61)])
+        try await waitUntil { self.inkCount(on: firstPage) == 2 }
+        endEvent(of: session)
+
+        // Another tab replaces the PDF on screen; the canvas made when it comes back reads
+        // the page's ink from its stored drawing.
+        controller.rootView = AnyView(Text("Another tab"))
+        try await waitUntil { self.descendants(of: controller.view, matching: PDFPageCanvasView.self).isEmpty }
+        controller.rootView = AnyView(NavigationStack { PDFPane(session: session, resolveConflict: { _ in }) })
+        let newCanvas = try await editingCanvas(for: firstPage, in: session)
+        XCTAssertEqual(newCanvas.drawing.strokes.count, 2)
+        session.undoAvailability.undo()
+        XCTAssertNil(session.errorMessage, "A moved stroke is undone after the view was rebuilt.")
+        try await waitUntil { self.inkCount(on: firstPage) == 1 }
+        session.undoAvailability.redo()
+        XCTAssertNil(session.errorMessage)
+        try await waitUntil { self.inkCount(on: firstPage) == 2 }
+
+        // Scrolling far enough releases the canvas, and undo changes the page's ink itself.
+        for pageIndex in 1..<session.pageCount {
+            session.go(to: pageIndex)
+            try await Task.sleep(for: .milliseconds(60))
+        }
+        let coordinator = try XCTUnwrap((session.pdfView as? GraphitePDFDisplayView)?.annotationCoordinator)
+        try await waitUntil { coordinator.editingCanvas(for: firstPage) == nil }
+        session.undoAvailability.undo()
+        XCTAssertNil(session.errorMessage, "A moved stroke is undone after its page's canvas was released.")
+        XCTAssertEqual(inkCount(on: firstPage), 1)
+        session.undoAvailability.undo()
+        XCTAssertNil(session.errorMessage, "A colored stroke is undone after its page's canvas was released.")
+        XCTAssertEqual(inkCount(on: firstPage), 0)
+    }
+
     func testTwoPDFsKeepSeparateHistories() async throws {
         let lectureSession = try await openNotebook(pageCount: 1)
         let slidesSession = try await openNotebook(pageCount: 1)
@@ -158,6 +203,17 @@ final class PDFInkHistoryTests: XCTestCase {
         XCTAssertNil(change.reverting(PKDrawing()))
     }
 
+    func testColoredAndMovedStrokesKeepTheirPlaceInTheHistoryThroughTheStoredDrawing() throws {
+        let drawn = PKDrawing(strokes: [coloredStroke(atHeight: 100.37), movedStroke(atHeight: 200.61)])
+        let readBack = try PKDrawing(data: drawn.dataRepresentation())
+        XCTAssertNotEqual(readBack.strokes[1].transform, drawn.strokes[1].transform, "PencilKit stores the transform less precisely.")
+        let change = try XCTUnwrap(PencilDrawingChange(from: PKDrawing(), to: drawn))
+        XCTAssertEqual(change.reverting(readBack)?.strokes.count, 0, "Undo finds the strokes it recorded in the stored drawing.")
+        XCTAssertNil(PencilDrawingChange(from: drawn, to: readBack), "Reading the drawing back is no change.")
+        let recolored = PKDrawing(strokes: [PKStroke(ink: PKInk(.pen, color: .systemRed), path: drawn.strokes[0].path), drawn.strokes[1]])
+        XCTAssertEqual(PencilDrawingChange(from: drawn, to: recolored)?.changedStrokeCount, 2, "A recolored stroke is still a change.")
+    }
+
     // MARK: Helpers
 
     private func openNotebook(pageCount: Int) async throws -> PDFSession {
@@ -196,6 +252,27 @@ final class PDFInkHistoryTests: XCTestCase {
                           size: CGSize(width: 4, height: 4), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
         }
         return PKStroke(ink: PKInk(.pen, color: .black), path: PKStrokePath(controlPoints: points, creationDate: creationDate))
+    }
+
+    /// A stroke as a Pencil draws it, at points between whole numbers, in a color made from a
+    /// hex value as the fixed bar's colors are.
+    private func coloredStroke(atHeight height: CGFloat) -> PKStroke {
+        strokeCount += 1
+        let creationDate = Date(timeIntervalSinceReferenceDate: 812_000_000.123456789 + Double(strokeCount))
+        let points = (0...10).map { pointIndex in
+            PKStrokePoint(location: CGPoint(x: 50.123456789 + CGFloat(pointIndex) * 10.333333333, y: height + sin(CGFloat(pointIndex)) * 3.7),
+                          timeOffset: Double(pointIndex) / 60, size: CGSize(width: 2.345678, height: 2.345678), opacity: 1, force: 0.76543,
+                          azimuth: 0.4321, altitude: 1.23456)
+        }
+        let color = UIColor(red: 212 / 255, green: 56 / 255, blue: 45 / 255, alpha: 1)
+        return PKStroke(ink: PKInk(.pen, color: color), path: PKStrokePath(controlPoints: points, creationDate: creationDate))
+    }
+
+    /// A colored stroke the lasso moved and resized, which PencilKit keeps as its transform.
+    private func movedStroke(atHeight height: CGFloat) -> PKStroke {
+        let stroke = coloredStroke(atHeight: height)
+        let transform = CGAffineTransform(a: 1.1234567891, b: 0, c: 0, d: 1.1234567891, tx: 12.3456789012, ty: -7.6543210987)
+        return PKStroke(ink: stroke.ink, path: stroke.path, transform: transform, mask: nil)
     }
 
     /// Each stroke arrives in its own touch event, whose end closes its undo group. Strokes
