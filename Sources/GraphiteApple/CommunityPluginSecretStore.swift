@@ -14,10 +14,27 @@ public struct CommunityPluginSecretStore: Sendable {
         self.vaultIdentifier = vaultIdentifier
     }
 
+    /// Whether this process may use the data protection keychain. A Mac app signed without an
+    /// application identifier, as Graphite's Mac builds are so far, may not
+    /// (errSecMissingEntitlement, -34018), and keeps the secrets in the login keychain instead,
+    /// where the item belongs to the app. Deleting an item that never exists tells: a read
+    /// would only answer that nothing was found.
+    private static let usesDataProtectionKeychain: Bool = {
+        #if os(macOS)
+        let probe: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service + " availability",
+                                    kSecUseDataProtectionKeychain as String: true]
+        return SecItemDelete(probe as CFDictionary) != errSecMissingEntitlement
+        #else
+        return true
+        #endif
+    }()
+
     private var baseQuery: [String: Any] {
+        var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: Self.service,
+                                    kSecAttrAccount as String: vaultIdentifier.uuidString]
         // The data protection keychain, so the accessibility below applies on macOS too.
-        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: Self.service, kSecAttrAccount as String: vaultIdentifier.uuidString,
-         kSecUseDataProtectionKeychain as String: true]
+        if Self.usesDataProtectionKeychain { query[kSecUseDataProtectionKeychain as String] = true }
+        return query
     }
 
     /// Every secret of the vault, by identifier; none when nothing is stored or the stored

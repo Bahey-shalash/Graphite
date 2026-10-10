@@ -21,6 +21,7 @@
 		A00000000000000000000076 /* Tests/GraphiteAppleTests/PDFAnnotationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000072 /* Tests/GraphiteAppleTests/PDFAnnotationTests.swift */; };
 		A00000000000000000000077 /* Tests/GraphiteAppleTests/PDFPencilInkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000073 /* Tests/GraphiteAppleTests/PDFPencilInkTests.swift */; };
 		A00000000000000000000078 /* Tests/GraphiteAppleTests/VaultLocatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000074 /* Tests/GraphiteAppleTests/VaultLocatorTests.swift */; };
+		A000000000000000000000E3 /* Tests/GraphiteAppleTests/CommunityPluginSecretStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000E2 /* Tests/GraphiteAppleTests/CommunityPluginSecretStoreTests.swift */; };
 		A00000000000000000000079 /* Tests/GraphiteAppleTests/VectorDrawingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000075 /* Tests/GraphiteAppleTests/VectorDrawingTests.swift */; };
 		A00000000000000000000081 /* App/Tests/PencilWorkspaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000080 /* App/Tests/PencilWorkspaceTests.swift */; };
 		A00000000000000000000083 /* App/Tests/EditingContinuityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000082 /* App/Tests/EditingContinuityTests.swift */; };
@@ -68,6 +69,7 @@
 		A00000000000000000000072 /* Tests/GraphiteAppleTests/PDFAnnotationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/PDFAnnotationTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000073 /* Tests/GraphiteAppleTests/PDFPencilInkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/PDFPencilInkTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000074 /* Tests/GraphiteAppleTests/VaultLocatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/VaultLocatorTests.swift; sourceTree = "<group>"; };
+		A000000000000000000000E2 /* Tests/GraphiteAppleTests/CommunityPluginSecretStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/CommunityPluginSecretStoreTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000075 /* Tests/GraphiteAppleTests/VectorDrawingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/VectorDrawingTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000080 /* App/Tests/PencilWorkspaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/PencilWorkspaceTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000082 /* App/Tests/EditingContinuityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/EditingContinuityTests.swift; sourceTree = "<group>"; };
@@ -142,6 +144,7 @@
 				A00000000000000000000072 /* Tests/GraphiteAppleTests/PDFAnnotationTests.swift */,
 				A00000000000000000000073 /* Tests/GraphiteAppleTests/PDFPencilInkTests.swift */,
 				A00000000000000000000074 /* Tests/GraphiteAppleTests/VaultLocatorTests.swift */,
+				A000000000000000000000E2 /* Tests/GraphiteAppleTests/CommunityPluginSecretStoreTests.swift */,
 				A00000000000000000000075 /* Tests/GraphiteAppleTests/VectorDrawingTests.swift */,
 				A00000000000000000000003 /* Products */,
 			);
@@ -275,6 +278,7 @@
 				A00000000000000000000076 /* Tests/GraphiteAppleTests/PDFAnnotationTests.swift in Sources */,
 				A00000000000000000000077 /* Tests/GraphiteAppleTests/PDFPencilInkTests.swift in Sources */,
 				A00000000000000000000078 /* Tests/GraphiteAppleTests/VaultLocatorTests.swift in Sources */,
+				A000000000000000000000E3 /* Tests/GraphiteAppleTests/CommunityPluginSecretStoreTests.swift in Sources */,
 				A00000000000000000000079 /* Tests/GraphiteAppleTests/VectorDrawingTests.swift in Sources */,
 				A000000000000000000000C1 /* App/Tests/VideoRecordingWorkspaceTests.swift in Sources */,
 				A000000000000000000000C3 /* App/Tests/ConflictVersionsTests.swift in Sources */,
