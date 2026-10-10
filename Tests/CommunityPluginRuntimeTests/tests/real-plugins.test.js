@@ -178,3 +178,49 @@ test('Dataview: loads with CodeMirror; code block queries are reported as not dr
         harness.close();
     }
 });
+
+test('Tasks: loads, toggles a task done through the editor change, draws its declarative settings', { skip: !builtPlugin('obsidian-tasks-plugin') }, async () => {
+    const { harness, answer, commandNames, unsupported, pageErrors } = await loadInStudyVault('obsidian-tasks-plugin');
+    try {
+        assert.deepEqual(answer, { isLoaded: true });
+        assert.ok(commandNames.includes('Tasks: Toggle task done'));
+        assert.deepEqual(unsupported, ['Changing how notes look in reading view', 'Drawing “tasks” code blocks in notes', 'CodeMirror editor extensions', 'Suggestions while typing in a note']);
+        assert.deepEqual(pageErrors, []);
+        assert.ok((await settingRowCount(harness, 'obsidian-tasks-plugin')).count >= 5);
+        harness.writeVaultFile('Tasks.md', '- [ ] Write the report\n');
+        const outcome = plain(await harness.send({ operation: 'command.run', commandIdentifier: 'obsidian-tasks-plugin:toggle-done', activeDocument: { path: 'Tasks.md', mode: 'livePreview', editorSnapshot: harness.host.openNote('Tasks.md', 4) } }));
+        assert.deepEqual(outcome, { outcome: 'ran' });
+        await settle();
+        const today = harness.window.moment().format('YYYY-MM-DD');
+        assert.equal(harness.host.editorSessions.get('Tasks.md').text, '- [x] Write the report ✅ ' + today + '\n');
+    } finally {
+        harness.close();
+    }
+});
+
+test('Outliner: loads and draws its settings; its commands need CodeMirror\'s editor view and say so', { skip: !builtPlugin('obsidian-outliner') }, async () => {
+    const { harness, answer, commandNames, unsupported } = await loadInStudyVault('obsidian-outliner');
+    try {
+        assert.deepEqual(answer, { isLoaded: true });
+        assert.equal(commandNames.length, 7);
+        assert.deepEqual(unsupported, ['CodeMirror editor extensions']);
+        assert.ok((await settingRowCount(harness, 'obsidian-outliner')).count >= 5);
+        harness.writeVaultFile('List.md', '- one\n- two\n');
+        const outcome = plain(await harness.send({ operation: 'command.run', commandIdentifier: 'obsidian-outliner:move-list-item-down', activeDocument: { path: 'List.md', mode: 'livePreview', editorSnapshot: harness.host.openNote('List.md', 2) } }));
+        assert.equal(outcome.outcome, 'failed');
+        assert.match(outcome.message, /CodeMirror editor view \(editor\.cm\)/);
+        assert.equal(harness.host.editorSessions.get('List.md').text, '- one\n- two\n', 'the note is left as it was');
+    } finally {
+        harness.close();
+    }
+});
+
+test('Kanban: refused at load, because it borrows Obsidian\'s CodeMirror note editor', { skip: !builtPlugin('obsidian-kanban') }, async () => {
+    const { harness, answer } = await loadInStudyVault('obsidian-kanban');
+    try {
+        assert.equal(answer.isLoaded, false);
+        assert.match(answer.errorMessage, /embedded “\.md” views \(embedRegistry\)/);
+    } finally {
+        harness.close();
+    }
+});

@@ -52,7 +52,7 @@ Checked in the Node tests (jsdom, not WebKit; see How it was verified):
 - Modals, `SuggestModal` and `FuzzySuggestModal` with the keyboard, settings tabs with text, toggle, dropdown, slider and button controls, declarative settings with validation and `visible` predicates, menus, notices, icons.
 - `requestUrl`, `moment`, `parseYaml` and `stringifyYaml`, `debounce`, fuzzy and simple search, `htmlToMarkdown`, `sanitizeHTMLToDom`, base64 and hex helpers, `Platform` (mobile, iOS, tablet or phone).
 
-Real plugins, built from their sources at fixed commits (`Tests/CommunityPluginRuntimeTests/compatibility/compatibility-plugins.json`) and run in the same tests:
+Nine real plugins, among the most used in Obsidian's directory, built from their sources at fixed commits (`Tests/CommunityPluginRuntimeTests/compatibility/compatibility-plugins.json`) and run in the same tests:
 
 | Plugin | Commit | What was checked |
 | --- | --- | --- |
@@ -62,6 +62,9 @@ Real plugins, built from their sources at fixed commits (`Tests/CommunityPluginR
 | QuickAdd | `2201fa7c` | Loads; seven commands; its Obsidian 1.13 declarative settings, with its Svelte choice list, draw. Its command-line handler is reported unsupported. |
 | Tag Wrangler | `5930a242` | Loads without errors. It works through tag context menus, which Graphite does not offer plugins yet, so it does nothing visible; hover previews are reported unsupported. |
 | Dataview | `5ad0994f` | Loads with CodeMirror, with a Web Worker stand-in and an in-memory IndexedDB in jsdom (WebKit has both). Its query code blocks and editor extensions are reported unsupported: it cannot yet show queries in notes. |
+| Tasks | `84704d3d` | Loads; "Toggle task done" turns `- [ ] Write the report` into `- [x] Write the report ✅` and today's date through the editor change; its declarative settings draw. Its query code blocks, reading-view changes, editor extensions and typing suggestions are reported unsupported. |
+| Outliner | `b51918d4` | Loads; seven commands; its settings draw. Its commands work on CodeMirror's editor view (`editor.cm`), so running one fails, saying so, and leaves the note unchanged. |
+| Kanban | `5134c05a` | Refused at load, saying why: it builds its cards' editor from Obsidian's own CodeMirror note editor (`app.embedRegistry`). |
 
 Coverage of Obsidian's published API (`Docs/Community-plugin-API-coverage.md`, generated against `obsidian.d.ts` 1.14.4): all 103 exported classes, 422 of 442 class methods, 51 of 56 exported functions and constants. The five missing constants are CodeMirror state fields of Obsidian's own editor. Presence is not behavior: several present methods report themselves as unsupported when called.
 
@@ -76,7 +79,7 @@ Each of these is reported to the person, per plugin, when a plugin uses it (Sett
 - **Where views appear.** Plugin views open on the plugin panel, not as Graphite tabs or sidebar panels; views for other file types (`registerExtensions`) are not offered for those files; Bases views from plugins (`registerBasesView`).
 - **Hover previews**, pop-out windows, several selections at once (the main one is kept), `Editor.undo` and `redo` (Graphite's Undo works), setting file times on write, `vault.setConfig` (change shared settings in Graphite's Settings), `FileSystemAdapter`, `getFullPath`, Obsidian's bundled MathJax, Mermaid, Prism and PDF.js loaders.
 - **Desktop-only plugins** (`isDesktopOnly`), and code that needs Node.js or Electron: refused, as on Obsidian mobile.
-- **Obsidian's undocumented internals.** The most used are provided (`app.plugins`, `app.commands`, `app.internalPlugins` with the Daily notes and Templates settings, `app.setting`, `vault.getConfig`, `metadataCache.getCachedFiles`, `getTags`, `getBacklinksForFile`, `workspace.registerHoverLinkSource`); others are missing, and a plugin calling one fails with a JavaScript error that its row in Settings shows.
+- **Obsidian's undocumented internals.** The most used are provided (`app.plugins`, `app.commands`, `app.internalPlugins` with the Daily notes and Templates settings, `app.setting`, `app.metadataTypeManager` over `.obsidian/types.json`, `vault.getConfig`, `metadataCache.getCachedFiles`, `getTags`, `getBacklinksForFile`, `workspace.registerHoverLinkSource`). Obsidian's CodeMirror editor view (`editor.cm`) and its embedded note editor (`app.embedRegistry`) report themselves as unsupported (Outliner's commands, Kanban). Others are missing, and a plugin calling one fails with a JavaScript error that its row in Settings shows.
 - **Themes and CSS snippets** are not plugins and do not restyle Graphite's native interface.
 - Obsidian mobile has no status bar; neither does Graphite: `addStatusBarItem` returns an element that is not shown.
 
@@ -84,7 +87,7 @@ Each of these is reported to the person, per plugin, when a plugin uses it (Sett
 
 On 2026-10-10, in a Linux container without Xcode or a Swift compiler.
 
-- **JavaScript runtime:** 41 Node tests in `Tests/CommunityPluginRuntimeTests` (`npm test`), all passing: the vault and its conflicts, metadata and link resolution, editor commands, plugin loading and unloading, settings tabs, modals, suggestion lists, menus, and the six real plugins above. They run in jsdom 26, not WebKit. jsdom cannot parse CSS nesting (its errors are recorded apart from the plugins'), and has no Web Workers or IndexedDB: the Dataview test fills in a worker that never answers and fake-indexeddb, an in-memory IndexedDB; what Dataview's worker does was not exercised.
+- **JavaScript runtime:** 44 Node tests in `Tests/CommunityPluginRuntimeTests` (`npm test`), all passing: the vault and its conflicts, metadata and link resolution, editor commands, plugin loading and unloading, settings tabs, modals, suggestion lists, menus, and the nine real plugins above. They run in jsdom 26, not WebKit. jsdom cannot parse CSS nesting (its errors are recorded apart from the plugins'), and has no Web Workers or IndexedDB: the Dataview test fills in a worker that never answers and fake-indexeddb, an in-memory IndexedDB; what Dataview's worker does was not exercised.
 - **Swift:** not compiled. Every new and changed Swift file parses without errors with tree-sitter-swift 0.6.0 (which reports false errors on 305 places in existing code that compiles, so it proves syntax only), and was reviewed by reading against the declarations it calls. `Tests/GraphiteCoreTests/CommunityPluginTests.swift` (manifests, `community-plugins.json`, inventory, the vault bridge, editor changes, installation helpers, Markdown rendering) was written and not run.
 - **Not established:** that the app builds; anything in WebKit or on a device (the plugin panel, the message handler, the scheme handler, the keychain, `WKWebsiteDataStore(forIdentifier:)`, content-process restarts); installation from GitHub (this container could not reach github.com's releases); memory and start-up time of the runtime with real vaults; behavior with 10,000 or 100,000 notes (the metadata cache keeps every note's metadata, as Obsidian does).
 
@@ -106,7 +109,7 @@ npm run build-vendored-libraries          # regenerates Vendor/ from the pinned 
 
 In order of what it unlocks for daily use:
 
-1. Build and run on a Mac and an iPad; run `swift test` and the Node tests; use a real vault with the six plugins above.
+1. Build and run on a Mac and an iPad; run `swift test` and the Node tests; use a real vault with the plugins above.
 2. Code blocks and post-processors in the reading view: render a plugin's code block in a web view of its own inside the note, so Dataview, Tasks and chart plugins show their output.
 3. Context menus: let the file list's and the editor's menus include plugins' items.
 4. Typing: send editor changes to plugins that listen for them, and offer `EditorSuggest` suggestions through Graphite's completion list.

@@ -255,6 +255,10 @@
                 runtime.unsupported('Editor command “' + command + '”');
             }
         }
+        /// Obsidian's CodeMirror `EditorView` (undocumented `editor.cm`). Graphite's editor is native.
+        get cm() {
+            return runtime.unsupported('Obsidian\'s CodeMirror editor view (editor.cm)', 'Graphite\'s editor is native, so commands that work on CodeMirror\'s view directly cannot run.');
+        }
         undo() { runtime.unsupported('Editor.undo', 'Use Graphite\'s Undo.'); }
         redo() { runtime.unsupported('Editor.redo', 'Use Graphite\'s Redo.'); }
 
@@ -564,7 +568,12 @@
         /// file, or nothing.
         setActiveDocument(description) {
             const path = description && description.path ? normalizePath(description.path) : null;
-            const file = path ? this.app.vault.getFileByPath(path) : null;
+            let file = path ? this.app.vault.getFileByPath(path) : null;
+            // A note Graphite has open exists, even when the report of its creation has not
+            // reached the runtime yet (a note just made, or synced in).
+            if (!file && path && !runtime.isHiddenPath(path) && description.mode !== 'file') {
+                file = this.app.vault.addAbstractFile(path, false, null, true);
+            }
             const previousPath = this.activeFilePath;
             this.activeFilePath = path;
             if (file && file.extension === 'md') {

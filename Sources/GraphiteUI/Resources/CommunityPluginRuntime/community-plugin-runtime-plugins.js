@@ -496,6 +496,81 @@
         }
     }
 
+    /// Obsidian's property types (`app.metadataTypeManager`, undocumented): the vault's
+    /// `.obsidian/types.json`, which Graphite's Properties view reads and writes too.
+    class MetadataTypeManager {
+        constructor(app) {
+            this.app = app;
+            this.types = {};
+        }
+        typesPath() { return normalizePath(this.app.vault.configDir + '/types.json'); }
+        async loadTypes() {
+            try {
+                if (!(await this.app.vault.adapter.exists(this.typesPath()))) return;
+                const configuration = JSON.parse(await this.app.vault.adapter.read(this.typesPath()));
+                this.types = configuration && typeof configuration.types === 'object' && configuration.types ? configuration.types : {};
+            } catch (error) {
+                console.warn('Graphite could not read the vault\'s property types for plugins.', error);
+            }
+        }
+        getAllProperties() {
+            const properties = this.app.metadataCache.getAllPropertyInfos();
+            for (const name of Object.keys(this.types)) {
+                const key = name.toLowerCase();
+                properties[key] = Object.assign({ name, occurrences: 0 }, properties[key] || {}, { type: this.types[name] });
+            }
+            return properties;
+        }
+        getPropertyInfo(name) { return this.getAllProperties()[String(name).toLowerCase()] || null; }
+        getAssignedType(name) {
+            const assignedName = Object.keys(this.types).find((candidate) => candidate.toLowerCase() === String(name).toLowerCase());
+            return assignedName ? this.types[assignedName] : null;
+        }
+        getTypeInfo(name) {
+            const assigned = this.getAssignedType(name);
+            const inferred = this.getPropertyInfo(name);
+            return { expected: { type: assigned || (inferred ? inferred.type : 'text') }, inferred: { type: inferred ? inferred.type : 'text' } };
+        }
+        /// Assigns a type as Obsidian's Properties view does, keeping the rest of the file.
+        async setType(name, type) {
+            await this.app.vault.adapter.process(this.typesPath(), (existingText) => {
+                const configuration = existingText.trim() ? JSON.parse(existingText) : {};
+                const types = configuration.types && typeof configuration.types === 'object' ? configuration.types : {};
+                if (types[name] === type) return existingText;
+                types[name] = type;
+                configuration.types = types;
+                this.types = types;
+                return JSON.stringify(configuration, null, 2);
+            }).catch(async (error) => {
+                if (await this.app.vault.adapter.exists(this.typesPath())) throw error;
+                this.types = { [name]: type };
+                await this.app.vault.adapter.write(this.typesPath(), JSON.stringify({ types: this.types }, null, 2));
+            });
+        }
+        on() { return { events: new exportedApi.Events(), name: '', callback() {} }; }
+        offref() {}
+    }
+
+    /// Obsidian's registry of embedded views (`app.embedRegistry`, undocumented). Plugins use
+    /// it to borrow Obsidian's own CodeMirror note editor, which Graphite does not have.
+    function makeEmbedRegistry() {
+        const embedByExtension = new Proxy({}, {
+            get(target, extension) {
+                if (typeof extension !== 'string') return undefined;
+                runtime.unsupported('Obsidian\'s embedded “.' + extension + '” views (embedRegistry)', 'Graphite\'s notes are edited natively, without Obsidian\'s CodeMirror note editor.');
+                return undefined;
+            },
+        });
+        return {
+            embedByExtension,
+            registerExtension() { runtime.reportUnsupportedFeature('Embedded views for file types (embedRegistry)'); },
+            registerExtensions() { runtime.reportUnsupportedFeature('Embedded views for file types (embedRegistry)'); },
+            unregisterExtension() {},
+            unregisterExtensions() {},
+            isExtensionRegistered() { return false; },
+        };
+    }
+
     class App {
         constructor() {
             this.keymap = new Keymap();
@@ -508,6 +583,8 @@
             this.plugins = new PluginManager(this);
             this.internalPlugins = new InternalPluginRegistry();
             this.secretStorage = new exportedApi.SecretStorage();
+            this.metadataTypeManager = new MetadataTypeManager(this);
+            this.embedRegistry = makeEmbedRegistry();
             this.lastEvent = null;
             this.isMobile = true;
             this.appId = '';
@@ -565,6 +642,7 @@
             runtime.configurePlatform(message.device || {});
             applyTheme(message.appearance);
             await app.vault.loadFileTree();
+            await app.metadataTypeManager.loadTypes();
             app.metadataCache.observeVault();
             app.metadataCache.startInitialRead();
             return { fileCount: app.vault.getAllLoadedFiles().length };
