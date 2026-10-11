@@ -4,6 +4,16 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-11.
 
+## Sizes that can be changed, and colors of the highlighter's own: 2026-10-11
+
+Asked for after the change below, with Goodnotes' "Highlighter thickness" and "Stroke Settings" popovers as the example: the three sizes of the pen, the pencil and the eraser are easy to reach, and should be as easy to change; and a highlighter's colors should differ from a pen's, as they are used differently. See `Architecture.md`, the paragraph on the fixed tool bar.
+
+- Each tool of the fixed bar keeps three widths of its own, and the pixel eraser three; a second tap on the size in use opens a popover with a slider and the width in millimeters. The ink options' Width slider changes the size in use. Saved tool bars from before keep working, with the ink's and the eraser's usual sizes.
+- While a highlighter is in use, the bar, the squeeze palette and the floating palette's colors menu offer light highlighter colors in place of black and the note colors; Settings › Colors has a Highlighter section to change them.
+- Not done: Goodnotes' dashed and dotted strokes, which PencilKit has no ink for; and changing sizes from the floating palette, whose widths are the system's.
+
+Tests: `PencilToolboxTests` (4 added, 4 changed): each tool's sizes change, are kept within what the ink draws, are its own and are kept between launches; the eraser's likewise; a state without sizes, or with sizes another build would not offer, reads with the usual ones; widths read in millimeters; the highlighter's colors are light, none is a note color, and they are kept. None of these has been run: like the change below, this was written without a Swift compiler, checked by a syntax parser and by reading, and not seen in the simulator or on the iPad.
+
 ## Pictures that stay sharp when shrunk and turn freely, and a highlighter that ignores tilt: 2026-10-11
 
 Three things reported from use: a picture on a drawing or a PDF page looked pixelated when made smaller; pictures could not be rotated, only turned a quarter at a time with an icon-only button; and the highlighter's width followed the Pencil's tilt. See `Architecture.md` (the drawing record, pictures in vector drawings, pictures on PDF pages, and the paragraphs after the shape hold).
@@ -20,6 +30,8 @@ Tests added, none of them run yet:
 - `EvenHighlighterTests` (3): every point of a tilted highlighter stroke takes one upright tip of the tool's width on the same line; the width is in the drawing's points under a scaled stroke; other inks and unusable widths are left alone.
 - `PicturesAndPaperTests` (1 hosted): on a drawing, turning by hand changes only the angle as one undoable step; moving and the quarter turn keep it; a crop keeps the part where it was shown.
 - `PencilToolsTests` (1 hosted): in the drawing editor with the preference on, a highlighter stroke arrives as one width, the tool's, in one step, and a pen stroke stays as drawn.
+
+A second, independent reading of the diff for compile errors, Swift 6 isolation, angle signs and the tests' numbers found none to fix. Its other findings were taken up: the highlighter check no longer compares the whole drawing at every stroke, the even stroke keeps the stroke's random seed, the turned-picture test now tells clockwise from counterclockwise, references to a turned PDF picture use its annotation's rectangle, a PDF picture's angle is kept within one turn whenever it is set, and on a small picture the turning handle stands clear of the top corners' handles.
 
 Not established: this change was written without Xcode or a Swift compiler. It was checked only by a Swift syntax parser (tree-sitter) and by reading. It has not been built, the tests above and the existing suites have not been run against it, and nothing of it has been seen in the simulator or tried with Apple Pencil. That includes whether the pictures now look smooth when shrunk, how the rotation handle and its snapping feel, the handle's place on a frame at the top of the screen, and whether PencilKit draws the even highlighter's square upright tip as a band of even height in every direction. The even width appears only at the lift, which may look like a jump.
 

@@ -33,6 +33,7 @@ final class EvenHighlighterTests: XCTestCase {
         }
         XCTAssertEqual(evenStroke.ink.inkType, .marker)
         XCTAssertEqual(evenStroke.path.creationDate, stroke.path.creationDate)
+        XCTAssertEqual(evenStroke.randomSeed, stroke.randomSeed)
     }
 
     func testWidthIsInTheDrawingsPointsUnderAScaledStroke() throws {

@@ -45,7 +45,7 @@ final class PencilToolboxTests: XCTestCase {
     func testEachPresetKeepsItsOwnColorWidthAndOpacity() {
         let toolbox = PencilToolbox(defaults: defaults)
         toolbox.chooseColor(hex: "#E93147")
-        toolbox.chooseWidth(PencilInk.pen.widthChoices[2])
+        toolbox.useWidthChoice(at: 2)
         toolbox.chooseOpacity(0.5)
         toolbox.usePreset(at: 2)
         toolbox.chooseColor(hex: "#08b94e")
@@ -56,9 +56,12 @@ final class PencilToolboxTests: XCTestCase {
         XCTAssertEqual(toolbox.presets[2].width, PencilInk.highlighter.mediumWidth)
         XCTAssertEqual(toolbox.presets[1].colorHex, PencilInk.pencil.defaultColorHex)
 
-        // A width between the three choices is one the options' slider gives.
+        // A width between the three choices is one the options' slider gives; the size in
+        // use takes it.
         toolbox.chooseWidth(21.5)
         XCTAssertEqual(toolbox.presetInUse.width, 21.5)
+        XCTAssertEqual(toolbox.presetInUse.widthChoices, [10, 21.5, 28])
+        XCTAssertEqual(toolbox.chosenWidthIndex, 1)
         // A width the ink cannot draw, an opacity out of range and a color that is none
         // change nothing.
         toolbox.chooseWidth(123)
@@ -128,14 +131,17 @@ final class PencilToolboxTests: XCTestCase {
         XCTAssertEqual(toolbox.presets[1].colorHex, "#086ddd")
         toolbox.use(.lasso)
         toolbox.chooseWidth(PencilInk.pencil.widthChoices[0])
+        toolbox.useWidthChoice(at: 0)
+        toolbox.changeWidthChoice(at: 1, to: 9)
         toolbox.chooseInk(.crayon)
         XCTAssertEqual(toolbox.presets[1].width, PencilInk.pencil.mediumWidth, "The lasso has no width to choose.")
+        XCTAssertEqual(toolbox.presets[1].widthChoices, PencilInk.pencil.widthChoices)
         XCTAssertEqual(toolbox.presets[1].ink, .pencil)
 
-        toolbox.chooseEraserWidth(PencilToolbox.eraserWidthChoices[2])
-        XCTAssertEqual(toolbox.eraserWidth, PencilToolbox.eraserWidthChoices[2])
+        toolbox.chooseEraserWidth(PencilToolbox.defaultEraserWidthChoices[2])
+        XCTAssertEqual(toolbox.eraserWidth, PencilToolbox.defaultEraserWidthChoices[2])
         toolbox.chooseEraserWidth(5)
-        XCTAssertEqual(toolbox.eraserWidth, PencilToolbox.eraserWidthChoices[2])
+        XCTAssertEqual(toolbox.eraserWidth, PencilToolbox.defaultEraserWidthChoices[2])
     }
 
     func testStateIsKeptBetweenLaunchesAndDamagedStateFallsBack() throws {
@@ -143,11 +149,12 @@ final class PencilToolboxTests: XCTestCase {
         toolbox.usePreset(at: 1)
         toolbox.chooseInk(.crayon)
         toolbox.chooseColor(hex: "#7852ee")
-        toolbox.chooseWidth(PencilInk.crayon.widthChoices[0])
+        toolbox.useWidthChoice(at: 0)
+        toolbox.changeWidthChoice(at: 2, to: 44)
         toolbox.chooseOpacity(0.4)
         toolbox.addPreset()
         toolbox.erasesWholeStrokes = false
-        toolbox.chooseEraserWidth(PencilToolbox.eraserWidthChoices[0])
+        toolbox.changeEraserWidthChoice(at: 0, to: 12)
         toolbox.isRulerActive = true
         toolbox.use(.lasso)
 
@@ -157,8 +164,10 @@ final class PencilToolboxTests: XCTestCase {
         XCTAssertEqual(relaunched.presetInUseIndex, 2)
         XCTAssertEqual(relaunched.presetInUse.ink, .crayon)
         XCTAssertEqual(relaunched.presetInUse.opacity, 0.4)
+        XCTAssertEqual(relaunched.presetInUse.widthChoices, [PencilInk.crayon.widthChoices[0], PencilInk.crayon.widthChoices[1], 44])
         XCTAssertFalse(relaunched.erasesWholeStrokes)
-        XCTAssertEqual(relaunched.eraserWidth, PencilToolbox.eraserWidthChoices[0])
+        XCTAssertEqual(relaunched.eraserWidthChoices, [12, 36, 64])
+        XCTAssertEqual(relaunched.eraserWidth, 12)
         XCTAssertFalse(relaunched.isRulerActive, "The ruler is put away with the app.")
 
         // Values another build would not offer fall back to ones the bar can show.
@@ -175,7 +184,21 @@ final class PencilToolboxTests: XCTestCase {
         XCTAssertEqual(recovered.presetInUse.colorHex, PencilInk.pen.defaultColorHex)
         XCTAssertEqual(recovered.presetInUse.width, PencilInk.pen.widthRange.upperBound)
         XCTAssertEqual(recovered.presetInUse.opacity, 1)
-        XCTAssertEqual(recovered.eraserWidth, PencilToolbox.eraserWidthChoices[1])
+        XCTAssertEqual(recovered.presetInUse.widthChoices, PencilInk.pen.widthChoices, "A tool saved before its sizes could change has the ink's.")
+        XCTAssertEqual(recovered.eraserWidthChoices, PencilToolbox.defaultEraserWidthChoices)
+        XCTAssertEqual(recovered.eraserWidth, PencilToolbox.defaultEraserWidthChoices[1])
+
+        // Sizes another build would not offer: an ink's are kept within what it draws, and
+        // eraser sizes that are not three it can erase with are its own again.
+        let unusualSizes = """
+        {"toolInUse":"eraser","presetInUseIndex":0,"erasesWholeStrokes":false,"eraserWidth":500,"eraserWidthChoices":[10,500,30],
+         "presets":[{"id":"\(identifier)","ink":"pen","colorHex":"#1c1c1e","width":2,"opacity":1,"widthChoices":[0.1,2,40]}]}
+        """
+        defaults.set(Data(unusualSizes.utf8), forKey: PencilToolbox.storageKey)
+        let withUnusualSizes = PencilToolbox(defaults: defaults)
+        XCTAssertEqual(withUnusualSizes.presetInUse.widthChoices, [PencilInk.pen.widthRange.lowerBound, 2, PencilInk.pen.widthRange.upperBound])
+        XCTAssertEqual(withUnusualSizes.eraserWidthChoices, PencilToolbox.defaultEraserWidthChoices)
+        XCTAssertEqual(withUnusualSizes.eraserWidth, PencilToolbox.defaultEraserWidthChoices[1])
 
         // No presets, two presets with one identifier, an ink this build does not know, and
         // text that is no state at all: the three presets the bar starts with.
@@ -208,7 +231,7 @@ final class PencilToolboxTests: XCTestCase {
         toolbox.chooseColor(hex: penSelection.preset.colorHex)
         XCTAssertEqual(notificationCount, 0)
 
-        toolbox.chooseWidth(PencilInk.pen.widthChoices[0])
+        toolbox.useWidthChoice(at: 0)
         XCTAssertNotEqual(toolbox.selection, penSelection)
         XCTAssertEqual(notificationCount, 1)
         let fineSelection = toolbox.selection
@@ -220,6 +243,87 @@ final class PencilToolboxTests: XCTestCase {
         XCTAssertEqual(toolbox.selection.preset, fineSelection.preset, "The ink last in use is kept while erasing.")
         XCTAssertEqual(PencilToolbarStyle(rawValue: "fixed"), .fixed)
         XCTAssertEqual(PencilToolbarStyle.allCases.map(\.title), ["Floating Palette", "Fixed Bar"])
+    }
+
+    // MARK: Sizes
+
+    func testEachToolsThreeSizesCanEachBeGivenAnotherWidth() {
+        let toolbox = PencilToolbox(defaults: defaults)
+        XCTAssertEqual(toolbox.presetInUse.widthChoices, PencilInk.pen.widthChoices)
+        XCTAssertEqual(toolbox.chosenWidthIndex, 1)
+
+        // A second tap on the size in use opens its width; the size takes the new one and
+        // the pen draws with it.
+        toolbox.changeWidthChoice(at: 1, to: 3.5)
+        XCTAssertEqual(toolbox.presetInUse.widthChoices, [1.6, 3.5, 4.8])
+        XCTAssertEqual(toolbox.presetInUse.width, 3.5)
+        XCTAssertEqual(toolbox.selection.preset.width, 3.5)
+        toolbox.useWidthChoice(at: 0)
+        XCTAssertEqual(toolbox.presetInUse.width, 1.6)
+        XCTAssertEqual(toolbox.presetInUse.widthChoices, [1.6, 3.5, 4.8], "Choosing a size changes none.")
+        toolbox.useWidthChoice(at: 1)
+        XCTAssertEqual(toolbox.presetInUse.width, 3.5)
+
+        // A width the ink cannot draw is kept within what it draws; anything else changes nothing.
+        toolbox.changeWidthChoice(at: 2, to: 400)
+        XCTAssertEqual(toolbox.presetInUse.widthChoices[2], PencilInk.pen.widthRange.upperBound)
+        toolbox.changeWidthChoice(at: 0, to: .nan)
+        toolbox.changeWidthChoice(at: 3, to: 2)
+        toolbox.useWidthChoice(at: -1)
+        XCTAssertEqual(toolbox.presetInUse.widthChoices, [1.6, 3.5, PencilInk.pen.widthRange.upperBound])
+
+        // Each tool keeps its own sizes.
+        toolbox.usePreset(at: 2)
+        XCTAssertEqual(toolbox.presetInUse.widthChoices, PencilInk.highlighter.widthChoices)
+        toolbox.changeWidthChoice(at: 0, to: 13)
+        toolbox.usePreset(at: 0)
+        XCTAssertEqual(toolbox.presets[2].widthChoices, [13, 18, 28])
+        XCTAssertEqual(toolbox.presets[0].widthChoices[1], 3.5)
+
+        // Not while erasing or selecting: the sizes on the bar are then the eraser's.
+        toolbox.use(.lasso)
+        toolbox.changeWidthChoice(at: 1, to: 2)
+        XCTAssertEqual(toolbox.presets[0].widthChoices[1], 3.5)
+    }
+
+    func testThePixelErasersThreeSizesCanEachBeGivenAnotherWidth() {
+        let toolbox = PencilToolbox(defaults: defaults)
+        XCTAssertEqual(toolbox.eraserWidthChoices, PencilToolbox.defaultEraserWidthChoices)
+        toolbox.changeEraserWidthChoice(at: 2, to: 80)
+        XCTAssertEqual(toolbox.eraserWidthChoices, [18, 36, 80])
+        XCTAssertEqual(toolbox.eraserWidth, 80, "The eraser erases with the size just changed.")
+        toolbox.chooseEraserWidth(18)
+        XCTAssertEqual(toolbox.eraserWidth, 18)
+        toolbox.chooseEraserWidth(64)
+        XCTAssertEqual(toolbox.eraserWidth, 18, "A size the eraser no longer has.")
+        toolbox.changeEraserWidthChoice(at: 0, to: 1)
+        XCTAssertEqual(toolbox.eraserWidthChoices[0], PencilToolbox.eraserWidthRange.lowerBound)
+        toolbox.changeEraserWidthChoice(at: 5, to: 20)
+        toolbox.changeEraserWidthChoice(at: 1, to: .infinity)
+        XCTAssertEqual(toolbox.eraserWidthChoices, [PencilToolbox.eraserWidthRange.lowerBound, 36, 80])
+        XCTAssertEqual(PencilToolbox(defaults: defaults).eraserWidthChoices, toolbox.eraserWidthChoices, "Kept between launches.")
+    }
+
+    func testWidthsReadInMillimetersOnThePage() {
+        XCTAssertEqual(PencilWidthText.millimeters(72), (25.4).formatted(.number.precision(.fractionLength(1))) + " mm")
+        XCTAssertEqual(PencilWidthText.millimeters(2.8), (1.0).formatted(.number.precision(.fractionLength(1))) + " mm")
+        XCTAssertEqual(PencilSizeChoice.eraser(choiceIndex: 2).choiceIndex, 2)
+    }
+
+    func testTheHighlighterHasLightColorsOfItsOwn() {
+        let preferences = GraphitePreferences(defaults: defaults)
+        XCTAssertEqual(preferences.highlighterPalette, PaletteColor.defaultHighlighterPalette)
+        XCTAssertEqual(PaletteColor.defaultHighlighterPalette.first?.hex, PencilInk.highlighter.defaultColorHex,
+                       "A new highlighter's color is the first of its own.")
+        XCTAssertTrue(Set(PaletteColor.defaultHighlighterPalette.map(\.hex)).isDisjoint(with: PaletteColor.defaultPalette.map(\.hex)),
+                      "None is a writing color.")
+        for highlighterColor in PaletteColor.defaultHighlighterPalette {
+            XCTAssertEqual(TextColorMarkup.canonicalHex(highlighterColor.hex), highlighterColor.hex, highlighterColor.name)
+        }
+        preferences.highlighterPalette = [PaletteColor(name: "mint", hex: "#b5f5d0")]
+        XCTAssertEqual(GraphitePreferences.storedHighlighterPalette(in: defaults).map(\.hex), ["#b5f5d0"])
+        XCTAssertEqual(GraphitePreferences(defaults: defaults).highlighterPalette.map(\.name), ["mint"])
+        XCTAssertEqual(GraphitePreferences.storedColorPalette(in: defaults), PaletteColor.defaultPalette, "The note colors stay as they were.")
     }
 
     // MARK: Hold to make a shape

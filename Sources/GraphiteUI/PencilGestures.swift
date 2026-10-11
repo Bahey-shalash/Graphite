@@ -112,6 +112,8 @@ struct PencilPalette: View {
     let favoriteColors: [PaletteColor]
     let undoAvailability: UndoAvailability?
     let close: () -> Void
+    /// The colors offered while a highlighter is in use, as on the bar.
+    var highlighterColors: [PaletteColor] = GraphitePreferences.storedHighlighterPalette()
 
     var body: some View {
         let buttons = PencilToolButtons(toolbox: toolbox, rowHeight: PencilToolbarMetrics.buttonSide + 4)
@@ -127,12 +129,16 @@ struct PencilPalette: View {
             .overlay(alignment: .bottom) { Hairline() }
             if toolbox.toolInUse == .ink {
                 HStack(spacing: 2) {
-                    ForEach(Array(toolbox.presetInUse.ink.widthChoices.enumerated()), id: \.offset) { choiceIndex, width in
-                        buttons.sizeButton(choiceIndex: choiceIndex, isChosen: toolbox.presetInUse.width == width) { toolbox.chooseWidth(width) }
+                    ForEach(Array(toolbox.presetInUse.widthChoices.enumerated()), id: \.offset) { choiceIndex, width in
+                        buttons.sizeButton(choiceIndex: choiceIndex, isChosen: toolbox.presetInUse.width == width) { toolbox.useWidthChoice(at: choiceIndex) }
                     }
                     Hairline(axis: .vertical).frame(height: 20).padding(.horizontal, 6)
-                    buttons.colorButton(name: "black", hex: PencilInk.pen.defaultColorHex)
-                    ForEach(favoriteColors.prefix(6)) { favorite in buttons.colorButton(name: favorite.name, hex: favorite.hex) }
+                    if toolbox.presetInUse.ink == .highlighter {
+                        ForEach(highlighterColors.prefix(7)) { highlighterColor in buttons.colorButton(name: highlighterColor.name, hex: highlighterColor.hex) }
+                    } else {
+                        buttons.colorButton(name: "black", hex: PencilInk.pen.defaultColorHex)
+                        ForEach(favoriteColors.prefix(6)) { favorite in buttons.colorButton(name: favorite.name, hex: favorite.hex) }
+                    }
                 }
             }
             if let undoAvailability {

@@ -258,8 +258,8 @@ final class PDFPictureTests: XCTestCase {
     private func assertEqual(_ rectangle: CGRect?, _ expected: CGRect, accuracy: CGFloat = 0.01, _ message: String = "",
                              file: StaticString = #filePath, line: UInt = #line) {
         guard let rectangle else { return XCTFail("No rectangle. \(message)", file: file, line: line) }
-        for (value, expectedValue) in zip([rectangle.minX, rectangle.minY, rectangle.width, rectangle.height], [expected.minX, expected.minY, expected.width, expected.height]) {
-            XCTAssertEqual(value, expectedValue, accuracy: accuracy, "\(rectangle) is not \(expected). \(message)", file: file, line: line)
+        for (measuredEdge, expectedEdge) in zip([rectangle.minX, rectangle.minY, rectangle.width, rectangle.height], [expected.minX, expected.minY, expected.width, expected.height]) {
+            XCTAssertEqual(measuredEdge, expectedEdge, accuracy: accuracy, "\(rectangle) is not \(expected). \(message)", file: file, line: line)
         }
     }
 

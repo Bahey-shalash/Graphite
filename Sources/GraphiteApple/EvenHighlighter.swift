@@ -34,8 +34,9 @@ public enum EvenHighlighter {
             PKStrokePoint(location: point.location, timeOffset: point.timeOffset, size: tipSize, opacity: point.opacity,
                           force: averageForce, azimuth: tipAzimuth, altitude: uprightAltitude)
         }
+        // The same random seed keeps the ink's texture as it was drawn.
         return PKStroke(ink: stroke.ink, path: PKStrokePath(controlPoints: evenPoints, creationDate: stroke.path.creationDate),
-                        transform: transform, mask: stroke.mask)
+                        transform: transform, mask: stroke.mask, randomSeed: stroke.randomSeed)
     }
 }
 #endif

@@ -491,17 +491,18 @@ final class VectorPictureTests: XCTestCase {
 
     // MARK: Turned pictures
 
-    /// A red picture 160 by 40 points around (200, 150), turned a quarter turn clockwise:
-    /// it then stands upright from y 70 to 230, 40 points wide.
+    /// A picture 160 by 40 points around (200, 150), red on its left half and transparent on
+    /// its right, turned a quarter turn clockwise: it then stands from y 70 to 230, 40 points
+    /// wide, with its red half on top.
     private func turnedPictureDrawing() throws -> (drawing: VectorDrawing, picture: DrawingBackgroundImage) {
-        let picture = DrawingBackgroundImage(imageData: try pictureData(width: 160, height: 40, color: .red, type: .png),
+        let picture = DrawingBackgroundImage(imageData: try pictureData(width: 160, height: 40, color: .red, type: .png, transparentRightHalf: true),
                                              frame: CGRect(x: 120, y: 130, width: 160, height: 40), rotationRadians: .pi / 2)
         return (VectorDrawing(size: Self.drawingSize, background: .white, pictures: [picture], shapes: []), picture)
     }
 
     private func assertShowsTurnedPicture(_ rendering: Rendering, reader: String, file: StaticString = #filePath, line: UInt = #line) {
-        XCTAssertTrue(isClose(rendering.color(at: CGPoint(x: 200, y: 80)), to: .red), "\(reader): the picture's turned end", file: file, line: line)
-        XCTAssertTrue(isClose(rendering.color(at: CGPoint(x: 200, y: 220)), to: .red), "\(reader): the picture's other end", file: file, line: line)
+        XCTAssertTrue(isClose(rendering.color(at: CGPoint(x: 200, y: 80)), to: .red), "\(reader): the red left half, turned clockwise to the top", file: file, line: line)
+        XCTAssertTrue(isWhite(rendering.color(at: CGPoint(x: 200, y: 220))), "\(reader): the transparent right half, at the bottom", file: file, line: line)
         XCTAssertTrue(isWhite(rendering.color(at: CGPoint(x: 135, y: 150))), "\(reader): nothing where the picture was before it turned", file: file, line: line)
         XCTAssertTrue(isWhite(rendering.color(at: CGPoint(x: 265, y: 150))), "\(reader): nothing on its other side", file: file, line: line)
     }

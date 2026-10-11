@@ -733,7 +733,7 @@ final class PicturesAndPaperTests: XCTestCase {
         selection.kind = .eraser
         XCTAssertEqual((selection.tool as? PKEraserTool)?.eraserType, .vector)
         selection.erasesWholeStrokes = false
-        for width in PencilToolbox.eraserWidthChoices {
+        for width in PencilToolbox.defaultEraserWidthChoices {
             selection.eraserWidth = width
             let eraser = try XCTUnwrap(selection.tool as? PKEraserTool)
             XCTAssertEqual(eraser.eraserType, .fixedWidthBitmap)

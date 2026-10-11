@@ -240,7 +240,11 @@ class HistoryCanvasView: PKCanvasView {
     /// The drawing with the marker stroke just drawn at one width, the tool's, when the
     /// highlighter ignores tilt; nil when there is no such stroke or the preference is off.
     private func drawingWithEvenHighlighterStroke(_ reportedDrawing: PKDrawing) -> PKDrawing? {
-        guard let change = PencilDrawingChange(from: recordedDrawing, to: reportedDrawing), let newStrokeIndex = change.appendedStrokeIndex,
+        // Asked at every stroke: the comparison of the whole drawing waits until a
+        // highlighter stroke has arrived to be looked at.
+        guard evenHighlighterTool != nil, reportedDrawing.strokes.count == recordedDrawing.strokes.count + 1,
+              reportedDrawing.strokes.last?.ink.inkType == .marker,
+              let change = PencilDrawingChange(from: recordedDrawing, to: reportedDrawing), let newStrokeIndex = change.appendedStrokeIndex,
               newStrokeIndex < reportedDrawing.strokes.count,
               let evenStroke = evenHighlighterStroke(reportedDrawing.strokes[newStrokeIndex]) else { return nil }
         var strokes = reportedDrawing.strokes
@@ -248,10 +252,16 @@ class HistoryCanvasView: PKCanvasView {
         return PKDrawing(strokes: strokes)
     }
 
+    /// The canvas's highlighter, while it is in use and ignores tilt; nil otherwise.
+    private var evenHighlighterTool: PKInkingTool? {
+        guard EvenHighlighterPreference.isOn(), zoomScale > 0, let inkingTool = tool as? PKInkingTool, inkingTool.inkType == .marker else { return nil }
+        return inkingTool
+    }
+
     /// The stroke at the width of the canvas's highlighter, when it is a highlighter stroke
     /// and the highlighter ignores tilt; nil otherwise.
     private func evenHighlighterStroke(_ stroke: PKStroke) -> PKStroke? {
-        guard EvenHighlighterPreference.isOn(), zoomScale > 0, let inkingTool = tool as? PKInkingTool, inkingTool.inkType == .marker else { return nil }
+        guard let inkingTool = evenHighlighterTool else { return nil }
         // PencilKit draws a tool as wide on screen at any zoom of its canvas, so in the
         // drawing's points the stroke is the tool's width over the zoom.
         return EvenHighlighter.evenStroke(stroke, width: inkingTool.width / zoomScale)

@@ -218,11 +218,11 @@ final class DrawingGeometryTests: XCTestCase {
         // 100 by 40 around (150, 120), turned a quarter clockwise where y points down.
         let picture = DrawingBackgroundImage(imageData: Data([1]), frame: CGRect(x: 100, y: 100, width: 100, height: 40), rotationRadians: .pi / 2)
         XCTAssertTrue(picture.isTurned)
-        let box = picture.boundingFrame
-        XCTAssertEqual(box.minX, 130, accuracy: 1e-9)
-        XCTAssertEqual(box.minY, 70, accuracy: 1e-9)
-        XCTAssertEqual(box.width, 40, accuracy: 1e-9)
-        XCTAssertEqual(box.height, 100, accuracy: 1e-9)
+        let boundingFrame = picture.boundingFrame
+        XCTAssertEqual(boundingFrame.minX, 130, accuracy: 1e-9)
+        XCTAssertEqual(boundingFrame.minY, 70, accuracy: 1e-9)
+        XCTAssertEqual(boundingFrame.width, 40, accuracy: 1e-9)
+        XCTAssertEqual(boundingFrame.height, 100, accuracy: 1e-9)
         XCTAssertTrue(picture.contains(CGPoint(x: 150, y: 80)), "The turned picture reaches up there.")
         XCTAssertFalse(picture.contains(CGPoint(x: 105, y: 120)), "Its end before it turned is empty.")
         // A clockwise quarter turn where y points down takes the right side to the bottom.
@@ -263,9 +263,9 @@ final class DrawingGeometryTests: XCTestCase {
             DrawingBackgroundImage(imageData: Data([UInt8(pictureIndex)]), frame: CGRect(x: Double(pictureIndex), y: 1.5 * Double(pictureIndex), width: 10 + Double(pictureIndex), height: 7),
                                    rotationRadians: 0.01 * Double(pictureIndex + 1))
         }
-        let full = DrawingPayload(width: 760, height: 300, background: .white, strokes: strokes,
+        let payloadWithMostPictures = DrawingPayload(width: 760, height: 300, background: .white, strokes: strokes,
                                   backgroundImage: DrawingBackgroundImage(imageData: Data([99]), frame: CGRect(x: 0, y: 0, width: 760, height: 300)), pictures: manyTurned)
-        XCTAssertEqual(try XCTUnwrap(DrawingPayload.decodeIfValid(try full.encoded())).pictures, manyTurned)
+        XCTAssertEqual(try XCTUnwrap(DrawingPayload.decodeIfValid(try payloadWithMostPictures.encoded())).pictures, manyTurned)
     }
 
     func testPayloadRefusesAnglesThatDoNotMatchItsPicturesOrItsVersion() throws {

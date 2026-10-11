@@ -22,7 +22,12 @@ public struct PDFPicture: Sendable, Equatable {
     /// How far the picture is turned by hand about the middle of its bounds, in radians,
     /// clockwise as the page is shown, from -π to π (`PictureRotation.normalized`). The
     /// annotation's rectangle is then the box around it (`annotationBounds`).
-    public var rotationRadians: Double
+    public var rotationRadians: Double {
+        didSet {
+            let normalizedRadians = PictureRotation.normalized(rotationRadians)
+            if normalizedRadians != rotationRadians { rotationRadians = normalizedRadians }
+        }
+    }
 
     /// Bound on one picture's bytes, which the annotation stores twice.
     public static let maximumImageBytes = 8 * 1_048_576

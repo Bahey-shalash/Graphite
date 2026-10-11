@@ -194,10 +194,10 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
         rotationHandle.isHidden = !showsRotationHandle
         rotationStem.isHidden = !showsRotationHandle
         rotationRecognizer.isEnabled = showsRotationHandle
-        accessibilityHint = showsRotationHandle ? "Drag to move. Drag a corner to resize. Drag the handle above to turn." : "Drag to move. Drag a corner to resize."
+        accessibilityHint = showsRotationHandle ? "Drag to move. Drag a corner to resize. Drag the handle above to rotate." : "Drag to move. Drag a corner to resize."
         accessibilityCustomActions = showsRotationHandle ? [
-            UIAccessibilityCustomAction(name: "Turn Clockwise", target: self, selector: #selector(turnClockwiseByAccessibilityStep)),
-            UIAccessibilityCustomAction(name: "Turn Counterclockwise", target: self, selector: #selector(turnCounterclockwiseByAccessibilityStep)),
+            UIAccessibilityCustomAction(name: "Rotate Clockwise", target: self, selector: #selector(turnClockwiseByAccessibilityStep)),
+            UIAccessibilityCustomAction(name: "Rotate Counterclockwise", target: self, selector: #selector(turnCounterclockwiseByAccessibilityStep)),
         ] : nil
         setNeedsLayout()
     }
@@ -220,7 +220,10 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
         handles[.topRight]?.center = CGPoint(x: bounds.maxX, y: bounds.minY)
         handles[.bottomLeft]?.center = CGPoint(x: bounds.minX, y: bounds.maxY)
         handles[.bottomRight]?.center = CGPoint(x: bounds.maxX, y: bounds.maxY)
-        let stemLength = Self.rotationStemLength * handleScale
+        // On a frame too narrow for the turning handle to stand between the top corners'
+        // handles, it stands above them, so neither covers the other.
+        let standsAboveCornerHandles = bounds.width < Self.handleTouchSide * 2 * handleScale
+        let stemLength = (standsAboveCornerHandles ? Self.handleTouchSide : Self.rotationStemLength) * handleScale
         rotationHandle.transform = CGAffineTransform(scaleX: handleScale, y: handleScale)
         rotationHandle.center = CGPoint(x: bounds.midX, y: bounds.minY - stemLength)
         rotationStem.frame = CGRect(x: bounds.midX - layer.borderWidth / 2, y: bounds.minY - stemLength, width: layer.borderWidth, height: stemLength)

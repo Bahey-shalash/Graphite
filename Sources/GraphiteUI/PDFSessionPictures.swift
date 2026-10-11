@@ -74,9 +74,12 @@ extension PDFSession {
         let previousBounds = picture.bounds
         let historyPage = selection.page
         let pictureName = picture.name
+        let rotationRadians = picture.rotationRadians
         func move(in session: PDFSession, from currentBounds: CGRect, to targetBounds: CGRect) throws {
+            // The annotation's rectangle is the box around the picture as turned.
             let reference = PDFAnnotationReference(pageIndex: try session.currentIndex(of: historyPage), name: pictureName,
-                                                   annotationType: PDFPicture.annotationTypeName, bounds: currentBounds)
+                                                   annotationType: PDFPicture.annotationTypeName,
+                                                   bounds: PictureRotation.boundingRectangle(of: currentBounds, turnedBy: -rotationRadians))
             try session.apply(.movePicture(reference, to: targetBounds))
         }
         try move(in: self, from: previousBounds, to: bounds)
@@ -105,7 +108,7 @@ extension PDFSession {
         let pageIndex = try currentIndex(of: page)
         // The picture may have been moved since this step was recorded; its name finds it.
         try apply(.removeAnnotation(PDFAnnotationReference(pageIndex: pageIndex, name: picture.name,
-                                                           annotationType: PDFPicture.annotationTypeName, bounds: picture.bounds)))
+                                                           annotationType: PDFPicture.annotationTypeName, bounds: picture.annotationBounds)))
         if selectedPicture?.pictureName == picture.name { selectedPicture = nil }
     }
 
