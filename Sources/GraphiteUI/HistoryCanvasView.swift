@@ -149,6 +149,21 @@ class HistoryCanvasView: PKCanvasView {
         }
     }
 
+    /// A hand landed on the page (`PalmRejectionRecognizer`): with finger drawing, the
+    /// stroke its touch began is taken back, unless Apple Pencil is drawing. PencilKit's
+    /// drawing never waits for palm rejection, so the stroke is cancelled once PencilKit has
+    /// begun it, as a scroll that takes over a finger's stroke cancels it.
+    func takeBackStrokeOfHand() {
+        guard drawingPolicy == .anyInput else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !PencilActivity.isPencilTouching(at: PencilActivity.now) else { return }
+            let drawingState = self.drawingGestureRecognizer.state
+            guard drawingState == .began || drawingState == .changed else { return }
+            self.drawingGestureRecognizer.isEnabled = false
+            self.drawingGestureRecognizer.isEnabled = true
+        }
+    }
+
     /// True while something other than drawing has the canvas, as arranging pictures has.
     var isDrawingSuspended = false {
         didSet { if isDrawingSuspended != oldValue { applyDrawingEnabled() } }

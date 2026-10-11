@@ -64,7 +64,7 @@ Implemented on 2026-09-30; targeted validation is recorded in `Coverage.md`:
 
 - Markdown and PDF workspaces use the same Read/Write picker, sized with Dynamic Type. Compact layouts keep it in a row below navigation. Markdown's Live Preview and Source choices remain in More.
 - Focus mode hides navigation panels, tab bars, and secondary navigation buttons while keeping document tools and recording controls available. Exiting restores the previous panel arrangement. Opening a panel or requesting sidebar search leaves focus mode. The command palette also exposes Toggle focus mode.
-- Reading view retains a vertical-position checkpoint in the open note session and restores it when its view is recreated. A new heading request takes precedence. The checkpoint is lightweight and is not written into the note or kept across app relaunches. Changed text or layout can change which passage occupies that offset.
+- Reading view retains a vertical-position checkpoint in the open note session and restores it when its view is recreated. A new heading request takes precedence. The checkpoint is lightweight and is not written into the note. Changed text or layout can change which passage occupies that offset. Since 2026-10-11 the place of every note and PDF is also kept on the device across app relaunches (`Architecture.md`, where documents were left); that is written but not yet built or verified.
 - Hiding and restoring the tab bar preserves the active native editor, selection, and undo history in hosted iPad and iPhone tests. This does not address undo across actual document switches.
 
 ## Third increment: editing continuity and consistent document controls

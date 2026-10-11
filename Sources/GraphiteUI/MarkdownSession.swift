@@ -60,6 +60,30 @@ final class MarkdownSession {
     /// The character at the top of the editor when it last closed, so a tab shows the
     /// note where it was left; nil at the top.
     @ObservationIgnored var savedScrollLocation: Int?
+    /// Set by the editor while it shows the note: records the character at its top in
+    /// `savedScrollLocation` now, as it does when it closes.
+    @ObservationIgnored var recordEditorPlace: (@MainActor () -> Void)?
+
+    /// Where the note is shown, to open it there again after Graphite quits: the character
+    /// at the top of the view, in the reading view or the editor, and the cursor.
+    func placeToRemember() -> NotePlace {
+        recordEditorPlace?()
+        let topLocation = viewMode == .reading ? readingPosition.topLocation() ?? savedScrollLocation : savedScrollLocation
+        return NotePlace(topLocation: topLocation ?? 0, selectionLocation: selection.location, selectionLength: selection.length)
+    }
+
+    /// Opens the note where it was left: the editor and the reading view start at the line
+    /// that was at the top, and the cursor is where it was. A place beyond the note's end,
+    /// as after another app shortened it, is kept within the note.
+    func returnTo(_ place: NotePlace) {
+        let textLength = (text as NSString).length
+        let topLocation = min(max(place.topLocation, 0), textLength)
+        savedScrollLocation = topLocation > 0 ? topLocation : nil
+        // The reading view starts at that line too, when the note opens in reading view.
+        readingStartsWhereEditorWas = topLocation > 0
+        let selectionLocation = min(max(place.selectionLocation, 0), textLength)
+        selection = NSRange(location: selectionLocation, length: min(max(place.selectionLength, 0), textLength - selectionLocation))
+    }
     /// Whether the person has put the cursor somewhere in this note since it opened; until
     /// then, quotes from a PDF go to the end of the note rather than its top.
     @ObservationIgnored var hasPlacedCursor = false

@@ -4,6 +4,15 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-11.
 
+## Palm rejection, and documents that open where they were left: 2026-10-11
+
+Reported from use: a hand resting on the page while writing with Apple Pencil still moved or selected things, and a note or PDF left somewhere in it opened at its top after coming back to the app. The second happened when iOS had ended Graphite in the background: nothing about a document's place was saved, so it reopened at its start (within one run, tabs already came back to their place, a PDF only to the top of its page). See `Architecture.md`, the paragraph after the shape hold and the one after tabs.
+
+- Palm rejection: while the Pencil touches, hovers, or has lifted within 0.6 seconds, and while writing for any palm-sized touch, a hand does not scroll or zoom the page, tap, select text or open PencilKit's menu, on PDF pages and in the drawing editor; with finger drawing, its stroke is taken back. PencilKit's drawing never waits for this. Not covered: notes (Scribble), a picture's selection frame, and the note around an embedded PDF.
+- Places: each vault keeps, on the device, where every note (the line at the top and the cursor) and PDF (the page and how far down it) was left, taken as Graphite leaves the screen or vault, as tabs close, and as a tab opens another file; at most 400, following renames and deletions. Notes and PDFs open there, unless a link asks for a page. A PDF now also comes back to its place on the page after another tab or a reload. A note adopting another app's changes keeps its scroll position.
+
+Tests: `PalmRejectionTests` (4, UI target): the Pencil is active on the screen, while hovering, and 0.6 seconds after; a missed lift lets go after 20 seconds; a pointer's hover is not the Pencil's; which touches are a hand. `DocumentPlacesTests` (4, Core): places per document, the start not kept, the bound, renames and deletions, kept between launches. None has been run: written without a Swift compiler, syntax-parsed and reviewed only. Not established, and needing the iPad: whether 34 points tells a palm from a finger on real hands, whether 0.6 seconds feels right, whether PDFKit's own recognizers are all reached, and the places on relaunch in the app itself.
+
 ## Sizes that can be changed, and colors of the highlighter's own: 2026-10-11
 
 Asked for after the change below, with Goodnotes' "Highlighter thickness" and "Stroke Settings" popovers as the example: the three sizes of the pen, the pencil and the eraser are easy to reach, and should be as easy to change; and a highlighter's colors should differ from a pen's, as they are used differently. See `Architecture.md`, the paragraph on the fixed tool bar.

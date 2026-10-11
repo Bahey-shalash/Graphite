@@ -793,6 +793,9 @@ final class InfiniteCanvasView: HistoryCanvasView {
     private(set) var cropFrame: CGRect?
     private lazy var pictureTapRecognizer = UITapGestureRecognizer(target: self, action: #selector(handlePictureTap(_:)))
     private let pictureTapGate = PictureTapGate()
+    /// Takes a resting hand's touches, which scrolling, zooming and tapping a picture wait for.
+    private var palmRejectionRecognizer: PalmRejectionRecognizer?
+    private var recognizersWaitingForPalmRejection: Set<ObjectIdentifier> = []
 
     /// The paper pattern shown under the ink.
     var paperPattern: DrawingPaperPattern { paperView.paper.pattern }
@@ -813,6 +816,33 @@ final class InfiniteCanvasView: HistoryCanvasView {
         pictureTapGate.canvas = self
         pictureTapRecognizer.delegate = pictureTapGate
         addGestureRecognizer(pictureTapRecognizer)
+        // A hand resting on the drawing while the Pencil writes does not scroll, zoom or
+        // select a picture; with finger drawing, it does not draw.
+        palmRejectionRecognizer = PencilActivity.installRecognizers(in: self, isWriting: { true },
+                                                                    handDidLand: { [weak self] in self?.takeBackStrokeOfHand() })
+        let pageRecognizers: [UIGestureRecognizer] = [panGestureRecognizer, pictureTapRecognizer]
+        makeWaitForPalmRejection(pageRecognizers + [pinchGestureRecognizer].compactMap { recognizer in recognizer })
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        // PencilKit's own long press (its Select All and Insert Space menu), once it has one.
+        if window != nil { makeWaitForPalmRejection(Self.longPresses(in: self)) }
+    }
+
+    /// Makes recognizers wait for palm rejection to fail, each once. It fails at once for a
+    /// finger, so they do not wait for one. PencilKit's drawing never waits for it.
+    private func makeWaitForPalmRejection(_ recognizers: [UIGestureRecognizer]) {
+        guard let palmRejectionRecognizer else { return }
+        for recognizer in recognizers where recognizer !== palmRejectionRecognizer
+        && recognizersWaitingForPalmRejection.insert(ObjectIdentifier(recognizer)).inserted {
+            recognizer.require(toFail: palmRejectionRecognizer)
+        }
+    }
+
+    private static func longPresses(in view: UIView) -> [UIGestureRecognizer] {
+        (view.gestureRecognizers ?? []).filter { recognizer in recognizer is UILongPressGestureRecognizer }
+            + view.subviews.flatMap { subview in subview is SelectionFrameView ? [] : longPresses(in: subview) }
     }
 
     @available(*, unavailable)
