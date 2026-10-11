@@ -210,7 +210,7 @@ struct DrawingEditor: View {
                     .fontWeight(.semibold)
                     .tint(.primary)
             } else {
-                Text(canvasController.selectedPictureIdentifier == nil ? "Tap an image to select it." : "Drag the image to move it, or a corner to resize it.")
+                Text(canvasController.selectedPictureIdentifier == nil ? "Tap an image to select it." : "Drag the image to move it, a corner to resize it, or the handle above it to rotate it.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 8)
@@ -572,7 +572,8 @@ final class DrawingCanvasController {
         let turnedData = try await Task.detached(priority: .userInitiated) { try PictureEditing.rotatedClockwise(pictureData) }.value
         let frame = placed.picture.frame
         let turnedFrame = CGRect(x: frame.midX - frame.height / 2, y: frame.midY - frame.width / 2, width: frame.height, height: frame.width)
-        replacePicture(placed.id, with: DrawingBackgroundImage(imageData: turnedData, frame: turnedFrame), actionName: "Turn Image")
+        replacePicture(placed.id, with: DrawingBackgroundImage(imageData: turnedData, frame: turnedFrame, rotationRadians: placed.picture.rotationRadians),
+                       actionName: "Turn Image")
     }
 
     func beginCroppingPicture() {
@@ -593,7 +594,8 @@ final class DrawingCanvasController {
         try await cropSelectedPicture(to: cropFrame)
     }
 
-    /// Keeps the part of the selected picture inside a frame of the drawing's coordinates.
+    /// Keeps the part of the selected picture inside a frame of the drawing's coordinates,
+    /// given as the picture's own frame is: before the picture is turned.
     func cropSelectedPicture(to cropFrame: CGRect) async throws {
         guard let pictureIndex = selectedPictureIndex else { return }
         let placed = pictures[pictureIndex]
@@ -604,7 +606,12 @@ final class DrawingCanvasController {
                             width: keptFrame.width / frame.width, height: keptFrame.height / frame.height)
         let pictureData = placed.picture.imageData
         let croppedData = try await Task.detached(priority: .userInitiated) { try PictureEditing.cropped(pictureData, to: region) }.value
-        replacePicture(placed.id, with: DrawingBackgroundImage(imageData: croppedData, frame: keptFrame), actionName: "Crop Image")
+        // The part kept stays where it was shown: a picture of its own, turned as the
+        // picture was, about its own middle.
+        let rotationRadians = placed.picture.rotationRadians
+        let croppedFrame = PictureRotation.rectangle(keptFrame, withMiddleTurnedBy: rotationRadians, about: CGPoint(x: frame.midX, y: frame.midY))
+        replacePicture(placed.id, with: DrawingBackgroundImage(imageData: croppedData, frame: croppedFrame, rotationRadians: rotationRadians),
+                       actionName: "Crop Image")
     }
 
     /// Puts the selected picture over or under the drawing's other pictures; ink stays over them all.
@@ -644,9 +651,22 @@ final class DrawingCanvasController {
 
     func pictureFrameChangeDidEnd(_ identifier: UUID, frame: CGRect) {
         guard let pictureIndex = pictures.firstIndex(where: { placed in placed.id == identifier }), pictures[pictureIndex].picture.frame != frame else { return }
+        let picture = pictures[pictureIndex].picture
         var movedPictures = pictures
-        movedPictures[pictureIndex].picture = DrawingBackgroundImage(imageData: movedPictures[pictureIndex].picture.imageData, frame: frame)
+        movedPictures[pictureIndex].picture = DrawingBackgroundImage(imageData: picture.imageData, frame: frame, rotationRadians: picture.rotationRadians)
         replacePictures(with: movedPictures, actionName: "Move Image")
+        showPicturesAndPaper()
+    }
+
+    /// The picture was turned by its handle to an angle, clockwise, in radians.
+    func pictureRotationChangeDidEnd(_ identifier: UUID, rotationRadians: Double) {
+        guard let pictureIndex = pictures.firstIndex(where: { placed in placed.id == identifier }) else { return }
+        let picture = pictures[pictureIndex].picture
+        let turnedPicture = DrawingBackgroundImage(imageData: picture.imageData, frame: picture.frame, rotationRadians: rotationRadians)
+        guard turnedPicture != picture else { return }
+        var turnedPictures = pictures
+        turnedPictures[pictureIndex].picture = turnedPicture
+        replacePictures(with: turnedPictures, actionName: "Rotate Image")
         showPicturesAndPaper()
     }
 
@@ -752,6 +772,8 @@ final class InfiniteCanvasView: HistoryCanvasView {
     /// A picture was tapped (nil: a tap beside every picture while arranging).
     var pictureWasTapped: ((UUID?) -> Void)?
     var pictureFrameChangeDidEnd: ((UUID, CGRect) -> Void)?
+    /// A picture was turned by its handle, to an angle in radians, clockwise.
+    var pictureRotationChangeDidEnd: ((UUID, Double) -> Void)?
     private var fittedBoundsWidth: CGFloat = 0
     private let paperView = DrawingPaperView()
     /// The picture under the ink of a drawing made on an image, in canvas coordinates.
@@ -807,6 +829,7 @@ final class InfiniteCanvasView: HistoryCanvasView {
         let imageView = basePictureView ?? UIImageView()
         imageView.image = picture
         imageView.contentMode = .scaleToFill
+        imageView.layer.minificationFilter = .trilinear
         imageView.isUserInteractionEnabled = false
         imageView.accessibilityLabel = "Image being drawn on"
         if imageView.superview == nil { insertSubview(imageView, aboveSubview: paperView) }
@@ -831,6 +854,10 @@ final class InfiniteCanvasView: HistoryCanvasView {
             let imageView = pictureViews[placed.id] ?? {
                 let newView = UIImageView()
                 newView.contentMode = .scaleToFill
+                // Core Animation's default filter reads only a few of a picture's pixels for
+                // each one shown, so a picture made smaller than its pixels looked jagged and
+                // pixelated; the trilinear filter reads them all, from smaller copies.
+                newView.layer.minificationFilter = .trilinear
                 newView.isUserInteractionEnabled = false
                 newView.isAccessibilityElement = true
                 newView.accessibilityLabel = "Image"
@@ -862,8 +889,11 @@ final class InfiniteCanvasView: HistoryCanvasView {
         }
         let selection = selectionView ?? {
             let newSelection = SelectionFrameView(frame: .zero)
+            newSelection.allowsRotation = true
             newSelection.frameDidChange = { [weak self] frame in self?.selectionFrameDidChange(frame) }
             newSelection.frameChangeDidEnd = { [weak self] frame in self?.selectionFrameChangeDidEnd(frame) }
+            newSelection.rotationDidChange = { [weak self] rotation in self?.selectionRotationDidChange(rotation) }
+            newSelection.rotationChangeDidEnd = { [weak self] rotation in self?.selectionRotationChangeDidEnd(rotation) }
             // Dragging a picture must not scroll the page with it.
             for recognizer in newSelection.dragRecognizers { panGestureRecognizer.require(toFail: recognizer) }
             selectionView = newSelection
@@ -875,8 +905,18 @@ final class InfiniteCanvasView: HistoryCanvasView {
 
     private func selectionFrameDidChange(_ frame: CGRect) {
         // A crop frame moves over the picture, which stays where it is.
-        guard let selectedPictureIdentifier, zoomScale > 0, !isCroppingPicture else { return }
-        pictureViews[selectedPictureIdentifier]?.frame = frame
+        guard let selectedPictureIdentifier, zoomScale > 0, !isCroppingPicture, let pictureView = pictureViews[selectedPictureIdentifier] else { return }
+        place(pictureView, in: frame, turnedBy: selectionView?.rotation ?? 0)
+    }
+
+    private func selectionRotationDidChange(_ rotation: CGFloat) {
+        guard let selectedPictureIdentifier else { return }
+        pictureViews[selectedPictureIdentifier]?.transform = CGAffineTransform(rotationAngle: rotation)
+    }
+
+    private func selectionRotationChangeDidEnd(_ rotation: CGFloat) {
+        guard let selectedPictureIdentifier else { return }
+        pictureRotationChangeDidEnd?(selectedPictureIdentifier, Double(rotation))
     }
 
     private func selectionFrameChangeDidEnd(_ frame: CGRect) {
@@ -893,7 +933,7 @@ final class InfiniteCanvasView: HistoryCanvasView {
     func picture(atContentPoint contentPoint: CGPoint) -> UUID? {
         guard zoomScale > 0 else { return nil }
         let drawingPoint = CGPoint(x: contentPoint.x / zoomScale, y: contentPoint.y / zoomScale)
-        return pictures.last { placed in placed.picture.frame.contains(drawingPoint) }?.id
+        return pictures.last { placed in placed.picture.contains(drawingPoint) }?.id
     }
 
     @objc private func handlePictureTap(_ recognizer: UITapGestureRecognizer) {
@@ -905,13 +945,26 @@ final class InfiniteCanvasView: HistoryCanvasView {
         CGRect(x: frame.minX * zoomScale, y: frame.minY * zoomScale, width: frame.width * zoomScale, height: frame.height * zoomScale)
     }
 
+    /// Places a picture's view at a frame of the canvas, turned about the frame's middle. A
+    /// turned view's frame is the box around it, so its size and middle place it.
+    private func place(_ pictureView: UIView, in frame: CGRect, turnedBy rotation: CGFloat) {
+        pictureView.transform = CGAffineTransform(rotationAngle: rotation)
+        pictureView.bounds = CGRect(origin: .zero, size: frame.size)
+        pictureView.center = CGPoint(x: frame.midX, y: frame.midY)
+    }
+
     private func positionPictures() {
         if let basePictureView, !basePictureFrame.isNull { basePictureView.frame = zoomed(basePictureFrame) }
-        for placed in pictures { pictureViews[placed.id]?.frame = zoomed(placed.picture.frame) }
+        for placed in pictures {
+            guard let pictureView = pictureViews[placed.id] else { continue }
+            place(pictureView, in: zoomed(placed.picture.frame), turnedBy: CGFloat(placed.picture.rotationRadians))
+        }
         if let selectionView, let selected = pictures.first(where: { placed in placed.id == selectedPictureIdentifier }) {
             let pictureFrame = zoomed(selected.picture.frame)
+            // The angle and the crop's limits first: they decide where the frame is turned about.
+            selectionView.rotation = CGFloat(selected.picture.rotationRadians)
             selectionView.cropLimits = isCroppingPicture ? pictureFrame : nil
-            selectionView.frame = isCroppingPicture ? zoomed(cropFrame ?? selected.picture.frame) : pictureFrame
+            selectionView.unrotatedFrame = isCroppingPicture ? zoomed(cropFrame ?? selected.picture.frame) : pictureFrame
             // A picture stays where it can be reached: its middle on the canvas, not above its top.
             selectionView.centerLimits = CGRect(x: 0, y: 0, width: canvasWidth * zoomScale, height: .greatestFiniteMagnitude)
         }
@@ -960,7 +1013,7 @@ final class InfiniteCanvasView: HistoryCanvasView {
         guard canvasWidth > 0, zoomScale > 0 else { return }
         positionPictures()
         let visibleHeight = bounds.height / zoomScale
-        let pictureBottom = max(basePictureFrame.isNull ? 0 : basePictureFrame.maxY, pictures.map(\.picture.frame.maxY).max() ?? 0)
+        let pictureBottom = max(basePictureFrame.isNull ? 0 : basePictureFrame.maxY, pictures.map(\.picture.boundingFrame.maxY).max() ?? 0)
         let contentBottom = max(drawing.strokes.isEmpty ? 0 : drawing.bounds.maxY, pictureBottom)
         let canvasHeight = max(visibleHeight, contentBottom + visibleHeight * 0.75)
         let newContentSize = CGSize(width: canvasWidth * zoomScale, height: canvasHeight * zoomScale)
@@ -1007,6 +1060,9 @@ private struct DrawingCanvas: UIViewRepresentable {
         canvasView.onCanvasWidthResolved = { [controller] resolvedWidth in controller.canvasWidth = Double(resolvedWidth) }
         canvasView.pictureWasTapped = { [controller] identifier in controller.pictureWasTapped(identifier) }
         canvasView.pictureFrameChangeDidEnd = { [controller] identifier, frame in controller.pictureFrameChangeDidEnd(identifier, frame: frame) }
+        canvasView.pictureRotationChangeDidEnd = { [controller] identifier, rotationRadians in
+            controller.pictureRotationChangeDidEnd(identifier, rotationRadians: rotationRadians)
+        }
         controller.canvasWidth = canvasWidth
         if !initialStrokeData.isEmpty {
             do { canvasView.drawing = try PKDrawing(data: initialStrokeData) }

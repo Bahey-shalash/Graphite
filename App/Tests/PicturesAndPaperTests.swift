@@ -351,6 +351,52 @@ final class PicturesAndPaperTests: XCTestCase {
         XCTAssertFalse(controller.isCroppingPicture)
     }
 
+    func testAPictureOnADrawingTurnedByHandKeepsItsAngleThroughMovesTurnsCropsAndUndo() async throws {
+        let controller = DrawingCanvasController()
+        controller.canvasWidth = 760
+        try controller.addPicture(DrawingBackgroundImage(imageData: try twoColorImageData(size: CGSize(width: 400, height: 200)),
+                                                         frame: CGRect(x: 0, y: 0, width: 400, height: 200)))
+        let placed = try XCTUnwrap(controller.pictures.first)
+        endEvent(of: controller.history)
+
+        // Turning by hand changes only the angle, as one step.
+        controller.pictureRotationChangeDidEnd(placed.id, rotationRadians: .pi / 6)
+        let turnedByHand = try XCTUnwrap(controller.pictures.first?.picture)
+        XCTAssertEqual(turnedByHand.rotationRadians, .pi / 6, accuracy: 1e-9)
+        XCTAssertEqual(turnedByHand.frame, placed.picture.frame)
+        XCTAssertEqual(turnedByHand.imageData, placed.picture.imageData)
+        XCTAssertEqual(controller.history.undoActionName, "Rotate Image")
+        endEvent(of: controller.history)
+        controller.history.undo()
+        XCTAssertEqual(controller.pictures.first?.picture, placed.picture)
+        controller.history.redo()
+        endEvent(of: controller.history)
+
+        // Moving and the quarter turn keep the angle.
+        controller.pictureFrameChangeDidEnd(placed.id, frame: CGRect(x: 100, y: 200, width: 200, height: 100))
+        XCTAssertEqual(controller.pictures.first?.picture.rotationRadians ?? 0, .pi / 6, accuracy: 1e-9)
+        endEvent(of: controller.history)
+        controller.pictureWasTapped(placed.id)
+        try await controller.rotateSelectedPicture()
+        let quarterTurned = try XCTUnwrap(controller.pictures.first?.picture)
+        XCTAssertEqual(quarterTurned.rotationRadians, .pi / 6, accuracy: 1e-9)
+        XCTAssertEqual(quarterTurned.frame, CGRect(x: 150, y: 150, width: 100, height: 200))
+        endEvent(of: controller.history)
+
+        // A crop keeps the part where it was shown: the top half, turned 30° clockwise about
+        // the picture's middle, is up and to the right of it.
+        let frame = quarterTurned.frame
+        try await controller.cropSelectedPicture(to: CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: frame.height / 2))
+        let cropped = try XCTUnwrap(controller.pictures.first?.picture)
+        XCTAssertEqual(cropped.rotationRadians, .pi / 6, accuracy: 1e-9)
+        XCTAssertEqual(cropped.frame.size, CGSize(width: 100, height: 100))
+        let shownMiddle = PictureRotation.point(CGPoint(x: frame.midX, y: frame.minY + frame.height / 4), turnedBy: .pi / 6,
+                                                about: CGPoint(x: frame.midX, y: frame.midY))
+        XCTAssertEqual(cropped.frame.midX, shownMiddle.x, accuracy: 0.01)
+        XCTAssertEqual(cropped.frame.midY, shownMiddle.y, accuracy: 0.01)
+        XCTAssertGreaterThan(cropped.frame.midX, frame.midX)
+    }
+
     /// Red on the left half, blue on the right.
     private func twoColorImageData(size: CGSize) throws -> Data {
         let format = UIGraphicsImageRendererFormat()

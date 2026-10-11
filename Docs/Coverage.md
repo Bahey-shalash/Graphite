@@ -2,7 +2,26 @@
 
 What Graphite does today, how each part is verified, and what is still missing. `OBJECTIVE.md` describes the complete product; this file tracks progress toward it. Update it with every change that adds, removes, or re-verifies behavior.
 
-Last updated: 2026-10-10.
+Last updated: 2026-10-11.
+
+## Pictures that stay sharp when shrunk and turn freely, and a highlighter that ignores tilt: 2026-10-11
+
+Three things reported from use: a picture on a drawing or a PDF page looked pixelated when made smaller; pictures could not be rotated, only turned a quarter at a time with an icon-only button; and the highlighter's width followed the Pencil's tilt. See `Architecture.md` (the drawing record, pictures in vector drawings, pictures on PDF pages, and the paragraphs after the shape hold).
+
+- Shrunk pictures: picture views on drawings and the selection frame's drag preview use the trilinear minification filter, and PDF views high image interpolation. The likely cause is how Core Animation's default linear filter and PDF image interpolation sample a picture shown much smaller than its pixels; it has not been confirmed on a device that this was what was seen.
+- Turning freely: a handle above a selected picture's frame turns it by any angle, holding at quarter turns; moving, resizing, cropping, the quarter-turn button, reordering and undo keep the angle. Stored as an angle: version 5 of the drawing record, SVG's `rotate()` on the `<image>`, and on a PDF page a stamp whose rectangle is the box around the turned picture, with Graphite keys for the angle and size.
+- Highlighter: "Highlighter Ignores Tilt" in Settings › Pencil Drawings and in the highlighter's options on the fixed bar (off by default). A marker stroke takes one even width when the Pencil lifts; while it is drawn it still shows PencilKit's tilted tip.
+
+Tests added, none of them run yet:
+
+- `DrawingGeometryTests` (5): angles kept within a turn and held at quarter turns nearby; a turned picture's box, hit test and offset; the part of a turned picture a crop keeps; a record with a turned picture is version 5 and keeps every angle, also with the most pictures a drawing holds, while upright pictures stay version 3; angles that do not match the pictures or the version are refused.
+- `PDFPictureTests` (2): a picture turned a quarter by hand is shown turned in the open and the written document, reads back with its upright frame and angle as a standard stamp whose rectangle is the box around it, and keeps its angle when moved; an upright picture writes no angle, and a turned stamp another application resized keeps its proportions.
+- `VectorPictureTests` (2): a turned picture shows turned in Core Graphics, PDFKit, Graphite's preview and Apple's SVG renderer, reads back its angle from PDF and SVG, and the SVG reader accepts only the rotation Graphite writes.
+- `EvenHighlighterTests` (3): every point of a tilted highlighter stroke takes one upright tip of the tool's width on the same line; the width is in the drawing's points under a scaled stroke; other inks and unusable widths are left alone.
+- `PicturesAndPaperTests` (1 hosted): on a drawing, turning by hand changes only the angle as one undoable step; moving and the quarter turn keep it; a crop keeps the part where it was shown.
+- `PencilToolsTests` (1 hosted): in the drawing editor with the preference on, a highlighter stroke arrives as one width, the tool's, in one step, and a pen stroke stays as drawn.
+
+Not established: this change was written without Xcode or a Swift compiler. It was checked only by a Swift syntax parser (tree-sitter) and by reading. It has not been built, the tests above and the existing suites have not been run against it, and nothing of it has been seen in the simulator or tried with Apple Pencil. That includes whether the pictures now look smooth when shrunk, how the rotation handle and its snapping feel, the handle's place on a frame at the top of the screen, and whether PencilKit draws the even highlighter's square upright tip as a band of even height in every direction. The even width appears only at the lift, which may look like a jump.
 
 ## The Pencil palette under sheets: 2026-10-10
 

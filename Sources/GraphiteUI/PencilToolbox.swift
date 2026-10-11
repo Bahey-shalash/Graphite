@@ -764,6 +764,7 @@ struct PencilToolGlyph: View {
 /// adding or removing a preset.
 struct PencilInkOptions: View {
     @Bindable var toolbox: PencilToolbox
+    @AppStorage(EvenHighlighterPreference.key) private var highlighterIgnoresTilt = false
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.displayScale) private var displayScale
     @Environment(\.dismiss) private var dismiss
@@ -786,6 +787,11 @@ struct PencilInkOptions: View {
                     Slider(value: Binding(get: { toolbox.presetInUse.opacity }, set: { opacity in toolbox.chooseOpacity(opacity) }), in: InkPreset.opacityRange)
                         .accessibilityLabel("Opacity")
                         .accessibilityValue(preset.opacity.formatted(.percent.precision(.fractionLength(0))))
+                }
+                // Every highlighter, of the bar and of the floating palette, as in Settings.
+                if preset.ink == .highlighter {
+                    Toggle("Ignore Pencil Tilt", isOn: $highlighterIgnoresTilt)
+                        .help("Draws the chosen width however Apple Pencil is tilted or turned")
                 }
             }
             .font(.callout)

@@ -41,6 +41,15 @@ enum StrokeHoldPreference {
     static func isOn(in defaults: UserDefaults = .standard) -> Bool { defaults.object(forKey: key) as? Bool ?? true }
 }
 
+/// The preference for a highlighter that draws one width however Apple Pencil is tilted
+/// or turned (`EvenHighlighter`). Settings and the highlighter's options on the fixed bar
+/// change it; every canvas reads it as a stroke ends.
+enum EvenHighlighterPreference {
+    static let key = "GraphiteHighlighterIgnoresTilt"
+    /// Off unless turned on: the highlighter otherwise draws as Apple Notes' does.
+    static func isOn(in defaults: UserDefaults = .standard) -> Bool { defaults.bool(forKey: key) }
+}
+
 #if canImport(UIKit)
 import UIKit
 import UIKit.UIGestureRecognizerSubclass

@@ -95,7 +95,7 @@ struct PDFPictureArrangementBar: View {
                 .fontWeight(.semibold)
                 .tint(.primary)
             } else {
-                Text("Drag the image to move it, or a corner to resize it.")
+                Text("Drag the image to move it, a corner to resize it, or the handle above it to rotate it.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -223,9 +223,13 @@ final class PDFPictureSelectionController {
         let selection = selectionView ?? makeSelectionView(in: pdfView)
         // Not while a drag moves the frame: the picture follows when the drag ends.
         guard !selection.dragRecognizers.contains(where: { recognizer in recognizer.state == .began || recognizer.state == .changed }) else { return }
+        // The picture's bounds before it is turned: the page's own quarter turns keep an
+        // upright rectangle upright on screen, and a turn by hand looks the same on the page
+        // at any of them.
         let pictureFrame = pdfView.convert(picture.bounds, from: page)
+        selection.rotation = CGFloat(picture.rotationRadians)
         selection.cropLimits = session.pictureCrop == nil ? nil : pictureFrame
-        selection.frame = session.pictureCrop.map { crop in pdfView.convert(crop, from: page) } ?? pictureFrame
+        selection.unrotatedFrame = session.pictureCrop.map { crop in pdfView.convert(crop, from: page) } ?? pictureFrame
         selection.centerLimits = pdfView.convert(page.bounds(for: .cropBox), from: page)
         // The preview is the picture as placed; on a page turned since, only the frame moves.
         let pageTurns = ((page.rotation / 90) % 4 + 4) % 4
@@ -234,7 +238,9 @@ final class PDFPictureSelectionController {
 
     private func makeSelectionView(in pdfView: PDFView) -> SelectionFrameView {
         let selection = SelectionFrameView(frame: .zero)
+        selection.allowsRotation = true
         selection.frameChangeDidEnd = { [weak self] frame in self?.selectionFrameChangeDidEnd(frame) }
+        selection.rotationChangeDidEnd = { [weak self] rotation in self?.selectionRotationChangeDidEnd(rotation) }
         pdfView.addSubview(selection)
         selectionView = selection
         if let scrollView = Self.scrollView(in: pdfView) {
@@ -256,6 +262,15 @@ final class PDFPictureSelectionController {
             return
         }
         do { try session.movePicture(selection, to: pdfView.convert(frame, to: page)) }
+        catch { session.errorMessage = error.localizedDescription }
+        update()
+    }
+
+    /// The picture keeps the angle its handle was let go at; the page shows it turned once
+    /// the annotation is replaced, and the frame stays turned meanwhile.
+    private func selectionRotationChangeDidEnd(_ rotation: CGFloat) {
+        guard let selection = session.selectedPicture else { return }
+        do { try session.turnPicture(selection, to: Double(rotation)) }
         catch { session.errorMessage = error.localizedDescription }
         update()
     }

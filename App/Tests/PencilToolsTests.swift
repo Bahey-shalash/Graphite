@@ -303,6 +303,48 @@ final class PencilToolsTests: XCTestCase {
         attachScreenshot(of: controller, named: "Drawing editor with a shape")
     }
 
+    func testHighlighterThatIgnoresTiltDrawsOneWidthAndOtherInksStayAsDrawn() async throws {
+        UserDefaults.standard.set(false, forKey: PDFAnnotationPreferenceKey.drawsShapes)
+        UserDefaults.standard.set(true, forKey: EvenHighlighterPreference.key)
+        defer { UserDefaults.standard.removeObject(forKey: EvenHighlighterPreference.key) }
+        let request = DrawingEditorRequest(target: .newDrawing(notePath: try VaultPath("Note.md"), insertionRange: NSRange(location: 0, length: 0)),
+                                           title: "New Drawing", initialStrokeData: Data(), canvasWidth: nil, background: .white, format: .png)
+        let controller = try host(AnyView(DrawingEditor(request: request, save: { _, _ in },
+            exportCopy: { _, _ in throw CocoaError(.featureUnsupported) }, preserveDraft: { _ in }, removeDraft: {})))
+        try await waitUntil { !self.descendants(of: controller.view, matching: InfiniteCanvasView.self).isEmpty }
+        let canvas = try XCTUnwrap(descendants(of: controller.view, matching: InfiniteCanvasView.self).first)
+        let history = try XCTUnwrap(try XCTUnwrap(descendants(of: controller.view, matching: PencilToolPickerHostView.self).first).undoManager)
+
+        /// A stroke as a tilted, turning Pencil draws it: every point's tip different.
+        func tiltedStroke(ink: PKInk, atY lineY: CGFloat) -> PKStroke {
+            let controlPoints = (0...10).map { step in
+                PKStrokePoint(location: CGPoint(x: 100 + 30 * CGFloat(step), y: lineY), timeOffset: TimeInterval(step) * 0.02,
+                              size: CGSize(width: 12 + 3 * CGFloat(step), height: 6 + CGFloat(step)), opacity: 1, force: 0.5 + 0.1 * CGFloat(step),
+                              azimuth: 0.2 * CGFloat(step), altitude: 0.6)
+            }
+            return PKStroke(ink: ink, path: PKStrokePath(controlPoints: controlPoints, creationDate: Date()))
+        }
+
+        canvas.tool = PKInkingTool(.marker, color: .systemYellow, width: 20)
+        let toolWidth = try XCTUnwrap(canvas.tool as? PKInkingTool).width
+        canvas.drawing = PKDrawing(strokes: [tiltedStroke(ink: PKInk(.marker, color: .systemYellow), atY: 200)])
+        try await waitUntil { history.canUndo }
+        let highlight = try XCTUnwrap(canvas.drawing.strokes.first)
+        for point in highlight.path {
+            XCTAssertEqual(point.size.width, toolWidth / canvas.zoomScale, accuracy: 0.01, "As wide as the tool at every point.")
+            XCTAssertEqual(point.size.height, toolWidth / canvas.zoomScale, accuracy: 0.01)
+        }
+        XCTAssertEqual(history.undoActionName, "Drawing", "One step with the stroke.")
+
+        // A pen keeps every point as it was drawn.
+        endEvent(of: history)
+        canvas.tool = PKInkingTool(.pen, color: .black, width: 3)
+        let penStroke = tiltedStroke(ink: PKInk(.pen, color: .black), atY: 300)
+        canvas.drawing = PKDrawing(strokes: canvas.drawing.strokes + [penStroke])
+        try await waitUntil { canvas.drawing.strokes.count == 2 }
+        XCTAssertEqual(canvas.drawing.strokes.last.map { stroke in Array(stroke.path).map(\.size) }, Array(penStroke.path).map(\.size))
+    }
+
     // MARK: Palette
 
     func testPaletteHasEveryToolOnceAndTheColorsAndShapesButton() throws {

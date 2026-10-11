@@ -187,6 +187,9 @@ struct GraphitePDFView: UIViewRepresentable {
         view.autoScales = true
         view.pageShadowsEnabled = true
         view.backgroundColor = .secondarySystemBackground
+        // A picture placed on a page is drawn from all its pixels at any size: below high
+        // quality, a picture made smaller than its pixels shows jagged, pixelated edges.
+        view.interpolationQuality = .high
         if isEmbedded { view.pageBreakMargins = UIEdgeInsets(top: 6, left: 6, bottom: 6, right: 6) }
         // PDFKit asks for page overlays only when it creates page views, so the provider
         // must be in place before the document is.
@@ -1250,6 +1253,7 @@ struct GraphitePDFView: NSViewRepresentable {
         let view = PDFView()
         view.document = session.document
         view.autoScales = true
+        view.interpolationQuality = .high
         view.displayMode = .singlePageContinuous
         if let initialPage = initialPageIndex.flatMap(session.document.page(at:)) { view.go(to: initialPage) }
         context.coordinator.pageObserver = PDFViewPageObserver(session: session, view: view)
