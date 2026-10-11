@@ -68,7 +68,15 @@ final class MarkdownSession {
     /// at the top of the view, in the reading view or the editor, and the cursor.
     func placeToRemember() -> NotePlace {
         recordEditorPlace?()
-        let topLocation = viewMode == .reading ? readingPosition.topLocation() ?? savedScrollLocation : savedScrollLocation
+        let topLocation: Int?
+        if viewMode != .reading {
+            topLocation = savedScrollLocation
+        } else if readingPosition.hasLaidOutBlocks {
+            // Laid out at the very top is a place too: the start.
+            topLocation = readingPosition.topLocation() ?? 0
+        } else {
+            topLocation = savedScrollLocation
+        }
         return NotePlace(topLocation: topLocation ?? 0, selectionLocation: selection.location, selectionLength: selection.length)
     }
 

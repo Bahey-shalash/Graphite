@@ -157,8 +157,7 @@ class HistoryCanvasView: PKCanvasView {
         guard drawingPolicy == .anyInput else { return }
         DispatchQueue.main.async { [weak self] in
             guard let self, !PencilActivity.isPencilTouching(at: PencilActivity.now) else { return }
-            let drawingState = self.drawingGestureRecognizer.state
-            guard drawingState == .began || drawingState == .changed else { return }
+            // Whether PencilKit has begun the stroke yet or not, starting over drops it.
             self.drawingGestureRecognizer.isEnabled = false
             self.drawingGestureRecognizer.isEnabled = true
         }

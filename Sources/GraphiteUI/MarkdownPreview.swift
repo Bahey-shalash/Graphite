@@ -598,6 +598,10 @@ final class ReadingPosition {
         return location == 0 ? nil : location
     }
 
+    /// Whether the reading view has laid out blocks to tell where it is: then a nil
+    /// `topLocation()` is the very top, not a place unknown.
+    var hasLaidOutBlocks: Bool { !blockFrames.isEmpty }
+
     private func blockLocationAtTop() -> Int? {
         guard verticalOffset > 1 else { return nil }
         let shownBlocks = blockLocations.compactMap { location in blockFrames[location.blockIdentifier].map { frame in (location, frame) } }
@@ -731,10 +735,12 @@ struct MarkdownPreview: View {
             // asked to scroll before it has built anything to scroll to.
             .task(id: "\(blocks.count)-\(headingScrollRequest?.token.uuidString ?? "")") {
                 guard !blocks.isEmpty else { return }
-                // Switched from writing: the line that was at the top of the editor.
+                // Switched from writing, or opened where it was left: the line that was at the
+                // top. A link or a search match to show wins over it.
                 if !hasRestoredPosition, let startingLocation = takeStartingLocation?() {
                     hasRestoredPosition = true
-                    await scrollToTop(of: startingLocation, scrollProxy: scrollProxy)
+                    let hasNewHeadingRequest = headingScrollRequest.map { request in request.token != handledScrollToken } ?? false
+                    if !hasNewHeadingRequest { await scrollToTop(of: startingLocation, scrollProxy: scrollProxy) }
                 }
                 if !hasRestoredPosition {
                     hasRestoredPosition = true

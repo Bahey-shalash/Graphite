@@ -234,11 +234,15 @@ final class PDFSession {
     @ObservationIgnored var livePlace: (@MainActor () -> PDFPagePlace?)?
 
     /// Where the PDF is shown, to open it there again after Graphite quits: the view's
-    /// place, or the one kept when it went away, or the top of the page it was on.
+    /// place, or the one kept when it went away, or the top of the page it was on. A place is
+    /// the page at the top edge, which can be the one before `currentPageIndex`, the page
+    /// PDFKit counts as current, across the view's middle.
     func placeToRemember() -> PDFPagePlace {
-        if let livePlace = livePlace?() { keptPlace = livePlace }
-        if let keptPlace, keptPlace.pageIndex == currentPageIndex { return keptPlace }
-        return PDFPagePlace(pageIndex: currentPageIndex, fractionFromTop: 0)
+        if let livePlace = livePlace?() {
+            keptPlace = livePlace
+            return livePlace
+        }
+        return keptPlace ?? PDFPagePlace(pageIndex: currentPageIndex, fractionFromTop: 0)
     }
     /// The picture being moved or resized, if any; see `PDFSessionPictures.swift`.
     var selectedPicture: PDFPictureSelection? {
@@ -541,6 +545,8 @@ final class PDFSession {
         guard let page = document.page(at: pageIndex) else { return }
         pdfView?.go(to: page)
         currentPageIndex = pageIndex
+        // A page asked for is shown at its top, also by the next view of the PDF.
+        keptPlace = nil
     }
 
     // MARK: Pages

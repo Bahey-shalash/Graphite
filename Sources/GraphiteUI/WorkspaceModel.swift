@@ -1270,7 +1270,7 @@ final class WorkspaceModel {
                 // The reader stays on the page it was reading, at the same place on it.
                 reloadedSession.currentPageIndex = min(pdfSession.currentPageIndex, max(reloadedSession.pageCount - 1, 0))
                 let placeOnPage = pdfSession.placeToRemember()
-                reloadedSession.keptPlace = placeOnPage.pageIndex == reloadedSession.currentPageIndex ? placeOnPage : nil
+                reloadedSession.keptPlace = placeOnPage.pageIndex < reloadedSession.pageCount ? placeOnPage : nil
                 document.pdfSession = reloadedSession
             } catch { pdfSession.errorMessage = error.localizedDescription }
         }

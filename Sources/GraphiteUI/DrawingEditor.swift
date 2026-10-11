@@ -827,7 +827,7 @@ final class InfiniteCanvasView: HistoryCanvasView {
     override func didMoveToWindow() {
         super.didMoveToWindow()
         // PencilKit's own long press (its Select All and Insert Space menu), once it has one.
-        if window != nil { makeWaitForPalmRejection(Self.longPresses(in: self)) }
+        if window != nil { makeWaitForPalmRejection(Self.longPresses(in: self).filter { recognizer in recognizer !== drawingGestureRecognizer }) }
     }
 
     /// Makes recognizers wait for palm rejection to fail, each once. It fails at once for a

@@ -195,10 +195,11 @@ struct GraphitePDFView: UIViewRepresentable {
         // must be in place before the document is.
         view.pageOverlayViewProvider = context.coordinator
         view.document = session.document
-        // The place the PDF was left at on that page, when there is one: back from another
-        // tab, after a reload, or after Graphite quit.
-        let keptPlace = session.keptPlace.flatMap { place in place.pageIndex == (initialPageIndex ?? 0) ? place : nil }
-        view.pendingInitialPage = (initialPageIndex ?? keptPlace?.pageIndex).flatMap(session.document.page(at:))
+        // The place the PDF was left at, when there is one: back from another tab, after a
+        // reload, or after Graphite quit. It is the page at the top edge, which can be the
+        // one before the page PDFKit counts as current, across the view's middle.
+        let keptPlace = session.keptPlace.flatMap { place in place.pageIndex < session.document.pageCount ? place : nil }
+        view.pendingInitialPage = (keptPlace?.pageIndex ?? initialPageIndex).flatMap(session.document.page(at:))
         view.pendingInitialFractionFromTop = keptPlace.map { place in CGFloat(place.fractionFromTop) }
         session.livePlace = { [weak view] in view?.pagePlace }
         // The system find bar (⌘F, or the toolbar's Find), which PDFKit fills with its
@@ -221,8 +222,11 @@ struct GraphitePDFView: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ view: GraphitePDFDisplayView, coordinator: PDFAnnotationCoordinator) {
-        // A view made for the PDF again, as when its tab is shown again, comes back here.
-        if let place = view.pagePlace { coordinator.session.keptPlace = place }
+        // A view made for the PDF again, as when its tab is shown again, comes back here,
+        // unless a newer view of it already shows it.
+        if coordinator.session.pdfView === view || coordinator.session.pdfView == nil, let place = view.pagePlace {
+            coordinator.session.keptPlace = place
+        }
         coordinator.detach()
     }
 }
@@ -914,6 +918,8 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     }
 
     func pdfView(_ pdfView: PDFView, willDisplayOverlayView overlayView: UIView, for page: PDFPage) {
+        // PDFKit makes a page's view, with its taps and long presses, as the page is shown.
+        makeWaitForPalmRejection(pageTapsAndPresses(in: overlayView.superview ?? overlayView))
         guard let canvas = (overlayView as? PDFPageOverlayView)?.canvas else { return }
         let identifier = ObjectIdentifier(page)
         displayedPages.insert(identifier)
@@ -950,8 +956,8 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         if let textSelectionRecognizer {
             for recognizer in longPressRecognizers(in: canvas) { recognizer.require(toFail: textSelectionRecognizer) }
         }
-        // Nor does a resting hand open that menu.
-        makeWaitForPalmRejection(longPressRecognizers(in: canvas))
+        // Nor does a resting hand open that menu. PencilKit's drawing itself never waits.
+        makeWaitForPalmRejection(longPressRecognizers(in: canvas).filter { recognizer in recognizer !== canvas.drawingGestureRecognizer })
         // A finger tap on a highlight (with finger drawing) opens its menu instead of also
         // leaving a dot. The tap takes only touches on markup or with text selected, so
         // other strokes do not wait for it.
