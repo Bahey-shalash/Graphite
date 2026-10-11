@@ -20,10 +20,10 @@ struct DocumentModeToggle: View {
                     Image(systemName: "pencil")
                         .font(.system(size: 16, weight: isWriting ? .semibold : .regular))
                         .foregroundStyle(isWriting ? accent : Color.secondary)
-                        .frame(width: 34, height: 30)
+                        .frame(width: 36, height: 36)
                         .background(isWriting ? accent.opacity(0.14) : Color.clear,
                                     in: RoundedRectangle(cornerRadius: GraphiteChrome.cornerRadius, style: .continuous))
-                        .contentShape(Rectangle())
+                        .contentShape(Rectangle().inset(by: -4))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Write")
@@ -138,6 +138,13 @@ struct TabBarDocumentControls: View {
     let tab: WorkspaceTab
     let document: TabDocument
     let defaultEditingMode: EditingMode
+    /// Whether this side is focused, and so shows the Pencil palette of a PDF written on.
+    var isFocused = true
+    #if canImport(UIKit)
+    @AppStorage(PDFAnnotationPreferenceKey.showsToolPicker) private var showsPencilTools = true
+    @AppStorage(PencilToolbarStyle.preferenceKey) private var pencilToolbarStyle = PencilToolbarStyle.floating
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    #endif
 
     var body: some View {
         // A tab whose file is still loading has the sessions of the file before it.
@@ -160,7 +167,11 @@ struct TabBarDocumentControls: View {
                 }
                 if let session = document.pdfSession, !session.isProtected {
                     controls(isWriting: Binding(get: { session.isWriting }, set: { isWriting in session.isWriting = isWriting })) {
-                        UndoRedoButtons(availability: session.undoAvailability)
+                        // The floating palette has Undo and Redo of its own.
+                        if !session.showsFloatingPencilPalette(style: pencilToolbarStyle, showsTools: showsPencilTools,
+                                                                horizontalSizeClass: horizontalSizeClass, isFocused: isFocused) {
+                            UndoRedoButtons(availability: session.undoAvailability)
+                        }
                     }
                 }
                 #endif

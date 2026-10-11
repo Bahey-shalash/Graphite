@@ -40,6 +40,7 @@
 		A00000000000000000000091 /* App/Tests/BasesViewsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000090 /* App/Tests/BasesViewsTests.swift */; };
 		A000000000000000000000A1 /* App/Tests/ReadingTasksAndEquationsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000A0 /* App/Tests/ReadingTasksAndEquationsTests.swift */; };
 		A000000000000000000000B1 /* App/Tests/LivePreviewRevealTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000B0 /* App/Tests/LivePreviewRevealTests.swift */; };
+		A000000000000000000000E9 /* App/Tests/LivePreviewBlockPlacementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000E8 /* App/Tests/LivePreviewBlockPlacementTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -87,6 +88,7 @@
 		A00000000000000000000090 /* App/Tests/BasesViewsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/BasesViewsTests.swift; sourceTree = "<group>"; };
 		A000000000000000000000A0 /* App/Tests/ReadingTasksAndEquationsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/ReadingTasksAndEquationsTests.swift; sourceTree = "<group>"; };
 		A000000000000000000000B0 /* App/Tests/LivePreviewRevealTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/LivePreviewRevealTests.swift; sourceTree = "<group>"; };
+		A000000000000000000000E8 /* App/Tests/LivePreviewBlockPlacementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/LivePreviewBlockPlacementTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -123,6 +125,7 @@
 				A00000000000000000000090 /* App/Tests/BasesViewsTests.swift */,
 				A000000000000000000000A0 /* App/Tests/ReadingTasksAndEquationsTests.swift */,
 				A000000000000000000000B0 /* App/Tests/LivePreviewRevealTests.swift */,
+				A000000000000000000000E8 /* App/Tests/LivePreviewBlockPlacementTests.swift */,
 				A00000000000000000000070 /* App/Tests/AppIconBundleTests.swift */,
 				A000000000000000000000C0 /* App/Tests/VideoRecordingWorkspaceTests.swift */,
 				A000000000000000000000C2 /* App/Tests/ConflictVersionsTests.swift */,
@@ -271,6 +274,7 @@
 				A00000000000000000000091 /* App/Tests/BasesViewsTests.swift in Sources */,
 				A000000000000000000000A1 /* App/Tests/ReadingTasksAndEquationsTests.swift in Sources */,
 				A000000000000000000000B1 /* App/Tests/LivePreviewRevealTests.swift in Sources */,
+				A000000000000000000000E9 /* App/Tests/LivePreviewBlockPlacementTests.swift in Sources */,
 				A00000000000000000000071 /* App/Tests/AppIconBundleTests.swift in Sources */,
 				A00000000000000000000076 /* Tests/GraphiteAppleTests/PDFAnnotationTests.swift in Sources */,
 				A00000000000000000000077 /* Tests/GraphiteAppleTests/PDFPencilInkTests.swift in Sources */,

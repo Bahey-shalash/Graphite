@@ -75,7 +75,7 @@ struct BasePropertyEditorSheet: View {
             case .checkbox:
                 Toggle(request.displayName, isOn: $draft.isChecked)
             case .date, .dateTime:
-                Toggle("Has a date", isOn: $draft.hasDate)
+                Toggle("Has a Date", isOn: $draft.hasDate)
                 if draft.hasDate {
                     DatePicker(request.displayName, selection: $draft.date, displayedComponents: request.kind == .date ? [.date] : [.date, .hourAndMinute])
                 }

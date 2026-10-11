@@ -91,6 +91,9 @@ final class WorkspaceModel {
     private(set) var searchContinuation: SearchContinuation?
     private(set) var isLoadingMoreSearchResults = false
     var errorMessage: String?
+    /// Something that happened as asked but not quite as expected; a banner over the
+    /// document shows it (`NoticeBanner`) rather than an alert.
+    var notice: String?
     var indexingMessage = ""
     var isIndexing = false
     var directoryVersion = 0
@@ -135,6 +138,7 @@ final class WorkspaceModel {
     }
     let preferences = GraphitePreferences()
     let recording = RecordingController()
+    let readAloud = ReadAloudController()
     /// Set by indexing when a scan of the whole vault finishes; tests that fill the index
     /// themselves set it too.
     var hasCompletedIndexScan = false
@@ -236,6 +240,7 @@ final class WorkspaceModel {
         monitor?.stop(); stopIndexing(); externalChangeTask?.cancel()
         pendingExternalChanges.removeAll(); firstPendingExternalChangeInstant = nil
         indexingMessage = ""
+        readAloud.clear()
         folderAccess = access; store = vaultStore; index = vaultIndex; monitor = vaultMonitor
         EmbeddedPDFSessions.shared.useVault(root: root, owner: self, saving: embeddedPDFSaving(writer: vaultStore.writer))
         // Nothing open in the vault being left is saved into the new vault's layout.
@@ -591,7 +596,7 @@ final class WorkspaceModel {
                 if hasCompletedIndexScan { await createNote(forLink: target, from: source, isWiki: isWiki) }
                 else { errorMessage = "No file matches “\(target)” yet. Graphite is still reading the vault; try again in a moment." }
             }
-            else { searchQuery = WikiLinkResolver.pathPart(target); await search(); errorMessage = "Several files match “\(target)”. Choose the intended file in search." }
+            else { searchQuery = WikiLinkResolver.pathPart(target); await search(); notice = "Several files match “\(target)”. Choose the intended file in search." }
         } catch { errorMessage = error.localizedDescription }
     }
 
@@ -1000,6 +1005,8 @@ final class WorkspaceModel {
         // A recording that could not be saved is waiting; starting would not record, and the
         // note it will be embedded in must stay the one it was started from.
         guard recording.canStartRecording else { return }
+        readAloud.stop()
+        readAloud.showsReader = false
         do {
             let notePath = markdownSession?.path
             let directory = try await recordingDirectory(note: notePath, store: store)
@@ -1191,6 +1198,7 @@ final class WorkspaceModel {
     /// each file it writes (the PDF, or a separate copy beside it) from `didSave`.
     func openPDFSession(at location: URL, password: String?) async throws -> PDFSession {
         let session = try await PDFSession.open(location, password: password, writer: store?.writer ?? AtomicFileWriter())
+        session.contentDidChange = { [weak self] in self?.readAloud.documentDidChange(location.path) }
         session.didSave = { [weak self] savedLocation in
             guard let self, let savedPath = vaultPath(for: savedLocation) else { return }
             refreshIndex(for: [savedPath])

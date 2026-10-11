@@ -9,8 +9,13 @@ final class MarkdownSession {
     private let store: VaultStore
     private let didSave: @MainActor (VaultPath) -> Void
     var text: String {
-        didSet { if text != oldValue { editVersion += 1 } }
+        didSet {
+            if text != oldValue { editVersion += 1; textDidChange?() }
+        }
     }
+    /// A window-level consumer can invalidate a reading snapshot even when the
+    /// editor is hidden in another tab. The session does not own that consumer.
+    @ObservationIgnored var textDidChange: (@MainActor () -> Void)?
     /// Also counts queued insertions, so an asynchronous reload cannot erase work the
     /// editor has not applied yet, or an edit followed by an undo back to the same text.
     private var editVersion = 0

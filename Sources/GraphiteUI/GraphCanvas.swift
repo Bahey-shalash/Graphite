@@ -178,7 +178,7 @@ struct GraphCanvas: View {
                 .onChange(of: geometry.size) { if isFollowingLayout { fit(in: geometry.size, animated: false) } }
                 .onChange(of: fitRequest) {
                     isFollowingLayout = true
-                    fit(in: geometry.size, animated: true)
+                    fit(in: geometry.size, animated: !GraphiteMotion.isReduced)
                 }
         }
         .clipped()
@@ -379,6 +379,6 @@ struct GraphCanvas: View {
             scale = fitted
             offset = CGSize(width: -screenCenterX, height: -screenCenterY)
         }
-        if animated { withAnimation(.snappy) { change() } } else { change() }
+        if animated { withAnimation(GraphiteMotion.animation(.snappy)) { change() } } else { change() }
     }
 }

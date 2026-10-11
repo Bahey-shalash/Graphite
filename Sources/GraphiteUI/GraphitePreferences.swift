@@ -17,21 +17,21 @@ enum CorePlugin: String, CaseIterable, Identifiable, Codable {
     var title: String {
         switch self {
         case .backlinks: "Backlinks"
-        case .outgoingLinks: "Outgoing links"
+        case .outgoingLinks: "Outgoing Links"
         case .outline: "Outline"
-        case .properties: "Properties view"
-        case .tags: "Tags view"
-        case .wordCount: "Word count"
+        case .properties: "Properties View"
+        case .tags: "Tags View"
+        case .wordCount: "Word Count"
         case .colors: "Colors"
-        case .drawings: "Pencil drawings"
-        case .audioRecorder: "Audio recorder"
+        case .drawings: "Pencil Drawings"
+        case .audioRecorder: "Audio Recorder"
         case .bases: "Bases"
         case .templates: "Templates"
-        case .dailyNotes: "Daily notes"
-        case .footnotes: "Footnotes view"
-        case .fileRecovery: "File recovery"
+        case .dailyNotes: "Daily Notes"
+        case .footnotes: "Footnotes View"
+        case .fileRecovery: "File Recovery"
         case .bookmarks: "Bookmarks"
-        case .graph: "Graph view"
+        case .graph: "Graph View"
         case .canvas: "Canvas"
         }
     }
@@ -104,7 +104,7 @@ enum AppearanceMode: String, CaseIterable, Identifiable, Codable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .system: "Adapt to system"
+        case .system: "Adapt to System"
         case .light: "Light"
         case .dark: "Dark"
         }
@@ -171,6 +171,23 @@ final class GraphitePreferences {
         static let pencilToolbarStyle = PencilToolbarStyle.preferenceKey
     }
     static let textSizeRange: ClosedRange<Double> = 12...28
+    /// The smallest text a note draws, such as a footnote number: Apple's minimum text size
+    /// on iPhone and iPad.
+    static let smallestNoteTextSize: Double = 11
+
+    /// The size a note's text is drawn at: the size chosen in Appearance, which is the size at
+    /// the system's default text size, scaled as body text is when Larger Text is changed, so
+    /// notes grow with the rest of the system (up to about three times at the largest size).
+    /// macOS has no system text size, so the choice is used as it is.
+    static func noteTextSize(_ chosenTextSize: Double, for dynamicTypeSize: DynamicTypeSize) -> Double {
+        #if canImport(UIKit)
+        let traits = UITraitCollection(preferredContentSizeCategory: UIContentSizeCategory(dynamicTypeSize))
+        return Double(UIFontMetrics(forTextStyle: .body).scaledValue(for: CGFloat(chosenTextSize), compatibleWith: traits))
+        #else
+        return chosenTextSize
+        #endif
+    }
+
     private let defaults: UserDefaults
 
     var drawingFormat: DrawingFormat { didSet { defaults.set(drawingFormat.rawValue, forKey: Key.drawingFormat) } }
@@ -314,9 +331,9 @@ final class GraphitePreferences {
 extension DrawingFormat {
     var title: String {
         switch self {
-        case .png: "PNG image"
-        case .pdf: "PDF (vector)"
-        case .svg: "SVG (vector)"
+        case .png: "PNG Image"
+        case .pdf: "PDF (Vector)"
+        case .svg: "SVG (Vector)"
         }
     }
 
@@ -386,9 +403,9 @@ extension DrawingPaperLineStrength {
 extension LinkFormat {
     var title: String {
         switch self {
-        case .shortest: "Shortest path when possible"
-        case .relative: "Relative path to file"
-        case .absolute: "Absolute path in vault"
+        case .shortest: "Shortest Path When Possible"
+        case .relative: "Relative Path to File"
+        case .absolute: "Absolute Path in Vault"
         }
     }
 }

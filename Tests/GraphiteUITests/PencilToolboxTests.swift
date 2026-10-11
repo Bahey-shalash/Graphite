@@ -219,7 +219,7 @@ final class PencilToolboxTests: XCTestCase {
         XCTAssertEqual(toolbox.selection.kind, .eraser)
         XCTAssertEqual(toolbox.selection.preset, fineSelection.preset, "The ink last in use is kept while erasing.")
         XCTAssertEqual(PencilToolbarStyle(rawValue: "fixed"), .fixed)
-        XCTAssertEqual(PencilToolbarStyle.allCases.map(\.title), ["Floating palette", "Fixed bar"])
+        XCTAssertEqual(PencilToolbarStyle.allCases.map(\.title), ["Floating Palette", "Fixed Bar"])
     }
 
     // MARK: Hold to make a shape

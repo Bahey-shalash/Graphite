@@ -76,7 +76,7 @@ struct LivePreviewWidgetView: View {
             .labelStyle(.iconOnly).font(.caption).foregroundStyle(.secondary).buttonStyle(.borderless)
             .frame(width: 28, height: 28)
             .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
-            .accessibilityLabel("Edit source")
+            .contentShape(Rectangle().inset(by: -6))
     }
 
     @ViewBuilder private var content: some View {

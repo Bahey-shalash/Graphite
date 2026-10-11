@@ -233,6 +233,75 @@ final class PencilWorkspaceTests: XCTestCase {
         XCTAssertEqual(canvas.drawingSize.width, pageSize.width, accuracy: 0.5)
     }
 
+    /// Apple's palette is drawn above every screen of the app. Over a PDF being written on, a
+    /// sheet hides it and the PDF keeps first responder, for its history; a text field in a
+    /// sheet keeps the first responder it takes, even when the PDF's view is updated under it.
+    /// When the sheet goes, the palette comes back with the tool chosen before, for the PDF.
+    func testPaletteGivesWayToASheetOverThePDFAndComesBackWithTheSameTool() async throws {
+        let defaults = UserDefaults.standard
+        let preferenceKeys = [PencilToolbarStyle.preferenceKey, PDFAnnotationPreferenceKey.showsToolPicker, PDFAnnotationPreferenceKey.drawsShapes]
+        let preferencesBefore = preferenceKeys.map { key in defaults.object(forKey: key) }
+        defer {
+            for (key, preference) in zip(preferenceKeys, preferencesBefore) {
+                if let preference { defaults.set(preference, forKey: key) } else { defaults.removeObject(forKey: key) }
+            }
+        }
+        defaults.set(PencilToolbarStyle.floating.rawValue, forKey: PencilToolbarStyle.preferenceKey)
+        defaults.set(true, forKey: PDFAnnotationPreferenceKey.showsToolPicker)
+        defaults.set(false, forKey: PDFAnnotationPreferenceKey.drawsShapes)
+        let location = FileManager.default.temporaryDirectory.appendingPathComponent("PaletteUnderSheet-\(UUID().uuidString).pdf")
+        try PDFTemplateGenerator.documentData(paper: PaperSpecification(template: .blank)).write(to: location)
+        defer { try? FileManager.default.removeItem(at: location) }
+        let session = try await PDFSession.open(location)
+        let controller = UIHostingController(rootView: NavigationStack {
+            PDFPane(session: session, resolveConflict: { _ in })
+        })
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        controller.view.layoutIfNeeded()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        try await waitUntil { descendants(of: controller.view, matching: PDFPageCanvasView.self).contains { !$0.isHidden } }
+        let pdfView = try XCTUnwrap(session.pdfView as? GraphitePDFDisplayView)
+        let toolPicker = try XCTUnwrap(pdfView.annotationCoordinator?.toolPicker)
+        // The test must not change the tools the simulator's app remembers.
+        toolPicker.stateAutosaveName = nil
+        let toolPickerHost = try XCTUnwrap(descendants(of: pdfView, matching: PencilToolPickerHostView.self).first)
+        try await waitUntil { toolPicker.isVisible && toolPickerHost.isFirstResponder }
+        let marker = try XCTUnwrap(toolPicker.toolItems.first { item in (item as? PKToolPickerInkingItem)?.inkingTool.inkType == .marker })
+        toolPicker.selectedToolItemIdentifier = marker.identifier
+
+        let sheet = UIViewController()
+        sheet.modalPresentationStyle = .formSheet
+        controller.present(sheet, animated: false)
+        try await waitUntil { !toolPicker.isVisible }
+        XCTAssertNotNil(pdfView.window, "The PDF stays in the window under the sheet.")
+        XCTAssertTrue(toolPickerHost.isFirstResponder, "Only the palette gives way; the PDF keeps first responder.")
+        sheet.dismiss(animated: false)
+        try await waitUntil { controller.presentedViewController == nil && toolPicker.isVisible }
+        XCTAssertEqual(toolPicker.selectedToolItemIdentifier, marker.identifier, "The palette comes back with the tool chosen before.")
+        XCTAssertTrue(toolPickerHost.isFirstResponder)
+
+        let sheetWithTextField = UIViewController()
+        sheetWithTextField.modalPresentationStyle = .formSheet
+        let nameField = UITextField(frame: CGRect(x: 20, y: 20, width: 240, height: 44))
+        sheetWithTextField.view.addSubview(nameField)
+        controller.present(sheetWithTextField, animated: false)
+        try await waitUntil { nameField.window != nil && !toolPicker.isVisible }
+        XCTAssertTrue(nameField.becomeFirstResponder())
+        // An update of the PDF's view under the sheet, here from a preference the pane reads,
+        // asks the PDF to hold first responder again.
+        defaults.set(true, forKey: PDFAnnotationPreferenceKey.drawsShapes)
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertTrue(nameField.isFirstResponder, "The sheet's text field keeps first responder.")
+        XCTAssertFalse(toolPicker.isVisible)
+        sheetWithTextField.dismiss(animated: false)
+        try await waitUntil { controller.presentedViewController == nil && toolPickerHost.isFirstResponder && toolPicker.isVisible }
+        XCTAssertEqual(toolPicker.selectedToolItemIdentifier, marker.identifier)
+    }
+
     func testDrawingEditorUpdatesFingerPolicyWithoutReplacingCanvas() async throws {
         let preferenceName = "GraphiteDrawingDrawsWithFinger"
         let previousPreference = UserDefaults.standard.object(forKey: preferenceName)

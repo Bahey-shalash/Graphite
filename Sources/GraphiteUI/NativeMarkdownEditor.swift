@@ -8,6 +8,8 @@ import UIKit
 /// A TextKit 2 text view that keeps a readable column centered on wide screens and
 /// hosts Live Preview's rendered blocks.
 final class MarkdownTextView: UITextView {
+    var readAloudRange: NSRange? { didSet { if readAloudRange != oldValue { setNeedsLayout() } } }
+    private var readAloudHighlights: [UIView] = []
     static let readableColumnWidth: CGFloat = 740
     static let minimumHorizontalInset: CGFloat = 28
     var usesReadableLineLength = true { didSet { setNeedsLayout() } }
@@ -64,6 +66,31 @@ final class MarkdownTextView: UITextView {
         // Setting equal insets would still invalidate the layout.
         if textContainerInset != insets { textContainerInset = insets }
         didLayout?(self)
+        updateReadAloudHighlights()
+    }
+
+    private func updateReadAloudHighlights() {
+        guard let range = readAloudRange, range.location >= 0, range.length > 0,
+              range.location <= textStorage.length, range.length <= textStorage.length - range.location,
+              let start = position(from: beginningOfDocument, offset: range.location),
+              let end = position(from: start, offset: range.length), let textRange = textRange(from: start, to: end) else {
+            readAloudHighlights.forEach { highlight in highlight.removeFromSuperview() }
+            readAloudHighlights.removeAll(keepingCapacity: true)
+            return
+        }
+        let frames = selectionRects(for: textRange).map(\.rect).filter { frame in frame.width > 0 && frame.height > 0 }
+        guard readAloudHighlights.map(\.frame) != frames else { return }
+        readAloudHighlights.forEach { highlight in highlight.removeFromSuperview() }
+        readAloudHighlights.removeAll(keepingCapacity: true)
+        for frame in frames {
+            let highlight = UIView(frame: frame)
+            highlight.backgroundColor = UIColor.systemYellow.withAlphaComponent(0.3)
+            highlight.layer.cornerRadius = 3
+            highlight.isUserInteractionEnabled = false
+            highlight.isAccessibilityElement = false
+            addSubview(highlight)
+            readAloudHighlights.append(highlight)
+        }
     }
 
     override func willMove(toWindow newWindow: UIWindow?) {
@@ -131,7 +158,8 @@ final class MarkdownTextView: UITextView {
             ("Insert Link", "k", .command, .insertMarkdownLink),
             ("Highlight", "h", [.command, .shift], .highlight),
             ("Strikethrough", "x", [.command, .shift], .strikethrough),
-            ("Code", "`", .command, .code),
+            // ⌃⌘C, beside the headings' ⌃⌘1 to ⌃⌘6: ⌘` cycles through an app's windows.
+            ("Code", "c", [.command, .control], .code),
             ("Comment", "/", .command, .comment),
             ("Find and Replace", "f", [.command, .alternate], .findAndReplace),
             ("Move Line Up", UIKeyCommand.inputUpArrow, [.command, .alternate], .moveLinesUp),
@@ -371,10 +399,11 @@ struct NativeMarkdownEditor: UIViewRepresentable {
     var retention: MarkdownEditorRetention?
     /// The tab the note is open in, which decides whether a kept editor is still wanted.
     var retentionOwner: TabDocument?
+    var readAloudRange: NSRange?
 
     init(session: MarkdownSession, configuration: EditorConfiguration, environment: LivePreviewEnvironment? = nil,
          headingScrollRequest: HeadingScrollRequest?, actions: EditorActions = EditorActions(),
-         retention: MarkdownEditorRetention? = nil, retentionOwner: TabDocument? = nil, follow: @escaping (String, Bool) -> Void) {
+         retention: MarkdownEditorRetention? = nil, retentionOwner: TabDocument? = nil, readAloudRange: NSRange? = nil, follow: @escaping (String, Bool) -> Void) {
         self.session = session
         self.configuration = configuration
         self.environment = environment
@@ -382,6 +411,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         self.actions = actions
         self.retention = retention
         self.retentionOwner = retentionOwner
+        self.readAloudRange = readAloudRange
         self.follow = follow
     }
 
@@ -498,6 +528,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
 
     private func update(_ textView: MarkdownTextView, coordinator: Coordinator) {
         coordinator.session = session
+        textView.readAloudRange = readAloudRange
         // Rendered drawings must be rebuilt after a drawing file is rewritten.
         if coordinator.environment?.drawingVersion != environment?.drawingVersion { coordinator.removeAllWidgets() }
         let previousBlockPolicy = coordinator.renderedBlockPolicy
@@ -783,24 +814,17 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         }
 
         private func startDrawingAtPencil(hoverLocation: CGPoint?, in textView: MarkdownTextView) {
+            // Apple Pencil's double-tap and squeeze reach every Pencil interaction in the
+            // window, so one made in the drawing editor reaches the note under it too;
+            // answering it would replace the open drawing, unsaved strokes and all.
             guard let drawOnPencilDoubleTap = actions.drawOnPencilDoubleTap, textView.window != nil,
-                  !isCoveredByPresentedScreen(textView) else { return }
+                  !textView.isCoveredByPresentedScreen else { return }
             if let hoverLocation, let position = textView.closestPosition(to: hoverLocation) {
                 let offset = textView.offset(from: textView.beginningOfDocument, to: position)
                 textView.selectedRange = NSRange(location: offset, length: 0)
                 session.selection = textView.selectedRange
             }
             drawOnPencilDoubleTap()
-        }
-
-        /// Whether a screen presented over the note, such as the drawing editor, covers it.
-        /// Apple Pencil's double-tap and squeeze reach every Pencil interaction in the window,
-        /// so one made in the drawing editor reaches the note under it too; answering it
-        /// would replace the open drawing, unsaved strokes and all.
-        private func isCoveredByPresentedScreen(_ textView: MarkdownTextView) -> Bool {
-            guard var topController = textView.window?.rootViewController else { return false }
-            while let presentedController = topController.presentedViewController { topController = presentedController }
-            return !textView.isDescendant(of: topController.view)
         }
 
         private var isLivePreview: Bool { configuration.mode == .livePreview && environment != nil }
@@ -1488,19 +1512,26 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         // MARK: Rendered blocks
 
         /// Places rendered blocks over the space reserved for them. Only fragments TextKit
-        /// has already laid out on screen are used: forcing layout elsewhere would move the
-        /// estimated positions of the visible text, and the views would drift from it.
+        /// has laid out for the viewport are used, because only their frames say where the
+        /// text on screen is drawn. Forcing layout elsewhere would move the estimated
+        /// positions of the visible text, and the views would drift from it. A fragment
+        /// outside the viewport keeps an estimated frame, or one from before the blocks
+        /// around it took their measured heights, so a view placed from it covers the text
+        /// next to it, such as the heading a jump has just brought to the top.
         func positionWidgets(in textView: MarkdownTextView) {
             guard isLivePreview, let environment, let textLayoutManager = textView.textLayoutManager,
-                  let contentStorage = textLayoutManager.textContentManager as? NSTextContentStorage,
-                  let viewportRange = textLayoutManager.textViewportLayoutController.viewportRange else {
+                  let contentStorage = textLayoutManager.textContentManager as? NSTextContentStorage else {
                 removeAllWidgets()
                 return
             }
+            // TextKit can have no viewport range until it lays out the viewport again, as after
+            // a restyle; that layout places the views. Removing them meanwhile rebuilt them all,
+            // each reported its height again and restyled, and the rebuilding could go on
+            // without end.
+            guard let viewportRange = textLayoutManager.textViewportLayoutController.viewportRange else { return }
             // Mid-edit, the blocks describe the text before it; the views stay until it settles.
             guard !textState.cachesDescribeOldText else { return }
             let selection = textView.selectedRange
-            var concealedBlocksByStart: [Int: LivePreviewBlockEntry] = [:]
             let source = currentSource(of: textView)
             let folded = foldedRegions
             // In note order, as the blocks are.
@@ -1508,38 +1539,43 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                 NSMaxRange(entry.range) <= source.length && !isActive(entry, selection: selection, in: source)
                     && NoteFolding.regions(hiding: entry.range.location, in: folded).isEmpty
             }
-            for entry in concealedEntries { concealedBlocksByStart[entry.range.location] = entry }
             var keysInUse = Set<LivePreviewBlockKey>()
+            // Blocks in the viewport whose fragment TextKit has not laid out since a restyle
+            // replaced it; their views stay where they are until it has.
+            var keysAwaitingLayout = Set<LivePreviewBlockKey>()
             var didMoveWidget = false
             let documentStart = contentStorage.documentRange.location
-            // A block whose concealed first lines are just above the viewport still shows
-            // its view in the viewport, so the scan starts at that block.
             let viewportStart = contentStorage.offset(from: documentStart, to: viewportRange.location)
-            let enumerationStartOffset = concealedBlocksByStart.values
-                .filter { entry in entry.range.location < viewportStart && NSMaxRange(entry.range) >= viewportStart }
-                .map { entry in entry.range.location }.min() ?? viewportStart
-            let enumerationStart = contentStorage.location(documentStart, offsetBy: enumerationStartOffset) ?? viewportRange.location
-            textLayoutManager.enumerateTextLayoutFragments(from: enumerationStart, options: []) { fragment in
+            textLayoutManager.enumerateTextLayoutFragments(from: viewportRange.location, options: []) { fragment in
+                // A fragment from the viewport's end on is not laid out with it; rendered
+                // blocks there appear as it scrolls.
+                guard fragment.rangeInElement.location.compare(viewportRange.endLocation) == .orderedAscending else { return false }
                 let fragmentStart = contentStorage.offset(from: documentStart, to: fragment.rangeInElement.location)
-                // TextKit may not have laid out a block's first lines when they are above the
-                // viewport. Its concealed lines are 0.01 points tall, so whichever of its lines
-                // comes first starts at the block's top.
-                let containingIndex = LivePreviewBlockLookup.index(ofElementContaining: fragmentStart, in: concealedEntries) { entry in entry.range }
-                if let entry = containingIndex.map({ index in concealedEntries[index] }), !keysInUse.contains(entry.key) {
-                    keysInUse.insert(entry.key)
-                    let width = textView.contentColumnWidth
-                    let height = reservedHeight(of: entry, columnWidth: width)
-                    let frame = CGRect(x: textView.textContainerInset.left + textView.textContainer.lineFragmentPadding,
-                                       y: fragment.layoutFragmentFrame.minY + textView.textContainerInset.top, width: width, height: height)
-                    let host = widgetHost(for: entry, environment: environment, textView: textView)
-                    if host.view.superview == nil { textView.addSubview(host.view) }
-                    if host.view.frame != frame {
-                        host.view.frame = frame
-                        didMoveWidget = true
-                    }
+                // A block whose first lines are above the viewport is placed from its first
+                // line in it: concealed lines are 0.01 points tall, so any of its lines starts
+                // at the block's top.
+                guard let containingIndex = LivePreviewBlockLookup.index(ofElementContaining: fragmentStart, in: concealedEntries,
+                                                                         range: { entry in entry.range }) else { return true }
+                let entry = concealedEntries[containingIndex]
+                guard !keysInUse.contains(entry.key) else { return true }
+                keysInUse.insert(entry.key)
+                // A paragraph a restyle changed has a new fragment, which has no frame until
+                // TextKit lays out the viewport again; a change of appearance restyles them all.
+                guard fragment.state == .layoutAvailable else {
+                    keysAwaitingLayout.insert(entry.key)
+                    return true
                 }
-                // Stop after the viewport; rendered blocks there appear as it scrolls.
-                return fragment.rangeInElement.location.compare(viewportRange.endLocation) == .orderedAscending
+                let width = textView.contentColumnWidth
+                let height = reservedHeight(of: entry, columnWidth: width)
+                let frame = CGRect(x: textView.textContainerInset.left + textView.textContainer.lineFragmentPadding,
+                                   y: fragment.layoutFragmentFrame.minY + textView.textContainerInset.top, width: width, height: height)
+                let host = widgetHost(for: entry, environment: environment, textView: textView)
+                if host.view.superview == nil { textView.addSubview(host.view) }
+                if host.view.frame != frame {
+                    host.view.frame = frame
+                    didMoveWidget = true
+                }
+                return true
             }
             for (key, host) in widgetHosts where !keysInUse.contains(key) {
                 host.view.removeFromSuperview()
@@ -1550,11 +1586,11 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                     detachedWidgets.keep(host, for: key, estimatedMegabytes: estimatedMegabytes)
                 }
             }
-            // After a jump (the keyboard closing, a scroll to a heading) TextKit can finish
-            // laying out the viewport after this pass; try again once it has.
+            // After a jump (the keyboard closing, a scroll to a heading) or a restyle, TextKit
+            // can finish laying out the viewport after this pass; try again once it has.
             let viewportEnd = contentStorage.offset(from: documentStart, to: viewportRange.endLocation)
-            let viewportCharacters = NSRange(location: enumerationStartOffset, length: max(0, viewportEnd - enumerationStartOffset))
-            let isMissingBlock = concealedBlocksByStart.values.contains { entry in
+            let viewportCharacters = NSRange(location: viewportStart, length: max(0, viewportEnd - viewportStart))
+            let isMissingBlock = !keysAwaitingLayout.isEmpty || concealedEntries.contains { entry in
                 NSIntersectionRange(entry.range, viewportCharacters).length > 0 && !keysInUse.contains(entry.key)
             }
             // A placed view can change the height it reserves, and TextKit then moves the text
@@ -1800,14 +1836,17 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                     let fragmentOrigin = CGPoint(x: textView.textContainerInset.left + fragment.layoutFragmentFrame.minX,
                                                  y: textView.textContainerInset.top + fragment.layoutFragmentFrame.minY)
                     let textStartX = firstLine.locationForCharacter(at: min(indentLength, max(0, firstLine.characterRange.length - 1))).x
-                    let size: CGFloat = 22
+                    // Apple's smallest comfortable touch target; the chevron is drawn at 11 points inside it.
+                    let size: CGFloat = 28
                     let firstLineBounds = firstLine.typographicBounds
                     buttons.chevron.frame = CGRect(x: max(2, fragmentOrigin.x + textStartX - size - 4),
                                                    y: fragmentOrigin.y + firstLineBounds.minY + (firstLineBounds.height - size) / 2, width: size, height: size)
                     buttons.chevron.setImage(UIImage(systemName: isFolded ? "chevron.right" : "chevron.down",
                                                      withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)), for: .normal)
                     buttons.chevron.alpha = isFolded ? 1 : 0.4
-                    buttons.chevron.accessibilityLabel = isFolded ? "Unfold" : "Fold"
+                    let foldedText = header.trimmingCharacters(in: .whitespaces).drop { character in character == "#" }
+                        .trimmingCharacters(in: .whitespaces)
+                    buttons.chevron.accessibilityLabel = isFolded ? "Unfold \(foldedText)" : "Fold \(foldedText)"
                     buttons.ellipsis.isHidden = !isFolded
                     if isFolded {
                         let lastLineBounds = lastLine.typographicBounds
@@ -2041,7 +2080,10 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             guard let textLayoutManager = textView.textLayoutManager,
                   let contentStorage = textLayoutManager.textContentManager as? NSTextContentStorage,
                   let location = contentStorage.location(contentStorage.documentRange.location, offsetBy: pinnedHeading.location),
-                  let fragment = textLayoutManager.textLayoutFragment(for: location) else { return }
+                  let fragment = textLayoutManager.textLayoutFragment(for: location),
+                  // A heading's fragment that a restyle replaced has no frame until TextKit
+                  // lays it out again; a later pass corrects the offset.
+                  fragment.state == .layoutAvailable else { return }
             let targetOffset = fragment.layoutFragmentFrame.minY + textView.textContainerInset.top - 12
             let clampedOffset = min(max(-textView.adjustedContentInset.top, targetOffset), maximumContentOffset(of: textView, layoutManager: textLayoutManager))
             if abs(textView.contentOffset.y - clampedOffset) > 1 {
@@ -2092,6 +2134,22 @@ import AppKit
 /// items dragged from the sidebar become links, and a click on a link whose markup is
 /// concealed follows it, as on the iPad.
 final class MarkdownMacTextView: NSTextView {
+    var readAloudRange: NSRange? { didSet { if readAloudRange != oldValue { needsDisplay = true } } }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard let range = readAloudRange, range.location >= 0, range.length > 0,
+              let textStorage, range.location <= textStorage.length, range.length <= textStorage.length - range.location,
+              let textLayoutManager, let contentManager = textLayoutManager.textContentManager,
+              let start = contentManager.location(contentManager.documentRange.location, offsetBy: range.location),
+              let end = contentManager.location(start, offsetBy: range.length), let textRange = NSTextRange(location: start, end: end) else { return }
+        NSColor.systemYellow.withAlphaComponent(0.3).setFill()
+        textLayoutManager.enumerateTextSegments(in: textRange, type: .standard, options: []) { _, frame, _, _ in
+            let positionedFrame = frame.offsetBy(dx: self.textContainerOrigin.x, dy: self.textContainerOrigin.y)
+            if positionedFrame.intersects(dirtyRect) { NSBezierPath(roundedRect: positionedFrame, xRadius: 3, yRadius: 3).fill() }
+            return true
+        }
+    }
     /// Saves pasted or dropped files and images, and links vault items; set by the coordinator.
     var insertAttachment: ((_ data: Data, _ stem: String, _ fileExtension: String, _ range: NSRange) -> Void)?
     var insertLinkToVaultFile: ((VaultPath, NSRange) -> Void)?
@@ -2318,19 +2376,21 @@ struct NativeMarkdownEditor: NSViewRepresentable {
     /// `MarkdownEditorRetention`.
     var retention: MarkdownEditorRetention?
     var retentionOwner: TabDocument?
+    var readAloudRange: NSRange?
 
     /// Rendered blocks are iPad-only, so the Mac does not use `environment`; it is accepted
     /// so both editors share one call. The Mac has no keyboard toolbar either: of `actions`,
     /// it uses pasting, dropping, following links elsewhere, and focusing the note's side.
     init(session: MarkdownSession, configuration: EditorConfiguration, environment: LivePreviewEnvironment? = nil,
          headingScrollRequest: HeadingScrollRequest?, actions: EditorActions = EditorActions(),
-         retention: MarkdownEditorRetention? = nil, retentionOwner: TabDocument? = nil, follow: @escaping (String, Bool) -> Void) {
+         retention: MarkdownEditorRetention? = nil, retentionOwner: TabDocument? = nil, readAloudRange: NSRange? = nil, follow: @escaping (String, Bool) -> Void) {
         self.session = session
         self.configuration = configuration
         self.headingScrollRequest = headingScrollRequest
         self.actions = actions
         self.retention = retention
         self.retentionOwner = retentionOwner
+        self.readAloudRange = readAloudRange
         self.follow = follow
     }
 
@@ -2401,6 +2461,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         coordinator.actions = actions
         coordinator.follow = follow
         guard let textView = scrollView.documentView as? NSTextView else { return }
+        (textView as? MarkdownMacTextView)?.readAloudRange = readAloudRange
         if coordinator.configuration != configuration {
             coordinator.configuration = configuration
             coordinator.restyleEverything(in: textView)

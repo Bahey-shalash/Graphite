@@ -155,7 +155,9 @@ struct DrawingEditor: View {
                         ProgressView("Saving drawing…").padding(24).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
                     }
                 }
-                .alert("Drawing", isPresented: Binding(get: { errorMessage != nil }, set: { isPresented in if !isPresented { errorMessage = nil; failedPNGSave = false } })) {
+                // The message's first sentence is the title (`MessageAlert`).
+                .alert(MessageAlert.parts(of: errorMessage ?? "").title,
+                       isPresented: Binding(get: { errorMessage != nil }, set: { isPresented in if !isPresented { errorMessage = nil; failedPNGSave = false } })) {
                     if failedPNGSave {
                         ForEach([DrawingFormat.pdf, .svg]) { vectorFormat in
                             if request.isNewDrawing {
@@ -169,8 +171,9 @@ struct DrawingEditor: View {
                             }
                         }
                     }
-                    Button("OK", role: .cancel) {}
-                } message: { Text(errorMessage ?? "") }
+                    // With other ways to save offered, the button that saves nothing is Cancel.
+                    Button(failedPNGSave ? "Cancel" : "OK", role: .cancel) {}
+                } message: { Text(MessageAlert.parts(of: errorMessage ?? "").detail) }
                 .sheet(item: $sharedFile) { file in ShareSheet(items: [file.location]) }
                 .photosPicker(isPresented: $showsPhotoPicker, selection: $pickedPhoto, matching: .images)
                 .fileImporter(isPresented: $showsImageFilePicker, allowedContentTypes: [.image]) { pickedFile in
@@ -247,7 +250,7 @@ struct DrawingEditor: View {
                 }
             }
             UndoRedoButtons(availability: canvasController.undoAvailability)
-            Menu("Drawing Options", systemImage: "ellipsis.circle") {
+            Menu("Drawing Options", systemImage: "ellipsis") {
                 if horizontalSizeClass == .compact {
                     Toggle("Show Tools", systemImage: "pencil.tip.crop.circle", isOn: $showsToolPicker)
                 }
@@ -915,7 +918,7 @@ final class InfiniteCanvasView: HistoryCanvasView {
     }
 
     func fitToWidth() {
-        setZoomScale(minimumZoomScale, animated: true)
+        setZoomScale(minimumZoomScale, animated: !GraphiteMotion.isReduced)
     }
 
     override func layoutSubviews() {
@@ -1025,7 +1028,8 @@ private struct DrawingCanvas: UIViewRepresentable {
         canvasView.addSubview(coordinator.toolPickerHost)
         coordinator.toolPicker.overrideUserInterfaceStyle = .light
         coordinator.toolPicker.accessoryItem = coordinator.paletteAccessoryItem
-        coordinator.toolPicker.setVisible(showsToolPicker, forFirstResponder: coordinator.toolPickerHost)
+        coordinator.presentedScreenObserver.isObserving = true
+        coordinator.showToolPicker(showsToolPicker)
         coordinator.apply(fixedTool, to: canvasView)
         DispatchQueue.main.async {
             coordinator.toolPickerHost.becomeFirstResponder()
@@ -1038,11 +1042,12 @@ private struct DrawingCanvas: UIViewRepresentable {
         canvasView.drawingPolicy = drawsWithFinger ? .anyInput : .pencilOnly
         context.coordinator.drawsShapes = drawsShapes
         PencilToolPalette.updateShapesButton(context.coordinator.paletteAccessoryItem, isOn: drawsShapes)
-        context.coordinator.toolPicker.setVisible(showsToolPicker, forFirstResponder: context.coordinator.toolPickerHost)
+        context.coordinator.showToolPicker(showsToolPicker)
         context.coordinator.apply(fixedTool, to: canvasView)
     }
 
     static func dismantleUIView(_ canvasView: InfiniteCanvasView, coordinator: Coordinator) {
+        coordinator.presentedScreenObserver.isObserving = false
         coordinator.toolPicker.setVisible(false, forFirstResponder: coordinator.toolPickerHost)
         coordinator.toolPickerHost.takesFirstResponderBackFromSelections = false
         canvasView.stopFollowing(coordinator.toolPicker)
@@ -1060,7 +1065,29 @@ private struct DrawingCanvas: UIViewRepresentable {
         var drawsShapes = false
         private var usesFixedTool = false
         private var toolboxObserver: NSObjectProtocol?
+        /// Whether the editor shows Apple's floating palette, as opposed to the fixed bar or nothing.
+        private var wantsToolPicker = false
+        /// The palette is drawn above every screen of the app; it gives way while the photo
+        /// library, a file picker, the share sheet or an alert is presented over the editor.
+        lazy var presentedScreenObserver = PresentedScreenObserver(view: toolPickerHost) { [weak self] in
+            self?.presentedScreenDidChange()
+        }
         init(controller: DrawingCanvasController) { self.controller = controller }
+
+        /// Shows the floating palette when the editor wants it and no screen covers the editor.
+        func showToolPicker(_ isWanted: Bool) {
+            wantsToolPicker = isWanted
+            toolPicker.setVisible(isWanted && !presentedScreenObserver.isViewCovered, forFirstResponder: toolPickerHost)
+        }
+
+        /// The palette follows the screen over the editor. A text field in that screen may have
+        /// taken first responder, which the editor takes back when the screen goes: the palette
+        /// shows only for its host, and the host's history is the drawing's.
+        private func presentedScreenDidChange() {
+            showToolPicker(wantsToolPicker)
+            guard !presentedScreenObserver.isViewCovered, toolPickerHost.window != nil, !toolPickerHost.isFirstResponder else { return }
+            toolPickerHost.becomeFirstResponder()
+        }
 
         /// The canvas takes its tool from the fixed bar, or follows the floating palette.
         func apply(_ fixedTool: PencilToolSelection?, to canvasView: InfiniteCanvasView) {

@@ -24,13 +24,13 @@ struct SettingsView: View {
                 Section("Options") {
                     Label("General", systemImage: "gearshape").tag(SettingsPage.general)
                     Label("Editor", systemImage: "pencil.line").tag(SettingsPage.editor)
-                    Label("Files and links", systemImage: "folder").tag(SettingsPage.filesAndLinks)
+                    Label("Files and Links", systemImage: "folder").tag(SettingsPage.filesAndLinks)
                     Label("Appearance", systemImage: "paintbrush").tag(SettingsPage.appearance)
-                    Label("Core plugins", systemImage: "puzzlepiece.extension").tag(SettingsPage.corePlugins)
+                    Label("Core Plugins", systemImage: "puzzlepiece.extension").tag(SettingsPage.corePlugins)
                 }
                 let enabledConfigurablePlugins = Self.configurablePlugins.filter(workspace.preferences.isEnabled)
                 if !enabledConfigurablePlugins.isEmpty {
-                    Section("Core plugins") {
+                    Section("Core Plugins") {
                         ForEach(enabledConfigurablePlugins) { plugin in
                             Label(plugin.title, systemImage: plugin.systemImage).tag(SettingsPage.plugin(plugin))
                         }
@@ -53,9 +53,7 @@ struct SettingsView: View {
         #endif
         // The root view's alert cannot appear over this sheet, and a setting that failed to
         // save must say so while its page is still open.
-        .alert("Graphite", isPresented: Binding(get: { workspace.errorMessage != nil }, set: { isPresented in if !isPresented { workspace.errorMessage = nil } })) {
-            Button("OK", role: .cancel) {}
-        } message: { Text(workspace.errorMessage ?? "") }
+        .messageAlert($workspace.errorMessage)
     }
 
     @ViewBuilder private var page: some View {
@@ -91,7 +89,7 @@ private struct GeneralSettingsPage: View {
             } header: {
                 Text("Vault")
             } footer: {
-                Text("A vault is an ordinary folder. Graphite edits its files in place, so Obsidian and other apps see the same notes. Switch vaults from the vault name at the bottom of the sidebar.")
+                Text("A vault is an ordinary folder. Graphite edits its files in place, so Obsidian and other apps see the same notes. Switch vaults from the vault name at the top of the sidebar.")
             }
             if workspace.store != nil {
                 Section {
@@ -134,10 +132,10 @@ private struct EditorSettingsPage: View {
     var body: some View {
         Form {
             Section {
-                Picker("Default view for new notes", selection: $preferences.defaultNoteView) {
+                Picker("Default View for New Notes", selection: $preferences.defaultNoteView) {
                     ForEach(DefaultNoteView.allCases) { view in Text(view.title).tag(view) }
                 }
-                Picker("Default editing mode", selection: $preferences.defaultEditingMode) {
+                Picker("Default Editing Mode", selection: $preferences.defaultEditingMode) {
                     ForEach(EditingMode.allCases) { mode in Text(mode.title).tag(mode) }
                 }
             } header: {
@@ -146,10 +144,10 @@ private struct EditorSettingsPage: View {
                 Text("Live Preview hides Markdown syntax except where your cursor is and shows tables, math, properties, and embeds in place. Source mode shows every character.")
             }
             Section {
-                Toggle("Readable line length", isOn: $preferences.usesReadableLineLength)
+                Toggle("Readable Line Length", isOn: $preferences.usesReadableLineLength)
                 Toggle("Spellcheck", isOn: $preferences.usesSpellChecking)
                 if workspace.store != nil {
-                    Toggle("Strict line breaks", isOn: vaultSetting(\.usesStrictLineBreaks))
+                    Toggle("Strict Line Breaks", isOn: vaultSetting(\.usesStrictLineBreaks))
                 }
             } header: {
                 Text("Display")
@@ -161,10 +159,10 @@ private struct EditorSettingsPage: View {
             #if canImport(UIKit)
             if workspace.store != nil {
                 Section {
-                    Toggle("Smart indent lists", isOn: vaultSetting(\.continuesLists))
-                    Toggle("Auto pair brackets", isOn: vaultSetting(\.pairsBrackets))
-                    Toggle("Auto pair Markdown syntax", isOn: vaultSetting(\.pairsMarkdown))
-                    Toggle("Indent using tabs", isOn: vaultSetting(\.indentsWithTabs))
+                    Toggle("Smart Indent Lists", isOn: vaultSetting(\.continuesLists))
+                    Toggle("Auto Pair Brackets", isOn: vaultSetting(\.pairsBrackets))
+                    Toggle("Auto Pair Markdown Syntax", isOn: vaultSetting(\.pairsMarkdown))
+                    Toggle("Indent Using Tabs", isOn: vaultSetting(\.indentsWithTabs))
                     if !vaultSettings.indentsWithTabs {
                         Stepper("Tab indent size: \(vaultSettings.tabSize)", value: vaultSetting(\.tabSize), in: 1...8)
                     }
@@ -182,6 +180,7 @@ private struct EditorSettingsPage: View {
 
 private struct AppearanceSettingsPage: View {
     @Bindable var preferences: GraphitePreferences
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         Form {
@@ -189,42 +188,43 @@ private struct AppearanceSettingsPage: View {
             AppIconSettingsSection()
             #endif
             Section("Theme") {
-                Picker("Base color scheme", selection: $preferences.appearanceMode) {
+                Picker("Base Color Scheme", selection: $preferences.appearanceMode) {
                     ForEach(AppearanceMode.allCases) { mode in Text(mode.title).tag(mode) }
                 }
             }
             Section {
                 AccentColorGrid(selectedHex: $preferences.accentHex)
-                ColorPicker("Custom color", selection: Binding(get: { preferences.chosenAccentColor }, set: { color in
+                ColorPicker("Custom Color", selection: Binding(get: { preferences.chosenAccentColor }, set: { color in
                     if let hex = color.sRGBHex { preferences.accentHex = hex }
                 }), supportsOpacity: false)
                 if preferences.accentHex != GraphiteTheme.defaultAccentHex {
                     Button("Restore Default Accent", systemImage: "arrow.uturn.backward") { preferences.accentHex = GraphiteTheme.defaultAccentHex }
                 }
             } header: {
-                Text("Accent color")
+                Text("Accent Color")
             } footer: {
-                Text("Used for links, checkboxes, selections, and buttons. In dark appearance a dark accent is lightened so it stays readable. Purple matches Obsidian's default.")
+                Text("Used for links, checkboxes, selections, and buttons. An accent too light to read on white is darkened in light appearance, and one too dark to read on black is lightened in dark appearance. Purple matches Obsidian's default.")
             }
             Section {
-                Toggle("Show inline title", isOn: $preferences.showsInlineTitle)
+                Toggle("Show Inline Title", isOn: $preferences.showsInlineTitle)
             } header: {
                 Text("Interface")
             } footer: {
-                Text("Shows the note's file name as a large title above its content, with its extension when Files and links › Show file extensions is on.")
+                Text("Shows the note's file name as a large title above its content, with its extension when Files and Links › Show File Extensions is on.")
             }
             Section {
-                LabeledContent("Font size") {
+                LabeledContent("Font Size") {
                     HStack {
                         Slider(value: $preferences.textSize, in: GraphitePreferences.textSizeRange, step: 1).frame(maxWidth: 240)
                         Text("\(Int(preferences.textSize)) pt").monospacedDigit().foregroundStyle(.secondary)
                     }
                 }
-                Text("The quick brown fox jumps over the lazy dog.").font(.system(size: preferences.textSize))
+                Text("The quick brown fox jumps over the lazy dog.")
+                    .font(.system(size: GraphitePreferences.noteTextSize(preferences.textSize, for: dynamicTypeSize)))
             } header: {
                 Text("Font")
             } footer: {
-                Text("Applies to notes when editing and reading.")
+                Text("Applies to notes when editing and reading. Notes also grow and shrink with the system text size.")
             }
         }
         .navigationTitle("Appearance")
@@ -277,7 +277,7 @@ private struct CorePluginsSettingsPage: View {
                 Text("Turning a plugin off hides it in Graphite. It never changes your notes.")
             }
         }
-        .navigationTitle("Core plugins")
+        .navigationTitle("Core Plugins")
     }
 }
 
@@ -349,14 +349,14 @@ private struct DrawingsSettingsPage: View {
     var body: some View {
         Form {
             Section {
-                Picker("Save drawings as", selection: $preferences.drawingFormat) {
+                Picker("Save Drawings As", selection: $preferences.drawingFormat) {
                     ForEach(DrawingFormat.allCases) { format in Text(format.title).tag(format) }
                 }
                 Picker("Background", selection: $preferences.drawingBackground) {
                     ForEach(DrawingBackground.allCases) { background in Text(background.title).tag(background) }
                 }
             } header: {
-                Text("New drawings")
+                Text("New Drawings")
             } footer: {
                 Text("\(preferences.drawingFormat.summary) Every format opens in other apps, and Graphite can edit the strokes again later. An existing drawing keeps its format; use Export a Copy in the drawing editor for another one.")
             }
@@ -368,13 +368,13 @@ private struct DrawingsSettingsPage: View {
                     Picker("Spacing", selection: $preferences.drawingPaperSpacing) {
                         ForEach(DrawingPaperSpacing.allCases) { spacing in Text(spacing.title).tag(spacing) }
                     }
-                    Picker("Line color", selection: $preferences.drawingPaperLineColor) {
+                    Picker("Line Color", selection: $preferences.drawingPaperLineColor) {
                         ForEach(DrawingPaperLineColor.allCases) { lineColor in Text(lineColor.title).tag(lineColor) }
                     }
-                    Picker("Line strength", selection: $preferences.drawingPaperLineStrength) {
+                    Picker("Line Strength", selection: $preferences.drawingPaperLineStrength) {
                         ForEach(DrawingPaperLineStrength.allCases) { strength in Text(strength.title).tag(strength) }
                     }
-                    Toggle("Show paper in notes", isOn: $preferences.drawingPaperAppearsInNotes)
+                    Toggle("Show Paper in Notes", isOn: $preferences.drawingPaperAppearsInNotes)
                 }
                 .disabled(preferences.drawingPaperPattern == .plain)
             } header: {
@@ -386,17 +386,17 @@ private struct DrawingsSettingsPage: View {
                 Picker("Spacing", selection: $preferences.notebookPaperSpacing) {
                     ForEach(NotebookPaperSpacing.choices, id: \.self) { spacing in Text(NotebookPaperSpacing.title(of: spacing)).tag(spacing) }
                 }
-                Picker("Paper color", selection: $preferences.notebookPaperColor) {
+                Picker("Paper Color", selection: $preferences.notebookPaperColor) {
                     ForEach(DrawingBackground.allCases.filter { color in color != .transparent }) { color in Text(color.title).tag(color) }
                 }
-                Picker("Line color", selection: $preferences.notebookLineColor) {
+                Picker("Line Color", selection: $preferences.notebookLineColor) {
                     ForEach(DrawingPaperLineColor.allCases) { lineColor in Text(lineColor.title).tag(lineColor) }
                 }
-                Picker("Line strength", selection: $preferences.notebookLineStrength) {
+                Picker("Line Strength", selection: $preferences.notebookLineStrength) {
                     ForEach(DrawingPaperLineStrength.allCases) { strength in Text(strength.title).tag(strength) }
                 }
             } header: {
-                Text("Notebook paper")
+                Text("Notebook Paper")
             } footer: {
                 Text("For new notebooks and for pages inserted into a PDF. The paper is part of the PDF's pages, as printed paper is, so every PDF reader shows it.")
             }
@@ -406,19 +406,19 @@ private struct DrawingsSettingsPage: View {
                     ForEach(PencilToolbarStyle.allCases) { style in Text(style.title).tag(style) }
                 }
             } header: {
-                Text("Pencil tools")
+                Text("Pencil Tools")
             } footer: {
                 Text("The floating palette is the system's: every tool of Apple Notes, and it can be moved or minimized. The fixed bar is one row above the page: your drawing tools, the eraser and the lasso, three widths, and your colors from Settings › Colors. Tap the tool in use again to make it any ink of Apple Notes, in any width and opacity, or to add another tool. On iPhone the palette is always used.")
             }
             Section {
-                Toggle("Hold to make a shape", isOn: $preferences.makesShapesOnHold)
+                Toggle("Hold to Make a Shape", isOn: $preferences.makesShapesOnHold)
             } header: {
                 Text("Shapes")
             } footer: {
                 Text("Draw a line, a circle, an ellipse, a triangle or a rectangle and keep the Pencil still at the end: the clean shape appears, and takes the stroke's place when you lift. The Shapes button of the tools does the same for every stroke, without holding.")
             }
             Section {
-                Toggle("Double-tap or squeeze to draw in notes", isOn: $preferences.drawsOnPencilDoubleTap)
+                Toggle("Double-Tap or Squeeze to Draw in Notes", isOn: $preferences.drawsOnPencilDoubleTap)
             } header: {
                 Text("Apple Pencil")
             } footer: {
@@ -426,7 +426,7 @@ private struct DrawingsSettingsPage: View {
             }
             #endif
         }
-        .navigationTitle("Pencil drawings")
+        .navigationTitle("Pencil Drawings")
     }
 }
 
@@ -436,12 +436,12 @@ private struct AudioRecorderSettingsPage: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Embed recordings in the current note", isOn: $preferences.embedsRecordingsInNote)
+                Toggle("Embed Recordings in the Current Note", isOn: $preferences.embedsRecordingsInNote)
             } footer: {
                 Text("Recordings are saved as ordinary files in the attachment folder of the note you were in, like Obsidian's audio recorder: audio as .m4a, video as .mp4. When this is on, the recording is also embedded at your cursor when you stop.")
             }
             Section {
-                Picker("Camera for video", selection: $preferences.recordingCamera) {
+                Picker("Camera for Video", selection: $preferences.recordingCamera) {
                     Text("Back").tag(CameraPosition.back)
                     Text("Front").tag(CameraPosition.front)
                 }
@@ -449,7 +449,7 @@ private struct AudioRecorderSettingsPage: View {
                 Text("Video is recorded with sound, at up to 1080p: about 2 GB an hour. It pauses while Graphite is off screen, because apps cannot use the camera there; audio recordings go on.")
             }
         }
-        .navigationTitle("Audio recorder")
+        .navigationTitle("Audio Recorder")
     }
 }
 
@@ -476,7 +476,7 @@ private struct FileRecoverySettingsPage: View {
                 Button("Delete All Snapshots", systemImage: "trash", role: .destructive) { isConfirmingClear = true }
             }
         }
-        .navigationTitle("File recovery")
+        .navigationTitle("File Recovery")
         .confirmationDialog("Delete every snapshot of this vault?", isPresented: $isConfirmingClear, titleVisibility: .visible) {
             Button("Delete All Snapshots", role: .destructive) {
                 guard let fileRecovery = workspace.fileRecovery else { return }
@@ -542,7 +542,7 @@ private struct DailyNotesSettingsPage: View {
                 Text(pathFooter)
             }
             Section {
-                Toggle("Open daily note on startup", isOn: Binding(get: { draft.opensOnStartup }, set: { opensOnStartup in
+                Toggle("Open Daily Note on Startup", isOn: Binding(get: { draft.opensOnStartup }, set: { opensOnStartup in
                     draft.opensOnStartup = opensOnStartup
                     save()
                 }))
@@ -550,7 +550,7 @@ private struct DailyNotesSettingsPage: View {
                 Text("Today's note opens when the vault opens. Open it any time from the New menu in the sidebar or “Daily notes: Open today's daily note” in the command palette, which also moves to the previous and next daily notes.")
             }
         }
-        .navigationTitle("Daily notes")
+        .navigationTitle("Daily Notes")
         .onAppear { draft = workspace.dailyNoteSettings }
         .onDisappear(perform: save)
     }
@@ -608,7 +608,7 @@ private struct FilesAndLinksSettingsPage: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Show file extensions", isOn: Binding(get: { workspace.preferences.showsFileExtensions },
+                Toggle("Show File Extensions", isOn: Binding(get: { workspace.preferences.showsFileExtensions },
                                                               set: { showsFileExtensions in workspace.preferences.showsFileExtensions = showsFileExtensions }))
             } footer: {
                 Text("Shows names such as “Lecture.md” in the sidebar, search, links and the title bar. When off, notes are shown without “.md”.")
@@ -620,7 +620,7 @@ private struct FilesAndLinksSettingsPage: View {
                 attachmentSection
             }
         }
-        .navigationTitle("Files and links")
+        .navigationTitle("Files and Links")
         .onAppear {
             loadNewNoteFolder()
             loadAttachmentLocation()
@@ -648,7 +648,7 @@ private struct FilesAndLinksSettingsPage: View {
 
     private var fileSection: some View {
         Section {
-            Picker("Default location for new notes", selection: Binding(get: { NewNoteLocationChoice(vaultSettings.newNoteLocation) }, set: { choice in
+            Picker("Default Location for New Notes", selection: Binding(get: { NewNoteLocationChoice(vaultSettings.newNoteLocation) }, set: { choice in
                 let folder = newNoteFolder
                 updateSettings { settings in settings.newNoteLocation = choice.location(folder: folder) }
             })) {
@@ -662,15 +662,15 @@ private struct FilesAndLinksSettingsPage: View {
                     #endif
                     .onSubmit(commitNewNoteFolder)
             }
-            Toggle("Automatically update internal links", isOn: Binding(get: { vaultSettings.updatesLinksAutomatically }, set: { updatesLinks in
+            Toggle("Automatically Update Internal Links", isOn: Binding(get: { vaultSettings.updatesLinksAutomatically }, set: { updatesLinks in
                 updateSettings { settings in settings.updatesLinksAutomatically = updatesLinks }
             }))
-            Picker("Deleted files", selection: Binding(get: { vaultSettings.deletionMethod }, set: { method in
+            Picker("Deleted Files", selection: Binding(get: { vaultSettings.deletionMethod }, set: { method in
                 updateSettings { settings in settings.deletionMethod = method }
             })) {
                 ForEach(DeletionMethod.allCases) { method in Text(method.title).tag(method) }
             }
-            Toggle("Confirm file deletion", isOn: Binding(get: { vaultSettings.confirmsDeletion }, set: { confirms in
+            Toggle("Confirm File Deletion", isOn: Binding(get: { vaultSettings.confirmsDeletion }, set: { confirms in
                 updateSettings { settings in settings.confirmsDeletion = confirms }
             }))
         } footer: {
@@ -680,7 +680,7 @@ private struct FilesAndLinksSettingsPage: View {
 
     private var attachmentSection: some View {
         Section {
-            Picker("Default location for new attachments", selection: $locationChoice) {
+            Picker("Default Location for New Attachments", selection: $locationChoice) {
                 ForEach(AttachmentLocationChoice.allCases) { choice in Text(choice.title).tag(choice) }
             }
             if locationChoice.needsFolderName {
@@ -695,7 +695,7 @@ private struct FilesAndLinksSettingsPage: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
-            LabeledContent("New files go to") {
+            LabeledContent("New Files Go To") {
                 Text(pendingAttachmentLocation.map { attachmentLocation in
                     var settings = vaultSettings
                     settings.attachmentLocation = attachmentLocation
@@ -703,7 +703,7 @@ private struct FilesAndLinksSettingsPage: View {
                 } ?? "Invalid folder name")
                 .foregroundStyle(.secondary).multilineTextAlignment(.trailing)
             }
-            Picker("New link format", selection: Binding(get: { vaultSettings.linkFormat }, set: { linkFormat in
+            Picker("New Link Format", selection: Binding(get: { vaultSettings.linkFormat }, set: { linkFormat in
                 updateSettings { settings in settings.linkFormat = linkFormat }
             })) {
                 ForEach(LinkFormat.allCases) { linkFormat in Text(linkFormat.title).tag(linkFormat) }
@@ -712,7 +712,7 @@ private struct FilesAndLinksSettingsPage: View {
                 updateSettings { settings in settings.usesWikilinks = usesWikilinks }
             }))
         } header: {
-            Text("Files and links")
+            Text("Files and Links")
         } footer: {
             Text("Shared with Obsidian through this vault's .obsidian/app.json. Drawings, images, recordings, and other attachments you add are saved to this location and embedded where your cursor is.")
         }
@@ -803,10 +803,10 @@ private enum AttachmentLocationChoice: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .vaultFolder: "Vault folder"
-        case .specifiedFolder: "In the folder specified below"
-        case .sameFolderAsNote: "Same folder as current file"
-        case .subfolderUnderNote: "In subfolder under current folder"
+        case .vaultFolder: "Vault Folder"
+        case .specifiedFolder: "In the Folder Specified Below"
+        case .sameFolderAsNote: "Same Folder as Current File"
+        case .subfolderUnderNote: "In Subfolder Under Current Folder"
         }
     }
 
@@ -837,9 +837,9 @@ private enum NewNoteLocationChoice: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .vaultFolder: "Vault folder"
-        case .sameFolderAsCurrentFile: "Same folder as current file"
-        case .specifiedFolder: "In the folder specified below"
+        case .vaultFolder: "Vault Folder"
+        case .sameFolderAsCurrentFile: "Same Folder as Current File"
+        case .specifiedFolder: "In the Folder Specified Below"
         }
     }
 
@@ -872,9 +872,9 @@ enum SettingsFolderPath {
 extension DeletionMethod {
     var title: String {
         switch self {
-        case .systemTrash: "Move to system trash"
-        case .vaultTrash: "Move to Obsidian trash (.trash folder)"
-        case .permanent: "Permanently delete"
+        case .systemTrash: "Move to System Trash"
+        case .vaultTrash: "Move to Obsidian Trash (.trash Folder)"
+        case .permanent: "Permanently Delete"
         }
     }
 }

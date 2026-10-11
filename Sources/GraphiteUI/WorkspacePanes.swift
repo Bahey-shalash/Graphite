@@ -197,7 +197,7 @@ private struct TabBar: View {
                 // Past the last tab, a dropped tab goes to the end.
                 .dropDestination(for: TabTransfer.self) { items, _ in moveDroppedTabs(items, to: group.tabs.count) }
                 .onChange(of: group.activeTabID) { _, activeTabID in
-                    withAnimation(.snappy) { scrollProxy.scrollTo(activeTabID, anchor: .center) }
+                    withAnimation(GraphiteMotion.animation(.snappy)) { scrollProxy.scrollTo(activeTabID, anchor: .center) }
                 }
                 // A restored side opens with its active tab in view, once the bar has its width.
                 .task(id: group.id) {
@@ -218,7 +218,7 @@ private struct TabBar: View {
             #endif
             if showsDocumentControls {
                 TabBarDocumentControls(tab: group.activeTab, document: workspace.document(for: group.activeTabID),
-                                       defaultEditingMode: workspace.preferences.defaultEditingMode)
+                                       defaultEditingMode: workspace.preferences.defaultEditingMode, isFocused: isFocused)
                     .padding(.horizontal, 4)
             }
             if showsDocumentControls || showsPencilTools {
@@ -341,7 +341,7 @@ private struct TabItem: View {
                 Button(action: close) {
                     Image(systemName: "xmark")
                         .font(.system(size: 9, weight: .semibold))
-                        .frame(width: 20, height: 20)
+                        .frame(width: 28, height: 28)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.borderless)
@@ -352,8 +352,8 @@ private struct TabItem: View {
                 .accessibilityLabel("Close \(title)")
             }
         }
-        .padding(.leading, 12).padding(.trailing, tab.isPinned ? 12 : 6)
-        .frame(minWidth: min(88, maximumWidth), maxWidth: maximumWidth, minHeight: 30)
+        .padding(.leading, 12).padding(.trailing, tab.isPinned ? 12 : 2)
+        .frame(minWidth: min(88, maximumWidth), maxWidth: maximumWidth, minHeight: 32)
         .background(isActive ? GraphiteChrome.selectedFill : Color.clear,
                     in: RoundedRectangle(cornerRadius: GraphiteChrome.cornerRadius, style: .continuous))
         .overlay(alignment: .bottom) {
@@ -371,16 +371,17 @@ private struct TabItem: View {
 }
 
 /// A muted icon button with a faint fill while pressed, for the small buttons of bars
-/// outside the window's toolbar.
+/// outside the window's toolbar. It is drawn 36 points square and takes touches over the
+/// bar's whole 44-point height.
 struct QuietIconButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 15))
             .foregroundStyle(.secondary)
-            .frame(width: 32, height: 30)
+            .frame(width: 36, height: 36)
             .background(configuration.isPressed ? GraphiteChrome.selectedFill : Color.clear,
                         in: RoundedRectangle(cornerRadius: GraphiteChrome.cornerRadius, style: .continuous))
-            .contentShape(Rectangle())
+            .contentShape(Rectangle().inset(by: -4))
     }
 }
 
@@ -486,7 +487,8 @@ private struct TabDocumentView: View {
                          showsLinksInspector: $showsLinksInspector)
                 .id(ObjectIdentifier(session))
         } else if let session = document.pdfSession {
-            PDFPane(session: session, isFocused: isFocused, focus: { workspace.activateTab(tab.id) }, linkActions: pdfLinkActions(for: path)) { location in
+            PDFPane(session: session, isFocused: isFocused, focus: { workspace.activateTab(tab.id) }, linkActions: pdfLinkActions(for: path),
+                    readAloud: workspace.readAloud, isRecording: workspace.recording.state.isActive) { location in
                 Task { await workspace.resolvePDFConflict(opening: location, inTab: tab.id) }
             }
         } else if let session = document.canvasSession {

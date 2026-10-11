@@ -58,7 +58,7 @@ extension PropertyType {
         case .number: "Number"
         case .checkbox: "Checkbox"
         case .date: "Date"
-        case .datetime: "Date & time"
+        case .datetime: "Date & Time"
         case .tags: "Tags"
         case .aliases: "Aliases"
         }

@@ -174,7 +174,7 @@ struct BaseGroupHeader: View {
             default:
                 Text("No value").font(.headline).foregroundStyle(.secondary)
             }
-            Text("\(group.rows.count)").font(.caption).foregroundStyle(.tertiary)
+            Text("\(group.rows.count)").font(.caption).foregroundStyle(.secondary)
             Spacer(minLength: 0)
         }
         .padding(.vertical, 4)

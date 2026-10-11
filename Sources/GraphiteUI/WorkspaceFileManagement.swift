@@ -275,7 +275,7 @@ extension WorkspaceModel {
             refreshIndexAfterFileChanges(removedFiles)
             await refreshDirectory()
             if case .movedToVaultTrash = outcome, vaultSettings.deletionMethod == .systemTrash {
-                errorMessage = "This storage has no system trash, so “\(path.name)” was moved to the vault's .trash folder instead."
+                notice = "This storage has no system trash, so “\(path.name)” was moved to the vault's .trash folder instead."
             }
         } catch { errorMessage = error.localizedDescription }
     }

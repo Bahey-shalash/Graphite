@@ -33,11 +33,11 @@ struct PropertiesPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // As in Obsidian, the heading folds the properties.
-            Button { withAnimation(.snappy) { isExpanded.toggle() } } label: {
+            Button { withAnimation(GraphiteMotion.animation(.snappy)) { isExpanded.toggle() } } label: {
                 HStack(spacing: 8) {
                     Text("Properties").font(.title3.weight(.semibold)).foregroundStyle(.primary)
                     if !isExpanded {
-                        Text("\(shownProperties.count)").font(.callout).foregroundStyle(.tertiary)
+                        Text("\(shownProperties.count)").font(.callout).foregroundStyle(.secondary)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -99,7 +99,7 @@ struct PropertiesPanel: View {
             .onAppear { isNewPropertyNameFocused = true }
         } else {
             Button { isAddingProperty = true } label: {
-                Label("Add property", systemImage: "plus")
+                Label("Add Property", systemImage: "plus")
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
@@ -163,6 +163,9 @@ private struct PropertyRow: View {
     @State private var isEditingLinkText = false
     @FocusState private var isTextFocused: Bool
     @FocusState private var isListItemFocused: Bool
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    /// The type symbol's column, which grows with the symbol at larger text sizes.
+    @ScaledMetric(relativeTo: .subheadline) private var scaledIconWidth = PropertyRow.iconWidth
 
     /// Controls without a text baseline (a date picker, a checkbox) are centered on the name.
     private var rowAlignment: VerticalAlignment {
@@ -172,16 +175,22 @@ private struct PropertyRow: View {
         }
     }
 
+    /// At the accessibility text sizes a name goes above its value, so neither is cut short.
+    private var stacksNameAboveValue: Bool { dynamicTypeSize.isAccessibilitySize }
+
     var body: some View {
-        HStack(alignment: rowAlignment, spacing: 10) {
+        let rowLayout = stacksNameAboveValue
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+            : AnyLayout(HStackLayout(alignment: rowAlignment, spacing: 10))
+        rowLayout {
             HStack(alignment: .firstTextBaseline, spacing: 9) {
                 Image(systemName: typeImage)
                     .foregroundStyle(.secondary)
-                    .frame(width: Self.iconWidth)
+                    .frame(width: scaledIconWidth)
                 // A step smaller than the values, as in Obsidian's Minimal theme.
-                Text(property.key).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                Text(property.key).font(.subheadline).foregroundStyle(.secondary).lineLimit(stacksNameAboveValue ? nil : 1)
             }
-            .frame(width: keyColumnWidth, alignment: .leading)
+            .frame(width: stacksNameAboveValue ? nil : keyColumnWidth, alignment: .leading)
             valueEditor.frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 7)
@@ -359,7 +368,7 @@ enum PropertyValueKind: CaseIterable, Hashable {
         case .number: "Number"
         case .checkbox: "Checkbox"
         case .date: "Date"
-        case .dateTime: "Date & time"
+        case .dateTime: "Date & Time"
         }
     }
 
@@ -592,8 +601,10 @@ private struct PropertyItems: View {
                 remainingItems.remove(at: itemIndex)
                 commit(remainingItems)
             } label: {
-                // Quiet, so the tag's name reads first.
+                // Quiet, so the tag's name reads first; the touch area reaches past the
+                // small glyph to about 30 points, beyond Apple's 28-point minimum.
                 Image(systemName: "xmark").font(.caption2.weight(.semibold)).opacity(0.6)
+                    .contentShape(Rectangle().inset(by: -10))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Remove \(item)")

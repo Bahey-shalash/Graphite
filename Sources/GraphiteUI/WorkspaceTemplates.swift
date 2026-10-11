@@ -45,7 +45,7 @@ extension WorkspaceModel {
                 var content = ""
                 if let templatePath = settings.templatePath {
                     guard try await store.fileExists(templatePath) else {
-                        throw GraphiteError.unavailable("The daily note template “\(templatePath.rawValue)” is not in this vault. Choose another in Settings › Daily notes.")
+                        throw GraphiteError.unavailable("The daily note template “\(templatePath.rawValue)” is not in this vault. Choose another in Settings › Daily Notes.")
                     }
                     let snapshot = try await store.read(templatePath, maximumBytes: MarkdownSession.maximumEditableBytes)
                     let templateText = String(data: snapshot.data, encoding: .utf8) ?? ""

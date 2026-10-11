@@ -72,7 +72,7 @@ public struct GraphiteRootView: View {
                                                                           showCommandPalette: { activePalette = .commandPalette },
                                                                           save: { Task { await save() } }))
         .overlay { paletteOverlay }
-        .animation(.snappy(duration: 0.18), value: activePalette)
+        .animation(GraphiteMotion.animation(.snappy(duration: 0.18)), value: activePalette)
         .sheet(isPresented: $showsSettings, onDismiss: {
             if opensVaultManagerAfterSettings { opensVaultManagerAfterSettings = false; showsVaultManager = true }
         }) {
@@ -88,6 +88,14 @@ public struct GraphiteRootView: View {
         .sheet(isPresented: $showsTabSwitcher) {
             TabSwitcher(workspace: workspace)
                 .tint(workspace.preferences.accentColor)
+        }
+        .sheet(isPresented: Binding(get: { workspace.readAloud.showsReader }, set: { showsReader in workspace.readAloud.showsReader = showsReader })) {
+            ReadAloudReader(reader: workspace.readAloud)
+                .tint(workspace.preferences.accentColor)
+        }
+        .onChange(of: workspace.recording.state) { _, state in
+            // Narration does not reconfigure an active lecture recording's audio session.
+            if state.isActive { workspace.readAloud.stop(); workspace.readAloud.showsReader = false }
         }
         .sheet(item: $creation) { request in
             let directory = workspace.newFileDirectory(request.directory)
@@ -147,9 +155,7 @@ public struct GraphiteRootView: View {
             return workspace.viewedImage.flatMap { path in try? path.url(in: root) }
         }, set: { location in if location == nil { workspace.viewedImage = nil } }))
         #endif
-        .alert("Graphite", isPresented: Binding(get: { workspace.errorMessage != nil }, set: { isPresented in if !isPresented { workspace.errorMessage = nil } })) {
-            Button("OK", role: .cancel) {}
-        } message: { Text(workspace.errorMessage ?? "") }
+        .messageAlert($workspace.errorMessage)
         .task {
             await workspace.restoreVault()
             isRestoringVault = false
@@ -175,7 +181,11 @@ public struct GraphiteRootView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 Task { await workspace.checkOpenDocumentsForExternalChanges(); await workspace.refreshDirectory(); await workspace.reloadVaultSettings() }
-            } else { saveBeforeLeavingScreen() }
+            } else {
+                if workspace.readAloud.isPreparing { workspace.readAloud.stop() }
+                else { workspace.readAloud.session.pause() }
+                saveBeforeLeavingScreen()
+            }
         }
         .alert("Unfinished Recording", isPresented: Binding(get: { workspace.recordingRecoveryOffer != nil }, set: { isPresented in
             if !isPresented { workspace.recordingRecoveryOffer = nil }
@@ -205,6 +215,8 @@ public struct GraphiteRootView: View {
             // Nothing a document view holds carries over to another vault.
             .id(workspace.currentVaultIdentifier)
             .overlay { RecordingPreviewOverlay(workspace: workspace) }
+            .overlay(alignment: .top) { NoticeBanner(notice: $workspace.notice) }
+            .onChange(of: workspace.selection) { workspace.notice = nil }
             // Editable, so the title bar's menu offers Rename, as for documents in Files.
             .modifier(DocumentTitle(title: titleBinding, isCompactWidth: isCompactWidth))
             #if canImport(UIKit)
@@ -215,6 +227,7 @@ public struct GraphiteRootView: View {
             .toolbar { compactBottomBar }
             #endif
             .environment(\.showTemplatePicker, templatePickerAction)
+            .environment(\.workspaceMoreMenuActions, isCompactWidth ? nil : workspaceMoreMenuActions)
             .environment(\.renameDocument, isCompactWidth ? DocumentRenameAction {
                 if let path = workspace.selection { workspace.fileSheet = .rename(path) }
             } : nil)
@@ -235,25 +248,33 @@ public struct GraphiteRootView: View {
 
     @ToolbarContentBuilder private var detailToolbar: some ToolbarContent {
         // A compact width moves these to the bottom bar (`compactBottomBar`), as Obsidian
-        // mobile does, where they do not crowd the back button and the title.
+        // mobile does, where they do not crowd the back button and the title. A regular
+        // width keeps Back and Forward here and puts the Quick Switcher, the command palette
+        // and Focus in the document's More menu (`WorkspaceMoreMenuItems`), so the toolbar
+        // stays short enough for the title; Exit Focus stays in view while Focus hides the rest.
         if workspace.store != nil && !isCompactWidth {
             ToolbarItemGroup(placement: .navigation) {
-                Button(focusMode.isActive ? "Exit Focus" : "Focus", systemImage: focusMode.isActive ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right") {
-                    toggleFocusMode()
-                }
-                .accessibilityIdentifier("workspaceFocusMode")
-                .help(focusMode.isActive ? "Restore sidebars and tabs" : "Hide sidebars and tabs")
-                .tint(.primary)
-                if !focusMode.isActive {
+                if focusMode.isActive {
+                    Button("Exit Focus", systemImage: "arrow.down.right.and.arrow.up.left") { toggleFocusMode() }
+                        .accessibilityIdentifier("workspaceFocusMode")
+                        .help("Restore sidebars and tabs")
+                        .tint(.primary)
+                } else {
                     Group {
-                        Button("Back", systemImage: "chevron.left") { Task { await workspace.goBack() } }
+                        Button("Back", systemImage: "chevron.backward") { Task { await workspace.goBack() } }
                             .disabled(!workspace.history.canGoBack)
-                        Button("Forward", systemImage: "chevron.right") { Task { await workspace.goForward() } }
+                        Button("Forward", systemImage: "chevron.forward") { Task { await workspace.goForward() } }
                             .disabled(!workspace.history.canGoForward)
-                        Button("Quick Switcher", systemImage: "doc.text.magnifyingglass") { activePalette = .quickSwitcher }
-                        Button("Command Palette", systemImage: "command") { activePalette = .commandPalette }
                     }
                     .tint(.primary)
+                }
+            }
+            // Notes, PDFs and canvases end their own More menu with these commands; other
+            // documents and an empty tab have no menu of their own, so the window shows one.
+            if !focusedDocumentHasMoreMenu {
+                ToolbarItem(placement: .primaryAction) {
+                    Menu("More", systemImage: "ellipsis") { WorkspaceMoreMenuItems() }
+                        .tint(.primary)
                 }
             }
         }
@@ -263,6 +284,24 @@ public struct GraphiteRootView: View {
                     .tint(.primary)
             }
         }
+        if workspace.readAloud.session.document != nil || workspace.readAloud.isPreparing {
+            ToolbarItem(placement: .primaryAction) {
+                Button("Reading Controls", systemImage: "speaker.wave.2") { workspace.readAloud.showsReader = true }
+                    .tint(.primary)
+                    .disabled(workspace.recording.state.isActive)
+            }
+        }
+    }
+
+    /// Whether the focused document puts a More menu of its own in the toolbar.
+    private var focusedDocumentHasMoreMenu: Bool {
+        workspace.markdownSession != nil || workspace.pdfSession != nil || workspace.canvasSession != nil
+    }
+
+    private var workspaceMoreMenuActions: WorkspaceMoreMenuActions {
+        WorkspaceMoreMenuActions(showQuickSwitcher: { activePalette = .quickSwitcher },
+                                 showCommandPalette: { activePalette = .commandPalette },
+                                 toggleFocusMode: toggleFocusMode)
     }
 
     /// Whether the window's toolbar shows the recording control. A compact width shows it
@@ -286,9 +325,9 @@ public struct GraphiteRootView: View {
         if workspace.store != nil && isCompactWidth && !isKeyboardShown && workspace.markdownSession?.isTyping != true {
             ToolbarItemGroup(placement: .bottomBar) {
                 Group {
-                    Button("Back", systemImage: "arrow.left") { Task { await workspace.goBack() } }
+                    Button("Back", systemImage: "chevron.backward") { Task { await workspace.goBack() } }
                         .disabled(!workspace.history.canGoBack)
-                    Button("Forward", systemImage: "arrow.right") { Task { await workspace.goForward() } }
+                    Button("Forward", systemImage: "chevron.forward") { Task { await workspace.goForward() } }
                         .disabled(!workspace.history.canGoForward)
                     Spacer()
                     Button("Quick Switcher", systemImage: "magnifyingglass") { activePalette = .quickSwitcher }
@@ -438,7 +477,7 @@ public struct GraphiteRootView: View {
     }
 
     private func toggleFocusMode() {
-        withAnimation(.snappy) {
+        withAnimation(GraphiteMotion.animation(.snappy)) {
             if focusMode.isActive {
                 focusMode.leave(columnVisibility: &columnVisibility, showsInspector: &showsInspector)
             } else {
@@ -573,14 +612,14 @@ private struct CreateDocumentSheet: View {
                             Picker("Spacing", selection: $paperStyle.spacing) {
                                 ForEach(NotebookPaperSpacing.choices, id: \.self) { spacing in Text(NotebookPaperSpacing.title(of: spacing)).tag(spacing) }
                             }
-                            Picker("Line color", selection: $paperStyle.lineColor) {
+                            Picker("Line Color", selection: $paperStyle.lineColor) {
                                 ForEach(DrawingPaperLineColor.allCases) { lineColor in Text(lineColor.title).tag(lineColor) }
                             }
-                            Picker("Line strength", selection: $paperStyle.lineStrength) {
+                            Picker("Line Strength", selection: $paperStyle.lineStrength) {
                                 ForEach(DrawingPaperLineStrength.allCases) { strength in Text(strength.title).tag(strength) }
                             }
                         }
-                        Picker("Paper color", selection: Binding(
+                        Picker("Paper Color", selection: Binding(
                             get: { DrawingBackground.allCases.first { color in color.colorHex == (paperStyle.paperColorHex ?? DrawingBackground.white.colorHex) } ?? .white },
                             set: { color in paperStyle.paperColorHex = color == .white ? nil : color.colorHex })) {
                             ForEach(DrawingBackground.allCases.filter { color in color != .transparent }) { color in Text(color.title).tag(color) }

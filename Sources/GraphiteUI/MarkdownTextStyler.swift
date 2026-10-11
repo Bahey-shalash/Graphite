@@ -679,7 +679,7 @@ private final class MarkdownStyleFonts {
     private(set) lazy var codeFont = PlatformFont.monospacedSystemFont(ofSize: baseFont.pointSize * 0.9, weight: .regular)
     private(set) lazy var frontmatterFont = PlatformFont.monospacedSystemFont(ofSize: baseFont.pointSize * 0.85, weight: .regular)
     private(set) lazy var calloutTitleFont = PlatformFont.systemFont(ofSize: baseFont.pointSize, weight: .semibold)
-    private(set) lazy var footnoteFont = PlatformFont.systemFont(ofSize: baseFont.pointSize * 0.72, weight: .semibold)
+    private(set) lazy var footnoteFont = PlatformFont.systemFont(ofSize: max(baseFont.pointSize * 0.72, GraphitePreferences.smallestNoteTextSize), weight: .semibold)
     private var headingFontsByLevel: [Int: PlatformFont] = [:]
     private var traitFontsByKey: [TraitFontKey: PlatformFont] = [:]
 

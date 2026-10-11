@@ -133,7 +133,7 @@ struct VaultSidebar: View {
                         Button("New Folder", systemImage: "folder.badge.plus") { workspace.fileSheet = .newFolder(in: workspace.newFileDirectory(nil)) }
                     }
                     .tint(.primary)
-                    Menu("\(panel.title) Options", systemImage: "ellipsis.circle") { panelMenu }
+                    Menu("\(panel.title) Options", systemImage: "ellipsis") { panelMenu }
                     .tint(.primary)
                 }
             }
@@ -335,7 +335,7 @@ private struct FileExplorerMenuItems: View {
             scrollToFile(path)
         }
         .disabled(workspace.selection == nil)
-        Button("Collapse All", systemImage: "arrow.down.right.and.arrow.up.left") { withAnimation(.snappy) { workspace.collapseAllFolders() } }
+        Button("Collapse All", systemImage: "arrow.down.right.and.arrow.up.left") { withAnimation(GraphiteMotion.animation(.snappy)) { workspace.collapseAllFolders() } }
             .disabled(workspace.expandedFolders.isEmpty)
     }
 }
@@ -378,7 +378,7 @@ private struct SearchResultRow: View {
                 }
             }
             if !result.path.parent.rawValue.isEmpty {
-                Text(result.path.parent.rawValue).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+                Text(result.path.parent.rawValue).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }
             ForEach(result.matches, id: \.self) { match in
                 Button { Task { await workspace.open(result.path, at: match) } } label: {
@@ -394,7 +394,7 @@ private struct SearchResultRow: View {
                 .accessibilityHint("Opens the note at this line")
             }
             if result.matchCount > result.matches.count {
-                Text("\((result.matchCount - result.matches.count).formatted()) more in this note").font(.caption2).foregroundStyle(.tertiary)
+                Text("\((result.matchCount - result.matches.count).formatted()) more in this note").font(.caption2).foregroundStyle(.secondary)
             }
         }
         .padding(.vertical, 2)
@@ -452,7 +452,7 @@ private struct VaultEntryRow: View, Equatable {
 
     private var folderRow: some View {
         // A folder is never opened as a document: tapping its name folds it, as in Obsidian.
-        Button { withAnimation(.snappy) { isExpanded.wrappedValue.toggle() } } label: {
+        Button { withAnimation(GraphiteMotion.animation(.snappy)) { isExpanded.wrappedValue.toggle() } } label: {
             FileTreeRowLabel(depth: depth) {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 10, weight: .semibold))
@@ -500,7 +500,7 @@ private struct VaultEntryRow: View, Equatable {
             HStack(spacing: 0) {
                 Text(entry.path.stem).lineLimit(1)
                 if let extensionSuffix {
-                    Text(extensionSuffix).foregroundStyle(.tertiary).lineLimit(1).layoutPriority(1)
+                    Text(extensionSuffix).foregroundStyle(.secondary).lineLimit(1).layoutPriority(1)
                 }
             }
             if workspace.conflictedPaths.contains(entry.path) { ConflictVersionsMarker() }

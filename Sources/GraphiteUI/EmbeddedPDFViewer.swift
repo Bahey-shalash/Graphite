@@ -142,7 +142,7 @@ struct EmbeddedPDFViewer: View {
         HStack(spacing: 4) {
             Group {
                 toolbarButton(showsThumbnails ? "Hide Thumbnails" : "Show Thumbnails", systemImage: "sidebar.left", isActive: showsThumbnails) {
-                    withAnimation(.snappy) { showsThumbnails.toggle() }
+                    withAnimation(GraphiteMotion.animation(.snappy)) { showsThumbnails.toggle() }
                 }
                 toolbarButton("Zoom Out", systemImage: "minus.magnifyingglass") { zoom(by: 1 / Self.zoomStep) }
                 toolbarButton("Zoom In", systemImage: "plus.magnifyingglass") { zoom(by: Self.zoomStep) }
@@ -179,6 +179,9 @@ struct EmbeddedPDFViewer: View {
         }
         .padding(.horizontal, 8)
         .frame(height: 40)
+        // A bar stops growing at the largest standard text size, as the system's bars do,
+        // so its buttons stay in the note's width; a long press shows a button enlarged.
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
 
     private func toolbarButton(_ title: String, systemImage: String, isActive: Bool = false, action: @escaping () -> Void) -> some View {
@@ -188,6 +191,7 @@ struct EmbeddedPDFViewer: View {
             .frame(width: 34, height: 32)
             .background(isActive ? AnyShapeStyle(.tint.opacity(0.15)) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 7))
             .help(title)
+            .accessibilityShowsLargeContentViewer()
     }
 
     private var pageField: some View {
@@ -279,7 +283,7 @@ struct EmbeddedPDFViewer: View {
                 if showsThumbnails {
                     thumbnailStrip(for: session)
                         .frame(width: Self.thumbnailSize.width + 24)
-                        .transition(.move(edge: .leading))
+                        .transition(GraphiteMotion.slide(from: .leading))
                     Divider()
                 }
                 // A refreshed or recovered session opens where its viewer was; a new one at
@@ -318,7 +322,7 @@ struct EmbeddedPDFViewer: View {
             .onAppear { session.document.page(at: session.currentPageIndex).map { page in scrollProxy.scrollTo(ObjectIdentifier(page), anchor: .center) } }
             .onChange(of: session.currentPageIndex) { _, pageIndex in
                 guard let page = session.document.page(at: pageIndex) else { return }
-                withAnimation { scrollProxy.scrollTo(ObjectIdentifier(page), anchor: .center) }
+                withAnimation(GraphiteMotion.animation()) { scrollProxy.scrollTo(ObjectIdentifier(page), anchor: .center) }
             }
         }
     }

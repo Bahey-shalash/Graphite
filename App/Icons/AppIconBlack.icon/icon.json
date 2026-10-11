@@ -6,8 +6,8 @@
     {
       "value": {
         "linear-gradient": [
-          "srgb:0.96078,0.97255,0.98824,1.00000",
-          "srgb:0.84314,0.89020,0.93725,1.00000"
+          "srgb:0.96471,0.97255,0.98431,1.00000",
+          "srgb:0.83922,0.86667,0.90196,1.00000"
         ]
       }
     },
@@ -15,38 +15,63 @@
       "appearance": "dark",
       "value": {
         "linear-gradient": [
-          "srgb:0.21961,0.27451,0.34902,1.00000",
-          "srgb:0.08627,0.12157,0.18431,1.00000"
+          "srgb:0.18039,0.20784,0.25098,1.00000",
+          "srgb:0.07059,0.08235,0.10196,1.00000"
         ]
       }
     }
   ],
   "groups": [
     {
-      "name": "Black ink and pencil tip",
-      "layers": [
-        {
-          "image-name": "GlassNoteAndStylus.png",
-          "name": "Rendered glass artwork",
-          "position": {
-            "scale": 0.72,
-            "translation-in-points": [
-              0,
-              0
-            ]
-          }
-        }
-      ],
+      "name": "Graphite crystal, steel",
       "lighting": "combined",
-      "specular": false,
+      "specular": "outside",
       "shadow": {
         "kind": "neutral",
-        "opacity": 0.12
+        "opacity": 0.3
       },
       "translucency": {
-        "enabled": false,
-        "value": 0
-      }
+        "enabled": true,
+        "value": 0.1
+      },
+      "layers": [
+        {
+          "image-name": "TipFront.svg",
+          "name": "Upper point, front"
+        },
+        {
+          "image-name": "TipLeft.svg",
+          "name": "Upper point, left"
+        },
+        {
+          "image-name": "TipRight.svg",
+          "name": "Upper point, right"
+        },
+        {
+          "image-name": "ColumnLeft.svg",
+          "name": "Column, left"
+        },
+        {
+          "image-name": "ColumnFront.svg",
+          "name": "Column, front"
+        },
+        {
+          "image-name": "ColumnRight.svg",
+          "name": "Column, right"
+        },
+        {
+          "image-name": "PointLeft.svg",
+          "name": "Lower point, left"
+        },
+        {
+          "image-name": "PointFront.svg",
+          "name": "Lower point, front"
+        },
+        {
+          "image-name": "PointRight.svg",
+          "name": "Lower point, right"
+        }
+      ]
     }
   ],
   "supported-platforms": {

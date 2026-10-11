@@ -43,14 +43,22 @@ struct PDFAnnotationInput: Equatable {
 /// live document. Graphite records no edit for a typed value, so a save, which replays the
 /// recorded edits on the file as it was read, would drop the value without a word.
 @MainActor
-final class PDFViewPageObserver {
+final class PDFViewPageObserver: NSObject {
     private let session: PDFSession
     private weak var view: PDFView?
     private var notificationObservers: [NSObjectProtocol] = []
+    private let readingHighlighter = PDFReadAloudHighlighter()
+    private var suspendReadingFollow: (() -> Void)?
+    #if canImport(UIKit)
+    private weak var observedScrollView: UIScrollView?
+    #else
+    private var scrollMonitor: Any?
+    #endif
 
     init(session: PDFSession, view: PDFView) {
         self.session = session
         self.view = view
+        super.init()
         notificationObservers = [
             NotificationCenter.default.addObserver(forName: .PDFViewPageChanged, object: view, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.updateCurrentPage() }
@@ -58,14 +66,63 @@ final class PDFViewPageObserver {
             NotificationCenter.default.addObserver(forName: .PDFViewVisiblePagesChanged, object: view, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.makeFormFieldsReadOnlyOnVisiblePages() }
             },
+            NotificationCenter.default.addObserver(forName: .PDFViewSelectionChanged, object: view, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    let selection = self.view?.currentSelection
+                    // Capture geometry here; extract bounded text only when the
+                    // user asks to read, rather than on every selection change.
+                    self.session.readAloudSelection = selection?.pages.isEmpty == false ? selection?.copy() as? PDFSelection : nil
+                }
+            },
         ]
         makeFormFieldsReadOnlyOnVisiblePages()
     }
 
     func stop() {
+        if let view { readingHighlighter.clear(in: view) }
         for observer in notificationObservers { NotificationCenter.default.removeObserver(observer) }
         notificationObservers.removeAll()
+        #if canImport(UIKit)
+        observedScrollView?.panGestureRecognizer.removeTarget(self, action: #selector(manualScrollBegan(_:)))
+        observedScrollView = nil
+        #else
+        if let scrollMonitor { NSEvent.removeMonitor(scrollMonitor) }
+        scrollMonitor = nil
+        #endif
+        suspendReadingFollow = nil
     }
+
+    func highlightReading(_ highlights: [PDFReadAloudHighlight], followsReading: Bool = false, suspendFollowing: (() -> Void)? = nil) {
+        suspendReadingFollow = followsReading ? suspendFollowing : nil
+        installManualScrollObservation()
+        if let view { readingHighlighter.update(highlights, in: view, followsReading: followsReading) }
+    }
+
+    private func installManualScrollObservation() {
+        #if canImport(UIKit)
+        guard let scrollView = view?.documentView?.enclosingScrollView, scrollView !== observedScrollView else { return }
+        observedScrollView?.panGestureRecognizer.removeTarget(self, action: #selector(manualScrollBegan(_:)))
+        observedScrollView = scrollView
+        scrollView.panGestureRecognizer.addTarget(self, action: #selector(manualScrollBegan(_:)))
+        #else
+        guard scrollMonitor == nil else { return }
+        scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            MainActor.assumeIsolated {
+                guard let self, let view = self.view, event.window === view.window,
+                      view.bounds.contains(view.convert(event.locationInWindow, from: nil)) else { return }
+                self.suspendReadingFollow?()
+            }
+            return event
+        }
+        #endif
+    }
+
+    #if canImport(UIKit)
+    @objc private func manualScrollBegan(_ recognizer: UIPanGestureRecognizer) {
+        if recognizer.state == .began { suspendReadingFollow?() }
+    }
+    #endif
 
     func updateCurrentPage() {
         guard let page = view?.currentPage else { return }
@@ -85,6 +142,7 @@ final class PDFViewPageObserver {
 
 #if canImport(UIKit)
 import UIKit
+import UIKit.UIGestureRecognizerSubclass
 import PencilKit
 
 extension PDFLinkActions {
@@ -112,6 +170,13 @@ struct GraphitePDFView: UIViewRepresentable {
     var beginInteraction: (() -> Void)?
     /// Links and quotes offered for selected text; nil where there is no note to link from.
     var linkActions: PDFLinkActions?
+    /// Called when an Apple Pencil touches a page while reading: picking up the Pencil
+    /// switches to writing, as Apple asks that a Pencil can mark without a mode being chosen
+    /// first. Nil where reading stays reading (a protected PDF, an embed).
+    var beginWritingWithPencil: (() -> Void)?
+    var readingHighlights: [PDFReadAloudHighlight] = []
+    var followsReading = false
+    var suspendReadingFollow: (() -> Void)?
 
     func makeCoordinator() -> PDFAnnotationCoordinator { PDFAnnotationCoordinator(session: session, isEmbedded: isEmbedded) }
 
@@ -134,6 +199,7 @@ struct GraphitePDFView: UIViewRepresentable {
         context.coordinator.attach(to: view)
         context.coordinator.beginInteraction = beginInteraction
         context.coordinator.linkActions = linkActions
+        context.coordinator.beginWritingWithPencil = beginWritingWithPencil
         session.pdfView = view
         return view
     }
@@ -141,7 +207,9 @@ struct GraphitePDFView: UIViewRepresentable {
     func updateUIView(_ view: GraphitePDFDisplayView, context: Context) {
         context.coordinator.beginInteraction = beginInteraction
         context.coordinator.linkActions = linkActions
+        context.coordinator.beginWritingWithPencil = beginWritingWithPencil
         context.coordinator.update(input: input)
+        context.coordinator.highlightReading(readingHighlights, followsReading: followsReading, suspendFollowing: suspendReadingFollow)
     }
 
     static func dismantleUIView(_ view: GraphitePDFDisplayView, coordinator: PDFAnnotationCoordinator) {
@@ -454,10 +522,19 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     let isEmbedded: Bool
     var beginInteraction: (() -> Void)?
     var linkActions: PDFLinkActions?
+    /// See `GraphitePDFView.beginWritingWithPencil`.
+    var beginWritingWithPencil: (() -> Void)?
+    private var pencilWhileReadingRecognizer: PencilTouchDownRecognizer?
     private weak var pdfView: GraphitePDFDisplayView?
-    private let toolPicker = PencilToolPalette.makeToolPicker()
+    /// Apple's floating palette, which this view's canvases follow.
+    let toolPicker = PencilToolPalette.makeToolPicker()
     private lazy var paletteAccessoryItem = PencilToolPalette.makeAccessoryItem(for: toolPicker)
     private let toolPickerHost = PencilToolPickerHostView()
+    /// The palette is drawn above every screen of the app; it gives way while a sheet, an
+    /// alert or a file picker is presented over the PDF.
+    private lazy var presentedScreenObserver = PresentedScreenObserver(view: toolPickerHost) { [weak self] in
+        self?.updateToolPickerVisibility()
+    }
     private var canvasesByPage: [ObjectIdentifier: PDFPageCanvasView] = [:]
     private var displayedPages: Set<ObjectIdentifier> = []
     private var hiddenCanvasOrder: [ObjectIdentifier] = []
@@ -526,6 +603,12 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         view.addGestureRecognizer(selectionRecognizer)
         textSelectionRecognizer = selectionRecognizer
 
+        let pencilRecognizer = PencilTouchDownRecognizer(target: self, action: #selector(handlePencilTouchWhileReading(_:)))
+        pencilRecognizer.delegate = self
+        pencilRecognizer.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
+        view.addGestureRecognizer(pencilRecognizer)
+        pencilWhileReadingRecognizer = pencilRecognizer
+
         let menuInteraction = UIEditMenuInteraction(delegate: self)
         view.addInteraction(menuInteraction)
         editMenuInteraction = menuInteraction
@@ -561,6 +644,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
 
     func detach() {
         isDetached = true
+        presentedScreenObserver.isObserving = false
         toolPicker.setVisible(false, forFirstResponder: toolPickerHost)
         toolPickerHost.takesFirstResponderBackFromSelections = false
         toolPickerHost.resignFirstResponder()
@@ -578,6 +662,10 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         if let zoomObserver { NotificationCenter.default.removeObserver(zoomObserver) }
         zoomObserver = nil
         renderingScaleUpdate?.cancel()
+    }
+
+    func highlightReading(_ highlights: [PDFReadAloudHighlight], followsReading: Bool, suspendFollowing: (() -> Void)?) {
+        pageObserver?.highlightReading(highlights, followsReading: followsReading, suspendFollowing: suspendFollowing)
     }
 
     func update(input newInput: PDFAnnotationInput) {
@@ -927,8 +1015,14 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     ///   PDF, focusing the PDF's side left the app computing without end. The first
     ///   responder then changes on the next turn of the main queue.
     private func updateToolPickerVisibility(isInsideViewUpdate: Bool = false) {
+        // A change that waited may arrive after the view is dismantled.
+        guard !isDetached else { return }
         let isInWindow = pdfView?.window != nil
-        toolPicker.setVisible(input.isEnabled && input.showsToolPicker && isInWindow, forFirstResponder: toolPickerHost)
+        // Covered by a presented screen, the palette hides and the PDF keeps first responder,
+        // so the palette comes back with its tool and the PDF's history when the screen goes.
+        presentedScreenObserver.isObserving = input.holdsFirstResponder && isInWindow
+        let isCovered = presentedScreenObserver.isViewCovered
+        toolPicker.setVisible(input.isEnabled && input.showsToolPicker && isInWindow && !isCovered, forFirstResponder: toolPickerHost)
         toolPickerHost.takesFirstResponderBackFromSelections = input.holdsFirstResponder && isInWindow
         guard isInsideViewUpdate else {
             updateFirstResponder()
@@ -947,7 +1041,9 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         // A change that waited for the view update may arrive after the view is dismantled.
         guard !isDetached, let pdfView else { return }
         if input.holdsFirstResponder && pdfView.window != nil {
-            if !toolPickerHost.isFirstResponder { toolPickerHost.becomeFirstResponder() }
+            // A screen presented over the PDF keeps the first responder it takes, as a text
+            // field in a sheet does; the PDF takes it back when the screen goes.
+            if !toolPickerHost.isFirstResponder && !presentedScreenObserver.isViewCovered { toolPickerHost.becomeFirstResponder() }
         } else if toolPickerHost.isFirstResponder {
             toolPickerHost.resignFirstResponder()
         }
@@ -1046,6 +1142,10 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard let pdfView else { return false }
+        if gestureRecognizer === pencilWhileReadingRecognizer {
+            return !input.isEnabled && beginWritingWithPencil != nil
+                && pdfView.page(for: gestureRecognizer.location(in: pdfView), nearest: false) != nil
+        }
         if gestureRecognizer === markupTapRecognizer {
             return input.isEnabled && takesTap(at: gestureRecognizer.location(in: pdfView), in: pdfView)
         }
@@ -1071,7 +1171,19 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
         // Taps never block scrolling; a selection drag must not scroll the page.
-        gestureRecognizer === markupTapRecognizer
+        gestureRecognizer === markupTapRecognizer || gestureRecognizer === pencilWhileReadingRecognizer
+    }
+
+    /// A Pencil on a page while reading switches to writing. The touch that switched does
+    /// not draw, since the page's canvas did not exist for it, and the page does not scroll
+    /// with it; the next stroke draws.
+    @objc private func handlePencilTouchWhileReading(_ recognizer: PencilTouchDownRecognizer) {
+        guard recognizer.state == .recognized, !input.isEnabled, let beginWritingWithPencil, let pdfView else { return }
+        for scrollView in scrollViews(in: pdfView) {
+            scrollView.panGestureRecognizer.isEnabled = false
+            scrollView.panGestureRecognizer.isEnabled = true
+        }
+        beginWritingWithPencil()
     }
 
     func editMenuInteraction(_ interaction: UIEditMenuInteraction, menuFor configuration: UIEditMenuConfiguration, suggestedActions: [UIMenuElement]) -> UIMenu? {
@@ -1096,6 +1208,21 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         animator.addCompletion { [weak self] in self?.updateToolPickerVisibility() }
     }
 }
+/// Recognizes the moment a touch begins, without waiting for it to move or lift. It never
+/// cancels or delays the touch for other views.
+final class PencilTouchDownRecognizer: UIGestureRecognizer {
+    override init(target: Any?, action: Selector?) {
+        super.init(target: target, action: action)
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        state = .recognized
+    }
+}
+
 #else
 import AppKit
 
@@ -1107,6 +1234,11 @@ struct GraphitePDFView: NSViewRepresentable {
     /// The Mac viewer has no Pencil canvases; accepted so both platforms share one call.
     var beginInteraction: (() -> Void)?
     var linkActions: PDFLinkActions?
+    /// The Mac has no Apple Pencil; accepted so both platforms share one call.
+    var beginWritingWithPencil: (() -> Void)?
+    var readingHighlights: [PDFReadAloudHighlight] = []
+    var followsReading = false
+    var suspendReadingFollow: (() -> Void)?
 
     final class Coordinator {
         var pageObserver: PDFViewPageObserver?
@@ -1125,7 +1257,9 @@ struct GraphitePDFView: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ view: PDFView, context: Context) {}
+    func updateNSView(_ view: PDFView, context: Context) {
+        context.coordinator.pageObserver?.highlightReading(readingHighlights, followsReading: followsReading, suspendFollowing: suspendReadingFollow)
+    }
 
     static func dismantleNSView(_ view: PDFView, coordinator: Coordinator) {
         coordinator.pageObserver?.stop()

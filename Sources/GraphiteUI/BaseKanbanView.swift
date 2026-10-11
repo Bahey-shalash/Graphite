@@ -83,7 +83,7 @@ struct BaseKanbanView: View {
             default:
                 Text(Self.emptyColumnTitle).font(.headline).foregroundStyle(.secondary)
             }
-            Text("\(group.rows.count)").font(.caption).foregroundStyle(.tertiary).monospacedDigit()
+            Text("\(group.rows.count)").font(.caption).foregroundStyle(.secondary).monospacedDigit()
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 4)

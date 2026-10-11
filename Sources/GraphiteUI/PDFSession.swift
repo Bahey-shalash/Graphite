@@ -196,6 +196,8 @@ final class PDFSession {
 
     let location: URL
     let document: PDFDocument
+    /// A main-actor copy of the native selection, preserving exact occurrences.
+    var readAloudSelection: PDFSelection?
     private var revision: FileRevision
     private var edits: [PDFEdit] = []
     private var baseline: PDFBaselineSnapshot
@@ -251,7 +253,10 @@ final class PDFSession {
     var hasExternalConflict = false
     /// The last save failed for a reason other than a conflict; the edits are still here.
     private(set) var hasFailedSave = false
-    private(set) var changeVersion = 0
+    private(set) var changeVersion = 0 {
+        didSet { readAloudSelection = nil; contentDidChange?() }
+    }
+    @ObservationIgnored var contentDidChange: (@MainActor () -> Void)?
     /// Changes when pages are inserted, deleted, or reordered; page lists redraw on it.
     private(set) var pageListVersion = 0
     /// Changes when bookmarks or the outline change.

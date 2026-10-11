@@ -307,12 +307,12 @@ final class ZoomingImageScrollView: UIScrollView, UIScrollViewDelegate {
 
     @objc private func toggleZoom(_ recognizer: UITapGestureRecognizer) {
         if zoomScale > minimumZoomScale + 0.001 {
-            setZoomScale(minimumZoomScale, animated: true)
+            setZoomScale(minimumZoomScale, animated: !GraphiteMotion.isReduced)
         } else {
             let targetScale = min(minimumZoomScale * 2.5, maximumZoomScale)
             let point = recognizer.location(in: imageView)
             let size = CGSize(width: bounds.width / targetScale, height: bounds.height / targetScale)
-            zoom(to: CGRect(x: point.x - size.width / 2, y: point.y - size.height / 2, width: size.width, height: size.height), animated: true)
+            zoom(to: CGRect(x: point.x - size.width / 2, y: point.y - size.height / 2, width: size.width, height: size.height), animated: !GraphiteMotion.isReduced)
         }
     }
 }

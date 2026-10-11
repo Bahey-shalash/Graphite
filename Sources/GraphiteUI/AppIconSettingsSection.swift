@@ -38,7 +38,8 @@ struct AppIconSettingsSection: View {
                                     .padding(5)
                                     .frame(width: 88, height: 88)
                                     .background(LinearGradient(
-                                        colors: [Color(red: 0.96, green: 0.97, blue: 0.99), Color(red: 0.84, green: 0.89, blue: 0.94)],
+                                        // The icon's own pearl background (`make_graphite_crystal_icon.py`).
+                                        colors: [Color(red: 0.965, green: 0.973, blue: 0.984), Color(red: 0.839, green: 0.867, blue: 0.902)],
                                         startPoint: .top, endPoint: .bottom
                                     ), in: RoundedRectangle(cornerRadius: 20))
                                     .overlay(alignment: .bottomTrailing) {
@@ -67,9 +68,9 @@ struct AppIconSettingsSection: View {
                 Text("Changing the app icon is unavailable on this device.").foregroundStyle(.secondary)
             }
         } header: {
-            Text("App icon")
+            Text("App Icon")
         } footer: {
-            Text("Choose matching ink and pencil-tip colors for your Home Screen icon. Blue is the default. Your notes and accent color stay the same.")
+            Text("Choose the sheen of the graphite crystal on your Home Screen. Blue is the default. Your notes and accent color stay the same.")
         }
         .onAppear { selectedIconName = UIApplication.shared.alternateIconName }
         .onChange(of: scenePhase) { _, phase in

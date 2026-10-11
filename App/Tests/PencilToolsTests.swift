@@ -380,6 +380,44 @@ final class PencilToolsTests: XCTestCase {
         XCTAssertEqual((emptyList.children.first as? UIAction)?.title, "Add colors in Settings › Colors")
     }
 
+    /// The palette's owners hide it while a screen is presented over their document. A view
+    /// under a sheet is covered and one inside the sheet is not, as the drawing editor's
+    /// canvas is not inside its own full-screen cover; the observer reports the sheet coming
+    /// and going, and nothing once it stops observing.
+    func testPresentedScreenObserverReportsAScreenComingOverAViewAndGoing() async throws {
+        let controller = try host(AnyView(Color.white))
+        let documentView = UIView(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+        controller.view.addSubview(documentView)
+        var reportedChangeCount = 0
+        let observer = PresentedScreenObserver(view: documentView) { reportedChangeCount += 1 }
+        observer.isObserving = true
+        XCTAssertFalse(observer.isViewCovered)
+
+        let sheet = UIViewController()
+        sheet.modalPresentationStyle = .formSheet
+        let viewInSheet = UIView(frame: CGRect(x: 0, y: 0, width: 50, height: 50))
+        sheet.view.addSubview(viewInSheet)
+        controller.present(sheet, animated: false)
+        try await waitUntil { reportedChangeCount == 1 }
+        XCTAssertTrue(observer.isViewCovered)
+        XCTAssertNotNil(documentView.window, "A sheet leaves the view in the window under it.")
+        XCTAssertNotNil(viewInSheet.window)
+        XCTAssertFalse(viewInSheet.isCoveredByPresentedScreen, "The screen presented last is not covered.")
+
+        sheet.dismiss(animated: false)
+        try await waitUntil { reportedChangeCount == 2 }
+        XCTAssertFalse(observer.isViewCovered)
+
+        observer.isObserving = false
+        let alert = UIAlertController(title: "Graphite", message: nil, preferredStyle: .alert)
+        controller.present(alert, animated: false)
+        try await waitUntil { documentView.isCoveredByPresentedScreen }
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(reportedChangeCount, 2, "Nothing is reported while not observing.")
+        alert.dismiss(animated: false)
+        try await waitUntil { controller.presentedViewController == nil }
+    }
+
     // MARK: Drawing on images
 
     func testPictureIsPreparedUprightAtCanvasWidth() throws {

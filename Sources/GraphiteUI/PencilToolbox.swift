@@ -11,8 +11,8 @@ enum PencilToolbarStyle: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .floating: "Floating palette"
-        case .fixed: "Fixed bar"
+        case .floating: "Floating Palette"
+        case .fixed: "Fixed Bar"
         }
     }
 
@@ -602,7 +602,7 @@ struct TabBarPencilTools: View {
     var body: some View {
         if session.showsFixedPencilTools(style: toolbarStyle, showsTools: showsToolPicker, horizontalSizeClass: horizontalSizeClass, isFocused: isFocused) {
             PencilToolRow(toolbox: PencilToolbox.shared, favoriteColors: GraphitePreferences.storedColorPalette(), drawsShapes: $drawsShapes,
-                          addImage: { pictureSource = .photoLibrary }, undoAvailability: session.undoAvailability, rowHeight: 40)
+                          addImage: { pictureSource = .photoLibrary }, undoAvailability: session.undoAvailability, rowHeight: PencilToolbarMetrics.heightInTabBar)
                 .modifier(PDFPictureAdding(session: session, source: $pictureSource))
         }
     }
@@ -614,6 +614,13 @@ extension PDFSession {
     /// the focused side.
     func showsFixedPencilTools(style: PencilToolbarStyle, showsTools: Bool, horizontalSizeClass: UserInterfaceSizeClass?, isFocused: Bool) -> Bool {
         style == .fixed && horizontalSizeClass != .compact && showsTools && isFocused && isWriting && !isProtected
+    }
+
+    /// Whether the system's floating palette is over the page: it has Undo and Redo of its
+    /// own, so the document's would repeat them. A compact width always uses the palette, and
+    /// arranging a picture puts it away.
+    func showsFloatingPencilPalette(style: PencilToolbarStyle, showsTools: Bool, horizontalSizeClass: UserInterfaceSizeClass?, isFocused: Bool) -> Bool {
+        (style == .floating || horizontalSizeClass == .compact) && showsTools && isFocused && isWriting && !isProtected && selectedPicture == nil
     }
 }
 
@@ -653,11 +660,10 @@ struct PencilToolButtons {
         .accessibilityAddTraits(isInUse ? .isSelected : [])
     }
 
-    /// A tool standing on the bottom edge of the row, cut off by it as by a desk.
+    /// A tool centered in the row, taking touches over the row's whole height.
     private func glyphLabel(_ glyph: PencilToolGlyph) -> some View {
         glyph
-            .frame(width: buttonSide - 4, height: rowHeight, alignment: .top)
-            .clipped()
+            .frame(width: buttonSide, height: rowHeight)
             .contentShape(Rectangle())
     }
 
@@ -699,16 +705,17 @@ struct PencilToolButtons {
 
 enum PencilToolbarMetrics {
     static let height: CGFloat = 44
+    /// The tools' row inside a tab bar: a little lower than the bar, which centers it.
+    static let heightInTabBar: CGFloat = 40
     static let buttonSide: CGFloat = 36
     /// The background of the tool in use.
-    static var selectedFill: AnyShapeStyle { AnyShapeStyle(Color.primary.opacity(0.1)) }
+    static var selectedFill: AnyShapeStyle { AnyShapeStyle(Color(PlatformColor.primaryText(opacity: 0.1, increasedContrastOpacity: 0.2))) }
 }
 
-/// A drawing tool standing upright, as Apple's palette and Goodnotes show them: the body in
-/// the bar's colors, and the part that touches the page (the tip, a nib, bristles) in the
-/// ink's color, so the bar shows what each tool draws. The tool in use stands raised.
-/// Drawn in a box of `designSize`, the tip at the top; the body runs past the bottom, where
-/// the row cuts it off.
+/// A tool of the bar as Apple's SF Symbols draw it: the ink's own symbol (`PencilInk.symbolName`),
+/// the eraser or the lasso, with a short bar in the ink's color under an ink, so the bar shows
+/// what each tool draws. The tool in use is drawn at full strength on the bar's faint fill,
+/// as the sizes and colors beside it are, so it is marked by more than color.
 struct PencilToolGlyph: View {
     enum Tool: Equatable {
         case ink(PencilInk)
@@ -720,166 +727,36 @@ struct PencilToolGlyph: View {
     var inkHex: String = PencilInk.pen.defaultColorHex
     var inkOpacity: Double = 1
     let isInUse: Bool
-    @Environment(\.colorScheme) private var colorScheme
 
-    static let designSize = CGSize(width: 24, height: 48)
-    /// How far the tool in use stands above the others.
-    static let raisedOffset: CGFloat = 7
-    /// Where the tool in use begins below the row's top.
-    static let topMargin: CGFloat = 3
+    private var symbolName: String {
+        switch tool {
+        case .ink(let ink): ink.symbolName
+        case .eraser: PencilToolKind.eraser.symbolName
+        case .lasso: PencilToolKind.lasso.symbolName
+        }
+    }
+
+    private var inkColor: Color? {
+        guard case .ink = tool else { return nil }
+        // A faint ink, such as a highlighter at low opacity, still shows which color it is.
+        return (Color(graphiteHex: inkHex) ?? .black).opacity(max(inkOpacity, 0.45))
+    }
 
     var body: some View {
-        Canvas { context, _ in
-            for part in Self.parts(of: tool) { draw(part, in: &context) }
+        VStack(spacing: 3) {
+            Image(systemName: symbolName)
+                .font(.system(size: 17, weight: isInUse ? .semibold : .regular))
+                .foregroundStyle(isInUse ? .primary : .secondary)
+                .frame(height: 22)
+            Capsule()
+                .fill(inkColor ?? .clear)
+                .overlay { if inkColor != nil { Capsule().strokeBorder(Color.primary.opacity(0.15), lineWidth: 0.5) } }
+                .frame(width: 16, height: 3)
         }
-        .frame(width: Self.designSize.width, height: Self.designSize.height)
-        .offset(y: Self.topMargin + (isInUse ? 0 : Self.raisedOffset))
-        .animation(.snappy(duration: 0.18), value: isInUse)
+        .frame(width: PencilToolbarMetrics.buttonSide, height: PencilToolbarMetrics.buttonSide)
+        .background(isInUse ? PencilToolbarMetrics.selectedFill : AnyShapeStyle(.clear),
+                    in: RoundedRectangle(cornerRadius: GraphiteChrome.cornerRadius, style: .continuous))
         .accessibilityHidden(true)
-    }
-
-    // MARK: Colors
-
-    private var isDark: Bool { colorScheme == .dark }
-    private var bodyColor: Color { isDark ? Color(white: 0.23) : Color.white }
-    private var outlineColor: Color { isDark ? Color(white: 0.45) : Color(white: 0.77) }
-    private var inkColor: Color {
-        // A faint ink, such as a highlighter at low opacity, still shows which color it is.
-        (Color(graphiteHex: inkHex) ?? .black).opacity(max(inkOpacity, 0.45))
-    }
-
-    private func draw(_ part: Part, in context: inout GraphicsContext) {
-        switch part.role {
-        case .body:
-            context.fill(part.path, with: .color(bodyColor))
-            context.stroke(part.path, with: .color(outlineColor), lineWidth: 0.75)
-        case .ink:
-            context.fill(part.path, with: .color(inkColor))
-            // Black ink on a dark bar would vanish without an edge.
-            if isDark { context.stroke(part.path, with: .color(outlineColor), lineWidth: 0.5) }
-        case .tintedBody:
-            context.fill(part.path, with: .color(bodyColor))
-            context.fill(part.path, with: .color(inkColor.opacity(0.55)))
-            context.stroke(part.path, with: .color(outlineColor), lineWidth: 0.75)
-        case .bodyDetail:
-            context.fill(part.path, with: .color(bodyColor))
-        case .wood:
-            context.fill(part.path, with: .color(Color(red: 0.914, green: 0.812, blue: 0.639)))
-        case .metal:
-            context.fill(part.path, with: .color(isDark ? Color(white: 0.56) : Color(white: 0.72)))
-        case .eraserTip:
-            context.fill(part.path, with: .color(Color(red: 0.95, green: 0.72, blue: 0.75)))
-            context.stroke(part.path, with: .color(outlineColor), lineWidth: 0.75)
-        case .dashedLoop:
-            context.stroke(part.path, with: .color(isDark ? Color(white: 0.82) : Color(white: 0.23)),
-                           style: StrokeStyle(lineWidth: 1.3, dash: [2, 1.6]))
-        }
-    }
-
-    // MARK: Shapes
-
-    private struct Part {
-        enum Role { case body, ink, tintedBody, bodyDetail, wood, metal, eraserTip, dashedLoop }
-        let path: Path
-        let role: Role
-    }
-
-    private static func polygon(_ points: [(CGFloat, CGFloat)]) -> Path {
-        Path { path in
-            path.addLines(points.map { point in CGPoint(x: point.0, y: point.1) })
-            path.closeSubpath()
-        }
-    }
-
-    private static func rectangle(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) -> Path {
-        Path(CGRect(x: x, y: y, width: width, height: height))
-    }
-
-    /// The barrel, from just below the tip to past the bottom of the box.
-    private static func barrel(x: CGFloat, top: CGFloat, width: CGFloat) -> Path {
-        rectangle(x: x, y: top, width: width, height: designSize.height - top)
-    }
-
-    private static func parts(of tool: Tool) -> [Part] {
-        switch tool {
-        case .ink(let ink): return parts(of: ink)
-        case .eraser:
-            let rubber = Path { path in
-                path.move(to: CGPoint(x: 4, y: 17))
-                path.addLine(to: CGPoint(x: 4, y: 10))
-                path.addQuadCurve(to: CGPoint(x: 8, y: 6), control: CGPoint(x: 4, y: 6))
-                path.addLine(to: CGPoint(x: 16, y: 6))
-                path.addQuadCurve(to: CGPoint(x: 20, y: 10), control: CGPoint(x: 20, y: 6))
-                path.addLine(to: CGPoint(x: 20, y: 17))
-                path.closeSubpath()
-            }
-            return [Part(path: barrel(x: 4, top: 17, width: 16), role: .body), Part(path: rubber, role: .eraserTip)]
-        case .lasso:
-            let loop = Path(ellipseIn: CGRect(x: 12 - 4.6, y: 7 - 4.6, width: 9.2, height: 9.2))
-            return [Part(path: polygon([(5, 17), (12, 9), (19, 17)]), role: .body),
-                    Part(path: barrel(x: 5, top: 17, width: 14), role: .body),
-                    Part(path: loop, role: .dashedLoop)]
-        }
-    }
-
-    private static func parts(of ink: PencilInk) -> [Part] {
-        switch ink {
-        case .pen:
-            return [Part(path: polygon([(5, 17), (12, 5.5), (19, 17)]), role: .body),
-                    Part(path: polygon([(10.2, 8.4), (12, 5.5), (13.8, 8.4)]), role: .ink),
-                    Part(path: barrel(x: 5, top: 17, width: 14), role: .body),
-                    Part(path: rectangle(x: 5, y: 19, width: 14, height: 3), role: .ink)]
-        case .monoline:
-            return [Part(path: polygon([(6, 17), (10.6, 8), (13.4, 8), (18, 17)]), role: .body),
-                    Part(path: rectangle(x: 11.2, y: 2.5, width: 1.6, height: 5.5), role: .ink),
-                    Part(path: barrel(x: 6, top: 17, width: 12), role: .body),
-                    Part(path: rectangle(x: 6, y: 19, width: 12, height: 2.5), role: .ink)]
-        case .fountainPen:
-            let nib = Path { path in
-                path.move(to: CGPoint(x: 5.5, y: 18))
-                path.addCurve(to: CGPoint(x: 12, y: 2), control1: CGPoint(x: 6.5, y: 12), control2: CGPoint(x: 9.5, y: 6))
-                path.addCurve(to: CGPoint(x: 18.5, y: 18), control1: CGPoint(x: 14.5, y: 6), control2: CGPoint(x: 17.5, y: 12))
-                path.closeSubpath()
-            }
-            return [Part(path: nib, role: .ink),
-                    Part(path: rectangle(x: 11.6, y: 6, width: 0.8, height: 6.5), role: .bodyDetail),
-                    Part(path: Path(ellipseIn: CGRect(x: 10.7, y: 11.9, width: 2.6, height: 2.6)), role: .bodyDetail),
-                    Part(path: barrel(x: 5, top: 18, width: 14), role: .body)]
-        case .reedPen:
-            return [Part(path: polygon([(6, 17), (8.5, 4), (15.5, 4), (18, 17)]), role: .body),
-                    Part(path: polygon([(8.5, 4), (15.5, 4), (15.9, 6.5), (8.1, 6.5)]), role: .ink),
-                    Part(path: barrel(x: 6, top: 17, width: 12), role: .body),
-                    Part(path: rectangle(x: 6, y: 19, width: 12, height: 3), role: .ink)]
-        case .pencil:
-            return [Part(path: polygon([(5, 17), (12, 3), (19, 17)]), role: .wood),
-                    Part(path: polygon([(9.5, 8), (12, 3), (14.5, 8)]), role: .ink),
-                    Part(path: barrel(x: 5, top: 17, width: 14), role: .tintedBody)]
-        case .crayon:
-            let tip = Path { path in
-                path.move(to: CGPoint(x: 5, y: 17))
-                path.addLine(to: CGPoint(x: 8, y: 7.5))
-                path.addQuadCurve(to: CGPoint(x: 16, y: 7.5), control: CGPoint(x: 12, y: 5.5))
-                path.addLine(to: CGPoint(x: 19, y: 17))
-                path.closeSubpath()
-            }
-            return [Part(path: tip, role: .ink),
-                    Part(path: barrel(x: 5, top: 17, width: 14), role: .ink),
-                    Part(path: rectangle(x: 5, y: 22, width: 14, height: 22), role: .body)]
-        case .watercolor:
-            let bristles = Path { path in
-                path.move(to: CGPoint(x: 7.5, y: 13))
-                path.addCurve(to: CGPoint(x: 12, y: 1.5), control1: CGPoint(x: 7, y: 8.5), control2: CGPoint(x: 10, y: 4.5))
-                path.addCurve(to: CGPoint(x: 16.5, y: 13), control1: CGPoint(x: 14, y: 4.5), control2: CGPoint(x: 17, y: 8.5))
-                path.closeSubpath()
-            }
-            return [Part(path: bristles, role: .ink),
-                    Part(path: rectangle(x: 7, y: 13, width: 10, height: 6), role: .metal),
-                    Part(path: barrel(x: 6, top: 19, width: 12), role: .body)]
-        case .highlighter:
-            return [Part(path: polygon([(5.5, 17), (5.5, 8.5), (18.5, 4.5), (18.5, 17)]), role: .ink),
-                    Part(path: barrel(x: 3.5, top: 17, width: 17), role: .body),
-                    Part(path: rectangle(x: 3.5, y: 19, width: 17, height: 4), role: .ink)]
-        }
     }
 }
 

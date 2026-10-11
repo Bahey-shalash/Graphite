@@ -640,11 +640,12 @@ final class PicturesAndPaperTests: XCTestCase {
         func pdfViewTop() -> CGFloat? {
             descendants(of: controller.view, matching: PDFView.self).first { pdfView in pdfView.window != nil }.map { pdfView in pdfView.convert(pdfView.bounds, to: nil).minY }
         }
-        // The tab bar's row is 40 points high; the bar of its own, 44.
-        try await waitUntil { toolRows().count == 1 && abs((toolRows().first?.bounds.height ?? 0) - 40) < 0.5 }
+        // The tools' row in the tab bar is 40 points high, centered in the 44-point bar; the bar of its own, 44.
+        try await waitUntil { toolRows().count == 1 && abs((toolRows().first?.bounds.height ?? 0) - PencilToolbarMetrics.heightInTabBar) < 0.5 }
         let tabBarRow = try XCTUnwrap(toolRows().first).convert(try XCTUnwrap(toolRows().first).bounds, to: nil)
         let pageTop = try XCTUnwrap(pdfViewTop())
-        XCTAssertLessThan(pageTop - tabBarRow.maxY, 2, "Nothing but the tab bar's divider lies between the tools and the page.")
+        let barMarginBelowTools = (GraphiteChrome.barHeight - PencilToolbarMetrics.heightInTabBar) / 2
+        XCTAssertLessThan(pageTop - tabBarRow.maxY, barMarginBelowTools + 1, "Nothing but the tab bar's margin and divider lies between the tools and the page.")
         attachScreenshot(of: controller, named: "Tools in the tab bar")
 
         // Half of the width has no room beside the tabs and Read/Write: the tools get their row back.

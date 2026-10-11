@@ -31,12 +31,15 @@ struct PDFPane: View {
     var focus: () -> Void = {}
     /// Links to pages and quotes for notes, from the selection menu and the toolbar.
     var linkActions: PDFLinkActions?
+    var readAloud: ReadAloudController?
+    var isRecording = false
     let resolveConflict: (URL) -> Void
 
     var body: some View {
         // The workspace replaces the session when the file is reloaded. The PDF view, its
         // canvases, and the page commands belong to one session, so they are rebuilt.
-        PDFPaneContent(session: session, isFocused: isFocused, focus: focus, linkActions: linkActions, resolveConflict: resolveConflict)
+        PDFPaneContent(session: session, isFocused: isFocused, focus: focus, linkActions: linkActions,
+                       readAloud: readAloud, isRecording: isRecording, resolveConflict: resolveConflict)
             .id(ObjectIdentifier(session))
     }
 }
@@ -46,6 +49,8 @@ private struct PDFPaneContent: View {
     let isFocused: Bool
     let focus: () -> Void
     let linkActions: PDFLinkActions?
+    let readAloud: ReadAloudController?
+    let isRecording: Bool
     let resolveConflict: (URL) -> Void
     @State private var commands: PDFPageCommands
     @State private var thumbnailRenderer = PDFThumbnailRenderer()
@@ -53,6 +58,9 @@ private struct PDFPaneContent: View {
     @State private var showsPageJump = false
     @State private var showsReloadConfirmation = false
     @State private var showsSignatureConfirmation = false
+    @State private var showsReadingPageRange = false
+    @State private var pendingReadingPageRange: (first: Int, last: Int)?
+    @State private var readingStart: PDFReadAloudEndpoint?
     @AppStorage(PDFAnnotationPreferenceKey.drawsWithFinger) private var drawsWithFinger = false
     @AppStorage(PDFAnnotationPreferenceKey.showsToolPicker) private var showsToolPicker = true
     @Environment(\.renameDocument) private var renameDocument
@@ -77,11 +85,14 @@ private struct PDFPaneContent: View {
     private var isCompactWidth: Bool { horizontalSizeClass == .compact }
     #endif
 
-    init(session: PDFSession, isFocused: Bool, focus: @escaping () -> Void, linkActions: PDFLinkActions?, resolveConflict: @escaping (URL) -> Void) {
+    init(session: PDFSession, isFocused: Bool, focus: @escaping () -> Void, linkActions: PDFLinkActions?,
+         readAloud: ReadAloudController?, isRecording: Bool, resolveConflict: @escaping (URL) -> Void) {
         self.session = session
         self.isFocused = isFocused
         self.focus = focus
         self.linkActions = linkActions
+        self.readAloud = readAloud
+        self.isRecording = isRecording
         self.resolveConflict = resolveConflict
         _commands = State(initialValue: PDFPageCommands(session: session))
     }
@@ -93,7 +104,7 @@ private struct PDFPaneContent: View {
                 if showsPages {
                     PDFPagesSidebar(session: session, commands: commands, renderer: thumbnailRenderer)
                         .frame(width: 210)
-                        .transition(.move(edge: .leading))
+                        .transition(GraphiteMotion.slide(from: .leading))
                     Divider()
                 }
                 // The tool picker belongs to the focused side; it would cover the other one.
@@ -101,7 +112,11 @@ private struct PDFPaneContent: View {
                 GraphitePDFView(session: session,
                                 input: annotationInput,
                                 initialPageIndex: session.currentPageIndex > 0 ? session.currentPageIndex : nil, beginInteraction: focus,
-                                linkActions: linkActions)
+                                linkActions: linkActions,
+                                beginWritingWithPencil: session.isProtected ? nil : { focus(); session.isWriting = true },
+                                readingHighlights: readAloud?.highlights(in: session) ?? [],
+                                followsReading: readAloud?.shouldFollow(session) ?? false,
+                                suspendReadingFollow: { readAloud?.suspendFollowing() })
                     .ignoresSafeArea(edges: .bottom)
             }
         }
@@ -149,6 +164,7 @@ private struct PDFPaneContent: View {
         .onChange(of: session.isWriting) { _, isWriting in if !isWriting { session.selectedPicture = nil } }
         .onChange(of: toolbox.selection) { _, _ in session.selectedPicture = nil }
         #endif
+        .onChange(of: session.changeVersion) { _, _ in readingStart = nil }
         .onAppear {
             // Maps the snapshot now, before an autosave can replace it, so thumbnails are
             // drawn from the file rather than from the live document.
@@ -161,6 +177,19 @@ private struct PDFPaneContent: View {
             EmbeddedPDFSessions.shared.remove(session)
         }
         .toolbar { if isFocused { toolbarContent } }
+        .sheet(isPresented: $showsReadingPageRange, onDismiss: {
+            if let range = pendingReadingPageRange {
+                pendingReadingPageRange = nil
+                readAloud?.readPDF(session, firstPageIndex: range.first, lastPageIndex: range.last)
+            }
+        }) {
+            ReadAloudPDFRangePicker(pageCount: session.pageCount, startingPageIndex: session.currentPageIndex) { first, last in
+                pendingReadingPageRange = (first, last)
+            }
+        }
+        // The page shown sits under the title rather than in the toolbar, which leaves the
+        // title room; a phone shows it in More, beside Go to Page.
+        .modifier(NavigationSubtitle(text: isFocused && !isCompactWidthOnAnyPlatform ? "Page \(session.currentPageIndex + 1) of \(session.pageCount)" : nil))
         .modifier(PDFPageCommandDialogs(commands: commands))
         .confirmationDialog(session.hasExternalConflict ? "Reload the PDF and discard the unsaved edits in this editor?" : "Discard the edits that could not be saved and reload the PDF?",
                             isPresented: $showsReloadConfirmation, titleVisibility: .visible) {
@@ -250,18 +279,11 @@ private struct PDFPaneContent: View {
         ToolbarItemGroup(placement: .primaryAction) { Group {
             if !isCompactWidthOnAnyPlatform {
                 Button(showsPages ? "Hide Pages" : "Show Pages", systemImage: "square.grid.2x2") {
-                    withAnimation(.snappy) { showsPages.toggle() }
+                    withAnimation(GraphiteMotion.animation(.snappy)) { showsPages.toggle() }
                 }
                 #if canImport(UIKit)
                 Button("Find in PDF", systemImage: "magnifyingglass") { presentFindNavigator() }
                 #endif
-                Button {
-                    showsPageJump = true
-                } label: {
-                    Text("\(session.currentPageIndex + 1) of \(session.pageCount)").monospacedDigit()
-                }
-                .accessibilityLabel("Page \(session.currentPageIndex + 1) of \(session.pageCount). Go to page")
-                .popover(isPresented: $showsPageJump) { pageJumpPopover }
             }
             if !session.isProtected {
                 if !isCompactWidthOnAnyPlatform {
@@ -269,7 +291,8 @@ private struct PDFPaneContent: View {
                 }
                 #if canImport(UIKit)
                 if !usesDocumentControlRow {
-                    if !isCompactWidth || (session.isWriting && !annotationInput.showsToolPicker) {
+                    // The floating palette has Undo and Redo of its own.
+                    if !annotationInput.showsToolPicker && (!isCompactWidth || session.isWriting) {
                         UndoRedoButtons(availability: session.undoAvailability)
                     }
                     DocumentModeToggle(isWriting: $session.isWriting)
@@ -278,10 +301,10 @@ private struct PDFPaneContent: View {
                 UndoRedoButtons(availability: session.undoAvailability)
                 #endif
             }
-            Menu("More", systemImage: "ellipsis.circle") { moreMenuItems }
+            Menu("More", systemImage: "ellipsis") { moreMenuItems }
                 // A sheet rather than a popover from the menu, which may not show once the
                 // menu has closed.
-                .sheet(isPresented: isCompactWidthOnAnyPlatform ? $showsPageJump : .constant(false)) {
+                .sheet(isPresented: $showsPageJump) {
                     pageJumpField
                         .padding(20)
                         .presentationDetents([.height(140)])
@@ -290,22 +313,38 @@ private struct PDFPaneContent: View {
     }
 
     @ViewBuilder private var moreMenuItems: some View {
+        if let readAloud {
+            Menu("Read Aloud", systemImage: "speaker.wave.2") {
+                Button("Read Document") { readAloud.readPDF(session, firstPageIndex: 0, lastPageIndex: session.pageCount - 1) }
+                Button("Read This Page") { readAloud.readPDF(session, firstPageIndex: session.currentPageIndex, lastPageIndex: session.currentPageIndex) }
+                Button("Read From This Page") { readAloud.readPDF(session, firstPageIndex: session.currentPageIndex, lastPageIndex: session.pageCount - 1) }
+                Button("Choose Page Range…") { showsReadingPageRange = true }
+                Button("Read Selection") {
+                    readAloud.readPDFSelection(session)
+                }.disabled(session.readAloudSelection == nil)
+                Button("Read From Here") { readAloud.readPDFFromSelection(session) }
+                    .disabled(session.readAloudSelection == nil)
+                Divider()
+                Button("Set Reading Start") {
+                    do { readingStart = try PDFReadAloudSource.endpoint(in: session, isEnd: false) }
+                    catch { session.errorMessage = error.localizedDescription }
+                }.disabled(session.readAloudSelection == nil)
+                if let readingStart {
+                    Text("Start: page \(readingStart.pageIndex + 1)")
+                    Button("Read Through Here") {
+                        do { readAloud.readPDFRange(session, start: readingStart, end: try PDFReadAloudSource.endpoint(in: session, isEnd: true)) }
+                        catch { session.errorMessage = error.localizedDescription }
+                    }.disabled(session.readAloudSelection == nil)
+                    Button("Clear Reading Start") { self.readingStart = nil }
+                }
+            }.disabled(isRecording || !session.document.allowsCopying)
+        }
         if isCompactWidthOnAnyPlatform {
             Section {
                 Button(showsPages ? "Hide Pages" : "Show Pages", systemImage: "square.grid.2x2") {
-                    withAnimation(.snappy) { showsPages.toggle() }
+                    withAnimation(GraphiteMotion.animation(.snappy)) { showsPages.toggle() }
                 }
-                // The page shown is the menu item's subtitle, which a phone's menu has room for.
-                Button {
-                    showsPageJump = true
-                } label: {
-                    Label {
-                        Text("Go to Page…")
-                        Text("Page \(session.currentPageIndex + 1) of \(session.pageCount)")
-                    } icon: {
-                        Image(systemName: "number")
-                    }
-                }
+                goToPageButton
                 #if canImport(UIKit)
                 Button("Find in PDF", systemImage: "magnifyingglass") { presentFindNavigator() }
                 #endif
@@ -346,6 +385,24 @@ private struct PDFPaneContent: View {
             #endif
             PDFPageActionsMenuContent(commands: commands, pageIndices: [session.currentPageIndex], isBookmarked: session.bookmarkedPageIndices.contains(session.currentPageIndex))
         }
+        if !isCompactWidthOnAnyPlatform {
+            Section { goToPageButton }
+        }
+        WorkspaceMoreMenuItems()
+    }
+
+    /// The page shown is the menu item's subtitle, as it is the title's in a regular width.
+    private var goToPageButton: some View {
+        Button {
+            showsPageJump = true
+        } label: {
+            Label {
+                Text("Go to Page…")
+                Text("Page \(session.currentPageIndex + 1) of \(session.pageCount)")
+            } icon: {
+                Image(systemName: "number")
+            }
+        }
     }
 
     private var pageJumpField: some View {
@@ -353,12 +410,6 @@ private struct PDFPaneContent: View {
             session.go(to: pageNumber - 1)
             showsPageJump = false
         }
-    }
-
-    private var pageJumpPopover: some View {
-        pageJumpField
-            .padding()
-            .presentationCompactAdaptation(.popover)
     }
 
     /// Whether the width is compact; never on macOS, which has no size classes to speak of.
@@ -691,4 +742,19 @@ struct PDFExportDocument: FileDocument {
         self.data = data
     }
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper { FileWrapper(regularFileWithContents: data) }
+}
+
+/// A line under the window's title, where the system shows one (iPadOS 26 and macOS). Nil
+/// shows an empty subtitle rather than none, so the PDF's view stays the same view when the
+/// pane gains or loses focus; SwiftUI would otherwise build the PDF view again.
+private struct NavigationSubtitle: ViewModifier {
+    let text: String?
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26, macOS 11, *) {
+            content.navigationSubtitle(Text(text ?? ""))
+        } else {
+            content
+        }
+    }
 }

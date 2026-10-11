@@ -60,7 +60,7 @@ struct PDFPagesSidebar: View {
 
     private func scrollToCurrentPage(with scrollProxy: ScrollViewProxy, animated: Bool) {
         guard let page = session.document.page(at: session.currentPageIndex) else { return }
-        withAnimation(animated ? .default : nil) { scrollProxy.scrollTo(ObjectIdentifier(page), anchor: .center) }
+        withAnimation(animated ? GraphiteMotion.animation() : nil) { scrollProxy.scrollTo(ObjectIdentifier(page), anchor: .center) }
     }
 
     private func pageRow(page: PDFPage, pageIndex: Int, isBookmarked: Bool) -> some View {

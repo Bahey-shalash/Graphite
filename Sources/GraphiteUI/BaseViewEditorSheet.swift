@@ -250,7 +250,7 @@ struct BaseViewEditorSheet: View {
                         ForEach(Self.editableTypes, id: \.rawValue) { type in Label(type.defaultViewName, systemImage: type.systemImage).tag(type) }
                         if case .unsupported(let name) = original.type { Text(name).tag(original.type) }
                     }
-                    Toggle("Limit results", isOn: $editing.draft.hasLimit)
+                    Toggle("Limit Results", isOn: $editing.draft.hasLimit)
                     if draft.hasLimit {
                         Stepper {
                             Text("\(draft.limit) files")
@@ -434,11 +434,11 @@ struct BaseViewEditorSheet: View {
 
     private var cardsSection: some View {
         Section("Cards") {
-            Picker("Cover image", selection: $editing.draft.imageProperty) {
+            Picker("Cover Image", selection: $editing.draft.imageProperty) {
                 Text("None").tag(BasePropertyIdentifier?.none)
                 ForEach(noteAndFormulaChoices, id: \.self) { property in Text(displayName(property)).tag(BasePropertyIdentifier?.some(property)) }
             }
-            Picker("Image fit", selection: $editing.draft.imageFit) {
+            Picker("Image Fit", selection: $editing.draft.imageFit) {
                 Text("Cover").tag(BaseImageFit.cover)
                 Text("Contain").tag(BaseImageFit.contain)
             }
@@ -454,15 +454,15 @@ struct BaseViewEditorSheet: View {
                 Text("None").tag(BasePropertyIdentifier?.none)
                 ForEach(noteAndFormulaChoices, id: \.self) { property in Text(displayName(property)).tag(BasePropertyIdentifier?.some(property)) }
             }
-            Picker("Marker icon", selection: $editing.draft.markerIconProperty) {
+            Picker("Marker Icon", selection: $editing.draft.markerIconProperty) {
                 Text("None").tag(BasePropertyIdentifier?.none)
                 ForEach(noteAndFormulaChoices, id: \.self) { property in Text(displayName(property)).tag(BasePropertyIdentifier?.some(property)) }
             }
-            Picker("Marker color", selection: $editing.draft.markerColorProperty) {
+            Picker("Marker Color", selection: $editing.draft.markerColorProperty) {
                 Text("None").tag(BasePropertyIdentifier?.none)
                 ForEach(noteAndFormulaChoices, id: \.self) { property in Text(displayName(property)).tag(BasePropertyIdentifier?.some(property)) }
             }
-            Toggle("Default zoom", isOn: Binding(get: { draft.defaultZoom != nil }, set: { isOn in draft.defaultZoom = isOn ? BaseMapOptions.defaultZoom : nil }))
+            Toggle("Default Zoom", isOn: Binding(get: { draft.defaultZoom != nil }, set: { isOn in draft.defaultZoom = isOn ? BaseMapOptions.defaultZoom : nil }))
             if let zoom = draft.defaultZoom {
                 Stepper(value: Binding(get: { zoom }, set: { newZoom in draft.defaultZoom = newZoom }), in: 1...18, step: 1) {
                     Text("Zoom level \(Int(zoom))")

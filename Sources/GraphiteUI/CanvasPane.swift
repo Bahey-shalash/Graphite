@@ -17,6 +17,7 @@ struct CanvasPane: View {
     @State private var filePicker: CanvasFilePicker.Kind?
     @State private var showsReloadConfirmation = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.renameDocument) private var renameDocument
     @Environment(\.usesDocumentControlRow) private var usesDocumentControlRowSetting
     @Environment(\.showsDocumentControlsInTabBar) private var showsDocumentControlsInTabBar
@@ -86,7 +87,7 @@ struct CanvasPane: View {
         ReadingConfiguration(usesReadableLineLength: false, usesStrictLineBreaks: workspace.vaultSettings.usesStrictLineBreaks,
                              colorsEnabled: preferences.isEnabled(.colors),
                              paletteHexByName: Dictionary(preferences.colorPalette.map { color in (color.name, color.hex) }, uniquingKeysWith: { firstHex, _ in firstHex }),
-                             showsProperties: false, textSize: preferences.textSize, drawingVersion: workspace.drawingVersion, indexVersion: workspace.indexVersion)
+                             showsProperties: false, textSize: GraphitePreferences.noteTextSize(preferences.textSize, for: dynamicTypeSize), drawingVersion: workspace.drawingVersion, indexVersion: workspace.indexVersion)
     }
 
     /// Opens a file a card shows. This canvas's tab is focused first, so the file opens
@@ -147,7 +148,7 @@ struct CanvasPane: View {
                 DocumentModeToggle(isWriting: $session.isWriting)
             }
             #endif
-            Menu("More", systemImage: "ellipsis.circle") {
+            Menu("More", systemImage: "ellipsis") {
                 Button("Zoom to Fit", systemImage: "arrow.up.left.and.arrow.down.right") { session.zoomToFit() }
                 Button("Actual Size", systemImage: "1.magnifyingglass") { session.resetZoom() }
                 if let renameDocument { Button("Rename…", systemImage: "pencil") { renameDocument.rename() } }
@@ -167,6 +168,7 @@ struct CanvasPane: View {
                         Task { await workspace.toggleBookmark(session.path) }
                     }
                 }
+                WorkspaceMoreMenuItems()
             }
         }.tint(.primary) }
     }

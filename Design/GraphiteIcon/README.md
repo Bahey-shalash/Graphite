@@ -1,25 +1,23 @@
 # Graphite icon design
 
-The app ships five icon presets, listed under Bundled icon presets below, with blue as the default. All of them come from `Graphite-MatteStylus.icon`, the approved paper and pen design. Open it in Apple Icon Composer. It shows a glass note pointing toward 10–11 o’clock, a shorter, slimmer raised matte graphite stylus with a narrow blue side accent, a `.md` label, and handwritten strokes on a pearl background. `Graphite-CharcoalInk.icon` (neutral charcoal) and `Graphite-BlueGraphiteInk.icon` (muted blue graphite) are two ink options made from it with the built-in image-editing tool; both match the handwriting and `.md` label to their pencil-tip color, and their edit prompts are in `Ink-Options-Prompts.txt`. The earlier silver-pen version is preserved in `Graphite-Refined.icon`.
+The app ships five icon presets, listed under Bundled icon presets below, with blue as the default. Since 2026-10-10 all of them are the graphite crystal: a hexagonal column with a long point above and a short one below, seen with one face toward the viewer and a little from above, leaning to the right, in steel grays with a colored sheen on the front facets, on a pearl background. It is a sibling of Obsidian's purple crystal, as Graphite is a sibling of Obsidian, and one simple shape, as Apple's app icon guidance asks; the owner chose it after finding the earlier glass note and stylus too detailed to be iconic.
 
-The foreground is one transparent PNG generated with the built-in image-generation tool. The glass, handwriting, and stylus are rendered together, so their component shapes and lighting are not separately editable native layers. The Icon Composer background, foreground placement, scale, and group settings remain editable. The glass appearance in this draft is primarily rendered in the image, not a claim of separate native dynamic refraction for each object.
+The source is `GraphiteCrystal/make_graphite_crystal_icon.py`. Run it from the repository root (`python3 -I Design/GraphiteIcon/GraphiteCrystal/make_graphite_crystal_icon.py`; it needs Pillow and NumPy). It writes each preset's Icon Composer document in `../../App/Icons/` (an `icon.json` and one SVG per facet, nine flat shapes with a gradient each) and its Settings preview in `../../App/IconPreviews.xcassets/` (the crystal alone, transparent around it). Because the facets are separate vector layers, the system draws the glass, specular highlights, shadow and the dark, clear and tinted appearances itself; nothing of the kind is painted into the artwork. Change the crystal's shape, colors or presets in the script and run it again rather than editing the generated files. The documents open in Icon Composer for a look at the appearances.
 
-The source image is inside `Graphite-MatteStylus.icon/Assets/GlassNoteAndStylus.png`. The original generation prompt is in `Refined-Artwork-Prompt.txt`; the pen-only edit prompt is in `Matte-Stylus-Edit-Prompt.txt`. The paper was held as the visual reference during the edit; pixel-identical preservation has not been measured. Earlier vector designs remain alongside this draft for reference and are superseded.
+Checked on the iPad simulator's Home Screen and Dock beside Apple's icons, where the compiled icon shows the system's glass edges.
 
 ## Bundled icon presets
 
-The application now consumes the Icon Composer documents in `../../App/Icons/`:
-
-| Choice | Document | Ink/tip color reference |
+| Choice | Document | Sheen |
 | --- | --- | --- |
-| Blue (default) | `AppIcon.icon` | User's RGB 48, 104, 232 / `#3068E8` |
+| Blue (default) | `AppIcon.icon` | Ink blue, `#2D5DA1`, the app's default accent |
 | Red | `AppIconRed.icon` | `#C9434D` |
-| Black | `AppIconBlack.icon` | `#15171B` |
-| Charcoal | `AppIconCharcoal.icon` | `#292E35` |
+| Black | `AppIconBlack.icon` | None: the crystal in steel grays |
+| Charcoal | `AppIconCharcoal.icon` | None, with every facet darker |
 | Blue graphite | `AppIconBlueGraphite.icon` | `#3B4D60` |
 
-Blue, red, and black were edited with the built-in image tool from the approved matte-stylus foreground; prompts are preserved in `App-Icon-Preset-Prompts.json`. These are rendered color references, not measurements of every shaded pixel. Charcoal and blue graphite reuse the preceding options. All documents retain the pearl light background, dark background specialization, and foreground placement. The pen's narrow blue side accent stays blue.
+On iPhone and iPad, choose Settings › Appearance › App Icon. Xcode compiles these documents and registers their names as primary and alternate icons. macOS uses the default blue icon; the picker is iOS-only.
 
-On iPhone/iPad, choose Settings → Appearance → App icon. Xcode compiles these documents and registers their names as primary/alternate icons. Settings previews live in `../../App/IconPreviews.xcassets`; update their foreground copies whenever the icon artwork changes. These previews approximate the light appearance. macOS uses the default blue icon; the picker is iOS-only.
+## Earlier designs
 
-Earlier design-only documents above remain available for comparison. See `../../Docs/Coverage.md` for build and runtime verification and outstanding device checks.
+The documents in this folder are earlier designs, kept for comparison: the glass note with a matte stylus that shipped from 2026-09-23 to 2026-10-10 (`Graphite-MatteStylus.icon`, one PNG generated with an image tool, with the glass, handwriting and stylus rendered together; its prompts are in `Refined-Artwork-Prompt.txt`, `Matte-Stylus-Edit-Prompt.txt`, `Ink-Options-Prompts.txt` and `App-Icon-Preset-Prompts.json`), its ink options (`Graphite-CharcoalInk.icon`, `Graphite-BlueGraphiteInk.icon`), the silver-pen version (`Graphite-Refined.icon`), and the vector designs before them. See `../../Docs/Coverage.md` for verification.

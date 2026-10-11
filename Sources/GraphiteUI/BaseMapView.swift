@@ -243,7 +243,7 @@ struct BaseMapView: View {
             }
         }
         .frame(width: isSelected ? 36 : 28, height: isSelected ? 36 : 28)
-        .animation(.snappy, value: isSelected)
+        .animation(GraphiteMotion.animation(.snappy), value: isSelected)
         .accessibilityLabel(BaseValue.file(row.path).displayText)
     }
 

@@ -322,6 +322,7 @@ extension WorkspaceModel {
             case .markdown:
                 let snapshot = try await store.read(path, maximumBytes: MarkdownSession.maximumEditableBytes)
                 newMarkdown = try MarkdownSession(path: path, snapshot: snapshot, store: store) { [weak self] savedPath in self?.refreshIndex(for: [savedPath]) }
+                newMarkdown?.textDidChange = { [weak self] in self?.readAloud.documentDidChange(path.rawValue) }
                 newMarkdown?.viewMode = preferences.initialNoteViewMode
                 if let newMarkdown { restoreFolds(of: newMarkdown); watchForRecovery(newMarkdown) }
                 newPDF = nil

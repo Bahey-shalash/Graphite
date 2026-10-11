@@ -146,9 +146,9 @@ struct VaultGraphScreen: View {
                 Toggle("Arrows", isOn: $showsArrows)
             }
             Section("Forces") {
-                LabeledContent("Center force") { Slider(value: $centerStrength, in: 0...0.2) }
-                LabeledContent("Repel force") { Slider(value: $repelStrength, in: 20...400) }
-                LabeledContent("Link distance") { Slider(value: $linkDistance, in: 20...200) }
+                LabeledContent("Center Force") { Slider(value: $centerStrength, in: 0...0.2) }
+                LabeledContent("Repel Force") { Slider(value: $repelStrength, in: 20...400) }
+                LabeledContent("Link Distance") { Slider(value: $linkDistance, in: 20...200) }
                 Button("Restore Defaults") {
                     let defaults = GraphLayout.Forces()
                     linkDistance = defaults.linkDistance; repelStrength = defaults.repelStrength; centerStrength = defaults.centerStrength

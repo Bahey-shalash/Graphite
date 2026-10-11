@@ -20,9 +20,13 @@ struct MarkdownPane: View {
     @State private var pickedPhotos: [PhotosPickerItem] = []
     @State private var showsLinkPicker = false
     @State private var showsReloadConfirmation = false
+    @State private var readingStartOffset: Int?
+    @State private var showsReadingSections = false
+    @State private var pendingReadingSection: (section: ReadAloudSection, source: String)?
     @Environment(\.showTemplatePicker) private var showTemplatePicker
     @Environment(\.renameDocument) private var renameDocument
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.usesDocumentControlRow) private var usesDocumentControlRowSetting
     @Environment(\.showsDocumentControlsInTabBar) private var showsDocumentControlsInTabBar
     /// An editable drawing embedded where the cursor is, if any.
@@ -46,6 +50,8 @@ struct MarkdownPane: View {
     }
 
     private var preferences: GraphitePreferences { workspace.preferences }
+    /// The chosen note text size, grown with the system text size.
+    private var noteTextSize: Double { GraphitePreferences.noteTextSize(preferences.textSize, for: dynamicTypeSize) }
     private var isEditing: Bool { viewMode != .reading }
 
     var body: some View {
@@ -73,7 +79,8 @@ struct MarkdownPane: View {
             } else {
                 NativeMarkdownEditor(session: session, configuration: editorConfiguration, environment: livePreviewEnvironment,
                                      headingScrollRequest: document.headingScrollRequest, actions: editorActions,
-                                     retention: workspace.markdownEditorRetention, retentionOwner: document) { target, isWiki in
+                                     retention: workspace.markdownEditorRetention, retentionOwner: document,
+                                     readAloudRange: workspace.readAloud.highlight(in: session.path)) { target, isWiki in
                     follow(target, isWiki: isWiki)
                 }
                 .overlay(alignment: .topLeading) { completionPopup }
@@ -89,10 +96,27 @@ struct MarkdownPane: View {
                 }
             }
         }
-        .overlay(alignment: .bottomTrailing) {
-            if preferences.isEnabled(.wordCount) { WordCountLabel(session: session).padding(12) }
-        }
+        // Under the title, as a PDF shows its page there, rather than over the note's text.
+        .modifier(WordCountDisplay(session: session, isShown: preferences.isEnabled(.wordCount) && isFocused,
+                                   isCompactWidth: isCompactWidth))
         .toolbar { if isFocused { toolbarContent } }
+        .sheet(isPresented: $showsReadingSections, onDismiss: {
+            if let pending = pendingReadingSection {
+                pendingReadingSection = nil
+                guard session.text == pending.source else {
+                    workspace.errorMessage = "The note changed. Choose the reading section again."
+                    return
+                }
+                startReading(range: pending.section.range, scope: pending.section.title)
+            }
+        }) {
+            ReadAloudSectionPicker(source: session.text) { section, source in
+                pendingReadingSection = (section, source)
+            }
+        }
+        .onChange(of: session.text) { _, _ in
+            readingStartOffset = nil
+        }
         // The text and the cursor change at every keystroke. Only these small views read
         // them, so typing and moving the cursor do not rebuild the pane and its toolbar.
         .background {
@@ -171,18 +195,18 @@ struct MarkdownPane: View {
         ReadingConfiguration(usesReadableLineLength: preferences.usesReadableLineLength, usesStrictLineBreaks: workspace.vaultSettings.usesStrictLineBreaks,
                              colorsEnabled: preferences.isEnabled(.colors), paletteHexByName: paletteHexByName,
                              showsProperties: preferences.isEnabled(.properties), declaredPropertyTypes: session.declaredPropertyTypes, inlineTitle: inlineTitle,
-                             textSize: preferences.textSize, drawingVersion: workspace.drawingVersion, indexVersion: workspace.indexVersion)
+                             textSize: noteTextSize, drawingVersion: workspace.drawingVersion, indexVersion: workspace.indexVersion)
     }
 
-    /// The note's name above its text, as Obsidian's inline title shows it: without `.md`,
-    /// whether or not lists show extensions, since the title is the name to edit.
+    /// The note's name above its text, written as the tab and the title bar write it, so the
+    /// three agree: with `.md` when Settings › Files and Links › Show File Extensions is on.
     private var inlineTitle: String? {
-        preferences.showsInlineTitle ? session.path.stem : nil
+        preferences.showsInlineTitle ? preferences.displayName(for: session.path) : nil
     }
 
     private var editorConfiguration: EditorConfiguration {
         EditorConfiguration(mode: viewMode == .source ? .source : .livePreview, usesReadableLineLength: preferences.usesReadableLineLength,
-                            textSize: preferences.textSize, usesSpellChecking: preferences.usesSpellChecking,
+                            textSize: noteTextSize, usesSpellChecking: preferences.usesSpellChecking,
                             colorsEnabled: preferences.isEnabled(.colors), paletteHexByName: paletteHexByName,
                             editingBehavior: EditingBehavior(settings: workspace.vaultSettings), accentHex: preferences.accentHex,
                             inlineTitle: inlineTitle)
@@ -238,7 +262,7 @@ struct MarkdownPane: View {
         guard viewMode == .livePreview, let root = workspace.folderAccess?.root else { return nil }
         let notePath = session.path
         return LivePreviewEnvironment(
-            root: root, textSize: preferences.textSize, colorsEnabled: preferences.isEnabled(.colors), paletteHexByName: paletteHexByName,
+            root: root, textSize: noteTextSize, colorsEnabled: preferences.isEnabled(.colors), paletteHexByName: paletteHexByName,
             drawingVersion: workspace.drawingVersion,
             resolve: { [workspace] target, isWiki in await workspace.resolveLink(target, from: notePath, isWiki: isWiki) },
             open: { [workspace] path in Task { await workspace.open(path) } },
@@ -309,7 +333,7 @@ struct MarkdownPane: View {
                 #endif
                 DocumentModeToggle(isWriting: isWritingBinding)
             }
-            Menu("More", systemImage: "ellipsis.circle") { moreMenuItems }
+            Menu("More", systemImage: "ellipsis") { moreMenuItems }
             if !isCompactWidth {
                 Button("Sidebar", systemImage: "sidebar.right") { showsLinksInspector.toggle() }
             }
@@ -378,10 +402,31 @@ struct MarkdownPane: View {
     #endif
 
     @ViewBuilder private var moreMenuItems: some View {
+        Menu("Read Aloud", systemImage: "speaker.wave.2") {
+            Button("Read Document") { startReading() }
+            Button("Choose Section…") { showsReadingSections = true }
+            if isEditing {
+                Button("Read Selection") { startReading(range: session.selection, scope: "Selected text") }
+                    .disabled(session.selection.length == 0)
+                Button("Read From Here") {
+                    startReading(range: NSRange(location: session.selection.location, length: max(0, session.text.utf16.count - session.selection.location)), scope: "From cursor to end")
+                }
+                Divider()
+                Button("Set Reading Start") { readingStartOffset = session.selection.location }
+                if let start = readingStartOffset {
+                    Button("Read Through Here") {
+                        let end = session.selection.length > 0 ? NSMaxRange(session.selection) : min(session.selection.location + 1, session.text.utf16.count)
+                        startReading(range: NSRange(location: start, length: max(0, end - start)), scope: "Chosen start and end")
+                    }.disabled(session.selection.location < start)
+                }
+            }
+        }
+        .disabled(workspace.recording.state.isActive)
+        if workspace.recording.state.isActive { Text("Finish recording to read aloud.") }
         Picker("View", selection: $session.viewMode) {
-            Label("Reading view", systemImage: "book").tag(NoteViewMode.reading)
+            Label("Reading View", systemImage: "book").tag(NoteViewMode.reading)
             Label("Live Preview", systemImage: "eye").tag(NoteViewMode.livePreview)
-            Label("Source mode", systemImage: "chevron.left.forwardslash.chevron.right").tag(NoteViewMode.source)
+            Label("Source Mode", systemImage: "chevron.left.forwardslash.chevron.right").tag(NoteViewMode.source)
         }
         .pickerStyle(.inline)
         #if canImport(UIKit)
@@ -413,6 +458,12 @@ struct MarkdownPane: View {
         if preferences.isEnabled(.fileRecovery) {
             Button("File Recovery…", systemImage: "clock.arrow.circlepath") { workspace.fileRecoveryRequest = FileRecoveryRequest(path: session.path) }
         }
+        WorkspaceMoreMenuItems()
+    }
+
+    private func startReading(range: NSRange? = nil, scope: String = "Whole note") {
+        guard !workspace.recording.state.isActive else { return }
+        workspace.readAloud.readMarkdown(session.text, path: session.path, range: range, scope: scope, paletteHexByName: paletteHexByName)
     }
 
     private var usesDocumentControlRow: Bool {
@@ -555,34 +606,57 @@ private struct DrawingAtCursorTracker: View {
 
 /// Obsidian's status-bar word and character count, without frontmatter. The text changes
 /// with every keystroke, so it is counted off the main thread, once typing pauses.
-private struct WordCountLabel: View {
+/// The note's word and character counts, as Obsidian's Word count plugin shows them: under
+/// the window's title where the system has a subtitle (iPadOS and iOS 26, macOS), else in a
+/// capsule over the note's bottom corner. A phone shows only the words, which fit beside
+/// the title's width. Only this modifier reads the text, so typing does not rebuild the pane.
+private struct WordCountDisplay: ViewModifier {
     let session: MarkdownSession
+    let isShown: Bool
+    let isCompactWidth: Bool
     @State private var counts: NoteTextCounts?
     /// How long typing must pause before the note is counted again.
     private static let typingPause = Duration.milliseconds(300)
 
-    var body: some View {
-        // A ZStack, not a Group: a Group passes `.task` to its children, and before the
-        // first count there is none, so the count would never start.
-        ZStack {
-            if let counts {
-                Text("\(counts.wordCount.formatted()) words · \(counts.characterCount.formatted()) characters")
-                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                    .padding(.horizontal, 10).padding(.vertical, 5)
-                    .background(.regularMaterial, in: Capsule())
-                    .allowsHitTesting(false)
+    func body(content: Content) -> some View {
+        countedContent(content)
+            .task(id: isShown ? session.text : nil) {
+                guard isShown else { return }
+                // The first count, when the note opens, does not wait for a pause.
+                if counts != nil {
+                    do { try await Task.sleep(for: Self.typingPause) } catch { return }
+                }
+                let textToCount = session.text
+                let newCounts = await Task.detached(priority: .utility) { NoteTextCounts(countingBodyOf: textToCount) }.value
+                guard !Task.isCancelled else { return }
+                counts = newCounts
+            }
+    }
+
+    @ViewBuilder private func countedContent(_ content: Content) -> some View {
+        if #available(iOS 26, macOS 11, *) {
+            // Always the same view, with an empty subtitle when there is nothing to show:
+            // switching between the note with and without a subtitle made SwiftUI build the
+            // note's editor again, losing its cursor and revealed markup.
+            content.navigationSubtitle(Text(isShown ? counts.map(summary(of:)) ?? "" : ""))
+        } else {
+            content.overlay(alignment: .bottomTrailing) {
+                if isShown, let counts {
+                    Text(summary(of: counts))
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .background(.regularMaterial, in: Capsule())
+                        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                        .allowsHitTesting(false)
+                        .padding(12)
+                }
             }
         }
-        .task(id: session.text) {
-            // The first count, when the note opens, does not wait for a pause.
-            if counts != nil {
-                do { try await Task.sleep(for: Self.typingPause) } catch { return }
-            }
-            let textToCount = session.text
-            let newCounts = await Task.detached(priority: .utility) { NoteTextCounts(countingBodyOf: textToCount) }.value
-            guard !Task.isCancelled else { return }
-            counts = newCounts
-        }
+    }
+
+    private func summary(of counts: NoteTextCounts) -> String {
+        let words = counts.wordCount == 1 ? "1 word" : "\(counts.wordCount.formatted()) words"
+        return isCompactWidth ? words : "\(words) · \(counts.characterCount.formatted()) characters"
     }
 }
 
@@ -724,7 +798,7 @@ struct NoteLinksInspector: View {
     var body: some View {
         VStack(spacing: 0) {
             if availablePanels.isEmpty {
-                ContentUnavailableView("No Panels", systemImage: "sidebar.right", description: Text("Turn on Outline, Backlinks, Outgoing links, or Tags view in Settings › Core plugins."))
+                ContentUnavailableView("No Panels", systemImage: "sidebar.right", description: Text("Turn on Outline, Backlinks, Outgoing Links, or Tags View in Settings › Core Plugins."))
             } else {
                 Picker("Panel", selection: $selectedPanel) {
                     ForEach(availablePanels) { panel in Image(systemName: panel.plugin.systemImage).tag(panel).accessibilityLabel(panel.plugin.title) }
@@ -867,7 +941,7 @@ struct NoteLinksInspector: View {
                 }
             }
         case .backlinks:
-            Section("Linked mentions") {
+            Section("Linked Mentions") {
                 if linkedMentions.isEmpty { Text("No other notes link here").foregroundStyle(.secondary) }
                 ForEach(linkedMentions) { group in mentionGroup(group, linksMentions: false) }
             }

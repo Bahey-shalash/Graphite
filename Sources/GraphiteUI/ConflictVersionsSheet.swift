@@ -123,11 +123,11 @@ struct ConflictVersionsSheet: View {
         Section {
             ConflictVersionRow(title: "Current version", detail: ConflictVersionsText.detail(modified: model.listing?.currentStamp.modified, byteCount: model.listing?.currentStamp.byteCount, savedBy: nil))
         } header: {
-            Text("In the vault now")
+            Text("In the Vault Now")
         } footer: {
             Text("“\(fileName)” was changed in two places before the changes could sync, so more than one version exists. Nothing is removed until you decide.")
         }
-        Section("Kept beside it") {
+        Section("Kept Beside It") {
             ForEach(model.versions) { version in
                 NavigationLink(value: version.id) {
                     ConflictVersionRow(title: ConflictVersionsText.title(of: version),
@@ -145,7 +145,7 @@ struct ConflictVersionsSheet: View {
     }
 
     private var keptCopiesSection: some View {
-        Section("Kept as separate files") {
+        Section("Kept as Separate Files") {
             ForEach(model.keptCopies) { copyPath in
                 Button {
                     dismiss()
@@ -423,7 +423,7 @@ private struct TextComparisonView: View {
                     case .line(_, let line): lineRow(line)
                     case .unchangedLines(_, let count):
                         Text(count == 1 ? "1 unchanged line" : "\(count) unchanged lines")
-                            .font(.caption).foregroundStyle(.tertiary)
+                            .font(.caption).foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .center).padding(.vertical, 6)
                     }
                 }

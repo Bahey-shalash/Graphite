@@ -246,7 +246,7 @@ struct BaseTableView: View {
                     .foregroundStyle(.secondary)
             }
             groupKeyView(group.key)
-            Text("\(group.rows.count)").font(.caption).foregroundStyle(.tertiary)
+            Text("\(group.rows.count)").font(.caption).foregroundStyle(.secondary)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, Self.horizontalCellPadding)

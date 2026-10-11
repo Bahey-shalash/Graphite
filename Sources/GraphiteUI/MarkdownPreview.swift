@@ -689,7 +689,7 @@ struct MarkdownPreview: View {
                     }
                     ReadingBlocksView(blocks: blocks, root: root, textSize: configuration.textSize, navigate: navigate, scrollToHeading: { anchor in
                         pendingRestorationOffset = nil
-                        withAnimation { scrollProxy.scrollTo(anchor, anchor: .top) }
+                        withAnimation(GraphiteMotion.animation()) { scrollProxy.scrollTo(anchor, anchor: .top) }
                     }, openPDF: openPDF, updateProperties: updateProperties, folding: folding, declaredPropertyTypes: configuration.declaredPropertyTypes,
                        blockPositions: savedPosition)
                     if let errorMessage { Text(errorMessage).foregroundStyle(.secondary) }
@@ -751,7 +751,7 @@ struct MarkdownPreview: View {
                 handledScrollToken = request.token
                 guard !request.anchor.isEmpty else { return }
                 let target = request.readingScrollTarget(in: blocks)
-                withAnimation { scrollProxy.scrollTo(target, anchor: .top) }
+                withAnimation(GraphiteMotion.animation()) { scrollProxy.scrollTo(target, anchor: .top) }
             }
         }
         .task(id: "\(configuration.drawingVersion)-\(configuration.hashValueForReload)-\(source.hashValue)-\(hasMissingEmbeds ? configuration.indexVersion : -1)-\(embeddedNoteTaskEditCount)") {
@@ -973,15 +973,17 @@ struct ReadingBlocksView: View {
                         if let folding, let foldKey = entry.foldKey, entry.hasBody {
                             let isFolded = folding.foldedKeys.contains(foldKey)
                             Button { folding.toggle(foldKey) } label: {
+                                // 28 points, Apple's smallest comfortable touch target, centered where
+                                // the 22-point chevron was.
                                 Image(systemName: isFolded ? "chevron.right" : "chevron.down")
                                     .font(.system(size: 11, weight: .semibold))
-                                    .frame(width: 22, height: 22)
+                                    .frame(width: 28, height: 28)
                                     .contentShape(Rectangle())
                             }
                             .buttonStyle(.borderless)
                             .tint(.secondary)
                             .opacity(isFolded ? 1 : 0.45)
-                            .offset(x: -26)
+                            .offset(x: -29)
                             .accessibilityLabel(isFolded ? "Unfold \(text)" : "Fold \(text)")
                         }
                     }
@@ -1171,7 +1173,7 @@ struct ObsidianMarkdownParser: MarkupParser {
             footnoteReferenceRanges.append(range)
         }
         for range in footnoteReferenceRanges {
-            attributed[range].font = .system(size: textSize * 0.7, weight: .semibold)
+            attributed[range].font = .system(size: max(textSize * 0.7, GraphitePreferences.smallestNoteTextSize), weight: .semibold)
             attributed[range].baselineOffset = textSize * 0.35
         }
         replaceTaskMarkers(in: &attributed)
@@ -1524,20 +1526,20 @@ struct CalloutView<Body: View>: View {
         let appearance = CalloutAppearance(type: type)
         VStack(alignment: .leading, spacing: 8) {
             Button {
-                if folding != .notFoldable { withAnimation(.snappy) { isExpanded.toggle() } }
+                if folding != .notFoldable { withAnimation(GraphiteMotion.animation(.snappy)) { isExpanded.toggle() } }
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: appearance.systemImage).foregroundStyle(appearance.color)
+                    Image(systemName: appearance.systemImage).foregroundStyle(appearance.titleColor)
                     // A link in the title takes the tap before the fold button does.
                     StructuredText(title, parser: ObsidianMarkdownParser(baseURL: root, textSize: textSize))
                         .id(textSize)
                         .font(.system(size: textSize).weight(.semibold))
-                        .foregroundStyle(appearance.color)
+                        .foregroundStyle(appearance.titleColor)
                         .textual.inlineStyle(InlineStyle.default.link(.foregroundColor(accent)))
                         .textual.imageAttachmentLoader(VaultImageLoader(root: root))
                         .environment(\.openURL, ObsidianMarkdownText.linkAction(root: root, navigate: navigate, scrollToHeading: scrollToHeading))
                     if folding != .notFoldable {
-                        Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(appearance.color)
+                        Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(appearance.titleColor)
                             .rotationEffect(.degrees(isExpanded ? 90 : 0))
                     }
                     Spacer(minLength: 0)
@@ -1550,31 +1552,40 @@ struct CalloutView<Body: View>: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(appearance.color.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+        .background(appearance.color.opacity(CalloutAppearance.tintOpacity), in: RoundedRectangle(cornerRadius: 8))
     }
 }
 
 /// Obsidian's callout types, their aliases, colors, and icons.
 struct CalloutAppearance {
+    /// The opacity of the callout's color behind it.
+    static let tintOpacity = 0.1
+    /// The color the callout is tinted with.
     let color: Color
+    /// The title, its icon and its fold chevron: the same color, darkened in light
+    /// appearance until it reads on the tint (the system colors alone read about 2:1 there).
+    let titleColor: Color
     let systemImage: String
 
     init(type: String) {
+        let systemColor: PlatformColor
         switch type {
-        case "abstract", "summary", "tldr": (color, systemImage) = (.cyan, "list.clipboard")
-        case "info": (color, systemImage) = (.blue, "info.circle")
-        case "todo": (color, systemImage) = (.blue, "checkmark.circle")
-        case "tip", "hint", "important": (color, systemImage) = (.teal, "flame")
-        case "success", "check", "done": (color, systemImage) = (.green, "checkmark")
-        case "question", "help", "faq": (color, systemImage) = (.orange, "questionmark.circle")
-        case "warning", "caution", "attention": (color, systemImage) = (.orange, "exclamationmark.triangle")
-        case "failure", "fail", "missing": (color, systemImage) = (.red, "xmark")
-        case "danger", "error": (color, systemImage) = (.red, "bolt")
-        case "bug": (color, systemImage) = (.red, "ladybug")
-        case "example": (color, systemImage) = (.purple, "list.bullet")
-        case "quote", "cite": (color, systemImage) = (.gray, "quote.opening")
-        default: (color, systemImage) = (.blue, "pencil")
+        case "abstract", "summary", "tldr": (systemColor, systemImage) = (.systemCyan, "list.clipboard")
+        case "info": (systemColor, systemImage) = (.systemBlue, "info.circle")
+        case "todo": (systemColor, systemImage) = (.systemBlue, "checkmark.circle")
+        case "tip", "hint", "important": (systemColor, systemImage) = (.systemTeal, "flame")
+        case "success", "check", "done": (systemColor, systemImage) = (.systemGreen, "checkmark")
+        case "question", "help", "faq": (systemColor, systemImage) = (.systemOrange, "questionmark.circle")
+        case "warning", "caution", "attention": (systemColor, systemImage) = (.systemOrange, "exclamationmark.triangle")
+        case "failure", "fail", "missing": (systemColor, systemImage) = (.systemRed, "xmark")
+        case "danger", "error": (systemColor, systemImage) = (.systemRed, "bolt")
+        case "bug": (systemColor, systemImage) = (.systemRed, "ladybug")
+        case "example": (systemColor, systemImage) = (.systemPurple, "list.bullet")
+        case "quote", "cite": (systemColor, systemImage) = (.systemGray, "quote.opening")
+        default: (systemColor, systemImage) = (.systemBlue, "pencil")
         }
+        color = Color(systemColor)
+        titleColor = Color(PlatformColor.legibleOnOwnTint(systemColor, tintOpacity: Self.tintOpacity))
     }
 }
 

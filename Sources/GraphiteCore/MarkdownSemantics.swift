@@ -188,7 +188,7 @@ public enum MarkdownSemantics {
 }
 
 /// What a Markdown node's source range is used for.
-private enum SourceRangeRole: Equatable {
+enum SourceRangeRole: Equatable {
     /// A code or HTML block, where wikilinks and tags are text.
     case codeBlock
     /// Inline code or HTML, where wikilinks and tags are text too.
@@ -306,7 +306,7 @@ private enum MarkdownLinkSource {
 /// text, as a regular continuation line is. Lines cmark drops from the start of a
 /// paragraph, its link reference definitions, are not modeled; the ranges they misplace
 /// are caught by checking the text at each range (see MarkdownSemantics.parse).
-private struct MarkdownSourceLocationConverter {
+struct MarkdownSourceLocationConverter {
     /// A paragraph or heading, and its inline nodes' positions.
     private struct InlineContainer {
         let range: SourceRange
@@ -439,7 +439,7 @@ private struct MarkdownSourceLocationConverter {
 
     /// `containerIndex` is the paragraph or heading holding an inline node, or nil for a
     /// block, or for inline nodes such as table cells whose columns count from the line start.
-    mutating func utf16Range(of range: SourceRange, role: SourceRangeRole, containerIndex: Int?) -> NSRange {
+    mutating func utf16Range(of range: SourceRange, role: SourceRangeRole?, containerIndex: Int?) -> NSRange {
         let startByte: Int, endByte: Int
         if let containerIndex {
             startByte = byteAndLineIndex(of: InlinePosition(location: range.lowerBound, columnRule: .fromOrigin, startsLineText: false), inContainer: containerIndex).byte

@@ -472,7 +472,7 @@ final class CanvasSession {
         guard let node = file.node(withIdentifier: nodeIdentifier) else { return }
         var revealingViewport = viewport
         revealingViewport.reveal(frame(of: node), in: unobscuredViewFrame, margin: 16)
-        setViewport(revealingViewport, animated: true)
+        setViewport(revealingViewport, animated: !GraphiteMotion.isReduced)
     }
 
     /// The board frame that is on screen, a little enlarged so cards about to scroll in
