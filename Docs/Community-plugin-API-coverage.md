@@ -7,7 +7,7 @@ Presence is not behavior: a method that exists may still report itself as unsupp
 | --- | --- |
 | 103 exported classes | 103 |
 | 442 class methods | 422 |
-| 56 exported functions and constants | 51 |
+| 56 exported functions and constants | 56 |
 
 ## Missing classes
 
@@ -15,7 +15,7 @@ None.
 
 ## Missing functions and constants
 
-`editorEditorField`, `editorInfoField`, `editorLivePreviewField`, `editorViewField`, `livePreviewState`
+None.
 
 ## Classes with missing methods
 
