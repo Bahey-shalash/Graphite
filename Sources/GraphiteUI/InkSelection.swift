@@ -885,8 +885,8 @@ final class InkSelectionController: NSObject, UIGestureRecognizerDelegate, @prec
         UIAction(title: "Take Screenshot", image: UIImage(systemName: "camera.viewfinder")) { [weak self] _ in self?.takeScreenshot() }
     }
 
-    /// Cut, Copy, Duplicate, Straighten (for a line of writing that runs uphill or
-    /// downhill), Smooth, Take Screenshot, Delete, and the colors of Settings › Colors. With
+    /// Cut, Copy, Duplicate, Take Screenshot, Straighten (for a line of writing that runs
+    /// uphill or downhill), Smooth, Delete, and the colors of Settings › Colors. With
     /// pictures selected, Cut and Duplicate are not offered: Graphite pastes ink, not
     /// pictures, and Copy puts a picture of the whole selection on the pasteboard.
     func selectionMenuElements(palette: [PaletteColor] = GraphitePreferences.storedColorPalette()) -> [UIMenuElement] {
@@ -900,6 +900,8 @@ final class InkSelectionController: NSObject, UIGestureRecognizerDelegate, @prec
         if !hasPictures {
             elements.append(UIAction(title: "Duplicate", image: UIImage(systemName: "plus.square.on.square")) { [weak self] _ in self?.duplicateSelection() })
         }
+        // Early, where the compact menu shows it without paging.
+        elements.append(takeScreenshotAction)
         if hasInk, selectionSlant != nil {
             elements.append(UIAction(title: "Straighten", image: UIImage(systemName: "level")) { [weak self] _ in self?.straightenSelection() })
         }
@@ -907,7 +909,6 @@ final class InkSelectionController: NSObject, UIGestureRecognizerDelegate, @prec
             elements.append(UIAction(title: "Smooth", image: UIImage(systemName: "scribble.variable")) { [weak self] _ in self?.smoothSelection() })
         }
         elements += [
-            takeScreenshotAction,
             UIAction(title: "Delete", image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in self?.deleteSelection() },
         ]
         if hasInk {

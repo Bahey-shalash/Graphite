@@ -64,7 +64,7 @@ final class InkSelectionTests: XCTestCase {
         // The menu offers the clipboard actions and the colors of Settings › Colors.
         selection.select([1])
         let menu = selection.selectionMenuElements(palette: [PaletteColor(name: "red", hex: "#e93147")])
-        XCTAssertEqual(menu.compactMap { element in (element as? UIAction)?.title }, ["Cut", "Copy", "Duplicate", "Smooth", "Take Screenshot", "Delete"])
+        XCTAssertEqual(menu.compactMap { element in (element as? UIAction)?.title }, ["Cut", "Copy", "Duplicate", "Take Screenshot", "Smooth", "Delete"])
         let colorMenu = try XCTUnwrap(menu.compactMap { element in element as? UIMenu }.first)
         XCTAssertEqual(colorMenu.children.map(\.title), ["black", "red"])
 
@@ -509,6 +509,13 @@ extension InkSelectionTests {
             let inkFrame = CGRect(x: 100 * canvas.zoomScale, y: 98 * canvas.zoomScale, width: 200 * canvas.zoomScale, height: 4 * canvas.zoomScale)
             return frame.contains(inkFrame) && abs(frameView.contentScale - self.screenScale(of: canvas)) < 0.01
         }
+        // Scrolled to the ink, the frame is around it, its handles the same size on screen.
+        let cropBox = page.bounds(for: .cropBox)
+        pdfView.go(to: CGRect(x: cropBox.minX + 60, y: cropBox.maxY - 300, width: 300, height: 260), on: page)
+        pdfView.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(300))
+        let frameView = try XCTUnwrap(descendants(of: canvas, matching: SelectionFrameView.self).first)
+        XCTAssertEqual(frameView.contentScale, screenScale(of: canvas), accuracy: 0.01)
         attachScreenshot(of: canvas, named: "Selected ink on a zoomed-in page")
     }
 
@@ -599,7 +606,7 @@ extension InkSelectionTests {
         XCTAssertEqual(selection.selectedStrokeIndices, [0])
         XCTAssertEqual(selection.selectedPictureIdentifiers, [picture.identifier])
         XCTAssertEqual(selection.selectionMenuElements(palette: []).compactMap { element in (element as? UIAction)?.title },
-                       ["Copy", "Smooth", "Take Screenshot", "Delete"], "Ink and pictures are copied as a picture; Cut and Duplicate would lose the pictures.")
+                       ["Copy", "Take Screenshot", "Smooth", "Delete"], "Ink and pictures are copied as a picture; Cut and Duplicate would lose the pictures.")
         let frameView = try XCTUnwrap(descendants(of: canvas, matching: SelectionFrameView.self).first)
         XCTAssertEqual(frameView.accessibilityLabel, "Selected ink and images")
         XCTAssertTrue(frameView.accessibilityCustomActions?.contains { action in action.name == "Take Screenshot" } ?? false)
