@@ -82,6 +82,60 @@ final class LivePreviewBlockPlacementTests: XCTestCase {
         XCTAssertEqual(blockViews(in: editor).count, 2, "The properties and the callout are not both shown.")
     }
 
+    /// A drawing between two lines of text, as a note with sketches has them.
+    private static let drawingNote = "Text before the drawing.\n\n![[Diagram.png]]\n\nText after the drawing.\n"
+
+    private static var diagramPNG: Data {
+        UIGraphicsImageRenderer(size: CGSize(width: 400, height: 200)).pngData { context in
+            UIColor.systemRed.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 400, height: 200))
+        }
+    }
+
+    /// The system reports a note's own save back as a change to a file of the vault, which
+    /// changes the drawing version. The rendered blocks were rebuilt for it, and every
+    /// drawing on screen showed an empty space for a few frames after each save.
+    func testAChangedFileKeepsTheDrawingOnScreen() async throws {
+        let (workspace, editor) = try await openNote(Self.drawingNote, attachments: ["Diagram.png": Self.diagramPNG])
+        try await waitForPlacementToSettle(in: editor)
+        try await waitUntil { self.blockViews(in: editor).first.map { view in view.frame.height > 100 } ?? false }
+        let viewsBeforeChange = blockViews(in: editor).map(ObjectIdentifier.init)
+        XCTAssertEqual(viewsBeforeChange.count, 1, "The drawing is not rendered.")
+
+        workspace.drawingVersion += 1
+        try await waitForPlacementToSettle(in: editor)
+        attachScreenshot(named: "After a file changed")
+        XCTAssertEqual(blockViews(in: editor).map(ObjectIdentifier.init), viewsBeforeChange, "The drawing's view was made again, which shows nothing until it finds its file.")
+    }
+
+    /// The cursor leaving a drawing's line hides its source again, and the drawing is back
+    /// over its space by the end of that layout pass, above the text after it. This passes
+    /// with the drawing placed a turn of the run loop later too: here TextKit has laid the
+    /// line out by then. On the iPad simulator, a tap on a misspelled word below the drawing
+    /// (which selects it and scrolls) left the drawing's space empty for 28 to 38 ms before
+    /// the editor laid the viewport out in the same pass.
+    func testADrawingTheCursorLeavesIsPlacedInTheSameLayoutPass() async throws {
+        let (_, editor) = try await openNote(Self.drawingNote, attachments: ["Diagram.png": Self.diagramPNG])
+        try await waitForPlacementToSettle(in: editor)
+        try await waitUntil { self.blockViews(in: editor).first.map { view in view.frame.height > 100 } ?? false }
+        let source = editor.text as NSString
+
+        editor.beginEditing()
+        XCTAssertTrue(editor.isFirstResponder)
+        editor.selectedRange = NSRange(location: source.range(of: "Diagram").location, length: 0)
+        try await waitForPlacementToSettle(in: editor)
+        XCTAssertTrue(blockViews(in: editor).isEmpty, "The drawing still covers its source with the cursor in it.")
+
+        editor.selectedRange = NSRange(location: source.range(of: "Text after").location, length: 0)
+        editor.layoutIfNeeded()
+        attachScreenshot(named: "Right after the cursor left the drawing")
+        let drawingView = try XCTUnwrap(blockViews(in: editor).first, "The drawing was not placed in the layout pass that hid its source again.")
+        let lineAfter = try XCTUnwrap(lineFrame(atCharacter: source.range(of: "Text after").location, in: editor))
+        XCTAssertLessThanOrEqual(drawingView.frame.maxY, lineAfter.minY + 1, "The drawing covers the text after it.")
+        XCTAssertGreaterThan(drawingView.frame.height, 100)
+        editor.resignFirstResponder()
+    }
+
     // MARK: Checks
 
     private func assertNoBlockViewCoversAHeading(in editor: MarkdownTextView, file: StaticString = #filePath, line: UInt = #line) {
@@ -151,11 +205,12 @@ final class LivePreviewBlockPlacementTests: XCTestCase {
 
     // MARK: Hosting
 
-    private func openNote(_ text: String) async throws -> (WorkspaceModel, MarkdownTextView) {
+    private func openNote(_ text: String, attachments: [String: Data] = [:]) async throws -> (WorkspaceModel, MarkdownTextView) {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("LivePreviewPlacement-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         vaultDirectory = directory
         try Data(text.utf8).write(to: directory.appendingPathComponent("Placement.md"))
+        for (name, contents) in attachments { try contents.write(to: directory.appendingPathComponent(name)) }
         let workspace = WorkspaceModel()
         workspace.folderAccess = FolderAccess(root: directory)
         workspace.store = VaultStore(root: directory)

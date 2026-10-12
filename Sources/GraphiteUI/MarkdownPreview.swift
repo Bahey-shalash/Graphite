@@ -668,6 +668,10 @@ struct MarkdownPreview: View {
     @State private var scrollPosition = ScrollPosition(y: 0)
     @State private var hasRestoredPosition = false
     @State private var pendingRestorationOffset: CGFloat?
+    /// Where this view was before it restored the saved position, when nothing was saved:
+    /// its first layout settling, or a scroll that came first. Kept apart from the saved
+    /// position, so it is never taken for one and restored over a scroll.
+    @State private var offsetBeforeRestoring: CGFloat?
     @State private var blocks: [RenderedBlock] = []
     @State private var errorMessage: String?
     /// Whether the last build had embeds it could not find, which may appear once indexed.
@@ -711,8 +715,14 @@ struct MarkdownPreview: View {
             } action: { _, viewport in
                 savedPosition?.visibleTop = viewport.topInset
                 // Until a saved position is restored, the view's first offsets must not
-                // replace it; with nothing saved, a scroll that comes first is recorded.
-                guard hasRestoredPosition || (savedPosition?.verticalOffset ?? 0) == 0 else { return }
+                // replace it. With nothing saved, they are kept aside, and recorded once the
+                // view knows it has nothing to restore. An offset recorded straight away, such
+                // as one taken while the view settles under the window's bars, was restored
+                // as if saved, and pulled back a scroll made meanwhile.
+                guard hasRestoredPosition else {
+                    if (savedPosition?.verticalOffset ?? 0) == 0 { offsetBeforeRestoring = viewport.verticalOffset }
+                    return
+                }
                 if let pendingRestorationOffset {
                     let reachableOffset = min(pendingRestorationOffset, viewport.maximumVerticalOffset)
                     guard abs(viewport.verticalOffset - reachableOffset) < 1 else { return }
@@ -750,6 +760,9 @@ struct MarkdownPreview: View {
                         await Task.yield()
                         guard !Task.isCancelled else { return }
                         scrollPosition.scrollTo(y: verticalOffset)
+                    } else if (savedPosition?.verticalOffset ?? 0) == 0, let offsetBeforeRestoring {
+                        // Nothing to restore: where the view already is, as after a first scroll.
+                        savedPosition?.verticalOffset = offsetBeforeRestoring
                     }
                 }
                 guard let request = headingScrollRequest, request.token != handledScrollToken else { return }

@@ -55,6 +55,10 @@ final class WorkspaceModel {
     @ObservationIgnored var tabDocuments: [UUID: TabDocument] = [:]
     /// The native editors of recently hidden notes, kept with their undo history.
     @ObservationIgnored let markdownEditorRetention = MarkdownEditorRetention()
+    /// Where each vault's documents were left (`WorkspacePlaces.swift`). Shared by every
+    /// workspace of the app; a test gives its workspace one of its own, so places it leaves
+    /// stay out of the app's preferences and out of other tests.
+    @ObservationIgnored var documentPlaceStore = DocumentPlaceStore.shared
     /// Bases inside the open vault's notes keep their results here while scrolled out of
     /// sight. Replaced when another vault opens, since its models read the old vault.
     @ObservationIgnored private(set) var embeddedBaseModelCache = EmbeddedBaseModelCache()
@@ -197,10 +201,10 @@ final class WorkspaceModel {
         }
         VaultIndex.removeIndex(forVault: vault.id)
         // Opening the folder again makes a new identifier, so nothing would read these again.
-        for key in [Self.expandedFoldersKey(for: vault.id), Self.recentFilesKey(for: vault.id), Self.tabLayoutKey(for: vault.id),
-                    Self.placesKey(for: vault.id)] {
+        for key in [Self.expandedFoldersKey(for: vault.id), Self.recentFilesKey(for: vault.id), Self.tabLayoutKey(for: vault.id)] {
             UserDefaults.standard.removeObject(forKey: key)
         }
+        documentPlaceStore.forgetVault(vault.id)
     }
 
     /// Refuses to leave the vault during a recording, and saves every open document.

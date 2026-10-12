@@ -112,8 +112,10 @@ struct PencilPalette: View {
     let favoriteColors: [PaletteColor]
     let undoAvailability: UndoAvailability?
     let close: () -> Void
+    /// The highlighter's colors as Settings keeps them, followed as on the bar.
+    @AppStorage(GraphitePreferences.highlighterPaletteKey) private var storedHighlighterPalette: Data?
     /// The colors offered while a highlighter is in use, as on the bar.
-    var highlighterColors: [PaletteColor] = GraphitePreferences.storedHighlighterPalette()
+    private var highlighterColors: [PaletteColor] { GraphitePreferences.highlighterPalette(decoding: storedHighlighterPalette) }
 
     var body: some View {
         let buttons = PencilToolButtons(toolbox: toolbox, rowHeight: PencilToolbarMetrics.buttonSide + 4)

@@ -215,12 +215,12 @@ struct DrawingEditor: View {
                     .fontWeight(.semibold)
                     .tint(.primary)
             } else {
-                Text(canvasController.selectedPictureIdentifier == nil ? "Tap an image to select it." : "Drag the image to move it, a corner to resize it, or the handle above it to rotate it.")
+                Text(canvasController.selectedPictureIdentifier == nil ? "Tap an image to select it." : "Drag the image to move it, a corner to resize it, or the arrow handle to rotate it.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 8)
                 PictureEditingButtons(isEnabled: canvasController.selectedPictureIdentifier != nil, canReorder: canvasController.pictures.count > 1,
-                                      rotate: { runPictureChange { try await canvasController.rotateSelectedPicture() } },
+                                      rotateRight: { runPictureChange { try await canvasController.rotateSelectedPictureRight() } },
                                       crop: { canvasController.beginCroppingPicture() },
                                       moveInOrder: { toFront in canvasController.moveSelectedPictureInOrder(toFront: toFront) },
                                       delete: { canvasController.deleteSelectedPicture() })
@@ -569,8 +569,9 @@ final class DrawingCanvasController {
         pictures.firstIndex { placed in placed.id == selectedPictureIdentifier }
     }
 
-    /// Turns the selected picture a quarter turn clockwise about its middle.
-    func rotateSelectedPicture() async throws {
+    /// Rotates the selected picture a quarter turn clockwise about its middle; its angle
+    /// from the rotate handle stays as it is.
+    func rotateSelectedPictureRight() async throws {
         guard let pictureIndex = selectedPictureIndex else { return }
         let placed = pictures[pictureIndex]
         let pictureData = placed.picture.imageData
@@ -578,7 +579,7 @@ final class DrawingCanvasController {
         let frame = placed.picture.frame
         let turnedFrame = CGRect(x: frame.midX - frame.height / 2, y: frame.midY - frame.width / 2, width: frame.height, height: frame.width)
         replacePicture(placed.id, with: DrawingBackgroundImage(imageData: turnedData, frame: turnedFrame, rotationRadians: placed.picture.rotationRadians),
-                       actionName: "Turn Image")
+                       actionName: "Rotate Image Right")
     }
 
     func beginCroppingPicture() {
@@ -663,7 +664,7 @@ final class DrawingCanvasController {
         showPicturesAndPaper()
     }
 
-    /// The picture was turned by its handle to an angle, clockwise, in radians.
+    /// The picture was rotated by its handle to an angle, clockwise, in radians.
     func pictureRotationChangeDidEnd(_ identifier: UUID, rotationRadians: Double) {
         guard let pictureIndex = pictures.firstIndex(where: { placed in placed.id == identifier }) else { return }
         let picture = pictures[pictureIndex].picture
@@ -831,8 +832,7 @@ final class InfiniteCanvasView: HistoryCanvasView {
     private lazy var pictureTapRecognizer = UITapGestureRecognizer(target: self, action: #selector(handlePictureTap(_:)))
     private let pictureTapGate = PictureTapGate()
     /// Takes a resting hand's touches, which scrolling, zooming and tapping a picture wait for.
-    private var palmRejectionRecognizer: PalmRejectionRecognizer?
-    private var recognizersWaitingForPalmRejection: Set<ObjectIdentifier> = []
+    private var palmRejection: PalmRejectionInstallation?
 
     /// The paper pattern shown under the ink.
     var paperPattern: DrawingPaperPattern { paperView.paper.pattern }
@@ -856,11 +856,11 @@ final class InfiniteCanvasView: HistoryCanvasView {
         pictureTapRecognizer.delegate = pictureTapGate
         addGestureRecognizer(pictureTapRecognizer)
         // A hand resting on the drawing while the Pencil writes does not scroll, zoom or
-        // select a picture; with finger drawing, it does not draw.
-        palmRejectionRecognizer = PencilActivity.installRecognizers(in: self, isWriting: { true },
-                                                                    handDidLand: { [weak self] in self?.takeBackStrokeOfHand() })
-        let pageRecognizers: [UIGestureRecognizer] = [panGestureRecognizer, pictureTapRecognizer]
-        makeWaitForPalmRejection(pageRecognizers + [pinchGestureRecognizer].compactMap { recognizer in recognizer })
+        // select a picture; with finger drawing, it does not draw. While pictures are being
+        // arranged, the Pencil does not write, and fingers move and select them as always.
+        palmRejection = PencilActivity.installRecognizers(in: self, isWriting: { [weak self] in self.map { canvas in !canvas.isArrangingPictures } ?? false },
+                                                          handTouchesDidChange: { [weak self] handTouches in self?.takeBackStroke(ofHand: handTouches) })
+        makeWaitForPalmRejection([panGestureRecognizer, pictureTapRecognizer])
     }
 
     override func didMoveToWindow() {
@@ -870,14 +870,19 @@ final class InfiniteCanvasView: HistoryCanvasView {
     }
 
     /// Makes recognizers wait for palm rejection to fail, each once. It fails at once for a
-    /// finger, so they do not wait for one. PencilKit's drawing never waits for it.
+    /// finger while the Pencil is not active, so they do not wait for one. PencilKit's drawing
+    /// never waits for it.
     private func makeWaitForPalmRejection(_ recognizers: [UIGestureRecognizer]) {
-        guard let palmRejectionRecognizer else { return }
-        for recognizer in recognizers where recognizer !== palmRejectionRecognizer
-        && recognizersWaitingForPalmRejection.insert(ObjectIdentifier(recognizer)).inserted {
-            recognizer.require(toFail: palmRejectionRecognizer)
-        }
+        palmRejection?.makeWait(recognizers)
     }
+
+    /// For tests, which cannot send touches: whether a recognizer waits for palm rejection.
+    func waitsForPalmRejection(_ recognizer: UIGestureRecognizer) -> Bool {
+        palmRejection?.isWaiting(recognizer) ?? false
+    }
+
+    /// For tests: the recognizer that takes a resting hand's touches.
+    var palmRejectionRecognizer: PalmRejectionRecognizer? { palmRejection?.recognizer }
 
     private static func longPresses(in view: UIView) -> [UIGestureRecognizer] {
         (view.gestureRecognizers ?? []).filter { recognizer in recognizer is UILongPressGestureRecognizer }
@@ -1059,6 +1064,9 @@ final class InfiniteCanvasView: HistoryCanvasView {
         let fittingScale = bounds.width / canvasWidth
         minimumZoomScale = fittingScale
         maximumZoomScale = fittingScale * 4
+        // UIKit makes the pinch only once the canvas can zoom: it was missing when the canvas
+        // was made, and a resting hand zoomed the drawing.
+        makeWaitForPalmRejection([pinchGestureRecognizer].compactMap { recognizer in recognizer })
         if wasFitted || zoomScale < fittingScale { zoomScale = fittingScale }
         updateContentSize()
         // Zooming keeps the middle of the view in place, which would open the drawing

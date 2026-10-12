@@ -155,18 +155,41 @@ class HistoryCanvasView: PKCanvasView {
         }
     }
 
-    /// A hand landed on the page (`PalmRejectionRecognizer`): with finger drawing, the
-    /// stroke its touch began is taken back, unless Apple Pencil is drawing. PencilKit's
-    /// drawing never waits for palm rejection, so the stroke is cancelled once PencilKit has
-    /// begun it, as a scroll that takes over a finger's stroke cancels it.
-    func takeBackStrokeOfHand() {
+    /// A hand's touches landed or moved on the page (`PalmRejectionRecognizer`): with finger
+    /// drawing, a stroke the hand began is taken back. PencilKit's drawing never waits for
+    /// palm rejection, so the stroke is looked at on the next turn of the main queue, once
+    /// PencilKit has begun it. It is cancelled only when every touch the drawing recognizer
+    /// follows is one of the hand's and Apple Pencil is not on the screen
+    /// (`PalmRejection.isStrokeDrawnByHand`): a Pencil stroke is never cancelled, even when a
+    /// Pencil touch was not seen by `PencilActivity`.
+    func takeBackStroke(ofHand handTouches: [UITouch]) {
         guard drawingPolicy == .anyInput else { return }
+        for handTouch in handTouches { pendingHandTouches.add(handTouch) }
+        guard !isHandStrokeCheckScheduled else { return }
+        isHandStrokeCheckScheduled = true
         DispatchQueue.main.async { [weak self] in
-            guard let self, !PencilActivity.isPencilTouching(at: PencilActivity.now) else { return }
-            // Whether PencilKit has begun the stroke yet or not, starting over drops it.
-            self.drawingGestureRecognizer.isEnabled = false
-            self.drawingGestureRecognizer.isEnabled = true
+            MainActor.assumeIsolated { self?.takeBackStrokeOfPendingHand() }
         }
+    }
+
+    /// The hand's touches waiting for the next look at the stroke, held weakly as UIKit owns them.
+    private let pendingHandTouches = NSHashTable<UITouch>.weakObjects()
+    private var isHandStrokeCheckScheduled = false
+
+    private func takeBackStrokeOfPendingHand() {
+        isHandStrokeCheckScheduled = false
+        let handTouchLocations = pendingHandTouches.allObjects
+            .filter { handTouch in handTouch.phase != .ended && handTouch.phase != .cancelled }
+            .map { handTouch in handTouch.location(in: self) }
+        pendingHandTouches.removeAllObjects()
+        let recognizer = drawingGestureRecognizer
+        let drawingTouchLocations = (0..<recognizer.numberOfTouches).map { touchIndex in recognizer.location(ofTouch: touchIndex, in: self) }
+        guard drawingPolicy == .anyInput,
+              PalmRejection.isStrokeDrawnByHand(drawingTouchLocations: drawingTouchLocations, handTouchLocations: handTouchLocations,
+                                                isPencilTouching: PencilActivity.isPencilTouching(at: PencilActivity.now)) else { return }
+        // Whether PencilKit has begun the stroke yet or not, starting over drops it.
+        recognizer.isEnabled = false
+        recognizer.isEnabled = true
     }
 
     /// True while something other than drawing has the canvas, as arranging pictures has.

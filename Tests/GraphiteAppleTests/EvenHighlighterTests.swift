@@ -25,8 +25,8 @@ final class EvenHighlighterTests: XCTestCase {
         XCTAssertEqual(evenPoints.map(\.location), originalPoints.map(\.location))
         XCTAssertEqual(evenPoints.map(\.timeOffset), originalPoints.map(\.timeOffset))
         for point in evenPoints {
-            XCTAssertEqual(point.size.width, 18, accuracy: 0.001)
-            XCTAssertEqual(point.size.height, 18, accuracy: 0.001)
+            XCTAssertEqual(point.size.width, 18 / EvenHighlighter.chiselLengthPerPointSize, accuracy: 0.001)
+            XCTAssertEqual(point.size.height, 18 / EvenHighlighter.chiselLengthPerPointSize, accuracy: 0.001)
             XCTAssertEqual(point.azimuth, EvenHighlighter.tipAzimuth, accuracy: 0.001)
             XCTAssertEqual(point.altitude, EvenHighlighter.uprightAltitude, accuracy: 0.001)
             XCTAssertEqual(point.force, evenPoints[0].force, accuracy: 0.001)
@@ -38,8 +38,32 @@ final class EvenHighlighterTests: XCTestCase {
 
     func testWidthIsInTheDrawingsPointsUnderAScaledStroke() throws {
         let evenStroke = try XCTUnwrap(EvenHighlighter.evenStroke(tiltedStroke(transform: CGAffineTransform(scaleX: 2, y: 2)), width: 18))
-        XCTAssertEqual(Array(evenStroke.path).first?.size.width ?? 0, 9, accuracy: 0.001)
+        XCTAssertEqual(Array(evenStroke.path).first?.size.width ?? 0, 9 / EvenHighlighter.chiselLengthPerPointSize, accuracy: 0.001)
         XCTAssertEqual(evenStroke.transform, CGAffineTransform(scaleX: 2, y: 2))
+    }
+
+    /// What PencilKit draws, not only the points: a highlight across a line of text is as
+    /// tall as the tool is wide, as tall as an upright Pencil or a finger draws it, so it does
+    /// not change at the lift; and the same at any tilt.
+    func testAHighlightAcrossALineIsAsTallAsTheToolIsWideAndAsAnUprightStroke() throws {
+        let toolWidth: CGFloat = 57
+        func horizontalStroke(size: CGFloat, azimuth: CGFloat, altitude: CGFloat) -> PKStroke {
+            let controlPoints = (0...8).map { step in
+                PKStrokePoint(location: CGPoint(x: 100 + 25 * CGFloat(step), y: 300), timeOffset: TimeInterval(step) * 0.016,
+                              size: CGSize(width: size, height: size), opacity: 1, force: 1, azimuth: azimuth, altitude: altitude)
+            }
+            return PKStroke(ink: PKInk(.marker, color: .systemYellow), path: PKStrokePath(controlPoints: controlPoints, creationDate: Date()))
+        }
+        // As PencilKit records a finger's stroke with this tool: two thirds of its width, upright.
+        let uprightStroke = horizontalStroke(size: toolWidth * 2 / 3, azimuth: .pi / 2, altitude: .pi / 2)
+        let tiltedStroke = horizontalStroke(size: toolWidth * 1.4, azimuth: 0.3, altitude: .pi / 5)
+        let evenFromUpright = try XCTUnwrap(EvenHighlighter.evenStroke(uprightStroke, width: toolWidth))
+        let evenFromTilted = try XCTUnwrap(EvenHighlighter.evenStroke(tiltedStroke, width: toolWidth))
+        XCTAssertEqual(evenFromUpright.renderBounds.height, toolWidth, accuracy: 3)
+        XCTAssertEqual(evenFromUpright.renderBounds.height, uprightStroke.renderBounds.height, accuracy: 1)
+        XCTAssertEqual(evenFromUpright.renderBounds.width, uprightStroke.renderBounds.width, accuracy: 1, "No longer or shorter either.")
+        XCTAssertEqual(evenFromTilted.renderBounds.size.height, evenFromUpright.renderBounds.size.height, accuracy: 0.5)
+        XCTAssertNotEqual(tiltedStroke.renderBounds.height, uprightStroke.renderBounds.height, accuracy: 3, "The tilt changed the stroke as drawn.")
     }
 
     func testOnlyHighlighterStrokesAndUsableWidthsAreChanged() {
