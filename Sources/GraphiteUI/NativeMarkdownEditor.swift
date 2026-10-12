@@ -31,6 +31,11 @@ final class MarkdownTextView: UITextView {
     /// or when Graphite asks.
     private var lastTouchUptime: TimeInterval = -.infinity
     private var isEditingRequested = false
+    /// True while the note's view goes away and the text view gives up the keyboard. Ending
+    /// editing in an embedded PDF hands focus on to the text view around it, and a note
+    /// touched a moment before took it: it began editing and made its own tab active again,
+    /// right after an embed's "Open in PDF View" had shown the PDF's tab.
+    var refusesFocus = false
 
     /// A text view on TextKit 2, the system's default for a text view made in code. Not
     /// `UITextView(usingTextLayoutManager:)`: that factory makes the view through an
@@ -50,7 +55,7 @@ final class MarkdownTextView: UITextView {
 
     override var canBecomeFirstResponder: Bool {
         let wasRecentlyTouched = ProcessInfo.processInfo.systemUptime - lastTouchUptime < 1
-        return super.canBecomeFirstResponder && (isFirstResponder || isEditingRequested || wasRecentlyTouched)
+        return super.canBecomeFirstResponder && (isFirstResponder || (!refusesFocus && (isEditingRequested || wasRecentlyTouched)))
     }
 
     /// Starts editing on Graphite's behalf, for example to show a rendered block's source.
@@ -745,6 +750,10 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         func viewWasDismantled(with container: MarkdownEditorContainerView) {
             containersInUse.remove(container)
             guard let textView = container.textViewShownHere else { return }
+            // The keyboard given up here, by the text view or a view inside it, does not
+            // come back to the note.
+            textView.refusesFocus = true
+            defer { textView.refusesFocus = false }
             isLettingGoOfTextView = true
             textView.endEditing(true)
             if let remainingContainer = containersInUse.newest {

@@ -32,6 +32,7 @@
 		A0000000000000000000008D /* App/Tests/InkSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000008C /* App/Tests/InkSelectionTests.swift */; };
 		A000000000000000000000D1 /* App/Tests/CanvasTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000D0 /* App/Tests/CanvasTests.swift */; };
 		A000000000000000000000C1 /* App/Tests/VideoRecordingWorkspaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000C0 /* App/Tests/VideoRecordingWorkspaceTests.swift */; };
+		A000000000000000000000F3 /* App/Tests/PDFLinkFollowingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000F2 /* App/Tests/PDFLinkFollowingTests.swift */; };
 		A000000000000000000000C3 /* App/Tests/ConflictVersionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000C2 /* App/Tests/ConflictVersionsTests.swift */; };
 		A000000000000000000000C5 /* Tests/GraphiteAppleTests/VideoRecordingTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000C4 /* Tests/GraphiteAppleTests/VideoRecordingTestSupport.swift */; };
 		A000000000000000000000C7 /* Tests/GraphiteAppleTests/VideoRecordingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000C6 /* Tests/GraphiteAppleTests/VideoRecordingTests.swift */; };
@@ -80,6 +81,7 @@
 		A0000000000000000000008C /* App/Tests/InkSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/InkSelectionTests.swift; sourceTree = "<group>"; };
 		A000000000000000000000D0 /* App/Tests/CanvasTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/CanvasTests.swift; sourceTree = "<group>"; };
 		A000000000000000000000C0 /* App/Tests/VideoRecordingWorkspaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/VideoRecordingWorkspaceTests.swift; sourceTree = "<group>"; };
+		A000000000000000000000F2 /* App/Tests/PDFLinkFollowingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/PDFLinkFollowingTests.swift; sourceTree = "<group>"; };
 		A000000000000000000000C2 /* App/Tests/ConflictVersionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/ConflictVersionsTests.swift; sourceTree = "<group>"; };
 		A000000000000000000000C4 /* Tests/GraphiteAppleTests/VideoRecordingTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/VideoRecordingTestSupport.swift; sourceTree = "<group>"; };
 		A000000000000000000000C6 /* Tests/GraphiteAppleTests/VideoRecordingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/VideoRecordingTests.swift; sourceTree = "<group>"; };
@@ -129,6 +131,7 @@
 				A00000000000000000000070 /* App/Tests/AppIconBundleTests.swift */,
 				A000000000000000000000C0 /* App/Tests/VideoRecordingWorkspaceTests.swift */,
 				A000000000000000000000C2 /* App/Tests/ConflictVersionsTests.swift */,
+				A000000000000000000000F2 /* App/Tests/PDFLinkFollowingTests.swift */,
 				A000000000000000000000C4 /* Tests/GraphiteAppleTests/VideoRecordingTestSupport.swift */,
 				A000000000000000000000C6 /* Tests/GraphiteAppleTests/VideoRecordingTests.swift */,
 				A000000000000000000000C8 /* Tests/GraphiteUITests/TestConflictVersionStore.swift */,
@@ -282,6 +285,7 @@
 				A00000000000000000000079 /* Tests/GraphiteAppleTests/VectorDrawingTests.swift in Sources */,
 				A000000000000000000000C1 /* App/Tests/VideoRecordingWorkspaceTests.swift in Sources */,
 				A000000000000000000000C3 /* App/Tests/ConflictVersionsTests.swift in Sources */,
+				A000000000000000000000F3 /* App/Tests/PDFLinkFollowingTests.swift in Sources */,
 				A000000000000000000000C5 /* Tests/GraphiteAppleTests/VideoRecordingTestSupport.swift in Sources */,
 				A000000000000000000000C7 /* Tests/GraphiteAppleTests/VideoRecordingTests.swift in Sources */,
 				A000000000000000000000C9 /* Tests/GraphiteUITests/TestConflictVersionStore.swift in Sources */,
