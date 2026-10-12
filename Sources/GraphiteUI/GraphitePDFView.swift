@@ -1162,18 +1162,24 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     }
 
     /// A canvas shows the page's ink while annotating; otherwise the ink annotations do.
+    /// The page's canvas shows its ink while reading too, without taking touches: PDFKit
+    /// draws the ink annotations as lines of one width in one flat color, so a highlighter
+    /// became a thin opaque line, a pencil lost its grain and every stroke its pressure, and
+    /// the page changed each time writing was turned on or off. The annotations, which other
+    /// PDF readers show, stay hidden only while a displayed canvas shows the same ink.
     private func configure(_ canvas: PDFPageCanvasView) {
-        if input.isEnabled { restoreStoredInkIfNeeded(on: canvas) }
+        restoreStoredInkIfNeeded(on: canvas)
         canvas.readAloudPenTapped = readAloudPen == nil ? nil : { [weak self] windowPoint in self?.handleReadAloudPenTap(atWindowPoint: windowPoint) }
         canvas.takeTool(from: toolPicker, fixedTool: input.fixedTool)
         canvas.drawingPolicy = input.drawsWithFinger ? .anyInput : .pencilOnly
         canvas.showWritingGuides(input.writingGuides)
         canvas.overlayView?.showsWritingGuides = input.isEnabled
-        canvas.isHidden = !input.isEnabled
+        // While its stored ink is decoded, a reading page shows the annotations instead.
+        canvas.isHidden = !input.isEnabled && canvas.isRestoringStoredInk
         canvas.isUserInteractionEnabled = input.isEnabled && !canvas.isRestoringStoredInk
         if let page = canvas.page {
             let isDisplayed = displayedPages.contains(ObjectIdentifier(page))
-            setInkAnnotationsHidden(input.isEnabled && isDisplayed && !canvas.isRestoringStoredInk, on: page, group: canvas.inkTracker.group)
+            setInkAnnotationsHidden(isDisplayed && !canvas.isRestoringStoredInk, on: page, group: canvas.inkTracker.group)
         }
     }
 

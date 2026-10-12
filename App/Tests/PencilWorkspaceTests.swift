@@ -136,9 +136,9 @@ final class PencilWorkspaceTests: XCTestCase {
         XCTAssertFalse(ink.shouldDisplay, "The live canvas draws ink without doubling its PDF appearance.")
 
         session.isWriting = false
-        try await waitUntil { canvas.isHidden }
-        XCTAssertFalse(canvas.isUserInteractionEnabled)
-        XCTAssertTrue(ink.shouldDisplay, "Reading must show the existing PDF ink.")
+        try await waitUntil { !canvas.isUserInteractionEnabled }
+        XCTAssertFalse(canvas.isHidden, "Reading shows the ink as it was drawn, from the canvas.")
+        XCTAssertFalse(ink.shouldDisplay, "The canvas shows the ink, so its PDF appearance is not drawn under it as well.")
         let pagePoint = canvas.convert(CGPoint(x: 100, y: 100), to: pdfView)
         XCTAssertNil(pdfView.annotationCoordinator?.canvas(at: pagePoint, in: pdfView), "Reading leaves touches with PDFKit.")
         try await Task.sleep(for: .milliseconds(350))
@@ -154,6 +154,91 @@ final class PencilWorkspaceTests: XCTestCase {
         try await session.save()
         let reopened = try XCTUnwrap(PDFDocument(url: location))
         XCTAssertEqual(reopened.page(at: 0)?.annotations.filter { $0.type == "Ink" }.count, 1)
+    }
+
+    /// Turning writing on or off changes nothing on the page: highlighter, pen and pencil
+    /// ink look the same while reading as while writing, at the page's size and zoomed in.
+    func testInkLooksTheSameWhileReadingAndWhileWriting() async throws {
+        let location = FileManager.default.temporaryDirectory.appendingPathComponent("InkToggle-\(UUID().uuidString).pdf")
+        try PDFTemplateGenerator.documentData(paper: PaperSpecification(template: .blank)).write(to: location)
+        defer { try? FileManager.default.removeItem(at: location) }
+        let session = try await PDFSession.open(location)
+        let controller = UIHostingController(rootView: NavigationStack {
+            PDFPane(session: session, resolveConflict: { _ in })
+        })
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        controller.view.layoutIfNeeded()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        try await waitUntil { descendants(of: controller.view, matching: PDFPageCanvasView.self).contains { !$0.isHidden } }
+        let canvas = try XCTUnwrap(descendants(of: controller.view, matching: PDFPageCanvasView.self).first { !$0.isHidden })
+        let page = try XCTUnwrap(canvas.page)
+        let pdfView = try XCTUnwrap(session.pdfView as? GraphitePDFDisplayView)
+
+        func stroke(_ inkType: PKInk.InkType, color: UIColor, width: CGFloat, atY lineY: CGFloat) -> PKStroke {
+            let points = (0...24).map { pointIndex in
+                PKStrokePoint(location: CGPoint(x: 60 + CGFloat(pointIndex) * 12, y: lineY + 6 * sin(CGFloat(pointIndex) * 0.5)),
+                              timeOffset: Double(pointIndex) / 60, size: CGSize(width: width, height: width), opacity: inkType == .marker ? 1.4 : 1,
+                              force: 0.4 + 0.05 * CGFloat(pointIndex % 8), azimuth: .pi / 2, altitude: .pi / 3)
+            }
+            return PKStroke(ink: PKInk(inkType, color: color), path: PKStrokePath(controlPoints: points, creationDate: Date()))
+        }
+        canvas.drawing = PKDrawing(strokes: [
+            stroke(.marker, color: UIColor(red: 1, green: 0.62, blue: 0.79, alpha: 1), width: 18, atY: 120),
+            stroke(.pen, color: .systemRed, width: 3, atY: 128),
+            stroke(.pencil, color: .darkGray, width: 4, atY: 170),
+        ])
+        try await waitUntil { page.annotations.filter { $0.type == "Ink" }.count == 3 }
+        try await Task.sleep(for: .milliseconds(500))
+
+        // In the page's points, top down, as the overlay over the page and its canvas count them.
+        let inkArea = CGRect(x: 40, y: 90, width: 340, height: 110)
+        let overlayView = try XCTUnwrap(canvas.overlayView)
+        func pixels() throws -> [UInt8] {
+            let area = overlayView.convert(inkArea, to: nil)
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 2
+            let image = UIGraphicsImageRenderer(bounds: area, format: format).image { _ in
+                window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            }
+            let cgImage = try XCTUnwrap(image.cgImage)
+            var bytes = [UInt8](repeating: 0, count: cgImage.width * cgImage.height * 4)
+            let context = try XCTUnwrap(CGContext(data: &bytes, width: cgImage.width, height: cgImage.height, bitsPerComponent: 8, bytesPerRow: cgImage.width * 4,
+                                                  space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height))
+            return bytes
+        }
+        func differingFraction(_ first: [UInt8], _ second: [UInt8]) -> Double {
+            var inked = 0, differing = 0
+            for index in stride(from: 0, to: min(first.count, second.count), by: 4) {
+                let isInked = first[index] < 240 || first[index + 1] < 240 || first[index + 2] < 240 || second[index] < 240 || second[index + 1] < 240 || second[index + 2] < 240
+                guard isInked else { continue }
+                inked += 1
+                if (0..<3).contains(where: { channel in abs(Int(first[index + channel]) - Int(second[index + channel])) > 24 }) { differing += 1 }
+            }
+            return inked == 0 ? 1 : Double(differing) / Double(inked)
+        }
+
+        for zoom in [pdfView.scaleFactor, pdfView.scaleFactor * 3] {
+            pdfView.scaleFactor = zoom
+            pdfView.go(to: pdfView.convert(overlayView.convert(inkArea, to: pdfView), to: page), on: page)
+            try await Task.sleep(for: .milliseconds(800))
+            let whileWriting = try pixels()
+            session.isWriting = false
+            try await waitUntil { !canvas.isUserInteractionEnabled }
+            try await Task.sleep(for: .milliseconds(500))
+            let whileReading = try pixels()
+            let fraction = differingFraction(whileWriting, whileReading)
+            XCTAssertLessThan(fraction, 0.01, "At \(Int(zoom * 100)) percent, \(Int(fraction * 100)) percent of the inked pixels change when writing is turned off.")
+            session.isWriting = true
+            try await waitUntil { canvas.isUserInteractionEnabled }
+            try await Task.sleep(for: .milliseconds(300))
+            XCTAssertLessThan(differingFraction(whileWriting, try pixels()), 0.01, "And nothing changes when it is turned on again.")
+        }
+        attachScreenshot(of: window, named: "Ink while writing, zoomed")
     }
 
     /// Zoomed in to write on a page, the canvas draws its ink at the zoom it is seen at, not

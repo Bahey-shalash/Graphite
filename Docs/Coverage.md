@@ -4,6 +4,12 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-12.
 
+## Ink looks the same while reading and while writing: 2026-10-12
+
+Reported by the owner from the iPad (alpha 8a6ccb8, a screen recording toggling writing every second): the ink changed each time, and lost quality while reading. Reproduced in the simulator: reading drew PDFKit's plain ink annotations (a center line of one width and flat color per stroke) instead of PencilKit's canvas, so the highlighter became a thin opaque line, the pen a uniform heavier line and the pencil a thin smooth gray line, at every zoom. The canvas now shows the ink in both modes, taking touches only while writing (see `Architecture.md`, the Read/Write paragraph). Not a color-space, z-order or rasterization-scale difference: the whole difference was which renderer drew the ink.
+
+Checked: `PencilWorkspaceTests.testInkLooksTheSameWhileReadingAndWhileWriting` (hosted: highlighter, pen and pencil ink on a page, compared in writing and reading at the page's fit zoom and at three times it; under 1 percent of inked pixels may differ). With the previous code it fails: 40 percent of inked pixels changed at 138 percent zoom and 11 percent at 414 percent. In the simulator, screenshots of the same strokes in both modes: at 100 percent and at about 300 percent, 0 pixels differ with this change (before: about 4 percent of the region at 100 percent, highlighter thin and opaque, pencil grain gone). Reading still selects text with a long press over the ink. `testReadingModeRestoresPageTouchesAndKeepsInkWhenReturningToWriting` now expects the canvas to stay shown, not taking touches, while reading. Not tried on the iPad.
+
 ## Community plugins: Live Preview, restored views, gestures in copies, more menus, the Mac editor: 2026-10-12
 
 The owner's list for no gaps left in plugin support, in order, on the branch `alpha-plugins-6`. `Community-plugins.md` describes each (How it works › In notes, menus, typing and tabs) and how it was checked (How it was verified › Live Preview blocks, restored views, copies' gestures, menus and the Mac editor).
