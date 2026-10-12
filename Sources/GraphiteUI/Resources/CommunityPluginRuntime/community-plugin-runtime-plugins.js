@@ -460,8 +460,17 @@
             });
         }
 
-        registerExtensions(extensions) {
-            runtime.reportUnsupportedFeature('Opening .' + extensions.join(', .') + ' files in a plugin view', this.manifest.id);
+        /// Files with these extensions open in the plugin's view (Excalidraw's `.excalidraw`,
+        /// Fountain's `.fountain`): Graphite opens them in a tab showing the view live.
+        registerExtensions(extensions, viewType) {
+            const registry = this.app.viewRegistry;
+            const registered = (extensions || []).map((extension) => String(extension).toLowerCase()).filter((extension) => extension !== 'md');
+            for (const extension of registered) registry.typeByExtension[extension] = viewType;
+            runtime.fileViewsChanged();
+            this.register(() => {
+                for (const extension of registered) { if (registry.typeByExtension[extension] === viewType) delete registry.typeByExtension[extension]; }
+                runtime.fileViewsChanged();
+            });
         }
 
         registerMarkdownPostProcessor(postProcessor, sortOrder) {
@@ -509,9 +518,18 @@
 
         registerHoverLinkSource() {}
 
-        registerBasesView() {
-            runtime.reportUnsupportedFeature('Bases views from plugins', this.manifest.id);
-            return false;
+        /// A view type for bases (TaskNotes' calendars and boards): Graphite's bases show views
+        /// of this type through the plugin, live in the base's tab.
+        registerBasesView(viewType, registration) {
+            if (!viewType || !registration || typeof registration.factory !== 'function') return false;
+            if (runtime.basesViews.has(viewType)) throw new Error('A Bases view “' + viewType + '” already exists.');
+            runtime.basesViews.set(viewType, { registration, pluginIdentifier: this.manifest.id });
+            runtime.basesViewsChanged();
+            this.register(() => {
+                if (runtime.basesViews.get(viewType) && runtime.basesViews.get(viewType).registration === registration) runtime.basesViews.delete(viewType);
+                runtime.basesViewsChanged();
+            });
+            return true;
         }
 
         registerCliHandler() {
@@ -605,6 +623,8 @@
                 this.enabledPlugins.add(pluginIdentifier);
                 await plugin.load();
                 if (description.isEnabledByPerson && plugin.onUserEnable) plugin.onUserEnable();
+                runtime.fileViewsChanged();
+                checkFileViewsOverTheNextSeconds();
                 return { isLoaded: true };
             } catch (error) {
                 const plugin = this.plugins[pluginIdentifier];
@@ -634,6 +654,7 @@
             const styleElement = this.styleElementsByPlugin.get(pluginIdentifier);
             if (styleElement) styleElement.remove();
             this.styleElementsByPlugin.delete(pluginIdentifier);
+            runtime.fileViewsChanged();
         }
 
         async enablePluginAndSave(pluginIdentifier) {
@@ -654,11 +675,29 @@
         constructor() {
             // `plugins` is Obsidian's own (undocumented) name, which plugins read directly.
             this.plugins = {};
+            this.configure([]);
         }
         configure(corePlugins) {
             this.plugins = {};
             for (const corePlugin of corePlugins || []) {
-                this.plugins[corePlugin.identifier] = { enabled: corePlugin.isEnabled, instance: { id: corePlugin.identifier, options: corePlugin.options || {} } };
+                this.plugins[corePlugin.identifier] = { enabled: corePlugin.isEnabled, _loaded: corePlugin.isEnabled, instance: { id: corePlugin.identifier, options: corePlugin.options || {} }, load() {}, unload() {} };
+            }
+            // Obsidian's canvas, which Graphite draws natively: plugins that embed notes the way
+            // canvases do look it up as they open a view (Excalidraw). It is there, off.
+            {
+                // Its canvas view for a leaf: a canvas that cannot make nodes, so a plugin that
+                // embeds notes the way canvases do (Excalidraw's embedded notes) says so when it
+                // tries, and everything else it does works.
+                const canvasForLeaf = () => ({
+                    canvas: new Proxy({ nodes: new Map(), removeNode() {} }, {
+                        get(target, name) {
+                            if (name in target || typeof name === 'symbol') return target[name];
+                            return () => runtime.unsupported('Obsidian canvas nodes (embedded notes in a plugin view)', 'Graphite draws canvases natively.');
+                        },
+                    }),
+                });
+                const configured = this.plugins.canvas;
+                this.plugins.canvas = Object.assign(configured || { enabled: false, instance: { id: 'canvas', options: {} } }, { _loaded: true, views: { canvas: canvasForLeaf }, load() {}, unload() {} });
             }
         }
         getPluginById(pluginIdentifier) { return this.plugins[pluginIdentifier] || null; }
@@ -791,8 +830,14 @@
             getViewCreatorByType(viewType) { return workspace.viewCreatorsByType.get(viewType); },
             isExtensionRegistered(extension) { return Object.prototype.hasOwnProperty.call(registry.typeByExtension, extension); },
             getTypeByExtension(extension) { return registry.typeByExtension[extension]; },
-            registerExtensions() { runtime.reportUnsupportedFeature('Opening files in a plugin view'); },
-            unregisterExtensions() {},
+            registerExtensions(extensions, viewType) {
+                for (const extension of extensions || []) { if (String(extension).toLowerCase() !== 'md') registry.typeByExtension[String(extension).toLowerCase()] = viewType; }
+                runtime.fileViewsChanged();
+            },
+            unregisterExtensions(extensions) {
+                for (const extension of extensions || []) delete registry.typeByExtension[String(extension).toLowerCase()];
+                runtime.fileViewsChanged();
+            },
         });
         return registry;
     }
@@ -950,6 +995,33 @@
         }
     }
 
+    let isFileViewNotificationScheduled = false;
+    let lastFileViewSignature = null;
+    /// Tells Graphite which file extensions plugins show in their views, and whether a plugin
+    /// shows some notes in a view of its own, after each plugin loads or unloads, and when that
+    /// changed since (plugins patch `setViewState` at layout-ready or later: Excalidraw does
+    /// after awaiting its settings, so it is checked again over the following seconds).
+    runtime.fileViewsChanged = function fileViewsChanged() {
+        if (isFileViewNotificationScheduled) return;
+        isFileViewNotificationScheduled = true;
+        Promise.resolve().then(() => {
+            isFileViewNotificationScheduled = false;
+            const app = runtime.app;
+            if (!app) return;
+            const state = {
+                extensions: Object.assign({}, app.viewRegistry.typeByExtension),
+                takesOverNotes: runtime.pluginsTakeOverNotes ? runtime.pluginsTakeOverNotes() : false,
+            };
+            const signature = JSON.stringify(state);
+            if (signature === lastFileViewSignature) return;
+            lastFileViewSignature = signature;
+            hostBridge.notify('fileViews.changed', state);
+        });
+    };
+    function checkFileViewsOverTheNextSeconds() {
+        for (const delay of [250, 1000, 3000, 8000]) globalScope.setTimeout(() => runtime.fileViewsChanged(), delay);
+    }
+
     runtime.ribbon = new RibbonRegistry();
 
     /// Obsidian's Vim mode adapter, a global its plugins add Vim commands to (Linter sets
@@ -986,10 +1058,54 @@
             const workspace = runtime.app && runtime.app.workspace;
             hostBridge.notify('editor.listenersChanged', {
                 hasEditorChangeListeners: Boolean(workspace) && workspace.listenerCount('editor-change') > 0,
+                hasPasteListeners: Boolean(workspace) && workspace.listenerCount('editor-paste') > 0,
+                hasDropListeners: Boolean(workspace) && workspace.listenerCount('editor-drop') > 0,
                 hasEditorSuggestions: runtime.editorSuggests.length > 0,
             });
         });
     };
+
+    /// Clipboard or drag data as the browser's `DataTransfer` gives it to plugins: text, HTML
+    /// and the names and types of files (their contents stay with Graphite).
+    function transferData(message) {
+        const items = {};
+        if (typeof message.text === 'string') items['text/plain'] = message.text;
+        if (typeof message.html === 'string') items['text/html'] = message.html;
+        if (typeof message.uriList === 'string') items['text/uri-list'] = message.uriList;
+        const files = (message.files || []).map((file) => ({ name: String(file.name || ''), type: String(file.type || ''), size: Number(file.size) || 0 }));
+        return {
+            types: Object.keys(items).concat(files.length ? ['Files'] : []),
+            files,
+            items: Object.keys(items).map((type) => ({ kind: 'string', type, getAsString(callback) { callback(items[type]); } })),
+            getData(type) { return items[String(type).toLowerCase() === 'text' ? 'text/plain' : String(type).toLowerCase()] || ''; },
+            setData() {},
+            clearData() {},
+        };
+    }
+
+    async function dispatchTransfer(eventName, message) {
+        const app = runtime.app;
+        if (message.activeDocument) app.workspace.setActiveDocument(message.activeDocument);
+        const view = app.workspace.getActiveViewOfType(MarkdownView);
+        if (!view || !view.editor || app.workspace.listenerCount(eventName) === 0) return { isHandled: false };
+        const data = transferData(message);
+        const eventType = eventName === 'editor-paste' ? 'paste' : 'drop';
+        let event;
+        try {
+            event = eventType === 'paste' ? new globalScope.ClipboardEvent('paste', { cancelable: true }) : new globalScope.DragEvent('drop', { cancelable: true });
+        } catch (error) {
+            event = new globalScope.Event(eventType, { cancelable: true });
+        }
+        Object.defineProperty(event, eventType === 'paste' ? 'clipboardData' : 'dataTransfer', { value: data });
+        try {
+            app.workspace.trigger(eventName, event, view.editor, view);
+        } catch (error) {
+            console.error(error);
+        }
+        // A plugin that took the paste over may finish its edit after awaiting; give it a moment.
+        await new Promise((resolve) => globalScope.setTimeout(resolve, 0));
+        return { isHandled: event.defaultPrevented };
+    }
 
     /// The suggestions shown last, kept until one is chosen or newer ones replace them.
     let shownSuggestion = null;
@@ -1151,7 +1267,39 @@
         },
         async 'plugins.layoutReady'() {
             runtime.app.workspace.markLayoutReady();
+            runtime.fileViewsChanged();
+            checkFileViewsOverTheNextSeconds();
             return {};
+        },
+        /// Opens a file in the view a plugin shows it in, if one does: by its extension
+        /// (`registerExtensions`), or, for a note, when a plugin that patched `setViewState`
+        /// turns the note's view into its own (Excalidraw's drawings are notes). The leaf is
+        /// made here and Graphite opens its tab; nothing happens for any other file.
+        async 'file.openInView'(message) {
+            const app = runtime.app;
+            const file = app ? app.vault.getAbstractFileByPath(message.path) : null;
+            if (!file || !(file instanceof exportedApi.TFile)) return { isOpened: false };
+            const workspace = app.workspace;
+            const extension = file.extension.toLowerCase();
+            const viewType = extension === 'md' ? null : app.viewRegistry.typeByExtension[extension];
+            if (!viewType && !(extension === 'md' && runtime.pluginsTakeOverNotes())) return { isOpened: false };
+            const leaf = workspace.createPluginLeaf('tab');
+            // Graphite opens the tab itself; the leaf does not ask for one.
+            leaf.hasBeenShown = true;
+            leaf.isProbe = !viewType;
+            try {
+                await leaf.setViewState({ type: viewType || 'markdown', state: { file: file.path }, active: false });
+            } catch (error) {
+                console.error('Graphite could not open “' + file.path + '” in a plugin view.', error);
+            }
+            leaf.isProbe = false;
+            const shownType = leaf.view.getViewType();
+            if (shownType === 'empty' || shownType === 'markdown') {
+                leaf.detach();
+                return { isOpened: false };
+            }
+            workspace.notifyLeavesChanged();
+            return { isOpened: true, leafIdentifier: leaf.id };
         },
         async 'vault.configuration'(message) {
             runtime.app.vault.configuration = message.configuration || {};
@@ -1240,6 +1388,16 @@
             }
             if (!message.wantsSuggestions) return { suggestion: null };
             return { suggestion: await findSuggestions(view.editor, view, message.requestIdentifier) };
+        },
+        /// The person pasted into the note, or dropped something on it: plugins hear
+        /// `editor-paste` or `editor-drop` with the note's editor, and one that calls
+        /// `preventDefault()` takes the paste over (Link or Card, Linter); its edits come back as
+        /// one editor change. Otherwise Graphite pastes as it does without plugins.
+        async 'editor.paste'(message) {
+            return dispatchTransfer('editor-paste', message);
+        },
+        async 'editor.drop'(message) {
+            return dispatchTransfer('editor-drop', message);
         },
         /// The person closed the suggestions (Escape) without choosing one.
         async 'editor.closeSuggestions'() {
@@ -1333,6 +1491,7 @@
     }
 
     /// Later runtime files add their own messages here.
+    Object.assign(messageHandlers, runtime.basesMessageHandlers || {});
     runtime.messageHandlers = messageHandlers;
 
     /// The one entry point Graphite calls. Answers with a value the bridge can carry.

@@ -287,3 +287,12 @@ body.theme-dark { --mono-rgb-0: 0, 0, 0; --mono-rgb-100: 255, 255, 255; }
 .setting-item-icon { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex-shrink: 0; color: var(--text-muted); }
 .setting-page-titlebar { display: flex; align-items: center; gap: var(--size-4-2); margin-bottom: var(--size-4-3); }
 .setting-page-titlebar .setting-page-title { font-size: var(--font-ui-large); font-weight: var(--font-semibold); }
+
+/* A plugin view shown live (community-plugin-runtime-reading.js, showLive): Graphite shows this page in the view's
+   tab and the leaf fills it; the plugin panel's windows and settings show instead while the panel is up */
+body.graphite-live { overflow: hidden; }
+.graphite-live-view { position: fixed; inset: 0; z-index: 25; display: flex; flex-direction: column; background: var(--background-primary); }
+.graphite-live-view > .workspace-leaf { flex: 1 1 auto; height: 100%; display: flex; flex-direction: column; }
+.graphite-live-view .workspace-leaf-content { display: flex; flex-direction: column; height: 100%; }
+.graphite-live-view .view-content { flex: 1 1 auto; overflow: auto; -webkit-overflow-scrolling: touch; }
+body.graphite-surface-presented .graphite-live-view { display: none; }

@@ -228,12 +228,15 @@
         },
         present(title) {
             this.isPresented = true;
+            // A live view gives way to the panel's windows and settings while they show.
+            globalScope.document.body.addClass('graphite-surface-presented');
             hostBridge.notify('surface.present', { title: title || '' });
         },
         dismissIfEmpty() {
             if (this.openModals.length > 0 || this.shownSettingTab) return;
             if (!this.isPresented) return;
             this.isPresented = false;
+            globalScope.document.body.removeClass('graphite-surface-presented');
             hostBridge.notify('surface.dismiss', {});
         },
         showSettingTab(settingTab, title) {
@@ -275,6 +278,7 @@
             for (const modal of this.openModals.slice().reverse()) modal.close();
             this.clearShownContent();
             this.isPresented = false;
+            globalScope.document.body.removeClass('graphite-surface-presented');
         },
     };
     runtime.pluginSurface = pluginSurface;

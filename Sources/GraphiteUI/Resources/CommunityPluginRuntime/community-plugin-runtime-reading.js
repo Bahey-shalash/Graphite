@@ -454,7 +454,69 @@
         leaf.waitingPlace = place;
     };
 
+    // MARK: Live views
+
+    /// The view shown live: Graphite shows this page itself in the view's tab, and the leaf
+    /// fills the page, so the plugin gets touches, Pencil, typing and gestures as in Obsidian
+    /// (Excalidraw draws). One view at a time; the others stay copies.
+    let liveLeaf = null;
+    let liveContainer = null;
+
+    function showLive(leafIdentifier) {
+        const app = runtime.app;
+        const leaf = app ? app.workspace.getLeafById(leafIdentifier) : null;
+        if (!leaf || leaf === app.workspace.markdownLeaf) return { isShown: false };
+        if (liveLeaf === leaf) return { isShown: true };
+        hideLive();
+        // A copy of the same leaf would show nothing while it is live.
+        for (const entry of Array.from(drawnBlocks.values())) { if (entry.leaf === leaf) release(entry.blockIdentifier); }
+        if (leaf.waitingPlace) { leaf.waitingPlace.remove(); leaf.waitingPlace = null; }
+        const document = globalScope.document;
+        liveContainer = document.body.createDiv({ cls: 'graphite-live-view' });
+        liveContainer.appendChild(leaf.containerEl);
+        document.body.addClass('graphite-live');
+        liveLeaf = leaf;
+        try { leaf.onResize(); } catch (error) { console.error(error); }
+        scheduleWorkspaceResize();
+        return { isShown: true };
+    }
+
+    function hideLive(leafIdentifier) {
+        if (!liveLeaf || (leafIdentifier && liveLeaf.id !== leafIdentifier)) return;
+        const leaf = liveLeaf;
+        liveLeaf = null;
+        // Back to a place in the page at its last size, where a copy or the next live showing
+        // finds it; a leaf that was closed meanwhile is simply let go.
+        if (runtime.app && runtime.app.workspace.pluginLeaves.includes(leaf) && runtime.placeNewLeaf) runtime.placeNewLeaf(leaf);
+        else leaf.containerEl.detach();
+        if (liveContainer) liveContainer.remove();
+        liveContainer = null;
+        globalScope.document.body.removeClass('graphite-live');
+    }
+
+    globalScope.addEventListener('resize', () => {
+        if (!liveLeaf) return;
+        try { liveLeaf.onResize(); } catch (error) { console.error(error); }
+        scheduleWorkspaceResize();
+    });
+
     Object.assign(runtime.messageHandlers, {
+        /// Every view of a file saves what it holds (`FileView.save`, which text views and
+        /// Excalidraw implement), each for at most three seconds.
+        async 'views.saveFiles'() {
+            const app = runtime.app;
+            if (!app) return {};
+            const savingViews = app.workspace.pluginLeaves.map((leaf) => leaf.view).filter((view) => view instanceof exportedApi.FileView && view.file && typeof view.save === 'function');
+            await Promise.all(savingViews.map((view) => waitAtMost(Promise.resolve().then(() => view.save()).catch((error) => console.error(error)), 3000)));
+            return { savedCount: savingViews.length };
+        },
+        async 'view.live'(message) {
+            return showLive(message.leafIdentifier);
+        },
+        async 'view.unlive'(message) {
+            hideLive(message.leafIdentifier || null);
+            return {};
+        },
         async 'view.attach'(message) {
             return attachView(message);
         },

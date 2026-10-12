@@ -160,6 +160,10 @@
             for (const child of this.childComponents.slice()) child.load();
         }
         onload() {}
+        /// Obsidian's own name for whether the component is loaded (undocumented), which
+        /// plugins read (Excalidraw's patches act only while it is loaded).
+        get _loaded() { return this.isComponentLoaded; }
+        set _loaded(isLoaded) { this.isComponentLoaded = Boolean(isLoaded); }
         unload() {
             if (!this.isComponentLoaded) return;
             this.isComponentLoaded = false;

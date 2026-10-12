@@ -31,7 +31,8 @@ struct CommunityPluginRibbonAction: Identifiable, Equatable {
 /// plugin put it in one of Obsidian's sidebars, in a tab otherwise.
 struct CommunityPluginView: Identifiable, Equatable {
     enum Placement: String {
-        case sidebar, tab
+        /// `split`: beside the note, on the other side of Graphite's split (Mind Map).
+        case sidebar, tab, split
     }
 
     /// The leaf's identifier in the runtime.
@@ -41,6 +42,11 @@ struct CommunityPluginView: Identifiable, Equatable {
     /// The view's icon, a Lucide name as Obsidian gives it.
     let icon: String
     let placement: Placement
+    /// A view of a file (Excalidraw's drawing): shown live, so drags, Pencil and typing reach
+    /// the plugin directly. Other views are shown as copies.
+    var isLive = false
+    /// The file a live view shows, so opening the file again brings its tab forward.
+    var filePath: String?
 }
 
 /// A plugin asked to show one of its views in the sidebar; the token tells two requests
@@ -166,7 +172,7 @@ final class CommunityPluginHost {
     private(set) var pluginsWithSettings: Set<String> = []
     private(set) var commands: [CommunityPluginCommand] = []
     private(set) var ribbonActions: [CommunityPluginRibbonAction] = []
-    private(set) var pluginViews: [CommunityPluginView] = []
+    var pluginViews: [CommunityPluginView] = []
     var notices: [CommunityPluginNotice] = []
     var pendingMenu: CommunityPluginMenuRequest?
     /// The plugin panel as a sheet over the workspace.
@@ -190,6 +196,22 @@ final class CommunityPluginHost {
     private(set) var hasEditorSuggestions = false
     /// Whether plugins listen for typing in a note (`editor-change`).
     private(set) var hasEditorChangeListeners = false
+    /// Whether plugins listen for pastes and drops into a note (`editor-paste`, `editor-drop`).
+    private(set) var hasPasteListeners = false
+    private(set) var hasDropListeners = false
+    /// File extensions plugins show in a view of their own (`registerExtensions`), lowercased,
+    /// with the view's type.
+    private(set) var pluginFileExtensions: [String: String] = [:]
+    /// Whether a plugin shows some notes in a view of its own (it patched `setViewState`, as
+    /// Excalidraw does for its drawings), so Graphite asks before opening a note.
+    private(set) var pluginsTakeOverNotes = false
+    /// Bases view types plugins registered (`registerBasesView`), with their names.
+    private(set) var pluginBasesViews: [String: String] = [:]
+    /// The plugin view shown live, in its tab, by the runtime's own web view (one at a time).
+    var liveViewIdentifier: String?
+    /// Counts the times the panel or a settings page gave the web view back, so a live view's
+    /// tab shows it again.
+    var webViewReleaseCount = 0
     /// The latest change of the focused note sent to plugins, with the suggestions they
     /// answer for it; each waits for the one before, so plugins hear changes in order.
     @ObservationIgnored var typingRequest: (revision: Int, answer: Task<CommunityPluginSuggestion?, Never>)?
@@ -487,6 +509,12 @@ final class CommunityPluginHost {
         hasEditorMenuItems = false
         hasEditorSuggestions = false
         hasEditorChangeListeners = false
+        hasPasteListeners = false
+        hasDropListeners = false
+        pluginFileExtensions = [:]
+        pluginsTakeOverNotes = false
+        pluginBasesViews = [:]
+        liveViewIdentifier = nil
         typingRequest = nil
         lastCodeBlockCopies = [:]
         keptCopyOrder = []
@@ -628,6 +656,10 @@ final class CommunityPluginHost {
     /// Returns the web view to the window's parking place when no panel shows it.
     func parkWebViewIfDetached() {
         CommunityPluginWebViewPlacement.parkIfDetached(webView, in: parkingView)
+        // A live view's tab takes the web view back once the panel or a settings page let it go.
+        if liveViewIdentifier != nil {
+            Task { @MainActor [weak self] in self?.webViewReleaseCount += 1 }
+        }
     }
 
     /// The panel was closed by the person (a swipe, Done, or leaving a settings page).
@@ -886,7 +918,8 @@ final class CommunityPluginHost {
             pluginViews = (message["views"] as? [[String: Any]] ?? []).compactMap { view in
                 guard let identifier = view["leafIdentifier"] as? String else { return nil }
                 return CommunityPluginView(id: identifier, title: view["title"] as? String ?? "", viewType: view["viewType"] as? String ?? "",
-                                           icon: view["icon"] as? String ?? "", placement: CommunityPluginView.Placement(rawValue: view["placement"] as? String ?? "") ?? .tab)
+                                           icon: view["icon"] as? String ?? "", placement: CommunityPluginView.Placement(rawValue: view["placement"] as? String ?? "") ?? .tab,
+                                           isLive: view["isLive"] as? Bool == true, filePath: view["filePath"] as? String)
             }
             workspace?.forgetClosedPluginViews(keeping: Set(pluginViews.map(\.id)))
         case "view.reveal":
@@ -899,6 +932,19 @@ final class CommunityPluginHost {
         case "editor.listenersChanged":
             hasEditorSuggestions = message["hasEditorSuggestions"] as? Bool == true
             hasEditorChangeListeners = message["hasEditorChangeListeners"] as? Bool == true
+            hasPasteListeners = message["hasPasteListeners"] as? Bool == true
+            hasDropListeners = message["hasDropListeners"] as? Bool == true
+        case "fileViews.changed":
+            let extensions = message["extensions"] as? [String: String] ?? [:]
+            if extensions != pluginFileExtensions { pluginFileExtensions = extensions }
+            let takesOverNotes = message["takesOverNotes"] as? Bool == true
+            if takesOverNotes != pluginsTakeOverNotes { pluginsTakeOverNotes = takesOverNotes }
+        case "basesViews.changed":
+            var views: [String: String] = [:]
+            for view in message["views"] as? [[String: Any]] ?? [] {
+                if let viewType = view["viewType"] as? String { views[viewType] = view["name"] as? String ?? viewType }
+            }
+            if views != pluginBasesViews { pluginBasesViews = views }
         case "menus.changed":
             hasFileMenuItems = message["hasFileMenuItems"] as? Bool == true
             hasEditorMenuItems = message["hasEditorMenuItems"] as? Bool == true

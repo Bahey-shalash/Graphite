@@ -269,6 +269,10 @@ final class MarkdownTextView: UITextView {
     /// Tells the person that a pasted or dropped item could not be read; set by the coordinator.
     var reportUnreadableItem: (() -> Void)?
     var convertsPastedHTML = true
+    /// Community plugins that listen for pastes and drops (`editor-paste`, `editor-drop`); nil
+    /// while none does. Each answers whether a plugin took the paste or drop over.
+    var offerPasteToPlugins: ((_ text: String?, _ html: String?) async -> Bool)?
+    var offerDropToPlugins: ((_ files: [(name: String, type: String)], _ text: String?) async -> Bool)?
 
     /// Image types saved as they are; others are converted to PNG. HEIC is converted to
     /// JPEG because Obsidian does not show HEIC images.
@@ -298,6 +302,24 @@ final class MarkdownTextView: UITextView {
                 insertEncodedAttachment(of: image, stem: WorkspaceModel.pastedImageStem(), request: insertionRequest(at: selectedRange))
             case nil:
                 paste(itemProviders: pasteboard.itemProviders)
+            }
+            return
+        }
+        // Text plugins may take over (Link or Card makes a card of an address). The pasteboard is
+        // read now, while iOS allows it; Graphite pastes what it read if no plugin takes it.
+        if let offerPasteToPlugins, pasteboard.hasStrings {
+            let text = pasteboard.string
+            let htmlData = convertsPastedHTML ? pasteboard.data(forPasteboardType: UTType.html.identifier) : nil
+            let html = htmlData.flatMap { data in String(data: data, encoding: .utf8) }
+            let pastedRange = selectedRange
+            Task { [weak self] in
+                let isTakenOver = await offerPasteToPlugins(text, html)
+                guard let self, !isTakenOver else { return }
+                if let htmlData, htmlData.count <= HTMLToMarkdown.maximumConvertedLength {
+                    self.insertConvertedHTML(htmlData, plainText: text, at: pastedRange)
+                } else if let text, !text.isEmpty {
+                    self.insertText(text)
+                }
             }
             return
         }
@@ -360,7 +382,22 @@ final class MarkdownTextView: UITextView {
     /// Every item asks for the place the drop landed; the coordinator moves each one past
     /// the note's changes, including the items inserted before it.
     override func paste(itemProviders: [NSItemProvider]) {
-        let dropRequest = insertionRequest(at: selectedRange)
+        // Plugins that listen for drops hear of the files first, by name and type.
+        if let offerDropToPlugins {
+            let files = itemProviders.map { provider in
+                (name: provider.suggestedName ?? "", type: provider.registeredTypeIdentifiers.first.flatMap { identifier in UTType(identifier)?.preferredMIMEType } ?? "")
+            }
+            let request = insertionRequest(at: selectedRange)
+            Task { [weak self] in
+                guard !(await offerDropToPlugins(files, nil)), let self else { return }
+                self.insertDroppedItems(itemProviders, dropRequest: request)
+            }
+            return
+        }
+        insertDroppedItems(itemProviders, dropRequest: insertionRequest(at: selectedRange))
+    }
+
+    private func insertDroppedItems(_ itemProviders: [NSItemProvider], dropRequest: InsertionRequest) {
         for provider in itemProviders {
             if provider.hasItemConformingToTypeIdentifier(UTType.graphiteVaultItem.identifier) {
                 _ = provider.loadTransferable(type: VaultItemTransfer.self) { [weak self] result in
@@ -1255,6 +1292,8 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                 self.pendingInsertionRequests.remember(request)
                 insertAttachment(data, stem, fileExtension, request.range)
             }
+            textView.offerPasteToPlugins = actions.pluginPaste
+            textView.offerDropToPlugins = actions.pluginDrop
             textView.insertLinkToVaultFile = actions.insertLinkToVaultFile == nil ? nil : { [weak self] path, request in
                 guard let self, let insertLinkToVaultFile = self.actions.insertLinkToVaultFile else { return }
                 self.pendingInsertionRequests.remember(request)

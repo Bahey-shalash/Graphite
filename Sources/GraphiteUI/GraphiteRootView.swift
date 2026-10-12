@@ -441,10 +441,16 @@ public struct GraphiteRootView: View {
         let backgroundTask = BackgroundTaskAssertion(name: "Save open documents")
         Task {
             await save()
+            // Plugins' views of files (an Excalidraw drawing) save what they hold too, as when
+            // Obsidian closes; their writes go through the vault like any plugin write.
+            await workspace.communityPlugins.saveOpenFileViews()
             backgroundTask.end()
         }
         #else
-        Task { await save() }
+        Task {
+            await save()
+            await workspace.communityPlugins.saveOpenFileViews()
+        }
         #endif
     }
 

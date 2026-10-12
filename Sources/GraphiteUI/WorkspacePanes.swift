@@ -517,6 +517,7 @@ private struct TabDocumentView: View {
                                      isIndexComplete: workspace.hasCompletedIndexScan,
                                      open: { target in Task { await workspace.open(target) } },
                                      filesChanged: { paths in workspace.filesSavedOutsideEditors(paths) })
+                    .environment(\.communityPluginCodeBlocks, workspace.communityPlugins.isRuntimeRunning ? workspace.communityPlugins : nil)
                 }
             case .media:
                 // One player per file: its playback, size and duration are not carried over

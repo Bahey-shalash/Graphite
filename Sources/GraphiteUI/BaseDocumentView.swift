@@ -179,6 +179,8 @@ extension BaseQueryResult {
 struct BaseContainerView: View {
     let presentation: BasePresentation
     @Environment(\.accent) private var accent
+    /// The vault's plugins, when they run: they may show views of their own types.
+    @Environment(\.communityPluginCodeBlocks) private var pluginHost
     let contentVersion: Int
     let isIndexComplete: Bool
     let preferredViewName: String?
@@ -394,6 +396,10 @@ struct BaseContainerView: View {
             } actions: {
                 Button("Try Again") { Task { await model.reload() } }
             }
+        } else if let view = model.selectedView, case .unsupported(let typeName) = view.type, let pluginHost, pluginHost.pluginBasesViews[typeName] != nil {
+            // A view type a community plugin registered (TaskNotes' calendars and boards).
+            CommunityPluginBasesViewContent(host: pluginHost, viewType: typeName, view: view, source: model.source,
+                                            result: model.result?.view.id == view.id ? model.result : nil)
         } else if let view = model.selectedView, case .unsupported(let typeName) = view.type {
             ContentUnavailableView {
                 Label("“\(typeName)” Views Aren't Supported", systemImage: "questionmark.square.dashed")

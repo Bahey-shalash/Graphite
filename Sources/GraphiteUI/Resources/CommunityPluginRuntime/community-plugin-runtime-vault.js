@@ -545,9 +545,12 @@
         async create(path, data, options) {
             const normalizedPath = normalizePath(path);
             if (this.abstractFilesByPath.has(normalizedPath)) throw new Error('File already exists.');
-            await this.adapter.writeData(normalizedPath, { text: textFromData(data) }, { kind: 'absent' });
+            const text = textFromData(data);
+            await this.adapter.writeData(normalizedPath, { text }, { kind: 'absent' });
             if (options) await this.adapter.applyTimes(normalizedPath, options);
-            return this.getFileByPath(normalizedPath);
+            const file = this.getFileByPath(normalizedPath);
+            if (runtime.app && runtime.app.metadataCache.indexWrittenText) runtime.app.metadataCache.indexWrittenText(file, text);
+            return file;
         }
         async createBinary(path, data, options) {
             const normalizedPath = normalizePath(path);
@@ -562,7 +565,10 @@
             await this.adapter.mkdir(normalizedPath);
             return this.getFolderByPath(normalizedPath);
         }
-        async modify(file, data, options) { await this.adapter.write(file.path, data, options); }
+        async modify(file, data, options) {
+            await this.adapter.write(file.path, data, options);
+            if (runtime.app && runtime.app.metadataCache.indexWrittenText) runtime.app.metadataCache.indexWrittenText(file, textFromData(data));
+        }
         async modifyBinary(file, data, options) { await this.adapter.writeBinary(file.path, data, options); }
         async append(file, data, options) { await this.adapter.append(file.path, data, options); }
         async appendBinary(file, data, options) {
