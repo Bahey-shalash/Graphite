@@ -3,30 +3,26 @@ import AVFoundation
 import GraphiteCore
 import GraphiteApple
 
+/// Reading Options: the voice, how this passage is read, and its transcript with the word
+/// being spoken. Opened from the toolbar's reading controls, or by itself when a passage
+/// cannot be read or a scanned page needs checking before it is read.
 struct ReadAloudReader: View {
     @Bindable var reader: ReadAloudController
-    @State private var preview = ReadAloudSession(preferences: UserDefaults(suiteName: "com.graphite.study.readAloudSample") ?? .standard)
-    @State private var previewPreparation: Task<Void, Never>?
-    @State private var previewPreparationIdentifier: UUID?
-    @State private var previewError: String?
     @State private var showsScanReview = false
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.scenePhase) private var scenePhase
+
+    private var isPDFPassage: Bool { reader.sourcePageIndex != nil || reader.pdfSourceIsSelection }
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                voiceControls
-                Divider()
+            Group {
                 if reader.isPreparing {
                     ProgressView("Preparing your passage…").frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let errorMessage = reader.errorMessage {
                     ContentUnavailableView("Cannot Read This Passage", systemImage: "speaker.slash", description: Text(errorMessage))
                 } else {
-                    transcript
+                    options
                 }
-                Divider()
-                playbackControls
             }
             .navigationTitle(reader.title)
             #if os(iOS)
@@ -35,140 +31,79 @@ struct ReadAloudReader: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
+            .safeAreaInset(edge: .bottom) { playbackControls }
         }
-        .frame(minWidth: 320, idealWidth: 640, minHeight: 480, idealHeight: 720)
-        .onDisappear { stopPreview() }
+        .frame(minWidth: 320, idealWidth: 560, minHeight: 480, idealHeight: 760)
         .sheet(isPresented: $showsScanReview) {
             if let snapshot = reader.recognizedPDFPage, let identifier = reader.recognizedPageIdentifier {
                 ReadAloudScanReview(snapshot: snapshot, initialWordRange: reader.recognizedWordRange) { corrections, words in
-                    stopPreview()
                     reader.applyRecognizedPDFReview(corrections, words: words, pageIdentifier: identifier)
                 }
             }
         }
-        .onChange(of: reader.stopIdentifier) { _, _ in stopPreview() }
-        .onChange(of: scenePhase) { _, phase in if phase != .active { stopPreview() } }
-        .onChange(of: reader.session.state) { _, state in if state == .speaking { stopPreview() } }
-        .onReceive(NotificationCenter.default.publisher(for: AVSpeechSynthesizer.availableVoicesDidChangeNotification)) { _ in reader.session.refreshVoices() }
     }
 
-    private var voiceControls: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(reader.scopeDescription).font(.subheadline).foregroundStyle(.secondary)
-            HStack {
-                Picker("Voice", selection: Binding(get: { reader.session.chosenVoiceIdentifier }, set: { identifier in
-                    stopPreview(); reader.session.chooseVoice(identifier)
-                })) {
-                    Text(reader.session.automaticVoice.map { voice in "Automatic: \(voice.name) (\(voice.qualityDescription))" } ?? "Automatic").tag(String?.none)
-                    ForEach(reader.session.voices.filter { voice in voice.languageCode == reader.session.readingLanguage.split(separator: "-").first || voice.id == reader.session.chosenVoiceIdentifier }) { voice in
-                        Text("\(voice.name) (\(voice.qualityDescription))").tag(String?.some(voice.id))
-                    }
-                }
-                Menu("Preview", systemImage: "speaker.wave.2") {
-                    Button("Study Sample") { previewVoice() }
-                    Button("Current Passage") { previewVoice(usesCurrentPassage: true) }
-                        .disabled(reader.session.currentPassage == nil || reader.isPreparing || reader.errorMessage != nil)
-                    if preview.state == .speaking || preview.state == .paused || previewPreparation != nil {
-                        Button("Stop Preview", systemImage: "stop.fill") { stopPreview() }
-                    }
-                }
-                .disabled(reader.session.selectedVoiceIdentifier == nil || reader.isPreparing)
-            }
-            if preview.state == .speaking {
-                Text("Playing voice preview. Your reading position is paused.").font(.caption).foregroundStyle(.secondary)
-            } else if previewPreparation != nil {
-                ProgressView("Preparing voice preview…").font(.caption)
-            }
-            if reader.session.canImproveVoiceByDownloading {
-                Text("This is a compact voice. For a more natural one, download an Enhanced or Premium voice in Settings › Accessibility › Spoken Content › Voices.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            HStack {
-                Picker("Speed", selection: Binding(get: { reader.session.speed }, set: { speed in stopPreview(); reader.session.setSpeed(speed) })) {
-                    ForEach(ReadAloudVoiceSettings.speeds, id: \.self) { speed in Text(speed.formatted() + "×").tag(speed) }
-                }
-                Toggle("Follow Reading", isOn: $reader.followsReading).toggleStyle(.switch)
-            }
-            if reader.sourcePageIndex == nil && reader.scopeDescription != "Selected PDF text" {
-                Picker("Math Detail", selection: Binding(get: { reader.mathematicalStyle }, set: { style in
-                    stopPreview(); reader.chooseMathematicalStyle(style)
-                })) {
-                    Text("Concise").tag(MathematicalSpeechStyle.concise)
-                    Text("Detailed").tag(MathematicalSpeechStyle.detailed)
-                }
-                Text("Changing math detail prepares the chosen range again. Equations highlight as a whole.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            if reader.sourcePageIndex != nil || reader.scopeDescription == "Selected PDF text" {
-                if reader.recognizedPDFPage != nil {
-                    Picker("Recognized Order", selection: Binding(get: { reader.pdfReadingOrder }, set: { readingOrder in
-                        stopPreview(); reader.choosePDFReadingOrder(readingOrder)
-                    })) {
-                        Text("Page Layout").tag(PDFReadingOrder.layout)
-                        Text("Line Order").tag(PDFReadingOrder.file)
-                    }
-                    Text("Changing order recognizes this page again, clears temporary corrections and chosen words, and waits for Play.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Button("Review Recognized Words", systemImage: "text.magnifyingglass") {
-                        stopPreview(); reader.session.pause(); showsScanReview = true
-                    }
-                    .disabled(reader.isPreparing || reader.recognizedPageIdentifier == nil)
-                } else if reader.sourcePageIndex != nil {
-                    Picker("Reading Order", selection: Binding(get: { reader.pdfReadingOrder }, set: { readingOrder in
-                        stopPreview(); reader.choosePDFReadingOrder(readingOrder)
-                    })) {
-                        Text("Page Layout").tag(PDFReadingOrder.layout)
-                        Text("File Order").tag(PDFReadingOrder.file)
-                    }
-                    Text("Check columns and equations in the transcript before playing. Changing reading order prepares this page again and waits for Play.")
-                        .font(.caption).foregroundStyle(.secondary)
-                } else {
-                    Text("The selected pieces are read in their selection order. Check equations in the transcript before playing.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Button("Show in PDF", systemImage: "doc.text.magnifyingglass") {
-                    if reader.showPDFPassage() { dismiss() }
-                }
-                .disabled(!reader.canShowPDFPassage)
-            }
-            if let message = reader.session.message ?? preview.message ?? previewError {
-                Text(message).font(.callout).foregroundStyle(.orange).accessibilityIdentifier("readAloudMessage")
-            }
-            if let notice = reader.sourceHighlightNotice {
-                Text(notice).font(.caption).foregroundStyle(.secondary)
-            }
-            ForEach(reader.session.document?.notices ?? [], id: \.self) { notice in Text(notice).font(.caption).foregroundStyle(.secondary) }
-        }
-        .padding()
-    }
-
-    private var transcript: some View {
+    private var options: some View {
         ScrollViewReader { scroll in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 20) {
-                    ForEach(reader.session.document?.passages ?? []) { passage in
-                        Text(highlighted(passage))
-                            .font(.title3).lineSpacing(6)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(10)
-                            .background(passage.id == reader.session.passageIndex ? Color.accentColor.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: 10))
-                            .id(passage.id)
-                            .contextMenu {
-                                Button("Read From This Passage", systemImage: "play.fill") {
-                                    stopPreview(); reader.session.move(to: passage.id); reader.session.play()
-                                }
-                            }
+            Form {
+                ReadAloudVoiceSettings(reader: reader)
+                Section {
+                    Toggle("Follow Reading", isOn: $reader.followsReading)
+                    if !isPDFPassage {
+                        Picker("Math", selection: Binding(get: { reader.mathematicalStyle }, set: { style in reader.chooseMathematicalStyle(style) })) {
+                            Text("Concise").tag(MathematicalSpeechStyle.concise)
+                            Text("Detailed").tag(MathematicalSpeechStyle.detailed)
+                        }
+                    } else if reader.sourcePageIndex != nil {
+                        Picker(reader.recognizedPDFPage == nil ? "Reading Order" : "Recognized Order",
+                               selection: Binding(get: { reader.pdfReadingOrder }, set: { readingOrder in reader.choosePDFReadingOrder(readingOrder) })) {
+                            Text("Page Layout").tag(PDFReadingOrder.layout)
+                            Text(reader.recognizedPDFPage == nil ? "File Order" : "Line Order").tag(PDFReadingOrder.file)
+                        }
                     }
-                }.padding()
+                    if reader.recognizedPDFPage != nil {
+                        Button("Review Recognized Words", systemImage: "text.magnifyingglass") {
+                            reader.session.pause(); showsScanReview = true
+                        }
+                        .disabled(reader.recognizedPageIdentifier == nil)
+                    }
+                    if isPDFPassage {
+                        Button("Show in PDF", systemImage: "doc.text.magnifyingglass") {
+                            if reader.showPDFPassage() { dismiss() }
+                        }
+                        .disabled(!reader.canShowPDFPassage)
+                    }
+                } header: {
+                    Text(reader.scopeDescription.isEmpty ? "Reading" : reader.scopeDescription)
+                } footer: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if !isPDFPassage { Text("Concise reads equations the way you would say them; Detailed names every part. Changing it prepares the passage again.") }
+                        if let notice = reader.sourceHighlightNotice { Text(notice) }
+                        ForEach(reader.session.document?.notices ?? [], id: \.self) { notice in Text(notice) }
+                    }
+                }
+                Section("Transcript") {
+                    ForEach(reader.session.document?.passages ?? []) { passage in
+                        Button {
+                            reader.session.move(to: passage.id)
+                            reader.session.play()
+                        } label: {
+                            Text(highlighted(passage))
+                                .font(.body)
+                                .foregroundStyle(.primary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .listRowBackground(passage.id == reader.session.passageIndex ? Color.accentColor.opacity(0.12) : nil)
+                        .accessibilityHint("Reads from this passage")
+                        .id(passage.id)
+                    }
+                }
             }
-            .onScrollPhaseChange { _, phase in
-                if phase == .interacting { reader.suspendFollowing() }
-            }
+            .onAppear { scroll.scrollTo(reader.session.passageIndex, anchor: .center) }
             .onChange(of: reader.session.passageIndex) { _, index in
-                if reader.followsReading { withAnimation { scroll.scrollTo(index, anchor: .center) } }
-            }
-            .onChange(of: reader.followsReading) { _, followsReading in
-                if followsReading { withAnimation { scroll.scrollTo(reader.session.passageIndex, anchor: .center) } }
+                if reader.followsReading { withAnimation(GraphiteMotion.animation(.default)) { scroll.scrollTo(index, anchor: .center) } }
             }
         }
     }
@@ -184,65 +119,23 @@ struct ReadAloudReader: View {
     }
 
     private var playbackControls: some View {
-        HStack(spacing: 24) {
-            Button("Previous Sentence", systemImage: "backward.end.fill") { stopPreview(); reader.session.moveToPreviousSentence() }
+        HStack(spacing: 28) {
+            Button("Previous Sentence", systemImage: "backward.end.fill") { reader.session.moveToPreviousSentence() }
                 .disabled(!reader.session.canMoveToPreviousSentence)
-            Button(reader.session.state == .speaking ? "Pause" : "Play", systemImage: reader.session.state == .speaking ? "pause.fill" : "play.fill") {
-                stopPreview()
-                if reader.session.state == .speaking { reader.session.pause() } else { reader.session.play() }
-            }
-            .buttonStyle(.borderedProminent)
-            .accessibilityIdentifier("readAloudPlayPause")
-            Button("Next Sentence", systemImage: "forward.end.fill") { stopPreview(); reader.session.moveToNextSentence() }
+                .frame(minWidth: 44, minHeight: 44)
+            ReadAloudPlayPauseButton(reader: reader, prominent: true)
+            Button("Next Sentence", systemImage: "forward.end.fill") { reader.session.moveToNextSentence() }
                 .disabled(!reader.session.canMoveToNextSentence)
-            Button("Repeat Passage", systemImage: "repeat") { stopPreview(); reader.session.repeatPassage() }
-            Button("Stop", systemImage: "stop.fill") { stopPreview(); reader.stop() }
+                .frame(minWidth: 44, minHeight: 44)
+            Button("Repeat Passage", systemImage: "repeat") { reader.session.repeatPassage() }
+                .frame(minWidth: 44, minHeight: 44)
         }
         .labelStyle(.iconOnly)
         .font(.title2)
-        .padding()
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .background(.bar)
         .disabled(reader.isPreparing || reader.session.document == nil || reader.errorMessage != nil)
-    }
-
-    private func previewVoice(usesCurrentPassage: Bool = false) {
-        stopPreview()
-        reader.session.pause()
-        preview.refreshVoices()
-        guard let voiceIdentifier = reader.session.selectedVoiceIdentifier else { return }
-        preview.chooseVoice(voiceIdentifier)
-        preview.setSpeed(reader.session.speed)
-        let passageText = usesCurrentPassage ? reader.session.currentPassage?.text : nil
-        let identifier = UUID()
-        previewPreparationIdentifier = identifier
-        previewPreparation = Task {
-            do {
-                let sample: ReadAloudDocument
-                if let passageText {
-                    // This is already prepared speech, including expanded math.
-                    sample = try ReadAloudDocument.plainText(passageText)
-                } else {
-                    sample = try await reader.prepareVoiceSample()
-                }
-                guard !Task.isCancelled, previewPreparationIdentifier == identifier else { return }
-                preview.load(sample)
-                preview.play()
-            } catch {
-                guard !Task.isCancelled, previewPreparationIdentifier == identifier else { return }
-                previewError = error.localizedDescription
-            }
-            if previewPreparationIdentifier == identifier {
-                previewPreparationIdentifier = nil
-                previewPreparation = nil
-            }
-        }
-    }
-
-    private func stopPreview() {
-        previewPreparation?.cancel()
-        previewPreparation = nil
-        previewPreparationIdentifier = nil
-        previewError = nil
-        preview.stop()
     }
 }
 

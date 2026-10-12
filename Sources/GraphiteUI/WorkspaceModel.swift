@@ -138,7 +138,7 @@ final class WorkspaceModel {
     }
     let preferences = GraphitePreferences()
     let recording = RecordingController()
-    let readAloud = ReadAloudController()
+    let readAloud = ReadAloudController(playsWhenPrepared: true)
     /// Set by indexing when a scan of the whole vault finishes; tests that fill the index
     /// themselves set it too.
     var hasCompletedIndexScan = false

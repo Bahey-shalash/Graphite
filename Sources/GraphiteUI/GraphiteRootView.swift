@@ -284,11 +284,11 @@ public struct GraphiteRootView: View {
                     .tint(.primary)
             }
         }
-        if workspace.readAloud.session.document != nil || workspace.readAloud.isPreparing {
-            ToolbarItem(placement: .primaryAction) {
-                Button("Reading Controls", systemImage: "speaker.wave.2") { workspace.readAloud.showsReader = true }
+        if workspace.readAloud.isActive {
+            ToolbarItemGroup(placement: .primaryAction) {
+                ReadAloudToolbarControls(reader: workspace.readAloud, isDisabled: workspace.recording.state.isActive,
+                                         accentColor: workspace.preferences.accentColor)
                     .tint(.primary)
-                    .disabled(workspace.recording.state.isActive)
             }
         }
     }

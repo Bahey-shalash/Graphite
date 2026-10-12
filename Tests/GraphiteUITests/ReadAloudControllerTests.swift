@@ -19,12 +19,12 @@ private final class ControllerTestSpeech: ReadAloudSpeaking {
 
 @MainActor
 final class ReadAloudControllerTests: XCTestCase {
-    private func makeReader() throws -> (ReadAloudController, ControllerTestSpeech) {
+    private func makeReader(playsWhenPrepared: Bool = false) throws -> (ReadAloudController, ControllerTestSpeech) {
         let speech = ControllerTestSpeech()
         let preferences = try XCTUnwrap(UserDefaults(suiteName: "ReadAloudControllerTests-\(UUID().uuidString)"))
         let session = ReadAloudSession(speech: speech, preferences: preferences)
         session.chooseVoice("test")
-        let reader = ReadAloudController(session: session, preferences: preferences)
+        let reader = ReadAloudController(session: session, preferences: preferences, playsWhenPrepared: playsWhenPrepared)
         reader.choosePDFReadingOrder(.file)
         return (reader, speech)
     }
@@ -260,6 +260,30 @@ final class ReadAloudControllerTests: XCTestCase {
             }
         }
         return count
+    }
+
+    /// In the app, choosing Read Document starts reading as soon as the passage is ready and
+    /// keeps the page in view; rebuilding it for another math style waits for Play.
+    func testAppReadingStartsWhenPreparedWithoutCoveringThePage() async throws {
+        let (reader, speech) = try makeReader(playsWhenPrepared: true)
+        let path = try VaultPath("Started.md")
+        reader.readMarkdown("## Start\n\nRead $x^2$ now.", path: path)
+        XCTAssertTrue(reader.isActive)
+        try await waitForPreparation(reader)
+        XCTAssertEqual(reader.session.state, .speaking)
+        XCTAssertEqual(speech.requests.map(\.text), ["Start"])
+        XCTAssertFalse(reader.showsReader, "The options sheet must not cover the page being read.")
+        reader.chooseMathematicalStyle(.detailed)
+        try await waitForPreparation(reader)
+        XCTAssertEqual(reader.session.state, .idle)
+        XCTAssertEqual(speech.requests.count, 1)
+        reader.readMarkdown("", path: path)
+        try await waitForPreparation(reader)
+        XCTAssertNotNil(reader.errorMessage)
+        XCTAssertTrue(reader.showsReader, "A passage that cannot be read says why.")
+        XCTAssertTrue(reader.isActive)
+        reader.clear()
+        XCTAssertFalse(reader.isActive)
     }
 
     func testMarkdownPreparationIsReviewableAndLatestRequestWins() async throws {

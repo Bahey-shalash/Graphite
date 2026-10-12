@@ -46,7 +46,7 @@ struct ReadAloudVoiceSettings: View {
                 .disabled(isRequestingPersonalVoice)
             }
         } header: {
-            Text("Voice")
+            Text("Voice and Speed")
         } footer: {
             VStack(alignment: .leading, spacing: 6) {
                 if session.canImproveVoiceByDownloading {

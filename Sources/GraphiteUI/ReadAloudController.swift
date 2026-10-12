@@ -47,18 +47,25 @@ final class ReadAloudController {
     @ObservationIgnored private var preparation: Task<Void, Never>?
     @ObservationIgnored private var preparationIdentifier: UUID?
     @ObservationIgnored private var pdfContinuation: (() -> Void)?
+    /// In the app a chosen passage starts as soon as it is ready, like Play in any audio app;
+    /// tests prepare first and play explicitly. Rebuilding a passage for a new math or PDF
+    /// reading order, and a scanned page that needs review, still wait for Play.
+    @ObservationIgnored private let playsWhenPrepared: Bool
+    @ObservationIgnored private var playsCurrentPreparation = false
 
-    init(session: ReadAloudSession = ReadAloudSession(), preferences: UserDefaults = .standard) {
+    init(session: ReadAloudSession = ReadAloudSession(), preferences: UserDefaults = .standard, playsWhenPrepared: Bool = false) {
         self.session = session
         self.preferences = preferences
+        self.playsWhenPrepared = playsWhenPrepared
         mathematicalStyle = preferences.string(forKey: "readAloudMathematicalStyle").flatMap(MathematicalSpeechStyle.init(rawValue:)) ?? .concise
         pdfReadingOrder = preferences.string(forKey: "readAloudPDFReadingOrder").flatMap(PDFReadingOrder.init(rawValue:)) ?? .layout
         session.didFinishDocument = { [weak self] in self?.continuePDFIfNeeded() }
     }
 
     func readMarkdown(_ markdown: String, path: VaultPath, range: NSRange? = nil,
-                      scope: String = "Whole note", paletteHexByName: [String: String] = [:]) {
+                      scope: String = "Whole note", paletteHexByName: [String: String] = [:], startsPlaying: Bool = true) {
         begin(title: path.stem, sourceIdentifier: path.rawValue, scope: scope)
+        playsCurrentPreparation = playsWhenPrepared && startsPlaying
         markdownRequest = ReadAloudMarkdownRequest(sourceText: markdown, path: path, selectedRange: range,
                                                   scopeDescription: scope, paletteHexByName: paletteHexByName)
         let identifier = preparationIdentifier
@@ -83,7 +90,7 @@ final class ReadAloudController {
         preferences.set(style.rawValue, forKey: "readAloudMathematicalStyle")
         guard let request = markdownRequest else { return }
         readMarkdown(request.sourceText, path: request.path, range: request.selectedRange,
-                     scope: request.scopeDescription, paletteHexByName: request.paletteHexByName)
+                     scope: request.scopeDescription, paletteHexByName: request.paletteHexByName, startsPlaying: false)
     }
 
     func prepareVoiceSample() async throws -> ReadAloudDocument {
@@ -98,6 +105,7 @@ final class ReadAloudController {
         guard let pdf = sourcePDF, let request = pdfRequest, let pageIndex = sourcePageIndex else { return }
         guard sourcePDFRevision == pdf.changeVersion else { documentDidChange(pdf.location.path); return }
         begin(title: title, sourceIdentifier: pdf.location.path, scope: scopeDescription)
+        playsCurrentPreparation = false
         sourcePDF = pdf
         sourcePDFRevision = pdf.changeVersion
         pdfRequest = request
@@ -249,6 +257,7 @@ final class ReadAloudController {
         recognizedWordRange = nil
         sourceIdentifier = nil
         sourcePageIndex = nil
+        errorMessage = nil
         showsReader = false
     }
 
@@ -271,6 +280,9 @@ final class ReadAloudController {
         return pdfSource?.highlights(for: range) ?? []
     }
 
+    /// A passage is loaded, being prepared, or could not be prepared and says why.
+    var isActive: Bool { session.document != nil || isPreparing || errorMessage != nil }
+
     func suspendFollowing() { followsReading = false }
 
     func suspendFollowing(in identifier: String) {
@@ -284,6 +296,9 @@ final class ReadAloudController {
     func shouldFollow(_ pdf: PDFSession) -> Bool {
         sourcePDF === pdf && followsReading && session.state == .speaking
     }
+
+    /// The passage is text selected in a PDF rather than whole pages.
+    var pdfSourceIsSelection: Bool { sourcePageIndex == nil && sourcePDF != nil }
 
     var canShowPDFPassage: Bool {
         guard let pdf = sourcePDF, let view = pdf.pdfView else { return false }
@@ -328,7 +343,10 @@ final class ReadAloudController {
         recognizedWordRange = nil
         errorMessage = nil
         isPreparing = true
-        showsReader = true
+        // The app keeps the page in view and shows the controls in the toolbar; the options
+        // sheet opens by itself only when something needs the person's attention.
+        showsReader = !playsWhenPrepared
+        playsCurrentPreparation = playsWhenPrepared
         preparationIdentifier = UUID()
         session.refreshVoices()
     }
@@ -399,17 +417,20 @@ final class ReadAloudController {
             pdfContinuation = { [weak self, pdf] in self?.loadPDFPage(pdf, pageIndex: pageIndex + 1, lastPageIndex: lastPageIndex,
                 range: range, playsWhenReady: true) }
         }
-        finishPreparing(document)
         // Recognized text has not been reviewed simply because the previous page
         // finished. Each scan waits for an explicit Play after preparation.
-        if playsWhenReady && snapshot.recognition == nil { session.play() }
+        finishPreparing(document, needsReview: snapshot.recognition != nil)
+        if playsWhenReady && snapshot.recognition == nil && session.state != .speaking { session.play() }
     }
 
-    private func finishPreparing(_ document: ReadAloudDocument) {
+    private func finishPreparing(_ document: ReadAloudDocument, needsReview: Bool = false) {
         isPreparing = false
         preparation = nil
         session.load(document)
-        // The user reviews the range and voice first. Reading begins with Play.
+        let plays = playsCurrentPreparation && !needsReview
+        playsCurrentPreparation = false
+        if plays { session.play() }
+        if needsReview || session.message != nil { showsReader = true }
     }
 
     private func failed(_ error: Error, identifier: UUID?) {
@@ -417,7 +438,9 @@ final class ReadAloudController {
         isPreparing = false
         preparation = nil
         pdfContinuation = nil
+        playsCurrentPreparation = false
         errorMessage = error.localizedDescription
+        showsReader = true
     }
 }
 
