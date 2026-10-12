@@ -48,6 +48,17 @@ async function startRuntime(options) {
     if (!window.CSS.escape) window.CSS.escape = (value) => String(value).replace(/[^a-zA-Z0-9_-]/g, (character) => '\\' + character);
     // WebKit scrolls an element into view; jsdom has no layout and no such method.
     if (!window.Element.prototype.scrollIntoView) window.Element.prototype.scrollIntoView = () => {};
+    // WebKit reports when an element is on screen (Tasks draws its query results only then);
+    // jsdom has no layout, so every observed element counts as on screen.
+    if (!window.IntersectionObserver) {
+        window.IntersectionObserver = class IntersectionObserverStandIn {
+            constructor(callback) { this.callback = callback; }
+            observe(target) { setTimeout(() => this.callback([{ target, isIntersecting: true, intersectionRatio: 1 }], this), 0); }
+            unobserve() {}
+            disconnect() {}
+            takeRecords() { return []; }
+        };
+    }
     const consoleMessages = [];
     for (const level of ['log', 'info', 'warn', 'error', 'debug']) {
         window.console[level] = (...messageParts) => consoleMessages.push({ level, text: messageParts.map((part) => (part && part.stack) || String(part)).join(' ') });

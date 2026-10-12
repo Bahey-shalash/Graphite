@@ -195,3 +195,20 @@ pre code { display: block; padding: var(--size-4-3); overflow: auto; }
 .internal-link { color: var(--text-accent); text-decoration: none; }
 .internal-link.is-unresolved { opacity: 0.6; }
 .graphite-plugin-error { color: var(--text-error); white-space: pre-wrap; }
+
+/* Plugins' code blocks, drawn off screen for the note's reading view (community-plugin-runtime-reading.js) */
+/* In the page's view, where plugins that draw only what is on screen (Tasks) see them, but
+   transparent and behind everything: the page shows them only through Graphite's copies. */
+.graphite-reading-blocks { position: fixed; left: 0; top: 0; width: 0; height: 0; overflow: visible; opacity: 0; pointer-events: none; z-index: -1; }
+.graphite-reading-block { position: absolute; left: 0; top: 0; }
+
+/* What plugins draw into notes: tables and task lists as Obsidian's reading view shows them */
+.markdown-rendered table { border-collapse: collapse; margin: var(--size-4-2) 0; }
+.markdown-rendered th, .markdown-rendered td { border: var(--border-width) solid var(--background-modifier-border); padding: var(--size-2-3) var(--size-4-3); text-align: left; vertical-align: top; }
+.markdown-rendered th { font-weight: var(--font-semibold); background: var(--background-secondary); }
+.markdown-rendered ul, .markdown-rendered ol { padding-left: 1.6em; margin: var(--size-4-1) 0; }
+.markdown-rendered ul.contains-task-list { list-style: none; padding-left: 0.4em; }
+.markdown-rendered li.task-list-item { list-style: none; }
+.markdown-rendered input.task-list-item-checkbox { width: 1.1em; height: 1.1em; margin: 0 0.5em 0 0; vertical-align: -0.15em; accent-color: var(--interactive-accent); }
+.markdown-rendered li.is-checked, .markdown-rendered li[data-task="x"] { color: var(--text-muted); }
+.markdown-rendered h1, .markdown-rendered h2, .markdown-rendered h3, .markdown-rendered h4 { margin: var(--size-4-3) 0 var(--size-4-2); line-height: var(--line-height-tight); }

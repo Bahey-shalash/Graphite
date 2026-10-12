@@ -17,6 +17,10 @@ public indirect enum NotePreviewBlock: Equatable, Sendable {
     case baseDefinition(String)
     /// A `$$…$$` block on lines of its own, source included; centered like Obsidian's.
     case displayMath(String)
+    /// A fenced code block in a language a community plugin draws (`registerMarkdownCodeBlockProcessor`),
+    /// such as ```` ```dataview ````: the language as the plugin registered it, and the
+    /// code between the fences.
+    case pluginCodeBlock(language: String, source: String)
 }
 
 public enum NotePreviewDocument {
@@ -43,6 +47,9 @@ public enum NotePreviewDocument {
         public let lineStartOffsets: [Int]
         /// The blocks of a callout's body, located likewise. Empty for other blocks.
         public let body: [LocatedBlock]
+        /// How many lines of the body the block spans, fences included; 1 for blocks other
+        /// than a plugin's code block, which is the only one that needs it.
+        public var lineCount = 1
     }
 
     /// Splits a note body (frontmatter already removed) into reading-view blocks.
@@ -52,8 +59,16 @@ public enum NotePreviewDocument {
         locatedBlocks(from: body).map(\.block)
     }
 
+    /// The language of a fenced code block as Obsidian gives it to code block processors:
+    /// the first word of the fence's info text, so ```` ```dataview table ```` is `dataview`.
+    public static func codeBlockLanguage(ofFenceInfo info: String) -> String {
+        String(info.prefix { character in !character.isWhitespace })
+    }
+
     /// The blocks of `blocks(from:)`, each with where its lines start in `body`.
-    public static func locatedBlocks(from body: String) -> [LocatedBlock] {
+    /// - Parameter pluginCodeBlockLanguages: Languages community plugins draw; a fenced
+    ///   block in one of them becomes a block of its own instead of staying code.
+    public static func locatedBlocks(from body: String, pluginCodeBlockLanguages: Set<String> = []) -> [LocatedBlock] {
         let commentRanges = ObsidianInlineMarkup.commentRanges(in: body)
         let bodyOffsets = ReplacedTextOffsets(replacements: commentRanges.map { commentRange in (commentRange, 0) })
         var lines: [String] = []
@@ -65,10 +80,10 @@ public enum NotePreviewDocument {
             lineStart += line.utf16.count + 1
             lines.append(line.hasSuffix("\r") ? String(line.dropLast()) : line)
         }
-        return blocks(fromLines: lines, lineStartOffsets: lineStartOffsets, calloutDepth: 0)
+        return blocks(fromLines: lines, lineStartOffsets: lineStartOffsets, calloutDepth: 0, pluginCodeBlockLanguages: pluginCodeBlockLanguages)
     }
 
-    private static func blocks(fromLines lines: [String], lineStartOffsets: [Int], calloutDepth: Int) -> [LocatedBlock] {
+    private static func blocks(fromLines lines: [String], lineStartOffsets: [Int], calloutDepth: Int, pluginCodeBlockLanguages: Set<String>) -> [LocatedBlock] {
         let mathLines = DisplayMathLines(lines)
         var blocks: [LocatedBlock] = []
         var pendingMarkdown: [String] = []
@@ -98,9 +113,16 @@ public enum NotePreviewDocument {
                 var closingIndex = lineIndex + 1
                 while closingIndex < lines.count && !CodeFence.closes(fence, lines[closingIndex].trimmingCharacters(in: .whitespaces)) { closingIndex += 1 }
                 let lastFenceLineIndex = min(closingIndex, lines.count - 1)
+                let code = lines[lineIndex...lastFenceLineIndex].dropFirst().dropLast(closingIndex < lines.count ? 1 : 0).joined(separator: "\n")
+                // Matched as written, as Obsidian matches a processor's language.
+                let pluginLanguage = codeBlockLanguage(ofFenceInfo: info)
                 if language == "base" {
                     flushMarkdown()
-                    append(.baseDefinition(lines[lineIndex...lastFenceLineIndex].dropFirst().dropLast(closingIndex < lines.count ? 1 : 0).joined(separator: "\n")), startingAtLine: lineIndex)
+                    append(.baseDefinition(code), startingAtLine: lineIndex)
+                } else if !pluginLanguage.isEmpty, pluginCodeBlockLanguages.contains(pluginLanguage) {
+                    flushMarkdown()
+                    blocks.append(LocatedBlock(block: .pluginCodeBlock(language: pluginLanguage, source: code), startOffset: lineStartOffsets[lineIndex],
+                                               lineStartOffsets: [], body: [], lineCount: lastFenceLineIndex - lineIndex + 1))
                 } else {
                     appendMarkdown(lineIndex...lastFenceLineIndex)
                 }
@@ -143,7 +165,8 @@ public enum NotePreviewDocument {
                     bodyLineStartOffsets.append(lineStartOffsets[bodyIndex] + quoteMarkerLength)
                     bodyIndex += 1
                 }
-                let body = Self.blocks(fromLines: bodyLines, lineStartOffsets: bodyLineStartOffsets, calloutDepth: calloutDepth + 1)
+                let body = Self.blocks(fromLines: bodyLines, lineStartOffsets: bodyLineStartOffsets, calloutDepth: calloutDepth + 1,
+                                       pluginCodeBlockLanguages: pluginCodeBlockLanguages)
                 blocks.append(LocatedBlock(block: .callout(type: callout.type, title: callout.title, folding: callout.folding, body: body.map(\.block)),
                                            startOffset: lineStartOffsets[lineIndex], lineStartOffsets: [], body: body))
                 lineIndex = bodyIndex

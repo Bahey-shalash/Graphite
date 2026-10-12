@@ -138,7 +138,12 @@ final class CommunityPluginMessageReceiver: NSObject, WKScriptMessageHandlerWith
     /// The runtime's page stays where it is. Web links plugins open go to the browser.
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
         guard let address = navigationAction.request.url else { return .cancel }
-        if address.scheme == CommunityPluginSchemeHandler.scheme { return navigationAction.targetFrame?.isMainFrame == false || address.host == CommunityPluginSchemeHandler.runtimeHost ? .allow : .cancel }
+        if address.scheme == CommunityPluginSchemeHandler.scheme {
+            // Frames plugins make may load vault files; the page itself is only ever the
+            // runtime's, so a link that would replace it (and end every plugin) is refused.
+            if navigationAction.targetFrame?.isMainFrame == false { return .allow }
+            return address.host == CommunityPluginSchemeHandler.runtimeHost && address.path == CommunityPluginSchemeHandler.runtimePageAddress?.path ? .allow : .cancel
+        }
         if address.scheme == "about" { return .allow }
         if let scheme = address.scheme?.lowercased(), ["http", "https", "mailto"].contains(scheme), navigationAction.navigationType == .linkActivated || navigationAction.targetFrame == nil {
             ExternalLinkOpener.open(address)

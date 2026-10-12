@@ -40,6 +40,23 @@ final class NotePreviewDocumentTests: XCTestCase {
         XCTAssertEqual(blocks[8], .heading(level: 3, text: "General Concepts", anchor: "general concepts"))
     }
 
+    func testCodeBlocksInLanguagesPluginsDrawBecomeBlocksOfTheirOwn() {
+        let body = "Intro\n\n```dataview table\nTABLE rating\n```\n> [!note] Tasks\n> ```tasks\n> not done\n> ```\n```swift\nlet x = 1\n```\n```Dataview\nkept as code\n```\n"
+        let located = NotePreviewDocument.locatedBlocks(from: body, pluginCodeBlockLanguages: ["dataview", "tasks"])
+        guard located.count == 4 else { return XCTFail("Expected 4 blocks, got \(located.map(\.block))") }
+        XCTAssertEqual(located[0].block, .markdown("Intro\n"))
+        // The language is the first word of the fence's info, as Obsidian gives it to processors.
+        XCTAssertEqual(located[1].block, .pluginCodeBlock(language: "dataview", source: "TABLE rating"))
+        XCTAssertEqual(located[1].startOffset, ("Intro\n\n" as NSString).length)
+        XCTAssertEqual(located[1].lineCount, 3)
+        guard case .callout(_, _, _, let calloutBody) = located[2].block else { return XCTFail("Expected a callout, got \(located[2].block)") }
+        XCTAssertEqual(calloutBody, [.pluginCodeBlock(language: "tasks", source: "not done")])
+        // Other languages, and a language written in other capitals, stay code.
+        XCTAssertEqual(located[3].block, .markdown("```swift\nlet x = 1\n```\n```Dataview\nkept as code\n```\n"))
+        XCTAssertEqual(NotePreviewDocument.blocks(from: body).filter { block in if case .pluginCodeBlock = block { true } else { false } }, [],
+                       "Without plugin languages nothing changes.")
+    }
+
     func testOutlineSkipsCode() {
         let outline = NotePreviewDocument.outline(of: "# One\n```\n# Code\n```\n## Two  \n")
         XCTAssertEqual(outline.map(\.text), ["One", "Two"])

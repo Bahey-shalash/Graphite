@@ -200,6 +200,9 @@ private struct LivePreviewBlockStack: View {
             AnyView(BaseCodeBlockView(yaml: yaml, context: environment.baseContext))
         case .displayMath(let markdown):
             AnyView(RenderedMarkdownBlock(markdown: markdown, environment: environment).frame(maxWidth: .infinity))
+        case .pluginCodeBlock(let language, let source):
+            // Blocks here are split without plugin languages, so this does not occur; shown as code.
+            AnyView(RenderedMarkdownBlock(markdown: "```" + language + "\n" + source + "\n```", environment: environment))
         }
     }
 }

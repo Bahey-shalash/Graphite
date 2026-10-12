@@ -76,6 +76,7 @@ struct MarkdownPane: View {
                                 toggleTask: { [session] note, location in await workspace.toggleReadingTask(at: location, in: note, shownBy: session) })
                 .environment(\.readingImageActions, ReadingImageActions(providerIdentity: ObjectIdentifier(workspace),
                                                                         viewImage: viewImage, editDrawing: drawingEditor, drawOnImage: imageDrawing))
+                .environment(\.communityPluginCodeBlocks, workspace.communityPlugins.isRuntimeRunning ? workspace.communityPlugins : nil)
             } else {
                 NativeMarkdownEditor(session: session, configuration: editorConfiguration, environment: livePreviewEnvironment,
                                      headingScrollRequest: document.headingScrollRequest, actions: editorActions,
@@ -195,7 +196,8 @@ struct MarkdownPane: View {
         ReadingConfiguration(usesReadableLineLength: preferences.usesReadableLineLength, usesStrictLineBreaks: workspace.vaultSettings.usesStrictLineBreaks,
                              colorsEnabled: preferences.isEnabled(.colors), paletteHexByName: paletteHexByName,
                              showsProperties: preferences.isEnabled(.properties), declaredPropertyTypes: session.declaredPropertyTypes, inlineTitle: inlineTitle,
-                             textSize: noteTextSize, drawingVersion: workspace.drawingVersion, indexVersion: workspace.indexVersion)
+                             textSize: noteTextSize, drawingVersion: workspace.drawingVersion, indexVersion: workspace.indexVersion,
+                             pluginCodeBlockLanguages: workspace.communityPlugins.codeBlockLanguages)
     }
 
     /// The note's name above its text, written as the tab and the title bar write it, so the

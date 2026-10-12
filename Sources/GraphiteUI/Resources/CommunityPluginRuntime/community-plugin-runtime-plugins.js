@@ -170,6 +170,20 @@
     runtime.markdownPostProcessors = [];
     runtime.codeBlockProcessors = new Map();
 
+    let isCodeBlockLanguageNotificationScheduled = false;
+    /// Tells Graphite which code block languages plugins draw, once per turn of changes:
+    /// its reading view draws blocks in those languages through their plugin.
+    runtime.codeBlockLanguagesChanged = function codeBlockLanguagesChanged() {
+        if (isCodeBlockLanguageNotificationScheduled) return;
+        isCodeBlockLanguageNotificationScheduled = true;
+        Promise.resolve().then(() => {
+            isCodeBlockLanguageNotificationScheduled = false;
+            const owners = {};
+            for (const [language, registered] of runtime.codeBlockProcessors) owners[language] = registered.pluginIdentifier;
+            hostBridge.notify('codeBlocks.changed', { languages: Array.from(runtime.codeBlockProcessors.keys()), owners });
+        });
+    };
+
     function postProcessorContext(element, sourcePath, component, markdown) {
         const frontmatterInformation = typeof markdown === 'string' ? exportedApi.getFrontMatterInfo(markdown) : null;
         let frontmatter = null;
@@ -314,8 +328,12 @@
         registerMarkdownCodeBlockProcessor(language, handler, sortOrder) {
             const registered = { handler, sortOrder: sortOrder || 0, pluginIdentifier: this.manifest.id };
             runtime.codeBlockProcessors.set(language, registered);
-            runtime.reportUnsupportedFeature('Drawing “' + language + '” code blocks in notes', this.manifest.id);
-            this.register(() => { if (runtime.codeBlockProcessors.get(language) === registered) runtime.codeBlockProcessors.delete(language); });
+            runtime.codeBlockLanguagesChanged();
+            this.register(() => {
+                if (runtime.codeBlockProcessors.get(language) !== registered) return;
+                runtime.codeBlockProcessors.delete(language);
+                runtime.codeBlockLanguagesChanged();
+            });
             return handler;
         }
 
@@ -674,6 +692,7 @@
             const app = runtime.app;
             if (!app) return {};
             app.workspace.trigger('quit', { add() {}, cancel() {} });
+            if (runtime.releaseAllCodeBlocks) runtime.releaseAllCodeBlocks();
             for (const pluginIdentifier of Object.keys(app.plugins.plugins)) await app.plugins.unloadPlugin(pluginIdentifier);
             runtime.pluginSurface.handleClosedByPerson();
             return {};
@@ -773,6 +792,9 @@
             }
         }
     }
+
+    /// Later runtime files add their own messages here.
+    runtime.messageHandlers = messageHandlers;
 
     /// The one entry point Graphite calls. Answers with a value the bridge can carry.
     runtime.receive = async function receive(message) {

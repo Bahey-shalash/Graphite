@@ -36,6 +36,12 @@ final class CommunityPluginHostTests: XCTestCase {
                     window.setTimeout(() => { window.clearInterval(interval); this.saveData({ ticks, visibilityState: document.visibilityState }); }, 1000);
                 },
             });
+            this.registerMarkdownCodeBlockProcessor('graphite-count', (source, element) => {
+                let count = Number(source.trim());
+                const button = element.createEl('button', { cls: 'graphite-count', text: 'Count ' + count });
+                button.addEventListener('click', () => { count += 1; button.setText('Count ' + count); });
+                window.setTimeout(() => element.createDiv({ cls: 'graphite-later', text: 'Drawn later' }), 300);
+            });
         }
     };
     """
@@ -149,7 +155,104 @@ final class CommunityPluginHostTests: XCTestCase {
         XCTAssertFalse(host.isTurnedOnForVault, "Plugins are turned on per vault.")
     }
 
+    func testAPluginsCodeBlockIsDrawnInTheReadingViewAndATapReachesThePlugin() async throws {
+        let (workspace, _, controller) = try await workspaceWithRunningPlugin(notes: ["Count.md": "Before.\n\n```graphite-count\n3\n```\n\nAfter.\n"])
+        let host = workspace.communityPlugins
+        try await waitUntil { host.codeBlockLanguages == ["graphite-count"] }
+        let tab = try await openTab("Count.md", in: workspace)
+        let session = try XCTUnwrap(workspace.document(for: tab).markdownSession)
+        session.viewMode = .reading
+        // The block's copy shows in a web view of its own, not the plugins' web view.
+        try await waitUntil(seconds: 15) { self.codeBlockWebViews(in: controller, host: host).count == 1 }
+        let blockWebView = try XCTUnwrap(codeBlockWebViews(in: controller, host: host).first)
+        try await waitUntil(seconds: 10) { blockWebView.bounds.height > 10 }
+        var shownHTML = try await codeBlockHTML(blockWebView)
+        for _ in 0..<100 where !shownHTML.contains("Count 3") {
+            try await Task.sleep(for: .milliseconds(50))
+            shownHTML = try await codeBlockHTML(blockWebView)
+        }
+        XCTAssertTrue(shownHTML.contains("<button class=\"graphite-count\">Count 3</button>"), shownHTML)
+        // What the plugin draws after answering reaches the copy too.
+        for _ in 0..<100 where !shownHTML.contains("Drawn later") {
+            try await Task.sleep(for: .milliseconds(50))
+            shownHTML = try await codeBlockHTML(blockWebView)
+        }
+        XCTAssertTrue(shownHTML.contains("Drawn later"), shownHTML)
+        XCTAssertFalse(blockWebView.configuration.defaultWebpagePreferences.allowsContentJavaScript, "The copy runs no script of its own.")
+
+        // A tap in the copy is sent to the plugin's button, whose handler counts.
+        _ = try await blockWebView.callAsyncJavaScript("document.querySelector('button.graphite-count').click()", arguments: [:], in: nil, contentWorld: .defaultClient)
+        for _ in 0..<100 where !shownHTML.contains("Count 4") {
+            try await Task.sleep(for: .milliseconds(50))
+            shownHTML = try await codeBlockHTML(blockWebView)
+        }
+        let runtimeHTML = try await host.webView?.callAsyncJavaScript("return document.querySelector('.graphite-reading-blocks').innerHTML", arguments: [:], in: nil, contentWorld: .page) as? String
+        XCTAssertTrue(shownHTML.contains("Count 4"), shownHTML + " | runtime: " + (runtimeHTML ?? "nil") + " | shown blocks: \(host.shownCodeBlocks.count)")
+
+        // Leaving reading view releases the plugin's block.
+        session.viewMode = .source
+        try await waitUntil(seconds: 5) { host.shownCodeBlocks.isEmpty }
+    }
+
+    /// Dataview and Tasks as built by `npm run build-compatibility-plugins`, read from the
+    /// Mac's checkout (the simulator's apps can read it); skipped when they are not built.
+    func testDataviewAndTasksQueriesAreDrawnInTheReadingView() async throws {
+        let builtFolder = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Tests/CommunityPluginRuntimeTests/compatibility/built")
+        let realPlugins = ["dataview", "obsidian-tasks-plugin"]
+        guard realPlugins.allSatisfy({ plugin in FileManager.default.fileExists(atPath: builtFolder.appendingPathComponent(plugin + "/main.js").path) }) else {
+            throw XCTSkip("Dataview and Tasks are not built (npm run build-compatibility-plugins).")
+        }
+        let note = "# Queries\n\n```tasks\nnot done\npath includes Queries\n```\n\n```dataview\nTABLE rating, author FROM \"Books\" SORT rating DESC\n```\n\n- [ ] Write the report\n- [x] Book the room\n"
+        let vault = try makeVault(notes: ["Queries.md": note], pluginEnabled: true)
+        try FileManager.default.createDirectory(at: vault.appendingPathComponent("Books"), withIntermediateDirectories: true)
+        try Data("---\nrating: 5\nauthor: Frank Herbert\n---\nDesert.\n".utf8).write(to: vault.appendingPathComponent("Books/Dune.md"))
+        try Data("---\nrating: 4\nauthor: Jane Austen\n---\nMatches.\n".utf8).write(to: vault.appendingPathComponent("Books/Emma.md"))
+        for plugin in realPlugins {
+            let destination = vault.appendingPathComponent(".obsidian/plugins/" + plugin)
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            for file in ["main.js", "manifest.json", "styles.css"] where FileManager.default.fileExists(atPath: builtFolder.appendingPathComponent(plugin + "/" + file).path) {
+                try FileManager.default.copyItem(at: builtFolder.appendingPathComponent(plugin + "/" + file), to: destination.appendingPathComponent(file))
+            }
+        }
+        try Data("[\n  \"dataview\",\n  \"obsidian-tasks-plugin\"\n]".utf8).write(to: vault.appendingPathComponent(".obsidian/community-plugins.json"))
+        let workspace = WorkspaceModel()
+        self.workspace = workspace
+        try await workspace.openFolderAsVault(vault)
+        openedVaultIdentifiers.append(try XCTUnwrap(workspace.currentVaultIdentifier))
+        let controller = try host(workspace)
+        let host = workspace.communityPlugins
+        try await waitUntil { Set(host.inventory.plugins.map(\.id)).isSuperset(of: realPlugins) }
+        await host.setTurnedOnForVault(true)
+        try await waitUntil(seconds: 20) { host.loadStates["dataview"] == .loaded && host.loadStates["obsidian-tasks-plugin"] == .loaded }
+        try await waitUntil(seconds: 10) { host.codeBlockLanguages.isSuperset(of: ["dataview", "tasks"]) }
+        let tab = try await openTab("Queries.md", in: workspace)
+        workspace.document(for: tab).markdownSession?.viewMode = .reading
+        try await waitUntil(seconds: 15) { self.codeBlockWebViews(in: controller, host: host).count >= 2 }
+        var shownHTML = ""
+        for _ in 0..<200 {
+            var copies: [String] = []
+            for webView in codeBlockWebViews(in: controller, host: host) { copies.append(try await codeBlockHTML(webView)) }
+            shownHTML = copies.joined(separator: "\n")
+            if shownHTML.contains("Frank Herbert") && shownHTML.contains("Write the report") { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let runtimeHTML = try await host.webView?.callAsyncJavaScript("return document.querySelector('.graphite-reading-blocks').outerHTML", arguments: [:], in: nil, contentWorld: .page) as? String
+        XCTAssertTrue(shownHTML.contains("Frank Herbert"), "Dataview's table: " + shownHTML + "\nRuntime: " + (runtimeHTML ?? "") + "\nProblems: \(host.runtimeProblems)")
+        XCTAssertTrue(shownHTML.contains("Write the report"), "Tasks' list: " + shownHTML)
+        XCTAssertFalse(shownHTML.contains("Book the room"), "Done tasks are not listed.")
+    }
+
     // MARK: Helpers
+
+    private func codeBlockWebViews(in controller: UIViewController, host: CommunityPluginHost) -> [WKWebView] {
+        descendants(of: controller.view, matching: WKWebView.self).filter { webView in webView !== host.webView && webView.window != nil }
+    }
+
+    private func codeBlockHTML(_ webView: WKWebView) async throws -> String {
+        let html = try await webView.callAsyncJavaScript("const root = document.querySelector('.graphite-code-block-root'); return root ? root.innerHTML : ''", arguments: [:], in: nil, contentWorld: .defaultClient)
+        return html as? String ?? ""
+    }
 
     private func makeVault(notes: [String: String], pluginEnabled: Bool) throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("CommunityPluginHost-\(UUID().uuidString)")

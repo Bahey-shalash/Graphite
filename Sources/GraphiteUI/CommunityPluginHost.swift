@@ -76,6 +76,21 @@ final class CommunityPluginMenuRequest: Identifiable {
     }
 }
 
+/// The first of several outcomes of a message: its answer, or giving up. The answer stays
+/// on the main actor, since it holds values that are not `Sendable`.
+@MainActor
+private final class FirstOutcome {
+    private(set) var outcome: Result<[String: Any], any Error>?
+    var continuation: CheckedContinuation<Void, Never>?
+
+    func finish(with firstOutcome: Result<[String: Any], any Error>) {
+        guard outcome == nil else { return }
+        outcome = firstOutcome
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
 /// Resumes a continuation once, whichever of several tasks finishes first.
 @MainActor
 private final class SingleResumption {
@@ -124,10 +139,22 @@ final class CommunityPluginHost {
     /// The plugin whose options another part of the interface should show (`app.setting.openTabById`).
     var requestedSettingsPlugin: String?
     private(set) var isRuntimeRunning = false
+    /// Code block languages plugins draw (`registerMarkdownCodeBlockProcessor`); the reading
+    /// view draws blocks in them through their plugin.
+    private(set) var codeBlockLanguages: Set<String> = []
+    /// The plugin that draws each code block language.
+    @ObservationIgnored private(set) var codeBlockLanguageOwners: [String: String] = [:]
+    /// The loaded plugins' style sheets, which copies of their code blocks are shown with.
+    private(set) var pluginStyleSheets = ""
+    /// The code blocks shown in notes, by identifier, to give them the plugin's changes.
+    @ObservationIgnored var shownCodeBlocks: [String: CommunityPluginShownCodeBlock] = [:]
+    /// The last copy of each code block drawn, kept while Graphite runs, so a block that
+    /// scrolls back into view shows at once, at its height, while it is drawn again.
+    @ObservationIgnored var lastCodeBlockCopies: [CommunityPluginCodeBlockRequest: CommunityPluginCodeBlockCopy] = [:]
 
     // MARK: Ownership
 
-    @ObservationIgnored private weak var workspace: WorkspaceModel?
+    @ObservationIgnored private(set) weak var workspace: WorkspaceModel?
     /// Observed, so a panel showing it follows a restart to the new one.
     private(set) var webView: WKWebView?
     /// The place in the window where the web view waits while no panel shows it.
@@ -387,6 +414,9 @@ final class CommunityPluginHost {
         ribbonActions = []
         pluginViews = []
         pluginsWithSettings = []
+        codeBlockLanguages = []
+        codeBlockLanguageOwners = [:]
+        lastCodeBlockCopies = [:]
         isPanelPresented = false
         pendingMenu?.finish(choosing: nil)
         pendingMenu = nil
@@ -642,9 +672,28 @@ final class CommunityPluginHost {
 
     // MARK: Talking to the runtime
 
+    /// Sends a message, giving up after `timeout`: a plugin that never answers (a loop that
+    /// does not end, a promise never kept) leaves the person waiting no longer than that.
+    @discardableResult
+    func send(_ message: [String: Any], timeout: Duration) async throws -> [String: Any] {
+        let firstOutcome = FirstOutcome()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            firstOutcome.continuation = continuation
+            Task {
+                do { firstOutcome.finish(with: .success(try await send(message))) } catch { firstOutcome.finish(with: .failure(error)) }
+            }
+            Task {
+                try? await Task.sleep(for: timeout)
+                firstOutcome.finish(with: .failure(GraphiteError.unavailable("Community plugins did not answer in time.")))
+            }
+        }
+        guard let outcome = firstOutcome.outcome else { throw GraphiteError.unavailable("Community plugins did not answer.") }
+        return try outcome.get()
+    }
+
     /// Sends a message to the runtime and returns its answer; a failure it reports throws.
     @discardableResult
-    private func send(_ message: [String: Any]) async throws -> [String: Any] {
+    func send(_ message: [String: Any]) async throws -> [String: Any] {
         guard let webView else { throw GraphiteError.unavailable("Community plugins are not running.") }
         let answer = try await webView.callAsyncJavaScript("return await GraphitePluginRuntime.receive(message);", arguments: ["message": message], in: nil, contentWorld: .page)
         let dictionary = answer as? [String: Any] ?? [:]
@@ -743,6 +792,17 @@ final class CommunityPluginHost {
                 guard let identifier = view["leafIdentifier"] as? String else { return nil }
                 return CommunityPluginView(id: identifier, title: view["title"] as? String ?? "")
             }
+        case "codeBlocks.changed":
+            let languages = Set(message["languages"] as? [String] ?? [])
+            codeBlockLanguageOwners = message["owners"] as? [String: String] ?? [:]
+            if languages != codeBlockLanguages { codeBlockLanguages = languages }
+        case "codeBlock.changed":
+            guard let blockIdentifier = message["blockIdentifier"] as? String, let html = message["html"] as? String else { return }
+            shownCodeBlocks[blockIdentifier]?.receive(html: html)
+        case "workspace.openExternalLink":
+            guard let addressText = message["address"] as? String, let address = URL(string: addressText),
+                  let scheme = address.scheme?.lowercased(), ["http", "https", "mailto"].contains(scheme) else { return }
+            ExternalLinkOpener.open(address)
         case "plugin.settingTabChanged":
             if let pluginIdentifier {
                 if message["hasSettingTab"] as? Bool == true { pluginsWithSettings.insert(pluginIdentifier) } else { pluginsWithSettings.remove(pluginIdentifier) }
@@ -790,6 +850,10 @@ final class CommunityPluginHost {
         default:
             break
         }
+    }
+
+    func updatePluginStyleSheets(_ styles: String) {
+        if styles != pluginStyleSheets { pluginStyleSheets = styles }
     }
 
     // MARK: Notices and menus

@@ -30,6 +30,9 @@ struct ReadingConfiguration: Equatable, Sendable {
     /// Changes when the index takes in new files; a note with links or embeds not found
     /// yet is built again then.
     var indexVersion = 0
+    /// Code block languages the vault's community plugins draw; such blocks are drawn by
+    /// their plugin instead of shown as code.
+    var pluginCodeBlockLanguages: Set<String> = []
 }
 
 /// A reading-view block after links are resolved and files located.
@@ -56,13 +59,17 @@ indirect enum RenderedBlock: Identifiable, Sendable {
     case image(id: Int, path: VaultPath, location: URL, displaySize: EmbedDisplaySize?, version: Int)
     /// The note's footnotes, numbered, after its last block.
     case footnotes(id: Int, notes: [RenderedFootnote])
+    /// A code block a community plugin draws, such as a Dataview or Tasks query. `note` is
+    /// the note the block is written in (an embedded note's own path), and `firstLine` the
+    /// zero-based line of its opening fence there, nil when not known.
+    case pluginCodeBlock(id: Int, language: String, source: String, note: VaultPath, firstLine: Int?, lineCount: Int)
 
     var id: String {
         switch self {
         case .properties: "properties"
         case .markdown(let id, _), .displayMath(let id, _), .heading(let id, _, _, _), .callout(let id, _, _, _, _), .video(let id, _), .audio(let id, _, _),
              .pdf(let id, _, _, _), .transclusion(let id, _, _, _), .base(let id, _), .baseFile(let id, _, _), .missingEmbed(let id, _), .missingSection(let id, _, _), .image(let id, _, _, _, _),
-             .footnotes(let id, _): "block-\(id)"
+             .footnotes(let id, _), .pluginCodeBlock(let id, _, _, _, _, _): "block-\(id)"
         }
     }
 }
@@ -262,7 +269,7 @@ actor ReadingViewBuilder {
         let taskSource = TaskSource(noteText: source) { bodyOffset in
             readableBody.offsets.originalOffset(of: bodyOffset).map { offset in offset + frontmatterLength }
         }
-        let locatedBlocks = NotePreviewDocument.locatedBlocks(from: readableBody.text)
+        let locatedBlocks = NotePreviewDocument.locatedBlocks(from: readableBody.text, pluginCodeBlockLanguages: configuration.pluginCodeBlockLanguages)
         let renderedBody = try await render(locatedBlocks, note: note, root: root, index: index, configuration: configuration,
                                             allowsTransclusion: allowsTransclusion, taskSource: taskSource)
         // Each located block renders as one block, in order.
@@ -292,6 +299,13 @@ actor ReadingViewBuilder {
         /// Where a place in the body the blocks were split from is in `noteText`; nil for
         /// text the note does not have, such as a footnote's number.
         let noteOffset: (_ bodyOffset: Int) -> Int?
+
+        /// The zero-based line of the note on which a place in the body is.
+        func noteLine(ofBodyOffset bodyOffset: Int) -> Int? {
+            guard let offset = noteOffset(bodyOffset) else { return nil }
+            let prefix = (noteText as NSString).substring(to: min(offset, (noteText as NSString).length))
+            return prefix.utf16.reduce(0) { lineCount, codeUnit in codeUnit == 10 ? lineCount + 1 : lineCount }
+        }
     }
 
     /// - Parameter allowsTransclusion: False exactly for the body of an embedded note, which
@@ -323,6 +337,9 @@ actor ReadingViewBuilder {
                 rendered.append(.base(id: identifier(), yaml: yaml))
             case .displayMath(let markdown):
                 rendered.append(.displayMath(id: identifier(), text: try await prepared(markdown, note: note, root: root, index: index, configuration: configuration)))
+            case .pluginCodeBlock(let language, let source):
+                rendered.append(.pluginCodeBlock(id: identifier(), language: language, source: source, note: note,
+                                                 firstLine: taskSource.noteLine(ofBodyOffset: locatedBlock.startOffset), lineCount: locatedBlock.lineCount))
             }
         }
         return rendered
@@ -368,7 +385,7 @@ actor ReadingViewBuilder {
             }
             // A task of an embedded note is ticked in that note, as in Obsidian.
             let taskSource = TaskSource(noteText: transcludedSource) { sectionOffset in transcludedFrontmatterLength + section.location + sectionOffset }
-            let body = try await render(NotePreviewDocument.locatedBlocks(from: section.text), note: path, root: root, index: index, configuration: configuration,
+            let body = try await render(NotePreviewDocument.locatedBlocks(from: section.text, pluginCodeBlockLanguages: configuration.pluginCodeBlockLanguages), note: path, root: root, index: index, configuration: configuration,
                                         allowsTransclusion: false, taskSource: taskSource)
             return .transclusion(id: identifier(), path: path, heading: subpath, body: body)
         case .image, .pdf:
@@ -895,6 +912,7 @@ extension ReadingConfiguration {
         hasher.combine(usesStrictLineBreaks); hasher.combine(colorsEnabled); hasher.combine(showsProperties)
         hasher.combine(paletteHexByName.sorted { firstEntry, secondEntry in firstEntry.key < secondEntry.key }.map { entry in entry.key + entry.value })
         hasher.combine(declaredPropertyTypes.sorted { firstEntry, secondEntry in firstEntry.key < secondEntry.key }.map { entry in entry.key + "=" + entry.value.rawValue })
+        hasher.combine(pluginCodeBlockLanguages.sorted())
         return hasher.finalize()
     }
 }
@@ -922,6 +940,8 @@ struct ReadingBlocksView: View {
     /// Follows where the note's own blocks are as the view scrolls; nil for embedded notes.
     var blockPositions: ReadingPosition? = nil
     @Environment(\.readingTaskContext) private var taskContext
+    /// Draws plugins' code blocks; nil where plugins do not draw, which shows them as code.
+    @Environment(\.communityPluginCodeBlocks) private var pluginCodeBlocks
 
     /// Each block with its heading's fold key, and whether a folded heading above hides it.
     private var visibleBlocks: [(block: RenderedBlock, foldKey: String?, hasBody: Bool)] {
@@ -1040,6 +1060,14 @@ struct ReadingBlocksView: View {
                     .font(.callout).foregroundStyle(.secondary)
                     .padding(12).frame(maxWidth: .infinity, alignment: .leading)
                     .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+            case .pluginCodeBlock(_, let language, let source, let note, let firstLine, let lineCount):
+                if let codeBlocks = pluginCodeBlocks {
+                    CommunityPluginCodeBlockView(host: codeBlocks, request: CommunityPluginCodeBlockRequest(language: language, source: source, note: note,
+                                                                                                         firstLine: firstLine, lineCount: lineCount),
+                                                 textSize: textSize)
+                } else {
+                    ObsidianMarkdownText(markdown: "```" + language + "\n" + source + "\n```", root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading)
+                }
             case .missingSection(_, let path, let subpath):
                 Button { navigate(path.rawValue, true) } label: {
                     Label(NoteBlocks.missingSectionMessage(subpath: subpath, noteName: path.stem), systemImage: "questionmark.square.dashed")

@@ -9,7 +9,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fileSystem = require('node:fs');
 const path = require('node:path');
-const { startRuntime, installAndLoadPlugin, plain, settle } = require('../support/runtime-harness');
+const vm = require('node:vm');
+const { startRuntime, installAndLoadPlugin, plain, settle, waitUntil } = require('../support/runtime-harness');
 
 const builtFolder = path.join(__dirname, '..', 'compatibility', 'built');
 
@@ -29,8 +30,9 @@ const studyVault = {
 /// Loads a plugin as Graphite does at launch: vault read, a note open, layout ready.
 async function loadInStudyVault(pluginIdentifier, options) {
     const pluginPackage = builtPlugin(pluginIdentifier);
-    const harness = await startRuntime({ files: studyVault });
+    const harness = await startRuntime({ files: Object.assign({}, studyVault, options && options.files) });
     if (options && options.withWorkerStandIn) installWorkerStandIn(harness.window);
+    if (options && options.withRunningWorkers) installRunningWorkers(harness.window);
     if (options && options.withIndexedDatabase) installIndexedDatabase(harness.window);
     await harness.waitForMetadata();
     await harness.send({ operation: 'workspace.activeDocument', activeDocument: { path: 'Welcome.md', mode: 'livePreview', editorSnapshot: harness.host.openNote('Welcome.md', 0) } });
@@ -63,6 +65,119 @@ function installWorkerStandIn(window) {
         addEventListener() {}
         removeEventListener() {}
     };
+}
+
+/// A copy of a message made with another JavaScript context's own `Map`, `Set`, `Array`,
+/// `Object` and `Date`, as a browser's structured clone gives the receiving side its own
+/// objects (Dataview tells its `Map`s apart with `instanceof`).
+function copyIntoRealm(value, realm) {
+    if (value === null || typeof value !== 'object') return value;
+    if (value instanceof Map || Object.prototype.toString.call(value) === '[object Map]') {
+        const copy = new realm.Map();
+        for (const [key, entry] of value.entries()) copy.set(copyIntoRealm(key, realm), copyIntoRealm(entry, realm));
+        return copy;
+    }
+    if (Object.prototype.toString.call(value) === '[object Set]') {
+        const copy = new realm.Set();
+        for (const entry of value) copy.add(copyIntoRealm(entry, realm));
+        return copy;
+    }
+    if (Array.isArray(value)) return realm.Array.from(value, (entry) => copyIntoRealm(entry, realm));
+    if (Object.prototype.toString.call(value) === '[object Date]') return new realm.Date(value.getTime());
+    const copy = new realm.Object();
+    for (const key of Object.keys(value)) copy[key] = copyIntoRealm(value[key], realm);
+    return copy;
+}
+
+/// jsdom has no Web Workers, which WebKit has. These run a worker's script, made from a
+/// blob as Dataview makes its own, in a separate JavaScript context of Node, with messages
+/// copied between the two as a browser copies them.
+function installRunningWorkers(window) {
+    const scriptsByAddress = new Map();
+    let nextAddressNumber = 1;
+    window.URL.createObjectURL = (blob) => {
+        const address = 'blob:graphite-test-worker-' + nextAddressNumber;
+        nextAddressNumber += 1;
+        scriptsByAddress.set(address, new Promise((resolve) => {
+            const reader = new window.FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.readAsText(blob);
+        }));
+        return address;
+    };
+    window.URL.revokeObjectURL = () => {};
+    const pageRealm = { Map: window.Map, Set: window.Set, Array: window.Array, Object: window.Object, Date: window.Date };
+    window.Worker = class RunningWorker {
+        constructor(address) {
+            this.listeners = [];
+            this.onmessage = null;
+            const page = this;
+            const workerListeners = [];
+            const workerScope = {
+                postMessage(data) {
+                    const event = { data: copyIntoRealm(data, pageRealm) };
+                    setTimeout(() => {
+                        if (page.onmessage) page.onmessage(event);
+                        for (const listener of page.listeners.slice()) listener(event);
+                    }, 0);
+                },
+                addEventListener(type, listener) { if (type === 'message') workerListeners.push(listener); },
+                removeEventListener() {},
+                onmessage: null,
+                console, setTimeout, clearTimeout, setInterval, clearInterval, TextDecoder, TextEncoder,
+            };
+            workerScope.self = workerScope;
+            const workerContext = vm.createContext(workerScope);
+            const workerRealm = vm.runInContext('({ Map, Set, Array, Object, Date })', workerContext);
+            this.deliver = (data) => {
+                const event = { data: copyIntoRealm(data, workerRealm) };
+                if (workerScope.onmessage) workerScope.onmessage(event);
+                for (const listener of workerListeners.slice()) listener(event);
+            };
+            this.pendingMessages = [];
+            this.isStarted = false;
+            scriptsByAddress.get(address).then((script) => {
+                vm.runInContext(script, workerContext);
+                this.isStarted = true;
+                for (const data of this.pendingMessages.splice(0)) this.deliver(data);
+            });
+        }
+        postMessage(data) {
+            if (this.isStarted) setTimeout(() => this.deliver(data), 0);
+            else this.pendingMessages.push(data);
+        }
+        addEventListener(type, listener) { if (type === 'message') this.listeners.push(listener); }
+        removeEventListener(type, listener) { this.listeners = this.listeners.filter((candidate) => candidate !== listener); }
+        terminate() {}
+    };
+}
+
+/// Draws a code block as Graphite's reading view asks for one, and waits until what the
+/// plugin drew matches `expectedPattern`, from the answer or a later change.
+async function drawCodeBlock(harness, message, expectedPattern) {
+    const answer = plain(await harness.send(Object.assign({ operation: 'codeBlock.render', width: 700 }, message)));
+    assert.equal(answer.isDrawn, true, answer.message);
+    let html = answer.html;
+    const changeCount = () => harness.host.notificationsOf('codeBlock.changed').filter((change) => change.blockIdentifier === message.blockIdentifier).length;
+    await waitUntil(() => {
+        const changes = harness.host.notificationsOf('codeBlock.changed').filter((change) => change.blockIdentifier === message.blockIdentifier);
+        if (changes.length > 0) html = changes.at(-1).html;
+        return expectedPattern.test(html);
+    }, 10000).catch(() => { throw new Error('The block never showed ' + expectedPattern + '; it showed: ' + html + ' (' + changeCount() + ' changes)'); });
+    return html;
+}
+
+/// The path of element positions from a block's element down to the first element in
+/// it that `selector` matches, as Graphite's copy reports a tap.
+function elementPathInBlock(harness, blockIdentifier, selector) {
+    const blockElement = Array.from(harness.window.document.querySelectorAll('.graphite-reading-block'))
+        .map((container) => container.firstElementChild).find((element) => element && element.closest('.graphite-reading-block'));
+    const element = blockElement.querySelector(selector);
+    const path = [];
+    for (let current = element; current !== blockElement; current = current.parentElement) {
+        path.unshift(Array.prototype.indexOf.call(current.parentElement.children, current));
+    }
+    return path;
 }
 
 async function settingRowCount(harness, pluginIdentifier) {
@@ -167,13 +282,24 @@ test('Templater: loads with CodeMirror and replaces templates in the open note',
     }
 });
 
-test('Dataview: loads with CodeMirror; code block queries are reported as not drawn in notes', { skip: !builtPlugin('dataview') }, async () => {
-    const { harness, answer, commandNames, unsupported } = await loadInStudyVault('dataview', { withWorkerStandIn: true, withIndexedDatabase: true });
+test('Dataview: a TABLE query in a note is drawn for the reading view from the vault\'s notes', { skip: !builtPlugin('dataview') }, async () => {
+    const { harness, answer, commandNames, unsupported } = await loadInStudyVault('dataview', {
+        withRunningWorkers: true, withIndexedDatabase: true,
+        files: { 'Books/Dune.md': '---\nrating: 5\n---\nA book.\n', 'Books/Emma.md': '---\nrating: 4\n---\nAnother.\n' },
+    });
     try {
         assert.deepEqual(answer, { isLoaded: true });
         assert.ok(commandNames.length >= 1);
-        assert.ok(unsupported.includes('Drawing “dataview” code blocks in notes'));
+        assert.ok(!unsupported.some((feature) => /code blocks/.test(feature)), 'its code blocks are no longer reported as unsupported');
         assert.ok(unsupported.includes('CodeMirror editor extensions'));
+        assert.deepEqual(plain(harness.host.notificationsOf('codeBlocks.changed').at(-1).languages).sort(), ['dataview', 'dataviewjs']);
+        const html = await drawCodeBlock(harness, {
+            blockIdentifier: 'dataview-table', language: 'dataview', source: 'TABLE rating FROM "Books" SORT rating DESC', sourcePath: 'Welcome.md',
+        }, /Dune[\s\S]*Emma/);
+        if (process.env.GRAPHITE_PRINT_BLOCKS) console.log(html);
+        assert.match(html, /<table/);
+        assert.match(html, /class="internal-link"[^>]*data-href="Books\/Dune.md"|data-href="Books\/Dune.md"[^>]*class="internal-link"/);
+        assert.match(html, />5</);
     } finally {
         harness.close();
     }
@@ -184,7 +310,7 @@ test('Tasks: loads, toggles a task done through the editor change, draws its dec
     try {
         assert.deepEqual(answer, { isLoaded: true });
         assert.ok(commandNames.includes('Tasks: Toggle task done'));
-        assert.deepEqual(unsupported, ['Changing how notes look in reading view', 'Drawing “tasks” code blocks in notes', 'CodeMirror editor extensions', 'Suggestions while typing in a note']);
+        assert.deepEqual(unsupported, ['Changing how notes look in reading view', 'CodeMirror editor extensions', 'Suggestions while typing in a note']);
         assert.deepEqual(pageErrors, []);
         assert.ok((await settingRowCount(harness, 'obsidian-tasks-plugin')).count >= 5);
         harness.writeVaultFile('Tasks.md', '- [ ] Write the report\n');
@@ -193,6 +319,28 @@ test('Tasks: loads, toggles a task done through the editor change, draws its dec
         await settle();
         const today = harness.window.moment().format('YYYY-MM-DD');
         assert.equal(harness.host.editorSessions.get('Tasks.md').text, '- [x] Write the report ✅ ' + today + '\n');
+    } finally {
+        harness.close();
+    }
+});
+
+test('Tasks: a query block lists the vault\'s open tasks, and ticking one there ticks it in its note', { skip: !builtPlugin('obsidian-tasks-plugin') }, async () => {
+    const { harness, answer } = await loadInStudyVault('obsidian-tasks-plugin', {
+        files: { 'Projects/Plan.md': '# Plan\n\n- [ ] Write the report\n- [x] Book the room\n- [ ] Send the slides\n' },
+    });
+    try {
+        assert.deepEqual(answer, { isLoaded: true });
+        assert.deepEqual(plain(harness.host.notificationsOf('codeBlocks.changed').at(-1).languages), ['tasks']);
+        const html = await drawCodeBlock(harness, { blockIdentifier: 'tasks-query', language: 'tasks', source: 'not done', sourcePath: 'Welcome.md' }, /Send the slides/);
+        assert.match(html, /Write the report/);
+        assert.doesNotMatch(html, /Book the room/, 'done tasks are not listed');
+        assert.match(html, /2 tasks/);
+        const path = elementPathInBlock(harness, 'tasks-query', 'input.task-list-item-checkbox');
+        const tap = plain(await harness.send({ operation: 'codeBlock.event', blockIdentifier: 'tasks-query', elementPath: path }));
+        assert.equal(tap.isHandled, true);
+        const today = harness.window.moment().format('YYYY-MM-DD');
+        await waitUntil(() => harness.readVaultFile('Projects/Plan.md').includes('✅'), 5000);
+        assert.equal(harness.readVaultFile('Projects/Plan.md'), '# Plan\n\n- [x] Write the report ✅ ' + today + '\n- [x] Book the room\n- [ ] Send the slides\n');
     } finally {
         harness.close();
     }
