@@ -4,6 +4,10 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-12.
 
+## Checks of the palm rejection and polish changes together: 2026-10-12
+
+On the last of the commits in the sections below, in a clone of alpha outside iCloud: the whole hosted suite on an iPad Pro 11-inch (M5) simulator, iOS 27.0, 213 of 213 (alpha before these changes: 208, with the known flaky `ReadingTasksAndEquationsTests` checkbox test failing once); `swift test` on macOS, 1,692 tests (825 Core, 137 Index, 205 Apple, 525 UI) with one skipped and the one known failure, `UiEditorMacEditorTests.testHeadingJumpWaitsForAWindowThenSelectsAndScrollsToTheHeading`. In the simulator with that build: a PDF scrolled to page 5 with two fingers (finger drawing on, palm rejection on), Graphite sent to the background and ended, opened again on page 5 at the same place; Settings › Pencil Drawings with the Palm Rejection switch, and Settings › Colors with the corrected highlighter footer, in light and dark appearance; the switch turned off and on again stored as it should.
+
 ## The even highlighter draws the chosen height, without a jump at the lift: 2026-10-12
 
 A review asked whether the even highlighter's change at the lift looked like a jump. In the simulator it did, and not only from tilt: a finger's highlighter stroke on a PDF page, with the highlighter ignoring tilt, was 60 points tall while drawn and 34 points after the lift, because the even points were the whole tool width at an azimuth that lays PencilKit's chisel tip along the stroke. They are now two thirds of the width, turned across the rows, as PencilKit records a finger's or an upright Pencil's points; the band is as tall as the tool is wide (see `Architecture.md`).
@@ -20,7 +24,7 @@ Settings › Colors › Highlighter said the highlighter's light colors keep the
 
 ## Places kept in memory: 2026-10-12
 
-Where each document was left was decoded from the device's preferences, and encoded back, on every read and every change: every tab switch and every document opened read the whole list of up to 400 places. `DocumentPlaceStore` now reads a vault's places once and writes only when they change, shared by every workspace of the app. Removing a vault forgets its places in memory too. Checked by `DocumentPlaceStoreTests` (3, macOS: read once and kept, written only on change, damaged places read as none and replaced, a forgotten vault's places gone) and the whole hosted suite. Not looked at separately in the simulator; the PDF place on relaunch was seen with the final build (see below).
+Where each document was left was decoded from the device's preferences, and encoded back, on every read and every change: every tab switch and every document opened read the whole list of up to 400 places. `DocumentPlaceStore` now reads a vault's places once and writes only when they change, shared by every workspace of the app. Removing a vault forgets its places in memory too. Checked by `DocumentPlaceStoreTests` (3, macOS: read once and kept, written only on change, damaged places read as none and replaced, a forgotten vault's places gone) and the whole hosted suite. Not looked at separately in the simulator; a PDF opening again where it was left after a relaunch was seen with the final build (see the section on all of these checks above).
 
 ## The Pencil tool bar's code in four files: 2026-10-12
 
