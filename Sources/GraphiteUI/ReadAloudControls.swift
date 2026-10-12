@@ -81,11 +81,17 @@ struct ReadAloudControlsPanel: View {
         VStack(alignment: .leading, spacing: 16) {
             header
             transport
-            Picker("Speed", selection: Binding(get: { reader.session.speed }, set: { speed in reader.session.setSpeed(speed) })) {
-                ForEach(ReadAloudVoiceSettings.speeds, id: \.self) { speed in Text(speed.formatted() + "×").tag(speed) }
+            if reader.session.speedFollowsSystem {
+                Text("Speed follows \(ReadAloudSession.systemSpeechSettingsName)’s Speaking Rate.")
+                    .font(.footnote)
+                    .foregroundStyle(Self.secondaryText)
+            } else {
+                Picker("Speed", selection: Binding(get: { reader.session.speed }, set: { speed in reader.session.setSpeed(speed) })) {
+                    ForEach(ReadAloudVoiceSettings.speeds, id: \.self) { speed in Text(speed.formatted() + "×").tag(speed) }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityLabel("Speed")
             }
-            .pickerStyle(.segmented)
-            .accessibilityLabel("Speed")
             Toggle("Follow Reading", isOn: $reader.followsReading)
             advice
             Divider()
@@ -135,7 +141,7 @@ struct ReadAloudControlsPanel: View {
                 .foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)
         } else if reader.session.canImproveVoiceByDownloading {
-            Text("Compact voice. Download a Premium voice in Settings › Accessibility › Spoken Content › Voices for a more natural one.")
+            Text("Default-quality voice. Download an Enhanced or Premium voice in \(ReadAloudSession.voiceDownloadPath) for a more natural one.")
                 .font(.footnote)
                 .foregroundStyle(Self.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)

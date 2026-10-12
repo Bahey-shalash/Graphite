@@ -1,5 +1,8 @@
 import AVFoundation
 import Foundation
+#if os(iOS)
+import UIKit
+#endif
 import Observation
 import GraphiteCore
 
@@ -31,17 +34,17 @@ public struct ReadAloudVoice: Equatable, Sendable, Identifiable {
         self.isPersonalVoice = isPersonalVoice
     }
 
-    /// Apple's own words from Settings › Accessibility › Spoken Content › Voices.
+    /// Apple's quality tiers, as the voice lists in the system's voice settings name them.
     public var qualityDescription: String {
         if isPersonalVoice { return "Personal Voice" }
         switch quality {
         case 3...: return "Premium"
         case 2: return "Enhanced"
-        default: return "Compact"
+        default: return "Default"
         }
     }
 
-    /// Compact voices are the small built-in ones that sound synthetic over long passages.
+    /// Default-quality voices are the small built-in ones that sound synthetic over long passages.
     public var isCompact: Bool { !isPersonalVoice && quality < 2 }
 
     public var languageCode: Substring { language.split(separator: "-").first ?? Substring(language) }
@@ -87,13 +90,22 @@ public protocol ReadAloudSpeaking: AnyObject {
     var eventHandler: (@MainActor (ReadAloudSpeechEvent) -> Void)? { get set }
     var voices: [ReadAloudVoice] { get }
     func speak(_ text: String, voiceIdentifier: String, speed: Double, requestIdentifier: UUID) throws
-    /// Speaks after a silence, the breath between a heading and the paragraph that follows.
-    func speak(_ text: String, voiceIdentifier: String, speed: Double, leadingPauseSeconds: Double, requestIdentifier: UUID) throws
+    /// Speaks after a silence, the breath between a heading and the paragraph that follows. With
+    /// `usesSystemSettings` the system may replace the voice, rate and pitch with the person's
+    /// own Read & Speak settings while an assistive feature is on.
+    func speak(_ text: String, voiceIdentifier: String, speed: Double, leadingPauseSeconds: Double,
+               usesSystemSettings: Bool, requestIdentifier: UUID) throws
     func pause() -> Bool
     func resume() -> Bool
     func stop()
     /// The voice the system uses for a language when nobody chose one, used to break ties.
     func systemDefaultVoiceIdentifier(language: String) -> String?
+    /// The voice the system itself speaks a language with, whatever its family, so Graphite can
+    /// follow the person's choice even when it would not offer that voice itself.
+    func systemVoice(language: String) -> ReadAloudVoice?
+    /// Whether an assistive feature that makes the system apply the person's own speech
+    /// settings (VoiceOver, Speak Selection, Speak Screen) is on.
+    var assistiveSpeechSettingsMayApply: Bool { get }
     var personalVoiceStatus: ReadAloudPersonalVoiceStatus { get }
     /// Shows the system's Personal Voice permission prompt. Call only from a person's tap.
     func requestPersonalVoiceAccess() async -> ReadAloudPersonalVoiceStatus
@@ -102,9 +114,12 @@ public protocol ReadAloudSpeaking: AnyObject {
 }
 
 public extension ReadAloudSpeaking {
-    func speak(_ text: String, voiceIdentifier: String, speed: Double, leadingPauseSeconds: Double, requestIdentifier: UUID) throws {
+    func speak(_ text: String, voiceIdentifier: String, speed: Double, leadingPauseSeconds: Double,
+               usesSystemSettings: Bool, requestIdentifier: UUID) throws {
         try speak(text, voiceIdentifier: voiceIdentifier, speed: speed, requestIdentifier: requestIdentifier)
     }
+    func systemVoice(language: String) -> ReadAloudVoice? { nil }
+    var assistiveSpeechSettingsMayApply: Bool { false }
     func systemDefaultVoiceIdentifier(language: String) -> String? { nil }
     var personalVoiceStatus: ReadAloudPersonalVoiceStatus { .unsupported }
     func requestPersonalVoiceAccess() async -> ReadAloudPersonalVoiceStatus { .unsupported }
@@ -160,6 +175,20 @@ public final class AppleReadAloudSpeech: NSObject, ReadAloudSpeaking, AVSpeechSy
         AVSpeechSynthesisVoice(language: language)?.identifier
     }
 
+    public func systemVoice(language: String) -> ReadAloudVoice? {
+        guard let voice = AVSpeechSynthesisVoice(language: language) else { return nil }
+        return ReadAloudVoice(id: voice.identifier, name: voice.name, language: voice.language, quality: voice.quality.rawValue,
+                              isPersonalVoice: voice.voiceTraits.contains(.isPersonalVoice))
+    }
+
+    public var assistiveSpeechSettingsMayApply: Bool {
+        #if os(iOS)
+        UIAccessibility.isVoiceOverRunning || UIAccessibility.isSpeakSelectionEnabled || UIAccessibility.isSpeakScreenEnabled
+        #else
+        false
+        #endif
+    }
+
     public var personalVoiceStatus: ReadAloudPersonalVoiceStatus {
         Self.status(AVSpeechSynthesizer.personalVoiceAuthorizationStatus)
     }
@@ -180,10 +209,12 @@ public final class AppleReadAloudSpeech: NSObject, ReadAloudSpeaking, AVSpeechSy
     }
 
     public func speak(_ text: String, voiceIdentifier: String, speed: Double, requestIdentifier: UUID) throws {
-        try speak(text, voiceIdentifier: voiceIdentifier, speed: speed, leadingPauseSeconds: 0, requestIdentifier: requestIdentifier)
+        try speak(text, voiceIdentifier: voiceIdentifier, speed: speed, leadingPauseSeconds: 0,
+                  usesSystemSettings: false, requestIdentifier: requestIdentifier)
     }
 
-    public func speak(_ text: String, voiceIdentifier: String, speed: Double, leadingPauseSeconds: Double, requestIdentifier: UUID) throws {
+    public func speak(_ text: String, voiceIdentifier: String, speed: Double, leadingPauseSeconds: Double,
+                      usesSystemSettings: Bool, requestIdentifier: UUID) throws {
         guard let voice = AVSpeechSynthesisVoice(identifier: voiceIdentifier) else {
             throw GraphiteError.unavailable("The chosen voice is no longer installed. Choose a voice before continuing.")
         }
@@ -197,6 +228,10 @@ public final class AppleReadAloudSpeech: NSObject, ReadAloudSpeaking, AVSpeechSy
         // The pause belongs before the next passage rather than after this one, so pausing or
         // moving at the end of a passage never waits for a silence nobody will hear.
         utterance.preUtteranceDelay = max(0, min(leadingPauseSeconds, 2))
+        // The system's own voice, rate, pitch and (iOS 27) timbre, sentence pause and equalizer
+        // from Read & Speak, when an assistive feature is on; Apple documents that otherwise the
+        // utterance's own values are used. The delays above are not among the replaced settings.
+        utterance.prefersAssistiveTechnologySettings = usesSystemSettings
         activeUtterance = utterance
         self.requestIdentifier = requestIdentifier
         synthesizer.speak(utterance)
@@ -307,7 +342,8 @@ public final class ReadAloudSession {
     public private(set) var passageIndex = 0
     public private(set) var spokenRange: NSRange?
     public private(set) var message: String?
-    /// The voice the person picked, or nil for the best installed voice in the passage's language.
+    /// The voice the person picked for Graphite, or nil to follow the system's Read & Speak voice
+    /// (the best installed voice for the passage's language when the system has none).
     public private(set) var chosenVoiceIdentifier: String?
     public private(set) var speed = 1.0
     public private(set) var voices: [ReadAloudVoice] = []
@@ -359,10 +395,21 @@ public final class ReadAloudSession {
                                  systemDefaultIdentifier: speech.systemDefaultVoiceIdentifier(language: readingLanguage))
     }
 
-    public var selectedVoiceIdentifier: String? { chosenVoiceIdentifier ?? automaticVoice?.id }
+    /// The voice the system speaks the passage's language with, even one Graphite would not
+    /// offer itself (the person chose it in Read & Speak).
+    public var systemVoice: ReadAloudVoice? { speech.systemVoice(language: readingLanguage) }
+
+    public var followsSystemVoice: Bool { chosenVoiceIdentifier == nil }
+
+    /// In the system's mode while VoiceOver, Speak Selection or Speak Screen is on, the system
+    /// applies its own Speaking Rate, so Graphite's speed has no effect and is not shown.
+    public var speedFollowsSystem: Bool { followsSystemVoice && speech.assistiveSpeechSettingsMayApply }
+
+    public var selectedVoiceIdentifier: String? { chosenVoiceIdentifier ?? systemVoice?.id ?? automaticVoice?.id }
 
     public var selectedVoice: ReadAloudVoice? {
         guard let selectedVoiceIdentifier else { return nil }
+        if let systemVoice, systemVoice.id == selectedVoiceIdentifier { return systemVoice }
         return voices.first { voice in voice.id == selectedVoiceIdentifier }
     }
 
@@ -371,6 +418,20 @@ public final class ReadAloudSession {
     public var canImproveVoiceByDownloading: Bool {
         guard let voice = selectedVoice ?? automaticVoice, voice.isCompact else { return false }
         return automaticVoice?.isCompact ?? true
+    }
+
+    /// Where the system keeps its voices: "Read & Speak" since iOS 27, "Spoken Content" before.
+    public static var systemSpeechSettingsName: String {
+        if #available(iOS 27, macOS 27, *) { return "Read & Speak" }
+        return "Spoken Content"
+    }
+
+    public static var voiceDownloadPath: String {
+        #if os(macOS)
+        "System Settings › Accessibility › \(systemSpeechSettingsName) › System Voice › Manage Voices"
+        #else
+        "Settings › Accessibility › \(systemSpeechSettingsName) › Voices"
+        #endif
     }
 
     public func load(_ document: ReadAloudDocument) {
@@ -521,12 +582,12 @@ public final class ReadAloudSession {
 
     private func speakCurrentPassage() {
         guard let passage = currentPassage else { return }
-        guard let selectedVoiceIdentifier, voices.contains(where: { voice in voice.id == selectedVoiceIdentifier }) else {
+        guard let selectedVoiceIdentifier, selectedVoice != nil else {
             if chosenVoiceIdentifier != nil {
                 message = "The voice you chose is no longer installed. Choose another voice; Graphite does not switch voices on its own."
             } else {
                 let languageName = Locale.current.localizedString(forIdentifier: readingLanguage) ?? readingLanguage
-                message = "No \(languageName) voice is installed. Download one in Settings › Accessibility › Spoken Content › Voices, or choose another voice."
+                message = "No \(languageName) voice is installed. Download one in \(Self.voiceDownloadPath), or choose another voice."
             }
             state = .paused
             return
@@ -539,7 +600,7 @@ public final class ReadAloudSession {
             let pause = leadingPauseSeconds / speed
             leadingPauseSeconds = 0
             try speech.speak(text.substring(from: utteranceStartOffset), voiceIdentifier: selectedVoiceIdentifier, speed: speed,
-                             leadingPauseSeconds: pause, requestIdentifier: identifier)
+                             leadingPauseSeconds: pause, usesSystemSettings: followsSystemVoice, requestIdentifier: identifier)
             state = .speaking
             needsRestart = false
             message = nil

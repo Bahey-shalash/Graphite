@@ -42,8 +42,9 @@ Let the user listen to a Markdown note or PDF paper in a normal, human-sounding 
 - [x] Offer a preview using a fixed sample, with the same engine and processing path used in playback. (The current-passage preview was removed on 2026-10-12: Play reads the current passage.)
 - [ ] Show the voice's language, accent where available, download requirement, offline availability, and any usage cost before selection.
 - [x] Let the user choose and remember a preferred voice. Do not substitute another provider, voice, or language without explaining the change.
-- [x] Without a choice, use the best installed Apple voice for the passage's language (Personal Voice when allowed, Premium, Enhanced, compact), recognized from the passage rather than the device language, and pick up a newly downloaded voice automatically. Never offer the MacinTalk or Eloquence voices.
-- [x] When only compact voices exist for the language, point to Settings › Accessibility › Spoken Content › Voices.
+- [x] By default follow the system's Read & Speak voice for the passage's language, and ask the system to apply the person's own speech settings (`prefersAssistiveTechnologySettings`). Confirm on the iPad which settings it applies with Speak Selection on.
+- [x] When the system has no voice for the language, use the best installed Apple voice for the passage's language (Personal Voice when allowed, Premium, Enhanced, compact), recognized from the passage rather than the device language, and pick up a newly downloaded voice automatically. Never offer the MacinTalk or Eloquence voices.
+- [x] When only compact voices exist for the language, point to the system voice settings (Settings › Accessibility › Read & Speak › Voices on iOS 27).
 - [x] Ask for Personal Voice access only from an explicit tap ("Use My Personal Voice…"). The prompt and reading with a Personal Voice are not yet checked on a device.
 - [x] Offer voice and speed in Settings › Read Aloud as well as in Reading Options.
 - [ ] Support document-appropriate language selection and an explicit override. Evaluate mixed-language passages before promising automatic switching.

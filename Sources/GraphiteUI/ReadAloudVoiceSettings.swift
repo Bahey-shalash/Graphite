@@ -4,8 +4,9 @@ import GraphiteCore
 import GraphiteApple
 
 /// The voice and speed choices, shared by Settings › Read Aloud and the reading options sheet,
-/// so both always show the same voice. Only Apple's natural voices are offered; the best one
-/// installed for the passage's language is used until the person picks another.
+/// so both always show the same voice. By default Graphite speaks like the system's own Read &
+/// Speak (its voice, and its rate, pitch and other settings when the system applies them); a
+/// voice chosen here overrides that for Graphite only.
 struct ReadAloudVoiceSettings: View {
     @Bindable var reader: ReadAloudController
     /// The sample keeps its choices in a separate domain, so trying a voice never changes the
@@ -23,14 +24,23 @@ struct ReadAloudVoiceSettings: View {
             Picker("Voice", selection: Binding(get: { session.chosenVoiceIdentifier }, set: { identifier in
                 stopSample(); session.chooseVoice(identifier)
             })) {
-                Text(automaticTitle).tag(String?.none)
-                ForEach(offeredVoices) { voice in
-                    Text("\(voice.name) (\(voice.qualityDescription))").tag(String?.some(voice.id))
+                Text(systemTitle).tag(String?.none)
+                ForEach(Self.qualityGroups, id: \.self) { quality in
+                    let group = offeredVoices.filter { voice in Self.group(of: voice) == quality }
+                    if !group.isEmpty {
+                        Section(quality) {
+                            ForEach(group) { voice in
+                                Text("\(voice.name), \(languageName(voice.language))").tag(String?.some(voice.id))
+                            }
+                        }
+                    }
                 }
             }
             .accessibilityIdentifier("readAloudVoicePicker")
-            Picker("Speed", selection: Binding(get: { session.speed }, set: { speed in stopSample(); session.setSpeed(speed) })) {
-                ForEach(Self.speeds, id: \.self) { speed in Text(speed.formatted() + "×").tag(speed) }
+            if !session.speedFollowsSystem {
+                Picker("Speed", selection: Binding(get: { session.speed }, set: { speed in stopSample(); session.setSpeed(speed) })) {
+                    ForEach(Self.speeds, id: \.self) { speed in Text(speed.formatted() + "×").tag(speed) }
+                }
             }
             Button(isSamplePlaying ? "Stop Sample" : "Play Sample",
                    systemImage: isSamplePlaying ? "stop.fill" : "play.circle") {
@@ -49,9 +59,13 @@ struct ReadAloudVoiceSettings: View {
             Text("Voice and Speed")
         } footer: {
             VStack(alignment: .leading, spacing: 6) {
-                if session.canImproveVoiceByDownloading {
-                    Text("This is a compact voice. For a more natural one, download an Enhanced or Premium voice in Settings › Accessibility › Spoken Content › Voices; Graphite uses it automatically.")
+                if session.followsSystemVoice {
+                    Text(systemFootnote)
                 }
+                if session.canImproveVoiceByDownloading {
+                    Text("This is a default-quality voice. Enhanced and Premium voices sound far more natural.")
+                }
+                Text("Download More Voices: \(ReadAloudSession.voiceDownloadPath).")
                 if session.personalVoiceStatus == .denied {
                     Text("To read with your Personal Voice, allow Graphite in Settings › Accessibility › Personal Voice.")
                 }
@@ -67,18 +81,41 @@ struct ReadAloudVoiceSettings: View {
         }
     }
 
-    private var automaticTitle: String {
-        guard let voice = session.automaticVoice else { return "Automatic" }
-        return "Automatic: \(voice.name) (\(voice.qualityDescription))"
+    private var systemTitle: String {
+        let name = "Same as \(ReadAloudSession.systemSpeechSettingsName)"
+        guard let voice = session.systemVoice ?? session.automaticVoice else { return name }
+        return "\(name) (\(voice.name), \(voice.qualityDescription))"
     }
 
-    /// Voices in the passage's language, best first, plus a chosen voice of another language.
+    private var systemFootnote: String {
+        let settingsName = ReadAloudSession.systemSpeechSettingsName
+        if session.systemVoice == nil, let fallback = session.automaticVoice {
+            return "\(settingsName) has no voice for this language here, so Graphite reads with \(fallback.name) (\(fallback.qualityDescription))."
+        }
+        if session.speedFollowsSystem {
+            return "Voice, speaking rate, pitch and the other \(settingsName) settings come from the system while VoiceOver, Speak Selection or Speak Screen is on. Change them in Settings › Accessibility › \(settingsName)."
+        }
+        return "Graphite uses the voice \(settingsName) uses for this language. Its rate and pitch apply only while VoiceOver, Speak Selection or Speak Screen is on; otherwise Graphite's speed applies."
+    }
+
+    /// Apple's quality tiers, best first, as the picker's sections.
+    private static let qualityGroups = ["Personal Voice", "Premium", "Enhanced", "Default"]
+
+    private static func group(of voice: ReadAloudVoice) -> String { voice.qualityDescription }
+
+    private func languageName(_ identifier: String) -> String {
+        Locale.current.localizedString(forIdentifier: identifier) ?? identifier
+    }
+
+    /// Every installed voice Graphite offers, best first, the passage's language before others.
     private var offeredVoices: [ReadAloudVoice] {
         let languageCode = session.readingLanguage.split(separator: "-").first
-        var voices = session.voices.filter { voice in voice.languageCode == languageCode || voice.id == session.chosenVoiceIdentifier }
+        var voices = session.voices
         voices.sort { first, second in
             if first.isPersonalVoice != second.isPersonalVoice { return first.isPersonalVoice }
             if first.quality != second.quality { return first.quality > second.quality }
+            if (first.languageCode == languageCode) != (second.languageCode == languageCode) { return first.languageCode == languageCode }
+            if first.language != second.language { return languageName(first.language).localizedStandardCompare(languageName(second.language)) == .orderedAscending }
             return first.name.localizedStandardCompare(second.name) == .orderedAscending
         }
         return voices
@@ -90,7 +127,7 @@ struct ReadAloudVoiceSettings: View {
         stopSample()
         if session.state == .speaking { session.pause() }
         sample.refreshVoices()
-        sample.chooseVoice(session.selectedVoiceIdentifier)
+        sample.chooseVoice(session.chosenVoiceIdentifier)
         sample.setSpeed(session.speed)
         samplePreparation = Task {
             defer { samplePreparation = nil }
