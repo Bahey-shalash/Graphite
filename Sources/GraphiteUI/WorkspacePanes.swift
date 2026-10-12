@@ -504,7 +504,8 @@ private struct TabDocumentView: View {
                 .id(ObjectIdentifier(session))
         } else if let session = document.pdfSession {
             PDFPane(session: session, isFocused: isFocused, focus: { workspace.activateTab(tab.id) }, linkActions: pdfLinkActions(for: path),
-                    readAloud: workspace.readAloud, isRecording: workspace.recording.state.isActive) { location in
+                    readAloud: workspace.preferences.isEnabled(.readAloud) ? workspace.readAloud : nil,
+                    isRecording: workspace.recording.state.isActive) { location in
                 Task { await workspace.resolvePDFConflict(opening: location, inTab: tab.id) }
             }
         } else if let session = document.canvasSession {

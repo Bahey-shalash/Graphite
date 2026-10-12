@@ -150,6 +150,9 @@ struct ReadAloudFloatingPlayer: View {
         if navigator.rangeSelection == .awaitingStart { return "Tap where the passage starts" }
         if case .awaitingEnd = navigator.rangeSelection { return "Tap where the passage ends" }
         if reader.isPreparing { return "Preparing…" }
+        // A downloaded voice still rendering: the passage reading waits for, or how far ahead it is.
+        if reader.isWaitingForPreparedAudio { return reader.preparingDescription }
+        if let share = reader.preparedAudioShare { return "Prepared \(Int((share * 100).rounded()))%" }
         if navigator.resumedFromRememberedPlace { return "Resumed where you left off · Start Over in the list" }
         if let next = navigator.queue.first { return "Next: \(next.title)" }
         return nil

@@ -52,7 +52,7 @@ public struct GraphiteRootView: View {
         } detail: {
             detailColumn
                 .overlay {
-                    if usesFloatingPlayer && workspace.readAloud.isActive && !workspace.recording.state.isActive {
+                    if usesFloatingPlayer && workspace.readAloud.isActive && !workspace.recording.state.isActive && workspace.preferences.isEnabled(.readAloud) {
                         ReadAloudFloatingPlayer(reader: workspace.readAloud, navigator: workspace.readAloudNavigator,
                                                 accentColor: workspace.preferences.accentColor)
                     }
@@ -302,7 +302,7 @@ public struct GraphiteRootView: View {
                     .tint(.primary)
             }
         }
-        if workspace.readAloud.isActive && !usesFloatingPlayer {
+        if workspace.readAloud.isActive && !usesFloatingPlayer, workspace.preferences.isEnabled(.readAloud) {
             ToolbarItemGroup(placement: .primaryAction) {
                 ReadAloudToolbarControls(reader: workspace.readAloud, isDisabled: workspace.recording.state.isActive,
                                          accentColor: workspace.preferences.accentColor)

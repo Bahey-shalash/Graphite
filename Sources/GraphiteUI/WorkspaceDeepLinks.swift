@@ -36,6 +36,14 @@ extension WorkspaceModel {
             await createNoteFromLink(name: name, file: file, content: content, opensNote: opensNote, mode: mode)
         case .daily:
             await openDailyNote()
+        case .read(let file):
+            await openLinkedFile(file)
+            guard preferences.isEnabled(.readAloud) else {
+                errorMessage = "Read Aloud is turned off. Turn it on in Settings › Core Plugins."
+                return
+            }
+            guard let session = markdownSession else { return }
+            readAloud.readMarkdown(session.text, path: session.path)
         case .plugin(let action, let parameters):
             if !(await communityPlugins.openPluginLink(action: action, parameters: parameters)) {
                 errorMessage = "No community plugin in this vault opens “\(action)” links."

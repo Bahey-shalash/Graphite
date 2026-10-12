@@ -125,6 +125,11 @@ public protocol ReadAloudSpeaking: AnyObject {
     func requestPersonalVoiceAccess() async -> ReadAloudPersonalVoiceStatus
     /// Gives the audio route back to other apps once reading has stopped or finished.
     func releaseAudio()
+    /// The document's passages from the one about to be read to the end, so a voice that
+    /// renders ahead of time can start on them. The system voice speaks live and ignores this.
+    func prepareAhead(_ passages: [ReadAloudPassage], from passageIndex: Int)
+    /// The document was replaced or closed; rendering ahead for it stops.
+    func cancelPreparation()
 }
 
 public extension ReadAloudSpeaking {
@@ -143,6 +148,8 @@ public extension ReadAloudSpeaking {
     var personalVoiceStatus: ReadAloudPersonalVoiceStatus { .unsupported }
     func requestPersonalVoiceAccess() async -> ReadAloudPersonalVoiceStatus { .unsupported }
     func releaseAudio() {}
+    func prepareAhead(_ passages: [ReadAloudPassage], from passageIndex: Int) {}
+    func cancelPreparation() {}
 }
 
 @MainActor
@@ -521,6 +528,7 @@ public final class ReadAloudSession {
 
     public func load(_ document: ReadAloudDocument) {
         stop()
+        if self.document?.passages.map(\.text) != document.passages.map(\.text) { speech.cancelPreparation() }
         self.document = document
         readingLanguage = ReadAloudLanguage.language(of: document) ?? ReadAloudLanguage.deviceLanguage
         passageIndex = 0
@@ -562,7 +570,7 @@ public final class ReadAloudSession {
         needsRestart = false
     }
 
-    public func clear() { stop(); document = nil; message = nil }
+    public func clear() { stop(); speech.cancelPreparation(); document = nil; message = nil }
 
     public func move(to index: Int) {
         guard let document, document.passages.indices.contains(index) else { return }
@@ -698,9 +706,11 @@ public final class ReadAloudSession {
                 return ReadAloudPhoneticRange(range: NSRange(location: span.speechRange.location - utteranceStartOffset, length: span.speechRange.length),
                                               notation: notation)
             }
+            if let document { speech.prepareAhead(document.passages, from: passageIndex) }
             try speech.speak(ReadAloudUtteranceRequest(text: text.substring(from: utteranceStartOffset), voiceIdentifier: selectedVoiceIdentifier,
                                                        speed: speed, leadingPauseSeconds: pause, usesSystemSettings: followsSystemVoice,
-                                                       phoneticRanges: phoneticRanges), requestIdentifier: identifier)
+                                                       phoneticRanges: phoneticRanges, passage: passage,
+                                                       passageOffset: utteranceStartOffset), requestIdentifier: identifier)
             state = .speaking
             needsRestart = false
             message = nil
@@ -817,6 +827,24 @@ public struct ReadAloudUtteranceRequest: Equatable, Sendable {
     public let leadingPauseSeconds: Double
     public let usesSystemSettings: Bool
     public var phoneticRanges: [ReadAloudPhoneticRange] = []
+    /// The whole passage `text` belongs to. Resuming in the middle of a passage speaks only its
+    /// remainder, but a voice that renders whole passages ahead plays the passage's audio from
+    /// the word at `passageOffset`.
+    public var passage: ReadAloudPassage?
+    /// Where `text` starts within the passage's text, in UTF-16 units.
+    public var passageOffset = 0
+
+    public init(text: String, voiceIdentifier: String, speed: Double, leadingPauseSeconds: Double, usesSystemSettings: Bool,
+                phoneticRanges: [ReadAloudPhoneticRange] = [], passage: ReadAloudPassage? = nil, passageOffset: Int = 0) {
+        self.text = text
+        self.voiceIdentifier = voiceIdentifier
+        self.speed = speed
+        self.leadingPauseSeconds = leadingPauseSeconds
+        self.usesSystemSettings = usesSystemSettings
+        self.phoneticRanges = phoneticRanges
+        self.passage = passage
+        self.passageOffset = passageOffset
+    }
 }
 
 /// How much of the text is highlighted while it is read.
