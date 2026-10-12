@@ -81,7 +81,6 @@ final class EvenHighlighterTests: XCTestCase {
         let trembling = [CGPoint(x: 0, y: 0), CGPoint(x: 1, y: 1), CGPoint(x: 0, y: 2)] + line(to: CGPoint(x: 200, y: 0)).dropFirst()
         XCTAssertEqual(EvenHighlighter.tipAzimuths(along: trembling, reach: 10).last ?? 0, .pi / 2, accuracy: 0.001)
 
-        func renderedArea(of stroke: PKStroke) -> CGFloat { stroke.renderBounds.width * stroke.renderBounds.height }
         let marker = PKInk(.marker, color: .systemYellow)
         func stroke(through points: [CGPoint]) -> PKStroke {
             PKStroke(ink: marker, path: PKStrokePath(controlPoints: points.enumerated().map { pointIndex, location in
@@ -89,10 +88,39 @@ final class EvenHighlighterTests: XCTestCase {
                               force: 1, azimuth: 0, altitude: .pi / 2)
             }, creationDate: Date()))
         }
-        let horizontalBand = try XCTUnwrap(EvenHighlighter.evenStroke(stroke(through: line(to: CGPoint(x: 200, y: 0))), width: 24)).renderBounds
-        let verticalBand = try XCTUnwrap(EvenHighlighter.evenStroke(stroke(through: line(to: CGPoint(x: 0, y: 200))), width: 24)).renderBounds
+        // What PencilKit draws, not `renderBounds`: that is a bound around the stroke, which
+        // PencilKit makes 2 points looser around a tip turned down the page than across it,
+        // though the two draw the same band.
+        let horizontalBand = try drawnExtent(of: try XCTUnwrap(EvenHighlighter.evenStroke(stroke(through: line(to: CGPoint(x: 200, y: 0))), width: 24)))
+        let verticalBand = try drawnExtent(of: try XCTUnwrap(EvenHighlighter.evenStroke(stroke(through: line(to: CGPoint(x: 0, y: 200))), width: 24)))
         XCTAssertEqual(horizontalBand.height, verticalBand.width, accuracy: 1, "As wide down the page as across it.")
         XCTAssertEqual(horizontalBand.width, verticalBand.height, accuracy: 1)
+        XCTAssertEqual(horizontalBand.height, 24, accuracy: 3, "As wide as the tool.")
+    }
+
+    /// Where PencilKit draws a stroke at least half strong, in the drawing's points, from an
+    /// image of it at two pixels to the point.
+    private func drawnExtent(of stroke: PKStroke) throws -> CGRect {
+        let area = stroke.renderBounds.insetBy(dx: -10, dy: -10)
+        var image = UIImage()
+        UITraitCollection(userInterfaceStyle: .light).performAsCurrent {
+            image = PKDrawing(strokes: [stroke]).image(from: area, scale: 2)
+        }
+        let cgImage = try XCTUnwrap(image.cgImage)
+        let width = cgImage.width, height = cgImage.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let context = try XCTUnwrap(CGContext(data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                              space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        var drawnPixels = CGRect.null
+        for row in 0..<height {
+            for column in 0..<width where pixels[(row * width + column) * 4 + 3] >= 128 {
+                drawnPixels = drawnPixels.union(CGRect(x: column, y: row, width: 1, height: 1))
+            }
+        }
+        let pointsPerPixel = area.width / CGFloat(width)
+        return CGRect(x: area.minX + drawnPixels.minX * pointsPerPixel, y: area.minY + drawnPixels.minY * pointsPerPixel,
+                      width: drawnPixels.width * pointsPerPixel, height: drawnPixels.height * pointsPerPixel)
     }
 
     /// While the even highlighter is in use, the canvas draws with an invisible tool of the
