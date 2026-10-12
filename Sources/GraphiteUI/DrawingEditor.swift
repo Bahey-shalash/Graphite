@@ -210,12 +210,12 @@ struct DrawingEditor: View {
                     .fontWeight(.semibold)
                     .tint(.primary)
             } else {
-                Text(canvasController.selectedPictureIdentifier == nil ? "Tap an image to select it." : "Drag the image to move it, a corner to resize it, or the handle above it to rotate it.")
+                Text(canvasController.selectedPictureIdentifier == nil ? "Tap an image to select it." : "Drag the image to move it, a corner to resize it, or the arrow handle to rotate it.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 8)
                 PictureEditingButtons(isEnabled: canvasController.selectedPictureIdentifier != nil, canReorder: canvasController.pictures.count > 1,
-                                      rotate: { runPictureChange { try await canvasController.rotateSelectedPicture() } },
+                                      rotateRight: { runPictureChange { try await canvasController.rotateSelectedPictureRight() } },
                                       crop: { canvasController.beginCroppingPicture() },
                                       moveInOrder: { toFront in canvasController.moveSelectedPictureInOrder(toFront: toFront) },
                                       delete: { canvasController.deleteSelectedPicture() })
@@ -564,8 +564,9 @@ final class DrawingCanvasController {
         pictures.firstIndex { placed in placed.id == selectedPictureIdentifier }
     }
 
-    /// Turns the selected picture a quarter turn clockwise about its middle.
-    func rotateSelectedPicture() async throws {
+    /// Rotates the selected picture a quarter turn clockwise about its middle; its angle
+    /// from the rotate handle stays as it is.
+    func rotateSelectedPictureRight() async throws {
         guard let pictureIndex = selectedPictureIndex else { return }
         let placed = pictures[pictureIndex]
         let pictureData = placed.picture.imageData
@@ -573,7 +574,7 @@ final class DrawingCanvasController {
         let frame = placed.picture.frame
         let turnedFrame = CGRect(x: frame.midX - frame.height / 2, y: frame.midY - frame.width / 2, width: frame.height, height: frame.width)
         replacePicture(placed.id, with: DrawingBackgroundImage(imageData: turnedData, frame: turnedFrame, rotationRadians: placed.picture.rotationRadians),
-                       actionName: "Turn Image")
+                       actionName: "Rotate Image Right")
     }
 
     func beginCroppingPicture() {
@@ -658,7 +659,7 @@ final class DrawingCanvasController {
         showPicturesAndPaper()
     }
 
-    /// The picture was turned by its handle to an angle, clockwise, in radians.
+    /// The picture was rotated by its handle to an angle, clockwise, in radians.
     func pictureRotationChangeDidEnd(_ identifier: UUID, rotationRadians: Double) {
         guard let pictureIndex = pictures.firstIndex(where: { placed in placed.id == identifier }) else { return }
         let picture = pictures[pictureIndex].picture

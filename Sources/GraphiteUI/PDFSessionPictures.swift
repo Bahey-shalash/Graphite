@@ -114,9 +114,9 @@ extension PDFSession {
 
     // MARK: Turning, cropping and ordering
 
-    /// Turns the picture by hand to an angle, in radians, clockwise as the page is shown,
-    /// about its middle. The picture's bytes stay as they are.
-    func turnPicture(_ selection: PDFPictureSelection, to rotationRadians: Double) throws {
+    /// Rotates the picture to any angle, in radians, clockwise as the page is shown, about
+    /// its middle, as with its rotate handle. The picture's bytes stay as they are.
+    func rotatePicture(_ selection: PDFPictureSelection, to rotationRadians: Double) throws {
         let (_, picture) = try pageAndPicture(of: selection)
         var turned = picture
         turned.rotationRadians = PictureRotation.normalized(rotationRadians)
@@ -124,8 +124,9 @@ extension PDFSession {
         try replacePicture(picture, with: turned, order: .unchanged, on: selection.page, actionName: "Rotate Image")
     }
 
-    /// Turns the picture a quarter turn clockwise as it is shown, about its middle.
-    func rotatePicture(_ selection: PDFPictureSelection) async throws {
+    /// Rotates the picture a quarter turn clockwise as it is shown, about its middle, as
+    /// Rotate Right does in Preview; its angle from the rotate handle stays as it is.
+    func rotatePictureRight(_ selection: PDFPictureSelection) async throws {
         let (page, picture) = try pageAndPicture(of: selection)
         let pictureData = picture.imageData
         var turned = picture
@@ -133,7 +134,7 @@ extension PDFSession {
         let bounds = picture.bounds
         turned.bounds = Self.keepingCenter(of: CGRect(x: bounds.midX - bounds.height / 2, y: bounds.midY - bounds.width / 2,
                                                       width: bounds.height, height: bounds.width), inside: page.bounds(for: .cropBox))
-        try replacePicture(picture, with: turned, order: .unchanged, on: selection.page, actionName: "Turn Image")
+        try replacePicture(picture, with: turned, order: .unchanged, on: selection.page, actionName: "Rotate Image Right")
     }
 
     /// Keeps the part of the picture shown inside `pageBounds`, a rectangle of the page's

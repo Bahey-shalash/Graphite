@@ -45,10 +45,13 @@ public struct PDFPicture: Sendable, Equatable {
         self.rotationRadians = PictureRotation.normalized(rotationRadians)
     }
 
-    /// The picture a Graphite stamp annotation holds, or nil for any other annotation.
+    /// The picture a Graphite stamp annotation holds, or nil for any other annotation. A
+    /// turned picture is under `turnedPictureKey`; one turned by a build of 2026-10-11 is
+    /// under `pictureKey` with its angle, and is read turned as well.
     public init?(annotation: PDFAnnotation) {
         guard annotation.type == Self.annotationTypeName,
-              let storedImage = annotation.value(forAnnotationKey: PDFPageManager.pictureKey) as? String,
+              let storedImage = (annotation.value(forAnnotationKey: PDFPageManager.turnedPictureKey)
+                                 ?? annotation.value(forAnnotationKey: PDFPageManager.pictureKey)) as? String,
               storedImage.hasPrefix(Self.storedImagePrefix),
               storedImage.utf8.count <= Self.storedImagePrefix.utf8.count + (Self.maximumImageBytes + 2) / 3 * 4,
               let imageData = Data(base64Encoded: String(storedImage.dropFirst(Self.storedImagePrefix.count))), !imageData.isEmpty,
@@ -117,7 +120,9 @@ public struct PDFPicture: Sendable, Equatable {
         let annotation = PDFPictureAnnotation(bounds: annotationBounds, image: image, pictureSize: bounds.size, quarterTurns: quarterTurns,
                                               rotationRadians: rotationRadians, drawsAppearance: isForWrittenDocument)
         annotation.setPersistentName(name)
-        annotation.setValue(Self.storedImagePrefix + imageData.base64EncodedString(), forAnnotationKey: PDFPageManager.pictureKey)
+        // An upright picture stays under the key every build reads; see `turnedPictureKey`.
+        annotation.setValue(Self.storedImagePrefix + imageData.base64EncodedString(),
+                            forAnnotationKey: isTurned ? PDFPageManager.turnedPictureKey : PDFPageManager.pictureKey)
         annotation.setValue(NSNumber(value: quarterTurns), forAnnotationKey: PDFPageManager.pictureTurnsKey)
         if isTurned {
             annotation.setValue(NSNumber(value: rotationRadians), forAnnotationKey: PDFPageManager.pictureRotationKey)
@@ -129,8 +134,9 @@ public struct PDFPicture: Sendable, Equatable {
         return annotation
     }
 
-    /// JPEG data is handed to Core Graphics as it is, so the PDF stores the same compressed
-    /// bytes instead of every pixel; other formats are decoded.
+    /// JPEG data is handed to Core Graphics as it is, which decodes it only when it is drawn;
+    /// other formats are decoded. (PDFKit still writes a stamp's appearance image as Flate
+    /// pixels, not the JPEG's own bytes.)
     static func decodedImage(_ imageData: Data) -> CGImage? {
         if imageData.starts(with: [0xFF, 0xD8]), let provider = CGDataProvider(data: imageData as CFData),
            let jpegImage = CGImage(jpegDataProviderSource: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent) {
@@ -149,26 +155,26 @@ public struct PDFPicture: Sendable, Equatable {
 /// the origin is the MediaBox's origin and the page's rotation is not applied; on a shown
 /// page the annotation is expected to apply the page's rotation and display box itself
 /// (`PDFPage.transform(_:for:)`). An annotation cannot tell the two calls apart, so each
-/// one is made for one of them. After a save and a reopen the annotation is an ordinary one
-/// that PDFKit draws from its saved appearance.
+/// one is made for one of them.
+///
+/// In a shown document PDFKit also makes every stamp it reads from the file one of these
+/// (`PDFPictureDrawingDelegate`). Such an annotation has no picture of its own: at its
+/// first drawing it reads Graphite's picture from its keys and from then on draws it
+/// itself, as after an edit, instead of leaving PDFKit to draw the saved appearance. Any
+/// other stamp is drawn by PDFKit as before.
 final class PDFPictureAnnotation: PDFAnnotation {
     // Optional references only, set before the annotation is shared; see
     // `PDFOutlinedInkAnnotation` for why.
-    private var image: CGImage?
-    private var quarterTurns: NSNumber?
-    private var drawsAppearance: NSNumber?
-    /// The picture's own width and height before it is turned, and its angle, clockwise.
-    private var pictureWidth: NSNumber?
-    private var pictureHeight: NSNumber?
-    private var rotationRadians: NSNumber?
+    private var picture: PDFPictureAnnotationDrawing?
+    /// For a stamp PDFKit read from a shown document's file: what was read at the first
+    /// drawing, which is nil inside when the stamp is not one of Graphite's pictures. Set
+    /// once, under `fileReadingLock`, since PDFKit draws pages on several threads.
+    private var pictureReadFromFile: PDFPictureReadFromFile?
+    private static let fileReadingLock = NSLock()
 
     init(bounds: CGRect, image: CGImage, pictureSize: CGSize, quarterTurns: Int, rotationRadians: Double, drawsAppearance: Bool) {
-        self.image = image
-        self.quarterTurns = NSNumber(value: quarterTurns)
-        self.drawsAppearance = NSNumber(value: drawsAppearance)
-        self.pictureWidth = NSNumber(value: Double(pictureSize.width))
-        self.pictureHeight = NSNumber(value: Double(pictureSize.height))
-        self.rotationRadians = NSNumber(value: rotationRadians)
+        picture = PDFPictureAnnotationDrawing(image: image, pictureSize: pictureSize, quarterTurns: quarterTurns,
+                                              rotationRadians: rotationRadians, drawsAppearance: drawsAppearance)
         super.init(bounds: bounds, forType: .stamp, withProperties: nil)
     }
 
@@ -183,43 +189,108 @@ final class PDFPictureAnnotation: PDFAnnotation {
     override func copy(with zone: NSZone? = nil) -> Any {
         let copiedAnnotation = super.copy(with: zone)
         if let copiedAnnotation = copiedAnnotation as? PDFPictureAnnotation {
-            copiedAnnotation.image = image
-            copiedAnnotation.quarterTurns = quarterTurns
-            copiedAnnotation.drawsAppearance = drawsAppearance
-            copiedAnnotation.pictureWidth = pictureWidth
-            copiedAnnotation.pictureHeight = pictureHeight
-            copiedAnnotation.rotationRadians = rotationRadians
+            copiedAnnotation.picture = picture
+            // The copy reads its own keys again, which may differ once it is changed.
         }
         return copiedAnnotation
     }
 
     override func draw(with box: PDFDisplayBox, in context: CGContext) {
-        guard let image else {
+        guard let drawing = picture ?? readPictureFromFile() else {
             super.draw(with: box, in: context)
             return
         }
         let annotationBounds = bounds
-        let pictureSize = CGSize(width: pictureWidth?.doubleValue ?? Double(annotationBounds.width),
-                                 height: pictureHeight?.doubleValue ?? Double(annotationBounds.height))
-        let turns = quarterTurns?.intValue ?? 0
-        let handTurnRadians = rotationRadians?.doubleValue ?? 0
         context.saveGState()
-        if drawsAppearance?.boolValue == true {
+        if drawing.drawsAppearance {
             if let mediaBoxOrigin = page?.bounds(for: .mediaBox).origin {
                 context.translateBy(x: -mediaBoxOrigin.x, y: -mediaBoxOrigin.y)
             }
         } else {
             page?.transform(context, for: box)
         }
+        // A stamp's saved appearance is drawn with the image interpolation of the context
+        // it is drawn into, and PDFView on iOS draws it with low interpolation even with
+        // its `interpolationQuality` set to high: a picture shown much smaller than its
+        // pixels then shows moiré and jagged edges. Drawn here, it is drawn at high quality.
         context.interpolationQuality = .high
         context.translateBy(x: annotationBounds.midX, y: annotationBounds.midY)
         // Page coordinates count upward, where a positive angle turns counterclockwise:
         // the picture is turned back against the page's own clockwise rotation, and by the
         // clockwise turn given by hand.
-        context.rotate(by: CGFloat(turns) * .pi / 2 - CGFloat(handTurnRadians))
-        let isSideways = turns % 2 == 1
+        context.rotate(by: CGFloat(drawing.quarterTurns) * .pi / 2 - CGFloat(drawing.rotationRadians))
+        let isSideways = drawing.quarterTurns % 2 == 1
+        let pictureSize = drawing.pictureSize
         let drawnSize = isSideways ? CGSize(width: pictureSize.height, height: pictureSize.width) : pictureSize
-        context.draw(image, in: CGRect(x: -drawnSize.width / 2, y: -drawnSize.height / 2, width: drawnSize.width, height: drawnSize.height))
+        context.draw(drawing.image, in: CGRect(x: -drawnSize.width / 2, y: -drawnSize.height / 2, width: drawnSize.width, height: drawnSize.height))
         context.restoreGState()
+    }
+
+    /// The picture a stamp read from a shown document's file holds, read once; nil for a
+    /// stamp that is not one of Graphite's pictures or whose picture cannot be decoded,
+    /// which PDFKit then draws from its saved appearance.
+    private func readPictureFromFile() -> PDFPictureAnnotationDrawing? {
+        Self.fileReadingLock.lock()
+        let earlierReading = pictureReadFromFile
+        Self.fileReadingLock.unlock()
+        if let earlierReading { return earlierReading.drawing }
+        // Decoded outside the lock, so pages drawn at the same time do not wait for each
+        // other's pictures; two threads may both decode it the first time, harmlessly.
+        let drawing = PDFPicture(annotation: self).flatMap { storedPicture -> PDFPictureAnnotationDrawing? in
+            guard storedPicture.hasValidGeometry, let image = PDFPicture.decodedImage(storedPicture.imageData) else { return nil }
+            return PDFPictureAnnotationDrawing(image: image, pictureSize: storedPicture.bounds.size, quarterTurns: storedPicture.quarterTurns,
+                                               rotationRadians: storedPicture.rotationRadians, drawsAppearance: false)
+        }
+        Self.fileReadingLock.lock()
+        defer { Self.fileReadingLock.unlock() }
+        if pictureReadFromFile == nil { pictureReadFromFile = PDFPictureReadFromFile(drawing: drawing) }
+        return pictureReadFromFile?.drawing
+    }
+}
+
+/// What a `PDFPictureAnnotation` draws, fixed when it is made.
+final class PDFPictureAnnotationDrawing: Sendable {
+    let image: CGImage
+    /// The picture's own width and height before it is turned.
+    let pictureSize: CGSize
+    let quarterTurns: Int
+    /// The angle turned by hand, clockwise as the page is shown.
+    let rotationRadians: Double
+    /// Whether it draws the appearance of a document that is written, rather than itself
+    /// on a shown page.
+    let drawsAppearance: Bool
+
+    init(image: CGImage, pictureSize: CGSize, quarterTurns: Int, rotationRadians: Double, drawsAppearance: Bool) {
+        self.image = image
+        self.pictureSize = pictureSize
+        self.quarterTurns = quarterTurns
+        self.rotationRadians = rotationRadians
+        self.drawsAppearance = drawsAppearance
+    }
+}
+
+/// The result of reading a stamp from a shown document's file, kept so it is read once.
+final class PDFPictureReadFromFile: Sendable {
+    let drawing: PDFPictureAnnotationDrawing?
+
+    init(drawing: PDFPictureAnnotationDrawing?) { self.drawing = drawing }
+}
+
+/// The delegate of every PDF document Graphite shows (`PDFPageManager.prepareForDisplay`):
+/// PDFKit makes the stamps it reads from the file `PDFPictureAnnotation`s, so Graphite's
+/// pictures are drawn as smoothly after the PDF is opened again as while it is edited. The
+/// file is not changed: a stamp read this way keeps its saved appearance and keys, and a
+/// document Graphite writes never has this delegate.
+public final class PDFPictureDrawingDelegate: NSObject, PDFDocumentDelegate, @unchecked Sendable {
+    // Unchecked: it has no state, so it can be shared by documents on any thread.
+    public static let shared = PDFPictureDrawingDelegate()
+
+    override private init() { super.init() }
+
+    /// PDFKit asks with the subtype without its slash. For any other subtype, the base
+    /// class leaves PDFKit to choose as it would without a delegate (seen with PDFKit on
+    /// macOS 27 and iOS 27, `PDFPictureTests`).
+    public func `class`(forAnnotationType annotationType: String) -> AnyClass {
+        annotationType == PDFPicture.annotationTypeName ? PDFPictureAnnotation.self : PDFAnnotation.self
     }
 }
