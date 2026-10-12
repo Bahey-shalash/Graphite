@@ -298,6 +298,13 @@ final class PDFReadAloudHighlighter {
         recognizedOverlay?.update(previousHighlights.filter { if case .recognizedText = $0.location { return true }; return false }, in: view)
     }
 
+    /// The word being read, in the view's coordinates.
+    func highlightFrame(in view: PDFView) -> CGRect? {
+        guard let document = view.document, let highlight = previousHighlights.first,
+              let page = document.page(at: highlight.pageIndex), let bounds = highlight.pageBounds(in: document) else { return nil }
+        return view.convert(bounds, from: page)
+    }
+
     private func revealWordIfNeeded(in view: PDFView) {
         guard let document = view.document, let highlight = previousHighlights.first,
               let page = document.page(at: highlight.pageIndex), let bounds = highlight.pageBounds(in: document),

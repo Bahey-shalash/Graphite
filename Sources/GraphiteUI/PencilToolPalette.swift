@@ -11,8 +11,8 @@ import PencilKit
 /// gives the tool in use one of the colors of Settings › Colors, the list the notes'
 /// Format › Color menu uses; Draw Shapes, which turns the shape tool on and off
 /// (`PencilShapes`); Select Ink, which turns on Graphite's lasso (`InkSelectionController`),
-/// with its type, freehand or rectangular; and the laser pointer (`LaserPointerController`),
-/// with its dot or line.
+/// with its type, freehand or rectangular; the laser pointer (`LaserPointerController`),
+/// with its dot or line; and, on PDF pages, the Read Aloud pen (`ReadAloudPenController`).
 @MainActor
 enum PencilToolPalette {
     /// Whether strokes become the shapes they were meant to be; shared by every canvas.
@@ -39,7 +39,7 @@ enum PencilToolPalette {
     ///
     /// A button of its own rather than a plain bar item: the palette would fill a selected
     /// item with the system's blue, the one color in a row of neutral buttons.
-    static func makeAccessoryItem(for toolPicker: PKToolPicker) -> UIBarButtonItem {
+    static func makeAccessoryItem(for toolPicker: PKToolPicker, offersReadAloudPen: @escaping @MainActor () -> Bool = { false }) -> UIBarButtonItem {
         let button = PaletteAccessoryButton(configuration: .plain())
         button.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -50,10 +50,12 @@ enum PencilToolPalette {
         // the pen in use; otherwise it is the colors button.
         button.configurationUpdateHandler = { button in
             let selectsInk = PaletteInkSelection.isOn, pointsWithLaser = PaletteInkSelection.pointsWithLaser
-            let isInverted = selectsInk || pointsWithLaser || button.isSelected
+            let pointsToRead = PaletteInkSelection.pointsToRead
+            let isInverted = selectsInk || pointsWithLaser || pointsToRead || button.isSelected
             var configuration = UIButton.Configuration.plain()
             let symbolName = selectsInk ? LassoShape.stored.symbolName : button.isSelected ? "square.fill.on.circle.fill" : "swatchpalette"
-            configuration.image = pointsWithLaser ? LaserPointerGlyph.templateImage() : UIImage(systemName: symbolName)
+            configuration.image = pointsToRead ? ReadAloudPenGlyph.templateImage()
+                : pointsWithLaser ? LaserPointerGlyph.templateImage() : UIImage(systemName: symbolName)
             configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 15, weight: .medium)
             configuration.cornerStyle = .capsule
             configuration.baseForegroundColor = isInverted ? .systemBackground : .label
@@ -68,7 +70,7 @@ enum PencilToolPalette {
         // Read each time the menu opens: the colors, the tool in use and the switches change.
         button.menu = UIMenu(children: [
             UIDeferredMenuElement.uncached { [weak toolPicker] provideElements in
-                provideElements(toolPicker.map { toolPicker in menuElements(for: toolPicker) } ?? [])
+                provideElements(toolPicker.map { toolPicker in menuElements(for: toolPicker, offersReadAloudPen: offersReadAloudPen()) } ?? [])
             },
         ])
         let item = UIBarButtonItem(customView: button)
@@ -88,13 +90,15 @@ enum PencilToolPalette {
 
     /// Whether shapes are on, and the tool of Graphite's that is in use.
     static func accessibilityValue(shapesAreOn: Bool) -> String {
-        (shapesAreOn ? "Shapes on" : "Shapes off") + (PaletteInkSelection.isOn ? ", selecting ink" : PaletteInkSelection.pointsWithLaser ? ", laser pointer" : "")
+        (shapesAreOn ? "Shapes on" : "Shapes off") + (PaletteInkSelection.isOn ? ", selecting ink"
+            : PaletteInkSelection.pointsWithLaser ? ", laser pointer" : PaletteInkSelection.pointsToRead ? ", Read Aloud pen" : "")
     }
 
     /// Favorite colors as a row of swatches, or the highlighter's own colors while the marker
     /// is in use, then the Draw Shapes switch.
     static func menuElements(for toolPicker: PKToolPicker, palette: [PaletteColor] = GraphitePreferences.storedColorPalette(),
-                             highlighterPalette: [PaletteColor] = GraphitePreferences.storedHighlighterPalette()) -> [UIMenuElement] {
+                             highlighterPalette: [PaletteColor] = GraphitePreferences.storedHighlighterPalette(),
+                             offersReadAloudPen: Bool = false) -> [UIMenuElement] {
         let shapesAction = UIAction(title: "Draw Shapes", image: UIImage(systemName: "square.on.circle"),
                                     state: drawsShapes ? .on : .off) { _ in
             UserDefaults.standard.set(!drawsShapes, forKey: drawsShapesPreferenceKey)
@@ -123,6 +127,11 @@ enum PencilToolPalette {
         let colorsMenu = inkingToolInUse(of: toolPicker)?.inkType == .marker
             ? favoriteColorsMenu(for: toolPicker, palette: highlighterPalette, title: "Highlighter Colors")
             : favoriteColorsMenu(for: toolPicker, palette: palette)
+        let readAloudPenAction = UIAction(title: "Read Aloud Pen", subtitle: "Tap a word to read from it, then another to stop there",
+                                          image: ReadAloudPenGlyph.templateImage(), state: PaletteInkSelection.pointsToRead ? .on : .off) { _ in
+            PaletteInkSelection.pointsToRead.toggle()
+        }
+        let readAloudMenus: [UIMenuElement] = offersReadAloudPen ? [UIMenu(options: .displayInline, children: [readAloudPenAction])] : []
         return [colorsMenu, UIMenu(options: .displayInline, children: [shapesAction]),
                 UIMenu(options: .displayInline, children: [
                     selectionAction,
@@ -133,7 +142,7 @@ enum PencilToolPalette {
                     laserAction,
                     UIMenu(title: "Laser Type", subtitle: LaserPointerStyle.stored.title, image: UIImage(systemName: LaserPointerStyle.stored.symbolName),
                            options: .singleSelection, children: laserStyles),
-                ])]
+                ])] + readAloudMenus
     }
 
     // MARK: Favorite colors
@@ -202,6 +211,7 @@ private final class PaletteToolChoiceObserver: NSObject, PKToolPickerObserver {
     func toolPickerSelectedToolItemDidChange(_ toolPicker: PKToolPicker) {
         PaletteInkSelection.isOn = false
         PaletteInkSelection.pointsWithLaser = false
+        PaletteInkSelection.pointsToRead = false
     }
 }
 

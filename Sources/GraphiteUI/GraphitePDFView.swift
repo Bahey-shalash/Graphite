@@ -90,6 +90,7 @@ final class PDFViewPageObserver: NSObject {
                 MainActor.assumeIsolated {
                     guard let self, let view = self.view else { return }
                     self.readingHighlighter.refreshGeometry(in: view)
+                    self.reportHighlightFrameIfNeeded()
                 }
             })
         }
@@ -103,6 +104,7 @@ final class PDFViewPageObserver: NSObject {
         #if canImport(UIKit)
         observedScrollView?.panGestureRecognizer.removeTarget(self, action: #selector(manualScrollBegan(_:)))
         observedScrollView = nil
+        scrollOffsetObservation = nil
         #else
         if let scrollMonitor { NSEvent.removeMonitor(scrollMonitor) }
         scrollMonitor = nil
@@ -110,10 +112,34 @@ final class PDFViewPageObserver: NSObject {
         suspendReadingFollow = nil
     }
 
-    func highlightReading(_ highlights: [PDFReadAloudHighlight], followsReading: Bool = false, suspendFollowing: (() -> Void)? = nil) {
+    func highlightReading(_ highlights: [PDFReadAloudHighlight], followsReading: Bool = false, suspendFollowing: (() -> Void)? = nil,
+                          reportFrame: ((CGRect?, CGRect?) -> Void)? = nil) {
         suspendReadingFollow = suspendFollowing
+        reportHighlightFrame = reportFrame
         installManualScrollObservation()
         if let view { readingHighlighter.update(highlights, in: view, followsReading: followsReading) }
+        reportHighlightFrameIfNeeded()
+    }
+
+    private var reportHighlightFrame: ((CGRect?, CGRect?) -> Void)?
+    #if canImport(UIKit)
+    private var scrollOffsetObservation: NSKeyValueObservation?
+    #endif
+
+    /// Tells the floating player where the word being read is on screen, as the page moves.
+    private func reportHighlightFrameIfNeeded() {
+        guard let reportHighlightFrame else { return }
+        #if canImport(UIKit)
+        if let scrollView = view?.documentView?.enclosingScrollView, scrollOffsetObservation == nil {
+            scrollOffsetObservation = scrollView.observe(\.contentOffset) { [weak self] _, _ in
+                MainActor.assumeIsolated { self?.reportHighlightFrameIfNeeded() }
+            }
+        }
+        guard let view, let window = view.window else { reportHighlightFrame(nil, nil); return }
+        guard let wordFrame = readingHighlighter.highlightFrame(in: view) else { reportHighlightFrame(nil, window.bounds); return }
+        let frameInWindow = view.convert(wordFrame, to: nil)
+        reportHighlightFrame(view.bounds.intersects(wordFrame) ? frameInWindow : nil, window.bounds)
+        #endif
     }
 
     private func installManualScrollObservation() {
@@ -195,6 +221,13 @@ struct GraphitePDFView: UIViewRepresentable {
     var readingHighlights: [PDFReadAloudHighlight] = []
     var followsReading = false
     var suspendReadingFollow: (() -> Void)?
+    /// Where the word being read is in the window, and the window, so the floating player
+    /// keeps out of its way.
+    var reportReadingHighlightFrame: ((CGRect?, CGRect?) -> Void)?
+    /// Where the Read Aloud pen tapped; nil where the PDF is not read aloud.
+    var readAloudPen: ((PDFReadAloudPenTap) -> Void)?
+    /// The Read Aloud pen's start and end, shown over their pages.
+    var readAloudMarkers: [PDFReadAloudMarker] = []
     /// The note a PDF embedded in a note belongs to, for the lasso's pictures; a PDF pane's
     /// is the note beside it, from `linkActions`.
     var noteDestination: LassoNoteDestination?
@@ -240,8 +273,11 @@ struct GraphitePDFView: UIViewRepresentable {
         context.coordinator.linkActions = linkActions
         context.coordinator.noteDestination = noteDestination ?? linkActions?.noteDestination
         context.coordinator.beginWritingWithPencil = beginWritingWithPencil
+        context.coordinator.readAloudPen = readAloudPen
         context.coordinator.update(input: input)
-        context.coordinator.highlightReading(readingHighlights, followsReading: followsReading, suspendFollowing: suspendReadingFollow)
+        context.coordinator.highlightReading(readingHighlights, followsReading: followsReading, suspendFollowing: suspendReadingFollow,
+                                             reportFrame: reportReadingHighlightFrame)
+        context.coordinator.showReadAloudMarkers(readAloudMarkers)
     }
 
     static func dismantleUIView(_ view: GraphitePDFDisplayView, coordinator: PDFAnnotationCoordinator) {
@@ -592,7 +628,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     private weak var pdfView: GraphitePDFDisplayView?
     /// Apple's floating palette, which this view's canvases follow.
     let toolPicker = PencilToolPalette.makeToolPicker()
-    private lazy var paletteAccessoryItem = PencilToolPalette.makeAccessoryItem(for: toolPicker)
+    private lazy var paletteAccessoryItem = PencilToolPalette.makeAccessoryItem(for: toolPicker) { [weak self] in self?.readAloudPen != nil }
     private let toolPickerHost = PencilToolPickerHostView()
     /// The palette is drawn above every screen of the app; it gives way while a sheet, an
     /// alert or a file picker is presented over the PDF.
@@ -737,8 +773,64 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         renderingScaleUpdate?.cancel()
     }
 
-    func highlightReading(_ highlights: [PDFReadAloudHighlight], followsReading: Bool, suspendFollowing: (() -> Void)?) {
-        pageObserver?.highlightReading(highlights, followsReading: followsReading, suspendFollowing: suspendFollowing)
+    func highlightReading(_ highlights: [PDFReadAloudHighlight], followsReading: Bool, suspendFollowing: (() -> Void)?,
+                          reportFrame: ((CGRect?, CGRect?) -> Void)? = nil) {
+        pageObserver?.highlightReading(highlights, followsReading: followsReading, suspendFollowing: suspendFollowing, reportFrame: reportFrame)
+    }
+
+    // MARK: The Read Aloud pen
+
+    /// Set from the view: where the pen's taps go. Canvases take it as they are configured.
+    var readAloudPen: ((PDFReadAloudPenTap) -> Void)? {
+        didSet {
+            guard (readAloudPen == nil) != (oldValue == nil) else { return }
+            for canvas in canvasesByPage.values { configure(canvas) }
+        }
+    }
+    private var readAloudMarkers: [PDFReadAloudMarker] = []
+
+    /// The word under a tap of the pen, or the whole page where the page has no text.
+    func handleReadAloudPenTap(atWindowPoint windowPoint: CGPoint) {
+        guard let pdfView, let readAloudPen else { return }
+        let viewPoint = pdfView.convert(windowPoint, from: nil)
+        guard let page = pdfView.page(for: viewPoint, nearest: false) else { return }
+        let pageIndex = session.document.index(for: page)
+        guard pageIndex != NSNotFound else { return }
+        if (page.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            readAloudPen(.page(pageIndex: pageIndex))
+            return
+        }
+        let pagePoint = pdfView.convert(viewPoint, to: page)
+        // A tap in the margin, between columns or on a figure reads nothing.
+        guard let word = page.selectionForWord(at: pagePoint) else { return }
+        let bounds = word.bounds(for: page)
+        let range = word.range(at: 0, on: page)
+        guard bounds.insetBy(dx: -8, dy: -6).contains(pagePoint), range.location != NSNotFound, range.length > 0 else { return }
+        readAloudPen(.word(pageIndex: pageIndex, range: range, bounds: bounds))
+    }
+
+    func showReadAloudMarkers(_ markers: [PDFReadAloudMarker]) {
+        guard markers != readAloudMarkers else { return }
+        readAloudMarkers = markers
+        for canvas in canvasesByPage.values { placeReadAloudMarkers(on: canvas) }
+    }
+
+    /// The markers of a page, over its overlay, so they scroll and zoom with the page and
+    /// never enter its file.
+    private func placeReadAloudMarkers(on canvas: PDFPageCanvasView) {
+        guard let overlay = canvas.overlayView, let page = canvas.page else { return }
+        for marker in overlay.subviews where marker is ReadAloudPenMarkerView { marker.removeFromSuperview() }
+        let pageIndex = session.document.index(for: page)
+        let box = page.bounds(for: pdfView?.displayBox ?? .cropBox)
+        guard box.width > 0, box.height > 0, overlay.bounds.width > 0 else { return }
+        let scaleX = overlay.bounds.width / box.width, scaleY = overlay.bounds.height / box.height
+        for marker in readAloudMarkers where marker.pageIndex == pageIndex {
+            let markerView = ReadAloudPenMarkerView(isStart: marker.isStart)
+            overlay.addSubview(markerView)
+            // Page space grows upward from the box's corner; the overlay's grows downward.
+            markerView.place(overWord: CGRect(x: (marker.bounds.minX - box.minX) * scaleX, y: (box.maxY - marker.bounds.maxY) * scaleY,
+                                              width: marker.bounds.width * scaleX, height: marker.bounds.height * scaleY))
+        }
     }
 
     func update(input newInput: PDFAnnotationInput) {
@@ -957,6 +1049,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         displayedPages.insert(identifier)
         hiddenCanvasOrder.removeAll { hiddenIdentifier in hiddenIdentifier == identifier }
         configure(canvas)
+        placeReadAloudMarkers(on: canvas)
     }
 
     func pdfView(_ pdfView: PDFView, willEndDisplayingOverlayView overlayView: UIView, for page: PDFPage) {
@@ -1041,6 +1134,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     /// A canvas shows the page's ink while annotating; otherwise the ink annotations do.
     private func configure(_ canvas: PDFPageCanvasView) {
         if input.isEnabled { restoreStoredInkIfNeeded(on: canvas) }
+        canvas.readAloudPenTapped = readAloudPen == nil ? nil : { [weak self] windowPoint in self?.handleReadAloudPenTap(atWindowPoint: windowPoint) }
         canvas.takeTool(from: toolPicker, fixedTool: input.fixedTool)
         canvas.drawingPolicy = input.drawsWithFinger ? .anyInput : .pencilOnly
         canvas.showWritingGuides(input.writingGuides)
@@ -1360,6 +1454,11 @@ struct GraphitePDFView: NSViewRepresentable {
     var readingHighlights: [PDFReadAloudHighlight] = []
     var followsReading = false
     var suspendReadingFollow: (() -> Void)?
+    /// Accepted so both platforms share one call; the Mac has no floating player.
+    var reportReadingHighlightFrame: ((CGRect?, CGRect?) -> Void)?
+    /// The Mac has no Pencil canvases, so no Read Aloud pen; accepted so both platforms share one call.
+    var readAloudPen: ((PDFReadAloudPenTap) -> Void)?
+    var readAloudMarkers: [PDFReadAloudMarker] = []
     /// The Mac viewer has no lasso; accepted so both platforms share one call.
     var noteDestination: LassoNoteDestination?
 

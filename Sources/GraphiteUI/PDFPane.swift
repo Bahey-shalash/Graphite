@@ -32,6 +32,8 @@ struct PDFPane: View {
     /// Links to pages and quotes for notes, from the selection menu and the toolbar.
     var linkActions: PDFLinkActions?
     var readAloud: ReadAloudController?
+    /// Moves reading around, and the Read Aloud pen's start and end.
+    var readAloudNavigator: ReadAloudNavigator?
     var isRecording = false
     let resolveConflict: (URL) -> Void
 
@@ -39,7 +41,7 @@ struct PDFPane: View {
         // The workspace replaces the session when the file is reloaded. The PDF view, its
         // canvases, and the page commands belong to one session, so they are rebuilt.
         PDFPaneContent(session: session, isFocused: isFocused, focus: focus, linkActions: linkActions,
-                       readAloud: readAloud, isRecording: isRecording, resolveConflict: resolveConflict)
+                       readAloud: readAloud, readAloudNavigator: readAloudNavigator, isRecording: isRecording, resolveConflict: resolveConflict)
             .id(ObjectIdentifier(session))
     }
 }
@@ -50,6 +52,7 @@ private struct PDFPaneContent: View {
     let focus: () -> Void
     let linkActions: PDFLinkActions?
     let readAloud: ReadAloudController?
+    let readAloudNavigator: ReadAloudNavigator?
     let isRecording: Bool
     let resolveConflict: (URL) -> Void
     @State private var commands: PDFPageCommands
@@ -87,15 +90,58 @@ private struct PDFPaneContent: View {
     #endif
 
     init(session: PDFSession, isFocused: Bool, focus: @escaping () -> Void, linkActions: PDFLinkActions?,
-         readAloud: ReadAloudController?, isRecording: Bool, resolveConflict: @escaping (URL) -> Void) {
+         readAloud: ReadAloudController?, readAloudNavigator: ReadAloudNavigator?, isRecording: Bool, resolveConflict: @escaping (URL) -> Void) {
         self.session = session
         self.isFocused = isFocused
         self.focus = focus
         self.linkActions = linkActions
         self.readAloud = readAloud
+        self.readAloudNavigator = readAloudNavigator
         self.isRecording = isRecording
         self.resolveConflict = resolveConflict
         _commands = State(initialValue: PDFPageCommands(session: session))
+    }
+
+    /// While this PDF is read, where its highlighted word is, for the floating player.
+    private var reportReadingHighlightFrame: ((CGRect?, CGRect?) -> Void)? {
+        guard let readAloud, let readAloudNavigator else { return nil }
+        let path = session.location.path
+        return { frame, window in
+            guard readAloud.sourceIdentifier == path else { return }
+            if readAloudNavigator.highlightFrameInWindow != frame { readAloudNavigator.highlightFrameInWindow = frame }
+            if readAloudNavigator.windowBounds != window { readAloudNavigator.windowBounds = window }
+        }
+    }
+
+    private var readAloudMarkers: [PDFReadAloudMarker] {
+        guard let readAloudNavigator else { return [] }
+        let marks = readAloudNavigator.penMarks(for: session.location.path)
+        return marks.enumerated().map { index, mark in PDFReadAloudMarker(pageIndex: mark.pageIndex, bounds: mark.bounds, isStart: index == 0) }
+    }
+
+    /// A tap of the Read Aloud pen: the first reads from the word, the second reads exactly
+    /// from the first word to this one (`ReadAloudNavigator.penTapped`).
+    private func readWithPen(_ tap: PDFReadAloudPenTap) {
+        guard let readAloud, let readAloudNavigator else { return }
+        switch tap {
+        case .page(let pageIndex):
+            readAloudNavigator.clearPenMarks()
+            readAloud.readPDF(session, firstPageIndex: pageIndex, lastPageIndex: session.pageCount - 1)
+        case .word(let pageIndex, let range, let bounds):
+            let mark = ReadAloudNavigator.PenMark(sourceIdentifier: session.location.path, pageIndex: pageIndex, range: range, bounds: bounds)
+            switch readAloudNavigator.penTapped(mark) {
+            case .readFrom(let start):
+                readAloud.readPDFRange(session, start: PDFReadAloudEndpoint(pageIndex: start.pageIndex, offset: start.range.location, revision: session.changeVersion))
+            case .readRange(let start, let end):
+                let session = session
+                let read = {
+                    readAloud.readPDFRange(session, start: PDFReadAloudEndpoint(pageIndex: start.pageIndex, offset: start.range.location, revision: session.changeVersion),
+                                           end: PDFReadAloudEndpoint(pageIndex: end.pageIndex, offset: NSMaxRange(end.range), revision: session.changeVersion))
+                }
+                readAloudNavigator.readingPenRange(replay: read)
+                read()
+            }
+        }
     }
 
     var body: some View {
@@ -117,7 +163,10 @@ private struct PDFPaneContent: View {
                                 beginWritingWithPencil: session.isProtected ? nil : { focus(); session.isWriting = true },
                                 readingHighlights: readAloud?.highlights(in: session) ?? [],
                                 followsReading: readAloud?.shouldFollow(session) ?? false,
-                                suspendReadingFollow: { readAloud?.suspendFollowing(in: session.location.path) })
+                                suspendReadingFollow: { readAloud?.suspendFollowing(in: session.location.path) },
+                                reportReadingHighlightFrame: reportReadingHighlightFrame,
+                                readAloudPen: readAloud == nil || readAloudNavigator == nil ? nil : { tap in readWithPen(tap) },
+                                readAloudMarkers: readAloudMarkers)
                     .ignoresSafeArea(edges: .bottom)
             }
         }
@@ -132,7 +181,8 @@ private struct PDFPaneContent: View {
                 if showsControlRow && showsFixedToolbar {
                     // One row for both, as in Focus, where no tab bar holds the controls.
                     PencilToolbar(toolbox: toolbox, drawsShapes: $drawsShapes,
-                                  addImage: { pictureSource = .photoLibrary }, undoAvailability: session.undoAvailability) {
+                                  addImage: { pictureSource = .photoLibrary }, undoAvailability: session.undoAvailability,
+                                  offersReadAloudPen: readAloud != nil) {
                         EmptyView()
                     } trailingControls: {
                         HStack(spacing: 12) {
@@ -148,7 +198,8 @@ private struct PDFPaneContent: View {
                     }
                 } else if showsFixedToolbar {
                     PencilToolbar(toolbox: toolbox, drawsShapes: $drawsShapes,
-                                  addImage: { pictureSource = .photoLibrary }, undoAvailability: session.undoAvailability)
+                                  addImage: { pictureSource = .photoLibrary }, undoAvailability: session.undoAvailability,
+                                  offersReadAloudPen: readAloud != nil)
                 }
             }
             #endif

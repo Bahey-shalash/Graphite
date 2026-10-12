@@ -143,9 +143,10 @@ struct InkPreset: Codable, Equatable, Identifiable {
     }
 }
 
-/// What the bar has in use: one of its inks, the eraser, the lasso, or the laser pointer.
+/// What the bar has in use: one of its inks, the eraser, the lasso, the laser pointer, or
+/// the Read Aloud pen.
 enum PencilToolKind: String, Codable, CaseIterable, Identifiable {
-    case ink, eraser, lasso, laser
+    case ink, eraser, lasso, laser, readAloud
 
     var id: String { rawValue }
     var title: String {
@@ -154,6 +155,7 @@ enum PencilToolKind: String, Codable, CaseIterable, Identifiable {
         case .eraser: "Eraser"
         case .lasso: "Lasso"
         case .laser: "Laser Pointer"
+        case .readAloud: "Read Aloud Pen"
         }
     }
     var symbolName: String {
@@ -163,11 +165,16 @@ enum PencilToolKind: String, Codable, CaseIterable, Identifiable {
         case .lasso: "lasso"
         // Only a fallback: the bar and the palette draw the laser's own glyph (`LaserPointerGlyph`).
         case .laser: "cursorarrow.rays"
+        // Only a fallback, as for the laser (`ReadAloudPenGlyph`).
+        case .readAloud: "speaker.wave.2"
         }
     }
     /// Whether the canvas draws with PencilKit's tool: the lasso and the laser pointer are
     /// Graphite's own and draw nothing.
     var drawsInk: Bool { self == .ink || self == .eraser }
+    /// Tools for the moment, put away with the app: the laser points while presenting, and
+    /// the Read Aloud pen points at what to read. The tool before them is kept instead.
+    var isPutAwayWithApp: Bool { self == .laser || self == .readAloud }
 }
 
 /// The tool a canvas draws with, as a value, so a canvas is updated exactly when it changes.
@@ -243,7 +250,7 @@ final class PencilToolbox {
         presetInUseIndex = hasStoredPresets ? min(max(stored?.presetInUseIndex ?? 0, 0), storedPresets.count - 1) : 0
         let storedTool = stored?.toolInUse ?? .ink
         toolInUse = storedTool
-        toolSavedInPlaceOfLaser = storedTool == .laser ? .ink : storedTool
+        toolSavedInPlaceOfLaser = storedTool.isPutAwayWithApp ? .ink : storedTool
         erasesWholeStrokes = stored?.erasesWholeStrokes ?? true
         let storedEraserWidthChoices = stored?.eraserWidthChoices.flatMap { widths in Self.validatedEraserWidthChoices(widths) } ?? Self.defaultEraserWidthChoices
         eraserWidthChoices = storedEraserWidthChoices
@@ -262,8 +269,8 @@ final class PencilToolbox {
     @ObservationIgnored private var toolSavedInPlaceOfLaser = PencilToolKind.ink
 
     private func selectionChanged() {
-        if toolInUse != .laser { toolSavedInPlaceOfLaser = toolInUse }
-        let savedTool = toolInUse == .laser ? toolSavedInPlaceOfLaser : toolInUse
+        if !toolInUse.isPutAwayWithApp { toolSavedInPlaceOfLaser = toolInUse }
+        let savedTool = toolInUse.isPutAwayWithApp ? toolSavedInPlaceOfLaser : toolInUse
         let state = StoredState(toolInUse: savedTool, presets: presets, presetInUseIndex: presetInUseIndex,
                                 erasesWholeStrokes: erasesWholeStrokes, eraserWidth: eraserWidth, eraserWidthChoices: eraserWidthChoices)
         defaults.set(try? JSONEncoder().encode(state), forKey: Self.storageKey)
@@ -507,7 +514,7 @@ extension PencilToolSelection {
         switch kind {
         case .ink: preset.inkingTool
         case .eraser: erasesWholeStrokes ? PKEraserTool(.vector) : PKEraserTool(.fixedWidthBitmap, width: CGFloat(eraserWidth))
-        case .lasso, .laser: PKLassoTool()
+        case .lasso, .laser, .readAloud: PKLassoTool()
         }
     }
 }

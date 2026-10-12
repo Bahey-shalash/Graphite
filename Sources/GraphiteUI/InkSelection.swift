@@ -87,7 +87,7 @@ enum PaletteInkSelection {
     static var isOn = false {
         didSet {
             guard isOn != oldValue else { return }
-            if isOn { pointsWithLaser = false }
+            if isOn { pointsWithLaser = false; pointsToRead = false }
             NotificationCenter.default.post(name: didChange, object: nil)
         }
     }
@@ -95,7 +95,15 @@ enum PaletteInkSelection {
     static var pointsWithLaser = false {
         didSet {
             guard pointsWithLaser != oldValue else { return }
-            if pointsWithLaser { isOn = false }
+            if pointsWithLaser { isOn = false; pointsToRead = false }
+            NotificationCenter.default.post(name: didChange, object: nil)
+        }
+    }
+    /// The Read Aloud pen.
+    static var pointsToRead = false {
+        didSet {
+            guard pointsToRead != oldValue else { return }
+            if pointsToRead { isOn = false; pointsWithLaser = false }
             NotificationCenter.default.post(name: didChange, object: nil)
         }
     }

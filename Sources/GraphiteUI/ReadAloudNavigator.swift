@@ -36,6 +36,8 @@ final class ReadAloudNavigator {
     @ObservationIgnored var visibleLocation: (() -> Int?)?
     /// The first page shown of the PDF being read.
     @ObservationIgnored var visiblePageIndex: (() -> Int?)?
+    /// Whether a tap on the text shown moves reading there (Live Preview and Source).
+    @ObservationIgnored var supportsTapToRead = false
     /// Where the highlighted word is on screen, and the window, so the floating player can
     /// keep out of its way. Nil when the view showing it does not report it.
     var highlightFrameInWindow: CGRect?
@@ -159,6 +161,14 @@ final class ReadAloudNavigator {
     /// Shown in the player after resuming, with a way to start over.
     var resumedFromRememberedPlace = false
 
+    /// Stop: reading stops and goes back to the beginning of what was chosen; Play starts it
+    /// again. The close button stops and closes the player.
+    func stopAndRewind() {
+        resumedFromRememberedPlace = false
+        reader.session.stop()
+        reader.session.move(to: 0)
+    }
+
     func startOver() {
         resumedFromRememberedPlace = false
         reader.session.move(to: 0)
@@ -186,6 +196,77 @@ final class ReadAloudNavigator {
             read(fromSourceLocation: location)
             return nil
         }
+    }
+
+    // MARK: The Read Aloud pen
+
+    /// A word the Read Aloud pen tapped on a PDF page.
+    struct PenMark: Equatable {
+        let sourceIdentifier: String
+        let pageIndex: Int
+        /// The word's characters in the page's text.
+        let range: NSRange
+        /// The word's place on the page, in page space, for its marker.
+        let bounds: CGRect
+
+        /// Earlier in the document: an earlier page, or earlier on the same page.
+        func precedes(_ other: PenMark) -> Bool {
+            pageIndex != other.pageIndex ? pageIndex < other.pageIndex : range.location < other.range.location
+        }
+    }
+
+    /// What a tap of the pen asks for.
+    enum PenRequest: Equatable {
+        /// Read from this word to the end.
+        case readFrom(PenMark)
+        /// Read exactly from the start word through the end word.
+        case readRange(start: PenMark, end: PenMark)
+    }
+
+    /// The start the pen marked, and the end once a second tap marks it.
+    private(set) var penStart: PenMark?
+    private(set) var penEnd: PenMark?
+    /// Reads the pen's range again, for Repeat.
+    @ObservationIgnored private var replayPenRange: (() -> Void)?
+
+    /// A first tap starts reading at the word and marks it as a start; a second tap, while
+    /// that is read, marks the end and reads exactly the range between; a third starts over.
+    func penTapped(_ mark: PenMark) -> PenRequest {
+        if let start = penStart, penEnd == nil, start.sourceIdentifier == mark.sourceIdentifier,
+           reader.sourceIdentifier == mark.sourceIdentifier, reader.isActive {
+            let (first, last) = mark.precedes(start) ? (mark, start) : (start, mark)
+            penStart = first
+            penEnd = last
+            return .readRange(start: first, end: last)
+        }
+        penStart = mark
+        penEnd = nil
+        replayPenRange = nil
+        repeatsPassage = false
+        return .readFrom(mark)
+    }
+
+    /// Set by the view that started the pen's range, to read it again when it ends with Repeat on.
+    func readingPenRange(replay: @escaping () -> Void) {
+        replayPenRange = replay
+    }
+
+    /// The pen's start and end, while the PDF they belong to is read.
+    func penMarks(for sourceIdentifier: String) -> [PenMark] {
+        guard reader.sourceIdentifier == sourceIdentifier, reader.isActive else { return [] }
+        return [penStart, penEnd].compactMap { mark in mark?.sourceIdentifier == sourceIdentifier ? mark : nil }
+    }
+
+    /// Reading the range the pen marked, shown as "Reading Selection" with Repeat.
+    var isReadingPenSelection: Bool {
+        guard let penEnd else { return false }
+        return reader.sourceIdentifier == penEnd.sourceIdentifier && reader.isActive
+    }
+
+    func clearPenMarks() {
+        penStart = nil
+        penEnd = nil
+        replayPenRange = nil
     }
 
     // MARK: Queue
@@ -272,7 +353,9 @@ final class ReadAloudNavigator {
             remember(location, for: identifier)
         }
         guard session.state == .finished, !reader.isPreparing else { return }
-        if repeatsPassage, session.document != nil {
+        if repeatsPassage, isReadingPenSelection, let replayPenRange {
+            replayPenRange()
+        } else if repeatsPassage, session.document != nil {
             session.move(to: 0)
             session.play()
         } else if reader.readingPDF == nil || reader.sourcePageIndex == reader.readingPDFLastPageIndex {

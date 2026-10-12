@@ -20,7 +20,7 @@ struct LaserPointerGlyph: View {
 
     var body: some View {
         ZStack {
-            PointerOutline()
+            PencilPointerOutline()
                 .stroke(style: StrokeStyle(lineWidth: isInUse ? Self.semiboldStrokeWidth : Self.regularStrokeWidth, lineJoin: .round))
                 .foregroundStyle(isInUse ? .primary : .secondary)
             Circle()
@@ -48,26 +48,30 @@ struct LaserPointerGlyph: View {
         }
     }
 
-    /// The pointer, upright: a slim body with a rounded end and a pointed tip, in the
-    /// glyph's 22-point square.
-    private struct PointerOutline: Shape {
-        func path(in rect: CGRect) -> Path {
-            let scale = rect.width / LaserPointerGlyph.side
-            let middle = LaserPointerGlyph.side / 2
-            let halfWidth: CGFloat = 2.6
-            let tipBaseY: CGFloat = 11.5, tipY: CGFloat = 7.5, endY: CGFloat = 21.5
-            var path = Path()
-            path.move(to: CGPoint(x: middle, y: tipY))
-            path.addLine(to: CGPoint(x: middle + halfWidth, y: tipBaseY))
-            path.addLine(to: CGPoint(x: middle + halfWidth, y: endY - halfWidth))
-            path.addArc(center: CGPoint(x: middle, y: endY - halfWidth), radius: halfWidth, startAngle: .degrees(0), endAngle: .degrees(180), clockwise: false)
-            path.addLine(to: CGPoint(x: middle - halfWidth, y: tipBaseY))
-            path.closeSubpath()
-            // The line where the tip meets the body, as a pen's tip is set apart.
-            path.move(to: CGPoint(x: middle - halfWidth, y: tipBaseY))
-            path.addLine(to: CGPoint(x: middle + halfWidth, y: tipBaseY))
-            return path.applying(CGAffineTransform(scaleX: scale, y: scale)).offsetBy(dx: rect.minX, dy: rect.minY)
-        }
+}
+
+/// The pointer the laser's and the Read Aloud pen's glyphs share, upright: a slim body with a
+/// rounded end and a pointed tip, in the glyph's 22-point square.
+struct PencilPointerOutline: Shape {
+    /// Where the tip is, in the 22-point square.
+    static let tip = CGPoint(x: 11, y: 7.5)
+
+    func path(in rect: CGRect) -> Path {
+        let scale = rect.width / LaserPointerGlyph.side
+        let middle = LaserPointerGlyph.side / 2
+        let halfWidth: CGFloat = 2.6
+        let tipBaseY: CGFloat = 11.5, tipY: CGFloat = Self.tip.y, endY: CGFloat = 21.5
+        var path = Path()
+        path.move(to: CGPoint(x: middle, y: tipY))
+        path.addLine(to: CGPoint(x: middle + halfWidth, y: tipBaseY))
+        path.addLine(to: CGPoint(x: middle + halfWidth, y: endY - halfWidth))
+        path.addArc(center: CGPoint(x: middle, y: endY - halfWidth), radius: halfWidth, startAngle: .degrees(0), endAngle: .degrees(180), clockwise: false)
+        path.addLine(to: CGPoint(x: middle - halfWidth, y: tipBaseY))
+        path.closeSubpath()
+        // The line where the tip meets the body, as a pen's tip is set apart.
+        path.move(to: CGPoint(x: middle - halfWidth, y: tipBaseY))
+        path.addLine(to: CGPoint(x: middle + halfWidth, y: tipBaseY))
+        return path.applying(CGAffineTransform(scaleX: scale, y: scale)).offsetBy(dx: rect.minX, dy: rect.minY)
     }
 }
 

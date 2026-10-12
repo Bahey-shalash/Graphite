@@ -126,8 +126,9 @@ class HistoryCanvasView: PKCanvasView {
             fixedTool = newFixedTool
             selectsInk = newFixedTool.kind == .lasso
             pointsWithLaser = newFixedTool.kind == .laser
-            // The lasso and the laser are Graphite's own; PencilKit's tool stays what it was
-            // and draws nothing.
+            pointsToRead = newFixedTool.kind == .readAloud
+            // The lasso, the laser and the Read Aloud pen are Graphite's own; PencilKit's tool
+            // stays what it was and draws nothing.
             if newFixedTool.kind.drawsInk { tool = toolForDrawing(newFixedTool.tool) }
             isRulerActive = newFixedTool.isRulerActive
         } else if !followsToolPicker {
@@ -148,10 +149,12 @@ class HistoryCanvasView: PKCanvasView {
             }
             selectsInk = PaletteInkSelection.isOn
             pointsWithLaser = PaletteInkSelection.pointsWithLaser
+            pointsToRead = PaletteInkSelection.pointsToRead
             paletteInkSelectionObserver = NotificationCenter.default.addObserver(forName: PaletteInkSelection.didChange, object: nil, queue: nil) { [weak self] _ in
                 MainActor.assumeIsolated {
                     self?.selectsInk = PaletteInkSelection.isOn
                     self?.pointsWithLaser = PaletteInkSelection.pointsWithLaser
+                    self?.pointsToRead = PaletteInkSelection.pointsToRead
                 }
             }
         }
@@ -232,7 +235,7 @@ class HistoryCanvasView: PKCanvasView {
     }
 
     private func applyDrawingEnabled() {
-        isDrawingEnabled = !isDrawingSuspended && !selectsInk && !pointsWithLaser
+        isDrawingEnabled = !isDrawingSuspended && !selectsInk && !pointsWithLaser && !pointsToRead
     }
 
     // MARK: Pointing
@@ -250,6 +253,29 @@ class HistoryCanvasView: PKCanvasView {
         set {
             guard newValue != pointsWithLaser else { return }
             laserPointer.isActive = newValue
+            applyDrawingEnabled()
+        }
+    }
+
+    // MARK: Pointing at what to read
+
+    private var hasReadAloudPen = false
+    /// The Read Aloud pen on this canvas (`ReadAloudPenController`).
+    private(set) lazy var readAloudPen: ReadAloudPenController = {
+        hasReadAloudPen = true
+        return ReadAloudPenController(canvas: self)
+    }()
+
+    /// Where the Read Aloud pen tapped, in the window; set by the canvas's owner where there
+    /// is text to read. Without it the pen draws nothing and reads nothing.
+    var readAloudPenTapped: ((CGPoint) -> Void)?
+
+    /// Whether the canvas points at what to read instead of drawing.
+    var pointsToRead: Bool {
+        get { hasReadAloudPen && readAloudPen.isActive }
+        set {
+            guard newValue != pointsToRead else { return }
+            readAloudPen.isActive = newValue
             applyDrawingEnabled()
         }
     }

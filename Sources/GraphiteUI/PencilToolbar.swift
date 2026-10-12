@@ -48,6 +48,8 @@ struct PencilToolbar<LeadingControls: View, TrailingControls: View>: View {
     var addImage: (() -> Void)?
     /// The document's history, for the Undo and Redo of the palette Apple Pencil's squeeze opens.
     var undoAvailability: UndoAvailability?
+    /// The Read Aloud pen, on PDF pages.
+    var offersReadAloudPen = false
     /// The document's own controls, such as Write, Undo and Redo, where they have no
     /// other place: the bar shares its row with them rather than adding one.
     @ViewBuilder var leadingControls: LeadingControls
@@ -57,7 +59,7 @@ struct PencilToolbar<LeadingControls: View, TrailingControls: View>: View {
         HStack(spacing: 12) {
             leadingControls.padding(.leading, 16)
             PencilToolRow(toolbox: toolbox, drawsShapes: $drawsShapes, addImage: addImage,
-                          undoAvailability: undoAvailability)
+                          undoAvailability: undoAvailability, offersReadAloudPen: offersReadAloudPen)
                 .frame(maxWidth: .infinity)
             trailingControls
                 .labelStyle(.iconOnly)
@@ -91,6 +93,8 @@ struct PencilToolRow: View {
     /// The document's history, for the Undo and Redo of the palette Apple Pencil's squeeze opens.
     var undoAvailability: UndoAvailability?
     var rowHeight: CGFloat = PencilToolbarMetrics.height
+    /// The Read Aloud pen, where there is text to read: on PDF pages.
+    var offersReadAloudPen = false
     /// The highlighter's colors as Settings keeps them, followed so a change there shows on
     /// the bar at once, not only when the bar is made again.
     @AppStorage(GraphitePreferences.highlighterPaletteKey) private var storedHighlighterPalette: Data?
@@ -136,6 +140,7 @@ struct PencilToolRow: View {
             toolButton(.eraser)
             toolButton(.lasso)
             toolButton(.laser)
+            if offersReadAloudPen { toolButton(.readAloud) }
             separator
             switch toolbox.toolInUse {
             case .ink:
@@ -175,6 +180,13 @@ struct PencilToolRow: View {
                 .pickerStyle(.segmented)
                 .fixedSize()
                 separator
+            case .readAloud:
+                Text(offersReadAloudPen ? "Tap a word to read from it, then another to stop there" : "Nothing to read here")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .fixedSize()
+                separator
             }
             if Self.offersColors(toolInUse: toolbox.toolInUse) {
                 // A highlighter marks text in light colors of its own; a pen writes in black and
@@ -205,7 +217,7 @@ struct PencilToolRow: View {
 
     /// Whether the colors follow the tool's own controls: not for the laser pointer, which
     /// points in its own red and whose only choice is Dot or Line.
-    static func offersColors(toolInUse: PencilToolKind) -> Bool { toolInUse != .laser }
+    static func offersColors(toolInUse: PencilToolKind) -> Bool { toolInUse != .laser && toolInUse != .readAloud }
 
     private var separator: some View {
         Hairline(axis: .vertical).frame(height: 20).padding(.horizontal, 6)
@@ -256,9 +268,10 @@ struct PencilToolRow: View {
 }
 
 extension PencilToolbar where LeadingControls == EmptyView, TrailingControls == EmptyView {
-    init(toolbox: PencilToolbox, drawsShapes: Binding<Bool>, addImage: (() -> Void)? = nil, undoAvailability: UndoAvailability? = nil) {
+    init(toolbox: PencilToolbox, drawsShapes: Binding<Bool>, addImage: (() -> Void)? = nil, undoAvailability: UndoAvailability? = nil,
+         offersReadAloudPen: Bool = false) {
         self.init(toolbox: toolbox, drawsShapes: drawsShapes, addImage: addImage, undoAvailability: undoAvailability,
-                  leadingControls: { EmptyView() }, trailingControls: { EmptyView() })
+                  offersReadAloudPen: offersReadAloudPen, leadingControls: { EmptyView() }, trailingControls: { EmptyView() })
     }
 }
 
@@ -277,7 +290,8 @@ struct TabBarPencilTools: View {
     var body: some View {
         if session.showsFixedPencilTools(style: toolbarStyle, showsTools: showsToolPicker, horizontalSizeClass: horizontalSizeClass, isFocused: isFocused) {
             PencilToolRow(toolbox: PencilToolbox.shared, drawsShapes: $drawsShapes,
-                          addImage: { pictureSource = .photoLibrary }, undoAvailability: session.undoAvailability, rowHeight: PencilToolbarMetrics.heightInTabBar)
+                          addImage: { pictureSource = .photoLibrary }, undoAvailability: session.undoAvailability, rowHeight: PencilToolbarMetrics.heightInTabBar,
+                          offersReadAloudPen: true)
                 .modifier(PDFPictureAdding(session: session, source: $pictureSource))
         }
     }
