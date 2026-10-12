@@ -78,7 +78,8 @@ public struct ReadAloudDocument: Equatable, Sendable {
     /// of running into the next one. Every spoken word keeps its exact place on the page.
     public static func pageText(_ source: String, selectedRange: NSRange? = nil, pageLabels: [String] = [],
                                 knownRunningText: [String] = [],
-                                pronunciations: ReadAloudPronunciations = .standard) throws -> ReadAloudDocument {
+                                pronunciations: ReadAloudPronunciations = .standard,
+                                hyphenationDictionaryWords: Set<String> = []) throws -> ReadAloudDocument {
         let original = source as NSString
         guard original.length <= maximumSourceUTF16Count else { throw ReadAloudError.passageTooLarge }
         let requestedRange = try readingRange(in: source, selectedRange: selectedRange)
@@ -185,21 +186,38 @@ public struct ReadAloudDocument: Equatable, Sendable {
             }
         }
         var previous: (text: String, line: Line)?
-        for line in lines {
+        var previousJoinsWord = false
+        for (lineIndex, line) in lines.enumerated() {
             try Task.checkCancellation()
             guard NSIntersectionRange(line.range, requestedRange).length > 0 else { continue }
             let text = original.substring(with: line.range)
             if let previous, !unitText.isEmpty {
                 let previousEnd = previous.text.last ?? " "
                 let startsLowercase = text.first?.isLowercase ?? false
-                let continuesSentence = ",-–(".contains(previousEnd) || startsLowercase
+                let continuesSentence = ",(".contains(previousEnd) || Self.lineEndHyphens.contains(previousEnd) || startsLowercase
                 let endsClause = ".!?:;".contains(previousEnd)
                 if line.followsBlankLine || line.hasBullet || (!endsClause && !continuesSentence) {
                     try flushUnit()
-                } else if previousEnd == "-", startsLowercase {
-                    // "on-" + "resistance": the word continues on the next line.
+                } else if previousJoinsWord || (Self.lineEndHyphens.contains(previousEnd) && startsLowercase) {
+                    // "tran-" + "sistor", or "low-" + "power": the word goes on without a space.
                 } else {
                     unitText += " "
+                }
+            }
+            previousJoinsWord = false
+            var lineRange = line.range
+            // A word broken across lines: "tran-|sistor" is read "transistor", without the hyphen;
+            // a compound broken at its own hyphen, "low-|power", keeps it. The highlight
+            // covers both halves.
+            if let last = text.last, Self.lineEndHyphens.contains(last), lineIndex + 1 < lines.count, !lines[lineIndex + 1].hasBullet {
+                let nextText = original.substring(with: lines[lineIndex + 1].range)
+                let leftFragment = String(text.dropLast().reversed().prefix(while: \.isLetter).reversed())
+                let rightFragment = String(nextText.prefix(while: \.isLetter))
+                if !leftFragment.isEmpty, rightFragment.first?.isLowercase == true,
+                   Self.joinsHyphenatedBreak(left: leftFragment, right: rightFragment, hyphen: last, pageText: source,
+                                             dictionaryWords: hyphenationDictionaryWords) {
+                    lineRange.length -= String(last).utf16.count
+                    previousJoinsWord = true
                 }
             }
             // Dot leaders in a table of contents (". . . . 144") are not read.
@@ -209,13 +227,48 @@ public struct ReadAloudDocument: Equatable, Sendable {
                 unitText += " "
                 segmentStart = NSMaxRange(leader.range)
             }
-            appendSource(NSRange(location: segmentStart, length: NSMaxRange(line.range) - segmentStart))
+            appendSource(NSRange(location: segmentStart, length: NSMaxRange(lineRange) - segmentStart))
             unitLineCount += 1
             previous = (text, line)
         }
         try flushUnit()
         guard !passages.isEmpty else { throw ReadAloudError.noReadableText }
         return ReadAloudDocument(passages: passages, notices: notices.sorted(), runningText: runningText)
+    }
+
+    /// Hyphens a line can end with: ASCII, the soft hyphen, the Unicode hyphen, the
+    /// non-breaking hyphen and the en dash some typesetters use.
+    static let lineEndHyphens: Set<Character> = ["-", "\u{00AD}", "\u{2010}", "\u{2011}", "\u{2013}"]
+
+    /// Whether "left-" at a line's end and "right" on the next line are one word broken by
+    /// hyphenation (joined without the hyphen) rather than a compound ("low-power"). A soft
+    /// hyphen always joins. A form seen with its hyphen elsewhere on the page stays a compound;
+    /// a joined form seen elsewhere, or known to the system dictionary, joins.
+    static func joinsHyphenatedBreak(left: String, right: String, hyphen: Character, pageText: String,
+                                     dictionaryWords: Set<String>) -> Bool {
+        if hyphen == "\u{00AD}" { return true }
+        let joined = left + right
+        let hyphenated = left + "-" + right
+        if pageText.range(of: hyphenated, options: .caseInsensitive) != nil { return false }
+        if dictionaryWords.contains(joined.lowercased()) { return true }
+        let flattened = pageText.replacingOccurrences(of: "\n", with: " ")
+        return flattened.range(of: "\\b" + NSRegularExpression.escapedPattern(for: joined) + "\\b",
+                               options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    /// The words that a hyphenated line break on this page would form if joined, for the caller
+    /// to look up in the system's spelling dictionary.
+    public static func hyphenationCandidates(in pageText: String) -> Set<String> {
+        let lines = pageText.components(separatedBy: .newlines)
+        var candidates = Set<String>()
+        for (index, line) in lines.enumerated() where index + 1 < lines.count {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard let last = trimmed.last, lineEndHyphens.contains(last) else { continue }
+            let left = String(trimmed.dropLast().reversed().prefix(while: \.isLetter).reversed())
+            let right = String(lines[index + 1].trimmingCharacters(in: .whitespaces).prefix(while: \.isLetter))
+            if !left.isEmpty, right.first?.isLowercase == true { candidates.insert((left + right).lowercased()) }
+        }
+        return candidates
     }
 
     private static let dotLeader = try? NSRegularExpression(pattern: #"(?:\s*\.){4,}\s*"#)

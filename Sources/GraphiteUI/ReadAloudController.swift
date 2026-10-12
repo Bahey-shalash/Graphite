@@ -457,6 +457,8 @@ final class ReadAloudController {
         let pageLabels = [String(pageIndex + 1)] + (pdf.document.page(at: pageIndex)?.label.map { label in [label] } ?? [])
         let knownRunningText = pdfRunningText
         let vaultRoot = vaultRoot
+        let hyphenationWords = ReadAloudSpelling.dictionaryWords(among: ReadAloudDocument.hyphenationCandidates(in: snapshot.text),
+                                                                 language: String(session.readingLanguage.prefix(2)))
         let worker = Task.detached(priority: .userInitiated) {
             let selectedRange: NSRange?
             if let recognizedWords {
@@ -467,7 +469,8 @@ final class ReadAloudController {
             } else { selectedRange = nil }
             return try ReadAloudDocument.pageText(snapshot.text, selectedRange: selectedRange, pageLabels: pageLabels,
                                                   knownRunningText: knownRunningText,
-                                                  pronunciations: ReadAloudMarkdownPreparation.pronunciations(vaultRoot: vaultRoot))
+                                                  pronunciations: ReadAloudMarkdownPreparation.pronunciations(vaultRoot: vaultRoot),
+                                                  hyphenationDictionaryWords: hyphenationWords)
         }
         let document = try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
         guard identifier == preparationIdentifier, !Task.isCancelled else { return }
