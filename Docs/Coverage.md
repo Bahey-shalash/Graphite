@@ -4,6 +4,17 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-12.
 
+## The lasso merged with alpha, and three loose ends: 2026-10-12
+
+Branch `alpha-lasso-2`: the lasso work merged with alpha `85f7552` (main's fixes, the finished PDF pictures, palm rejection).
+
+- Merge: the laser's tool kind, the bar's type pickers and the laser's glyph moved into the files palm rejection split the bar into (`PencilToolbox.swift`, `PencilToolbar.swift`, `PencilToolButtons.swift`). The selection frame keeps both sides. Main's frame style (`3865bc4`: the accent as it reads on white over a white halo, two shape layers, knobs ringed in the accent, Increase Contrast's wider line), which the picture work's rotate handle also uses, is unchanged; the lasso only moved its color into `LassoColors` so the loop shares it, and superseded nothing of it. Alpha's rotate handle placement (below a picture it cannot be reached above), its VoiceOver angle and "Rotate" wording stay, beside the lasso's handle placement on small frames, its one knob on a tiny frame and its extra VoiceOver actions.
+- The laser is never saved as the bar's tool in use; the tool before it is saved in its place. Checked with main's own decoder: a state saved by this build with the laser in use, read by main's `PencilToolbox` in a checkout of main (`62e023b`, a temporary test there, not committed), gave the eraser in use before it and the presets unchanged; the same state naming the laser gave main's default pens, which is what the change prevents. `PencilToolboxTests.testTheLaserIsNeverSavedSoABuildWithoutItKeepsThePresets` keeps it on macOS.
+- A corner handle past the page's edge stands just inside it and takes touches (`InkSelectionTests.testACornerHandlePastThePagesEdgeStandsInsideItAndTakesTouches`, hosted, a stroke past the page's top-left corner).
+- A hand resting while Apple Pencil writes shows no laser dot and draws no lasso loop, by palm rejection's check (`InkSelectionTests.testAHandRestingWhileThePencilWritesIsNotTakenByTheLaserOrTheLasso`). Not tried with a real palm and Pencil.
+
+Verified on the merged branch: the whole hosted suite on an iPad Pro 11-inch (M5) simulator, iOS 27.0, 231 of 231; `swift test` on macOS, 1,705 tests (825 Core, 137 Index, 208 Apple, 535 UI), one skipped, with only the known `UiEditorMacEditorTests.testHeadingJumpWaits…` failing. By finger in the iPad simulator, dark appearance, fixed bar: a freehand loop (dashed accent line over its halo, then tinted area) on a white page; ink selected with its frame and knobs plain on the white page; a photo added from the library, its frame and rotate handle, turned by dragging the handle; the turned picture and ink selected together by a rectangle; the laser's line crossing into the next page and fading. Screenshots in `~/.graphite-lasso-build/shots` (`Merged-…`).
+
 ## The lasso upgraded, area screenshots and a laser pointer: 2026-10-12
 
 Asked for by the owner: the lasso's loop could barely be seen on a white page in dark appearance and lassoing handwriting to resize it was unreliable; the lasso could not take a picture of an area of a PDF; and the planned rectangular lasso, one selection of ink and pictures, and a laser pointer (`Premium-experience-plan.md`, "Requested on 2026-10-12"). Built on the `alpha-lasso` branch: `InkSelection.swift`, `SelectionFrameView.swift`, and the new `LassoTools.swift`, `PDFPageLasso.swift` and `LaserPointer.swift`; see `Architecture.md`.
@@ -23,7 +34,7 @@ Verified:
 
 Not established: anything with Apple Pencil or on a device (hover for the laser's dot, Pencil-only drawing with a resting palm, how the loop and the frame feel in hand); the lasso in the drawing editor by hand (hosted tests only); a selection of ink and pictures by hand; Save Image completing (permission declined in the simulator); Add to Note from a PDF pane with a note beside it by hand (the path is shared with the embedded PDF's and Quote in Note's); the laser on an external display or with AirPlay; Increase Contrast and Reduce Motion by hand (the loop's wider line under Increase Contrast is in code; nothing the lasso or laser adds animates beyond the share sheet, presented without animation under Reduce Motion); VoiceOver by hand (labels and custom actions are set and partly tested).
 
-Known limits, not fixed: a corner handle hanging past the page's edge cannot be touched there, since the page's views take only touches inside the page; a selection's frame can lag a frame behind PencilKit's redraw at the end of a drag (not seen in the simulator); with finger drawing on, a resting palm could show the laser's dot (palm rejection is another session's work).
+Known limits, not fixed: a selection's frame can lag a frame behind PencilKit's redraw at the end of a drag (not seen in the simulator). The corner handle past the page's edge and the resting palm's laser dot were fixed afterwards (section above).
 
 ## Drawings in Live Preview no longer flicker: 2026-10-12
 
