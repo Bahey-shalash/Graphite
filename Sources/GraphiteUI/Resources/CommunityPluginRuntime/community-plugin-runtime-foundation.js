@@ -176,6 +176,30 @@
         }
     }
 
+    // MARK: Obsidian's translations
+
+    /// Obsidian's interface strings, which it exposes as the global `i18next` and plugins
+    /// borrow for their own buttons (Tag Wrangler's "Cancel"). Graphite's interface is in
+    /// English, so the English strings; a key Graphite does not know reads as its last part.
+    const interfaceStrings = {
+        'dialogue.button-cancel': 'Cancel', 'dialogue.button-continue': 'Continue', 'dialogue.button-done': 'Done',
+        'dialogue.button-ok': 'OK', 'dialogue.button-save': 'Save', 'dialogue.button-delete': 'Delete', 'dialogue.button-close': 'Close',
+    };
+    if (!globalScope.i18next) {
+        globalScope.i18next = {
+            language: 'en',
+            languages: ['en'],
+            t(key) {
+                if (Object.prototype.hasOwnProperty.call(interfaceStrings, key)) return interfaceStrings[key];
+                const lastPart = String(key).split('.').pop().replace(/^button-/, '').replace(/-/g, ' ');
+                return lastPart.charAt(0).toUpperCase() + lastPart.slice(1);
+            },
+            exists(key) { return Object.prototype.hasOwnProperty.call(interfaceStrings, key); },
+            on() {},
+            off() {},
+        };
+    }
+
     // MARK: Paths and links
 
     function normalizePath(path) {

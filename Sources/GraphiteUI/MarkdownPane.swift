@@ -240,6 +240,11 @@ struct MarkdownPane: View {
         }
         #endif
         actions.beginEditing = { [workspace, tabID] in workspace.activateTab(tabID) }
+        #if canImport(UIKit)
+        if workspace.communityPlugins.hasEditorMenuItems {
+            actions.pluginEditMenuElement = { [host = workspace.communityPlugins] in host.editorMenuElement() }
+        }
+        #endif
         actions.followLinkElsewhere = { [workspace, session] target, isWiki, placement in
             Task { await workspace.follow(target, from: session.path, isWiki: isWiki, placement: placement) }
         }
@@ -461,6 +466,7 @@ struct MarkdownPane: View {
         if preferences.isEnabled(.fileRecovery) {
             Button("File Recovery…", systemImage: "clock.arrow.circlepath") { workspace.fileRecoveryRequest = FileRecoveryRequest(path: session.path) }
         }
+        CommunityPluginFileActionsButton(host: workspace.communityPlugins, path: session.path, source: "more-options")
         WorkspaceMoreMenuItems()
     }
 

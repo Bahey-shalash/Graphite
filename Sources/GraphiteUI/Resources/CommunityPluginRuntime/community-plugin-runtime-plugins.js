@@ -672,6 +672,51 @@
 
     runtime.ribbon = new RibbonRegistry();
 
+    // MARK: Context menus
+
+    let isMenuListenerNotificationScheduled = false;
+    /// Tells Graphite whether plugins add items to file and editor menus, so its menus offer
+    /// plugins' actions only when there can be some.
+    runtime.menuListenersChanged = function menuListenersChanged() {
+        if (isMenuListenerNotificationScheduled) return;
+        isMenuListenerNotificationScheduled = true;
+        Promise.resolve().then(() => {
+            isMenuListenerNotificationScheduled = false;
+            const workspace = runtime.app && runtime.app.workspace;
+            if (!workspace) return;
+            hostBridge.notify('menus.changed', {
+                hasFileMenuItems: workspace.listenerCount('file-menu') + workspace.listenerCount('files-menu') > 0,
+                hasEditorMenuItems: workspace.listenerCount('editor-menu') > 0,
+            });
+        });
+    };
+
+    /// Menus Graphite shows with plugins' items, until an item is chosen or the menu closes.
+    const openMenus = new Map();
+
+    /// The items plugins added to `menu`, as Graphite shows them; the menu is kept until
+    /// Graphite says which was chosen.
+    function offerMenu(menuIdentifier, menu) {
+        const choices = menu.flattenedItems().filter((entry) => !entry.isSeparator);
+        if (choices.length === 0) {
+            menu.hide();
+            return { items: [] };
+        }
+        openMenus.set(menuIdentifier, { menu, choices });
+        return {
+            items: choices.map((entry, position) => ({
+                position, title: entry.title, icon: entry.icon || null, isChecked: entry.isChecked, isDisabled: entry.isDisabled, isWarning: entry.isWarning, section: entry.section || '',
+            })),
+        };
+    }
+
+    function closeMenu(menuIdentifier) {
+        const openMenu = openMenus.get(menuIdentifier);
+        if (!openMenu) return null;
+        openMenus.delete(menuIdentifier);
+        return openMenu;
+    }
+
     // MARK: Messages from Graphite
 
     function applyTheme(appearance) {
@@ -786,6 +831,51 @@
         },
         async 'surface.closed'() {
             runtime.pluginSurface.handleClosedByPerson();
+            return {};
+        },
+        /// A file or folder's context menu (`file-menu`), or several files' (`files-menu`).
+        async 'menu.file'(message) {
+            const app = runtime.app;
+            const files = (message.paths || []).map((path) => app.vault.getAbstractFileByPath(normalizePath(path))).filter(Boolean);
+            const menu = new exportedApi.Menu();
+            const source = message.source || 'file-explorer-context-menu';
+            if (files.length === 1) app.workspace.trigger('file-menu', menu, files[0], source, null);
+            else if (files.length > 1) app.workspace.trigger('files-menu', menu, files, source, null);
+            return offerMenu(message.menuIdentifier, menu);
+        },
+        /// The note editor's menu at the cursor (`editor-menu`).
+        async 'menu.editor'(message) {
+            const app = runtime.app;
+            if (message.activeDocument) app.workspace.setActiveDocument(message.activeDocument);
+            const view = app.workspace.getActiveViewOfType(MarkdownView);
+            if (!view || !view.editor) return { items: [] };
+            const menu = new exportedApi.Menu();
+            app.workspace.trigger('editor-menu', menu, view.editor, view);
+            return offerMenu(message.menuIdentifier, menu);
+        },
+        async 'menu.choose'(message) {
+            const openMenu = closeMenu(message.menuIdentifier);
+            if (!openMenu) return { outcome: 'missing' };
+            const chosen = openMenu.choices[message.position];
+            const reportFailure = (error) => {
+                console.error(error);
+                hostBridge.notify('plugin.failure', { pluginIdentifier: null, message: '“' + (chosen ? chosen.title : '') + '” failed: ' + (error && error.message ? error.message : String(error)) });
+            };
+            try {
+                // Not waited for: an item may open a window that waits for the person.
+                const outcome = chosen && !chosen.isDisabled && chosen.item.clickCallback ? chosen.item.clickCallback(new globalScope.MouseEvent('click')) : null;
+                if (outcome && typeof outcome.catch === 'function') outcome.catch(reportFailure);
+                return { outcome: chosen ? 'ran' : 'missing' };
+            } catch (error) {
+                reportFailure(error);
+                return { outcome: 'failed', message: error && error.message ? error.message : String(error) };
+            } finally {
+                openMenu.menu.hide();
+            }
+        },
+        async 'menu.dismiss'(message) {
+            const openMenu = closeMenu(message.menuIdentifier);
+            if (openMenu) openMenu.menu.hide();
             return {};
         },
         async 'protocol.open'(message) {

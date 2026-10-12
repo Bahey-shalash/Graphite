@@ -242,18 +242,37 @@ test('QuickAdd: loads, registers its commands and draws its declarative settings
         const settings = await settingRowCount(harness, 'quickadd');
         assert.equal(settings.hasSettingTab, true);
         assert.ok(settings.count >= 5, 'QuickAdd\'s groups of settings are drawn (' + settings.count + ' rows)');
+        const noteMenu = plain(await harness.send({ operation: 'menu.file', menuIdentifier: 'quickadd-menu', paths: ['Welcome.md'] }));
+        assert.deepEqual(noteMenu.items.map((item) => item.title), ['QuickAdd: Apply template to active note']);
     } finally {
         harness.close();
     }
 });
 
-test('Tag Wrangler: loads without commands (it works through tag menus Graphite does not offer yet)', { skip: !builtPlugin('tag-wrangler') }, async () => {
+test('Tag Wrangler: loads without commands; the editor menu on a tag offers renaming it', { skip: !builtPlugin('tag-wrangler') }, async () => {
     const { harness, answer, commandNames, unsupported, pageErrors } = await loadInStudyVault('tag-wrangler');
     try {
         assert.deepEqual(answer, { isLoaded: true });
         assert.deepEqual(commandNames, []);
         assert.deepEqual(unsupported, ['Hover previews']);
         assert.deepEqual(pageErrors, []);
+        // The cursor on `#tag` in "A note with #tag and [[Other]]."
+        const onTag = plain(await harness.send({ operation: 'menu.editor', menuIdentifier: 'tag-menu', activeDocument: { path: 'Welcome.md', mode: 'source', editorSnapshot: harness.host.openNote('Welcome.md', 25) } }));
+        assert.deepEqual(onTag.items.map((item) => item.title), ['Rename #tag', 'Create tag page']);
+        assert.deepEqual(plain(await harness.send({ operation: 'menu.choose', menuIdentifier: 'tag-menu', position: 0 })), { outcome: 'ran' });
+        await waitUntil(() => harness.window.document.querySelector('.modal-container'), 3000).catch(() => {
+            throw new Error('No rename window; page errors: ' + JSON.stringify(harness.consoleMessages.filter((message) => message.level === 'error')) + ' failures: ' + JSON.stringify(plain(harness.host.notificationsOf('plugin.failure'))));
+        });
+        assert.match(harness.window.document.querySelector('.modal-container').textContent, /tag/i, 'its rename window opens on the plugin panel');
+        const nameField = harness.window.document.querySelector('.modal-container input');
+        nameField.value = 'topic';
+        nameField.dispatchEvent(new harness.window.Event('input', { bubbles: true }));
+        const continueButton = Array.from(harness.window.document.querySelectorAll('.modal-container button')).find((button) => button.textContent === 'Continue');
+        continueButton.click();
+        await waitUntil(() => harness.readVaultFile('Welcome.md').includes('#topic'), 5000).catch(() => {
+            throw new Error('Not renamed; the panel shows: ' + (harness.window.document.querySelector('.modal-container') || { textContent: '(nothing)' }).textContent);
+        });
+        assert.equal(harness.readVaultFile('Welcome.md'), '# Welcome\n\nA note with #topic and [[Other]].\n', 'Tag Wrangler renamed the tag in the note through the vault');
     } finally {
         harness.close();
     }
@@ -277,6 +296,17 @@ test('Templater: loads with CodeMirror and replaces templates in the open note',
         const deadline = Date.now() + 3000;
         while (!harness.readVaultFile('Templates/Daily.md').includes(today) && Date.now() < deadline) await settle();
         assert.equal(harness.readVaultFile('Templates/Daily.md'), '# ' + today + '\n', 'Templater rewrote the note through the vault');
+        // A folder's menu offers a note from a template there; a note's does not.
+        const folderMenu = plain(await harness.send({ operation: 'menu.file', menuIdentifier: 'folder-menu', paths: ['Templates'] }));
+        assert.deepEqual(folderMenu.items.map((item) => item.title), ['Create new note from template']);
+        assert.deepEqual(plain(await harness.send({ operation: 'menu.choose', menuIdentifier: 'folder-menu', position: 0 })), { outcome: 'ran' });
+        await settle();
+        const templateChoice = Array.from(harness.window.document.querySelectorAll('.suggestion-item')).find((item) => item.textContent === 'Templates/Daily');
+        templateChoice.click();
+        await waitUntil(() => harness.vaultFileExists('Templates/Untitled.md'), 3000);
+        await waitUntil(() => harness.readVaultFile('Templates/Untitled.md').includes(today), 3000);
+        assert.equal(harness.readVaultFile('Templates/Untitled.md'), '# ' + today + '\n', 'the new note is made from the template in the folder');
+        assert.deepEqual(plain(await harness.send({ operation: 'menu.file', menuIdentifier: 'note-menu', paths: ['Welcome.md'] })), { items: [] });
     } finally {
         harness.close();
     }

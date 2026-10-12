@@ -445,6 +445,17 @@
             const abstractFile = this.getAbstractFileByPath(path);
             return abstractFile instanceof TFolder ? abstractFile : null;
         }
+        /// A path for a new file that no file has yet: `Untitled.md`, then `Untitled 1.md`,
+        /// … (undocumented; Templater names the notes it creates with it).
+        getAvailablePath(pathWithoutExtension, extension) {
+            const base = normalizePath(pathWithoutExtension);
+            const suffix = extension ? '.' + extension : '';
+            for (let number = 0; number < 100000; number += 1) {
+                const candidate = (number === 0 ? base : base + ' ' + number) + suffix;
+                if (!this.getAbstractFileByPathInsensitive(candidate)) return candidate;
+            }
+            throw new Error('Choose another name.');
+        }
         getAllLoadedFiles() { return Array.from(this.abstractFilesByPath.values()); }
         getAllFolders(isIncludingRoot) {
             return Array.from(this.abstractFilesByPath.values()).filter((abstractFile) => abstractFile instanceof TFolder && (isIncludingRoot || !abstractFile.isRoot()));

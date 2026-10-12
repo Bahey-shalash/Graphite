@@ -207,13 +207,13 @@ struct CommunityPluginPresentation: ViewModifier {
                 CommunityPluginPanel(host: host)
                     .tint(workspace.preferences.accentColor)
             }
-            .confirmationDialog("", isPresented: Binding(get: { host.pendingMenu != nil }, set: { isPresented in
+            .confirmationDialog(Text(host.pendingMenu?.title ?? ""), isPresented: Binding(get: { host.pendingMenu != nil }, set: { isPresented in
                 guard !isPresented, let menu = host.pendingMenu else { return }
                 host.pendingMenu = nil
                 // SwiftUI closes the dialog before a button's action runs; the dismissal's
                 // answer waits, so a chosen item answers first.
                 Task { menu.finish(choosing: nil) }
-            }), presenting: host.pendingMenu) { menu in
+            }), titleVisibility: host.pendingMenu?.title.isEmpty == false ? .visible : .automatic, presenting: host.pendingMenu) { menu in
                 ForEach(menu.items) { item in
                     Button(item.isChecked ? "✓ " + item.title : item.title, role: item.isWarning ? .destructive : nil) {
                         menu.finish(choosing: item.id)

@@ -1485,6 +1485,12 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: placement)
         }
 
+        /// The system's edit menu, with community plugins' items for the cursor after it.
+        func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
+            guard let pluginItems = actions.pluginEditMenuElement?() else { return nil }
+            return UIMenu(children: suggestedActions + [pluginItems])
+        }
+
         func textViewDidChangeSelection(_ textView: UITextView) {
             // Folds describe the text before an edit until it settles.
             if !textState.cachesDescribeOldText, let target = locationOutsideFolds(for: textView.selectedRange, in: textView) {

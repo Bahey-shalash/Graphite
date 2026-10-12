@@ -42,6 +42,12 @@ final class CommunityPluginHostTests: XCTestCase {
                 button.addEventListener('click', () => { count += 1; button.setText('Count ' + count); });
                 window.setTimeout(() => element.createDiv({ cls: 'graphite-later', text: 'Drawn later' }), 300);
             });
+            this.registerEvent(this.app.workspace.on('file-menu', (menu, file, source) => {
+                menu.addItem((item) => item.setTitle('Remember ' + file.name).onClick(() => this.saveData({ remembered: file.path, source })));
+            }));
+            this.registerEvent(this.app.workspace.on('editor-menu', (menu, editor) => {
+                menu.addItem((item) => item.setTitle('Shout').onClick(() => editor.replaceSelection(editor.getSelection().toUpperCase())));
+            }));
             this.registerMarkdownPostProcessor((element) => {
                 for (const code of Array.from(element.querySelectorAll('code'))) {
                     if (code.textContent.startsWith('shout:')) code.replaceWith(createEl('strong', { cls: 'graphite-shout', text: code.textContent.slice(6).toUpperCase() }));
@@ -217,6 +223,31 @@ final class CommunityPluginHostTests: XCTestCase {
         XCTAssertEqual(codeBlockWebViews(in: controller, host: host).count, 1, "Sections no plugin changes stay Graphite's own.")
     }
 
+    func testPluginsItemsInFileAndEditorMenusRunThePluginsCode() async throws {
+        let (workspace, vault, controller) = try await workspaceWithRunningPlugin(notes: ["Menu.md": "quiet words\n"])
+        let host = workspace.communityPlugins
+        try await waitUntil { host.hasFileMenuItems && host.hasEditorMenuItems }
+        let fileMenu = try await XCTUnwrapAsync(await host.fileMenu(for: [try VaultPath("Menu.md")]))
+        XCTAssertEqual(fileMenu.items.map(\.title), ["Remember Menu.md"])
+        host.choose(try XCTUnwrap(fileMenu.items.first), in: fileMenu)
+        let dataFile = vault.appendingPathComponent(".obsidian/plugins/\(Self.pluginIdentifier)/data.json")
+        try await waitUntil { (try? String(contentsOf: dataFile, encoding: .utf8))?.contains("\"remembered\": \"Menu.md\"") == true }
+        XCTAssertTrue(try String(contentsOf: dataFile, encoding: .utf8).contains("file-explorer-context-menu"))
+
+        // The editor's menu works on the note as its editor holds it, selection included.
+        let tab = try await openTab("Menu.md", in: workspace)
+        let session = try XCTUnwrap(workspace.document(for: tab).markdownSession)
+        session.viewMode = .source
+        let editor = try await visibleEditor(in: controller, showing: session)
+        editor.becomeFirstResponder()
+        editor.selectedRange = NSRange(location: 0, length: 5)
+        try await waitUntil { session.selection == NSRange(location: 0, length: 5) }
+        let editorMenu = try await XCTUnwrapAsync(await host.editorMenu())
+        XCTAssertEqual(editorMenu.items.map(\.title), ["Shout"])
+        host.choose(try XCTUnwrap(editorMenu.items.first), in: editorMenu)
+        try await waitUntil { session.text == "QUIET words\n" }
+    }
+
     /// Dataview and Tasks as built by `npm run build-compatibility-plugins`, read from the
     /// Mac's checkout (the simulator's apps can read it); skipped when they are not built.
     func testDataviewAndTasksQueriesAreDrawnInTheReadingView() async throws {
@@ -267,6 +298,10 @@ final class CommunityPluginHostTests: XCTestCase {
     }
 
     // MARK: Helpers
+
+    private func XCTUnwrapAsync<Value>(_ value: Value?, file: StaticString = #filePath, line: UInt = #line) async throws -> Value {
+        try XCTUnwrap(value, file: file, line: line)
+    }
 
     private func codeBlockWebViews(in controller: UIViewController, host: CommunityPluginHost) -> [WKWebView] {
         descendants(of: controller.view, matching: WKWebView.self).filter { webView in webView !== host.webView && webView.window != nil }

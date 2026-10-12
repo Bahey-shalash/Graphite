@@ -554,6 +554,7 @@ private struct VaultEntryRow: View, Equatable {
         Button("Copy Vault Path", systemImage: "doc.on.doc") { copyToPasteboard(entry.path.rawValue) }
         Button("Copy Graphite URL", systemImage: "link") { copyToPasteboard(workspace.openingLink(to: entry.path)) }
         bookmarkButton
+        CommunityPluginFileActionsButton(host: workspace.communityPlugins, path: entry.path)
         Divider()
         Button("Delete", systemImage: "trash", role: .destructive) { Task { await workspace.requestDeletion(of: entry.path) } }
     }
@@ -570,6 +571,7 @@ private struct VaultEntryRow: View, Equatable {
         Button("Make a Copy", systemImage: "plus.square.on.square") { Task { await workspace.duplicate(entry.path) } }
         Button("Copy Vault Path", systemImage: "doc.on.doc") { copyToPasteboard(entry.path.rawValue) }
         bookmarkButton
+        CommunityPluginFileActionsButton(host: workspace.communityPlugins, path: entry.path)
         Divider()
         Button("Delete", systemImage: "trash", role: .destructive) { Task { await workspace.requestDeletion(of: entry.path) } }
     }

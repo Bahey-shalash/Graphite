@@ -61,10 +61,13 @@ final class CommunityPluginMenuRequest: Identifiable {
     }
 
     let id = UUID()
+    /// What the menu is for, such as a file's name; empty for a plugin's own menus.
+    let title: String
     let items: [Item]
     private var continuation: CheckedContinuation<Int?, Never>?
 
-    init(items: [Item], continuation: CheckedContinuation<Int?, Never>) {
+    init(title: String = "", items: [Item], continuation: CheckedContinuation<Int?, Never>) {
+        self.title = title
         self.items = items
         self.continuation = continuation
     }
@@ -144,6 +147,10 @@ final class CommunityPluginHost {
     private(set) var codeBlockLanguages: Set<String> = []
     /// The plugin that draws each code block language.
     @ObservationIgnored private(set) var codeBlockLanguageOwners: [String: String] = [:]
+    /// Whether plugins add items to file and folder menus (`file-menu`, `files-menu`).
+    private(set) var hasFileMenuItems = false
+    /// Whether plugins add items to the note editor's menu (`editor-menu`).
+    private(set) var hasEditorMenuItems = false
     /// Plugins that change how notes read (`registerMarkdownPostProcessor`); while there are
     /// any, the reading view offers each part of a note to them.
     private(set) var postProcessingPluginIdentifiers: [String] = []
@@ -420,6 +427,8 @@ final class CommunityPluginHost {
         codeBlockLanguages = []
         codeBlockLanguageOwners = [:]
         postProcessingPluginIdentifiers = []
+        hasFileMenuItems = false
+        hasEditorMenuItems = false
         lastCodeBlockCopies = [:]
         isPanelPresented = false
         pendingMenu?.finish(choosing: nil)
@@ -585,7 +594,7 @@ final class CommunityPluginHost {
         Task { _ = try? await send(["operation": "appearance.changed", "appearance": appearance]) }
     }
 
-    private func activeDocumentDescription(includingEditor: Bool) -> Any {
+    func activeDocumentDescription(includingEditor: Bool) -> Any {
         guard let workspace, let path = workspace.selection else { return NSNull() }
         guard let session = workspace.markdownSession, session.path == path else { return ["path": path.rawValue, "mode": "file"] }
         var description: [String: Any] = ["path": path.rawValue, "mode": session.viewMode == .reading ? "reading" : (session.viewMode == .source ? "source" : "livePreview")]
@@ -808,6 +817,9 @@ final class CommunityPluginHost {
             let languages = Set(message["languages"] as? [String] ?? [])
             codeBlockLanguageOwners = message["owners"] as? [String: String] ?? [:]
             if languages != codeBlockLanguages { codeBlockLanguages = languages }
+        case "menus.changed":
+            hasFileMenuItems = message["hasFileMenuItems"] as? Bool == true
+            hasEditorMenuItems = message["hasEditorMenuItems"] as? Bool == true
         case "postProcessors.changed":
             let pluginIdentifiers = message["pluginIdentifiers"] as? [String] ?? []
             if pluginIdentifiers != postProcessingPluginIdentifiers { postProcessingPluginIdentifiers = pluginIdentifiers }
@@ -890,16 +902,21 @@ final class CommunityPluginHost {
         }
     }
 
-    private func showMenu(_ items: [[String: Any]]) async -> Int? {
+    /// Shows a menu's items as a native dialog and returns the position of the one chosen.
+    func showMenu(_ items: [[String: Any]], title: String = "") async -> Int? {
         pendingMenu?.finish(choosing: nil)
-        let menuItems = items.compactMap { item -> CommunityPluginMenuRequest.Item? in
+        let menuItems = Self.menuItems(items)
+        guard !menuItems.isEmpty else { return nil }
+        return await withCheckedContinuation { continuation in
+            pendingMenu = CommunityPluginMenuRequest(title: title, items: menuItems, continuation: continuation)
+        }
+    }
+
+    static func menuItems(_ items: [[String: Any]]) -> [CommunityPluginMenuRequest.Item] {
+        items.compactMap { item -> CommunityPluginMenuRequest.Item? in
             guard let position = item["position"] as? Int else { return nil }
             return CommunityPluginMenuRequest.Item(id: position, title: item["title"] as? String ?? "", isDisabled: item["isDisabled"] as? Bool == true,
                                                    isWarning: item["isWarning"] as? Bool == true, isChecked: item["isChecked"] as? Bool == true)
-        }
-        guard !menuItems.isEmpty else { return nil }
-        return await withCheckedContinuation { continuation in
-            pendingMenu = CommunityPluginMenuRequest(items: menuItems, continuation: continuation)
         }
     }
 

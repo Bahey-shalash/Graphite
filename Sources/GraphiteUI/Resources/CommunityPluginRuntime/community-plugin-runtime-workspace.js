@@ -13,6 +13,8 @@
     const hostBridge = runtime.hostBridge;
 
     let nextLeafNumber = 1;
+    /// Events through which plugins add items to Obsidian's context menus.
+    const menuEventNames = new Set(['file-menu', 'files-menu', 'editor-menu']);
 
     // MARK: Editor
 
@@ -51,6 +53,30 @@
                 if (change) changes.push(change);
             }
             if (changes.length > 0) this.transaction({ changes });
+        }
+        /// The tag, link or web address at a position, as Obsidian finds it for context menus
+        /// (`getClickableTokenAt`, undocumented): Tag Wrangler's editor menu reads it.
+        getClickableTokenAt(position) {
+            if (!position || position.line < 0 || position.line >= this.lineCount()) return null;
+            const line = this.getLine(position.line);
+            const patterns = [
+                { type: 'internal-link', pattern: /!?\[\[([^\]|#\n]*(?:#[^\]|\n]*)?)(?:\|[^\]\n]*)?\]\]/g, text: (match) => match[1] },
+                { type: 'external-link', pattern: /\[[^\]\n]*\]\((https?:\/\/[^)\s]+)\)/g, text: (match) => match[1] },
+                { type: 'external-link', pattern: /https?:\/\/[^\s)>\]]+/g, text: (match) => match[0] },
+                { type: 'tag', pattern: /(?:^|(?<=[\s(]))#[\p{L}\p{N}_\-/]*[\p{L}_\-/][\p{L}\p{N}_\-/]*/gu, text: (match) => match[0] },
+            ];
+            for (const candidate of patterns) {
+                candidate.pattern.lastIndex = 0;
+                let match;
+                while ((match = candidate.pattern.exec(line)) !== null) {
+                    const start = match.index;
+                    const end = start + match[0].length;
+                    if (position.ch >= start && position.ch <= end) {
+                        return { type: candidate.type, text: candidate.text(match), start: { line: position.line, ch: start }, end: { line: position.line, ch: end } };
+                    }
+                }
+            }
+            return null;
         }
     }
 
@@ -561,6 +587,22 @@
             this.requestSaveLayout = exportedApi.debounce(() => {}, 0);
             this.editorSuggest = { suggests: [] };
         }
+
+        /// Graphite asks for plugins' menu items only while some plugin listens for them.
+        on(name, callback, context) {
+            const eventReference = super.on(name, callback, context);
+            if (menuEventNames.has(name)) runtime.menuListenersChanged();
+            return eventReference;
+        }
+        off(name, callback) {
+            super.off(name, callback);
+            if (menuEventNames.has(name)) runtime.menuListenersChanged();
+        }
+        offref(eventReference) {
+            super.offref(eventReference);
+            if (eventReference && menuEventNames.has(eventReference.name)) runtime.menuListenersChanged();
+        }
+        listenerCount(name) { return (this.eventReferencesByName[name] || []).length; }
 
         // State Graphite sends.
 

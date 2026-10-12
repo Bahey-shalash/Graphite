@@ -285,6 +285,7 @@ private struct TabBar: View {
                 workspace.revealCurrentFile()
             }
             Button("Rename…", systemImage: "pencil") { workspace.fileSheet = .rename(path) }
+            CommunityPluginFileActionsButton(host: workspace.communityPlugins, path: path, source: "tab-header")
         }
     }
 

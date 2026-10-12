@@ -45,6 +45,10 @@ struct EditorActions {
     var beginEditing: (() -> Void)?
     /// Follows a link in a new tab (⌘-tap) or on the other side of the split (⌥⌘-tap).
     var followLinkElsewhere: ((_ target: String, _ isWiki: Bool, _ placement: TabPlacement) -> Void)?
+    #if canImport(UIKit)
+    /// Community plugins' items for the editor's menu at the cursor; nil while no plugin adds any.
+    var pluginEditMenuElement: (() -> UIMenuElement)?
+    #endif
 }
 
 extension MarkdownEditing {
