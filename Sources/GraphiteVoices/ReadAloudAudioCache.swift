@@ -9,12 +9,16 @@ public struct CachedReadAloudPassage: Sendable {
     /// Nil when speech recognition could not match the passage; the reader then highlights
     /// the whole passage.
     public let wordTimings: [ReadAloudTimedWord]?
+    /// True when the fallback voice read the passage's own text, so the timings index the
+    /// passage text rather than the chosen voice's text.
+    public var readsPassageText = false
 }
 
 /// What is stored beside each audio file.
 private struct CachedPassageDetails: Codable {
     var durationSeconds: Double
     var wordTimings: [ReadAloudTimedWord]?
+    var readsPassageText: Bool?
 }
 
 /// Rendered passages in Graphite's caches folder, never in the vault: an AAC file and a small
@@ -66,7 +70,8 @@ public actor ReadAloudAudioCache {
         }
         entries[key]?.lastUsed = Date()
         saveIndex()
-        return CachedReadAloudPassage(audioFile: audioFile(key), durationSeconds: details.durationSeconds, wordTimings: details.wordTimings)
+        return CachedReadAloudPassage(audioFile: audioFile(key), durationSeconds: details.durationSeconds, wordTimings: details.wordTimings,
+                                      readsPassageText: details.readsPassageText ?? false)
     }
 
     /// Encodes rendered speech as AAC into a file the caller can analyze before `commit`.
@@ -94,14 +99,24 @@ public actor ReadAloudAudioCache {
 
     /// Records a passage whose audio `writeAudio` wrote, with its word timings, and removes old
     /// passages if the cache is now over its limit.
-    public func commit(_ key: ReadAloudAudioCacheKey, durationSeconds: Double, wordTimings: [ReadAloudTimedWord]?) throws {
-        let details = CachedPassageDetails(durationSeconds: durationSeconds, wordTimings: wordTimings)
+    public func commit(_ key: ReadAloudAudioCacheKey, durationSeconds: Double, wordTimings: [ReadAloudTimedWord]?,
+                       readsPassageText: Bool = false) throws {
+        let details = CachedPassageDetails(durationSeconds: durationSeconds, wordTimings: wordTimings,
+                                           readsPassageText: readsPassageText ? true : nil)
         try JSONEncoder().encode(details).write(to: detailsFile(key), options: .atomic)
         let byteCount = [audioFile(key), detailsFile(key)].reduce(Int64(0)) { total, file in
             total + Int64((try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
         }
         entries[key] = ReadAloudAudioCacheEntry(key: key, byteCount: byteCount, lastUsed: Date())
         evictIfNeeded()
+        saveIndex()
+    }
+
+    /// Removes audio written for a passage that was then rejected.
+    public func discard(_ key: ReadAloudAudioCacheKey) {
+        entries[key] = nil
+        try? FileManager.default.removeItem(at: audioFile(key))
+        try? FileManager.default.removeItem(at: detailsFile(key))
         saveIndex()
     }
 

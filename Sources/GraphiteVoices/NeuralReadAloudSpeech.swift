@@ -22,7 +22,7 @@ public final class NeuralReadAloudSpeech: ReadAloudSpeaking {
 
     @ObservationIgnored private let quick: any ReadAloudSpeaking
     @ObservationIgnored private let player = RenderedPassagePlayer()
-    @ObservationIgnored private var activeRequest: (identifier: UUID, request: ReadAloudUtteranceRequest)?
+    @ObservationIgnored private var activeRequest: (identifier: UUID, request: ReadAloudUtteranceRequest, voiceText: ReadAloudVoiceText)?
     /// The rendered passage playing now and the speech offset its word ranges are shifted by.
     @ObservationIgnored private var playingPassage: CachedReadAloudPassage?
     @ObservationIgnored private var lastReportedWordLocation: Int?
@@ -75,8 +75,9 @@ public final class NeuralReadAloudSpeech: ReadAloudSpeaking {
             try quick.speak(request, requestIdentifier: requestIdentifier)
             return
         }
-        activeRequest = (requestIdentifier, request)
-        let passageText = request.passageText ?? request.text
+        let voiceText = Self.voiceText(for: request, voice: voice)
+        activeRequest = (requestIdentifier, request, voiceText)
+        let passageText = voiceText.text
         pendingStart = Task { [weak self] in
             guard let self else { return }
             if let ready = await self.preparation.readyPassage(passageText, voice: voice) {
@@ -113,9 +114,24 @@ public final class NeuralReadAloudSpeech: ReadAloudSpeaking {
         return voice.name
     }
 
-    public func prepareAhead(_ passageTexts: [String], from passageIndex: Int) {
+    public func prepareAhead(_ passages: [ReadAloudPassage], from passageIndex: Int) {
         guard readsWithDownloadedVoice, let voice = library.selectedVoice else { return }
-        preparation.prepare(passageTexts, from: passageIndex, voice: voice, language: language)
+        let items = passages.map { passage in
+            let voiceText = Self.voiceText(for: passage, voice: voice)
+            return ReadAloudPassagePreparation.Item(voiceText: voiceText.text, passageText: passage.text, writtenText: voiceText.writtenText)
+        }
+        preparation.prepare(items, from: passageIndex, voice: voice, fallbackVoice: library.fallbackVoice, language: language)
+    }
+
+    /// What the chosen voice reads for a passage: autoregressive voices get written acronyms
+    /// instead of letter-by-letter respellings (`ReadAloudVoiceText`).
+    static func voiceText(for passage: ReadAloudPassage, voice: ReadAloudPassagePreparation.Voice) -> ReadAloudVoiceText {
+        ReadAloudVoiceText(passage: passage, writesAcronymsAsWritten: voice.description.modelFamily.writesAcronymsAsWritten)
+    }
+
+    private static func voiceText(for request: ReadAloudUtteranceRequest, voice: ReadAloudPassagePreparation.Voice) -> ReadAloudVoiceText {
+        guard let passage = request.passage else { return ReadAloudVoiceText(passageText: request.text) }
+        return voiceText(for: passage, voice: voice)
     }
 
     public func cancelPreparation() {
@@ -138,8 +154,10 @@ public final class NeuralReadAloudSpeech: ReadAloudSpeaking {
     private func start(_ passage: CachedReadAloudPassage, for identifier: UUID) {
         guard let active = activeRequest, active.identifier == identifier else { return }
         let request = active.request
+        // The fallback voice read the passage's own text; the chosen voice read its own text.
+        let offset = passage.readsPassageText ? request.passageOffset : active.voiceText.voiceOffset(forPassageOffset: request.passageOffset)
         let startSeconds = passage.wordTimings.map { timings in
-            ReadAloudWordAlignment.startSeconds(forOffset: request.passageOffset, in: timings)
+            ReadAloudWordAlignment.startSeconds(forOffset: offset, in: timings)
         } ?? 0
         activateAudioSession()
         pendingStart = Task { [weak self] in
@@ -175,10 +193,11 @@ public final class NeuralReadAloudSpeech: ReadAloudSpeaking {
               let seconds = player.currentSeconds, let word = ReadAloudWordAlignment.word(at: seconds, in: timings),
               word.location != lastReportedWordLocation else { return }
         lastReportedWordLocation = word.location
+        let passageRange = playingPassage?.readsPassageText == true ? word.range : active.voiceText.passageRange(forVoiceRange: word.range)
         // The session counts ranges from where this request's text starts in the passage.
-        let location = word.location - active.request.passageOffset
+        let location = passageRange.location - active.request.passageOffset
         guard location >= 0 else { return }
-        eventHandler?(.spoken(identifier, NSRange(location: location, length: word.length)))
+        eventHandler?(.spoken(identifier, NSRange(location: location, length: passageRange.length)))
     }
 
     private func passageFinished(_ identifier: UUID) {

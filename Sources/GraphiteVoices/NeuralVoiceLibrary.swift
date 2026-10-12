@@ -110,6 +110,15 @@ public final class NeuralVoiceLibrary {
         return ReadAloudPassagePreparation.Voice(description: voice, folder: installation.folder(of: voice))
     }
 
+    /// The most reliable installed voice other than the chosen one, which reads passages the
+    /// chosen voice garbles: Pocket TTS, the voice that never failed the checks on the iPad.
+    public var fallbackVoice: ReadAloudPassagePreparation.Voice? {
+        guard let selected = selectedVoice,
+              let pocket = installedVoices.first(where: { voice in voice.modelFamily == .pocketTTS }),
+              pocket.id != selected.description.id else { return nil }
+        return ReadAloudPassagePreparation.Voice(description: pocket, folder: installation.folder(of: pocket))
+    }
+
     public func selectVoice(_ voice: NeuralVoiceDescription) {
         guard states[voice.id] == .installed else { return }
         selectedVoiceIdentifier = voice.id

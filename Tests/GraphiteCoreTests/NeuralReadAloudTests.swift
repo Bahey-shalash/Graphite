@@ -1,4 +1,5 @@
 import XCTest
+import AVFoundation
 @testable import GraphiteCore
 
 final class NeuralVoiceManifestTests: XCTestCase {
@@ -192,5 +193,91 @@ final class ReadAloudQualityModeTests: XCTestCase {
     func testPreparedShareCountsCharacters() {
         XCTAssertEqual(ReadAloudPassageAudioPolicy.preparedShare(passageLengths: [10, 30, 60], renderedPassages: [0, 1]), 0.4, accuracy: 0.0001)
         XCTAssertEqual(ReadAloudPassageAudioPolicy.preparedShare(passageLengths: [], renderedPassages: []), 1)
+    }
+}
+
+/// The checks that keep babbling from being heard, on a real Qwen3-TTS 0.6B rendering of the
+/// owner's term list: after "C-A-D." the model made 45 seconds of noise for "P C B, M L, V C O,
+/// R S." (`QwenBabbling.m4a`, cut from the full 165-second rendering).
+final class ReadAloudRenderCheckTests: XCTestCase {
+    private func babblingSamples() throws -> (samples: [Float], sampleRate: Int) {
+        let file = try AVAudioFile(forReading: try XCTUnwrap(Bundle.module.url(forResource: "QwenBabbling", withExtension: "m4a")))
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length)))
+        try file.read(into: buffer)
+        let channel = try XCTUnwrap(buffer.floatChannelData?[0])
+        return (Array(UnsafeBufferPointer(start: channel, count: Int(buffer.frameLength))), Int(file.processingFormat.sampleRate))
+    }
+
+    func testTheRealBabblingRenderingIsRejectedForRunningOnAndMissingItsWords() throws {
+        let (samples, sampleRate) = try babblingSamples()
+        let duration = Double(samples.count) / Double(sampleRate)
+        XCTAssertEqual(duration, 48, accuracy: 1)
+        let text = "P C B, M L, V C O, R S."
+        // What on-device recognition heard in this clip: the end of the previous group only.
+        let heard = [ReadAloudRecognizedWord(text: "C-A-D.", startSeconds: 0.4, endSeconds: 1.2)]
+        let problems = ReadAloudRenderCheck.problems(
+            text: text, recognized: heard, durationSeconds: duration,
+            longestSilenceSeconds: ReadAloudRenderCheck.longestSilenceSeconds(samples: samples, sampleRate: sampleRate))
+        XCTAssertTrue(problems.contains { problem in if case .tooLong(let ratio) = problem { return ratio > 10 } else { return false } }, "\(problems)")
+        XCTAssertTrue(problems.contains { problem in if case .lowCoverage(let share) = problem { return share < 0.2 } else { return false } }, "\(problems)")
+    }
+
+    func testCleanSpeechPasses() {
+        let text = "The delay scales as R times C, so halving the resistance cuts the delay in half."
+        let heard = text.split(separator: " ").enumerated().map { index, word in
+            ReadAloudRecognizedWord(text: String(word), startSeconds: Double(index) * 0.35, endSeconds: Double(index) * 0.35 + 0.3)
+        }
+        XCTAssertEqual(ReadAloudRenderCheck.problems(text: text, recognized: heard, durationSeconds: 5.8, longestSilenceSeconds: 0.4), [])
+        XCTAssertEqual(ReadAloudRenderCheck.problems(text: text, recognized: nil, durationSeconds: 5.8, longestSilenceSeconds: 0.4), [],
+                       "without recognition only the duration and silence are checked")
+    }
+
+    func testLoopsAreFoundAsRepeatedWordsAndAsOneRepeatedSyllable() {
+        // Whisper heard the 0.6B model's loop on "R D, P D F" as one hyphenated run.
+        XCTAssertEqual(ReadAloudRenderCheck.repeatedLoop(in: ["R-D-F-R-D-F-R-D-F-R-D-F-R-D-F"], comparedWith: "R D, P D F."), "rdf")
+        XCTAssertEqual(ReadAloudRenderCheck.repeatedLoop(in: ["the", "gate", "gate", "gate", "gate", "gate"], comparedWith: "the gate"), "gate")
+        XCTAssertEqual(ReadAloudRenderCheck.repeatedLoop(in: ["amen", "so", "amen", "so", "amen", "so", "amen", "so"], comparedWith: "Read this."), "amen so")
+        XCTAssertNil(ReadAloudRenderCheck.repeatedLoop(in: ["very", "very", "very", "very", "good"], comparedWith: "very very very very good"),
+                     "repetition the text asks for is not a loop")
+        XCTAssertNil(ReadAloudRenderCheck.repeatedLoop(in: ["Compared", "with", "SRAM"], comparedWith: "Compared with SRAM"))
+    }
+
+    func testSilenceInsideTheAudioCountsButNotAtItsEnds() {
+        let sampleRate = 1_000
+        let tone = (0..<500).map { index in Float(sin(Double(index) * 0.3) * 0.2) }
+        let silence = [Float](repeating: 0, count: 3_000)
+        XCTAssertEqual(ReadAloudRenderCheck.longestSilenceSeconds(samples: tone + silence + tone, sampleRate: sampleRate), 3, accuracy: 0.06)
+        XCTAssertEqual(ReadAloudRenderCheck.longestSilenceSeconds(samples: silence + tone + silence, sampleRate: sampleRate), 0)
+        XCTAssertEqual(ReadAloudRenderCheck.problems(text: "Short.", recognized: nil, durationSeconds: 4, longestSilenceSeconds: 3),
+                       [.longSilence(3)])
+    }
+}
+
+final class ReadAloudVoiceTextTests: XCTestCase {
+    private func passage() throws -> ReadAloudPassage {
+        let pronunciations = ReadAloudPronunciations(terms: ["VHDL": .init(say: "V H D L"), "CMOS": .init(say: "see moss")])
+        let document = try ReadAloudDocument.markdown("Write VHDL for the CMOS gate.", pronunciations: pronunciations)
+        return try XCTUnwrap(document.passages.first)
+    }
+
+    func testAutoregressiveVoicesGetWrittenAcronymsAndWordRespellingsStay() throws {
+        let passage = try passage()
+        XCTAssertEqual(passage.text, "Write V H D L for the see moss gate.")
+        let voiceText = ReadAloudVoiceText(passage: passage, writesAcronymsAsWritten: true)
+        XCTAssertEqual(voiceText.text, "Write VHDL for the see moss gate.")
+        XCTAssertEqual(ReadAloudVoiceText(passage: passage, writesAcronymsAsWritten: false).text, passage.text)
+        XCTAssertEqual(voiceText.writtenText, "Write VHDL for the CMOS gate.", "renderings are checked against what recognition writes")
+    }
+
+    func testRangesTheVoiceReportsMapBackToThePassage() throws {
+        let passage = try passage()
+        let voiceText = ReadAloudVoiceText(passage: passage, writesAcronymsAsWritten: true)
+        let voice = voiceText.text as NSString
+        let passageText = passage.text as NSString
+        XCTAssertEqual(passageText.substring(with: voiceText.passageRange(forVoiceRange: voice.range(of: "VHDL"))), "V H D L")
+        XCTAssertEqual(passageText.substring(with: voiceText.passageRange(forVoiceRange: voice.range(of: "gate"))), "gate")
+        XCTAssertEqual(passageText.substring(with: voiceText.passageRange(forVoiceRange: voice.range(of: "Write"))), "Write")
+        XCTAssertEqual(voiceText.voiceOffset(forPassageOffset: passageText.range(of: "for").location), voice.range(of: "for").location)
+        XCTAssertEqual(voiceText.voiceOffset(forPassageOffset: passageText.range(of: "H D").location), voice.range(of: "VHDL").location)
     }
 }

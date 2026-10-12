@@ -364,12 +364,17 @@ private final class ToneRenderer: NeuralPassageRendering, @unchecked Sendable {
     // `@unchecked Sendable`: every property is read and written while holding `lock`.
     private let lock = NSLock()
     private var renderedTexts: [String] = []
+    private var renderedVoices: [String] = []
+    /// Voices that babble: they run on to twelve times the passage's length, like Qwen3-TTS
+    /// did on a list of spelled acronyms.
+    var babblingVoiceIdentifiers: Set<String> = []
     private var gate: CheckedContinuation<Void, Never>?
     private var isGated = false
     static let secondsPerCharacter = 0.012
 
     var renders: [String] { lock.withLock { renderedTexts } }
     var lastText: String? { lock.withLock { renderedTexts.last } }
+    var voices: [String] { lock.withLock { renderedVoices } }
 
     func holdRendering() { lock.withLock { isGated = true } }
     func releaseRendering() {
@@ -377,16 +382,18 @@ private final class ToneRenderer: NeuralPassageRendering, @unchecked Sendable {
         waiting?.resume()
     }
 
-    func render(_ text: String, voice: NeuralVoiceDescription, voiceFolder: URL) async throws -> RenderedSpeech {
+    func render(_ text: String, voice: NeuralVoiceDescription, voiceFolder: URL, seed: UInt64?) async throws -> RenderedSpeech {
         if lock.withLock({ isGated }) {
             await withCheckedContinuation { continuation in
                 let releaseNow: Bool = lock.withLock { if isGated { gate = continuation; return false }; return true }
                 if releaseNow { continuation.resume() }
             }
         }
-        lock.withLock { renderedTexts.append(text) }
+        lock.withLock { renderedTexts.append(text); renderedVoices.append(voice.id) }
         let sampleRate = 24_000
-        let count = max(sampleRate / 10, Int(Double(text.count) * Self.secondsPerCharacter * Double(sampleRate)))
+        let babbles = babblingVoiceIdentifiers.contains(voice.id)
+        let secondsPerCharacter = babbles ? 12 / ReadAloudRenderCheck.charactersPerSecond : Self.secondsPerCharacter
+        let count = max(sampleRate / 10, Int(Double(text.count) * secondsPerCharacter * Double(sampleRate)))
         let samples = (0..<count).map { index in Float(0.05 * sin(Double(index) * 2 * .pi * 220 / Double(sampleRate))) }
         return RenderedSpeech(samples: samples, sampleRate: sampleRate)
     }
@@ -477,6 +484,66 @@ final class HighQualityReadAloudTests: XCTestCase {
             }
             try await Task.sleep(for: .milliseconds(20))
         }
+    }
+
+    private func testVoice(_ identifier: String, family: NeuralVoiceModelFamily) -> NeuralVoiceDescription {
+        NeuralVoiceDescription(
+            id: identifier, name: identifier, modelName: identifier, modelFamily: family, speaker: nil, language: "en",
+            qualityNote: "A test voice.", license: NeuralVoiceLicense(name: "MIT", address: URL(string: "https://example.com")!),
+            sources: [NeuralVoiceSource(repository: "test/\(identifier)", revision: "r1",
+                                        files: [NeuralVoiceFile(path: "model.safetensors", byteCount: 4, sha256: String(repeating: "0", count: 64))])],
+            platforms: ["iOS", "macOS"], minimumPhysicalMemoryBytes: 1)
+    }
+
+    /// A babbling autoregressive voice is chosen; a Pocket TTS voice is installed too when
+    /// `installsFallback`.
+    private func makeBabblingReader(installsFallback: Bool) throws
+        -> (ReadAloudController, NeuralReadAloudSpeech, ToneRenderer, RecordingQuickSpeech) {
+        let babbler = testVoice("babbler", family: .qwen3TTS)
+        let pocket = testVoice("steady-pocket", family: .pocketTTS)
+        let installation = NeuralVoiceInstallation(voicesFolder: try temporaryFolder())
+        for voice in installsFallback ? [babbler, pocket] : [babbler] {
+            try FileManager.default.createDirectory(at: installation.stagingFolder(of: voice), withIntermediateDirectories: true)
+            try Data("test".utf8).write(to: installation.stagingFolder(of: voice).appendingPathComponent("model.safetensors"))
+            try installation.finishInstalling(voice)
+        }
+        let preferences = try XCTUnwrap(UserDefaults(suiteName: "HighQualityReadAloudTests-\(UUID().uuidString)"))
+        let cache = ReadAloudAudioCache(folder: try temporaryFolder())
+        let library = NeuralVoiceLibrary(manifest: NeuralVoiceManifest(downloadHost: URL(string: "https://example.com")!, voices: [babbler, pocket]),
+                                         installation: installation, audioCache: cache, preferences: preferences,
+                                         platform: "iOS", physicalMemoryBytes: 1 << 33, startsDownloader: false)
+        library.selectVoice(babbler)
+        let renderer = ToneRenderer()
+        renderer.babblingVoiceIdentifiers = ["babbler"]
+        let preparation = ReadAloudPassagePreparation(cache: cache, renderer: renderer, aligner: EvenAligner(renderer: renderer))
+        let quick = RecordingQuickSpeech()
+        let speech = NeuralReadAloudSpeech(quick: quick, library: library, preparation: preparation)
+        let session = ReadAloudSession(speech: speech, preferences: preferences)
+        session.chooseVoice("quick-voice")
+        return (ReadAloudController(session: session, neuralSpeech: speech, preferences: preferences), speech, renderer, quick)
+    }
+
+    func testABabblingRenderingIsRegeneratedThenReadByPocketTTSAndNeverHeard() async throws {
+        let (reader, speech, renderer, quick) = try makeBabblingReader(installsFallback: true)
+        reader.session.load(try ReadAloudDocument.markdown("Write VHDL for the FPGA."))
+        reader.session.play()
+        try await waitUntil(20) { reader.session.state == .speaking && reader.session.spokenRange != nil }
+        XCTAssertEqual(renderer.voices, ["babbler", "babbler", "steady-pocket"], "two attempts with the chosen voice, then the fallback")
+        XCTAssertEqual(renderer.renders[0], "Write VHDL for the FPGA.", "the autoregressive voice gets acronyms as written")
+        XCTAssertEqual(renderer.renders[2], "Write V H D L for the F P G A.", "the fallback reads the passage's respellings")
+        XCTAssertTrue(speech.preparation.lastRejection?.contains("times longer") == true, String(describing: speech.preparation.lastRejection))
+        XCTAssertTrue(quick.spokenTexts.isEmpty)
+        try await waitUntil(20) { reader.session.state == .finished }
+    }
+
+    func testWithoutAFallbackVoiceTheSystemVoiceReadsWhatTheVoiceGarbled() async throws {
+        let (reader, speech, renderer, quick) = try makeBabblingReader(installsFallback: false)
+        reader.session.load(try ReadAloudDocument.markdown("Write VHDL for the FPGA."))
+        reader.session.play()
+        try await waitUntil(20) { !quick.spokenTexts.isEmpty }
+        XCTAssertEqual(renderer.voices, ["babbler", "babbler"])
+        XCTAssertEqual(quick.spokenTexts, ["Write V H D L for the F P G A."])
+        XCTAssertEqual(speech.preparation.systemVoiceTexts, ["Write VHDL for the FPGA."])
     }
 
     private let note = "# Memory\n\nCompared with SRAM, DRAM is denser but slower.\n\nRead and write signals come from the controller."

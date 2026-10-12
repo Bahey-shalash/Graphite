@@ -36,7 +36,8 @@ let package = Package(
                 // The theme resolver's default variables and probe script (`ThemeTokenResolver`).
                 resources: [.copy("Resources/CommunityPluginRuntime"), .copy("Resources/ThemeResolver")]),
         .executableTarget(name: "GraphiteBenchmarks", dependencies: ["GraphiteCore", "GraphiteIndex"]),
-        .testTarget(name: "GraphiteCoreTests", dependencies: ["GraphiteCore"]),
+        // The babbling clip is a real Qwen3-TTS rendering, to test the checks on real audio.
+        .testTarget(name: "GraphiteCoreTests", dependencies: ["GraphiteCore"], resources: [.copy("Resources/QwenBabbling.m4a")]),
         .testTarget(name: "GraphiteIndexTests", dependencies: ["GraphiteIndex", "GraphiteBenchmarks"]),
         .testTarget(name: "GraphiteAppleTests", dependencies: ["GraphiteApple"]),
         .testTarget(name: "GraphiteUITests", dependencies: ["GraphiteUI", .product(name: "Textual", package: "textual")])

@@ -127,7 +127,7 @@ public protocol ReadAloudSpeaking: AnyObject {
     func releaseAudio()
     /// The document's passages from the one about to be read to the end, so a voice that
     /// renders ahead of time can start on them. The system voice speaks live and ignores this.
-    func prepareAhead(_ passageTexts: [String], from passageIndex: Int)
+    func prepareAhead(_ passages: [ReadAloudPassage], from passageIndex: Int)
     /// The document was replaced or closed; rendering ahead for it stops.
     func cancelPreparation()
 }
@@ -148,7 +148,7 @@ public extension ReadAloudSpeaking {
     var personalVoiceStatus: ReadAloudPersonalVoiceStatus { .unsupported }
     func requestPersonalVoiceAccess() async -> ReadAloudPersonalVoiceStatus { .unsupported }
     func releaseAudio() {}
-    func prepareAhead(_ passageTexts: [String], from passageIndex: Int) {}
+    func prepareAhead(_ passages: [ReadAloudPassage], from passageIndex: Int) {}
     func cancelPreparation() {}
 }
 
@@ -706,10 +706,10 @@ public final class ReadAloudSession {
                 return ReadAloudPhoneticRange(range: NSRange(location: span.speechRange.location - utteranceStartOffset, length: span.speechRange.length),
                                               notation: notation)
             }
-            if let document { speech.prepareAhead(document.passages.map(\.text), from: passageIndex) }
+            if let document { speech.prepareAhead(document.passages, from: passageIndex) }
             try speech.speak(ReadAloudUtteranceRequest(text: text.substring(from: utteranceStartOffset), voiceIdentifier: selectedVoiceIdentifier,
                                                        speed: speed, leadingPauseSeconds: pause, usesSystemSettings: followsSystemVoice,
-                                                       phoneticRanges: phoneticRanges, passageText: passage.text,
+                                                       phoneticRanges: phoneticRanges, passage: passage,
                                                        passageOffset: utteranceStartOffset), requestIdentifier: identifier)
             state = .speaking
             needsRestart = false
@@ -830,19 +830,19 @@ public struct ReadAloudUtteranceRequest: Equatable, Sendable {
     /// The whole passage `text` belongs to. Resuming in the middle of a passage speaks only its
     /// remainder, but a voice that renders whole passages ahead plays the passage's audio from
     /// the word at `passageOffset`.
-    public var passageText: String?
-    /// Where `text` starts within `passageText`, in UTF-16 units.
+    public var passage: ReadAloudPassage?
+    /// Where `text` starts within the passage's text, in UTF-16 units.
     public var passageOffset = 0
 
     public init(text: String, voiceIdentifier: String, speed: Double, leadingPauseSeconds: Double, usesSystemSettings: Bool,
-                phoneticRanges: [ReadAloudPhoneticRange] = [], passageText: String? = nil, passageOffset: Int = 0) {
+                phoneticRanges: [ReadAloudPhoneticRange] = [], passage: ReadAloudPassage? = nil, passageOffset: Int = 0) {
         self.text = text
         self.voiceIdentifier = voiceIdentifier
         self.speed = speed
         self.leadingPauseSeconds = leadingPauseSeconds
         self.usesSystemSettings = usesSystemSettings
         self.phoneticRanges = phoneticRanges
-        self.passageText = passageText
+        self.passage = passage
         self.passageOffset = passageOffset
     }
 }

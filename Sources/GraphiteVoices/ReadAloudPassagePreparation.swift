@@ -1,11 +1,13 @@
 import Foundation
 import Observation
+import OSLog
 import GraphiteCore
 
 /// Turns passage text into speech with a downloaded voice. A protocol so hosted tests can use
 /// a tiny generated tone instead of a model of several hundred megabytes.
 public protocol NeuralPassageRendering: Sendable {
-    func render(_ text: String, voice: NeuralVoiceDescription, voiceFolder: URL) async throws -> RenderedSpeech
+    /// `seed` changes the sampling; nil keeps the model's own.
+    func render(_ text: String, voice: NeuralVoiceDescription, voiceFolder: URL, seed: UInt64?) async throws -> RenderedSpeech
     /// Frees the model's memory; the next render loads it again.
     func releaseResources() async
 }
@@ -19,11 +21,11 @@ public final class MLXPassageRenderer: NeuralPassageRendering {
 
     public init() {}
 
-    public func render(_ text: String, voice: NeuralVoiceDescription, voiceFolder: URL) async throws -> RenderedSpeech {
+    public func render(_ text: String, voice: NeuralVoiceDescription, voiceFolder: URL, seed: UInt64?) async throws -> RenderedSpeech {
         if await engine.loadedVoice?.id != voice.id {
             try await engine.load(voice, from: voiceFolder)
         }
-        return try await engine.render(text, on: .graphics)
+        return try await engine.render(text, on: .graphics, seed: seed)
     }
 
     public func releaseResources() async {
@@ -66,6 +68,15 @@ public final class ReadAloudPassagePreparation {
     @ObservationIgnored private var language = "en"
     @ObservationIgnored private var queue: [String] = []
     @ObservationIgnored private var readyTexts: Set<String> = []
+    /// The passage text behind each voice text, for the fallback voice.
+    @ObservationIgnored private var passageTexts: [String: String] = [:]
+    /// The written text behind each voice text, for the render check.
+    @ObservationIgnored private var writtenTexts: [String: String] = [:]
+    /// The most reliable other installed voice (Pocket TTS), for passages the chosen one garbles.
+    @ObservationIgnored private var fallbackVoice: Voice?
+    /// Passages no voice rendered cleanly: the system voice reads them.
+    public private(set) var systemVoiceTexts: Set<String> = []
+    private static let logger = Logger(subsystem: "com.graphite.study", category: "ReadAloudVoices")
     @ObservationIgnored private var worker: Task<Void, Never>?
     @ObservationIgnored private var waiters: [String: [CheckedContinuation<CachedReadAloudPassage?, Never>]] = [:]
     /// True while Graphite is in the background; see `suspend`.
@@ -79,8 +90,29 @@ public final class ReadAloudPassagePreparation {
 
     /// Queues the passages from `startIndex` to the end for `voice`. Passages before the start
     /// are not rendered: reading began later in the note.
-    public func prepare(_ passageTexts: [String], from startIndex: Int, voice: Voice, language: String) {
-        let upcoming = Array(passageTexts.dropFirst(max(0, startIndex)))
+    /// One passage to prepare: the text the voice reads, and the passage's own text, which a
+    /// fallback voice reads if the chosen voice garbles it.
+    public struct Item: Equatable, Sendable {
+        public let voiceText: String
+        public let passageText: String
+        /// The passage as written, which rendered audio is checked against.
+        public let writtenText: String
+
+        public init(voiceText: String, passageText: String, writtenText: String? = nil) {
+            self.voiceText = voiceText
+            self.passageText = passageText
+            self.writtenText = writtenText ?? passageText
+        }
+    }
+
+    public func prepare(_ items: [Item], from startIndex: Int, voice: Voice, fallbackVoice: Voice? = nil, language: String) {
+        let upcomingItems = Array(items.dropFirst(max(0, startIndex)))
+        for item in upcomingItems {
+            passageTexts[item.voiceText] = item.passageText
+            writtenTexts[item.voiceText] = item.writtenText
+        }
+        self.fallbackVoice = fallbackVoice?.description.id == voice.description.id ? nil : fallbackVoice
+        let upcoming = upcomingItems.map(\.voiceText)
         // Reading moving on to the next passage asks again with one passage fewer; the queue
         // already holds those, so rendering continues undisturbed.
         let isAlreadyQueued = self.voice?.description.id == voice.description.id && self.language == language
@@ -144,7 +176,11 @@ public final class ReadAloudPassagePreparation {
         // Finished without audio: rendering it failed, and failureMessage says why.
         if readyTexts.contains(text), self.voice?.description.id == voice.description.id { return nil }
         if !queue.contains(text) || self.voice?.description.id != voice.description.id {
-            prepare([text] + queue.filter { queued in queued != text }, from: 0, voice: voice, language: language)
+            let reordered = [text] + queue.filter { queued in queued != text }
+            prepare(reordered.map { voiceText in
+                        Item(voiceText: voiceText, passageText: passageTexts[voiceText] ?? voiceText, writtenText: writtenTexts[voiceText])
+                    },
+                    from: 0, voice: voice, fallbackVoice: fallbackVoice, language: language)
         } else if let index = queue.firstIndex(of: text), index > 0, !readyTexts.contains(text) {
             queue.remove(at: index)
             queue.insert(text, at: 0)
@@ -162,16 +198,10 @@ public final class ReadAloudPassagePreparation {
                 continue
             }
             do {
-                let speech = try await renderWithRetry(text, voice: voice)
-                try Task.checkCancellation()
-                let audioFile = try await cache.writeAudio(speech, for: key)
-                let recognized = await aligner.recognizedWords(in: audioFile, language: language)
-                let timings = recognized.flatMap { words in
-                    ReadAloudWordAlignment.align(passage: text, recognized: words, audioDurationSeconds: speech.durationSeconds)
-                }
-                try await cache.commit(key, durationSeconds: speech.durationSeconds, wordTimings: timings)
+                let passage = try await renderChecked(text, voice: voice, key: key)
                 guard !Task.isCancelled else { break }
-                finish(text, with: await cache.passage(for: key))
+                if passage == nil { systemVoiceTexts.insert(text) }
+                finish(text, with: passage)
             } catch is CancellationError {
                 break
             } catch {
@@ -190,16 +220,55 @@ public final class ReadAloudPassagePreparation {
         await renderer.releaseResources()
     }
 
+    /// Renders a passage and checks it before anyone hears it (`ReadAloudRenderCheck`): every
+    /// word said, no loop, no running on, no long silence. A rendering that fails is tried
+    /// once more with another seed, then read by the fallback voice (Pocket TTS) from the
+    /// passage's own text; when that fails too, nil leaves the passage to the system voice, so
+    /// nobody hears babbling. Each rejection is logged.
+    private func renderChecked(_ text: String, voice: Voice, key: ReadAloudAudioCacheKey) async throws -> CachedReadAloudPassage? {
+        var attempts: [(voice: Voice, text: String, seed: UInt64?)] = [(voice, text, nil), (voice, text, UInt64.random(in: 1...UInt64.max))]
+        if let fallbackVoice { attempts.append((fallbackVoice, passageTexts[text] ?? text, nil)) }
+        for (attemptIndex, attempt) in attempts.enumerated() {
+            let speech = try await renderWithRetry(attempt.text, voice: attempt.voice, seed: attempt.seed)
+            try Task.checkCancellation()
+            let audioFile = try await cache.writeAudio(speech, for: key)
+            let recognized = await aligner.recognizedWords(in: audioFile, language: language)
+            let problems = ReadAloudRenderCheck.problems(
+                text: writtenTexts[text] ?? attempt.text, recognized: recognized, durationSeconds: speech.durationSeconds,
+                longestSilenceSeconds: ReadAloudRenderCheck.longestSilenceSeconds(samples: speech.samples, sampleRate: speech.sampleRate))
+            if problems.isEmpty {
+                let timings = recognized.flatMap { words in
+                    ReadAloudWordAlignment.align(passage: attempt.text, recognized: words, audioDurationSeconds: speech.durationSeconds)
+                }
+                try await cache.commit(key, durationSeconds: speech.durationSeconds, wordTimings: timings,
+                                       readsPassageText: attempt.voice.description.id != voice.description.id)
+                if attemptIndex > 0 {
+                    Self.logger.notice("Read Aloud: \(attempt.voice.description.id, privacy: .public) rendered a passage cleanly on attempt \(attemptIndex + 1)")
+                }
+                return await cache.passage(for: key)
+            }
+            let summary = problems.map(\.description).joined(separator: ", ")
+            Self.logger.error("Read Aloud: \(attempt.voice.description.id, privacy: .public) attempt \(attemptIndex + 1) rejected: \(summary, privacy: .public)")
+            lastRejection = summary
+        }
+        await cache.discard(key)
+        failureMessage = "A passage the voice could not say clearly is read by the system voice instead."
+        return nil
+    }
+
+    /// Why the last rendering was rejected, for tests and the measuring screen.
+    public private(set) var lastRejection: String?
+
     /// Renders, trying once more after a failure. On a hot iPad iOS sometimes cancels a long
     /// graphics command ("Impacting Interactivity"); the same passage then renders fine.
-    private func renderWithRetry(_ text: String, voice: Voice) async throws -> RenderedSpeech {
+    private func renderWithRetry(_ text: String, voice: Voice, seed: UInt64?) async throws -> RenderedSpeech {
         do {
-            return try await renderer.render(text, voice: voice.description, voiceFolder: voice.folder)
+            return try await renderer.render(text, voice: voice.description, voiceFolder: voice.folder, seed: seed)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
             try await Task.sleep(for: .seconds(1))
-            return try await renderer.render(text, voice: voice.description, voiceFolder: voice.folder)
+            return try await renderer.render(text, voice: voice.description, voiceFolder: voice.folder, seed: seed)
         }
     }
 

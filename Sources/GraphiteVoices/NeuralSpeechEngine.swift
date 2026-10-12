@@ -1,6 +1,7 @@
 import Foundation
 @preconcurrency import MLX
 @preconcurrency import MLXAudioTTS
+@preconcurrency import MLXLMCommon
 import GraphiteCore
 
 /// Audio a voice rendered for one passage: mono 32-bit float samples.
@@ -114,21 +115,96 @@ public actor NeuralSpeechEngine {
     }
 
     /// Renders one passage. The text is spoken as given: pronunciation respelling and any
-    /// cleanup happen before this call.
-    public func render(_ text: String, on processor: NeuralSpeechProcessor = .graphics) async throws -> RenderedSpeech {
+    /// cleanup happen before this call. `seed` makes sampling repeatable; a second attempt at a
+    /// passage that came out wrong uses another seed.
+    public func render(_ text: String, on processor: NeuralSpeechProcessor = .graphics, seed: UInt64? = nil) async throws -> RenderedSpeech {
         guard let loaded else { throw NeuralSpeechEngineError.noVoiceLoaded }
         let device: Device = processor == .graphics ? .gpu : .cpu
-        // MLX reports failures (an allocation it cannot make, an unsupported operation) to an
-        // error handler that ends the process by default; inside `withError` they become a
-        // thrown error, so one failed passage cannot close Graphite.
-        let samples = try await withError { errors in
-            try await Device.withDefaultDevice(device) {
-                try await Self.generateSamples(loaded, text: text, errors: errors)
+        if let seed { MLXRandom.seed(seed) }
+        // Autoregressive models drift on long inputs, so they get one sentence group at a time,
+        // joined with a short breath; Pocket TTS splits sentences itself.
+        let pieces = loaded.voice.modelFamily == .pocketTTS ? [text] : Self.sentenceGroups(of: text)
+        var samples: [Float] = []
+        let breath = [Float](repeating: 0, count: loaded.model.sampleRate * 12 / 100)
+        for (index, piece) in pieces.enumerated() {
+            try Task.checkCancellation()
+            // MLX reports failures (an allocation it cannot make, an unsupported operation) to an
+            // error handler that ends the process by default; inside `withError` they become a
+            // thrown error, so one failed passage cannot close Graphite.
+            let pieceSamples = try await withError { errors in
+                try await Device.withDefaultDevice(device) {
+                    try await Self.generateSamples(loaded, text: piece, errors: errors)
+                }
             }
+            if index > 0 { samples += breath }
+            samples += pieceSamples
         }
         Memory.clearCache()
         guard !samples.isEmpty else { throw NeuralSpeechEngineError.producedNoAudio }
         return RenderedSpeech(samples: samples, sampleRate: loaded.model.sampleRate)
+    }
+
+    /// The longest piece an autoregressive voice is given at once, in characters.
+    static let maximumPieceCharacters = 260
+
+    /// Sentences gathered into pieces of at most `maximumPieceCharacters`; a single longer
+    /// sentence is split at commas, then at spaces.
+    static func sentenceGroups(of text: String) -> [String] {
+        var sentences: [String] = []
+        text.enumerateSubstrings(in: text.startIndex..<text.endIndex, options: .bySentences) { sentence, _, _, _ in
+            guard let sentence = sentence?.trimmingCharacters(in: .whitespacesAndNewlines), !sentence.isEmpty else { return }
+            sentences += Self.split(sentence, separator: ",")
+        }
+        var groups: [String] = []
+        for sentence in sentences {
+            if let last = groups.last, last.count + 1 + sentence.count <= maximumPieceCharacters {
+                groups[groups.count - 1] = last + " " + sentence
+            } else {
+                groups.append(sentence)
+            }
+        }
+        return groups.isEmpty ? [text] : groups
+    }
+
+    private static func split(_ sentence: String, separator: Character) -> [String] {
+        guard sentence.count > maximumPieceCharacters else { return [sentence] }
+        var pieces: [String] = []
+        var current = ""
+        for word in sentence.split(separator: " ", omittingEmptySubsequences: true) {
+            if !current.isEmpty, current.count + 1 + word.count > maximumPieceCharacters {
+                pieces.append(current)
+                current = ""
+            }
+            current += (current.isEmpty ? "" : " ") + word
+            if separator == ",", word.hasSuffix(","), current.count > maximumPieceCharacters / 2 {
+                pieces.append(current)
+                current = ""
+            }
+        }
+        if !current.isEmpty { pieces.append(current) }
+        return pieces
+    }
+
+    /// Sampling kept conservative and bounded: a lower temperature and top-p, a penalty on
+    /// repeated tokens, and at most about twice the tokens the text should need, so a voice
+    /// that starts to babble stops instead of running on for a minute.
+    static func generationParameters(for family: NeuralVoiceModelFamily, text: String,
+                                     defaults: GenerateParameters) -> GenerateParameters {
+        let expectedSeconds = ReadAloudRenderCheck.expectedDurationSeconds(for: text)
+        switch family {
+        case .pocketTTS:
+            return defaults
+        case .qwen3TTS:
+            // 12.5 codec frames a second.
+            return GenerateParameters(maxTokens: max(60, Int(expectedSeconds * 12.5 * 2)), temperature: 0.7, topP: 0.9,
+                                      repetitionPenalty: 1.1)
+        case .chatterboxTurbo:
+            // Chatterbox caps its own speech tokens by text length and penalizes repeats.
+            return GenerateParameters(temperature: 0.7, topP: 0.9)
+        case .dia:
+            // About 86 codec frames a second.
+            return GenerateParameters(maxTokens: max(200, Int(expectedSeconds * 86 * 2)), temperature: 1.1, topP: 0.9)
+        }
     }
 
     /// How much audio a streaming model decodes at a time. One second keeps each graphics
@@ -141,18 +217,19 @@ public actor NeuralSpeechEngine {
     private static func generateSamples(_ loaded: LoadedSpeechModel, text: String, errors: ErrorBox) async throws -> [Float] {
         let voice = loaded.voice
         let model = loaded.model
+        let parameters = generationParameters(for: voice.modelFamily, text: text, defaults: model.defaultGenerationParameters)
         let audio: MLXArray
         switch voice.modelFamily {
         case .pocketTTS:
             audio = try await model.generate(text: text, voice: voice.speaker, refAudio: nil, refText: nil,
-                                             language: nil, generationParameters: model.defaultGenerationParameters)
+                                             language: nil, generationParameters: parameters)
         case .qwen3TTS:
             // Streaming decodes the speech codes a second at a time. Decoding a whole passage
             // at once needs memory that grows with its length: a 20-second passage passed the
             // iPad Pro M1's 5.4 GB limit and iOS ended the app.
             var samples: [Float] = []
             let stream = model.generateStream(text: text, voice: voice.speaker, refAudio: nil, refText: nil,
-                                              language: "english", generationParameters: model.defaultGenerationParameters,
+                                              language: "english", generationParameters: parameters,
                                               streamingInterval: Self.streamingChunkSeconds)
             for try await event in stream {
                 guard case .audio(let chunk) = event else { continue }
@@ -162,10 +239,10 @@ public actor NeuralSpeechEngine {
             return samples
         case .chatterboxTurbo:
             audio = try await model.generate(text: text, voice: nil, refAudio: nil, refText: nil,
-                                             language: nil, generationParameters: model.defaultGenerationParameters)
+                                             language: nil, generationParameters: parameters)
         case .dia:
             audio = try await model.generate(text: "[S1] " + text, voice: nil, refAudio: nil, refText: nil,
-                                             language: nil, generationParameters: model.defaultGenerationParameters)
+                                             language: nil, generationParameters: parameters)
         }
         let flattened = audio.asType(.float32).reshaped(-1)
         eval(flattened)

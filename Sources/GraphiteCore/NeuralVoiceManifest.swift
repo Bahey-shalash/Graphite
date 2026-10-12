@@ -11,6 +11,11 @@ public enum NeuralVoiceModelFamily: String, Codable, Sendable, CaseIterable {
     case chatterboxTurbo = "chatterbox-turbo"
     /// Nari Labs Dia 1.6B, kept to one speaker by a short audio prompt it generated itself.
     case dia
+
+    /// Autoregressive codec models loop or babble on letters read one by one ("V H D L") and
+    /// say written acronyms well, so they are given acronyms as written. Pocket TTS reads the
+    /// respellings well.
+    public var writesAcronymsAsWritten: Bool { self != .pocketTTS }
 }
 
 /// One file a voice needs, as published in its model repository. The checksum is the SHA-256
