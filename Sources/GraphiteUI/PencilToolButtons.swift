@@ -96,7 +96,7 @@ enum PencilToolbarMetrics {
 }
 
 /// A tool of the bar as Apple's SF Symbols draw it: the ink's own symbol (`PencilInk.symbolName`),
-/// the eraser or the lasso, with a short bar in the ink's color under an ink, so the bar shows
+/// the eraser or the lasso, or the laser pointer's own glyph in their style (`LaserPointerGlyph`), with a short bar in the ink's color under an ink, so the bar shows
 /// what each tool draws. The tool in use is drawn at full strength on the bar's faint fill,
 /// as the sizes and colors beside it are, so it is marked by more than color.
 struct PencilToolGlyph: View {
@@ -138,10 +138,16 @@ struct PencilToolGlyph: View {
 
     var body: some View {
         VStack(spacing: 3) {
-            Image(systemName: symbolName)
-                .font(.system(size: 17, weight: isInUse ? .semibold : .regular))
-                .foregroundStyle(isInUse ? .primary : .secondary)
-                .frame(height: 22)
+            Group {
+                if tool == .laser {
+                    LaserPointerGlyph(isInUse: isInUse)
+                } else {
+                    Image(systemName: symbolName)
+                        .font(.system(size: 17, weight: isInUse ? .semibold : .regular))
+                        .foregroundStyle(isInUse ? .primary : .secondary)
+                }
+            }
+            .frame(height: 22)
             Capsule()
                 .fill(inkColor ?? .clear)
                 .overlay { if inkColor != nil { Capsule().strokeBorder(Color.primary.opacity(0.15), lineWidth: 0.5) } }
