@@ -72,6 +72,8 @@ public actor VaultStore {
     /// starting point compares against: only the keys that differ are written, so a key
     /// Obsidian changed since then keeps its new value.
     private var settingsBaseline: ObsidianSettings?
+    /// The appearance settings Graphite last read or saved, as `settingsBaseline` is for `app.json`.
+    private var appearanceBaseline: ObsidianAppearance?
 
     public init(root: URL, filePresenter: (any NSFilePresenter & Sendable)? = nil) {
         self.root = root
@@ -209,6 +211,37 @@ public actor VaultStore {
 
     public func saveDailyNoteSettings(_ settings: DailyNoteSettings) throws {
         try saveConfiguration(at: DailyNoteSettings.configurationPath) { existingData in try settings.mergedConfigurationData(existingData: existingData) }
+    }
+
+    /// Obsidian's appearance settings (`.obsidian/appearance.json`); Obsidian's defaults
+    /// when the file is missing. Throws when the file is there but is not a JSON object.
+    public func appearance() throws -> ObsidianAppearance {
+        let url = try VaultPath(ObsidianAppearance.configurationPath).url(in: root)
+        let appearance = FileManager.default.fileExists(atPath: url.path)
+            ? try ObsidianAppearance(configurationData: writer.read(url, maximumBytes: Self.maximumConfigurationBytes).data)
+            : ObsidianAppearance()
+        appearanceBaseline = appearance
+        return appearance
+    }
+
+    /// Writes the appearance settings that changed into `.obsidian/appearance.json`,
+    /// keeping every other key and its layout. Fails instead of overwriting when the file
+    /// changes during the merge.
+    /// - Parameter previousAppearance: The settings the caller changed. Only keys that
+    ///   differ from them are written, so a key Obsidian changed since keeps its new value.
+    ///   Without them, the settings Graphite last read or saved are the starting point.
+    public func saveAppearance(_ appearance: ObsidianAppearance, changedFrom previousAppearance: ObsidianAppearance? = nil) throws {
+        let startingAppearance = previousAppearance ?? appearanceBaseline
+        let url = try VaultPath(ObsidianAppearance.configurationPath).url(in: root)
+        // Without a file, a save that changes nothing has nothing to write.
+        if !FileManager.default.fileExists(atPath: url.path), appearance == (startingAppearance ?? ObsidianAppearance()) {
+            appearanceBaseline = appearance
+            return
+        }
+        try saveConfiguration(at: ObsidianAppearance.configurationPath) { existingData in
+            try appearance.mergedConfigurationData(existingData: existingData, changedFrom: startingAppearance)
+        }
+        appearanceBaseline = appearance
     }
 
     /// Internal so other Obsidian settings files in Core (community plugins) read the same way.
