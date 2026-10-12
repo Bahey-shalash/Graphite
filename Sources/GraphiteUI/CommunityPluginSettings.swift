@@ -18,7 +18,7 @@ struct CommunityPluginsSettingsPage: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Turn on community plugins", isOn: Binding(get: { host.isTurnedOnForVault }, set: { isTurnedOn in Task { await host.setTurnedOnForVault(isTurnedOn) } }))
+                Toggle("Turn On Community Plugins", isOn: Binding(get: { host.isTurnedOnForVault }, set: { isTurnedOn in Task { await host.setTurnedOnForVault(isTurnedOn) } }))
             } footer: {
                 Text("Community plugins are made by other people, not by Graphite. A plugin runs code that can read and change every file in this vault and reach the internet. Turn on only plugins you trust. They are the same plugins Obsidian uses, and they keep their settings in the vault's .obsidian folder.")
             }
@@ -27,7 +27,7 @@ struct CommunityPluginsSettingsPage: View {
                 installedSection
             }
         }
-        .navigationTitle("Community plugins")
+        .navigationTitle("Community Plugins")
         .task { await host.reloadInventory() }
         .sheet(isPresented: $isBrowsing) {
             CommunityPluginBrowser(workspace: workspace)
@@ -78,7 +78,7 @@ struct CommunityPluginsSettingsPage: View {
                 }
             }
         } header: {
-            Text("Installed plugins")
+            Text("Installed Plugins")
         }
     }
 
@@ -288,7 +288,7 @@ struct CommunityPluginBrowser: View {
             let compatibility = host.inventory.plugins.first { plugin in plugin.id == entry.id }?.compatibility
             var outcome = "Installed version \(installation.manifest.version)."
             if installation.isOlderReleaseForCompatibility { outcome += " An older release, because the newest needs a newer plugin API than Graphite provides." }
-            if let compatibility, !compatibility.canLoad { outcome += " " + CommunityPluginHost.describe(compatibility) } else { outcome += " Turn it on in Community plugins." }
+            if let compatibility, !compatibility.canLoad { outcome += " " + CommunityPluginHost.describe(compatibility) } else { outcome += " Turn it on in Community Plugins." }
             outcomes[entry.id] = outcome
         } catch {
             outcomes[entry.id] = error.localizedDescription

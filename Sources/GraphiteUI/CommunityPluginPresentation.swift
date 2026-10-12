@@ -178,13 +178,13 @@ struct CommunityPluginNoticeStack: View {
                 .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
                 .onTapGesture { host.notices.removeAll { candidate in candidate.id == notice.id } }
                 .accessibilityAddTraits(.isStaticText)
-                .transition(.move(edge: .top).combined(with: .opacity))
+                .transition(GraphiteMotion.slide(from: .top).combined(with: .opacity))
             }
         }
         .padding(.top, 12)
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity, alignment: .trailing)
-        .animation(.snappy(duration: 0.2), value: host.notices)
+        .animation(GraphiteMotion.animation(.snappy(duration: 0.2)), value: host.notices)
         .allowsHitTesting(!host.notices.isEmpty)
     }
 }

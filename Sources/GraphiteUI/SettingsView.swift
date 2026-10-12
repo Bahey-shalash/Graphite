@@ -42,7 +42,7 @@ struct SettingsView: View {
                 let communityPlugins = workspace.communityPlugins
                 let configurableCommunityPlugins = communityPlugins.inventory.plugins.filter { plugin in communityPlugins.pluginsWithSettings.contains(plugin.id) }
                 if !configurableCommunityPlugins.isEmpty {
-                    Section("Community plugins") {
+                    Section("Community Plugins") {
                         ForEach(configurableCommunityPlugins) { plugin in
                             Label(plugin.manifest.name, systemImage: "puzzlepiece.extension").tag(SettingsPage.communityPlugin(plugin.id))
                         }
