@@ -8,7 +8,7 @@ Started on 2026-10-10, at the owner's request, ahead of the order `OBJECTIVE.md`
 
 **A web view runs the plugins.** Obsidian's iPad and iPhone app is a web view (Capacitor); its plugins expect a browser's DOM and JavaScript. Graphite gives them the same: one `WKWebView` per open vault, running Graphite's own implementation of the `obsidian` module (`Sources/GraphiteUI/Resources/CommunityPluginRuntime`). WebKit runs the JavaScript in its content process, never on the app's main thread, so plugins cannot stall typing or Pencil input. Each vault has its own website data store (`WKWebsiteDataStore(forIdentifier:)`), so a plugin's `localStorage` stays with its vault. While no panel shows the web view, it waits in the window, invisible and not touchable (`CommunityPluginWebViewParking`): outside a window WebKit treats the page as hidden, slows its timers to about one a second and draws no animation frames, which stalls plugins that work on intervals.
 
-**Plugins load as Obsidian loads them.** `main.js` is evaluated as a CommonJS module with Obsidian's `require`: `obsidian` is the runtime's module; `@codemirror/*` and `@lezer/*` are the real CodeMirror 6 and Lezer libraries, at the versions Obsidian 1.14.4 declares (vendored in `Vendor/`, see `Vendor/VERSIONS.md` and `Vendor/Licenses/`); Node.js and Electron modules (`fs`, `path`, `electron`, …) are refused with the reason, as on Obsidian mobile. The plugin's class is constructed with the `App` and its manifest, and `onload` is awaited. A plugin that throws is unloaded and its error kept. `styles.css` is added to the page and removed when the plugin unloads.
+**Plugins load as Obsidian loads them.** `main.js` is evaluated as a CommonJS module with Obsidian's `require`: `obsidian` is the runtime's module; `@codemirror/*` and `@lezer/*` are the real CodeMirror 6 and Lezer libraries, at the versions Obsidian 1.14.4 declares (vendored in `Vendor/`, see `Vendor/VERSIONS.md` and `Vendor/Licenses/`); Node.js and Electron modules (`fs`, `path`, `electron`, …) are stand-ins: plugins built for desktop and mobile require them as they load and use them only on desktop (Git, Copilot, Importer), so requiring one succeeds, and using one fails with the reason, as on Obsidian mobile. In WebKit, `main.js` is loaded as a script from a blob of its own, so error stacks name the plugin (WebKit's do not show `sourceURL`); in Node it is evaluated with a `sourceURL`. Obsidian's classes reach plugins as functions that ES5 subclasses can call (`_super.call(this, …) || this`). The plugin's class is constructed with the `App` and its manifest, and `onload` is awaited. A plugin that throws is unloaded and its error kept. `styles.css` is added to the page and removed when the plugin unloads.
 
 **The runtime talks to Graphite in messages.** Graphite sends messages to `GraphitePluginRuntime.receive` (`callAsyncJavaScript`); the runtime posts to the `graphitePlugins` message handler, which answers each message (`WKScriptMessageHandlerWithReply`). Vault operations go to `CommunityPluginVaultBridge` (GraphiteCore); the rest to `CommunityPluginHost` (GraphiteUI).
 
@@ -26,10 +26,11 @@ Started on 2026-10-10, at the owner's request, ahead of the order `OBJECTIVE.md`
 | `codeBlocks.changed`, `postProcessors.changed`, `codeBlock.changed` | `CommunityPluginHost`, `CommunityPluginShownCodeBlock` | The languages plugins draw and whether they change how notes read, which the reading view is built with; a new copy of a block, section or view Graphite shows (see In notes, menus, typing and tabs). |
 | `menus.changed`, `editor.listenersChanged` | `CommunityPluginHost` | Whether plugins add to file, folder or editor menus, and whether they listen for typing or suggest while typing, so Graphite asks only then. |
 | `views.changed`, `view.reveal` | `CommunityPluginHost`, `WorkspaceModel` | Plugin views and where each belongs (sidebar or tab); a view a plugin reveals is shown there. |
-| `workspace.openExternalLink` | `ExternalLinkOpener` | A web or mail link a plugin drew, opened in the browser or Mail. |
+| `workspace.openExternalLink` | `ExternalLinkOpener` | A web or mail link a plugin drew or opened with `window.open`, opened in the browser or Mail. |
+| `clipboard.readText`, `clipboard.writeText` | `CommunityPluginHost`, `Pasteboard` | `navigator.clipboard` for plugins: WebKit refuses the hidden plugins' page the clipboard, so text goes through Graphite. |
 | `notice.*`, `surface.*`, `commands.changed`, `ribbon.changed`, `views.changed`, `plugin.*`, `secrets.set`, `settings.open`, `plugins.setEnabled` | `CommunityPluginHost` | Notices shown by Graphite; the plugin panel shown or hidden; the palette's plugin commands; problems and unsupported features kept per plugin; secrets kept in the keychain. |
 
-Graphite's own messages to the runtime include, besides loading plugins and running commands: `codeBlock.render` (a code block, or with `kind: section` a part of a note offered to post-processors), `codeBlock.event` (a tap, typed text or a key on a shown copy), `codeBlock.release`, `view.attach`, `view.resize`, `view.close`, `menu.file`, `menu.editor`, `menu.choose`, `menu.dismiss`, `editor.update` (the focused note after a change, with the suggestions at the cursor when asked), `editor.chooseSuggestion` and `editor.closeSuggestions`. Every one Graphite waits on has a timeout.
+Graphite's own messages to the runtime include, besides loading plugins and running commands: `codeBlock.render` (a code block, or with `kind: section` a part of a note offered to post-processors), `codeBlock.event` (a tap, typed text or a key on a shown copy), `codeBlock.release`, `view.attach`, `view.resize`, `view.close`, `menu.file`, `menu.editor`, `menu.choose`, `menu.dismiss`, `editor.update` (the focused note after a change, with the suggestions at the cursor when asked), `editor.chooseSuggestion` and `editor.closeSuggestions`, `notice.tap` (a tap on a plugin's notice or one of its buttons), and `protocol.open` (a `graphite://` or `obsidian://` link whose action a plugin registered, such as Advanced URI's `advanced-uri`). Every one Graphite waits on has a timeout. Each plugin's load result, failures and unsupported features also go to the unified log (subsystem `com.graphite.study`, category `CommunityPlugins`, public in Debug builds only).
 
 The Node tests answer the same messages from a folder on disk (`Tests/CommunityPluginRuntimeTests/support/test-vault-host.js`); the two must keep the same operations, answers and failure kinds.
 
@@ -95,17 +96,81 @@ Each of these is reported to the person, per plugin, when a plugin uses it (Sett
 
 - **CodeMirror editor extensions.** The libraries load, so plugins that define extensions load, but Graphite's editor is native TextKit and the extensions do not run: Live Preview decorations and widgets, editor keymaps and autocompletion of plugins such as Outliner, Advanced Tables, Various Complements, or the editor parts of Tasks and Dataview.
 - **In Live Preview**, plugins' code blocks and post-processors do not apply: Graphite's editor shows such blocks as code; only the reading view draws them. Post-processors see each section's CommonMark HTML, not Obsidian's (no `task-list-item` classes, tags and callouts as text), so ones that look for Obsidian's markup (Tasks' rendering of task lines, Iconize's icons in notes) change nothing and Graphite's rendering stays.
-- **Inside copies of blocks and views**, only taps, typed text and Return, Escape, arrows and Tab reach the plugin: drag, hover, right-click, long-press menus and scrolling the plugin listens for do not. A plugin control that needs a real user gesture in its own page (clipboard reads, file pickers) may be refused by WebKit.
+- **Inside copies of blocks and views**, only taps, typed text and Return, Escape, arrows and Tab reach the plugin: drag, hover, right-click, long-press menus and scrolling the plugin listens for do not. A plugin control in a copy that needs a real user gesture in its own page may be refused by WebKit; the clipboard goes through Graphite, and file pickers in windows on the plugin panel open the system's (Importer).
 - **Menus**: several selected files (`files-menu`, Graphite's file list selects one at a time), `url-menu`, tag menus outside the editor, and the Mac app's editor menu. In the file list's menus, plugins' items open in a dialog instead of the menu itself.
-- **Typing**: `editor-paste` and `editor-drop`; notes over 512 KB; the Mac app's editor.
+- **Typing**: `editor-paste` and `editor-drop` (Link or Card's paste choice); notes over 512 KB; the Mac app's editor.
 - **Views**: they are not restored after Graphite restarts (Obsidian restores its workspace); views for other file types (`registerExtensions`) are not offered for those files; Bases views from plugins (`registerBasesView`); linked view groups.
-- **Hover previews**, pop-out windows, several selections at once (the main one is kept), `Editor.undo` and `redo` (Graphite's Undo works), setting file times on write, `vault.setConfig` (change shared settings in Graphite's Settings), `FileSystemAdapter`, `getFullPath`, Obsidian's bundled MathJax, Mermaid, Prism and PDF.js loaders.
-- **Desktop-only plugins** (`isDesktopOnly`), and code that needs Node.js or Electron: refused, as on Obsidian mobile.
+- **Hover previews**, pop-out windows, several selections at once (the main one is kept), `Editor.undo` and `redo` (Graphite's Undo works), setting file times on write, `FileSystemAdapter`, Obsidian's bundled MathJax, Mermaid, Prism and PDF.js loaders (PDF++ and Math Mirror need them). `vault.setConfig` and `app.setTheme` are kept for the plugins until they restart and reported; they do not change Graphite's settings or appearance. `getFullPath` gives the path under the vault's name, not the device's folders.
+- **Desktop-only plugins** (`isDesktopOnly`) are not loaded, and code that uses Node.js or Electron fails saying so, as on Obsidian mobile.
+- **Plugins that replace Obsidian's interface**: its file explorer (make.md, Reveal Folded), its tab, status and title bars (Hider), its editor toolbar (Editing Toolbar), its Quick Switcher (Accent Insensitive Search), its canvas and Maps (Advanced Canvas, Advanced Maps), and plugin views for a note (Excalidraw's drawings are notes it shows in its own view): Graphite's interface is native and does not let plugins take these over.
 - **Obsidian's undocumented internals.** The most used are provided (`app.plugins`, `app.commands`, `app.internalPlugins` with the Daily notes and Templates settings, `app.setting`, `app.metadataTypeManager` over `.obsidian/types.json`, `vault.getConfig`, `metadataCache.getCachedFiles`, `getTags`, `getBacklinksForFile`, `workspace.registerHoverLinkSource`, and, hidden as on Obsidian mobile, `app.statusBar` and the settings header with its back button). Obsidian's CodeMirror editor view (`editor.cm`, apart from its state fields) and its embedded note editor (`app.embedRegistry`) report themselves as unsupported (Outliner's folding, Kanban). `app.foldManager` is a stand-in that keeps no folds (Graphite keeps them itself), and `i18next` gives Obsidian's English interface strings. Others are missing, and a plugin calling one fails with a JavaScript error that its row in Settings shows.
 - **Themes and CSS snippets** are not plugins and do not restyle Graphite's native interface.
 - Obsidian mobile does not show its status bar; neither does Graphite: `addStatusBarItem` adds an element to `app.statusBar`, which is not shown.
 
 ## How it was verified
+
+### A sweep of the directory (2026-10-12, evening)
+
+On the branch `alpha-plugins-3`, in the iPad simulator (iPad Pro, iOS 27), with a copy of `Tests/test_vault`. The sample: the 40 most downloaded plugins in `community-plugin-stats.json` less the 14 the real-plugin checks above cover and 3 desktop-only ones (23); every plugin by kepano (Hider, Minimal Theme Settings, Permalink Opener, List to Table, Aloha), his System Dark Mode and Highlights View from GitHub, and Contextual Typography; and 18 drawn at random from the other 8,624 (Python's `random.Random(20261012)` over the sorted identifiers; 11 desktop-only ones drawn were skipped). Each was installed with Graphite's installer (Browse, or the repository field), turned on alone, and its main feature tried, mostly by finger, some through a small probe plugin that runs JavaScript in the runtime; the detailed log with screenshots is `~/.graphite-plugins-next-build/sweep/sweep.md` on the build machine.
+
+Results for the 48: 16 work, 13 partly, 17 blocked (10 by an API or part of the interface Graphite does not give plugins, 7 by an account or server the test did not have), 1 fails (Linter, its own first-run bug, which Obsidian has too), 1 untested (Highlights View has no release).
+
+Safety: each plugin alone and all 46 installable ones together, on each build, never crashed, froze or left Graphite unusable, and the 477 notes already in the vault stayed byte-identical (checked against checksums taken before any install). Notes plugins deleted went to the trash. Turning plugins off and removing them restored Graphite: Admonition's blocks back to code, Highlightr's menu items gone, its folder in the trash.
+
+Fixed in the runtime, by how many sampled plugins each unblocked (several also helped plugins outside the sample): Node.js and Electron modules as stand-ins until used (Git, Copilot, Importer, Remotely Save, LiveSync, make.md); plugin failures named by plugin in WebKit (every plugin's problems were reported as "unknown"); a block or window that replaces its element or Obsidian's modal class (Admonition, Omnisearch); Obsidian's callout and reading-view styles and adopted style sheets in copies (Admonition and any plugin drawing callouts); notices with buttons that reach the plugin (Smart Connections, LiveSync); the clipboard and `window.open` through Graphite (ReadItLater, Permalink Opener, any plugin with web links); links to plugin actions (Advanced URI); ES5 classes (Mind Map, Contextual Typography); new tab leaves shown at once and laid out before they open (Mind Map, Excalidraw); Obsidian 1.13 setting pages and `Setting.setNavigable`, `setIcon`, `setAction` (Importer); paths outside the vault as missing, symbolic links out of the vault not listed, "/" for the root (Git); serialized writes to one file (Day Planner); and undocumented members plugins call: `hotkeyManager`, `viewRegistry`, a container's `doc`, `vault.config`, empty settings files, `setting.pluginTabs`, a setting tab's name, `workspace.protocolHandlers`, `Menu.dom`, `editor.coordsAtPos`, `Scope.keys`, `iterateCodeMirrors`, `setConfig` and `setTheme` reported instead of failing (Editing Toolbar, Advanced Canvas, Colored Tags, make.md, Smart Connections, Highlightr, Excalidraw, Admonition, System Dark Mode). Tested by `Tests/CommunityPluginRuntimeTests/tests/obsidian-conventions.test.js` (10 tests).
+
+| Plugin | Sample | Result | In short |
+| --- | --- | --- | --- |
+| Excalidraw 2.28.1 | top 1 | blocked (missing API) | Loads and welcomes; a new drawing is created but opens as a note, not in its view, and drawing needs drags. |
+| Git 2.41.1 | top 5 | partly | Initializes a repository, lists 1,607 changes, stages a file; commit needs an author in its settings. |
+| Copilot 4.0.14 | top 10 | blocked (AI provider) | Chat panel in the sidebar with the note as context; needs a model or key. |
+| Remotely Save 0.5.25 | top 12 | blocked (storage account) | First-run agreement on the plugin panel; sync needs an account. |
+| TaskNotes 4.13.8 | top 15 | partly | Creates a task note from natural language; its views are Bases views Graphite does not show. |
+| Editing Toolbar 4.1.10 | top 16 | blocked (CodeMirror) | Loads; its toolbar belongs to Obsidian's editor. |
+| Omnisearch 1.31.0 | top 17 | works | Indexes the vault, finds and opens notes. |
+| Minimal Theme Settings 9.0.0 | top 18; kepano | blocked (theme) | Loads; configures the Minimal theme, which does not restyle Graphite. |
+| Importer 3.1.14 | top 19 | partly | Formats and steps in Settings; the system file picker opens; no import run. |
+| Smart Connections 4.7.2 | top 22 | works | Embeds the vault on the device and lists a note's connections in the sidebar. |
+| Linter 1.34.0 | top 24 | fails (plugin) | Its own first-run bug, open upstream (#1632). |
+| BRAT 2.2.0 | top 26 | partly | Its add-beta window opens; installing not tried. |
+| Notebook Navigator 3.4.3 | top 27 | works | Its navigator in the sidebar opens notes. |
+| Self-hosted LiveSync 1.0.35 | top 28 | blocked (server) | Setup wizard from its notice's button; needs CouchDB. |
+| Admonition 12.0.10 | top 29 | works | Its blocks draw as callouts in reading view. |
+| Advanced Canvas 7.1.0 | top 30 | blocked (missing API) | Extends Obsidian's canvas, which Graphite does not expose. |
+| Day Planner 0.35.1 | top 31 | partly | Timeline and time tracker in the sidebar; no entries to show. |
+| Mind Map 1.1.0 | top 32 | partly | Draws the note's map, but clears it when shown in its own tab. |
+| make.md 1.3.5 | top 33 | partly | Loads with its navigator; it replaces Obsidian's explorer and editor. |
+| PDF++ 0.40.31 | top 35 | blocked (missing API) | Needs Obsidian's pdf.js. |
+| Periodic Notes 0.0.17 | top 37 | partly | Loads; commands appear once a period is turned on. |
+| Highlightr 1.2.2 | top 39 | works | Edit menu items and color menu wrap the selection in a highlight. |
+| Advanced URI 2.2.0 | top 40 | partly | A `graphite://advanced-uri` link appends to a note; opening at the end fails. |
+| Hider 1.7.1 | kepano | blocked (native interface) | Hides Obsidian's bars, which Graphite does not have. |
+| Permalink Opener 1.1.0 | kepano | partly | Builds the address; needs a base URL in its settings. |
+| List to Table 1.0.3 | kepano | works | Converts the selected list to a table; Undo restores it. |
+| Aloha 1.0.1 | kepano | works | `@tom` offers Tomorrow and inserts the date link. |
+| System Dark Mode 1.1.1 | kepano | works | Graphite already follows the system; its request is reported. |
+| Highlights View 1.0.0 | kepano | untested | No release to install. |
+| Contextual Typography 2.2.5 | named | works | Tags sections; no visible change without a theme. |
+| Math Mirror 1.0.1 | random | blocked (missing API) | Needs Obsidian's MathJax and CodeMirror. |
+| Sort Checked Tasks 0.2.3 | random | partly | Its command sorts; ticking in the editor does not move tasks. |
+| Note Inspector 1.0.3 | random | works | Properties, outline and footnotes in the sidebar. |
+| On-Demand Cache 1.0.9 | random | works | Caches a note's remote picture in `.cache/`. |
+| Merge And Open Target 0.2.4 | random | works | Merges a note into another, trashes it, opens the target. |
+| Link or Card 0.1.1 | random | partly | Draws its card blocks; the paste choice needs `editor-paste`. |
+| BookOrbit Sync 1.2.0 | random | blocked (account) | Asks for its server and credentials. |
+| Fountain 0.34.3 | random | blocked (missing API) | Its `.fountain` files need a plugin view for a file type. |
+| Vault Link Check 1.0.2 | random | works | Reports the vault's 9,774 links in the sidebar. |
+| Mimir Splash 1.1.0 | random | blocked (native interface) | Its splash plays over Obsidian's window. |
+| jinianri 4.0.20 | random | partly | Its block draws its own activation message. |
+| ReadItLater 0.11.4 | random | works | Saves the clipboard's web page as an article note. |
+| Vault Router 0.2.1 | random | works | Moves an inbox note by its rule. |
+| Nihong AI explaination 0.1.2 | random | blocked (AI provider) | Needs an API key. |
+| Fast Callout 1.0.5 | random | works | Inserts a callout at the cursor. |
+| Reveal Folded 1.1.2 | random | blocked (native interface) | Acts on Obsidian's file explorer. |
+| Advanced Maps 1.19.0 | random | blocked (missing API) | Extends Obsidian's Maps. |
+| Accent Insensitive Search 0.1.3 | random | blocked (native interface) | Patches Obsidian's Quick Switcher. |
+
+Not established: anything on a device or with Apple Pencil; plugins' sync with real accounts (Remotely Save, LiveSync, BookOrbit, Copilot, Smart Connections' cloud models); Git commits and pushes; an Importer import; Excalidraw drawing; the plugins' behavior after Graphite restarts with their views open.
 
 ### Code blocks, post-processors, menus, typing and views (2026-10-12)
 
@@ -181,5 +246,6 @@ In order of what it unlocks for daily use:
 1. Use a real vault with the plugins above on an iPad and an iPhone, and measure the runtime's memory and start-up time there, with several code blocks and views shown.
 2. Plugins' code blocks in Live Preview, as Obsidian shows them when the cursor is elsewhere.
 3. Restore plugin views after a restart, from their view state, as Obsidian restores its workspace.
-4. Pass long-press and drag inside copies of blocks and views to the plugin (Kanban-like views, Calendar's menus), and plugin items for several selected files.
-5. More real plugins in the tests, starting from the most downloaded in Obsidian's directory.
+4. Pass long-press and drag inside copies of blocks and views to the plugin (Kanban-like views, Calendar's menus, Excalidraw's drawing), and plugin items for several selected files.
+5. From the sweep, by plugins unblocked: plugin views for notes and file types (`registerExtensions`, and a note a plugin shows in its own view: Excalidraw, Fountain, make.md); Bases views from plugins (TaskNotes, Advanced Maps); `editor-paste` and `editor-drop` (Link or Card, Linter's paste); a split beside the note for views that follow it (Mind Map); the editor of a note right after `openFile` (Advanced URI).
+6. More real plugins in the Node tests, starting with the ones the sweep found working (List to Table, Vault Router, Merge And Open Target, Omnisearch), each pinned to a commit and built from source.
