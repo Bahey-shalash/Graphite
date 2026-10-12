@@ -676,6 +676,13 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         /// Measured heights of rendered blocks, keyed by their content: the height each
         /// block's view last reported in this editor, whatever the width then.
         private var reservedHeights: [LivePreviewBlockKey: CGFloat] = [:]
+        /// The height the text last kept for each rendered block, which a view's report is
+        /// compared with. It can differ from `reservedHeights` and from the shared heights: a
+        /// note styled before its text view had a width (as when it opens again) keeps the
+        /// estimate, and a later report equal to an earlier editor's measurement had left
+        /// that estimate in place, a gap that moved the blocks below it away from where they
+        /// were drawn.
+        private var heightsKeptInText: [LivePreviewBlockKey: CGFloat] = [:]
         private static let reservedHeightsKeptBeyondBlocks = 64
         /// Heights measured by every editor, for blocks this editor has not measured yet.
         /// Shared across editors on purpose: they are disposable, bounded, and main-actor only.
@@ -965,6 +972,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             guard reservedHeights.count > 2 * blockEntries.count + Self.reservedHeightsKeptBeyondBlocks else { return }
             let keysInNote = Set(blockEntries.map(\.key))
             reservedHeights = reservedHeights.filter { key, _ in keysInNote.contains(key) }
+            heightsKeptInText = heightsKeptInText.filter { key, _ in keysInNote.contains(key) }
             blockKeysAwaitingRestyle.formIntersection(keysInNote)
         }
 
@@ -979,7 +987,9 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             if textState.cachesDescribeOldText { rebuildBlocks(in: textView) }
             textState.discardUnstyledEdit()
             styler.applyStyles(to: textView.textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true,
-                               revealedMarkup: revealedMarkup, concealedBlocks: concealedBlocks(in: textView), foldedRegions: foldedRegions,
+                               revealedMarkup: revealedMarkup,
+                               concealedBlocks: concealedBlocks(in: textView, styledRange: NSRange(location: 0, length: textView.textStorage.length)),
+                               foldedRegions: foldedRegions,
                                blockContextCheckpoints: blockContextCheckpoints)
             textView.typingAttributes = styler.baseAttributes
             textView.setNeedsLayout()
@@ -988,7 +998,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         private func restyle(_ range: NSRange, in textView: UITextView) {
             let selectedRange = textView.selectedRange
             styler.applyStyles(to: textView.textStorage, editedRange: range, restyleEverything: false,
-                               revealedMarkup: revealedMarkup, concealedBlocks: concealedBlocks(in: textView), foldedRegions: foldedRegions,
+                               revealedMarkup: revealedMarkup, concealedBlocks: concealedBlocks(in: textView, styledRange: range), foldedRegions: foldedRegions,
                                blockContextCheckpoints: blockContextCheckpoints)
             textView.selectedRange = selectedRange
             textView.typingAttributes = styler.baseAttributes
@@ -1026,7 +1036,9 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             isEditing && LivePreviewBlockActivity.isActive(blockRange: entry.range, selection: selection, in: source)
         }
 
-        private func concealedBlocks(in textView: UITextView) -> [ConcealedBlock] {
+        /// - Parameter styledRange: The text being styled, whose blocks' heights are recorded
+        ///   in `heightsKeptInText`; nil when the styled blocks are not known in advance.
+        private func concealedBlocks(in textView: UITextView, styledRange: NSRange?) -> [ConcealedBlock] {
             guard isLivePreview, !textState.cachesDescribeOldText else { return [] }
             let source = currentSource(of: textView)
             let selection = textView.selectedRange
@@ -1038,7 +1050,9 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                 // A folded section hides its blocks too.
                 guard NoteFolding.regions(hiding: entry.range.location, in: folded).isEmpty else { return nil }
                 guard !isActive(entry, selection: selection, in: source) else { return nil }
-                return ConcealedBlock(range: entry.range, reservedHeight: reservedHeight(of: entry, columnWidth: columnWidth))
+                let height = reservedHeight(of: entry, columnWidth: columnWidth)
+                if let styledRange, NSIntersectionRange(entry.range, styledRange).length > 0 { heightsKeptInText[entry.key] = height }
+                return ConcealedBlock(range: entry.range, reservedHeight: height)
             }
         }
 
@@ -1538,7 +1552,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             for blockIndex in blocksChangingActivity { restyle(blockEntries[blockIndex].range, in: textView) }
             let selectedRange = textView.selectedRange
             let restyledRanges = styler.applyRevealedMarkupChange(to: textView.textStorage, from: previousMarkup, to: newMarkup,
-                                                                  concealedBlocks: concealedBlocks(in: textView), foldedRegions: foldedRegions,
+                                                                  concealedBlocks: concealedBlocks(in: textView, styledRange: nil), foldedRegions: foldedRegions,
                                                                   blockContextCheckpoints: blockContextCheckpoints)
             guard !blocksChangingActivity.isEmpty || !restyledRanges.isEmpty else { return }
             // Set only when styling moved it: setting the selection costs UIKit tens of
@@ -1760,8 +1774,10 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             // Measured at the width the view was laid out at, which can lag the text view's.
             let measuredWidth = widgetHosts[key]?.view.bounds.width ?? textView.contentColumnWidth
             let sharedKey = MeasuredBlockHeightCache.Key(blockKey: key, columnWidth: measuredWidth, textSize: configuration.textSize)
-            // The height the styling reserved: this editor's last report, else an earlier editor's.
-            let styledHeight = reservedHeights[key] ?? sharedKey.flatMap { sharedKey in Self.sharedMeasuredHeights.height(for: sharedKey) }
+            // The height the styling reserved in the text, else this editor's last report, else
+            // an earlier editor's.
+            let styledHeight = heightsKeptInText[key] ?? reservedHeights[key]
+                ?? sharedKey.flatMap { sharedKey in Self.sharedMeasuredHeights.height(for: sharedKey) }
             if let sharedKey { Self.sharedMeasuredHeights.record(height, for: sharedKey) }
             if let styledHeight, abs(styledHeight - height) <= 1 {
                 reservedHeights[key] = styledHeight

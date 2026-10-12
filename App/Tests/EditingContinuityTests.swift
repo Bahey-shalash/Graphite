@@ -76,6 +76,37 @@ final class EditingContinuityTests: XCTestCase {
         attachScreenshot(named: "Returned tab after undo")
     }
 
+    /// A note opened again is styled before its text view has a width, with estimated
+    /// heights for its rendered blocks. When the properties view then reported the height an
+    /// earlier editor had measured, the estimate stayed in the text: the embedded PDF below
+    /// was placed hundreds of points lower, and a tap where it had been landed on the text.
+    func testRenderedBlocksOfANoteOpenedAgainAreWhereTheyWereBefore() async throws {
+        let frontmatter = "---\ntitle: Static Logic\ncourse: EE-330\ntags:\n  - CMOS\n  - digital-design\n  - static-logic\n  - logic-families\n"
+            + "  - noise-margins\n  - transistor-sizing\nrelated:\n  - \"[[Other]]\"\n---\n"
+        let workspace = try await makeWorkspace(notes: ["Lecture.md": frontmatter + "\n![[Slides.pdf]]\n\nEnd.\n", "Other.md": "Other.\n"])
+        try PDFTemplateGenerator.documentData(paper: PaperSpecification(template: .ruled), pageCount: 2)
+            .write(to: try XCTUnwrap(vaultDirectory).appendingPathComponent("Slides.pdf"))
+        _ = try await openTab("Lecture.md", in: workspace, placement: .currentTab)
+        let controller = try host(workspace)
+        let firstEditor = try await visibleEditor(in: controller, showing: try XCTUnwrap(workspace.markdownSession))
+        try await waitUntil { self.renderedBlockViews(in: firstEditor).count == 2 }
+        // Let the blocks report their heights and the text settle around them.
+        try await Task.sleep(for: .milliseconds(600))
+        firstEditor.layoutIfNeeded()
+        let embedTopBefore = try XCTUnwrap(renderedBlockViews(in: firstEditor).map(\.frame.minY).max())
+
+        _ = try await openTab("Other.md", in: workspace, placement: .currentTab)
+        _ = try await visibleEditor(in: controller, showing: try XCTUnwrap(workspace.markdownSession))
+        _ = try await openTab("Lecture.md", in: workspace, placement: .currentTab)
+        let secondEditor = try await visibleEditor(in: controller, showing: try XCTUnwrap(workspace.markdownSession))
+        try await waitUntil { self.renderedBlockViews(in: secondEditor).count == 2 }
+        try await Task.sleep(for: .milliseconds(600))
+        secondEditor.layoutIfNeeded()
+        let embedTopAfter = try XCTUnwrap(renderedBlockViews(in: secondEditor).map(\.frame.minY).max())
+        XCTAssertEqual(embedTopAfter, embedTopBefore, accuracy: 1, "The embedded PDF is where it was when the note was open before.")
+        attachScreenshot(named: "Note with properties and an embedded PDF opened again")
+    }
+
     func testUndoSurvivesMovingATabToTheOtherSide() async throws {
         let workspace = try await makeWorkspace(notes: ["Lecture.md": "Lecture.\n", "Slides.md": "Slides.\n"])
         let lectureTab = try await openTab("Lecture.md", in: workspace, placement: .currentTab)
@@ -441,6 +472,11 @@ final class EditingContinuityTests: XCTestCase {
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    /// The hosted views of Live Preview's rendered blocks shown in a note's text view.
+    private func renderedBlockViews(in editor: MarkdownTextView) -> [UIView] {
+        editor.subviews.filter { subview in String(describing: Swift.type(of: subview)).contains("HostingView") }
     }
 
     private func descendants<View: UIView>(of parent: UIView, matching type: View.Type) -> [View] {

@@ -241,6 +241,8 @@ final class PDFPictureSelectionController {
         selection.allowsRotation = true
         selection.frameChangeDidEnd = { [weak self] frame in self?.selectionFrameChangeDidEnd(frame) }
         selection.rotationChangeDidEnd = { [weak self] rotation in self?.selectionRotationChangeDidEnd(rotation) }
+        // Only what the PDF view shows takes touches: the tab bar is at its top edge.
+        selection.staysInSuperviewSafeArea = true
         pdfView.addSubview(selection)
         selectionView = selection
         if let scrollView = Self.scrollView(in: pdfView) {

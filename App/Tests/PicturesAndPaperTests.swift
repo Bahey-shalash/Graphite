@@ -78,6 +78,37 @@ final class PicturesAndPaperTests: XCTestCase {
         XCTAssertNil(session.errorMessage)
     }
 
+    /// A corner handle of a picture near the top of the view had been under the tab bar,
+    /// where touches go to the bar, and could not be dragged.
+    func testEveryCornerHandleOfAPictureAtTheTopOfTheViewCanBeTouched() async throws {
+        let session = try await openNotebook(pageCount: 2)
+        let controller = try host(AnyView(NavigationStack { PDFPane(session: session, resolveConflict: { _ in }) }))
+        let page = try XCTUnwrap(session.document.page(at: 0))
+        let cropBox = page.bounds(for: .cropBox)
+        try await session.addPicture(imageData: try imageData(size: CGSize(width: 400, height: 200), color: .systemRed))
+        let selection = try XCTUnwrap(session.selectedPicture)
+        // Half the picture above the page's top edge, where the frame's center may still be.
+        endEvent(of: session)
+        try session.movePicture(selection, to: CGRect(x: cropBox.midX - 150, y: cropBox.maxY - 60, width: 300, height: 150))
+        let pdfView = try XCTUnwrap(session.pdfView)
+        pdfView.go(to: page)
+        try await waitUntil { !self.descendants(of: controller.view, matching: SelectionFrameView.self).isEmpty }
+        let frameView = try XCTUnwrap(descendants(of: controller.view, matching: SelectionFrameView.self).first)
+        controller.view.layoutIfNeeded()
+        let window = try XCTUnwrap(controller.view.window)
+        let visibleRegion = pdfView.convert(pdfView.bounds.inset(by: pdfView.safeAreaInsets), to: window)
+        XCTAssertLessThan(frameView.convert(frameView.bounds, to: window).minY, visibleRegion.minY, "The frame reaches above what the PDF view shows.")
+        let handles = frameView.resizeRecognizers.compactMap(\.view)
+        XCTAssertEqual(handles.count, 4)
+        for handle in handles {
+            let handleFrame = handle.convert(handle.bounds, to: window)
+            XCTAssertTrue(visibleRegion.insetBy(dx: -0.5, dy: -0.5).contains(handleFrame), "A handle is inside what the PDF view shows: \(handleFrame) in \(visibleRegion)")
+            let touchedView = window.hitTest(CGPoint(x: handleFrame.midX, y: handleFrame.midY), with: nil)
+            XCTAssertTrue(touchedView?.isDescendant(of: handle) == true, "A touch on the handle reaches it, not \(String(describing: touchedView))")
+        }
+        attachScreenshot(of: controller, named: "Picture at the top of the PDF view")
+    }
+
     func testPictureReadFromAFileIsSelectedByATapAndStaysUnderTheInk() async throws {
         let session = try await openNotebook(pageCount: 1)
         try await session.addPicture(imageData: try imageData(size: CGSize(width: 300, height: 300), color: .systemBlue))
@@ -561,6 +592,17 @@ final class PicturesAndPaperTests: XCTestCase {
         let smallest = SelectionFrameView.resized(frame, byDragging: CGPoint(x: -1_000, y: -1_000), pullsRight: true, pullsDown: true, minimumSideLength: 32)
         XCTAssertEqual(smallest.height, 32, accuracy: 0.001)
         XCTAssertEqual(smallest.width, 64, accuracy: 0.001)
+
+        // A handle whose touch area would leave the reachable region moves inward, never past the opposite side.
+        let frameBounds = CGRect(x: 0, y: 0, width: 200, height: 100)
+        let reachable = CGRect(x: -500, y: 30, width: 1_000, height: 1_000)
+        XCTAssertEqual(SelectionFrameView.handleCenter(at: .zero, of: frameBounds, within: reachable, handleHalfSide: 22), CGPoint(x: 0, y: 52))
+        let mostlyOutOfReach = CGRect(x: -500, y: 90, width: 1_000, height: 1_000)
+        XCTAssertEqual(SelectionFrameView.handleCenter(at: .zero, of: frameBounds, within: mostlyOutOfReach, handleHalfSide: 22), CGPoint(x: 0, y: 100))
+        XCTAssertEqual(SelectionFrameView.handleCenter(at: CGPoint(x: 200, y: 100), of: frameBounds, within: reachable, handleHalfSide: 22), CGPoint(x: 200, y: 100))
+        XCTAssertEqual(SelectionFrameView.handleCenter(at: CGPoint(x: 200, y: 0), of: frameBounds, within: CGRect(x: -500, y: 10, width: 690, height: 1_000), handleHalfSide: 22),
+                       CGPoint(x: 168, y: 32))
+        XCTAssertEqual(SelectionFrameView.handleCenter(at: .zero, of: frameBounds, within: nil, handleHalfSide: 22), .zero)
     }
 
     /// The rotate handle stands above the frame unless a touch could not reach it there, as

@@ -27,6 +27,25 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
     var minimumSideLength: CGFloat = 32
     /// The region the frame's center has to stay in, so it cannot be lost off the page.
     var centerLimits: CGRect = .infinite
+    /// Keeps the frame to what its superview shows and can be touched in, the reachable
+    /// region, as for a PDF view whose top edge is at the tab bar or under a navigation bar:
+    /// the frame is drawn only there, and touches outside it are refused, so they go to the
+    /// bar. The handles stand in the reachable region whether this is on or not (see
+    /// `layoutSubviews`). Off for ink, whose frame may hang past the page it is drawn on.
+    var staysInSuperviewSafeArea = false {
+        didSet { if staysInSuperviewSafeArea != oldValue { setNeedsLayout() } }
+    }
+    /// The part of the superview a touch reaches, in this view's coordinates: its bounds,
+    /// which a scroll view moves as it scrolls, less its safe area, where bars cover it. For a
+    /// turned frame, the rectangle around that region as turned. Nil without a superview.
+    private var reachableRegion: CGRect? {
+        guard let superview else { return nil }
+        let region = superview.bounds.inset(by: superview.safeAreaInsets)
+        guard !region.isNull, region.width >= 0, region.height >= 0 else { return nil }
+        return convert(region, from: superview)
+    }
+    /// Hides what is outside the reachable region.
+    private let reachableMask = CALayer()
     /// Shown inside the frame while it is dragged, for an owner whose content moves only
     /// when the drag ends: faintly over content that stays where it was, or, at full
     /// strength, in place of content the owner hides for the drag.
@@ -293,6 +312,17 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
         }
     }
 
+    /// Moving the frame moves it against the reachable region, so its handles are placed again.
+    override var frame: CGRect {
+        didSet { if frame.origin != oldValue.origin { setNeedsLayout() } }
+    }
+
+    /// The safe area changes as the frame moves under a bar, or as the bars change.
+    override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        setNeedsLayout()
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         previewView.frame = bounds.insetBy(dx: dragPreviewInset, dy: dragPreviewInset)
@@ -314,13 +344,20 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
         outlineHaloLayer.path = outline
         outlineHaloLayer.lineWidth = lineWidth + 2 * Self.haloWidth * handleScale
         CATransaction.commit()
-        // A handle's touch area reaches at most a quarter of the frame's shorter side into
-        // it, so a small frame, around a word or a dot, keeps its middle for moving; the
-        // area moves outward instead, and the knob stays on the corner.
+        // Where each handle stands, by one rule: a corner's handle is on its corner, its touch
+        // area reaching at most a quarter of the frame's shorter side into the frame, so a small
+        // frame, around a word or a dot, keeps its middle for moving (the area moves outward
+        // instead, and the knob stays on the corner). A handle whose touch area would then be
+        // outside the reachable region, the superview's bounds less its safe area, stands just
+        // inside it, knob and all, moved along the frame's sides but never past the opposite
+        // side (`handleCenter`): past a PDF page's edge, under the tab bar or under a navigation
+        // bar a touch does not reach it. The rotate handle stands above the frame, or below it
+        // where it would be out of that region above.
         // A frame too small for four knobs to stand apart, around a dot or a short word, has
         // one, at its bottom-right corner, as Goodnotes does; four knobs touched each other.
         let showsOneHandle = min(bounds.width, bounds.height) < Self.handleTouchSide * handleScale && cropLimits == nil
         for (corner, handle) in handles { handle.isHidden = showsOneHandle && corner != .bottomRight }
+        let reachableRegion = reachableRegion
         let halfTouchSide = Self.handleTouchSide / 2 * handleScale
         let inwardReach = min(halfTouchSide, min(bounds.width, bounds.height) / 4)
         let outwardShift = halfTouchSide - inwardReach
@@ -328,17 +365,12 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
             let outwardX: CGFloat = corner == .topLeft || corner == .bottomLeft ? -1 : 1
             let outwardY: CGFloat = corner == .topLeft || corner == .topRight ? -1 : 1
             let cornerPoint = CGPoint(x: outwardX < 0 ? bounds.minX : bounds.maxX, y: outwardY < 0 ? bounds.minY : bounds.maxY)
+            let centerOnCorner = CGPoint(x: cornerPoint.x + outwardX * outwardShift, y: cornerPoint.y + outwardY * outwardShift)
+            let reachableCenter = Self.handleCenter(at: centerOnCorner, of: bounds, within: reachableRegion, handleHalfSide: halfTouchSide)
             handle.transform = CGAffineTransform(scaleX: handleScale, y: handleScale)
-            handle.center = CGPoint(x: cornerPoint.x + outwardX * outwardShift, y: cornerPoint.y + outwardY * outwardShift)
-            let knobShift = handleScale > 0 ? outwardShift / handleScale : 0
+            handle.center = reachableCenter
+            let knobShift = handleScale > 0 && reachableCenter == centerOnCorner ? outwardShift / handleScale : 0
             handle.subviews.first?.center = CGPoint(x: Self.handleTouchSide / 2 - outwardX * knobShift, y: Self.handleTouchSide / 2 - outwardY * knobShift)
-            // A corner past the edge of the view the frame is in, as of ink at a PDF page's
-            // edge, is cut off there and cannot be touched: the handle, knob and all, stands
-            // just inside the edge instead, as the rotate handle moves below the frame.
-            if let reachableCenter = reachableCenter(for: handle.center, scale: handleScale), reachableCenter != handle.center {
-                handle.center = reachableCenter
-                handle.subviews.first?.center = CGPoint(x: Self.handleTouchSide / 2, y: Self.handleTouchSide / 2)
-            }
         }
         // On a frame too narrow for the rotate handle to stand between the corners'
         // handles, it stands beyond them, so neither covers the other.
@@ -348,43 +380,50 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
         let centerBelow = CGPoint(x: bounds.midX, y: bounds.maxY + stemLength)
         let isBeingRotated = rotationRecognizer.state == .began || rotationRecognizer.state == .changed
         if !isBeingRotated {
-            rotationHandleStandsBelow = !canReachHandle(at: centerAbove, scale: handleScale) && canReachHandle(at: centerBelow, scale: handleScale)
+            // The centers at which the whole handle is in the reachable region.
+            let reachableCenters = reachableRegion?.insetBy(dx: halfTouchSide, dy: halfTouchSide)
+            rotationHandleStandsBelow = reachableCenters.map { centers in !centers.contains(centerAbove) && centers.contains(centerBelow) } ?? false
         }
         rotationHandle.transform = CGAffineTransform(scaleX: handleScale, y: handleScale)
         rotationHandle.center = rotationHandleStandsBelow ? centerBelow : centerAbove
         rotationStem.frame = rotationHandleStandsBelow
             ? CGRect(x: bounds.midX - lineWidth / 2, y: bounds.maxY, width: lineWidth, height: stemLength)
             : CGRect(x: bounds.midX - lineWidth / 2, y: bounds.minY - stemLength, width: lineWidth, height: stemLength)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if staysInSuperviewSafeArea, let reachableRegion {
+            reachableMask.backgroundColor = UIColor.black.cgColor
+            reachableMask.frame = reachableRegion
+            layer.mask = reachableMask
+        } else {
+            layer.mask = nil
+        }
+        CATransaction.commit()
     }
 
-    /// The nearest point to a handle's center, in this view, at which the whole handle is
-    /// inside the part of the superview a touch reaches (see `canReachHandle`); nil when that
-    /// part is too small to hold a handle, which then stays where it is.
-    private func reachableCenter(for handleCenter: CGPoint, scale handleScale: CGFloat) -> CGPoint? {
-        guard let superview else { return nil }
-        let halfTouchSide = Self.handleTouchSide * handleScale / 2
-        let reachableArea = superview.bounds.inset(by: superview.safeAreaInsets).insetBy(dx: halfTouchSide, dy: halfTouchSide)
-        guard !reachableArea.isNull, reachableArea.width >= 0, reachableArea.height >= 0 else { return nil }
-        let centerInSuperview = convert(handleCenter, to: superview)
-        let clamped = CGPoint(x: min(max(centerInSuperview.x, reachableArea.minX), reachableArea.maxX),
-                              y: min(max(centerInSuperview.y, reachableArea.minY), reachableArea.maxY))
-        return clamped == centerInSuperview ? handleCenter : superview.convert(clamped, to: self)
+    /// Where a corner's handle goes: where it stands for its corner, or moved inward along the
+    /// frame's sides until its touch area is inside the reachable region, but never past the
+    /// opposite side. A frame mostly out of reach can have its handles past its middle, still
+    /// each on the side of its own corner.
+    static func handleCenter(at corner: CGPoint, of frameBounds: CGRect, within reachableRegion: CGRect?, handleHalfSide: CGFloat) -> CGPoint {
+        guard let reachableRegion else { return corner }
+        func kept(_ coordinate: CGFloat, between lowestCoordinate: CGFloat, and highestCoordinate: CGFloat) -> CGFloat {
+            guard lowestCoordinate <= highestCoordinate else { return (lowestCoordinate + highestCoordinate) / 2 }
+            return min(max(coordinate, lowestCoordinate), highestCoordinate)
+        }
+        var center = CGPoint(x: kept(corner.x, between: reachableRegion.minX + handleHalfSide, and: reachableRegion.maxX - handleHalfSide),
+                             y: kept(corner.y, between: reachableRegion.minY + handleHalfSide, and: reachableRegion.maxY - handleHalfSide))
+        center.x = corner.x <= frameBounds.midX ? min(center.x, frameBounds.maxX) : max(center.x, frameBounds.minX)
+        center.y = corner.y <= frameBounds.midY ? min(center.y, frameBounds.maxY) : max(center.y, frameBounds.minY)
+        return center
     }
 
-    /// Whether the rotate handle, centered at a point of this view, would be wholly inside
-    /// the part of the superview a touch reaches: its bounds, which a scroll view moves as
-    /// it scrolls, less its safe area, where bars cover it.
-    private func canReachHandle(at handleCenter: CGPoint, scale handleScale: CGFloat) -> Bool {
-        guard let superview else { return true }
-        let reachableArea = superview.bounds.inset(by: superview.safeAreaInsets)
-        let halfTouchSide = Self.handleTouchSide * handleScale / 2
-        let centerInSuperview = convert(handleCenter, to: superview)
-        return reachableArea.insetBy(dx: halfTouchSide, dy: halfTouchSide).contains(centerInSuperview)
-    }
-
-    /// The handles reach outside the frame they resize or turn.
+    /// The handles reach outside the frame they resize or turn. With
+    /// `staysInSuperviewSafeArea`, what is outside the reachable region is hidden and takes
+    /// no touches.
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-        bounds.contains(point) || handles.values.contains { handle in !handle.isHidden && handle.frame.contains(point) }
+        if staysInSuperviewSafeArea, let reachableRegion, !reachableRegion.contains(point) { return false }
+        return bounds.contains(point) || handles.values.contains { handle in !handle.isHidden && handle.frame.contains(point) }
             || (!rotationHandle.isHidden && rotationHandle.frame.contains(point))
     }
 
