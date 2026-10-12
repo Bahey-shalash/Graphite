@@ -31,6 +31,33 @@ enum LassoShape: String, CaseIterable, Identifiable {
     }
 }
 
+/// What the laser pointer shows: a glowing dot under the Pencil or finger that is gone
+/// when it lifts, or a line that fades a moment after it is drawn. Kept between launches.
+enum LaserPointerStyle: String, CaseIterable, Identifiable {
+    case dot, line
+
+    static let preferenceKey = "GraphiteLaserPointerStyle"
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .dot: "Dot"
+        case .line: "Line"
+        }
+    }
+    var symbolName: String {
+        switch self {
+        case .dot: "circle.fill"
+        case .line: "scribble"
+        }
+    }
+
+    static var stored: LaserPointerStyle {
+        get { UserDefaults.standard.string(forKey: preferenceKey).flatMap(LaserPointerStyle.init(rawValue:)) ?? .dot }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: preferenceKey) }
+    }
+}
+
 /// Where a picture of the page, taken with the lasso, can be inserted as an attachment:
 /// the note a PDF is embedded in, the note open beside a PDF, or the note a drawing
 /// belongs to.

@@ -11,7 +11,8 @@ import PencilKit
 /// gives the tool in use one of the colors of Settings › Colors, the list the notes'
 /// Format › Color menu uses; Draw Shapes, which turns the shape tool on and off
 /// (`PencilShapes`); Select Ink, which turns on Graphite's lasso (`InkSelectionController`),
-/// with its type, freehand or rectangular.
+/// with its type, freehand or rectangular; and the laser pointer (`LaserPointerController`),
+/// with its dot or line.
 @MainActor
 enum PencilToolPalette {
     /// Whether strokes become the shapes they were meant to be; shared by every canvas.
@@ -48,10 +49,11 @@ enum PencilToolPalette {
         // While Graphite's lasso or the shape tool is on the button shows it, inverted like
         // the pen in use; otherwise it is the colors button.
         button.configurationUpdateHandler = { button in
-            let selectsInk = PaletteInkSelection.isOn
-            let isInverted = selectsInk || button.isSelected
+            let selectsInk = PaletteInkSelection.isOn, pointsWithLaser = PaletteInkSelection.pointsWithLaser
+            let isInverted = selectsInk || pointsWithLaser || button.isSelected
             var configuration = UIButton.Configuration.plain()
-            let symbolName = selectsInk ? LassoShape.stored.symbolName : button.isSelected ? "square.fill.on.circle.fill" : "swatchpalette"
+            let symbolName = selectsInk ? LassoShape.stored.symbolName : pointsWithLaser ? PencilToolKind.laser.symbolName
+                : button.isSelected ? "square.fill.on.circle.fill" : "swatchpalette"
             configuration.image = UIImage(systemName: symbolName)
             configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 15, weight: .medium)
             configuration.cornerStyle = .capsule
@@ -59,10 +61,10 @@ enum PencilToolPalette {
             configuration.background.backgroundColor = isInverted ? .label : .tertiarySystemFill
             button.configuration = configuration
         }
-        button.accessibilityLabel = "Colors, Shapes and Selection"
-        button.accessibilityHint = "Gives the pen in use one of your colors, turns strokes into shapes, or selects ink and images to move, resize or capture"
+        button.accessibilityLabel = "Colors, Shapes, Selection and Laser"
+        button.accessibilityHint = "Gives the pen in use one of your colors, turns strokes into shapes, selects ink and images to move, resize or capture, or points with a laser"
         button.showsLargeContentViewer = true
-        button.largeContentTitle = "Colors, Shapes and Selection"
+        button.largeContentTitle = "Colors, Shapes, Selection and Laser"
         button.showsMenuAsPrimaryAction = true
         // Read each time the menu opens: the colors, the tool in use and the switches change.
         button.menu = UIMenu(children: [
@@ -87,7 +89,7 @@ enum PencilToolPalette {
 
     /// Whether shapes are on, and the tool of Graphite's that is in use.
     static func accessibilityValue(shapesAreOn: Bool) -> String {
-        (shapesAreOn ? "Shapes on" : "Shapes off") + (PaletteInkSelection.isOn ? ", selecting ink" : "")
+        (shapesAreOn ? "Shapes on" : "Shapes off") + (PaletteInkSelection.isOn ? ", selecting ink" : PaletteInkSelection.pointsWithLaser ? ", laser pointer" : "")
     }
 
     /// Favorite colors as a row of swatches, or the highlighter's own colors while the marker
@@ -109,6 +111,16 @@ enum PencilToolPalette {
                 PaletteInkSelection.isOn = true
             }
         }
+        let laserAction = UIAction(title: "Laser Pointer", subtitle: "Point without writing", image: UIImage(systemName: PencilToolKind.laser.symbolName),
+                                   state: PaletteInkSelection.pointsWithLaser ? .on : .off) { _ in
+            PaletteInkSelection.pointsWithLaser.toggle()
+        }
+        let laserStyles = LaserPointerStyle.allCases.map { style in
+            UIAction(title: style.title, image: UIImage(systemName: style.symbolName), state: LaserPointerStyle.stored == style ? .on : .off) { _ in
+                LaserPointerStyle.stored = style
+                PaletteInkSelection.pointsWithLaser = true
+            }
+        }
         let colorsMenu = inkingToolInUse(of: toolPicker)?.inkType == .marker
             ? favoriteColorsMenu(for: toolPicker, palette: highlighterPalette, title: "Highlighter Colors")
             : favoriteColorsMenu(for: toolPicker, palette: palette)
@@ -117,6 +129,11 @@ enum PencilToolPalette {
                     selectionAction,
                     UIMenu(title: "Lasso Type", subtitle: LassoShape.stored.title, image: UIImage(systemName: LassoShape.stored.symbolName),
                            options: .singleSelection, children: lassoShapes),
+                ]),
+                UIMenu(options: .displayInline, children: [
+                    laserAction,
+                    UIMenu(title: "Laser Type", subtitle: LaserPointerStyle.stored.title, image: UIImage(systemName: LaserPointerStyle.stored.symbolName),
+                           options: .singleSelection, children: laserStyles),
                 ])]
     }
 
@@ -185,6 +202,7 @@ private final class PaletteToolChoiceObserver: NSObject, PKToolPickerObserver {
 
     func toolPickerSelectedToolItemDidChange(_ toolPicker: PKToolPicker) {
         PaletteInkSelection.isOn = false
+        PaletteInkSelection.pointsWithLaser = false
     }
 }
 

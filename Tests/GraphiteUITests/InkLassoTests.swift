@@ -87,14 +87,21 @@ final class InkLassoTests: XCTestCase {
         XCTAssertEqual(InkLasso.enclosedFraction(of: InkLasso.samplePoints(ofRectangle: tall, turnedBy: .pi / 2), inLoop: [CGPoint(x: 35, y: -30), CGPoint(x: 65, y: -30), CGPoint(x: 65, y: 130), CGPoint(x: 35, y: 130)]), 1)
     }
 
-    func testTheLassoTypeIsRememberedAndStartsFreehand() {
+    func testTheLassoTypeAndTheLaserStyleAreRememberedAndStartFreehandWithADot() {
         let defaults = UserDefaults.standard
-        let storedShape = defaults.object(forKey: LassoShape.preferenceKey)
-        defer { defaults.set(storedShape, forKey: LassoShape.preferenceKey) }
+        let storedShape = defaults.object(forKey: LassoShape.preferenceKey), storedStyle = defaults.object(forKey: LaserPointerStyle.preferenceKey)
+        defer {
+            defaults.set(storedShape, forKey: LassoShape.preferenceKey)
+            defaults.set(storedStyle, forKey: LaserPointerStyle.preferenceKey)
+        }
         defaults.removeObject(forKey: LassoShape.preferenceKey)
+        defaults.removeObject(forKey: LaserPointerStyle.preferenceKey)
         XCTAssertEqual(LassoShape.stored, .freehand)
+        XCTAssertEqual(LaserPointerStyle.stored, .dot)
         LassoShape.stored = .rectangle
+        LaserPointerStyle.stored = .line
         XCTAssertEqual(LassoShape.stored, .rectangle)
+        XCTAssertEqual(LaserPointerStyle.stored, .line)
         defaults.set("triangle", forKey: LassoShape.preferenceKey)
         XCTAssertEqual(LassoShape.stored, .freehand, "A value another build wrote reads as the default.")
     }

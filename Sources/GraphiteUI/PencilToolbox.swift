@@ -143,9 +143,9 @@ struct InkPreset: Codable, Equatable, Identifiable {
     }
 }
 
-/// What the bar has in use: one of its inks, the eraser, or the lasso.
+/// What the bar has in use: one of its inks, the eraser, the lasso, or the laser pointer.
 enum PencilToolKind: String, Codable, CaseIterable, Identifiable {
-    case ink, eraser, lasso
+    case ink, eraser, lasso, laser
 
     var id: String { rawValue }
     var title: String {
@@ -153,6 +153,7 @@ enum PencilToolKind: String, Codable, CaseIterable, Identifiable {
         case .ink: "Ink"
         case .eraser: "Eraser"
         case .lasso: "Lasso"
+        case .laser: "Laser Pointer"
         }
     }
     var symbolName: String {
@@ -160,8 +161,12 @@ enum PencilToolKind: String, Codable, CaseIterable, Identifiable {
         case .ink: "pencil.tip"
         case .eraser: "eraser"
         case .lasso: "lasso"
+        case .laser: "laser.burst"
         }
     }
+    /// Whether the canvas draws with PencilKit's tool: the lasso and the laser pointer are
+    /// Graphite's own and draw nothing.
+    var drawsInk: Bool { self == .ink || self == .eraser }
 }
 
 /// The tool a canvas draws with, as a value, so a canvas is updated exactly when it changes.
@@ -471,7 +476,7 @@ extension PencilToolSelection {
         switch kind {
         case .ink: preset.inkingTool
         case .eraser: erasesWholeStrokes ? PKEraserTool(.vector) : PKEraserTool(.fixedWidthBitmap, width: CGFloat(eraserWidth))
-        case .lasso: PKLassoTool()
+        case .lasso, .laser: PKLassoTool()
         }
     }
 }
@@ -568,6 +573,7 @@ struct PencilToolRow: View {
     var highlighterColors: [PaletteColor] = GraphitePreferences.storedHighlighterPalette()
     @State private var showsInkOptions = false
     @AppStorage(LassoShape.preferenceKey) private var lassoShape = LassoShape.freehand
+    @AppStorage(LaserPointerStyle.preferenceKey) private var laserPointerStyle = LaserPointerStyle.dot
     /// The size whose width is open for changing.
     @State private var adjustedSize: PencilSizeChoice?
 
@@ -599,6 +605,7 @@ struct PencilToolRow: View {
             ForEach(Array(toolbox.presets.enumerated()), id: \.element.id) { presetIndex, preset in presetButton(preset, at: presetIndex) }
             toolButton(.eraser)
             toolButton(.lasso)
+            toolButton(.laser)
             separator
             switch toolbox.toolInUse {
             case .ink:
@@ -627,6 +634,13 @@ struct PencilToolRow: View {
                 // Remembered for every canvas, as Goodnotes keeps its lasso's type.
                 Picker("Lasso Type", selection: $lassoShape) {
                     ForEach(LassoShape.allCases) { shape in Text(shape.title).tag(shape) }
+                }
+                .pickerStyle(.segmented)
+                .fixedSize()
+                separator
+            case .laser:
+                Picker("Laser Pointer", selection: $laserPointerStyle) {
+                    ForEach(LaserPointerStyle.allCases) { style in Text(style.title).tag(style) }
                 }
                 .pickerStyle(.segmented)
                 .fixedSize()
@@ -849,12 +863,14 @@ struct PencilToolGlyph: View {
         case ink(PencilInk)
         case eraser
         case lasso
+        case laser
 
         /// The glyph of a tool other than an ink.
         init(kind: PencilToolKind) {
             switch kind {
             case .eraser, .ink: self = .eraser
             case .lasso: self = .lasso
+            case .laser: self = .laser
             }
         }
     }
@@ -869,6 +885,7 @@ struct PencilToolGlyph: View {
         case .ink(let ink): ink.symbolName
         case .eraser: PencilToolKind.eraser.symbolName
         case .lasso: PencilToolKind.lasso.symbolName
+        case .laser: PencilToolKind.laser.symbolName
         }
     }
 

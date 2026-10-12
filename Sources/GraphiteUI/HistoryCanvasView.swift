@@ -71,7 +71,7 @@ class HistoryCanvasView: PKCanvasView {
     /// Takes the chosen tool again, after what `toolForDrawing` returns has changed.
     func retakeChosenTool() {
         if let fixedTool {
-            if fixedTool.kind != .lasso { tool = toolForDrawing(fixedTool.tool) }
+            if fixedTool.kind.drawsInk { tool = toolForDrawing(fixedTool.tool) }
         } else if followsToolPicker, let followedToolPicker, let selectedTool = Self.selectedTool(of: followedToolPicker) {
             tool = toolForDrawing(selectedTool)
         }
@@ -91,8 +91,10 @@ class HistoryCanvasView: PKCanvasView {
             guard newFixedTool != fixedTool else { return }
             fixedTool = newFixedTool
             selectsInk = newFixedTool.kind == .lasso
-            // The lasso is Graphite's own; PencilKit's tool stays what it was and draws nothing.
-            if newFixedTool.kind != .lasso { tool = toolForDrawing(newFixedTool.tool) }
+            pointsWithLaser = newFixedTool.kind == .laser
+            // The lasso and the laser are Graphite's own; PencilKit's tool stays what it was
+            // and draws nothing.
+            if newFixedTool.kind.drawsInk { tool = toolForDrawing(newFixedTool.tool) }
             isRulerActive = newFixedTool.isRulerActive
         } else if !followsToolPicker {
             fixedTool = nil
@@ -111,8 +113,12 @@ class HistoryCanvasView: PKCanvasView {
                 retakeChosenTool()
             }
             selectsInk = PaletteInkSelection.isOn
+            pointsWithLaser = PaletteInkSelection.pointsWithLaser
             paletteInkSelectionObserver = NotificationCenter.default.addObserver(forName: PaletteInkSelection.didChange, object: nil, queue: nil) { [weak self] _ in
-                MainActor.assumeIsolated { self?.selectsInk = PaletteInkSelection.isOn }
+                MainActor.assumeIsolated {
+                    self?.selectsInk = PaletteInkSelection.isOn
+                    self?.pointsWithLaser = PaletteInkSelection.pointsWithLaser
+                }
             }
         }
     }
@@ -169,7 +175,26 @@ class HistoryCanvasView: PKCanvasView {
     }
 
     private func applyDrawingEnabled() {
-        isDrawingEnabled = !isDrawingSuspended && !selectsInk
+        isDrawingEnabled = !isDrawingSuspended && !selectsInk && !pointsWithLaser
+    }
+
+    // MARK: Pointing
+
+    private var hasLaserPointer = false
+    /// The laser pointer on this canvas (`LaserPointerController`).
+    private(set) lazy var laserPointer: LaserPointerController = {
+        hasLaserPointer = true
+        return LaserPointerController(canvas: self)
+    }()
+
+    /// Whether the canvas points with the laser instead of drawing.
+    var pointsWithLaser: Bool {
+        get { hasLaserPointer && laserPointer.isActive }
+        set {
+            guard newValue != pointsWithLaser else { return }
+            laserPointer.isActive = newValue
+            applyDrawingEnabled()
+        }
     }
 
     /// Scrolling and zooming move the lasso's selection with the drawing; its frame and a

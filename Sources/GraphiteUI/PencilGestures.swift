@@ -124,6 +124,7 @@ struct PencilPalette: View {
                 }
                 buttons.toolButton(.eraser)
                 buttons.toolButton(.lasso)
+                buttons.toolButton(.laser)
             }
             // The tools stand on a line, as on the bar.
             .overlay(alignment: .bottom) { Hairline() }

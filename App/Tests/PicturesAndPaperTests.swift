@@ -597,8 +597,16 @@ final class PicturesAndPaperTests: XCTestCase {
         XCTAssertFalse(canvas.isDrawingEnabled)
         try await Task.sleep(for: .milliseconds(300))
         attachScreenshot(of: controller, named: "Fixed bar with the lasso and its type")
+        // The laser pointer is the bar's too: the canvas points and draws nothing.
+        controller.view.window?.overrideUserInterfaceStyle = .dark
+        toolbox.use(.laser)
+        try await waitUntil { canvas.pointsWithLaser && !canvas.selectsInk }
+        XCTAssertFalse(canvas.isDrawingEnabled)
+        try await Task.sleep(for: .milliseconds(300))
+        attachScreenshot(of: controller, named: "Fixed bar with the laser pointer, dark appearance")
+        controller.view.window?.overrideUserInterfaceStyle = .unspecified
         toolbox.usePreset(at: 0)
-        try await waitUntil { !canvas.selectsInk }
+        try await waitUntil { !canvas.selectsInk && !canvas.pointsWithLaser }
         XCTAssertTrue(canvas.isDrawingEnabled)
 
         // Back to the floating palette: the canvas follows the system's picker again.

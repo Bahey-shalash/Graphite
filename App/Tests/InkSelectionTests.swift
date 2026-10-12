@@ -344,7 +344,7 @@ final class InkSelectionTests: XCTestCase {
     }
 }
 
-// MARK: The lasso's loop, types, pictures and screenshots
+// MARK: The lasso's loop, types, pictures, screenshots and the laser pointer
 
 extension InkSelectionTests {
     /// How large a point of the canvas is on screen.
@@ -699,6 +699,64 @@ extension InkSelectionTests {
         history.undo()
         try await waitUntil { canvas.lassoPictures().first?.frame.minX == 40 }
         XCTAssertEqual(canvas.drawing.strokes.first?.path.first?.location.x ?? 0, 60, accuracy: 0.5)
+    }
+
+    func testTheLaserPointsWithoutChangingTheDocumentAndTheBarAndPaletteChooseIt() async throws {
+        XCTAssertNotNil(UIImage(systemName: PencilToolKind.laser.symbolName))
+        XCTAssertNotNil(UIImage(systemName: LassoShape.rectangle.symbolName))
+        let (session, canvas, page) = try await openPageWithCanvas()
+        try await draw([stroke(from: CGPoint(x: 100, y: 100), to: CGPoint(x: 300, y: 100))], on: canvas, page: page, session: session)
+        let drawingBefore = canvas.drawing
+        try await session.save()
+        let canUndoBefore = session.undoAvailability.canUndo
+
+        // The fixed bar's laser and lasso.
+        let toolPicker = PencilToolPalette.makeToolPicker()
+        var laserTool = PencilToolbox.shared.selection
+        laserTool.kind = .laser
+        canvas.takeTool(from: toolPicker, fixedTool: laserTool)
+        XCTAssertTrue(canvas.pointsWithLaser)
+        XCTAssertFalse(canvas.selectsInk)
+        XCTAssertFalse(canvas.isDrawingEnabled)
+        var lassoTool = laserTool
+        lassoTool.kind = .lasso
+        canvas.takeTool(from: toolPicker, fixedTool: lassoTool)
+        XCTAssertTrue(canvas.selectsInk)
+        XCTAssertFalse(canvas.pointsWithLaser)
+        canvas.takeTool(from: toolPicker, fixedTool: laserTool)
+
+        // The dot follows the touch; a line fades a moment after it is drawn.
+        let window = try XCTUnwrap(canvas.window)
+        let overlay = LaserPointerOverlayView.overlay(in: window)
+        XCTAssertTrue(overlay.superview === window)
+        XCTAssertFalse(overlay.isUserInteractionEnabled)
+        overlay.showDot(at: CGPoint(x: 300, y: 400))
+        overlay.beginTrail(at: CGPoint(x: 200, y: 450))
+        for step in 1...20 { overlay.extendTrail(to: CGPoint(x: 200 + CGFloat(step) * 12, y: 450 + CGFloat(step % 4) * 10)) }
+        XCTAssertTrue(overlay.isShowingDot)
+        XCTAssertEqual(overlay.dotCenter, CGPoint(x: 300, y: 400))
+        attachScreenshot(of: canvas, named: "Laser pointer dot and line")
+        overlay.endTrail()
+        overlay.hideDot()
+        try await waitUntil { overlay.trails.isEmpty }
+        XCTAssertFalse(overlay.isShowingDot)
+
+        // Nothing changed: the ink, the history, the file.
+        XCTAssertEqual(canvas.drawing, drawingBefore)
+        XCTAssertEqual(session.undoAvailability.canUndo, canUndoBefore)
+        XCTAssertFalse(session.hasUnsavedChanges)
+
+        // The palette's menu offers the laser; it and Select Ink are never on together.
+        PaletteInkSelection.isOn = true
+        PaletteInkSelection.pointsWithLaser = true
+        XCTAssertFalse(PaletteInkSelection.isOn)
+        let inlineMenus = PencilToolPalette.menuElements(for: toolPicker, palette: []).compactMap { element in element as? UIMenu }
+        let actions = inlineMenus.flatMap(\.children).compactMap { element in element as? UIAction }
+        XCTAssertEqual(actions.first { action in action.title == "Laser Pointer" }?.state, .on)
+        XCTAssertEqual(actions.first { action in action.title == "Select Ink" }?.state, .off)
+        let typeMenus = inlineMenus.flatMap(\.children).compactMap { element in element as? UIMenu }.map(\.title)
+        XCTAssertEqual(typeMenus, ["Lasso Type", "Laser Type"])
+        PaletteInkSelection.pointsWithLaser = false
     }
 
     func testPicturesOfAnAreaAreDrawnAtPrintResolutionWithinTheirPixelLimits() {

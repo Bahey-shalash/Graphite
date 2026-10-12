@@ -75,15 +75,29 @@ enum InkLasso {
     }
 }
 
-/// Whether the canvases that follow the floating palette select ink with Graphite's lasso.
-/// The palette's own lasso is PencilKit's, which can neither resize nor recolor what it
-/// selects and tells nobody what that is; Graphite's is switched on from the palette's
-/// accessory menu and off again by choosing any tool. It is not kept between launches.
+/// Graphite's own tools that the canvases following the floating palette take instead of
+/// drawing: its lasso and its laser pointer. The palette's own lasso is PencilKit's, which
+/// can neither resize nor recolor what it selects and tells nobody what that is. Both are
+/// switched on from the palette's accessory menu and off again by choosing any tool; only
+/// one is on at a time. They are not kept between launches.
 @MainActor
 enum PaletteInkSelection {
     static let didChange = Notification.Name("GraphitePaletteInkSelectionDidChange")
+    /// Graphite's lasso ("Select Ink").
     static var isOn = false {
-        didSet { if isOn != oldValue { NotificationCenter.default.post(name: didChange, object: nil) } }
+        didSet {
+            guard isOn != oldValue else { return }
+            if isOn { pointsWithLaser = false }
+            NotificationCenter.default.post(name: didChange, object: nil)
+        }
+    }
+    /// The laser pointer.
+    static var pointsWithLaser = false {
+        didSet {
+            guard pointsWithLaser != oldValue else { return }
+            if pointsWithLaser { isOn = false }
+            NotificationCenter.default.post(name: didChange, object: nil)
+        }
     }
 }
 
