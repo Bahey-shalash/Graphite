@@ -110,10 +110,9 @@ struct ReadAloudReader: View {
 
     private func highlighted(_ passage: ReadAloudPassage) -> AttributedString {
         var attributed = AttributedString(passage.text)
-        if passage.id == reader.session.passageIndex, let spokenRange = reader.session.spokenRange,
-           let stringRange = Range(spokenRange, in: passage.text), let attributedRange = Range(stringRange, in: attributed) {
-            attributed[attributedRange].backgroundColor = .yellow.opacity(0.55)
-            attributed[attributedRange].foregroundColor = .black
+        if passage.id == reader.session.passageIndex, let highlightRange = reader.session.highlightRange,
+           let stringRange = Range(highlightRange, in: passage.text), let attributedRange = Range(stringRange, in: attributed) {
+            attributed[attributedRange].backgroundColor = ReadAloudHighlightStyle.color
         }
         return attributed
     }

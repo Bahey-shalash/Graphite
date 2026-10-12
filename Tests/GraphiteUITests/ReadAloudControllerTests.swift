@@ -217,7 +217,7 @@ final class ReadAloudControllerTests: XCTestCase {
         XCTAssertNil(overlay.hitTest(overlay.convert(wordView.frame.origin, from: wordView.superview)))
         window.displayIfNeeded()
         let highlightedPixels = try readingOverlayBitmap(view)
-        XCTAssertGreaterThan(yellowPixelCount(highlightedPixels), yellowPixelCount(beforePixels) + 50)
+        XCTAssertGreaterThan(highlightPixelCount(highlightedPixels), highlightPixelCount(beforePixels) + 50)
         if let artifactDirectory = ProcessInfo.processInfo.environment["GRAPHITE_READ_ALOUD_ARTIFACT_DIRECTORY"] {
             let directory = URL(fileURLWithPath: artifactDirectory, isDirectory: true)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -250,13 +250,14 @@ final class ReadAloudControllerTests: XCTestCase {
         return bitmap
     }
 
-    private func yellowPixelCount(_ bitmap: NSBitmapImageRep) -> Int {
+    private func highlightPixelCount(_ bitmap: NSBitmapImageRep) -> Int {
         var count = 0
         for verticalPixel in 0..<bitmap.pixelsHigh {
             for horizontalPixel in 0..<bitmap.pixelsWide {
                 guard let color = bitmap.colorAt(x: horizontalPixel, y: verticalPixel)?.usingColorSpace(.deviceRGB) else { continue }
-                if color.redComponent > 0.6, color.greenComponent > 0.5,
-                   color.blueComponent < color.greenComponent * 0.9, color.blueComponent < color.redComponent * 0.8 { count += 1 }
+                // The reading highlight's light blue over the white page.
+                if color.blueComponent > 0.8, color.blueComponent > color.redComponent + 0.12,
+                   color.blueComponent > color.greenComponent + 0.04 { count += 1 }
             }
         }
         return count

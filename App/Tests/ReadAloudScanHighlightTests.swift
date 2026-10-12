@@ -88,7 +88,7 @@ final class ReadAloudScanHighlightTests: XCTestCase {
         add(attachment)
         let counts = try pixelCounts(screenshot)
         XCTAssertGreaterThan(counts.dark, 100, "The screenshot must contain the scanned text, not only its highlight.")
-        XCTAssertGreaterThan(counts.yellow, 100, "The temporary highlight must be visible over the scan.")
+        XCTAssertGreaterThan(counts.highlight, 100, "The temporary highlight must be visible over the scan.")
         pdfView.scaleFactor *= 1.3
         pdfView.layoutDocumentView()
         try await Task.sleep(for: .milliseconds(200))
@@ -137,7 +137,7 @@ final class ReadAloudScanHighlightTests: XCTestCase {
         XCTAssertTrue(predicate(), "The hosted reader did not reach the expected state.")
     }
 
-    private func pixelCounts(_ image: UIImage) throws -> (dark: Int, yellow: Int) {
+    private func pixelCounts(_ image: UIImage) throws -> (dark: Int, highlight: Int) {
         let image = try XCTUnwrap(image.cgImage)
         var bytes = [UInt8](repeating: 0, count: image.width * image.height * 4)
         try bytes.withUnsafeMutableBytes { buffer in
@@ -147,13 +147,14 @@ final class ReadAloudScanHighlightTests: XCTestCase {
             context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
         }
         var darkCount = 0
-        var yellowCount = 0
+        var highlightCount = 0
         for offset in stride(from: 0, to: bytes.count, by: 4) {
             let red = Int(bytes[offset]), green = Int(bytes[offset + 1]), blue = Int(bytes[offset + 2])
             if red < 80, green < 80, blue < 80 { darkCount += 1 }
-            if red > 150, green > 125, blue < green * 9 / 10, blue < red * 8 / 10 { yellowCount += 1 }
+            // The reading highlight's light blue over the white scan.
+            if blue > 205, blue > red + 30, blue > green + 10 { highlightCount += 1 }
         }
-        return (darkCount, yellowCount)
+        return (darkCount, highlightCount)
     }
 }
 #endif
