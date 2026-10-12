@@ -23,7 +23,7 @@ let package = Package(
             .product(name: "Yams", package: "Yams")
         ]),
         .target(name: "GraphiteIndex", dependencies: ["GraphiteCore", .product(name: "GRDB", package: "GRDB.swift")]),
-        .target(name: "GraphiteApple", dependencies: ["GraphiteCore"]),
+        .target(name: "GraphiteApple", dependencies: ["GraphiteCore"], resources: [.copy("Resources/MathSpeech")]),
         .target(name: "GraphiteUI", dependencies: ["GraphiteCore", "GraphiteIndex", "GraphiteApple", .product(name: "Textual", package: "textual")],
                 // The Obsidian plugin runtime's page, scripts and vendored libraries, copied as
                 // one folder so the page's relative script paths keep working.

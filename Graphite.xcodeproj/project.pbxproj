@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		B38AFB9C7CF94493A4000001 /* ReadAloudScanHighlightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B38AFB9C7CF94493A4000002 /* ReadAloudScanHighlightTests.swift */; };
+		B38AFB9C7CF94493A3000001 /* PDFReadAloudScanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B38AFB9C7CF94493A3000002 /* PDFReadAloudScanTests.swift */; };
+		B38AFB9C7CF94493A2000001 /* PDFReadAloudExtractionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B38AFB9C7CF94493A2000002 /* PDFReadAloudExtractionTests.swift */; };
+		B38AFB9C7CF94493A1000001 /* ReadAloudMathematicsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B38AFB9C7CF94493A1000002 /* ReadAloudMathematicsTests.swift */; };
 		A00000000000000000000010 /* App/GraphiteApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000005 /* App/GraphiteApp.swift */; };
 		A00000000000000000000022 /* GraphiteUI in Frameworks */ = {isa = PBXBuildFile; productRef = A00000000000000000000021 /* GraphiteUI */; };
 		A00000000000000000000043 /* Tests/GraphiteAppleTests/InteroperabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000031 /* Tests/GraphiteAppleTests/InteroperabilityTests.swift */; };
@@ -59,6 +63,10 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		B38AFB9C7CF94493A4000002 /* ReadAloudScanHighlightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/ReadAloudScanHighlightTests.swift; sourceTree = "<group>"; };
+		B38AFB9C7CF94493A3000002 /* PDFReadAloudScanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/PDFReadAloudScanTests.swift; sourceTree = "<group>"; };
+		B38AFB9C7CF94493A2000002 /* PDFReadAloudExtractionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/PDFReadAloudExtractionTests.swift; sourceTree = "<group>"; };
+		B38AFB9C7CF94493A1000002 /* ReadAloudMathematicsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/ReadAloudMathematicsTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000005 /* App/GraphiteApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/GraphiteApp.swift; sourceTree = "<group>"; };
 		A00000000000000000000006 /* Graphite.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Graphite.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A00000000000000000000031 /* Tests/GraphiteAppleTests/InteroperabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/InteroperabilityTests.swift; sourceTree = "<group>"; };
@@ -123,6 +131,10 @@
 		A00000000000000000000002 = {
 			isa = PBXGroup;
 			children = (
+				B38AFB9C7CF94493A4000002 /* ReadAloudScanHighlightTests.swift */,
+				B38AFB9C7CF94493A3000002 /* PDFReadAloudScanTests.swift */,
+				B38AFB9C7CF94493A2000002 /* PDFReadAloudExtractionTests.swift */,
+				B38AFB9C7CF94493A1000002 /* ReadAloudMathematicsTests.swift */,
 				A00000000000000000000080 /* App/Tests/PencilWorkspaceTests.swift */,
 				A00000000000000000000082 /* App/Tests/EditingContinuityTests.swift */,
 				A00000000000000000000084 /* App/Tests/PDFInkHistoryTests.swift */,
@@ -275,6 +287,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B38AFB9C7CF94493A4000001 /* ReadAloudScanHighlightTests.swift in Sources */,
+				B38AFB9C7CF94493A3000001 /* PDFReadAloudScanTests.swift in Sources */,
+				B38AFB9C7CF94493A2000001 /* PDFReadAloudExtractionTests.swift in Sources */,
+				B38AFB9C7CF94493A1000001 /* ReadAloudMathematicsTests.swift in Sources */,
 				A00000000000000000000043 /* Tests/GraphiteAppleTests/InteroperabilityTests.swift in Sources */,
 				A00000000000000000000044 /* Tests/GraphiteAppleTests/PencilDrawingTests.swift in Sources */,
 				A00000000000000000000081 /* App/Tests/PencilWorkspaceTests.swift in Sources */,

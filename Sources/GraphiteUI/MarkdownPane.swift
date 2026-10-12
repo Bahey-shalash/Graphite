@@ -70,7 +70,10 @@ struct MarkdownPane: View {
                                 },
                                 blocksCache: session.readingBlocksCache, savedPosition: session.readingPosition,
                                 takeStartingLocation: { [session] in session.takeReadingStartLocation() },
-                                toggleTask: { [session] note, location in await workspace.toggleReadingTask(at: location, in: note, shownBy: session) })
+                                toggleTask: { [session] note, location in await workspace.toggleReadingTask(at: location, in: note, shownBy: session) },
+                                readAloudRange: workspace.readAloud.highlight(in: session.path),
+                                followsReading: workspace.readAloud.shouldFollow(session.path),
+                                suspendReadingFollow: { workspace.readAloud.suspendFollowing(in: session.path.rawValue) })
                 .environment(\.readingImageActions, ReadingImageActions(providerIdentity: ObjectIdentifier(workspace),
                                                                         viewImage: viewImage, editDrawing: drawingEditor, drawOnImage: imageDrawing))
                 .environment(\.communityPluginCodeBlocks, workspace.communityPlugins.isRuntimeRunning ? workspace.communityPlugins : nil)
@@ -80,7 +83,9 @@ struct MarkdownPane: View {
                 NativeMarkdownEditor(session: session, configuration: editorConfiguration, environment: livePreviewEnvironment,
                                      headingScrollRequest: document.headingScrollRequest, actions: editorActions,
                                      retention: workspace.markdownEditorRetention, retentionOwner: document,
-                                     readAloudRange: workspace.readAloud.highlight(in: session.path)) { target, isWiki in
+                                     readAloudRange: workspace.readAloud.highlight(in: session.path),
+                                     followsReading: workspace.readAloud.shouldFollow(session.path),
+                                     suspendReadingFollow: { workspace.readAloud.suspendFollowing(in: session.path.rawValue) }) { target, isWiki in
                     follow(target, isWiki: isWiki)
                 }
                 .overlay(alignment: .topLeading) { completionPopup }
@@ -196,6 +201,8 @@ struct MarkdownPane: View {
                              colorsEnabled: preferences.isEnabled(.colors), paletteHexByName: paletteHexByName,
                              showsProperties: preferences.isEnabled(.properties), declaredPropertyTypes: session.declaredPropertyTypes, inlineTitle: inlineTitle,
                              textSize: noteTextSize, drawingVersion: workspace.drawingVersion, indexVersion: workspace.indexVersion,
+                             mapsReadAloudSourceLocations: workspace.readAloud.sourceIdentifier == session.path.rawValue
+                                && (workspace.readAloud.isPreparing || workspace.readAloud.session.document != nil),
                              pluginCodeBlockLanguages: workspace.communityPlugins.codeBlockLanguages,
                              runsPluginPostProcessors: workspace.communityPlugins.runsMarkdownPostProcessors)
     }
@@ -302,6 +309,7 @@ struct MarkdownPane: View {
             viewImage: viewImage, editDrawing: drawingEditor, drawOnImage: imageDrawing, indexVersion: workspace.indexVersion,
             // Reading view's column, a little wider than Live Preview's, bounds the decode.
             embeddedImageColumnWidth: preferences.usesReadableLineLength ? ReadingConfiguration.readableColumnWidth : nil,
+            readingContext: LivePreviewReadingContext(controller: workspace.readAloud, path: session.path),
             lassoNoteDestination: LassoNoteDestination.note(session, in: workspace))
     }
 

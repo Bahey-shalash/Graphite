@@ -114,6 +114,10 @@ extension Text {
       }
 
       // Add link attribute for TextLinkInteraction
+      if let sourceRange = run[ReadingSourceRangeAttribute.self] {
+        text = text.customAttribute(ReadingSourceRange(range: sourceRange))
+      }
+
       if let link = run.link {
         text = text.customAttribute(LinkAttribute(link))
       }

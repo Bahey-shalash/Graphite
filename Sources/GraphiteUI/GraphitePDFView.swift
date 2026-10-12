@@ -84,6 +84,15 @@ final class PDFViewPageObserver: NSObject {
                 }
             },
         ]
+        for name in [Notification.Name.PDFViewScaleChanged, .PDFViewDisplayModeChanged, .PDFViewDisplayBoxChanged,
+                     .PDFViewVisiblePagesChanged, .PDFViewDocumentChanged] {
+            notificationObservers.append(NotificationCenter.default.addObserver(forName: name, object: view, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let view = self.view else { return }
+                    self.readingHighlighter.refreshGeometry(in: view)
+                }
+            })
+        }
         makeFormFieldsReadOnlyOnVisiblePages()
     }
 
@@ -102,12 +111,13 @@ final class PDFViewPageObserver: NSObject {
     }
 
     func highlightReading(_ highlights: [PDFReadAloudHighlight], followsReading: Bool = false, suspendFollowing: (() -> Void)? = nil) {
-        suspendReadingFollow = followsReading ? suspendFollowing : nil
+        suspendReadingFollow = suspendFollowing
         installManualScrollObservation()
         if let view { readingHighlighter.update(highlights, in: view, followsReading: followsReading) }
     }
 
     private func installManualScrollObservation() {
+        guard suspendReadingFollow != nil else { return }
         #if canImport(UIKit)
         guard let scrollView = view?.documentView?.enclosingScrollView, scrollView !== observedScrollView else { return }
         observedScrollView?.panGestureRecognizer.removeTarget(self, action: #selector(manualScrollBegan(_:)))
