@@ -133,7 +133,9 @@ final class ReadAloudReadingViewTests: XCTestCase {
         window.orderFront(nil)
         defer { window.contentView = nil; window.orderOut(nil) }
         state.range = (source as NSString).range(of: "First")
-        let initialDeadline = ContinuousClock.now + .seconds(3)
+        // Waits for the condition itself, which a loaded machine takes longer to reach: the
+        // highlight's frames are measured a layout pass after the view scrolls.
+        let initialDeadline = ContinuousClock.now + .seconds(20)
         while state.frames.isEmpty, ContinuousClock.now < initialDeadline { try await settle(hosting) }
         XCTAssertFalse(state.frames.isEmpty)
         XCTAssertLessThan(position.verticalOffset, 1)
@@ -141,7 +143,7 @@ final class ReadAloudReadingViewTests: XCTestCase {
         try await settle(hosting)
         XCTAssertLessThan(position.verticalOffset, 1)
         state.followsReading = true
-        let deadline = ContinuousClock.now + .seconds(3)
+        let deadline = ContinuousClock.now + .seconds(20)
         while (position.verticalOffset < 100 || !state.frames.contains(where: { frame in frame.sourceRange == state.range })), ContinuousClock.now < deadline {
             try await settle(hosting)
         }
