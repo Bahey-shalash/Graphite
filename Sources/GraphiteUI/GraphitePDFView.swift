@@ -752,6 +752,8 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
             pdfView.clearSelection()
         }
         for canvas in canvasesByPage.values { configure(canvas) }
+        // ⌘V pastes while the PDF is written on (`PDFAnnotationCoordinator.pasteFromPasteboard`).
+        toolPickerHost.pasteFromPasteboard = newInput.isEnabled ? { [weak self] in self?.pasteFromPasteboard() } : nil
         configureScrollGestures(of: pdfView)
         configureEnclosingScrollViews(of: pdfView)
         // With finger drawing, a long press belongs to the pen, as in Goodnotes.

@@ -23,8 +23,9 @@ struct PDFAddImageMenuContent: View {
         Button("Choose File…", systemImage: "folder") { source = .file }
         if UIPasteboard.general.hasImages {
             Button("Paste Image", systemImage: "doc.on.clipboard") {
-                guard let imageData = UIPasteboard.general.image?.pngData() else { return }
-                PDFPictureAdding.addPicture(imageData: imageData, to: session)
+                // At its own size where that fits, as ⌘V and the lasso's Paste place it.
+                guard case .image(let imageData) = LassoPasteboard.content(ignoringInk: true) else { return }
+                session.pastePicture(imageData, placement: nil)
             }
         }
     }

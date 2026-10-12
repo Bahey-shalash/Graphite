@@ -3,6 +3,7 @@ import XCTest
 import SwiftUI
 import PencilKit
 import PDFKit
+import UniformTypeIdentifiers
 import GraphiteApple
 import GraphiteCore
 @testable import GraphiteUI
@@ -16,6 +17,8 @@ final class InkSelectionTests: XCTestCase {
     private var savedShapesPreference: Any?
 
     override func setUp() async throws {
+        // The simulator replaces the system's pasteboard with the Mac's at any moment.
+        LassoPasteboard.pasteboard = UIPasteboard(name: UIPasteboard.Name("GraphiteInkSelectionTests-\(UUID().uuidString)"), create: true) ?? .general
         savedShapesPreference = UserDefaults.standard.object(forKey: PDFAnnotationPreferenceKey.drawsShapes)
         UserDefaults.standard.set(false, forKey: PDFAnnotationPreferenceKey.drawsShapes)
         PaletteInkSelection.isOn = false
@@ -27,6 +30,8 @@ final class InkSelectionTests: XCTestCase {
         for location in locations { try? FileManager.default.removeItem(at: location) }
         locations = []
         PaletteInkSelection.isOn = false
+        if LassoPasteboard.pasteboard !== UIPasteboard.general { UIPasteboard.remove(withName: LassoPasteboard.pasteboard.name) }
+        LassoPasteboard.pasteboard = .general
         if let savedShapesPreference { UserDefaults.standard.set(savedShapesPreference, forKey: PDFAnnotationPreferenceKey.drawsShapes) }
         else { UserDefaults.standard.removeObject(forKey: PDFAnnotationPreferenceKey.drawsShapes) }
     }
@@ -166,9 +171,9 @@ final class InkSelectionTests: XCTestCase {
 
         // Copy puts PencilKit ink and a picture on the pasteboard; paste adds it where asked.
         selection.copySelection()
-        let pasteboardDrawing = try PKDrawing(data: try XCTUnwrap(UIPasteboard.general.data(forPasteboardType: PKAppleDrawingTypeIdentifier as String)))
+        let pasteboardDrawing = try PKDrawing(data: try XCTUnwrap(LassoPasteboard.pasteboard.data(forPasteboardType: PKAppleDrawingTypeIdentifier as String)))
         XCTAssertEqual(pasteboardDrawing.strokes.count, 1)
-        XCTAssertNotNil(UIPasteboard.general.image)
+        XCTAssertNotNil(LassoPasteboard.pasteboard.image)
         // The place is in the canvas's points, which its zoom (`PDFPageOverlayView`) makes
         // larger than the drawing's.
         selection.pasteInk(at: CGPoint(x: 300 * canvas.zoomScale, y: 500 * canvas.zoomScale))
@@ -531,7 +536,10 @@ extension InkSelectionTests {
         XCTAssertTrue(selection.selectedStrokeIndices.isEmpty)
         XCTAssertTrue(selection.isShowingLassoedArea)
         XCTAssertNotNil(selection.shownLoopLayers?.line.fillColor, "The marked area is tinted.")
+        LassoPasteboard.pasteboard.items = []
         XCTAssertEqual(selection.areaMenuElements().map(\.title), ["Take Screenshot"])
+        _ = try putImageOnPasteboard(size: CGSize(width: 40, height: 40), color: .red)
+        XCTAssertEqual(selection.areaMenuElements().map(\.title), ["Take Screenshot", "Paste"], "An image can be pasted in the area.")
         let region = try XCTUnwrap(selection.captureRegion)
         XCTAssertEqual(region.minX, area.minX, accuracy: 0.5)
         XCTAssertEqual(region.width, area.width, accuracy: 0.5)
@@ -734,7 +742,8 @@ extension InkSelectionTests {
         XCTAssertFalse(canvas.pointsWithLaser)
         canvas.takeTool(from: toolPicker, fixedTool: laserTool)
 
-        // The dot follows the touch; a line fades a moment after it is drawn.
+        // The dot follows the touch. A line stays whole and at full strength while the touch
+        // is down, however long, and fades as a whole once it lifts.
         let window = try XCTUnwrap(canvas.window)
         let overlay = LaserPointerOverlayView.overlay(in: window)
         XCTAssertTrue(overlay.superview === window)
@@ -745,9 +754,25 @@ extension InkSelectionTests {
         XCTAssertTrue(overlay.isShowingDot)
         XCTAssertEqual(overlay.dotCenter, CGPoint(x: 300, y: 400))
         attachScreenshot(of: canvas, named: "Laser pointer dot and line")
+        try await Task.sleep(for: .seconds(1.2))
+        let firstLine = try XCTUnwrap(overlay.lines.first)
+        XCTAssertEqual(firstLine.points.count, 21, "Nothing of the line ages while the touch is down.")
+        XCTAssertEqual(firstLine.opacity, 1)
         overlay.endTrail()
         overlay.hideDot()
-        try await waitUntil { overlay.trails.isEmpty }
+        try await Task.sleep(for: .seconds(LaserPointerOverlayView.lineFadeDuration / 3))
+        XCTAssertLessThan(firstLine.opacity, 1, "The lifted line fades.")
+        XCTAssertGreaterThan(firstLine.opacity, 0)
+        XCTAssertEqual(firstLine.points.count, 21, "It fades as a whole, not from its start.")
+        // A line begun during the fade is a new one, at full strength; the old one fades on.
+        overlay.beginTrail(at: CGPoint(x: 220, y: 600))
+        overlay.extendTrail(to: CGPoint(x: 400, y: 620))
+        XCTAssertEqual(overlay.lines.count, 2)
+        let secondLine = try XCTUnwrap(overlay.lines.last)
+        try await waitUntil { !overlay.lines.contains { line in line === firstLine } }
+        XCTAssertEqual(secondLine.opacity, 1)
+        overlay.endTrail()
+        try await waitUntil { overlay.lines.isEmpty }
         XCTAssertFalse(overlay.isShowingDot)
 
         // Nothing changed: the ink, the history, the file.
@@ -803,6 +828,155 @@ extension InkSelectionTests {
         XCTAssertFalse(CanvasToolTouches.isHandResting(touchType: .direct, isPalmRejectionOn: true, isPencilActive: false), "A finger points when no Pencil is about.")
         XCTAssertFalse(CanvasToolTouches.isHandResting(touchType: .direct, isPalmRejectionOn: false, isPencilActive: true), "With palm rejection off, every finger points.")
         XCTAssertFalse(CanvasToolTouches.isHandResting(touchType: .pencil, isPalmRejectionOn: true, isPencilActive: true), "The Pencil is never a hand.")
+    }
+
+    // MARK: Pasting pictures, and the laser's glyph
+
+    private func putImageOnPasteboard(size: CGSize, color: UIColor) throws -> Data {
+        let imageData = try pictureData(size: size, color: color)
+        LassoPasteboard.pasteboard.items = [[UTType.png.identifier: imageData]]
+        return imageData
+    }
+
+    func testAnImageOnThePasteboardIsPastedOnAPDFPageAsAPictureWhereAskedInOneStep() async throws {
+        let (session, canvas, page) = try await openPageWithCanvas()
+        canvas.selectsInk = true
+        let selection = canvas.inkSelection
+        _ = try putImageOnPasteboard(size: CGSize(width: 400, height: 200), color: .systemGreen)
+        XCTAssertTrue(LassoPasteboard.hasContent)
+        endEvent(of: session.undoManager)
+
+        // Pasted where the lasso's tap asked, at half its pixels, selected to be arranged.
+        selection.paste(at: canvasPoint(CGPoint(x: 300, y: 250), on: canvas))
+        try await waitUntil { session.pictures(on: page).count == 1 }
+        let picture = try XCTUnwrap(canvas.lassoPictures().first)
+        XCTAssertEqual(picture.frame.midX, 300, accuracy: 1)
+        XCTAssertEqual(picture.frame.midY, 250, accuracy: 1)
+        XCTAssertEqual(picture.frame.width, 200, accuracy: 2, "Placed on whole points.")
+        XCTAssertNotNil(session.selectedPicture, "It is selected, to be moved, resized or rotated.")
+        try await Task.sleep(for: .milliseconds(300))
+        attachScreenshot(of: canvas, named: "Image pasted on a PDF page")
+        endEvent(of: session.undoManager)
+        session.undoAvailability.undo()
+        try await waitUntil { session.pictures(on: page).isEmpty }
+        session.selectedPicture = nil
+
+        // A screenshot taken here is pasted at the size of its area, not twice it.
+        let area = CGRect(x: 60, y: 60, width: 180, height: 90)
+        selection.selectContents(enclosedBy: loop(around: area).map { point in canvasPoint(point, on: canvas) })
+        let screenshot = try XCTUnwrap(selection.captureImage())
+        LassoPasteboard.rememberScreenshot(screenshot)
+        LassoPasteboard.pasteboard.items = [[UTType.png.identifier: try XCTUnwrap(screenshot.pngData())]]
+        selection.clearSelection()
+        endEvent(of: session.undoManager)
+        // ⌘V puts it in the middle of the page in view.
+        let coordinator = try XCTUnwrap((session.pdfView as? GraphitePDFDisplayView)?.annotationCoordinator)
+        coordinator.pasteFromPasteboard()
+        try await waitUntil { session.pictures(on: page).count == 1 }
+        XCTAssertEqual(try XCTUnwrap(canvas.lassoPictures().first).frame.width, area.width, accuracy: 2)
+        XCTAssertNil(session.errorMessage)
+
+        // A photo copied in another app, as JPEG alone, is pasted the same way.
+        let photo = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 200)).image { context in
+            UIColor.systemOrange.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 300, height: 200))
+        }
+        LassoPasteboard.pasteboard.items = [[UTType.jpeg.identifier: try XCTUnwrap(photo.jpegData(compressionQuality: 0.9))]]
+        guard case .image = LassoPasteboard.content() else { return XCTFail("A JPEG on the pasteboard is an image to paste.") }
+        endEvent(of: session.undoManager)
+        selection.paste(at: canvasPoint(CGPoint(x: 200, y: 600), on: canvas))
+        try await waitUntil { session.pictures(on: page).count == 2 }
+    }
+
+    func testAnImageOnThePasteboardIsPastedOnADrawingWhereAsked() async throws {
+        let request = DrawingEditorRequest(target: .newDrawing(notePath: try VaultPath("Note.md"), insertionRange: NSRange(location: 0, length: 0)),
+                                           title: "Paste", initialStrokeData: Data(), canvasWidth: 760, background: .white, format: .png)
+        let controller = UIHostingController(rootView: AnyView(DrawingEditor(request: request, save: { _, _ in },
+            exportCopy: { _, _ in throw CocoaError(.featureUnsupported) }, preserveDraft: { _ in }, removeDraft: {})))
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        windows.append(window)
+        try await waitUntil { !self.descendants(of: controller.view, matching: InfiniteCanvasView.self).isEmpty }
+        let canvas = try XCTUnwrap(descendants(of: controller.view, matching: InfiniteCanvasView.self).first)
+        try await waitUntil { canvas.zoomScale > 0 && canvas.bounds.width > 0 }
+        _ = try putImageOnPasteboard(size: CGSize(width: 300, height: 120), color: .systemPurple)
+        canvas.selectsInk = true
+        canvas.inkSelection.paste(at: canvasPoint(CGPoint(x: 400, y: 300), on: canvas))
+        try await waitUntil { canvas.lassoPictures().count == 1 }
+        let picture = try XCTUnwrap(canvas.lassoPictures().first)
+        XCTAssertEqual(picture.frame.midX, 400, accuracy: 1)
+        XCTAssertEqual(picture.frame.midY, 300, accuracy: 1)
+        XCTAssertEqual(picture.frame.width, 150, accuracy: 1)
+        // ⌘V too, in the middle of what is on screen.
+        let host = try XCTUnwrap(descendants(of: canvas, matching: PencilToolPickerHostView.self).first)
+        XCTAssertTrue(host.canPerformAction(#selector(UIResponderStandardEditActions.paste(_:)), withSender: nil))
+        host.paste(nil)
+        try await waitUntil { canvas.lassoPictures().count == 2 }
+    }
+
+    func testTheLaserHasAGlyphOfTheBarsFamilyAndOffersNoColors() throws {
+        XCTAssertFalse(PencilToolRow.offersColors(toolInUse: .laser), "The laser offers only Dot or Line.")
+        XCTAssertTrue(PencilToolRow.offersColors(toolInUse: .ink))
+        XCTAssertNotNil(LaserPointerGlyph.templateImage())
+        // The dot's red against the bar, white or black: at least 3:1, more with Increase Contrast.
+        for isDark in [false, true] {
+            for increasedContrast in [false, true] {
+                let dot = UIColor(LaserPointerGlyph.dotColor(isDark: isDark, increasedContrast: increasedContrast)).cgColor
+                let ratio = contrastRatio(dot, against: isDark ? .black : .white)
+                XCTAssertGreaterThanOrEqual(ratio, increasedContrast ? 6 : 3, "dark \(isDark), increased contrast \(increasedContrast): \(ratio):1")
+            }
+        }
+
+        // The comparison sheet for the owner: three candidates among the bar's own tool
+        // glyphs, in light and dark, not in use and in use.
+        let toolbox = PencilToolbox(defaults: UserDefaults(suiteName: "LaserGlyphSheet-\(UUID().uuidString)")!)
+        func row(candidate: String?, isDark: Bool) -> some View {
+            HStack(spacing: 2) {
+                ForEach(Array(toolbox.presets.enumerated()), id: \.element.id) { presetIndex, preset in
+                    PencilToolGlyph(tool: .ink(preset.ink), inkHex: preset.colorHex, isInUse: presetIndex == 0)
+                }
+                PencilToolGlyph(tool: .eraser, isInUse: false)
+                PencilToolGlyph(tool: .lasso, isInUse: false)
+                ForEach([false, true], id: \.self) { isInUse in
+                    Group {
+                        if let candidate {
+                            VStack(spacing: 3) {
+                                Image(systemName: candidate)
+                                    .font(.system(size: 17, weight: isInUse ? .semibold : .regular))
+                                    .foregroundStyle(isInUse ? .primary : .secondary)
+                                    .frame(height: 22)
+                                Capsule().fill(.clear).frame(width: 16, height: 3)
+                            }
+                        } else {
+                            VStack(spacing: 3) {
+                                LaserPointerGlyph(isInUse: isInUse).frame(height: 22)
+                                Capsule().fill(.clear).frame(width: 16, height: 3)
+                            }
+                        }
+                    }
+                    .frame(width: PencilToolbarMetrics.buttonSide, height: PencilToolbarMetrics.buttonSide)
+                    .background(isInUse ? PencilToolbarMetrics.selectedFill : AnyShapeStyle(.clear),
+                                in: RoundedRectangle(cornerRadius: GraphiteChrome.cornerRadius, style: .continuous))
+                }
+                Text(candidate ?? "Custom pointer").font(.footnote).foregroundStyle(.secondary).padding(.leading, 12).frame(width: 190, alignment: .leading)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: PencilToolbarMetrics.height)
+            .background(isDark ? Color.black : Color.white)
+            .environment(\.colorScheme, isDark ? .dark : .light)
+        }
+        let sheet = VStack(spacing: 0) {
+            ForEach([false, true], id: \.self) { isDark in
+                ForEach([nil, "cursorarrow.rays", "hand.point.up.left"] as [String?], id: \.self) { candidate in row(candidate: candidate, isDark: isDark) }
+            }
+        }
+        let renderer = ImageRenderer(content: sheet)
+        renderer.scale = 3
+        let image = try XCTUnwrap(renderer.uiImage)
+        attach(image, named: "laser-icon-options")
     }
 }
 #endif

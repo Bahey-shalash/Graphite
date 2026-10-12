@@ -518,6 +518,19 @@ final class PencilToolPickerHostView: UIView {
 
     override var canBecomeFirstResponder: Bool { true }
     override var undoManager: UndoManager? { documentUndoManager ?? super.undoManager }
+
+    /// ⌘V on the page: pastes ink as ink and an image as a picture (`LassoPasteboard`); nil
+    /// where nothing can be pasted.
+    var pasteFromPasteboard: (() -> Void)?
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(paste(_:)) { return pasteFromPasteboard != nil && LassoPasteboard.hasContent }
+        return super.canPerformAction(action, withSender: sender)
+    }
+
+    override func paste(_ sender: Any?) {
+        pasteFromPasteboard?()
+    }
     /// The host never types; without this it would use the input view of a canvas around it.
     override var inputView: UIView? { nil }
 

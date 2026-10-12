@@ -32,7 +32,7 @@ enum LassoShape: String, CaseIterable, Identifiable {
 }
 
 /// What the laser pointer shows: a glowing dot under the Pencil or finger that is gone
-/// when it lifts, or a line that fades a moment after it is drawn. Kept between launches.
+/// when it lifts, or a line that stays while it is drawn and fades once it lifts. Kept between launches.
 enum LaserPointerStyle: String, CaseIterable, Identifiable {
     case dot, line
 
@@ -125,6 +125,8 @@ extension EnvironmentValues {
 import UIKit
 import PencilKit
 import LinkPresentation
+import ImageIO
+import UniformTypeIdentifiers
 import GraphiteCore
 
 /// The colors of what the lasso draws over a page. The pages and a drawing's paper keep
@@ -195,6 +197,9 @@ protocol LassoCanvasContent: AnyObject {
     var lassoCaptureName: String { get }
     /// Where such a picture can be added as an attachment; nil when there is no note.
     var lassoNoteDestination: LassoNoteDestination? { get }
+    /// Places an image as a picture with its middle at a point of the drawing, at its own
+    /// size where that fits, selected to be arranged, as one step of the history.
+    func pastePicture(_ imageData: Data, centeredAt drawingPoint: CGPoint)
 }
 
 /// Pictures of an area of a page or a drawing, taken with the lasso: the page's own
@@ -275,6 +280,7 @@ enum LassoAreaCapture {
     /// sharing need nothing of Graphite's, with Add to Note first when there is a note.
     static func presentShareSheet(for image: UIImage, name: String, destination: LassoNoteDestination?, from sourceView: UIView, sourceRect: CGRect) {
         guard let presenter = topmostViewController(from: sourceView) else { return }
+        LassoPasteboard.rememberScreenshot(image)
         let item = LassoCaptureItem(image: image, name: name)
         let activities = destination.map { destination in [AddToNoteActivity(destination: destination, image: image, name: name)] } ?? []
         let shareSheet = UIActivityViewController(activityItems: [item], applicationActivities: activities)
@@ -287,6 +293,76 @@ enum LassoAreaCapture {
         var controller = view.window?.rootViewController
         while let presented = controller?.presentedViewController, !presented.isBeingDismissed { controller = presented }
         return controller
+    }
+}
+
+/// What can be pasted on a page or a drawing: ink copied with the lasso, which is pasted as
+/// ink, or else an image, from Take Screenshot, a copied selection with pictures, or another
+/// app, which is pasted as a picture (`PDFPicture` or a drawing's picture), movable and
+/// rotatable, in one step of the history.
+@MainActor
+enum LassoPasteboard {
+    enum Content {
+        case ink([PKStroke])
+        case image(Data)
+    }
+
+    /// The pasteboard pasted from: the system's, or a private one in tests, as the simulator
+    /// replaces the system's with the Mac's at any moment.
+    static var pasteboard: UIPasteboard = .general
+
+    /// Whether there is anything to paste, asked without reading the pasteboard, so asking
+    /// shows no paste prompt.
+    static var hasContent: Bool { hasInk || pasteboard.hasImages }
+
+    static var hasInk: Bool { pasteboard.contains(pasteboardTypes: [PKAppleDrawingTypeIdentifier as String]) }
+
+    /// The pasteboard's ink, or else its image's own bytes (PNG, JPEG or HEIC as copied), or
+    /// an image encoded as PNG.
+    static func content(of pasteboard: UIPasteboard = LassoPasteboard.pasteboard, ignoringInk: Bool = false) -> Content? {
+        if !ignoringInk, let drawingData = pasteboard.data(forPasteboardType: PKAppleDrawingTypeIdentifier as String),
+           let drawing = try? PKDrawing(data: drawingData), !drawing.strokes.isEmpty {
+            return .ink(drawing.strokes)
+        }
+        for imageType in [UTType.png, .jpeg, .heic] {
+            if let imageData = pasteboard.data(forPasteboardType: imageType.identifier), !imageData.isEmpty { return .image(imageData) }
+        }
+        return pasteboard.image?.pngData().map(Content.image)
+    }
+
+    /// Screenshots taken here recently, by their pixel size, with their size in points: an
+    /// image on the pasteboard carries no size of its own, and one taken at 4 pixels per
+    /// point would otherwise be pasted at twice its size.
+    private static var recentScreenshotSizes: [(pixels: CGSize, points: CGSize)] = []
+    private static let rememberedScreenshotCount = 8
+
+    static func rememberScreenshot(_ image: UIImage) {
+        let pixels = CGSize(width: image.size.width * image.scale, height: image.size.height * image.scale)
+        recentScreenshotSizes.append((pixels, image.size))
+        if recentScreenshotSizes.count > rememberedScreenshotCount { recentScreenshotSizes.removeFirst() }
+    }
+
+    /// The width, in points, an image is pasted at before it is kept to the space there is:
+    /// a screenshot taken here at the size of its area; an image with a stated resolution at
+    /// that size on paper; any other at half its pixels, as on a Retina screen.
+    static func preferredWidth(ofImageData imageData: Data) -> CGFloat? {
+        guard let source = CGImageSourceCreateWithData(imageData as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let pixelWidth = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue,
+              let pixelHeight = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue, pixelWidth > 0 else { return nil }
+        // EXIF orientations 5 to 8 turn the picture a quarter turn.
+        let isTurned = (5...8).contains((properties[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1)
+        let shownPixelWidth = isTurned ? pixelHeight : pixelWidth
+        let shownPixelHeight = isTurned ? pixelWidth : pixelHeight
+        if let screenshot = recentScreenshotSizes.last(where: { remembered in
+            abs(remembered.pixels.width - shownPixelWidth) < 1 && abs(remembered.pixels.height - shownPixelHeight) < 1
+        }) {
+            return screenshot.points.width
+        }
+        if let dotsPerInch = (properties[kCGImagePropertyDPIWidth] as? NSNumber)?.doubleValue, dotsPerInch > 72 {
+            return CGFloat(shownPixelWidth * 72 / dotsPerInch)
+        }
+        return CGFloat(shownPixelWidth / 2)
     }
 }
 
