@@ -24,9 +24,9 @@ final class MarkdownTextView: UITextView {
     /// The readable column's width: Graphite's, or the vault theme's line width.
     var readableColumnWidth: CGFloat = MarkdownTextView.readableColumnWidth { didSet { if readableColumnWidth != oldValue { setNeedsLayout() } } }
     /// The note's name above the text, drawn by a label the text is inset below.
-    var inlineTitle: (text: String, fontSize: CGFloat, family: ResolvedFontFamily)? {
+    var inlineTitle: (text: String, font: UIFont, color: UIColor)? {
         didSet {
-            guard inlineTitle?.text != oldValue?.text || inlineTitle?.fontSize != oldValue?.fontSize || inlineTitle?.family != oldValue?.family else { return }
+            guard inlineTitle?.text != oldValue?.text || inlineTitle?.font != oldValue?.font || inlineTitle?.color != oldValue?.color else { return }
             updateInlineTitleLabel()
         }
     }
@@ -173,8 +173,8 @@ final class MarkdownTextView: UITextView {
         }
         let label = inlineTitleLabel ?? UILabel()
         label.text = inlineTitle.text
-        label.font = NoteTypography.font(inlineTitle.family, size: inlineTitle.fontSize, weight: .semibold)
-        label.textColor = .label
+        label.font = inlineTitle.font
+        label.textColor = inlineTitle.color
         label.numberOfLines = 0
         label.accessibilityTraits = .header
         if label.superview == nil { addSubview(label) }
@@ -534,7 +534,11 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         textView.usesReadableLineLength = configuration.usesReadableLineLength
         // The theme's line width, plus the text container's padding on each side.
         textView.readableColumnWidth = configuration.theme?.readableColumnWidth(forTextSize: configuration.textSize).map { width in width + 10 } ?? MarkdownTextView.readableColumnWidth
-        textView.inlineTitle = configuration.inlineTitle.map { title in (title, CGFloat(configuration.textSize * InlineTitleStyle.fontScale), configuration.typography.textFamily) }
+        // The theme's inline title (Phase 3), else the text font at 1.75 times, semibold.
+        textView.inlineTitle = configuration.inlineTitle.map { title in
+            (title, InlineTitleStyle.font(textSize: configuration.textSize, typography: configuration.typography, theme: configuration.theme),
+             configuration.theme?.inlineTitleColor ?? .label)
+        }
         // The text and the saved cursor go in before the delegate: setting the text places
         // the cursor at its end, which the delegate would otherwise record as the note's.
         textView.text = session.text
@@ -601,7 +605,11 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         textView.usesReadableLineLength = configuration.usesReadableLineLength
         // The theme's line width, plus the text container's padding on each side.
         textView.readableColumnWidth = configuration.theme?.readableColumnWidth(forTextSize: configuration.textSize).map { width in width + 10 } ?? MarkdownTextView.readableColumnWidth
-        textView.inlineTitle = configuration.inlineTitle.map { title in (title, CGFloat(configuration.textSize * InlineTitleStyle.fontScale), configuration.typography.textFamily) }
+        // The theme's inline title (Phase 3), else the text font at 1.75 times, semibold.
+        textView.inlineTitle = configuration.inlineTitle.map { title in
+            (title, InlineTitleStyle.font(textSize: configuration.textSize, typography: configuration.typography, theme: configuration.theme),
+             configuration.theme?.inlineTitleColor ?? .label)
+        }
         textView.spellCheckingType = configuration.usesSpellChecking ? .yes : .no
         // Turning the Properties view on or off changes which blocks are rendered, as the
         // configuration can.
@@ -680,6 +688,8 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         private var isPendingJumpScheduled = false
         /// Headings and list items that fold, found with the blocks, and the folds last applied.
         private var foldableRegions: [FoldableRegion] = []
+        /// The text `foldableRegions` were found in or moved to.
+        private var foldableRegionsSource: NSString?
         var appliedFoldedKeys: Set<String> = []
         private var foldButtons: [String: (chevron: UIButton, ellipsis: UIButton)] = [:]
         /// Where the cursor was, to tell which way it moved into a folded section.
@@ -1019,9 +1029,21 @@ struct NativeMarkdownEditor: UIViewRepresentable {
 
         func rebuildBlocks(in textView: UITextView, forcesBlockScan: Bool = false) {
             let source = currentSource(of: textView)
+            let edit = textState.editSinceBlockScan
             textState.update(source: source, findsBlocks: isLivePreview, forcesBlockScan: forcesBlockScan, isRendered: isRendered)
             forgetHeightsOfRemovedBlocks()
-            foldableRegions = source.length <= Self.maximumFoldingLength ? NoteFolding.regions(in: source as String) : []
+            // Folding reads every line; typing in plain text only moves the regions, which keeps
+            // a keystroke in a long note within a frame.
+            if source.length > Self.maximumFoldingLength {
+                foldableRegions = []
+            } else if let edit, edit.sourceBeforeEdit === foldableRegionsSource,
+                      let movedRegions = NoteFolding.regions(foldableRegions, across: edit.edit.replacedRange, replacementLength: edit.edit.editedRange.length,
+                                                             before: edit.sourceBeforeEdit, after: source) {
+                foldableRegions = movedRegions
+            } else {
+                foldableRegions = NoteFolding.regions(in: source as String)
+            }
+            foldableRegionsSource = source
             revealedMarkup = markupRevealedBySelection(in: textView)
         }
 
@@ -2399,7 +2421,21 @@ final class MarkdownMacTextView: NSTextView {
     override func setFrameSize(_ newSize: NSSize) {
         let hadWidth = frame.width > 0
         super.setFrameSize(newSize)
+        updateReadableInset()
         if !hadWidth, newSize.width > 0 { didBecomeMeasurable?(self) }
+    }
+
+    /// The readable column's width (Graphite's, or the vault theme's line width), or nil to
+    /// use the whole width; as the iPad editor, the text is centered in it.
+    var readableColumnWidth: CGFloat? { didSet { if readableColumnWidth != oldValue { updateReadableInset() } } }
+    static let minimumHorizontalInset: CGFloat = 32
+    /// The iPad editor's column, so a note wraps alike on both.
+    static let graphiteReadableColumnWidth: CGFloat = 740
+
+    private func updateReadableInset() {
+        let horizontalInset = readableColumnWidth.map { width in max(Self.minimumHorizontalInset, (frame.width - width) / 2) } ?? Self.minimumHorizontalInset
+        guard abs(textContainerInset.width - horizontalInset) > 0.5 else { return }
+        textContainerInset = CGSize(width: horizontalInset, height: textContainerInset.height)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -2648,6 +2684,8 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         coordinator.follow = follow
         textView.isRichText = false
         textView.quickFontSize = actions.quickFontSize
+        textView.readableColumnWidth = configuration.usesReadableLineLength
+            ? (configuration.theme?.readableColumnWidth(forTextSize: configuration.textSize).map { width in width + 10 } ?? MarkdownMacTextView.graphiteReadableColumnWidth) : nil
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isContinuousSpellCheckingEnabled = configuration.usesSpellChecking
@@ -2689,6 +2727,8 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         guard let textView = scrollView.documentView as? NSTextView else { return }
         (textView as? MarkdownMacTextView)?.readAloudRange = readAloudRange
         (textView as? MarkdownMacTextView)?.quickFontSize = actions.quickFontSize
+        (textView as? MarkdownMacTextView)?.readableColumnWidth = configuration.usesReadableLineLength
+            ? (configuration.theme?.readableColumnWidth(forTextSize: configuration.textSize).map { width in width + 10 } ?? MarkdownMacTextView.graphiteReadableColumnWidth) : nil
         (textView as? MarkdownMacTextView)?.suspendReadingFollow = suspendReadingFollow
         if coordinator.configuration != configuration {
             coordinator.configuration = configuration

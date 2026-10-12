@@ -44,58 +44,44 @@
     margin: 0;
 }
 
+/* Graphite's look, written as Obsidian's base color scale. graphite-default-variables.css, which
+   this page links first, derives the semantic colors from the scale, so a theme that only
+   replaces the scale (as Flexoki does) restyles plugin pages too. The few semantic colors below
+   differ from that derivation and still point at the scale. */
 :where(body.theme-light) {
-    --background-primary: #ffffff;
-    --background-primary-alt: #f6f6f8;
-    --background-secondary: #f2f2f7;
-    --background-secondary-alt: #e9e9ee;
-    --background-modifier-border: #d9d9de;
-    --background-modifier-border-hover: #c7c7cc;
+    --color-base-00: #ffffff; --color-base-05: #fafafc; --color-base-10: #f6f6f8; --color-base-20: #f2f2f7;
+    --color-base-25: #e9e9ee; --color-base-30: #d9d9de; --color-base-35: #c7c7cc; --color-base-40: #bcbcc0;
+    --color-base-50: #aeaeb2; --color-base-60: #8e8e93; --color-base-70: #6c6c70; --color-base-100: #1c1c1e;
     --background-modifier-hover: rgba(0, 0, 0, 0.05);
-    --background-modifier-active-hover: rgba(0, 122, 255, 0.12);
-    --background-modifier-form-field: #ffffff;
+    --background-modifier-active-hover: hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.12);
+    --background-modifier-form-field: var(--color-base-00);
     --background-modifier-error: rgba(255, 59, 48, 0.12);
     --background-modifier-success: rgba(52, 199, 89, 0.12);
     --background-modifier-cover: rgba(0, 0, 0, 0.3);
-    --text-normal: #1c1c1e;
-    --text-muted: #6c6c70;
-    --text-faint: #aeaeb2;
-    --text-on-accent: #ffffff;
-    --text-accent: var(--color-accent);
-    --text-selection: rgba(0, 122, 255, 0.2);
-    --interactive-normal: #f2f2f7;
-    --interactive-hover: #e5e5ea;
-    --interactive-accent: var(--color-accent);
+    --text-selection: hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.2);
     --interactive-accent-hover: hsl(var(--accent-h), var(--accent-s), calc(var(--accent-l) - 6%));
-    --code-background: #f2f2f7;
-    --code-normal: #1c1c1e;
 }
 
 :where(body.theme-dark) {
-    --background-primary: #1c1c1e;
-    --background-primary-alt: #232325;
-    --background-secondary: #2c2c2e;
-    --background-secondary-alt: #3a3a3c;
-    --background-modifier-border: #3a3a3c;
-    --background-modifier-border-hover: #48484a;
+    --color-base-00: #1c1c1e; --color-base-05: #1f1f21; --color-base-10: #232325; --color-base-20: #2c2c2e;
+    --color-base-25: #3a3a3c; --color-base-30: #3a3a3c; --color-base-35: #48484a; --color-base-40: #545458;
+    --color-base-50: #636366; --color-base-60: #8e8e93; --color-base-70: #aeaeb2; --color-base-100: #f2f2f7;
     --background-modifier-hover: rgba(255, 255, 255, 0.06);
-    --background-modifier-active-hover: rgba(10, 132, 255, 0.2);
-    --background-modifier-form-field: #2c2c2e;
+    --background-modifier-active-hover: hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.2);
+    --background-modifier-form-field: var(--color-base-20);
     --background-modifier-error: rgba(255, 69, 58, 0.2);
     --background-modifier-success: rgba(48, 209, 88, 0.2);
     --background-modifier-cover: rgba(0, 0, 0, 0.5);
-    --text-normal: #f2f2f7;
-    --text-muted: #aeaeb2;
-    --text-faint: #636366;
-    --text-on-accent: #ffffff;
-    --text-accent: var(--color-accent);
-    --text-selection: rgba(10, 132, 255, 0.3);
-    --interactive-normal: #2c2c2e;
-    --interactive-hover: #3a3a3c;
-    --interactive-accent: var(--color-accent);
+    --text-selection: hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.3);
     --interactive-accent-hover: hsl(var(--accent-h), var(--accent-s), calc(var(--accent-l) + 6%));
-    --code-background: #2c2c2e;
-    --code-normal: #f2f2f7;
+}
+
+:where(body) {
+    --background-secondary-alt: var(--color-base-25);
+    --background-modifier-border-hover: var(--color-base-35);
+    --interactive-normal: var(--color-base-20);
+    --interactive-hover: var(--color-base-25);
+    --code-background: var(--color-base-20);
 }
 
 :where(body) { background: var(--background-primary); color: var(--text-normal); }

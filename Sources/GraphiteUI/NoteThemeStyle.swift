@@ -40,6 +40,50 @@ struct NoteThemeStyle: Equatable {
     /// Callout tint and title color by Obsidian callout type.
     let calloutColors: [String: (tint: PlatformColor, title: PlatformColor)]
 
+    // Shapes and ornaments (theme Phase 3). Lengths are points at a 16-point text size; use
+    // `scaled(_:textSize:)` to draw them at the note's size.
+    struct HeadingOrnament {
+        let underlineColor: PlatformColor?
+        let underlineWidth: Double?
+        let background: PlatformColor?
+        let prefix: String?
+        let prefixColor: PlatformColor?
+        let isUppercase: Bool
+        var isEmpty: Bool { underlineColor == nil && background == nil && prefix == nil && !isUppercase }
+    }
+    let headingOrnaments: [HeadingOrnament]
+    let blockquoteBackground: PlatformColor?
+    let blockquoteRadius: Double?
+    let calloutRadius: Double?
+    let calloutBorderWidth: Double?
+    let calloutTintOpacity: Double?
+    let tableHeaderTextColor: PlatformColor?
+    let tableStripeBackground: PlatformColor?
+    let listMarkerColor: PlatformColor?
+    let tagRadius: Double?
+    let tagBorderColor: PlatformColor?
+    let tagBorderWidth: Double?
+    let checkboxBorderWidth: Double?
+    let checkmarkColor: PlatformColor?
+    /// `dashed` or `dotted`; nil for a solid rule.
+    let horizontalRuleStyle: String?
+    let codeBlockBackground: PlatformColor?
+    let codeBlockRadius: Double?
+    let codeBlockBorderColor: PlatformColor?
+    let codeBlockBorderWidth: Double?
+    let highlightRadius: Double?
+    let highlightTextColor: PlatformColor?
+    let inlineTitleColor: PlatformColor?
+    let inlineTitleScale: Double?
+    let inlineTitleWeight: PlatformFont.Weight?
+    let inlineTitleFamily: ResolvedFontFamily?
+
+    /// A radius larger than any line: Graphite's tags are pills, as Obsidian's are by default.
+    static let pillRadius: CGFloat = 1_000
+
+    /// A length the theme gives at Obsidian's 16-pixel text, at `textSize`.
+    static func scaled(_ length: Double, textSize: Double) -> CGFloat { CGFloat(length * textSize / 16) }
+
     // Sizes and fonts, the same in both appearances (light's, else dark's).
     let headingScales: [Double?]
     let headingWeights: [PlatformFont.Weight?]
@@ -83,6 +127,13 @@ struct NoteThemeStyle: Equatable {
         func color(_ path: KeyPath<ThemeModeTokens, ThemeColor?>, _ role: ContrastRole, fallback: PlatformColor? = nil) -> PlatformColor? {
             Self.dynamicColor(light: light[keyPath: path], dark: dark[keyPath: path], role: role, lightPage: lightPage, darkPage: darkPage, fallback: fallback)
         }
+        /// Text drawn on a theme's own surface (a tag pill, a table header, a highlight, code)
+        /// is made readable on that surface over the page, not on the page alone.
+        func color(_ path: KeyPath<ThemeModeTokens, ThemeColor?>, on surface: KeyPath<ThemeModeTokens, ThemeColor?>, fallback: PlatformColor? = nil) -> PlatformColor? {
+            Self.dynamicColor(light: light[keyPath: path], dark: dark[keyPath: path], role: .text,
+                              lightPage: light[keyPath: surface]?.composited(over: lightPage) ?? lightPage,
+                              darkPage: dark[keyPath: surface]?.composited(over: darkPage) ?? darkPage, fallback: fallback)
+        }
         background = Self.dynamicColor(light: light.background, dark: dark.background, role: .decoration, lightPage: lightPage, darkPage: darkPage,
                                        fallback: Self.systemBackground)
         textNormal = color(\.textNormal, .text, fallback: Self.systemLabel)
@@ -99,12 +150,12 @@ struct NoteThemeStyle: Equatable {
         linkColor = color(\.linkColor, .text, fallback: graphiteAccent)
         unresolvedLinkColor = color(\.unresolvedLinkColor, .text, fallback: graphiteAccent)
         externalLinkColor = color(\.externalLinkColor, .text, fallback: graphiteAccent)
-        tagColor = color(\.tagColor, .text, fallback: graphiteAccent)
+        tagColor = color(\.tagColor, on: \.tagBackground, fallback: graphiteAccent)
         tagBackground = color(\.tagBackground, .decoration, fallback: .clear)
         checkboxColor = color(\.checkboxColor, .decoration, fallback: graphiteAccent)
         checkboxBorderColor = color(\.checkboxBorderColor, .decoration, fallback: Self.systemSecondaryLabel)
         codeBackground = color(\.codeBackground, .decoration, fallback: MarkdownTextStyler.codeBackgroundColor)
-        codeColor = color(\.codeColor, .text, fallback: Self.systemLabel)
+        codeColor = color(\.codeColor, on: \.codeBackground, fallback: Self.systemLabel)
         blockquoteBorderColor = color(\.blockquoteBorderColor, .decoration, fallback: graphiteAccent)
         // A highlight that could be taken for Read Aloud's blue word highlight is not used.
         let lightHighlight = light.highlightBackground.flatMap { highlight in ThemeContrastGuard.resemblesReadAloudHighlight(highlight) ? nil : highlight }
@@ -125,6 +176,47 @@ struct NoteThemeStyle: Equatable {
         calloutColors = callouts
 
         func either<Value>(_ path: KeyPath<ThemeModeTokens, Value?>) -> Value? { light[keyPath: path] ?? dark[keyPath: path] }
+        headingOrnaments = (0..<6).map { index in
+            let lightHeading = light.headings[index], darkHeading = dark.headings[index]
+            return HeadingOrnament(
+                underlineColor: Self.dynamicColor(light: lightHeading.underlineColor, dark: darkHeading.underlineColor, role: .decoration,
+                                                  lightPage: lightPage, darkPage: darkPage, fallback: .clear),
+                underlineWidth: lightHeading.underlineWidth ?? darkHeading.underlineWidth,
+                background: Self.dynamicColor(light: lightHeading.background, dark: darkHeading.background, role: .decoration,
+                                              lightPage: lightPage, darkPage: darkPage, fallback: .clear),
+                prefix: lightHeading.prefix ?? darkHeading.prefix,
+                prefixColor: Self.dynamicColor(light: lightHeading.prefixColor, dark: darkHeading.prefixColor, role: .largeText,
+                                               lightPage: lightPage, darkPage: darkPage, fallback: Self.systemSecondaryLabel),
+                isUppercase: (lightHeading.isUppercase ?? darkHeading.isUppercase) == true)
+        }
+        blockquoteBackground = color(\.blockquoteBackground, .decoration, fallback: .clear)
+        blockquoteRadius = either(\.blockquoteRadius)
+        calloutRadius = either(\.calloutRadius)
+        calloutBorderWidth = either(\.calloutBorderWidth)
+        calloutTintOpacity = either(\.calloutTintOpacity)
+        tableHeaderTextColor = color(\.tableHeaderTextColor, on: \.tableHeaderBackground, fallback: Self.systemLabel)
+        tableStripeBackground = color(\.tableStripeBackground, .decoration, fallback: .clear)
+        // Bullets are not words, but they must still be seen: 3:1, as for large text.
+        listMarkerColor = color(\.listMarkerColor, .largeText, fallback: Self.systemSecondaryLabel)
+        tagRadius = either(\.tagRadius)
+        tagBorderColor = color(\.tagBorderColor, .decoration, fallback: .clear)
+        tagBorderWidth = either(\.tagBorderWidth)
+        checkboxBorderWidth = either(\.checkboxBorderWidth)
+        checkmarkColor = color(\.checkmarkColor, .decoration, fallback: .white)
+        horizontalRuleStyle = either(\.horizontalRuleStyle).flatMap { style in style == "dashed" || style == "dotted" ? style : nil }
+        codeBlockBackground = color(\.codeBlockBackground, .decoration, fallback: MarkdownTextStyler.codeBackgroundColor)
+        codeBlockRadius = either(\.codeBlockRadius)
+        codeBlockBorderColor = color(\.codeBlockBorderColor, .decoration, fallback: .clear)
+        codeBlockBorderWidth = either(\.codeBlockBorderWidth)
+        highlightRadius = either(\.highlightRadius)
+        highlightTextColor = color(\.highlightTextColor, on: \.highlightBackground, fallback: Self.systemLabel)
+        inlineTitleColor = Self.dynamicColor(light: light.inlineTitle.color, dark: dark.inlineTitle.color, role: .largeText,
+                                             lightPage: lightPage, darkPage: darkPage, fallback: Self.systemLabel)
+        inlineTitleScale = (light.inlineTitle.sizeScale ?? dark.inlineTitle.sizeScale).flatMap { scale in (1.0...4.0).contains(scale) ? scale : nil }
+        inlineTitleWeight = (light.inlineTitle.weight ?? dark.inlineTitle.weight).map(Self.fontWeight)
+        inlineTitleFamily = (light.inlineTitle.fontFamilies ?? dark.inlineTitle.fontFamilies).flatMap { families in
+            FontFamilyList(families: families).firstAvailableFamily { name in InstalledFontFamilies.family(named: name) }
+        }
         headingScales = (0..<6).map { index in light.headings[index].sizeScale ?? dark.headings[index].sizeScale }
         headingWeights = (0..<6).map { index in (light.headings[index].weight ?? dark.headings[index].weight).map(Self.fontWeight) }
         headingFamilies = (0..<6).map { index in

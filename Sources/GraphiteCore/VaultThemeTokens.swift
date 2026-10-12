@@ -166,6 +166,32 @@ public struct ThemeModeTokens: Codable, Hashable, Sendable {
     /// Line height as a multiple of the text size.
     public var lineHeight: Double?
 
+    // Shapes and ornaments the theme gives note elements (theme Phase 3). Lengths are in
+    // points at a 16-point text size; Graphite scales them with the text.
+    public var blockquoteBackground: ThemeColor?
+    public var blockquoteRadius: Double?
+    public var calloutRadius: Double?
+    public var calloutBorderWidth: Double?
+    /// How strongly a callout's color tints its background (Graphite's is 0.1).
+    public var calloutTintOpacity: Double?
+    public var tableHeaderTextColor: ThemeColor?
+    public var tableStripeBackground: ThemeColor?
+    public var listMarkerColor: ThemeColor?
+    public var tagRadius: Double?
+    public var tagBorderColor: ThemeColor?
+    public var tagBorderWidth: Double?
+    public var checkboxBorderWidth: Double?
+    public var checkmarkColor: ThemeColor?
+    /// `solid`, `dashed` or `dotted`.
+    public var horizontalRuleStyle: String?
+    public var codeBlockBackground: ThemeColor?
+    public var codeBlockRadius: Double?
+    public var codeBlockBorderColor: ThemeColor?
+    public var codeBlockBorderWidth: Double?
+    public var highlightRadius: Double?
+    public var highlightTextColor: ThemeColor?
+    public var inlineTitle = HeadingTokens()
+
     public init() {}
 
     public struct HeadingTokens: Codable, Hashable, Sendable {
@@ -175,13 +201,23 @@ public struct ThemeModeTokens: Codable, Hashable, Sendable {
         public var weight: Double?
         public var fontFamilies: [String]?
         public var isItalic: Bool?
+        /// Ornaments: a line under the heading, a background, and text the theme puts before
+        /// it (`::before`), such as a level marker.
+        public var underlineColor: ThemeColor?
+        public var underlineWidth: Double?
+        public var background: ThemeColor?
+        public var prefix: String?
+        public var prefixColor: ThemeColor?
+        public var isUppercase: Bool?
 
         public init() {}
+
+        public var hasOrnament: Bool { underlineColor != nil || background != nil || prefix != nil || isUppercase == true }
     }
 
-    /// How many of the note-styling groups the theme sets, for reporting coverage.
-    public var changedGroupCount: Int {
-        let groups: [Bool] = [
+    /// Whether the theme changes each note-styling group, the 19 of Phase 1 first.
+    public var changedGroups: [Bool] {
+        [
             background != nil, textNormal != nil || textMuted != nil, accent != nil || linkColor != nil,
             headings.contains { heading in heading.color != nil }, headings.contains { heading in heading.sizeScale != nil },
             headings.contains { heading in heading.weight != nil || heading.fontFamilies != nil },
@@ -189,11 +225,25 @@ public struct ThemeModeTokens: Codable, Hashable, Sendable {
             checkboxColor != nil || checkboxBorderColor != nil, codeBackground != nil || codeColor != nil || codeFontFamilies != nil,
             blockquoteBorderColor != nil, highlightBackground != nil, horizontalRuleColor != nil, tableBorderColor != nil || tableHeaderBackground != nil,
             lineWidth != nil, lineHeight != nil, boldColor != nil || italicColor != nil, textFontFamilies != nil,
+            // Phase 3: shapes and ornaments.
+            headings.contains { heading in heading.hasOrnament }, blockquoteBackground != nil || blockquoteRadius != nil,
+            calloutRadius != nil || calloutBorderWidth != nil || calloutTintOpacity != nil, tableHeaderTextColor != nil || tableStripeBackground != nil,
+            listMarkerColor != nil, tagRadius != nil || tagBorderColor != nil, checkboxRadius != nil || checkboxBorderWidth != nil || checkmarkColor != nil,
+            horizontalRuleStyle != nil || horizontalRuleThickness != nil, codeBlockBackground != nil || codeBlockRadius != nil || codeBlockBorderColor != nil,
+            highlightRadius != nil || highlightTextColor != nil,
+            inlineTitle.color != nil || inlineTitle.sizeScale != nil || inlineTitle.weight != nil || inlineTitle.fontFamilies != nil,
         ]
-        return groups.filter { isChanged in isChanged }.count
     }
 
-    public static let groupCount = 19
+    /// How many of the note-styling groups the theme sets, for reporting coverage.
+    public var changedGroupCount: Int { changedGroups.filter { isChanged in isChanged }.count }
+
+    /// The Phase 1 groups alone, to compare a theme's coverage before and after Phase 3.
+    public var changedPhaseOneGroupCount: Int { changedGroups.prefix(Self.phaseOneGroupCount).filter { isChanged in isChanged }.count }
+
+    /// 19 groups through Phase 1, and 11 shape and ornament groups from Phase 3.
+    public static let groupCount = 30
+    public static let phaseOneGroupCount = 19
 }
 
 /// A vault theme's resolved values for both appearances, cached per device by `fingerprint`.
@@ -274,6 +324,43 @@ public enum ThemeProbeReading {
         tokens.tableHeaderBackground = anyColor("th.background")
         tokens.lineWidth = number("lineWidth.width")
         tokens.lineHeight = number("body.lineHeight").map { lineHeight in (lineHeight / bodySize * 1000).rounded() / 1000 }
+
+        for level in 1...6 {
+            tokens.headings[level - 1].underlineWidth = number("h\(level).borderBottomWidth").flatMap { width in width > 0 ? width : nil }
+            tokens.headings[level - 1].underlineColor = tokens.headings[level - 1].underlineWidth == nil ? nil
+                : themed["h\(level).borderBottomColor"].flatMap(ThemeColor.init(computedCSS:)).flatMap { color in color.isVisible ? color : nil }
+            tokens.headings[level - 1].background = color("h\(level).background")
+            tokens.headings[level - 1].prefix = changed("h\(level).beforeContent").flatMap(cssContentText)
+            tokens.headings[level - 1].prefixColor = tokens.headings[level - 1].prefix == nil ? nil : themed["h\(level).beforeColor"].flatMap(ThemeColor.init(computedCSS:))
+            tokens.headings[level - 1].isUppercase = changed("h\(level).textTransform").map { transform in transform == "uppercase" }
+        }
+        tokens.blockquoteBackground = color("blockquote.background")
+        tokens.blockquoteRadius = number("blockquote.borderRadius")
+        tokens.calloutRadius = number("callout.borderRadius")
+        tokens.calloutBorderWidth = number("callout.borderWidth").flatMap { width in width > 0 ? width : nil }
+        // Only a tint clearly unlike Graphite's 0.1 counts; a theme that draws callouts without
+        // a tint (a border instead) keeps Graphite's, so callouts stay recognizable.
+        tokens.calloutTintOpacity = changed("callout.background").flatMap(ThemeColor.init(computedCSS:)).map { background in background.alpha }
+            .flatMap { alpha in (0.03...0.6).contains(alpha) && abs(alpha - 0.1) > 0.02 ? alpha : nil }
+        tokens.tableHeaderTextColor = color("th.color")
+        tokens.tableStripeBackground = color("stripe.background")
+        tokens.listMarkerColor = color("marker.color")
+        tokens.tagRadius = number("tag.borderRadius")
+        tokens.tagBorderWidth = number("tag.borderWidth").flatMap { width in width > 0 ? width : nil }
+        tokens.tagBorderColor = tokens.tagBorderWidth == nil ? nil : themed["tag.borderColor"].flatMap(ThemeColor.init(computedCSS:))
+        tokens.checkboxBorderWidth = number("checkbox.borderWidth")
+        tokens.checkmarkColor = color("checkbox.markerColor")
+        tokens.horizontalRuleStyle = changed("hr.borderStyle")
+        tokens.codeBlockBackground = anyColor("pre.background")
+        tokens.codeBlockRadius = number("pre.borderRadius")
+        tokens.codeBlockBorderWidth = number("pre.borderWidth")
+        tokens.codeBlockBorderColor = tokens.codeBlockBorderWidth == nil ? nil : themed["pre.borderColor"].flatMap(ThemeColor.init(computedCSS:))
+        tokens.highlightRadius = number("mark.borderRadius")
+        tokens.highlightTextColor = color("mark.color")
+        tokens.inlineTitle.color = color("inlineTitle.color")
+        tokens.inlineTitle.sizeScale = number("inlineTitle.fontSize").map { size in (size / bodySize * 1000).rounded() / 1000 }
+        tokens.inlineTitle.weight = number("inlineTitle.fontWeight")
+        tokens.inlineTitle.fontFamilies = changed("inlineTitle.fontFamily").map(fontFamilies)
         return tokens
     }
 
@@ -282,6 +369,16 @@ public enum ThemeProbeReading {
         let trimmed = text.trimmingCharacters(in: .whitespaces)
         if trimmed.hasSuffix("px") { return Double(trimmed.dropLast(2)) }
         return Double(trimmed)
+    }
+
+    /// The text of a computed `content` value (`"H1"`, `'§ '`), or nil for `none`, `normal`,
+    /// counters and images, which Graphite does not draw.
+    public static func cssContentText(_ content: String) -> String? {
+        let trimmed = content.trimmingCharacters(in: .whitespaces)
+        guard trimmed.count >= 2, let first = trimmed.first, first == "\"" || first == "'", trimmed.last == first else { return nil }
+        let text = String(trimmed.dropFirst().dropLast()).replacingOccurrences(of: "\\\"", with: "\"")
+        guard !text.trimmingCharacters(in: .whitespaces).isEmpty, text.count <= 12 else { return nil }
+        return text
     }
 
     /// A computed `font-family` as names, quotes removed.

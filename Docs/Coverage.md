@@ -4,11 +4,50 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-12.
 
+## Theme shapes and ornaments, and typing in long notes (theme Phase 3): 2026-10-12
+
+Notes now also take a theme's shapes: heading underlines, backgrounds, text before the heading and upper case; quote boxes; callout corners, borders and tint strength; table header text and striped rows; list marker color; tag pill corners and borders (tags are pills by default); checkbox corners, border width and check mark; dashed and dotted rules; code block background, corners and border; highlight corners and text color; and the inline title's color, size, weight and font. The Mac editor keeps a readable column. The plugins' page links the same default variable layer the resolver measures against, with Graphite's look written as Obsidian's base color scale. Design: `Architecture.md` › Markdown views (theme Phase 3, typing cost in long notes) and Storage contracts (Phase 2 paragraph).
+
+Groups each theme changes, measured by the resolver on the assessment's theme files (light / dark): Phase 1's 19 groups, and all 30 groups now drawn. AnuPpuccin counts one more Phase 1 group than before because unresolved links are now dimmed by the theme's `--link-unresolved-opacity` when it sets one.
+
+| Theme | Phase 1 groups (of 19) | All groups (of 30) |
+|---|---|---|
+| Minimal (default scheme) | 15 / 16 | 21 / 22 |
+| Minimal, Nord scheme | 15 / 16 | 21 / 22 |
+| Things | 15 / 15 | 20 / 20 |
+| AnuPpuccin | 13 / 13 | 19 / 19 |
+| Blue Topaz | 17 / 18 | 24 / 25 |
+| ITS Theme | 17 / 17 | 25 / 25 |
+| Catppuccin | 18 / 18 | 27 / 27 |
+| Flexoki | 13 / 13 | 18 / 18 |
+| Obsidian Nord | 13 / 14 | 20 / 21 |
+
+None of these themes puts text before its headings; Things underlines its second-level headings, Minimal draws round checkboxes, ITS gives tags and table headers its red. Selector-level styling outside the probed elements is still not drawn.
+
+Typing cost, measured by the hosted test below in the simulator's debug build, a 5,000-line note with headings, tasks, bullets, quotes, tags and highlights, 40 keystrokes typed in its middle (time from the keystroke to restyled, laid-out text):
+
+| | Without a theme | With a shape-drawing theme |
+|---|---|---|
+| Before (median / slowest) | 16.9 ms / 39.4 ms | 15.6 ms / 30.5 ms |
+| After (median / slowest) | 4.3 ms / 10.0 ms | 4.1 ms / 12.4 ms |
+
+The theme was never the cost: finding the note's folding regions on every keystroke was (about 15 ms); see `Architecture.md`. Restyling the whole note when the theme changes takes 66 ms without a theme and 92 ms with one, once per change.
+
+Checks:
+- Core tests: folding's list-item reading agrees with the list pattern on 34 lines; folding regions moved across every accepted edit of a sample note (each position, replacing up to 3 characters with 8 replacements, frontmatter and a code block included) equal the regions found again, and an edit in a heading is refused (`NoteFoldingTests`, 2 new).
+- macOS tests: a theme's shapes and ornaments are resolved: tag corners and border, highlight corners, heading underline, upper case and `::before` text and color, a 50% checkbox radius, quote background, list marker, inline title color and size, code block corners, callout corners, dashed rules, striped rows and header text (`ThemeTokenResolverTests.testShapesAndOrnamentsAreResolved`); an edit reported as a whole line narrows to the typed character (`UiEditorEditTrackingTests`).
+- Runtime test: the plugins' page links the default layer before its own styles, and its semantic colors come from the base scale (`tests/themes.test.js`).
+- Hosted iPad tests (`EditingContinuityTests`): `testLivePreviewDrawsTheThemesShapes` (a test theme's tag pill, rounded highlight, heading underline, quote background and round checkbox are set on Live Preview's text); `testLongNoteRestyleCostWithAndWithoutATheme` (the table above; fails if the median keystroke with the theme exceeds 16.7 ms or 1.5 times the median without).
+- Simulator ("Graphite Appearance iPad"): the lecture note with Minimal, Things, AnuPpuccin, Blue Topaz and ITS Theme, Live Preview and reading view, light and dark (`~/.graphite-themes-build/shots/phase3/*.png`). Fixed while checking: quote boxes and heading underlines stopped at the end of the text instead of the column; two tags side by side merged into one box; tags lost their pill shape where a theme leaves the radius alone; ITS's white tag and table header text on red were darkened against the white page and became unreadable (text on a theme's own surface is now checked against that surface); measuring two themes at once on the resolver's one web view waited forever (found by the hosted test; measurements now run one at a time with a 15-second limit).
+- Hosted suite: 301 tests, 0 failures. `swift test`: 1,816 tests, 0 failures, 1 skipped. Runtime tests: 68, 0 failures.
+
+Not verified: on a device; with VoiceOver; the Mac editor's column and plain tag and highlight backgrounds by hand (built and covered by the shared styler tests only); heading prefixes on a real theme (none of the nine uses one; covered by the resolver test); typing cost in a release build or on a device (the debug simulator numbers above are an upper bound).
+
 ## Notes in the vault's Obsidian theme (theme Phase 1): 2026-10-12
 
 Notes now take the vault's Obsidian theme and CSS snippets in Live Preview, Source mode, the reading view, callouts, tables and embedded blocks: colors (page, text, muted, accent), headings (color, size, weight, font, italic), callout colors by type, tags, links by kind (internal, unresolved, external), checkboxes, code (background, color, font), the quote bar, highlights, rules, table borders and header shading, line height and the readable line width. Settings › Appearance › Use the Vault's Obsidian Theme (on by default) keeps Graphite's look when off. Design, guardrails and what is not themed: `Architecture.md` › Markdown views.
 
-How much of each theme is drawn: of the 19 note-styling groups a theme can set per appearance (`ThemeModeTokens`), the groups each theme changes, measured by the resolver on the theme files of the assessment (light / dark); every group a theme changes is drawn natively, except checkbox and tag corner radii and table header text color:
+How much of each theme is drawn: of the 19 note-styling groups a theme can set per appearance (`ThemeModeTokens`), the groups each theme changes, measured by the resolver on the theme files of the assessment (light / dark); every group a theme changes is drawn natively, except checkbox and tag corner radii and table header text color (drawn since Phase 3, above):
 
 | Theme | Groups changed (light / dark) |
 |---|---|
@@ -32,7 +71,7 @@ Checks:
 - Simulator ("Graphite Appearance iPad"): a lecture note with headings, callouts, tags, links, a task list, a table, a quote, inline code, a highlight, a code block, display math and a drawing, before (theme off) and with Minimal in Nord (through Minimal Theme Settings), Things and AnuPpuccin, Live Preview and reading view, light and dark, and Increase Contrast on AnuPpuccin light (links darkened further). Screenshots `~/.graphite-themes-build/shots/p1-*.png`. Fixed while checking: a theme that set a color in one appearance only drew nothing in the other (every color now falls back to Graphite's own); reading view headings lost the theme's size when it named a heading font.
 - Hosted suite: 299 tests, 0 failures. `swift test`: 1,812 tests, 0 failures. Runtime tests: 67, 0 failures.
 
-Not verified: on a device; with VoiceOver; Pencil writing over a themed note; the Mac app by hand; Style Settings changes re-resolving notes by hand (the trigger is the plugins' page change, covered by code path only); the cost on a very long note (restyling is the same attribute pass as a font change, not measured with a theme).
+Not verified: on a device; with VoiceOver; Pencil writing over a themed note; the Mac app by hand; Style Settings changes re-resolving notes by hand (the trigger is the plugins' page change, covered by code path only); the cost on a very long note (measured in Phase 3, above).
 
 ## Obsidian themes and snippets in community plugins' pages and copies (theme Phase 2): 2026-10-12
 

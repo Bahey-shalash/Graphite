@@ -257,4 +257,16 @@ final class UiEditorEditTrackingTests: XCTestCase {
         let edit = CharacterEdit(editedRange: NSRange(location: 10, length: 4), changeInLength: 3)
         XCTAssertEqual(TextRangeMapping.insertionTarget(NSRange(location: 25, length: 0), through: edit), NSRange(location: 28, length: 0))
     }
+    /// A whole line reported as edited for one typed character narrows to that character, so
+    /// blocks and folds move instead of being found again in the whole note.
+    func testAnEditReportedAsAWholeLineNarrowsToTheTypedCharacter() {
+        let before = "Intro\nPlain text\nEnd" as NSString
+        let after = "Intro\nPlain textx\nEnd" as NSString
+        let reported = CharacterEdit(editedRange: NSRange(location: 6, length: 12), changeInLength: 1)
+        let narrowed = reported.narrowed(before: before, after: after)
+        XCTAssertEqual(narrowed.editedRange, NSRange(location: 16, length: 1))
+        XCTAssertEqual(narrowed.replacedRange, NSRange(location: 16, length: 0))
+        let replacement = CharacterEdit(editedRange: NSRange(location: 6, length: 5), changeInLength: 0)
+        XCTAssertEqual(replacement.narrowed(before: before, after: "Intro\nPlein text\nEnd").editedRange, NSRange(location: 8, length: 1))
+    }
 }
