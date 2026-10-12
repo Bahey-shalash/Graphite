@@ -680,6 +680,41 @@ final class PicturesAndPaperTests: XCTestCase {
         XCTAssertNil(selection.accessibilityCustomActions)
     }
 
+    /// A frame turned by an angle other than a quarter turn, near the top of what its
+    /// superview shows: its handles had been placed against the box around the region as
+    /// turned, so the frame and the rotate handle were drawn over the tab bar.
+    func testATurnedFrameAtTheTopKeepsItsHandlesAndItsDrawingInReach() throws {
+        let container = UIView(frame: CGRect(x: 0, y: 0, width: 600, height: 800))
+        let selection = SelectionFrameView(frame: .zero)
+        selection.allowsRotation = true
+        selection.staysInSuperviewSafeArea = true
+        container.addSubview(selection)
+        selection.rotation = -.pi / 7
+        selection.unrotatedFrame = CGRect(x: 150, y: -60, width: 300, height: 360)
+        selection.layoutIfNeeded()
+        let handles = selection.resizeRecognizers.compactMap(\.view) + [selection.rotationRecognizer.view].compactMap { $0 }
+        XCTAssertEqual(handles.count, 5)
+        for handle in handles where !handle.isHidden {
+            // The four corners of the handle's touch area, turned with the frame.
+            let corners = [CGPoint(x: handle.bounds.minX, y: handle.bounds.minY), CGPoint(x: handle.bounds.maxX, y: handle.bounds.minY),
+                           CGPoint(x: handle.bounds.minX, y: handle.bounds.maxY), CGPoint(x: handle.bounds.maxX, y: handle.bounds.maxY)]
+            for corner in corners {
+                let cornerInContainer = handle.convert(corner, to: container)
+                XCTAssertTrue(container.bounds.insetBy(dx: -0.5, dy: -0.5).contains(cornerInContainer), "A handle reaches out of the container at \(cornerInContainer).")
+            }
+        }
+        XCTAssertTrue(selection.rotationHandleStandsBelow, "Above the turned frame there is no room.")
+        // The mask is the region as turned: nothing is drawn, and no touch taken, above the top.
+        let mask = try XCTUnwrap(selection.layer.mask as? CAShapeLayer)
+        let maskPath = try XCTUnwrap(mask.path)
+        let aboveTheTop = selection.convert(CGPoint(x: 300, y: -5), from: container)
+        let belowTheTop = selection.convert(CGPoint(x: 300, y: 5), from: container)
+        XCTAssertFalse(maskPath.contains(aboveTheTop))
+        XCTAssertTrue(maskPath.contains(belowTheTop))
+        XCTAssertFalse(selection.point(inside: aboveTheTop, with: nil), "A touch above the container is refused.")
+        XCTAssertTrue(selection.point(inside: belowTheTop, with: nil))
+    }
+
     // MARK: Fixed tool bar
 
     func testFixedToolBarGivesCanvasesItsToolAndThePaletteTakesOverAgain() async throws {
