@@ -4,6 +4,23 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-12.
 
+## Community plugins: Live Preview, restored views, gestures in copies, more menus, the Mac editor: 2026-10-12
+
+The owner's list for no gaps left in plugin support, in order, on the branch `alpha-plugins-6`. `Community-plugins.md` describes each (How it works › In notes, menus, typing and tabs) and how it was checked (How it was verified › Live Preview blocks, restored views, copies' gestures, menus and the Mac editor).
+
+- Live Preview: plugins' code blocks drawn by their plugin while the cursor is elsewhere (`LivePreviewBlock.Kind.pluginCodeBlock`), `getSectionInfo` looked up in the note each time; post-processors stay reading-view only, as in Obsidian.
+- Views restored after a restart, tabs and sidebar panels (`SavedTabLayout.PluginView`, `view.restore`).
+- Live views: two on screen swap with a tap, the other showing a picture of itself; each keeps its state; the focused side's takes the page as they appear.
+- Copies: right-click and long press (menus), hovering, and drags reach the plugin where it listens (`data-graphite-listens`).
+- Menus: `files-menu` through Pick Files for Plugins in the file list, `url-menu` on a web address in the editor.
+- Mac editor: plugins' context menu items, `editor-change` and `editor-paste`.
+- Excalidraw's embedded notes drawn from Graphite's rendering, now with Obsidian's highlights and callouts and no frontmatter; formulas in plugins' Bases views; TaskNotes' calendar checked.
+- Apple Pencil: the plugins' page no longer zooms or bounces, so pinches and strokes reach a live view; Pencil reaches it as WebKit's pen pointer events.
+
+Tests: the whole iPad integration suite, 299 tests, 0 failures. `swift test`: 1,817 tests (877 Core, 137 Index, 246 Apple, 557 UI), one skipped, no failures. Node: 84 runtime tests, all passing. `Community-plugin-API-coverage.md` regenerated, unchanged.
+
+Not verified: Apple Pencil pressure, tilt and hover on a device; the Mac app by hand; drag and drop inside a copy by hand (jsdom only); a plugin with `files-menu` items.
+
 ## Community plugins' file views, Bases views, paste and drop, and splits: 2026-10-12
 
 The four largest gaps of the community plugin sweep, on the branch `alpha-plugins-5`. `Community-plugins.md` describes each (How it works › In notes, menus, typing and tabs) and how it was checked (How it was verified › File views, Bases views, paste and drop, and splits).

@@ -23,7 +23,7 @@
         return leaf.kind === 'split' ? 'split' : 'tab';
     }
     /// Events through which plugins add items to Obsidian's context menus.
-    const menuEventNames = new Set(['file-menu', 'files-menu', 'editor-menu']);
+    const menuEventNames = new Set(['file-menu', 'files-menu', 'editor-menu', 'url-menu']);
     /// Events Graphite sends from its editor as the person types.
     const editorEventNames = new Set(['editor-change', 'editor-paste', 'editor-drop']);
 
@@ -805,6 +805,14 @@
         get protocolHandlers() { return runtime.protocolHandlers || new Map(); }
 
         notifyLeavesChanged() {
+            const savedStateOf = (leaf) => {
+                try {
+                    const state = JSON.stringify(leaf.view.getState() || {});
+                    return state.length <= 65536 ? state : null;
+                } catch (error) {
+                    return null;
+                }
+            };
             hostBridge.notify('views.changed', {
                 // A base's plugin view lives in the base's tab, not in a tab or the sidebar of its own.
                 views: this.pluginLeaves.filter((leaf) => !(leaf.view instanceof EmptyView) && leaf.kind !== 'bases').map((leaf) => ({
@@ -813,6 +821,8 @@
                     // taking touches, typing and Pencil directly; other views are shown as copies.
                     isLive: leaf.view instanceof FileView,
                     filePath: leaf.view instanceof FileView && leaf.view.file ? leaf.view.file.path : null,
+                    // What Graphite keeps to open the view again after a restart, as Obsidian's workspace does.
+                    state: savedStateOf(leaf),
                 })),
             });
         }

@@ -72,6 +72,13 @@ struct LivePreviewEnvironment {
     var readingContext: LivePreviewReadingContext? = nil
     /// Where the lasso's pictures of an embedded PDF go: this note.
     var lassoNoteDestination: LassoNoteDestination? = nil
+    /// Draws community plugins' code blocks, as Obsidian's Live Preview does; nil without
+    /// the plugin runtime, which leaves such blocks as code.
+    var pluginCodeBlocks: CommunityPluginHost? = nil
+    /// The code block languages plugins draw now.
+    var pluginCodeBlockLanguages: Set<String> = []
+    /// The note being edited, which plugins draw its blocks for.
+    var notePath: VaultPath? = nil
 }
 
 /// A rendered stand-in for concealed Live Preview source.
@@ -188,6 +195,17 @@ struct LivePreviewWidgetView: View {
             BaseCodeBlockView(yaml: yaml, context: environment.baseContext)
         case .horizontalRule:
             ThemedRule(theme: environment.theme).padding(.vertical, 10)
+        case .pluginCodeBlock(let language):
+            // Taps belong to what the plugin drew; the Edit Source button reveals the code.
+            if let host = environment.pluginCodeBlocks, let notePath = environment.notePath {
+                // No first line: the block moves as the note is edited above it, so where it is
+                // is looked up in the note whenever the plugin is given it.
+                CommunityPluginCodeBlockView(host: host, request: CommunityPluginReadingBlockRequest(
+                    kind: .codeBlock(language: language), source: block.markdown, note: notePath, firstLine: nil,
+                    lineCount: block.markdown.components(separatedBy: "\n").count + 2), textSize: environment.textSize)
+            } else {
+                RenderedMarkdownBlock(markdown: "```" + language + "\n" + block.markdown + "\n```", environment: environment)
+            }
         case .callout:
             if case .callout(let type, let title, let folding, let bodyBlocks)? = parsedSource.calloutBlock(from: block.markdown) {
                 LivePreviewCalloutView(type: type, title: title, folding: folding, bodyBlocks: bodyBlocks, environment: environment, revealSource: revealSource,

@@ -169,15 +169,35 @@
         return new StringValue(text);
     }
 
+    /// A value Graphite evaluated (a formula's), as Graphite sends it.
+    function receivedValue(encoded) {
+        if (!encoded || typeof encoded !== 'object') return NullValue.value;
+        switch (encoded.type) {
+        case 'boolean': return new BooleanValue(Boolean(encoded.value));
+        case 'number': return new NumberValue(Number(encoded.value));
+        case 'string': return new StringValue(String(encoded.value));
+        case 'date': return new DateValue(new Date(Number(encoded.value)));
+        case 'list': return new ListValue((encoded.value || []).map(receivedValue));
+        case 'link': return new LinkValue(String(encoded.value));
+        case 'file': {
+            const file = runtime.app ? runtime.app.vault.getFileByPath(String(encoded.value)) : null;
+            return file ? new FileValue(file) : new StringValue(String(encoded.value));
+        }
+        case 'object': return new ObjectValue((encoded.value || []).map(([key, entry]) => [key, receivedValue(entry)]));
+        default: return NullValue.value;
+        }
+    }
+
     /// One file of a base's results. Its values come from the vault's metadata cache, as
     /// Obsidian's do: note properties from the frontmatter, file properties from the file;
-    /// formulas, which Graphite evaluates natively, are not given to plugins.
+    /// formulas from Graphite, which evaluates them as its own views show them.
     class BasesEntry {
-        constructor(file) { this.file = file; }
+        constructor(file, formulaValues) { this.file = file; this.formulaValues = formulaValues || {}; }
         getValue(propertyId) {
             const { type, name } = parsePropertyId(propertyId);
             const file = this.file;
             if (!file) return NullValue.value;
+            if (type === 'formula') return receivedValue(this.formulaValues['formula.' + name]);
             if (type === 'file') {
                 const app = runtime.app;
                 const cache = app ? app.metadataCache.getFileCache(file) : null;
@@ -272,7 +292,8 @@
         const groups = (message.groups || []).map((group) => {
             const entryGroup = new BasesEntryGroup();
             entryGroup.key = group.key === null || group.key === undefined ? null : wrapValue(group.key);
-            entryGroup.entries = (group.paths || []).map(fileOf).filter(Boolean).map((file) => new BasesEntry(file));
+            const formulaValues = message.formulaValues || {};
+            entryGroup.entries = (group.paths || []).map(fileOf).filter(Boolean).map((file) => new BasesEntry(file, formulaValues[file.path]));
             return entryGroup;
         });
         const data = groups.flatMap((group) => group.entries);

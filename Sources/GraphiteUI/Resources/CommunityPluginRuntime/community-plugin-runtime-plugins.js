@@ -1184,10 +1184,25 @@
             if (!workspace) return;
             hostBridge.notify('menus.changed', {
                 hasFileMenuItems: workspace.listenerCount('file-menu') + workspace.listenerCount('files-menu') > 0,
-                hasEditorMenuItems: workspace.listenerCount('editor-menu') > 0,
+                // A web address at the cursor gets the `url-menu` items in the editor's menu.
+                hasEditorMenuItems: workspace.listenerCount('editor-menu') + workspace.listenerCount('url-menu') > 0,
             });
         });
     };
+
+    /// The web address the cursor is on: a Markdown link's (`[text](https://…)`), one in angle
+    /// brackets, or a bare one, without the punctuation that ends a sentence.
+    function webAddressAtCursor(editor) {
+        const cursor = editor.getCursor();
+        const line = editor.getLine(cursor.line) || '';
+        const pattern = /\[[^\]]*\]\(((?:https?|mailto):[^)\s]+)\)|<((?:https?|mailto):[^>\s]+)>|((?:https?:\/\/|mailto:)[^\s<>()\[\]]+)/g;
+        for (const match of line.matchAll(pattern)) {
+            if (cursor.ch < match.index || cursor.ch > match.index + match[0].length) continue;
+            return (match[1] || match[2] || match[3].replace(/[.,;:!?'"]+$/, ''));
+        }
+        return null;
+    }
+    runtime.webAddressAtCursor = webAddressAtCursor;
 
     /// Menus Graphite shows with plugins' items, until an item is chosen or the menu closes.
     const openMenus = new Map();
@@ -1295,6 +1310,31 @@
             leaf.isProbe = false;
             const shownType = leaf.view.getViewType();
             if (shownType === 'empty' || shownType === 'markdown') {
+                leaf.detach();
+                return { isOpened: false };
+            }
+            workspace.notifyLeavesChanged();
+            return { isOpened: true, leafIdentifier: leaf.id };
+        },
+        /// Opens a view Graphite showed when it last closed (a tab's or a sidebar panel's), from
+        /// the type and state the view gave then, as Obsidian restores its workspace. Nothing
+        /// opens when no plugin shows that type now.
+        async 'view.restore'(message) {
+            const app = runtime.app;
+            if (!app || !message.viewType || message.viewType === 'markdown' || message.viewType === 'empty') return { isOpened: false };
+            const workspace = app.workspace;
+            if (!workspace.viewCreatorsByType.has(message.viewType)) return { isOpened: false };
+            let state = {};
+            try { state = message.state ? JSON.parse(message.state) : {}; } catch (error) { state = {}; }
+            const leaf = workspace.createPluginLeaf(message.placement === 'left' || message.placement === 'right' ? message.placement : 'tab');
+            // Graphite puts the view back in its tab or panel itself; the leaf does not ask to be shown.
+            leaf.hasBeenShown = true;
+            try {
+                await leaf.setViewState({ type: message.viewType, state, active: false });
+            } catch (error) {
+                console.error('Graphite could not restore a “' + message.viewType + '” view.', error);
+            }
+            if (leaf.view.getViewType() !== message.viewType) {
                 leaf.detach();
                 return { isOpened: false };
             }
@@ -1439,6 +1479,9 @@
             if (!view || !view.editor) return { items: [] };
             const menu = new exportedApi.Menu();
             app.workspace.trigger('editor-menu', menu, view.editor, view);
+            // On a web address, as Obsidian's menu for a link (`url-menu`).
+            const address = webAddressAtCursor(view.editor);
+            if (address) app.workspace.trigger('url-menu', menu, address);
             return offerMenu(message.menuIdentifier, menu);
         },
         async 'notice.tap'(message) {

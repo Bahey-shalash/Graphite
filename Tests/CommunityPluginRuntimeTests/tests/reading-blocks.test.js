@@ -176,3 +176,50 @@ class ExamplePlugin extends obsidian.Plugin {
         harness.close();
     }
 });
+
+test('a right-click or long press, hovering, and drags in a copy reach the plugin\'s elements', async () => {
+    const source = pluginSource(`
+class ExamplePlugin extends obsidian.Plugin {
+    async onload() {
+        this.registerMarkdownCodeBlockProcessor('board', (source, element) => {
+            const status = element.createDiv({ cls: 'status', text: 'idle' });
+            const list = element.createDiv({ cls: 'list' });
+            for (const name of source.trim().split(',')) {
+                const card = list.createDiv({ cls: 'card', text: name, attr: { draggable: 'true' } });
+                card.addEventListener('contextmenu', (event) => { status.setText('menu for ' + name + ' at ' + Math.round(event.clientY - element.getBoundingClientRect().top)); });
+                card.addEventListener('mouseenter', () => card.addClass('is-hovered'));
+                card.addEventListener('mouseleave', () => card.removeClass('is-hovered'));
+                card.addEventListener('dragstart', (event) => { event.dataTransfer.setData('text/plain', name); status.setText('dragging ' + name); });
+                card.addEventListener('dragover', (event) => event.preventDefault());
+                card.addEventListener('drop', (event) => { event.preventDefault(); list.insertBefore(list.querySelector('.card:nth-child(' + (source.trim().split(',').indexOf(event.dataTransfer.getData('text/plain')) + 1) + ')'), card); });
+                card.addEventListener('dragend', () => status.setText('dropped'));
+            }
+        });
+    }
+}`);
+    const harness = await startRuntime({ files: { 'Note.md': '```board\nA,B,C\n```\n' } });
+    try {
+        await installAndLoadPlugin(harness, { manifest, mainSource: source });
+        await settle();
+        const drawn = plain(await harness.send({ operation: 'codeBlock.render', blockIdentifier: 'board-1', language: 'board', source: 'A,B,C', sourcePath: 'Note.md', width: 600 }));
+        assert.match(drawn.html, /<div class="card" draggable="true" data-graphite-listens="menu hover drag drop">A<\/div>/, 'the copy knows where the plugin listens');
+
+        const menu = plain(await harness.send({ operation: 'codeBlock.event', blockIdentifier: 'board-1', eventType: 'contextmenu', elementPath: [1, 1], x: 10, y: 24 }));
+        assert.match(menu.html, /menu for B at 24/, 'the menu opens where the copy was pressed');
+
+        await harness.send({ operation: 'codeBlock.event', blockIdentifier: 'board-1', eventType: 'hover', elementPath: [1, 0], x: 5, y: 5 });
+        assert.ok(harness.window.document.querySelector('.card').classList.contains('is-hovered'));
+        await harness.send({ operation: 'codeBlock.event', blockIdentifier: 'board-1', eventType: 'hover', elementPath: [1, 2], x: 5, y: 40 });
+        assert.deepEqual(Array.from(harness.window.document.querySelectorAll('.card.is-hovered')).map((card) => card.textContent), ['C'], 'the pointer left A for C');
+
+        // C dragged onto A.
+        await harness.send({ operation: 'codeBlock.event', blockIdentifier: 'board-1', eventType: 'gesture', phase: 'down', elementPath: [1, 2], x: 5, y: 40 });
+        await harness.send({ operation: 'codeBlock.event', blockIdentifier: 'board-1', eventType: 'gesture', phase: 'move', elementPath: [1, 2], overPath: [1, 1], x: 5, y: 25 });
+        await harness.send({ operation: 'codeBlock.event', blockIdentifier: 'board-1', eventType: 'gesture', phase: 'move', elementPath: [1, 2], overPath: [1, 0], x: 5, y: 5 });
+        const dropped = plain(await harness.send({ operation: 'codeBlock.event', blockIdentifier: 'board-1', eventType: 'gesture', phase: 'up', elementPath: [1, 2], overPath: [1, 0], x: 5, y: 5 }));
+        assert.deepEqual(Array.from(harness.window.document.querySelectorAll('.card')).map((card) => card.textContent), ['C', 'A', 'B']);
+        assert.match(dropped.html, /<div class="status">dropped<\/div>/);
+    } finally {
+        harness.close();
+    }
+});

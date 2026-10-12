@@ -74,8 +74,12 @@ struct VaultSidebar: View {
 
     /// The chosen panel, or the file list when its plugin was turned off.
     private var panel: SidebarPanel { availablePanels.contains(storedPanel) ? storedPanel : .files }
-    /// A community plugin's view chosen in the picker, shown in place of Graphite's panels.
-    @State private var chosenPluginView: String?
+    /// A community plugin's view chosen in the picker, shown in place of Graphite's panels,
+    /// kept by the plugin host so it is saved with the layout and shown again after a restart.
+    private var chosenPluginView: String? {
+        get { workspace.communityPlugins.shownSidebarViewIdentifier }
+        nonmutating set { workspace.communityPlugins.shownSidebarViewIdentifier = newValue }
+    }
     private var shownPluginView: CommunityPluginView? {
         chosenPluginView.flatMap(workspace.communityPlugins.pluginView(withIdentifier:)).flatMap { view in view.placement == .sidebar ? view : nil }
     }
@@ -242,6 +246,58 @@ struct VaultSidebar: View {
     }
 
     private var sidebarList: some View {
+        Group {
+            if let pickedFiles = workspace.pickedSidebarFiles, workspace.searchQuery.isEmpty, panel == .files {
+                // Picking several files for plugins' actions, as Obsidian's file explorer does
+                // with several files selected.
+                List(selection: Binding(get: { pickedFiles }, set: { newSelection in workspace.pickedSidebarFiles = newSelection })) { listContent }
+                    #if canImport(UIKit)
+                    .environment(\.editMode, .constant(.active))
+                    #endif
+                    .safeAreaInset(edge: .bottom) { pickingBar(pickedFiles) }
+            } else {
+                openingList
+            }
+        }
+        // Folders expanded in one vault must not stay expanded, with stale contents, in the next.
+        .id(workspace.currentVaultIdentifier)
+        // The sidebar style beside a document; on a phone, where it draws a card of rows
+        // with separators, a plain list in the page's color, as Obsidian mobile's explorer.
+        .modifier(SidebarListStyle(isCompactWidth: isCompactWidth))
+        // Denser than the system's sidebar, as Obsidian's file explorer, with room for a finger.
+        .environment(\.defaultMinListRowHeight, FileTreeMetrics.rowHeight(for: horizontalSizeClass))
+        // Dropping on the list outside any folder or file moves the item to the vault's root.
+        .dropDestination(for: VaultItemTransfer.self) { items, _ in
+            moveDroppedItems(items, into: .root)
+        } isTargeted: { isTargeted in isRootDropTargeted = isTargeted }
+        .overlay {
+            if isRootDropTargeted {
+                RoundedRectangle(cornerRadius: 10).strokeBorder(accent, lineWidth: 2).padding(4).allowsHitTesting(false)
+            }
+        }
+    }
+
+    /// How many files are picked, the plugins' actions for them, and Done.
+    private func pickingBar(_ pickedFiles: Set<VaultPath>) -> some View {
+        HStack {
+            Button("Done") { workspace.pickedSidebarFiles = nil }
+            Spacer()
+            Text(pickedFiles.isEmpty ? "Pick Files" : pickedFiles.count == 1 ? "1 File" : "\(pickedFiles.count) Files")
+                .font(.callout).foregroundStyle(.secondary)
+            Spacer()
+            Button("Plugin Actions…", systemImage: "puzzlepiece.extension") {
+                let paths = pickedFiles.sorted { leftPath, rightPath in leftPath.rawValue < rightPath.rawValue }
+                Task { await workspace.communityPlugins.showFileActions(for: paths) }
+            }
+            .labelStyle(.titleOnly)
+            .disabled(pickedFiles.isEmpty)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .background(.bar)
+    }
+
+    /// The file list as it usually is: picking a file opens it.
+    private var openingList: some View {
         List(selection: Binding(get: { workspace.selection }, set: { newSelection in
             // The file already open shows at once. Another one shows when it is loaded and
             // becomes the selection (`GraphiteRootView`), so a phone does not slide in the
@@ -255,7 +311,10 @@ struct VaultSidebar: View {
                 #endif
                 Task { await workspace.open(newSelection) }
             }
-        })) {
+        })) { listContent }
+    }
+
+    @ViewBuilder private var listContent: some View {
             if workspace.store == nil {
                 Text("Open a vault to see its files here.").foregroundStyle(.secondary)
             } else if !workspace.searchQuery.isEmpty {
@@ -276,23 +335,6 @@ struct VaultSidebar: View {
                     VaultEntryRow(entry: entry, workspace: workspace) { kind, directory in creation = CreationRequest(kind: kind, directory: directory) }
                 }
             }
-        }
-        // Folders expanded in one vault must not stay expanded, with stale contents, in the next.
-        .id(workspace.currentVaultIdentifier)
-        // The sidebar style beside a document; on a phone, where it draws a card of rows
-        // with separators, a plain list in the page's color, as Obsidian mobile's explorer.
-        .modifier(SidebarListStyle(isCompactWidth: isCompactWidth))
-        // Denser than the system's sidebar, as Obsidian's file explorer, with room for a finger.
-        .environment(\.defaultMinListRowHeight, FileTreeMetrics.rowHeight(for: horizontalSizeClass))
-        // Dropping on the list outside any folder or file moves the item to the vault's root.
-        .dropDestination(for: VaultItemTransfer.self) { items, _ in
-            moveDroppedItems(items, into: .root)
-        } isTargeted: { isTargeted in isRootDropTargeted = isTargeted }
-        .overlay {
-            if isRootDropTargeted {
-                RoundedRectangle(cornerRadius: 10).strokeBorder(accent, lineWidth: 2).padding(4).allowsHitTesting(false)
-            }
-        }
     }
 
     private func moveDroppedItems(_ items: [VaultItemTransfer], into folder: VaultPath) -> Bool {
@@ -391,6 +433,13 @@ private struct FileExplorerMenuItems: View {
         .disabled(workspace.selection == nil)
         Button("Collapse All", systemImage: "arrow.down.right.and.arrow.up.left") { withAnimation(GraphiteMotion.animation(.snappy)) { workspace.collapseAllFolders() } }
             .disabled(workspace.expandedFolders.isEmpty)
+        // Plugins' actions on several files at once (`files-menu`).
+        if workspace.communityPlugins.isRuntimeRunning && workspace.communityPlugins.hasFileMenuItems {
+            Button("Pick Files for Plugins…", systemImage: "checkmark.circle") {
+                workspace.searchQuery = ""
+                workspace.pickedSidebarFiles = []
+            }
+        }
     }
 }
 

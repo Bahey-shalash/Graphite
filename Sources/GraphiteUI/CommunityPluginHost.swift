@@ -47,6 +47,8 @@ struct CommunityPluginView: Identifiable, Equatable {
     var isLive = false
     /// The file a live view shows, so opening the file again brings its tab forward.
     var filePath: String?
+    /// The view's state as JSON (`getState`), kept so the view opens again after a restart.
+    var state: String?
 }
 
 /// A plugin asked to show one of its views in the sidebar; the token tells two requests
@@ -180,6 +182,13 @@ final class CommunityPluginHost {
     private(set) var panelTitle = ""
     /// The plugin view the sidebar should show, as a plugin asked (`revealLeaf`).
     var sidebarViewRequest: CommunityPluginSidebarRequest?
+    /// The plugin view the sidebar shows instead of one of Graphite's panels; nil for those.
+    var shownSidebarViewIdentifier: String? {
+        didSet { if shownSidebarViewIdentifier != oldValue { workspace?.pluginViewsDidChange() } }
+    }
+    /// Whether the views open when Graphite last closed were opened again in this run; until
+    /// then the saved layout keeps them as they were saved.
+    @ObservationIgnored var hasRestoredViews = false
     /// The plugin whose options another part of the interface should show (`app.setting.openTabById`).
     var requestedSettingsPlugin: String?
     private(set) var isRuntimeRunning = false
@@ -209,6 +218,12 @@ final class CommunityPluginHost {
     private(set) var pluginBasesViews: [String: String] = [:]
     /// The plugin view shown live, in its tab, by the runtime's own web view (one at a time).
     var liveViewIdentifier: String?
+    /// How each live view looked when another took the web view, shown in its tab (beside
+    /// the live one in a split) until a tap makes it live again; its state stays in the page.
+    var liveViewPictures: [String: CommunityPluginViewPicture] = [:]
+    /// When the live view last changed: a view that has just gone live has not laid itself
+    /// out at its tab's size yet, so no picture is kept of it.
+    @ObservationIgnored var liveViewChangeTime = ContinuousClock.now
     /// Counts the times the panel or a settings page gave the web view back, so a live view's
     /// tab shows it again.
     var webViewReleaseCount = 0
@@ -358,8 +373,20 @@ final class CommunityPluginHost {
         configuration.websiteDataStore = WKWebsiteDataStore(forIdentifier: vaultIdentifier)
         configuration.setURLSchemeHandler(handler, forURLScheme: CommunityPluginSchemeHandler.scheme)
         configuration.userContentController.addScriptMessageHandler(messageReceiver, contentWorld: .page, name: "graphitePlugins")
+        #if canImport(UIKit)
+        // The page's own viewport keeps it from zooming (Obsidian mobile's), so a pinch reaches
+        // a live view's plugin.
+        configuration.ignoresViewportScaleLimits = false
+        #endif
         let pluginWebView = WKWebView(frame: .zero, configuration: configuration)
         pluginWebView.navigationDelegate = messageReceiver
+        #if canImport(UIKit)
+        // Apple Pencil and touches reach the page as pointer events (`pointerType` "pen", with
+        // `pressure`, `tiltX` and `tiltY`, and hovering as moves without buttons), which
+        // Excalidraw draws with. The page never rubber-bands under a stroke that starts
+        // outside the plugin's canvas.
+        pluginWebView.scrollView.bounces = false
+        #endif
         #if DEBUG
         pluginWebView.isInspectable = true
         #endif
@@ -387,6 +414,8 @@ final class CommunityPluginHost {
         }
         guard webView === pluginWebView else { return }
         _ = try? await send(["operation": "plugins.layoutReady"])
+        guard webView === pluginWebView else { return }
+        await workspace.restorePluginViews()
         activeDocumentDidChange()
     }
 
@@ -501,6 +530,8 @@ final class CommunityPluginHost {
         commands = []
         ribbonActions = []
         pluginViews = []
+        hasRestoredViews = false
+        shownSidebarViewIdentifier = nil
         pluginsWithSettings = []
         codeBlockLanguages = []
         codeBlockLanguageOwners = [:]
@@ -515,6 +546,7 @@ final class CommunityPluginHost {
         pluginsTakeOverNotes = false
         pluginBasesViews = [:]
         liveViewIdentifier = nil
+        liveViewPictures = [:]
         typingRequest = nil
         lastCodeBlockCopies = [:]
         keptCopyOrder = []
@@ -919,9 +951,9 @@ final class CommunityPluginHost {
                 guard let identifier = view["leafIdentifier"] as? String else { return nil }
                 return CommunityPluginView(id: identifier, title: view["title"] as? String ?? "", viewType: view["viewType"] as? String ?? "",
                                            icon: view["icon"] as? String ?? "", placement: CommunityPluginView.Placement(rawValue: view["placement"] as? String ?? "") ?? .tab,
-                                           isLive: view["isLive"] as? Bool == true, filePath: view["filePath"] as? String)
+                                           isLive: view["isLive"] as? Bool == true, filePath: view["filePath"] as? String, state: view["state"] as? String)
             }
-            workspace?.forgetClosedPluginViews(keeping: Set(pluginViews.map(\.id)))
+            workspace?.pluginViewsDidChange()
         case "view.reveal":
             guard let identifier = message["leafIdentifier"] as? String else { return }
             revealView(identifier)

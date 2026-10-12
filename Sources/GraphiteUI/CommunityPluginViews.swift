@@ -1,4 +1,5 @@
 import SwiftUI
+import WebKit
 import GraphiteCore
 
 /// Plugins' views (`registerView`, `ItemView`) where Graphite keeps its own: a view a plugin
@@ -61,6 +62,15 @@ extension CommunityPluginHost {
     /// the page. Another view shown live before goes back to being a copy.
     func showLive(_ identifier: String) async -> Bool {
         guard isRuntimeRunning else { return false }
+        // The view giving up the web view leaves a picture of itself in its tab, which may
+        // still be on screen beside this one.
+        if let previous = liveViewIdentifier, previous != identifier, let webView, webView.window != nil,
+           ContinuousClock.now - liveViewChangeTime > .seconds(1.5),
+           let picture = await CommunityPluginViewPicture.taken(of: webView) {
+            liveViewPictures[previous] = picture
+        }
+        liveViewPictures[identifier] = nil
+        if liveViewIdentifier != identifier { liveViewChangeTime = .now }
         liveViewIdentifier = identifier
         let answer = try? await send(["operation": "view.live", "leafIdentifier": identifier], timeout: .seconds(5))
         return answer?["isShown"] as? Bool == true
@@ -123,11 +133,53 @@ extension CommunityPluginHost {
 
     /// The base's matching files by group, and its columns: the plugin reads each file's
     /// values from the vault's metadata itself.
-    private static func basesMessage(_ result: BaseQueryResult) -> [String: Any] {
+    static func basesMessage(_ result: BaseQueryResult) -> [String: Any] {
         let groups: [[String: Any]] = result.groups.map { group in
             ["key": group.key?.value.map { value in value.displayText as Any } ?? NSNull(), "paths": group.rows.map(\.path.rawValue)]
         }
-        return ["groups": groups, "properties": result.columns.map { column in column.property.rawValue }]
+        // Formulas are evaluated by Graphite, as its own views show them; a plugin's view reads
+        // each file's values of the view's formula columns.
+        var formulaValues: [String: [String: Any]] = [:]
+        let formulaColumns = result.columns.enumerated().filter { _, column in
+            if case .formula = column.property { return true }
+            return false
+        }
+        if !formulaColumns.isEmpty {
+            for row in result.rows {
+                var values: [String: Any] = [:]
+                for (columnIndex, column) in formulaColumns where row.cells.indices.contains(columnIndex) {
+                    values[column.property.rawValue] = row.cells[columnIndex].value.map(pluginValue) ?? ["type": "null"]
+                }
+                formulaValues[row.path.rawValue] = values
+            }
+        }
+        return ["groups": groups, "properties": result.columns.map { column in column.property.rawValue }, "formulaValues": formulaValues]
+    }
+
+    /// A base value as the runtime makes Obsidian's Bases values of it (`community-plugin-runtime-bases.js`).
+    static func pluginValue(_ value: BaseValue) -> [String: Any] {
+        switch value {
+        case .null: return ["type": "null"]
+        case .boolean(let boolean): return ["type": "boolean", "value": boolean]
+        case .number(let number): return number.isFinite ? ["type": "number", "value": number] : ["type": "null"]
+        case .string(let text): return ["type": "string", "value": text]
+        case .date(let date): return ["type": "date", "value": date.date.timeIntervalSince1970 * 1000, "hasTime": date.hasTime]
+        case .list(let values): return ["type": "list", "value": values.map(pluginValue)]
+        case .link(let link): return ["type": "link", "value": "[[" + link.target + (link.display.map { display in "|" + display } ?? "") + "]]"]
+        case .file(let path): return ["type": "file", "value": path.rawValue]
+        case .object(let object): return ["type": "object", "value": object.entries.map { entry in [entry.key, pluginValue(entry.value)] as [Any] }]
+        case .duration, .regularExpression, .image, .icon, .html: return ["type": "string", "value": value.displayText]
+        }
+    }
+
+    /// Opens a view saved when Graphite last closed; the new leaf's identifier, or nil when no
+    /// plugin shows that type of view now.
+    func restoreView(_ savedView: SavedTabLayout.PluginView, inSidebar: Bool) async -> String? {
+        guard isRuntimeRunning,
+              let answer = try? await send(["operation": "view.restore", "viewType": savedView.viewType, "state": savedView.state,
+                                            "placement": inSidebar ? "right" : "tab"], timeout: .seconds(10)),
+              answer["isOpened"] as? Bool == true, let identifier = answer["leafIdentifier"] as? String else { return nil }
+        return identifier
     }
 
     /// Closes a view, as closing its tab or panel does in Obsidian.
@@ -147,7 +199,14 @@ extension WorkspaceModel {
         }
         let activeTab = layout.activeTab
         if activeTab.path != nil || document(for: activeTab.id).pluginViewIdentifier != nil { openNewTab() }
-        document(for: layout.activeTab.id).pluginViewIdentifier = identifier
+        show(pluginView: identifier, inTab: layout.activeTab.id)
+    }
+
+    private func show(pluginView identifier: String, inTab tabID: UUID) {
+        let document = document(for: tabID)
+        document.pluginViewIdentifier = identifier
+        document.restorablePluginView = communityPlugins.pluginView(withIdentifier: identifier).flatMap(Self.restorable)
+        saveTabLayout()
     }
 
     /// Shows a plugin view on the other side of the split, leaving the note where it is and
@@ -159,14 +218,95 @@ extension WorkspaceModel {
         }
         let previousTabID = layout.activeTab.id
         let tabID = layout.tabForOpeningInOtherGroup()
-        document(for: tabID).pluginViewIdentifier = identifier
+        show(pluginView: identifier, inTab: tabID)
         if layout.tab(withID: previousTabID) != nil { activateTab(previousTabID) }
     }
 
-    /// Tabs whose plugin view a plugin closed (or that unloaded) become empty tabs.
-    func forgetClosedPluginViews(keeping identifiers: Set<String>) {
+    /// The plugins' views changed: tabs whose view a plugin closed (or that unloaded) become
+    /// empty tabs, and what opens the others again after a restart is brought up to date.
+    func pluginViewsDidChange() {
+        let host = communityPlugins
         for document in tabDocuments.values {
-            if let identifier = document.pluginViewIdentifier, !identifiers.contains(identifier) { document.pluginViewIdentifier = nil }
+            guard let identifier = document.pluginViewIdentifier else { continue }
+            if let view = host.pluginView(withIdentifier: identifier) {
+                if let restorable = Self.restorable(view) { document.restorablePluginView = restorable }
+            } else {
+                host.liveViewPictures[identifier] = nil
+                document.pluginViewIdentifier = nil
+                document.restorablePluginView = nil
+            }
+        }
+        if host.hasRestoredViews {
+            restorableSidebarPluginViews = (host.sidebarViews.compactMap(Self.restorable),
+                                            host.shownSidebarViewIdentifier.flatMap(host.pluginView(withIdentifier:))?.viewType)
+        }
+        saveTabLayout()
+    }
+
+    /// What opens a view again: its type and state, once the plugin has given them.
+    private static func restorable(_ view: CommunityPluginView) -> SavedTabLayout.PluginView? {
+        guard !view.viewType.isEmpty, let state = view.state else { return nil }
+        return SavedTabLayout.PluginView(viewType: view.viewType, state: state)
+    }
+
+    // MARK: Restoring views after a restart
+
+    /// The layout to save: empty tabs keep the plugin views they show, and the sidebar its
+    /// plugins' views, as Obsidian's workspace does.
+    func savedLayoutWithPluginViews() -> SavedTabLayout {
+        var saved = layout.saved
+        for (groupIndex, group) in layout.groups.enumerated() where saved.groups.indices.contains(groupIndex) {
+            for (tabIndex, tab) in group.tabs.enumerated() where tab.path == nil && saved.groups[groupIndex].tabs.indices.contains(tabIndex) {
+                saved.groups[groupIndex].tabs[tabIndex].pluginView = tabDocuments[tab.id]?.restorablePluginView
+            }
+        }
+        if !restorableSidebarPluginViews.views.isEmpty {
+            saved.sidebarPluginViews = restorableSidebarPluginViews.views
+            saved.shownSidebarPluginViewType = restorableSidebarPluginViews.shownViewType
+        }
+        return saved
+    }
+
+    /// Keeps the restored layout's plugin views until their plugins load.
+    func takePluginViewsToRestore(from saved: SavedTabLayout) {
+        for (tabID, pluginView) in layout.pluginViewsToRestore { document(for: tabID).restorablePluginView = pluginView }
+        restorableSidebarPluginViews = (saved.sidebarPluginViews ?? [], saved.shownSidebarPluginViewType)
+    }
+
+    /// Opens the plugin views Graphite showed when it last closed, once the plugins have
+    /// loaded: each empty tab's view in its tab, and sidebar views their plugins did not open
+    /// again themselves. A view no plugin shows now leaves its tab empty.
+    func restorePluginViews() async {
+        let host = communityPlugins
+        defer {
+            host.hasRestoredViews = true
+            pluginViewsDidChange()
+        }
+        for group in layout.groups {
+            for tab in group.tabs where tab.path == nil {
+                guard let document = tabDocuments[tab.id], document.pluginViewIdentifier == nil, let savedView = document.restorablePluginView else { continue }
+                let identifier = await host.restoreView(savedView, inSidebar: false)
+                // The tab may have closed, or a file opened in it, meanwhile.
+                guard layout.tab(withID: tab.id)?.path == nil, tabDocuments[tab.id] === document else {
+                    if let identifier { host.closeView(identifier) }
+                    continue
+                }
+                if let identifier {
+                    document.pluginViewIdentifier = identifier
+                } else {
+                    document.restorablePluginView = nil
+                }
+            }
+        }
+        let savedSidebar = restorableSidebarPluginViews
+        for savedView in savedSidebar.views where !host.sidebarViews.contains(where: { view in view.viewType == savedView.viewType }) {
+            if let identifier = await host.restoreView(savedView, inSidebar: true), host.pluginView(withIdentifier: identifier) == nil {
+                // The view list arrives right after; until then the sidebar knows the view by its identifier.
+                host.pluginViews.append(CommunityPluginView(id: identifier, title: "", viewType: savedView.viewType, icon: "", placement: .sidebar, state: savedView.state))
+            }
+        }
+        if host.shownSidebarViewIdentifier == nil, let shownViewType = savedSidebar.shownViewType {
+            host.shownSidebarViewIdentifier = host.sidebarViews.first { view in view.viewType == shownViewType }?.id
         }
     }
 }
@@ -194,6 +334,8 @@ enum CommunityPluginViewSymbol {
 struct CommunityPluginViewContent: View {
     let host: CommunityPluginHost
     let viewIdentifier: String
+    /// Whether the view's tab is on the focused side of the split (a sidebar panel is not).
+    var isInFocusedGroup = true
     @State private var shownView: CommunityPluginShownCodeBlock?
     @State private var size: CGSize = .zero
     @Environment(\.colorScheme) private var colorScheme
@@ -203,7 +345,7 @@ struct CommunityPluginViewContent: View {
 
     var body: some View {
         if host.pluginView(withIdentifier: viewIdentifier)?.isLive == true {
-            CommunityPluginLiveViewContent(host: host, viewIdentifier: viewIdentifier)
+            CommunityPluginLiveViewContent(host: host, viewIdentifier: viewIdentifier, isInFocusedGroup: isInFocusedGroup)
         } else {
             copyContent
         }
@@ -254,23 +396,45 @@ struct CommunityPluginViewContent: View {
 struct CommunityPluginLiveViewContent: View {
     let host: CommunityPluginHost
     let viewIdentifier: String
+    /// A live view on the side not focused does not take the web view from one already
+    /// shown as it appears (both sides restored at launch); a tap there takes it.
+    var isInFocusedGroup = true
 
     var body: some View {
         Group {
             if host.liveViewIdentifier == viewIdentifier {
                 CommunityPluginLiveWebView(host: host, isPanelPresented: host.isPanelPresented, releaseCount: host.webViewReleaseCount)
+            } else if let picture = host.liveViewPictures[viewIdentifier] {
+                // Two live views on screen at once (a split): the one not holding the web view
+                // shows how it looked, and a tap swaps them, each keeping its state in the page.
+                Button { Task { _ = await host.showLive(viewIdentifier) } } label: {
+                    // At the size it was taken, in points: the tab rarely changes size meanwhile.
+                    picture.image
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).clipped()
+                        .overlay(alignment: .bottom) {
+                            Label("Tap to Use This View", systemImage: "hand.tap")
+                                .font(.callout).padding(.horizontal, 14).padding(.vertical, 8)
+                                .background(.regularMaterial, in: Capsule()).padding(.bottom, 24)
+                        }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(host.pluginView(withIdentifier: viewIdentifier)?.title ?? "Plugin view"), shown as a picture")
+                .accessibilityHint("Makes this view usable; the other plugin view becomes a picture.")
             } else {
                 ContentUnavailableView {
                     Label(host.pluginView(withIdentifier: viewIdentifier)?.title ?? "Plugin View", systemImage: "rectangle.on.rectangle")
                 } description: {
-                    Text("This view is open in another tab.")
+                    Text("This view is in use in another tab or beside this one.")
                 } actions: {
                     Button("Show Here") { Task { _ = await host.showLive(viewIdentifier) } }
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .task(id: viewIdentifier) { _ = await host.showLive(viewIdentifier) }
+        .task(id: viewIdentifier) {
+            if !isInFocusedGroup, let shownView = host.liveViewIdentifier, shownView != viewIdentifier { return }
+            _ = await host.showLive(viewIdentifier)
+        }
         .onDisappear { host.hideLive(viewIdentifier) }
     }
 }
@@ -369,5 +533,20 @@ struct CommunityPluginBasesViewContent: View {
         let viewType: String
         let viewIndex: Int
         let hasResult: Bool
+    }
+}
+
+/// A picture of a live view taken as another view took the runtime's web view.
+struct CommunityPluginViewPicture {
+    let image: Image
+
+    @MainActor static func taken(of webView: WKWebView) async -> CommunityPluginViewPicture? {
+        #if canImport(UIKit)
+        guard let picture = try? await webView.takeSnapshot(configuration: nil) else { return nil }
+        return CommunityPluginViewPicture(image: Image(uiImage: picture))
+        #elseif canImport(AppKit)
+        guard let picture = try? await webView.takeSnapshot(configuration: nil) else { return nil }
+        return CommunityPluginViewPicture(image: Image(nsImage: picture))
+        #endif
     }
 }

@@ -279,11 +279,13 @@ struct MarkdownPane: View {
         if pluginHost.isRuntimeRunning && pluginHost.hasDropListeners {
             actions.pluginDrop = { [pluginHost, session] files, text in await pluginHost.offerDrop(into: session, files: files, text: text) }
         }
-        #if canImport(UIKit)
         if workspace.communityPlugins.hasEditorMenuItems {
+            #if canImport(UIKit)
             actions.pluginEditMenuElement = { [host = workspace.communityPlugins] in host.editorMenuElement() }
+            #elseif canImport(AppKit)
+            actions.pluginContextMenuItems = { [host = workspace.communityPlugins] in await host.editorMenuItems() }
+            #endif
         }
-        #endif
         actions.followLinkElsewhere = { [workspace, session] target, isWiki, placement in
             Task { await workspace.follow(target, from: session.path, isWiki: isWiki, placement: placement) }
         }
@@ -331,7 +333,10 @@ struct MarkdownPane: View {
             // Reading view's column, a little wider than Live Preview's, bounds the decode.
             embeddedImageColumnWidth: preferences.usesReadableLineLength ? ReadingConfiguration.readableColumnWidth : nil,
             readingContext: LivePreviewReadingContext(controller: workspace.readAloud, path: session.path),
-            lassoNoteDestination: LassoNoteDestination.note(session, in: workspace))
+            lassoNoteDestination: LassoNoteDestination.note(session, in: workspace),
+            pluginCodeBlocks: workspace.communityPlugins.isRuntimeRunning ? workspace.communityPlugins : nil,
+            pluginCodeBlockLanguages: workspace.communityPlugins.codeBlockLanguages,
+            notePath: notePath)
     }
 
     /// Opens a drawing in the editor, where the platform and preferences allow it.

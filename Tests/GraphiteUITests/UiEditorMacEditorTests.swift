@@ -518,5 +518,22 @@ final class UiEditorMacEditorTests: XCTestCase {
         XCTAssertEqual(MacPastedAttachment.attachments(on: pasteboard, now: pasteDate), [.vaultItem(try VaultPath("Folder/Other note.md"))])
         XCTAssertTrue(MacPastedAttachment.isOffered(on: pasteboard))
     }
+
+    func testPluginsHearTypingAndAddTheirItemsToTheContextMenu() async throws {
+        let (coordinator, textView, _) = try await makeEditor(text: "Study #physics today")
+        var changeCount = 0
+        coordinator.actions.pluginEditorDidChange = { changeCount += 1; return nil }
+        textView.insertText("!", replacementRange: NSRange(location: 20, length: 0))
+        XCTAssertEqual(coordinator.session.text, "Study #physics today!")
+        XCTAssertEqual(changeCount, 1, "plugins hear the note change, as in Obsidian's editor")
+
+        let rightClick = try XCTUnwrap(NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                                                          context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        let titlesWithoutPlugins = textView.menu(for: rightClick)?.items.map(\.title) ?? []
+        XCTAssertFalse(titlesWithoutPlugins.contains("Rename #physics"))
+        textView.pendingPluginMenuItems = [NSMenuItem(title: "Rename #physics", action: nil, keyEquivalent: "")]
+        let titles = try XCTUnwrap(textView.menu(for: rightClick)).items.map(\.title)
+        XCTAssertEqual(titles.last, "Rename #physics", "the plugins' items follow the editor's own")
+    }
 }
 #endif

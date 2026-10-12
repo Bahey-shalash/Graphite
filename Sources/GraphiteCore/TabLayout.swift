@@ -54,6 +54,9 @@ public struct TabLayout: Equatable, Sendable {
     }
     /// Files of recently closed tabs, the most recent last, for "Reopen closed tab".
     public private(set) var closedPaths: [VaultPath] = []
+    /// The plugin views restored empty tabs showed (`SavedTabLayout.Tab.pluginView`), by tab;
+    /// the app opens them again once their plugins load. Not part of `saved`.
+    public private(set) var pluginViewsToRestore: [UUID: SavedTabLayout.PluginView] = [:]
 
     public init() {
         let group = TabGroup(tabs: [WorkspaceTab()])
@@ -342,6 +345,7 @@ public struct TabLayout: Equatable, Sendable {
                 }
                 let tab = WorkspaceTab(path: path, isPinned: savedTab.isPinned && path != nil)
                 tabs.append(tab)
+                if path == nil, let pluginView = savedTab.pluginView { pluginViewsToRestore[tab.id] = pluginView }
                 if tabIndex <= savedGroup.activeTabIndex || activeTabID == nil { activeTabID = tab.id }
             }
             guard !tabs.isEmpty else { continue }
@@ -406,12 +410,29 @@ public struct SavedTabLayout: Codable, Equatable, Sendable {
         /// The file's vault path; nil for an empty tab.
         public var path: String?
         public var isPinned: Bool
-        public init(path: String?, isPinned: Bool) { self.path = path; self.isPinned = isPinned }
+        /// The community plugin view an empty tab showed, opened again when its plugin loads.
+        public var pluginView: PluginView?
+        public init(path: String?, isPinned: Bool, pluginView: PluginView? = nil) {
+            self.path = path; self.isPinned = isPinned; self.pluginView = pluginView
+        }
+    }
+
+    /// A community plugin's view as Obsidian's workspace keeps it: its type and the state
+    /// the view gave (`getState`), which open it again.
+    public struct PluginView: Codable, Equatable, Sendable {
+        public var viewType: String
+        /// The view's state as JSON.
+        public var state: String
+        public init(viewType: String, state: String) { self.viewType = viewType; self.state = state }
     }
 
     public var groups: [Group]
     public var focusedGroupIndex: Int
     public var splitFraction: Double
+    /// Plugins' views in the sidebar, opened again unless their plugin opens them itself.
+    public var sidebarPluginViews: [PluginView]?
+    /// The type of the plugin view the sidebar showed, if it showed one.
+    public var shownSidebarPluginViewType: String?
 
     public init(groups: [Group], focusedGroupIndex: Int, splitFraction: Double) {
         self.groups = groups

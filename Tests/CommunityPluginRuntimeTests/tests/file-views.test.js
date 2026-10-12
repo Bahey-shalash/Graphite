@@ -159,7 +159,10 @@ class ListView extends obsidian.BasesView {
     onDataUpdated() {
         this.containerEl.empty();
         this.containerEl.createDiv({ cls: 'heading', text: String(this.config.get('heading')) });
-        for (const entry of this.data.data) this.containerEl.createDiv({ cls: 'row', text: entry.file.basename + ': ' + entry.getValue('note.status').toString() });
+        for (const entry of this.data.data) {
+            const days = entry.getValue('formula.days');
+            this.containerEl.createDiv({ cls: 'row', text: entry.file.basename + ': ' + entry.getValue('note.status').toString() + (days instanceof obsidian.NumberValue ? ' in ' + days.toString() + ' days' : '') });
+        }
     }
 }
 class ExamplePlugin extends obsidian.Plugin {
@@ -183,6 +186,35 @@ module.exports = ExamplePlugin;`;
         assert.ok(!plain(harness.host.notificationsOf('views.changed').at(-1).views).some((view) => view.leafIdentifier === opened.leafIdentifier), 'not a tab or sidebar view of its own');
         await harness.send({ operation: 'basesView.update', leafIdentifier: opened.leafIdentifier, groups: [{ key: null, paths: ['First.md', 'Second.md'] }] });
         assert.deepEqual(Array.from(content.children).map((element) => element.textContent), ['Open tasks', 'First: open', 'Second: done']);
+        // Formulas come evaluated by Graphite, per file.
+        await harness.send({ operation: 'basesView.update', leafIdentifier: opened.leafIdentifier, groups: [{ key: null, paths: ['First.md'] }],
+            properties: ['note.status', 'formula.days'], formulaValues: { 'First.md': { 'formula.days': { type: 'number', value: 3 } } } });
+        assert.deepEqual(Array.from(content.children).map((element) => element.textContent), ['Open tasks', 'First: open in 3 days']);
+    } finally {
+        harness.close();
+    }
+});
+
+test('a view Graphite showed when it closed opens again from the type and state it saved', async () => {
+    const harness = await startRuntime({ files: { 'Drawing.sketch': 'circle\n' } });
+    try {
+        await harness.waitForMetadata();
+        await installAndLoadPlugin(harness, { manifest, mainSource: sketchPlugin });
+        await settle();
+        const opened = plain(await harness.send({ operation: 'file.openInView', path: 'Drawing.sketch' }));
+        const listed = plain(harness.host.notificationsOf('views.changed').at(-1).views).find((view) => view.leafIdentifier === opened.leafIdentifier);
+        assert.deepEqual(JSON.parse(listed.state), { file: 'Drawing.sketch' }, 'the state Graphite saves with the tab');
+
+        const restored = plain(await harness.send({ operation: 'view.restore', viewType: 'sketch', state: listed.state, placement: 'tab' }));
+        assert.equal(restored.isOpened, true);
+        const leaf = harness.app.workspace.getLeafById(restored.leafIdentifier);
+        assert.equal(leaf.view.contentEl.textContent, 'Sketch: circle');
+        assert.equal(plain(harness.host.notificationsOf('view.reveal')).length, 0, 'Graphite puts the view back in its tab itself');
+
+        const before = harness.app.workspace.pluginLeaves.length;
+        assert.deepEqual(plain(await harness.send({ operation: 'view.restore', viewType: 'uninstalled-view', state: '{}', placement: 'right' })), { isOpened: false });
+        assert.deepEqual(plain(await harness.send({ operation: 'view.restore', viewType: 'markdown', state: '{"file":"Drawing.sketch"}', placement: 'tab' })), { isOpened: false });
+        assert.equal(harness.app.workspace.pluginLeaves.length, before, 'no leaf is left behind for a view no plugin shows');
     } finally {
         harness.close();
     }
