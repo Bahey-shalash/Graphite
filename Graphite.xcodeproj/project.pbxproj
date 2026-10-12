@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		B38AFB9C7CF94493A4000001 /* ReadAloudScanHighlightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B38AFB9C7CF94493A4000002 /* ReadAloudScanHighlightTests.swift */; };
+		B38AFB9C7CF94493A4000003 /* ReadAloudLectureHighlightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B38AFB9C7CF94493A4000004 /* ReadAloudLectureHighlightTests.swift */; };
 		B38AFB9C7CF94493A3000001 /* PDFReadAloudScanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B38AFB9C7CF94493A3000002 /* PDFReadAloudScanTests.swift */; };
 		B38AFB9C7CF94493A2000001 /* PDFReadAloudExtractionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B38AFB9C7CF94493A2000002 /* PDFReadAloudExtractionTests.swift */; };
 		B38AFB9C7CF94493A1000001 /* ReadAloudMathematicsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B38AFB9C7CF94493A1000002 /* ReadAloudMathematicsTests.swift */; };
@@ -64,6 +65,7 @@
 
 /* Begin PBXFileReference section */
 		B38AFB9C7CF94493A4000002 /* ReadAloudScanHighlightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/ReadAloudScanHighlightTests.swift; sourceTree = "<group>"; };
+		B38AFB9C7CF94493A4000004 /* ReadAloudLectureHighlightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/ReadAloudLectureHighlightTests.swift; sourceTree = "<group>"; };
 		B38AFB9C7CF94493A3000002 /* PDFReadAloudScanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/PDFReadAloudScanTests.swift; sourceTree = "<group>"; };
 		B38AFB9C7CF94493A2000002 /* PDFReadAloudExtractionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/PDFReadAloudExtractionTests.swift; sourceTree = "<group>"; };
 		B38AFB9C7CF94493A1000002 /* ReadAloudMathematicsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/ReadAloudMathematicsTests.swift; sourceTree = "<group>"; };
@@ -132,6 +134,7 @@
 			isa = PBXGroup;
 			children = (
 				B38AFB9C7CF94493A4000002 /* ReadAloudScanHighlightTests.swift */,
+				B38AFB9C7CF94493A4000004 /* ReadAloudLectureHighlightTests.swift */,
 				B38AFB9C7CF94493A3000002 /* PDFReadAloudScanTests.swift */,
 				B38AFB9C7CF94493A2000002 /* PDFReadAloudExtractionTests.swift */,
 				B38AFB9C7CF94493A1000002 /* ReadAloudMathematicsTests.swift */,
@@ -288,6 +291,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B38AFB9C7CF94493A4000001 /* ReadAloudScanHighlightTests.swift in Sources */,
+				B38AFB9C7CF94493A4000003 /* ReadAloudLectureHighlightTests.swift in Sources */,
 				B38AFB9C7CF94493A3000001 /* PDFReadAloudScanTests.swift in Sources */,
 				B38AFB9C7CF94493A2000001 /* PDFReadAloudExtractionTests.swift in Sources */,
 				B38AFB9C7CF94493A1000001 /* ReadAloudMathematicsTests.swift in Sources */,

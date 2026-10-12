@@ -11,12 +11,27 @@ public actor ReadAloudMarkdownPreparation {
 
     public func prepare(_ source: String, selectedRange: NSRange? = nil,
                         paletteHexByName: [String: String] = [:],
-                        mathematicalStyle: MathematicalSpeechStyle = .concise) throws -> ReadAloudDocument {
-        try ReadAloudDocument.markdown(source, selectedRange: selectedRange, paletteHexByName: paletteHexByName) { expression in
+                        mathematicalStyle: MathematicalSpeechStyle = .concise,
+                        vaultRoot: URL? = nil) throws -> ReadAloudDocument {
+        try ReadAloudDocument.markdown(source, selectedRange: selectedRange, paletteHexByName: paletteHexByName,
+                                       pronunciations: Self.pronunciations(vaultRoot: vaultRoot)) { expression in
             try Task.checkCancellation()
             if mathematicalInterpreter == nil { mathematicalInterpreter = try OfflineMathematicalInterpreter() }
             return mathematicalInterpreter?.speech(for: expression, style: mathematicalStyle)
         }
+    }
+}
+
+extension ReadAloudMarkdownPreparation {
+    /// The built-in pronunciations with the vault's `.graphite/pronunciations.json` over them.
+    /// Read on the caller's (background) executor; a missing or unreadable file changes nothing.
+    public nonisolated static func pronunciations(vaultRoot: URL?) -> ReadAloudPronunciations {
+        guard let vaultRoot else { return .standard }
+        let location = vaultRoot.appendingPathComponent(ReadAloudPronunciations.vaultFilePath)
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: location.path),
+              let size = attributes[.size] as? Int, size <= ReadAloudPronunciations.maximumFileBytes,
+              let data = try? Data(contentsOf: location) else { return .standard }
+        return ReadAloudPronunciations.standard.merging(vaultFile: data)
     }
 }
 

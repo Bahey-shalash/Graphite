@@ -145,7 +145,7 @@ final class ReadAloudDocumentTests: XCTestCase {
     }
 
     func testDisplayMathInsideACalloutIsReadNotAnnouncedAsUnsupported() throws {
-        XCTAssertEqual(try speech("> [!note] PUN\n> $$x^2$$\n>\n> $$\n> y^2\n> $$"), "PUN x squared y squared")
+        XCTAssertEqual(try speech("> [!note] PUN\n> $$x^2$$\n>\n> $$\n> y^2\n> $$"), "P U N x squared y squared")
     }
 
     func testTablesWithEscapedPipesAndBrokenTablesAreRead() throws {
@@ -157,7 +157,7 @@ final class ReadAloudDocumentTests: XCTestCase {
 
     func testTablesAreReadRowByRowWithTheirColumnHeaders() throws {
         let document = try ReadAloudDocument.markdown("| Gate | Delay (ps) |\n| --- | --- |\n| NAND | 35 |\n| NOR | 52 |")
-        XCTAssertEqual(document.passages.map(\.text), ["Gate, Delay (ps)", "Gate: NAND, Delay (ps): 35", "Gate: NOR, Delay (ps): 52"])
+        XCTAssertEqual(document.passages.map(\.text), ["Gate, Delay (ps)", "Gate: nand, Delay (ps): 35", "Gate: nor, Delay (ps): 52"])
         XCTAssertEqual(Set(document.passages.map(\.kind)), [.tableRow])
     }
 
@@ -197,7 +197,7 @@ final class ReadAloudDocumentTests: XCTestCase {
         // A later slide whose layout split the footer into pieces skips the same text.
         let later = try ReadAloudDocument.pageText("Pass-transistor logic\n• nMOS logic\nL05 Static logic v1.0\nEE-330 2026\n21",
                                                    pageLabels: ["21"], knownRunningText: document.runningText)
-        XCTAssertEqual(later.passages.map(\.text), ["Pass-transistor logic", "nMOS logic"])
+        XCTAssertEqual(later.passages.map(\.text), ["Pass-transistor logic", "en moss logic"])
         let contents = try ReadAloudDocument.pageText("3.1.4 Thin-Film Removal . . . . . . . . 145")
         XCTAssertEqual(contents.passages.map(\.text), ["3.1.4 Thin-Film Removal 145"])
         let prose = try ReadAloudDocument.pageText("A footer-like last line ends\nwith 7 words and the page 7")

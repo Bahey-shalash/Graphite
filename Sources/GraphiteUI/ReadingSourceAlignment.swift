@@ -4,6 +4,22 @@ import Textual
 import GraphiteCore
 
 enum ReadingSourceAlignment {
+    /// The voice's text has the parser's typographic marks ("gate’s"), the rendered note may
+    /// show what was typed ("gate's"). They are the same word; any other difference still
+    /// disables the block's mapping. Before, one apostrophe left a whole paragraph unlit.
+    static func comparable(_ word: String) -> [UInt16] {
+        var units: [UInt16] = []
+        for scalar in word.unicodeScalars {
+            switch scalar {
+            case "\u{2018}", "\u{2019}", "\u{02BC}": units.append(39)
+            case "\u{201C}", "\u{201D}": units.append(34)
+            case "\u{2013}", "\u{2014}": units.append(45)
+            default: units.append(contentsOf: String(scalar).utf16)
+            }
+        }
+        return units
+    }
+
     /// Compare every word/equation in order. A missing or altered token disables
     /// the entire mapping; matching a repeated spelling alone is never sufficient.
     static func apply(_ sourceTokens: [ReadAloudSourceToken], to attributed: inout AttributedString) -> Bool {
@@ -38,7 +54,7 @@ enum ReadingSourceAlignment {
         renderedTokens.sort { first, second in first.range.location < second.range.location }
         guard sourceTokens.count == renderedTokens.count,
               zip(sourceTokens, renderedTokens).allSatisfy({ source, rendered in
-                  source.isEquation == rendered.isEquation && Array(source.text.utf16) == Array(rendered.text.utf16)
+                  source.isEquation == rendered.isEquation && comparable(source.text) == comparable(rendered.text)
               }) else { return false }
         for (source, rendered) in zip(sourceTokens, renderedTokens) {
             guard let range = Range(rendered.range, in: attributed) else { return false }

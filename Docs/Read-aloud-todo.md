@@ -48,7 +48,7 @@ Let the user listen to a Markdown note or PDF paper in a normal, human-sounding 
 - [x] Ask for Personal Voice access only from an explicit tap ("Use My Personal Voice…"). The prompt and reading with a Personal Voice are not yet checked on a device.
 - [x] Offer voice and speed in Settings › Read Aloud as well as in Reading Options.
 - [ ] Support document-appropriate language selection and an explicit override. Evaluate mixed-language passages before promising automatic switching.
-- [ ] Add a pronunciation dictionary for technical terms and names. Keep overrides separate from source content and invalidate affected cached speech when they change.
+- [x] Add a pronunciation dictionary for technical terms and names. Keep overrides separate from source content and invalidate affected cached speech when they change. (Built-in computing and VLSI terms with IPA, a rule for unknown all-caps words, and the vault's `.graphite/pronunciations.json`; nothing is cached, each reading prepares again. Names and the IPA's sound on device are not yet reviewed.)
 
 ### Acceptance gate for natural narration
 
@@ -177,12 +177,13 @@ These are proposed release criteria, not measured results.
 - [ ] Group provider character timings into spoken words and map them to document ranges. Validate missing, malformed, overlapping, or out-of-order timing information.
 - [x] Reset timing offsets at chunk boundaries while retaining the document's reading position. Reject callbacks belonging to canceled playback sessions.
 - [ ] Highlight the current word and optionally shade its sentence for context. Use theme-aware colors and an accessible non-color position indicator.
+  - Words, Sentences or Off in Settings, a theme-aware blue that is stronger with Increase Contrast, and a whole-passage fallback for voices without word positions. A non-color indicator and word-plus-sentence shading together remain open.
 - [x] Draw highlights as temporary presentation state. Do not insert Markdown markers or write PDF annotations.
 - [x] Highlight original PDF text using exact native selection/page anchors, with round-trip coordinate validation. Preserve native text selection and existing search highlights; source offsets never come from searching for repeated words.
 - [x] Implement rendered-word location reporting for Textual and TextKit. Source tokens are validated against the entire rendered block in order before attaching exact original ranges; repeated spellings are not searched.
 - [ ] Account for native formula attachments: their whole-expression frame is not sufficient evidence for individual term bounds.
 - [ ] Recalculate visible geometry after scrolling, zoom, rotation, text-size changes, folding, and window resizing without changing the semantic reading anchor.
-- [ ] Automatically reveal the active passage with comfortable margins. Manual scrolling should suspend following until the user chooses **Follow Reading**.
+- [x] Automatically reveal the active passage with comfortable margins. Manual scrolling should suspend following until the user chooses **Follow Reading**. (A third of the way down; following also resumes five seconds after the last scroll.)
 - [ ] Preserve normal text selection and Pencil interactions. Reading highlights must not steal the selection or add undo steps.
 - [ ] Measure alignment on device recordings of playback and highlights. Agree on acceptable tolerance before release and record observed drift across long passages.
 

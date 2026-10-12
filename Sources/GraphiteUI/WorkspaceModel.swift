@@ -264,6 +264,7 @@ final class WorkspaceModel {
         indexingMessage = ""
         readAloud.clear()
         folderAccess = access; store = vaultStore; index = vaultIndex; monitor = vaultMonitor
+        readAloud.vaultRoot = access.root
         EmbeddedPDFSessions.shared.useVault(root: root, owner: self, saving: embeddedPDFSaving(writer: vaultStore.writer))
         // Nothing open in the vault being left is saved into the new vault's layout.
         layoutVaultIdentifier = nil

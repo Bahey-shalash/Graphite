@@ -20,6 +20,20 @@ struct ReadAloudVoiceSettings: View {
     private var session: ReadAloudSession { reader.session }
 
     var body: some View {
+        voiceSection
+        Section {
+            Picker("Highlight While Reading", selection: Binding(get: { session.highlightMode }, set: { mode in session.setHighlightMode(mode) })) {
+                Text("Words").tag(ReadAloudHighlightMode.words)
+                Text("Sentences").tag(ReadAloudHighlightMode.sentences)
+                Text("Off").tag(ReadAloudHighlightMode.off)
+            }
+            .accessibilityIdentifier("readAloudHighlightPicker")
+        } footer: {
+            Text("A voice that does not report its words highlights the whole passage instead.")
+        }
+    }
+
+    private var voiceSection: some View {
         Section {
             Picker("Voice", selection: Binding(get: { session.chosenVoiceIdentifier }, set: { identifier in
                 stopSample(); session.chooseVoice(identifier)
@@ -83,7 +97,7 @@ struct ReadAloudVoiceSettings: View {
 
     private var systemTitle: String {
         let name = "Same as \(ReadAloudSession.systemSpeechSettingsName)"
-        guard let voice = session.systemVoice ?? session.automaticVoice else { return name }
+        guard let voice = session.followedSystemVoice else { return name }
         return "\(name) (\(voice.name), \(voice.qualityDescription))"
     }
 
@@ -99,7 +113,8 @@ struct ReadAloudVoiceSettings: View {
     }
 
     /// Apple's quality tiers, best first, as the picker's sections.
-    private static let qualityGroups = ["Personal Voice", "Premium", "Enhanced", "Default"]
+    /// Classic holds the robotic Eloquence and MacinTalk voices, there to be picked by hand only.
+    private static let qualityGroups = ["Personal Voice", "Premium", "Enhanced", "Default", "Classic"]
 
     private static func group(of voice: ReadAloudVoice) -> String { voice.qualityDescription }
 

@@ -57,11 +57,11 @@ final class PDFRecognizedReadingOverlay: ReadingOverlayView {
             let wordView = ReadingOverlayView(frame: .zero)
             #if canImport(UIKit)
             wordView.isUserInteractionEnabled = false
-            wordView.backgroundColor = .systemYellow.withAlphaComponent(0.4)
+            wordView.backgroundColor = ReadAloudHighlightStyle.fill
             wordView.layer.cornerRadius = 2
             #else
             wordView.wantsLayer = true
-            wordView.layer?.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.4).cgColor
+            wordView.layer?.backgroundColor = ReadAloudHighlightStyle.fill.cgColor
             wordView.layer?.cornerRadius = 2
             wordView.setAccessibilityElement(false)
             #endif

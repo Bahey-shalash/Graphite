@@ -50,6 +50,33 @@ final class ReadAloudReadingViewTests: XCTestCase {
         XCTAssertEqual((source as NSString).substring(with: equation.sourceRange), "$x^2$")
     }
 
+    /// The owner saw no highlight at all in the reading view: one apostrophe, quote or dash
+    /// in a paragraph made its words differ from the voice's ("gate’s"), which switched the
+    /// whole paragraph's highlight off. Acronyms said differently must not do that either.
+    func testTypographicMarksAndRespelledTermsKeepTheirParagraphMapped() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ReadAloudReading-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let index = try VaultIndex(databaseURL: directory.appendingPathComponent("index.sqlite"))
+        let source = "# Shannon's expansion\n\nThe gate's \"full\" level -- while the CMOS and SRAM keep GPUs busy, e.g. at https://example.com/a now."
+        let build = try await ReadingViewBuilder().build(source: source, note: VaultPath("Note.md"), root: directory,
+                                                       index: index, configuration: ReadingConfiguration(mapsReadAloudSourceLocations: true))
+        var mappedBlocks = 0
+        for block in build.blocks {
+            let markdown: String
+            switch block {
+            case .markdown(_, let text): markdown = text
+            case .heading(_, let level, let text, _): markdown = String(repeating: "#", count: level) + " " + text
+            default: continue
+            }
+            let tokens = try XCTUnwrap(build.readingSourceTokensByBlock[block.id])
+            var attributed = try ObsidianMarkdownParser(baseURL: directory, textSize: 17).attributedString(for: markdown)
+            XCTAssertTrue(ReadingSourceAlignment.apply(tokens, to: &attributed), "Block \(markdown), tokens \(tokens.map(\.text))")
+            mappedBlocks += 1
+        }
+        XCTAssertEqual(mappedBlocks, 2)
+    }
+
     func testAnyChangedWordDisablesTheCompleteMapping() throws {
         let tokens = ReadAloudSourceToken.tokens(in: try ReadAloudDocument.markdown("same same then 12"))
         for rendered in ["same then 12", "same same then 13", "same same extra then 12"] {

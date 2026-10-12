@@ -12,6 +12,8 @@ public struct ReadAloudSpan: Equatable, Sendable {
     /// a web address read as "link to example.com"): the written text, so a rendered note
     /// can still match its words one by one.
     public var writtenText: String? = nil
+    /// An IPA transcription for voices that accept one; the speech text is its respelling.
+    public var phoneticNotation: String? = nil
 
     public func sourceRange(for spokenRange: NSRange) -> NSRange? {
         let overlap = NSIntersectionRange(speechRange, spokenRange)
@@ -75,7 +77,8 @@ public struct ReadAloudDocument: Equatable, Sendable {
     /// a new capitalized line or bullet (a title, a slide bullet) gets its own pause instead
     /// of running into the next one. Every spoken word keeps its exact place on the page.
     public static func pageText(_ source: String, selectedRange: NSRange? = nil, pageLabels: [String] = [],
-                                knownRunningText: [String] = []) throws -> ReadAloudDocument {
+                                knownRunningText: [String] = [],
+                                pronunciations: ReadAloudPronunciations = .standard) throws -> ReadAloudDocument {
         let original = source as NSString
         guard original.length <= maximumSourceUTF16Count else { throw ReadAloudError.passageTooLarge }
         let requestedRange = try readingRange(in: source, selectedRange: selectedRange)
@@ -163,7 +166,8 @@ public struct ReadAloudDocument: Equatable, Sendable {
             guard overlap.length > 0 else { return }
             let written = original.substring(with: overlap)
             var offset = 0
-            for replacement in spokenReplacements(in: written) + [(range: NSRange(location: (written as NSString).length, length: 0), speech: "")] {
+            for replacement in spokenReplacements(in: written, pronunciations: pronunciations)
+                + [SpokenReplacement(range: NSRange(location: (written as NSString).length, length: 0), speech: "")] {
                 if replacement.range.location > offset {
                     let verbatim = NSRange(location: offset, length: replacement.range.location - offset)
                     let text = (written as NSString).substring(with: verbatim)
@@ -175,7 +179,7 @@ public struct ReadAloudDocument: Equatable, Sendable {
                 let writtenText = (written as NSString).substring(with: replacement.range)
                 unitSpans.append(ReadAloudSpan(speechRange: NSRange(location: unitText.utf16.count, length: replacement.speech.utf16.count),
                                                sourceRange: NSRange(location: overlap.location + replacement.range.location, length: replacement.range.length),
-                                               isVerbatim: false, writtenText: writtenText))
+                                               isVerbatim: false, writtenText: writtenText, phoneticNotation: replacement.phoneticNotation))
                 unitText += replacement.speech
                 offset = NSMaxRange(replacement.range)
             }
@@ -233,6 +237,7 @@ public struct ReadAloudDocument: Equatable, Sendable {
     /// frontmatter, or a hidden comment cannot accidentally narrate private metadata.
     public static func markdown(_ source: String, selectedRange: NSRange? = nil,
                                 paletteHexByName: [String: String] = [:],
+                                pronunciations: ReadAloudPronunciations = .standard,
                                 mathematicalSpeech: (String) throws -> String? = MathSpeech.expression) throws -> ReadAloudDocument {
         let original = source as NSString
         guard original.length <= maximumSourceUTF16Count else { throw ReadAloudError.passageTooLarge }
@@ -366,7 +371,8 @@ public struct ReadAloudDocument: Equatable, Sendable {
             passageText += separator
             passageUTF16Count += separator.utf16.count
         }
-        func append(_ text: String, sourceRange: NSRange, isVerbatim: Bool, isEquation: Bool = false, writtenText: String? = nil) throws {
+        func append(_ text: String, sourceRange: NSRange, isVerbatim: Bool, isEquation: Bool = false, writtenText: String? = nil,
+                    phoneticNotation: String? = nil) throws {
             let overlap = NSIntersectionRange(sourceRange, requestedRange)
             guard overlap.length > 0 else { return }
             var spokenText = text
@@ -385,7 +391,7 @@ public struct ReadAloudDocument: Equatable, Sendable {
                                                                   sourceRange: NSUnionRange(lastSpan.sourceRange, spokenSourceRange), isVerbatim: true)
             } else {
                 passageSpans.append(ReadAloudSpan(speechRange: speechRange, sourceRange: spokenSourceRange, isVerbatim: isVerbatim,
-                                                  isEquation: isEquation, writtenText: writtenText))
+                                                  isEquation: isEquation, writtenText: writtenText, phoneticNotation: phoneticNotation))
             }
             passageText += spokenText
             passageUTF16Count += speechRange.length
@@ -441,7 +447,7 @@ public struct ReadAloudDocument: Equatable, Sendable {
             }
             var sourceOffset = sourceRange.location
             var emittedCharacterCount = 0
-            let replacements = spokenReplacements(in: text)
+            let replacements = spokenReplacements(in: text, pronunciations: pronunciations)
             var textOffset = 0
             var skipsUntilTextOffset = 0
             for character in text {
@@ -455,7 +461,8 @@ public struct ReadAloudDocument: Equatable, Sendable {
                     let written = (text as NSString).substring(with: replacement.range)
                     let writtenRange = NSRange(location: sourceOffset, length: replacement.range.length)
                     if NSMaxRange(writtenRange) <= NSMaxRange(sourceRange), prepared.substring(with: writtenRange) == written {
-                        try append(replacement.speech, sourceRange: writtenRange, isVerbatim: false, writtenText: written)
+                        try append(replacement.speech, sourceRange: writtenRange, isVerbatim: false, writtenText: written,
+                                   phoneticNotation: replacement.phoneticNotation)
                         sourceOffset = NSMaxRange(writtenRange)
                         skipsUntilTextOffset = NSMaxRange(replacement.range)
                         continue
@@ -520,22 +527,35 @@ public struct ReadAloudDocument: Equatable, Sendable {
     /// Written forms that a voice would read badly, with what a person would say instead.
     /// A web address is announced rather than spelled out ("h t t p s colon slash slash…");
     /// common abbreviations are expanded. Ranges are UTF-16 offsets in `text`.
-    static func spokenReplacements(in text: String) -> [(range: NSRange, speech: String)] {
+    struct SpokenReplacement {
+        let range: NSRange
+        let speech: String
+        var phoneticNotation: String? = nil
+    }
+
+    static func spokenReplacements(in text: String, pronunciations: ReadAloudPronunciations = .standard) -> [SpokenReplacement] {
         let fullRange = NSRange(location: 0, length: (text as NSString).length)
-        var replacements: [(range: NSRange, speech: String)] = []
+        var replacements: [SpokenReplacement] = []
         if text.contains("://") || text.contains("www.") {
             let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
             for match in detector?.matches(in: text, range: fullRange) ?? [] {
                 guard let url = match.url, let host = url.host(), url.scheme == "http" || url.scheme == "https" else { continue }
                 let shortHost = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
-                replacements.append((match.range, "link to \(shortHost)"))
+                replacements.append(SpokenReplacement(range: match.range, speech: "link to \(shortHost)"))
             }
         }
         for (pattern, speech) in abbreviationSpeech {
             for match in pattern.matches(in: text, range: fullRange)
             where !replacements.contains(where: { existing in NSIntersectionRange(existing.range, match.range).length > 0 }) {
-                replacements.append((match.range, speech))
+                replacements.append(SpokenReplacement(range: match.range, speech: speech))
             }
+        }
+        // Acronyms and technical terms: RAM as "ram", CPU as "C P U", SIMD as "sim dee".
+        for match in ReadAloudPronunciations.candidateWord?.matches(in: text, range: fullRange) ?? []
+        where !replacements.contains(where: { existing in NSIntersectionRange(existing.range, match.range).length > 0 }) {
+            let word = (text as NSString).substring(with: match.range)
+            guard let pronunciation = pronunciations.pronunciation(of: word), pronunciation.say != word else { continue }
+            replacements.append(SpokenReplacement(range: match.range, speech: pronunciation.say, phoneticNotation: pronunciation.ipa))
         }
         return replacements.sorted { first, second in first.range.location < second.range.location }
     }
@@ -615,7 +635,8 @@ public struct ReadAloudDocument: Equatable, Sendable {
                     guard overlap.length > 0, let sourceRange = span.sourceRange(for: overlap) else { return nil }
                     return ReadAloudSpan(speechRange: NSRange(location: overlap.location - trimmedRange.location, length: overlap.length),
                                          sourceRange: sourceRange, isVerbatim: span.isVerbatim, isEquation: span.isEquation,
-                                         writtenText: span.writtenText)
+                                         writtenText: span.writtenText,
+                                         phoneticNotation: overlap == span.speechRange ? span.phoneticNotation : nil)
                 }
                 passages.append(ReadAloudPassage(id: startingIdentifier + passages.count, text: trimmed, spans: chunkSpans, kind: kind))
             }

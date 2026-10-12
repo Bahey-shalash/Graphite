@@ -869,7 +869,7 @@ struct MarkdownPreview: View {
             .environment(\.readingSourceTokensByBlock, readingSourceTokensByBlock)
             .environment(\.readingActiveSourceRange, readAloudRange)
             .environment(\.readingFollowsSource, followsReading)
-            .textual.readingHighlight(readAloudRange, coordinateSpace: ReadingCoordinateSpace.name)
+            .textual.readingHighlight(readAloudRange, color: ReadAloudHighlightStyle.color, coordinateSpace: ReadingCoordinateSpace.name)
             .environment(\.readingMediaPlayers, mediaPlayers)
             .environment(\.readingTaskContext, toggleTask.map { toggleTask in
                 ReadingTaskContext(note: path) { note, location in await toggle(location, in: note, with: toggleTask) }
@@ -951,9 +951,10 @@ struct MarkdownPreview: View {
         let frame = readingHighlightFrames.filter { geometry in geometry.sourceRange == range }
             .reduce(CGRect.null) { union, geometry in union.union(geometry.frame) }
         guard !frame.isNull, !frame.isEmpty,
-              frame.minY < readingViewport.topInset + 40 || frame.maxY > readingViewport.height - 40 else { return }
+              frame.minY < readingViewport.topInset + 40 || frame.maxY > readingViewport.height - 120 else { return }
         pendingRestorationOffset = nil
-        let destination = readingViewport.verticalOffset + frame.minY - readingViewport.topInset - 40
+        // The word comes back a third of the way down, so the following lines are in view.
+        let destination = readingViewport.verticalOffset + frame.minY - readingViewport.topInset - (readingViewport.height - readingViewport.topInset) / 3
         scrollPosition.scrollTo(y: max(0, min(destination, readingViewport.maximumVerticalOffset)))
     }
 
@@ -1313,7 +1314,7 @@ struct ObsidianMarkdownText: View {
                     if let activeRange = readingActiveSourceRange, sourceTokens?.contains(where: { token in
                         token.isEquation && NSIntersectionRange(token.sourceRange, activeRange).length > 0
                     }) == true {
-                        RoundedRectangle(cornerRadius: 3).fill(.yellow.opacity(0.35))
+                        RoundedRectangle(cornerRadius: 3).fill(ReadAloudHighlightStyle.color)
                         GeometryReader { geometry in
                             Color.clear.preference(key: ReadingHighlightGeometryKey.self,
                                                    value: [ReadingHighlightGeometry(sourceRange: activeRange,
