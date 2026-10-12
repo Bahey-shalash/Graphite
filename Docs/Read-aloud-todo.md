@@ -2,11 +2,13 @@
 
 Created: 2026-10-10.
 
-Status: implementation in progress, 2026-10-11. Checked items below identify implemented portions; unchecked items remain open, including partially implemented tasks whose complete acceptance criteria are not met. See `Coverage.md` for actual test/build evidence and outstanding device validation. The owner has deferred voice improvements so functional work can proceed. Human-sounding voice acceptance remains future work, rather than a blocker for this increment. This document retains the owner's complete request and does not redefine the product scope in `OBJECTIVE.md`.
+Status: implementation in progress, 2026-10-12 (native-voice polish on branch `alpha-readaloud`). Checked items below identify implemented portions; unchecked items remain open, including partially implemented tasks whose complete acceptance criteria are not met. See `Coverage.md` for actual test/build evidence and outstanding device validation. The owner has deferred voice improvements so functional work can proceed. Human-sounding voice acceptance remains future work, rather than a blocker for this increment. This document retains the owner's complete request and does not redefine the product scope in `OBJECTIVE.md`.
 
 Current increment: temporary local Apple voices, remembered voice/speed, fixed-sample and current-passage voice previews, Markdown document/selection/cursor/start-end/heading-section reading, PDF document/page/page-range/native-selection/start-end reading with exact cross-page anchors, previous/next sentence and repeat-passage controls, a reviewable transcript with callback-driven word highlighting, temporary Markdown Source/Live Preview/Reading-view and original PDF-page highlights, explicit Show in PDF navigation, optional source following, and offline structured English math speech. PDF Page Layout order uses on-device paragraph detection on macOS/iOS 26+, maps every original token to native page coordinates, and falls back visibly to file order for uncertain layouts/tables or older systems. File Order remains selectable and remembered. Image-only pages now use bounded on-device text recognition, pause for review, and highlight recognized word rectangles; temporary word corrections retain those rectangles. Scanned transcript words can define inclusive start/end points on the current page, preserving corrections and stopping before the next page. Read Section Pages uses available PDF outlines, explicitly including full boundary pages; exact outline heading endpoints remain open. Mixed native/scanned documents are read one page at a time. MathJax plus Speech Rule Engine now handle base/AMS equations, including sums, products, integrals, limits, derivative notation, vectors, matrices, cases and aligned rows, with remembered concise/detailed modes. Unknown commands and exceeded limits are announced; custom macros, arbitrary TeX documents and PDF math recognition remain open. Rendered Markdown mapping requires complete token agreement; unsupported transformations retain transcript highlighting. Formulas highlight as whole expressions. No cloud provider or owner listening approval is claimed.
 
 Voice decision, 2026-10-11: the owner rejected the Apple Enhanced audition ("sounded horrific"). This supersedes the earlier tentative acceptance. The roughly 30-second Enhanced sample used `com.apple.siri.natural.Nora`, displayed as Voice 4, en-US, at the production adapter's default rate and pitch. The Standard comparison used Samantha. Neither is an approved default-quality voice. Keep the native provider available for explicit audition/fallback use while evaluating a different engine. Do not try to satisfy the requirement by renaming Apple's quality tier or changing a pitch slider.
+
+Voice plan, 2026-10-12: the owner asked for the device's native voices ("the voice is currently horibble"). Read Aloud now uses the best Apple voice installed for the passage's language (Personal Voice when allowed, then Premium, Enhanced, compact) and never the robotic MacinTalk or Eloquence voices; before, the automatic choice was Fred whenever no Enhanced or Premium voice was installed, which probably explains much of "horrible". A paid service is considered only if no native voice is acceptable after an audition on the iPad with a Premium voice installed; that audition has not happened.
 
 Voice priority update, 2026-10-11: the owner said "we can make the voice nicer later". Keep the current local engine for functional development; do not treat the rejected audition as approved or delay document reading for another voice decision. When voice work resumes, establish online/offline preferences, audition another engine with the same technical passage, then integrate the accepted voice and measure real audio/highlight synchronization. ElevenLabs' [speech-with-timing endpoint](https://elevenlabs.io/docs/api-reference/text-to-speech/convert-with-timestamps) documents original and normalized character timings; original-text agreement must be validated before drawing source highlights. Its documentation states zero-retention requests require enterprise access, so ordinary account requests must not be described as zero retention. An offline candidate is [Kokoro Swift](https://github.com/mweinbach/kokoro-swift); dependency/model licensing, device resource use, source alignment, and listening quality still need evaluation. Neither candidate is integrated or approved. Do not transmit a document, create a paid account, or purchase credits to audition without the corresponding authorization.
 
@@ -37,9 +39,13 @@ Let the user listen to a Markdown note or PDF paper in a normal, human-sounding 
 - [ ] Check long passages as well as short demos. Listen to at least ten minutes of continuous technical narration before approving a voice.
 - [ ] Evaluate the default speed and several faster/slower settings. Speed controls must preserve intelligibility and avoid unintended pitch changes.
 - [ ] Include proper names, acronyms, Greek letters, units, dates, decimals, negative numbers, abbreviations, citations, and mixed prose/math in the audition.
-- [x] Offer a preview using a fixed sample and an optional passage from the current document, with the same engine and processing path used in playback.
+- [x] Offer a preview using a fixed sample, with the same engine and processing path used in playback. (The current-passage preview was removed on 2026-10-12: Play reads the current passage.)
 - [ ] Show the voice's language, accent where available, download requirement, offline availability, and any usage cost before selection.
 - [x] Let the user choose and remember a preferred voice. Do not substitute another provider, voice, or language without explaining the change.
+- [x] Without a choice, use the best installed Apple voice for the passage's language (Personal Voice when allowed, Premium, Enhanced, compact), recognized from the passage rather than the device language, and pick up a newly downloaded voice automatically. Never offer the MacinTalk or Eloquence voices.
+- [x] When only compact voices exist for the language, point to Settings › Accessibility › Spoken Content › Voices.
+- [x] Ask for Personal Voice access only from an explicit tap ("Use My Personal Voice…"). The prompt and reading with a Personal Voice are not yet checked on a device.
+- [x] Offer voice and speed in Settings › Read Aloud as well as in Reading Options.
 - [ ] Support document-appropriate language selection and an explicit override. Evaluate mixed-language passages before promising automatic switching.
 - [ ] Add a pronunciation dictionary for technical terms and names. Keep overrides separate from source content and invalidate affected cached speech when they change.
 
@@ -88,15 +94,18 @@ These are proposed release criteria, not measured results.
 ## 4. Interpret Markdown and Obsidian syntax
 
 - [x] Use the existing Markdown parser and semantic structures. Avoid stripping punctuation with a single regular expression.
-- [ ] Read heading text with a heading pause. `## Introduction` must sound like “Introduction.”
+- [x] Read heading text with a heading pause. `## Introduction` must sound like “Introduction.” (0.6 s before and after; not yet listened to with a Premium voice.)
 - [x] Speak emphasis content while omitting `**`, `_`, `~~`, and highlight/color markers. Preserve punctuation that carries meaning.
 - [ ] Read link labels and Wikilink aliases. Offer an explicit action for spelling a destination or URL.
+  - Labels and aliases are read; a bare web address is said as "link to example.com". The spelling action remains open.
 - [ ] Read lists in order, with pauses and a preference for announcing list numbers or task state.
 - [ ] Read callout titles and bodies, including nested callouts, with coherent pauses.
+  - A callout title is now read as its own heading before the body; nested callouts are not specifically tested. Folded callouts are read although their text is hidden, so the highlight cannot be seen there.
 - [ ] Skip YAML properties, comments, block identifiers, and formatting syntax by default. Offer relevant metadata as an explicit reading choice.
 - [ ] Offer footnotes inline, at the end, or skipped. Keep footnote navigation separate from the main passage position.
 - [ ] Offer citation/reference reading preferences without deleting substantive sentences around references.
 - [ ] Define table narration by row with column headers. Support reading a selected cell or row and skipping a table.
+  - Rows are read with their column headers ("Gate: NAND, Inputs: 2"). Reading one cell or row and skipping a table remain open.
 - [ ] Offer code-block choices: skip with an indication, read as text, or spell symbols. Inline code needs its own preference.
 - [ ] Read meaningful image descriptions/captions when present. Do not invent a description of an image or diagram.
 - [ ] Make embedded-note reading explicit, bounded, and cycle-safe. Do not follow arbitrary links or fetch remote attachments during narration.
@@ -144,7 +153,9 @@ These are proposed release criteria, not measured results.
 - [ ] Validate single-column, two-column, and mixed-layout papers. Reading order must not jump between columns halfway through a sentence.
   - Synthetic single/two-column and spanning-heading fixtures pass using Apple's on-device paragraph detector. Every original token is retained once. Page Layout/File Order choice rebuilds the range and waits for Play. Tables, uncertain mappings and older systems use complete file-order text with a notice. Real course papers and broader layouts remain to validate.
 - [ ] Handle line-break hyphenation, ligatures, Unicode, superscripts, subscripts, and text boxes while preserving mappings back to the page.
+  - A line-end hyphen before a lowercase word joins the word (the hyphen is kept, so "transis-tor" may still sound split); slide lines, bullets and dot leaders are handled. The rest remains open.
 - [ ] Detect repeated headers, footers, and page numbers with conservative rules. Provide a preference and a way to inspect or override skipped regions.
+  - A first or last line carrying the page number is skipped, with a notice, and its text is skipped on later pages of the same read. No preference or inspection yet; footers without a page number are still read.
 - [ ] Distinguish body text, headings, captions, footnotes, tables, references, and equations where extraction permits. Expose uncertainty rather than silently dropping text.
 - [ ] Provide preferences for citations, reference lists, captions, tables, and footnotes. Preserve material inside an explicit selection unless the user chooses filtering.
 - [ ] Support text/image pages within the same PDF, rotated pages, crop boxes, zoom, and continuous page layouts.
@@ -177,13 +188,15 @@ These are proposed release criteria, not measured results.
 ## 8. Playback controls and session behavior
 
 - [x] Provide play, pause, resume, stop, previous/next sentence, repeat passage, speed, voice, and **Follow Reading** controls. Device gesture delivery and sustained playback still require validation.
-- [ ] Show the document, active range, current section/page, and buffering or error state without crowding the study interface.
+- [x] Show the document, active range, current section/page, and buffering or error state without crowding the study interface. (Toolbar Pause/Resume and a Reading Controls popover; Reading Options opens by itself only for errors and scans.)
 - [x] Keep playback session ownership separate from a document view so tab navigation does not recreate the speech engine.
 - [ ] Define switching documents and vaults: stop before releasing required file access, preserve a valid checkpoint, and show which document is speaking.
 - [ ] Store a device-local resume checkpoint using document identity, revision, and semantic anchor. Revalidate it after external edits, renames, page changes, or note edits.
 - [x] On an edit affecting the passage, pause and rebuild or ask the user to restart from a known anchor. Never continue highlighting unrelated content using stale offsets.
 - [ ] Handle calls, audio-route changes, headphones disconnecting, app backgrounding, screen locking, and system playback interruptions.
+  - Implemented: playback audio session, reading continues in the background and when locked (seen in the simulator), unplugging pauses, an interruption resumes only if it was speaking and the system allows it (unit-tested). Calls, headphones and the silent switch still need a real iPad.
 - [ ] Integrate supported lock-screen and headset controls, with the document's title as playback metadata.
+  - Implemented with Now Playing (title, scope, progress) and play, pause, toggle and next/previous sentence. The simulator's lock screen does not draw it; check on a device.
 - [ ] Coordinate audio-session policy with lecture recording and media playback. Test supported combinations and explain unavailable combinations before starting them.
 - [ ] Provide useful recovery for voice downloads, network loss, service errors, quota limits, corrupt audio, missing timing, and expired cached passages.
 - [ ] Make buffering and failures distinct from pause and completion. Resume without duplicate or omitted sentences.
