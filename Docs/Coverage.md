@@ -4,6 +4,10 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-12.
 
+## The Pencil tool bar's code in four files: 2026-10-12
+
+`PencilToolbox.swift` had grown to about 1,040 lines. It now keeps the tool bar's state and the inks (`PencilToolbarStyle`, `PencilInk`, `InkPreset`, `PencilToolbox` and their PencilKit tools); `PencilToolbar.swift` has the bar, its row and the tab bar's tools; `PencilToolButtons.swift` the buttons the bar and the squeeze palette share, the bar's metrics and the tool glyphs; `PencilToolOptions.swift` the size editor and the ink options. The code moved unchanged (checked line by line); the package picks the files up by folder, so the Xcode project needed no change. Checked by building for iPad and macOS and by the hosted `PencilToolsTests`.
+
 ## The highlighter's colors follow Settings at once: 2026-10-12
 
 The fixed bar and the squeeze palette read the highlighter's colors once, when they were made, so a color changed in Settings › Colors showed only after the bar was made again. They now follow the stored list. Checked by `PencilToolsTests.testTheBarsHighlighterColorsFollowSettingsAtOnce` (hosted): a bar on screen with the highlighter in use shows the default blue swatch, then, once Settings saves another list, that list's color and no blue; with the previous code the same test fails. Not looked at on the iPad.
