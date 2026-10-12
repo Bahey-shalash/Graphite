@@ -535,4 +535,29 @@ final class PencilToolboxTests: XCTestCase {
         relaunched.use(.laser)
         XCTAssertEqual(try JSONDecoder().decode(StoredStateWithoutLaser.self, from: try XCTUnwrap(defaults.data(forKey: PencilToolbox.storageKey))).toolInUse, .eraser)
     }
+
+    /// The bar's size dots show the widths they stand for: a width changed in its popover
+    /// changes its dot, every ink's three sizes are told apart, and every dot stays visible
+    /// and inside its button.
+    func testTheSizeDotsFollowTheirWidthsWithinAVisibleRange() {
+        // The owner's case: monoline from 1.4 mm down to 0.2 mm and back.
+        let monolineBroad = PencilSizeDot.diameter(forWidth: 1.4 / PencilWidthText.millimetersPerPoint)
+        let monolineFine = PencilSizeDot.diameter(forWidth: 0.2 / PencilWidthText.millimetersPerPoint)
+        XCTAssertGreaterThan(monolineBroad - monolineFine, 6)
+        for ink in PencilInk.allCases {
+            let diameters = ink.widthChoices.map(PencilSizeDot.diameter(forWidth:))
+            for (smaller, larger) in zip(diameters, diameters.dropFirst()) {
+                XCTAssertGreaterThan(larger - smaller, 1.5, "\(ink): its three sizes look different.")
+            }
+            for width in [ink.widthRange.lowerBound, ink.widthRange.upperBound] {
+                let diameter = PencilSizeDot.diameter(forWidth: width)
+                XCTAssertGreaterThanOrEqual(diameter, PencilSizeDot.smallestDiameter)
+                XCTAssertLessThanOrEqual(diameter, PencilSizeDot.largestDiameter)
+            }
+        }
+        XCTAssertLessThanOrEqual(PencilSizeDot.largestDiameter, 28, "Inside the 28-point button.")
+        XCTAssertEqual(PencilSizeDot.diameter(forWidth: 100), PencilSizeDot.largestDiameter, "The broadest eraser is clamped.")
+        XCTAssertEqual(PencilSizeDot.diameter(forWidth: 0.1), PencilSizeDot.smallestDiameter)
+        XCTAssertEqual(PencilSizeDot.diameter(forWidth: .nan), PencilSizeDot.smallestDiameter)
+    }
 }

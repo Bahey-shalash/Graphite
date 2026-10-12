@@ -144,7 +144,7 @@ struct DrawingEditor: View {
                     // The bar stays while pictures are arranged: removing it would move the
                     // drawing under the finger.
                     if usesFixedToolbar, showsToolPicker {
-                        PencilToolbar(toolbox: toolbox, favoriteColors: GraphitePreferences.storedColorPalette(), drawsShapes: $drawsShapes,
+                        PencilToolbar(toolbox: toolbox, drawsShapes: $drawsShapes,
                                       addImage: { showsPhotoPicker = true },
                                       undoAvailability: canvasController.undoAvailability)
                     }
@@ -837,6 +837,11 @@ final class InfiniteCanvasView: HistoryCanvasView {
     /// The paper pattern shown under the ink.
     var paperPattern: DrawingPaperPattern { paperView.paper.pattern }
 
+    /// The highest of the paper and the pictures, all under the ink.
+    override var topViewUnderInk: UIView? {
+        pictures.last.flatMap { placed in pictureViews[placed.id] } ?? basePictureView ?? paperView
+    }
+
     /// Shows the paper and its color under the ink. `asSaved` shows it as the note will:
     /// without a pattern that is only a guide, and with no paper where there is none.
     func showPaper(_ paper: DrawingPaper, background: DrawingBackground, asSaved: Bool) {
@@ -1298,6 +1303,10 @@ private struct DrawingCanvas: UIViewRepresentable {
         func stopObservingToolbox() {
             if let toolboxObserver { NotificationCenter.default.removeObserver(toolboxObserver) }
             toolboxObserver = nil
+        }
+
+        func canvasViewDidFinishRendering(_ canvasView: PKCanvasView) {
+            (canvasView as? HistoryCanvasView)?.drawingDidFinishRendering()
         }
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
