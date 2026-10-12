@@ -95,9 +95,7 @@ final class CommunityPluginShownCodeBlock {
         case .section: message["kind"] = "section"
         case .view: return
         }
-        if let firstLine = request.firstLine { message["firstLine"] = firstLine }
-        // `getSectionInfo` gives a plugin the whole note; only an open note's text is at hand.
-        if let noteText = host.openNoteText(at: request.note), (noteText as NSString).length <= 1_048_576 { message["noteText"] = noteText }
+        message.merge(host.sectionInformation(for: request)) { _, new in new }
         do {
             let answer = try await host.send(message, timeout: Self.drawingTimeout)
             guard self.request == request else { return }
@@ -175,6 +173,12 @@ final class CommunityPluginShownCodeBlock {
         var message = event
         message["operation"] = "codeBlock.event"
         message["blockIdentifier"] = blockIdentifier
+        // Live Preview's blocks move as the note is edited above them; a plugin that edits its
+        // block through `getSectionInfo` in answer to the tap reads where the block is now.
+        if let request, request.firstLine == nil, case .codeBlock = request.kind {
+            message["sectionIsCurrent"] = true
+            message.merge(host.sectionInformation(for: request)) { _, new in new }
+        }
         Task {
             guard let answer = try? await host.send(message, timeout: Self.tapTimeout) else { return }
             if let taskLine = answer["taskLine"] as? Int { tickTask?(taskLine) }
@@ -202,6 +206,26 @@ extension CommunityPluginHost {
         keptCopyOrder.removeAll { keptRequest in keptRequest == request }
         keptCopyOrder.append(request)
         while keptCopyOrder.count > Self.maximumKeptCopies { lastCodeBlockCopies[keptCopyOrder.removeFirst()] = nil }
+    }
+
+    /// What `getSectionInfo` answers for a block: the note's text and the block's first line.
+    /// A request without a first line (Live Preview's, whose blocks move with each edit) is
+    /// looked for in the note as it is now, and has none unless exactly one block matches, so
+    /// a plugin never edits another block's lines.
+    func sectionInformation(for request: CommunityPluginReadingBlockRequest) -> [String: Any] {
+        // `getSectionInfo` gives a plugin the whole note; only an open note's text is at hand.
+        guard let noteText = openNoteText(at: request.note), (noteText as NSString).length <= 1_048_576 else {
+            return request.firstLine.map { firstLine in ["firstLine": firstLine] } ?? [:]
+        }
+        var information: [String: Any] = ["noteText": noteText]
+        if let firstLine = request.firstLine {
+            information["firstLine"] = firstLine
+        } else if case .codeBlock(let language) = request.kind,
+                  let place = LivePreviewBlockScanner.onlyPluginCodeBlock(language: language, code: request.source, in: noteText) {
+            information["firstLine"] = place.firstLine
+            information["lineCount"] = place.lineCount
+        }
+        return information
     }
 
     /// The text of a note open in Graphite, as its editor holds it.

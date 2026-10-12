@@ -319,7 +319,10 @@ struct MarkdownPane: View {
             // Reading view's column, a little wider than Live Preview's, bounds the decode.
             embeddedImageColumnWidth: preferences.usesReadableLineLength ? ReadingConfiguration.readableColumnWidth : nil,
             readingContext: LivePreviewReadingContext(controller: workspace.readAloud, path: session.path),
-            lassoNoteDestination: LassoNoteDestination.note(session, in: workspace))
+            lassoNoteDestination: LassoNoteDestination.note(session, in: workspace),
+            pluginCodeBlocks: workspace.communityPlugins.isRuntimeRunning ? workspace.communityPlugins : nil,
+            pluginCodeBlockLanguages: workspace.communityPlugins.codeBlockLanguages,
+            notePath: notePath)
     }
 
     /// Opens a drawing in the editor, where the platform and preferences allow it.

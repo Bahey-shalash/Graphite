@@ -209,6 +209,7 @@ struct LivePreviewBlockKey: Hashable {
         case .baseDefinition: "base"
         case .horizontalRule: "rule"
         case .callout: "callout"
+        case .pluginCodeBlock(let language): "plugin-" + language
         }
     }
 }
@@ -276,8 +277,10 @@ final class LivePreviewTextState {
 
     /// Takes in the current text. Blocks move with an edit that cannot change them, and
     /// are found again otherwise. `findsBlocks` is false outside Live Preview;
-    /// `forcesBlockScan` is for a change in which blocks are rendered.
-    func update(source newSource: NSString, findsBlocks: Bool, forcesBlockScan: Bool = false, isRendered: (LivePreviewBlock) -> Bool) {
+    /// `forcesBlockScan` is for a change in which blocks are rendered. Fenced blocks in
+    /// `pluginCodeBlockLanguages` are drawn by community plugins.
+    func update(source newSource: NSString, findsBlocks: Bool, forcesBlockScan: Bool = false, pluginCodeBlockLanguages: Set<String> = [],
+                isRendered: (LivePreviewBlock) -> Bool) {
         defer {
             source = newSource
             cachesDescribeOldText = false
@@ -294,7 +297,7 @@ final class LivePreviewTextState {
             blockEntries = movedEntries
             return
         }
-        let blocks = LivePreviewBlockScanner.blocks(in: newSource).filter(isRendered)
+        let blocks = LivePreviewBlockScanner.blocks(in: newSource, pluginCodeBlockLanguages: pluginCodeBlockLanguages).filter(isRendered)
         blockEntries = zip(blocks, LivePreviewBlockKey.keys(for: blocks)).map { block, key in
             LivePreviewBlockEntry(block: block, range: block.range, key: key)
         }

@@ -12,6 +12,9 @@ public struct LivePreviewBlock: Equatable, Sendable {
         case horizontalRule
         /// A `> [!type]` callout with its quoted body.
         case callout
+        /// A fenced block in a language a community plugin draws (`registerMarkdownCodeBlockProcessor`),
+        /// with the code between its fences in `markdown`.
+        case pluginCodeBlock(language: String)
     }
     public let kind: Kind
     /// Whole lines, including the final line break when there is one.
@@ -25,7 +28,9 @@ public enum LivePreviewBlockScanner {
     private static let calloutHeaderPattern = try? NSRegularExpression(pattern: "^>[ \\t]?\\[![A-Za-z0-9_-]+\\][+-]?")
     private static let horizontalRulePattern = try? NSRegularExpression(pattern: "^ {0,3}(?:(?:-[ \\t]*){3,}|(?:\\*[ \\t]*){3,}|(?:_[ \\t]*){3,})$")
 
-    public static func blocks(in text: NSString) -> [LivePreviewBlock] {
+    /// - Parameter pluginCodeBlockLanguages: Languages community plugins draw. As in Obsidian,
+    ///   a fenced block in one of them is drawn by its plugin in Live Preview too.
+    public static func blocks(in text: NSString, pluginCodeBlockLanguages: Set<String> = []) -> [LivePreviewBlock] {
         var blocks: [LivePreviewBlock] = []
         let frontmatterLength = FrontmatterLocator.length(in: text)
         if frontmatterLength > 0 {
@@ -57,6 +62,13 @@ public enum LivePreviewBlockScanner {
                     let lastContentIndex = closingIndex < lines.count ? closingIndex - 1 : lastIndex
                     let yaml = lineIndex + 1 <= lastContentIndex ? markdown(lineIndex + 1, lastContentIndex) : ""
                     blocks.append(LivePreviewBlock(kind: .baseDefinition(yaml), range: span(lineIndex, lastIndex), markdown: yaml))
+                } else if !pluginCodeBlockLanguages.isEmpty {
+                    let pluginLanguage = NotePreviewDocument.codeBlockLanguage(ofFenceInfo: info)
+                    if !pluginLanguage.isEmpty, pluginCodeBlockLanguages.contains(pluginLanguage) {
+                        let lastContentIndex = closingIndex < lines.count ? closingIndex - 1 : lastIndex
+                        let code = lineIndex + 1 <= lastContentIndex ? markdown(lineIndex + 1, lastContentIndex) : ""
+                        blocks.append(LivePreviewBlock(kind: .pluginCodeBlock(language: pluginLanguage), range: span(lineIndex, lastIndex), markdown: code))
+                    }
                 }
                 lineIndex = lastIndex + 1
                 lineIndexAfterBlock = lineIndex
@@ -161,5 +173,30 @@ public enum LivePreviewBlockScanner {
         let trimmedLine = line.trimmingCharacters(in: .whitespaces)
         guard trimmedLine.contains("-") else { return false }
         return trimmedLine.allSatisfy { character in "|-: \t".contains(character) }
+    }
+
+    /// Where the one fenced block in `language` holding `code` is in `text`: its zero-based
+    /// first line (the opening fence) and the lines it spans. Nil when no block or more than
+    /// one matches, since a plugin editing "its" lines must not reach another block.
+    public static func onlyPluginCodeBlock(language: String, code: String, in text: String) -> (firstLine: Int, lineCount: Int)? {
+        let source = text as NSString
+        let matches = blocks(in: source, pluginCodeBlockLanguages: [language]).filter { block in
+            block.kind == .pluginCodeBlock(language: language) && block.markdown == code
+        }
+        guard matches.count == 1, let block = matches.first else { return nil }
+        func lineNumber(at location: Int) -> Int {
+            var lines = 0
+            var searchStart = 0
+            while searchStart < location {
+                let found = source.range(of: "\n", options: .literal, range: NSRange(location: searchStart, length: location - searchStart))
+                guard found.location != NSNotFound else { break }
+                lines += 1
+                searchStart = found.location + 1
+            }
+            return lines
+        }
+        let firstLine = lineNumber(at: block.range.location)
+        let lastLine = lineNumber(at: max(block.range.location, NSMaxRange(block.range) - 1))
+        return (firstLine, lastLine - firstLine + 1)
     }
 }

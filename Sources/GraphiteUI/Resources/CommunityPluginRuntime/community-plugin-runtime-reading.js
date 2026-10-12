@@ -251,14 +251,14 @@
         };
         drawnBlocks.set(message.blockIdentifier, entry);
         const cache = runtime.app.metadataCache.getCache(sourcePath);
-        const section = sectionInformation(message);
+        entry.section = sectionInformation(message);
         entry.context = {
             docId: 'graphite-' + message.blockIdentifier,
             sourcePath,
             frontmatter: cache && cache.frontmatter ? cache.frontmatter : null,
             el: element,
             addChild(child) { entry.addedChildCount += 1; component.addChild(child); },
-            getSectionInfo() { return section; },
+            getSectionInfo() { return entry.section; },
         };
         return entry;
     }
@@ -539,6 +539,8 @@
             if (!entry) return { isHandled: false };
             const element = elementAtPath(entry, message.elementPath);
             if (!element) return { isHandled: false };
+            // A Live Preview block may have moved since it was drawn: Graphite says where it is now.
+            if (message.sectionIsCurrent) entry.section = sectionInformation(message);
             // A task of the note itself is ticked by Graphite, in the note.
             if (message.eventType !== 'input' && element.matches('input[data-graphite-task-line]')) {
                 return { isHandled: true, taskLine: Number(element.getAttribute('data-graphite-task-line')) };

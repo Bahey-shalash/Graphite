@@ -984,8 +984,15 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         }
 
         private var isLivePreview: Bool { configuration.mode == .livePreview && environment != nil }
-        /// What decides which blocks are rendered besides the configuration.
-        var renderedBlockPolicy: [Bool] { [environment != nil, environment?.updateProperties != nil] }
+        /// What decides which blocks are rendered besides the configuration: plugins that
+        /// register a code block language later have their blocks found again.
+        var renderedBlockPolicy: [String] {
+            [String(environment != nil), String(environment?.updateProperties != nil), pluginCodeBlockLanguages.sorted().joined(separator: ",")]
+        }
+        /// Languages community plugins draw in Live Preview; none without the plugin runtime.
+        private var pluginCodeBlockLanguages: Set<String> {
+            environment?.pluginCodeBlocks == nil ? [] : environment?.pluginCodeBlockLanguages ?? []
+        }
         var textRevision: Int { textState.history.revision }
 
         // MARK: Character edits
@@ -1056,7 +1063,8 @@ struct NativeMarkdownEditor: UIViewRepresentable {
 
         func rebuildBlocks(in textView: UITextView, forcesBlockScan: Bool = false) {
             let source = currentSource(of: textView)
-            textState.update(source: source, findsBlocks: isLivePreview, forcesBlockScan: forcesBlockScan, isRendered: isRendered)
+            textState.update(source: source, findsBlocks: isLivePreview, forcesBlockScan: forcesBlockScan,
+                             pluginCodeBlockLanguages: pluginCodeBlockLanguages, isRendered: isRendered)
             forgetHeightsOfRemovedBlocks()
             foldableRegions = source.length <= Self.maximumFoldingLength ? NoteFolding.regions(in: source as String) : []
             revealedMarkup = markupRevealedBySelection(in: textView)
@@ -1172,6 +1180,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             case .horizontalRule: return 28
             case .callout: return 56 + 30 * CGFloat(block.markdown.components(separatedBy: "\n").count - 1)
             case .baseDefinition: return EmbeddedBaseView.defaultHeight
+            case .pluginCodeBlock: return 120
             case .embed(let embed):
                 let fileExtension = (WikiLinkResolver.pathPart(embed.target) as NSString).pathExtension.lowercased()
                 if MediaFileKind.videoExtensions.contains(fileExtension) { return columnWidth * 9 / 16 + 8 }
@@ -3202,7 +3211,7 @@ struct LivePreviewWidgetSignature: Equatable {
     static func readsIndex(_ kind: LivePreviewBlock.Kind) -> Bool {
         switch kind {
         case .embed, .baseDefinition, .callout: true
-        case .frontmatter, .table, .mathBlock, .horizontalRule: false
+        case .frontmatter, .table, .mathBlock, .horizontalRule, .pluginCodeBlock: false
         }
     }
 }
@@ -3234,6 +3243,8 @@ struct DetachedWidgetPool<Host> {
         case .table, .baseDefinition: return 6
         case .frontmatter: return 4
         case .mathBlock, .callout, .horizontalRule: return 1
+        // A copy of what a plugin drew is a web view of its own.
+        case .pluginCodeBlock: return 8
         case .embed(let embed):
             let fileExtension = (WikiLinkResolver.pathPart(embed.target) as NSString).pathExtension.lowercased()
             if MediaFileKind.videoExtensions.contains(fileExtension) || MediaFileKind.audioExtensions.contains(fileExtension) { return nil }

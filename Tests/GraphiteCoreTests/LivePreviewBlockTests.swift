@@ -55,4 +55,24 @@ final class LivePreviewBlockTests: XCTestCase {
     func testTableNeedsDelimiterRow() {
         XCTAssertTrue(LivePreviewBlockScanner.blocks(in: "| just a pipe line |\nnext" as NSString).isEmpty)
     }
+
+    func testPluginCodeBlocksAreBlocksOnlyInLanguagesPluginsDraw() {
+        let source = "Intro\n```dataview\nLIST\n```\n```swift\nlet x = 1\n```\n~~~ad-note title\nBody\n~~~\n" as NSString
+        XCTAssertTrue(LivePreviewBlockScanner.blocks(in: source).isEmpty, "Without plugins, fenced code stays text.")
+        let blocks = LivePreviewBlockScanner.blocks(in: source, pluginCodeBlockLanguages: ["dataview", "ad-note"])
+        XCTAssertEqual(blocks.map(\.kind), [.pluginCodeBlock(language: "dataview"), .pluginCodeBlock(language: "ad-note")])
+        XCTAssertEqual(blocks[0].markdown, "LIST")
+        XCTAssertEqual(source.substring(with: blocks[0].range), "```dataview\nLIST\n```\n")
+        XCTAssertEqual(blocks[1].markdown, "Body")
+    }
+
+    func testThePluginBlockIsFoundOnlyWhenOneBlockMatches() {
+        let note = "# Title\n\n```dataview\nLIST\n```\n\n```dataview\nTABLE file.name\n```\n"
+        let place = LivePreviewBlockScanner.onlyPluginCodeBlock(language: "dataview", code: "TABLE file.name", in: note)
+        XCTAssertEqual(place?.firstLine, 6)
+        XCTAssertEqual(place?.lineCount, 3)
+        XCTAssertNil(LivePreviewBlockScanner.onlyPluginCodeBlock(language: "dataview", code: "LIST", in: note + "```dataview\nLIST\n```\n"),
+                     "Two matching blocks: a plugin must not be given either's lines.")
+        XCTAssertNil(LivePreviewBlockScanner.onlyPluginCodeBlock(language: "dataview", code: "TASK", in: note))
+    }
 }
