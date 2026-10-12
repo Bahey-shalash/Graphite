@@ -79,6 +79,15 @@ public final class NeuralVoiceLibrary {
         manifest.voices.filter { voice in !voice.isOffered(onPlatform: platform, physicalMemoryBytes: physicalMemoryBytes) }
     }
 
+    /// Why a voice is not offered here, in words for the person.
+    public func unavailabilityReason(of voice: NeuralVoiceDescription) -> String {
+        let device = platform == "macOS" ? "this Mac" : "this device"
+        if !voice.platforms.contains(platform) {
+            return platform == "iOS" ? "Mac only: it needs more memory than this iPad has, and is too slow here to prepare a note." : "Not available on \(device)."
+        }
+        return "Needs more memory than \(device) has."
+    }
+
     public func state(of voice: NeuralVoiceDescription) -> NeuralVoiceDownloadState { states[voice.id] ?? .notInstalled }
 
     public var installedVoices: [NeuralVoiceDescription] {

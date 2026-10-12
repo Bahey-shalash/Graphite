@@ -309,7 +309,7 @@ private struct CorePluginsSettingsPage: View {
                         }
                         Button("Keep Them", role: .cancel) {}
                     } message: {
-                        Text("Read Aloud is off. Its voices and prepared audio take \(NeuralVoicesPage.size(downloadedVoiceBytes)). Keep them to turn Read Aloud back on without downloading again.")
+                        Text("Read Aloud is off. Its voices and prepared audio take \(NeuralVoicesSection.size(downloadedVoiceBytes)). Keep them to turn Read Aloud back on without downloading again.")
                     }
                 }
             } footer: {
@@ -542,13 +542,14 @@ private struct ReadAloudSettingsPage: View {
         Form {
             if let library = ReadAloudVoices.library {
                 ReadAloudModeSection(library: library, speech: reader.neuralSpeech)
+                NeuralVoicesSection(library: library)
             }
+            ReadAloudVoiceSettings(reader: reader)
             Section {
                 Toggle("Floating Player", isOn: $usesFloatingPlayer)
             } footer: {
                 Text("A small player in a corner of the window while reading: skip by sentence, section or page, change speed, and jump back after scrolling. Drag it to another corner. When off, the controls are in the toolbar.")
             }
-            ReadAloudVoiceSettings(reader: reader)
             Section {
                 NavigationLink("Pronunciations") { ReadAloudPronunciationEditor(vaultRoot: vaultRoot) }
             } footer: {

@@ -3,7 +3,7 @@ import GraphiteCore
 import GraphiteVoices
 
 /// Settings › Read Aloud's reading mode: High Quality with a downloaded voice, rendered ahead,
-/// or Quick with the system voice. Choosing High Quality without a voice leads to the voices.
+/// or Quick with the system voice. High Quality can be chosen once a voice is downloaded.
 struct ReadAloudModeSection: View {
     @Bindable var library: NeuralVoiceLibrary
     let speech: NeuralReadAloudSpeech?
@@ -20,12 +20,6 @@ struct ReadAloudModeSection: View {
             }
             .disabled(!library.hasDownloadedVoice)
             .accessibilityIdentifier("readAloudModePicker")
-            NavigationLink {
-                NeuralVoicesPage(library: library)
-            } label: {
-                LabeledContent("Voices", value: library.selectedVoice?.description.name ?? "None Downloaded")
-            }
-            .accessibilityIdentifier("readAloudVoicesLink")
             if library.mode == .highQuality {
                 Toggle("Read Unprepared Passages with System Voice", isOn: Binding(
                     get: { library.readsUnpreparedPassagesQuickly },
@@ -43,48 +37,50 @@ struct ReadAloudModeSection: View {
 
     private var footer: String {
         if !library.hasDownloadedVoice {
-            return "Quick reads at once with the system voice. Download a voice for High Quality: it prepares the note ahead, passage by passage, and sounds far more natural. Everything runs on this device."
+            return "Quick reads at once with the system voice. Download a voice below for High Quality: it prepares the note ahead, passage by passage, and sounds far more natural. Everything runs on this device."
         }
         if library.mode == .highQuality {
             return "High Quality prepares the note ahead with the downloaded voice and starts as soon as the first passages are ready. Without the system voice filling in, reading waits for each passage. Preparing continues only while Graphite is on screen."
         }
-        return "Quick reads at once with the system voice, set below."
+        return "Quick reads at once with the system voice, chosen under System Voice and Speed."
     }
 }
 
-/// Settings › Read Aloud › Voices: every downloadable voice with its size, sound and license,
-/// downloaded, paused or deleted one by one.
-struct NeuralVoicesPage: View {
+/// Settings › Read Aloud's downloadable voices, best first: each with its size, sound, license
+/// and download control; tapping Use This Voice reads with it. Voices this device cannot run
+/// are listed too, with the reason, so their absence is not a mystery.
+struct NeuralVoicesSection: View {
     @Bindable var library: NeuralVoiceLibrary
     @State private var voicePendingDeletion: NeuralVoiceDescription?
 
     var body: some View {
-        Form {
-            Section {
-                ForEach(library.offeredVoices) { voice in
-                    NeuralVoiceRow(library: library, voice: voice) { voicePendingDeletion = voice }
+        Section {
+            ForEach(library.offeredVoices) { voice in
+                NeuralVoiceRow(library: library, voice: voice) { voicePendingDeletion = voice }
+            }
+            ForEach(library.unavailableVoices) { voice in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(voice.name).font(.headline)
+                    Text("\(voice.modelName) · \(NeuralVoicesSection.size(voice.byteCount)) · \(voice.license.name)")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Text(library.unavailabilityReason(of: voice))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-            } footer: {
-                Text("Voices download from their makers’ Hugging Face pages and run entirely on this device; your notes never leave it. Larger voices take longer to prepare a note.")
+                .padding(.vertical, 4)
+                .accessibilityElement(children: .combine)
             }
-            if !library.unavailableVoices.isEmpty {
-                Section {
-                    ForEach(library.unavailableVoices) { voice in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("\(voice.name) · \(voice.modelName)")
-                            Text(voice.qualityNote).font(.footnote).foregroundStyle(.secondary)
-                        }
-                        .padding(.vertical, 4)
-                    }
-                } header: {
-                    Text("Not Available on This Device")
-                }
+            NavigationLink("Voice Credits") {
+                Form { Section { NeuralVoiceCredits(voices: library.manifest.voices) } }
+                    .navigationTitle("Voice Credits")
             }
-            Section("Credits") {
-                NeuralVoiceCredits(voices: library.manifest.voices)
-            }
+        } header: {
+            Text("High Quality Voices")
+        } footer: {
+            Text("Voices download from their makers’ Hugging Face pages and run entirely on this device; your notes never leave it. Larger voices take longer to prepare a note.")
         }
-        .navigationTitle("Voices")
         .onAppear { library.refreshInstalledVoices() }
         .confirmationDialog("Delete \(voicePendingDeletion?.name ?? "Voice")?", isPresented: Binding(
             get: { voicePendingDeletion != nil }, set: { isPresented in if !isPresented { voicePendingDeletion = nil } }),
@@ -117,7 +113,7 @@ private struct NeuralVoiceRow: View {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(voice.name).font(.headline)
-                    Text("\(voice.modelName) · \(NeuralVoicesPage.size(voice.byteCount)) · \(voice.license.name)")
+                    Text("\(voice.modelName) · \(NeuralVoicesSection.size(voice.byteCount)) · \(voice.license.name)")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -166,7 +162,7 @@ private struct NeuralVoiceRow: View {
         case .installed:
             HStack {
                 if !isSelected {
-                    Button("Read with \(voice.name)", systemImage: "speaker.wave.2") { library.selectVoice(voice) }
+                    Button("Use This Voice", systemImage: "checkmark.circle") { library.selectVoice(voice) }
                 }
                 Button("Delete", systemImage: "trash", role: .destructive) { requestDeletion() }
                     .tint(.red)
@@ -183,7 +179,7 @@ private struct NeuralVoiceRow: View {
         ProgressView(value: Double(received), total: Double(max(total, 1))) {
             Text(label)
         } currentValueLabel: {
-            Text("\(NeuralVoicesPage.size(received)) of \(NeuralVoicesPage.size(total))")
+            Text("\(NeuralVoicesSection.size(received)) of \(NeuralVoicesSection.size(total))")
         }
     }
 }
@@ -218,7 +214,7 @@ struct ReadAloudStorageSection: View {
 
     var body: some View {
         Section {
-            LabeledContent("Prepared Audio", value: NeuralVoicesPage.size(library.cacheBytes))
+            LabeledContent("Prepared Audio", value: NeuralVoicesSection.size(library.cacheBytes))
             Button("Delete Prepared Audio", systemImage: "trash", role: .destructive) {
                 Task { await library.deleteRenderedAudio() }
             }
@@ -226,7 +222,7 @@ struct ReadAloudStorageSection: View {
         } header: {
             Text("Storage")
         } footer: {
-            Text("Prepared passages are kept so a note reads at once the next time; only changed passages are prepared again. The oldest are removed when they pass \(NeuralVoicesPage.size(ReadAloudAudioCacheEviction.defaultCapacityBytes)). They are never stored in your vault.")
+            Text("Prepared passages are kept so a note reads at once the next time; only changed passages are prepared again. The oldest are removed when they pass \(NeuralVoicesSection.size(ReadAloudAudioCacheEviction.defaultCapacityBytes)). They are never stored in your vault.")
         }
         .task { await library.refreshCacheSize() }
     }
