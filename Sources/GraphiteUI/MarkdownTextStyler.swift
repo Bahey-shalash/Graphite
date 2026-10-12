@@ -18,6 +18,8 @@ struct EditorConfiguration: Equatable {
     var textSize: Double = 17
     /// The vault's text and monospace fonts (Settings › Appearance › Font).
     var typography = NoteTypography.standard
+    /// The vault's Obsidian theme, or nil for Graphite's own look.
+    var theme: NoteThemeStyle?
     var usesSpellChecking = true
     var colorsEnabled = true
     var paletteHexByName: [String: String] = [:]
@@ -43,6 +45,38 @@ enum HeadingTypography {
 
     static func fontScale(level: Int) -> CGFloat {
         fontScales[min(max(level, 1), fontScales.count) - 1]
+    }
+
+    /// A heading's size as a multiple of the text size: the theme's, else Graphite's.
+    static func fontScale(level: Int, theme: NoteThemeStyle?) -> CGFloat {
+        theme?.headingScales[min(max(level, 1), 6) - 1].map { scale in CGFloat(min(max(scale, 0.75), 3)) } ?? fontScale(level: level)
+    }
+
+    static func weight(level: Int, theme: NoteThemeStyle?) -> PlatformFont.Weight {
+        theme?.headingWeights[min(max(level, 1), 6) - 1] ?? .semibold
+    }
+
+    /// The heading's font: the theme's heading font unless `appearance.json` names a text
+    /// font (which wins, as in Obsidian), else the text font; the theme's size and weight.
+    @MainActor
+    static func font(level: Int, textSize: CGFloat, typography: NoteTypography, theme: NoteThemeStyle?) -> PlatformFont {
+        let index = min(max(level, 1), 6) - 1
+        let size = textSize * fontScale(level: level, theme: theme)
+        let weight = weight(level: level, theme: theme)
+        var font: PlatformFont
+        if !typography.usesAppearanceTextFont, let family = theme?.headingFamilies[index] {
+            font = NoteTypography.font(family, size: size, weight: weight)
+        } else {
+            font = typography.textFont(ofSize: size, weight: weight)
+        }
+        if theme?.headingItalic[index] == true {
+            #if canImport(UIKit)
+            if let descriptor = font.fontDescriptor.withSymbolicTraits(font.fontDescriptor.symbolicTraits.union(.traitItalic)) { font = UIFont(descriptor: descriptor, size: size) }
+            #else
+            font = NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(font.fontDescriptor.symbolicTraits.union(.italic)), size: size) ?? font
+            #endif
+        }
+        return font
     }
 }
 
@@ -108,10 +142,20 @@ struct MarkdownTextStyler {
 
     private func baseAttributes(font: PlatformFont) -> [NSAttributedString.Key: Any] {
         let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = font.pointSize * 0.3
+        // The theme's line height, or Graphite's (Obsidian's 1.5).
+        paragraphStyle.lineSpacing = configuration.theme?.lineSpacing(forTextSize: font.pointSize) ?? font.pointSize * 0.3
         paragraphStyle.paragraphSpacing = font.pointSize * 0.25
-        return [.font: font, .foregroundColor: Self.primaryTextColor, .paragraphStyle: paragraphStyle]
+        return [.font: font, .foregroundColor: textColor, .paragraphStyle: paragraphStyle]
     }
+
+    // The theme's colors where it sets them, else Graphite's (`NoteThemeStyle`).
+    private var theme: NoteThemeStyle? { configuration.theme }
+    var textColor: PlatformColor { theme?.textNormal ?? Self.primaryTextColor }
+    private var mutedColor: PlatformColor { theme?.textMuted ?? Self.secondaryTextColor }
+    /// Markdown syntax markers only: decoration, never content.
+    private var markerColor: PlatformColor { theme?.textFaint ?? Self.tertiaryTextColor }
+    private var linkColor: PlatformColor { theme?.linkColor ?? theme?.accent ?? accentColor }
+    private var tagColor: PlatformColor { theme?.tagColor ?? theme?.accent ?? accentColor }
 
     /// Restyles whole lines touched by `range`, or the whole document. In Live Preview,
     /// `revealedMarkup` says which markup stays visible around the selection (nil while the
@@ -162,7 +206,7 @@ struct MarkdownTextStyler {
         let spans = blockContextCheckpoints?.spans(in: textStorage, source: source, range: targetRange)
             ?? MarkdownStyleScanner.spans(in: source, range: targetRange)
         let styledRange = spans.reduce(targetRange) { unionRange, span in NSUnionRange(unionRange, span.range) }
-        let fonts = MarkdownStyleFonts(baseFont: baseFont, typography: configuration.typography)
+        let fonts = MarkdownStyleFonts(baseFont: baseFont, typography: configuration.typography, theme: configuration.theme)
         textStorage.beginEditing()
         textStorage.setAttributes(baseAttributes(font: fonts.baseFont), range: styledRange)
         apply(spans, within: [styledRange], to: textStorage, source: source, revealedMarkup: revealedMarkup, fonts: fonts)
@@ -229,7 +273,7 @@ struct MarkdownTextStyler {
         let otherMarkerLines = changingRanges.filter { changingRange in !scans.contains { scan in NSLocationInRange(changingRange.location, scan.lines) } }
             .map { markerRange in source.lineRange(for: markerRange) }
         scans.append(contentsOf: RevealedMarkupChange.merged(otherMarkerLines).map(scannedLines))
-        let fonts = MarkdownStyleFonts(baseFont: baseFont, typography: configuration.typography)
+        let fonts = MarkdownStyleFonts(baseFont: baseFont, typography: configuration.typography, theme: configuration.theme)
         var restyledRanges: [NSRange] = []
         textStorage.beginEditing()
         for scan in scans {
@@ -516,9 +560,12 @@ struct MarkdownTextStyler {
         textStorage.addAttribute(.foregroundColor, value: PlatformColor.clear, range: range)
         textStorage.addAttribute(ConcealedReplacement.attributeKey, value: replacement.rawValue, range: range)
         let color: PlatformColor = switch replacement {
-        case .bullet, .uncheckedTask: Self.secondaryTextColor
-        case .checkedTask, .subpathSeparator, .quoteBar: accentColor
-        case .inlineMath: Self.primaryTextColor
+        case .bullet: mutedColor
+        case .uncheckedTask: theme?.checkboxBorderColor ?? mutedColor
+        case .checkedTask: theme?.checkboxColor ?? theme?.accent ?? accentColor
+        case .subpathSeparator: linkColor
+        case .quoteBar: theme?.blockquoteBorderColor ?? theme?.accent ?? accentColor
+        case .inlineMath: textColor
         }
         textStorage.addAttribute(ConcealedReplacement.colorAttributeKey, value: color, range: range)
         guard replacement == .subpathSeparator else { return }
@@ -580,7 +627,7 @@ struct MarkdownTextStyler {
     private func strikeCompletedTask(_ taskTextRange: NSRange, in textStorage: NSTextStorage) {
         guard taskTextRange.length > 0 else { return }
         textStorage.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: taskTextRange)
-        textStorage.addAttribute(.foregroundColor, value: Self.secondaryTextColor, range: taskTextRange)
+        textStorage.addAttribute(.foregroundColor, value: mutedColor, range: taskTextRange)
     }
 
     private func conceal(_ range: NSRange, in textStorage: NSTextStorage) {
@@ -613,40 +660,48 @@ struct MarkdownTextStyler {
         switch style {
         case .heading(let level):
             textStorage.addAttribute(.font, value: fonts.headingFont(level: level), range: range)
+            if let headingColor = theme?.headingColors[min(max(level, 1), 6) - 1] { textStorage.addAttribute(.foregroundColor, value: headingColor, range: range) }
         case .syntaxMarker, .concealableMarker, .horizontalRule:
-            textStorage.addAttribute(.foregroundColor, value: Self.tertiaryTextColor, range: range)
+            textStorage.addAttribute(.foregroundColor, value: markerColor, range: range)
         case .strong:
             addTrait(bold: true, to: textStorage, range: range, fonts: fonts)
+            if let boldColor = theme?.boldColor { textStorage.addAttribute(.foregroundColor, value: boldColor, range: range) }
         case .emphasis:
             addTrait(bold: false, to: textStorage, range: range, fonts: fonts)
+            if let italicColor = theme?.italicColor { textStorage.addAttribute(.foregroundColor, value: italicColor, range: range) }
         case .strikethrough:
             textStorage.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: range)
-            textStorage.addAttribute(.foregroundColor, value: Self.secondaryTextColor, range: range)
+            textStorage.addAttribute(.foregroundColor, value: mutedColor, range: range)
         case .highlight:
-            textStorage.addAttribute(.backgroundColor, value: Self.highlightBackgroundColor, range: range)
+            textStorage.addAttribute(.backgroundColor, value: theme?.highlightBackground ?? Self.highlightBackgroundColor, range: range)
         case .inlineCode, .codeBlock:
             textStorage.addAttribute(.font, value: fonts.codeFont, range: range)
-            textStorage.addAttribute(.backgroundColor, value: Self.codeBackgroundColor, range: range)
+            textStorage.addAttribute(.backgroundColor, value: theme?.codeBackground ?? Self.codeBackgroundColor, range: range)
+            if let codeColor = theme?.codeColor { textStorage.addAttribute(.foregroundColor, value: codeColor, range: range) }
         case .math:
             // Quiet, like code: the formula's source is not a link, so it takes no color of its own.
             textStorage.addAttribute(.font, value: fonts.codeFont, range: range)
-            textStorage.addAttribute(.foregroundColor, value: Self.secondaryTextColor, range: range)
-        case .link, .embed, .tag, .subpathSeparator:
-            textStorage.addAttribute(.foregroundColor, value: accentColor, range: range)
+            textStorage.addAttribute(.foregroundColor, value: mutedColor, range: range)
+        case .link, .embed, .subpathSeparator:
+            textStorage.addAttribute(.foregroundColor, value: linkColor, range: range)
+            if theme?.linksAreUnderlined == true { textStorage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range) }
+        case .tag:
+            textStorage.addAttribute(.foregroundColor, value: tagColor, range: range)
+            if let tagBackground = theme?.tagBackground { textStorage.addAttribute(.backgroundColor, value: tagBackground, range: range) }
         case .listMarker, .taskMarker:
-            textStorage.addAttribute(.foregroundColor, value: Self.secondaryTextColor, range: range)
+            textStorage.addAttribute(.foregroundColor, value: mutedColor, range: range)
         case .quote:
-            textStorage.addAttribute(.foregroundColor, value: Self.secondaryTextColor, range: range)
+            textStorage.addAttribute(.foregroundColor, value: mutedColor, range: range)
         case .calloutTitle:
-            textStorage.addAttribute(.foregroundColor, value: accentColor, range: range)
+            textStorage.addAttribute(.foregroundColor, value: theme?.accent ?? accentColor, range: range)
             textStorage.addAttribute(.font, value: fonts.calloutTitleFont, range: range)
         case .frontmatter:
             textStorage.addAttribute(.font, value: fonts.frontmatterFont, range: range)
-            textStorage.addAttribute(.foregroundColor, value: Self.secondaryTextColor, range: range)
+            textStorage.addAttribute(.foregroundColor, value: mutedColor, range: range)
         case .footnote:
             textStorage.addAttribute(.font, value: fonts.footnoteFont, range: range)
             textStorage.addAttribute(.baselineOffset, value: fonts.baseFont.pointSize * 0.35, range: range)
-            textStorage.addAttribute(.foregroundColor, value: accentColor, range: range)
+            textStorage.addAttribute(.foregroundColor, value: linkColor, range: range)
         }
     }
 
@@ -679,6 +734,7 @@ struct MarkdownTextStyler {
 private final class MarkdownStyleFonts {
     let baseFont: PlatformFont
     let typography: NoteTypography
+    let theme: NoteThemeStyle?
     private(set) lazy var codeFont = typography.monospaceFont(ofSize: baseFont.pointSize * 0.9)
     private(set) lazy var frontmatterFont = typography.monospaceFont(ofSize: baseFont.pointSize * 0.85)
     private(set) lazy var calloutTitleFont = typography.textFont(ofSize: baseFont.pointSize, weight: .semibold)
@@ -691,16 +747,16 @@ private final class MarkdownStyleFonts {
         let isBold: Bool
     }
 
-    init(baseFont: PlatformFont, typography: NoteTypography) {
+    init(baseFont: PlatformFont, typography: NoteTypography, theme: NoteThemeStyle?) {
         self.baseFont = baseFont
         self.typography = typography
+        self.theme = theme
     }
 
     func headingFont(level: Int) -> PlatformFont {
         let clampedLevel = min(max(level, 1), 6)
         if let font = headingFontsByLevel[clampedLevel] { return font }
-        // Headings are in the text font, at the same multiples of the text size as before.
-        let font = typography.textFont(ofSize: baseFont.pointSize * HeadingTypography.fontScale(level: clampedLevel), weight: .semibold)
+        let font = HeadingTypography.font(level: clampedLevel, textSize: baseFont.pointSize, typography: typography, theme: theme)
         headingFontsByLevel[clampedLevel] = font
         return font
     }

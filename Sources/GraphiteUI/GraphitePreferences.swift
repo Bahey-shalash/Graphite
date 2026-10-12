@@ -178,6 +178,7 @@ final class GraphitePreferences {
         static let notebookLineStrength = "GraphiteNotebookLineStrength"
         static let makesShapesOnHold = StrokeHoldPreference.key
         static let pencilToolbarStyle = PencilToolbarStyle.preferenceKey
+        static let usesVaultTheme = "GraphiteUsesVaultTheme"
     }
     /// The smallest text a note draws, such as a footnote number: Apple's minimum text size
     /// on iPhone and iPad.
@@ -278,6 +279,9 @@ final class GraphitePreferences {
     var accentHex: String { chosenAccentHex ?? vaultAccentHex ?? GraphiteTheme.defaultAccentHex }
     /// Shows the note's name as a large title above its content, like Obsidian's inline title.
     var showsInlineTitle: Bool { didSet { defaults.set(showsInlineTitle, forKey: Key.showsInlineTitle) } }
+    /// Settings › Appearance › Use the Vault's Obsidian Theme: notes take the colors, sizes and
+    /// fonts of the vault's theme and snippets. On by default; off keeps Graphite's own look.
+    var usesVaultTheme: Bool { didSet { defaults.set(usesVaultTheme, forKey: Key.usesVaultTheme) } }
     /// Shows every file with its extension (`Lecture.md`) in lists and the title bar.
     var showsFileExtensions: Bool { didSet { defaults.set(showsFileExtensions, forKey: Key.showsFileExtensions) } }
     /// Commands used lately, listed first in the command palette.
@@ -358,6 +362,7 @@ final class GraphitePreferences {
         recordingCamera = defaults.string(forKey: Key.recordingCamera).flatMap(CameraPosition.init(rawValue:)) ?? .back
         chosenAccentHex = defaults.string(forKey: Key.accentHex).flatMap(TextColorMarkup.canonicalHex)
         showsInlineTitle = defaults.object(forKey: Key.showsInlineTitle) as? Bool ?? true
+        usesVaultTheme = defaults.object(forKey: Key.usesVaultTheme) as? Bool ?? true
         showsFileExtensions = defaults.object(forKey: Key.showsFileExtensions) as? Bool ?? true
         searchSortOrder = defaults.string(forKey: Key.searchSortOrder).flatMap(SearchSortOrder.init(rawValue:)) ?? .fileNameAscending
         recentCommandIdentifiers = defaults.stringArray(forKey: Key.recentCommandIdentifiers) ?? []

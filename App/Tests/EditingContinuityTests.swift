@@ -534,6 +534,71 @@ final class EditingContinuityTests: XCTestCase {
         XCTAssertEqual(workspace.preferences.accentHex, "#2e8b57", "Forgetting it returns to the vault's accent.")
     }
 
+    // MARK: The vault's Obsidian theme in notes (theme Phase 1)
+
+    /// A test theme's heading color and size and its warning callout color reach Live
+    /// Preview, the reading view and callouts, and turning the setting off restores Graphite's look.
+    func testEditorAndReadingViewTakeTheVaultThemesHeadingAndCalloutColors() async throws {
+        let workspace = try await makeWorkspace(notes: ["Lecture.md": "# Wide heading text\n\nBody.\n\n> [!warning] Careful\n> Text.\n"])
+        let previousSetting = workspace.preferences.usesVaultTheme
+        defer { workspace.preferences.usesVaultTheme = previousSetting }
+        workspace.preferences.usesVaultTheme = true
+        let folder = try XCTUnwrap(vaultDirectory).appendingPathComponent(".obsidian/themes/Test")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data(".theme-light { --h1-color: #aa0000; --h1-size: 2em; --callout-warning: 0, 128, 0; } .theme-dark { --h1-color: #ff8080; }".utf8)
+            .write(to: folder.appendingPathComponent("theme.css"))
+        try writeAppearance(#"{"cssTheme": "Test"}"#)
+        await workspace.reloadVaultAppearance()
+        await workspace.refreshVaultTheme()
+        let theme = try XCTUnwrap(workspace.noteTheme, "The theme is resolved and handed to notes.")
+        let lightTraits = UITraitCollection(userInterfaceStyle: .light), darkTraits = UITraitCollection(userInterfaceStyle: .dark)
+        XCTAssertEqual(ThemeColor(platform: try XCTUnwrap(theme.headingColors[0]).resolvedColor(with: lightTraits)).hex, "#aa0000")
+        XCTAssertEqual(ThemeColor(platform: try XCTUnwrap(theme.headingColors[0]).resolvedColor(with: darkTraits)).hex, "#ff8080")
+        XCTAssertEqual(HeadingTypography.fontScale(level: 1, theme: theme), 2)
+
+        _ = try await openTab("Lecture.md", in: workspace, placement: .currentTab)
+        let controller = try hostWithTypography(workspace)
+        let session = try XCTUnwrap(workspace.markdownSession)
+        session.viewMode = .source
+        let editor = try await visibleEditor(in: controller, showing: session)
+        let source = session.text as NSString
+        let headingLocation = source.range(of: "Wide").location
+        try await waitUntil { (try? self.font(at: headingLocation, in: editor).pointSize) ?? 0 > 30 }
+        let headingFont = try font(at: headingLocation, in: editor)
+        let bodyFont = try font(at: source.range(of: "Body").location, in: editor)
+        XCTAssertEqual(headingFont.pointSize, bodyFont.pointSize * 2, accuracy: 0.01, "Live Preview and Source take the theme's heading size, relative to the text size.")
+        let headingColor = try XCTUnwrap(editor.textStorage.attribute(.foregroundColor, at: headingLocation, effectiveRange: nil) as? UIColor)
+        XCTAssertEqual(ThemeColor(platform: headingColor.resolvedColor(with: lightTraits)).hex, "#aa0000")
+
+        // Callouts (in both views) take the type's color; the title stays readable on its tint.
+        let warning = CalloutAppearance(type: "warning", theme: theme)
+        let tint = ThemeColor(platform: UIColor(warning.color).resolvedColor(with: lightTraits))
+        XCTAssertEqual(tint.hex, "#008000")
+        let titleOnTint = ThemeColor(platform: UIColor(warning.titleColor).resolvedColor(with: lightTraits))
+        var tintOverPage = tint
+        tintOverPage.alpha = CalloutAppearance.tintOpacity
+        XCTAssertGreaterThanOrEqual(titleOnTint.contrast(with: tintOverPage.composited(over: ThemeColor(red: 1, green: 1, blue: 1))), 4.5)
+        XCTAssertEqual(CalloutAppearance(type: "note", theme: theme).color, CalloutAppearance(type: "note").color, "A type the theme leaves alone keeps Graphite's color.")
+        attachScreenshot(named: "Source mode in a test theme")
+
+        // Reading view: the heading is drawn at twice the text size.
+        let measurement = MeasuredWidth()
+        let reading = UIHostingController(rootView: ObsidianMarkdownText(markdown: "# Wide heading text", root: try XCTUnwrap(vaultDirectory), textSize: 16,
+                                                                         navigate: { _, _ in }, scrollToHeading: { _ in })
+            .environment(\.noteTheme, theme).fixedSize()
+            .onGeometryChange(for: CGFloat.self) { geometry in geometry.size.width } action: { width in measurement.width = width }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading))
+        try present(reading)
+        try await waitUntil { measurement.width > 0 }
+        try await Task.sleep(for: .milliseconds(300))
+        let expectedWidth = ("Wide heading text" as NSString).size(withAttributes: [.font: UIFont.systemFont(ofSize: 32, weight: .semibold)]).width
+        XCTAssertEqual(measurement.width, expectedWidth, accuracy: 3, "Reading view takes the theme's heading size.")
+
+        workspace.preferences.usesVaultTheme = false
+        await workspace.refreshVaultTheme()
+        XCTAssertNil(workspace.noteTheme, "With the setting off, notes keep Graphite's look.")
+    }
+
     private func writeAppearance(_ text: String) throws {
         let folder = try XCTUnwrap(vaultDirectory).appendingPathComponent(".obsidian")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -735,6 +800,15 @@ private struct SurroundedEditor: View {
                              retention: retention, retentionOwner: owner) { _, _ in }
     }
 }
+extension ThemeColor {
+    /// A resolved UIKit color, for comparing what notes draw with a theme's values.
+    init(platform color: UIColor) {
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        self.init(red: Double(red), green: Double(green), blue: Double(blue), alpha: Double(alpha))
+    }
+}
+
 /// A width a hosted view reports from its layout.
 @MainActor
 private final class MeasuredWidth {

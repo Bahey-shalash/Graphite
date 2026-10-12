@@ -32,6 +32,7 @@ struct ReadingTaskCheckbox: View {
     let label: String
     let pointSize: Double
     @Environment(\.readingTaskContext) private var context
+    @Environment(\.noteTheme) private var theme
     /// What a tap made of the checkbox, shown until the note is drawn again.
     @State private var isCheckedAfterTap: Bool?
 
@@ -44,7 +45,8 @@ struct ReadingTaskCheckbox: View {
         let isChecked = isCheckedAfterTap ?? task.isChecked
         let checkbox = Image(systemName: isChecked ? "checkmark.square.fill" : "square")
             .font(.system(size: pointSize * 0.95))
-            .foregroundStyle(isChecked ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+            .foregroundStyle(isChecked ? (theme?.checkboxColor.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.tint))
+                                       : (theme?.checkboxBorderColor.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.secondary)))
             .frame(width: pointSize * 0.95, height: pointSize * 1.05)
         if let context, let location = task.location {
             Button {

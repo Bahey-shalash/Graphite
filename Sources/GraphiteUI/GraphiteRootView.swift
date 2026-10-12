@@ -69,6 +69,8 @@ public struct GraphiteRootView: View {
         .environment(\.accent, workspace.preferences.accentColor)
         // Notes, embeds and content lists draw in the vault's fonts (Settings › Appearance › Font).
         .environment(\.noteTypography, workspace.noteTypography)
+        // Notes take the vault's Obsidian theme (Settings › Appearance › Use the Vault's Obsidian Theme).
+        .environment(\.noteTheme, workspace.noteTheme)
         // The menu bar's commands and their shortcuts act on this window (`GraphiteCommands`).
         .focusedSceneValue(\.workspaceMenuActions, WorkspaceMenuActions(workspace: workspace, window: windowActions,
                                                                           showCommandPalette: { activePalette = .commandPalette },
