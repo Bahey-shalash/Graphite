@@ -181,13 +181,13 @@ final class GraphitePreferences {
         static let notebookLineStrength = "GraphiteNotebookLineStrength"
         static let makesShapesOnHold = StrokeHoldPreference.key
         static let pencilToolbarStyle = PencilToolbarStyle.preferenceKey
+        static let usesVaultTheme = "GraphiteUsesVaultTheme"
     }
-    static let textSizeRange: ClosedRange<Double> = 12...28
     /// The smallest text a note draws, such as a footnote number: Apple's minimum text size
     /// on iPhone and iPad.
     static let smallestNoteTextSize: Double = 11
 
-    /// The size a note's text is drawn at: the size chosen in Appearance, which is the size at
+    /// The size a note's text is drawn at: the vault's font size (Settings › Appearance › Font), which is the size at
     /// the system's default text size, scaled as body text is when Larger Text is changed, so
     /// notes grow with the rest of the system (up to about three times at the largest size).
     /// macOS has no system text size, so the choice is used as it is.
@@ -212,8 +212,10 @@ final class GraphitePreferences {
     var defaultNoteView: DefaultNoteView { didSet { defaults.set(defaultNoteView.rawValue, forKey: Key.defaultNoteView) } }
     var defaultEditingMode: EditingMode { didSet { defaults.set(defaultEditingMode.rawValue, forKey: Key.defaultEditingMode) } }
     var appearanceMode: AppearanceMode { didSet { defaults.set(appearanceMode.rawValue, forKey: Key.appearanceMode) } }
-    /// Body text size in points for editing and reading.
-    var textSize: Double { didSet { defaults.set(textSize, forKey: Key.textSize) } }
+    /// The text size this device chose before the font size moved into the vault's
+    /// `appearance.json`, or nil when none was chosen. A vault whose file sets no size is
+    /// shown at it, so notes keep their size until a size is chosen for the vault.
+    let legacyChosenTextSize: Double?
     var usesSpellChecking: Bool { didSet { defaults.set(usesSpellChecking, forKey: Key.usesSpellChecking) } }
     /// The palette as saved, for code without the preferences object, such as the Pencil
     /// palette's Favorite Colors menu.
@@ -265,10 +267,24 @@ final class GraphitePreferences {
     var embedsRecordingsInNote: Bool { didSet { defaults.set(embedsRecordingsInNote, forKey: Key.embedsRecordingsInNote) } }
     /// The camera a video recording starts with.
     var recordingCamera: CameraPosition { didSet { defaults.set(recordingCamera.rawValue, forKey: Key.recordingCamera) } }
-    /// The accent for links, checkboxes, selection and controls, like Obsidian's accent color.
-    var accentHex: String { didSet { defaults.set(accentHex, forKey: Key.accentHex) } }
+    /// The accent chosen on this device in Settings › Appearance, or nil when none was chosen.
+    var chosenAccentHex: String? {
+        didSet {
+            if let chosenAccentHex { defaults.set(chosenAccentHex, forKey: Key.accentHex) } else { defaults.removeObject(forKey: Key.accentHex) }
+        }
+    }
+    /// The open vault's Obsidian accent (`accentColor` in `appearance.json`), set by the workspace.
+    var vaultAccentHex: String?
+    /// The accent for links, checkboxes, selection and controls, like Obsidian's accent color:
+    /// the accent chosen on this device, else the vault's Obsidian accent, else Graphite's
+    /// default, which is Obsidian's default purple. A choice made on this device wins, because
+    /// it was made in Graphite on purpose; the vault's accent is never written over by it.
+    var accentHex: String { chosenAccentHex ?? vaultAccentHex ?? GraphiteTheme.defaultAccentHex }
     /// Shows the note's name as a large title above its content, like Obsidian's inline title.
     var showsInlineTitle: Bool { didSet { defaults.set(showsInlineTitle, forKey: Key.showsInlineTitle) } }
+    /// Settings › Appearance › Use the Vault's Obsidian Theme: notes take the colors, sizes and
+    /// fonts of the vault's theme and snippets. On by default; off keeps Graphite's own look.
+    var usesVaultTheme: Bool { didSet { defaults.set(usesVaultTheme, forKey: Key.usesVaultTheme) } }
     /// Shows every file with its extension (`Lecture.md`) in lists and the title bar.
     var showsFileExtensions: Bool { didSet { defaults.set(showsFileExtensions, forKey: Key.showsFileExtensions) } }
     /// Commands used lately, listed first in the command palette.
@@ -341,14 +357,15 @@ final class GraphitePreferences {
         defaultEditingMode = defaults.string(forKey: Key.defaultEditingMode).flatMap(EditingMode.init(rawValue:)) ?? .livePreview
         appearanceMode = defaults.string(forKey: Key.appearanceMode).flatMap(AppearanceMode.init(rawValue:)) ?? .system
         let storedTextSize = defaults.double(forKey: Key.textSize)
-        textSize = Self.textSizeRange.contains(storedTextSize) ? storedTextSize : 17
+        legacyChosenTextSize = (12...28).contains(storedTextSize) ? storedTextSize : nil
         usesSpellChecking = defaults.object(forKey: Key.usesSpellChecking) as? Bool ?? true
         colorPalette = Self.storedColorPalette(in: defaults)
         highlighterPalette = Self.storedHighlighterPalette(in: defaults)
         embedsRecordingsInNote = defaults.object(forKey: Key.embedsRecordingsInNote) as? Bool ?? true
         recordingCamera = defaults.string(forKey: Key.recordingCamera).flatMap(CameraPosition.init(rawValue:)) ?? .back
-        accentHex = Self.storedAccentHex(in: defaults)
+        chosenAccentHex = defaults.string(forKey: Key.accentHex).flatMap(TextColorMarkup.canonicalHex)
         showsInlineTitle = defaults.object(forKey: Key.showsInlineTitle) as? Bool ?? true
+        usesVaultTheme = defaults.object(forKey: Key.usesVaultTheme) as? Bool ?? true
         showsFileExtensions = defaults.object(forKey: Key.showsFileExtensions) as? Bool ?? true
         searchSortOrder = defaults.string(forKey: Key.searchSortOrder).flatMap(SearchSortOrder.init(rawValue:)) ?? .fileNameAscending
         recentCommandIdentifiers = defaults.stringArray(forKey: Key.recentCommandIdentifiers) ?? []

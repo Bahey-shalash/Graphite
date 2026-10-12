@@ -108,6 +108,20 @@ final class WorkspaceModel {
     /// Changes when Graphite writes `.obsidian/types.json`, so lists of property types reload.
     var propertyTypesVersion = 0
     var vaultSettings = ObsidianSettings()
+    /// Obsidian's appearance settings for the open vault (`.obsidian/appearance.json`).
+    /// Changed through `applyVaultAppearance` and `updateVaultAppearance` only, which keep
+    /// the resolved fonts and the accent in step (`WorkspaceAppearance.swift`).
+    var vaultAppearance = ObsidianAppearance()
+    /// The fonts `vaultAppearance` names, resolved once per change.
+    var noteTypography = NoteTypography.standard
+    /// The vault's Obsidian theme as notes draw it (`WorkspaceTheme.swift`), or nil for Graphite's look.
+    var noteTheme: NoteThemeStyle?
+    @ObservationIgnored var themeRefreshTask: Task<Void, Never>?
+    @ObservationIgnored let themeResolver = ThemeTokenResolver()
+    @ObservationIgnored var lastThemeInputs: ThemeResolverInputs?
+    /// The pending write of a font size or font changed here, which waits for a pinch or
+    /// the slider to come to rest.
+    @ObservationIgnored var pendingAppearanceSave: Task<Void, Never>?
     /// Obsidian's Templates and Daily notes settings for the open vault.
     var templateSettings = TemplateSettings()
     var dailyNoteSettings = DailyNoteSettings()
@@ -242,6 +256,8 @@ final class WorkspaceModel {
             // The open editors stayed usable while the vault was read; what was written in
             // them meanwhile is saved before they close. A failed save keeps this vault open.
             try await saveOpenDocuments()
+            // A font size just changed belongs to the vault being left.
+            await saveVaultAppearanceNow()
         } catch {
             vaultMonitor.stop()
             throw error
@@ -272,6 +288,8 @@ final class WorkspaceModel {
         // If this vault's settings cannot be read, Obsidian's defaults apply, rather than
         // the last vault's deletion or link settings.
         vaultSettings = settings
+        // The last vault's fonts and accent do not carry over while this vault's are read.
+        applyVaultAppearance(ObsidianAppearance())
         currentVaultIdentifier = vaultLibrary.recordOpening(identifier: vaultIdentifier, root: root, location: refreshedLocation ?? location)
         if let currentVaultIdentifier {
             // Folders renamed or deleted in the meantime simply stay closed.
@@ -327,6 +345,7 @@ final class WorkspaceModel {
         templateSettings = await store.templateSettings()
         dailyNoteSettings = await store.dailyNoteSettings()
         await reloadBookmarks()
+        await reloadVaultAppearance()
         do {
             let settings = try await store.settings()
             let sortOrderChanged = settings.fileSortOrder != vaultSettings.fileSortOrder
@@ -373,6 +392,21 @@ final class WorkspaceModel {
     func open(_ requestedPath: VaultPath, placement: TabPlacement = .currentTab, pdfPageIndex: Int? = nil, takesFocus: Bool = true) async -> UUID? {
         guard store != nil else { return nil }
         let path = storedPath(for: requestedPath)
+        // A file a plugin shows in a view of its own (Excalidraw's drawings, Fountain's
+        // scripts) opens in that view, live in a tab, even where Graphite already shows it as a
+        // file; any other file as Graphite shows it.
+        if communityPlugins.mayShowInPluginView(path) {
+            if let tabID = tabDocuments.first(where: { entry in
+                entry.value.pluginViewIdentifier.flatMap { identifier in communityPlugins.pluginView(withIdentifier: identifier)?.filePath } == path.rawValue
+            })?.key, layout.tab(withID: tabID) != nil {
+                if takesFocus { activateTab(tabID) } else { revealTab(tabID) }
+                return tabID
+            }
+            if let identifier = await communityPlugins.openFileInPluginView(path) {
+                if placement == .otherGroup { openPluginViewBeside(identifier) } else { openPluginViewInTab(identifier) }
+                return tabDocuments.first(where: { entry in entry.value.pluginViewIdentifier == identifier })?.key
+            }
+        }
         if let existingTabID = layout.tabID(showing: path) {
             if takesFocus { activateTab(existingTabID) } else { revealTab(existingTabID) }
             let document = document(for: existingTabID)
@@ -1150,6 +1184,10 @@ final class WorkspaceModel {
             }.value
             // Another vault may have opened meanwhile; these paths name files of the old one.
             guard store === refreshedStore else { return }
+            // Obsidian changed its fonts, font size or accent.
+            if changedLocations.contains(where: Self.isAppearanceFile) { await reloadVaultAppearance() }
+            // A theme or snippet file was added, changed or removed.
+            if changedLocations.contains(where: ObsidianStyleFiles.isStyleFile) { communityPlugins.vaultStylesDidChange(); scheduleThemeRefresh() }
             // Only the open documents another app is known to have changed are read again.
             switch refresh {
             case .nothingShown: break

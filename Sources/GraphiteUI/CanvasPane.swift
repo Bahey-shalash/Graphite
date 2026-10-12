@@ -87,7 +87,7 @@ struct CanvasPane: View {
         ReadingConfiguration(usesReadableLineLength: false, usesStrictLineBreaks: workspace.vaultSettings.usesStrictLineBreaks,
                              colorsEnabled: preferences.isEnabled(.colors),
                              paletteHexByName: Dictionary(preferences.colorPalette.map { color in (color.name, color.hex) }, uniquingKeysWith: { firstHex, _ in firstHex }),
-                             showsProperties: false, textSize: GraphitePreferences.noteTextSize(preferences.textSize, for: dynamicTypeSize), drawingVersion: workspace.drawingVersion, indexVersion: workspace.indexVersion)
+                             showsProperties: false, textSize: GraphitePreferences.noteTextSize(Double(workspace.noteBaseFontSize), for: dynamicTypeSize), drawingVersion: workspace.drawingVersion, indexVersion: workspace.indexVersion)
     }
 
     /// Opens a file a card shows. This canvas's tab is focused first, so the file opens

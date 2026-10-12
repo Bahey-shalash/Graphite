@@ -14,6 +14,22 @@ struct CharacterEdit: Equatable {
 
     /// One edit covering this edit and a later one. Text outside the combined edited range
     /// is the same as the text outside its replaced range before both edits.
+    /// The same edit without the characters it left as they were. The text storage can report
+    /// a whole line as edited when one character was typed (the line's attributes were set in
+    /// the same edit); blocks and folds move across the narrow edit instead of being found again.
+    func narrowed(before sourceBeforeEdit: NSString, after source: NSString) -> CharacterEdit {
+        var replaced = replacedRange, inserted = editedRange
+        guard NSMaxRange(replaced) <= sourceBeforeEdit.length, NSMaxRange(inserted) <= source.length else { return self }
+        while replaced.length > 0, inserted.length > 0, sourceBeforeEdit.character(at: replaced.location) == source.character(at: inserted.location) {
+            replaced.location += 1; replaced.length -= 1; inserted.location += 1; inserted.length -= 1
+        }
+        while replaced.length > 0, inserted.length > 0,
+              sourceBeforeEdit.character(at: NSMaxRange(replaced) - 1) == source.character(at: NSMaxRange(inserted) - 1) {
+            replaced.length -= 1; inserted.length -= 1
+        }
+        return CharacterEdit(editedRange: inserted, changeInLength: changeInLength)
+    }
+
     func followed(by laterEdit: CharacterEdit) -> CharacterEdit {
         let movedRange = TextRangeMapping.coveringRange(editedRange, through: laterEdit)
         return CharacterEdit(editedRange: NSUnionRange(movedRange, laterEdit.editedRange), changeInLength: changeInLength + laterEdit.changeInLength)
@@ -244,7 +260,7 @@ final class LivePreviewTextState {
     /// Edits the styling has not caught up with, from the last restyle on.
     private var unstyledEdit: UnstyledEdit?
     /// Edits since the blocks were last found, and the text they were found in.
-    private var editSinceBlockScan: (edit: CharacterEdit, sourceBeforeEdit: NSString)?
+    private(set) var editSinceBlockScan: (edit: CharacterEdit, sourceBeforeEdit: NSString)?
     /// Whether `blockEntries` came from a scan, so they can be moved instead of found again.
     private var hasFoundBlocks = false
 
@@ -289,7 +305,7 @@ final class LivePreviewTextState {
             return
         }
         if hasFoundBlocks, !forcesBlockScan, let editSinceBlockScan,
-           let movedEntries = LivePreviewBlockShifting.entries(blockEntries, across: editSinceBlockScan.edit,
+           let movedEntries = LivePreviewBlockShifting.entries(blockEntries, across: editSinceBlockScan.edit.narrowed(before: editSinceBlockScan.sourceBeforeEdit, after: newSource),
                                                                sourceBeforeEdit: editSinceBlockScan.sourceBeforeEdit, source: newSource) {
             blockEntries = movedEntries
             return

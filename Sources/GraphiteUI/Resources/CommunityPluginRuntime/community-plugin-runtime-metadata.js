@@ -586,6 +586,15 @@
             }
         }
 
+        /// A note a plugin just wrote through the vault: its metadata is known at once, as in
+        /// Obsidian, so the plugin's next step sees it (Excalidraw creates a drawing, then opens
+        /// it, and decides by its frontmatter which view shows it).
+        indexWrittenText(file, text) {
+            if (!file || file.extension !== 'md' || typeof text !== 'string') return;
+            this.metadataByPath.set(file.path, new NoteParser(text).parse());
+            this.resolveLinksOf(file.path);
+        }
+
         // Following the vault.
 
         observeVault() {

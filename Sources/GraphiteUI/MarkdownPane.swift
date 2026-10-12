@@ -51,7 +51,7 @@ struct MarkdownPane: View {
 
     private var preferences: GraphitePreferences { workspace.preferences }
     /// The chosen note text size, grown with the system text size.
-    private var noteTextSize: Double { GraphitePreferences.noteTextSize(preferences.textSize, for: dynamicTypeSize) }
+    private var noteTextSize: Double { GraphitePreferences.noteTextSize(Double(workspace.noteBaseFontSize), for: dynamicTypeSize) }
     private var isEditing: Bool { viewMode != .reading }
 
     var body: some View {
@@ -77,6 +77,7 @@ struct MarkdownPane: View {
                 .environment(\.readingImageActions, ReadingImageActions(providerIdentity: ObjectIdentifier(workspace),
                                                                         viewImage: viewImage, editDrawing: drawingEditor, drawOnImage: imageDrawing))
                 .environment(\.communityPluginCodeBlocks, workspace.communityPlugins.isRuntimeRunning ? workspace.communityPlugins : nil)
+                .modifier(QuickFontSizePinchModifier(adjustment: quickFontSizeAdjustment))
                 .environment(\.lassoNoteDestination, LassoNoteDestination.note(session, in: workspace))
             } else {
                 NativeMarkdownEditor(session: session, configuration: editorConfiguration, environment: livePreviewEnvironment,
@@ -100,6 +101,8 @@ struct MarkdownPane: View {
                 }
             }
         }
+        // The theme's page color behind the note, in both views; Graphite's own without a theme.
+        .background { NoteThemeBackground(theme: workspace.noteTheme) }
         // Under the title, as a PDF shows its page there, rather than over the note's text.
         .modifier(WordCountDisplay(session: session, isShown: preferences.isEnabled(.wordCount) && isFocused,
                                    isCompactWidth: isCompactWidth))
@@ -203,7 +206,8 @@ struct MarkdownPane: View {
                              mapsReadAloudSourceLocations: workspace.readAloud.sourceIdentifier == session.path.rawValue
                                 && (workspace.readAloud.isPreparing || workspace.readAloud.session.document != nil),
                              pluginCodeBlockLanguages: workspace.communityPlugins.codeBlockLanguages,
-                             runsPluginPostProcessors: workspace.communityPlugins.runsMarkdownPostProcessors)
+                             runsPluginPostProcessors: workspace.communityPlugins.runsMarkdownPostProcessors,
+                             marksUnresolvedLinks: workspace.noteTheme != nil)
     }
 
     /// The note's name above its text, written as the tab and the title bar write it, so the
@@ -214,10 +218,18 @@ struct MarkdownPane: View {
 
     private var editorConfiguration: EditorConfiguration {
         EditorConfiguration(mode: viewMode == .source ? .source : .livePreview, usesReadableLineLength: preferences.usesReadableLineLength,
-                            textSize: noteTextSize, usesSpellChecking: preferences.usesSpellChecking,
+                            textSize: noteTextSize, typography: workspace.noteTypography, theme: workspace.noteTheme, usesSpellChecking: preferences.usesSpellChecking,
                             colorsEnabled: preferences.isEnabled(.colors), paletteHexByName: paletteHexByName,
                             editingBehavior: EditingBehavior(settings: workspace.vaultSettings), accentHex: preferences.accentHex,
                             inlineTitle: inlineTitle)
+    }
+
+    /// Pinching the note changes the vault's font size, when Settings › Appearance › Font ›
+    /// Quick Font Size Adjustment is on.
+    private var quickFontSizeAdjustment: QuickFontSizeAdjustment? {
+        guard workspace.adjustsNoteFontSizeQuickly else { return nil }
+        return QuickFontSizeAdjustment(currentSize: { [workspace] in workspace.noteBaseFontSize },
+                                       setSize: { [workspace] size in workspace.setNoteBaseFontSize(size) })
     }
 
     /// The editor toolbar's buttons that need this pane.
@@ -245,9 +257,16 @@ struct MarkdownPane: View {
         }
         #endif
         actions.beginEditing = { [workspace, tabID] in workspace.activateTab(tabID) }
+        actions.quickFontSize = quickFontSizeAdjustment
         let pluginHost = workspace.communityPlugins
         if pluginHost.isRuntimeRunning && (pluginHost.hasEditorSuggestions || pluginHost.hasEditorChangeListeners) {
             actions.pluginEditorDidChange = { [pluginHost, session] in pluginHost.editorDidChange(in: session) }
+        }
+        if pluginHost.isRuntimeRunning && pluginHost.hasPasteListeners {
+            actions.pluginPaste = { [pluginHost, session] text, html in await pluginHost.offerPaste(into: session, text: text, html: html) }
+        }
+        if pluginHost.isRuntimeRunning && pluginHost.hasDropListeners {
+            actions.pluginDrop = { [pluginHost, session] files, text in await pluginHost.offerDrop(into: session, files: files, text: text) }
         }
         #if canImport(UIKit)
         if workspace.communityPlugins.hasEditorMenuItems {
@@ -287,7 +306,7 @@ struct MarkdownPane: View {
         guard viewMode == .livePreview, let root = workspace.folderAccess?.root else { return nil }
         let notePath = session.path
         return LivePreviewEnvironment(
-            root: root, textSize: noteTextSize, colorsEnabled: preferences.isEnabled(.colors), paletteHexByName: paletteHexByName,
+            root: root, textSize: noteTextSize, typography: workspace.noteTypography, theme: workspace.noteTheme, colorsEnabled: preferences.isEnabled(.colors), paletteHexByName: paletteHexByName,
             drawingVersion: workspace.drawingVersion,
             resolve: { [workspace] target, isWiki in await workspace.resolveLink(target, from: notePath, isWiki: isWiki) },
             open: { [workspace] path in Task { await workspace.open(path) } },
@@ -907,7 +926,7 @@ struct NoteLinksInspector: View {
         VStack(alignment: .leading, spacing: 4) {
             Button { Task { await workspace.open(group.path) } } label: {
                 HStack {
-                    Text(workspace.preferences.displayName(for: group.path)).lineLimit(1)
+                    Text(workspace.preferences.displayName(for: group.path)).lineLimit(1).interfaceFont(.body)
                     Spacer(minLength: 4)
                     if group.matches.count > 1 {
                         Text(group.matches.count.formatted()).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
@@ -920,7 +939,7 @@ struct NoteLinksInspector: View {
                 HStack(alignment: .top, spacing: 6) {
                     Button { Task { await workspace.open(group.path, at: match) } } label: {
                         Text(match.highlightedExcerpt(accent: accent))
-                            .font(.caption).foregroundStyle(Color.secondary).lineLimit(4)
+                            .interfaceFont(.caption).foregroundStyle(Color.secondary).lineLimit(4)
                             .multilineTextAlignment(.leading)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 7).padding(.vertical, 5)
@@ -966,7 +985,7 @@ struct NoteLinksInspector: View {
                     // Headings read as text, as in Obsidian's outline, not as tinted links.
                     Button { workspace.headingScrollRequest = HeadingScrollRequest(anchor: heading.anchor, occurrence: heading.occurrence) } label: {
                         Text(heading.text).lineLimit(2)
-                            .font(heading.level == 1 ? .callout.weight(.semibold) : .callout)
+                            .interfaceFont(.callout, weight: heading.level == 1 ? .semibold : nil)
                             .foregroundStyle(heading.level <= 2 ? .primary : .secondary)
                             .padding(.leading, CGFloat(heading.level - 1) * 14)
                     }

@@ -13,15 +13,19 @@
     const hostBridge = runtime.hostBridge;
 
     let nextLeafNumber = 1;
+    /// Leaves are numbered per start of the runtime, so a tab Graphite kept from an earlier
+    /// start (whose view is gone) never shows a new, unrelated view that got the same number.
+    const leafIdentifierPrefix = 'graphite-leaf-' + Date.now().toString(36) + '-';
 
     /// Where Graphite shows a plugin leaf: `sidebar` for Obsidian's side docks, `tab` for the rest.
     function placementOf(leaf) {
-        return leaf.kind === 'left' || leaf.kind === 'right' ? 'sidebar' : 'tab';
+        if (leaf.kind === 'left' || leaf.kind === 'right') return 'sidebar';
+        return leaf.kind === 'split' ? 'split' : 'tab';
     }
     /// Events through which plugins add items to Obsidian's context menus.
     const menuEventNames = new Set(['file-menu', 'files-menu', 'editor-menu']);
     /// Events Graphite sends from its editor as the person types.
-    const editorEventNames = new Set(['editor-change']);
+    const editorEventNames = new Set(['editor-change', 'editor-paste', 'editor-drop']);
 
     // MARK: Editor
 
@@ -35,6 +39,9 @@
         focus() {}
         blur() {}
         hasFocus() { return true; }
+        /// Where a position is on screen (undocumented, from CodeMirror). Graphite shows
+        /// plugins' menus natively beside the editor, so no screen position is given.
+        coordsAtPos() { return { left: 0, right: 0, top: 0, bottom: 0 }; }
         getScrollInfo() { return { top: 0, left: 0 }; }
         scrollTo() {}
         scrollIntoView() {}
@@ -103,6 +110,9 @@
         return runtime.unsupported('Obsidian\'s CodeMirror editor view (editor.cm)', 'Graphite\'s editor is native, so commands that work on CodeMirror\'s view directly cannot run.');
     }
 
+    const screenGeometryFunctionNames = new Set(['coordsAtPos', 'coordsForChar', 'posAtCoords', 'posAtDOM', 'domAtPos', 'lineBlockAt', 'lineBlockAtHeight']);
+    const screenGeometryNames = new Set(['defaultLineHeight', 'defaultCharacterWidth', 'documentTop', 'scrollDOM', 'contentDOM', 'dom', 'visibleRanges', 'viewport']);
+    let geometryElement = null;
     function codeMirrorViewStandIn() {
         const activeView = () => (runtime.app ? runtime.app.workspace.getActiveViewOfType(MarkdownView) : null);
         let view = null;
@@ -125,6 +135,17 @@
             get(target, name) {
                 if (typeof name === 'symbol' || name === 'then') return undefined;
                 if (name === 'state') return state;
+                // The editor's places on screen, which plugins look up and fall back from when
+                // there are none (Highlightr, Link or Card): Graphite's editor is native, so
+                // positions answer nothing and its elements are a detached element.
+                if (screenGeometryFunctionNames.has(name)) return () => null;
+                if (screenGeometryNames.has(name)) {
+                    if (!geometryElement) geometryElement = globalScope.document.createElement('div');
+                    if (name === 'visibleRanges') return [];
+                    if (name === 'viewport') return { from: 0, to: 0 };
+                    if (name === 'defaultLineHeight' || name === 'defaultCharacterWidth' || name === 'documentTop') return 0;
+                    return geometryElement;
+                }
                 return unsupportedCodeMirrorView();
             },
         });
@@ -381,9 +402,31 @@
         getRoot() { return runtime.app ? runtime.app.workspace.rootSplit : this; }
         getContainer() { return runtime.app ? runtime.app.workspace.rootSplit : this; }
     }
-    class WorkspaceParent extends WorkspaceItem {}
+    class WorkspaceParent extends WorkspaceItem {
+        /// A parent's children (undocumented); plugins that build their own splits add leaves to
+        /// them (Excalidraw's hidden canvas). They are kept, not shown.
+        get children() { if (!this.childItems) this.childItems = []; return this.childItems; }
+        insertChild(position, child) {
+            const children = this.children;
+            children.splice(Math.max(0, Math.min(Number(position) || 0, children.length)), 0, child);
+            child.parent = this;
+        }
+        removeChild(child) { this.children.remove(child); }
+    }
     class WorkspaceSplit extends WorkspaceParent {}
-    class WorkspaceRoot extends WorkspaceSplit {}
+    /// A window's part of the workspace. Obsidian gives each its `win` and `doc`, which
+    /// plugins use to reach the document their elements are in (Colored Tags styles each
+    /// container's document); Graphite's plugins share the runtime's one page.
+    class WorkspaceContainer extends WorkspaceSplit {
+        get win() { return globalScope; }
+        get doc() { return globalScope.document; }
+    }
+    class WorkspaceRoot extends WorkspaceContainer {
+        constructor() {
+            super();
+            this.containerEl = createDiv({ cls: 'workspace-split mod-vertical mod-root' });
+        }
+    }
     class WorkspaceTabs extends WorkspaceParent {}
     class WorkspaceSidedock extends WorkspaceSplit {
         constructor(side) {
@@ -398,7 +441,6 @@
     }
     class WorkspaceMobileDrawer extends WorkspaceSidedock {}
     class WorkspaceFloating extends WorkspaceParent {}
-    class WorkspaceContainer extends WorkspaceSplit {}
     class WorkspaceWindow extends WorkspaceContainer {}
     class WorkspaceRibbon {
         constructor(side) { this.side = side; this.containerEl = createDiv({ cls: 'workspace-ribbon side-dock-ribbon mod-' + side }); }
@@ -532,11 +574,13 @@
             super();
             this.app = app;
             this.kind = kind;
-            this.id = 'graphite-leaf-' + nextLeafNumber;
+            this.id = leafIdentifierPrefix + nextLeafNumber;
             nextLeafNumber += 1;
             this.view = new EmptyView(this);
             this.pinned = false;
             this.isDeferred = false;
+            /// A view state waiting for a plugin to register its type.
+            this.waitingViewState = null;
             this.containerEl = createDiv({ cls: 'workspace-leaf' });
             this.tabHeaderEl = createDiv({ cls: 'workspace-tab-header' });
             this.tabHeaderInnerIconEl = this.tabHeaderEl.createDiv({ cls: 'workspace-tab-header-inner-icon' });
@@ -548,7 +592,14 @@
         async setViewState(viewState, ephemeralState) {
             const workspace = this.app.workspace;
             if (viewState.type === 'markdown' && viewState.state && viewState.state.file) {
-                await hostBridge.send('workspace.openFile', { path: viewState.state.file, placement: this.kind === 'mirror' ? 'currentTab' : 'newTab' });
+                // Graphite asked whether a plugin shows this note in a view of its own (see
+                // `file.openInView`); a plugin that does changes the type before this point.
+                if (this.isProbe) return;
+                await hostBridge.send('workspace.openFile', {
+                    path: viewState.state.file,
+                    placement: this.kind === 'mirror' ? 'currentTab' : 'newTab',
+                    subpath: ephemeralState && ephemeralState.subpath ? ephemeralState.subpath : null,
+                });
                 return;
             }
             if (viewState.type === 'empty') {
@@ -556,13 +607,21 @@
                 return;
             }
             const viewCreator = workspace.viewCreatorsByType.get(viewState.type);
-            if (!viewCreator) runtime.unsupported('Opening a view of type “' + viewState.type + '”', 'No plugin registered it.');
+            if (!viewCreator) {
+                // As in Obsidian, a leaf keeps a view state whose type no plugin has registered
+                // yet, and gets its view once one does (Spaced Repetition opens its review
+                // queue before registering it).
+                this.waitingViewState = { viewState, ephemeralState };
+                return;
+            }
+            this.waitingViewState = null;
             const view = viewCreator(this);
             await this.replaceView(view);
             if (viewState.state) await view.setState(viewState.state, { history: false });
             if (ephemeralState) view.setEphemeralState(ephemeralState);
             if (viewState.active) await workspace.revealLeaf(this);
             workspace.notifyLeavesChanged();
+            await this.showIfNew(Boolean(viewState.active));
         }
         async replaceView(view) {
             const previousView = this.view;
@@ -579,9 +638,29 @@
         async open(view) {
             await this.replaceView(view);
             this.app.workspace.notifyLeavesChanged();
+            await this.showIfNew(false);
             return view;
         }
+        /// Obsidian shows a new tab or split as soon as it has a view; Graphite opens its tab.
+        /// The note stays the active leaf, as it does beside a new split in Obsidian (Mind Map
+        /// draws the active note's map, and would otherwise find itself active). Sidebar leaves
+        /// stay where they are until revealed, as Obsidian's sidebars do.
+        async showIfNew(isRevealed) {
+            if (this.hasBeenShown || (this.kind !== 'tab' && this.kind !== 'split')) return;
+            this.hasBeenShown = true;
+            if (isRevealed) return;
+            const workspace = this.app.workspace;
+            workspace.revealedLeaf = this;
+            workspace.notifyLeavesChanged();
+            hostBridge.notify('view.reveal', { leafIdentifier: this.id, placement: placementOf(this) });
+        }
         async openFile(file, openState) {
+            // As in Obsidian, a note opens through setViewState, which plugins patch to show
+            // their own view for some notes (Excalidraw's drawings are .excalidraw.md notes).
+            if (file && file.extension === 'md') {
+                await this.setViewState({ type: 'markdown', state: Object.assign({ file: file.path }, openState && openState.state), active: openState ? openState.active : undefined }, openState && openState.eState);
+                return;
+            }
             await hostBridge.send('workspace.openFile', { path: file.path, placement: this.kind === 'mirror' ? 'currentTab' : 'newTab', subpath: openState && openState.eState && openState.eState.subpath ? openState.eState.subpath : null });
         }
         getDisplayText() { return this.view.getDisplayText(); }
@@ -602,11 +681,17 @@
             workspace.pluginLeaves.remove(this);
             this.view.close();
             this.containerEl.detach();
+            if (this.waitingPlace) { this.waitingPlace.remove(); this.waitingPlace = null; }
             if (workspace.activeLeaf === this) workspace.activeLeaf = workspace.markdownLeaf.view instanceof MarkdownView && workspace.markdownLeaf.view.file ? workspace.markdownLeaf : null;
             workspace.notifyLeavesChanged();
             workspace.trigger('layout-change');
         }
     }
+
+    /// The leaf's own `setViewState`, before plugins patch it (Excalidraw does, to show some
+    /// notes in its own view): Graphite asks the runtime about a note only when it is patched.
+    runtime.originalLeafSetViewState = WorkspaceLeaf.prototype.setViewState;
+    runtime.pluginsTakeOverNotes = function pluginsTakeOverNotes() { return WorkspaceLeaf.prototype.setViewState !== runtime.originalLeafSetViewState; };
 
     class EmptyView extends ItemView {
         getViewType() { return 'empty'; }
@@ -715,10 +800,19 @@
         /// Tells Graphite which plugin views exist and where each belongs: a sidebar's views
         /// (`getLeftLeaf`, `getRightLeaf`) in Graphite's sidebar, the others in a tab. A leaf
         /// that holds no view yet is left out.
+        /// The handlers plugins registered for `obsidian://` actions (undocumented), by action;
+        /// Smart Connections checks for its own before registering it.
+        get protocolHandlers() { return runtime.protocolHandlers || new Map(); }
+
         notifyLeavesChanged() {
             hostBridge.notify('views.changed', {
-                views: this.pluginLeaves.filter((leaf) => !(leaf.view instanceof EmptyView)).map((leaf) => ({
+                // A base's plugin view lives in the base's tab, not in a tab or the sidebar of its own.
+                views: this.pluginLeaves.filter((leaf) => !(leaf.view instanceof EmptyView) && leaf.kind !== 'bases').map((leaf) => ({
                     leafIdentifier: leaf.id, viewType: leaf.view.getViewType(), title: leaf.getDisplayText(), icon: leaf.getIcon(), placement: placementOf(leaf),
+                    // A view of a file (Excalidraw's drawing, a Fountain script) is shown live,
+                    // taking touches, typing and Pencil directly; other views are shown as copies.
+                    isLive: leaf.view instanceof FileView,
+                    filePath: leaf.view instanceof FileView && leaf.view.file ? leaf.view.file.path : null,
                 })),
             });
         }
@@ -745,7 +839,7 @@
                 if (this.activeLeaf && this.activeLeaf !== this.markdownLeaf && !this.activeLeaf.pinned) return this.activeLeaf;
                 return this.markdownLeaf;
             }
-            return this.createPluginLeaf('tab');
+            return this.createPluginLeaf(newLeaf === 'split' ? 'split' : 'tab');
         }
         getUnpinnedLeaf() { return this.getLeaf(false); }
         getMostRecentLeaf() { return this.activeLeaf || this.markdownLeaf; }
@@ -764,6 +858,7 @@
         createPluginLeaf(kind) {
             const leaf = new WorkspaceLeaf(this.app, kind);
             this.pluginLeaves.push(leaf);
+            if (runtime.placeNewLeaf) runtime.placeNewLeaf(leaf);
             return leaf;
         }
         getLeavesOfType(viewType) {
@@ -783,6 +878,9 @@
             for (const leaf of this.pluginLeaves.slice()) callback(leaf);
         }
         iterateRootLeaves(callback) { this.iterateAllLeaves(callback); }
+        /// Obsidian's legacy CodeMirror 5 editors (undocumented, removed from the API); Graphite
+        /// has none, so there is nothing to visit (Admonition resets their modes as it unloads).
+        iterateCodeMirrors() {}
         setActiveLeaf(leaf) {
             if (leaf === this.activeLeaf) return;
             this.activeLeaf = leaf;

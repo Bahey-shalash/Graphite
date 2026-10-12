@@ -44,6 +44,10 @@ extension WorkspaceModel {
             }
             guard let session = markdownSession else { return }
             readAloud.readMarkdown(session.text, path: session.path)
+        case .plugin(let action, let parameters):
+            if !(await communityPlugins.openPluginLink(action: action, parameters: parameters)) {
+                errorMessage = "No community plugin in this vault opens “\(action)” links."
+            }
         }
     }
 

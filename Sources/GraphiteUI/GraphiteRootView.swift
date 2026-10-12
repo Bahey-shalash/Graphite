@@ -67,6 +67,10 @@ public struct GraphiteRootView: View {
             }
         }
         .environment(\.accent, workspace.preferences.accentColor)
+        // Notes, embeds and content lists draw in the vault's fonts (Settings › Appearance › Font).
+        .environment(\.noteTypography, workspace.noteTypography)
+        // Notes take the vault's Obsidian theme (Settings › Appearance › Use the Vault's Obsidian Theme).
+        .environment(\.noteTheme, workspace.noteTheme)
         // The menu bar's commands and their shortcuts act on this window (`GraphiteCommands`).
         .focusedSceneValue(\.workspaceMenuActions, WorkspaceMenuActions(workspace: workspace, window: windowActions,
                                                                           showCommandPalette: { activePalette = .commandPalette },
@@ -439,10 +443,16 @@ public struct GraphiteRootView: View {
         let backgroundTask = BackgroundTaskAssertion(name: "Save open documents")
         Task {
             await save()
+            // Plugins' views of files (an Excalidraw drawing) save what they hold too, as when
+            // Obsidian closes; their writes go through the vault like any plugin write.
+            await workspace.communityPlugins.saveOpenFileViews()
             backgroundTask.end()
         }
         #else
-        Task { await save() }
+        Task {
+            await save()
+            await workspace.communityPlugins.saveOpenFileViews()
+        }
         #endif
     }
 

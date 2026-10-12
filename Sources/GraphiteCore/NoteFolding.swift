@@ -44,13 +44,16 @@ public enum NoteFolding {
             occurrences[base] = occurrence + 1
             return base + "|" + String(occurrence)
         }
+        // Each line's heading level, found once: every section below reads the levels of the
+        // lines after its heading. This runs on every keystroke, so long notes depend on it.
+        let headingLevels = lines.map { line in line.isCode ? nil : headingLevel(ofLine: line.content) }
         for (index, line) in lines.enumerated() where !line.isCode {
-            if let level = MarkdownEditing.headingLevel(of: line.content) {
+            if let level = headingLevels[index] {
                 // The section runs to the next heading of the same or a higher level.
                 var lastIndex = index
                 var nextIndex = index + 1
                 while nextIndex < lines.count {
-                    if !lines[nextIndex].isCode, let nextLevel = MarkdownEditing.headingLevel(of: lines[nextIndex].content), nextLevel <= level { break }
+                    if let nextLevel = headingLevels[nextIndex], nextLevel <= level { break }
                     lastIndex = nextIndex
                     nextIndex += 1
                 }
@@ -60,7 +63,7 @@ public enum NoteFolding {
                 if let region = region(kind: .heading(level: level), header: line, last: lines[lastIndex], hasBody: lastIndex > index, key: headingKey) {
                     regions.append(region)
                 }
-            } else if let listLine = MarkdownEditing.listLine(line.content), listLine.isListItem {
+            } else if isListItem(line.content) {
                 let indent = indentWidth(of: line.content)
                 var lastIndex = index
                 var nextIndex = index + 1
@@ -81,6 +84,107 @@ public enum NoteFolding {
             }
         }
         return regions
+    }
+
+    /// `MarkdownEditing.headingLevel(of:)`, without its pattern for the many lines whose first
+    /// character after spaces is not `#` and so cannot be headings.
+    private static func headingLevel(ofLine content: String) -> Int? {
+        guard content.utf8.first(where: { character in character != UInt8(ascii: " ") }) == UInt8(ascii: "#") else { return nil }
+        return MarkdownEditing.headingLevel(of: content)
+    }
+
+    /// Whether a line is a list item, quoted or not, as `MarkdownEditing.listLine(_:)` reads
+    /// it: quote markers, indentation, then `-`, `*`, `+` or a number with `.` or `)`, followed
+    /// by spaces or the line's end. Read character by character rather than with the pattern,
+    /// because folding reads every line of the note on every keystroke.
+    static func isListItem(_ content: String) -> Bool {
+        let space = UInt8(ascii: " "), tab = UInt8(ascii: "\t")
+        let characters = Array(content.utf8)
+        var index = 0
+        func skipSpaces(from start: Int) -> Int {
+            var position = start
+            while position < characters.count, characters[position] == space || characters[position] == tab { position += 1 }
+            return position
+        }
+        // Quote markers: `>`, each after optional spaces and with one optional space after.
+        while true {
+            let markerPosition = skipSpaces(from: index)
+            guard markerPosition < characters.count, characters[markerPosition] == UInt8(ascii: ">") else { break }
+            index = markerPosition + 1
+            if index < characters.count, characters[index] == space || characters[index] == tab { index += 1 }
+        }
+        index = skipSpaces(from: index)
+        guard index < characters.count else { return false }
+        let marker = characters[index]
+        if marker == UInt8(ascii: "-") || marker == UInt8(ascii: "*") || marker == UInt8(ascii: "+") {
+            index += 1
+        } else {
+            let digitsStart = index
+            while index < characters.count, (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(characters[index]) { index += 1 }
+            let digitCount = index - digitsStart
+            guard (1...9).contains(digitCount), index < characters.count,
+                  characters[index] == UInt8(ascii: ".") || characters[index] == UInt8(ascii: ")") else { return false }
+            index += 1
+        }
+        guard index == characters.count || characters[index] == space || characters[index] == tab else { return false }
+        // `- - -` and `***` are thematic breaks, not items; the full reading settles those rare lines.
+        if marker == UInt8(ascii: "-") || marker == UInt8(ascii: "*"), characters[index...].contains(marker) {
+            return MarkdownEditing.listLine(content)?.isListItem == true
+        }
+        return true
+    }
+
+    /// The regions after an edit, moved rather than found again, or nil when they must be
+    /// found again. Typing in a long note edits one line of plain text at a time, and such an
+    /// edit changes no region: it only moves the ones after it and lengthens or shortens the
+    /// ones around it. Anything else (a line break, a heading, a list item, a code fence, a
+    /// blank line or a change of indentation, before or after the edit) is found again.
+    /// `regions` must describe `before`; `replacedRange` is in `before`.
+    public static func regions(_ regions: [FoldableRegion], across editedRange: NSRange, replacementLength: Int,
+                               before: NSString, after: NSString) -> [FoldableRegion]? {
+        guard NSMaxRange(editedRange) <= before.length, editedRange.location + replacementLength <= after.length else { return nil }
+        // The text storage can report more than the typing changed (a whole line restyled with
+        // the character typed); only the characters that differ count.
+        var replacedRange = editedRange, insertedLength = replacementLength
+        while replacedRange.length > 0, insertedLength > 0,
+              before.character(at: replacedRange.location) == after.character(at: replacedRange.location) {
+            replacedRange.location += 1; replacedRange.length -= 1; insertedLength -= 1
+        }
+        while replacedRange.length > 0, insertedLength > 0,
+              before.character(at: NSMaxRange(replacedRange) - 1) == after.character(at: replacedRange.location + insertedLength - 1) {
+            replacedRange.length -= 1; insertedLength -= 1
+        }
+        let replacementLength = insertedLength
+        let insertedRange = NSRange(location: replacedRange.location, length: replacementLength)
+        guard before.substring(with: replacedRange).rangeOfCharacter(from: .newlines) == nil,
+              after.substring(with: insertedRange).rangeOfCharacter(from: .newlines) == nil else { return nil }
+        func lineText(_ text: NSString, containing range: NSRange) -> String {
+            var start = 0, contentsEnd = 0
+            text.getLineStart(&start, end: nil, contentsEnd: &contentsEnd, for: range)
+            return text.substring(with: NSRange(location: start, length: contentsEnd - start))
+        }
+        let lineBefore = lineText(before, containing: replacedRange), lineAfter = lineText(after, containing: insertedRange)
+        guard isPlainText(lineBefore), isPlainText(lineAfter), indentWidth(of: lineBefore) == indentWidth(of: lineAfter) else { return nil }
+        let change = replacementLength - replacedRange.length
+        let editStart = replacedRange.location, editEnd = NSMaxRange(replacedRange)
+        // A line's start at the edit stays; a line's text end at the edit moves with the typing.
+        func movedStart(_ location: Int) -> Int { location <= editStart ? location : location + change }
+        func movedEnd(_ location: Int) -> Int { location >= editEnd ? location + change : location }
+        return regions.map { region in
+            let headerStart = movedStart(region.headerRange.location), hiddenStart = movedEnd(region.hiddenRange.location)
+            return FoldableRegion(kind: region.kind,
+                                  headerRange: NSRange(location: headerStart, length: movedEnd(NSMaxRange(region.headerRange)) - headerStart),
+                                  hiddenRange: NSRange(location: hiddenStart, length: movedEnd(NSMaxRange(region.hiddenRange)) - hiddenStart),
+                                  endLocation: movedStart(region.endLocation), key: region.key)
+        }
+    }
+
+    /// A line that starts no region and ends none early: not blank, not a heading, list item,
+    /// code fence or frontmatter fence (`---`).
+    private static func isPlainText(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard let first = trimmed.first, first != "#", first != "`", first != "~", !trimmed.hasPrefix("---") else { return false }
+        return !isListItem(line)
     }
 
     /// The regions that are folded, given the folded keys. A region inside a folded region

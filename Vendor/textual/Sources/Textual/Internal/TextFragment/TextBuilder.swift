@@ -122,6 +122,10 @@ extension Text {
         text = text.customAttribute(LinkAttribute(link))
       }
 
+      if let roundedBackground = run[RoundedRunBackgroundAttribute.self] {
+        text = text.customAttribute(RoundedRunBackgroundText(background: roundedBackground))
+      }
+
       return text
     }
 

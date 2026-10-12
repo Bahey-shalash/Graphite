@@ -116,6 +116,20 @@ public struct GraphiteCommands: Commands {
             .keyboardShortcut("p", modifiers: .command)
             .disabled(workspace == nil)
         Divider()
+        // Settings › Appearance › Font › Quick Font Size Adjustment, as in Obsidian; the size
+        // is the vault's, so the commands are there only while a vault is open.
+        if let workspace, workspace.adjustsNoteFontSizeQuickly {
+            Button("Make Text Bigger") { workspace.adjustNoteBaseFontSize(bySteps: 1) }
+                .keyboardShortcut("+", modifiers: .command)
+                .disabled(workspace.noteBaseFontSize >= NoteFontSize.adjustableRange.upperBound)
+            Button("Make Text Smaller") { workspace.adjustNoteBaseFontSize(bySteps: -1) }
+                .keyboardShortcut("-", modifiers: .command)
+                .disabled(workspace.noteBaseFontSize <= NoteFontSize.adjustableRange.lowerBound)
+            Button("Default Text Size") { workspace.resetNoteBaseFontSize() }
+                .keyboardShortcut("0", modifiers: .command)
+                .disabled(workspace.noteBaseFontSize == NoteFontSize.defaultSize)
+            Divider()
+        }
     }
 
     @ViewBuilder private var goCommands: some View {

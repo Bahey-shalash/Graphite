@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import GraphiteCore
 import Textual
 #if canImport(UIKit)
@@ -16,6 +17,10 @@ struct EditorConfiguration: Equatable {
     var mode: EditingMode = .livePreview
     var usesReadableLineLength = true
     var textSize: Double = 17
+    /// The vault's text and monospace fonts (Settings › Appearance › Font).
+    var typography = NoteTypography.standard
+    /// The vault's Obsidian theme, or nil for Graphite's own look.
+    var theme: NoteThemeStyle?
     var usesSpellChecking = true
     var colorsEnabled = true
     var paletteHexByName: [String: String] = [:]
@@ -29,6 +34,26 @@ struct EditorConfiguration: Equatable {
 /// Obsidian's inline title: the note's name, larger than a first-level heading.
 enum InlineTitleStyle {
     static let fontScale = 1.75
+
+    /// The theme's inline title size, else Graphite's, as a multiple of the text size.
+    static func fontScale(theme: NoteThemeStyle?) -> Double { theme?.inlineTitleScale ?? fontScale }
+
+    /// The theme's inline title font where `appearance.json` names no text font, else the
+    /// text font; the theme's weight, else semibold.
+    @MainActor
+    static func font(textSize: Double, typography: NoteTypography, theme: NoteThemeStyle?) -> PlatformFont {
+        let size = CGFloat(textSize * fontScale(theme: theme))
+        let weight = theme?.inlineTitleWeight ?? .semibold
+        if !typography.usesAppearanceTextFont, let family = theme?.inlineTitleFamily { return NoteTypography.font(family, size: size, weight: weight) }
+        return typography.textFont(ofSize: size, weight: weight)
+    }
+
+    static func swiftUIFont(textSize: Double, typography: NoteTypography, theme: NoteThemeStyle?) -> Font {
+        let size = textSize * fontScale(theme: theme)
+        let weight = ObsidianHeadingStyle.swiftUIWeight(theme?.inlineTitleWeight ?? .semibold)
+        if !typography.usesAppearanceTextFont, let family = theme?.inlineTitleFamily { return NoteTypography.swiftUIFont(family, size: size).weight(weight) }
+        return typography.textSwiftUIFont(size: size).weight(weight)
+    }
 }
 
 /// Heading sizes and weight shared by Live Preview, Source mode and Reading view, so a
@@ -41,6 +66,38 @@ enum HeadingTypography {
 
     static func fontScale(level: Int) -> CGFloat {
         fontScales[min(max(level, 1), fontScales.count) - 1]
+    }
+
+    /// A heading's size as a multiple of the text size: the theme's, else Graphite's.
+    static func fontScale(level: Int, theme: NoteThemeStyle?) -> CGFloat {
+        theme?.headingScales[min(max(level, 1), 6) - 1].map { scale in CGFloat(min(max(scale, 0.75), 3)) } ?? fontScale(level: level)
+    }
+
+    static func weight(level: Int, theme: NoteThemeStyle?) -> PlatformFont.Weight {
+        theme?.headingWeights[min(max(level, 1), 6) - 1] ?? .semibold
+    }
+
+    /// The heading's font: the theme's heading font unless `appearance.json` names a text
+    /// font (which wins, as in Obsidian), else the text font; the theme's size and weight.
+    @MainActor
+    static func font(level: Int, textSize: CGFloat, typography: NoteTypography, theme: NoteThemeStyle?) -> PlatformFont {
+        let index = min(max(level, 1), 6) - 1
+        let size = textSize * fontScale(level: level, theme: theme)
+        let weight = weight(level: level, theme: theme)
+        var font: PlatformFont
+        if !typography.usesAppearanceTextFont, let family = theme?.headingFamilies[index] {
+            font = NoteTypography.font(family, size: size, weight: weight)
+        } else {
+            font = typography.textFont(ofSize: size, weight: weight)
+        }
+        if theme?.headingItalic[index] == true {
+            #if canImport(UIKit)
+            if let descriptor = font.fontDescriptor.withSymbolicTraits(font.fontDescriptor.symbolicTraits.union(.traitItalic)) { font = UIFont(descriptor: descriptor, size: size) }
+            #else
+            font = NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(font.fontDescriptor.symbolicTraits.union(.italic)), size: size) ?? font
+            #endif
+        }
+        return font
     }
 }
 
@@ -62,6 +119,52 @@ enum ConcealedReplacement: String {
     /// Holds the `InlineMathLayout` of an `inlineMath` replacement.
     static let mathAttributeKey = NSAttributedString.Key("GraphiteConcealedReplacementMath")
     static let subpathSeparatorText = " > "
+    /// A theme's shapes Live Preview draws behind or around text (theme Phase 3):
+    /// a `ThemedTextShape` for tag pills and highlights, a `ThemedCheckboxStyle` for task
+    /// checkboxes, a `ThemedHeadingOrnament` for headings, and a color behind quoted lines.
+    static let roundedBackgroundKey = NSAttributedString.Key("GraphiteThemedRoundedBackground")
+    static let checkboxStyleKey = NSAttributedString.Key("GraphiteThemedCheckbox")
+    static let headingOrnamentKey = NSAttributedString.Key("GraphiteThemedHeadingOrnament")
+    static let quoteBackgroundKey = NSAttributedString.Key("GraphiteThemedQuoteBackground")
+}
+
+/// A rounded background, with an optional border, behind a run of text.
+final class ThemedTextShape: NSObject {
+    let color: PlatformColor
+    let cornerRadius: CGFloat
+    let borderColor: PlatformColor?
+    let borderWidth: CGFloat
+
+    init(color: PlatformColor, cornerRadius: CGFloat, borderColor: PlatformColor?, borderWidth: CGFloat) {
+        self.color = color; self.cornerRadius = cornerRadius; self.borderColor = borderColor; self.borderWidth = borderWidth
+    }
+}
+
+/// A theme's task checkbox: corner radius as a multiple of the text size, border, and colors.
+final class ThemedCheckboxStyle: NSObject {
+    let radiusScale: CGFloat
+    let borderWidth: CGFloat
+    let fill: PlatformColor
+    let border: PlatformColor
+    let checkmark: PlatformColor
+
+    init(radiusScale: CGFloat, borderWidth: CGFloat, fill: PlatformColor, border: PlatformColor, checkmark: PlatformColor) {
+        self.radiusScale = radiusScale; self.borderWidth = borderWidth; self.fill = fill; self.border = border; self.checkmark = checkmark
+    }
+}
+
+/// A theme's heading ornament: a background and an underline across the column, and text
+/// before the heading, drawn in the margin so the heading's own text stays where it is.
+final class ThemedHeadingOrnament: NSObject {
+    let background: PlatformColor?
+    let underlineColor: PlatformColor?
+    let underlineWidth: CGFloat
+    let prefix: String?
+    let prefixColor: PlatformColor?
+
+    init(background: PlatformColor?, underlineColor: PlatformColor?, underlineWidth: CGFloat, prefix: String?, prefixColor: PlatformColor?) {
+        self.background = background; self.underlineColor = underlineColor; self.underlineWidth = underlineWidth; self.prefix = prefix; self.prefixColor = prefixColor
+    }
 }
 
 /// A `$…$` formula Live Preview draws in place of its source.
@@ -100,15 +203,40 @@ struct MarkdownTextStyler {
     static let platformDrawsConcealedReplacements = false
     #endif
 
-    var baseFont: PlatformFont { PlatformFont.systemFont(ofSize: configuration.textSize) }
+    var baseFont: PlatformFont { configuration.typography.textFont(ofSize: configuration.textSize) }
 
     var baseAttributes: [NSAttributedString.Key: Any] { baseAttributes(font: baseFont) }
 
     private func baseAttributes(font: PlatformFont) -> [NSAttributedString.Key: Any] {
         let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = font.pointSize * 0.3
+        // The theme's line height, or Graphite's (Obsidian's 1.5).
+        paragraphStyle.lineSpacing = configuration.theme?.lineSpacing(forTextSize: font.pointSize) ?? font.pointSize * 0.3
         paragraphStyle.paragraphSpacing = font.pointSize * 0.25
-        return [.font: font, .foregroundColor: Self.primaryTextColor, .paragraphStyle: paragraphStyle]
+        return [.font: font, .foregroundColor: textColor, .paragraphStyle: paragraphStyle]
+    }
+
+    // The theme's colors where it sets them, else Graphite's (`NoteThemeStyle`).
+    private var theme: NoteThemeStyle? { configuration.theme }
+    var textColor: PlatformColor { theme?.textNormal ?? Self.primaryTextColor }
+    private var mutedColor: PlatformColor { theme?.textMuted ?? Self.secondaryTextColor }
+    /// Markdown syntax markers only: decoration, never content.
+    private var markerColor: PlatformColor { theme?.textFaint ?? Self.tertiaryTextColor }
+    private var linkColor: PlatformColor { theme?.linkColor ?? theme?.accent ?? accentColor }
+    private var tagColor: PlatformColor { theme?.tagColor ?? theme?.accent ?? accentColor }
+
+    /// The theme's checkbox shape, when it gives one.
+    private var checkboxStyle: ThemedCheckboxStyle? {
+        guard let theme, theme.checkboxRadiusScale != nil || theme.checkboxBorderWidth != nil || theme.checkmarkColor != nil else { return nil }
+        return ThemedCheckboxStyle(radiusScale: CGFloat(theme.checkboxRadiusScale ?? 0.25), borderWidth: CGFloat(min(max(theme.checkboxBorderWidth ?? 1.5, 1), 3)),
+                                   fill: theme.checkboxColor ?? theme.accent ?? accentColor, border: theme.checkboxBorderColor ?? mutedColor,
+                                   checkmark: theme.checkmarkColor ?? .white)
+    }
+
+    private func headingOrnament(level: Int) -> ThemedHeadingOrnament? {
+        guard let ornament = theme?.headingOrnaments[min(max(level, 1), 6) - 1], !ornament.isEmpty,
+              ornament.background != nil || ornament.underlineColor != nil || ornament.prefix != nil else { return nil }
+        return ThemedHeadingOrnament(background: ornament.background, underlineColor: ornament.underlineColor,
+                                     underlineWidth: CGFloat(min(max(ornament.underlineWidth ?? 1, 0.5), 6)), prefix: ornament.prefix, prefixColor: ornament.prefixColor)
     }
 
     /// Restyles whole lines touched by `range`, or the whole document. In Live Preview,
@@ -160,7 +288,7 @@ struct MarkdownTextStyler {
         let spans = blockContextCheckpoints?.spans(in: textStorage, source: source, range: targetRange)
             ?? MarkdownStyleScanner.spans(in: source, range: targetRange)
         let styledRange = spans.reduce(targetRange) { unionRange, span in NSUnionRange(unionRange, span.range) }
-        let fonts = MarkdownStyleFonts(baseFont: baseFont)
+        let fonts = MarkdownStyleFonts(baseFont: baseFont, typography: configuration.typography, theme: configuration.theme)
         textStorage.beginEditing()
         textStorage.setAttributes(baseAttributes(font: fonts.baseFont), range: styledRange)
         apply(spans, within: [styledRange], to: textStorage, source: source, revealedMarkup: revealedMarkup, fonts: fonts)
@@ -227,7 +355,7 @@ struct MarkdownTextStyler {
         let otherMarkerLines = changingRanges.filter { changingRange in !scans.contains { scan in NSLocationInRange(changingRange.location, scan.lines) } }
             .map { markerRange in source.lineRange(for: markerRange) }
         scans.append(contentsOf: RevealedMarkupChange.merged(otherMarkerLines).map(scannedLines))
-        let fonts = MarkdownStyleFonts(baseFont: baseFont)
+        let fonts = MarkdownStyleFonts(baseFont: baseFont, typography: configuration.typography, theme: configuration.theme)
         var restyledRanges: [NSRange] = []
         textStorage.beginEditing()
         for scan in scans {
@@ -514,11 +642,15 @@ struct MarkdownTextStyler {
         textStorage.addAttribute(.foregroundColor, value: PlatformColor.clear, range: range)
         textStorage.addAttribute(ConcealedReplacement.attributeKey, value: replacement.rawValue, range: range)
         let color: PlatformColor = switch replacement {
-        case .bullet, .uncheckedTask: Self.secondaryTextColor
-        case .checkedTask, .subpathSeparator, .quoteBar: accentColor
-        case .inlineMath: Self.primaryTextColor
+        case .bullet: theme?.listMarkerColor ?? mutedColor
+        case .uncheckedTask: theme?.checkboxBorderColor ?? mutedColor
+        case .checkedTask: theme?.checkboxColor ?? theme?.accent ?? accentColor
+        case .subpathSeparator: linkColor
+        case .quoteBar: theme?.blockquoteBorderColor ?? theme?.accent ?? accentColor
+        case .inlineMath: textColor
         }
         textStorage.addAttribute(ConcealedReplacement.colorAttributeKey, value: color, range: range)
+        if replacement == .checkedTask || replacement == .uncheckedTask, let checkboxStyle { textStorage.addAttribute(ConcealedReplacement.checkboxStyleKey, value: checkboxStyle, range: range) }
         guard replacement == .subpathSeparator else { return }
         // The separator is wider than `#`: kerning after it makes room without changing the text.
         let font = textStorage.attribute(.font, at: range.location, effectiveRange: nil) as? PlatformFont ?? baseFont
@@ -578,7 +710,7 @@ struct MarkdownTextStyler {
     private func strikeCompletedTask(_ taskTextRange: NSRange, in textStorage: NSTextStorage) {
         guard taskTextRange.length > 0 else { return }
         textStorage.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: taskTextRange)
-        textStorage.addAttribute(.foregroundColor, value: Self.secondaryTextColor, range: taskTextRange)
+        textStorage.addAttribute(.foregroundColor, value: mutedColor, range: taskTextRange)
     }
 
     private func conceal(_ range: NSRange, in textStorage: NSTextStorage) {
@@ -611,40 +743,70 @@ struct MarkdownTextStyler {
         switch style {
         case .heading(let level):
             textStorage.addAttribute(.font, value: fonts.headingFont(level: level), range: range)
+            if let headingColor = theme?.headingColors[min(max(level, 1), 6) - 1] { textStorage.addAttribute(.foregroundColor, value: headingColor, range: range) }
+            if let ornament = headingOrnament(level: level) { textStorage.addAttribute(ConcealedReplacement.headingOrnamentKey, value: ornament, range: range) }
         case .syntaxMarker, .concealableMarker, .horizontalRule:
-            textStorage.addAttribute(.foregroundColor, value: Self.tertiaryTextColor, range: range)
+            textStorage.addAttribute(.foregroundColor, value: markerColor, range: range)
         case .strong:
             addTrait(bold: true, to: textStorage, range: range, fonts: fonts)
+            if let boldColor = theme?.boldColor { textStorage.addAttribute(.foregroundColor, value: boldColor, range: range) }
         case .emphasis:
             addTrait(bold: false, to: textStorage, range: range, fonts: fonts)
+            if let italicColor = theme?.italicColor { textStorage.addAttribute(.foregroundColor, value: italicColor, range: range) }
         case .strikethrough:
             textStorage.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: range)
-            textStorage.addAttribute(.foregroundColor, value: Self.secondaryTextColor, range: range)
+            textStorage.addAttribute(.foregroundColor, value: mutedColor, range: range)
         case .highlight:
-            textStorage.addAttribute(.backgroundColor, value: Self.highlightBackgroundColor, range: range)
+            if let theme, let background = theme.highlightBackground, !drawsConcealedReplacements {
+                // The Mac editor draws no shapes: a plain background there.
+                textStorage.addAttribute(.backgroundColor, value: background, range: range)
+            } else if let theme, theme.highlightBackground != nil || theme.highlightRadius != nil {
+                // Drawn by the layout fragment, with the theme's rounded ends; a theme that only
+                // rounds the ends keeps Graphite's color.
+                textStorage.addAttribute(ConcealedReplacement.roundedBackgroundKey,
+                                         value: ThemedTextShape(color: theme.highlightBackground ?? Self.highlightBackgroundColor, cornerRadius: NoteThemeStyle.scaled(theme.highlightRadius ?? 0, textSize: configuration.textSize),
+                                                                borderColor: nil, borderWidth: 0), range: range)
+                if let highlightText = theme.highlightTextColor { textStorage.addAttribute(.foregroundColor, value: highlightText, range: range) }
+            } else {
+                textStorage.addAttribute(.backgroundColor, value: Self.highlightBackgroundColor, range: range)
+            }
         case .inlineCode, .codeBlock:
             textStorage.addAttribute(.font, value: fonts.codeFont, range: range)
-            textStorage.addAttribute(.backgroundColor, value: Self.codeBackgroundColor, range: range)
+            textStorage.addAttribute(.backgroundColor, value: theme?.codeBackground ?? Self.codeBackgroundColor, range: range)
+            if let codeColor = theme?.codeColor { textStorage.addAttribute(.foregroundColor, value: codeColor, range: range) }
         case .math:
             // Quiet, like code: the formula's source is not a link, so it takes no color of its own.
             textStorage.addAttribute(.font, value: fonts.codeFont, range: range)
-            textStorage.addAttribute(.foregroundColor, value: Self.secondaryTextColor, range: range)
-        case .link, .embed, .tag, .subpathSeparator:
-            textStorage.addAttribute(.foregroundColor, value: accentColor, range: range)
+            textStorage.addAttribute(.foregroundColor, value: mutedColor, range: range)
+        case .link, .embed, .subpathSeparator:
+            textStorage.addAttribute(.foregroundColor, value: linkColor, range: range)
+            if theme?.linksAreUnderlined == true { textStorage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range) }
+        case .tag:
+            textStorage.addAttribute(.foregroundColor, value: tagColor, range: range)
+            if let theme, let tagBackground = theme.tagBackground, !drawsConcealedReplacements {
+                textStorage.addAttribute(.backgroundColor, value: tagBackground, range: range)
+            } else if let theme, theme.tagBackground != nil || theme.tagBorderColor != nil {
+                // A pill, drawn by the layout fragment with the theme's corners and border.
+                textStorage.addAttribute(ConcealedReplacement.roundedBackgroundKey,
+                                         value: ThemedTextShape(color: theme.tagBackground ?? .clear,
+                                                                cornerRadius: theme.tagRadius.map { radius in NoteThemeStyle.scaled(radius, textSize: configuration.textSize) } ?? NoteThemeStyle.pillRadius,
+                                                                borderColor: theme.tagBorderColor, borderWidth: CGFloat(theme.tagBorderWidth ?? 0)), range: range)
+            }
         case .listMarker, .taskMarker:
-            textStorage.addAttribute(.foregroundColor, value: Self.secondaryTextColor, range: range)
+            textStorage.addAttribute(.foregroundColor, value: mutedColor, range: range)
         case .quote:
-            textStorage.addAttribute(.foregroundColor, value: Self.secondaryTextColor, range: range)
+            textStorage.addAttribute(.foregroundColor, value: mutedColor, range: range)
+            if let quoteBackground = theme?.blockquoteBackground { textStorage.addAttribute(ConcealedReplacement.quoteBackgroundKey, value: quoteBackground, range: range) }
         case .calloutTitle:
-            textStorage.addAttribute(.foregroundColor, value: accentColor, range: range)
+            textStorage.addAttribute(.foregroundColor, value: theme?.accent ?? accentColor, range: range)
             textStorage.addAttribute(.font, value: fonts.calloutTitleFont, range: range)
         case .frontmatter:
             textStorage.addAttribute(.font, value: fonts.frontmatterFont, range: range)
-            textStorage.addAttribute(.foregroundColor, value: Self.secondaryTextColor, range: range)
+            textStorage.addAttribute(.foregroundColor, value: mutedColor, range: range)
         case .footnote:
             textStorage.addAttribute(.font, value: fonts.footnoteFont, range: range)
             textStorage.addAttribute(.baselineOffset, value: fonts.baseFont.pointSize * 0.35, range: range)
-            textStorage.addAttribute(.foregroundColor, value: accentColor, range: range)
+            textStorage.addAttribute(.foregroundColor, value: linkColor, range: range)
         }
     }
 
@@ -676,10 +838,12 @@ struct MarkdownTextStyler {
 @MainActor
 private final class MarkdownStyleFonts {
     let baseFont: PlatformFont
-    private(set) lazy var codeFont = PlatformFont.monospacedSystemFont(ofSize: baseFont.pointSize * 0.9, weight: .regular)
-    private(set) lazy var frontmatterFont = PlatformFont.monospacedSystemFont(ofSize: baseFont.pointSize * 0.85, weight: .regular)
-    private(set) lazy var calloutTitleFont = PlatformFont.systemFont(ofSize: baseFont.pointSize, weight: .semibold)
-    private(set) lazy var footnoteFont = PlatformFont.systemFont(ofSize: max(baseFont.pointSize * 0.72, GraphitePreferences.smallestNoteTextSize), weight: .semibold)
+    let typography: NoteTypography
+    let theme: NoteThemeStyle?
+    private(set) lazy var codeFont = typography.monospaceFont(ofSize: baseFont.pointSize * 0.9)
+    private(set) lazy var frontmatterFont = typography.monospaceFont(ofSize: baseFont.pointSize * 0.85)
+    private(set) lazy var calloutTitleFont = typography.textFont(ofSize: baseFont.pointSize, weight: .semibold)
+    private(set) lazy var footnoteFont = typography.textFont(ofSize: max(baseFont.pointSize * 0.72, GraphitePreferences.smallestNoteTextSize), weight: .semibold)
     private var headingFontsByLevel: [Int: PlatformFont] = [:]
     private var traitFontsByKey: [TraitFontKey: PlatformFont] = [:]
 
@@ -688,14 +852,16 @@ private final class MarkdownStyleFonts {
         let isBold: Bool
     }
 
-    init(baseFont: PlatformFont) {
+    init(baseFont: PlatformFont, typography: NoteTypography, theme: NoteThemeStyle?) {
         self.baseFont = baseFont
+        self.typography = typography
+        self.theme = theme
     }
 
     func headingFont(level: Int) -> PlatformFont {
         let clampedLevel = min(max(level, 1), 6)
         if let font = headingFontsByLevel[clampedLevel] { return font }
-        let font = PlatformFont.systemFont(ofSize: baseFont.pointSize * HeadingTypography.fontScale(level: clampedLevel), weight: .semibold)
+        let font = HeadingTypography.font(level: clampedLevel, textSize: baseFont.pointSize, typography: typography, theme: theme)
         headingFontsByLevel[clampedLevel] = font
         return font
     }

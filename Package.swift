@@ -33,7 +33,8 @@ let package = Package(
         .target(name: "GraphiteUI", dependencies: ["GraphiteCore", "GraphiteIndex", "GraphiteApple", "GraphiteVoices", .product(name: "Textual", package: "textual")],
                 // The Obsidian plugin runtime's page, scripts and vendored libraries, copied as
                 // one folder so the page's relative script paths keep working.
-                resources: [.copy("Resources/CommunityPluginRuntime")]),
+                // The theme resolver's default variables and probe script (`ThemeTokenResolver`).
+                resources: [.copy("Resources/CommunityPluginRuntime"), .copy("Resources/ThemeResolver")]),
         .executableTarget(name: "GraphiteBenchmarks", dependencies: ["GraphiteCore", "GraphiteIndex"]),
         .testTarget(name: "GraphiteCoreTests", dependencies: ["GraphiteCore"]),
         .testTarget(name: "GraphiteIndexTests", dependencies: ["GraphiteIndex", "GraphiteBenchmarks"]),

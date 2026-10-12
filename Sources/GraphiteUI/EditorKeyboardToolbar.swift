@@ -37,6 +37,9 @@ struct EditorActions {
     /// Starts a drawing when Apple Pencil is double-tapped; nil where the note's side is not
     /// focused or the setting is off.
     var drawOnPencilDoubleTap: (() -> Void)?
+    /// Changes the vault's font size by pinching (Control-scrolling on a Mac); nil when
+    /// Settings › Appearance › Font › Quick Font Size Adjustment is off.
+    var quickFontSize: QuickFontSizeAdjustment?
     /// Saves pasted or dropped data as an attachment and embeds it at the range.
     var insertAttachment: ((_ data: Data, _ stem: String, _ fileExtension: String, _ range: NSRange) -> Void)?
     /// Inserts a link to a vault file dragged from the sidebar.
@@ -49,6 +52,11 @@ struct EditorActions {
     /// does; returns the change's revision when plugins suggest as the person types, so the
     /// suggestions list can ask for theirs. Nil while no plugin listens.
     var pluginEditorDidChange: (() -> Int?)?
+    /// Offers a paste (its text and HTML) to community plugins that listen; true when one took
+    /// it over. Nil while no plugin listens.
+    var pluginPaste: ((_ text: String?, _ html: String?) async -> Bool)?
+    /// Offers a drop (the files' names and types, or text) to plugins that listen.
+    var pluginDrop: ((_ files: [(name: String, type: String)], _ text: String?) async -> Bool)?
     #if canImport(UIKit)
     /// Community plugins' items for the editor's menu at the cursor; nil while no plugin adds any.
     var pluginEditMenuElement: (() -> UIMenuElement)?

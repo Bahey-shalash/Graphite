@@ -264,7 +264,8 @@ struct CommunityPluginCodeBlockView: View {
         case .drawn(let html):
             if let shownBlock {
                 CommunityPluginCodeBlockDisplay(block: shownBlock, html: html, styleSheets: host.pluginStyleSheets,
-                                                isDark: colorScheme == .dark, textSize: textSize, accentHex: accent.sRGBHex)
+                                                isDark: colorScheme == .dark, textSize: textSize, accentHex: accent.sRGBHex,
+                                                bodyClasses: host.pluginBodyClasses, bodyStyle: host.pluginBodyStyle, hasTheme: !host.activeThemeName.isEmpty)
                     .frame(height: max(shownBlock.height, 1))
             }
         case .unchanged:
@@ -307,7 +308,8 @@ struct CommunityPluginSectionView<NativeContent: View>: View {
         Group {
             if let shownBlock, case .drawn(let html) = shownBlock.appearance {
                 CommunityPluginCodeBlockDisplay(block: shownBlock, html: html, styleSheets: host.pluginStyleSheets,
-                                                isDark: colorScheme == .dark, textSize: textSize, accentHex: accent.sRGBHex)
+                                                isDark: colorScheme == .dark, textSize: textSize, accentHex: accent.sRGBHex,
+                                                bodyClasses: host.pluginBodyClasses, bodyStyle: host.pluginBodyStyle, hasTheme: !host.activeThemeName.isEmpty)
                     .frame(height: max(shownBlock.height, 1))
             } else {
                 nativeContent()
@@ -369,6 +371,7 @@ enum CommunityPluginCodeBlockPage {
         <!doctype html>
         <html lang="en"><head><meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
+        <link rel="stylesheet" href="graphite-default-variables.css">
         <link rel="stylesheet" href="community-plugin-runtime.css">
         <style id="graphite-plugin-styles"></style>
         <style>
@@ -377,6 +380,9 @@ enum CommunityPluginCodeBlockPage {
         .graphite-code-block-root { padding: 1px 0; }
         .graphite-code-block-root > * { margin-top: 0; }
         body.graphite-view-page { height: 100vh; overflow: hidden; }
+        /* With a theme, a view fills its tab or panel on the theme's page color, as in Obsidian;
+           a block sits on the note's own page. */
+        html:has(body.graphite-view-page.graphite-themed), body.graphite-view-page.graphite-themed { background: var(--background-primary) !important; }
         body.graphite-view-page .graphite-code-block-root { height: 100vh; padding: 0; }
         .graphite-code-block-root > .workspace-leaf { height: 100%; display: flex; flex-direction: column; }
         .graphite-code-block-root > .workspace-leaf > .workspace-leaf-content { display: flex; flex-direction: column; height: 100%; }
@@ -443,22 +449,36 @@ enum CommunityPluginCodeBlockPage {
             if (height !== lastHeight) { lastHeight = height; handler.postMessage({ kind: 'height', height }); }
         }
         window.GraphiteCodeBlock = {
-            show(html, styleSheets, isDark, textSize, accent, fillsSpace) {
+            show(html, styleSheets, isDark, textSize, accent, fillsSpace, bodyClasses, bodyStyle, hasTheme) {
                 document.body.classList.toggle('graphite-view-page', Boolean(fillsSpace));
                 // A plugin's view is not a note's rendering; only blocks get the note's styles.
                 root().classList.toggle('markdown-rendered', !fillsSpace);
                 root().classList.toggle('markdown-preview-view', !fillsSpace);
                 const styleElement = document.getElementById('graphite-plugin-styles');
                 if (styleElement.textContent !== styleSheets) styleElement.textContent = styleSheets;
+                // The classes and inline style plugins and the theme set on the plugins' page body
+                // (Style Settings, Minimal Theme Settings' schemes and options, the accent).
+                const body = document.body;
+                const previousClasses = (body.dataset.graphitePageClasses || '').split(' ').filter(Boolean);
+                for (const className of previousClasses) body.classList.remove(className);
+                for (const className of String(bodyClasses || '').split(' ').filter(Boolean)) body.classList.add(className);
+                body.dataset.graphitePageClasses = String(bodyClasses || '');
+                if ((body.dataset.graphitePageStyle || '') !== String(bodyStyle || '')) {
+                    body.setAttribute('style', String(bodyStyle || ''));
+                    body.dataset.graphitePageStyle = String(bodyStyle || '');
+                }
                 document.body.classList.toggle('theme-dark', isDark);
                 document.body.classList.toggle('theme-light', !isDark);
+                document.body.classList.toggle('graphite-themed', Boolean(hasTheme));
                 document.body.style.setProperty('--font-text-size', textSize + 'px');
                 // A view uses Obsidian's interface sizes, which follow the system's text size too.
                 const scale = fillsSpace ? textSize / 15 : 1;
                 for (const [name, size] of [['--font-ui-smaller', 12], ['--font-ui-small', 13], ['--font-ui-medium', 15], ['--font-ui-large', 20]]) {
                     document.body.style.setProperty(name, (size * scale) + 'px');
                 }
-                if (accent) {
+                // A theme derives its accent colors from --accent-h, -s and -l, which the page's
+                // inline style carries; without one, Graphite's accent is set directly.
+                if (accent && !hasTheme) {
                     document.body.style.setProperty('--color-accent', accent);
                     document.body.style.setProperty('--interactive-accent', accent);
                     document.body.style.setProperty('--text-accent', accent);
@@ -541,7 +561,7 @@ final class CommunityPluginCodeBlockDisplayCoordinator: NSObject, WKScriptMessag
     func present(_ presentation: [String: Any]) {
         pendingPresentation = presentation
         guard isLoaded, let webView else { return }
-        webView.callAsyncJavaScript("GraphiteCodeBlock.show(html, styleSheets, isDark, textSize, accent, fillsSpace)", arguments: presentation,
+        webView.callAsyncJavaScript("GraphiteCodeBlock.show(html, styleSheets, isDark, textSize, accent, fillsSpace, bodyClasses, bodyStyle, hasTheme)", arguments: presentation,
                                     in: nil, in: .defaultClient) { _ in }
     }
 }
@@ -557,6 +577,11 @@ struct CommunityPluginCodeBlockDisplay {
     let accentHex: String?
     /// A plugin view fills its tab or panel and scrolls inside; a block is as tall as its content.
     var fillsSpace = false
+    /// The plugins' page body classes and inline style (`CommunityPluginHost.pluginBodyClasses`).
+    var bodyClasses = ""
+    var bodyStyle = ""
+    /// Whether the vault's theme is among `styleSheets`, so the theme decides the accent's shades.
+    var hasTheme = false
 
     /// One store for every block page: no page keeps anything, and sharing it lets WebKit
     /// share its processes between blocks.
@@ -599,7 +624,8 @@ struct CommunityPluginCodeBlockDisplay {
 
     @MainActor private func update(_ coordinator: CommunityPluginCodeBlockDisplayCoordinator) {
         coordinator.block = block
-        coordinator.present(["html": html, "styleSheets": styleSheets, "isDark": isDark, "textSize": textSize, "accent": accentHex ?? "", "fillsSpace": fillsSpace])
+        coordinator.present(["html": html, "styleSheets": styleSheets, "isDark": isDark, "textSize": textSize, "accent": accentHex ?? "", "fillsSpace": fillsSpace,
+                             "bodyClasses": bodyClasses, "bodyStyle": bodyStyle, "hasTheme": hasTheme])
     }
 
     @MainActor private static func dismantle(_ webView: WKWebView) {

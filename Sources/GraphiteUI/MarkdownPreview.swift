@@ -38,6 +38,8 @@ struct ReadingConfiguration: Equatable, Sendable {
     /// Whether community plugins change how notes read (Markdown post-processors); each
     /// run of Markdown is then offered to them.
     var runsPluginPostProcessors = false
+    /// Whether Wikilinks no file answers are marked, for a theme's unresolved link color.
+    var marksUnresolvedLinks = false
 }
 
 /// A reading-view block after links are resolved and files located.
@@ -128,6 +130,17 @@ enum GraphiteOpenLink {
     /// Present on a Markdown link's target, which is relative to the note that contains it
     /// and percent-encoded, unlike a Wikilink target.
     private static let markdownLinkKey = "markdown"
+    /// Present on a Wikilink no file answers, which a theme colors as unresolved.
+    private static let unresolvedKey = "unresolved"
+
+    /// The link's destination marked as unresolved.
+    static func markingUnresolved(_ destination: String) -> String {
+        destination + (destination.contains("?") ? "&" : "?") + unresolvedKey + "=1"
+    }
+
+    static func isUnresolved(_ location: URL) -> Bool {
+        URLComponents(url: location, resolvingAgainstBaseURL: false)?.queryItems?.contains { item in item.name == unresolvedKey } == true
+    }
 
     /// The link as a Markdown link destination. URL strings leave `(` and `)` unescaped, and
     /// CommonMark ends a destination at an unbalanced `)`, which note and file names may
@@ -538,7 +551,13 @@ actor ReadingViewBuilder {
                 // An embed the index may not know yet is shown as a link until it does.
                 if link.isEmbed { hasUnresolvedEmbeds = true }
                 let target = linkTarget(of: link, in: note)
-                replacement = "[\(Self.escapedLabel(Self.displayText(for: link)))](\(GraphiteOpenLink.markdownDestination(target: target.target, isWiki: target.isWiki)))"
+                var destination = GraphiteOpenLink.markdownDestination(target: target.target, isWiki: target.isWiki)
+                // With a theme, a link no file answers is marked, and drawn in the theme's unresolved color.
+                if configuration.marksUnresolvedLinks, !link.isEmbed, !link.target.hasPrefix("#"),
+                   await resolve(link.target, isWiki: link.isWiki, note: note, root: root, index: index) == nil {
+                    destination = GraphiteOpenLink.markingUnresolved(destination)
+                }
+                replacement = "[\(Self.escapedLabel(Self.displayText(for: link)))](\(destination))"
             } else {
                 continue
             }
@@ -763,6 +782,10 @@ struct MarkdownPreview: View {
     var followsReading = false
     var suspendReadingFollow: (() -> Void)? = nil
     @State private var scrollPosition = ScrollPosition(y: 0)
+    @Environment(\.noteTypography) private var typography
+    @Environment(\.noteTheme) private var theme
+    /// The readable column: Graphite's, or the vault theme's line width at this text size.
+    private var readableColumnWidth: CGFloat { theme?.readableColumnWidth(forTextSize: configuration.textSize) ?? ReadingConfiguration.readableColumnWidth }
     @State private var hasRestoredPosition = false
     @State private var pendingRestorationOffset: CGFloat?
     /// Where this view was before it restored the saved position, when nothing was saved:
@@ -791,7 +814,8 @@ struct MarkdownPreview: View {
                 LazyVStack(alignment: .leading, spacing: 14) {
                     if let inlineTitle = configuration.inlineTitle {
                         Text(inlineTitle)
-                            .font(.system(size: configuration.textSize * InlineTitleStyle.fontScale, weight: .semibold))
+                            .font(InlineTitleStyle.swiftUIFont(textSize: configuration.textSize, typography: typography, theme: theme))
+                            .foregroundStyle(theme?.inlineTitleColor.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.primary))
                             .accessibilityAddTraits(.isHeader)
                             .padding(.bottom, 6)
                     }
@@ -802,7 +826,7 @@ struct MarkdownPreview: View {
                        blockPositions: savedPosition)
                     if let errorMessage { Text(errorMessage).foregroundStyle(.secondary) }
                 }
-                .frame(maxWidth: configuration.usesReadableLineLength ? ReadingConfiguration.readableColumnWidth : .infinity, alignment: .leading)
+                .frame(maxWidth: configuration.usesReadableLineLength ? readableColumnWidth : .infinity, alignment: .leading)
                 .padding(.horizontal, ReadingConfiguration.minimumHorizontalMargin).padding(.vertical, 32)
                 .frame(maxWidth: .infinity)
             }
@@ -873,7 +897,7 @@ struct MarkdownPreview: View {
             .environment(\.readingTaskContext, toggleTask.map { toggleTask in
                 ReadingTaskContext(note: path) { note, location in await toggle(location, in: note, with: toggleTask) }
             })
-            .environment(\.embeddedImageColumnWidth, configuration.usesReadableLineLength ? ReadingConfiguration.readableColumnWidth : nil)
+            .environment(\.embeddedImageColumnWidth, configuration.usesReadableLineLength ? readableColumnWidth : nil)
             // Runs again once blocks exist: a note opened by a link or a search match is
             // asked to scroll before it has built anything to scroll to.
             .task(id: "\(blocks.count)-\(headingScrollRequest?.token.uuidString ?? "")") {
@@ -1078,6 +1102,7 @@ extension ReadingConfiguration {
         hasher.combine(paletteHexByName.sorted { firstEntry, secondEntry in firstEntry.key < secondEntry.key }.map { entry in entry.key + entry.value })
         hasher.combine(declaredPropertyTypes.sorted { firstEntry, secondEntry in firstEntry.key < secondEntry.key }.map { entry in entry.key + "=" + entry.value.rawValue })
         hasher.combine(pluginCodeBlockLanguages.sorted())
+        hasher.combine(marksUnresolvedLinks)
         hasher.combine(runsPluginPostProcessors)
         return hasher.finalize()
     }
@@ -1298,6 +1323,8 @@ private struct ReadingBlockPositionReporter: ViewModifier {
 struct ObsidianMarkdownText: View {
     let markdown: String
     @Environment(\.accent) private var accent
+    @Environment(\.noteTypography) private var typography
+    @Environment(\.noteTheme) private var theme
     let root: URL
     let textSize: Double
     let navigate: (String, Bool) -> Void
@@ -1322,24 +1349,54 @@ struct ObsidianMarkdownText: View {
                     }
                 }
         } else {
-            StructuredText(markdown, parser: ObsidianMarkdownParser(baseURL: root, textSize: textSize, sourceTokens: sourceTokens))
+            StructuredText(markdown, parser: ObsidianMarkdownParser(baseURL: root, textSize: textSize, sourceTokens: sourceTokens,
+                                                                    themeColors: ReadingThemeColors(theme: theme)))
                 // StructuredText parses again only when its text changes, and the parse sizes
-                // footnote numbers, so a new text size starts a new view.
+                // footnote numbers and colors the theme's links and tags, so a new text size or
+                // theme starts a new view.
                 .id(textSize)
                 .id(sourceTokens)
-                .font(.system(size: textSize))
+                .id(theme?.tokens.fingerprint)
+                .font(typography.textSwiftUIFont(size: textSize))
+                .foregroundStyle(theme?.textNormal.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.primary))
+                .textual.lineSpacing(.fontScaled(theme?.lineHeight.map { height in max(0, height - 1.2) } ?? Self.graphiteLineSpacing))
                 .textual.textSelection(.enabled)
-                .textual.inlineStyle(InlineStyle.default.link(.foregroundColor(accent)))
-                .textual.listItemStyle(ObsidianListItemStyle(textSize: textSize))
+                .textual.inlineStyle(inlineStyle)
+                .textual.codeBlockStyle(ObsidianCodeBlockStyle(monospaceFont: typography.monospaceSwiftUIFont(size: textSize), theme: theme))
+                .textual.listItemStyle(ObsidianListItemStyle(textSize: textSize, theme: theme))
                 .textual.imageAttachmentLoader(VaultImageLoader(root: root))
-                .textual.headingStyle(ObsidianHeadingStyle())
-                .textual.tableStyle(ObsidianTableStyle())
-                .textual.tableCellStyle(ObsidianTableCellStyle())
-                .textual.blockQuoteStyle(ObsidianBlockQuoteStyle())
+                .textual.headingStyle(ObsidianHeadingStyle(theme: theme, typography: typography, textSize: textSize))
+                .textual.tableStyle(ObsidianTableStyle(theme: theme))
+                .textual.thematicBreakStyle(ObsidianThematicBreakStyle(theme: theme))
+                .textual.tableCellStyle(ObsidianTableCellStyle(theme: theme))
+                .textual.blockQuoteStyle(ObsidianBlockQuoteStyle(theme: theme))
                 .tint(accent)
                 .environment(\.openURL, Self.linkAction(root: root, navigate: navigate, scrollToHeading: scrollToHeading))
         }
     }
+
+    /// Links in the accent, and inline code in the monospace font. SF Mono keeps Textual's
+    /// own code style, which follows a heading's size; another family is set as a font.
+    private var inlineStyle: InlineStyle {
+        // With a theme, the parser colors each link (internal, unresolved, external) and tag.
+        var linkedStyle = theme == nil ? InlineStyle.default.link(.foregroundColor(accent)) : InlineStyle.default.link(KeptTextProperty())
+        if theme?.linksAreUnderlined == true { linkedStyle = InlineStyle.default.link(.underlineStyle(.single)) }
+        // The theme's bold and italic colors.
+        if let boldColor = theme?.boldColor { linkedStyle = linkedStyle.strong(.fontWeight(.semibold), .foregroundColor(Color(boldColor))) }
+        if let italicColor = theme?.italicColor { linkedStyle = linkedStyle.emphasis(.italic, .foregroundColor(Color(italicColor))) }
+        let codeBackground = theme?.codeBackground.map { color in Color(color) }
+        guard case .installed = typography.monospaceFamily else {
+            guard let codeBackground else { return linkedStyle }
+            return linkedStyle.code(.monospaced, .fontScale(0.94), .backgroundColor(codeBackground))
+        }
+        if let codeBackground {
+            return linkedStyle.code(.font(typography.monospaceSwiftUIFont(size: textSize)), .fontScale(0.94), .backgroundColor(codeBackground))
+        }
+        return linkedStyle.code(.font(typography.monospaceSwiftUIFont(size: textSize)), .fontScale(0.94))
+    }
+
+    /// Graphite's line spacing in reading view without a theme: Textual's own.
+    static let graphiteLineSpacing = 0.0
 
     /// The display formula with equation numbers that is all of the text, which is laid
     /// out with its numbers at the right of the column. One the typesetter cannot draw is
@@ -1389,10 +1446,52 @@ struct ObsidianMarkdownText: View {
 
 /// Parses Markdown with math, then turns Graphite's private color, highlight, and task
 /// markers into text attributes and checkboxes.
+/// Leaves a run's attributes as the parser set them, for links the parser colors itself.
+struct KeptTextProperty: TextProperty {
+    func apply(in attributes: inout AttributeContainer, environment: TextEnvironmentValues) {}
+}
+
+/// The theme's colors the reading view's parser gives runs: links by kind, tags, highlights.
+struct ReadingThemeColors: Hashable {
+    let link: Color
+    let unresolvedLink: Color
+    let externalLink: Color
+    let tag: Color?
+    let tagBackground: Color?
+    let highlight: Color
+    let highlightText: Color?
+    /// Tag pills and highlights with the theme's corners and border, at a 16-point text
+    /// size; `parser.textSize` scales them.
+    let tagRadius: Double
+    let tagBorder: Color?
+    let tagBorderWidth: Double
+    let highlightRadius: Double
+
+    /// Nil without a theme, so the reading view keeps Graphite's own colors.
+    init?(theme: NoteThemeStyle?) {
+        guard let theme else { return nil }
+        highlightText = theme.highlightTextColor.map { color in Color(color) }
+        // Graphite's tags are pills, as Obsidian's are by default.
+        tagRadius = theme.tagRadius ?? Double(NoteThemeStyle.pillRadius)
+        tagBorder = theme.tagBorderColor.map { color in Color(color) }
+        tagBorderWidth = theme.tagBorderWidth ?? 0
+        highlightRadius = theme.highlightRadius ?? 0
+        let link = theme.linkColor ?? theme.accent
+        self.link = link.map { color in Color(color) } ?? .accentColor
+        unresolvedLink = (theme.unresolvedLinkColor ?? link).map { color in Color(color) } ?? .accentColor
+        externalLink = (theme.externalLinkColor ?? link).map { color in Color(color) } ?? .accentColor
+        tag = (theme.tagColor ?? theme.accent).map { color in Color(color) }
+        tagBackground = theme.tagBackground.map { color in Color(color) }
+        highlight = theme.highlightBackground.map { color in Color(color) } ?? Color.yellow.opacity(0.35)
+    }
+}
+
 struct ObsidianMarkdownParser: MarkupParser {
     let baseURL: URL?
     let textSize: Double
     var sourceTokens: [ReadAloudSourceToken]? = nil
+    /// The vault theme's colors, or nil for Graphite's.
+    var themeColors: ReadingThemeColors? = nil
 
     func attributedString(for input: String) throws -> AttributedString {
         // The Markdown parser recurses once per nesting level; a note nested deeper than
@@ -1405,8 +1504,13 @@ struct ObsidianMarkdownParser: MarkupParser {
         Self.applyMarkers(start: ObsidianInlineMarkup.colorStartMarker, hexEnd: ObsidianInlineMarkup.colorHexEndMarker, end: ObsidianInlineMarkup.colorEndMarker, to: &attributed) { hex, range, text in
             if let color = Color(graphiteHex: hex) { text[range].foregroundColor = color }
         }
+        let themeColors = themeColors, textSize = textSize
         Self.applyMarkers(start: ObsidianInlineMarkup.highlightStartMarker, hexEnd: nil, end: ObsidianInlineMarkup.highlightEndMarker, to: &attributed) { _, range, text in
-            text[range].backgroundColor = Color.yellow.opacity(0.35)
+            guard let themeColors else { text[range].backgroundColor = Color.yellow.opacity(0.35); return }
+            // The theme's highlight, with its rounded ends and text color.
+            text[range][RoundedRunBackgroundAttribute.self] = RoundedRunBackground(
+                color: themeColors.highlight, cornerRadius: NoteThemeStyle.scaled(themeColors.highlightRadius, textSize: textSize), horizontalPadding: 1)
+            if let highlightText = themeColors.highlightText { text[range].foregroundColor = highlightText }
         }
         // A footnote reference is found by its link, not by markers around its number: the
         // references are added to the note's text before `ReadingMarkerEscaping` escapes it,
@@ -1419,11 +1523,55 @@ struct ObsidianMarkdownParser: MarkupParser {
             attributed[range].font = .system(size: max(textSize * 0.7, GraphitePreferences.smallestNoteTextSize), weight: .semibold)
             attributed[range].baselineOffset = textSize * 0.35
         }
+        if let themeColors { Self.applyThemeColors(themeColors, textSize: textSize, to: &attributed) }
         replaceTaskMarkers(in: &attributed)
         Self.restoreEscapedCharacters(in: &attributed)
         if let sourceTokens { _ = ReadingSourceAlignment.apply(sourceTokens, to: &attributed) }
         return attributed
     }
+
+    /// Links in the theme's colors by kind, as Obsidian draws internal, unresolved and external
+    /// links, and `#tags` in its tag color.
+    static func applyThemeColors(_ colors: ReadingThemeColors, textSize: Double, to text: inout AttributedString) {
+        var linkRuns: [(Range<AttributedString.Index>, Color)] = []
+        for (link, range) in text.runs[\.link] {
+            guard let link else { continue }
+            let color: Color
+            if link.scheme == GraphiteOpenLink.scheme {
+                color = GraphiteOpenLink.isUnresolved(link) ? colors.unresolvedLink : colors.link
+            } else if link.isFileURL {
+                color = colors.link
+            } else {
+                color = colors.externalLink
+            }
+            linkRuns.append((range, color))
+        }
+        for (range, color) in linkRuns { text[range].foregroundColor = color }
+        guard let tagColor = colors.tag, let tagPattern = Self.tagPattern else { return }
+        let plain = String(text.characters)
+        let nsPlain = plain as NSString
+        for match in tagPattern.matches(in: plain, range: NSRange(location: 0, length: nsPlain.length)) {
+            guard let stringRange = Range(match.range, in: plain),
+                  let lower = AttributedString.Index(stringRange.lowerBound, within: text),
+                  let upper = AttributedString.Index(stringRange.upperBound, within: text) else { continue }
+            let range = lower..<upper
+            // Not inside code or a link.
+            guard !text[range].runs.contains(where: { run in run.link != nil || run.inlinePresentationIntent?.contains(.code) == true }) else { continue }
+            text[range].foregroundColor = tagColor
+            // A pill: the theme's background, corners and border, narrow enough that the space
+            // between two tags still shows between their pills.
+            if colors.tagBackground != nil || colors.tagBorder != nil {
+                text[range][RoundedRunBackgroundAttribute.self] = RoundedRunBackground(
+                    color: colors.tagBackground ?? .clear, cornerRadius: NoteThemeStyle.scaled(colors.tagRadius, textSize: textSize),
+                    horizontalPadding: NoteThemeStyle.scaled(1.5, textSize: textSize), borderColor: colors.tagBorder,
+                    borderWidth: CGFloat(colors.tagBorderWidth))
+            }
+        }
+    }
+
+    /// Obsidian's tags: `#` after a space or the start, then letters, digits, `_`, `-` and `/`,
+    /// not only digits.
+    private static let tagPattern = try? NSRegularExpression(pattern: "(?<![\\p{L}\\p{N}_/#&])#(?![\\p{N}]+(?![\\p{L}_/-]))[\\p{L}\\p{N}_/-]+")
 
     /// A task marked at the start of a list item becomes that item's checkbox, which
     /// `ObsidianListItemStyle` draws in place of the bullet; a completed task's text is
@@ -1572,6 +1720,8 @@ struct ObsidianMarkdownParser: MarkupParser {
 /// List items as in Obsidian: a task's checkbox takes the place of its bullet.
 struct ObsidianListItemStyle: StructuredText.ListItemStyle {
     let textSize: Double
+    /// The vault's theme: the bullet and number color.
+    var theme: NoteThemeStyle? = nil
 
     func makeBody(configuration: Configuration) -> some View {
         let task = configuration.content.runs.first?[ReadingTaskAttribute.self]
@@ -1580,6 +1730,7 @@ struct ObsidianListItemStyle: StructuredText.ListItemStyle {
                 ReadingTaskCheckbox(task: task, label: Self.firstParagraphText(of: configuration.content), pointSize: textSize)
             } else {
                 configuration.marker
+                    .foregroundStyle(theme?.listMarkerColor.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.primary))
             }
             configuration.block
         }
@@ -1633,33 +1784,154 @@ extension Color {
 
 // MARK: Obsidian-like styles
 
+/// Code blocks as Textual draws them by default, in the vault's monospace font: the default
+/// style's `.monospaced()` would leave a chosen text font in place for code.
+struct ObsidianCodeBlockStyle: StructuredText.CodeBlockStyle {
+    let monospaceFont: Font
+    /// The vault's theme: its code background and text color.
+    var theme: NoteThemeStyle? = nil
+    private static let border = DynamicColor(light: Color(red: 210 / 255, green: 210 / 255, blue: 215 / 255),
+                                             dark: Color(red: 66 / 255, green: 66 / 255, blue: 69 / 255))
+    /// The theme's corner radius for code blocks, or Graphite's 4 points.
+    private var cornerRadius: CGFloat { theme?.codeBlockRadius.map { radius in CGFloat(min(radius, 24)) } ?? 4 }
+
+    /// The default highlighter theme's code background, which Textual keeps internal.
+    private static let background = DynamicColor(light: Color(red: 0.960784, green: 0.960784, blue: 0.968627),
+                                                 dark: Color(red: 0.120543, green: 0.122844, blue: 0.141312))
+
+    func makeBody(configuration: Configuration) -> some View {
+        Overflow {
+            configuration.label
+                .font(monospaceFont)
+                .textual.lineSpacing(.fontScaled(0.39))
+                .textual.fontScale(0.882)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.vertical, 8)
+                .padding(.leading, 14)
+        }
+        .foregroundStyle(theme?.codeColor.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.primary))
+        .background((theme?.codeBlockBackground ?? theme?.codeBackground).map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(Self.background))
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .stroke(theme?.codeBlockBorderColor.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(Self.border),
+                    lineWidth: theme?.codeBlockBorderWidth.map { width in CGFloat(min(max(width, 0), 6)) } ?? 1))
+        .textual.blockSpacing(.fontScaled(top: 0.88, bottom: 0))
+    }
+}
+
 /// The sizes Live Preview gives headings (`HeadingTypography`), so a heading does not jump
 /// when the note switches to reading.
 struct ObsidianHeadingStyle: StructuredText.HeadingStyle {
+    /// The vault's theme: heading sizes, weights, colors and fonts (`HeadingTypography`).
+    var theme: NoteThemeStyle? = nil
+    var typography = NoteTypography.standard
+    var textSize: Double = 17
+
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .textual.fontScale(HeadingTypography.fontScale(level: configuration.headingLevel))
-            .textual.blockSpacing(.fontScaled(top: 1.2, bottom: 0.5))
-            .fontWeight(.semibold)
+        let level = min(max(configuration.headingLevel, 1), 6)
+        let index = level - 1
+        let headingColor = theme?.headingColors[index]
+        // The theme's heading font, unless `appearance.json` names a text font, which wins.
+        let family = typography.usesAppearanceTextFont ? nil : theme?.headingFamilies[index]
+        let ornament = theme?.headingOrnaments[index]
+        // The family is set around the scale, which scales the font it finds.
+        HStack(alignment: .firstTextBaseline, spacing: 0) {
+            // Text a theme puts before a heading (`::before`), such as a level marker.
+            if let prefix = ornament?.prefix {
+                Text(prefix)
+                    .foregroundStyle(ornament?.prefixColor.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.secondary))
+                    .accessibilityHidden(true)
+            }
+            configuration.label
+        }
+        .textCase(ornament?.isUppercase == true ? .uppercase : nil)
+        .textual.fontScale(HeadingTypography.fontScale(level: level, theme: theme))
+        .modifier(OptionalFontFamily(family: family, textSize: textSize))
+        .fontWeight(Self.swiftUIWeight(HeadingTypography.weight(level: level, theme: theme)))
+        .italic(theme?.headingItalic[index] == true)
+        .foregroundStyle(headingColor.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.primary))
+        .modifier(HeadingOrnamentShapes(ornament: ornament, textSize: textSize))
+        .textual.blockSpacing(.fontScaled(top: 1.2, bottom: 0.5))
+    }
+
+    static func swiftUIWeight(_ weight: PlatformFont.Weight) -> Font.Weight {
+        switch weight {
+        case .ultraLight: .ultraLight
+        case .thin: .thin
+        case .light: .light
+        case .regular: .regular
+        case .medium: .medium
+        case .bold: .bold
+        case .heavy: .heavy
+        case .black: .black
+        default: .semibold
+        }
+    }
+}
+
+/// A theme's heading background and underline, across the column as Obsidian draws them.
+private struct HeadingOrnamentShapes: ViewModifier {
+    let ornament: NoteThemeStyle.HeadingOrnament?
+    let textSize: Double
+
+    func body(content: Content) -> some View {
+        if let ornament, ornament.background != nil || ornament.underlineColor != nil {
+            content
+                .padding(.horizontal, ornament.background == nil ? 0 : NoteThemeStyle.scaled(6, textSize: textSize))
+                .padding(.bottom, ornament.underlineWidth.map { width in CGFloat(width) + NoteThemeStyle.scaled(3, textSize: textSize) } ?? 0)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(ornament.background.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(Color.clear),
+                            in: RoundedRectangle(cornerRadius: NoteThemeStyle.scaled(4, textSize: textSize)))
+                .overlay(alignment: .bottom) {
+                    if let underlineColor = ornament.underlineColor, let width = ornament.underlineWidth {
+                        Rectangle().fill(Color(underlineColor)).frame(height: CGFloat(min(max(width, 0.5), 6))).accessibilityHidden(true)
+                    }
+                }
+        } else {
+            content
+        }
+    }
+}
+
+/// A heading in the theme's font family, at the note's text size before the heading's scale.
+private struct OptionalFontFamily: ViewModifier {
+    let family: ResolvedFontFamily?
+    let textSize: Double
+
+    func body(content: Content) -> some View {
+        if let family {
+            content.font(NoteTypography.swiftUIFont(family, size: textSize))
+        } else {
+            content
+        }
     }
 }
 
 /// Tables as in Obsidian: a table wider than the note wraps its text and shrinks its images
 /// until it fits, and scrolls sideways only when it cannot become that narrow.
 struct ObsidianTableStyle: StructuredText.TableStyle {
+    /// The vault's theme: table borders and header shading.
+    var theme: NoteThemeStyle? = nil
+
     func makeBody(configuration: Configuration) -> some View {
+        let borderStyle = theme?.tableBorderColor.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.secondary.opacity(0.35))
+        let headerStyle = theme?.tableHeaderBackground.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.secondary.opacity(0.12))
         Overflow { overflowState in
             configuration.label
                 .fixedSize(horizontal: false, vertical: true)
                 .textual.tableCellSpacing(horizontal: 1, vertical: 1)
                 .textual.tableBackground { layout in
-                    FilledRectangles(rectangles: Self.headerShading(in: layout), style: .secondary.opacity(0.12))
+                    FilledRectangles(rectangles: Self.headerShading(in: layout), style: headerStyle)
+                    // A theme's stripes on every second row.
+                    if let stripe = theme?.tableStripeBackground {
+                        FilledRectangles(rectangles: Self.stripes(in: layout), style: Color(stripe))
+                    }
                 }
                 .textual.tableOverlay { layout in
-                    FilledRectangles(rectangles: Self.hairlines(in: layout), style: .secondary.opacity(0.35))
+                    FilledRectangles(rectangles: Self.hairlines(in: layout), style: borderStyle)
                 }
                 .padding(1)
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(.secondary.opacity(0.35), lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(borderStyle, lineWidth: 1))
                 .offeredScrollContainerWidth(overflowState.containerWidth)
         }
         .textual.blockSpacing(.init(top: 4, bottom: 12))
@@ -1671,6 +1943,11 @@ struct ObsidianTableStyle: StructuredText.TableStyle {
         var headerBounds = layout.rowBounds(0)
         if let firstDivider = layout.horizontalDividers().first { headerBounds.size.height = firstDivider.midY - headerBounds.minY }
         return [headerBounds.integral]
+    }
+
+    /// The body's second, fourth, … rows.
+    private static func stripes(in layout: StructuredText.TableLayout) -> [CGRect] {
+        stride(from: 2, to: layout.numberOfRows, by: 2).map { row in layout.rowBounds(row).integral }
     }
 
     /// Gaps between cells include padding, so a hairline is drawn in their middle.
@@ -1727,18 +2004,79 @@ private struct ScrollContainerWidthProposal: Layout {
 }
 
 struct ObsidianTableCellStyle: StructuredText.TableCellStyle {
+    /// The vault's theme: the header's text color.
+    var theme: NoteThemeStyle? = nil
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .fontWeight(configuration.row == 0 ? .semibold : .regular)
+            .foregroundStyle(configuration.row == 0 ? (theme?.tableHeaderTextColor.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.primary)) : AnyShapeStyle(.primary))
             .textual.padding(.fontScaled(top: 0.35, leading: 0.6, bottom: 0.35, trailing: 0.6))
     }
 }
 
 struct ObsidianBlockQuoteStyle: StructuredText.BlockQuoteStyle {
+    /// The vault's theme: the bar's color and thickness, and the quote's muted text.
+    var theme: NoteThemeStyle? = nil
+
     func makeBody(configuration: Configuration) -> some View {
+        let barStyle = theme?.blockquoteBorderColor.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.tint.opacity(0.7))
+        let barWidth = theme?.blockquoteBorderThickness.map { thickness in CGFloat(min(max(thickness, 1), 8)) } ?? 3
         HStack(spacing: 0) {
-            RoundedRectangle(cornerRadius: 1.5).fill(.tint.opacity(0.7)).frame(width: 3)
-            configuration.label.foregroundStyle(.secondary).textual.padding(.horizontal, .fontScaled(0.9))
+            RoundedRectangle(cornerRadius: barWidth / 2).fill(barStyle).frame(width: barWidth)
+            configuration.label
+                .foregroundStyle(theme?.textMuted.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.secondary))
+                .textual.padding(.horizontal, .fontScaled(0.9))
+                .textual.padding(.vertical, .fontScaled(theme?.blockquoteBackground == nil ? 0 : 0.5))
+        }
+        // A theme's quote box spans the column, as in Obsidian, with its background and corners.
+        .frame(maxWidth: theme?.blockquoteBackground == nil ? nil : .infinity, alignment: .leading)
+        .background(theme?.blockquoteBackground.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(Color.clear),
+                    in: RoundedRectangle(cornerRadius: CGFloat(min(theme?.blockquoteRadius ?? 0, 24))))
+    }
+}
+
+/// A horizontal rule in the theme's color and thickness, or the system's divider.
+struct ObsidianThematicBreakStyle: StructuredText.ThematicBreakStyle {
+    var theme: NoteThemeStyle? = nil
+
+    func makeBody(configuration: Configuration) -> some View {
+        ThemedRule(theme: theme).textual.blockSpacing(.fontScaled(top: 1, bottom: 1))
+    }
+}
+
+/// A dashed or dotted line across the column.
+private struct DashedRule: View {
+    let color: Color
+    let thickness: CGFloat
+    let isDotted: Bool
+
+    var body: some View {
+        GeometryReader { geometry in
+            Path { path in
+                path.move(to: CGPoint(x: 0, y: thickness / 2))
+                path.addLine(to: CGPoint(x: geometry.size.width, y: thickness / 2))
+            }
+            .stroke(color, style: StrokeStyle(lineWidth: thickness, lineCap: isDotted ? .round : .butt, dash: isDotted ? [0.1, thickness * 3] : [thickness * 4, thickness * 3]))
+        }
+    }
+}
+
+/// The rule itself, shared by reading view and Live Preview.
+struct ThemedRule: View {
+    let theme: NoteThemeStyle?
+
+    var body: some View {
+        let thickness = CGFloat(min(max(theme?.horizontalRuleThickness ?? 1, 0.5), 6))
+        if let style = theme?.horizontalRuleStyle {
+            // Dashed or dotted, as the theme draws its rule.
+            DashedRule(color: theme?.horizontalRuleColor.map { color in Color(color) } ?? Color(NoteThemeStyle.systemSeparator), thickness: thickness, isDotted: style == "dotted")
+                .frame(height: thickness).accessibilityHidden(true)
+        } else if let color = theme?.horizontalRuleColor {
+            Rectangle().fill(Color(color)).frame(height: thickness)
+                .accessibilityHidden(true)
+        } else {
+            Divider()
         }
     }
 }
@@ -1759,7 +2097,11 @@ struct CalloutView<Body: View>: View {
     let automaticallyExpandsForReading: Bool
     @ViewBuilder let content: () -> Body
     @Environment(\.accent) private var accent
+    @Environment(\.noteTypography) private var typography
+    @Environment(\.noteTheme) private var theme
     @State private var isExpanded: Bool
+    /// Graphite's 8 points, or the theme's corner radius.
+    private var calloutRadius: CGFloat { theme?.calloutRadius.map { radius in NoteThemeStyle.scaled(radius, textSize: textSize) } ?? 8 }
 
     init(type: String, title: String, folding: CalloutFolding, root: URL, textSize: Double, navigate: @escaping (String, Bool) -> Void,
          scrollToHeading: ((String) -> Void)? = nil, sourceTokens: [ReadAloudSourceToken]? = nil,
@@ -1772,7 +2114,7 @@ struct CalloutView<Body: View>: View {
     }
 
     var body: some View {
-        let appearance = CalloutAppearance(type: type)
+        let appearance = CalloutAppearance(type: type, theme: theme)
         VStack(alignment: .leading, spacing: 8) {
             Button {
                 if folding != .notFoldable { withAnimation(GraphiteMotion.animation(.snappy)) { isExpanded.toggle() } }
@@ -1783,7 +2125,7 @@ struct CalloutView<Body: View>: View {
                     StructuredText(title, parser: ObsidianMarkdownParser(baseURL: root, textSize: textSize, sourceTokens: sourceTokens))
                         .id(textSize)
                         .id(sourceTokens)
-                        .font(.system(size: textSize).weight(.semibold))
+                        .font(typography.textSwiftUIFont(size: textSize).weight(.semibold))
                         .foregroundStyle(appearance.titleColor)
                         .textual.inlineStyle(InlineStyle.default.link(.foregroundColor(accent)))
                         .textual.imageAttachmentLoader(VaultImageLoader(root: root))
@@ -1802,7 +2144,13 @@ struct CalloutView<Body: View>: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(appearance.color.opacity(CalloutAppearance.tintOpacity), in: RoundedRectangle(cornerRadius: 8))
+        .background(appearance.color.opacity(theme?.calloutTintOpacity ?? CalloutAppearance.tintOpacity), in: RoundedRectangle(cornerRadius: calloutRadius))
+        .overlay {
+            // A theme's callout border, in the callout's own color.
+            if let borderWidth = theme?.calloutBorderWidth {
+                RoundedRectangle(cornerRadius: calloutRadius).strokeBorder(appearance.color, lineWidth: CGFloat(min(max(borderWidth, 0.5), 6)))
+            }
+        }
         .onChange(of: automaticallyExpandsForReading, initial: true) { _, expands in
             if expands { isExpanded = true }
         }
@@ -1814,10 +2162,10 @@ struct CalloutAppearance {
     /// The opacity of the callout's color behind it.
     static let tintOpacity = 0.1
     /// The color the callout is tinted with.
-    let color: Color
+    var color: Color
     /// The title, its icon and its fold chevron: the same color, darkened in light
     /// appearance until it reads on the tint (the system colors alone read about 2:1 there).
-    let titleColor: Color
+    var titleColor: Color
     let systemImage: String
 
     init(type: String) {
@@ -1839,6 +2187,16 @@ struct CalloutAppearance {
         }
         color = Color(systemColor)
         titleColor = Color(PlatformColor.legibleOnOwnTint(systemColor, tintOpacity: Self.tintOpacity))
+    }
+
+    /// The type's colors from the vault's theme when it sets them (an unknown type takes the
+    /// note color, as in Obsidian), its title kept readable on the tint; else Graphite's.
+    init(type: String, theme: NoteThemeStyle?) {
+        self.init(type: type)
+        let lowercasedType = type.lowercased()
+        guard let themed = theme?.calloutColors[lowercasedType] ?? theme?.calloutColors[ObsidianCalloutTypes.canonicalType(lowercasedType)] else { return }
+        color = Color(themed.tint)
+        titleColor = Color(themed.title)
     }
 }
 

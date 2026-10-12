@@ -32,6 +32,7 @@ struct ReadingTaskCheckbox: View {
     let label: String
     let pointSize: Double
     @Environment(\.readingTaskContext) private var context
+    @Environment(\.noteTheme) private var theme
     /// What a tap made of the checkbox, shown until the note is drawn again.
     @State private var isCheckedAfterTap: Bool?
 
@@ -42,9 +43,7 @@ struct ReadingTaskCheckbox: View {
 
     var body: some View {
         let isChecked = isCheckedAfterTap ?? task.isChecked
-        let checkbox = Image(systemName: isChecked ? "checkmark.square.fill" : "square")
-            .font(.system(size: pointSize * 0.95))
-            .foregroundStyle(isChecked ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+        let checkbox = ThemedCheckboxShape(isChecked: isChecked, pointSize: pointSize, theme: theme)
             .frame(width: pointSize * 0.95, height: pointSize * 1.05)
         if let context, let location = task.location {
             Button {
@@ -74,4 +73,38 @@ struct ReadingTaskCheckbox: View {
 
 extension EdgeInsets {
     fileprivate var negated: EdgeInsets { EdgeInsets(top: -top, leading: -leading, bottom: -bottom, trailing: -trailing) }
+}
+
+/// A task's checkbox: the theme's shape (corners, border, check mark) when it gives one,
+/// else the system's square symbol. Shared by the reading view and Live Preview's widgets.
+struct ThemedCheckboxShape: View {
+    let isChecked: Bool
+    let pointSize: Double
+    let theme: NoteThemeStyle?
+
+    var body: some View {
+        if let theme, theme.checkboxRadiusScale != nil || theme.checkboxBorderWidth != nil || theme.checkmarkColor != nil {
+            let side = CGFloat(pointSize * 0.85)
+            let radius = CGFloat(min((theme.checkboxRadiusScale ?? 0.25) * pointSize, Double(side) / 2))
+            let fill = theme.checkboxColor.map { color in Color(color) } ?? Color.accentColor
+            let border = theme.checkboxBorderColor.map { color in Color(color) } ?? Color.secondary
+            ZStack {
+                RoundedRectangle(cornerRadius: radius)
+                    .fill(isChecked ? fill : Color.clear)
+                RoundedRectangle(cornerRadius: radius)
+                    .strokeBorder(isChecked ? fill : border, lineWidth: CGFloat(min(max(theme.checkboxBorderWidth ?? 1.5, 1), 3)))
+                if isChecked {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: pointSize * 0.55, weight: .bold))
+                        .foregroundStyle(theme.checkmarkColor.map { color in Color(color) } ?? Color.white)
+                }
+            }
+            .frame(width: side, height: side)
+        } else {
+            Image(systemName: isChecked ? "checkmark.square.fill" : "square")
+                .font(.system(size: pointSize * 0.95))
+                .foregroundStyle(isChecked ? (theme?.checkboxColor.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.tint))
+                                           : (theme?.checkboxBorderColor.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.secondary)))
+        }
+    }
 }

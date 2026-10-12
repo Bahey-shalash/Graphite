@@ -79,9 +79,35 @@
         strictLineBreaks: false, useTab: true, tabSize: 4, spellcheck: true, autoPairBrackets: true, autoPairMarkdown: true,
         smartIndentList: true, foldHeading: true, foldIndent: true, showLineNumber: false, livePreview: true, defaultViewMode: 'source',
         showFrontmatter: false, propertiesInDocument: 'visible', userIgnoreFilters: [], fileSortOrder: 'alphabetical', vimMode: false,
+        theme: 'system', accentColor: '', cssTheme: '', enabledCssSnippets: [], textFontFamily: '', interfaceFontFamily: '',
+        monospaceFontFamily: '', baseFontSize: 16, baseFontSizeAction: false, translucency: false,
     };
 
+    /// The `.obsidian/appearance.json` keys Graphite writes when a plugin sets them; Graphite
+    /// shows the change too. Everything else in that file is read only.
+    const graphiteWrittenAppearanceKeys = new Set(['cssTheme', 'enabledCssSnippets', 'textFontFamily', 'interfaceFontFamily',
+        'monospaceFontFamily', 'baseFontSize', 'baseFontSizeAction']);
+
     // MARK: Data adapter
+
+    /// A path as the adapter takes it: the vault's root may be named "/" or "." (isomorphic-git,
+    /// which Git uses on mobile, asks for "/"), and is "" for Graphite.
+    /// A file's stat, or none for a path no file can be at: outside the vault ("../x", which
+    /// isomorphic-git looks in for a parent repository) or not a valid path. Obsidian's adapter
+    /// answers these as missing too, rather than failing.
+    async function statOrNothing(path) {
+        try {
+            return await hostBridge.send('vault.stat', { path });
+        } catch (error) {
+            if (error.kind === 'outsideVault' || error.kind === 'invalidPath') return { stat: null };
+            throw error;
+        }
+    }
+
+    function adapterPath(path) {
+        const normalizedPath = normalizePath(path);
+        return normalizedPath === '/' || normalizedPath === '.' ? '' : normalizedPath;
+    }
 
     /// The vault's file system as Obsidian mobile's adapter exposes it: paths relative to the
     /// vault, including hidden ones such as the configuration folder.
@@ -95,14 +121,15 @@
             return this.vault.vaultName;
         }
         async exists(path, isCaseSensitive) {
-            const normalizedPath = normalizePath(path);
-            const response = await hostBridge.send('vault.stat', { path: normalizedPath });
+            const normalizedPath = adapterPath(path);
+            if (normalizedPath === '') return true;
+            const response = await statOrNothing(normalizedPath);
             if (!response.stat) return false;
             if (isCaseSensitive && response.storedPath && response.storedPath !== normalizedPath) return false;
             return true;
         }
         async stat(path) {
-            const response = await hostBridge.send('vault.stat', { path: normalizePath(path) });
+            const response = await statOrNothing(adapterPath(path));
             if (!response.stat) return null;
             return { type: response.stat.isFolder ? 'folder' : 'file', ctime: response.stat.created || 0, mtime: response.stat.modified || 0, size: response.stat.size || 0 };
         }
@@ -113,9 +140,28 @@
         }
         async read(path) {
             const normalizedPath = normalizePath(path);
-            const response = await hostBridge.send('vault.read', { path: normalizedPath, encoding: 'text' });
+            let response;
+            try {
+                response = await hostBridge.send('vault.read', { path: normalizedPath, encoding: 'text' });
+            } catch (error) {
+                const settingsFileText = error.kind === 'missing' ? this.absentObsidianSettingsFileText(normalizedPath) : null;
+                if (settingsFileText !== null) return settingsFileText;
+                throw error;
+            }
             this.revisionsByPath.set(normalizedPath, response.revision);
             return response.text;
+        }
+        /// Obsidian writes its own settings files in every vault it opens, and plugins read
+        /// them as they are (Make.md reads `app.json` at load). A vault Obsidian never opened
+        /// has none, so these read as the empty settings Obsidian starts from; nothing is
+        /// written until a plugin writes them.
+        absentObsidianSettingsFileText(normalizedPath) {
+            const configurationFolder = this.vault.configDir || '.obsidian';
+            const settingsFiles = ['app.json', 'appearance.json', 'hotkeys.json'];
+            for (const fileName of settingsFiles) {
+                if (normalizedPath === configurationFolder + '/' + fileName) return '{}';
+            }
+            return null;
         }
         async readBinary(path) {
             const normalizedPath = normalizePath(path);
@@ -148,14 +194,31 @@
             this.vault.reconcileWrittenPath(path, response.stat);
             return response;
         }
+        /// Runs this runtime's writes to one path one after another, each expecting the revision
+        /// the one before it left. Plugins write the same file again before the last write is
+        /// done (two quick `saveData` calls); in Obsidian both succeed and the last one stays,
+        /// where expecting the revision from before the first would refuse the second.
+        writeInTurn(path, write) {
+            if (!this.writesByPath) this.writesByPath = new Map();
+            const previous = this.writesByPath.get(path) || Promise.resolve();
+            const next = previous.catch(() => {}).then(write);
+            const settled = next.catch(() => {});
+            this.writesByPath.set(path, settled);
+            settled.then(() => { if (this.writesByPath.get(path) === settled) this.writesByPath.delete(path); });
+            return next;
+        }
         async write(path, data, options) {
             const normalizedPath = normalizePath(path);
-            await this.writeData(normalizedPath, { text: textFromData(data) }, this.writeExpectation(normalizedPath));
+            const pluginIdentifier = runtime.callingPluginIdentifier();
+            const text = textFromData(data);
+            await this.writeInTurn(normalizedPath, () => this.writeData(normalizedPath, { text }, this.writeExpectation(normalizedPath), true, pluginIdentifier));
             if (options) await this.applyTimes(normalizedPath, options);
         }
         async writeBinary(path, data, options) {
             const normalizedPath = normalizePath(path);
-            await this.writeData(normalizedPath, { base64: arrayBufferToBase64(data) }, this.writeExpectation(normalizedPath));
+            const pluginIdentifier = runtime.callingPluginIdentifier();
+            const base64 = arrayBufferToBase64(data);
+            await this.writeInTurn(normalizedPath, () => this.writeData(normalizedPath, { base64 }, this.writeExpectation(normalizedPath), true, pluginIdentifier));
             if (options) await this.applyTimes(normalizedPath, options);
         }
         async applyTimes(path, options) {
@@ -175,8 +238,12 @@
             await this.writeData(normalizedPath, { base64: arrayBufferToBase64(combined.buffer) }, this.writeExpectation(normalizedPath));
             if (options) await this.applyTimes(normalizedPath, options);
         }
+        /// A file's full path, as Obsidian mobile's adapter gives it. Plugins use it to keep
+        /// names within the system's path length (ReadItLater); Graphite gives the path under the
+        /// vault's name, without saying where the vault is on the device, which plugins cannot
+        /// reach directly anyway.
         getFullPath(path) {
-            runtime.unsupported('DataAdapter.getFullPath (“' + path + '”)', 'Plugins reach vault files through the vault, not by their place on the device.');
+            return '/' + this.vault.vaultName + '/' + normalizePath(path);
         }
         /// Calls for the same file run one after another, as in Obsidian, where `process` reads
         /// and writes in one step: each transform sees the text the one before it wrote.
@@ -478,9 +545,12 @@
         async create(path, data, options) {
             const normalizedPath = normalizePath(path);
             if (this.abstractFilesByPath.has(normalizedPath)) throw new Error('File already exists.');
-            await this.adapter.writeData(normalizedPath, { text: textFromData(data) }, { kind: 'absent' });
+            const text = textFromData(data);
+            await this.adapter.writeData(normalizedPath, { text }, { kind: 'absent' });
             if (options) await this.adapter.applyTimes(normalizedPath, options);
-            return this.getFileByPath(normalizedPath);
+            const file = this.getFileByPath(normalizedPath);
+            if (runtime.app && runtime.app.metadataCache.indexWrittenText) runtime.app.metadataCache.indexWrittenText(file, text);
+            return file;
         }
         async createBinary(path, data, options) {
             const normalizedPath = normalizePath(path);
@@ -495,7 +565,10 @@
             await this.adapter.mkdir(normalizedPath);
             return this.getFolderByPath(normalizedPath);
         }
-        async modify(file, data, options) { await this.adapter.write(file.path, data, options); }
+        async modify(file, data, options) {
+            await this.adapter.write(file.path, data, options);
+            if (runtime.app && runtime.app.metadataCache.indexWrittenText) runtime.app.metadataCache.indexWrittenText(file, textFromData(data));
+        }
         async modifyBinary(file, data, options) { await this.adapter.writeBinary(file.path, data, options); }
         async append(file, data, options) { await this.adapter.append(file.path, data, options); }
         async appendBinary(file, data, options) {
@@ -530,13 +603,38 @@
         getResourcePath(file) {
             return this.adapter.getResourcePath(file.path) + '?' + (file.stat ? file.stat.mtime : 0);
         }
-        /// Obsidian's settings from `.obsidian/app.json` (undocumented but widely used).
+        /// Obsidian's settings object (undocumented): `app.json` and `appearance.json` merged
+        /// over Obsidian's defaults. Make.md reads the theme from it as it loads.
+        get config() {
+            return Object.assign({}, obsidianDefaultConfiguration, { cssTheme: '', theme: globalScope.document.body.hasClass('theme-dark') ? 'obsidian' : 'moonstone', baseFontSize: 16 }, this.appearanceConfiguration || {}, this.configuration);
+        }
+        /// Obsidian's settings from `.obsidian/app.json` and `.obsidian/appearance.json`
+        /// (undocumented but widely used).
         getConfig(key) {
             if (Object.prototype.hasOwnProperty.call(this.configuration, key)) return this.configuration[key];
+            const appearance = this.appearanceConfiguration || {};
+            if (Object.prototype.hasOwnProperty.call(appearance, key)) return appearance[key];
             return Object.prototype.hasOwnProperty.call(obsidianDefaultConfiguration, key) ? obsidianDefaultConfiguration[key] : null;
         }
-        setConfig(key) {
-            runtime.unsupported('Vault.setConfig (“' + key + '”)', 'Change Obsidian settings in Graphite\'s Settings.');
+        /// Appearance settings Graphite shares are written through Graphite. `theme` (light,
+        /// dark or the system's) is kept here only: Graphite's own appearance setting decides
+        /// light or dark, and the page follows it.
+        setConfig(key, value) {
+            if (key === 'theme') {
+                this.appearanceConfiguration = Object.assign({}, this.appearanceConfiguration, { theme: value });
+                return;
+            }
+            if (graphiteWrittenAppearanceKeys.has(key)) {
+                this.appearanceConfiguration = Object.assign({}, this.appearanceConfiguration, { [key]: value });
+                hostBridge.notify('appearance.setConfig', { key, value });
+                return;
+            }
+            // Other settings are Graphite's own: a plugin's change lasts until the plugins
+            // restart, for the plugins that read it back, and is reported, without failing the
+            // plugin (make.md, Linter).
+            runtime.reportUnsupportedFeature('Changing Obsidian settings from a plugin (“' + key + '”)');
+            if (value === undefined || value === null) delete this.configuration[key];
+            else this.configuration[key] = value;
         }
     }
 

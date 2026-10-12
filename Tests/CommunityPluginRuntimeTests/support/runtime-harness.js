@@ -27,6 +27,9 @@ function makeTemporaryVault(files) {
 }
 
 /// A page with the runtime loaded and connected to a vault folder holding `files`.
+/// The pages of the harnesses still open (see `ownerNode` below).
+const openDocuments = new Set();
+
 async function startRuntime(options) {
     const settings = Object.assign({ files: {}, configuration: {}, vaultName: 'Test Vault', isStarting: true }, options || {});
     const vaultFolder = settings.vaultFolder || makeTemporaryVault(settings.files);
@@ -46,6 +49,23 @@ async function startRuntime(options) {
     if (!window.TextDecoder) window.TextDecoder = TextDecoder;
     if (!window.CSS) window.CSS = {};
     if (!window.CSS.escape) window.CSS.escape = (value) => String(value).replace(/[^a-zA-Z0-9_-]/g, (character) => '\\' + character);
+    // WebKit gives each style sheet its element (`ownerNode`), which Style Settings reads
+    // the theme's settings comments from; jsdom's style sheets have none.
+    // jsdom's prototypes can be shared between pages, so the getter looks through every page
+    // still open rather than the one that defined it.
+    openDocuments.add(window.document);
+    if (window.CSSStyleSheet && !('ownerNode' in window.CSSStyleSheet.prototype)) {
+        Object.defineProperty(window.CSSStyleSheet.prototype, 'ownerNode', {
+            get() {
+                for (const document of openDocuments) {
+                    const owner = Array.from(document.querySelectorAll('style, link')).find((element) => element.sheet === this);
+                    if (owner) return owner;
+                }
+                return null;
+            },
+            configurable: true,
+        });
+    }
     // WebKit scrolls an element into view; jsdom has no layout and no such method.
     if (!window.Element.prototype.scrollIntoView) window.Element.prototype.scrollIntoView = () => {};
     // WebKit gives an element's rendered text as `innerText`; jsdom, without layout, has
@@ -107,6 +127,7 @@ async function startRuntime(options) {
     };
     harness.waitForMetadata = () => waitUntil(() => harness.app.metadataCache.isInitialReadComplete);
     harness.close = () => {
+        openDocuments.delete(window.document);
         window.close();
         fileSystem.rmSync(vaultFolder, { recursive: true, force: true });
     };
