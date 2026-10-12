@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import OSLog
 import WebKit
 import GraphiteCore
 import GraphiteApple
@@ -135,6 +136,19 @@ private final class SingleResumption {
 ///
 /// Plugins run only after the person turns community plugins on for the vault (Obsidian's
 /// restricted mode), and only those enabled in `.obsidian/community-plugins.json`.
+/// What plugins did, in the unified log (subsystem `com.graphite.study`, category
+/// `CommunityPlugins`): each load's outcome, each failure after loading and each feature
+/// Graphite lacks. Messages can name notes, so they are public only in Debug builds.
+private let communityPluginLog = Logger(subsystem: "com.graphite.study", category: "CommunityPlugins")
+
+private func logCommunityPlugin(_ pluginIdentifier: String, _ event: String, _ detail: String) {
+    #if DEBUG
+    communityPluginLog.notice("\(pluginIdentifier, privacy: .public) \(event, privacy: .public): \(detail, privacy: .public)")
+    #else
+    communityPluginLog.notice("\(pluginIdentifier, privacy: .public) \(event, privacy: .public): \(detail, privacy: .private)")
+    #endif
+}
+
 @MainActor @Observable
 final class CommunityPluginHost {
     // MARK: What the interface shows
@@ -475,6 +489,7 @@ final class CommunityPluginHost {
     private func load(_ plugin: InstalledCommunityPlugin, isEnabledByPerson: Bool) async {
         guard plugin.compatibility.canLoad else {
             loadStates[plugin.id] = .notLoadable(Self.describe(plugin.compatibility))
+            logCommunityPlugin(plugin.id, "not loadable", Self.describe(plugin.compatibility))
             return
         }
         guard let store = workspace?.store else { return }
@@ -493,12 +508,18 @@ final class CommunityPluginHost {
             ])
             if answer["isLoaded"] as? Bool == true {
                 loadStates[plugin.id] = .loaded
+                logCommunityPlugin(plugin.id, "loaded", plugin.manifest.version)
             } else {
-                loadStates[plugin.id] = .failed(answer["errorMessage"] as? String ?? "The plugin did not load.")
+                let problem = answer["errorMessage"] as? String ?? "The plugin did not load."
+                loadStates[plugin.id] = .failed(problem)
+                logCommunityPlugin(plugin.id, "failed to load", problem)
             }
         } catch {
             // A runtime stopped meanwhile does not leave failures behind for the next one.
-            if isRuntimeRunning { loadStates[plugin.id] = .failed(error.localizedDescription) }
+            if isRuntimeRunning {
+                loadStates[plugin.id] = .failed(error.localizedDescription)
+                logCommunityPlugin(plugin.id, "failed to load", error.localizedDescription)
+            }
         }
     }
 
@@ -878,10 +899,14 @@ final class CommunityPluginHost {
         case "plugin.unsupportedFeature":
             guard let featureName = message["featureName"] as? String else { return }
             let owner = pluginIdentifier ?? "unknown"
-            if !(unsupportedFeatures[owner] ?? []).contains(featureName) { unsupportedFeatures[owner, default: []].append(featureName) }
+            if !(unsupportedFeatures[owner] ?? []).contains(featureName) {
+                unsupportedFeatures[owner, default: []].append(featureName)
+                logCommunityPlugin(owner, "unsupported", featureName)
+            }
         case "plugin.failure":
             guard let problem = message["message"] as? String else { return }
             let owner = pluginIdentifier ?? "unknown"
+            logCommunityPlugin(owner, "failure", problem)
             runtimeProblems[owner, default: []].append(problem)
             if (runtimeProblems[owner]?.count ?? 0) > 5 { runtimeProblems[owner]?.removeFirst() }
         case "plugin.writeConflict":
