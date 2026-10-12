@@ -16,8 +16,16 @@ private final class TestReadAloudSpeech: ReadAloudSpeaking {
     }
     var releaseCount = 0
     var leadingPauses: [Double] = []
-    func speak(_ text: String, voiceIdentifier: String, speed: Double, leadingPauseSeconds: Double, requestIdentifier: UUID) throws {
+    var usedSystemSettings: [Bool] = []
+    var spokenVoices: [String] = []
+    var systemVoicesByLanguage: [String: ReadAloudVoice] = [:]
+    var assistiveSpeechSettingsMayApply = false
+    func systemVoice(language: String) -> ReadAloudVoice? { systemVoicesByLanguage[language] }
+    func speak(_ text: String, voiceIdentifier: String, speed: Double, leadingPauseSeconds: Double,
+               usesSystemSettings: Bool, requestIdentifier: UUID) throws {
         leadingPauses.append(leadingPauseSeconds)
+        usedSystemSettings.append(usesSystemSettings)
+        spokenVoices.append(voiceIdentifier)
         try speak(text, voiceIdentifier: voiceIdentifier, speed: speed, requestIdentifier: requestIdentifier)
     }
     func pause() -> Bool { true }
@@ -153,6 +161,32 @@ final class ReadAloudSessionTests: XCTestCase {
         XCTAssertEqual(speech.leadingPauses.last, 0, "Resuming starts at once.")
     }
 
+    /// By default Graphite speaks like the system's Read & Speak: its voice for the language,
+    /// even one Graphite would not offer itself, with the system's settings preferred; a voice
+    /// chosen in Graphite overrides both. Without a system voice the best installed one is used.
+    func testFollowsTheSystemVoiceAndSettingsUntilAVoiceIsChosenForGraphite() throws {
+        let speech = TestReadAloudSpeech()
+        speech.voices = [ReadAloudVoice(id: "ava", name: "Ava", language: "en-US", quality: 3)]
+        let preferences = try XCTUnwrap(UserDefaults(suiteName: "ReadAloudTests-\(UUID().uuidString)"))
+        let session = ReadAloudSession(speech: speech, preferences: preferences)
+        session.load(try ReadAloudDocument.plainText("Static gates draw almost no current while they rest, which keeps the power low."))
+        XCTAssertEqual(session.selectedVoiceIdentifier, "ava", "No system voice: the best installed voice.")
+        speech.systemVoicesByLanguage[session.readingLanguage] = ReadAloudVoice(id: "fred", name: "Fred", language: "en-US", quality: 1)
+        XCTAssertTrue(session.followsSystemVoice)
+        XCTAssertEqual(session.selectedVoice?.name, "Fred", "The person's own system choice is followed, even a robotic one.")
+        session.play()
+        XCTAssertEqual(speech.spokenVoices.last, "fred")
+        XCTAssertEqual(speech.usedSystemSettings.last, true)
+        XCTAssertFalse(session.speedFollowsSystem)
+        speech.assistiveSpeechSettingsMayApply = true
+        XCTAssertTrue(session.speedFollowsSystem, "With Speak Selection on, the system's rate applies and Graphite's speed is hidden.")
+        session.chooseVoice("ava")
+        XCTAssertFalse(session.speedFollowsSystem)
+        session.play()
+        XCTAssertEqual(speech.spokenVoices.last, "ava")
+        XCTAssertEqual(speech.usedSystemSettings.last, false)
+    }
+
     func testAudioIsReleasedWhenReadingStopsOrFinishesButNotBetweenPDFPages() throws {
         let (session, speech) = try makeSession()
         session.load(try ReadAloudDocument.plainText("Only."))
@@ -181,6 +215,7 @@ final class ReadAloudSessionTests: XCTestCase {
         let premium = ReadAloudVoice(id: "ava", name: "Ava", language: "en-US", quality: 3)
         XCTAssertEqual(ReadAloudVoice.preferred(in: [premium, personal], language: "en-US")?.id, "mine")
         XCTAssertEqual(personal.qualityDescription, "Personal Voice")
+        XCTAssertEqual(compactUS.qualityDescription, "Default")
         XCTAssertFalse(personal.isCompact)
     }
 
@@ -232,6 +267,9 @@ final class ReadAloudSessionTests: XCTestCase {
         if let compact = installed.first(where: { voice in voice.identifier.hasPrefix("com.apple.voice.compact.en-US") }) {
             XCTAssertTrue(AppleReadAloudSpeech.isOffered(compact))
         }
+        // The system's own voice for a language is reported whatever its family.
+        let systemVoice = try XCTUnwrap(AppleReadAloudSpeech().systemVoice(language: "en-US"))
+        XCTAssertEqual(systemVoice.id, AVSpeechSynthesisVoice(language: "en-US")?.identifier)
     }
 
     func testFinishedPlaybackRestartsAtBeginningAndNavigationStaysPaused() throws {
