@@ -182,8 +182,7 @@ public struct GraphiteRootView: View {
             if phase == .active {
                 Task { await workspace.checkOpenDocumentsForExternalChanges(); await workspace.refreshDirectory(); await workspace.reloadVaultSettings() }
             } else {
-                if workspace.readAloud.isPreparing { workspace.readAloud.stop() }
-                else { workspace.readAloud.session.pause() }
+                // Reading goes on in the background and on the lock screen, like an audiobook.
                 saveBeforeLeavingScreen()
             }
         }

@@ -76,6 +76,8 @@ public enum ReadAloudSpeechEvent: Sendable {
     case finished(UUID)
     case cancelled(UUID)
     case interrupted
+    /// A phone call or another app's audio ended; true when the system says playback may resume.
+    case interruptionEnded(shouldResume: Bool)
 }
 
 /// The substitution boundary covers playback and real timing. Document views have
@@ -93,12 +95,15 @@ public protocol ReadAloudSpeaking: AnyObject {
     var personalVoiceStatus: ReadAloudPersonalVoiceStatus { get }
     /// Shows the system's Personal Voice permission prompt. Call only from a person's tap.
     func requestPersonalVoiceAccess() async -> ReadAloudPersonalVoiceStatus
+    /// Gives the audio route back to other apps once reading has stopped or finished.
+    func releaseAudio()
 }
 
 public extension ReadAloudSpeaking {
     func systemDefaultVoiceIdentifier(language: String) -> String? { nil }
     var personalVoiceStatus: ReadAloudPersonalVoiceStatus { .unsupported }
     func requestPersonalVoiceAccess() async -> ReadAloudPersonalVoiceStatus { .unsupported }
+    func releaseAudio() {}
 }
 
 @MainActor
@@ -107,6 +112,11 @@ public final class AppleReadAloudSpeech: NSObject, ReadAloudSpeaking, AVSpeechSy
     private let synthesizer = AVSpeechSynthesizer()
     private var activeUtterance: AVSpeechUtterance?
     private var requestIdentifier: UUID?
+    #if os(iOS)
+    /// Whether this adapter activated the shared audio session for reading, so it only ever
+    /// deactivates a session it started (never a lecture recording's).
+    private var ownsActiveAudioSession = false
+    #endif
 
     public override init() {
         super.init()
@@ -169,6 +179,7 @@ public final class AppleReadAloudSpeech: NSObject, ReadAloudSpeaking, AVSpeechSy
             throw GraphiteError.unavailable("The chosen voice is no longer installed. Choose a voice before continuing.")
         }
         stop()
+        activateAudioSession()
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = voice
         utterance.rate = min(AVSpeechUtteranceMaximumSpeechRate, max(AVSpeechUtteranceMinimumSpeechRate, AVSpeechUtteranceDefaultSpeechRate * Float(speed)))
@@ -178,6 +189,35 @@ public final class AppleReadAloudSpeech: NSObject, ReadAloudSpeaking, AVSpeechSy
         activeUtterance = utterance
         self.requestIdentifier = requestIdentifier
         synthesizer.speak(utterance)
+    }
+
+    /// Reading is spoken audio the person asked for, like an audiobook: it plays with the
+    /// Ring/Silent switch on, keeps going in the background and on the lock screen, and
+    /// pauses other audio while it speaks.
+    private func activateAudioSession() {
+        #if os(iOS)
+        guard !ownsActiveAudioSession else { return }
+        let audioSession = AVAudioSession.sharedInstance()
+        do {
+            try audioSession.setCategory(.playback, mode: .spokenAudio)
+            try audioSession.setActive(true)
+            ownsActiveAudioSession = true
+        } catch {
+            // Speech still plays through the default session, only without background audio.
+            ownsActiveAudioSession = false
+        }
+        #endif
+    }
+
+    public func releaseAudio() {
+        #if os(iOS)
+        guard ownsActiveAudioSession else { return }
+        ownsActiveAudioSession = false
+        let audioSession = AVAudioSession.sharedInstance()
+        // A recording that started meanwhile changed the category; its session stays active.
+        guard audioSession.category == .playback else { return }
+        try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+        #endif
     }
 
     public func pause() -> Bool { synthesizer.pauseSpeaking(at: .immediate) }
@@ -222,11 +262,22 @@ public final class AppleReadAloudSpeech: NSObject, ReadAloudSpeaking, AVSpeechSy
     @objc nonisolated private func audioInterrupted(_ notification: Notification) {
         if notification.name == AVAudioSession.interruptionNotification {
             guard let rawType = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
-                  AVAudioSession.InterruptionType(rawValue: rawType) == .began else { return }
+                  let type = AVAudioSession.InterruptionType(rawValue: rawType) else { return }
+            if type == .ended {
+                let rawOptions = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+                let shouldResume = AVAudioSession.InterruptionOptions(rawValue: rawOptions).contains(.shouldResume)
+                Task { @MainActor [weak self] in
+                    // The system deactivated the session during the interruption.
+                    self?.ownsActiveAudioSession = false
+                    self?.eventHandler?(.interruptionEnded(shouldResume: shouldResume))
+                }
+                return
+            }
         } else if notification.name == AVAudioSession.routeChangeNotification {
+            // Unplugged headphones pause, as people expect; newly connected ones simply
+            // take over the sound without interrupting it.
             guard let rawReason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
-                  let reason = AVAudioSession.RouteChangeReason(rawValue: rawReason),
-                  reason == .oldDeviceUnavailable || reason == .newDeviceAvailable else { return }
+                  AVAudioSession.RouteChangeReason(rawValue: rawReason) == .oldDeviceUnavailable else { return }
         }
         Task { @MainActor [weak self] in
             guard let self, self.activeUtterance != nil else { return }
@@ -258,7 +309,10 @@ public final class ReadAloudSession {
     @ObservationIgnored private var requestIdentifier: UUID?
     @ObservationIgnored private var utteranceStartOffset = 0
     @ObservationIgnored private var needsRestart = false
-    @ObservationIgnored public var didFinishDocument: (@MainActor () -> Void)?
+    @ObservationIgnored private var wasSpeakingWhenInterrupted = false
+    /// Called when the last passage ends; returns true when more follows (a PDF's next page),
+    /// so the audio session stays active through the short preparation in between.
+    @ObservationIgnored public var didFinishDocument: (@MainActor () -> Bool)?
     /// A new key: the previous one also stored automatic choices, which pinned the first voice
     /// found (often the robotic Fred) even after a Premium voice was downloaded.
     private static let voicePreferenceKey = "GraphiteReadAloudChosenVoice"
@@ -322,7 +376,7 @@ public final class ReadAloudSession {
             finishCurrentPassage()
             return
         }
-        if state == .paused, !needsRestart, speech.resume() { state = .speaking; return }
+        if state == .paused, !needsRestart, speech.resume() { state = .speaking; message = nil; return }
         if state == .finished { passageIndex = 0; spokenRange = nil; utteranceStartOffset = 0 }
         speakCurrentPassage()
     }
@@ -339,6 +393,8 @@ public final class ReadAloudSession {
 
     public func stop() {
         invalidateSpeech()
+        speech.releaseAudio()
+        wasSpeakingWhenInterrupted = false
         state = .idle
         spokenRange = nil
         utteranceStartOffset = 0
@@ -479,8 +535,16 @@ public final class ReadAloudSession {
     }
 
     private func receive(_ event: ReadAloudSpeechEvent) {
+        if case .interruptionEnded(let shouldResume) = event {
+            // Resume only reading that a call or another app interrupted, and only when the
+            // system says so; a reading the person paused stays paused.
+            if shouldResume, wasSpeakingWhenInterrupted, state == .paused { play() }
+            wasSpeakingWhenInterrupted = false
+            return
+        }
         if case .interrupted = event {
             guard state == .speaking || state == .paused else { return }
+            wasSpeakingWhenInterrupted = state == .speaking
             invalidateSpeech()
             utteranceStartOffset = spokenRange?.location ?? utteranceStartOffset
             needsRestart = true
@@ -511,7 +575,7 @@ public final class ReadAloudSession {
             needsRestart = true
             utteranceStartOffset = spokenRange?.location ?? utteranceStartOffset
             state = .paused
-        case .interrupted: break
+        case .interrupted, .interruptionEnded: break
         }
     }
 
@@ -520,6 +584,9 @@ public final class ReadAloudSession {
         spokenRange = nil
         utteranceStartOffset = 0
         if passageIndex + 1 < document.passages.count { passageIndex += 1; speakCurrentPassage() }
-        else { state = .finished; didFinishDocument?() }
+        else {
+            state = .finished
+            if didFinishDocument?() != true { speech.releaseAudio() }
+        }
     }
 }

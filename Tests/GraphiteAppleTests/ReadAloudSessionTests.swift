@@ -14,9 +14,11 @@ private final class TestReadAloudSpeech: ReadAloudSpeaking {
         if let failure { throw failure }
         requests.append((text, requestIdentifier))
     }
+    var releaseCount = 0
     func pause() -> Bool { true }
     func resume() -> Bool { canResume }
     func stop() {}
+    func releaseAudio() { releaseCount += 1 }
 }
 
 @MainActor
@@ -108,6 +110,47 @@ final class ReadAloudSessionTests: XCTestCase {
                       ReadAloudVoice(id: "french", name: "C", language: "fr-FR", quality: 3)]
         XCTAssertEqual(ReadAloudVoice.preferred(in: voices, language: "en-US")?.id, "premium")
         XCTAssertNil(ReadAloudVoice.preferred(in: voices, language: "de-DE"))
+    }
+
+    /// A call interrupts reading; when it ends and the system allows it, reading resumes at the
+    /// same word. Reading the person had paused stays paused.
+    func testReadingResumesAfterAnInterruptionOnlyIfItWasSpeaking() throws {
+        let (session, speech) = try makeSession()
+        session.load(try ReadAloudDocument.plainText("One sentence here. Another one."))
+        session.play()
+        let first = try XCTUnwrap(speech.requests.last?.identifier)
+        speech.eventHandler?(.spoken(first, NSRange(location: 4, length: 8)))
+        speech.eventHandler?(.interrupted)
+        XCTAssertEqual(session.state, .paused)
+        speech.eventHandler?(.interruptionEnded(shouldResume: false))
+        XCTAssertEqual(session.state, .paused)
+        session.play()
+        XCTAssertEqual(speech.requests.last?.text, "sentence here. Another one.")
+        speech.eventHandler?(.interrupted)
+        speech.eventHandler?(.interruptionEnded(shouldResume: true))
+        XCTAssertEqual(session.state, .speaking)
+        session.pause()
+        speech.eventHandler?(.interrupted)
+        speech.eventHandler?(.interruptionEnded(shouldResume: true))
+        XCTAssertEqual(session.state, .paused, "A reading the person paused must not start by itself.")
+    }
+
+    func testAudioIsReleasedWhenReadingStopsOrFinishesButNotBetweenPDFPages() throws {
+        let (session, speech) = try makeSession()
+        session.load(try ReadAloudDocument.plainText("Only."))
+        session.play()
+        session.didFinishDocument = { true }
+        speech.eventHandler?(.finished(try XCTUnwrap(speech.requests.last?.identifier)))
+        XCTAssertEqual(session.state, .finished)
+        let releasesWhileContinuing = speech.releaseCount
+        session.load(try ReadAloudDocument.plainText("Last."))
+        session.play()
+        session.didFinishDocument = { false }
+        speech.eventHandler?(.finished(try XCTUnwrap(speech.requests.last?.identifier)))
+        XCTAssertGreaterThan(speech.releaseCount, releasesWhileContinuing)
+        let beforeStop = speech.releaseCount
+        session.stop()
+        XCTAssertEqual(speech.releaseCount, beforeStop + 1)
     }
 
     func testPersonalVoiceThenRegionThenSystemDefaultBreakTies() {

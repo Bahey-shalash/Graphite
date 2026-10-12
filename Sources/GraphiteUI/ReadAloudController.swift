@@ -1,6 +1,9 @@
 import Foundation
 import Observation
 import PDFKit
+#if canImport(UIKit)
+import UIKit
+#endif
 import GraphiteCore
 import GraphiteApple
 
@@ -52,14 +55,19 @@ final class ReadAloudController {
     /// reading order, and a scanned page that needs review, still wait for Play.
     @ObservationIgnored private let playsWhenPrepared: Bool
     @ObservationIgnored private var playsCurrentPreparation = false
+    /// The lock screen entry and media controls, used by the app only so tests never touch
+    /// the system's shared Now Playing state.
+    @ObservationIgnored private let nowPlaying: ReadAloudNowPlaying?
 
     init(session: ReadAloudSession = ReadAloudSession(), preferences: UserDefaults = .standard, playsWhenPrepared: Bool = false) {
         self.session = session
         self.preferences = preferences
         self.playsWhenPrepared = playsWhenPrepared
+        nowPlaying = playsWhenPrepared ? ReadAloudNowPlaying() : nil
         mathematicalStyle = preferences.string(forKey: "readAloudMathematicalStyle").flatMap(MathematicalSpeechStyle.init(rawValue:)) ?? .concise
         pdfReadingOrder = preferences.string(forKey: "readAloudPDFReadingOrder").flatMap(PDFReadingOrder.init(rawValue:)) ?? .layout
-        session.didFinishDocument = { [weak self] in self?.continuePDFIfNeeded() }
+        session.didFinishDocument = { [weak self] in self?.continuePDFIfNeeded() ?? false }
+        if nowPlaying != nil { followSessionForNowPlaying() }
     }
 
     func readMarkdown(_ markdown: String, path: VaultPath, range: NSRange? = nil,
@@ -261,10 +269,13 @@ final class ReadAloudController {
         showsReader = false
     }
 
-    func continuePDFIfNeeded() {
-        guard session.state == .finished, let continuation = pdfContinuation else { return }
+    /// Starts preparing the next PDF page after the last word of this one; true when it did.
+    @discardableResult
+    func continuePDFIfNeeded() -> Bool {
+        guard session.state == .finished, let continuation = pdfContinuation else { return false }
         pdfContinuation = nil
         continuation()
+        return true
     }
 
     func highlight(in path: VaultPath) -> NSRange? {
@@ -278,6 +289,44 @@ final class ReadAloudController {
               let range = session.sourceRange else { return [] }
         if let view = pdf.pdfView, view.document !== pdf.document { return [] }
         return pdfSource?.highlights(for: range) ?? []
+    }
+
+    /// Re-publishes the lock screen entry whenever the reading state, passage or title changes.
+    private func followSessionForNowPlaying() {
+        withObservationTracking {
+            updateNowPlaying()
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in self?.followSessionForNowPlaying() }
+        }
+    }
+
+    private func updateNowPlaying() {
+        guard let nowPlaying else { return }
+        let hasPassage = session.document != nil
+        let passageCount = session.document?.passages.count ?? 0
+        let progress = passageCount > 0 ? Double(session.passageIndex) / Double(passageCount) : nil
+        nowPlaying.update(title: hasPassage || isPreparing ? title : nil, detail: scopeDescription, state: session.state,
+                          progress: progress, commands: ReadAloudNowPlaying.Commands(
+            play: { [weak self] in
+                guard let self, self.session.document != nil, self.session.state != .speaking else { return false }
+                self.session.play()
+                return true
+            },
+            pause: { [weak self] in
+                guard let self, self.session.state == .speaking else { return false }
+                self.session.pause()
+                return true
+            },
+            nextSentence: { [weak self] in
+                guard let self, self.session.canMoveToNextSentence else { return false }
+                self.session.moveToNextSentence()
+                return true
+            },
+            previousSentence: { [weak self] in
+                guard let self, self.session.canMoveToPreviousSentence else { return false }
+                self.session.moveToPreviousSentence()
+                return true
+            }))
     }
 
     /// A passage is loaded, being prepared, or could not be prepared and says why.
@@ -365,6 +414,10 @@ final class ReadAloudController {
         sourcePageIndex = pageIndex
         scopeDescription = "Page \(pageIndex + 1) · reading through page \(lastPageIndex + 1)"
         preparation = Task { [weak self] in
+            // Between two pages there is a moment without sound; in the background the system
+            // could suspend the app right then, so the next page is prepared as a task it allows.
+            let backgroundTask = ReadAloudBackgroundTask.begin(named: "Prepare the next page to read aloud")
+            defer { backgroundTask.end() }
             do {
                 let pageSnapshot = try await pdf.readAloudPage(pageIndex: pageIndex, readingOrder: readingOrder)
                 guard let self else { return }
@@ -441,6 +494,8 @@ final class ReadAloudController {
         playsCurrentPreparation = false
         errorMessage = error.localizedDescription
         showsReader = true
+        // A PDF whose next page failed keeps no audio session or lock screen controls.
+        if session.state == .finished { session.stop() }
     }
 }
 
@@ -450,4 +505,22 @@ extension PDFSession {
         let pageBytes = try await export(pages: [pageIndex])
         return try await PDFReadAloudExtraction().page(in: pageBytes, readingOrder: readingOrder)
     }
+}
+
+/// Background time for preparing the next PDF page while reading continues off screen.
+struct ReadAloudBackgroundTask {
+    #if canImport(UIKit)
+    private let identifier: UIBackgroundTaskIdentifier
+
+    @MainActor static func begin(named name: String) -> ReadAloudBackgroundTask {
+        ReadAloudBackgroundTask(identifier: UIApplication.shared.beginBackgroundTask(withName: name))
+    }
+
+    @MainActor func end() {
+        if identifier != .invalid { UIApplication.shared.endBackgroundTask(identifier) }
+    }
+    #else
+    @MainActor static func begin(named name: String) -> ReadAloudBackgroundTask { ReadAloudBackgroundTask() }
+    @MainActor func end() {}
+    #endif
 }
