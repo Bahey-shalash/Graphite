@@ -844,6 +844,9 @@
             for (const leaf of this.pluginLeaves.slice()) callback(leaf);
         }
         iterateRootLeaves(callback) { this.iterateAllLeaves(callback); }
+        /// Obsidian's legacy CodeMirror 5 editors (undocumented, removed from the API); Graphite
+        /// has none, so there is nothing to visit (Admonition resets their modes as it unloads).
+        iterateCodeMirrors() {}
         setActiveLeaf(leaf) {
             if (leaf === this.activeLeaf) return;
             this.activeLeaf = leaf;
