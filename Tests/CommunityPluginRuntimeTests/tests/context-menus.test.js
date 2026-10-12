@@ -104,3 +104,29 @@ test('getClickableTokenAt finds tags, internal links and web addresses as Obsidi
         harness.close();
     }
 });
+
+test('on a web address the editor\'s menu gets the plugins\' items for links (`url-menu`)', async () => {
+    const source = `"use strict";
+var obsidian = require("obsidian");
+class ExamplePlugin extends obsidian.Plugin {
+    async onload() {
+        this.registerEvent(this.app.workspace.on('url-menu', (menu, url) => menu.addItem((item) => item.setTitle('Archive ' + url))));
+    }
+}
+module.exports = ExamplePlugin;`;
+    const text = 'See [the docs](https://example.com/docs) or https://example.org/page. Or nothing.\n';
+    const harness = await startRuntime({ files: { 'Note.md': text } });
+    try {
+        await installAndLoadPlugin(harness, { manifest, mainSource: source });
+        await settle();
+        assert.equal(plain(harness.host.notificationsOf('menus.changed').at(-1)).hasEditorMenuItems, true);
+        const onMarkdownLink = plain(await harness.send({ operation: 'menu.editor', menuIdentifier: 'u1', activeDocument: { path: 'Note.md', mode: 'source', editorSnapshot: harness.host.openNote('Note.md', 8) } }));
+        assert.deepEqual(onMarkdownLink.items.map((item) => item.title), ['Archive https://example.com/docs']);
+        const onBareAddress = plain(await harness.send({ operation: 'menu.editor', menuIdentifier: 'u2', activeDocument: { path: 'Note.md', mode: 'source', editorSnapshot: harness.host.openNote('Note.md', 50) } }));
+        assert.deepEqual(onBareAddress.items.map((item) => item.title), ['Archive https://example.org/page'], 'the full stop ends the sentence, not the address');
+        const offAddress = plain(await harness.send({ operation: 'menu.editor', menuIdentifier: 'u3', activeDocument: { path: 'Note.md', mode: 'source', editorSnapshot: harness.host.openNote('Note.md', 75) } }));
+        assert.deepEqual(offAddress.items, []);
+    } finally {
+        harness.close();
+    }
+});

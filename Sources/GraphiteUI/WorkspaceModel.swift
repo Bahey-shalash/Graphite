@@ -53,6 +53,9 @@ final class WorkspaceModel {
     var layoutVaultIdentifier: UUID?
     /// The documents open in the tabs, by tab.
     @ObservationIgnored var tabDocuments: [UUID: TabDocument] = [:]
+    /// Files picked together in the file list for plugins' actions on several files
+    /// (`files-menu`); nil while the list is not picking files.
+    var pickedSidebarFiles: Set<VaultPath>?
     /// Plugins' sidebar views and the one the sidebar showed, saved with the layout so they
     /// open again after a restart (`CommunityPluginViews.swift`).
     @ObservationIgnored var restorableSidebarPluginViews: (views: [SavedTabLayout.PluginView], shownViewType: String?) = ([], nil)
@@ -276,7 +279,7 @@ final class WorkspaceModel {
         EmbeddedPDFSessions.shared.useVault(root: root, owner: self, saving: embeddedPDFSaving(writer: vaultStore.writer))
         // Nothing open in the vault being left is saved into the new vault's layout.
         layoutVaultIdentifier = nil
-        layout = TabLayout(); tabDocuments = [:]; pdfPasswords = [:]; restorableSidebarPluginViews = ([], nil)
+        layout = TabLayout(); tabDocuments = [:]; pdfPasswords = [:]; restorableSidebarPluginViews = ([], nil); pickedSidebarFiles = nil
         markdownEditorRetention.discardHiddenEditors()
         graphCache = nil; graphPositions = [:]
         embeddedBaseModelCache = EmbeddedBaseModelCache()

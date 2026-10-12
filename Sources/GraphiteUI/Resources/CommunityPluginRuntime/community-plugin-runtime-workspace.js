@@ -23,7 +23,7 @@
         return leaf.kind === 'split' ? 'split' : 'tab';
     }
     /// Events through which plugins add items to Obsidian's context menus.
-    const menuEventNames = new Set(['file-menu', 'files-menu', 'editor-menu']);
+    const menuEventNames = new Set(['file-menu', 'files-menu', 'editor-menu', 'url-menu']);
     /// Events Graphite sends from its editor as the person types.
     const editorEventNames = new Set(['editor-change', 'editor-paste', 'editor-drop']);
 

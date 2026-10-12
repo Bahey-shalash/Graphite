@@ -60,14 +60,21 @@ extension CommunityPluginHost {
     /// The plugins' actions for a file or folder, from its menu in the file list: Graphite's
     /// list menus cannot wait for plugins, so their items open in a dialog of their own.
     func showFileActions(for path: VaultPath, source: String = "file-explorer-context-menu") async {
-        guard let menu = await fileMenu(for: [path], source: source) else {
-            showNotice("No plugin has an action for “\(path.name)”.", pluginIdentifier: nil)
+        await showFileActions(for: [path], source: source)
+    }
+
+    /// The plugins' actions for several files picked together in the file list (`files-menu`),
+    /// or for one (`file-menu`).
+    func showFileActions(for paths: [VaultPath], source: String = "file-explorer-context-menu") async {
+        let title = paths.count == 1 ? paths[0].name : "\(paths.count) Files"
+        guard let menu = await fileMenu(for: paths, source: source) else {
+            showNotice(paths.count == 1 ? "No plugin has an action for “\(title)”." : "No plugin has an action for these \(paths.count) files.", pluginIdentifier: nil)
             return
         }
         let itemDescriptions: [[String: Any]] = menu.items.map { item in
             ["position": item.id, "title": item.title, "isDisabled": item.isDisabled, "isWarning": item.isWarning, "isChecked": item.isChecked]
         }
-        guard let position = await showMenu(itemDescriptions, title: path.name), let item = menu.items.first(where: { candidate in candidate.id == position }) else {
+        guard let position = await showMenu(itemDescriptions, title: title), let item = menu.items.first(where: { candidate in candidate.id == position }) else {
             dismiss(menu)
             return
         }
