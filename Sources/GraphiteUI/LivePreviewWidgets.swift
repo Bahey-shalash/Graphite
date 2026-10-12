@@ -12,6 +12,9 @@ struct LivePreviewEnvironment {
     let resolve: (String, Bool) async -> VaultPath?
     let open: (VaultPath) -> Void
     let follow: (String, Bool) -> Void
+    /// Opens an embedded PDF in the PDF view at a zero-based page, focusing it; without it,
+    /// an embed follows a page link to the PDF instead.
+    var openPDF: ((VaultPath, Int) -> Void)? = nil
     /// Nil when the Properties view is turned off: the frontmatter then stays as text.
     let updateProperties: (([NoteProperty]) -> Void)?
     /// Property types assigned in `.obsidian/types.json`, which the frontmatter is read with.
@@ -381,7 +384,11 @@ private struct LivePreviewEmbedView: View {
             case .pdf(let path, let location, let options):
                 EmbeddedPDFViewer(location: location, startPageNumber: options.startPageNumber, height: options.height.map { height in CGFloat(height) },
                                   drawingVersion: environment.drawingVersion) { pageIndex in
-                    environment.follow(path.rawValue + "#page=\(pageIndex + 1)", true)
+                    if let openPDF = environment.openPDF {
+                        openPDF(path, pageIndex)
+                    } else {
+                        environment.follow(path.rawValue + "#page=\(pageIndex + 1)", true)
+                    }
                 }
             case .note(let path, let heading, let blocks):
                 // Drawn like reading view's embedded notes: a link to the note, then its content.

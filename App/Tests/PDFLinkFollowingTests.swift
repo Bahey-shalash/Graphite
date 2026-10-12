@@ -65,6 +65,28 @@ final class PDFLinkFollowingTests: XCTestCase {
         XCTAssertEqual(workspace.document(for: slidesTab).pdfSession?.currentPageIndex, 3, "The PDF shows the embed's page.")
     }
 
+    /// "Open in PDF View" takes the person to the PDF where it is open, on the other side,
+    /// as reading view's embed always did; a page link leaves the note focused instead.
+    func testLivePreviewEmbedTakesFocusToThePDFOpenOnTheOtherSide() async throws {
+        let workspace = try await makeWorkspace(note: "Lecture notes.\n\n![[\(Self.slidesName)#page=3]]\n")
+        let noteTab = try await openTab("Lecture.md", in: workspace, placement: .currentTab)
+        let slidesTab = try await openTab(Self.slidesName, in: workspace, placement: .otherGroup)
+        let noteGroup = try XCTUnwrap(workspace.layout.group(containing: noteTab)?.id)
+        let slidesGroup = try XCTUnwrap(workspace.layout.group(containing: slidesTab)?.id)
+        XCTAssertNotEqual(noteGroup, slidesGroup)
+        workspace.focusGroup(noteGroup)
+        let controller = try host(workspace)
+        try XCTSkipUnless(controller.traitCollection.horizontalSizeClass == .regular, "Both sides show only at a regular width.")
+
+        try await pressOpenInPDFView(in: controller, touchingTheNote: true)
+
+        try await expectShown(slidesTab, in: workspace)
+        XCTAssertEqual(workspace.layout.focusedGroupID, slidesGroup)
+        XCTAssertEqual(workspace.layout.group(containing: noteTab)?.activeTabID, noteTab, "The note stays on its side.")
+        XCTAssertEqual(workspace.document(for: slidesTab).pdfSession?.currentPageIndex, 2)
+        attachScreenshot(named: "PDF focused on the other side")
+    }
+
     // MARK: Page links
 
     /// A page link in a note that embeds a PDF did nothing when the PDF was open in another
