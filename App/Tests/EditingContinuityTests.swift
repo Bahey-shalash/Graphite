@@ -599,6 +599,138 @@ final class EditingContinuityTests: XCTestCase {
         XCTAssertNil(workspace.noteTheme, "With the setting off, notes keep Graphite's look.")
     }
 
+    // MARK: Theme shapes Live Preview draws, and a long note's restyle cost (theme Phase 3)
+
+    /// A theme that changes the shapes of tags, highlights, checkboxes, headings and quotes.
+    private static let shapeTheme = """
+        .theme-light { --h2-color: #a03030; --tag-radius: 3px; --checkbox-radius: 50%; --blockquote-background-color: rgba(0, 0, 0, 0.05);
+                       --list-marker-color: #a03030; --inline-title-color: #205080; }
+        .theme-dark { --h2-color: #ff9090; --tag-radius: 3px; --checkbox-radius: 50%; --blockquote-background-color: rgba(255, 255, 255, 0.06);
+                      --list-marker-color: #ff9090; --inline-title-color: #90c0ff; }
+        .markdown-rendered h2 { border-bottom: 2px solid #a03030; }
+        .markdown-rendered mark { border-radius: 4px; }
+        .markdown-rendered a.tag { border: 1px solid #a03030; }
+        """
+
+    private func useTheme(_ css: String, in workspace: WorkspaceModel) async throws -> NoteThemeStyle {
+        workspace.preferences.usesVaultTheme = true
+        let folder = try XCTUnwrap(vaultDirectory).appendingPathComponent(".obsidian/themes/Shapes")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data(css.utf8).write(to: folder.appendingPathComponent("theme.css"))
+        try writeAppearance(#"{"cssTheme": "Shapes"}"#)
+        await workspace.reloadVaultAppearance()
+        await workspace.refreshVaultTheme()
+        return try XCTUnwrap(workspace.noteTheme, "The theme is resolved and handed to notes.")
+    }
+
+    /// The theme's tag pill and highlight shapes, round checkboxes, heading underline and quote
+    /// background are set on the text Live Preview draws.
+    func testLivePreviewDrawsTheThemesShapes() async throws {
+        let workspace = try await makeWorkspace(notes: ["Shapes.md": "Intro line.\n\n## Underlined heading\n\nA #tagged line with ==marked words==.\n\n- [ ] A task\n\n> A quote.\n"])
+        let previousSetting = workspace.preferences.usesVaultTheme
+        defer { workspace.preferences.usesVaultTheme = previousSetting }
+        let theme = try await useTheme(Self.shapeTheme, in: workspace)
+        XCTAssertNotNil(theme.tagRadius)
+        XCTAssertNotNil(theme.highlightRadius)
+        XCTAssertNotNil(theme.checkboxRadiusScale)
+        XCTAssertNotNil(theme.headingOrnaments[1].underlineColor)
+        XCTAssertNotNil(theme.blockquoteBackground)
+
+        _ = try await openTab("Shapes.md", in: workspace, placement: .currentTab)
+        let controller = try hostWithTypography(workspace)
+        let session = try XCTUnwrap(workspace.markdownSession)
+        session.viewMode = .livePreview
+        let editor = try await visibleEditor(in: controller, showing: session)
+        let source = session.text as NSString
+        func attribute(_ key: NSAttributedString.Key, at text: String) -> Any? {
+            editor.textStorage.attribute(key, at: source.range(of: text).location, effectiveRange: nil)
+        }
+        try await waitUntil { attribute(ConcealedReplacement.roundedBackgroundKey, at: "tagged") != nil }
+        XCTAssertNotNil(attribute(ConcealedReplacement.roundedBackgroundKey, at: "marked"), "The highlight is a rounded shape.")
+        XCTAssertNotNil(attribute(ConcealedReplacement.headingOrnamentKey, at: "Underlined"), "The heading carries its underline.")
+        XCTAssertNotNil(attribute(ConcealedReplacement.quoteBackgroundKey, at: "A quote"), "The quote has the theme's background.")
+        let checkbox = try XCTUnwrap(attribute(ConcealedReplacement.checkboxStyleKey, at: "[ ]") as? ThemedCheckboxStyle)
+        XCTAssertGreaterThan(checkbox.radiusScale, 0.3, "The checkbox is round.")
+        if let inlineTitle = editor.inlineTitle {
+            XCTAssertEqual(ThemeColor(platform: inlineTitle.color.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))).hex, "#205080",
+                           "The inline title takes the theme's color.")
+        }
+        attachScreenshot(named: "Live Preview with a theme's shapes")
+    }
+
+    /// Typing in a 5,000-line note, with and without a theme that draws shapes: the time from a
+    /// keystroke to the restyled, laid-out text, and the time to restyle the whole note when the
+    /// theme changes. Each keystroke must fit in one frame (about 16 ms).
+    func testLongNoteRestyleCostWithAndWithoutATheme() async throws {
+        var lines: [String] = []
+        for section in 0..<500 {
+            lines += ["## Section \(section)", "Body text with a #tag, ==a highlight==, **bold** words and a [[Link]].", "- [ ] An open task \(section)",
+                      "- [x] A finished task", "- A bullet with `code`", "> A quoted line \(section)", "1. A numbered item", "", "Plain text to type into \(section).", ""]
+        }
+        let workspace = try await makeWorkspace(notes: ["Long.md": lines.joined(separator: "\n")])
+        let previousSetting = workspace.preferences.usesVaultTheme
+        defer { workspace.preferences.usesVaultTheme = previousSetting }
+        workspace.preferences.usesVaultTheme = false
+        await workspace.refreshVaultTheme()
+
+        _ = try await openTab("Long.md", in: workspace, placement: .currentTab)
+        let controller = try hostWithTypography(workspace)
+        let session = try XCTUnwrap(workspace.markdownSession)
+        session.viewMode = .livePreview
+        let editor = try await visibleEditor(in: controller, showing: session)
+
+        /// Milliseconds per keystroke, typed at the end of a line in the middle of the note.
+        func keystrokeTimes() async throws -> [Double] {
+            let line = (editor.text as NSString).range(of: "Plain text to type into 250.")
+            editor.beginEditing()
+            editor.selectedRange = NSRange(location: NSMaxRange(line), length: 0)
+            editor.scrollRangeToVisible(editor.selectedRange)
+            editor.layoutIfNeeded()
+            // Jumping 2,500 lines lays out the new screen over the next moments; typing starts after.
+            try await Task.sleep(for: .milliseconds(1500))
+            var times: [Double] = []
+            for _ in 0..<40 {
+                let start = ContinuousClock.now
+                editor.insertText("a")
+                editor.layoutIfNeeded()
+                let elapsed = ContinuousClock.now - start
+                times.append(Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1000)
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            for _ in 0..<40 { editor.deleteBackward() }
+            try await Task.sleep(for: .milliseconds(200))
+            return times.sorted()
+        }
+        /// Milliseconds to restyle the whole note with a styler for the given theme.
+        func wholeNoteRestyleTime(theme: NoteThemeStyle?) -> Double {
+            var configuration = EditorConfiguration(mode: .livePreview)
+            configuration.theme = theme
+            let styler = MarkdownTextStyler(configuration: configuration, accentColor: .systemBlue, drawsConcealedReplacements: true)
+            let storage = NSTextStorage(string: editor.text)
+            let start = ContinuousClock.now
+            styler.applyStyles(to: storage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedMarkup: nil, concealedBlocks: [])
+            let elapsed = ContinuousClock.now - start
+            return Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1000
+        }
+
+        let plainTimes = try await keystrokeTimes()
+        let plainWholeNote = wholeNoteRestyleTime(theme: nil)
+        let theme = try await useTheme(Self.shapeTheme, in: workspace)
+        try await waitUntil { editor.textStorage.attribute(ConcealedReplacement.roundedBackgroundKey, at: (editor.text as NSString).range(of: "#tag").location, effectiveRange: nil) != nil }
+        let themedTimes = try await keystrokeTimes()
+        let themedWholeNote = wholeNoteRestyleTime(theme: theme)
+
+        func median(_ times: [Double]) -> Double { times[times.count / 2] }
+        let report = String(format: "5,000 lines. Keystroke median %.2f ms, slowest %.2f ms without a theme; median %.2f ms, slowest %.2f ms with the theme. Whole-note restyle %.0f ms without, %.0f ms with.",
+                            median(plainTimes), plainTimes.last ?? 0, median(themedTimes), themedTimes.last ?? 0, plainWholeNote, themedWholeNote)
+        print("THEME-RESTYLE-COST " + report)
+        let attachment = XCTAttachment(string: report)
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        XCTAssertLessThan(median(themedTimes), 16.7, "A keystroke in a long themed note fits in one frame.")
+        XCTAssertLessThan(median(themedTimes), median(plainTimes) * 1.5 + 2, "The theme adds little to a keystroke.")
+    }
+
     private func writeAppearance(_ text: String) throws {
         let folder = try XCTUnwrap(vaultDirectory).appendingPathComponent(".obsidian")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

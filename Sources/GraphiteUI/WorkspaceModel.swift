@@ -403,6 +403,21 @@ final class WorkspaceModel {
     func open(_ requestedPath: VaultPath, placement: TabPlacement = .currentTab, pdfPageIndex: Int? = nil, takesFocus: Bool = true) async -> UUID? {
         guard store != nil else { return nil }
         let path = storedPath(for: requestedPath)
+        // A file a plugin shows in a view of its own (Excalidraw's drawings, Fountain's
+        // scripts) opens in that view, live in a tab, even where Graphite already shows it as a
+        // file; any other file as Graphite shows it.
+        if communityPlugins.mayShowInPluginView(path) {
+            if let tabID = tabDocuments.first(where: { entry in
+                entry.value.pluginViewIdentifier.flatMap { identifier in communityPlugins.pluginView(withIdentifier: identifier)?.filePath } == path.rawValue
+            })?.key, layout.tab(withID: tabID) != nil {
+                if takesFocus { activateTab(tabID) } else { revealTab(tabID) }
+                return tabID
+            }
+            if let identifier = await communityPlugins.openFileInPluginView(path) {
+                if placement == .otherGroup { openPluginViewBeside(identifier) } else { openPluginViewInTab(identifier) }
+                return tabDocuments.first(where: { entry in entry.value.pluginViewIdentifier == identifier })?.key
+            }
+        }
         if let existingTabID = layout.tabID(showing: path) {
             if takesFocus { activateTab(existingTabID) } else { revealTab(existingTabID) }
             let document = document(for: existingTabID)

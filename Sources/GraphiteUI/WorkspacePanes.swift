@@ -518,6 +518,7 @@ private struct TabDocumentView: View {
                                      isIndexComplete: workspace.hasCompletedIndexScan,
                                      open: { target in Task { await workspace.open(target) } },
                                      filesChanged: { paths in workspace.filesSavedOutsideEditors(paths) })
+                    .environment(\.communityPluginCodeBlocks, workspace.communityPlugins.isRuntimeRunning ? workspace.communityPlugins : nil)
                 }
             case .media:
                 // One player per file: its playback, size and duration are not carried over
@@ -584,6 +585,16 @@ enum Pasteboard {
         #else
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+        #endif
+    }
+
+    /// The text on the pasteboard, if any. On iPad and iPhone, iOS tells the person that
+    /// Graphite read it.
+    static var text: String? {
+        #if canImport(UIKit)
+        UIPasteboard.general.string
+        #else
+        NSPasteboard.general.string(forType: .string)
         #endif
     }
 }

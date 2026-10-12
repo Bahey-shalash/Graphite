@@ -170,14 +170,25 @@ struct CommunityPluginNoticeStack: View {
                         Text(pluginName).font(.caption).foregroundStyle(.secondary)
                     }
                     Text(notice.message).font(.callout)
+                    if !notice.actions.isEmpty {
+                        HStack(spacing: 8) {
+                            ForEach(Array(notice.actions.enumerated()), id: \.offset) { position, title in
+                                Button(title) { host.tapNotice(notice.id, actionIndex: position) }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                            }
+                        }
+                        .padding(.top, 6)
+                    }
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .frame(maxWidth: 360, alignment: .leading)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
-                .onTapGesture { host.notices.removeAll { candidate in candidate.id == notice.id } }
-                .accessibilityAddTraits(.isStaticText)
+                // A tap reaches the plugin, as a click on its notice does in Obsidian, and closes it.
+                .onTapGesture { host.tapNotice(notice.id, actionIndex: nil) }
+                .accessibilityAddTraits(notice.actions.isEmpty ? .isStaticText : [])
                 .transition(GraphiteMotion.slide(from: .top).combined(with: .opacity))
             }
         }

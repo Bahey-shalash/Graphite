@@ -4,11 +4,75 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-12.
 
+## Community plugins' file views, Bases views, paste and drop, and splits: 2026-10-12
+
+The four largest gaps of the community plugin sweep, on the branch `alpha-plugins-5`. `Community-plugins.md` describes each (How it works › In notes, menus, typing and tabs) and how it was checked (How it was verified › File views, Bases views, paste and drop, and splits).
+
+- File views: files with an extension a plugin registered, and notes a plugin claims through `setViewState`, open in the plugin's view in a tab, shown live with the runtime's own web view (`CommunityPluginLiveViewContent`, `file.openInView`, `view.live`), so Excalidraw draws by finger and Fountain's editor types; file views save when Graphite leaves the screen (found by the check: a drawing's last 30 seconds were lost when the app ended).
+- Bases: plugins' view types show in Graphite's bases (`CommunityPluginBasesViewContent`, `basesView.open`); TaskNotes' Kanban moves a task between status columns.
+- Paste and drop: `editor-paste` and `editor-drop` reach plugins first; Link or Card's choice works and two Undos restore the note.
+- Splits: `splitActiveLeaf` views open on the other side of Graphite's split (Mind Map).
+
+Tests: Node `file-views.test.js` (4), 81 runtime tests, all passing. The whole iPad integration suite: 299 tests, 298 passing in the full run; `BasesViewsTests.testTheMapFetchesTiles…` timed out under load and passed alone. `swift test`: 1,812 tests (873 Core, 137 Index, 246 Apple, 556 UI), one skipped, no failures.
+
+Not verified: on a device or with Apple Pencil; two live views at once; Excalidraw's embedded notes; TaskNotes' calendar views.
+
+## A sweep of 48 community plugins, and the runtime fixes it led to: 2026-10-12
+
+At the owner's request: install a sample of Obsidian's community plugins through Graphite's own installer and try each in the iPad simulator, so that nothing breaks, then fix in the runtime what is general. The sample, the results per plugin and how each was tried are in `Community-plugins.md` (How it was verified › A sweep of the directory): the 23 most downloaded that the Node checks did not cover and that run on mobile, every plugin by kepano, Contextual Typography, and 18 drawn at random. 16 work, 13 partly, 17 are blocked (by an API or part of the interface Graphite does not give plugins, or by an account the test did not have), Linter fails on its own first-run bug, and Highlights View has no release.
+
+- Safety: each plugin alone and all 46 together never crashed, froze or left Graphite unusable, and the vault's 477 notes stayed byte-identical (checksums before and after). Turning plugins off and removing them restored Graphite.
+- Runtime (`Sources/GraphiteUI/Resources/CommunityPluginRuntime`): Node.js and Electron modules are stand-ins until used; plugin code loads from a blob in WebKit so failures name the plugin; ES5 classes; a block that replaces its element, and windows without Obsidian's `.modal` class, are shown; callout and reading-view styles and adopted style sheets in copies; new tab leaves shown at once and laid out before they open, `resize` sent; Obsidian 1.13 setting pages and `Setting.setNavigable`, `setIcon`, `setAction`; `openFile` through `setViewState`; serialized writes to one file; paths outside the vault read as missing, "/" for the root, `ENOENT`; `window.open` and the clipboard through Graphite; notices' buttons; and undocumented members (`hotkeyManager`, `viewRegistry`, a container's `doc`, `vault.config`, `setting.pluginTabs`, `workspace.protocolHandlers`, `Menu.dom`, `coordsAtPos`, `Scope.keys`, `iterateCodeMirrors`, `getFullPath`, `setConfig` and `setTheme` reported).
+- Swift: links whose action a plugin registered go to it (`VaultURI.Action.plugin`, `CommunityPluginHost.openPluginLink`); `clipboard.readText`/`writeText` and `notice.tap` answered by the host, with buttons on the notice toast; the vault bridge does not list symbolic links that lead out of the vault; plugin load results and failures in the unified log (`CommunityPlugins`); Settings lists a plugin's desktop-only modules once, as parts that need the desktop app.
+
+Tests: `obsidian-conventions.test.js` (10 Node tests, one per group of fixes; the quick-saves test fails without its fix), `plugin-loading.test.js` updated (requiring a desktop module loads, using it fails), `VaultURITests` (plugin actions). Node: 73 tests, all passing. The whole iPad integration suite (`GraphiteIntegrationTests`, iPad Pro 11-inch (M5) simulator, iOS 27.0): 269 tests, 268 passing; the one failure is `EvenHighlighterTests.testTheTipTurnsAcrossTheStrokeInEveryDirection` (a vertical band 26 points wide where a horizontal one is 24 tall), which alpha's project file had never compiled into the hosted target before `0b225f3`. `swift test` on macOS: 1,733 tests (844 Core, 137 Index, 216 Apple, 536 UI), one skipped, with only the known `UiEditorMacEditorTests.testHeadingJumpWaitsForAWindowThenSelectsAndScrollsToTheHeading` failing. `Community-plugin-API-coverage.md` regenerated, unchanged (422 of 442 documented methods: the additions are undocumented members).
+
+Not verified: on a device or with Apple Pencil; sync, AI and account plugins with real accounts; Git commits and pushes, an Importer import, Excalidraw drawing; plugins' views after a restart. No real plugins were added to the Node checks (each must be pinned and built from source).
+
+## Theme shapes and ornaments, and typing in long notes (theme Phase 3): 2026-10-12
+
+Notes now also take a theme's shapes: heading underlines, backgrounds, text before the heading and upper case; quote boxes; callout corners, borders and tint strength; table header text and striped rows; list marker color; tag pill corners and borders (tags are pills by default); checkbox corners, border width and check mark; dashed and dotted rules; code block background, corners and border; highlight corners and text color; and the inline title's color, size, weight and font. The Mac editor keeps a readable column. The plugins' page links the same default variable layer the resolver measures against, with Graphite's look written as Obsidian's base color scale. Design: `Architecture.md` › Markdown views (theme Phase 3, typing cost in long notes) and Storage contracts (Phase 2 paragraph).
+
+Groups each theme changes, measured by the resolver on the assessment's theme files (light / dark): Phase 1's 19 groups, and all 30 groups now drawn. AnuPpuccin counts one more Phase 1 group than before because unresolved links are now dimmed by the theme's `--link-unresolved-opacity` when it sets one.
+
+| Theme | Phase 1 groups (of 19) | All groups (of 30) |
+|---|---|---|
+| Minimal (default scheme) | 15 / 16 | 21 / 22 |
+| Minimal, Nord scheme | 15 / 16 | 21 / 22 |
+| Things | 15 / 15 | 20 / 20 |
+| AnuPpuccin | 13 / 13 | 19 / 19 |
+| Blue Topaz | 17 / 18 | 24 / 25 |
+| ITS Theme | 17 / 17 | 25 / 25 |
+| Catppuccin | 18 / 18 | 27 / 27 |
+| Flexoki | 13 / 13 | 18 / 18 |
+| Obsidian Nord | 13 / 14 | 20 / 21 |
+
+None of these themes puts text before its headings; Things underlines its second-level headings, Minimal draws round checkboxes, ITS gives tags and table headers its red. Selector-level styling outside the probed elements is still not drawn.
+
+Typing cost, measured by the hosted test below in the simulator's debug build, a 5,000-line note with headings, tasks, bullets, quotes, tags and highlights, 40 keystrokes typed in its middle (time from the keystroke to restyled, laid-out text):
+
+| | Without a theme | With a shape-drawing theme |
+|---|---|---|
+| Before (median / slowest) | 16.9 ms / 39.4 ms | 15.6 ms / 30.5 ms |
+| After (median / slowest) | 4.3 ms / 10.0 ms | 4.1 ms / 12.4 ms |
+
+The theme was never the cost: finding the note's folding regions on every keystroke was (about 15 ms); see `Architecture.md`. Restyling the whole note when the theme changes takes 66 ms without a theme and 92 ms with one, once per change.
+
+Checks:
+- Core tests: folding's list-item reading agrees with the list pattern on 34 lines; folding regions moved across every accepted edit of a sample note (each position, replacing up to 3 characters with 8 replacements, frontmatter and a code block included) equal the regions found again, and an edit in a heading is refused (`NoteFoldingTests`, 2 new).
+- macOS tests: a theme's shapes and ornaments are resolved: tag corners and border, highlight corners, heading underline, upper case and `::before` text and color, a 50% checkbox radius, quote background, list marker, inline title color and size, code block corners, callout corners, dashed rules, striped rows and header text (`ThemeTokenResolverTests.testShapesAndOrnamentsAreResolved`); an edit reported as a whole line narrows to the typed character (`UiEditorEditTrackingTests`).
+- Runtime test: the plugins' page links the default layer before its own styles, and its semantic colors come from the base scale (`tests/themes.test.js`).
+- Hosted iPad tests (`EditingContinuityTests`): `testLivePreviewDrawsTheThemesShapes` (a test theme's tag pill, rounded highlight, heading underline, quote background and round checkbox are set on Live Preview's text); `testLongNoteRestyleCostWithAndWithoutATheme` (the table above; fails if the median keystroke with the theme exceeds 16.7 ms or 1.5 times the median without).
+- Simulator ("Graphite Appearance iPad"): the lecture note with Minimal, Things, AnuPpuccin, Blue Topaz and ITS Theme, Live Preview and reading view, light and dark (`~/.graphite-themes-build/shots/phase3/*.png`). Fixed while checking: quote boxes and heading underlines stopped at the end of the text instead of the column; two tags side by side merged into one box; tags lost their pill shape where a theme leaves the radius alone; ITS's white tag and table header text on red were darkened against the white page and became unreadable (text on a theme's own surface is now checked against that surface); measuring two themes at once on the resolver's one web view waited forever (found by the hosted test; measurements now run one at a time with a 15-second limit).
+- Hosted suite: 301 tests, 0 failures. `swift test`: 1,816 tests, 0 failures, 1 skipped. Runtime tests: 68, 0 failures.
+
+Not verified: on a device; with VoiceOver; the Mac editor's column and plain tag and highlight backgrounds by hand (built and covered by the shared styler tests only); heading prefixes on a real theme (none of the nine uses one; covered by the resolver test); typing cost in a release build or on a device (the debug simulator numbers above are an upper bound).
+
 ## Notes in the vault's Obsidian theme (theme Phase 1): 2026-10-12
 
 Notes now take the vault's Obsidian theme and CSS snippets in Live Preview, Source mode, the reading view, callouts, tables and embedded blocks: colors (page, text, muted, accent), headings (color, size, weight, font, italic), callout colors by type, tags, links by kind (internal, unresolved, external), checkboxes, code (background, color, font), the quote bar, highlights, rules, table borders and header shading, line height and the readable line width. Settings › Appearance › Use the Vault's Obsidian Theme (on by default) keeps Graphite's look when off. Design, guardrails and what is not themed: `Architecture.md` › Markdown views.
 
-How much of each theme is drawn: of the 19 note-styling groups a theme can set per appearance (`ThemeModeTokens`), the groups each theme changes, measured by the resolver on the theme files of the assessment (light / dark); every group a theme changes is drawn natively, except checkbox and tag corner radii and table header text color:
+How much of each theme is drawn: of the 19 note-styling groups a theme can set per appearance (`ThemeModeTokens`), the groups each theme changes, measured by the resolver on the theme files of the assessment (light / dark); every group a theme changes is drawn natively, except checkbox and tag corner radii and table header text color (drawn since Phase 3, above):
 
 | Theme | Groups changed (light / dark) |
 |---|---|
@@ -32,7 +96,7 @@ Checks:
 - Simulator ("Graphite Appearance iPad"): a lecture note with headings, callouts, tags, links, a task list, a table, a quote, inline code, a highlight, a code block, display math and a drawing, before (theme off) and with Minimal in Nord (through Minimal Theme Settings), Things and AnuPpuccin, Live Preview and reading view, light and dark, and Increase Contrast on AnuPpuccin light (links darkened further). Screenshots `~/.graphite-themes-build/shots/p1-*.png`. Fixed while checking: a theme that set a color in one appearance only drew nothing in the other (every color now falls back to Graphite's own); reading view headings lost the theme's size when it named a heading font.
 - Hosted suite: 299 tests, 0 failures. `swift test`: 1,812 tests, 0 failures. Runtime tests: 67, 0 failures.
 
-Not verified: on a device; with VoiceOver; Pencil writing over a themed note; the Mac app by hand; Style Settings changes re-resolving notes by hand (the trigger is the plugins' page change, covered by code path only); the cost on a very long note (restyling is the same attribute pass as a font change, not measured with a theme).
+Not verified: on a device; with VoiceOver; Pencil writing over a themed note; the Mac app by hand; Style Settings changes re-resolving notes by hand (the trigger is the plugins' page change, covered by code path only); the cost on a very long note (measured in Phase 3, above).
 
 ## Obsidian themes and snippets in community plugins' pages and copies (theme Phase 2): 2026-10-12
 

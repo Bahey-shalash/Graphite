@@ -21,6 +21,7 @@
         const view = element('div', 'markdown-preview-view markdown-rendered', null);
         view.id = 'graphite-probes';
         const sizer = element('div', 'markdown-preview-sizer markdown-preview-section', view);
+        element('div', 'inline-title', sizer, 'Title').id = 'probe-inline-title';
         for (let level = 1; level <= 6; level += 1) element('h' + level, null, sizer, 'Heading').id = 'probe-h' + level;
         const paragraph = element('p', null, sizer, 'Text ');
         paragraph.id = 'probe-p';
@@ -41,8 +42,16 @@
         const table = element('table', null, sizer);
         const headerRow = element('tr', null, element('thead', null, table));
         element('th', null, headerRow, 'Header').id = 'probe-th';
-        const bodyRow = element('tr', null, element('tbody', null, table));
+        const tableBody = element('tbody', null, table);
+        const bodyRow = element('tr', null, tableBody);
         element('td', null, bodyRow, 'Cell').id = 'probe-td';
+        const stripedRow = element('tr', null, tableBody); stripedRow.id = 'probe-stripe-row';
+        element('td', null, stripedRow, 'Cell').id = 'probe-stripe';
+        element('td', null, element('tr', null, tableBody), 'Cell');
+        const bullets = element('ul', null, sizer);
+        element('li', null, bullets, 'Item').id = 'probe-li';
+        const marker = element('span', null, sizer, 'marker'); marker.id = 'probe-checkmark'; marker.style.color = 'var(--checkbox-marker-color, transparent)';
+        const pre = element('pre', null, sizer); pre.id = 'probe-pre'; element('code', null, pre, 'let x = 1');
         const list = element('ul', 'contains-task-list', sizer);
         const doneItem = element('li', 'task-list-item is-checked', list); doneItem.setAttribute('data-task', 'x');
         const checked = element('input', 'task-list-item-checkbox', doneItem); checked.type = 'checkbox'; checked.checked = true; checked.setAttribute('checked', ''); checked.id = 'probe-checked';
@@ -50,6 +59,7 @@
         const unchecked = element('input', 'task-list-item-checkbox', openItem); unchecked.type = 'checkbox'; unchecked.id = 'probe-unchecked';
         for (const type of calloutTypes) {
             const callout = element('div', 'callout', sizer); callout.setAttribute('data-callout', type);
+            if (type === 'note') callout.id = 'probe-callout';
             const title = element('div', 'callout-title', callout); title.id = 'probe-callout-' + type;
             element('div', 'callout-title-inner', title, type);
             element('p', null, element('div', 'callout-content', callout), 'Content');
@@ -58,6 +68,13 @@
     }
 
     function style(id) { return globalScope.getComputedStyle(document.getElementById(id)); }
+
+    // A corner radius in pixels: a percentage (a round checkbox's 50%) is of the element's width.
+    function radiusInPixels(id, corner) {
+        const radius = style(id)['border' + corner + 'Radius'];
+        if (!radius.endsWith('%')) return radius;
+        return (parseFloat(radius) / 100 * document.getElementById(id).getBoundingClientRect().width) + 'px';
+    }
 
     function readValues() {
         const values = {};
@@ -75,6 +92,13 @@
         values['em.color'] = style('probe-em').color;
         for (let level = 1; level <= 6; level += 1) {
             const heading = style('probe-h' + level);
+            const before = globalScope.getComputedStyle(document.getElementById('probe-h' + level), '::before');
+            values['h' + level + '.borderBottomWidth'] = heading.borderBottomStyle === 'none' ? '0px' : heading.borderBottomWidth;
+            values['h' + level + '.borderBottomColor'] = heading.borderBottomColor;
+            values['h' + level + '.background'] = heading.backgroundColor;
+            values['h' + level + '.beforeContent'] = before.content;
+            values['h' + level + '.beforeColor'] = before.color;
+            values['h' + level + '.textTransform'] = heading.textTransform;
             values['h' + level + '.color'] = heading.color;
             values['h' + level + '.fontSize'] = heading.fontSize;
             values['h' + level + '.fontWeight'] = heading.fontWeight;
@@ -93,7 +117,7 @@
         values['tag.background'] = tag.backgroundColor;
         const checked = style('probe-checked');
         values['checkbox.checkedBackground'] = checked.backgroundColor;
-        values['checkbox.borderRadius'] = checked.borderTopLeftRadius;
+        values['checkbox.borderRadius'] = radiusInPixels('probe-checked', 'TopLeft');
         values['checkbox.borderColor'] = style('probe-unchecked').borderTopColor;
         const code = style('probe-code');
         values['code.background'] = code.backgroundColor;
@@ -109,6 +133,35 @@
         values['td.borderColor'] = style('probe-td').borderTopColor;
         values['th.background'] = style('probe-th').backgroundColor;
         values['lineWidth.width'] = style('probe-line-width').width;
+        values['blockquote.background'] = quote.backgroundColor;
+        values['blockquote.borderRadius'] = radiusInPixels('probe-blockquote', 'TopRight');
+        const callout = style('probe-callout');
+        values['callout.borderRadius'] = radiusInPixels('probe-callout', 'TopLeft');
+        values['callout.borderWidth'] = callout.borderTopStyle === 'none' ? '0px' : callout.borderTopWidth;
+        values['callout.background'] = callout.backgroundColor;
+        values['th.color'] = style('probe-th').color;
+        const stripeRow = style('probe-stripe-row'), stripeCell = style('probe-stripe');
+        values['stripe.background'] = stripeCell.backgroundColor !== 'rgba(0, 0, 0, 0)' ? stripeCell.backgroundColor : stripeRow.backgroundColor;
+        values['marker.color'] = globalScope.getComputedStyle(document.getElementById('probe-li'), '::marker').color;
+        values['tag.borderRadius'] = radiusInPixels('probe-tag', 'TopLeft');
+        values['tag.borderWidth'] = tag.borderTopStyle === 'none' ? '0px' : tag.borderTopWidth;
+        values['tag.borderColor'] = tag.borderTopColor;
+        values['checkbox.borderWidth'] = style('probe-unchecked').borderTopWidth;
+        values['checkbox.markerColor'] = style('probe-checkmark').color;
+        values['hr.borderStyle'] = rule.borderTopStyle;
+        const pre = style('probe-pre');
+        values['pre.background'] = pre.backgroundColor;
+        values['pre.borderRadius'] = radiusInPixels('probe-pre', 'TopLeft');
+        values['pre.borderWidth'] = pre.borderTopStyle === 'none' ? '0px' : pre.borderTopWidth;
+        values['pre.borderColor'] = pre.borderTopColor;
+        const mark = style('probe-mark');
+        values['mark.borderRadius'] = radiusInPixels('probe-mark', 'TopLeft');
+        values['mark.color'] = mark.color;
+        const title = style('probe-inline-title');
+        values['inlineTitle.color'] = title.color;
+        values['inlineTitle.fontSize'] = title.fontSize;
+        values['inlineTitle.fontWeight'] = title.fontWeight;
+        values['inlineTitle.fontFamily'] = title.fontFamily;
         return values;
     }
 

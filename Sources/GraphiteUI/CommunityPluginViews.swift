@@ -19,7 +19,115 @@ extension CommunityPluginHost {
         switch view.placement {
         case .sidebar: sidebarViewRequest = CommunityPluginSidebarRequest(viewIdentifier: identifier)
         case .tab: workspace?.openPluginViewInTab(identifier)
+        case .split: workspace?.openPluginViewBeside(identifier)
         }
+    }
+
+    // MARK: Files in plugins' views
+
+    /// Whether a plugin may show this file in a view of its own: its extension is registered,
+    /// or it is a note and a plugin shows some notes in its own view.
+    func mayShowInPluginView(_ path: VaultPath) -> Bool {
+        guard isRuntimeRunning else { return false }
+        let fileExtension = (path.name as NSString).pathExtension.lowercased()
+        if fileExtension == "md" { return pluginsTakeOverNotes }
+        return pluginFileExtensions[fileExtension] != nil
+    }
+
+    /// Asks the plugins to open the file in their view; the leaf's identifier when one did.
+    /// A plugin that takes too long leaves the file to Graphite.
+    func openFileInPluginView(_ path: VaultPath) async -> String? {
+        guard mayShowInPluginView(path),
+              let answer = try? await send(["operation": "file.openInView", "path": path.rawValue], timeout: .seconds(3)),
+              answer["isOpened"] as? Bool == true, let identifier = answer["leafIdentifier"] as? String else { return nil }
+        // The view list arrives right after; until then the tab knows the view by its identifier.
+        if pluginView(withIdentifier: identifier) == nil {
+            pluginViews.append(CommunityPluginView(id: identifier, title: (path.name as NSString).deletingPathExtension, viewType: "",
+                                                   icon: "file", placement: .tab, isLive: true, filePath: path.rawValue))
+        }
+        return identifier
+    }
+
+    /// Asks plugins' views of files to save what they hold now (Graphite is leaving the screen,
+    /// and iOS may end it before their own autosave). Waits a few seconds at most.
+    func saveOpenFileViews() async {
+        guard isRuntimeRunning, pluginViews.contains(where: \.isLive) else { return }
+        _ = try? await send(["operation": "views.saveFiles"], timeout: .seconds(4))
+    }
+
+    // MARK: Live views
+
+    /// Shows the view live: its tab shows the runtime's own web view, where the leaf fills
+    /// the page. Another view shown live before goes back to being a copy.
+    func showLive(_ identifier: String) async -> Bool {
+        guard isRuntimeRunning else { return false }
+        liveViewIdentifier = identifier
+        let answer = try? await send(["operation": "view.live", "leafIdentifier": identifier], timeout: .seconds(5))
+        return answer?["isShown"] as? Bool == true
+    }
+
+    /// The live view's tab went away: the page shows the plugins' panel content again.
+    func hideLive(_ identifier: String) {
+        guard liveViewIdentifier == identifier else { return }
+        liveViewIdentifier = nil
+        guard isRuntimeRunning else { return }
+        Task { _ = try? await send(["operation": "view.unlive", "leafIdentifier": identifier], timeout: .seconds(5)) }
+    }
+
+    // MARK: Paste and drop
+
+    /// Offers a paste into the focused note to plugins that listen (`editor-paste`); true when
+    /// one took it over. A plugin that does not answer in time leaves the paste to Graphite.
+    func offerPaste(into session: MarkdownSession, text: String?, html: String?) async -> Bool {
+        guard isRuntimeRunning, hasPasteListeners, workspace?.markdownSession === session else { return false }
+        var message: [String: Any] = ["operation": "editor.paste", "activeDocument": activeDocumentDescription(includingEditor: true)]
+        if let text { message["text"] = text }
+        if let html { message["html"] = html }
+        let answer = try? await send(message, timeout: .milliseconds(1500))
+        return answer?["isHandled"] as? Bool == true
+    }
+
+    /// Offers a drop on the focused note to plugins that listen (`editor-drop`), with the
+    /// dropped files' names and types; true when one took it over.
+    func offerDrop(into session: MarkdownSession, files: [(name: String, type: String)], text: String?) async -> Bool {
+        guard isRuntimeRunning, hasDropListeners, workspace?.markdownSession === session else { return false }
+        var message: [String: Any] = ["operation": "editor.drop", "activeDocument": activeDocumentDescription(includingEditor: true),
+                                      "files": files.map { file in ["name": file.name, "type": file.type] }]
+        if let text { message["text"] = text }
+        let answer = try? await send(message, timeout: .milliseconds(1500))
+        return answer?["isHandled"] as? Bool == true
+    }
+
+    // MARK: Bases views from plugins
+
+    /// Makes a plugin's view of a base's results; the leaf to show live.
+    func openBasesView(type viewType: String, viewName: String, viewIndex: Int, source: BaseSource, result: BaseQueryResult) async -> String? {
+        guard isRuntimeRunning, pluginBasesViews[viewType] != nil else { return nil }
+        var message = Self.basesMessage(result)
+        message.merge(["operation": "basesView.open", "viewType": viewType, "viewName": viewName, "viewIndex": viewIndex]) { _, new in new }
+        switch source {
+        case .file(let path): message["baseFilePath"] = path.rawValue
+        case .inline(let yaml): message["baseYaml"] = yaml
+        }
+        guard let answer = try? await send(message, timeout: .seconds(10)), answer["isOpened"] as? Bool == true else { return nil }
+        return answer["leafIdentifier"] as? String
+    }
+
+    func updateBasesView(_ identifier: String, result: BaseQueryResult) {
+        guard isRuntimeRunning else { return }
+        var message = Self.basesMessage(result)
+        message["operation"] = "basesView.update"
+        message["leafIdentifier"] = identifier
+        Task { _ = try? await send(message, timeout: .seconds(10)) }
+    }
+
+    /// The base's matching files by group, and its columns: the plugin reads each file's
+    /// values from the vault's metadata itself.
+    private static func basesMessage(_ result: BaseQueryResult) -> [String: Any] {
+        let groups: [[String: Any]] = result.groups.map { group in
+            ["key": group.key?.value.map { value in value.displayText as Any } ?? NSNull(), "paths": group.rows.map(\.path.rawValue)]
+        }
+        return ["groups": groups, "properties": result.columns.map { column in column.property.rawValue }]
     }
 
     /// Closes a view, as closing its tab or panel does in Obsidian.
@@ -40,6 +148,19 @@ extension WorkspaceModel {
         let activeTab = layout.activeTab
         if activeTab.path != nil || document(for: activeTab.id).pluginViewIdentifier != nil { openNewTab() }
         document(for: layout.activeTab.id).pluginViewIdentifier = identifier
+    }
+
+    /// Shows a plugin view on the other side of the split, leaving the note where it is and
+    /// still the focused document, as a split beside it in Obsidian (Mind Map follows the note).
+    func openPluginViewBeside(_ identifier: String) {
+        if let tabID = tabDocuments.first(where: { entry in entry.value.pluginViewIdentifier == identifier })?.key, layout.tab(withID: tabID) != nil {
+            revealTab(tabID)
+            return
+        }
+        let previousTabID = layout.activeTab.id
+        let tabID = layout.tabForOpeningInOtherGroup()
+        document(for: tabID).pluginViewIdentifier = identifier
+        if layout.tab(withID: previousTabID) != nil { activateTab(previousTabID) }
     }
 
     /// Tabs whose plugin view a plugin closed (or that unloaded) become empty tabs.
@@ -81,6 +202,14 @@ struct CommunityPluginViewContent: View {
     @ScaledMetric(relativeTo: .body) private var scaledTextSize: Double = 15
 
     var body: some View {
+        if host.pluginView(withIdentifier: viewIdentifier)?.isLive == true {
+            CommunityPluginLiveViewContent(host: host, viewIdentifier: viewIdentifier)
+        } else {
+            copyContent
+        }
+    }
+
+    private var copyContent: some View {
         Group {
             switch shownView?.appearance ?? .drawing {
             case .drawn(let html):
@@ -113,5 +242,132 @@ struct CommunityPluginViewContent: View {
     private struct AttachmentKey: Equatable {
         let viewIdentifier: String
         let hasSize: Bool
+    }
+}
+
+
+/// A plugin view shown live: the tab shows the runtime's own web view, where the view's leaf
+/// fills the page, so touches, Pencil, drags, gestures and typing reach the plugin directly
+/// (Excalidraw draws, Fountain edits its script). There is one web view per vault, so one
+/// view is live at a time; the plugin panel and a plugin's settings page take the web view
+/// while they show, and the tab takes it back after.
+struct CommunityPluginLiveViewContent: View {
+    let host: CommunityPluginHost
+    let viewIdentifier: String
+
+    var body: some View {
+        Group {
+            if host.liveViewIdentifier == viewIdentifier {
+                CommunityPluginLiveWebView(host: host, isPanelPresented: host.isPanelPresented, releaseCount: host.webViewReleaseCount)
+            } else {
+                ContentUnavailableView {
+                    Label(host.pluginView(withIdentifier: viewIdentifier)?.title ?? "Plugin View", systemImage: "rectangle.on.rectangle")
+                } description: {
+                    Text("This view is open in another tab.")
+                } actions: {
+                    Button("Show Here") { Task { _ = await host.showLive(viewIdentifier) } }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task(id: viewIdentifier) { _ = await host.showLive(viewIdentifier) }
+        .onDisappear { host.hideLive(viewIdentifier) }
+    }
+}
+
+/// The runtime's web view in a live view's tab, unless the plugin panel has it.
+@MainActor
+struct CommunityPluginLiveWebView {
+    let host: CommunityPluginHost
+    let isPanelPresented: Bool
+    let releaseCount: Int
+
+    final class Coordinator {
+        let host: CommunityPluginHost
+        init(host: CommunityPluginHost) { self.host = host }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(host: host) }
+
+    fileprivate func place(in container: CommunityPluginPlatformView) {
+        guard !isPanelPresented, let webView = host.webView else { return }
+        CommunityPluginWebViewPlacement.show(webView, in: container)
+    }
+}
+
+#if canImport(UIKit)
+extension CommunityPluginLiveWebView: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView {
+        let container = UIView()
+        place(in: container)
+        return container
+    }
+
+    func updateUIView(_ container: UIView, context: Context) { place(in: container) }
+
+    static func dismantleUIView(_ container: UIView, coordinator: Coordinator) {
+        for subview in container.subviews { subview.removeFromSuperview() }
+        coordinator.host.parkWebViewIfDetached()
+    }
+}
+#elseif canImport(AppKit)
+extension CommunityPluginLiveWebView: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let container = NSView()
+        place(in: container)
+        return container
+    }
+
+    func updateNSView(_ container: NSView, context: Context) { place(in: container) }
+
+    static func dismantleNSView(_ container: NSView, coordinator: Coordinator) {
+        for subview in container.subviews { subview.removeFromSuperview() }
+        coordinator.host.parkWebViewIfDetached()
+    }
+}
+#endif
+
+/// A base's view of a type a plugin registered (`registerBasesView`): the plugin draws the
+/// base's results in its own view, shown live in place of Graphite's table or cards.
+struct CommunityPluginBasesViewContent: View {
+    let host: CommunityPluginHost
+    let viewType: String
+    let view: BaseView
+    let source: BaseSource
+    let result: BaseQueryResult?
+    @State private var leafIdentifier: String?
+    @State private var didFail = false
+
+    private var resultSignature: [String] { result?.groups.flatMap { group in [group.key?.value?.displayText ?? ""] + group.rows.map(\.path.rawValue) } ?? [] }
+
+    var body: some View {
+        Group {
+            if let leafIdentifier {
+                CommunityPluginLiveViewContent(host: host, viewIdentifier: leafIdentifier)
+            } else if didFail {
+                ContentUnavailableView("\u{201C}\(host.pluginBasesViews[viewType] ?? viewType)\u{201D} Could Not Be Shown", systemImage: "puzzlepiece.extension",
+                                       description: Text("Its plugin did not draw the view. Settings › Community Plugins lists what went wrong."))
+            } else {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .task(id: OpeningKey(viewType: viewType, viewIndex: view.id, hasResult: result != nil)) {
+            guard let result, leafIdentifier == nil else { return }
+            leafIdentifier = await host.openBasesView(type: viewType, viewName: view.name, viewIndex: view.id, source: source, result: result)
+            didFail = leafIdentifier == nil
+        }
+        .onChange(of: resultSignature) {
+            if let leafIdentifier, let result { host.updateBasesView(leafIdentifier, result: result) }
+        }
+        .onDisappear {
+            if let leafIdentifier { host.closeView(leafIdentifier) }
+            leafIdentifier = nil
+        }
+    }
+
+    private struct OpeningKey: Equatable {
+        let viewType: String
+        let viewIndex: Int
+        let hasResult: Bool
     }
 }

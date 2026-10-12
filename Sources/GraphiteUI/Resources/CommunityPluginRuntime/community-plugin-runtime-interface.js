@@ -129,6 +129,8 @@
             return handler;
         }
         unregister(handler) { this.keymapEventHandlers.remove(handler); }
+        /// Obsidian's name for the scope's handlers (undocumented); Excalidraw puts its own first.
+        get keys() { return this.keymapEventHandlers; }
         handleKeyEvent(event) {
             const modifiers = Keymap.modifiersOf(event);
             for (const handler of this.keymapEventHandlers.slice().reverse()) {
@@ -189,7 +191,34 @@
         hostElement() {
             return globalScope.document.querySelector('.graphite-plugin-surface') || globalScope.document.body;
         },
+        /// Pages a setting tab opened over itself (`app.setting.openPage`), the top one shown.
+        settingPages: [],
+        openSettingPage(page) {
+            const host = this.hostElement();
+            const below = this.settingPages.last() ? this.settingPages.last().rootEl : (this.shownSettingTab ? this.shownSettingTab.containerEl : null);
+            if (below) below.hide();
+            if (!page.titlebarEl.querySelector('.setting-page-title')) {
+                const back = page.titlebarEl.createDiv({ cls: 'setting-page-back clickable-icon', attr: { 'aria-label': 'Back' } });
+                exportedApi.setIcon(back.createSpan(), 'chevron-left');
+                back.createSpan({ text: 'Back' });
+                back.addEventListener('click', () => this.closeSettingPage());
+                page.titlebarEl.createDiv({ cls: 'setting-page-title', text: page.title || '' });
+            }
+            this.settingPages.push(page);
+            host.appendChild(page.rootEl);
+            page.rootEl.show();
+            try { page.display(); } catch (error) { console.error(error); }
+        },
+        closeSettingPage() {
+            const page = this.settingPages.pop();
+            if (!page) return;
+            try { page.hide(); } catch (error) { console.error(error); }
+            page.rootEl.detach();
+            const below = this.settingPages.last() ? this.settingPages.last().rootEl : (this.shownSettingTab ? this.shownSettingTab.containerEl : null);
+            if (below) below.show();
+        },
         clearShownContent() {
+            while (this.settingPages.length > 0) this.closeSettingPage();
             if (this.shownSettingTab) {
                 const settingTab = this.shownSettingTab;
                 this.shownSettingTab = null;
@@ -199,12 +228,15 @@
         },
         present(title) {
             this.isPresented = true;
+            // A live view gives way to the panel's windows and settings while they show.
+            globalScope.document.body.addClass('graphite-surface-presented');
             hostBridge.notify('surface.present', { title: title || '' });
         },
         dismissIfEmpty() {
             if (this.openModals.length > 0 || this.shownSettingTab) return;
             if (!this.isPresented) return;
             this.isPresented = false;
+            globalScope.document.body.removeClass('graphite-surface-presented');
             hostBridge.notify('surface.dismiss', {});
         },
         showSettingTab(settingTab, title) {
@@ -246,6 +278,7 @@
             for (const modal of this.openModals.slice().reverse()) modal.close();
             this.clearShownContent();
             this.isPresented = false;
+            globalScope.document.body.removeClass('graphite-surface-presented');
         },
     };
     runtime.pluginSurface = pluginSurface;
@@ -253,6 +286,14 @@
     // MARK: Notices
 
     let nextNoticeNumber = 1;
+
+    /// Notices on screen, by identifier, so a tap on Graphite's toast reaches the notice.
+    const shownNotices = new Map();
+
+    /// The links and buttons a notice holds, which Graphite shows as buttons on its toast.
+    function noticeActions(notice) {
+        return Array.from(notice.noticeEl.querySelectorAll('a, button, [role="button"]'));
+    }
 
     class Notice {
         constructor(message, durationMilliseconds) {
@@ -263,12 +304,20 @@
             this.messageEl = this.noticeEl.createDiv({ cls: 'notice-message' });
             this.messageEl.setText(message === undefined ? '' : message);
             const duration = durationMilliseconds === undefined ? 4500 : durationMilliseconds;
-            hostBridge.notify('notice.show', {
-                noticeIdentifier: this.noticeIdentifier,
-                message: this.messageEl.getText(),
-                durationMilliseconds: duration,
-                pluginIdentifier: runtime.callingPluginIdentifier(),
+            const pluginIdentifier = runtime.callingPluginIdentifier();
+            shownNotices.set(this.noticeIdentifier, this);
+            // Told once the plugin's code returns, so buttons it adds to the notice right away
+            // (Smart Connections' "Load Smart Environment") are on Graphite's toast too.
+            Promise.resolve().then(() => {
+                hostBridge.notify('notice.show', {
+                    noticeIdentifier: this.noticeIdentifier,
+                    message: this.messageEl.getText(),
+                    actions: noticeActions(this).map((element) => element.textContent.replace(/\s+/g, ' ').trim() || 'Open'),
+                    durationMilliseconds: duration,
+                    pluginIdentifier,
+                });
             });
+            if (duration > 0) globalScope.setTimeout(() => shownNotices.delete(this.noticeIdentifier), duration + 1000);
         }
         setMessage(message) {
             this.messageEl.setText(message);
@@ -276,9 +325,22 @@
             return this;
         }
         hide() {
+            shownNotices.delete(this.noticeIdentifier);
             hostBridge.notify('notice.hide', { noticeIdentifier: this.noticeIdentifier });
         }
     }
+
+    /// The person tapped a notice's toast, or one of its buttons: as a click on the notice in
+    /// Obsidian, the plugin's handler runs and the notice goes.
+    runtime.tapNotice = function tapNotice(noticeIdentifier, actionIndex) {
+        const notice = shownNotices.get(noticeIdentifier);
+        if (!notice) return false;
+        const actions = noticeActions(notice);
+        const target = typeof actionIndex === 'number' ? actions[actionIndex] : notice.noticeEl;
+        if (target) target.click();
+        notice.hide();
+        return Boolean(target);
+    };
 
     // MARK: Modals
 
@@ -650,6 +712,40 @@
         setName(name) { this.nameEl.setText(name); return this; }
         setDesc(description) { this.descEl.setText(description); return this; }
         setClass(className) { this.settingEl.addClass(className); return this; }
+        /// An icon before the row's name (undocumented; Importer's "Choose files" rows).
+        setIcon(icon) {
+            if (!this.iconEl) this.iconEl = createDiv({ cls: 'setting-item-icon' });
+            this.settingEl.prepend(this.iconEl);
+            exportedApi.setIcon(this.iconEl, icon);
+            return this;
+        }
+        /// A row that does something when tapped (undocumented), without a chevron.
+        setAction(callback) {
+            this.settingEl.addClass('mod-clickable');
+            if (this.actionListener) this.settingEl.removeEventListener('click', this.actionListener);
+            this.actionListener = (event) => {
+                if (event.target.closest('button, input, select, textarea, a, .checkbox-container')) return;
+                callback(event);
+            };
+            this.settingEl.addEventListener('click', this.actionListener);
+            return this;
+        }
+        /// A row that leads somewhere when tapped (undocumented; Obsidian's own Importer lists
+        /// its formats with it): the whole row answers, with a chevron at its end.
+        setNavigable(callback) {
+            this.settingEl.addClass('mod-clickable', 'mod-navigable');
+            if (!this.navigationChevronEl) {
+                this.navigationChevronEl = this.controlEl.createDiv({ cls: 'setting-item-chevron' });
+                exportedApi.setIcon(this.navigationChevronEl, 'chevron-right');
+            }
+            if (this.navigationListener) this.settingEl.removeEventListener('click', this.navigationListener);
+            this.navigationListener = (event) => {
+                if (event.target.closest('button, input, select, textarea, a, .checkbox-container')) return;
+                callback(event);
+            };
+            this.settingEl.addEventListener('click', this.navigationListener);
+            return this;
+        }
         setTooltip(tooltip, options) { setTooltip(this.nameEl, tooltip, options); return this; }
         setHeading() { this.settingEl.addClass('setting-item-heading'); return this; }
         setDisabled(isDisabled) {
@@ -791,6 +887,10 @@
         constructor(app, plugin) {
             super(app);
             this.plugin = plugin;
+            // Obsidian names a plugin's tab after the plugin (undocumented); Smart Connections
+            // renames its tab from it.
+            this.id = plugin && plugin.manifest ? plugin.manifest.id : '';
+            this.name = plugin && plugin.manifest ? plugin.manifest.name : '';
         }
     }
 
@@ -1041,6 +1141,10 @@
             this.items = [];
             this.hideCallbacks = [];
             this.isUsingNativeMenu = true;
+            // Obsidian's menu element (undocumented), which plugins style (Highlightr adds its
+            // class). Graphite shows menus natively, so it is never drawn.
+            this.dom = createDiv({ cls: 'menu' });
+            this.scrollEl = this.dom.createDiv({ cls: 'menu-scroll' });
         }
         setNoIcon() { return this; }
         setUseNativeMenu(isUsingNativeMenu) { this.isUsingNativeMenu = isUsingNativeMenu; return this; }

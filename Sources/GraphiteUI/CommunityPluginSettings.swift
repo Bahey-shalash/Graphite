@@ -121,6 +121,10 @@ private struct InstalledCommunityPluginRow: View {
             if let status = statusText {
                 Label(status, systemImage: statusSymbol).font(.caption).foregroundStyle(statusColor)
             }
+            if !desktopModules.isEmpty {
+                Text("Parts that use " + desktopModules.joined(separator: ", ") + " work only in Obsidian's desktop app.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             if !limitations.isEmpty {
                 Text("Not available in Graphite: " + limitations.joined(separator: "; ") + ".")
                     .font(.caption).foregroundStyle(.secondary)
@@ -169,15 +173,20 @@ private struct InstalledCommunityPluginRow: View {
         }
     }
 
+    /// The Node.js and Electron modules the plugin's code mentions, once each. Plugins built for
+    /// desktop and mobile load without them; only what uses them stops working.
+    private var desktopModules: [String] {
+        var names: [String] = []
+        for module in plugin.compatibility.missingModules where module.kind == .desktopOnly {
+            let name = module.name.hasPrefix("node:") ? String(module.name.dropFirst("node:".count)) : module.name
+            if !names.contains(name) { names.append(name) }
+        }
+        return names.map { name in "“\(name)”" }
+    }
+
     /// What the plugin's code asks for, and what it reached while running, that Graphite lacks.
     private var limitations: [String] {
-        let modules = plugin.compatibility.missingModules.map { module -> String in
-            switch module.kind {
-            case .desktopOnly: "“\(module.name)” (desktop only)"
-            case .codeMirror: "“\(module.name)”"
-            case .unknown: "“\(module.name)”"
-            }
-        }
+        let modules = plugin.compatibility.missingModules.filter { module in module.kind != .desktopOnly }.map { module in "“\(module.name)”" }
         let reachedModules = Set(plugin.compatibility.missingModules.map { module in "Module “\(module.name)”" })
         return modules + (host.unsupportedFeatures[plugin.id] ?? []).filter { feature in !reachedModules.contains(feature) }
     }

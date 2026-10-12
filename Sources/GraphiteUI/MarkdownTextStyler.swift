@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import GraphiteCore
 import Textual
 #if canImport(UIKit)
@@ -33,6 +34,26 @@ struct EditorConfiguration: Equatable {
 /// Obsidian's inline title: the note's name, larger than a first-level heading.
 enum InlineTitleStyle {
     static let fontScale = 1.75
+
+    /// The theme's inline title size, else Graphite's, as a multiple of the text size.
+    static func fontScale(theme: NoteThemeStyle?) -> Double { theme?.inlineTitleScale ?? fontScale }
+
+    /// The theme's inline title font where `appearance.json` names no text font, else the
+    /// text font; the theme's weight, else semibold.
+    @MainActor
+    static func font(textSize: Double, typography: NoteTypography, theme: NoteThemeStyle?) -> PlatformFont {
+        let size = CGFloat(textSize * fontScale(theme: theme))
+        let weight = theme?.inlineTitleWeight ?? .semibold
+        if !typography.usesAppearanceTextFont, let family = theme?.inlineTitleFamily { return NoteTypography.font(family, size: size, weight: weight) }
+        return typography.textFont(ofSize: size, weight: weight)
+    }
+
+    static func swiftUIFont(textSize: Double, typography: NoteTypography, theme: NoteThemeStyle?) -> Font {
+        let size = textSize * fontScale(theme: theme)
+        let weight = ObsidianHeadingStyle.swiftUIWeight(theme?.inlineTitleWeight ?? .semibold)
+        if !typography.usesAppearanceTextFont, let family = theme?.inlineTitleFamily { return NoteTypography.swiftUIFont(family, size: size).weight(weight) }
+        return typography.textSwiftUIFont(size: size).weight(weight)
+    }
 }
 
 /// Heading sizes and weight shared by Live Preview, Source mode and Reading view, so a
@@ -98,6 +119,52 @@ enum ConcealedReplacement: String {
     /// Holds the `InlineMathLayout` of an `inlineMath` replacement.
     static let mathAttributeKey = NSAttributedString.Key("GraphiteConcealedReplacementMath")
     static let subpathSeparatorText = " > "
+    /// A theme's shapes Live Preview draws behind or around text (theme Phase 3):
+    /// a `ThemedTextShape` for tag pills and highlights, a `ThemedCheckboxStyle` for task
+    /// checkboxes, a `ThemedHeadingOrnament` for headings, and a color behind quoted lines.
+    static let roundedBackgroundKey = NSAttributedString.Key("GraphiteThemedRoundedBackground")
+    static let checkboxStyleKey = NSAttributedString.Key("GraphiteThemedCheckbox")
+    static let headingOrnamentKey = NSAttributedString.Key("GraphiteThemedHeadingOrnament")
+    static let quoteBackgroundKey = NSAttributedString.Key("GraphiteThemedQuoteBackground")
+}
+
+/// A rounded background, with an optional border, behind a run of text.
+final class ThemedTextShape: NSObject {
+    let color: PlatformColor
+    let cornerRadius: CGFloat
+    let borderColor: PlatformColor?
+    let borderWidth: CGFloat
+
+    init(color: PlatformColor, cornerRadius: CGFloat, borderColor: PlatformColor?, borderWidth: CGFloat) {
+        self.color = color; self.cornerRadius = cornerRadius; self.borderColor = borderColor; self.borderWidth = borderWidth
+    }
+}
+
+/// A theme's task checkbox: corner radius as a multiple of the text size, border, and colors.
+final class ThemedCheckboxStyle: NSObject {
+    let radiusScale: CGFloat
+    let borderWidth: CGFloat
+    let fill: PlatformColor
+    let border: PlatformColor
+    let checkmark: PlatformColor
+
+    init(radiusScale: CGFloat, borderWidth: CGFloat, fill: PlatformColor, border: PlatformColor, checkmark: PlatformColor) {
+        self.radiusScale = radiusScale; self.borderWidth = borderWidth; self.fill = fill; self.border = border; self.checkmark = checkmark
+    }
+}
+
+/// A theme's heading ornament: a background and an underline across the column, and text
+/// before the heading, drawn in the margin so the heading's own text stays where it is.
+final class ThemedHeadingOrnament: NSObject {
+    let background: PlatformColor?
+    let underlineColor: PlatformColor?
+    let underlineWidth: CGFloat
+    let prefix: String?
+    let prefixColor: PlatformColor?
+
+    init(background: PlatformColor?, underlineColor: PlatformColor?, underlineWidth: CGFloat, prefix: String?, prefixColor: PlatformColor?) {
+        self.background = background; self.underlineColor = underlineColor; self.underlineWidth = underlineWidth; self.prefix = prefix; self.prefixColor = prefixColor
+    }
 }
 
 /// A `$…$` formula Live Preview draws in place of its source.
@@ -156,6 +223,21 @@ struct MarkdownTextStyler {
     private var markerColor: PlatformColor { theme?.textFaint ?? Self.tertiaryTextColor }
     private var linkColor: PlatformColor { theme?.linkColor ?? theme?.accent ?? accentColor }
     private var tagColor: PlatformColor { theme?.tagColor ?? theme?.accent ?? accentColor }
+
+    /// The theme's checkbox shape, when it gives one.
+    private var checkboxStyle: ThemedCheckboxStyle? {
+        guard let theme, theme.checkboxRadiusScale != nil || theme.checkboxBorderWidth != nil || theme.checkmarkColor != nil else { return nil }
+        return ThemedCheckboxStyle(radiusScale: CGFloat(theme.checkboxRadiusScale ?? 0.25), borderWidth: CGFloat(min(max(theme.checkboxBorderWidth ?? 1.5, 1), 3)),
+                                   fill: theme.checkboxColor ?? theme.accent ?? accentColor, border: theme.checkboxBorderColor ?? mutedColor,
+                                   checkmark: theme.checkmarkColor ?? .white)
+    }
+
+    private func headingOrnament(level: Int) -> ThemedHeadingOrnament? {
+        guard let ornament = theme?.headingOrnaments[min(max(level, 1), 6) - 1], !ornament.isEmpty,
+              ornament.background != nil || ornament.underlineColor != nil || ornament.prefix != nil else { return nil }
+        return ThemedHeadingOrnament(background: ornament.background, underlineColor: ornament.underlineColor,
+                                     underlineWidth: CGFloat(min(max(ornament.underlineWidth ?? 1, 0.5), 6)), prefix: ornament.prefix, prefixColor: ornament.prefixColor)
+    }
 
     /// Restyles whole lines touched by `range`, or the whole document. In Live Preview,
     /// `revealedMarkup` says which markup stays visible around the selection (nil while the
@@ -560,7 +642,7 @@ struct MarkdownTextStyler {
         textStorage.addAttribute(.foregroundColor, value: PlatformColor.clear, range: range)
         textStorage.addAttribute(ConcealedReplacement.attributeKey, value: replacement.rawValue, range: range)
         let color: PlatformColor = switch replacement {
-        case .bullet: mutedColor
+        case .bullet: theme?.listMarkerColor ?? mutedColor
         case .uncheckedTask: theme?.checkboxBorderColor ?? mutedColor
         case .checkedTask: theme?.checkboxColor ?? theme?.accent ?? accentColor
         case .subpathSeparator: linkColor
@@ -568,6 +650,7 @@ struct MarkdownTextStyler {
         case .inlineMath: textColor
         }
         textStorage.addAttribute(ConcealedReplacement.colorAttributeKey, value: color, range: range)
+        if replacement == .checkedTask || replacement == .uncheckedTask, let checkboxStyle { textStorage.addAttribute(ConcealedReplacement.checkboxStyleKey, value: checkboxStyle, range: range) }
         guard replacement == .subpathSeparator else { return }
         // The separator is wider than `#`: kerning after it makes room without changing the text.
         let font = textStorage.attribute(.font, at: range.location, effectiveRange: nil) as? PlatformFont ?? baseFont
@@ -661,6 +744,7 @@ struct MarkdownTextStyler {
         case .heading(let level):
             textStorage.addAttribute(.font, value: fonts.headingFont(level: level), range: range)
             if let headingColor = theme?.headingColors[min(max(level, 1), 6) - 1] { textStorage.addAttribute(.foregroundColor, value: headingColor, range: range) }
+            if let ornament = headingOrnament(level: level) { textStorage.addAttribute(ConcealedReplacement.headingOrnamentKey, value: ornament, range: range) }
         case .syntaxMarker, .concealableMarker, .horizontalRule:
             textStorage.addAttribute(.foregroundColor, value: markerColor, range: range)
         case .strong:
@@ -673,7 +757,19 @@ struct MarkdownTextStyler {
             textStorage.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: range)
             textStorage.addAttribute(.foregroundColor, value: mutedColor, range: range)
         case .highlight:
-            textStorage.addAttribute(.backgroundColor, value: theme?.highlightBackground ?? Self.highlightBackgroundColor, range: range)
+            if let theme, let background = theme.highlightBackground, !drawsConcealedReplacements {
+                // The Mac editor draws no shapes: a plain background there.
+                textStorage.addAttribute(.backgroundColor, value: background, range: range)
+            } else if let theme, theme.highlightBackground != nil || theme.highlightRadius != nil {
+                // Drawn by the layout fragment, with the theme's rounded ends; a theme that only
+                // rounds the ends keeps Graphite's color.
+                textStorage.addAttribute(ConcealedReplacement.roundedBackgroundKey,
+                                         value: ThemedTextShape(color: theme.highlightBackground ?? Self.highlightBackgroundColor, cornerRadius: NoteThemeStyle.scaled(theme.highlightRadius ?? 0, textSize: configuration.textSize),
+                                                                borderColor: nil, borderWidth: 0), range: range)
+                if let highlightText = theme.highlightTextColor { textStorage.addAttribute(.foregroundColor, value: highlightText, range: range) }
+            } else {
+                textStorage.addAttribute(.backgroundColor, value: Self.highlightBackgroundColor, range: range)
+            }
         case .inlineCode, .codeBlock:
             textStorage.addAttribute(.font, value: fonts.codeFont, range: range)
             textStorage.addAttribute(.backgroundColor, value: theme?.codeBackground ?? Self.codeBackgroundColor, range: range)
@@ -687,11 +783,20 @@ struct MarkdownTextStyler {
             if theme?.linksAreUnderlined == true { textStorage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range) }
         case .tag:
             textStorage.addAttribute(.foregroundColor, value: tagColor, range: range)
-            if let tagBackground = theme?.tagBackground { textStorage.addAttribute(.backgroundColor, value: tagBackground, range: range) }
+            if let theme, let tagBackground = theme.tagBackground, !drawsConcealedReplacements {
+                textStorage.addAttribute(.backgroundColor, value: tagBackground, range: range)
+            } else if let theme, theme.tagBackground != nil || theme.tagBorderColor != nil {
+                // A pill, drawn by the layout fragment with the theme's corners and border.
+                textStorage.addAttribute(ConcealedReplacement.roundedBackgroundKey,
+                                         value: ThemedTextShape(color: theme.tagBackground ?? .clear,
+                                                                cornerRadius: theme.tagRadius.map { radius in NoteThemeStyle.scaled(radius, textSize: configuration.textSize) } ?? NoteThemeStyle.pillRadius,
+                                                                borderColor: theme.tagBorderColor, borderWidth: CGFloat(theme.tagBorderWidth ?? 0)), range: range)
+            }
         case .listMarker, .taskMarker:
             textStorage.addAttribute(.foregroundColor, value: mutedColor, range: range)
         case .quote:
             textStorage.addAttribute(.foregroundColor, value: mutedColor, range: range)
+            if let quoteBackground = theme?.blockquoteBackground { textStorage.addAttribute(ConcealedReplacement.quoteBackgroundKey, value: quoteBackground, range: range) }
         case .calloutTitle:
             textStorage.addAttribute(.foregroundColor, value: theme?.accent ?? accentColor, range: range)
             textStorage.addAttribute(.font, value: fonts.calloutTitleFont, range: range)

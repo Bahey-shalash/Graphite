@@ -273,6 +273,12 @@ struct MarkdownPane: View {
         if pluginHost.isRuntimeRunning && (pluginHost.hasEditorSuggestions || pluginHost.hasEditorChangeListeners) {
             actions.pluginEditorDidChange = { [pluginHost, session] in pluginHost.editorDidChange(in: session) }
         }
+        if pluginHost.isRuntimeRunning && pluginHost.hasPasteListeners {
+            actions.pluginPaste = { [pluginHost, session] text, html in await pluginHost.offerPaste(into: session, text: text, html: html) }
+        }
+        if pluginHost.isRuntimeRunning && pluginHost.hasDropListeners {
+            actions.pluginDrop = { [pluginHost, session] files, text in await pluginHost.offerDrop(into: session, files: files, text: text) }
+        }
         #if canImport(UIKit)
         if workspace.communityPlugins.hasEditorMenuItems {
             actions.pluginEditMenuElement = { [host = workspace.communityPlugins] in host.editorMenuElement() }

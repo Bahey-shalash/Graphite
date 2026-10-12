@@ -20,6 +20,9 @@
             super(message);
             this.name = 'HostOperationError';
             this.kind = kind;
+            // As Node's file system names it, which libraries plugins bundle check for
+            // (isomorphic-git takes ENOENT as "not there").
+            if (kind === 'missing') this.code = 'ENOENT';
         }
     }
     runtime.HostOperationError = HostOperationError;
@@ -61,9 +64,32 @@
     /// The plugin whose code is running, read from the call stack: each plugin's code is
     /// evaluated with the source name `plugin:<id>`, so its frames carry its identifier.
     runtime.callingPluginIdentifier = function callingPluginIdentifier() {
-        const stack = new Error().stack || '';
-        const match = /plugin:([^/\s:)]+)\//.exec(stack);
-        return match ? match[1] : null;
+        return runtime.pluginIdentifierInStack(new Error().stack || '');
+    };
+
+    /// The source each plugin's code was loaded from in WebKit, whose stacks do not show the
+    /// `sourceURL` that names the plugin (V8's do): there, a plugin's `main.js` is loaded
+    /// from a blob URL of its own, and its frames carry that address.
+    runtime.pluginIdentifiersBySourceAddress = new Map();
+    runtime.pluginIdentifierOfSource = function pluginIdentifierOfSource(sourceAddress) {
+        if (!sourceAddress) return null;
+        const named = /plugin:([^/\s:)]+)\//.exec(sourceAddress);
+        if (named) return named[1];
+        return runtime.pluginIdentifiersBySourceAddress.get(sourceAddress) || null;
+    };
+    /// The innermost plugin in a stack, by the source name or address of its frames.
+    runtime.pluginIdentifierInStack = function pluginIdentifierInStack(stack) {
+        const text = String(stack || '');
+        const named = /plugin:([^/\s:)]+)\//.exec(text);
+        if (named) return named[1];
+        if (runtime.pluginIdentifiersBySourceAddress.size === 0) return null;
+        const blobFrame = /(blob:[^\s()@]+?):\d+(?::\d+)?/g;
+        let match;
+        while ((match = blobFrame.exec(text))) {
+            const identifier = runtime.pluginIdentifiersBySourceAddress.get(match[1]);
+            if (identifier) return identifier;
+        }
+        return null;
     };
 
     const reportedUnsupportedFeatures = new Set();
@@ -134,6 +160,10 @@
             for (const child of this.childComponents.slice()) child.load();
         }
         onload() {}
+        /// Obsidian's own name for whether the component is loaded (undocumented), which
+        /// plugins read (Excalidraw's patches act only while it is loaded).
+        get _loaded() { return this.isComponentLoaded; }
+        set _loaded(isLoaded) { this.isComponentLoaded = Boolean(isLoaded); }
         unload() {
             if (!this.isComponentLoaded) return;
             this.isComponentLoaded = false;

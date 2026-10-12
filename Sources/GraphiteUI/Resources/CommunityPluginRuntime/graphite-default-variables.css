@@ -8,7 +8,7 @@
  Every rule has no specificity (`:where`), so a theme's `.theme-dark { … }` or `body { … }`
  overrides it, as themes override Obsidian's own layer.
 
- Version: 2. Change the version in ThemeTokenResolver when this file changes, so cached
+ Version: 4. Change the version in ThemeTokenResolver when this file changes, so cached
  values are resolved again.
 */
 
@@ -174,3 +174,15 @@
 :where(.callout[data-callout="bug"]) { --callout-color: var(--callout-bug); }
 :where(.callout[data-callout="example"]) { --callout-color: var(--callout-example); }
 :where(.callout[data-callout="quote"]), :where(.callout[data-callout="cite"]) { --callout-color: var(--callout-quote); }
+
+/* Theme Phase 3: the elements whose shapes and ornaments Graphite draws natively. */
+:where(body) {
+    --inline-title-size: 1.75em; --inline-title-weight: 600; --inline-title-font: inherit; --inline-title-color: inherit;
+    --list-marker-color: var(--text-muted);
+    --checkbox-marker-color: transparent;
+    --code-radius: 4px;
+}
+:where(.markdown-rendered .inline-title) { font-size: var(--inline-title-size); font-weight: var(--inline-title-weight); font-family: var(--inline-title-font); color: var(--inline-title-color); }
+:where(.markdown-rendered li)::marker { color: var(--list-marker-color); }
+:where(.markdown-rendered pre) { background-color: var(--code-background); border-radius: var(--code-radius); }
+:where(.markdown-rendered pre code) { background-color: transparent; }

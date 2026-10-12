@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import OSLog
 import WebKit
 import GraphiteCore
 import GraphiteApple
@@ -30,7 +31,8 @@ struct CommunityPluginRibbonAction: Identifiable, Equatable {
 /// plugin put it in one of Obsidian's sidebars, in a tab otherwise.
 struct CommunityPluginView: Identifiable, Equatable {
     enum Placement: String {
-        case sidebar, tab
+        /// `split`: beside the note, on the other side of Graphite's split (Mind Map).
+        case sidebar, tab, split
     }
 
     /// The leaf's identifier in the runtime.
@@ -40,6 +42,11 @@ struct CommunityPluginView: Identifiable, Equatable {
     /// The view's icon, a Lucide name as Obsidian gives it.
     let icon: String
     let placement: Placement
+    /// A view of a file (Excalidraw's drawing): shown live, so drags, Pencil and typing reach
+    /// the plugin directly. Other views are shown as copies.
+    var isLive = false
+    /// The file a live view shows, so opening the file again brings its tab forward.
+    var filePath: String?
 }
 
 /// A plugin asked to show one of its views in the sidebar; the token tells two requests
@@ -64,6 +71,8 @@ struct CommunityPluginNotice: Identifiable, Equatable {
     let id: String
     var message: String
     let pluginName: String?
+    /// The titles of the links and buttons the plugin put in its notice, shown as buttons.
+    var actions: [String] = []
 }
 
 /// A plugin's `Menu`, waiting for the person to choose an item.
@@ -135,6 +144,19 @@ private final class SingleResumption {
 ///
 /// Plugins run only after the person turns community plugins on for the vault (Obsidian's
 /// restricted mode), and only those enabled in `.obsidian/community-plugins.json`.
+/// What plugins did, in the unified log (subsystem `com.graphite.study`, category
+/// `CommunityPlugins`): each load's outcome, each failure after loading and each feature
+/// Graphite lacks. Messages can name notes, so they are public only in Debug builds.
+private let communityPluginLog = Logger(subsystem: "com.graphite.study", category: "CommunityPlugins")
+
+private func logCommunityPlugin(_ pluginIdentifier: String, _ event: String, _ detail: String) {
+    #if DEBUG
+    communityPluginLog.notice("\(pluginIdentifier, privacy: .public) \(event, privacy: .public): \(detail, privacy: .public)")
+    #else
+    communityPluginLog.notice("\(pluginIdentifier, privacy: .public) \(event, privacy: .public): \(detail, privacy: .private)")
+    #endif
+}
+
 @MainActor @Observable
 final class CommunityPluginHost {
     // MARK: What the interface shows
@@ -150,7 +172,7 @@ final class CommunityPluginHost {
     private(set) var pluginsWithSettings: Set<String> = []
     private(set) var commands: [CommunityPluginCommand] = []
     private(set) var ribbonActions: [CommunityPluginRibbonAction] = []
-    private(set) var pluginViews: [CommunityPluginView] = []
+    var pluginViews: [CommunityPluginView] = []
     var notices: [CommunityPluginNotice] = []
     var pendingMenu: CommunityPluginMenuRequest?
     /// The plugin panel as a sheet over the workspace.
@@ -174,6 +196,22 @@ final class CommunityPluginHost {
     private(set) var hasEditorSuggestions = false
     /// Whether plugins listen for typing in a note (`editor-change`).
     private(set) var hasEditorChangeListeners = false
+    /// Whether plugins listen for pastes and drops into a note (`editor-paste`, `editor-drop`).
+    private(set) var hasPasteListeners = false
+    private(set) var hasDropListeners = false
+    /// File extensions plugins show in a view of their own (`registerExtensions`), lowercased,
+    /// with the view's type.
+    private(set) var pluginFileExtensions: [String: String] = [:]
+    /// Whether a plugin shows some notes in a view of its own (it patched `setViewState`, as
+    /// Excalidraw does for its drawings), so Graphite asks before opening a note.
+    private(set) var pluginsTakeOverNotes = false
+    /// Bases view types plugins registered (`registerBasesView`), with their names.
+    private(set) var pluginBasesViews: [String: String] = [:]
+    /// The plugin view shown live, in its tab, by the runtime's own web view (one at a time).
+    var liveViewIdentifier: String?
+    /// Counts the times the panel or a settings page gave the web view back, so a live view's
+    /// tab shows it again.
+    var webViewReleaseCount = 0
     /// The latest change of the focused note sent to plugins, with the suggestions they
     /// answer for it; each waits for the one before, so plugins hear changes in order.
     @ObservationIgnored var typingRequest: (revision: Int, answer: Task<CommunityPluginSuggestion?, Never>)?
@@ -471,6 +509,12 @@ final class CommunityPluginHost {
         hasEditorMenuItems = false
         hasEditorSuggestions = false
         hasEditorChangeListeners = false
+        hasPasteListeners = false
+        hasDropListeners = false
+        pluginFileExtensions = [:]
+        pluginsTakeOverNotes = false
+        pluginBasesViews = [:]
+        liveViewIdentifier = nil
         typingRequest = nil
         lastCodeBlockCopies = [:]
         keptCopyOrder = []
@@ -486,6 +530,7 @@ final class CommunityPluginHost {
     private func load(_ plugin: InstalledCommunityPlugin, isEnabledByPerson: Bool) async {
         guard plugin.compatibility.canLoad else {
             loadStates[plugin.id] = .notLoadable(Self.describe(plugin.compatibility))
+            logCommunityPlugin(plugin.id, "not loadable", Self.describe(plugin.compatibility))
             return
         }
         guard let store = workspace?.store else { return }
@@ -504,12 +549,18 @@ final class CommunityPluginHost {
             ])
             if answer["isLoaded"] as? Bool == true {
                 loadStates[plugin.id] = .loaded
+                logCommunityPlugin(plugin.id, "loaded", plugin.manifest.version)
             } else {
-                loadStates[plugin.id] = .failed(answer["errorMessage"] as? String ?? "The plugin did not load.")
+                let problem = answer["errorMessage"] as? String ?? "The plugin did not load."
+                loadStates[plugin.id] = .failed(problem)
+                logCommunityPlugin(plugin.id, "failed to load", problem)
             }
         } catch {
             // A runtime stopped meanwhile does not leave failures behind for the next one.
-            if isRuntimeRunning { loadStates[plugin.id] = .failed(error.localizedDescription) }
+            if isRuntimeRunning {
+                loadStates[plugin.id] = .failed(error.localizedDescription)
+                logCommunityPlugin(plugin.id, "failed to load", error.localizedDescription)
+            }
         }
     }
 
@@ -605,6 +656,10 @@ final class CommunityPluginHost {
     /// Returns the web view to the window's parking place when no panel shows it.
     func parkWebViewIfDetached() {
         CommunityPluginWebViewPlacement.parkIfDetached(webView, in: parkingView)
+        // A live view's tab takes the web view back once the panel or a settings page let it go.
+        if liveViewIdentifier != nil {
+            Task { @MainActor [weak self] in self?.webViewReleaseCount += 1 }
+        }
     }
 
     /// The panel was closed by the person (a swipe, Done, or leaving a settings page).
@@ -810,6 +865,13 @@ final class CommunityPluginHost {
             return [:] as [String: Any]
         case "workspace.renameFile":
             return await renameFileUpdatingLinks(message)
+        case "clipboard.readText":
+            // WebKit refuses the hidden plugins' page the clipboard; plugins read it through
+            // Graphite when they act on the person's command (ReadItLater, Linter's paste).
+            return ["text": Pasteboard.text ?? ""] as [String: Any]
+        case "clipboard.writeText":
+            Pasteboard.copy(message["text"] as? String ?? "")
+            return [:] as [String: Any]
         case "menu.show":
             let chosenPosition: Any = await showMenu(message["items"] as? [[String: Any]] ?? []) ?? NSNull()
             return ["chosenPosition": chosenPosition] as [String: Any]
@@ -856,7 +918,8 @@ final class CommunityPluginHost {
             pluginViews = (message["views"] as? [[String: Any]] ?? []).compactMap { view in
                 guard let identifier = view["leafIdentifier"] as? String else { return nil }
                 return CommunityPluginView(id: identifier, title: view["title"] as? String ?? "", viewType: view["viewType"] as? String ?? "",
-                                           icon: view["icon"] as? String ?? "", placement: CommunityPluginView.Placement(rawValue: view["placement"] as? String ?? "") ?? .tab)
+                                           icon: view["icon"] as? String ?? "", placement: CommunityPluginView.Placement(rawValue: view["placement"] as? String ?? "") ?? .tab,
+                                           isLive: view["isLive"] as? Bool == true, filePath: view["filePath"] as? String)
             }
             workspace?.forgetClosedPluginViews(keeping: Set(pluginViews.map(\.id)))
         case "view.reveal":
@@ -869,6 +932,19 @@ final class CommunityPluginHost {
         case "editor.listenersChanged":
             hasEditorSuggestions = message["hasEditorSuggestions"] as? Bool == true
             hasEditorChangeListeners = message["hasEditorChangeListeners"] as? Bool == true
+            hasPasteListeners = message["hasPasteListeners"] as? Bool == true
+            hasDropListeners = message["hasDropListeners"] as? Bool == true
+        case "fileViews.changed":
+            let extensions = message["extensions"] as? [String: String] ?? [:]
+            if extensions != pluginFileExtensions { pluginFileExtensions = extensions }
+            let takesOverNotes = message["takesOverNotes"] as? Bool == true
+            if takesOverNotes != pluginsTakeOverNotes { pluginsTakeOverNotes = takesOverNotes }
+        case "basesViews.changed":
+            var views: [String: String] = [:]
+            for view in message["views"] as? [[String: Any]] ?? [] {
+                if let viewType = view["viewType"] as? String { views[viewType] = view["name"] as? String ?? viewType }
+            }
+            if views != pluginBasesViews { pluginBasesViews = views }
         case "menus.changed":
             hasFileMenuItems = message["hasFileMenuItems"] as? Bool == true
             hasEditorMenuItems = message["hasEditorMenuItems"] as? Bool == true
@@ -897,10 +973,14 @@ final class CommunityPluginHost {
         case "plugin.unsupportedFeature":
             guard let featureName = message["featureName"] as? String else { return }
             let owner = pluginIdentifier ?? "unknown"
-            if !(unsupportedFeatures[owner] ?? []).contains(featureName) { unsupportedFeatures[owner, default: []].append(featureName) }
+            if !(unsupportedFeatures[owner] ?? []).contains(featureName) {
+                unsupportedFeatures[owner, default: []].append(featureName)
+                logCommunityPlugin(owner, "unsupported", featureName)
+            }
         case "plugin.failure":
             guard let problem = message["message"] as? String else { return }
             let owner = pluginIdentifier ?? "unknown"
+            logCommunityPlugin(owner, "failure", problem)
             runtimeProblems[owner, default: []].append(problem)
             if (runtimeProblems[owner]?.count ?? 0) > 5 { runtimeProblems[owner]?.removeFirst() }
         case "plugin.writeConflict":
@@ -908,7 +988,8 @@ final class CommunityPluginHost {
             showNotice("\(pluginName) did not overwrite “\(message["path"] as? String ?? "")”: the file changed after it read it.", pluginIdentifier: pluginIdentifier)
         case "notice.show":
             guard let noticeIdentifier = message["noticeIdentifier"] as? String else { return }
-            let notice = CommunityPluginNotice(id: noticeIdentifier, message: message["message"] as? String ?? "", pluginName: pluginIdentifier.flatMap(pluginName(of:)))
+            let notice = CommunityPluginNotice(id: noticeIdentifier, message: message["message"] as? String ?? "", pluginName: pluginIdentifier.flatMap(pluginName(of:)),
+                                               actions: (message["actions"] as? [String] ?? []).prefix(3).map { title in title })
             notices.append(notice)
             if notices.count > 4 { notices.removeFirst() }
             let duration = message["durationMilliseconds"] as? Int ?? 4500
@@ -953,6 +1034,25 @@ final class CommunityPluginHost {
         notices.append(CommunityPluginNotice(id: noticeIdentifier, message: message, pluginName: pluginName))
         if notices.count > 4 { notices.removeFirst() }
         scheduleNoticeRemoval(noticeIdentifier, afterMilliseconds: 6000)
+    }
+
+    /// Hands a link's action to the plugin that registered it (`registerObsidianProtocolHandler`),
+    /// starting the plugins first when the vault has them on; false when no plugin took it.
+    func openPluginLink(action: String, parameters: [String: String]) async -> Bool {
+        if !isRuntimeRunning, let workspace { await startIfNeeded(workspace) }
+        guard isRuntimeRunning else { return false }
+        let answer = try? await send(["operation": "protocol.open", "action": action, "parameters": parameters], timeout: .seconds(10))
+        return answer?["isHandled"] as? Bool == true
+    }
+
+    /// A tap on a plugin's notice, or on one of its buttons: the runtime clicks the notice or
+    /// the button, as a click does in Obsidian, and the notice goes.
+    func tapNotice(_ noticeIdentifier: String, actionIndex: Int?) {
+        notices.removeAll { notice in notice.id == noticeIdentifier }
+        guard isRuntimeRunning, !noticeIdentifier.hasPrefix("graphite-") else { return }
+        var message: [String: Any] = ["operation": "notice.tap", "noticeIdentifier": noticeIdentifier]
+        if let actionIndex { message["actionIndex"] = actionIndex }
+        Task { _ = try? await send(message, timeout: .seconds(5)) }
     }
 
     private func scheduleNoticeRemoval(_ noticeIdentifier: String, afterMilliseconds milliseconds: Int) {

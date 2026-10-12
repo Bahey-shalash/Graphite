@@ -52,6 +52,11 @@ struct EditorActions {
     /// does; returns the change's revision when plugins suggest as the person types, so the
     /// suggestions list can ask for theirs. Nil while no plugin listens.
     var pluginEditorDidChange: (() -> Int?)?
+    /// Offers a paste (its text and HTML) to community plugins that listen; true when one took
+    /// it over. Nil while no plugin listens.
+    var pluginPaste: ((_ text: String?, _ html: String?) async -> Bool)?
+    /// Offers a drop (the files' names and types, or text) to plugins that listen.
+    var pluginDrop: ((_ files: [(name: String, type: String)], _ text: String?) async -> Bool)?
     #if canImport(UIKit)
     /// Community plugins' items for the editor's menu at the cursor; nil while no plugin adds any.
     var pluginEditMenuElement: (() -> UIMenuElement)?

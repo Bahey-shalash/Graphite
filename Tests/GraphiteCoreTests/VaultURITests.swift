@@ -46,7 +46,12 @@ final class VaultURITests: XCTestCase {
 
     func testRefusesOtherLinks() {
         XCTAssertNil(uri("https://obsidian.md/open?vault=Physics"))
-        XCTAssertNil(uri("graphite://delete?file=Note"))
+        XCTAssertNil(uri("graphite://?file=Note"), "No action.")
+        // Other actions are plugins', with their parameters as written.
+        XCTAssertEqual(uri("graphite://delete?file=Note"), VaultURI(vault: nil, action: .plugin(action: "delete", parameters: ["file": "Note"])))
+        XCTAssertEqual(uri("obsidian://advanced-uri?vault=Sweep&filepath=Plugin%20sweep%2FEditing.md&data=Hello&mode=append"),
+                       VaultURI(vault: "Sweep", action: .plugin(action: "advanced-uri", parameters: ["vault": "Sweep", "filepath": "Plugin sweep/Editing.md", "data": "Hello", "mode": "append"])))
+        XCTAssertEqual(uri("obsidian://smart-plugins/callback?code=1"), VaultURI(vault: nil, action: .plugin(action: "smart-plugins/callback", parameters: ["code": "1"])))
         XCTAssertNil(uri("graphite://vault"))
     }
 

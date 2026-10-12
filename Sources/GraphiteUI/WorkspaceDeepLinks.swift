@@ -36,6 +36,10 @@ extension WorkspaceModel {
             await createNoteFromLink(name: name, file: file, content: content, opensNote: opensNote, mode: mode)
         case .daily:
             await openDailyNote()
+        case .plugin(let action, let parameters):
+            if !(await communityPlugins.openPluginLink(action: action, parameters: parameters)) {
+                errorMessage = "No community plugin in this vault opens “\(action)” links."
+            }
         }
     }
 
