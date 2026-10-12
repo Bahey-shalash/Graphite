@@ -21,6 +21,8 @@ final class MarkdownTextView: UITextView {
     static let readableColumnWidth: CGFloat = 740
     static let minimumHorizontalInset: CGFloat = 28
     var usesReadableLineLength = true { didSet { setNeedsLayout() } }
+    /// The readable column's width: Graphite's, or the vault theme's line width.
+    var readableColumnWidth: CGFloat = MarkdownTextView.readableColumnWidth { didSet { if readableColumnWidth != oldValue { setNeedsLayout() } } }
     /// The note's name above the text, drawn by a label the text is inset below.
     var inlineTitle: (text: String, fontSize: CGFloat, family: ResolvedFontFamily)? {
         didSet {
@@ -76,7 +78,7 @@ final class MarkdownTextView: UITextView {
     override func layoutSubviews() {
         super.layoutSubviews()
         let horizontalInset = usesReadableLineLength
-            ? max(Self.minimumHorizontalInset, (bounds.width - Self.readableColumnWidth) / 2)
+            ? max(Self.minimumHorizontalInset, (bounds.width - readableColumnWidth) / 2)
             : Self.minimumHorizontalInset
         var topInset = Self.topInset
         if let inlineTitleLabel {
@@ -530,6 +532,8 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             coordinator.performCompletionEdits(edits, in: textView)
         }
         textView.usesReadableLineLength = configuration.usesReadableLineLength
+        // The theme's line width, plus the text container's padding on each side.
+        textView.readableColumnWidth = configuration.theme?.readableColumnWidth(forTextSize: configuration.textSize).map { width in width + 10 } ?? MarkdownTextView.readableColumnWidth
         textView.inlineTitle = configuration.inlineTitle.map { title in (title, CGFloat(configuration.textSize * InlineTitleStyle.fontScale), configuration.typography.textFamily) }
         // The text and the saved cursor go in before the delegate: setting the text places
         // the cursor at its end, which the delegate would otherwise record as the note's.
@@ -595,6 +599,8 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         coordinator.quickFontSizePinch?.adjustment = actions.quickFontSize
         textView.convertsPastedHTML = configuration.editingBehavior.convertsPastedHTML
         textView.usesReadableLineLength = configuration.usesReadableLineLength
+        // The theme's line width, plus the text container's padding on each side.
+        textView.readableColumnWidth = configuration.theme?.readableColumnWidth(forTextSize: configuration.textSize).map { width in width + 10 } ?? MarkdownTextView.readableColumnWidth
         textView.inlineTitle = configuration.inlineTitle.map { title in (title, CGFloat(configuration.textSize * InlineTitleStyle.fontScale), configuration.typography.textFamily) }
         textView.spellCheckingType = configuration.usesSpellChecking ? .yes : .no
         // Turning the Properties view on or off changes which blocks are rendered, as the
@@ -1114,7 +1120,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         /// an estimate. The view corrects the latter two when it reports its height.
         private func reservedHeight(of entry: LivePreviewBlockEntry, columnWidth: CGFloat) -> CGFloat {
             if let reservedHeight = reservedHeights[entry.key] { return reservedHeight }
-            if let sharedKey = MeasuredBlockHeightCache.Key(blockKey: entry.key, columnWidth: columnWidth, textSize: configuration.textSize, typography: configuration.typography),
+            if let sharedKey = MeasuredBlockHeightCache.Key(blockKey: entry.key, columnWidth: columnWidth, textSize: configuration.textSize, typography: configuration.typography, themeFingerprint: configuration.theme?.tokens.fingerprint ?? ""),
                let measuredHeight = Self.sharedMeasuredHeights.height(for: sharedKey) {
                 return measuredHeight
             }
@@ -1835,6 +1841,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                 .environment(\.lassoNoteDestination, environment.lassoNoteDestination)
                 .environment(\.colorScheme, textView.traitCollection.userInterfaceStyle == .dark ? .dark : .light)
                 .environment(\.noteTypography, environment.typography)
+                .environment(\.noteTheme, environment.theme)
                 .tint(accent)
                 .environment(\.accent, accent))
         }
@@ -1843,7 +1850,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             guard height > 1 else { return }
             // Measured at the width the view was laid out at, which can lag the text view's.
             let measuredWidth = widgetHosts[key]?.view.bounds.width ?? textView.contentColumnWidth
-            let sharedKey = MeasuredBlockHeightCache.Key(blockKey: key, columnWidth: measuredWidth, textSize: configuration.textSize, typography: configuration.typography)
+            let sharedKey = MeasuredBlockHeightCache.Key(blockKey: key, columnWidth: measuredWidth, textSize: configuration.textSize, typography: configuration.typography, themeFingerprint: configuration.theme?.tokens.fingerprint ?? "")
             // The height the styling reserved in the text, else this editor's last report, else
             // an earlier editor's.
             let styledHeight = heightsKeptInText[key] ?? reservedHeights[key]
@@ -3146,7 +3153,7 @@ struct LivePreviewWidgetSignature: Equatable {
             .map { entry in "\(entry.key)=\(entry.value)" }.joined(separator: ",")
         let declaredPropertyTypes = environment.declaredPropertyTypes.sorted { leftEntry, rightEntry in leftEntry.key < rightEntry.key }
             .map { entry in "\(entry.key)=\(entry.value.rawValue)" }.joined(separator: ",")
-        appearance = [String(environment.textSize), String(describing: environment.typography), String(environment.colorsEnabled), palette, accentHex,
+        appearance = [String(environment.textSize), String(describing: environment.typography), environment.theme?.tokens.fingerprint ?? "", String(environment.colorsEnabled), palette, accentHex,
                       String(environment.updateProperties != nil), declaredPropertyTypes, notePath].joined(separator: "|")
         index = [String(environment.indexVersion), String(environment.baseContext?.isIndexComplete ?? false)].joined(separator: "|")
     }
@@ -3243,14 +3250,17 @@ struct MeasuredBlockHeightCache {
         let textSize: Double
         /// A block's height also changes with the fonts it is drawn in.
         let typography: NoteTypography
+        /// And with the theme's sizes, spacing and borders.
+        let themeFingerprint: String
 
         /// Nil for a width that is not a finite number of points, as before the first layout.
-        init?(blockKey: LivePreviewBlockKey, columnWidth: CGFloat, textSize: Double, typography: NoteTypography = .standard) {
+        init?(blockKey: LivePreviewBlockKey, columnWidth: CGFloat, textSize: Double, typography: NoteTypography = .standard, themeFingerprint: String = "") {
             guard let wholeColumnWidth = Int(exactly: columnWidth.rounded()), wholeColumnWidth > 0 else { return nil }
             self.blockKey = blockKey
             self.columnWidth = wholeColumnWidth
             self.textSize = textSize
             self.typography = typography
+            self.themeFingerprint = themeFingerprint
         }
     }
 

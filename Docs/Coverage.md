@@ -4,6 +4,36 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-12.
 
+## Notes in the vault's Obsidian theme (theme Phase 1): 2026-10-12
+
+Notes now take the vault's Obsidian theme and CSS snippets in Live Preview, Source mode, the reading view, callouts, tables and embedded blocks: colors (page, text, muted, accent), headings (color, size, weight, font, italic), callout colors by type, tags, links by kind (internal, unresolved, external), checkboxes, code (background, color, font), the quote bar, highlights, rules, table borders and header shading, line height and the readable line width. Settings › Appearance › Use the Vault's Obsidian Theme (on by default) keeps Graphite's look when off. Design, guardrails and what is not themed: `Architecture.md` › Markdown views.
+
+How much of each theme is drawn: of the 19 note-styling groups a theme can set per appearance (`ThemeModeTokens`), the groups each theme changes, measured by the resolver on the theme files of the assessment (light / dark); every group a theme changes is drawn natively, except checkbox and tag corner radii and table header text color:
+
+| Theme | Groups changed (light / dark) |
+|---|---|
+| Minimal (default scheme) | 15 / 16 |
+| Minimal, Nord scheme (Minimal Theme Settings' classes) | 15 / 16 |
+| Things | 15 / 15 |
+| AnuPpuccin | 12 / 12 |
+| Catppuccin | 18 / 18 |
+| Blue Topaz | 17 / 18 |
+| Flexoki | 13 / 13 |
+| Obsidian Nord | 13 / 14 |
+| Atom | 13 / 13 |
+| Typewriter | 12 / 10 |
+
+Selector-level styling outside the probed elements (Phase 3's shim), heading ornaments, backgrounds and `::before` glyphs are not drawn.
+
+Checks:
+- Core tests (`VaultThemeTokensTests`, 5): computed color formats, values left at the defaults read as nil, sizes as multiples of the text size, unresolved links dimmed, the contrast guard (4.5:1, 7:1 under Increase Contrast, translucent text judged as drawn, readable colors kept), the Read Aloud look-alike check, callout aliases.
+- macOS tests (`ThemeTokenResolverTests`, 3): WebKit resolves literals, `var()` chains and fallbacks, `calc()`, `color-mix()`, a theme's own selectors, body classes and inline variables from plugins, per appearance; results are cached by their inputs.
+- Hosted iPad test (`EditingContinuityTests.testEditorAndReadingViewTakeTheVaultThemesHeadingAndCalloutColors`): a test theme's heading color (light and dark) and size reach Source mode and the reading view, its warning callout color reaches callouts with a readable title, and the setting off restores Graphite's look.
+- Simulator ("Graphite Appearance iPad"): a lecture note with headings, callouts, tags, links, a task list, a table, a quote, inline code, a highlight, a code block, display math and a drawing, before (theme off) and with Minimal in Nord (through Minimal Theme Settings), Things and AnuPpuccin, Live Preview and reading view, light and dark, and Increase Contrast on AnuPpuccin light (links darkened further). Screenshots `~/.graphite-themes-build/shots/p1-*.png`. Fixed while checking: a theme that set a color in one appearance only drew nothing in the other (every color now falls back to Graphite's own); reading view headings lost the theme's size when it named a heading font.
+- Hosted suite: 299 tests, 0 failures. `swift test`: 1,812 tests, 0 failures. Runtime tests: 67, 0 failures.
+
+Not verified: on a device; with VoiceOver; Pencil writing over a themed note; the Mac app by hand; Style Settings changes re-resolving notes by hand (the trigger is the plugins' page change, covered by code path only); the cost on a very long note (restyling is the same attribute pass as a font change, not measured with a theme).
+
 ## Obsidian themes and snippets in community plugins' pages and copies (theme Phase 2): 2026-10-12
 
 Settings › Appearance › Themes and Snippets chooses the vault's Obsidian theme, installs one from Obsidian's theme directory, and turns CSS snippets on and off, written to `.obsidian/appearance.json` (`cssTheme`, `enabledCssSnippets`). The theme and snippets go into the community plugins' page after the plugins' styles, with `app.customCss`, and into the copies of plugin blocks and views together with the page's body classes and inline style, so Style Settings and Minimal Theme Settings work for plugin UIs, Minimal's color schemes included, following light and dark live. Notes keep Graphite's own styling (Phase 1, not started). Design and limits: `Architecture.md` › Storage contracts; what was checked by hand: `Community-plugins.md` › Themes and snippets in the plugins' page.

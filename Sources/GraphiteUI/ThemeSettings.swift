@@ -17,6 +17,12 @@ struct ThemeSettingsSection: View {
             } label: {
                 LabeledContent("Theme", value: appearance.cssTheme.isEmpty ? "Default" : appearance.cssTheme)
             }
+            if !appearance.cssTheme.isEmpty || !appearance.enabledCssSnippets.isEmpty {
+                Toggle(isOn: Binding(get: { workspace.preferences.usesVaultTheme }, set: { isOn in workspace.preferences.usesVaultTheme = isOn })) {
+                    Text("Use the Vault's Obsidian Theme")
+                    Text("Notes take the theme's colors, headings, callouts and spacing. Turn off to keep Graphite's look on this device.")
+                }
+            }
             ForEach(snippetNames, id: \.self) { snippetName in
                 Toggle(snippetName, isOn: Binding(get: { appearance.enabledCssSnippets.contains(snippetName) }, set: { isOn in
                     workspace.updateVaultAppearance { appearance in
@@ -29,8 +35,8 @@ struct ThemeSettingsSection: View {
             Text("Themes and Snippets")
         } footer: {
             Text(snippetNames.isEmpty
-                 ? "Shared with Obsidian through .obsidian/appearance.json. The theme styles community plugins' panels, blocks and views; notes keep Graphite's look for now. CSS snippets in .obsidian/snippets appear here."
-                 : "Shared with Obsidian through .obsidian/appearance.json. The theme and snippets style community plugins' panels, blocks and views; notes keep Graphite's look for now.")
+                 ? "Shared with Obsidian through .obsidian/appearance.json. The theme styles notes and community plugins' panels; buttons, menus and Settings stay Graphite's. CSS snippets in .obsidian/snippets appear here."
+                 : "Shared with Obsidian through .obsidian/appearance.json. The theme and snippets style notes and community plugins' panels; buttons, menus and Settings stay Graphite's. Text is kept readable against the theme's page.")
         }
         .task(id: "\(workspace.directoryVersion)-\(appearance.cssTheme)") { await reload() }
     }
@@ -63,7 +69,7 @@ struct ThemeChoicePage: View {
             } header: {
                 Text("Installed Themes")
             } footer: {
-                Text("A theme styles community plugins' panels, blocks and views, and lets Style Settings and the theme's own settings plugin change it. Notes keep Graphite's look for now.")
+                Text("A theme styles notes and community plugins' panels, and Style Settings and the theme's own settings plugin can change it. Buttons, menus and Settings keep Graphite's look.")
             }
             Section("Community Themes") {
                 if isLoadingDirectory && directory.isEmpty {

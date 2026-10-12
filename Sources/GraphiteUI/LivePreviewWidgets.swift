@@ -39,6 +39,8 @@ struct LivePreviewEnvironment {
     let textSize: Double
     /// The vault's fonts, which rendered blocks draw their text and code in.
     var typography = NoteTypography.standard
+    /// The vault's Obsidian theme, which rendered blocks draw in; nil for Graphite's look.
+    var theme: NoteThemeStyle?
     let colorsEnabled: Bool
     let paletteHexByName: [String: String]
     let drawingVersion: Int
@@ -183,7 +185,7 @@ struct LivePreviewWidgetView: View {
             // No tap-to-reveal here: taps belong to the base's rows; the Edit Source button reveals it.
             BaseCodeBlockView(yaml: yaml, context: environment.baseContext)
         case .horizontalRule:
-            Divider().padding(.vertical, 10)
+            ThemedRule(theme: environment.theme).padding(.vertical, 10)
         case .callout:
             if case .callout(let type, let title, let folding, let bodyBlocks)? = parsedSource.calloutBlock(from: block.markdown) {
                 LivePreviewCalloutView(type: type, title: title, folding: folding, bodyBlocks: bodyBlocks, environment: environment, revealSource: revealSource,
