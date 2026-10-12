@@ -162,7 +162,7 @@ final class ReadAloudSessionTests: XCTestCase {
     }
 
     /// By default Graphite speaks like the system's Read & Speak: its voice for the language,
-    /// even one Graphite would not offer itself, with the system's settings preferred; a voice
+    /// even one Graphite does not list, with the system's settings preferred; a voice
     /// chosen in Graphite overrides both. Without a system voice the best installed one is used.
     func testFollowsTheSystemVoiceAndSettingsUntilAVoiceIsChosenForGraphite() throws {
         let speech = TestReadAloudSpeech()
@@ -171,11 +171,11 @@ final class ReadAloudSessionTests: XCTestCase {
         let session = ReadAloudSession(speech: speech, preferences: preferences)
         session.load(try ReadAloudDocument.plainText("Static gates draw almost no current while they rest, which keeps the power low."))
         XCTAssertEqual(session.selectedVoiceIdentifier, "ava", "No system voice: the best installed voice.")
-        speech.systemVoicesByLanguage[session.readingLanguage] = ReadAloudVoice(id: "fred", name: "Fred", language: "en-US", quality: 1)
+        speech.systemVoicesByLanguage[session.readingLanguage] = ReadAloudVoice(id: "aaron", name: "Aaron", language: "en-US", quality: 2)
         XCTAssertTrue(session.followsSystemVoice)
-        XCTAssertEqual(session.selectedVoice?.name, "Fred", "The person's own system choice is followed, even a robotic one.")
+        XCTAssertEqual(session.selectedVoice?.name, "Aaron", "The system's voice is followed even when Graphite does not list it.")
         session.play()
-        XCTAssertEqual(speech.spokenVoices.last, "fred")
+        XCTAssertEqual(speech.spokenVoices.last, "aaron")
         XCTAssertEqual(speech.usedSystemSettings.last, true)
         XCTAssertFalse(session.speedFollowsSystem)
         speech.assistiveSpeechSettingsMayApply = true
@@ -185,6 +185,31 @@ final class ReadAloudSessionTests: XCTestCase {
         session.play()
         XCTAssertEqual(speech.spokenVoices.last, "ava")
         XCTAssertEqual(speech.usedSystemSettings.last, false)
+    }
+
+    /// Earlier builds saved their automatic pick as if the person had chosen it; the owner's iPad
+    /// kept reading with Eloquence "Eddy". Those keys are dropped, and only a choice recorded with
+    /// how it was made is read back.
+    func testOldStoredAutomaticPicksAreDroppedAndOnlyRecordedChoicesCount() throws {
+        let speech = TestReadAloudSpeech()
+        speech.voices = [ReadAloudVoice(id: "com.apple.eloquence.en-US.Eddy", name: "Eddy", language: "en-US", quality: 1),
+                         ReadAloudVoice(id: "aaron", name: "Aaron", language: "en-US", quality: 2)]
+        let preferences = try XCTUnwrap(UserDefaults(suiteName: "ReadAloudTests-\(UUID().uuidString)"))
+        preferences.set("com.apple.eloquence.en-US.Eddy", forKey: "GraphiteReadAloudVoice")
+        preferences.set("com.apple.eloquence.en-US.Eddy", forKey: "GraphiteReadAloudChosenVoice")
+        let session = ReadAloudSession(speech: speech, preferences: preferences)
+        XCTAssertNil(session.chosenVoiceIdentifier)
+        XCTAssertNil(preferences.object(forKey: "GraphiteReadAloudVoice"))
+        XCTAssertNil(preferences.object(forKey: "GraphiteReadAloudChosenVoice"))
+        XCTAssertTrue(session.followsSystemVoice)
+        XCTAssertEqual(session.selectedVoiceIdentifier, "aaron", "The robotic voice is never the automatic fallback.")
+        // A robotic system voice is not used as the utterance voice either.
+        speech.systemVoicesByLanguage[session.readingLanguage] = speech.voices[0]
+        XCTAssertEqual(session.selectedVoiceIdentifier, "aaron")
+        // Picked by hand, it is used and remembered.
+        session.chooseVoice("com.apple.eloquence.en-US.Eddy")
+        XCTAssertEqual(ReadAloudSession(speech: speech, preferences: preferences).chosenVoiceIdentifier, "com.apple.eloquence.en-US.Eddy")
+        XCTAssertEqual(session.selectedVoice?.qualityDescription, "Classic")
     }
 
     func testAudioIsReleasedWhenReadingStopsOrFinishesButNotBetweenPDFPages() throws {
@@ -255,18 +280,15 @@ final class ReadAloudSessionTests: XCTestCase {
         XCTAssertEqual(session.automaticVoice?.id, "samantha")
     }
 
-    /// The robotic MacinTalk and Eloquence voices are never offered, so they can never be the
-    /// automatic choice (Fred used to win ties by identifier). Uses the voices this Mac has.
-    func testRoboticSystemVoicesAreNotOffered() throws {
-        let installed = AVSpeechSynthesisVoice.speechVoices()
-        let robotic = installed.filter { voice in voice.identifier.hasPrefix("com.apple.speech.synthesis.voice.") || voice.identifier.hasPrefix("com.apple.eloquence.") }
-        guard !robotic.isEmpty else { throw XCTSkip("This system lists no MacinTalk or Eloquence voices.") }
-        XCTAssertFalse(robotic.contains(where: AppleReadAloudSpeech.isOffered))
+    /// The robotic MacinTalk and Eloquence voices (Fred used to win ties by identifier) are
+    /// listed for picking by hand but flagged, and never chosen automatically. Uses this Mac's voices.
+    func testRoboticSystemVoicesAreNeverPickedAutomatically() throws {
         let offered = AppleReadAloudSpeech().voices
-        XCTAssertFalse(offered.contains { voice in voice.id.contains(".eloquence.") || voice.id.contains(".speech.synthesis.voice.") })
-        if let compact = installed.first(where: { voice in voice.identifier.hasPrefix("com.apple.voice.compact.en-US") }) {
-            XCTAssertTrue(AppleReadAloudSpeech.isOffered(compact))
-        }
+        let robotic = offered.filter { voice in voice.id.contains(".eloquence.") || voice.id.contains(".speech.synthesis.voice.") }
+        guard !robotic.isEmpty else { throw XCTSkip("This system lists no MacinTalk or Eloquence voices.") }
+        XCTAssertTrue(robotic.allSatisfy(\.isRobotic))
+        XCTAssertFalse(ReadAloudVoice.preferred(in: offered, language: "en-US")?.isRobotic ?? false)
+        XCTAssertNil(ReadAloudVoice.preferred(in: robotic, language: "en-US"), "Not even as the last resort.")
         // The system's own voice for a language is reported whatever its family.
         let systemVoice = try XCTUnwrap(AppleReadAloudSpeech().systemVoice(language: "en-US"))
         XCTAssertEqual(systemVoice.id, AVSpeechSynthesisVoice(language: "en-US")?.identifier)

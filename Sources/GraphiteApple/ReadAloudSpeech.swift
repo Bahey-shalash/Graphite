@@ -28,15 +28,24 @@ public struct ReadAloudVoice: Equatable, Sendable, Identifiable {
     public let quality: Int
     /// A voice the person recorded themselves and allowed Graphite to use.
     public let isPersonalVoice: Bool
+    /// An old-style robotic or novelty voice: Eloquence (Eddy, Flo…), MacinTalk (Fred,
+    /// Albert, Bad News…) or one Apple marks as novelty. Used only when picked by hand.
+    public let isRobotic: Bool
 
-    public init(id: String, name: String, language: String, quality: Int, isPersonalVoice: Bool = false) {
+    public init(id: String, name: String, language: String, quality: Int, isPersonalVoice: Bool = false, isRobotic: Bool? = nil) {
         self.id = id; self.name = name; self.language = language; self.quality = quality
         self.isPersonalVoice = isPersonalVoice
+        self.isRobotic = isRobotic ?? Self.isRoboticIdentifier(id)
+    }
+
+    public static func isRoboticIdentifier(_ identifier: String) -> Bool {
+        ["com.apple.speech.synthesis.voice.", "com.apple.eloquence."].contains { family in identifier.hasPrefix(family) }
     }
 
     /// Apple's quality tiers, as the voice lists in the system's voice settings name them.
     public var qualityDescription: String {
         if isPersonalVoice { return "Personal Voice" }
+        if isRobotic { return "Classic" }
         switch quality {
         case 3...: return "Premium"
         case 2: return "Enhanced"
@@ -56,7 +65,8 @@ public struct ReadAloudVoice: Equatable, Sendable, Identifiable {
     public static func preferred(in voices: [ReadAloudVoice], language: String,
                                  systemDefaultIdentifier: String? = nil) -> ReadAloudVoice? {
         let languagePrefix = language.split(separator: "-").first
-        return voices.filter { voice in voice.languageCode == languagePrefix }
+        // Robotic voices are never picked automatically, not even as the last resort.
+        return voices.filter { voice in voice.languageCode == languagePrefix && !voice.isRobotic }
             .sorted { first, second in
                 if first.isPersonalVoice != second.isPersonalVoice { return first.isPersonalVoice }
                 if first.quality != second.quality { return first.quality > second.quality }
@@ -149,36 +159,32 @@ public final class AppleReadAloudSpeech: NSObject, ReadAloudSpeaking, AVSpeechSy
     }
 
     public var voices: [ReadAloudVoice] {
-        AVSpeechSynthesisVoice.speechVoices().filter(Self.isOffered).map { voice in
-            ReadAloudVoice(id: voice.identifier, name: voice.name, language: voice.language, quality: voice.quality.rawValue,
-                           isPersonalVoice: voice.voiceTraits.contains(.isPersonalVoice))
-        }.sorted { first, second in
+        AVSpeechSynthesisVoice.speechVoices().filter(Self.isListed).map(Self.voice).sorted { first, second in
             if first.language != second.language { return first.language < second.language }
             if first.quality != second.quality { return first.quality > second.quality }
             return first.name.localizedStandardCompare(second.name) == .orderedAscending
         }
     }
 
-    /// Apple's natural voices only. System speech also lists the 1980s-style MacinTalk voices
-    /// (Fred, Kathy, Ralph…) and the Eloquence voices (Eddy, Flo, Grandma…), which are
-    /// marked as ordinary voices but sound robotic, novelty voices, and third-party voice
-    /// extensions whose network and privacy behavior is unknown. A Personal Voice appears
-    /// only after the person allowed Graphite to use it.
-    static func isOffered(_ voice: AVSpeechSynthesisVoice) -> Bool {
-        if voice.voiceTraits.contains(.isPersonalVoice) { return true }
-        guard voice.identifier.hasPrefix("com.apple."), !voice.voiceTraits.contains(.isNoveltyVoice) else { return false }
-        let legacyFamilies = ["com.apple.speech.synthesis.voice.", "com.apple.eloquence."]
-        return !legacyFamilies.contains { family in voice.identifier.hasPrefix(family) }
+    /// Every Apple voice, the robotic and novelty ones flagged so they can be picked by hand
+    /// but never chosen automatically. Third-party voice extensions stay out.
+    static func isListed(_ voice: AVSpeechSynthesisVoice) -> Bool {
+        voice.voiceTraits.contains(.isPersonalVoice) || voice.identifier.hasPrefix("com.apple.")
     }
+
+    private static func voice(_ voice: AVSpeechSynthesisVoice) -> ReadAloudVoice {
+        ReadAloudVoice(id: voice.identifier, name: voice.name, language: voice.language, quality: voice.quality.rawValue,
+                       isPersonalVoice: voice.voiceTraits.contains(.isPersonalVoice),
+                       isRobotic: voice.voiceTraits.contains(.isNoveltyVoice) || ReadAloudVoice.isRoboticIdentifier(voice.identifier))
+    }
+
 
     public func systemDefaultVoiceIdentifier(language: String) -> String? {
         AVSpeechSynthesisVoice(language: language)?.identifier
     }
 
     public func systemVoice(language: String) -> ReadAloudVoice? {
-        guard let voice = AVSpeechSynthesisVoice(language: language) else { return nil }
-        return ReadAloudVoice(id: voice.identifier, name: voice.name, language: voice.language, quality: voice.quality.rawValue,
-                              isPersonalVoice: voice.voiceTraits.contains(.isPersonalVoice))
+        AVSpeechSynthesisVoice(language: language).map(Self.voice)
     }
 
     public var assistiveSpeechSettingsMayApply: Bool {
@@ -364,12 +370,17 @@ public final class ReadAloudSession {
     @ObservationIgnored public var didFinishDocument: (@MainActor () -> Bool)?
     /// A new key: the previous one also stored automatic choices, which pinned the first voice
     /// found (often the robotic Fred) even after a Premium voice was downloaded.
-    private static let voicePreferenceKey = "GraphiteReadAloudChosenVoice"
+    private static let voiceChoiceKey = "GraphiteReadAloudVoiceChoice"
+    /// Earlier builds stored automatic picks under these keys as if the person had chosen them
+    /// (the owner's iPad kept the robotic Eloquence "Eddy" that way). They are never read and
+    /// are removed, so everyone starts on the system's voice.
+    private static let abandonedVoiceKeys = ["GraphiteReadAloudVoice", "GraphiteReadAloudChosenVoice"]
     private static let speedPreferenceKey = "GraphiteReadAloudSpeed"
 
     public init(speech: any ReadAloudSpeaking = AppleReadAloudSpeech(), preferences: UserDefaults = .standard) {
         self.speech = speech; self.preferences = preferences
-        chosenVoiceIdentifier = preferences.string(forKey: Self.voicePreferenceKey)
+        for key in Self.abandonedVoiceKeys { preferences.removeObject(forKey: key) }
+        chosenVoiceIdentifier = ReadAloudVoiceChoice.stored(in: preferences, key: Self.voiceChoiceKey)?.identifier
         readingLanguage = ReadAloudLanguage.deviceLanguage
         let savedSpeed = preferences.double(forKey: Self.speedPreferenceKey)
         if savedSpeed.isFinite, (0.5...1.5).contains(savedSpeed) { speed = savedSpeed }
@@ -405,11 +416,18 @@ public final class ReadAloudSession {
     /// applies its own Speaking Rate, so Graphite's speed has no effect and is not shown.
     public var speedFollowsSystem: Bool { followsSystemVoice && speech.assistiveSpeechSettingsMayApply }
 
-    public var selectedVoiceIdentifier: String? { chosenVoiceIdentifier ?? systemVoice?.id ?? automaticVoice?.id }
+    /// The system's voice when following it, unless that is a robotic one: then the best
+    /// natural voice, while the system can still apply the person's own settings over it.
+    public var followedSystemVoice: ReadAloudVoice? {
+        guard let systemVoice, !systemVoice.isRobotic else { return automaticVoice }
+        return systemVoice
+    }
+
+    public var selectedVoiceIdentifier: String? { chosenVoiceIdentifier ?? followedSystemVoice?.id }
 
     public var selectedVoice: ReadAloudVoice? {
         guard let selectedVoiceIdentifier else { return nil }
-        if let systemVoice, systemVoice.id == selectedVoiceIdentifier { return systemVoice }
+        if let followedSystemVoice, followedSystemVoice.id == selectedVoiceIdentifier { return followedSystemVoice }
         return voices.first { voice in voice.id == selectedVoiceIdentifier }
     }
 
@@ -539,13 +557,14 @@ public final class ReadAloudSession {
         if wasSpeaking { speakCurrentPassage() }
     }
 
-    /// Chooses a voice, or the best available one when the identifier is nil.
-    public func chooseVoice(_ identifier: String?) {
+    /// Records the person's own choice of voice for Graphite, or nil to follow the system.
+    /// Only a person's action calls this: the picker, or the Personal Voice button.
+    public func chooseVoice(_ identifier: String?, madeWith source: ReadAloudVoiceChoice.Source = .picker) {
         if let identifier, !voices.contains(where: { voice in voice.id == identifier }) { return }
         prepareForVoiceOrSpeedChange()
         chosenVoiceIdentifier = identifier
-        if let identifier { preferences.set(identifier, forKey: Self.voicePreferenceKey) }
-        else { preferences.removeObject(forKey: Self.voicePreferenceKey) }
+        if let identifier { ReadAloudVoiceChoice(identifier: identifier, source: source).store(in: preferences, key: Self.voiceChoiceKey) }
+        else { preferences.removeObject(forKey: Self.voiceChoiceKey) }
         message = nil
     }
 
@@ -554,7 +573,7 @@ public final class ReadAloudSession {
         personalVoiceStatus = await speech.requestPersonalVoiceAccess()
         refreshVoices()
         if personalVoiceStatus == .authorized, let personal = voices.first(where: \.isPersonalVoice) {
-            chooseVoice(personal.id)
+            chooseVoice(personal.id, madeWith: .personalVoiceButton)
         } else if personalVoiceStatus == .authorized {
             message = "No Personal Voice is ready on this device yet. Create one in Settings › Accessibility › Personal Voice."
         } else if personalVoiceStatus == .denied {
@@ -672,5 +691,26 @@ public final class ReadAloudSession {
             state = .finished
             if didFinishDocument?() != true { speech.releaseAudio() }
         }
+    }
+}
+
+/// The person's own choice of voice for Graphite, with how it was made, so an automatic pick
+/// can never be read back as a choice.
+public struct ReadAloudVoiceChoice: Codable, Equatable, Sendable {
+    public enum Source: String, Codable, Sendable {
+        case picker, personalVoiceButton
+    }
+
+    public let identifier: String
+    public let source: Source
+
+    static func stored(in preferences: UserDefaults, key: String) -> ReadAloudVoiceChoice? {
+        guard let data = preferences.data(forKey: key), data.count <= 4_096 else { return nil }
+        return try? JSONDecoder().decode(ReadAloudVoiceChoice.self, from: data)
+    }
+
+    func store(in preferences: UserDefaults, key: String) {
+        guard let data = try? JSONEncoder().encode(self) else { return }
+        preferences.set(data, forKey: key)
     }
 }
