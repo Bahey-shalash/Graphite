@@ -50,8 +50,7 @@ public struct PDFPicture: Sendable, Equatable {
     /// under `pictureKey` with its angle, and is read turned as well.
     public init?(annotation: PDFAnnotation) {
         guard annotation.type == Self.annotationTypeName,
-              let storedImage = (annotation.value(forAnnotationKey: PDFPageManager.turnedPictureKey)
-                                 ?? annotation.value(forAnnotationKey: PDFPageManager.pictureKey)) as? String,
+              let storedImage = PDFPageManager.storedPictureKeys.lazy.compactMap({ key in annotation.value(forAnnotationKey: key) }).first as? String,
               storedImage.hasPrefix(Self.storedImagePrefix),
               storedImage.utf8.count <= Self.storedImagePrefix.utf8.count + (Self.maximumImageBytes + 2) / 3 * 4,
               let imageData = Data(base64Encoded: String(storedImage.dropFirst(Self.storedImagePrefix.count))), !imageData.isEmpty,
