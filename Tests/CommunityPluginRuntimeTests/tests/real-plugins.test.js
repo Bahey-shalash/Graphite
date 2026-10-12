@@ -300,6 +300,21 @@ test('Dataview: a TABLE query in a note is drawn for the reading view from the v
         assert.match(html, /<table/);
         assert.match(html, /class="internal-link"[^>]*data-href="Books\/Dune.md"|data-href="Books\/Dune.md"[^>]*class="internal-link"/);
         assert.match(html, />5</);
+
+        // An inline query in a note's text is a post-processor's work: that part of the note
+        // is shown as Dataview draws it, while a part it does not change stays Graphite's.
+        const inlineQuery = plain(await harness.send({
+            operation: 'codeBlock.render', kind: 'section', blockIdentifier: 'dataview-inline', source: 'Dune is rated `= [[Books/Dune]].rating` stars.', sourcePath: 'Welcome.md', width: 700,
+        }));
+        assert.equal(inlineQuery.isChanged, true);
+        let inlineHTML = inlineQuery.html;
+        await waitUntil(() => {
+            const changes = harness.host.notificationsOf('codeBlock.changed').filter((change) => change.blockIdentifier === 'dataview-inline');
+            if (changes.length > 0) inlineHTML = changes.at(-1).html;
+            return /rated <span[^>]*>5<\/span>|rated .*>5</.test(inlineHTML);
+        }, 10000).catch(() => { throw new Error('The inline query showed: ' + inlineHTML); });
+        const plainSection = plain(await harness.send({ operation: 'codeBlock.render', kind: 'section', blockIdentifier: 'dataview-plain', source: 'Nothing to query here.', sourcePath: 'Welcome.md' }));
+        assert.deepEqual(plainSection, { isDrawn: true, isChanged: false });
     } finally {
         harness.close();
     }
@@ -310,7 +325,7 @@ test('Tasks: loads, toggles a task done through the editor change, draws its dec
     try {
         assert.deepEqual(answer, { isLoaded: true });
         assert.ok(commandNames.includes('Tasks: Toggle task done'));
-        assert.deepEqual(unsupported, ['Changing how notes look in reading view', 'CodeMirror editor extensions', 'Suggestions while typing in a note']);
+        assert.deepEqual(unsupported, ['CodeMirror editor extensions', 'Suggestions while typing in a note']);
         assert.deepEqual(pageErrors, []);
         assert.ok((await settingRowCount(harness, 'obsidian-tasks-plugin')).count >= 5);
         harness.writeVaultFile('Tasks.md', '- [ ] Write the report\n');
@@ -484,12 +499,12 @@ test('Commander: loads and draws its settings pages, with Obsidian\'s hidden sta
     }
 });
 
-test('Iconize: loads and draws its settings; its icons in notes need reading view and editor changes', { skip: !builtPlugin('obsidian-icon-folder') }, async () => {
+test('Iconize: loads and draws its settings; its icons in the editor need editor changes', { skip: !builtPlugin('obsidian-icon-folder') }, async () => {
     const { harness, answer, commandNames, unsupported, pageErrors } = await loadInStudyVault('obsidian-icon-folder');
     try {
         assert.deepEqual(answer, { isLoaded: true });
         assert.deepEqual(commandNames, ['Iconize: Set icon for file']);
-        assert.deepEqual(unsupported, ['Changing how notes look in reading view', 'Suggestions while typing in a note', 'CodeMirror editor extensions']);
+        assert.deepEqual(unsupported, ['Suggestions while typing in a note', 'CodeMirror editor extensions']);
         assert.deepEqual(pageErrors, []);
         const settings = await settingRowCount(harness, 'obsidian-icon-folder');
         assert.equal(settings.hasSettingTab, true);

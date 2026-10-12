@@ -5,9 +5,17 @@ import GraphiteCore
 import UIKit
 #endif
 
-/// A code block a plugin draws in the reading view, as the note has it.
-struct CommunityPluginCodeBlockRequest: Hashable, Sendable {
-    let language: String
+/// A part of a note that plugins draw in the reading view, as the note has it: a code block
+/// in a language a plugin draws, or a section offered to the plugins' post-processors.
+struct CommunityPluginReadingBlockRequest: Hashable, Sendable {
+    enum Kind: Hashable, Sendable {
+        case codeBlock(language: String)
+        /// A run of the note's Markdown, which Graphite shows itself unless a plugin changes it.
+        case section
+    }
+
+    let kind: Kind
+    /// The code between the fences, or the section's Markdown.
     let source: String
     /// The note the block is written in.
     let note: VaultPath
@@ -37,6 +45,8 @@ final class CommunityPluginShownCodeBlock {
     enum Appearance: Equatable {
         case drawing
         case drawn(html: String)
+        /// No plugin changed the section, which Graphite shows itself.
+        case unchanged
         case failed(String)
     }
 
@@ -50,7 +60,9 @@ final class CommunityPluginShownCodeBlock {
     /// The copy's height in points, as its web view measured it.
     var height: CGFloat = 0
     @ObservationIgnored private weak var host: CommunityPluginHost?
-    @ObservationIgnored private var request: CommunityPluginCodeBlockRequest?
+    @ObservationIgnored private var request: CommunityPluginReadingBlockRequest?
+    /// Ticks the note's task on a line of a section, counted from the section's first line.
+    @ObservationIgnored var tickTask: ((Int) -> Void)?
 
     init(host: CommunityPluginHost) {
         self.host = host
@@ -60,7 +72,7 @@ final class CommunityPluginShownCodeBlock {
     var vaultRoot: URL? { host?.workspace?.folderAccess?.root }
 
     /// Asks the plugin to draw the block, showing the last copy meanwhile.
-    func draw(_ request: CommunityPluginCodeBlockRequest, width: CGFloat) async {
+    func draw(_ request: CommunityPluginReadingBlockRequest, width: CGFloat) async {
         guard let host else { return }
         // Drawing again under the same identifier replaces the plugin's earlier block there;
         // a separate release could arrive after this drawing and remove it.
@@ -73,9 +85,13 @@ final class CommunityPluginShownCodeBlock {
             appearance = .drawing
         }
         var message: [String: Any] = [
-            "operation": "codeBlock.render", "blockIdentifier": blockIdentifier, "language": request.language, "source": request.source,
+            "operation": "codeBlock.render", "blockIdentifier": blockIdentifier, "source": request.source,
             "sourcePath": request.note.rawValue, "lineCount": request.lineCount, "width": Double(max(width, 200)),
         ]
+        switch request.kind {
+        case .codeBlock(let language): message["language"] = language
+        case .section: message["kind"] = "section"
+        }
         if let firstLine = request.firstLine { message["firstLine"] = firstLine }
         // `getSectionInfo` gives a plugin the whole note; only an open note's text is at hand.
         if let noteText = host.openNoteText(at: request.note), (noteText as NSString).length <= 1_048_576 { message["noteText"] = noteText }
@@ -83,7 +99,11 @@ final class CommunityPluginShownCodeBlock {
             let answer = try await host.send(message, timeout: Self.drawingTimeout)
             guard self.request == request else { return }
             if let styles = answer["styles"] as? String { host.updatePluginStyleSheets(styles) }
-            if answer["isDrawn"] as? Bool == true, let html = answer["html"] as? String {
+            if answer["isDrawn"] as? Bool == true, answer["isChanged"] as? Bool == false {
+                appearance = .unchanged
+                self.request = nil
+                host.shownCodeBlocks[blockIdentifier] = nil
+            } else if answer["isDrawn"] as? Bool == true, let html = answer["html"] as? String {
                 receive(html: html)
             } else {
                 appearance = .failed(answer["message"] as? String ?? "The plugin did not draw this block.")
@@ -123,6 +143,7 @@ final class CommunityPluginShownCodeBlock {
         message["blockIdentifier"] = blockIdentifier
         Task {
             guard let answer = try? await host.send(message, timeout: Self.tapTimeout) else { return }
+            if let taskLine = answer["taskLine"] as? Int { tickTask?(taskLine) }
             if let html = answer["html"] as? String { receive(html: html) }
         }
     }
@@ -148,13 +169,16 @@ extension CommunityPluginHost {
     func pluginName(drawingLanguage language: String) -> String? {
         codeBlockLanguageOwners[language].flatMap(pluginName(of:))
     }
+
+    /// Whether plugins change how notes read, so the reading view offers sections to them.
+    var runsMarkdownPostProcessors: Bool { !postProcessingPluginIdentifiers.isEmpty }
 }
 
 /// A plugin's code block in the reading view: what the plugin drew, shown in a web view
 /// that runs no script of the page, sized to its content.
 struct CommunityPluginCodeBlockView: View {
     let host: CommunityPluginHost
-    let request: CommunityPluginCodeBlockRequest
+    let request: CommunityPluginReadingBlockRequest
     let textSize: Double
     @State private var shownBlock: CommunityPluginShownCodeBlock?
     @State private var availableWidth: CGFloat = 0
@@ -179,7 +203,7 @@ struct CommunityPluginCodeBlockView: View {
 
     /// Drawn again when the block's text changes, or once its width is known.
     private struct DrawingKey: Equatable {
-        let request: CommunityPluginCodeBlockRequest
+        let request: CommunityPluginReadingBlockRequest
         let hasWidth: Bool
     }
 
@@ -198,6 +222,9 @@ struct CommunityPluginCodeBlockView: View {
                                                 isDark: colorScheme == .dark, textSize: textSize, accentHex: accent.sRGBHex)
                     .frame(height: max(shownBlock.height, 1))
             }
+        case .unchanged:
+            // Only sections end here, and they are shown by `CommunityPluginSectionView`.
+            Text(request.source).textSelection(.enabled)
         case .failed(let message):
             VStack(alignment: .leading, spacing: 6) {
                 Label(message, systemImage: "exclamationmark.triangle")
@@ -213,8 +240,75 @@ struct CommunityPluginCodeBlockView: View {
     }
 
     private var drawingDescription: String {
-        if let pluginName = host.pluginName(drawingLanguage: request.language) { return "\(pluginName) is drawing this block…" }
+        if case .codeBlock(let language) = request.kind, let pluginName = host.pluginName(drawingLanguage: language) { return "\(pluginName) is drawing this block…" }
         return "Drawing this block…"
+    }
+}
+
+/// A section of a note while plugins change how notes read: Graphite's own rendering, until
+/// a plugin's post-processor changes the section, which then shows as the plugin drew it.
+struct CommunityPluginSectionView<NativeContent: View>: View {
+    let host: CommunityPluginHost
+    let request: CommunityPluginReadingBlockRequest
+    let textSize: Double
+    @ViewBuilder let nativeContent: () -> NativeContent
+    @State private var shownBlock: CommunityPluginShownCodeBlock?
+    @State private var availableWidth: CGFloat = 0
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accent) private var accent
+    @Environment(\.readingTaskContext) private var taskContext
+
+    var body: some View {
+        Group {
+            if let shownBlock, case .drawn(let html) = shownBlock.appearance {
+                CommunityPluginCodeBlockDisplay(block: shownBlock, html: html, styleSheets: host.pluginStyleSheets,
+                                                isDark: colorScheme == .dark, textSize: textSize, accentHex: accent.sRGBHex)
+                    .frame(height: max(shownBlock.height, 1))
+            } else {
+                nativeContent()
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onGeometryChange(for: CGFloat.self) { geometry in geometry.size.width } action: { width in availableWidth = width }
+        .task(id: SectionKey(request: request, hasWidth: availableWidth > 0)) {
+            guard availableWidth > 0 else { return }
+            let block = shownBlock ?? CommunityPluginShownCodeBlock(host: host)
+            shownBlock = block
+            block.tickTask = { lineIndex in Task { await tickTask(onSectionLine: lineIndex) } }
+            await block.draw(request, width: availableWidth)
+        }
+        .onDisappear {
+            shownBlock?.release()
+            shownBlock = nil
+        }
+    }
+
+    /// A task checkbox of the section, tapped in the plugin's version of it: ticked in the
+    /// note as Graphite's own checkboxes tick it, provided the line still holds that task.
+    private func tickTask(onSectionLine lineIndex: Int) async {
+        guard let taskContext, let firstLine = request.firstLine else { return }
+        let noteText: String?
+        if let openText = host.openNoteText(at: request.note) {
+            noteText = openText
+        } else if let store = host.workspace?.store, let snapshot = try? await store.read(request.note, maximumBytes: NotePreviewDocument.maximumEmbeddedNoteBytes) {
+            noteText = String(data: snapshot.data, encoding: .utf8)
+        } else {
+            noteText = nil
+        }
+        guard let noteText else { return }
+        let lines = noteText.components(separatedBy: "\n")
+        let noteLine = firstLine + lineIndex
+        guard lines.indices.contains(noteLine) else { return }
+        let lineStart = lines[..<noteLine].reduce(0) { offset, line in offset + (line as NSString).length + 1 }
+        guard let openingBracket = lines[noteLine].firstIndex(of: "["),
+              let status = lines[noteLine][lines[noteLine].index(after: openingBracket)...].unicodeScalars.first,
+              let location = ReadingTasks.location(ofTaskStartingAt: lineStart, status: status, in: noteText) else { return }
+        _ = await taskContext.toggle(request.note, location)
+    }
+
+    private struct SectionKey: Equatable {
+        let request: CommunityPluginReadingBlockRequest
+        let hasWidth: Bool
     }
 }
 

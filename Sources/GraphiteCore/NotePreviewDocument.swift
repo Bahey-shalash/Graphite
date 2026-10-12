@@ -1,4 +1,5 @@
 import Foundation
+import Markdown
 
 /// Whether a callout starts folded (`[!note]-`), unfolded (`[!note]+`), or cannot fold.
 public enum CalloutFolding: Equatable, Sendable {
@@ -755,5 +756,54 @@ extension CodeFenceTracker {
         guard let firstCharacter = line.first(where: { character in !character.isWhitespace }),
               firstCharacter == "`" || firstCharacter == "~" else { return isInsideFence }
         return isCodeLine(line.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+}
+
+extension NotePreviewDocument {
+    /// A reference definition (`[label]: destination`), which links elsewhere in the run use.
+    private static let referenceDefinitionPattern = try? NSRegularExpression(pattern: "^ {0,3}\\[[^\\]]+\\]:", options: [.anchorsMatchLines])
+
+    /// The blocks with each run of Markdown divided into sections as Obsidian's reading view
+    /// divides a note, one per top-level block (a paragraph, a list, a table, a quote, a code
+    /// block), so community plugins' post-processors see and change one section at a time.
+    /// Callout bodies are divided too. A run with reference definitions stays whole, since
+    /// its links need them.
+    public static func dividedIntoSections(_ blocks: [LocatedBlock]) -> [LocatedBlock] {
+        blocks.flatMap { located -> [LocatedBlock] in
+            switch located.block {
+            case .markdown:
+                return sections(of: located)
+            case .callout(let type, let title, let folding, _):
+                let body = dividedIntoSections(located.body)
+                return [LocatedBlock(block: .callout(type: type, title: title, folding: folding, body: body.map(\.block)),
+                                     startOffset: located.startOffset, lineStartOffsets: located.lineStartOffsets, body: body, lineCount: located.lineCount)]
+            default:
+                return [located]
+            }
+        }
+    }
+
+    private static func sections(of located: LocatedBlock) -> [LocatedBlock] {
+        guard case .markdown(let markdown) = located.block else { return [located] }
+        let lines = markdown.components(separatedBy: "\n")
+        guard lines.count > 1, lines.count == located.lineStartOffsets.count,
+              referenceDefinitionPattern?.firstMatch(in: markdown, range: NSRange(location: 0, length: (markdown as NSString).length)) == nil else { return [located] }
+        var sections: [LocatedBlock] = []
+        for child in Document(parsing: markdown).children {
+            guard let range = child.range else { return [located] }
+            let firstLineIndex = range.lowerBound.line - 1
+            // The range ends just after the block; at the start of a line, that line is not the block's.
+            let lastLineIndex = range.upperBound.column == 1 ? range.upperBound.line - 2 : range.upperBound.line - 1
+            guard lines.indices.contains(firstLineIndex), lines.indices.contains(lastLineIndex), firstLineIndex <= lastLineIndex else { return [located] }
+            if let previous = sections.last, let previousLast = previous.lineStartOffsets.last,
+               let previousLastIndex = located.lineStartOffsets.firstIndex(of: previousLast), previousLastIndex >= firstLineIndex {
+                return [located]
+            }
+            sections.append(LocatedBlock(block: .markdown(lines[firstLineIndex...lastLineIndex].joined(separator: "\n")),
+                                         startOffset: located.lineStartOffsets[firstLineIndex],
+                                         lineStartOffsets: Array(located.lineStartOffsets[firstLineIndex...lastLineIndex]), body: [],
+                                         lineCount: lastLineIndex - firstLineIndex + 1))
+        }
+        return sections.isEmpty ? [located] : sections
     }
 }

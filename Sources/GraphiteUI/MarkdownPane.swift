@@ -197,7 +197,8 @@ struct MarkdownPane: View {
                              colorsEnabled: preferences.isEnabled(.colors), paletteHexByName: paletteHexByName,
                              showsProperties: preferences.isEnabled(.properties), declaredPropertyTypes: session.declaredPropertyTypes, inlineTitle: inlineTitle,
                              textSize: noteTextSize, drawingVersion: workspace.drawingVersion, indexVersion: workspace.indexVersion,
-                             pluginCodeBlockLanguages: workspace.communityPlugins.codeBlockLanguages)
+                             pluginCodeBlockLanguages: workspace.communityPlugins.codeBlockLanguages,
+                             runsPluginPostProcessors: workspace.communityPlugins.runsMarkdownPostProcessors)
     }
 
     /// The note's name above its text, written as the tab and the title bar write it, so the

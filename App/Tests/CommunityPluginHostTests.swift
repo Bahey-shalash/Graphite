@@ -42,6 +42,11 @@ final class CommunityPluginHostTests: XCTestCase {
                 button.addEventListener('click', () => { count += 1; button.setText('Count ' + count); });
                 window.setTimeout(() => element.createDiv({ cls: 'graphite-later', text: 'Drawn later' }), 300);
             });
+            this.registerMarkdownPostProcessor((element) => {
+                for (const code of Array.from(element.querySelectorAll('code'))) {
+                    if (code.textContent.startsWith('shout:')) code.replaceWith(createEl('strong', { cls: 'graphite-shout', text: code.textContent.slice(6).toUpperCase() }));
+                }
+            });
         }
     };
     """
@@ -192,6 +197,24 @@ final class CommunityPluginHostTests: XCTestCase {
         // Leaving reading view releases the plugin's block.
         session.viewMode = .source
         try await waitUntil(seconds: 5) { host.shownCodeBlocks.isEmpty }
+    }
+
+    func testASectionAPluginChangesIsShownAsThePluginDrewItAndTheRestStaysNative() async throws {
+        let (workspace, _, controller) = try await workspaceWithRunningPlugin(notes: ["Shout.md": "Plain words.\n\nSay `shout:hello` here.\n\nMore plain words.\n"])
+        let host = workspace.communityPlugins
+        try await waitUntil { host.runsMarkdownPostProcessors }
+        let tab = try await openTab("Shout.md", in: workspace)
+        workspace.document(for: tab).markdownSession?.viewMode = .reading
+        try await waitUntil(seconds: 15) { self.codeBlockWebViews(in: controller, host: host).count == 1 }
+        let sectionWebView = try XCTUnwrap(codeBlockWebViews(in: controller, host: host).first)
+        var shownHTML = try await codeBlockHTML(sectionWebView)
+        for _ in 0..<100 where !shownHTML.contains("HELLO") {
+            try await Task.sleep(for: .milliseconds(50))
+            shownHTML = try await codeBlockHTML(sectionWebView)
+        }
+        XCTAssertTrue(shownHTML.contains("<strong class=\"graphite-shout\">HELLO</strong>"), shownHTML)
+        try await Task.sleep(for: .milliseconds(500))
+        XCTAssertEqual(codeBlockWebViews(in: controller, host: host).count, 1, "Sections no plugin changes stay Graphite's own.")
     }
 
     /// Dataview and Tasks as built by `npm run build-compatibility-plugins`, read from the

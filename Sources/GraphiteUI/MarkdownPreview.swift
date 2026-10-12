@@ -33,6 +33,9 @@ struct ReadingConfiguration: Equatable, Sendable {
     /// Code block languages the vault's community plugins draw; such blocks are drawn by
     /// their plugin instead of shown as code.
     var pluginCodeBlockLanguages: Set<String> = []
+    /// Whether community plugins change how notes read (Markdown post-processors); each
+    /// run of Markdown is then offered to them.
+    var runsPluginPostProcessors = false
 }
 
 /// A reading-view block after links are resolved and files located.
@@ -63,13 +66,16 @@ indirect enum RenderedBlock: Identifiable, Sendable {
     /// the note the block is written in (an embedded note's own path), and `firstLine` the
     /// zero-based line of its opening fence there, nil when not known.
     case pluginCodeBlock(id: Int, language: String, source: String, note: VaultPath, firstLine: Int?, lineCount: Int)
+    /// A run of Markdown offered to plugins' post-processors: `text` is Graphite's own
+    /// rendering of it, shown unless a plugin changes the section.
+    case pluginSection(id: Int, text: String, request: CommunityPluginReadingBlockRequest)
 
     var id: String {
         switch self {
         case .properties: "properties"
         case .markdown(let id, _), .displayMath(let id, _), .heading(let id, _, _, _), .callout(let id, _, _, _, _), .video(let id, _), .audio(let id, _, _),
              .pdf(let id, _, _, _), .transclusion(let id, _, _, _), .base(let id, _), .baseFile(let id, _, _), .missingEmbed(let id, _), .missingSection(let id, _, _), .image(let id, _, _, _, _),
-             .footnotes(let id, _), .pluginCodeBlock(let id, _, _, _, _, _): "block-\(id)"
+             .footnotes(let id, _), .pluginCodeBlock(let id, _, _, _, _, _), .pluginSection(let id, _, _): "block-\(id)"
         }
     }
 }
@@ -269,7 +275,8 @@ actor ReadingViewBuilder {
         let taskSource = TaskSource(noteText: source) { bodyOffset in
             readableBody.offsets.originalOffset(of: bodyOffset).map { offset in offset + frontmatterLength }
         }
-        let locatedBlocks = NotePreviewDocument.locatedBlocks(from: readableBody.text, pluginCodeBlockLanguages: configuration.pluginCodeBlockLanguages)
+        let locatedBlocks = Self.sectioned(NotePreviewDocument.locatedBlocks(from: readableBody.text, pluginCodeBlockLanguages: configuration.pluginCodeBlockLanguages),
+                                           for: configuration)
         let renderedBody = try await render(locatedBlocks, note: note, root: root, index: index, configuration: configuration,
                                             allowsTransclusion: allowsTransclusion, taskSource: taskSource)
         // Each located block renders as one block, in order.
@@ -291,6 +298,13 @@ actor ReadingViewBuilder {
     }
 
     private func identifier() -> Int { nextIdentifier += 1; return nextIdentifier }
+
+    /// While plugins change how notes read, runs of Markdown are divided into Obsidian's
+    /// sections, so a plugin's change shows in the section it changed and the rest of the
+    /// run stays Graphite's.
+    private static func sectioned(_ blocks: [NotePreviewDocument.LocatedBlock], for configuration: ReadingConfiguration) -> [NotePreviewDocument.LocatedBlock] {
+        configuration.runsPluginPostProcessors ? NotePreviewDocument.dividedIntoSections(blocks) : blocks
+    }
 
     /// The text of the note a run of blocks was split from, in which their tasks are found.
     private struct TaskSource {
@@ -320,7 +334,14 @@ actor ReadingViewBuilder {
                     guard locatedBlock.lineStartOffsets.indices.contains(lineIndex), let lineStart = taskSource.noteOffset(locatedBlock.lineStartOffsets[lineIndex]) else { return nil }
                     return ReadingTasks.location(ofTaskStartingAt: lineStart, status: status, in: taskSource.noteText)
                 }
-                rendered.append(.markdown(id: identifier(), text: text))
+                if configuration.runsPluginPostProcessors {
+                    let request = CommunityPluginReadingBlockRequest(kind: .section, source: markdown, note: note,
+                                                                     firstLine: taskSource.noteLine(ofBodyOffset: locatedBlock.startOffset),
+                                                                     lineCount: max(1, locatedBlock.lineStartOffsets.count))
+                    rendered.append(.pluginSection(id: identifier(), text: text, request: request))
+                } else {
+                    rendered.append(.markdown(id: identifier(), text: text))
+                }
             case .heading(let level, let text, let anchor):
                 rendered.append(.heading(id: identifier(), level: level, text: try await prepared(text, note: note, root: root, index: index, configuration: configuration),
                                          anchor: allowsTransclusion ? scrollTarget(forHeadingWithAnchor: anchor) : nil))
@@ -385,7 +406,8 @@ actor ReadingViewBuilder {
             }
             // A task of an embedded note is ticked in that note, as in Obsidian.
             let taskSource = TaskSource(noteText: transcludedSource) { sectionOffset in transcludedFrontmatterLength + section.location + sectionOffset }
-            let body = try await render(NotePreviewDocument.locatedBlocks(from: section.text, pluginCodeBlockLanguages: configuration.pluginCodeBlockLanguages), note: path, root: root, index: index, configuration: configuration,
+            let body = try await render(Self.sectioned(NotePreviewDocument.locatedBlocks(from: section.text, pluginCodeBlockLanguages: configuration.pluginCodeBlockLanguages),
+                                                       for: configuration), note: path, root: root, index: index, configuration: configuration,
                                         allowsTransclusion: false, taskSource: taskSource)
             return .transclusion(id: identifier(), path: path, heading: subpath, body: body)
         case .image, .pdf:
@@ -913,6 +935,7 @@ extension ReadingConfiguration {
         hasher.combine(paletteHexByName.sorted { firstEntry, secondEntry in firstEntry.key < secondEntry.key }.map { entry in entry.key + entry.value })
         hasher.combine(declaredPropertyTypes.sorted { firstEntry, secondEntry in firstEntry.key < secondEntry.key }.map { entry in entry.key + "=" + entry.value.rawValue })
         hasher.combine(pluginCodeBlockLanguages.sorted())
+        hasher.combine(runsPluginPostProcessors)
         return hasher.finalize()
     }
 }
@@ -989,6 +1012,14 @@ struct ReadingBlocksView: View {
                 PropertiesPanel(properties: properties, update: updateProperties, follow: navigate, declaredTypes: declaredPropertyTypes)
             case .markdown(_, let text):
                 ObsidianMarkdownText(markdown: text, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading)
+            case .pluginSection(_, let text, let request):
+                if let codeBlocks = pluginCodeBlocks {
+                    CommunityPluginSectionView(host: codeBlocks, request: request, textSize: textSize) {
+                        ObsidianMarkdownText(markdown: text, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading)
+                    }
+                } else {
+                    ObsidianMarkdownText(markdown: text, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading)
+                }
             case .displayMath(_, let text):
                 // Centered, as Obsidian shows display math.
                 ObsidianMarkdownText(markdown: text, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading)
@@ -1062,8 +1093,8 @@ struct ReadingBlocksView: View {
                     .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
             case .pluginCodeBlock(_, let language, let source, let note, let firstLine, let lineCount):
                 if let codeBlocks = pluginCodeBlocks {
-                    CommunityPluginCodeBlockView(host: codeBlocks, request: CommunityPluginCodeBlockRequest(language: language, source: source, note: note,
-                                                                                                         firstLine: firstLine, lineCount: lineCount),
+                    CommunityPluginCodeBlockView(host: codeBlocks, request: CommunityPluginReadingBlockRequest(kind: .codeBlock(language: language), source: source, note: note,
+                                                                                                             firstLine: firstLine, lineCount: lineCount),
                                                  textSize: textSize)
                 } else {
                     ObsidianMarkdownText(markdown: "```" + language + "\n" + source + "\n```", root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading)

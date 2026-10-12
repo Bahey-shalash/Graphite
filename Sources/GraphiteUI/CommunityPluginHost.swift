@@ -144,13 +144,16 @@ final class CommunityPluginHost {
     private(set) var codeBlockLanguages: Set<String> = []
     /// The plugin that draws each code block language.
     @ObservationIgnored private(set) var codeBlockLanguageOwners: [String: String] = [:]
+    /// Plugins that change how notes read (`registerMarkdownPostProcessor`); while there are
+    /// any, the reading view offers each part of a note to them.
+    private(set) var postProcessingPluginIdentifiers: [String] = []
     /// The loaded plugins' style sheets, which copies of their code blocks are shown with.
     private(set) var pluginStyleSheets = ""
     /// The code blocks shown in notes, by identifier, to give them the plugin's changes.
     @ObservationIgnored var shownCodeBlocks: [String: CommunityPluginShownCodeBlock] = [:]
     /// The last copy of each code block drawn, kept while Graphite runs, so a block that
     /// scrolls back into view shows at once, at its height, while it is drawn again.
-    @ObservationIgnored var lastCodeBlockCopies: [CommunityPluginCodeBlockRequest: CommunityPluginCodeBlockCopy] = [:]
+    @ObservationIgnored var lastCodeBlockCopies: [CommunityPluginReadingBlockRequest: CommunityPluginCodeBlockCopy] = [:]
 
     // MARK: Ownership
 
@@ -416,6 +419,7 @@ final class CommunityPluginHost {
         pluginsWithSettings = []
         codeBlockLanguages = []
         codeBlockLanguageOwners = [:]
+        postProcessingPluginIdentifiers = []
         lastCodeBlockCopies = [:]
         isPanelPresented = false
         pendingMenu?.finish(choosing: nil)
@@ -732,8 +736,16 @@ final class CommunityPluginHost {
                   let request = try? JSONDecoder().decode(CommunityPluginNetworkRequest.self, from: messageData) else { return Self.failure("invalidData", "The plugin's request could not be read.") }
             do { return try await request.perform().jsonObject } catch { return Self.failure("network", error.localizedDescription) }
         case "markdown.render":
-            do { return ["html": try CommunityPluginMarkdownRendering.html(for: message["markdown"] as? String ?? "")] }
-            catch { return Self.failure("tooLarge", error.localizedDescription) }
+            // Parsed off the main thread: the reading view asks for every section of a note
+            // while plugins change how notes read.
+            let markdown = message["markdown"] as? String ?? ""
+            let rendering = await Task.detached(priority: .userInitiated) { () -> Result<String, any Error> in
+                Result { try CommunityPluginMarkdownRendering.html(for: markdown) }
+            }.value
+            switch rendering {
+            case .success(let html): return ["html": html]
+            case .failure(let error): return Self.failure("tooLarge", error.localizedDescription)
+            }
         case "workspace.openFile":
             guard let pathText = message["path"] as? String, let path = try? VaultPath(pathText) else { return Self.failure("invalidPath", "The plugin named no file to open.") }
             await workspace?.open(path, placement: message["placement"] as? String == "newTab" ? .newTab : .currentTab)
@@ -796,6 +808,9 @@ final class CommunityPluginHost {
             let languages = Set(message["languages"] as? [String] ?? [])
             codeBlockLanguageOwners = message["owners"] as? [String: String] ?? [:]
             if languages != codeBlockLanguages { codeBlockLanguages = languages }
+        case "postProcessors.changed":
+            let pluginIdentifiers = message["pluginIdentifiers"] as? [String] ?? []
+            if pluginIdentifiers != postProcessingPluginIdentifiers { postProcessingPluginIdentifiers = pluginIdentifiers }
         case "codeBlock.changed":
             guard let blockIdentifier = message["blockIdentifier"] as? String, let html = message["html"] as? String else { return }
             shownCodeBlocks[blockIdentifier]?.receive(html: html)

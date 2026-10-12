@@ -48,6 +48,15 @@ async function startRuntime(options) {
     if (!window.CSS.escape) window.CSS.escape = (value) => String(value).replace(/[^a-zA-Z0-9_-]/g, (character) => '\\' + character);
     // WebKit scrolls an element into view; jsdom has no layout and no such method.
     if (!window.Element.prototype.scrollIntoView) window.Element.prototype.scrollIntoView = () => {};
+    // WebKit gives an element's rendered text as `innerText`; jsdom, without layout, has
+    // none, so its text content stands in (Dataview reads inline queries with it).
+    if (!('innerText' in window.HTMLElement.prototype)) {
+        Object.defineProperty(window.HTMLElement.prototype, 'innerText', {
+            get() { return this.textContent; },
+            set(text) { this.textContent = text; },
+            configurable: true,
+        });
+    }
     // WebKit reports when an element is on screen (Tasks draws its query results only then);
     // jsdom has no layout, so every observed element counts as on screen.
     if (!window.IntersectionObserver) {

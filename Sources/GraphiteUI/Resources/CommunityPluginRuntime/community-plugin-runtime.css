@@ -212,3 +212,8 @@ pre code { display: block; padding: var(--size-4-3); overflow: auto; }
 .markdown-rendered input.task-list-item-checkbox { width: 1.1em; height: 1.1em; margin: 0 0.5em 0 0; vertical-align: -0.15em; accent-color: var(--interactive-accent); }
 .markdown-rendered li.is-checked, .markdown-rendered li[data-task="x"] { color: var(--text-muted); }
 .markdown-rendered h1, .markdown-rendered h2, .markdown-rendered h3, .markdown-rendered h4 { margin: var(--size-4-3) 0 var(--size-4-2); line-height: var(--line-height-tight); }
+/* Task lists as Graphite's Markdown renderer writes them (`<li><input type="checkbox"> <p>…</p></li>`), drawn as Obsidian draws its own */
+.markdown-rendered li:not(.task-list-item):has(> input[type="checkbox"]) { list-style: none; margin-left: -1.2em; }
+.markdown-rendered li:not(.task-list-item) > input[type="checkbox"] { width: 1.1em; height: 1.1em; margin: 0 0.4em 0 0; vertical-align: -0.15em; accent-color: var(--interactive-accent); }
+.markdown-rendered li:not(.task-list-item) > input[type="checkbox"] + p { display: inline; margin: 0; }
+.markdown-rendered li:not(.task-list-item) > input[type="checkbox"][checked] + p { color: var(--text-muted); text-decoration: line-through; }

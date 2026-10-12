@@ -129,3 +129,50 @@ class ExamplePlugin extends obsidian.Plugin {
         harness.close();
     }
 });
+
+test('a note\'s section is shown as a plugin changed it, and left to Graphite when no plugin changes it', async () => {
+    const harness = await startRuntime({ files: { 'Note.md': 'Plain words.\n\nSay `shout:hello` here.\n' } });
+    try {
+        const shoutingPlugin = pluginSource(`
+class ExamplePlugin extends obsidian.Plugin {
+    async onload() {
+        this.registerMarkdownPostProcessor((element, context) => {
+            for (const code of Array.from(element.querySelectorAll('code'))) {
+                if (!code.textContent.startsWith('shout:')) continue;
+                const loud = createEl('strong', { cls: 'shout', text: code.textContent.slice(6).toUpperCase() });
+                code.replaceWith(loud);
+                const section = context.getSectionInfo(element);
+                loud.setAttribute('data-lines', section ? section.lineStart + '-' + section.lineEnd : 'none');
+            }
+        });
+    }
+}`);
+        await installAndLoadPlugin(harness, { manifest: Object.assign({}, manifest, { id: 'shout', name: 'Shout' }), mainSource: shoutingPlugin });
+        await settle();
+        assert.deepEqual(plain(harness.host.notificationsOf('postProcessors.changed').at(-1)).pluginIdentifiers, ['shout']);
+        assert.deepEqual(plain(harness.host.notificationsOf('plugin.unsupportedFeature')), [], 'post-processors are no longer reported as unsupported');
+
+        const plainSection = plain(await harness.send({ operation: 'codeBlock.render', kind: 'section', blockIdentifier: 'section-1', source: 'Plain words.', sourcePath: 'Note.md', firstLine: 0, lineCount: 1, noteText: 'Plain words.\n\nSay `shout:hello` here.\n' }));
+        assert.deepEqual(plainSection, { isDrawn: true, isChanged: false });
+        assert.equal(harness.window.document.querySelectorAll('.graphite-reading-block').length, 0, 'an unchanged section is not kept');
+
+        const changed = plain(await harness.send({ operation: 'codeBlock.render', kind: 'section', blockIdentifier: 'section-2', source: 'Say `shout:hello` here.', sourcePath: 'Note.md', firstLine: 2, lineCount: 1, noteText: 'Plain words.\n\nSay `shout:hello` here.\n' }));
+        assert.equal(changed.isChanged, true);
+        assert.match(changed.html, /<strong class="shout" data-lines="2-2">HELLO<\/strong>/);
+        assert.equal(harness.window.document.querySelectorAll('.graphite-reading-block').length, 1, 'a changed section stays alive');
+        // A task of the section itself, tapped in the plugin's version, is left to Graphite to
+        // tick in the note: the answer names its line in the section.
+        const taskList = plain(await harness.send({ operation: 'codeBlock.render', kind: 'section', blockIdentifier: 'section-3', source: '- [ ] Call `shout:bob`\n- [x] Done', sourcePath: 'Note.md', firstLine: 4, lineCount: 2 }));
+        assert.equal(taskList.isChanged, true);
+        assert.match(taskList.html, /<input type="checkbox" data-graphite-task-line="1" checked="">|data-graphite-task-line="1"/);
+        assert.doesNotMatch(taskList.html, /disabled/, 'the boxes can be ticked');
+        const tick = plain(await harness.send({ operation: 'codeBlock.event', blockIdentifier: 'section-3', elementPath: [0, 1, 0] }));
+        assert.deepEqual(tick, { isHandled: true, taskLine: 1 });
+
+        await harness.send({ operation: 'plugin.unload', pluginIdentifier: 'shout' });
+        await settle();
+        assert.deepEqual(plain(harness.host.notificationsOf('postProcessors.changed').at(-1)).pluginIdentifiers, []);
+    } finally {
+        harness.close();
+    }
+});

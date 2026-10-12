@@ -57,6 +57,22 @@ final class NotePreviewDocumentTests: XCTestCase {
                        "Without plugin languages nothing changes.")
     }
 
+    func testRunsOfMarkdownDivideIntoObsidiansSections() {
+        let body = "First paragraph\ncontinues.\n\n- [ ] one\n- [x] two\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n> [!note] Title\n> Inside.\n>\n> Second.\n"
+        let divided = NotePreviewDocument.dividedIntoSections(NotePreviewDocument.locatedBlocks(from: body))
+        guard divided.count == 4 else { return XCTFail("Expected 4 sections, got \(divided.map(\.block))") }
+        XCTAssertEqual(divided[0].block, .markdown("First paragraph\ncontinues."))
+        XCTAssertEqual(divided[0].lineStartOffsets, [0, 16])
+        XCTAssertEqual(divided[1].block, .markdown("- [ ] one\n- [x] two"))
+        XCTAssertEqual(divided[1].startOffset, ("First paragraph\ncontinues.\n\n" as NSString).length)
+        XCTAssertEqual(divided[2].block, .markdown("| a | b |\n|---|---|\n| 1 | 2 |"))
+        guard case .callout(_, _, _, let calloutBody) = divided[3].block else { return XCTFail("Expected a callout") }
+        XCTAssertEqual(calloutBody, [.markdown("Inside."), .markdown("Second.")])
+        // Links in one section can need a definition in another, so such a run stays whole.
+        let withDefinition = NotePreviewDocument.dividedIntoSections(NotePreviewDocument.locatedBlocks(from: "See [the site][1].\n\n[1]: https://example.com\n"))
+        XCTAssertEqual(withDefinition.map(\.block), [.markdown("See [the site][1].\n\n[1]: https://example.com\n")])
+    }
+
     func testOutlineSkipsCode() {
         let outline = NotePreviewDocument.outline(of: "# One\n```\n# Code\n```\n## Two  \n")
         XCTAssertEqual(outline.map(\.text), ["One", "Two"])

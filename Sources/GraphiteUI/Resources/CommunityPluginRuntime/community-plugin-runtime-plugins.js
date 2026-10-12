@@ -173,6 +173,19 @@
     let isCodeBlockLanguageNotificationScheduled = false;
     /// Tells Graphite which code block languages plugins draw, once per turn of changes:
     /// its reading view draws blocks in those languages through their plugin.
+    let isPostProcessorNotificationScheduled = false;
+    /// Tells Graphite whether plugins change how notes read (`registerMarkdownPostProcessor`):
+    /// its reading view then offers each part of a note to them.
+    runtime.postProcessorsChanged = function postProcessorsChanged() {
+        if (isPostProcessorNotificationScheduled) return;
+        isPostProcessorNotificationScheduled = true;
+        Promise.resolve().then(() => {
+            isPostProcessorNotificationScheduled = false;
+            const owners = Array.from(new Set(runtime.markdownPostProcessors.map((registered) => registered.pluginIdentifier).filter(Boolean)));
+            hostBridge.notify('postProcessors.changed', { pluginIdentifiers: owners });
+        });
+    };
+
     runtime.codeBlockLanguagesChanged = function codeBlockLanguagesChanged() {
         if (isCodeBlockLanguageNotificationScheduled) return;
         isCodeBlockLanguageNotificationScheduled = true;
@@ -320,8 +333,11 @@
         registerMarkdownPostProcessor(postProcessor, sortOrder) {
             const registered = { postProcessor, sortOrder: sortOrder || 0, pluginIdentifier: this.manifest.id };
             runtime.markdownPostProcessors.push(registered);
-            runtime.reportUnsupportedFeature('Changing how notes look in reading view', this.manifest.id);
-            this.register(() => { runtime.markdownPostProcessors = runtime.markdownPostProcessors.filter((candidate) => candidate !== registered); });
+            runtime.postProcessorsChanged();
+            this.register(() => {
+                runtime.markdownPostProcessors = runtime.markdownPostProcessors.filter((candidate) => candidate !== registered);
+                runtime.postProcessorsChanged();
+            });
             return postProcessor;
         }
 

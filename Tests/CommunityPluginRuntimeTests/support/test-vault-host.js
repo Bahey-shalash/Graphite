@@ -233,7 +233,7 @@ class TestVaultHost {
     }
 }
 
-/// Enough Markdown for tests of `MarkdownRenderer`: paragraphs, headings and code blocks.
+/// Enough Markdown for tests of `MarkdownRenderer`: paragraphs, headings, task lists, code blocks and inline code.
 function renderMarkdownForTests(markdown) {
     const escape = (text) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const blocks = [];
@@ -244,8 +244,15 @@ function renderMarkdownForTests(markdown) {
         for (const paragraph of text.split(/\n{2,}/)) {
             const trimmed = paragraph.trim();
             if (!trimmed) continue;
+            const inlineText = (text) => escape(text).replace(/`([^`]+)`/g, '<code>$1</code>');
+            // Task lists as swift-markdown's HTML formatter writes them.
+            if (trimmed.split('\n').every((line) => /^- \[[ xX]\] /.test(line))) {
+                blocks.push('<ul>\n' + trimmed.split('\n').map((line) => '<li><input type="checkbox" disabled=""' + (/^- \[[xX]\]/.test(line) ? ' checked=""' : '') + ' /> <p>' + inlineText(line.slice(6)) + '</p>\n</li>').join('\n') + '\n</ul>');
+                continue;
+            }
             const heading = /^(#{1,6})\s+(.*)$/.exec(trimmed);
-            blocks.push(heading ? '<h' + heading[1].length + '>' + escape(heading[2]) + '</h' + heading[1].length + '>' : '<p>' + escape(trimmed) + '</p>');
+            const inline = (text) => escape(text).replace(/`([^`]+)`/g, '<code>$1</code>');
+            blocks.push(heading ? '<h' + heading[1].length + '>' + inline(heading[2]) + '</h' + heading[1].length + '>' : '<p>' + inline(trimmed) + '</p>');
         }
     };
     while ((match = fencePattern.exec(markdown)) !== null) {

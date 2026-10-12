@@ -837,5 +837,6 @@
         MarkdownPreviewView, MarkdownPreviewRenderer, MarkdownEditView,
     });
     runtime.SnapshotEditor = SnapshotEditor;
+    runtime.convertInternalLinks = convertInternalLinks;
     runtime.EmptyView = EmptyView;
 })(globalThis);

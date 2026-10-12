@@ -141,59 +141,123 @@
         entry.container.remove();
     }
 
+    /// A block's place in the reading area, its component, and the watch that sends its
+    /// changes to Graphite.
+    function startEntry(message, elementClass) {
+        const sourcePath = message.sourcePath || '';
+        const container = readingArea().createDiv({ cls: 'markdown-preview-view markdown-rendered graphite-reading-block' });
+        container.style.width = Math.max(200, Math.min(4000, Number(message.width) || 700)) + 'px';
+        container.setAttribute('data-graphite-source-path', sourcePath);
+        const element = container.createDiv({ cls: elementClass });
+        const component = new Component();
+        component.load();
+        const entry = {
+            blockIdentifier: message.blockIdentifier, container, element, component, addedChildCount: 0,
+            observer: null, isCopyScheduled: false, isReleased: false, lastSentHTML: null,
+        };
+        drawnBlocks.set(message.blockIdentifier, entry);
+        const cache = runtime.app.metadataCache.getCache(sourcePath);
+        const section = sectionInformation(message);
+        entry.context = {
+            docId: 'graphite-' + message.blockIdentifier,
+            sourcePath,
+            frontmatter: cache && cache.frontmatter ? cache.frontmatter : null,
+            el: element,
+            addChild(child) { entry.addedChildCount += 1; component.addChild(child); },
+            getSectionInfo() { return section; },
+        };
+        return entry;
+    }
+
+    /// Changes are watched from the start, so what an asynchronous plugin draws after the
+    /// answer reaches Graphite too.
+    function watch(entry) {
+        entry.observer = new globalScope.MutationObserver(() => scheduleCopy(entry));
+        entry.observer.observe(entry.container, { subtree: true, childList: true, attributes: true, characterData: true });
+        entry.container.addEventListener('change', () => scheduleCopy(entry), true);
+        entry.container.addEventListener('input', () => scheduleCopy(entry), true);
+    }
+
+    async function runPostProcessors(entry) {
+        const ordered = runtime.markdownPostProcessors.slice().sort((firstProcessor, secondProcessor) => firstProcessor.sortOrder - secondProcessor.sortOrder);
+        for (const registeredProcessor of ordered) {
+            if (entry.isReleased) return;
+            try {
+                await waitAtMost(Promise.resolve(registeredProcessor.postProcessor(entry.element, entry.context)), processorWaitMilliseconds);
+            } catch (error) {
+                console.error(error);
+                hostBridge.notify('plugin.failure', { pluginIdentifier: registeredProcessor.pluginIdentifier, message: 'Changing a note\'s reading view failed: ' + (error && error.message ? error.message : String(error)) });
+            }
+        }
+    }
+
     async function draw(message) {
         const app = runtime.app;
         release(message.blockIdentifier);
         const registered = runtime.codeBlockProcessors.get(message.language);
         if (!app || !registered) return { isDrawn: false, message: 'No plugin draws “' + message.language + '” code blocks now.' };
-        const sourcePath = message.sourcePath || '';
-        const container = readingArea().createDiv({ cls: 'markdown-preview-view markdown-rendered graphite-reading-block' });
-        container.style.width = Math.max(200, Math.min(4000, Number(message.width) || 700)) + 'px';
-        container.setAttribute('data-graphite-source-path', sourcePath);
-        const blockElement = container.createDiv({ cls: 'block-language-' + message.language });
-        const component = new Component();
-        component.load();
-        const entry = {
-            blockIdentifier: message.blockIdentifier, container, element: blockElement, component,
-            observer: null, isCopyScheduled: false, isReleased: false, lastSentHTML: null,
-        };
-        drawnBlocks.set(message.blockIdentifier, entry);
-        const cache = app.metadataCache.getCache(sourcePath);
-        const section = sectionInformation(message);
-        const context = {
-            docId: 'graphite-' + message.blockIdentifier,
-            sourcePath,
-            frontmatter: cache && cache.frontmatter ? cache.frontmatter : null,
-            el: blockElement,
-            addChild(child) { component.addChild(child); },
-            getSectionInfo() { return section; },
-        };
-        // Changes are watched from the start, so what an asynchronous processor draws after
-        // this answer reaches Graphite too.
-        entry.observer = new globalScope.MutationObserver(() => scheduleCopy(entry));
-        entry.observer.observe(container, { subtree: true, childList: true, attributes: true, characterData: true });
-        container.addEventListener('change', () => scheduleCopy(entry), true);
-        container.addEventListener('input', () => scheduleCopy(entry), true);
+        const entry = startEntry(message, 'block-language-' + message.language);
+        watch(entry);
         try {
-            await waitAtMost(Promise.resolve(registered.handler(String(message.source || ''), blockElement, context)), processorWaitMilliseconds);
+            await waitAtMost(Promise.resolve(registered.handler(String(message.source || ''), entry.element, entry.context)), processorWaitMilliseconds);
         } catch (error) {
             console.error(error);
             hostBridge.notify('plugin.failure', { pluginIdentifier: registered.pluginIdentifier, message: 'A “' + message.language + '” block failed: ' + (error && error.message ? error.message : String(error)) });
-            blockElement.createEl('pre', { cls: 'graphite-plugin-error', text: String(error && error.message ? error.message : error) });
+            entry.element.createEl('pre', { cls: 'graphite-plugin-error', text: String(error && error.message ? error.message : error) });
         }
         if (entry.isReleased) return { isDrawn: false, message: 'The block was closed while it was drawn.' };
         // Obsidian runs the other post-processors over a section after its code block.
-        const ordered = runtime.markdownPostProcessors.slice().sort((firstProcessor, secondProcessor) => firstProcessor.sortOrder - secondProcessor.sortOrder);
-        for (const registeredProcessor of ordered) {
-            try {
-                await waitAtMost(Promise.resolve(registeredProcessor.postProcessor(blockElement, context)), processorWaitMilliseconds);
-            } catch (error) {
-                console.error(error);
-            }
-        }
+        await runPostProcessors(entry);
         if (entry.isReleased) return { isDrawn: false, message: 'The block was closed while it was drawn.' };
         entry.lastSentHTML = copyOf(entry);
         return { isDrawn: true, html: entry.lastSentHTML, styles: pluginStyles() };
+    }
+
+    const taskLinePattern = /^\s*(?:>\s*)*(?:[-*+]|\d+[.)])\s+\[(.)\]/;
+
+    /// Numbers the section's own task checkboxes with their line in the section, so a tap
+    /// on one ticks the task in the note, as Obsidian's reading view does. Checkboxes a
+    /// plugin draws later are the plugin's own.
+    function markTaskCheckboxes(element, markdown) {
+        const taskLines = String(markdown).split('\n').map((line, lineIndex) => (taskLinePattern.test(line) ? lineIndex : -1)).filter((lineIndex) => lineIndex >= 0);
+        const checkboxes = Array.from(element.querySelectorAll('li > input[type="checkbox"]'));
+        if (checkboxes.length !== taskLines.length) return;
+        checkboxes.forEach((checkbox, position) => {
+            checkbox.removeAttribute('disabled');
+            checkbox.setAttribute('data-graphite-task-line', String(taskLines[position]));
+        });
+    }
+
+    /// What a reader sees of a section: its text, and the elements that show more than text.
+    function visibleSignature(element) {
+        return element.textContent + '\u0000' + element.querySelectorAll('img, svg, canvas, button, input, select, textarea, iframe, video, audio, table').length;
+    }
+
+    /// A part of a note, offered to the plugins' post-processors as Obsidian offers each
+    /// section of its reading view. Graphite keeps showing its own rendering unless a plugin
+    /// changed what the section shows (its text or its pictures and controls) or attached
+    /// something that keeps it up to date (Dataview's inline queries); only then is the
+    /// plugin's version kept, alive, and copied into the note like a code block.
+    async function drawSection(message) {
+        const app = runtime.app;
+        release(message.blockIdentifier);
+        if (!app || runtime.markdownPostProcessors.length === 0) return { isDrawn: true, isChanged: false };
+        const entry = startEntry(message, 'el-section');
+        const response = await hostBridge.send('markdown.render', { markdown: String(message.source || ''), sourcePath: message.sourcePath || '' });
+        if (entry.isReleased) return { isDrawn: false, message: 'The section was closed while it was drawn.' };
+        entry.element.appendChild(exportedApi.sanitizeHTMLToDom(response.html || ''));
+        runtime.convertInternalLinks(app, entry.element, message.sourcePath || '');
+        markTaskCheckboxes(entry.element, message.source || '');
+        const signatureBefore = visibleSignature(entry.element);
+        watch(entry);
+        await runPostProcessors(entry);
+        if (entry.isReleased) return { isDrawn: false, message: 'The section was closed while it was drawn.' };
+        if (entry.addedChildCount === 0 && visibleSignature(entry.element) === signatureBefore) {
+            release(message.blockIdentifier);
+            return { isDrawn: true, isChanged: false };
+        }
+        entry.lastSentHTML = copyOf(entry);
+        return { isDrawn: true, isChanged: true, html: entry.lastSentHTML, styles: pluginStyles() };
     }
 
     /// Element children, by position, from the block's element down to the one tapped.
@@ -229,13 +293,17 @@
 
     Object.assign(runtime.messageHandlers, {
         async 'codeBlock.render'(message) {
-            return draw(message);
+            return message.kind === 'section' ? drawSection(message) : draw(message);
         },
         async 'codeBlock.event'(message) {
             const entry = drawnBlocks.get(message.blockIdentifier);
             if (!entry) return { isHandled: false };
             const element = elementAtPath(entry, message.elementPath);
             if (!element) return { isHandled: false };
+            // A task of the note itself is ticked by Graphite, in the note.
+            if (message.eventType !== 'input' && element.matches('input[data-graphite-task-line]')) {
+                return { isHandled: true, taskLine: Number(element.getAttribute('data-graphite-task-line')) };
+            }
             if (message.eventType === 'input') enter(element, message.value);
             else tap(element);
             // The plugin's handlers usually change the block at once; its copy goes back with
