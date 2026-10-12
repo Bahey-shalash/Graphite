@@ -2451,15 +2451,78 @@ final class MarkdownMacTextView: NSTextView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        // Control-click opens the context menu, with the plugins' items.
+        if event.modifierFlags.contains(.control), pluginContextMenuItems != nil {
+            rightMouseDown(with: event)
+            return
+        }
         let characterIndex = characterIndexForInsertion(at: convert(event.locationInWindow, from: nil))
         if event.clickCount == 1, followLinkOnClick?(characterIndex, event.modifierFlags) == true { return }
         super.mouseDown(with: event)
     }
 
-    // MARK: Paste and drop
+    // MARK: Plugins' menu items and paste
+
+    /// Asks community plugins for their items in the context menu at the cursor; set by the
+    /// coordinator while plugins add some.
+    var pluginContextMenuItems: (() async -> [NSMenuItem])?
+    /// The plugins' items for the menu being opened; empty otherwise.
+    var pendingPluginMenuItems: [NSMenuItem] = []
+    /// Offers a paste to community plugins that listen; true when one took it over.
+    var offerPasteToPlugins: ((_ text: String?, _ html: String?) async -> Bool)?
+
+    override func rightMouseDown(with event: NSEvent) {
+        guard let pluginContextMenuItems else {
+            super.rightMouseDown(with: event)
+            return
+        }
+        // As in Obsidian, the menu is for where it was opened: a click outside the selection
+        // moves the cursor there first, so a plugin's item acts on the word clicked.
+        let characterIndex = characterIndexForInsertion(at: convert(event.locationInWindow, from: nil))
+        if !NSLocationInRange(characterIndex, selectedRange()) || selectedRange().length == 0 {
+            setSelectedRange(NSRange(location: characterIndex, length: 0))
+        }
+        Task { @MainActor [weak self] in
+            let items = await pluginContextMenuItems()
+            guard let self, self.window != nil else { return }
+            self.pendingPluginMenuItems = items
+            self.openContextMenu(for: event)
+            self.pendingPluginMenuItems = []
+        }
+    }
+
+    private func openContextMenu(for event: NSEvent) {
+        super.rightMouseDown(with: event)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = super.menu(for: event)
+        guard !pendingPluginMenuItems.isEmpty else { return menu }
+        let pluginsMenu = menu ?? NSMenu()
+        pluginsMenu.addItem(.separator())
+        for item in pendingPluginMenuItems { pluginsMenu.addItem(item) }
+        return pluginsMenu
+    }
 
     override func paste(_ sender: Any?) {
         if canInsertAttachments, insertAttachments(from: .general, at: selectedRange()) { return }
+        // Text plugins may take over (Link or Card makes a card of an address); the text is
+        // pasted as usual when none does.
+        let pasteboard = NSPasteboard.general
+        if let offerPasteToPlugins, let text = pasteboard.string(forType: .string) {
+            let html = pasteboard.string(forType: .html)
+            let pastedRange = selectedRange()
+            Task { @MainActor [weak self] in
+                let isTakenOver = await offerPasteToPlugins(text, html)
+                guard let self, !isTakenOver else { return }
+                if self.shouldChangeText(in: pastedRange, replacementString: text) {
+                    self.replaceCharacters(in: pastedRange, with: text)
+                    self.didChangeText()
+                    self.setSelectedRange(NSRange(location: pastedRange.location + (text as NSString).length, length: 0))
+                }
+            }
+            return
+        }
         super.paste(sender)
     }
 
@@ -2738,6 +2801,11 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         (textView as? MarkdownMacTextView)?.readAloudRange = readAloudRange
         (textView as? MarkdownMacTextView)?.quickFontSize = actions.quickFontSize
         (textView as? MarkdownMacTextView)?.suspendReadingFollow = suspendReadingFollow
+        // Plugins that start, or start listening, after the editor was made reach it here.
+        (textView as? MarkdownMacTextView)?.pluginContextMenuItems = coordinator.actions.pluginContextMenuItems == nil ? nil : { [weak coordinator] in
+            await coordinator?.actions.pluginContextMenuItems?() ?? []
+        }
+        (textView as? MarkdownMacTextView)?.offerPasteToPlugins = coordinator.actions.pluginPaste
         if coordinator.configuration != configuration {
             coordinator.configuration = configuration
             coordinator.restyleEverything(in: textView)
@@ -3010,6 +3078,9 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             guard let textView = notification.object as? NSTextView else { return }
             settleTextChange(in: textView)
             publish(textView)
+            // Plugins hear the note change as in Obsidian's editor (`editor-change`). The
+            // Mac shows no suggestions list, so suggestions plugins answer go unused.
+            _ = actions.pluginEditorDidChange?()
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {

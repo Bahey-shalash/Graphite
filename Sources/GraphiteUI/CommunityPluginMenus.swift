@@ -2,6 +2,15 @@ import SwiftUI
 import GraphiteCore
 #if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
+
+/// Runs a plugin's menu item chosen in an AppKit menu.
+final class CommunityPluginMenuItemAction: NSObject {
+    private let run: () -> Void
+    init(_ run: @escaping () -> Void) { self.run = run }
+    @objc func perform(_ sender: Any?) { run() }
+}
 #endif
 
 /// Plugins' items in Graphite's own menus, as Obsidian gives plugins its file and editor
@@ -99,6 +108,21 @@ extension CommunityPluginHost {
                 }
                 completion([UIMenu(title: "", options: .displayInline, children: actions)])
             }
+        }
+    }
+    #elseif canImport(AppKit)
+    /// The plugins' items for the note editor's context menu, asked for as the menu opens.
+    func editorMenuItems() async -> [NSMenuItem] {
+        guard let menu = await editorMenu() else { return [] }
+        return menu.items.map { item in
+            let action = CommunityPluginMenuItemAction { [weak self] in self?.choose(item, in: menu) }
+            let menuItem = NSMenuItem(title: item.title, action: #selector(CommunityPluginMenuItemAction.perform(_:)), keyEquivalent: "")
+            menuItem.target = action
+            // The item keeps its action alive; a menu item holds its target weakly.
+            menuItem.representedObject = action
+            menuItem.isEnabled = !item.isDisabled
+            menuItem.state = item.isChecked ? .on : .off
+            return menuItem
         }
     }
     #endif

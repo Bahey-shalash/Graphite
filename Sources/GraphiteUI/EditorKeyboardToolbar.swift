@@ -60,6 +60,10 @@ struct EditorActions {
     #if canImport(UIKit)
     /// Community plugins' items for the editor's menu at the cursor; nil while no plugin adds any.
     var pluginEditMenuElement: (() -> UIMenuElement)?
+    #elseif canImport(AppKit)
+    /// Community plugins' items for the editor's context menu at the cursor, which the Mac
+    /// asks for before it opens the menu; nil while no plugin adds any.
+    var pluginContextMenuItems: (() async -> [NSMenuItem])?
     #endif
 }
 
