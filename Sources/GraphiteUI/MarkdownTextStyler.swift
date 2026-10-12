@@ -16,6 +16,8 @@ struct EditorConfiguration: Equatable {
     var mode: EditingMode = .livePreview
     var usesReadableLineLength = true
     var textSize: Double = 17
+    /// The vault's text and monospace fonts (Settings › Appearance › Font).
+    var typography = NoteTypography.standard
     var usesSpellChecking = true
     var colorsEnabled = true
     var paletteHexByName: [String: String] = [:]
@@ -100,7 +102,7 @@ struct MarkdownTextStyler {
     static let platformDrawsConcealedReplacements = false
     #endif
 
-    var baseFont: PlatformFont { PlatformFont.systemFont(ofSize: configuration.textSize) }
+    var baseFont: PlatformFont { configuration.typography.textFont(ofSize: configuration.textSize) }
 
     var baseAttributes: [NSAttributedString.Key: Any] { baseAttributes(font: baseFont) }
 
@@ -160,7 +162,7 @@ struct MarkdownTextStyler {
         let spans = blockContextCheckpoints?.spans(in: textStorage, source: source, range: targetRange)
             ?? MarkdownStyleScanner.spans(in: source, range: targetRange)
         let styledRange = spans.reduce(targetRange) { unionRange, span in NSUnionRange(unionRange, span.range) }
-        let fonts = MarkdownStyleFonts(baseFont: baseFont)
+        let fonts = MarkdownStyleFonts(baseFont: baseFont, typography: configuration.typography)
         textStorage.beginEditing()
         textStorage.setAttributes(baseAttributes(font: fonts.baseFont), range: styledRange)
         apply(spans, within: [styledRange], to: textStorage, source: source, revealedMarkup: revealedMarkup, fonts: fonts)
@@ -227,7 +229,7 @@ struct MarkdownTextStyler {
         let otherMarkerLines = changingRanges.filter { changingRange in !scans.contains { scan in NSLocationInRange(changingRange.location, scan.lines) } }
             .map { markerRange in source.lineRange(for: markerRange) }
         scans.append(contentsOf: RevealedMarkupChange.merged(otherMarkerLines).map(scannedLines))
-        let fonts = MarkdownStyleFonts(baseFont: baseFont)
+        let fonts = MarkdownStyleFonts(baseFont: baseFont, typography: configuration.typography)
         var restyledRanges: [NSRange] = []
         textStorage.beginEditing()
         for scan in scans {
@@ -676,10 +678,11 @@ struct MarkdownTextStyler {
 @MainActor
 private final class MarkdownStyleFonts {
     let baseFont: PlatformFont
-    private(set) lazy var codeFont = PlatformFont.monospacedSystemFont(ofSize: baseFont.pointSize * 0.9, weight: .regular)
-    private(set) lazy var frontmatterFont = PlatformFont.monospacedSystemFont(ofSize: baseFont.pointSize * 0.85, weight: .regular)
-    private(set) lazy var calloutTitleFont = PlatformFont.systemFont(ofSize: baseFont.pointSize, weight: .semibold)
-    private(set) lazy var footnoteFont = PlatformFont.systemFont(ofSize: max(baseFont.pointSize * 0.72, GraphitePreferences.smallestNoteTextSize), weight: .semibold)
+    let typography: NoteTypography
+    private(set) lazy var codeFont = typography.monospaceFont(ofSize: baseFont.pointSize * 0.9)
+    private(set) lazy var frontmatterFont = typography.monospaceFont(ofSize: baseFont.pointSize * 0.85)
+    private(set) lazy var calloutTitleFont = typography.textFont(ofSize: baseFont.pointSize, weight: .semibold)
+    private(set) lazy var footnoteFont = typography.textFont(ofSize: max(baseFont.pointSize * 0.72, GraphitePreferences.smallestNoteTextSize), weight: .semibold)
     private var headingFontsByLevel: [Int: PlatformFont] = [:]
     private var traitFontsByKey: [TraitFontKey: PlatformFont] = [:]
 
@@ -688,14 +691,16 @@ private final class MarkdownStyleFonts {
         let isBold: Bool
     }
 
-    init(baseFont: PlatformFont) {
+    init(baseFont: PlatformFont, typography: NoteTypography) {
         self.baseFont = baseFont
+        self.typography = typography
     }
 
     func headingFont(level: Int) -> PlatformFont {
         let clampedLevel = min(max(level, 1), 6)
         if let font = headingFontsByLevel[clampedLevel] { return font }
-        let font = PlatformFont.systemFont(ofSize: baseFont.pointSize * HeadingTypography.fontScale(level: clampedLevel), weight: .semibold)
+        // Headings are in the text font, at the same multiples of the text size as before.
+        let font = typography.textFont(ofSize: baseFont.pointSize * HeadingTypography.fontScale(level: clampedLevel), weight: .semibold)
         headingFontsByLevel[clampedLevel] = font
         return font
     }

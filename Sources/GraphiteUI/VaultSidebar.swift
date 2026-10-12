@@ -424,7 +424,7 @@ private struct SearchResultRow: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 // Named by file, as in Obsidian's search; the index title is often just the first heading.
-                Text(workspace.preferences.displayName(for: result.path)).lineLimit(1)
+                Text(workspace.preferences.displayName(for: result.path)).lineLimit(1).interfaceFont(.body)
                 Spacer(minLength: 4)
                 if result.matchCount > 0 {
                     Text(result.matchCount.formatted()).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
@@ -432,13 +432,13 @@ private struct SearchResultRow: View {
                 }
             }
             if !result.path.parent.rawValue.isEmpty {
-                Text(result.path.parent.rawValue).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                Text(result.path.parent.rawValue).interfaceFont(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }
             ForEach(result.matches, id: \.self) { match in
                 Button { Task { await workspace.open(result.path, at: match) } } label: {
                     // A plain color: `.secondary` would derive from the button's accent tint.
                     Text(highlightedExcerpt(match))
-                        .font(.caption).foregroundStyle(Color.secondary).lineLimit(3)
+                        .interfaceFont(.caption).foregroundStyle(Color.secondary).lineLimit(3)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 7).padding(.vertical, 5)
                         .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 6))
@@ -672,7 +672,8 @@ private struct FileTreeRowLabel<Marker: View, Title: View>: View {
     var body: some View {
         HStack(spacing: 4) {
             marker.frame(width: Self.markerWidth)
-            title
+            // File and folder names are content, so they take the vault's interface font.
+            title.interfaceFont(.body)
             Spacer(minLength: 0)
         }
         .padding(.leading, CGFloat(depth) * Self.indentWidth)

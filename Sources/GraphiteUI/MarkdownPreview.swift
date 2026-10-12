@@ -705,6 +705,7 @@ struct MarkdownPreview: View {
     /// as pictures. False when the note no longer has the task at that place.
     var toggleTask: (@MainActor (VaultPath, ReadingTasks.Location) async -> Bool)? = nil
     @State private var scrollPosition = ScrollPosition(y: 0)
+    @Environment(\.noteTypography) private var typography
     @State private var hasRestoredPosition = false
     @State private var pendingRestorationOffset: CGFloat?
     /// Where this view was before it restored the saved position, when nothing was saved:
@@ -730,7 +731,7 @@ struct MarkdownPreview: View {
                 LazyVStack(alignment: .leading, spacing: 14) {
                     if let inlineTitle = configuration.inlineTitle {
                         Text(inlineTitle)
-                            .font(.system(size: configuration.textSize * InlineTitleStyle.fontScale, weight: .semibold))
+                            .font(typography.textSwiftUIFont(size: configuration.textSize * InlineTitleStyle.fontScale).weight(.semibold))
                             .accessibilityAddTraits(.isHeader)
                             .padding(.bottom, 6)
                     }
@@ -1150,6 +1151,7 @@ private struct ReadingBlockPositionReporter: ViewModifier {
 struct ObsidianMarkdownText: View {
     let markdown: String
     @Environment(\.accent) private var accent
+    @Environment(\.noteTypography) private var typography
     let root: URL
     let textSize: Double
     let navigate: (String, Bool) -> Void
@@ -1163,9 +1165,10 @@ struct ObsidianMarkdownText: View {
                 // StructuredText parses again only when its text changes, and the parse sizes
                 // footnote numbers, so a new text size starts a new view.
                 .id(textSize)
-                .font(.system(size: textSize))
+                .font(typography.textSwiftUIFont(size: textSize))
                 .textual.textSelection(.enabled)
-                .textual.inlineStyle(InlineStyle.default.link(.foregroundColor(accent)))
+                .textual.inlineStyle(inlineStyle)
+                .textual.codeBlockStyle(ObsidianCodeBlockStyle(monospaceFont: typography.monospaceSwiftUIFont(size: textSize)))
                 .textual.listItemStyle(ObsidianListItemStyle(textSize: textSize))
                 .textual.imageAttachmentLoader(VaultImageLoader(root: root))
                 .textual.headingStyle(ObsidianHeadingStyle())
@@ -1175,6 +1178,14 @@ struct ObsidianMarkdownText: View {
                 .tint(accent)
                 .environment(\.openURL, Self.linkAction(root: root, navigate: navigate, scrollToHeading: scrollToHeading))
         }
+    }
+
+    /// Links in the accent, and inline code in the monospace font. SF Mono keeps Textual's
+    /// own code style, which follows a heading's size; another family is set as a font.
+    private var inlineStyle: InlineStyle {
+        let linkedStyle = InlineStyle.default.link(.foregroundColor(accent))
+        guard case .installed = typography.monospaceFamily else { return linkedStyle }
+        return linkedStyle.code(.font(typography.monospaceSwiftUIFont(size: textSize)), .fontScale(0.94))
     }
 
     /// The display formula with equation numbers that is all of the text, which is laid
@@ -1467,6 +1478,33 @@ extension Color {
 
 // MARK: Obsidian-like styles
 
+/// Code blocks as Textual draws them by default, in the vault's monospace font: the default
+/// style's `.monospaced()` would leave a chosen text font in place for code.
+struct ObsidianCodeBlockStyle: StructuredText.CodeBlockStyle {
+    let monospaceFont: Font
+    private static let border = DynamicColor(light: Color(red: 210 / 255, green: 210 / 255, blue: 215 / 255),
+                                             dark: Color(red: 66 / 255, green: 66 / 255, blue: 69 / 255))
+    /// The default highlighter theme's code background, which Textual keeps internal.
+    private static let background = DynamicColor(light: Color(red: 0.960784, green: 0.960784, blue: 0.968627),
+                                                 dark: Color(red: 0.120543, green: 0.122844, blue: 0.141312))
+
+    func makeBody(configuration: Configuration) -> some View {
+        Overflow {
+            configuration.label
+                .font(monospaceFont)
+                .textual.lineSpacing(.fontScaled(0.39))
+                .textual.fontScale(0.882)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.vertical, 8)
+                .padding(.leading, 14)
+        }
+        .background(Self.background)
+        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).stroke(Self.border, lineWidth: 1))
+        .textual.blockSpacing(.fontScaled(top: 0.88, bottom: 0))
+    }
+}
+
 /// The sizes Live Preview gives headings (`HeadingTypography`), so a heading does not jump
 /// when the note switches to reading.
 struct ObsidianHeadingStyle: StructuredText.HeadingStyle {
@@ -1591,6 +1629,7 @@ struct CalloutView<Body: View>: View {
     let scrollToHeading: ((String) -> Void)?
     @ViewBuilder let content: () -> Body
     @Environment(\.accent) private var accent
+    @Environment(\.noteTypography) private var typography
     @State private var isExpanded: Bool
 
     init(type: String, title: String, folding: CalloutFolding, root: URL, textSize: Double, navigate: @escaping (String, Bool) -> Void,
@@ -1611,7 +1650,7 @@ struct CalloutView<Body: View>: View {
                     // A link in the title takes the tap before the fold button does.
                     StructuredText(title, parser: ObsidianMarkdownParser(baseURL: root, textSize: textSize))
                         .id(textSize)
-                        .font(.system(size: textSize).weight(.semibold))
+                        .font(typography.textSwiftUIFont(size: textSize).weight(.semibold))
                         .foregroundStyle(appearance.titleColor)
                         .textual.inlineStyle(InlineStyle.default.link(.foregroundColor(accent)))
                         .textual.imageAttachmentLoader(VaultImageLoader(root: root))

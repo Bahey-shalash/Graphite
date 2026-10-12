@@ -6,6 +6,8 @@ import GraphiteApple
 struct LivePreviewEnvironment {
     let root: URL
     let textSize: Double
+    /// The vault's fonts, which rendered blocks draw their text and code in.
+    var typography = NoteTypography.standard
     let colorsEnabled: Bool
     let paletteHexByName: [String: String]
     let drawingVersion: Int
