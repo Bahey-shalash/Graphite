@@ -15,6 +15,8 @@
     let nextLeafNumber = 1;
     /// Events through which plugins add items to Obsidian's context menus.
     const menuEventNames = new Set(['file-menu', 'files-menu', 'editor-menu']);
+    /// Events Graphite sends from its editor as the person types.
+    const editorEventNames = new Set(['editor-change']);
 
     // MARK: Editor
 
@@ -78,6 +80,50 @@
             }
             return null;
         }
+    }
+
+    // MARK: Obsidian's editor state fields
+
+    /// The state fields Obsidian's editor keeps (`editorInfoField` and the others), which
+    /// plugins read from `editor.cm.state`. They name values; there is no CodeMirror state.
+    const editorStateFields = {
+        editorInfoField: Object.freeze({ graphiteEditorStateField: 'editorInfoField' }),
+        editorViewField: Object.freeze({ graphiteEditorStateField: 'editorViewField' }),
+        editorEditorField: Object.freeze({ graphiteEditorStateField: 'editorEditorField' }),
+        editorLivePreviewField: Object.freeze({ graphiteEditorStateField: 'editorLivePreviewField' }),
+        livePreviewState: Object.freeze({ graphiteEditorStateField: 'livePreviewState' }),
+    };
+
+    function unsupportedCodeMirrorView() {
+        return runtime.unsupported('Obsidian\'s CodeMirror editor view (editor.cm)', 'Graphite\'s editor is native, so commands that work on CodeMirror\'s view directly cannot run.');
+    }
+
+    function codeMirrorViewStandIn() {
+        const activeView = () => (runtime.app ? runtime.app.workspace.getActiveViewOfType(MarkdownView) : null);
+        let view = null;
+        const state = new Proxy({}, {
+            get(target, name) {
+                if (typeof name === 'symbol' || name === 'then') return undefined;
+                if (name !== 'field') return unsupportedCodeMirrorView();
+                return (field, isRequired) => {
+                    switch (field) {
+                    case editorStateFields.editorInfoField:
+                    case editorStateFields.editorViewField: return activeView();
+                    case editorStateFields.editorEditorField: return view;
+                    case editorStateFields.editorLivePreviewField: { const markdownView = activeView(); return Boolean(markdownView && markdownView.mode === 'livePreview'); }
+                    default: return isRequired === false ? undefined : unsupportedCodeMirrorView();
+                    }
+                };
+            },
+        });
+        view = new Proxy({}, {
+            get(target, name) {
+                if (typeof name === 'symbol' || name === 'then') return undefined;
+                if (name === 'state') return state;
+                return unsupportedCodeMirrorView();
+            },
+        });
+        return view;
     }
 
     /// An `Editor` over a copy of the open note's text.
@@ -281,10 +327,10 @@
                 runtime.unsupported('Editor command “' + command + '”');
             }
         }
-        /// Obsidian's CodeMirror `EditorView` (undocumented `editor.cm`). Graphite's editor is native.
-        get cm() {
-            return runtime.unsupported('Obsidian\'s CodeMirror editor view (editor.cm)', 'Graphite\'s editor is native, so commands that work on CodeMirror\'s view directly cannot run.');
-        }
+        /// Obsidian's CodeMirror `EditorView` (undocumented `editor.cm`). Graphite's editor is
+        /// native: only the view's state fields that name the note's view answer (Tasks finds
+        /// its note through `editorInfoField`); anything else reports itself unsupported.
+        get cm() { return codeMirrorViewStandIn(); }
         undo() { runtime.unsupported('Editor.undo', 'Use Graphite\'s Undo.'); }
         redo() { runtime.unsupported('Editor.redo', 'Use Graphite\'s Redo.'); }
 
@@ -585,22 +631,26 @@
             this.lastOpenFiles = [];
             this.revealedLeaf = null;
             this.requestSaveLayout = exportedApi.debounce(() => {}, 0);
-            this.editorSuggest = { suggests: [] };
+            // Obsidian's (undocumented) registry, which some plugins reorder to come first.
+            this.editorSuggest = { suggests: runtime.editorSuggests };
         }
 
         /// Graphite asks for plugins' menu items only while some plugin listens for them.
         on(name, callback, context) {
             const eventReference = super.on(name, callback, context);
             if (menuEventNames.has(name)) runtime.menuListenersChanged();
+            if (editorEventNames.has(name)) runtime.editorListenersChanged();
             return eventReference;
         }
         off(name, callback) {
             super.off(name, callback);
             if (menuEventNames.has(name)) runtime.menuListenersChanged();
+            if (editorEventNames.has(name)) runtime.editorListenersChanged();
         }
         offref(eventReference) {
             super.offref(eventReference);
             if (eventReference && menuEventNames.has(eventReference.name)) runtime.menuListenersChanged();
+            if (eventReference && editorEventNames.has(eventReference.name)) runtime.editorListenersChanged();
         }
         listenerCount(name) { return (this.eventReferencesByName[name] || []).length; }
 
@@ -872,6 +922,7 @@
         }
     }
 
+    Object.assign(exportedApi, editorStateFields);
     Object.assign(exportedApi, {
         Editor, Workspace, WorkspaceLeaf, WorkspaceItem, WorkspaceParent, WorkspaceSplit, WorkspaceRoot, WorkspaceTabs,
         WorkspaceSidedock, WorkspaceMobileDrawer, WorkspaceFloating, WorkspaceContainer, WorkspaceWindow, WorkspaceRibbon,

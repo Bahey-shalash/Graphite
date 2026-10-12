@@ -34,6 +34,8 @@ final class CompletionModel {
     @ObservationIgnored var provider: ((CompletionContext) async -> [CompletionItem])?
     /// Set by the pane: tells the person why a chosen suggestion could not be inserted.
     @ObservationIgnored var reportError: ((Error) -> Void)?
+    /// Set by the pane: tells community plugins their suggestions were closed unchosen.
+    @ObservationIgnored var dismissPluginSuggestions: (() -> Void)?
     @ObservationIgnored private var fetchTask: Task<Void, Never>?
     /// A context the person closed with Escape; it stays closed until the text changes.
     @ObservationIgnored private var dismissedContext: CompletionContext?
@@ -64,6 +66,7 @@ final class CompletionModel {
     }
 
     func dismiss() {
+        if case .pluginSuggestion = context { dismissPluginSuggestions?() }
         dismissedContext = context
         context = nil
         items = []
@@ -100,6 +103,7 @@ final class CompletionModel {
             return await CompletionProvider(workspace: workspace, session: session).items(for: context)
         }
         reportError = { [weak workspace] error in workspace?.errorMessage = error.localizedDescription }
+        dismissPluginSuggestions = { [weak workspace] in workspace?.communityPlugins.closeSuggestions() }
     }
 }
 
@@ -120,6 +124,8 @@ struct CompletionProvider {
             if let blockQuery = query.blockQuery { return await blockItems(query: query, blockQuery: blockQuery) }
             if let headingQuery = query.headingQuery { return await headingItems(query: query, headingQuery: headingQuery) }
             return await fileItems(query: query)
+        case .pluginSuggestion(let revision):
+            return await workspace.communityPlugins.suggestionItems(forRevision: revision)
         }
     }
 

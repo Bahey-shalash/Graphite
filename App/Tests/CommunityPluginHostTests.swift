@@ -21,9 +21,20 @@ final class CommunityPluginHostTests: XCTestCase {
     /// A plugin with a command for each thing the tests check.
     private static let pluginSource = """
     'use strict';
-    const { Plugin } = require('obsidian');
+    const { Plugin, EditorSuggest } = require('obsidian');
+    class EmojiSuggest extends EditorSuggest {
+        onTrigger(cursor, editor) {
+            const match = /:(\\w*)$/.exec(editor.getLine(cursor.line).slice(0, cursor.ch));
+            return match ? { start: { line: cursor.line, ch: cursor.ch - match[0].length }, end: cursor, query: match[1] } : null;
+        }
+        getSuggestions(context) { return ['smile', 'sun'].filter((name) => name.startsWith(context.query)); }
+        renderSuggestion(name, element) { element.setText(name === 'smile' ? '😄 smile' : '☀️ sun'); }
+        selectSuggestion(name) { this.context.editor.replaceRange(name === 'smile' ? '😄' : '☀️', this.context.start, this.context.end); this.close(); }
+    }
     module.exports = class HostTestPlugin extends Plugin {
         async onload() {
+            this.registerEditorSuggest(new EmojiSuggest(this.app));
+            this.registerEvent(this.app.workspace.on('editor-change', (editor) => { this.changeCount = (this.changeCount || 0) + 1; window.lastHeardText = editor.getValue(); }));
             this.addCommand({ id: 'insert-text', name: 'Insert text', editorCallback: (editor) => editor.replaceSelection('inserted') });
             this.addCommand({ id: 'save-data', name: 'Save data', callback: () => this.saveData({ saved: true, list: [1, 2] }) });
             this.addCommand({ id: 'store-secret', name: 'Store secret', callback: () => this.app.secretStorage.setSecret('test-token', 'secret-value') });
@@ -246,6 +257,32 @@ final class CommunityPluginHostTests: XCTestCase {
         XCTAssertEqual(editorMenu.items.map(\.title), ["Shout"])
         host.choose(try XCTUnwrap(editorMenu.items.first), in: editorMenu)
         try await waitUntil { session.text == "QUIET words\n" }
+    }
+
+    func testTypingReachesPluginsAndTheirSuggestionsAreInsertedByThem() async throws {
+        let (workspace, _, controller) = try await workspaceWithRunningPlugin(notes: ["Typing.md": "Mood \n"])
+        let host = workspace.communityPlugins
+        try await waitUntil { host.hasEditorSuggestions && host.hasEditorChangeListeners }
+        let tab = try await openTab("Typing.md", in: workspace)
+        let session = try XCTUnwrap(workspace.document(for: tab).markdownSession)
+        session.viewMode = .source
+        let editor = try await visibleEditor(in: controller, showing: session)
+        // Suggestions show only while the note takes typing.
+        editor.beginEditing()
+        try await waitUntil { editor.isFirstResponder }
+        editor.selectedRange = NSRange(location: 5, length: 0)
+        try await waitUntil { session.selection.location == 5 }
+        // Typed one key at a time, as the keyboard sends them.
+        for character in [":", "s", "m"] {
+            editor.insertText(character)
+            try await Task.sleep(for: .milliseconds(30))
+        }
+        try await waitUntil(seconds: 5) { session.completion.items.map(\.title) == ["😄 smile"] }
+        let heardText = try await host.webView?.callAsyncJavaScript("return window.lastHeardText", arguments: [:], in: nil, contentWorld: .page) as? String
+        XCTAssertEqual(heardText, "Mood :sm\n", "The plugin heard the change as typed.")
+        session.completion.accept()
+        try await waitUntil { session.text == "Mood 😄\n" }
+        XCTAssertTrue(editor.undoManager?.canUndo == true, "The plugin's insertion can be undone.")
     }
 
     /// Dataview and Tasks as built by `npm run build-compatibility-plugins`, read from the

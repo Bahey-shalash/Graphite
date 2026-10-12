@@ -6,6 +6,9 @@ public enum CompletionContext: Equatable, Sendable {
     case link(LinkQuery)
     /// A `#tag` being typed; `query` excludes the `#`.
     case tag(query: String, replacementRange: NSRange)
+    /// Elsewhere, while community plugins suggest as the person types (`EditorSuggest`):
+    /// `revision` names the change the plugins were asked about, a new one at each change.
+    case pluginSuggestion(revision: Int)
 }
 
 /// The typed part of a link, split the way Obsidian's suggestions read it.

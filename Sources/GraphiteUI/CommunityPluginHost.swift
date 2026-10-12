@@ -151,6 +151,14 @@ final class CommunityPluginHost {
     private(set) var hasFileMenuItems = false
     /// Whether plugins add items to the note editor's menu (`editor-menu`).
     private(set) var hasEditorMenuItems = false
+    /// Whether plugins suggest as the person types in a note (`EditorSuggest`).
+    private(set) var hasEditorSuggestions = false
+    /// Whether plugins listen for typing in a note (`editor-change`).
+    private(set) var hasEditorChangeListeners = false
+    /// The latest change of the focused note sent to plugins, with the suggestions they
+    /// answer for it; each waits for the one before, so plugins hear changes in order.
+    @ObservationIgnored var typingRequest: (revision: Int, answer: Task<CommunityPluginSuggestion?, Never>)?
+    @ObservationIgnored var lastTypingRevision = 0
     /// Plugins that change how notes read (`registerMarkdownPostProcessor`); while there are
     /// any, the reading view offers each part of a note to them.
     private(set) var postProcessingPluginIdentifiers: [String] = []
@@ -429,6 +437,9 @@ final class CommunityPluginHost {
         postProcessingPluginIdentifiers = []
         hasFileMenuItems = false
         hasEditorMenuItems = false
+        hasEditorSuggestions = false
+        hasEditorChangeListeners = false
+        typingRequest = nil
         lastCodeBlockCopies = [:]
         isPanelPresented = false
         pendingMenu?.finish(choosing: nil)
@@ -817,6 +828,9 @@ final class CommunityPluginHost {
             let languages = Set(message["languages"] as? [String] ?? [])
             codeBlockLanguageOwners = message["owners"] as? [String: String] ?? [:]
             if languages != codeBlockLanguages { codeBlockLanguages = languages }
+        case "editor.listenersChanged":
+            hasEditorSuggestions = message["hasEditorSuggestions"] as? Bool == true
+            hasEditorChangeListeners = message["hasEditorChangeListeners"] as? Bool == true
         case "menus.changed":
             hasFileMenuItems = message["hasFileMenuItems"] as? Bool == true
             hasEditorMenuItems = message["hasEditorMenuItems"] as? Bool == true

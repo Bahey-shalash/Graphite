@@ -357,8 +357,15 @@
             runtime.reportUnsupportedFeature('CodeMirror editor extensions', this.manifest.id);
         }
 
-        registerEditorSuggest() {
-            runtime.reportUnsupportedFeature('Suggestions while typing in a note', this.manifest.id);
+        registerEditorSuggest(editorSuggest) {
+            editorSuggest.pluginIdentifier = this.manifest.id;
+            runtime.editorSuggests.push(editorSuggest);
+            runtime.editorListenersChanged();
+            this.register(() => {
+                const position = runtime.editorSuggests.indexOf(editorSuggest);
+                if (position !== -1) runtime.editorSuggests.splice(position, 1);
+                runtime.editorListenersChanged();
+            });
         }
 
         registerObsidianProtocolHandler(action, handler) {
@@ -672,6 +679,92 @@
 
     runtime.ribbon = new RibbonRegistry();
 
+    // MARK: Typing in a note
+
+    /// The plugins' typing suggestions, in the order Obsidian asks them.
+    runtime.editorSuggests = [];
+    /// How long a plugin may take to find its suggestions before the list stays closed.
+    const suggestionWaitMilliseconds = 3000;
+
+    let isEditorListenerNotificationScheduled = false;
+    /// Tells Graphite whether plugins want to hear typing (`editor-change`) or suggest while
+    /// typing (`EditorSuggest`), so its editor sends the note only when one does.
+    runtime.editorListenersChanged = function editorListenersChanged() {
+        if (isEditorListenerNotificationScheduled) return;
+        isEditorListenerNotificationScheduled = true;
+        Promise.resolve().then(() => {
+            isEditorListenerNotificationScheduled = false;
+            const workspace = runtime.app && runtime.app.workspace;
+            hostBridge.notify('editor.listenersChanged', {
+                hasEditorChangeListeners: Boolean(workspace) && workspace.listenerCount('editor-change') > 0,
+                hasEditorSuggestions: runtime.editorSuggests.length > 0,
+            });
+        });
+    };
+
+    /// The suggestions shown last, kept until one is chosen or newer ones replace them.
+    let shownSuggestion = null;
+
+    /// What a suggestion item reads as, from what the plugin drew: Obsidian's title and
+    /// note when it used them, its text otherwise.
+    function suggestionText(element) {
+        const titleElement = element.querySelector('.suggestion-title');
+        const noteElement = element.querySelector('.suggestion-note');
+        const title = (titleElement || element).textContent.replace(/\s+/g, ' ').trim();
+        const subtitle = noteElement && titleElement ? noteElement.textContent.replace(/\s+/g, ' ').trim() : '';
+        return { title, subtitle: subtitle || null };
+    }
+
+    /// Asks the registered suggests at the cursor, as Obsidian does after each change: the
+    /// first whose `onTrigger` answers is shown, with at most its `limit` items.
+    async function findSuggestions(editor, view, requestIdentifier) {
+        const cursor = editor.getCursor();
+        // The suggest open before closes when another one, or none, answers now, as
+        // Obsidian closes it: Natural Language Dates forgets where its `@` was.
+        const previouslyOpen = runtime.editorSuggests.find((editorSuggest) => editorSuggest.isOpen) || null;
+        const closePreviouslyOpen = (except) => { if (previouslyOpen && previouslyOpen !== except) previouslyOpen.close(); };
+        for (const editorSuggest of runtime.editorSuggests.slice()) {
+            let trigger = null;
+            try {
+                trigger = editorSuggest.onTrigger(cursor, editor, view.file);
+            } catch (error) {
+                console.error(error);
+                hostBridge.notify('plugin.failure', { pluginIdentifier: editorSuggest.pluginIdentifier || null, message: 'Suggestions failed: ' + (error && error.message ? error.message : String(error)) });
+                continue;
+            }
+            if (!trigger) continue;
+            closePreviouslyOpen(editorSuggest);
+            const context = { editor, file: view.file, start: trigger.start, end: trigger.end, query: trigger.query };
+            editorSuggest.context = context;
+            let values = [];
+            try {
+                values = await Promise.race([
+                    Promise.resolve(editorSuggest.getSuggestions(context)),
+                    new Promise((resolve) => globalScope.setTimeout(() => resolve(null), suggestionWaitMilliseconds)),
+                ]) || [];
+            } catch (error) {
+                console.error(error);
+                values = [];
+            }
+            values = Array.from(values).slice(0, editorSuggest.limit || 100);
+            if (values.length === 0) {
+                editorSuggest.close();
+                return null;
+            }
+            editorSuggest.open();
+            const items = values.map((value, position) => {
+                const element = createDiv({ cls: 'suggestion-item' });
+                try { editorSuggest.renderSuggestion(value, element); } catch (error) { console.error(error); element.setText(String(value)); }
+                return Object.assign({ position }, suggestionText(element));
+            });
+            shownSuggestion = { requestIdentifier, editorSuggest, values, context };
+            return { requestIdentifier, pluginIdentifier: editorSuggest.pluginIdentifier || null, items };
+        }
+        closePreviouslyOpen(null);
+        shownSuggestion = null;
+        return null;
+    }
+
     // MARK: Context menus
 
     let isMenuListenerNotificationScheduled = false;
@@ -832,6 +925,44 @@
         async 'surface.closed'() {
             runtime.pluginSurface.handleClosedByPerson();
             return {};
+        },
+        /// The note as its editor holds it after the person typed: plugins listening for
+        /// `editor-change` hear of it, and the suggestions at the cursor come back.
+        async 'editor.update'(message) {
+            const app = runtime.app;
+            const previousView = app.workspace.getActiveViewOfType(MarkdownView);
+            const previousText = previousView && previousView.editor ? previousView.editor.getValue() : null;
+            const previousPath = previousView && previousView.file ? previousView.file.path : null;
+            if (message.activeDocument) app.workspace.setActiveDocument(message.activeDocument);
+            const view = app.workspace.getActiveViewOfType(MarkdownView);
+            if (!view || !view.editor) return { suggestion: null };
+            if (previousText !== null && previousPath === (view.file && view.file.path) && previousText !== view.editor.getValue()) {
+                app.workspace.trigger('editor-change', view.editor, view);
+            }
+            if (!message.wantsSuggestions) return { suggestion: null };
+            return { suggestion: await findSuggestions(view.editor, view, message.requestIdentifier) };
+        },
+        /// The person closed the suggestions (Escape) without choosing one.
+        async 'editor.closeSuggestions'() {
+            for (const editorSuggest of runtime.editorSuggests) { if (editorSuggest.isOpen) editorSuggest.close(); }
+            shownSuggestion = null;
+            return {};
+        },
+        /// The person chose a suggestion: the plugin inserts it through the editor.
+        async 'editor.chooseSuggestion'(message) {
+            const suggestion = shownSuggestion;
+            if (!suggestion || suggestion.requestIdentifier !== message.requestIdentifier || !(message.position in suggestion.values)) return { outcome: 'missing' };
+            shownSuggestion = null;
+            const editorSuggest = suggestion.editorSuggest;
+            editorSuggest.context = suggestion.context;
+            try {
+                editorSuggest.selectSuggestion(suggestion.values[message.position], new globalScope.KeyboardEvent('keydown', { key: 'Enter' }));
+                return { outcome: 'ran' };
+            } catch (error) {
+                console.error(error);
+                hostBridge.notify('plugin.failure', { pluginIdentifier: editorSuggest.pluginIdentifier || null, message: 'A suggestion failed: ' + (error && error.message ? error.message : String(error)) });
+                return { outcome: 'failed', message: error && error.message ? error.message : String(error) };
+            }
         },
         /// A file or folder's context menu (`file-menu`), or several files' (`files-menu`).
         async 'menu.file'(message) {

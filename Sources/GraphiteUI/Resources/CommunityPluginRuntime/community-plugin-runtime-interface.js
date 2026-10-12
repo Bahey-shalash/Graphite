@@ -993,15 +993,24 @@
         getSuggestions() { return []; }
     }
 
-    /// Suggestions while typing in a note. Graphite's editor is native, so these never appear.
+    /// Suggestions while typing in a note. Graphite asks each registered suggest at the
+    /// cursor as the person types (`onTrigger`), shows the items of the first that answers
+    /// in its own suggestion list, and has the chosen one inserted by the plugin
+    /// (`selectSuggestion`). The list is Graphite's, so nothing is drawn here.
     class EditorSuggest extends PopoverSuggest {
         constructor(app) {
             super(app);
             this.context = null;
             this.limit = 100;
+            this.instructions = [];
             this.instructionsEl = this.suggestEl.createDiv({ cls: 'prompt-instructions' });
         }
-        setInstructions() {}
+        setInstructions(instructions) { this.instructions = instructions || []; }
+        open() { this.isOpen = true; }
+        close() {
+            this.isOpen = false;
+            this.context = null;
+        }
         onTrigger() { return null; }
         getSuggestions() { return []; }
     }

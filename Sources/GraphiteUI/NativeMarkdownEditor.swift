@@ -699,6 +699,14 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         /// suggestions whose edits are still being made. Their edits arrive after
         /// asynchronous work and are moved past typing that happened meanwhile.
         private var completionContextRevision: Int?
+        /// The text and cursor community plugins last heard of, and the revision they answered
+        /// with suggestions for.
+        private struct PluginEditorState: Equatable {
+            let textRevision: Int
+            let cursor: Int
+        }
+        private var lastPluginEditorState: PluginEditorState?
+        private var pluginSuggestionRevision: Int?
         private var acceptedCompletionRevisions: [Int] = []
         /// Only a few are kept: the edits use the latest.
         private static let maximumAcceptedCompletionRevisions = 8
@@ -1340,7 +1348,16 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                 session.completion.update(context: nil, caretRect: .zero)
                 return
             }
-            let context = LinkCompletion.context(in: currentSource(of: textView), cursor: textView.selectedRange.location)
+            var context = LinkCompletion.context(in: currentSource(of: textView), cursor: textView.selectedRange.location)
+            if context == nil, let pluginEditorDidChange = actions.pluginEditorDidChange {
+                // Plugins hear each change and cursor move once; scrolling asks again for the same.
+                let key = PluginEditorState(textRevision: textRevision, cursor: textView.selectedRange.location)
+                if key != lastPluginEditorState {
+                    lastPluginEditorState = key
+                    pluginSuggestionRevision = pluginEditorDidChange()
+                }
+                context = pluginSuggestionRevision.map { revision in CompletionContext.pluginSuggestion(revision: revision) }
+            }
             var caretRect = CGRect.zero
             if context != nil, let end = textView.selectedTextRange?.end {
                 caretRect = textView.caretRect(for: end).offsetBy(dx: -textView.contentOffset.x, dy: -textView.contentOffset.y)

@@ -240,6 +240,10 @@ struct MarkdownPane: View {
         }
         #endif
         actions.beginEditing = { [workspace, tabID] in workspace.activateTab(tabID) }
+        let pluginHost = workspace.communityPlugins
+        if pluginHost.isRuntimeRunning && (pluginHost.hasEditorSuggestions || pluginHost.hasEditorChangeListeners) {
+            actions.pluginEditorDidChange = { [pluginHost, session] in pluginHost.editorDidChange(in: session) }
+        }
         #if canImport(UIKit)
         if workspace.communityPlugins.hasEditorMenuItems {
             actions.pluginEditMenuElement = { [host = workspace.communityPlugins] in host.editorMenuElement() }

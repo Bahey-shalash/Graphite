@@ -210,15 +210,28 @@ test('Obsidian\'s sample plugin: commands, modal, settings and editor command', 
     }
 });
 
-test('Natural Language Dates: loads, inserts dates into the note, settings drawn', { skip: !builtPlugin('nldates-obsidian') }, async () => {
+test('Natural Language Dates: loads, inserts dates into the note, suggests dates after @, settings drawn', { skip: !builtPlugin('nldates-obsidian') }, async () => {
     const { harness, answer, commandNames, unsupported, pageErrors } = await loadInStudyVault('nldates-obsidian');
     try {
         assert.deepEqual(answer, { isLoaded: true });
         assert.equal(commandNames.length, 8);
         assert.ok(commandNames.includes('Natural Language Dates: Insert the current date'));
-        assert.deepEqual(unsupported, ['Suggestions while typing in a note']);
+        assert.deepEqual(unsupported, []);
         assert.deepEqual(pageErrors, []);
         assert.deepEqual(await settingRowCount(harness, 'nldates-obsidian'), { hasSettingTab: true, count: 7 });
+        // Typing `@tom`, a key at a time as Graphite sends each change, offers dates;
+        // choosing one links tomorrow's date in its place.
+        let suggested = null;
+        for (const typed of ['@', '@t', '@to', '@tom']) {
+            harness.writeVaultFile('Plan.md', 'Meet ' + typed + '\n');
+            suggested = plain(await harness.send({ operation: 'editor.update', wantsSuggestions: true, requestIdentifier: 'dates-' + typed.length, activeDocument: { path: 'Plan.md', mode: 'livePreview', editorSnapshot: harness.host.openNote('Plan.md', 5 + typed.length) } }));
+        }
+        assert.equal(suggested.suggestion.pluginIdentifier, 'nldates-obsidian');
+        assert.deepEqual(suggested.suggestion.items.map((item) => item.title), ['Tomorrow']);
+        assert.deepEqual(plain(await harness.send({ operation: 'editor.chooseSuggestion', requestIdentifier: 'dates-4', position: 0 })), { outcome: 'ran' });
+        await settle();
+        const tomorrow = harness.window.moment().add(1, 'day').format('YYYY-MM-DD');
+        assert.equal(harness.host.editorSessions.get('Plan.md').text, 'Meet [[' + tomorrow + ']]\n');
         const outcome = plain(await harness.send({ operation: 'command.run', commandIdentifier: 'nldates-obsidian:nlp-today', activeDocument: { path: 'Welcome.md', mode: 'livePreview', editorSnapshot: harness.host.openNote('Welcome.md', 0) } }));
         assert.deepEqual(outcome, { outcome: 'ran' });
         await settle();
@@ -355,7 +368,7 @@ test('Tasks: loads, toggles a task done through the editor change, draws its dec
     try {
         assert.deepEqual(answer, { isLoaded: true });
         assert.ok(commandNames.includes('Tasks: Toggle task done'));
-        assert.deepEqual(unsupported, ['CodeMirror editor extensions', 'Suggestions while typing in a note']);
+        assert.deepEqual(unsupported, ['CodeMirror editor extensions']);
         assert.deepEqual(pageErrors, []);
         assert.ok((await settingRowCount(harness, 'obsidian-tasks-plugin')).count >= 5);
         harness.writeVaultFile('Tasks.md', '- [ ] Write the report\n');
@@ -364,6 +377,21 @@ test('Tasks: loads, toggles a task done through the editor change, draws its dec
         await settle();
         const today = harness.window.moment().format('YYYY-MM-DD');
         assert.equal(harness.host.editorSessions.get('Tasks.md').text, '- [x] Write the report ✅ ' + today + '\n');
+        // Typing on a task line offers Tasks' fields; choosing one writes it into the line.
+        const typeOnTaskLine = async (line, requestIdentifier) => {
+            harness.writeVaultFile('Typing.md', line + '\n');
+            return plain(await harness.send({ operation: 'editor.update', wantsSuggestions: true, requestIdentifier, activeDocument: { path: 'Typing.md', mode: 'livePreview', editorSnapshot: harness.host.openNote('Typing.md', line.length) } }));
+        };
+        const fieldSuggestions = await typeOnTaskLine('- [ ] Pay rent du', 'fields');
+        assert.deepEqual(fieldSuggestions.suggestion.items.map((item) => item.title), ['📅 due date', '⏳ scheduled date']);
+        await harness.send({ operation: 'editor.chooseSuggestion', requestIdentifier: 'fields', position: 0 });
+        await settle();
+        assert.equal(harness.host.editorSessions.get('Typing.md').text, '- [ ] Pay rent 📅 \n');
+        const dateSuggestions = await typeOnTaskLine('- [ ] Pay rent 📅 ', 'dates');
+        assert.equal(dateSuggestions.suggestion.items[0].title, 'today (' + today + ')');
+        await harness.send({ operation: 'editor.chooseSuggestion', requestIdentifier: 'dates', position: 0 });
+        await settle();
+        assert.equal(harness.host.editorSessions.get('Typing.md').text, '- [ ] Pay rent 📅 ' + today + ' \n');
     } finally {
         harness.close();
     }
@@ -391,7 +419,7 @@ test('Tasks: a query block lists the vault\'s open tasks, and ticking one there 
     }
 });
 
-test('Outliner: loads and draws its settings; its commands need CodeMirror\'s editor view and say so', { skip: !builtPlugin('obsidian-outliner') }, async () => {
+test('Outliner: loads and draws its settings; moves list items, and its folding commands say they need CodeMirror\'s view', { skip: !builtPlugin('obsidian-outliner') }, async () => {
     const { harness, answer, commandNames, unsupported } = await loadInStudyVault('obsidian-outliner');
     try {
         assert.deepEqual(answer, { isLoaded: true });
@@ -399,9 +427,14 @@ test('Outliner: loads and draws its settings; its commands need CodeMirror\'s ed
         assert.deepEqual(unsupported, ['CodeMirror editor extensions']);
         assert.ok((await settingRowCount(harness, 'obsidian-outliner')).count >= 5);
         harness.writeVaultFile('List.md', '- one\n- two\n');
-        const outcome = plain(await harness.send({ operation: 'command.run', commandIdentifier: 'obsidian-outliner:move-list-item-down', activeDocument: { path: 'List.md', mode: 'livePreview', editorSnapshot: harness.host.openNote('List.md', 2) } }));
-        assert.equal(outcome.outcome, 'failed');
-        assert.match(outcome.message, /CodeMirror editor view \(editor\.cm\)/);
+        const moved = plain(await harness.send({ operation: 'command.run', commandIdentifier: 'obsidian-outliner:move-list-item-down', activeDocument: { path: 'List.md', mode: 'livePreview', editorSnapshot: harness.host.openNote('List.md', 2) } }));
+        assert.deepEqual(moved, { outcome: 'ran' });
+        await settle();
+        assert.equal(harness.host.editorSessions.get('List.md').text, '- two\n- one\n', 'the item moved down through the editor change');
+        harness.writeVaultFile('List.md', '- one\n- two\n');
+        const folded = plain(await harness.send({ operation: 'command.run', commandIdentifier: 'obsidian-outliner:fold', activeDocument: { path: 'List.md', mode: 'livePreview', editorSnapshot: harness.host.openNote('List.md', 2) } }));
+        assert.equal(folded.outcome, 'failed');
+        assert.match(folded.message, /CodeMirror editor view \(editor\.cm\)/);
         assert.equal(harness.host.editorSessions.get('List.md').text, '- one\n- two\n', 'the note is left as it was');
     } finally {
         harness.close();
@@ -534,7 +567,7 @@ test('Iconize: loads and draws its settings; its icons in the editor need editor
     try {
         assert.deepEqual(answer, { isLoaded: true });
         assert.deepEqual(commandNames, ['Iconize: Set icon for file']);
-        assert.deepEqual(unsupported, ['Suggestions while typing in a note', 'CodeMirror editor extensions']);
+        assert.deepEqual(unsupported, ['CodeMirror editor extensions']);
         assert.deepEqual(pageErrors, []);
         const settings = await settingRowCount(harness, 'obsidian-icon-folder');
         assert.equal(settings.hasSettingTab, true);
