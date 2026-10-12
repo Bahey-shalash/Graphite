@@ -31,6 +31,11 @@ final class MarkdownTextView: UITextView {
     /// or when Graphite asks.
     private var lastTouchUptime: TimeInterval = -.infinity
     private var isEditingRequested = false
+    /// True while the note's view goes away and the text view gives up the keyboard. Ending
+    /// editing in an embedded PDF hands focus on to the text view around it, and a note
+    /// touched a moment before took it: it began editing and made its own tab active again,
+    /// right after an embed's "Open in PDF View" had shown the PDF's tab.
+    var refusesFocus = false
 
     /// A text view on TextKit 2, the system's default for a text view made in code. Not
     /// `UITextView(usingTextLayoutManager:)`: that factory makes the view through an
@@ -50,7 +55,7 @@ final class MarkdownTextView: UITextView {
 
     override var canBecomeFirstResponder: Bool {
         let wasRecentlyTouched = ProcessInfo.processInfo.systemUptime - lastTouchUptime < 1
-        return super.canBecomeFirstResponder && (isFirstResponder || isEditingRequested || wasRecentlyTouched)
+        return super.canBecomeFirstResponder && (isFirstResponder || (!refusesFocus && (isEditingRequested || wasRecentlyTouched)))
     }
 
     /// Starts editing on Graphite's behalf, for example to show a rendered block's source.
@@ -540,8 +545,6 @@ struct NativeMarkdownEditor: UIViewRepresentable {
     private func update(_ textView: MarkdownTextView, coordinator: Coordinator) {
         coordinator.session = session
         textView.readAloudRange = readAloudRange
-        // Rendered drawings must be rebuilt after a drawing file is rewritten.
-        if coordinator.environment?.drawingVersion != environment?.drawingVersion { coordinator.removeAllWidgets() }
         let previousBlockPolicy = coordinator.renderedBlockPolicy
         coordinator.environment = environment
         coordinator.follow = follow
@@ -559,11 +562,15 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             coordinator.rebuildBlocks(in: textView, forcesBlockScan: true)
             coordinator.restyleEverything(in: textView)
         }
-        // Rendered blocks already on screen show the new settings, index state and
-        // accent in place, keeping their own state (such as a base's chosen view).
+        // Rendered blocks already on screen show the new settings, index state, files and
+        // accent in place, keeping their own state (such as a base's chosen view). A changed
+        // file reaches them too: each looks its files up again and keeps showing what it
+        // shows until then. Rebuilding them blanked every drawing in the note for a few
+        // frames after each save, since the system reports the note's own save as a change.
         let widgetSignature = LivePreviewWidgetSignature(environment: environment, accentHex: configuration.accentHex, notePath: session.path.rawValue)
         if coordinator.widgetSignature != widgetSignature {
             let changesOnlyIndex = coordinator.widgetSignature?.appearance == widgetSignature.appearance
+                && coordinator.widgetSignature?.drawingVersion == widgetSignature.drawingVersion
             coordinator.widgetSignature = widgetSignature
             coordinator.refreshWidgets(in: textView, onlyThoseReadingIndex: changesOnlyIndex)
         }
@@ -686,6 +693,8 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         /// Later tries for a rendered block still missing after the passes above, which can
         /// happen when TextKit lays out the viewport only after the view settles.
         private var delayedPlacementTries = 0
+        /// Set while blocks are placed again on a viewport laid out for them in the same pass.
+        private var isPlacingOnViewportLaidOutNow = false
         /// The text column's width when rendered blocks were last placed, and the placement
         /// waiting for a new width to settle.
         private var placedColumnWidth: CGFloat = 0
@@ -742,6 +751,10 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         func viewWasDismantled(with container: MarkdownEditorContainerView) {
             containersInUse.remove(container)
             guard let textView = container.textViewShownHere else { return }
+            // The keyboard given up here, by the text view or a view inside it, does not
+            // come back to the note.
+            textView.refusesFocus = true
+            defer { textView.refusesFocus = false }
             isLettingGoOfTextView = true
             textView.endEditing(true)
             if let remainingContainer = containersInUse.newest {
@@ -1624,6 +1637,23 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                     didMoveWidget = true
                 }
                 return true
+            }
+            // The cursor leaving a block restyles it, which replaces its fragment, and TextKit
+            // lays the viewport out only after this pass. Waiting a turn of the run loop showed
+            // a frame or two with the text below already moved down and the block's space
+            // empty. The viewport is laid out now instead, and the blocks placed on it. Laying
+            // it out can scroll the view, as when the block takes its height back below a
+            // selection that UIKit keeps in sight, so it is laid out once more where it went.
+            if !keysAwaitingLayout.isEmpty, !isPlacingOnViewportLaidOutNow {
+                isPlacingOnViewportLaidOutNow = true
+                defer { isPlacingOnViewportLaidOutNow = false }
+                for _ in 0..<2 {
+                    let offsetBeforeLayout = textView.contentOffset
+                    textLayoutManager.textViewportLayoutController.layoutViewport()
+                    if textView.contentOffset == offsetBeforeLayout { break }
+                }
+                positionWidgets(in: textView)
+                return
             }
             for (key, host) in widgetHosts where !keysInUse.contains(key) {
                 host.view.removeFromSuperview()
@@ -2955,14 +2985,19 @@ extension NativeMarkdownEditor {
 struct LivePreviewWidgetSignature: Equatable {
     let appearance: String
     let index: String
+    /// Changes when a file the vault shows changes, such as a drawing saved; every block
+    /// that shows a file looks it up again.
+    let drawingVersion: Int
 
     /// `notePath` is where the blocks' links are followed from; the note can be renamed.
     init(environment: LivePreviewEnvironment?, accentHex: String, notePath: String) {
         guard let environment else {
             appearance = ""
             index = ""
+            drawingVersion = 0
             return
         }
+        drawingVersion = environment.drawingVersion
         let palette = environment.paletteHexByName.sorted { leftEntry, rightEntry in leftEntry.key < rightEntry.key }
             .map { entry in "\(entry.key)=\(entry.value)" }.joined(separator: ",")
         let declaredPropertyTypes = environment.declaredPropertyTypes.sorted { leftEntry, rightEntry in leftEntry.key < rightEntry.key }
