@@ -115,9 +115,15 @@
         hostBridge.notify('codeBlock.changed', { blockIdentifier: entry.blockIdentifier, html });
     }
 
-    /// The style sheets of loaded plugins, which the copies need to look as they do here.
+    /// The style sheets plugins added to the page, which the copies need to look as they do
+    /// here: each plugin's styles.css, and the styles its components add themselves (Svelte
+    /// components, as in Calendar, add theirs to the page's head, some through the CSS object
+    /// model, which leaves the element's text empty).
     function pluginStyles() {
-        return Array.from(globalScope.document.querySelectorAll('style[data-graphite-plugin]')).map((styleElement) => styleElement.textContent).join('\n');
+        return Array.from(globalScope.document.querySelectorAll('style')).map((styleElement) => {
+            if (styleElement.textContent.trim() !== '') return styleElement.textContent;
+            try { return Array.from(styleElement.sheet ? styleElement.sheet.cssRules : []).map((rule) => rule.cssText).join('\n'); } catch (error) { return ''; }
+        }).join('\n');
     }
 
     // MARK: Drawing and releasing blocks
@@ -137,7 +143,9 @@
         drawnBlocks.delete(blockIdentifier);
         entry.isReleased = true;
         if (entry.observer) entry.observer.disconnect();
-        try { entry.component.unload(); } catch (error) { console.error(error); }
+        // A plugin's view outlives the place that showed it; only blocks are unloaded.
+        if (entry.leaf) entry.element.detach();
+        else { try { entry.component.unload(); } catch (error) { console.error(error); } }
         entry.container.remove();
     }
 
@@ -283,6 +291,14 @@
         else element.dispatchEvent(new globalScope.MouseEvent('click', options));
     }
 
+    /// A key pressed in a field of the copy (Return, Escape, arrows), which plugins' search
+    /// fields and lists act on.
+    function press(element, key) {
+        const options = { key: String(key), bubbles: true, cancelable: true };
+        element.dispatchEvent(new globalScope.KeyboardEvent('keydown', options));
+        element.dispatchEvent(new globalScope.KeyboardEvent('keyup', options));
+    }
+
     /// Text typed into a field of the copy, given to the plugin's field as typing would.
     function enter(element, value) {
         if (!('value' in element)) return;
@@ -291,7 +307,50 @@
         element.dispatchEvent(new globalScope.Event('change', { bubbles: true }));
     }
 
+    // MARK: Plugin views
+
+    /// A plugin's view shown in a Graphite tab or sidebar panel: its leaf's element is laid
+    /// out here at the size Graphite gives it, and copied like a code block while shown.
+    function attachView(message) {
+        const app = runtime.app;
+        release(message.blockIdentifier);
+        const leaf = app ? app.workspace.getLeafById(message.leafIdentifier) : null;
+        if (!leaf || leaf === app.workspace.markdownLeaf) return { isDrawn: false, message: 'This view was closed.' };
+        for (const entry of drawnBlocks.values()) { if (entry.leaf === leaf) release(entry.blockIdentifier); }
+        const container = readingArea().createDiv({ cls: 'graphite-reading-block graphite-plugin-view' });
+        container.appendChild(leaf.containerEl);
+        const entry = {
+            blockIdentifier: message.blockIdentifier, container, element: leaf.containerEl, leaf, component: null, addedChildCount: 0,
+            observer: null, isCopyScheduled: false, isReleased: false, lastSentHTML: null,
+        };
+        drawnBlocks.set(message.blockIdentifier, entry);
+        resizeView(entry, message.width, message.height);
+        watch(entry);
+        entry.lastSentHTML = copyOf(entry);
+        return { isDrawn: true, html: entry.lastSentHTML, styles: pluginStyles(), title: leaf.getDisplayText() };
+    }
+
+    function resizeView(entry, width, height) {
+        entry.container.style.width = Math.max(200, Math.min(4000, Number(width) || 700)) + 'px';
+        entry.container.style.height = Math.max(100, Math.min(4000, Number(height) || 600)) + 'px';
+        try { entry.leaf.onResize(); } catch (error) { console.error(error); }
+    }
+
     Object.assign(runtime.messageHandlers, {
+        async 'view.attach'(message) {
+            return attachView(message);
+        },
+        async 'view.resize'(message) {
+            const entry = drawnBlocks.get(message.blockIdentifier);
+            if (entry && entry.leaf) resizeView(entry, message.width, message.height);
+            return {};
+        },
+        /// The person closed the view's tab or panel: the view closes, as in Obsidian.
+        async 'view.close'(message) {
+            const leaf = runtime.app ? runtime.app.workspace.getLeafById(message.leafIdentifier) : null;
+            if (leaf && leaf !== runtime.app.workspace.markdownLeaf) leaf.detach();
+            return {};
+        },
         async 'codeBlock.render'(message) {
             return message.kind === 'section' ? drawSection(message) : draw(message);
         },
@@ -305,6 +364,7 @@
                 return { isHandled: true, taskLine: Number(element.getAttribute('data-graphite-task-line')) };
             }
             if (message.eventType === 'input') enter(element, message.value);
+            else if (message.eventType === 'key') press(element, message.key);
             else tap(element);
             // The plugin's handlers usually change the block at once; its copy goes back with
             // the answer, and later changes as usual.

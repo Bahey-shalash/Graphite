@@ -202,18 +202,29 @@ pre code { display: block; padding: var(--size-4-3); overflow: auto; }
 .graphite-reading-blocks { position: fixed; left: 0; top: 0; width: 0; height: 0; overflow: visible; opacity: 0; pointer-events: none; z-index: -1; }
 .graphite-reading-block { position: absolute; left: 0; top: 0; }
 
-/* What plugins draw into notes: tables and task lists as Obsidian's reading view shows them */
-.markdown-rendered table { border-collapse: collapse; margin: var(--size-4-2) 0; }
-.markdown-rendered th, .markdown-rendered td { border: var(--border-width) solid var(--background-modifier-border); padding: var(--size-2-3) var(--size-4-3); text-align: left; vertical-align: top; }
-.markdown-rendered th { font-weight: var(--font-semibold); background: var(--background-secondary); }
-.markdown-rendered ul, .markdown-rendered ol { padding-left: 1.6em; margin: var(--size-4-1) 0; }
-.markdown-rendered ul.contains-task-list { list-style: none; padding-left: 0.4em; }
-.markdown-rendered li.task-list-item { list-style: none; }
-.markdown-rendered input.task-list-item-checkbox { width: 1.1em; height: 1.1em; margin: 0 0.5em 0 0; vertical-align: -0.15em; accent-color: var(--interactive-accent); }
-.markdown-rendered li.is-checked, .markdown-rendered li[data-task="x"] { color: var(--text-muted); }
-.markdown-rendered h1, .markdown-rendered h2, .markdown-rendered h3, .markdown-rendered h4 { margin: var(--size-4-3) 0 var(--size-4-2); line-height: var(--line-height-tight); }
+/* What plugins draw into notes: tables and task lists as Obsidian's reading view shows them, without
+   specificity (`:where`), so a plugin's own styles for its tables and lists win */
+:where(.markdown-rendered) table { border-collapse: collapse; margin: var(--size-4-2) 0; }
+:where(.markdown-rendered) th, :where(.markdown-rendered) td { border: var(--border-width) solid var(--background-modifier-border); padding: var(--size-2-3) var(--size-4-3); text-align: left; vertical-align: top; }
+:where(.markdown-rendered) th { font-weight: var(--font-semibold); background: var(--background-secondary); }
+:where(.markdown-rendered) ul, :where(.markdown-rendered) ol { padding-left: 1.6em; margin: var(--size-4-1) 0; }
+:where(.markdown-rendered) ul.contains-task-list { list-style: none; padding-left: 0.4em; }
+:where(.markdown-rendered) li.task-list-item { list-style: none; }
+:where(.markdown-rendered) input.task-list-item-checkbox { width: 1.1em; height: 1.1em; margin: 0 0.5em 0 0; vertical-align: -0.15em; accent-color: var(--interactive-accent); }
+:where(.markdown-rendered) li.is-checked, :where(.markdown-rendered) li[data-task="x"] { color: var(--text-muted); }
+:where(.markdown-rendered) h1, :where(.markdown-rendered) h2, :where(.markdown-rendered) h3, :where(.markdown-rendered) h4 { margin: var(--size-4-3) 0 var(--size-4-2); line-height: var(--line-height-tight); }
 /* Task lists as Graphite's Markdown renderer writes them (`<li><input type="checkbox"> <p>…</p></li>`), drawn as Obsidian draws its own */
-.markdown-rendered li:not(.task-list-item):has(> input[type="checkbox"]) { list-style: none; margin-left: -1.2em; }
-.markdown-rendered li:not(.task-list-item) > input[type="checkbox"] { width: 1.1em; height: 1.1em; margin: 0 0.4em 0 0; vertical-align: -0.15em; accent-color: var(--interactive-accent); }
-.markdown-rendered li:not(.task-list-item) > input[type="checkbox"] + p { display: inline; margin: 0; }
-.markdown-rendered li:not(.task-list-item) > input[type="checkbox"][checked] + p { color: var(--text-muted); text-decoration: line-through; }
+:where(.markdown-rendered) li:not(.task-list-item):has(> input[type="checkbox"]) { list-style: none; margin-left: -1.2em; }
+:where(.markdown-rendered) li:not(.task-list-item) > input[type="checkbox"] { width: 1.1em; height: 1.1em; margin: 0 0.4em 0 0; vertical-align: -0.15em; accent-color: var(--interactive-accent); }
+:where(.markdown-rendered) li:not(.task-list-item) > input[type="checkbox"] + p { display: inline; margin: 0; }
+:where(.markdown-rendered) li:not(.task-list-item) > input[type="checkbox"][checked] + p { color: var(--text-muted); text-decoration: line-through; }
+
+/* A plugin view laid out for a Graphite tab or sidebar panel */
+.graphite-plugin-view .workspace-leaf { height: 100%; display: flex; flex-direction: column; }
+.graphite-plugin-view .workspace-leaf-content { display: flex; flex-direction: column; height: 100%; }
+.graphite-plugin-view .view-content { flex: 1 1 auto; overflow: auto; padding: 8px 6px; }
+/* Obsidian's file rows and tree items, which views such as Recent Files reuse; on a touch screen each row is a
+   comfortable target (44 points), as in Obsidian mobile */
+.nav-file-title, .tree-item-self { display: flex; align-items: center; gap: var(--size-2-3); min-height: 44px; padding: 0 var(--size-4-2); border-radius: var(--radius-m); color: var(--text-normal); cursor: pointer; box-sizing: border-box; }
+.nav-file-title.is-active, .tree-item-self.is-active { background: var(--background-modifier-active-hover); }
+.nav-file-title-content, .tree-item-inner { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

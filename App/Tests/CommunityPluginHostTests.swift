@@ -21,7 +21,17 @@ final class CommunityPluginHostTests: XCTestCase {
     /// A plugin with a command for each thing the tests check.
     private static let pluginSource = """
     'use strict';
-    const { Plugin, EditorSuggest } = require('obsidian');
+    const { Plugin, EditorSuggest, ItemView } = require('obsidian');
+    class CounterView extends ItemView {
+        getViewType() { return 'graphite-counter'; }
+        getDisplayText() { return 'Counter view'; }
+        getIcon() { return 'clock'; }
+        async onOpen() {
+            let presses = 0;
+            const button = this.contentEl.createEl('button', { cls: 'graphite-view-button', text: 'Pressed 0' });
+            button.addEventListener('click', () => { presses += 1; button.setText('Pressed ' + presses); });
+        }
+    }
     class EmojiSuggest extends EditorSuggest {
         onTrigger(cursor, editor) {
             const match = /:(\\w*)$/.exec(editor.getLine(cursor.line).slice(0, cursor.ch));
@@ -34,6 +44,13 @@ final class CommunityPluginHostTests: XCTestCase {
     module.exports = class HostTestPlugin extends Plugin {
         async onload() {
             this.registerEditorSuggest(new EmojiSuggest(this.app));
+            this.registerView('graphite-counter', (leaf) => new CounterView(leaf));
+            this.addCommand({ id: 'open-tab-view', name: 'Open tab view', callback: async () => {
+                await this.app.workspace.getLeaf('tab').setViewState({ type: 'graphite-counter', active: true });
+            } });
+            this.addCommand({ id: 'open-side-view', name: 'Open side view', callback: async () => {
+                await this.app.workspace.getRightLeaf(false).setViewState({ type: 'graphite-counter', active: true });
+            } });
             this.registerEvent(this.app.workspace.on('editor-change', (editor) => { this.changeCount = (this.changeCount || 0) + 1; window.lastHeardText = editor.getValue(); }));
             this.addCommand({ id: 'insert-text', name: 'Insert text', editorCallback: (editor) => editor.replaceSelection('inserted') });
             this.addCommand({ id: 'save-data', name: 'Save data', callback: () => this.saveData({ saved: true, list: [1, 2] }) });
@@ -283,6 +300,40 @@ final class CommunityPluginHostTests: XCTestCase {
         session.completion.accept()
         try await waitUntil { session.text == "Mood 😄\n" }
         XCTAssertTrue(editor.undoManager?.canUndo == true, "The plugin's insertion can be undone.")
+    }
+
+    func testPluginViewsOpenInATabOrTheSidebarAndCloseWithTheirTab() async throws {
+        let (workspace, _, controller) = try await workspaceWithRunningPlugin(notes: ["Note.md": "Note.\n"])
+        let host = workspace.communityPlugins
+        try await run("open-side-view", in: workspace)
+        try await waitUntil { host.sidebarViewRequest != nil && host.sidebarViews.map(\.title) == ["Counter view"] }
+        XCTAssertEqual(host.sidebarViews.first?.icon, "clock")
+        XCTAssertFalse(host.isPanelPresented, "Views no longer open on the plugin panel.")
+
+        try await run("open-tab-view", in: workspace)
+        try await waitUntil { workspace.document(for: workspace.layout.activeTab.id).pluginViewIdentifier != nil }
+        let tabID = workspace.layout.activeTab.id
+        let viewIdentifier = try XCTUnwrap(workspace.document(for: tabID).pluginViewIdentifier)
+        XCTAssertEqual(host.pluginView(withIdentifier: viewIdentifier)?.placement, .tab)
+        try await waitUntil(seconds: 15) { self.codeBlockWebViews(in: controller, host: host).count == 1 }
+        let viewWebView = try XCTUnwrap(codeBlockWebViews(in: controller, host: host).first)
+        var shownHTML = ""
+        for _ in 0..<100 where !shownHTML.contains("Pressed 0") {
+            try await Task.sleep(for: .milliseconds(50))
+            shownHTML = try await codeBlockHTML(viewWebView)
+        }
+        XCTAssertTrue(shownHTML.contains("Pressed 0"), shownHTML)
+        XCTAssertTrue(viewWebView.scrollView.isScrollEnabled, "A view scrolls inside its tab.")
+        _ = try await viewWebView.callAsyncJavaScript("document.querySelector('button.graphite-view-button').click()", arguments: [:], in: nil, contentWorld: .defaultClient)
+        for _ in 0..<100 where !shownHTML.contains("Pressed 1") {
+            try await Task.sleep(for: .milliseconds(50))
+            shownHTML = try await codeBlockHTML(viewWebView)
+        }
+        XCTAssertTrue(shownHTML.contains("Pressed 1"), "The tap reached the plugin's view: " + shownHTML)
+
+        await workspace.closeTab(tabID)
+        try await waitUntil { host.pluginView(withIdentifier: viewIdentifier) == nil }
+        XCTAssertEqual(host.sidebarViews.count, 1, "The sidebar's view stays open.")
     }
 
     /// Dataview and Tasks as built by `npm run build-compatibility-plugins`, read from the

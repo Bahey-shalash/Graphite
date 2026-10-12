@@ -73,9 +73,14 @@ class ExamplePlugin extends obsidian.Plugin {
         assert.deepEqual(plain(ribbon.map((item) => [item.title, item.icon])), [['Open example view', 'dice']]);
         assert.deepEqual(plain(await harness.send({ operation: 'ribbon.run', ribbonIdentifier: ribbon[0].ribbonIdentifier })), { outcome: 'ran' });
         await settle();
-        assert.equal(harness.window.document.querySelector('.graphite-plugin-surface p').textContent, 'inside the view');
-        assert.equal(harness.host.notificationsOf('surface.present').at(-1).title, 'Example view');
-        assert.deepEqual(plain(harness.host.notificationsOf('views.changed').at(-1).views.map((view) => view.title)), ['Example view']);
+        // A sidebar's view goes to Graphite's sidebar, where it is shown as a copy.
+        const shownViews = plain(harness.host.notificationsOf('views.changed').at(-1).views);
+        assert.deepEqual(shownViews.map((view) => [view.title, view.viewType, view.placement]), [['Example view', 'example-view', 'sidebar']]);
+        assert.deepEqual(plain(harness.host.notificationsOf('view.reveal').at(-1)), { operation: 'view.reveal', leafIdentifier: shownViews[0].leafIdentifier, placement: 'sidebar' });
+        const attached = plain(await harness.send({ operation: 'view.attach', blockIdentifier: 'panel-1', leafIdentifier: shownViews[0].leafIdentifier, width: 320, height: 600 }));
+        assert.equal(attached.isDrawn, true);
+        assert.equal(attached.title, 'Example view');
+        assert.match(attached.html, /<p>inside the view<\/p>/);
         assert.ok(harness.runtime.ribbon.items[0].element.querySelector('svg.lucide-dice-5'), 'the ribbon action has Obsidian\'s “dice” icon from Lucide');
 
         await harness.send({ operation: 'plugin.unload', pluginIdentifier: 'example' });
@@ -83,7 +88,8 @@ class ExamplePlugin extends obsidian.Plugin {
         assert.equal(harness.window.document.querySelector('style[data-graphite-plugin="example"]'), null);
         assert.deepEqual(plain(harness.host.notificationsOf('commands.changed').at(-1).commands), []);
         assert.deepEqual(plain(harness.host.notificationsOf('ribbon.changed').at(-1).items), []);
-        assert.equal(harness.window.document.querySelector('.graphite-plugin-surface p'), null);
+        assert.equal(harness.window.document.querySelector('.graphite-reading-blocks p'), null, 'the view closed with its plugin');
+        assert.deepEqual(plain(harness.host.notificationsOf('views.changed').at(-1).views), []);
         assert.equal(harness.app.workspace.viewCreatorsByType.has('example-view'), false);
     } finally {
         harness.close();

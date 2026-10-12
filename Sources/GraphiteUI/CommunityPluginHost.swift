@@ -26,10 +26,27 @@ struct CommunityPluginRibbonAction: Identifiable, Equatable {
     let title: String
 }
 
-/// A view a plugin opened (an `ItemView` in a leaf), shown on the plugin panel.
+/// A view a plugin opened (an `ItemView` in a leaf): shown in Graphite's sidebar when the
+/// plugin put it in one of Obsidian's sidebars, in a tab otherwise.
 struct CommunityPluginView: Identifiable, Equatable {
+    enum Placement: String {
+        case sidebar, tab
+    }
+
+    /// The leaf's identifier in the runtime.
     let id: String
     let title: String
+    let viewType: String
+    /// The view's icon, a Lucide name as Obsidian gives it.
+    let icon: String
+    let placement: Placement
+}
+
+/// A plugin asked to show one of its views in the sidebar; the token tells two requests
+/// for the same view apart.
+struct CommunityPluginSidebarRequest: Equatable {
+    let viewIdentifier: String
+    let token = UUID()
 }
 
 /// What happened when Graphite tried to run a plugin.
@@ -139,6 +156,8 @@ final class CommunityPluginHost {
     /// The plugin panel as a sheet over the workspace.
     var isPanelPresented = false
     private(set) var panelTitle = ""
+    /// The plugin view the sidebar should show, as a plugin asked (`revealLeaf`).
+    var sidebarViewRequest: CommunityPluginSidebarRequest?
     /// The plugin whose options another part of the interface should show (`app.setting.openTabById`).
     var requestedSettingsPlugin: String?
     private(set) var isRuntimeRunning = false
@@ -822,8 +841,13 @@ final class CommunityPluginHost {
         case "views.changed":
             pluginViews = (message["views"] as? [[String: Any]] ?? []).compactMap { view in
                 guard let identifier = view["leafIdentifier"] as? String else { return nil }
-                return CommunityPluginView(id: identifier, title: view["title"] as? String ?? "")
+                return CommunityPluginView(id: identifier, title: view["title"] as? String ?? "", viewType: view["viewType"] as? String ?? "",
+                                           icon: view["icon"] as? String ?? "", placement: CommunityPluginView.Placement(rawValue: view["placement"] as? String ?? "") ?? .tab)
             }
+            workspace?.forgetClosedPluginViews(keeping: Set(pluginViews.map(\.id)))
+        case "view.reveal":
+            guard let identifier = message["leafIdentifier"] as? String else { return }
+            revealView(identifier)
         case "codeBlocks.changed":
             let languages = Set(message["languages"] as? [String] ?? [])
             codeBlockLanguageOwners = message["owners"] as? [String: String] ?? [:]

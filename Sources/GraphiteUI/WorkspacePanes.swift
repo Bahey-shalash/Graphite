@@ -290,7 +290,10 @@ private struct TabBar: View {
     }
 
     private func title(of tab: WorkspaceTab) -> String {
-        tab.path.map { path in workspace.preferences.displayName(for: path) } ?? "New Tab"
+        if let path = tab.path { return workspace.preferences.displayName(for: path) }
+        // A tab showing a plugin's view is named after the view.
+        if let identifier = workspace.document(for: tab.id).pluginViewIdentifier, let view = workspace.communityPlugins.pluginView(withIdentifier: identifier) { return view.title }
+        return "New Tab"
     }
 }
 
@@ -450,7 +453,14 @@ private struct TabDocumentView: View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay { if document.isOpening { DelayedProgressView() } }
-            .task(id: tab.path) { await workspace.loadDocumentIfNeeded(for: tab.id) }
+            .task(id: tab.path) {
+                // A file opened in a tab that showed a plugin's view replaces the view, which closes.
+                if tab.path != nil, let pluginViewIdentifier = document.pluginViewIdentifier {
+                    document.pluginViewIdentifier = nil
+                    workspace.communityPlugins.closeView(pluginViewIdentifier)
+                }
+                await workspace.loadDocumentIfNeeded(for: tab.id)
+            }
     }
 
     @ViewBuilder private var content: some View {
@@ -477,6 +487,9 @@ private struct TabDocumentView: View {
                 // Loading; the overlay shows progress once it takes long enough to notice.
                 Color.clear
             }
+        } else if let pluginViewIdentifier = document.pluginViewIdentifier {
+            CommunityPluginViewContent(host: workspace.communityPlugins, viewIdentifier: pluginViewIdentifier)
+                .id(pluginViewIdentifier)
         } else {
             EmptyTabView(workspace: workspace, tabID: tab.id, create: create, showQuickSwitcher: showQuickSwitcher)
         }

@@ -18,6 +18,8 @@ final class TabDocument {
     /// The view a `[[Books.base#Gallery]]` link asked the tab's base to show.
     var baseViewRequest: BaseViewRequest?
     var isOpening = false
+    /// The community plugin view an empty tab shows (its leaf's identifier), until a file opens in it.
+    var pluginViewIdentifier: String?
     /// Why the tab's file could not be opened, shown in the tab until it is tried again.
     var loadFailure: LoadFailure?
     /// Identifies the latest open request, so a slower earlier one cannot replace it.
@@ -194,6 +196,8 @@ extension WorkspaceModel {
         // A closed tab's file opens where it was left when it is opened again.
         rememberPlaces(of: tabIDs.compactMap { tabID in tabDocuments[tabID] })
         for tabID in tabIDs {
+            // A plugin view closes with its tab, as in Obsidian.
+            if let pluginViewIdentifier = tabDocuments[tabID]?.pluginViewIdentifier { communityPlugins.closeView(pluginViewIdentifier) }
             tabDocuments[tabID]?.unload()
             tabDocuments[tabID] = nil
         }

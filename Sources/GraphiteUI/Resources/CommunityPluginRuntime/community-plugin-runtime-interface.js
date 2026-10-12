@@ -184,7 +184,6 @@
     const pluginSurface = {
         openModals: [],
         shownSettingTab: null,
-        shownLeaf: null,
         isPresented: false,
 
         hostElement() {
@@ -197,17 +196,13 @@
                 settingTab.hide();
                 settingTab.containerEl.detach();
             }
-            if (this.shownLeaf) {
-                this.shownLeaf.containerEl.detach();
-                this.shownLeaf = null;
-            }
         },
         present(title) {
             this.isPresented = true;
             hostBridge.notify('surface.present', { title: title || '' });
         },
         dismissIfEmpty() {
-            if (this.openModals.length > 0 || this.shownSettingTab || this.shownLeaf) return;
+            if (this.openModals.length > 0 || this.shownSettingTab) return;
             if (!this.isPresented) return;
             this.isPresented = false;
             hostBridge.notify('surface.dismiss', {});
@@ -237,13 +232,6 @@
         refreshSettingTab(settingTab) {
             if (this.shownSettingTab !== settingTab) return;
             this.drawSettingTab(settingTab);
-        },
-        showLeaf(leaf) {
-            this.clearShownContent();
-            this.shownLeaf = leaf;
-            this.hostElement().appendChild(leaf.containerEl);
-            leaf.updateHeader();
-            this.present(leaf.getDisplayText());
         },
         modalOpened(modal) {
             this.openModals.push(modal);

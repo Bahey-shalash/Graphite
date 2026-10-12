@@ -12,6 +12,8 @@ struct CommunityPluginReadingBlockRequest: Hashable, Sendable {
         case codeBlock(language: String)
         /// A run of the note's Markdown, which Graphite shows itself unless a plugin changes it.
         case section
+        /// A plugin's view in a tab or sidebar panel (its leaf's identifier).
+        case view(identifier: String)
     }
 
     let kind: Kind
@@ -91,6 +93,7 @@ final class CommunityPluginShownCodeBlock {
         switch request.kind {
         case .codeBlock(let language): message["language"] = language
         case .section: message["kind"] = "section"
+        case .view: return
         }
         if let firstLine = request.firstLine { message["firstLine"] = firstLine }
         // `getSectionInfo` gives a plugin the whole note; only an open note's text is at hand.
@@ -114,6 +117,32 @@ final class CommunityPluginShownCodeBlock {
         }
     }
 
+    /// Shows a plugin's view at `size`, the size of its tab or sidebar panel.
+    func attachView(_ viewIdentifier: String, size: CGSize) async {
+        guard let host else { return }
+        request = CommunityPluginReadingBlockRequest(kind: .view(identifier: viewIdentifier), source: "", note: .root, firstLine: nil, lineCount: 0)
+        host.shownCodeBlocks[blockIdentifier] = self
+        appearance = .drawing
+        let message: [String: Any] = ["operation": "view.attach", "blockIdentifier": blockIdentifier, "leafIdentifier": viewIdentifier,
+                                      "width": Double(size.width), "height": Double(size.height)]
+        do {
+            let answer = try await host.send(message, timeout: Self.drawingTimeout)
+            if let styles = answer["styles"] as? String { host.updatePluginStyleSheets(styles) }
+            if answer["isDrawn"] as? Bool == true, let html = answer["html"] as? String { receive(html: html) }
+            else { appearance = .failed(answer["message"] as? String ?? "The plugin did not show this view.") }
+        } catch {
+            appearance = .failed(error.localizedDescription)
+        }
+    }
+
+    /// The tab or panel showing a view changed size; the view lays out again.
+    func resizeView(to size: CGSize) {
+        guard let host, case .view = request?.kind, size.width > 0, size.height > 0 else { return }
+        let blockIdentifier = blockIdentifier
+        Task { _ = try? await host.send(["operation": "view.resize", "blockIdentifier": blockIdentifier, "width": Double(size.width), "height": Double(size.height)],
+                                         timeout: .seconds(5)) }
+    }
+
     func receive(html: String) {
         appearance = .drawn(html: html)
         if let request { host?.lastCodeBlockCopies[request] = CommunityPluginCodeBlockCopy(html: html, height: height) }
@@ -134,6 +163,11 @@ final class CommunityPluginShownCodeBlock {
     /// Text typed into a field of the copy (a query's filter), given to the plugin's field.
     func enter(_ value: String, elementPath: [Int]) {
         deliver(["eventType": "input", "elementPath": elementPath, "value": value])
+    }
+
+    /// A key pressed in a field of the copy, delivered to the plugin's field.
+    func press(_ key: String, elementPath: [Int]) {
+        deliver(["eventType": "key", "elementPath": elementPath, "key": key])
     }
 
     private func deliver(_ event: [String: Any]) {
@@ -331,6 +365,11 @@ enum CommunityPluginCodeBlockPage {
         body { -webkit-user-select: text; }
         .graphite-code-block-root { padding: 1px 0; }
         .graphite-code-block-root > * { margin-top: 0; }
+        body.graphite-view-page { height: 100vh; overflow: hidden; }
+        body.graphite-view-page .graphite-code-block-root { height: 100vh; padding: 0; }
+        .graphite-code-block-root > .workspace-leaf { height: 100%; display: flex; flex-direction: column; }
+        .graphite-code-block-root > .workspace-leaf > .workspace-leaf-content { display: flex; flex-direction: column; height: 100%; }
+        .graphite-code-block-root .view-content { flex: 1 1 auto; overflow: auto; padding: 8px 6px; -webkit-overflow-scrolling: touch; }
         </style>
         </head><body class="theme-light is-mobile is-ios"><div class="markdown-preview-view markdown-rendered graphite-code-block-root"></div></body></html>
         """
@@ -393,7 +432,11 @@ enum CommunityPluginCodeBlockPage {
             if (height !== lastHeight) { lastHeight = height; handler.postMessage({ kind: 'height', height }); }
         }
         window.GraphiteCodeBlock = {
-            show(html, styleSheets, isDark, textSize, accent) {
+            show(html, styleSheets, isDark, textSize, accent, fillsSpace) {
+                document.body.classList.toggle('graphite-view-page', Boolean(fillsSpace));
+                // A plugin's view is not a note's rendering; only blocks get the note's styles.
+                root().classList.toggle('markdown-rendered', !fillsSpace);
+                root().classList.toggle('markdown-preview-view', !fillsSpace);
                 const styleElement = document.getElementById('graphite-plugin-styles');
                 if (styleElement.textContent !== styleSheets) styleElement.textContent = styleSheets;
                 document.body.classList.toggle('theme-dark', isDark);
@@ -431,6 +474,13 @@ enum CommunityPluginCodeBlockPage {
         }
         document.addEventListener('input', forwardText, true);
         document.addEventListener('change', forwardText, true);
+        // Keys that act on a field (Return in a search field, Escape, arrows in a list).
+        document.addEventListener('keydown', (event) => {
+            const element = event.target instanceof Element ? event.target : null;
+            if (!blockElement() || !element || !blockElement().contains(element)) return;
+            if (!['Enter', 'Escape', 'ArrowUp', 'ArrowDown', 'Tab'].includes(event.key)) return;
+            handler.postMessage({ kind: 'key', path: pathTo(element), key: event.key });
+        }, true);
     })();
     """
 }
@@ -454,6 +504,8 @@ final class CommunityPluginCodeBlockDisplayCoordinator: NSObject, WKScriptMessag
             if let path = body["path"] as? [Int] { block?.tap(elementPath: path) }
         case "input":
             if let path = body["path"] as? [Int], let value = body["value"] as? String { block?.enter(value, elementPath: path) }
+        case "key":
+            if let path = body["path"] as? [Int], let key = body["key"] as? String { block?.press(key, elementPath: path) }
         default:
             break
         }
@@ -473,7 +525,7 @@ final class CommunityPluginCodeBlockDisplayCoordinator: NSObject, WKScriptMessag
     func present(_ presentation: [String: Any]) {
         pendingPresentation = presentation
         guard isLoaded, let webView else { return }
-        webView.callAsyncJavaScript("GraphiteCodeBlock.show(html, styleSheets, isDark, textSize, accent)", arguments: presentation,
+        webView.callAsyncJavaScript("GraphiteCodeBlock.show(html, styleSheets, isDark, textSize, accent, fillsSpace)", arguments: presentation,
                                     in: nil, in: .defaultClient) { _ in }
     }
 }
@@ -487,6 +539,8 @@ struct CommunityPluginCodeBlockDisplay {
     let isDark: Bool
     let textSize: Double
     let accentHex: String?
+    /// A plugin view fills its tab or panel and scrolls inside; a block is as tall as its content.
+    var fillsSpace = false
 
     /// One store for every block page: no page keeps anything, and sharing it lets WebKit
     /// share its processes between blocks.
@@ -510,8 +564,8 @@ struct CommunityPluginCodeBlockDisplay {
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = .clear
-        // The note scrolls; the block only shows what it holds.
-        webView.scrollView.isScrollEnabled = false
+        // The note scrolls a block; a view scrolls inside, as the plugin's own view does.
+        webView.scrollView.isScrollEnabled = fillsSpace
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         #else
         webView.setValue(false, forKey: "drawsBackground")
@@ -529,7 +583,7 @@ struct CommunityPluginCodeBlockDisplay {
 
     @MainActor private func update(_ coordinator: CommunityPluginCodeBlockDisplayCoordinator) {
         coordinator.block = block
-        coordinator.present(["html": html, "styleSheets": styleSheets, "isDark": isDark, "textSize": textSize, "accent": accentHex ?? ""])
+        coordinator.present(["html": html, "styleSheets": styleSheets, "isDark": isDark, "textSize": textSize, "accent": accentHex ?? "", "fillsSpace": fillsSpace])
     }
 
     @MainActor private static func dismantle(_ webView: WKWebView) {

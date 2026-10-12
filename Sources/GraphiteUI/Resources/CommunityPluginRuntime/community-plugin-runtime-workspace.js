@@ -3,7 +3,7 @@
 // copy of the note's text that Graphite sends. Edits a plugin makes are sent back as one
 // change, which Graphite's editor applies as one undoable edit, and only while the note
 // still has the text the plugin saw. Views a plugin registers live in plugin leaves, which
-// Graphite shows on the plugin panel.
+// Graphite shows in its sidebar (Obsidian's side docks) or in a tab (everywhere else).
 (function installRuntimeWorkspace(globalScope) {
     'use strict';
 
@@ -13,6 +13,11 @@
     const hostBridge = runtime.hostBridge;
 
     let nextLeafNumber = 1;
+
+    /// Where Graphite shows a plugin leaf: `sidebar` for Obsidian's side docks, `tab` for the rest.
+    function placementOf(leaf) {
+        return leaf.kind === 'left' || leaf.kind === 'right' ? 'sidebar' : 'tab';
+    }
     /// Events through which plugins add items to Obsidian's context menus.
     const menuEventNames = new Set(['file-menu', 'files-menu', 'editor-menu']);
     /// Events Graphite sends from its editor as the person types.
@@ -707,9 +712,14 @@
             this.trigger('layout-ready');
         }
 
+        /// Tells Graphite which plugin views exist and where each belongs: a sidebar's views
+        /// (`getLeftLeaf`, `getRightLeaf`) in Graphite's sidebar, the others in a tab. A leaf
+        /// that holds no view yet is left out.
         notifyLeavesChanged() {
             hostBridge.notify('views.changed', {
-                views: this.pluginLeaves.map((leaf) => ({ leafIdentifier: leaf.id, viewType: leaf.view.getViewType(), title: leaf.getDisplayText(), icon: leaf.getIcon() })),
+                views: this.pluginLeaves.filter((leaf) => !(leaf.view instanceof EmptyView)).map((leaf) => ({
+                    leafIdentifier: leaf.id, viewType: leaf.view.getViewType(), title: leaf.getDisplayText(), icon: leaf.getIcon(), placement: placementOf(leaf),
+                })),
             });
         }
 
@@ -778,14 +788,14 @@
             this.activeLeaf = leaf;
             this.trigger('active-leaf-change', leaf);
         }
-        /// Shows a plugin's leaf on Graphite's plugin panel.
+        /// Shows a plugin's view where Graphite keeps it: its sidebar panel or its tab.
         async revealLeaf(leaf) {
             if (leaf === this.markdownLeaf) return;
             if (!this.pluginLeaves.includes(leaf)) this.pluginLeaves.push(leaf);
             this.revealedLeaf = leaf;
-            runtime.pluginSurface.showLeaf(leaf);
             this.setActiveLeaf(leaf);
             this.notifyLeavesChanged();
+            hostBridge.notify('view.reveal', { leafIdentifier: leaf.id, placement: placementOf(leaf) });
         }
         async openLinkText(linktext, sourcePath, newLeaf) {
             const { path, subpath } = parseLinktext(linktext);

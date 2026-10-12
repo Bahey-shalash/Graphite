@@ -74,10 +74,35 @@ struct VaultSidebar: View {
 
     /// The chosen panel, or the file list when its plugin was turned off.
     private var panel: SidebarPanel { availablePanels.contains(storedPanel) ? storedPanel : .files }
+    /// A community plugin's view chosen in the picker, shown in place of Graphite's panels.
+    @State private var chosenPluginView: String?
+    private var shownPluginView: CommunityPluginView? {
+        chosenPluginView.flatMap(workspace.communityPlugins.pluginView(withIdentifier:)).flatMap { view in view.placement == .sidebar ? view : nil }
+    }
+
+    /// What the picker chooses between: Graphite's panels and plugins' sidebar views.
+    private enum SidebarChoice: Hashable {
+        case panel(SidebarPanel)
+        case pluginView(String)
+    }
+
+    private var pickerChoice: Binding<SidebarChoice> {
+        Binding(get: { shownPluginView.map { view in .pluginView(view.id) } ?? .panel(panel) }, set: { choice in
+            // A search would keep hiding the chosen list.
+            workspace.searchQuery = ""
+            switch choice {
+            case .panel(let newPanel):
+                chosenPluginView = nil
+                storedPanel = newPanel
+            case .pluginView(let identifier):
+                chosenPluginView = identifier
+            }
+        })
+    }
 
     var body: some View {
         ScrollViewReader { scrollProxy in
-            sidebarList
+            sidebarContent
                 .task(id: fileToReveal) {
                     guard let fileToReveal else { return }
                     // Each folder above the file lists its contents after it expands, so the
@@ -102,6 +127,12 @@ struct VaultSidebar: View {
         #endif
         .task(id: "\(panel.rawValue)-\(workspace.indexVersion)-\(workspace.propertyTypesVersion)-\(showsNestedTags)-\(workspace.currentVaultIdentifier?.uuidString ?? "")") {
             await overview.load(panel, workspace: workspace, showsNestedTags: showsNestedTags)
+        }
+        // A plugin asked to show one of its sidebar views (`revealLeaf`).
+        .onChange(of: workspace.communityPlugins.sidebarViewRequest) { _, request in
+            guard let request else { return }
+            workspace.searchQuery = ""
+            chosenPluginView = request.viewIdentifier
         }
         .propertyRenameAlert(overview, workspace: workspace)
         .bookmarkAlerts(overview, workspace: workspace)
@@ -139,13 +170,12 @@ struct VaultSidebar: View {
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            if workspace.store != nil && availablePanels.count > 1 {
-                Picker("Sidebar", selection: Binding(get: { panel }, set: { newPanel in
-                    // A search would keep hiding the chosen list.
-                    workspace.searchQuery = ""
-                    storedPanel = newPanel
-                })) {
-                    ForEach(availablePanels) { panel in Label(panel.title, systemImage: panel.systemImage).tag(panel) }
+            if workspace.store != nil && availablePanels.count + workspace.communityPlugins.sidebarViews.count > 1 {
+                Picker("Sidebar", selection: pickerChoice) {
+                    ForEach(availablePanels) { panel in Label(panel.title, systemImage: panel.systemImage).tag(SidebarChoice.panel(panel)) }
+                    ForEach(workspace.communityPlugins.sidebarViews) { view in
+                        Label(view.title, systemImage: CommunityPluginViewSymbol.systemImage(forIcon: view.icon)).tag(SidebarChoice.pluginView(view.id))
+                    }
                 }
                 .pickerStyle(.segmented)
                 // Symbols, which fit four panels in a phone's width or a narrow sidebar where
@@ -188,6 +218,17 @@ struct VaultSidebar: View {
         }
     }
 
+    /// The chosen list, or a community plugin's view, which fills the sidebar below the picker
+    /// (a search shows its results instead).
+    @ViewBuilder private var sidebarContent: some View {
+        if let pluginView = shownPluginView, workspace.searchQuery.isEmpty, workspace.store != nil {
+            CommunityPluginViewContent(host: workspace.communityPlugins, viewIdentifier: pluginView.id)
+                .id(pluginView.id)
+        } else {
+            sidebarList
+        }
+    }
+
     private var sidebarList: some View {
         List(selection: Binding(get: { workspace.selection }, set: { newSelection in
             // The file already open shows at once. Another one shows when it is loaded and
@@ -207,6 +248,7 @@ struct VaultSidebar: View {
                 Text("Open a vault to see its files here.").foregroundStyle(.secondary)
             } else if !workspace.searchQuery.isEmpty {
                 searchResults
+
             } else if panel == .tags {
                 VaultTagsList(workspace: workspace, overview: overview)
             } else if panel == .properties {

@@ -648,6 +648,10 @@
             // Obsidian's status bar, which its mobile app keeps hidden. Plugins that reach for it
             // (Commander adds its buttons there) get an element that is never shown.
             this.statusBar = { containerEl: createDiv({ cls: 'status-bar' }) };
+            // Obsidian's record of folded headings per note (undocumented). Plugins that copy a
+            // template's folds into a new note (Calendar, through the daily notes helper) call
+            // it; Graphite keeps folds itself, so there are none to copy and nothing is kept.
+            this.foldManager = { load() { return null; }, save() {} };
             this.lastEvent = null;
             this.isMobile = true;
             this.appId = '';

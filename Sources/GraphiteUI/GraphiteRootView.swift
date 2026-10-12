@@ -168,6 +168,8 @@ public struct GraphiteRootView: View {
         }
         // A search asked for from anywhere (⇧⌘F, a tag, a link) shows where it happens.
         .onChange(of: workspace.searchFocusRequest) { showSidebar() }
+        // A plugin's sidebar view asked to be shown.
+        .onChange(of: workspace.communityPlugins.sidebarViewRequest) { _, request in if request != nil { showSidebar() } }
         // A file opened from the list, a link or a search shows on a phone at once.
         .onChange(of: workspace.selection) { _, selection in
             if selection != nil { showDocumentColumn() }

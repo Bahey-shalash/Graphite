@@ -456,6 +456,15 @@ function surfaceText(harness) {
     return harness.window.document.querySelector('.graphite-plugin-surface').textContent.replace(/\s+/g, ' ');
 }
 
+/// The text of a plugin view as Graphite shows it in a tab or sidebar panel.
+async function attachedViewText(harness, leafIdentifier) {
+    const attached = plain(await harness.send({ operation: 'view.attach', blockIdentifier: 'view-' + leafIdentifier, leafIdentifier, width: 320, height: 700 }));
+    assert.equal(attached.isDrawn, true, attached.message);
+    const element = harness.window.document.createElement('div');
+    element.innerHTML = attached.html;
+    return element.textContent.replace(/\s+/g, ' ');
+}
+
 test('Recent Files: lists the notes opened in Graphite in its view and keeps them in data.json', { skip: !builtPlugin('recent-files-obsidian') }, async () => {
     const { harness, answer, commandNames, unsupported, pageErrors } = await loadInStudyVault('recent-files-obsidian');
     try {
@@ -469,8 +478,13 @@ test('Recent Files: lists the notes opened in Graphite in its view and keeps the
         assert.deepEqual(plain(await harness.send({ operation: 'command.run', commandIdentifier: 'recent-files-obsidian:recent-files-open' })), { outcome: 'ran' });
         await settle();
         const views = plain(harness.host.notificationsOf('views.changed').at(-1).views);
-        assert.deepEqual(views.map((view) => view.title), ['Recent files']);
-        assert.match(surfaceText(harness), /Recent files.*Other/);
+        assert.deepEqual(views.map((view) => [view.title, view.placement]), [['Recent files', 'sidebar']]);
+        assert.match(await attachedViewText(harness, views[0].leafIdentifier), /Other/);
+        // A tap on a file in the view opens it in Graphite.
+        const fileRow = Array.from(harness.window.document.querySelectorAll('.graphite-plugin-view .tree-item-self, .graphite-plugin-view .nav-file-title')).find((row) => row.textContent.includes('Other'));
+        fileRow.click();
+        await settle();
+        assert.ok(harness.host.openedFiles.some((request) => request.path === 'Other.md'), 'the note opens through Graphite');
         const recentFiles = JSON.parse(harness.readVaultFile('.obsidian/plugins/recent-files-obsidian/data.json')).recentFiles;
         assert.ok(recentFiles.some((file) => file.path === 'Other.md'), 'the opened note is kept in the plugin\'s data.json');
     } finally {
@@ -518,10 +532,14 @@ test('Calendar: opens its view with the current month', { skip: !builtPlugin('ca
         assert.deepEqual(pageErrors, []);
         assert.deepEqual(await settingRowCount(harness, 'calendar'), { hasSettingTab: true, count: 5 });
         const views = plain(harness.host.notificationsOf('views.changed').at(-1).views);
-        assert.deepEqual(views.map((view) => view.title), ['Calendar']);
+        assert.deepEqual(views.map((view) => [view.title, view.placement]), [['Calendar', 'sidebar']]);
         assert.deepEqual(plain(await harness.send({ operation: 'view.show', leafIdentifier: views[0].leafIdentifier })), { isShown: true });
+        assert.equal(plain(harness.host.notificationsOf('view.reveal').at(-1)).placement, 'sidebar');
+        const calendarText = await attachedViewText(harness, views[0].leafIdentifier);
+        assert.ok(calendarText.includes(harness.window.moment().format('MMMM')) || calendarText.includes(harness.window.moment().format('MMM')), 'the month grid shows the current month: ' + calendarText.slice(0, 200));
+        await harness.send({ operation: 'view.close', leafIdentifier: views[0].leafIdentifier });
         await settle();
-        assert.ok(surfaceText(harness).includes(harness.window.moment().format('MMM YYYY')), 'the month grid shows the current month');
+        assert.deepEqual(plain(harness.host.notificationsOf('views.changed').at(-1).views), [], 'closing its panel closes the view');
     } finally {
         harness.close();
     }
