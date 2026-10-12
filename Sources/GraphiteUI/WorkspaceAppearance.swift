@@ -32,6 +32,8 @@ extension WorkspaceModel {
             vaultAppearance = appearance
             // The plugins' page takes the theme, snippets and appearance settings too.
             communityPlugins.vaultStylesDidChange()
+            // Notes take the theme and snippets (`WorkspaceTheme.swift`).
+            scheduleThemeRefresh()
         }
         if preferences.vaultAccentHex != appearance.accentHex { preferences.vaultAccentHex = appearance.accentHex }
         guard fontsChanged else { return }
@@ -42,7 +44,7 @@ extension WorkspaceModel {
     /// Resolves the vault's font lists to installed families. Only an actual change is
     /// published, so open notes restyle only when a font they draw with changed.
     func resolveNoteTypography() {
-        let resolved = NoteTypography(appearance: vaultAppearance)
+        let resolved = NoteTypography(appearance: vaultAppearance, theme: noteTheme)
         if resolved != noteTypography { noteTypography = resolved }
     }
 

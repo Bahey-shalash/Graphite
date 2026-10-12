@@ -101,6 +101,8 @@ struct MarkdownPane: View {
                 }
             }
         }
+        // The theme's page color behind the note, in both views; Graphite's own without a theme.
+        .background { NoteThemeBackground(theme: workspace.noteTheme) }
         // Under the title, as a PDF shows its page there, rather than over the note's text.
         .modifier(WordCountDisplay(session: session, isShown: preferences.isEnabled(.wordCount) && isFocused,
                                    isCompactWidth: isCompactWidth))
@@ -204,7 +206,8 @@ struct MarkdownPane: View {
                              mapsReadAloudSourceLocations: workspace.readAloud.sourceIdentifier == session.path.rawValue
                                 && (workspace.readAloud.isPreparing || workspace.readAloud.session.document != nil),
                              pluginCodeBlockLanguages: workspace.communityPlugins.codeBlockLanguages,
-                             runsPluginPostProcessors: workspace.communityPlugins.runsMarkdownPostProcessors)
+                             runsPluginPostProcessors: workspace.communityPlugins.runsMarkdownPostProcessors,
+                             marksUnresolvedLinks: workspace.noteTheme != nil)
     }
 
     /// The note's name above its text, written as the tab and the title bar write it, so the
@@ -215,7 +218,7 @@ struct MarkdownPane: View {
 
     private var editorConfiguration: EditorConfiguration {
         EditorConfiguration(mode: viewMode == .source ? .source : .livePreview, usesReadableLineLength: preferences.usesReadableLineLength,
-                            textSize: noteTextSize, typography: workspace.noteTypography, usesSpellChecking: preferences.usesSpellChecking,
+                            textSize: noteTextSize, typography: workspace.noteTypography, theme: workspace.noteTheme, usesSpellChecking: preferences.usesSpellChecking,
                             colorsEnabled: preferences.isEnabled(.colors), paletteHexByName: paletteHexByName,
                             editingBehavior: EditingBehavior(settings: workspace.vaultSettings), accentHex: preferences.accentHex,
                             inlineTitle: inlineTitle)
@@ -303,7 +306,7 @@ struct MarkdownPane: View {
         guard viewMode == .livePreview, let root = workspace.folderAccess?.root else { return nil }
         let notePath = session.path
         return LivePreviewEnvironment(
-            root: root, textSize: noteTextSize, typography: workspace.noteTypography, colorsEnabled: preferences.isEnabled(.colors), paletteHexByName: paletteHexByName,
+            root: root, textSize: noteTextSize, typography: workspace.noteTypography, theme: workspace.noteTheme, colorsEnabled: preferences.isEnabled(.colors), paletteHexByName: paletteHexByName,
             drawingVersion: workspace.drawingVersion,
             resolve: { [workspace] target, isWiki in await workspace.resolveLink(target, from: notePath, isWiki: isWiki) },
             open: { [workspace] path in Task { await workspace.open(path) } },

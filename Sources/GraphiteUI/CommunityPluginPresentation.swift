@@ -238,7 +238,12 @@ struct CommunityPluginPresentation: ViewModifier {
             .onChange(of: host.isRuntimeRunning) { host.activeDocumentDidChange() }
             .onChange(of: colorScheme, initial: true) { _, scheme in host.appearanceDidChange(isDark: scheme == .dark) }
             // Themes derive their accent shades from Graphite's accent.
-            .onChange(of: workspace.preferences.accentHex) { host.vaultStylesDidChange() }
+            .onChange(of: workspace.preferences.accentHex) { host.vaultStylesDidChange(); workspace.scheduleThemeRefresh() }
+            // Style Settings and theme settings plugins change the theme notes take too.
+            .onChange(of: host.pluginStyleSheets) { workspace.scheduleThemeRefresh() }
+            .onChange(of: host.pluginBodyClasses) { workspace.scheduleThemeRefresh() }
+            .onChange(of: host.pluginBodyStyle) { workspace.scheduleThemeRefresh() }
+            .onChange(of: workspace.preferences.usesVaultTheme) { workspace.scheduleThemeRefresh() }
             .onChange(of: host.requestedSettingsPlugin) { _, requestedPlugin in
                 if requestedPlugin != nil { showSettings() }
             }

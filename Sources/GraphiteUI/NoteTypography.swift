@@ -84,16 +84,21 @@ struct NoteTypography: Hashable, Sendable {
     /// The font of the file list, outline, tab titles, search results and backlinks.
     /// Controls, menus, alerts and Settings keep the system font, as Apple's guidelines ask.
     var interfaceFamily: ResolvedFontFamily = .system(.standard)
+    /// Whether `appearance.json` names the text font, which then wins over a theme's heading fonts.
+    var usesAppearanceTextFont = false
 
     /// Graphite's default fonts: the system font, and SF Mono for code.
     static let standard = NoteTypography()
 
     /// The first installed family of each of the vault's font lists, or the default where none is.
+    /// The vault's theme gives its text and monospace fonts where `appearance.json` names
+    /// none, as Obsidian's font settings override a theme's fonts.
     @MainActor
-    init(appearance: ObsidianAppearance) {
+    init(appearance: ObsidianAppearance, theme: NoteThemeStyle? = nil) {
         let installedFamily: (String) -> String? = { name in InstalledFontFamilies.family(named: name) }
-        textFamily = appearance.textFontFamilies.firstAvailableFamily(installedFamily: installedFamily) ?? .system(.standard)
-        monospaceFamily = appearance.monospaceFontFamilies.firstAvailableFamily(installedFamily: installedFamily) ?? .system(.monospaced)
+        textFamily = appearance.textFontFamilies.firstAvailableFamily(installedFamily: installedFamily) ?? theme?.textFamily ?? .system(.standard)
+        monospaceFamily = appearance.monospaceFontFamilies.firstAvailableFamily(installedFamily: installedFamily) ?? theme?.monospaceFamily ?? .system(.monospaced)
+        usesAppearanceTextFont = !appearance.textFontFamilies.isEmpty
         interfaceFamily = appearance.interfaceFontFamilies.firstAvailableFamily(installedFamily: installedFamily) ?? .system(.standard)
     }
 

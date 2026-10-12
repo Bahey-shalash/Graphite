@@ -114,6 +114,11 @@ final class WorkspaceModel {
     var vaultAppearance = ObsidianAppearance()
     /// The fonts `vaultAppearance` names, resolved once per change.
     var noteTypography = NoteTypography.standard
+    /// The vault's Obsidian theme as notes draw it (`WorkspaceTheme.swift`), or nil for Graphite's look.
+    var noteTheme: NoteThemeStyle?
+    @ObservationIgnored var themeRefreshTask: Task<Void, Never>?
+    @ObservationIgnored let themeResolver = ThemeTokenResolver()
+    @ObservationIgnored var lastThemeInputs: ThemeResolverInputs?
     /// The pending write of a font size or font changed here, which waits for a pinch or
     /// the slider to come to rest.
     @ObservationIgnored var pendingAppearanceSave: Task<Void, Never>?
@@ -1182,7 +1187,7 @@ final class WorkspaceModel {
             // Obsidian changed its fonts, font size or accent.
             if changedLocations.contains(where: Self.isAppearanceFile) { await reloadVaultAppearance() }
             // A theme or snippet file was added, changed or removed.
-            if changedLocations.contains(where: ObsidianStyleFiles.isStyleFile) { communityPlugins.vaultStylesDidChange() }
+            if changedLocations.contains(where: ObsidianStyleFiles.isStyleFile) { communityPlugins.vaultStylesDidChange(); scheduleThemeRefresh() }
             // Only the open documents another app is known to have changed are read again.
             switch refresh {
             case .nothingShown: break
