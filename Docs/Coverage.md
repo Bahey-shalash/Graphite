@@ -4,6 +4,10 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-12.
 
+## Fonts merged with the Read Aloud rework: 2026-10-12
+
+The fonts work was merged with alpha at 9695a6c and then 1befb10 (Read Aloud's system voice, reading highlight in both views, Words / Sentences / Off, acronyms; the new laser). Both sides were kept where they met: reading view text and callout titles keep Read Aloud's source tokens and take the vault's text font; the editor keeps the quick font size pinch and reading's follow suspension; Settings has the Font section and the Read Aloud page; on a Mac, Control-scrolling changes the size without stopping the view from following what is read. The highlight is drawn from the text's own layout and its ranges are source ranges, so neither depends on the font. In the simulator, while Read Aloud spoke `Fonts Check.md`, the font and size were changed from outside (Avenir Next 17 to Baskerville 22) and by pinching (to 11 in reading view, and up again in Live Preview): the blue highlight stayed on the word being spoken in both views each time (`~/.graphite-themes-build/shots/m2-reading-trio.png`, `m2-p2`, `m2-lp1`, `m2-lp2`). Hosted suite: 298 tests, 0 failures, 1 skipped. `swift test`: 1,800 tests, 0 failures.
+
 ## Fonts and font size, shared with Obsidian's appearance.json (alpha only): 2026-10-12
 
 Settings › Appearance › Font has Obsidian's five settings (Interface Font, Text Font, Monospace Font, Font Size with a reset button, Quick Font Size Adjustment), stored in the vault's `.obsidian/appearance.json`; the vault's Obsidian accent is used until one is chosen in Graphite. This is Phase 0 of the theme assessment plus fonts; `cssTheme` and snippets are read into the model only and nothing draws them. `Architecture.md` (Storage contracts, Markdown views) has the design and the precedence rules.
