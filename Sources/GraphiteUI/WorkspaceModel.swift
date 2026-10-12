@@ -142,7 +142,7 @@ final class WorkspaceModel {
     }
     let preferences = GraphitePreferences()
     let recording = RecordingController()
-    let readAloud = ReadAloudController()
+    let readAloud = ReadAloudController(playsWhenPrepared: true)
     /// The open vault's Obsidian community plugins.
     let communityPlugins = CommunityPluginHost()
     /// Set by indexing when a scan of the whole vault finishes; tests that fill the index

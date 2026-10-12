@@ -32,7 +32,7 @@ final class UiEditorMacEditorTests: XCTestCase {
         var configuration = EditorConfiguration()
         configuration.mode = mode
         let coordinator = NativeMarkdownEditor.Coordinator(session: session, configuration: configuration)
-        let scrollView = MarkdownMacTextView.scrollableTextView()
+        let scrollView = MarkdownMacTextView.makeScrollableTextView()
         let textView = try XCTUnwrap(scrollView.documentView as? MarkdownMacTextView)
         textView.isRichText = false
         textView.allowsUndo = true
@@ -294,6 +294,7 @@ final class UiEditorMacEditorTests: XCTestCase {
         let text = body + "\n## Target heading\nAfter"
         let (coordinator, textView, scrollView) = try await makeEditor(text: text)
         coordinator.pendingJump = .heading(anchor: "target heading")
+        XCTAssertNotNil(textView.textLayoutManager, "Native source highlights and jump geometry require TextKit 2")
         coordinator.performPendingJumpIfReady(in: textView)
         XCTAssertNotNil(coordinator.pendingJump, "A view outside a window cannot be measured yet")
 
@@ -301,11 +302,15 @@ final class UiEditorMacEditorTests: XCTestCase {
         window.contentView = scrollView
         scrollView.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
         textView.frame.size.width = 600
+        window.orderFront(nil)
+        defer { window.orderOut(nil); window.contentView = nil }
+        scrollView.layoutSubtreeIfNeeded()
+        textView.layoutSubtreeIfNeeded()
         coordinator.performPendingJumpIfReady(in: textView)
         XCTAssertNil(coordinator.pendingJump)
         let headingLocation = (text as NSString).range(of: "## Target heading").location
         XCTAssertEqual(textView.selectedRange(), NSRange(location: headingLocation, length: 0))
-        XCTAssertGreaterThan(textView.visibleRect.minY, 100)
+        XCTAssertGreaterThan(textView.visibleRect.minY, 100, "view \(textView.frame), scroll \(scrollView.contentView.bounds), TextKit 2 \(textView.textLayoutManager != nil)")
     }
 
     func testClickedLinksFollowOnlyWhereTheirMarkupIsConcealed() async throws {

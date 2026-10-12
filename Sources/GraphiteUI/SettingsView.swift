@@ -11,7 +11,7 @@ struct SettingsView: View {
     @State private var vaultSettingsChanges = VaultSettingsChanges()
 
     enum SettingsPage: Hashable {
-        case general, editor, filesAndLinks, appearance, corePlugins, communityPlugins
+        case general, editor, filesAndLinks, appearance, readAloud, corePlugins, communityPlugins
         case plugin(CorePlugin)
         /// A community plugin's own settings tab, by plugin identifier.
         case communityPlugin(String)
@@ -28,6 +28,7 @@ struct SettingsView: View {
                     Label("Editor", systemImage: "pencil.line").tag(SettingsPage.editor)
                     Label("Files and Links", systemImage: "folder").tag(SettingsPage.filesAndLinks)
                     Label("Appearance", systemImage: "paintbrush").tag(SettingsPage.appearance)
+                    Label("Read Aloud", systemImage: "speaker.wave.2").tag(SettingsPage.readAloud)
                     Label("Core Plugins", systemImage: "puzzlepiece.extension").tag(SettingsPage.corePlugins)
                     Label("Community Plugins", systemImage: "puzzlepiece").tag(SettingsPage.communityPlugins)
                 }
@@ -83,6 +84,7 @@ struct SettingsView: View {
         case .editor: EditorSettingsPage(workspace: workspace, preferences: workspace.preferences, vaultSettingsChanges: vaultSettingsChanges)
         case .filesAndLinks: FilesAndLinksSettingsPage(workspace: workspace, vaultSettingsChanges: vaultSettingsChanges)
         case .appearance: AppearanceSettingsPage(preferences: workspace.preferences)
+        case .readAloud: ReadAloudSettingsPage(reader: workspace.readAloud)
         case .corePlugins: CorePluginsSettingsPage(preferences: workspace.preferences)
         case .communityPlugins: CommunityPluginsSettingsPage(workspace: workspace) { pluginIdentifier in selectedPage = .communityPlugin(pluginIdentifier) }
         case .communityPlugin(let pluginIdentifier): CommunityPluginOptionsPage(host: workspace.communityPlugins, pluginIdentifier: pluginIdentifier)
@@ -494,6 +496,18 @@ private struct DrawingsSettingsPage: View {
             #endif
         }
         .navigationTitle("Pencil Drawings")
+    }
+}
+
+/// Voice and speed for Read Aloud. The math and PDF choices stay with the passage being read.
+private struct ReadAloudSettingsPage: View {
+    @Bindable var reader: ReadAloudController
+
+    var body: some View {
+        Form {
+            ReadAloudVoiceSettings(reader: reader)
+        }
+        .navigationTitle("Read Aloud")
     }
 }
 
