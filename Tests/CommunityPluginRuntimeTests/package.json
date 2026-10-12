@@ -1,0 +1,32 @@
+{
+  "name": "graphite-community-plugin-runtime-tests",
+  "private": true,
+  "description": "Runs Graphite's Obsidian plugin runtime in jsdom against a vault folder on disk, and against real community plugins.",
+  "license": "UNLICENSED",
+  "scripts": {
+    "test": "node --test --test-concurrency=1 tests/*.test.js",
+    "build-compatibility-plugins": "node compatibility/build-compatibility-plugins.js",
+    "api-coverage": "node compatibility/api-coverage.js",
+    "build-vendored-libraries": "node tools/build-vendored-libraries.js"
+  },
+  "devDependencies": {
+    "@codemirror/autocomplete": "6.20.3",
+    "@codemirror/commands": "6.11.1",
+    "@codemirror/language": "6.13.1",
+    "@codemirror/lint": "6.9.7",
+    "@codemirror/search": "6.7.2",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.13",
+    "@lezer/common": "1.5.3",
+    "@lezer/highlight": "1.2.5",
+    "@lezer/lr": "1.4.11",
+    "esbuild": "0.25.5",
+    "fake-indexeddb": "6.2.5",
+    "js-yaml": "4.1.0",
+    "jsdom": "26.1.0",
+    "lucide": "0.469.0",
+    "moment": "2.31.0",
+    "obsidian": "1.14.4",
+    "typescript": "5.8.3"
+  }
+}

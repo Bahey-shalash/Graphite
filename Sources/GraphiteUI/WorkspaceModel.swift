@@ -139,6 +139,8 @@ final class WorkspaceModel {
     let preferences = GraphitePreferences()
     let recording = RecordingController()
     let readAloud = ReadAloudController()
+    /// The open vault's Obsidian community plugins.
+    let communityPlugins = CommunityPluginHost()
     /// Set by indexing when a scan of the whole vault finishes; tests that fill the index
     /// themselves set it too.
     var hasCompletedIndexScan = false
@@ -196,6 +198,7 @@ final class WorkspaceModel {
             Task.detached(priority: .utility) { try? fileRecovery.removeAllSnapshots() }
         }
         VaultIndex.removeIndex(forVault: vault.id)
+        CommunityPluginHost.forgetVault(vault.id)
         // Opening the folder again makes a new identifier, so nothing would read these again.
         for key in [Self.expandedFoldersKey(for: vault.id), Self.recentFilesKey(for: vault.id), Self.tabLayoutKey(for: vault.id),
                     Self.placesKey(for: vault.id)] {
@@ -239,6 +242,8 @@ final class WorkspaceModel {
             vaultMonitor.stop()
             throw error
         }
+        // The plugins of the vault being left unload before anything of it closes.
+        await communityPlugins.vaultWillClose()
         monitor?.stop(); stopIndexing(); externalChangeTask?.cancel()
         pendingExternalChanges.removeAll(); firstPendingExternalChangeInstant = nil
         indexingMessage = ""
@@ -277,6 +282,7 @@ final class WorkspaceModel {
         // Returns to where the user left this vault, as Obsidian restores its workspace.
         restoreTabLayout()
         checkForUnfinishedRecordings()
+        communityPlugins.vaultDidOpen(self)
         if preferences.isEnabled(.dailyNotes), dailyNoteSettings.opensOnStartup { await openDailyNote() }
     }
 

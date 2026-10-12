@@ -1,5 +1,5 @@
 {
-  "originHash" : "17a4b1ca6ff6cf47ad017452e73595d121a8b0c743cb2384195269cc6051b1d0",
+  "originHash" : "7abc243713e2d9fffc03ade3c0dd9c158e176df2d939029983eccaa6678af578",
   "pins" : [
     {
       "identity" : "grdb.swift",
@@ -44,15 +44,6 @@
       "state" : {
         "revision" : "0b5c2cfaaec8d6193db206f675048eeb5ce95f71",
         "version" : "0.1.0"
-      }
-    },
-    {
-      "identity" : "textual",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/gonzalezreal/textual.git",
-      "state" : {
-        "revision" : "01b51875a5406eefc95f52a058cb059e7bc94dc4",
-        "version" : "0.5.0"
       }
     },
     {
