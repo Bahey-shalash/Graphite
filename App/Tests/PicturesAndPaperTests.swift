@@ -89,6 +89,9 @@ final class PicturesAndPaperTests: XCTestCase {
         let controller = try host(AnyView(NavigationStack { PDFPane(session: reopened, resolveConflict: { _ in }) }))
         let page = try XCTUnwrap(reopened.document.page(at: 0))
         let picture = try XCTUnwrap(reopened.pictures(on: page).first)
+        // Graphite draws it from its own bytes, not PDFKit from its saved appearance,
+        // which PDFView draws with moiré when the picture is made small.
+        XCTAssertEqual(page.annotations.first.map { annotation in String(describing: type(of: annotation)) }, "PDFPictureAnnotation")
         let pdfView = try XCTUnwrap(reopened.pdfView)
         let coordinator = try XCTUnwrap((pdfView as? GraphitePDFDisplayView)?.annotationCoordinator)
         let canvas = try await editingCanvas(for: page, in: reopened)

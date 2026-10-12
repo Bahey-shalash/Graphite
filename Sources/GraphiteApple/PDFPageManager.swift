@@ -93,6 +93,12 @@ public enum PDFPageManager {
     public static let pictureWidthKey = PDFAnnotationKey(rawValue: "GraphitePictureWidth")
     public static let pictureHeightKey = PDFAnnotationKey(rawValue: "GraphitePictureHeight")
 
+    /// Makes a document that is shown, never written, draw Graphite's pictures itself
+    /// (`PDFPictureDrawingDelegate`). Call it before any page's annotations are read.
+    public static func prepareForDisplay(_ document: PDFDocument) {
+        document.delegate = PDFPictureDrawingDelegate.shared
+    }
+
     /// Applies one edit. Documents that will be written pass `drawsInkOutlines` so Pencil
     /// ink is saved with its variable-width appearance (see `PDFOutlinedInkAnnotation`) and
     /// pictures draw their appearance rather than themselves (see `PDFPictureAnnotation`).
@@ -105,6 +111,8 @@ public enum PDFPageManager {
         case .insert(let data, let insertionIndex):
             guard insertionIndex >= 0, insertionIndex <= document.pageCount,
                   let incoming = PDFDocument(data: data), !incoming.isLocked else { throw GraphiteError.invalidFile("Cannot import these PDF pages.") }
+            // Pages put back by undo carry Graphite's pictures; a shown document draws them.
+            if !drawsInkOutlines { prepareForDisplay(incoming) }
             for pageIndex in 0..<incoming.pageCount {
                 guard let importedPage = incoming.page(at: pageIndex)?.copy() as? PDFPage else { throw GraphiteError.invalidFile("Cannot copy imported page.") }
                 document.insert(importedPage, at: insertionIndex + pageIndex)

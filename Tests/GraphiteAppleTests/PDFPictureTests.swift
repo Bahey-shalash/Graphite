@@ -253,6 +253,132 @@ final class PDFPictureTests: XCTestCase {
                                                                                              bounds: .zero), with: turned, order: .unchanged), to: document))
     }
 
+    // MARK: Drawn smoothly after the PDF is opened again
+
+    /// A zone plate: rings that grow finer away from the middle, an opaque gray picture that
+    /// shows moiré wherever it is shown much smaller than its pixels without filtering.
+    private static func ringPatternImageData(width: Int = 600, height: Int = 400) throws -> Data {
+        let colorSpace = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+        let context = try XCTUnwrap(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4, space: colorSpace,
+                                              bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+        let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+        for row in 0..<height {
+            for column in 0..<width {
+                let horizontalDistance = Double(column - width / 2), verticalDistance = Double(row - height / 2)
+                let squaredDistance = horizontalDistance * horizontalDistance + verticalDistance * verticalDistance
+                let gray = UInt8(127.5 + 127.5 * cos(squaredDistance * 0.004))
+                let offset = row * width * 4 + column * 4
+                pixels[offset] = gray; pixels[offset + 1] = gray; pixels[offset + 2] = gray; pixels[offset + 3] = 255
+            }
+        }
+        return try ImageEncoding.pngData(from: try XCTUnwrap(context.makeImage()))
+    }
+
+    /// The page's gray levels as drawn, at one pixel per point, into a context with the
+    /// lowest image interpolation.
+    private func grayLevelsDrawnWithoutInterpolation(of page: PDFPage) throws -> [UInt8] {
+        let box = page.bounds(for: .cropBox)
+        let width = Int(box.width), height = Int(box.height)
+        var grayLevels = [UInt8](repeating: 0, count: width * height)
+        let context = try XCTUnwrap(CGContext(data: &grayLevels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
+                                              space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue))
+        context.setFillColor(gray: 1, alpha: 1)
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        context.interpolationQuality = .none
+        page.draw(with: .cropBox, to: context)
+        return grayLevels
+    }
+
+    private func rootMeanSquareDifference(_ firstLevels: [UInt8], _ secondLevels: [UInt8]) -> Double {
+        guard firstLevels.count == secondLevels.count, !firstLevels.isEmpty else { return .infinity }
+        let squaredSum = zip(firstLevels, secondLevels).reduce(0.0) { sum, levels in
+            let difference = Double(levels.0) - Double(levels.1)
+            return sum + difference * difference
+        }
+        return (squaredSum / Double(firstLevels.count)).squareRoot()
+    }
+
+    /// PDFKit draws a stamp read from a file from its saved appearance, which follows the
+    /// interpolation of the context it is drawn into; PDFView draws pages with low
+    /// interpolation on iOS, where a picture made small showed moiré once the PDF was
+    /// opened again. In a document prepared for display, the stamp draws the picture from
+    /// its own bytes, as while it is edited, and the file's annotation stays as it was.
+    func testAPictureOfAReopenedPDFIsDrawnAsSmoothlyAsWhileItIsEdited() throws {
+        let ringPattern = try Self.ringPatternImageData()
+        for rotation in [0, 90] {
+            for rotationRadians in [0, Double.pi / 6] {
+                let context = "page turned \(rotation)°, picture turned \(rotationRadians) radians"
+                // 600 pixels shown 120 points wide: five pixels to a point.
+                let picture = PDFPicture(imageData: ringPattern, bounds: CGRect(x: 30, y: 120, width: 120, height: 80), quarterTurns: rotation / 90,
+                                         rotationRadians: rotationRadians)
+                let editedDocument = try Self.blankDocument(rotation: rotation)
+                try PDFPageManager.apply(.addPicture(page: 0, picture: picture), to: editedDocument)
+                let writtenDocument = try Self.blankDocument(rotation: rotation)
+                try PDFPageManager.replay([.addPicture(page: 0, picture: picture)], on: writtenDocument)
+                let fileData = try XCTUnwrap(writtenDocument.dataRepresentation())
+                let reopenedDocument = try XCTUnwrap(PDFDocument(data: fileData))
+                PDFPageManager.prepareForDisplay(reopenedDocument)
+                let unpreparedDocument = try XCTUnwrap(PDFDocument(data: fileData))
+
+                let editedLevels = try grayLevelsDrawnWithoutInterpolation(of: try XCTUnwrap(editedDocument.page(at: 0)))
+                let reopenedPage = try XCTUnwrap(reopenedDocument.page(at: 0))
+                let reopenedDifference = rootMeanSquareDifference(try grayLevelsDrawnWithoutInterpolation(of: reopenedPage), editedLevels)
+                let unpreparedDifference = rootMeanSquareDifference(try grayLevelsDrawnWithoutInterpolation(of: try XCTUnwrap(unpreparedDocument.page(at: 0))),
+                                                                    editedLevels)
+                XCTAssertLessThan(reopenedDifference, 0.5, "Opened again, the picture looks as it did while edited, \(context).")
+                XCTAssertGreaterThan(unpreparedDifference, 3, "The saved appearance drawn without interpolation is what showed moiré, \(context).")
+                // Graphite still reads the picture from the annotation the file has.
+                let reopenedAnnotation = try XCTUnwrap(reopenedPage.annotations.first)
+                XCTAssertTrue(reopenedAnnotation is PDFPictureAnnotation, context)
+                let readBack = try XCTUnwrap(PDFPageManager.pictures(on: reopenedPage).first)
+                XCTAssertEqual(readBack.name, picture.name)
+                XCTAssertEqual(readBack.imageData, picture.imageData)
+                XCTAssertEqual(readBack.rotationRadians, picture.rotationRadians, accuracy: 0.0001)
+                assertEqual(readBack.bounds, picture.bounds, context)
+            }
+        }
+    }
+
+    /// Pages put back by undo come from a written PDF too; other annotations are read as
+    /// PDFKit reads them without Graphite, and a stamp of another application is drawn
+    /// from its own appearance.
+    func testPicturesOfInsertedPagesAreDrawnTooAndOtherAnnotationsAreReadAsBefore() throws {
+        let picture = PDFPicture(imageData: try Self.ringPatternImageData(), bounds: CGRect(x: 30, y: 120, width: 120, height: 80), quarterTurns: 0)
+        let writtenDocument = try Self.blankDocument(rotation: 0)
+        try PDFPageManager.replay([.addPicture(page: 0, picture: picture)], on: writtenDocument)
+        let writtenPage = try XCTUnwrap(writtenDocument.page(at: 0))
+        let foreignStamp = PDFAnnotation(bounds: CGRect(x: 20, y: 20, width: 120, height: 40), forType: .stamp, withProperties: nil)
+        foreignStamp.stampName = "Approved"
+        writtenPage.addAnnotation(foreignStamp)
+        let link = PDFAnnotation(bounds: CGRect(x: 150, y: 250, width: 40, height: 20), forType: .link, withProperties: nil)
+        link.url = URL(string: "https://example.com")
+        writtenPage.addAnnotation(link)
+        let note = PDFAnnotation(bounds: CGRect(x: 150, y: 220, width: 20, height: 20), forType: .text, withProperties: nil)
+        writtenPage.addAnnotation(note)
+        let fileData = try XCTUnwrap(writtenDocument.dataRepresentation())
+
+        let shownDocument = try Self.blankDocument(rotation: 0)
+        PDFPageManager.prepareForDisplay(shownDocument)
+        try PDFPageManager.apply(.insert(data: fileData, at: 0), to: shownDocument)
+        let insertedPage = try XCTUnwrap(shownDocument.page(at: 0))
+        let unpreparedDocument = try Self.blankDocument(rotation: 0)
+        try PDFPageManager.apply(.insert(data: fileData, at: 0), to: unpreparedDocument)
+        let unpreparedPage = try XCTUnwrap(unpreparedDocument.page(at: 0))
+        let annotationClasses = { (page: PDFPage) in page.annotations.map { annotation in String(describing: type(of: annotation)) } }
+        let insertedClasses = annotationClasses(insertedPage), unpreparedClasses = annotationClasses(unpreparedPage)
+        XCTAssertEqual(insertedClasses.count, 4)
+        XCTAssertEqual(insertedClasses.first, String(describing: PDFPictureAnnotation.self))
+        XCTAssertEqual(Array(insertedClasses.dropFirst(2)), Array(unpreparedClasses.dropFirst(2)), "A link and a note are read as before.")
+
+        // The foreign stamp is drawn as PDFKit draws it: compared on a page without the picture.
+        let pictureReference = picture.reference(onPageAt: 0)
+        try PDFPageManager.apply(.removeAnnotation(pictureReference), to: shownDocument)
+        try PDFPageManager.apply(.removeAnnotation(pictureReference), to: unpreparedDocument)
+        let stampLevels = try grayLevelsDrawnWithoutInterpolation(of: insertedPage)
+        XCTAssertTrue(stampLevels.contains { level in level < 200 }, "The foreign stamp is drawn.")
+        XCTAssertEqual(rootMeanSquareDifference(stampLevels, try grayLevelsDrawnWithoutInterpolation(of: unpreparedPage)), 0)
+    }
+
     // MARK: Turned by hand
 
     private func assertEqual(_ rectangle: CGRect?, _ expected: CGRect, accuracy: CGFloat = 0.01, _ message: String = "",
