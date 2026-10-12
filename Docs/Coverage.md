@@ -4,6 +4,10 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-12.
 
+## The even highlighter's tests, run on the iPad simulator for the first time: 2026-10-12
+
+`EvenHighlighterTests` shared project IDs with `PDFLinkFollowingTests`, so the iPad suite never ran it, and the earlier sections' claims about its 7 tests were not true until 0b225f3 gave it IDs of its own. Run since, `testTheTipTurnsAcrossTheStrokeInEveryDirection` failed: it compared `renderBounds`, a bound PencilKit makes 2 points looser around a tip turned down the page (26 points) than across it (24). What PencilKit draws is the same both ways: in images at two pixels to the point, a horizontal and a vertical highlight 24 points wide both draw a band 21.5 points across and 207 long. The test now measures the drawn pixels, and also checks the band is about as wide as the tool. All 7 `EvenHighlighterTests` and 27 `PencilToolsTests` pass on the iPad simulator.
+
 ## Community plugins in notes, menus, typing and tabs: 2026-10-12
 
 The plugin work of 2026-10-10 (`Obsidian community plugins: 2026-10-10`, below) merged into the alpha branch, then the owner's next four priorities, in their order. `Community-plugins.md` describes each (How it works › In notes, menus, typing and tabs) and how it was checked; `Architecture.md` the copies, timeouts and remaining risks.
