@@ -89,6 +89,9 @@ public enum PDFPageManager {
     /// appearance is, and leaves it alone, rather than taking it for an upright picture
     /// filling its rectangle and stretching it when it is moved.
     public static let turnedPictureKey = PDFAnnotationKey(rawValue: "GraphitePictureV2")
+    /// Every key a picture's bytes are stored under, the key of a picture turned by hand
+    /// first: the one place that lists them, for reading a picture and for compaction.
+    public static let storedPictureKeys = [turnedPictureKey, pictureKey]
     /// The quarter turns a picture is drawn turned back by.
     public static let pictureTurnsKey = PDFAnnotationKey(rawValue: "GraphitePictureTurns")
     /// How far a picture is turned by hand, in radians, clockwise as the page is shown;

@@ -37,6 +37,9 @@ struct EditorActions {
     /// Starts a drawing when Apple Pencil is double-tapped; nil where the note's side is not
     /// focused or the setting is off.
     var drawOnPencilDoubleTap: (() -> Void)?
+    /// Changes the vault's font size by pinching (Control-scrolling on a Mac); nil when
+    /// Settings › Appearance › Font › Quick Font Size Adjustment is off.
+    var quickFontSize: QuickFontSizeAdjustment?
     /// Saves pasted or dropped data as an attachment and embeds it at the range.
     var insertAttachment: ((_ data: Data, _ stem: String, _ fileExtension: String, _ range: NSRange) -> Void)?
     /// Inserts a link to a vault file dragged from the sidebar.

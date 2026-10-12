@@ -1,11 +1,44 @@
 import SwiftUI
 import GraphiteCore
 import GraphiteApple
+import Textual
+
+struct LivePreviewReadingContext {
+    let controller: ReadAloudController
+    let path: VaultPath
+}
+
+private struct LivePreviewReadingSnapshot: Sendable {
+    let tokens: [ReadAloudSourceToken]
+    let blocks: [NotePreviewDocument.LocatedBlock]
+    let sourceLength: Int
+}
+
+private struct LivePreviewReadingRequest: Equatable {
+    let sourceText: String
+    let paletteHexByName: [String: String]
+    let hasReadingSession: Bool
+}
+
+private struct LivePreviewReadingSection: Sendable {
+    let snapshot: LivePreviewReadingSnapshot
+    let block: NotePreviewDocument.LocatedBlock
+    let endOffset: Int
+
+    var tokens: [ReadAloudSourceToken] { tokens(endingAt: endOffset) }
+    var titleTokens: [ReadAloudSourceToken] { tokens(endingAt: block.body.first?.startOffset ?? endOffset) }
+
+    private func tokens(endingAt end: Int) -> [ReadAloudSourceToken] {
+        snapshot.tokens.filter { token in token.sourceRange.location >= block.startOffset && NSMaxRange(token.sourceRange) <= end }
+    }
+}
 
 /// What rendered Live Preview blocks need from the workspace, without depending on it.
 struct LivePreviewEnvironment {
     let root: URL
     let textSize: Double
+    /// The vault's fonts, which rendered blocks draw their text and code in.
+    var typography = NoteTypography.standard
     let colorsEnabled: Bool
     let paletteHexByName: [String: String]
     let drawingVersion: Int
@@ -32,6 +65,7 @@ struct LivePreviewEnvironment {
     /// The widest, in points, the note's column shows an embedded image; nil when the
     /// column is as wide as the window. Images are decoded for this width.
     var embeddedImageColumnWidth: CGFloat? = nil
+    var readingContext: LivePreviewReadingContext? = nil
     /// Where the lasso's pictures of an embedded PDF go: this note.
     var lassoNoteDestination: LassoNoteDestination? = nil
 }
@@ -43,6 +77,23 @@ struct LivePreviewWidgetView: View {
     let revealSource: () -> Void
     let reportHeight: (CGFloat) -> Void
     @State private var parsedSource = LivePreviewParsedSource()
+    @State private var readingSnapshot: LivePreviewReadingSnapshot?
+
+    private var readingRange: NSRange? {
+        guard let context = environment.readingContext, let range = context.controller.highlight(in: context.path) else { return nil }
+        let overlap = NSIntersectionRange(range, block.range)
+        guard overlap.length > 0 else { return nil }
+        return NSRange(location: overlap.location - block.range.location, length: overlap.length)
+    }
+
+    private var hasReadingSession: Bool {
+        switch block.kind {
+        case .table, .mathBlock, .callout: break
+        default: return false
+        }
+        guard let context = environment.readingContext else { return false }
+        return context.controller.sourceIdentifier == context.path.rawValue && context.controller.session.document != nil
+    }
 
     var body: some View {
         Group {
@@ -74,6 +125,28 @@ struct LivePreviewWidgetView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .environment(\.readingActiveSourceRange, readingRange)
+        .environment(\.readingFollowsSource, environment.readingContext.map { context in context.controller.shouldFollow(context.path) } ?? false)
+        .textual.readingHighlight(readingRange, coordinateSpace: ReadingCoordinateSpace.name)
+        .task(id: LivePreviewReadingRequest(sourceText: block.markdown, paletteHexByName: environment.paletteHexByName,
+                                           hasReadingSession: hasReadingSession)) {
+            guard hasReadingSession else { readingSnapshot = nil; return }
+            let sourceText = block.markdown
+            let palette = environment.paletteHexByName
+            let worker = Task.detached(priority: .userInitiated) {
+                let document = try ReadAloudDocument.markdown(sourceText, paletteHexByName: palette)
+                return LivePreviewReadingSnapshot(tokens: ReadAloudSourceToken.tokens(in: document),
+                                                  blocks: NotePreviewDocument.locatedBlocks(from: sourceText), sourceLength: sourceText.utf16.count)
+            }
+            do {
+                let snapshot = try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
+                guard !Task.isCancelled else { return }
+                readingSnapshot = snapshot
+            } catch {
+                if !Task.isCancelled { readingSnapshot = nil }
+                // Unsupported blocks keep their ordinary preview.
+            }
+        }
     }
 
     private var sourceButton: some View {
@@ -95,12 +168,12 @@ struct LivePreviewWidgetView: View {
                     .font(.callout).foregroundStyle(.orange).onTapGesture(perform: revealSource)
             }
         case .table:
-            RenderedMarkdownBlock(markdown: block.markdown, environment: environment)
+            RenderedMarkdownBlock(markdown: block.markdown, environment: environment, sourceTokens: readingSnapshot?.tokens)
                 .contentShape(Rectangle())
                 .onTapGesture(perform: revealSource)
         case .mathBlock:
             // Centered, as Obsidian shows display math.
-            RenderedMarkdownBlock(markdown: block.markdown, environment: environment)
+            RenderedMarkdownBlock(markdown: block.markdown, environment: environment, sourceTokens: readingSnapshot?.tokens)
                 .frame(maxWidth: .infinity)
                 .contentShape(Rectangle())
                 .onTapGesture(perform: revealSource)
@@ -113,7 +186,10 @@ struct LivePreviewWidgetView: View {
             Divider().padding(.vertical, 10)
         case .callout:
             if case .callout(let type, let title, let folding, let bodyBlocks)? = parsedSource.calloutBlock(from: block.markdown) {
-                LivePreviewCalloutView(type: type, title: title, folding: folding, bodyBlocks: bodyBlocks, environment: environment, revealSource: revealSource)
+                LivePreviewCalloutView(type: type, title: title, folding: folding, bodyBlocks: bodyBlocks, environment: environment, revealSource: revealSource,
+                                      readingSection: readingSnapshot.flatMap { snapshot in snapshot.blocks.first.map { located in
+                                          LivePreviewReadingSection(snapshot: snapshot, block: located, endOffset: snapshot.sourceLength)
+                                      } })
             }
         }
     }
@@ -163,11 +239,18 @@ private struct LivePreviewCalloutView: View {
     let bodyBlocks: [NotePreviewBlock]
     let environment: LivePreviewEnvironment
     let revealSource: () -> Void
+    var readingSection: LivePreviewReadingSection? = nil
+    @Environment(\.readingActiveSourceRange) private var readingActiveSourceRange
+    @Environment(\.readingFollowsSource) private var readingFollowsSource
 
     var body: some View {
         CalloutView(type: type, title: LivePreviewText.prepared(title, colorsEnabled: environment.colorsEnabled, paletteHexByName: environment.paletteHexByName),
-                    folding: folding, root: environment.root, textSize: environment.textSize, navigate: environment.follow) {
-            LivePreviewBlockStack(blocks: bodyBlocks, environment: environment, allowsNoteEmbeds: true, revealSource: revealSource)
+                    folding: folding, root: environment.root, textSize: environment.textSize, navigate: environment.follow,
+                    sourceTokens: readingSection?.titleTokens,
+                    automaticallyExpandsForReading: readingFollowsSource && (readingActiveSourceRange.map { range in
+                        readingSection?.tokens.contains { token in NSIntersectionRange(token.sourceRange, range).length > 0 } ?? false
+                    } ?? false)) {
+            LivePreviewBlockStack(blocks: bodyBlocks, environment: environment, allowsNoteEmbeds: true, revealSource: revealSource, readingSection: readingSection)
                 .contentShape(Rectangle())
                 .onTapGesture(perform: revealSource)
         }
@@ -181,30 +264,38 @@ private struct LivePreviewBlockStack: View {
     /// Embedded notes are shown one level deep, so notes that embed each other end.
     let allowsNoteEmbeds: Bool
     let revealSource: () -> Void
+    var readingSection: LivePreviewReadingSection? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                view(for: block)
+            ForEach(Array(blocks.enumerated()), id: \.offset) { blockIndex, block in
+                view(for: block, readingSection: childReadingSection(at: blockIndex))
             }
         }
     }
 
     /// Type-erased, because a callout can contain callouts.
-    private func view(for block: NotePreviewBlock) -> AnyView {
+    private func childReadingSection(at index: Int) -> LivePreviewReadingSection? {
+        guard let readingSection, readingSection.block.body.indices.contains(index) else { return nil }
+        let body = readingSection.block.body
+        let end = index + 1 < body.count ? body[index + 1].startOffset : readingSection.endOffset
+        return LivePreviewReadingSection(snapshot: readingSection.snapshot, block: body[index], endOffset: end)
+    }
+
+    private func view(for block: NotePreviewBlock, readingSection: LivePreviewReadingSection?) -> AnyView {
         switch block {
         case .markdown(let markdown):
-            AnyView(RenderedMarkdownBlock(markdown: markdown, environment: environment))
+            AnyView(RenderedMarkdownBlock(markdown: markdown, environment: environment, sourceTokens: readingSection?.tokens))
         case .heading(let level, let text, _):
-            AnyView(RenderedMarkdownBlock(markdown: String(repeating: "#", count: level) + " " + text, environment: environment))
+            AnyView(RenderedMarkdownBlock(markdown: String(repeating: "#", count: level) + " " + text, environment: environment, sourceTokens: readingSection?.tokens))
         case .callout(let type, let title, let folding, let bodyBlocks):
-            AnyView(LivePreviewCalloutView(type: type, title: title, folding: folding, bodyBlocks: bodyBlocks, environment: environment, revealSource: revealSource))
+            AnyView(LivePreviewCalloutView(type: type, title: title, folding: folding, bodyBlocks: bodyBlocks, environment: environment, revealSource: revealSource, readingSection: readingSection))
         case .embed(let embed):
             AnyView(LivePreviewEmbedView(embed: embed, environment: environment, allowsNoteEmbeds: allowsNoteEmbeds, revealSource: revealSource))
         case .baseDefinition(let yaml):
             AnyView(BaseCodeBlockView(yaml: yaml, context: environment.baseContext))
         case .displayMath(let markdown):
-            AnyView(RenderedMarkdownBlock(markdown: markdown, environment: environment).frame(maxWidth: .infinity))
+            AnyView(RenderedMarkdownBlock(markdown: markdown, environment: environment, sourceTokens: readingSection?.tokens).frame(maxWidth: .infinity))
         case .pluginCodeBlock(let language, let source):
             // Blocks here are split without plugin languages, so this does not occur; shown as code.
             AnyView(RenderedMarkdownBlock(markdown: "```" + language + "\n" + source + "\n```", environment: environment))
@@ -216,6 +307,7 @@ private struct LivePreviewBlockStack: View {
 private struct RenderedMarkdownBlock: View {
     let markdown: String
     let environment: LivePreviewEnvironment
+    var sourceTokens: [ReadAloudSourceToken]? = nil
     @State private var prepared: PreparedMarkdown?
     /// The `preparationTaskKey` of the last completed preparation. A preparation's own
     /// result can change the key (an unresolved embed starts following the index), which
@@ -259,7 +351,7 @@ private struct RenderedMarkdownBlock: View {
                              root: environment.root, textSize: environment.textSize, navigate: environment.follow,
                              // `follow` scrolls the note to a heading written as `#heading`,
                              // and a heading's anchor is its own anchor.
-                             scrollToHeading: { anchor in environment.follow("#" + anchor, true) })
+                             scrollToHeading: { anchor in environment.follow("#" + anchor, true) }, sourceTokens: sourceTokens)
             .task(id: preparationTaskKey) {
                 guard preparationTaskKey != settledPreparationTaskKey else { return }
                 let preparation = await LivePreviewText.preparedResolvingEmbeds(markdown, environment: environment)

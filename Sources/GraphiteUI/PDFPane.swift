@@ -59,6 +59,7 @@ private struct PDFPaneContent: View {
     @State private var showsReloadConfirmation = false
     @State private var showsSignatureConfirmation = false
     @State private var showsReadingPageRange = false
+    @State private var showsReadingSection = false
     @State private var pendingReadingPageRange: (first: Int, last: Int)?
     @State private var readingStart: PDFReadAloudEndpoint?
     @AppStorage(PDFAnnotationPreferenceKey.drawsWithFinger) private var drawsWithFinger = false
@@ -116,7 +117,7 @@ private struct PDFPaneContent: View {
                                 beginWritingWithPencil: session.isProtected ? nil : { focus(); session.isWriting = true },
                                 readingHighlights: readAloud?.highlights(in: session) ?? [],
                                 followsReading: readAloud?.shouldFollow(session) ?? false,
-                                suspendReadingFollow: { readAloud?.suspendFollowing() })
+                                suspendReadingFollow: { readAloud?.suspendFollowing(in: session.location.path) })
                     .ignoresSafeArea(edges: .bottom)
             }
         }
@@ -185,6 +186,16 @@ private struct PDFPaneContent: View {
         }) {
             ReadAloudPDFRangePicker(pageCount: session.pageCount, startingPageIndex: session.currentPageIndex) { first, last in
                 pendingReadingPageRange = (first, last)
+            }
+        }
+        .sheet(isPresented: $showsReadingSection, onDismiss: {
+            if let range = pendingReadingPageRange {
+                pendingReadingPageRange = nil
+                readAloud?.readPDF(session, firstPageIndex: range.first, lastPageIndex: range.last)
+            }
+        }) {
+            ReadAloudPDFSectionPicker(entries: session.outlineEntries, pageCount: session.pageCount) { pages in
+                pendingReadingPageRange = (pages.lowerBound, pages.upperBound)
             }
         }
         // The page shown sits under the title rather than in the toolbar, which leaves the
@@ -319,6 +330,8 @@ private struct PDFPaneContent: View {
                 Button("Read This Page") { readAloud.readPDF(session, firstPageIndex: session.currentPageIndex, lastPageIndex: session.currentPageIndex) }
                 Button("Read From This Page") { readAloud.readPDF(session, firstPageIndex: session.currentPageIndex, lastPageIndex: session.pageCount - 1) }
                 Button("Choose Page Range…") { showsReadingPageRange = true }
+                Button("Read Section Pages…") { showsReadingSection = true }
+                    .disabled(!session.outlineEntries.contains { $0.readingPages(in: session.outlineEntries, pageCount: session.pageCount) != nil })
                 Button("Read Selection") {
                     readAloud.readPDFSelection(session)
                 }.disabled(session.readAloudSelection == nil)

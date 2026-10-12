@@ -136,6 +136,78 @@ final class PDFObjectCompactionTests: XCTestCase {
         XCTAssertEqual(savedPage.annotations.map(\.type), ["Stamp"])
     }
 
+    /// A picture turned by hand is stored under `turnedPictureKey`, with its angle, and its
+    /// appearance draws the image through a rotation: it is stored as small as an upright
+    /// one, and read back with its angle and bytes.
+    func testATurnedPictureMovedFiveTimesStaysAsSmallAsAnUprightOneAndIsReadBackWithItsAngle() async throws {
+        let jpegData = try Self.photoJPEG()
+        // A hand-turned angle, a quarter turn, and a hand-turned angle on a page shown turned.
+        let cases: [(label: String, rotationRadians: Double, quarterTurns: Int)] = [
+            ("30 degrees", .pi / 6, 0), ("quarter turn", .pi / 2, 0), ("30 degrees on a page turned once", .pi / 6, 1),
+        ]
+        for testCase in cases {
+            let location = directory.appendingPathComponent("Turned-\(UUID().uuidString).pdf")
+            var revision = try await PDFFileService().create(paper: PaperSpecification(template: .blank), pageCount: 1, at: location)
+            let emptySize = try fileSize(location)
+            var picture = PDFPicture(imageData: jpegData, bounds: CGRect(x: 150, y: 300, width: 300, height: 200), quarterTurns: testCase.quarterTurns,
+                                     rotationRadians: testCase.rotationRadians)
+            revision = try await save([.addPicture(page: 0, picture: picture)], to: location, revision: revision)
+            let sizeWithPicture = try fileSize(location)
+            XCTAssertLessThan(sizeWithPicture - emptySize, jpegData.count * 5 / 2, "The turned picture is stored at about its own size, \(testCase.label).")
+            for moveIndex in 1...5 {
+                let newBounds = CGRect(x: 150 + CGFloat(moveIndex) * 10, y: 300, width: 300, height: 200)
+                revision = try await save([.movePicture(picture.reference(onPageAt: 0), to: newBounds)], to: location, revision: revision)
+                picture.bounds = newBounds
+            }
+            XCTAssertLessThan(try fileSize(location), sizeWithPicture + 4_096, "Five moves add nothing, \(testCase.label).")
+            XCTAssertLessThan(try fileSize(location) - emptySize, jpegData.count * 5 / 2, "Still about the picture's own size, \(testCase.label).")
+
+            let savedBytes = try Data(contentsOf: location)
+            XCTAssertEqual(savedBytes.ranges(of: Data("/GraphitePictureV2".utf8)).count, 1, "The picture's bytes for re-editing are stored once, \(testCase.label).")
+            XCTAssertNotNil(savedBytes.range(of: jpegData), "The appearance image is the picture's own JPEG, \(testCase.label).")
+            XCTAssertNil(savedBytes.range(of: Data("/SMask".utf8)), "No soft mask is kept for an opaque JPEG, \(testCase.label).")
+
+            let savedPage = try XCTUnwrap(PDFDocument(url: location)?.page(at: 0))
+            XCTAssertEqual(savedPage.annotations.map(\.type), ["Stamp"])
+            let readBack = try XCTUnwrap(PDFPageManager.pictures(on: savedPage).first, testCase.label)
+            XCTAssertEqual(readBack.name, picture.name)
+            XCTAssertEqual(readBack.imageData, jpegData, "Graphite reads its picture's bytes back, \(testCase.label).")
+            XCTAssertEqual(readBack.rotationRadians, testCase.rotationRadians, accuracy: 0.0001, "and its angle, \(testCase.label)")
+            XCTAssertEqual(readBack.quarterTurns, testCase.quarterTurns)
+            for (readEdge, expectedEdge) in zip([readBack.bounds.minX, readBack.bounds.minY, readBack.bounds.width, readBack.bounds.height],
+                                                [picture.bounds.minX, picture.bounds.minY, picture.bounds.width, picture.bounds.height]) {
+                XCTAssertEqual(readEdge, expectedEdge, accuracy: 0.01, "and its frame, \(testCase.label)")
+            }
+        }
+    }
+
+    func testATurnedPictureStoredAsItsJPEGLooksTheSameAsThePixelsPDFKitWrote() throws {
+        for (rotationRadians, quarterTurns) in [(Double.pi / 6, 0), (.pi / 2, 0), (-.pi / 3, 1), (.pi / 2, 3)] {
+            // Shown at three quarters of its pixels, where it is resampled; much smaller, a reader
+            // that draws a JPEG at reduced size shows it differently from one that draws pixels.
+            let jpegData = try Self.photoJPEG(width: 480, height: 320)
+            let blank = try XCTUnwrap(PDFDocument(data: try PDFTemplateGenerator.documentData(paper: PaperSpecification(template: .blank), pageCount: 1)))
+            let picture = PDFPicture(imageData: jpegData, bounds: CGRect(x: 150, y: 300, width: 360, height: 240), quarterTurns: quarterTurns,
+                                     rotationRadians: rotationRadians)
+            try PDFPageManager.replay([.addPicture(page: 0, picture: picture)], on: blank)
+            let pixelsPDF = try XCTUnwrap(blank.dataRepresentation())
+            let compacted = try XCTUnwrap(PDFObjectCompaction.compacted(pixelsPDF), "PDFKit wrote the turned picture as pixels (\(rotationRadians), \(quarterTurns))")
+            XCTAssertEqual(compacted.report.picturesStoredAsJPEG, 1)
+            XCTAssertEqual(compacted.report.pictureMarkupCopiesRemoved, 1)
+            XCTAssertLessThan(compacted.data.count, pixelsPDF.count)
+            let pixelsImage = try Self.rendered(pixelsPDF), jpegImage = try Self.rendered(compacted.data)
+            XCTAssertLessThanOrEqual(try Self.largestChannelDifference(pixelsImage, jpegImage), 3, "Rendered the same, turned \(rotationRadians), page turned \(quarterTurns)")
+            let emptyPage = try Self.rendered(try PDFTemplateGenerator.documentData(paper: PaperSpecification(template: .blank), pageCount: 1))
+            XCTAssertGreaterThan(try Self.largestChannelDifference(emptyPage, jpegImage), 50, "The picture is on the page that was compared.")
+            // Reopened, Graphite still reads the picture's bytes and angle.
+            let reopenedDocument = try XCTUnwrap(PDFDocument(data: compacted.data))
+            PDFPageManager.prepareForDisplay(reopenedDocument)
+            let reopenedPicture = try XCTUnwrap(PDFPageManager.pictures(on: try XCTUnwrap(reopenedDocument.page(at: 0))).first)
+            XCTAssertEqual(reopenedPicture.rotationRadians, rotationRadians, accuracy: 0.0001)
+            XCTAssertEqual(reopenedPicture.imageData, jpegData)
+        }
+    }
+
     func testErasedInkAndRemovedMarkupLeaveNoCopiesBehind() async throws {
         let location = directory.appendingPathComponent("Notebook.pdf")
         var revision = try await PDFFileService().create(paper: PaperSpecification(template: .ruled), pageCount: 2, at: location)

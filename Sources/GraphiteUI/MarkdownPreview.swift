@@ -30,6 +30,8 @@ struct ReadingConfiguration: Equatable, Sendable {
     /// Changes when the index takes in new files; a note with links or embeds not found
     /// yet is built again then.
     var indexVersion = 0
+    /// Derived source-word mapping is needed only for a note with a reading session.
+    var mapsReadAloudSourceLocations = false
     /// Code block languages the vault's community plugins draw; such blocks are drawn by
     /// their plugin instead of shown as code.
     var pluginCodeBlockLanguages: Set<String> = []
@@ -226,6 +228,7 @@ struct ReadingViewBuild: Sendable {
     let hasUnresolvedEmbeds: Bool
     /// Where each of the note's own top-level blocks starts in its text.
     var blockLocations: [ReadingBlockLocation] = []
+    var readingSourceTokensByBlock: [String: [ReadAloudSourceToken]] = [:]
 }
 
 /// Where one of the reading view's top-level blocks starts in the note's text, and for a
@@ -294,7 +297,51 @@ actor ReadingViewBuilder {
             }
             rendered.append(.footnotes(id: identifier(), notes: renderedNotes))
         }
-        return ReadingViewBuild(blocks: rendered, hasUnresolvedEmbeds: hasUnresolvedEmbeds, blockLocations: blockLocations)
+        // Narration is bounded independently from preview. Unsupported or oversized
+        // notes still render; they simply carry no unsafe source highlight mapping.
+        var readingSourceTokensByBlock: [String: [ReadAloudSourceToken]] = [:]
+        if configuration.mapsReadAloudSourceLocations, source.utf16.count <= ReadAloudDocument.maximumSourceUTF16Count {
+            do {
+                let spokenDocument = try ReadAloudDocument.markdown(source, paletteHexByName: configuration.paletteHexByName)
+                let tokens = ReadAloudSourceToken.tokens(in: spokenDocument)
+                readingSourceTokensByBlock = sourceTokens(tokens, for: locatedBlocks, rendered: renderedBody,
+                                                         endOffset: readableBody.text.utf16.count, taskSource: taskSource)
+            } catch is CancellationError { throw CancellationError() }
+            catch { /* Preview remains available when narration cannot map this note. */ }
+        }
+        return ReadingViewBuild(blocks: rendered, hasUnresolvedEmbeds: hasUnresolvedEmbeds, blockLocations: blockLocations,
+                                readingSourceTokensByBlock: readingSourceTokensByBlock)
+    }
+
+    private func sourceTokens(_ tokens: [ReadAloudSourceToken], for locatedBlocks: [NotePreviewDocument.LocatedBlock],
+                              rendered: [RenderedBlock], endOffset: Int, taskSource: TaskSource) -> [String: [ReadAloudSourceToken]] {
+        var tokensByBlock: [String: [ReadAloudSourceToken]] = [:]
+        for (blockIndex, pair) in zip(locatedBlocks, rendered).enumerated() {
+            let (located, block) = pair
+            let nextOffset = blockIndex + 1 < locatedBlocks.count ? locatedBlocks[blockIndex + 1].startOffset : endOffset
+            guard let start = taskSource.noteOffset(located.startOffset),
+                  let end = taskSource.noteOffset(nextOffset), end >= start else { continue }
+            var lowerBound = 0
+            var upperBound = tokens.count
+            while lowerBound < upperBound {
+                let middleIndex = lowerBound + (upperBound - lowerBound) / 2
+                if tokens[middleIndex].sourceRange.location < start { lowerBound = middleIndex + 1 }
+                else { upperBound = middleIndex }
+            }
+            let blockTokens = tokens[lowerBound...].prefix { token in token.sourceRange.location < end }
+                .filter { token in NSMaxRange(token.sourceRange) <= end }
+            switch block {
+            case .markdown, .heading, .displayMath:
+                tokensByBlock[block.id] = blockTokens
+            case .callout(_, _, _, _, let body):
+                let titleEnd = located.body.first.flatMap { child in taskSource.noteOffset(child.startOffset) } ?? end
+                tokensByBlock[block.id] = blockTokens.filter { token in NSMaxRange(token.sourceRange) <= titleEnd }
+                tokensByBlock.merge(sourceTokens(blockTokens, for: located.body, rendered: body, endOffset: nextOffset,
+                                                 taskSource: taskSource), uniquingKeysWith: { existing, _ in existing })
+            default: break
+            }
+        }
+        return tokensByBlock
     }
 
     private func identifier() -> Int { nextIdentifier += 1; return nextIdentifier }
@@ -674,6 +721,14 @@ private struct ReadingViewport: Equatable {
     let verticalOffset: CGFloat
     let maximumVerticalOffset: CGFloat
     let topInset: CGFloat
+    var height: CGFloat = 0
+}
+
+private struct ReadingFollowRequest: Hashable {
+    let range: NSRange?
+    let followsReading: Bool
+    let blockCount: Int
+    let mappingCount: Int
 }
 
 struct MarkdownPreview: View {
@@ -704,7 +759,11 @@ struct MarkdownPreview: View {
     /// Ticks or unticks a task of this note, or of a note it embeds; nil draws checkboxes
     /// as pictures. False when the note no longer has the task at that place.
     var toggleTask: (@MainActor (VaultPath, ReadingTasks.Location) async -> Bool)? = nil
+    var readAloudRange: NSRange? = nil
+    var followsReading = false
+    var suspendReadingFollow: (() -> Void)? = nil
     @State private var scrollPosition = ScrollPosition(y: 0)
+    @Environment(\.noteTypography) private var typography
     @State private var hasRestoredPosition = false
     @State private var pendingRestorationOffset: CGFloat?
     /// Where this view was before it restored the saved position, when nothing was saved:
@@ -712,6 +771,9 @@ struct MarkdownPreview: View {
     /// position, so it is never taken for one and restored over a scroll.
     @State private var offsetBeforeRestoring: CGFloat?
     @State private var blocks: [RenderedBlock] = []
+    @State private var readingSourceTokensByBlock: [String: [ReadAloudSourceToken]] = [:]
+    @State private var readingHighlightFrames: [ReadingHighlightGeometry] = []
+    @State private var readingViewport = ReadingViewport(verticalOffset: 0, maximumVerticalOffset: 0, topInset: 0)
     @State private var errorMessage: String?
     /// Whether the last build had embeds it could not find, which may appear once indexed.
     @State private var hasMissingEmbeds = false
@@ -730,7 +792,7 @@ struct MarkdownPreview: View {
                 LazyVStack(alignment: .leading, spacing: 14) {
                     if let inlineTitle = configuration.inlineTitle {
                         Text(inlineTitle)
-                            .font(.system(size: configuration.textSize * InlineTitleStyle.fontScale, weight: .semibold))
+                            .font(typography.textSwiftUIFont(size: configuration.textSize * InlineTitleStyle.fontScale).weight(.semibold))
                             .accessibilityAddTraits(.isHeader)
                             .padding(.bottom, 6)
                     }
@@ -750,8 +812,9 @@ struct MarkdownPreview: View {
             .onScrollGeometryChange(for: ReadingViewport.self) { geometry in
                 ReadingViewport(verticalOffset: max(0, geometry.contentOffset.y + geometry.contentInsets.top),
                                 maximumVerticalOffset: max(0, geometry.contentSize.height + geometry.contentInsets.top + geometry.contentInsets.bottom - geometry.containerSize.height),
-                                topInset: geometry.contentInsets.top)
+                                topInset: geometry.contentInsets.top, height: geometry.containerSize.height)
             } action: { _, viewport in
+                readingViewport = viewport
                 savedPosition?.visibleTop = viewport.topInset
                 // Until a saved position is restored, the view's first offsets must not
                 // replace it. With nothing saved, they are kept aside, and recorded once the
@@ -772,9 +835,41 @@ struct MarkdownPreview: View {
             .onScrollPhaseChange { _, phase in
                 // Direct scrolling always takes precedence over an old checkpoint,
                 // including when edits have shortened the document since it was read.
-                if phase == .interacting { pendingRestorationOffset = nil }
+                if phase == .interacting {
+                    pendingRestorationOffset = nil
+                    suspendReadingFollow?()
+                }
+            }
+            .onPreferenceChange(ReadingHighlightGeometryKey.self) { frames in
+                MainActor.assumeIsolated {
+                    readingHighlightFrames = frames
+                    followReadingWordIfNeeded()
+                }
+            }
+            .onChange(of: followsReading) { _, _ in followReadingWordIfNeeded() }
+            .task(id: ReadingFollowRequest(range: readAloudRange, followsReading: followsReading,
+                                          blockCount: blocks.count, mappingCount: readingSourceTokensByBlock.count)) {
+                guard followsReading, let range = readAloudRange else { return }
+                revealFoldedReadingSection(containing: range)
+                await Task.yield()
+                guard !Task.isCancelled, !readingHighlightFrames.contains(where: { frame in frame.sourceRange == range }),
+                      let (identifier, _) = savedPosition?.block(containing: range.location),
+                      savedPosition?.frame(ofBlock: identifier) == nil else { return }
+                // Lazy stacks revise estimated heights as distant blocks appear.
+                // Reconcile a bounded number of layouts instead of assuming the
+                // first estimated destination reveals the actual word.
+                for _ in 0..<3 {
+                    guard !Task.isCancelled, followsReading, readAloudRange == range else { return }
+                    scrollProxy.scrollTo(identifier, anchor: .center)
+                    try? await Task.sleep(for: .milliseconds(80))
+                    if readingHighlightFrames.contains(where: { frame in frame.sourceRange == range }) { return }
+                }
             }
             .environment(\.baseEmbedContext, baseContext)
+            .environment(\.readingSourceTokensByBlock, readingSourceTokensByBlock)
+            .environment(\.readingActiveSourceRange, readAloudRange)
+            .environment(\.readingFollowsSource, followsReading)
+            .textual.readingHighlight(readAloudRange, color: ReadAloudHighlightStyle.color, coordinateSpace: ReadingCoordinateSpace.name)
             .environment(\.readingMediaPlayers, mediaPlayers)
             .environment(\.readingTaskContext, toggleTask.map { toggleTask in
                 ReadingTaskContext(note: path) { note, location in await toggle(location, in: note, with: toggleTask) }
@@ -828,7 +923,8 @@ struct MarkdownPreview: View {
                 try Task.checkCancellation()
                 let hasMissingEmbeds = Self.containsMissingEmbed(build.blocks) || build.hasUnresolvedEmbeds
                 let key = ReadingBuildKey(source: source, path: path, root: root, configuration: configuration, dependsOnIndex: hasMissingEmbeds)
-                let cachedBuild = ReadingBlocksCache.Build(key: key, blocks: build.blocks, hasMissingEmbeds: hasMissingEmbeds, blockLocations: build.blockLocations)
+                let cachedBuild = ReadingBlocksCache.Build(key: key, blocks: build.blocks, hasMissingEmbeds: hasMissingEmbeds,
+                                                          blockLocations: build.blockLocations, readingSourceTokensByBlock: build.readingSourceTokensByBlock)
                 show(cachedBuild)
                 blocksCache?.lastBuild = cachedBuild
             } catch is CancellationError {
@@ -850,8 +946,41 @@ struct MarkdownPreview: View {
         scrollPosition.scrollTo(y: savedPosition.verticalOffset + (frame.minY - savedPosition.visibleTop) + fractionDown * frame.height)
     }
 
+    private func followReadingWordIfNeeded() {
+        guard followsReading, let range = readAloudRange, readingViewport.height > 80 else { return }
+        let frame = readingHighlightFrames.filter { geometry in geometry.sourceRange == range }
+            .reduce(CGRect.null) { union, geometry in union.union(geometry.frame) }
+        guard !frame.isNull, !frame.isEmpty,
+              frame.minY < readingViewport.topInset + 40 || frame.maxY > readingViewport.height - 120 else { return }
+        pendingRestorationOffset = nil
+        // The word comes back a third of the way down, so the following lines are in view.
+        let destination = readingViewport.verticalOffset + frame.minY - readingViewport.topInset - (readingViewport.height - readingViewport.topInset) / 3
+        scrollPosition.scrollTo(y: max(0, min(destination, readingViewport.maximumVerticalOffset)))
+    }
+
+    private func revealFoldedReadingSection(containing range: NSRange) {
+        guard let folding, !folding.foldedKeys.isEmpty, let locations = savedPosition?.blockLocations else { return }
+        var occurrences: [String: Int] = [:]
+        for (blockIndex, block) in blocks.enumerated() {
+            guard case .heading(_, let level, let text, _) = block,
+                  let start = locations.first(where: { location in location.blockIdentifier == block.id })?.noteOffset else { continue }
+            let base = "h\(level)|" + String(repeating: "#", count: level) + " " + text
+            let occurrence = occurrences[base, default: 0]
+            occurrences[base] = occurrence + 1
+            let key = base + "|" + String(occurrence)
+            guard folding.foldedKeys.contains(key), range.location >= start else { continue }
+            let nextHeading = blocks.dropFirst(blockIndex + 1).first { candidate in
+                if case .heading(_, let nextLevel, _, _) = candidate { return nextLevel <= level }
+                return false
+            }
+            let end = nextHeading.flatMap { heading in locations.first(where: { location in location.blockIdentifier == heading.id })?.noteOffset } ?? source.utf16.count
+            if range.location < end { folding.toggle(key) }
+        }
+    }
+
     private func show(_ build: ReadingBlocksCache.Build) {
         savedPosition?.blockLocations = build.blockLocations
+        readingSourceTokensByBlock = build.readingSourceTokensByBlock
         blocks = build.blocks; errorMessage = nil
         hasMissingEmbeds = build.hasMissingEmbeds
         shownBuildKey = build.key
@@ -910,6 +1039,7 @@ final class ReadingBlocksCache {
         let blocks: [RenderedBlock]
         let hasMissingEmbeds: Bool
         var blockLocations: [ReadingBlockLocation] = []
+        var readingSourceTokensByBlock: [String: [ReadAloudSourceToken]] = [:]
     }
 
     var lastBuild: Build?
@@ -945,6 +1075,7 @@ extension ReadingConfiguration {
     var hashValueForReload: Int {
         var hasher = Hasher()
         hasher.combine(usesStrictLineBreaks); hasher.combine(colorsEnabled); hasher.combine(showsProperties)
+        hasher.combine(mapsReadAloudSourceLocations)
         hasher.combine(paletteHexByName.sorted { firstEntry, secondEntry in firstEntry.key < secondEntry.key }.map { entry in entry.key + entry.value })
         hasher.combine(declaredPropertyTypes.sorted { firstEntry, secondEntry in firstEntry.key < secondEntry.key }.map { entry in entry.key + "=" + entry.value.rawValue })
         hasher.combine(pluginCodeBlockLanguages.sorted())
@@ -976,6 +1107,18 @@ struct ReadingBlocksView: View {
     /// Follows where the note's own blocks are as the view scrolls; nil for embedded notes.
     var blockPositions: ReadingPosition? = nil
     @Environment(\.readingTaskContext) private var taskContext
+    @Environment(\.readingSourceTokensByBlock) private var readingSourceTokensByBlock
+    @Environment(\.readingActiveSourceRange) private var readingActiveSourceRange
+    @Environment(\.readingFollowsSource) private var readingFollowsSource
+
+    private func containsReadingWord(_ blocks: [RenderedBlock]) -> Bool {
+        guard readingFollowsSource, let range = readingActiveSourceRange else { return false }
+        return blocks.contains { block in
+            if readingSourceTokensByBlock[block.id]?.contains(where: { token in NSIntersectionRange(token.sourceRange, range).length > 0 }) == true { return true }
+            if case .callout(_, _, _, _, let body) = block { return containsReadingWord(body) }
+            return false
+        }
+    }
     /// Draws plugins' code blocks; nil where plugins do not draw, which shows them as code.
     @Environment(\.communityPluginCodeBlocks) private var pluginCodeBlocks
 
@@ -1024,21 +1167,25 @@ struct ReadingBlocksView: View {
             case .properties(let properties):
                 PropertiesPanel(properties: properties, update: updateProperties, follow: navigate, declaredTypes: declaredPropertyTypes)
             case .markdown(_, let text):
-                ObsidianMarkdownText(markdown: text, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading)
+                ObsidianMarkdownText(markdown: text, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading,
+                                     sourceTokens: readingSourceTokensByBlock[block.id])
             case .pluginSection(_, let text, let request):
                 if let codeBlocks = pluginCodeBlocks {
                     CommunityPluginSectionView(host: codeBlocks, request: request, textSize: textSize) {
                         ObsidianMarkdownText(markdown: text, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading)
                     }
                 } else {
-                    ObsidianMarkdownText(markdown: text, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading)
+                    ObsidianMarkdownText(markdown: text, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading,
+                                         sourceTokens: readingSourceTokensByBlock[block.id])
                 }
             case .displayMath(_, let text):
                 // Centered, as Obsidian shows display math.
-                ObsidianMarkdownText(markdown: text, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading)
+                ObsidianMarkdownText(markdown: text, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading,
+                                     sourceTokens: readingSourceTokensByBlock[block.id])
                     .frame(maxWidth: .infinity)
             case .heading(_, let level, let text, let anchor):
-                let heading = ObsidianMarkdownText(markdown: String(repeating: "#", count: level) + " " + text, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading)
+                let heading = ObsidianMarkdownText(markdown: String(repeating: "#", count: level) + " " + text, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading,
+                                                  sourceTokens: readingSourceTokensByBlock[block.id])
                     .overlay(alignment: .leading) {
                         if let folding, let foldKey = entry.foldKey, entry.hasBody {
                             let isFolded = folding.foldedKeys.contains(foldKey)
@@ -1059,7 +1206,9 @@ struct ReadingBlocksView: View {
                     }
                 if let anchor { heading.id(anchor) } else { heading }
             case .callout(_, let type, let title, let folding, let body):
-                CalloutView(type: type, title: title, folding: folding, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading) {
+                CalloutView(type: type, title: title, folding: folding, root: root, textSize: textSize, navigate: navigate,
+                            scrollToHeading: scrollToHeading, sourceTokens: readingSourceTokensByBlock[block.id],
+                            automaticallyExpandsForReading: containsReadingWord(body)) {
                     ReadingBlocksView(blocks: body, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading, openPDF: openPDF, updateProperties: nil)
                 }
             case .video(_, let location):
@@ -1150,22 +1299,40 @@ private struct ReadingBlockPositionReporter: ViewModifier {
 struct ObsidianMarkdownText: View {
     let markdown: String
     @Environment(\.accent) private var accent
+    @Environment(\.noteTypography) private var typography
     let root: URL
     let textSize: Double
     let navigate: (String, Bool) -> Void
     let scrollToHeading: (String) -> Void
+    var sourceTokens: [ReadAloudSourceToken]? = nil
+    @Environment(\.readingActiveSourceRange) private var readingActiveSourceRange
 
     var body: some View {
         if let numberedEquation {
             NumberedEquationView(equation: numberedEquation, textSize: textSize)
+                .background {
+                    if let activeRange = readingActiveSourceRange, sourceTokens?.contains(where: { token in
+                        token.isEquation && NSIntersectionRange(token.sourceRange, activeRange).length > 0
+                    }) == true {
+                        RoundedRectangle(cornerRadius: 3).fill(ReadAloudHighlightStyle.color)
+                        GeometryReader { geometry in
+                            Color.clear.preference(key: ReadingHighlightGeometryKey.self,
+                                                   value: [ReadingHighlightGeometry(sourceRange: activeRange,
+                                                                                     frame: geometry.frame(in: .named(ReadingCoordinateSpace.name)))])
+                        }
+                        .allowsHitTesting(false)
+                    }
+                }
         } else {
-            StructuredText(markdown, parser: ObsidianMarkdownParser(baseURL: root, textSize: textSize))
+            StructuredText(markdown, parser: ObsidianMarkdownParser(baseURL: root, textSize: textSize, sourceTokens: sourceTokens))
                 // StructuredText parses again only when its text changes, and the parse sizes
                 // footnote numbers, so a new text size starts a new view.
                 .id(textSize)
-                .font(.system(size: textSize))
+                .id(sourceTokens)
+                .font(typography.textSwiftUIFont(size: textSize))
                 .textual.textSelection(.enabled)
-                .textual.inlineStyle(InlineStyle.default.link(.foregroundColor(accent)))
+                .textual.inlineStyle(inlineStyle)
+                .textual.codeBlockStyle(ObsidianCodeBlockStyle(monospaceFont: typography.monospaceSwiftUIFont(size: textSize)))
                 .textual.listItemStyle(ObsidianListItemStyle(textSize: textSize))
                 .textual.imageAttachmentLoader(VaultImageLoader(root: root))
                 .textual.headingStyle(ObsidianHeadingStyle())
@@ -1175,6 +1342,14 @@ struct ObsidianMarkdownText: View {
                 .tint(accent)
                 .environment(\.openURL, Self.linkAction(root: root, navigate: navigate, scrollToHeading: scrollToHeading))
         }
+    }
+
+    /// Links in the accent, and inline code in the monospace font. SF Mono keeps Textual's
+    /// own code style, which follows a heading's size; another family is set as a font.
+    private var inlineStyle: InlineStyle {
+        let linkedStyle = InlineStyle.default.link(.foregroundColor(accent))
+        guard case .installed = typography.monospaceFamily else { return linkedStyle }
+        return linkedStyle.code(.font(typography.monospaceSwiftUIFont(size: textSize)), .fontScale(0.94))
     }
 
     /// The display formula with equation numbers that is all of the text, which is laid
@@ -1228,6 +1403,7 @@ struct ObsidianMarkdownText: View {
 struct ObsidianMarkdownParser: MarkupParser {
     let baseURL: URL?
     let textSize: Double
+    var sourceTokens: [ReadAloudSourceToken]? = nil
 
     func attributedString(for input: String) throws -> AttributedString {
         // The Markdown parser recurses once per nesting level; a note nested deeper than
@@ -1256,6 +1432,7 @@ struct ObsidianMarkdownParser: MarkupParser {
         }
         replaceTaskMarkers(in: &attributed)
         Self.restoreEscapedCharacters(in: &attributed)
+        if let sourceTokens { _ = ReadingSourceAlignment.apply(sourceTokens, to: &attributed) }
         return attributed
     }
 
@@ -1467,6 +1644,33 @@ extension Color {
 
 // MARK: Obsidian-like styles
 
+/// Code blocks as Textual draws them by default, in the vault's monospace font: the default
+/// style's `.monospaced()` would leave a chosen text font in place for code.
+struct ObsidianCodeBlockStyle: StructuredText.CodeBlockStyle {
+    let monospaceFont: Font
+    private static let border = DynamicColor(light: Color(red: 210 / 255, green: 210 / 255, blue: 215 / 255),
+                                             dark: Color(red: 66 / 255, green: 66 / 255, blue: 69 / 255))
+    /// The default highlighter theme's code background, which Textual keeps internal.
+    private static let background = DynamicColor(light: Color(red: 0.960784, green: 0.960784, blue: 0.968627),
+                                                 dark: Color(red: 0.120543, green: 0.122844, blue: 0.141312))
+
+    func makeBody(configuration: Configuration) -> some View {
+        Overflow {
+            configuration.label
+                .font(monospaceFont)
+                .textual.lineSpacing(.fontScaled(0.39))
+                .textual.fontScale(0.882)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.vertical, 8)
+                .padding(.leading, 14)
+        }
+        .background(Self.background)
+        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).stroke(Self.border, lineWidth: 1))
+        .textual.blockSpacing(.fontScaled(top: 0.88, bottom: 0))
+    }
+}
+
 /// The sizes Live Preview gives headings (`HeadingTypography`), so a heading does not jump
 /// when the note switches to reading.
 struct ObsidianHeadingStyle: StructuredText.HeadingStyle {
@@ -1589,14 +1793,20 @@ struct CalloutView<Body: View>: View {
     /// Scrolls to a heading of the note that shows the callout; nil leaves `#Heading` links
     /// in the title to `navigate`.
     let scrollToHeading: ((String) -> Void)?
+    let sourceTokens: [ReadAloudSourceToken]?
+    let automaticallyExpandsForReading: Bool
     @ViewBuilder let content: () -> Body
     @Environment(\.accent) private var accent
+    @Environment(\.noteTypography) private var typography
     @State private var isExpanded: Bool
 
     init(type: String, title: String, folding: CalloutFolding, root: URL, textSize: Double, navigate: @escaping (String, Bool) -> Void,
-         scrollToHeading: ((String) -> Void)? = nil, @ViewBuilder content: @escaping () -> Body) {
+         scrollToHeading: ((String) -> Void)? = nil, sourceTokens: [ReadAloudSourceToken]? = nil,
+         automaticallyExpandsForReading: Bool = false, @ViewBuilder content: @escaping () -> Body) {
         self.type = type; self.title = title; self.folding = folding; self.root = root; self.textSize = textSize; self.navigate = navigate
         self.scrollToHeading = scrollToHeading; self.content = content
+        self.sourceTokens = sourceTokens
+        self.automaticallyExpandsForReading = automaticallyExpandsForReading
         _isExpanded = State(initialValue: folding != .collapsed)
     }
 
@@ -1609,9 +1819,10 @@ struct CalloutView<Body: View>: View {
                 HStack(spacing: 8) {
                     Image(systemName: appearance.systemImage).foregroundStyle(appearance.titleColor)
                     // A link in the title takes the tap before the fold button does.
-                    StructuredText(title, parser: ObsidianMarkdownParser(baseURL: root, textSize: textSize))
+                    StructuredText(title, parser: ObsidianMarkdownParser(baseURL: root, textSize: textSize, sourceTokens: sourceTokens))
                         .id(textSize)
-                        .font(.system(size: textSize).weight(.semibold))
+                        .id(sourceTokens)
+                        .font(typography.textSwiftUIFont(size: textSize).weight(.semibold))
                         .foregroundStyle(appearance.titleColor)
                         .textual.inlineStyle(InlineStyle.default.link(.foregroundColor(accent)))
                         .textual.imageAttachmentLoader(VaultImageLoader(root: root))
@@ -1631,6 +1842,9 @@ struct CalloutView<Body: View>: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(appearance.color.opacity(CalloutAppearance.tintOpacity), in: RoundedRectangle(cornerRadius: 8))
+        .onChange(of: automaticallyExpandsForReading, initial: true) { _, expands in
+            if expands { isExpanded = true }
+        }
     }
 }
 

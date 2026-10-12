@@ -79,7 +79,14 @@
         strictLineBreaks: false, useTab: true, tabSize: 4, spellcheck: true, autoPairBrackets: true, autoPairMarkdown: true,
         smartIndentList: true, foldHeading: true, foldIndent: true, showLineNumber: false, livePreview: true, defaultViewMode: 'source',
         showFrontmatter: false, propertiesInDocument: 'visible', userIgnoreFilters: [], fileSortOrder: 'alphabetical', vimMode: false,
+        theme: 'system', accentColor: '', cssTheme: '', enabledCssSnippets: [], textFontFamily: '', interfaceFontFamily: '',
+        monospaceFontFamily: '', baseFontSize: 16, baseFontSizeAction: false, translucency: false,
     };
+
+    /// The `.obsidian/appearance.json` keys Graphite writes when a plugin sets them; Graphite
+    /// shows the change too. Everything else in that file is read only.
+    const graphiteWrittenAppearanceKeys = new Set(['cssTheme', 'enabledCssSnippets', 'textFontFamily', 'interfaceFontFamily',
+        'monospaceFontFamily', 'baseFontSize', 'baseFontSizeAction']);
 
     // MARK: Data adapter
 
@@ -593,17 +600,32 @@
         /// Obsidian's settings object (undocumented): `app.json` and `appearance.json` merged
         /// over Obsidian's defaults. Make.md reads the theme from it as it loads.
         get config() {
-            return Object.assign({}, obsidianDefaultConfiguration, { cssTheme: '', theme: globalScope.document.body.hasClass('theme-dark') ? 'obsidian' : 'moonstone', baseFontSize: 16 }, this.configuration);
+            return Object.assign({}, obsidianDefaultConfiguration, { cssTheme: '', theme: globalScope.document.body.hasClass('theme-dark') ? 'obsidian' : 'moonstone', baseFontSize: 16 }, this.appearanceConfiguration || {}, this.configuration);
         }
-        /// Obsidian's settings from `.obsidian/app.json` (undocumented but widely used).
+        /// Obsidian's settings from `.obsidian/app.json` and `.obsidian/appearance.json`
+        /// (undocumented but widely used).
         getConfig(key) {
             if (Object.prototype.hasOwnProperty.call(this.configuration, key)) return this.configuration[key];
+            const appearance = this.appearanceConfiguration || {};
+            if (Object.prototype.hasOwnProperty.call(appearance, key)) return appearance[key];
             return Object.prototype.hasOwnProperty.call(obsidianDefaultConfiguration, key) ? obsidianDefaultConfiguration[key] : null;
         }
-        /// Graphite's settings are its own, so a plugin's change to Obsidian's settings lasts
-        /// until the plugins restart, for the plugins that read it back, and does not change
-        /// Graphite; it is reported, without failing the plugin (System Dark Mode sets `theme`).
+        /// Appearance settings Graphite shares are written through Graphite. `theme` (light,
+        /// dark or the system's) is kept here only: Graphite's own appearance setting decides
+        /// light or dark, and the page follows it.
         setConfig(key, value) {
+            if (key === 'theme') {
+                this.appearanceConfiguration = Object.assign({}, this.appearanceConfiguration, { theme: value });
+                return;
+            }
+            if (graphiteWrittenAppearanceKeys.has(key)) {
+                this.appearanceConfiguration = Object.assign({}, this.appearanceConfiguration, { [key]: value });
+                hostBridge.notify('appearance.setConfig', { key, value });
+                return;
+            }
+            // Other settings are Graphite's own: a plugin's change lasts until the plugins
+            // restart, for the plugins that read it back, and is reported, without failing the
+            // plugin (make.md, Linter).
             runtime.reportUnsupportedFeature('Changing Obsidian settings from a plugin (“' + key + '”)');
             if (value === undefined || value === null) delete this.configuration[key];
             else this.configuration[key] = value;

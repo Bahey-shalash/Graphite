@@ -836,6 +836,7 @@
                 load() {},
                 bake() {},
             };
+            this.customCss = new CustomCss(this);
             this.lastEvent = null;
             this.isMobile = true;
             this.appId = '';
@@ -871,13 +872,81 @@
             }
         }
         isDarkMode() { return globalScope.document.body.hasClass('theme-dark'); }
-        /// Obsidian's base theme (undocumented): `obsidian` is dark, `moonstone` light.
-        getTheme() { return this.isDarkMode() ? 'obsidian' : 'moonstone'; }
-        /// Graphite's appearance follows the system and its own settings, so a plugin cannot
-        /// switch it; the request is reported (System Dark Mode does what Graphite already does).
-        setTheme(theme) {
-            if (theme === this.getTheme()) return;
-            runtime.reportUnsupportedFeature('Changing Graphite\'s appearance (light or dark)');
+        /// Obsidian's light or dark choice (`obsidian` dark, `moonstone` light). Graphite's own
+        /// appearance setting decides; the choice is kept here, as `vault.setConfig('theme')`.
+        getTheme() { return this.vault.getConfig('theme') === 'moonstone' ? 'moonstone' : 'obsidian'; }
+        setTheme(themeName) { this.vault.setConfig('theme', themeName); }
+        changeTheme(themeName) { this.setTheme(themeName); }
+        updateTheme() {}
+    }
+
+    /// Obsidian's `app.customCss` (undocumented, read by Style Settings and theme helpers):
+    /// the community theme and CSS snippets of the vault, which Graphite reads from the vault
+    /// and adds to this page after the plugins' own styles.
+    class CustomCss {
+        constructor(app) {
+            this.app = app;
+            this.theme = '';
+            this.themes = {};
+            this.snippets = [];
+            this.enabledSnippets = new Set();
+            this.themeElement = null;
+            this.snippetElements = [];
+        }
+        getThemeFolder() { return this.app.vault.configDir + '/themes'; }
+        getSnippetsFolder() { return this.app.vault.configDir + '/snippets'; }
+        getSnippetPath(snippetName) { return this.getSnippetsFolder() + '/' + snippetName + '.css'; }
+        isThemeInstalled(themeName) { return Object.prototype.hasOwnProperty.call(this.themes, themeName); }
+        /// Chooses a theme the way Obsidian's setting does, through Graphite, which writes
+        /// `cssTheme` and sends the theme's style sheet back.
+        setTheme(themeName) { this.app.vault.setConfig('cssTheme', themeName || ''); }
+        setCssEnabledStatus(snippetName, isEnabled) {
+            const enabled = new Set(this.enabledSnippets);
+            if (isEnabled) enabled.add(snippetName); else enabled.delete(snippetName);
+            this.app.vault.setConfig('enabledCssSnippets', Array.from(enabled));
+        }
+        readSnippets() {}
+        readThemes() {}
+        requestLoadTheme() {}
+        requestLoadSnippets() {}
+        /// Puts the vault's theme and enabled snippets in the page, after every plugin's style
+        /// sheet, as Obsidian orders them.
+        apply(styles) {
+            const document = globalScope.document;
+            this.theme = styles.theme ? styles.theme.name : '';
+            this.themes = {};
+            for (const themeName of styles.installedThemes || []) this.themes[themeName] = { name: themeName };
+            this.snippets = styles.snippetNames || [];
+            if (styles.accent) {
+                const body = document.body;
+                body.style.setProperty('--accent-h', String(styles.accent.hue));
+                body.style.setProperty('--accent-s', styles.accent.saturation + '%');
+                body.style.setProperty('--accent-l', styles.accent.lightness + '%');
+            }
+            this.enabledSnippets = new Set((styles.snippets || []).map((snippet) => snippet.name));
+            // The same theme and snippets sent again (after Graphite saved the file) change nothing.
+            const signature = JSON.stringify([styles.theme || null, styles.snippets || []]);
+            if (signature === this.appliedSignature) return;
+            this.appliedSignature = signature;
+            if (this.themeElement) this.themeElement.remove();
+            this.themeElement = null;
+            for (const element of this.snippetElements) element.remove();
+            this.snippetElements = [];
+            if (styles.theme && styles.theme.css) {
+                const element = document.createElement('style');
+                element.setAttribute('data-graphite-theme', styles.theme.name);
+                element.textContent = styles.theme.css;
+                document.head.appendChild(element);
+                this.themeElement = element;
+            }
+            for (const snippet of styles.snippets || []) {
+                const element = document.createElement('style');
+                element.setAttribute('data-graphite-snippet', snippet.name);
+                element.textContent = snippet.css;
+                document.head.appendChild(element);
+                this.snippetElements.push(element);
+            }
+            this.app.workspace.trigger('css-change');
         }
     }
 
@@ -1056,6 +1125,8 @@
             app.workspace.lastOpenFiles = message.recentFiles || [];
             runtime.configurePlatform(message.device || {});
             applyTheme(message.appearance);
+            app.vault.appearanceConfiguration = message.vault.appearanceConfiguration || {};
+            if (message.styles) app.customCss.apply(message.styles);
             await app.vault.loadFileTree();
             await app.metadataTypeManager.loadTypes();
             app.metadataCache.observeVault();
@@ -1089,6 +1160,14 @@
         },
         async 'appearance.changed'(message) {
             applyTheme(message.appearance);
+            return {};
+        },
+        /// The vault's appearance settings, theme and snippets changed in Graphite or Obsidian.
+        async 'appearance.styles'(message) {
+            const app = runtime.app;
+            if (!app) return {};
+            app.vault.appearanceConfiguration = message.appearanceConfiguration || {};
+            app.customCss.apply(message.styles || {});
             return {};
         },
         async 'workspace.activeDocument'(message) {

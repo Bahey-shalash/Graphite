@@ -127,4 +127,81 @@ final class ReadAloudDocumentTests: XCTestCase {
         XCTAssertEqual(try ReadAloudDocument.markdown(source, selectedRange: second.range).passages.map(\.text), ["Café 😀", "Second.", "Last title", "Final."])
         XCTAssertTrue(try ReadAloudSection.sections(in: "A note without headings.").isEmpty)
     }
+
+    /// Real notes are full of apostrophes, quotes and double hyphens, which the parser turns
+    /// into typographic marks. They used to stop the whole note with "could not safely match".
+    func testSmartPunctuationIsReadAndMapsBackToWhatWasWritten() throws {
+        let source = "# Shannon's Expansion -- a note\n\nIt's \"simple\"... really --- see 'L01'.\n\n> [!banana]\n> Unknown type: titled \"Banana\"."
+        let document = try ReadAloudDocument.markdown(source)
+        XCTAssertEqual(try speech(source), "Shannon’s Expansion – a note It’s “simple”… really — see ‘L01’. Unknown type: titled “Banana”.")
+        let passage = try XCTUnwrap(document.passages.first)
+        let apostrophe = (passage.text as NSString).range(of: "’")
+        XCTAssertEqual((source as NSString).substring(with: try XCTUnwrap(passage.sourceRange(for: apostrophe))), "'")
+        let word = (passage.text as NSString).range(of: "Expansion")
+        XCTAssertEqual((source as NSString).substring(with: try XCTUnwrap(passage.sourceRange(for: word))), "Expansion")
+        let second = try XCTUnwrap(document.passages.dropFirst().first)
+        let dash = (second.text as NSString).range(of: "—")
+        XCTAssertEqual((source as NSString).substring(with: try XCTUnwrap(second.sourceRange(for: dash))), "---")
+    }
+
+    func testDisplayMathInsideACalloutIsReadNotAnnouncedAsUnsupported() throws {
+        XCTAssertEqual(try speech("> [!note] PUN\n> $$x^2$$\n>\n> $$\n> y^2\n> $$"), "P U N x squared y squared")
+    }
+
+    func testTablesWithEscapedPipesAndBrokenTablesAreRead() throws {
+        let escaped = "| Expression | Meaning |\n| --- | --- |\n| a \\| b | logical or |\n| a \\\\| b | edge |"
+        XCTAssertFalse(try speech(escaped).isEmpty)
+        let broken = "| A | B | C |\n| --- | --- |\n| a | b | c |"
+        XCTAssertTrue(try speech(broken).contains("a | b | c"))
+    }
+
+    func testTablesAreReadRowByRowWithTheirColumnHeaders() throws {
+        let document = try ReadAloudDocument.markdown("| Gate | Delay (ps) |\n| --- | --- |\n| NAND | 35 |\n| NOR | 52 |")
+        XCTAssertEqual(document.passages.map(\.text), ["Gate, Delay (ps)", "Gate: nand, Delay (ps): 35", "Gate: nor, Delay (ps): 52"])
+        XCTAssertEqual(Set(document.passages.map(\.kind)), [.tableRow])
+    }
+
+    func testCalloutTitleIsReadAsItsOwnHeading() throws {
+        let document = try ReadAloudDocument.markdown("> [!tip] Rule of thumb\n> Keep the effort low.")
+        XCTAssertEqual(document.passages.map(\.text), ["Rule of thumb", "Keep the effort low."])
+        XCTAssertEqual(document.passages.first?.kind, .heading)
+    }
+
+    /// Web addresses are announced instead of spelled out, and unambiguous abbreviations are
+    /// expanded; the highlight still covers what is written, and a rendered note still finds
+    /// the written words.
+    func testAddressesAndAbbreviationsAreSaidTheWayAPersonWouldSayThem() throws {
+        let source = "Visit https://www.example.com/a/b?c=1 now, e.g. in Fig. 3, i.e. pp. 12–14 vs. No. 5."
+        let document = try ReadAloudDocument.markdown(source)
+        let passage = try XCTUnwrap(document.passages.first)
+        XCTAssertEqual(passage.text, "Visit link to example.com now, for example in Figure 3, that is pages 12–14 versus number 5.")
+        let spoken = (passage.text as NSString).range(of: "link to example.com")
+        XCTAssertEqual((source as NSString).substring(with: try XCTUnwrap(passage.sourceRange(for: spoken))), "https://www.example.com/a/b?c=1")
+        let tokens = ReadAloudSourceToken.tokens(in: document).map(\.text)
+        XCTAssertTrue(tokens.contains("e.g"), "\(tokens)")
+        XCTAssertFalse(tokens.contains("example") && !tokens.contains("www.example.com"))
+        XCTAssertEqual(try speech("See Fig. on the left, and No. one."), "See Fig. on the left, and No. one.")
+    }
+
+    func testSlideLinesBulletsFootersAndBrokenWordsReadNaturally() throws {
+        let slide = "Syllabus\n• Basic static logic\n• Noise margins\nThe on-\nresistance must be equal\nfor both networks.\nL05 Static logic v1.0 EE-330 2026 2"
+        let document = try ReadAloudDocument.pageText(slide, pageLabels: ["2"])
+        XCTAssertEqual(document.passages.map(\.text),
+                       ["Syllabus", "Basic static logic", "Noise margins", "The on-resistance must be equal for both networks."])
+        XCTAssertEqual(document.passages.map(\.kind), [.line, .line, .line, .paragraph])
+        XCTAssertFalse(document.notices.isEmpty)
+        let passage = document.passages[3]
+        let word = (passage.text as NSString).range(of: "resistance")
+        XCTAssertEqual((slide as NSString).substring(with: try XCTUnwrap(passage.sourceRange(for: word))), "resistance")
+        XCTAssertEqual(document.runningText, ["L05 Static logic v1.0 EE-330 2026"])
+        // A later slide whose layout split the footer into pieces skips the same text.
+        let later = try ReadAloudDocument.pageText("Pass-transistor logic\n• nMOS logic\nL05 Static logic v1.0\nEE-330 2026\n21",
+                                                   pageLabels: ["21"], knownRunningText: document.runningText)
+        XCTAssertEqual(later.passages.map(\.text), ["Pass-transistor logic", "en moss logic"])
+        let contents = try ReadAloudDocument.pageText("3.1.4 Thin-Film Removal . . . . . . . . 145")
+        XCTAssertEqual(contents.passages.map(\.text), ["3.1.4 Thin-Film Removal 145"])
+        let prose = try ReadAloudDocument.pageText("A footer-like last line ends\nwith 7 words and the page 7")
+        XCTAssertEqual(prose.passages.map(\.text), ["A footer-like last line ends with 7 words and the page 7"])
+    }
 }
+

@@ -11,7 +11,7 @@ struct SettingsView: View {
     @State private var vaultSettingsChanges = VaultSettingsChanges()
 
     enum SettingsPage: Hashable {
-        case general, editor, filesAndLinks, appearance, corePlugins, communityPlugins
+        case general, editor, filesAndLinks, appearance, readAloud, corePlugins, communityPlugins
         case plugin(CorePlugin)
         /// A community plugin's own settings tab, by plugin identifier.
         case communityPlugin(String)
@@ -28,6 +28,7 @@ struct SettingsView: View {
                     Label("Editor", systemImage: "pencil.line").tag(SettingsPage.editor)
                     Label("Files and Links", systemImage: "folder").tag(SettingsPage.filesAndLinks)
                     Label("Appearance", systemImage: "paintbrush").tag(SettingsPage.appearance)
+                    Label("Read Aloud", systemImage: "speaker.wave.2").tag(SettingsPage.readAloud)
                     Label("Core Plugins", systemImage: "puzzlepiece.extension").tag(SettingsPage.corePlugins)
                     Label("Community Plugins", systemImage: "puzzlepiece").tag(SettingsPage.communityPlugins)
                 }
@@ -82,7 +83,8 @@ struct SettingsView: View {
         case .general: GeneralSettingsPage(workspace: workspace) { dismiss(); manageVaults() }
         case .editor: EditorSettingsPage(workspace: workspace, preferences: workspace.preferences, vaultSettingsChanges: vaultSettingsChanges)
         case .filesAndLinks: FilesAndLinksSettingsPage(workspace: workspace, vaultSettingsChanges: vaultSettingsChanges)
-        case .appearance: AppearanceSettingsPage(preferences: workspace.preferences)
+        case .appearance: AppearanceSettingsPage(workspace: workspace, preferences: workspace.preferences)
+        case .readAloud: ReadAloudSettingsPage(reader: workspace.readAloud)
         case .corePlugins: CorePluginsSettingsPage(preferences: workspace.preferences)
         case .communityPlugins: CommunityPluginsSettingsPage(workspace: workspace) { pluginIdentifier in selectedPage = .communityPlugin(pluginIdentifier) }
         case .communityPlugin(let pluginIdentifier): CommunityPluginOptionsPage(host: workspace.communityPlugins, pluginIdentifier: pluginIdentifier)
@@ -202,8 +204,8 @@ private struct EditorSettingsPage: View {
 }
 
 private struct AppearanceSettingsPage: View {
+    @Bindable var workspace: WorkspaceModel
     @Bindable var preferences: GraphitePreferences
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         Form {
@@ -216,17 +218,19 @@ private struct AppearanceSettingsPage: View {
                 }
             }
             Section {
-                AccentColorGrid(selectedHex: $preferences.accentHex)
+                AccentColorGrid(selectedHex: Binding(get: { preferences.accentHex }, set: { hex in preferences.chosenAccentHex = hex }))
                 ColorPicker("Custom Color", selection: Binding(get: { preferences.chosenAccentColor }, set: { color in
-                    if let hex = color.sRGBHex { preferences.accentHex = hex }
+                    if let hex = color.sRGBHex { preferences.chosenAccentHex = hex }
                 }), supportsOpacity: false)
-                if preferences.accentHex != GraphiteTheme.defaultAccentHex {
-                    Button("Restore Default Accent", systemImage: "arrow.uturn.backward") { preferences.accentHex = GraphiteTheme.defaultAccentHex }
+                if preferences.chosenAccentHex != nil {
+                    // Forgetting the choice made here returns to the vault's Obsidian accent, if it has one.
+                    Button(preferences.vaultAccentHex == nil ? "Restore Default Accent" : "Use the Vault's Obsidian Accent",
+                           systemImage: "arrow.uturn.backward") { preferences.chosenAccentHex = nil }
                 }
             } header: {
                 Text("Accent Color")
             } footer: {
-                Text("Used for links, checkboxes, selections, and buttons. An accent too light to read on white is darkened in light appearance, and one too dark to read on black is lightened in dark appearance. Purple matches Obsidian's default.")
+                Text("Used for links, checkboxes, selections, and buttons. Until you choose one here, Graphite uses the accent color set for this vault in Obsidian. An accent too light to read on white is darkened in light appearance, and one too dark to read on black is lightened in dark appearance. Purple matches Obsidian's default.")
             }
             Section {
                 Toggle("Show Inline Title", isOn: $preferences.showsInlineTitle)
@@ -235,19 +239,9 @@ private struct AppearanceSettingsPage: View {
             } footer: {
                 Text("Shows the note's file name as a large title above its content, with its extension when Files and Links › Show File Extensions is on.")
             }
-            Section {
-                LabeledContent("Font Size") {
-                    HStack {
-                        Slider(value: $preferences.textSize, in: GraphitePreferences.textSizeRange, step: 1).frame(maxWidth: 240)
-                        Text("\(Int(preferences.textSize)) pt").monospacedDigit().foregroundStyle(.secondary)
-                    }
-                }
-                Text("The quick brown fox jumps over the lazy dog.")
-                    .font(.system(size: GraphitePreferences.noteTextSize(preferences.textSize, for: dynamicTypeSize)))
-            } header: {
-                Text("Font")
-            } footer: {
-                Text("Applies to notes when editing and reading. Notes also grow and shrink with the system text size.")
+            if workspace.store != nil {
+                FontSettingsSection(workspace: workspace)
+                ThemeSettingsSection(workspace: workspace)
             }
         }
         .navigationTitle("Appearance")
@@ -494,6 +488,23 @@ private struct DrawingsSettingsPage: View {
             #endif
         }
         .navigationTitle("Pencil Drawings")
+    }
+}
+
+/// Voice and speed for Read Aloud. The math and PDF choices stay with the passage being read.
+private struct ReadAloudSettingsPage: View {
+    @Bindable var reader: ReadAloudController
+
+    var body: some View {
+        Form {
+            ReadAloudVoiceSettings(reader: reader)
+            Section("Pronunciation") {
+                Text("Graphite says common computing terms the usual way: RAM as a word, CPU letter by letter. To add or change a term for this vault, put it in the vault's \(ReadAloudPronunciations.vaultFilePath) file, for example {\"SIMDRAM\": \"sim dee ram\"}.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("Read Aloud")
     }
 }
 

@@ -9,14 +9,22 @@ import UIKit
 /// hosts Live Preview's rendered blocks.
 final class MarkdownTextView: UITextView {
     var readAloudRange: NSRange? { didSet { if readAloudRange != oldValue { setNeedsLayout() } } }
-    private var readAloudHighlights: [UIView] = []
+    var followsReading = false {
+        didSet {
+            guard followsReading != oldValue else { return }
+            // Following again (after Back to Reading) reveals the current word at once.
+            lastHighlightLayout = nil
+            setNeedsLayout()
+        }
+    }
+    private(set) var readAloudHighlights: [UIView] = []
     static let readableColumnWidth: CGFloat = 740
     static let minimumHorizontalInset: CGFloat = 28
     var usesReadableLineLength = true { didSet { setNeedsLayout() } }
     /// The note's name above the text, drawn by a label the text is inset below.
-    var inlineTitle: (text: String, fontSize: CGFloat)? {
+    var inlineTitle: (text: String, fontSize: CGFloat, family: ResolvedFontFamily)? {
         didSet {
-            guard inlineTitle?.text != oldValue?.text || inlineTitle?.fontSize != oldValue?.fontSize else { return }
+            guard inlineTitle?.text != oldValue?.text || inlineTitle?.fontSize != oldValue?.fontSize || inlineTitle?.family != oldValue?.family else { return }
             updateInlineTitleLabel()
         }
     }
@@ -81,10 +89,25 @@ final class MarkdownTextView: UITextView {
         // Setting equal insets would still invalidate the layout.
         if textContainerInset != insets { textContainerInset = insets }
         didLayout?(self)
-        updateReadAloudHighlights()
+        // UIKit lays a scroll view out on every frame of a scroll. The highlight is measured
+        // again only when the word, the width or the text's height changed, so scrolling by
+        // hand never pays for it, and never scrolls back to it.
+        let highlightLayout = ReadAloudHighlightLayout(range: readAloudRange, width: bounds.width, contentHeight: contentSize.height)
+        if highlightLayout != lastHighlightLayout {
+            let wordChanged = highlightLayout.range != lastHighlightLayout?.range
+            lastHighlightLayout = highlightLayout
+            updateReadAloudHighlights(revealsWord: wordChanged)
+        }
     }
 
-    private func updateReadAloudHighlights() {
+    private struct ReadAloudHighlightLayout: Equatable {
+        let range: NSRange?
+        let width: CGFloat
+        let contentHeight: CGFloat
+    }
+    private var lastHighlightLayout: ReadAloudHighlightLayout?
+
+    private func updateReadAloudHighlights(revealsWord: Bool) {
         guard let range = readAloudRange, range.location >= 0, range.length > 0,
               range.location <= textStorage.length, range.length <= textStorage.length - range.location,
               let start = position(from: beginningOfDocument, offset: range.location),
@@ -94,12 +117,22 @@ final class MarkdownTextView: UITextView {
             return
         }
         let frames = selectionRects(for: textRange).map(\.rect).filter { frame in frame.width > 0 && frame.height > 0 }
+        let isScrolledByHand = isTracking || isDragging || isDecelerating
+        let comfortableArea = bounds.inset(by: UIEdgeInsets(top: adjustedContentInset.top + 40, left: 0, bottom: adjustedContentInset.bottom + 120, right: 0))
+        if revealsWord, followsReading, !isScrolledByHand, window != nil, let frame = frames.first, !comfortableArea.contains(frame) {
+            // The word comes back a third of the way down, not at the very edge, so the
+            // lines that follow are already in view.
+            let visibleHeight = bounds.height - adjustedContentInset.top - adjustedContentInset.bottom
+            let maximumOffset = max(-adjustedContentInset.top, contentSize.height + adjustedContentInset.bottom - bounds.height)
+            let destination = frame.minY - adjustedContentInset.top - visibleHeight / 3
+            setContentOffset(CGPoint(x: contentOffset.x, y: min(max(-adjustedContentInset.top, destination), maximumOffset)), animated: false)
+        }
         guard readAloudHighlights.map(\.frame) != frames else { return }
         readAloudHighlights.forEach { highlight in highlight.removeFromSuperview() }
         readAloudHighlights.removeAll(keepingCapacity: true)
         for frame in frames {
             let highlight = UIView(frame: frame)
-            highlight.backgroundColor = UIColor.systemYellow.withAlphaComponent(0.3)
+            highlight.backgroundColor = ReadAloudHighlightStyle.fill
             highlight.layer.cornerRadius = 3
             highlight.isUserInteractionEnabled = false
             highlight.isAccessibilityElement = false
@@ -138,7 +171,7 @@ final class MarkdownTextView: UITextView {
         }
         let label = inlineTitleLabel ?? UILabel()
         label.text = inlineTitle.text
-        label.font = .systemFont(ofSize: inlineTitle.fontSize, weight: .semibold)
+        label.font = NoteTypography.font(inlineTitle.family, size: inlineTitle.fontSize, weight: .semibold)
         label.textColor = .label
         label.numberOfLines = 0
         label.accessibilityTraits = .header
@@ -415,10 +448,13 @@ struct NativeMarkdownEditor: UIViewRepresentable {
     /// The tab the note is open in, which decides whether a kept editor is still wanted.
     var retentionOwner: TabDocument?
     var readAloudRange: NSRange?
+    var followsReading = false
+    var suspendReadingFollow: (() -> Void)?
 
     init(session: MarkdownSession, configuration: EditorConfiguration, environment: LivePreviewEnvironment? = nil,
          headingScrollRequest: HeadingScrollRequest?, actions: EditorActions = EditorActions(),
-         retention: MarkdownEditorRetention? = nil, retentionOwner: TabDocument? = nil, readAloudRange: NSRange? = nil, follow: @escaping (String, Bool) -> Void) {
+         retention: MarkdownEditorRetention? = nil, retentionOwner: TabDocument? = nil, readAloudRange: NSRange? = nil,
+         followsReading: Bool = false, suspendReadingFollow: (() -> Void)? = nil, follow: @escaping (String, Bool) -> Void) {
         self.session = session
         self.configuration = configuration
         self.environment = environment
@@ -427,6 +463,8 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         self.retention = retention
         self.retentionOwner = retentionOwner
         self.readAloudRange = readAloudRange
+        self.followsReading = followsReading
+        self.suspendReadingFollow = suspendReadingFollow
         self.follow = follow
     }
 
@@ -492,7 +530,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             coordinator.performCompletionEdits(edits, in: textView)
         }
         textView.usesReadableLineLength = configuration.usesReadableLineLength
-        textView.inlineTitle = configuration.inlineTitle.map { title in (title, CGFloat(configuration.textSize * InlineTitleStyle.fontScale)) }
+        textView.inlineTitle = configuration.inlineTitle.map { title in (title, CGFloat(configuration.textSize * InlineTitleStyle.fontScale), configuration.typography.textFamily) }
         // The text and the saved cursor go in before the delegate: setting the text places
         // the cursor at its end, which the delegate would otherwise record as the note's.
         textView.text = session.text
@@ -521,6 +559,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         session.isEditorAttached = true
         coordinator.reportPlace(of: textView)
         coordinator.installLinkTapRecognizer(on: textView)
+        coordinator.installQuickFontSizePinch(on: textView)
         coordinator.rebuildBlocks(in: textView)
         coordinator.restyleEverything(in: textView)
         // Rendered blocks and drawn replacements take their colors from the appearance.
@@ -545,15 +584,18 @@ struct NativeMarkdownEditor: UIViewRepresentable {
     private func update(_ textView: MarkdownTextView, coordinator: Coordinator) {
         coordinator.session = session
         textView.readAloudRange = readAloudRange
+        textView.followsReading = followsReading
+        coordinator.suspendReadingFollow = suspendReadingFollow
         let previousBlockPolicy = coordinator.renderedBlockPolicy
         coordinator.environment = environment
         coordinator.follow = follow
         coordinator.actions = actions
         coordinator.updateInsertionHandlers(of: textView)
         coordinator.updateKeyboardToolbar(of: textView)
+        coordinator.quickFontSizePinch?.adjustment = actions.quickFontSize
         textView.convertsPastedHTML = configuration.editingBehavior.convertsPastedHTML
         textView.usesReadableLineLength = configuration.usesReadableLineLength
-        textView.inlineTitle = configuration.inlineTitle.map { title in (title, CGFloat(configuration.textSize * InlineTitleStyle.fontScale)) }
+        textView.inlineTitle = configuration.inlineTitle.map { title in (title, CGFloat(configuration.textSize * InlineTitleStyle.fontScale), configuration.typography.textFamily) }
         textView.spellCheckingType = configuration.usesSpellChecking ? .yes : .no
         // Turning the Properties view on or off changes which blocks are rendered, as the
         // configuration can.
@@ -647,6 +689,9 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         /// Set while a second viewport layout is waiting, so layout passes do not ask for more.
         private var isViewportRelayoutPending = false
         var actions = EditorActions()
+        /// The quick font size pinch on the text view, which follows `actions.quickFontSize`.
+        var quickFontSizePinch: QuickFontSizePinchRecognizer?
+        var suspendReadingFollow: (() -> Void)?
         /// Which optional keyboard toolbar buttons exist; the toolbar is rebuilt when this changes.
         private var keyboardToolbarButtons: KeyboardToolbarButtons?
         /// Set while Graphite changes the text itself, so its own change is not rewritten again.
@@ -1069,7 +1114,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         /// an estimate. The view corrects the latter two when it reports its height.
         private func reservedHeight(of entry: LivePreviewBlockEntry, columnWidth: CGFloat) -> CGFloat {
             if let reservedHeight = reservedHeights[entry.key] { return reservedHeight }
-            if let sharedKey = MeasuredBlockHeightCache.Key(blockKey: entry.key, columnWidth: columnWidth, textSize: configuration.textSize),
+            if let sharedKey = MeasuredBlockHeightCache.Key(blockKey: entry.key, columnWidth: columnWidth, textSize: configuration.textSize, typography: configuration.typography),
                let measuredHeight = Self.sharedMeasuredHeights.height(for: sharedKey) {
                 return measuredHeight
             }
@@ -1735,6 +1780,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
 
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
             pinnedHeading = nil
+            suspendReadingFollow?()
         }
 
         /// The view on screen for a block, else the one kept since it was last on screen,
@@ -1788,6 +1834,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             return AnyView(widget
                 .environment(\.lassoNoteDestination, environment.lassoNoteDestination)
                 .environment(\.colorScheme, textView.traitCollection.userInterfaceStyle == .dark ? .dark : .light)
+                .environment(\.noteTypography, environment.typography)
                 .tint(accent)
                 .environment(\.accent, accent))
         }
@@ -1796,7 +1843,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             guard height > 1 else { return }
             // Measured at the width the view was laid out at, which can lag the text view's.
             let measuredWidth = widgetHosts[key]?.view.bounds.width ?? textView.contentColumnWidth
-            let sharedKey = MeasuredBlockHeightCache.Key(blockKey: key, columnWidth: measuredWidth, textSize: configuration.textSize)
+            let sharedKey = MeasuredBlockHeightCache.Key(blockKey: key, columnWidth: measuredWidth, textSize: configuration.textSize, typography: configuration.typography)
             // The height the styling reserved in the text, else this editor's last report, else
             // an earlier editor's.
             let styledHeight = heightsKeptInText[key] ?? reservedHeights[key]
@@ -2022,6 +2069,14 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         }
 
         // MARK: Links, tasks, and headings
+
+        /// Pinching the note changes the vault's font size while quick adjustment is on.
+        func installQuickFontSizePinch(on textView: UITextView) {
+            let recognizer = QuickFontSizePinchRecognizer()
+            recognizer.adjustment = actions.quickFontSize
+            textView.addGestureRecognizer(recognizer)
+            quickFontSizePinch = recognizer
+        }
 
         func installLinkTapRecognizer(on textView: UITextView) {
             let recognizer = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
@@ -2252,7 +2307,31 @@ import AppKit
 /// items dragged from the sidebar become links, and a click on a link whose markup is
 /// concealed follows it, as on the iPad.
 final class MarkdownMacTextView: NSTextView {
+    /// The inherited convenience factory currently creates TextKit 1. Source
+    /// highlights and native geometry require an explicitly owned TextKit 2 view.
+    static func makeScrollableTextView() -> NSScrollView {
+        let textView = MarkdownMacTextView(usingTextLayoutManager: true)
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        textView.minSize = .zero
+        textView.maxSize = CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = .width
+        textView.textContainer?.containerSize = CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+        textView.textContainer?.widthTracksTextView = true
+        scrollView.documentView = textView
+        return scrollView
+    }
+
     var readAloudRange: NSRange? { didSet { if readAloudRange != oldValue { needsDisplay = true } } }
+    var suspendReadingFollow: (() -> Void)?
+
+    func followReadingRange() {
+        guard window != nil, let range = readAloudRange, range.location >= 0, range.length > 0,
+              let textStorage, range.location <= textStorage.length, range.length <= textStorage.length - range.location else { return }
+        scrollRangeToVisible(range)
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
@@ -2261,7 +2340,7 @@ final class MarkdownMacTextView: NSTextView {
               let textLayoutManager, let contentManager = textLayoutManager.textContentManager,
               let start = contentManager.location(contentManager.documentRange.location, offsetBy: range.location),
               let end = contentManager.location(start, offsetBy: range.length), let textRange = NSTextRange(location: start, end: end) else { return }
-        NSColor.systemYellow.withAlphaComponent(0.3).setFill()
+        ReadAloudHighlightStyle.fill.setFill()
         textLayoutManager.enumerateTextSegments(in: textRange, type: .standard, options: []) { _, frame, _, _ in
             let positionedFrame = frame.offsetBy(dx: self.textContainerOrigin.x, dy: self.textContainerOrigin.y)
             if positionedFrame.intersects(dirtyRect) { NSBezierPath(roundedRect: positionedFrame, xRadius: 3, yRadius: 3).fill() }
@@ -2277,6 +2356,22 @@ final class MarkdownMacTextView: NSTextView {
     var followLinkOnClick: ((_ characterIndex: Int, _ modifierFlags: NSEvent.ModifierFlags) -> Bool)?
     /// Called when the view takes keyboard focus; set by the coordinator.
     var didBecomeFirstResponder: (() -> Void)?
+    /// Control-scrolling or pinching the trackpad changes the vault's font size; nil when
+    /// quick adjustment is off. Set by the coordinator.
+    var quickFontSize: QuickFontSizeAdjustment?
+    private var quickFontSizeInput = QuickFontSizeMacInput()
+
+    override func scrollWheel(with event: NSEvent) {
+        // Control-scrolling changes the font size and does not scroll, so reading keeps following.
+        if quickFontSizeInput.handleScroll(event, adjustment: quickFontSize) { return }
+        suspendReadingFollow?()
+        super.scrollWheel(with: event)
+    }
+
+    override func magnify(with event: NSEvent) {
+        if quickFontSizeInput.handleMagnify(event, adjustment: quickFontSize) { return }
+        super.magnify(with: event)
+    }
     /// Called when the view enters a window or first gets a width, the two things a jump
     /// needs to measure the note; set by the coordinator.
     var didBecomeMeasurable: ((MarkdownMacTextView) -> Void)?
@@ -2412,7 +2507,7 @@ enum MacPastedAttachment: Equatable {
 /// separators, and formulas over their hidden source, so that source stays visible there,
 /// in the color the drawing would have had.
 enum UndrawnReplacementStyling {
-    static func showSource(in textStorage: NSTextStorage, range: NSRange, baseFont: NSFont) {
+    static func showSource(in textStorage: NSTextStorage, range: NSRange, baseFont: NSFont, typography: NoteTypography = .standard) {
         let checkedRange = NSIntersectionRange(range, NSRange(location: 0, length: textStorage.length))
         guard checkedRange.length > 0 else { return }
         var replacements: [(range: NSRange, replacement: ConcealedReplacement)] = []
@@ -2430,7 +2525,7 @@ enum UndrawnReplacementStyling {
             switch replacement {
             case .inlineMath:
                 // Styled as Source mode styles math.
-                textStorage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: baseFont.pointSize * 0.9, weight: .regular), range: replacedRange)
+                textStorage.addAttribute(.font, value: typography.monospaceFont(ofSize: baseFont.pointSize * 0.9), range: replacedRange)
                 textStorage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: replacedRange)
             case .uncheckedTask, .checkedTask:
                 textStorage.addAttribute(.foregroundColor, value: color, range: replacedRange)
@@ -2495,13 +2590,16 @@ struct NativeMarkdownEditor: NSViewRepresentable {
     var retention: MarkdownEditorRetention?
     var retentionOwner: TabDocument?
     var readAloudRange: NSRange?
+    var followsReading = false
+    var suspendReadingFollow: (() -> Void)?
 
     /// Rendered blocks are iPad-only, so the Mac does not use `environment`; it is accepted
     /// so both editors share one call. The Mac has no keyboard toolbar either: of `actions`,
     /// it uses pasting, dropping, following links elsewhere, and focusing the note's side.
     init(session: MarkdownSession, configuration: EditorConfiguration, environment: LivePreviewEnvironment? = nil,
          headingScrollRequest: HeadingScrollRequest?, actions: EditorActions = EditorActions(),
-         retention: MarkdownEditorRetention? = nil, retentionOwner: TabDocument? = nil, readAloudRange: NSRange? = nil, follow: @escaping (String, Bool) -> Void) {
+         retention: MarkdownEditorRetention? = nil, retentionOwner: TabDocument? = nil, readAloudRange: NSRange? = nil,
+         followsReading: Bool = false, suspendReadingFollow: (() -> Void)? = nil, follow: @escaping (String, Bool) -> Void) {
         self.session = session
         self.configuration = configuration
         self.headingScrollRequest = headingScrollRequest
@@ -2509,6 +2607,8 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         self.retention = retention
         self.retentionOwner = retentionOwner
         self.readAloudRange = readAloudRange
+        self.followsReading = followsReading
+        self.suspendReadingFollow = suspendReadingFollow
         self.follow = follow
     }
 
@@ -2535,11 +2635,12 @@ struct NativeMarkdownEditor: NSViewRepresentable {
     }
 
     private func makeScrollView(coordinator: Coordinator) -> NSScrollView {
-        let scrollView = MarkdownMacTextView.scrollableTextView()
+        let scrollView = MarkdownMacTextView.makeScrollableTextView()
         guard let textView = scrollView.documentView as? MarkdownMacTextView else { return scrollView }
         coordinator.actions = actions
         coordinator.follow = follow
         textView.isRichText = false
+        textView.quickFontSize = actions.quickFontSize
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isContinuousSpellCheckingEnabled = configuration.usesSpellChecking
@@ -2580,6 +2681,8 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         coordinator.follow = follow
         guard let textView = scrollView.documentView as? NSTextView else { return }
         (textView as? MarkdownMacTextView)?.readAloudRange = readAloudRange
+        (textView as? MarkdownMacTextView)?.quickFontSize = actions.quickFontSize
+        (textView as? MarkdownMacTextView)?.suspendReadingFollow = suspendReadingFollow
         if coordinator.configuration != configuration {
             coordinator.configuration = configuration
             coordinator.restyleEverything(in: textView)
@@ -2599,6 +2702,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             }
         }
         coordinator.performPendingJumpIfReady(in: textView)
+        if followsReading { (textView as? MarkdownMacTextView)?.followReadingRange() }
     }
 
     static func dismantleNSView(_ container: MarkdownEditorContainerView, coordinator: Coordinator) {
@@ -2795,7 +2899,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             revealedMarkup = markupRevealedBySelection(in: textView)
             styler.applyStyles(to: textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedMarkup: revealedMarkup, concealedBlocks: [],
                                blockContextCheckpoints: blockContextCheckpoints)
-            UndrawnReplacementStyling.showSource(in: textStorage, range: NSRange(location: 0, length: textStorage.length), baseFont: styler.baseFont)
+            UndrawnReplacementStyling.showSource(in: textStorage, range: NSRange(location: 0, length: textStorage.length), baseFont: styler.baseFont, typography: styler.configuration.typography)
             textView.typingAttributes = styler.baseAttributes
         }
 
@@ -2805,7 +2909,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             let lineRange = textStorage.mutableString.lineRange(for: NSRange(location: location, length: min(range.length, textStorage.length - location)))
             styler.applyStyles(to: textStorage, editedRange: lineRange, restyleEverything: false, revealedMarkup: revealedMarkup, concealedBlocks: [],
                                blockContextCheckpoints: blockContextCheckpoints)
-            UndrawnReplacementStyling.showSource(in: textStorage, range: lineRange, baseFont: styler.baseFont)
+            UndrawnReplacementStyling.showSource(in: textStorage, range: lineRange, baseFont: styler.baseFont, typography: styler.configuration.typography)
             textView.typingAttributes = styler.baseAttributes
         }
 
@@ -2843,7 +2947,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             let restyledRanges = styler.applyRevealedMarkupChange(to: textStorage, from: previousMarkup, to: newMarkup, concealedBlocks: [],
                                                                   blockContextCheckpoints: blockContextCheckpoints)
             guard !restyledRanges.isEmpty else { return }
-            for restyledRange in restyledRanges { UndrawnReplacementStyling.showSource(in: textStorage, range: restyledRange, baseFont: styler.baseFont) }
+            for restyledRange in restyledRanges { UndrawnReplacementStyling.showSource(in: textStorage, range: restyledRange, baseFont: styler.baseFont, typography: styler.configuration.typography) }
             textView.typingAttributes = styler.baseAttributes
         }
 
@@ -3042,7 +3146,7 @@ struct LivePreviewWidgetSignature: Equatable {
             .map { entry in "\(entry.key)=\(entry.value)" }.joined(separator: ",")
         let declaredPropertyTypes = environment.declaredPropertyTypes.sorted { leftEntry, rightEntry in leftEntry.key < rightEntry.key }
             .map { entry in "\(entry.key)=\(entry.value.rawValue)" }.joined(separator: ",")
-        appearance = [String(environment.textSize), String(environment.colorsEnabled), palette, accentHex,
+        appearance = [String(environment.textSize), String(describing: environment.typography), String(environment.colorsEnabled), palette, accentHex,
                       String(environment.updateProperties != nil), declaredPropertyTypes, notePath].joined(separator: "|")
         index = [String(environment.indexVersion), String(environment.baseContext?.isIndexComplete ?? false)].joined(separator: "|")
     }
@@ -3137,13 +3241,16 @@ struct MeasuredBlockHeightCache {
         let blockKey: LivePreviewBlockKey
         let columnWidth: Int
         let textSize: Double
+        /// A block's height also changes with the fonts it is drawn in.
+        let typography: NoteTypography
 
         /// Nil for a width that is not a finite number of points, as before the first layout.
-        init?(blockKey: LivePreviewBlockKey, columnWidth: CGFloat, textSize: Double) {
+        init?(blockKey: LivePreviewBlockKey, columnWidth: CGFloat, textSize: Double, typography: NoteTypography = .standard) {
             guard let wholeColumnWidth = Int(exactly: columnWidth.rounded()), wholeColumnWidth > 0 else { return nil }
             self.blockKey = blockKey
             self.columnWidth = wholeColumnWidth
             self.textSize = textSize
+            self.typography = typography
         }
     }
 

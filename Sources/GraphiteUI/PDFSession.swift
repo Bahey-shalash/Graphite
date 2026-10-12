@@ -169,6 +169,20 @@ struct PDFOutlineEntry: Identifiable, Equatable {
     /// written by the PDF's author ("Introduction", "Results") from being offered for
     /// removal as the user's bookmarks.
     var isBookmark: Bool { depth == 0 && !hasChildren && pageIndex != nil && label.hasPrefix(Self.bookmarkLabelPrefix) }
+
+    /// Outline destinations identify pages, not semantic character endpoints.
+    /// Include the next section's boundary page so text before its heading is
+    /// never silently omitted. The picker explains this inclusive boundary.
+    func readingPages(in entries: [PDFOutlineEntry], pageCount: Int) -> ClosedRange<Int>? {
+        guard !isBookmark, let firstPageIndex = pageIndex, firstPageIndex >= 0, firstPageIndex < pageCount,
+              let entryIndex = entries.firstIndex(where: { $0.path == path }) else { return nil }
+        for nextEntry in entries.dropFirst(entryIndex + 1) where !nextEntry.isBookmark && nextEntry.depth <= depth {
+            guard let nextPageIndex = nextEntry.pageIndex else { continue }
+            guard nextPageIndex >= firstPageIndex, nextPageIndex < pageCount else { return nil }
+            return firstPageIndex...nextPageIndex
+        }
+        return firstPageIndex...(pageCount - 1)
+    }
 }
 
 /// The open PDF shown by the PDF pane or an embedded viewer.

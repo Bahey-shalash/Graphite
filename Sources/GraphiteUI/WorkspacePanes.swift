@@ -332,7 +332,7 @@ private struct TabItem: View {
                     .foregroundStyle(.tertiary)
             }
             Text(title)
-                .font(.subheadline)
+                .interfaceFont(.subheadline)
                 .fontWeight(isActive ? .medium : .regular)
                 .foregroundStyle(isActive ? .primary : .secondary)
                 .lineLimit(1)

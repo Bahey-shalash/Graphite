@@ -742,37 +742,56 @@ extension InkSelectionTests {
         XCTAssertFalse(canvas.pointsWithLaser)
         canvas.takeTool(from: toolPicker, fixedTool: laserTool)
 
-        // The dot follows the touch. A line stays whole and at full strength while the touch
-        // is down, however long, and fades as a whole once it lifts.
+        // The dot follows the touch.
         let window = try XCTUnwrap(canvas.window)
         let overlay = LaserPointerOverlayView.overlay(in: window)
         XCTAssertTrue(overlay.superview === window)
         XCTAssertFalse(overlay.isUserInteractionEnabled)
         overlay.showDot(at: CGPoint(x: 300, y: 400))
-        overlay.beginTrail(at: CGPoint(x: 200, y: 450))
-        for step in 1...20 { overlay.extendTrail(to: CGPoint(x: 200 + CGFloat(step) * 12, y: 450 + CGFloat(step % 4) * 10)) }
         XCTAssertTrue(overlay.isShowingDot)
         XCTAssertEqual(overlay.dotCenter, CGPoint(x: 300, y: 400))
-        attachScreenshot(of: canvas, named: "Laser pointer dot and line")
-        try await Task.sleep(for: .seconds(1.2))
-        let firstLine = try XCTUnwrap(overlay.lines.first)
-        XCTAssertEqual(firstLine.points.count, 21, "Nothing of the line ages while the touch is down.")
-        XCTAssertEqual(firstLine.opacity, 1)
-        overlay.endTrail()
         overlay.hideDot()
-        try await Task.sleep(for: .seconds(LaserPointerOverlayView.lineFadeDuration / 3))
-        XCTAssertLessThan(firstLine.opacity, 1, "The lifted line fades.")
-        XCTAssertGreaterThan(firstLine.opacity, 0)
-        XCTAssertEqual(firstLine.points.count, 21, "It fades as a whole, not from its start.")
-        // A line begun during the fade is a new one, at full strength; the old one fades on.
-        overlay.beginTrail(at: CGPoint(x: 220, y: 600))
-        overlay.extendTrail(to: CGPoint(x: 400, y: 620))
+
+        // Pressing harder broadens the core; a finger draws at the regular width.
+        XCTAssertEqual(LaserPointerOverlayView.coreWidth(forPressure: nil), LaserPointerOverlayView.regularCoreWidth)
+        XCTAssertLessThan(LaserPointerOverlayView.coreWidth(forPressure: 0.1), LaserPointerOverlayView.coreWidth(forPressure: 0.9))
+
+        // Lines accumulate: each stays after its lift, and several show together.
+        overlay.beginTrail(at: CGPoint(x: 200, y: 450), width: LaserPointerOverlayView.coreWidth(forPressure: 0.1))
+        for step in 1...20 {
+            overlay.extendTrail(to: CGPoint(x: 200 + CGFloat(step) * 12, y: 450 + CGFloat(step % 4) * 10),
+                                width: LaserPointerOverlayView.coreWidth(forPressure: CGFloat(step) / 20))
+        }
+        overlay.endTrail()
+        let firstLine = try XCTUnwrap(overlay.lines.first)
+        XCTAssertGreaterThan(firstLine.widths.last ?? 0, (firstLine.widths.first ?? 0) * 2, "Width follows pressure.")
+        overlay.beginTrail(at: CGPoint(x: 200, y: 560))
+        overlay.extendTrail(to: CGPoint(x: 460, y: 580))
+        overlay.endTrail()
+        XCTAssertEqual(overlay.lines.count, 2, "Both lines show together.")
+        attachScreenshot(of: canvas, named: "Laser neon lines")
+        if UIAccessibility.isReduceMotionEnabled { XCTAssertFalse(overlay.isPulsing) } else { XCTAssertTrue(overlay.isPulsing, "The glow pulses gently.") }
+
+        // They stay for a moment after the last lift, then fade together.
+        try await Task.sleep(for: .seconds(LaserPointerOverlayView.idleDelay * 0.6))
         XCTAssertEqual(overlay.lines.count, 2)
-        let secondLine = try XCTUnwrap(overlay.lines.last)
-        try await waitUntil { !overlay.lines.contains { line in line === firstLine } }
-        XCTAssertEqual(secondLine.opacity, 1)
+        XCTAssertFalse(overlay.isFading)
+        try await waitUntil { overlay.isFading }
+        try await Task.sleep(for: .seconds(LaserPointerOverlayView.lineFadeDuration / 3))
+        XCTAssertLessThan(overlay.linesOpacity, 1, "The lines fade together.")
+        // A new line during the fade calls it off: every line is back at full strength.
+        overlay.beginTrail(at: CGPoint(x: 220, y: 650))
+        XCTAssertFalse(overlay.isFading)
+        XCTAssertEqual(overlay.linesOpacity, 1)
+        XCTAssertEqual(overlay.lines.count, 3)
+        overlay.extendTrail(to: CGPoint(x: 400, y: 660))
+        // While a line is drawn, nothing fades, however long.
+        try await Task.sleep(for: .seconds(LaserPointerOverlayView.idleDelay + LaserPointerOverlayView.lineFadeDuration + 0.2))
+        XCTAssertEqual(overlay.lines.count, 3)
+        XCTAssertEqual(overlay.linesOpacity, 1)
         overlay.endTrail()
         try await waitUntil { overlay.lines.isEmpty }
+        XCTAssertFalse(overlay.isPulsing)
         XCTAssertFalse(overlay.isShowingDot)
 
         // Nothing changed: the ink, the history, the file.

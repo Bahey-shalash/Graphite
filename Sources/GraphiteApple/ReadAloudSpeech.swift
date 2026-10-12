@@ -1,5 +1,8 @@
 import AVFoundation
 import Foundation
+#if os(iOS)
+import UIKit
+#endif
 import Observation
 import GraphiteCore
 
@@ -21,39 +24,75 @@ public struct ReadAloudVoice: Equatable, Sendable, Identifiable {
     public let id: String
     public let name: String
     public let language: String
-    /// Apple's quality tier, not a listening-test score.
+    /// Apple's quality tier (1 compact, 2 Enhanced, 3 Premium), not a listening-test score.
     public let quality: Int
+    /// A voice the person recorded themselves and allowed Graphite to use.
+    public let isPersonalVoice: Bool
+    /// An old-style robotic or novelty voice: Eloquence (Eddy, Flo…), MacinTalk (Fred,
+    /// Albert, Bad News…) or one Apple marks as novelty. Used only when picked by hand.
+    public let isRobotic: Bool
 
-    public init(id: String, name: String, language: String, quality: Int) {
+    public init(id: String, name: String, language: String, quality: Int, isPersonalVoice: Bool = false, isRobotic: Bool? = nil) {
         self.id = id; self.name = name; self.language = language; self.quality = quality
+        self.isPersonalVoice = isPersonalVoice
+        self.isRobotic = isRobotic ?? Self.isRoboticIdentifier(id)
     }
 
+    public static func isRoboticIdentifier(_ identifier: String) -> Bool {
+        ["com.apple.speech.synthesis.voice.", "com.apple.eloquence."].contains { family in identifier.hasPrefix(family) }
+    }
+
+    /// Apple's quality tiers, as the voice lists in the system's voice settings name them.
     public var qualityDescription: String {
+        if isPersonalVoice { return "Personal Voice" }
+        if isRobotic { return "Classic" }
         switch quality {
-        case 3...: "Premium"
-        case 2: "Enhanced"
-        default: "Standard"
+        case 3...: return "Premium"
+        case 2: return "Enhanced"
+        default: return "Default"
         }
     }
 
-    public static func preferred(in voices: [ReadAloudVoice], language: String) -> ReadAloudVoice? {
+    /// Default-quality voices are the small built-in ones that sound synthetic over long passages.
+    public var isCompact: Bool { !isPersonalVoice && quality < 2 }
+
+    public var languageCode: Substring { language.split(separator: "-").first ?? Substring(language) }
+
+    /// The voice read with when the person has not chosen one: their own Personal Voice when
+    /// they allowed it, then Premium, then Enhanced, then compact, always in the passage's
+    /// language. Ties prefer the exact region (en-GB for a British device) and then the voice
+    /// the system itself uses for that language.
+    public static func preferred(in voices: [ReadAloudVoice], language: String,
+                                 systemDefaultIdentifier: String? = nil) -> ReadAloudVoice? {
         let languagePrefix = language.split(separator: "-").first
-        return voices.filter { voice in voice.language.split(separator: "-").first == languagePrefix }
+        // Robotic voices are never picked automatically, not even as the last resort.
+        return voices.filter { voice in voice.languageCode == languagePrefix && !voice.isRobotic }
             .sorted { first, second in
+                if first.isPersonalVoice != second.isPersonalVoice { return first.isPersonalVoice }
                 if first.quality != second.quality { return first.quality > second.quality }
                 if (first.language == language) != (second.language == language) { return first.language == language }
-                return first.id < second.id
+                if (first.id == systemDefaultIdentifier) != (second.id == systemDefaultIdentifier) { return first.id == systemDefaultIdentifier }
+                return first.name.localizedStandardCompare(second.name) == .orderedAscending
             }.first
     }
 }
 
+/// Whether the person has let Graphite speak with the Personal Voice they recorded.
+public enum ReadAloudPersonalVoiceStatus: Equatable, Sendable {
+    case unsupported, notDetermined, denied, authorized
+}
+
 public enum ReadAloudSpeechEvent: Sendable {
     case spoken(UUID, NSRange)
+    /// The utterance began to sound (after any leading pause).
+    case started(UUID)
     case paused(UUID)
     case continued(UUID)
     case finished(UUID)
     case cancelled(UUID)
     case interrupted
+    /// A phone call or another app's audio ended; true when the system says playback may resume.
+    case interruptionEnded(shouldResume: Bool)
 }
 
 /// The substitution boundary covers playback and real timing. Document views have
@@ -63,9 +102,47 @@ public protocol ReadAloudSpeaking: AnyObject {
     var eventHandler: (@MainActor (ReadAloudSpeechEvent) -> Void)? { get set }
     var voices: [ReadAloudVoice] { get }
     func speak(_ text: String, voiceIdentifier: String, speed: Double, requestIdentifier: UUID) throws
+    /// Speaks after a silence, the breath between a heading and the paragraph that follows. With
+    /// `usesSystemSettings` the system may replace the voice, rate and pitch with the person's
+    /// own Read & Speak settings while an assistive feature is on.
+    func speak(_ text: String, voiceIdentifier: String, speed: Double, leadingPauseSeconds: Double,
+               usesSystemSettings: Bool, requestIdentifier: UUID) throws
+    /// The full request, including IPA pronunciations for voices that accept them.
+    func speak(_ utterance: ReadAloudUtteranceRequest, requestIdentifier: UUID) throws
     func pause() -> Bool
     func resume() -> Bool
     func stop()
+    /// The voice the system uses for a language when nobody chose one, used to break ties.
+    func systemDefaultVoiceIdentifier(language: String) -> String?
+    /// The voice the system itself speaks a language with, whatever its family, so Graphite can
+    /// follow the person's choice even when it would not offer that voice itself.
+    func systemVoice(language: String) -> ReadAloudVoice?
+    /// Whether an assistive feature that makes the system apply the person's own speech
+    /// settings (VoiceOver, Speak Selection, Speak Screen) is on.
+    var assistiveSpeechSettingsMayApply: Bool { get }
+    var personalVoiceStatus: ReadAloudPersonalVoiceStatus { get }
+    /// Shows the system's Personal Voice permission prompt. Call only from a person's tap.
+    func requestPersonalVoiceAccess() async -> ReadAloudPersonalVoiceStatus
+    /// Gives the audio route back to other apps once reading has stopped or finished.
+    func releaseAudio()
+}
+
+public extension ReadAloudSpeaking {
+    func speak(_ utterance: ReadAloudUtteranceRequest, requestIdentifier: UUID) throws {
+        try speak(utterance.text, voiceIdentifier: utterance.voiceIdentifier, speed: utterance.speed,
+                  leadingPauseSeconds: utterance.leadingPauseSeconds, usesSystemSettings: utterance.usesSystemSettings,
+                  requestIdentifier: requestIdentifier)
+    }
+    func speak(_ text: String, voiceIdentifier: String, speed: Double, leadingPauseSeconds: Double,
+               usesSystemSettings: Bool, requestIdentifier: UUID) throws {
+        try speak(text, voiceIdentifier: voiceIdentifier, speed: speed, requestIdentifier: requestIdentifier)
+    }
+    func systemVoice(language: String) -> ReadAloudVoice? { nil }
+    var assistiveSpeechSettingsMayApply: Bool { false }
+    func systemDefaultVoiceIdentifier(language: String) -> String? { nil }
+    var personalVoiceStatus: ReadAloudPersonalVoiceStatus { .unsupported }
+    func requestPersonalVoiceAccess() async -> ReadAloudPersonalVoiceStatus { .unsupported }
+    func releaseAudio() {}
 }
 
 @MainActor
@@ -74,6 +151,11 @@ public final class AppleReadAloudSpeech: NSObject, ReadAloudSpeaking, AVSpeechSy
     private let synthesizer = AVSpeechSynthesizer()
     private var activeUtterance: AVSpeechUtterance?
     private var requestIdentifier: UUID?
+    #if os(iOS)
+    /// Whether this adapter activated the shared audio session for reading, so it only ever
+    /// deactivates a session it started (never a lecture recording's).
+    private var ownsActiveAudioSession = false
+    #endif
 
     public override init() {
         super.init()
@@ -86,33 +168,133 @@ public final class AppleReadAloudSpeech: NSObject, ReadAloudSpeaking, AVSpeechSy
     }
 
     public var voices: [ReadAloudVoice] {
-        AVSpeechSynthesisVoice.speechVoices().filter { voice in
-            // System speech also lists third-party voice extensions. Until their
-            // network/privacy capabilities are known, offer only Apple identifiers.
-            voice.identifier.hasPrefix("com.apple.") && !voice.voiceTraits.contains(.isNoveltyVoice) && !voice.voiceTraits.contains(.isPersonalVoice)
-        }.map { voice in
-            ReadAloudVoice(id: voice.identifier, name: voice.name, language: voice.language, quality: voice.quality.rawValue)
-        }.sorted { first, second in
+        AVSpeechSynthesisVoice.speechVoices().filter(Self.isListed).map(Self.voice).sorted { first, second in
             if first.language != second.language { return first.language < second.language }
             if first.quality != second.quality { return first.quality > second.quality }
             return first.name.localizedStandardCompare(second.name) == .orderedAscending
         }
     }
 
+    /// Every Apple voice, the robotic and novelty ones flagged so they can be picked by hand
+    /// but never chosen automatically. Third-party voice extensions stay out.
+    static func isListed(_ voice: AVSpeechSynthesisVoice) -> Bool {
+        voice.voiceTraits.contains(.isPersonalVoice) || voice.identifier.hasPrefix("com.apple.")
+    }
+
+    private static func voice(_ voice: AVSpeechSynthesisVoice) -> ReadAloudVoice {
+        ReadAloudVoice(id: voice.identifier, name: voice.name, language: voice.language, quality: voice.quality.rawValue,
+                       isPersonalVoice: voice.voiceTraits.contains(.isPersonalVoice),
+                       isRobotic: voice.voiceTraits.contains(.isNoveltyVoice) || ReadAloudVoice.isRoboticIdentifier(voice.identifier))
+    }
+
+
+    public func systemDefaultVoiceIdentifier(language: String) -> String? {
+        AVSpeechSynthesisVoice(language: language)?.identifier
+    }
+
+    public func systemVoice(language: String) -> ReadAloudVoice? {
+        AVSpeechSynthesisVoice(language: language).map(Self.voice)
+    }
+
+    public var assistiveSpeechSettingsMayApply: Bool {
+        #if os(iOS)
+        UIAccessibility.isVoiceOverRunning || UIAccessibility.isSpeakSelectionEnabled || UIAccessibility.isSpeakScreenEnabled
+        #else
+        false
+        #endif
+    }
+
+    public var personalVoiceStatus: ReadAloudPersonalVoiceStatus {
+        Self.status(AVSpeechSynthesizer.personalVoiceAuthorizationStatus)
+    }
+
+    public func requestPersonalVoiceAccess() async -> ReadAloudPersonalVoiceStatus {
+        await withCheckedContinuation { continuation in
+            AVSpeechSynthesizer.requestPersonalVoiceAuthorization { status in continuation.resume(returning: Self.status(status)) }
+        }
+    }
+
+    private nonisolated static func status(_ status: AVSpeechSynthesizer.PersonalVoiceAuthorizationStatus) -> ReadAloudPersonalVoiceStatus {
+        switch status {
+        case .authorized: .authorized
+        case .denied: .denied
+        case .notDetermined: .notDetermined
+        default: .unsupported
+        }
+    }
+
     public func speak(_ text: String, voiceIdentifier: String, speed: Double, requestIdentifier: UUID) throws {
+        try speak(text, voiceIdentifier: voiceIdentifier, speed: speed, leadingPauseSeconds: 0,
+                  usesSystemSettings: false, requestIdentifier: requestIdentifier)
+    }
+
+    public func speak(_ text: String, voiceIdentifier: String, speed: Double, leadingPauseSeconds: Double,
+                      usesSystemSettings: Bool, requestIdentifier: UUID) throws {
+        try speak(ReadAloudUtteranceRequest(text: text, voiceIdentifier: voiceIdentifier, speed: speed,
+                                            leadingPauseSeconds: leadingPauseSeconds, usesSystemSettings: usesSystemSettings),
+                  requestIdentifier: requestIdentifier)
+    }
+
+    public func speak(_ request: ReadAloudUtteranceRequest, requestIdentifier: UUID) throws {
+        let text = request.text, voiceIdentifier = request.voiceIdentifier, speed = request.speed
+        let leadingPauseSeconds = request.leadingPauseSeconds, usesSystemSettings = request.usesSystemSettings
         guard let voice = AVSpeechSynthesisVoice(identifier: voiceIdentifier) else {
             throw GraphiteError.unavailable("The chosen voice is no longer installed. Choose a voice before continuing.")
         }
         stop()
-        let utterance = AVSpeechUtterance(string: text)
+        activateAudioSession()
+        // Terms with an IPA transcription carry it as an attribute; a voice that ignores IPA
+        // reads the respelling the text already holds ("sim dee" for SIMD).
+        let attributedText = NSMutableAttributedString(string: text)
+        let length = (text as NSString).length
+        for phonetic in request.phoneticRanges where phonetic.range.location >= 0 && NSMaxRange(phonetic.range) <= length {
+            attributedText.addAttribute(NSAttributedString.Key(rawValue: AVSpeechSynthesisIPANotationAttribute),
+                                        value: phonetic.notation, range: phonetic.range)
+        }
+        let utterance = request.phoneticRanges.isEmpty ? AVSpeechUtterance(string: text) : AVSpeechUtterance(attributedString: attributedText)
         utterance.voice = voice
         utterance.rate = min(AVSpeechUtteranceMaximumSpeechRate, max(AVSpeechUtteranceMinimumSpeechRate, AVSpeechUtteranceDefaultSpeechRate * Float(speed)))
         utterance.pitchMultiplier = 1
         utterance.volume = 1
-        utterance.postUtteranceDelay = 0.18
+        // The pause belongs before the next passage rather than after this one, so pausing or
+        // moving at the end of a passage never waits for a silence nobody will hear.
+        utterance.preUtteranceDelay = max(0, min(leadingPauseSeconds, 2))
+        // The system's own voice, rate, pitch and (iOS 27) timbre, sentence pause and equalizer
+        // from Read & Speak, when an assistive feature is on; Apple documents that otherwise the
+        // utterance's own values are used. The delays above are not among the replaced settings.
+        utterance.prefersAssistiveTechnologySettings = usesSystemSettings
         activeUtterance = utterance
         self.requestIdentifier = requestIdentifier
         synthesizer.speak(utterance)
+    }
+
+    /// Reading is spoken audio the person asked for, like an audiobook: it plays with the
+    /// Ring/Silent switch on, keeps going in the background and on the lock screen, and
+    /// pauses other audio while it speaks.
+    private func activateAudioSession() {
+        #if os(iOS)
+        guard !ownsActiveAudioSession else { return }
+        let audioSession = AVAudioSession.sharedInstance()
+        do {
+            try audioSession.setCategory(.playback, mode: .spokenAudio)
+            try audioSession.setActive(true)
+            ownsActiveAudioSession = true
+        } catch {
+            // Speech still plays through the default session, only without background audio.
+            ownsActiveAudioSession = false
+        }
+        #endif
+    }
+
+    public func releaseAudio() {
+        #if os(iOS)
+        guard ownsActiveAudioSession else { return }
+        ownsActiveAudioSession = false
+        let audioSession = AVAudioSession.sharedInstance()
+        // A recording that started meanwhile changed the category; its session stays active.
+        guard audioSession.category == .playback else { return }
+        try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+        #endif
     }
 
     public func pause() -> Bool { synthesizer.pauseSpeaking(at: .immediate) }
@@ -136,6 +318,10 @@ public final class AppleReadAloudSpeech: NSObject, ReadAloudSpeaking, AVSpeechSy
         let identity = SpeechCallbackIdentity(utterance)
         Task { @MainActor [weak self] in self?.receive(identity) { identifier in .spoken(identifier, characterRange) } }
     }
+    nonisolated public func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
+        let identity = SpeechCallbackIdentity(utterance)
+        Task { @MainActor [weak self] in self?.receive(identity) { identifier in .started(identifier) } }
+    }
     nonisolated public func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
         let identity = SpeechCallbackIdentity(utterance)
         Task { @MainActor [weak self] in self?.receive(identity) { identifier in .finished(identifier) } }
@@ -157,11 +343,22 @@ public final class AppleReadAloudSpeech: NSObject, ReadAloudSpeaking, AVSpeechSy
     @objc nonisolated private func audioInterrupted(_ notification: Notification) {
         if notification.name == AVAudioSession.interruptionNotification {
             guard let rawType = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
-                  AVAudioSession.InterruptionType(rawValue: rawType) == .began else { return }
+                  let type = AVAudioSession.InterruptionType(rawValue: rawType) else { return }
+            if type == .ended {
+                let rawOptions = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+                let shouldResume = AVAudioSession.InterruptionOptions(rawValue: rawOptions).contains(.shouldResume)
+                Task { @MainActor [weak self] in
+                    // The system deactivated the session during the interruption.
+                    self?.ownsActiveAudioSession = false
+                    self?.eventHandler?(.interruptionEnded(shouldResume: shouldResume))
+                }
+                return
+            }
         } else if notification.name == AVAudioSession.routeChangeNotification {
+            // Unplugged headphones pause, as people expect; newly connected ones simply
+            // take over the sound without interrupting it.
             guard let rawReason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
-                  let reason = AVAudioSession.RouteChangeReason(rawValue: rawReason),
-                  reason == .oldDeviceUnavailable || reason == .newDeviceAvailable else { return }
+                  AVAudioSession.RouteChangeReason(rawValue: rawReason) == .oldDeviceUnavailable else { return }
         }
         Task { @MainActor [weak self] in
             guard let self, self.activeUtterance != nil else { return }
@@ -179,22 +376,51 @@ public final class ReadAloudSession {
     public private(set) var document: ReadAloudDocument?
     public private(set) var passageIndex = 0
     public private(set) var spokenRange: NSRange?
+    /// Words, sentences or nothing highlighted while reading; Words by default.
+    public private(set) var highlightMode: ReadAloudHighlightMode
+    /// The voice reports no word positions (seen with some voices and settings), so the
+    /// whole passage being read is highlighted instead of nothing.
+    public private(set) var lacksWordTiming = false
+    @ObservationIgnored private var voicesWithoutWordTiming: Set<String> = []
+    @ObservationIgnored private var wordTimingCheck: Task<Void, Never>?
+    @ObservationIgnored private var speakingVoiceIdentifier: String?
     public private(set) var message: String?
-    public private(set) var selectedVoiceIdentifier: String?
+    /// The voice the person picked for Graphite, or nil to follow the system's Read & Speak voice
+    /// (the best installed voice for the passage's language when the system has none).
+    public private(set) var chosenVoiceIdentifier: String?
     public private(set) var speed = 1.0
     public private(set) var voices: [ReadAloudVoice] = []
+    /// The language of the loaded passage (BCP 47, such as en-US), recognized from its words so an
+    /// English lecture on a French iPad is not read with a French voice.
+    public private(set) var readingLanguage: String
+    public private(set) var personalVoiceStatus: ReadAloudPersonalVoiceStatus = .unsupported
     @ObservationIgnored private let speech: any ReadAloudSpeaking
     @ObservationIgnored private let preferences: UserDefaults
     @ObservationIgnored private var requestIdentifier: UUID?
     @ObservationIgnored private var utteranceStartOffset = 0
     @ObservationIgnored private var needsRestart = false
-    @ObservationIgnored public var didFinishDocument: (@MainActor () -> Void)?
-    private static let voicePreferenceKey = "GraphiteReadAloudVoice"
+    @ObservationIgnored private var wasSpeakingWhenInterrupted = false
+    /// The silence before the next passage, from the kind of passage that just ended.
+    @ObservationIgnored private var leadingPauseSeconds = 0.0
+    /// Called when the last passage ends; returns true when more follows (a PDF's next page),
+    /// so the audio session stays active through the short preparation in between.
+    @ObservationIgnored public var didFinishDocument: (@MainActor () -> Bool)?
+    /// A new key: the previous one also stored automatic choices, which pinned the first voice
+    /// found (often the robotic Fred) even after a Premium voice was downloaded.
+    private static let voiceChoiceKey = "GraphiteReadAloudVoiceChoice"
+    private static let highlightModeKey = "GraphiteReadAloudHighlightMode"
+    /// Earlier builds stored automatic picks under these keys as if the person had chosen them
+    /// (the owner's iPad kept the robotic Eloquence "Eddy" that way). They are never read and
+    /// are removed, so everyone starts on the system's voice.
+    private static let abandonedVoiceKeys = ["GraphiteReadAloudVoice", "GraphiteReadAloudChosenVoice"]
     private static let speedPreferenceKey = "GraphiteReadAloudSpeed"
 
     public init(speech: any ReadAloudSpeaking = AppleReadAloudSpeech(), preferences: UserDefaults = .standard) {
         self.speech = speech; self.preferences = preferences
-        selectedVoiceIdentifier = preferences.string(forKey: Self.voicePreferenceKey)
+        for key in Self.abandonedVoiceKeys { preferences.removeObject(forKey: key) }
+        chosenVoiceIdentifier = ReadAloudVoiceChoice.stored(in: preferences, key: Self.voiceChoiceKey)?.identifier
+        highlightMode = preferences.string(forKey: Self.highlightModeKey).flatMap(ReadAloudHighlightMode.init(rawValue:)) ?? .words
+        readingLanguage = ReadAloudLanguage.deviceLanguage
         let savedSpeed = preferences.double(forKey: Self.speedPreferenceKey)
         if savedSpeed.isFinite, (0.5...1.5).contains(savedSpeed) { speed = savedSpeed }
         refreshVoices()
@@ -205,21 +431,85 @@ public final class ReadAloudSession {
         guard let document, document.passages.indices.contains(passageIndex) else { return nil }
         return document.passages[passageIndex]
     }
-    public var sourceRange: NSRange? { spokenRange.flatMap { range in currentPassage?.sourceRange(for: range) } }
+    public var sourceRange: NSRange? { highlightRange.flatMap { range in currentPassage?.sourceRange(for: range) } }
+
+    /// What to highlight in the current passage's speech text, by the highlight mode: the
+    /// word being spoken, or its sentence; the whole passage when the voice gives no words.
+    public var highlightRange: NSRange? {
+        guard state == .speaking || state == .paused, let passage = currentPassage, highlightMode != .off else { return nil }
+        let wholePassage = NSRange(location: 0, length: passage.text.utf16.count)
+        guard let spokenRange else { return lacksWordTiming && state == .speaking ? wholePassage : nil }
+        guard highlightMode == .sentences else { return spokenRange }
+        return sentenceRanges(in: passage).last { sentence in sentence.location <= spokenRange.location } ?? spokenRange
+    }
+
+    public func setHighlightMode(_ mode: ReadAloudHighlightMode) {
+        highlightMode = mode
+        preferences.set(mode.rawValue, forKey: Self.highlightModeKey)
+    }
 
     public func refreshVoices() {
         voices = speech.voices
-        if selectedVoiceIdentifier == nil {
-            selectedVoiceIdentifier = ReadAloudVoice.preferred(in: voices, language: AVSpeechSynthesisVoice.currentLanguageCode())?.id
-            if let selectedVoiceIdentifier { preferences.set(selectedVoiceIdentifier, forKey: Self.voicePreferenceKey) }
-            // A device without a voice in its preferred language needs an explicit
-            // choice, rather than silently reading in another language.
-        }
+        personalVoiceStatus = speech.personalVoiceStatus
+    }
+
+    /// The best installed voice for the passage's language. A device without a voice in that
+    /// language gets none, so it asks for a choice rather than reading in another language.
+    public var automaticVoice: ReadAloudVoice? {
+        ReadAloudVoice.preferred(in: voices, language: readingLanguage,
+                                 systemDefaultIdentifier: speech.systemDefaultVoiceIdentifier(language: readingLanguage))
+    }
+
+    /// The voice the system speaks the passage's language with, even one Graphite would not
+    /// offer itself (the person chose it in Read & Speak).
+    public var systemVoice: ReadAloudVoice? { speech.systemVoice(language: readingLanguage) }
+
+    public var followsSystemVoice: Bool { chosenVoiceIdentifier == nil }
+
+    /// In the system's mode while VoiceOver, Speak Selection or Speak Screen is on, the system
+    /// applies its own Speaking Rate, so Graphite's speed has no effect and is not shown.
+    public var speedFollowsSystem: Bool { followsSystemVoice && speech.assistiveSpeechSettingsMayApply }
+
+    /// The system's voice when following it, unless that is a robotic one: then the best
+    /// natural voice, while the system can still apply the person's own settings over it.
+    public var followedSystemVoice: ReadAloudVoice? {
+        guard let systemVoice, !systemVoice.isRobotic else { return automaticVoice }
+        return systemVoice
+    }
+
+    public var selectedVoiceIdentifier: String? { chosenVoiceIdentifier ?? followedSystemVoice?.id }
+
+    public var selectedVoice: ReadAloudVoice? {
+        guard let selectedVoiceIdentifier else { return nil }
+        if let followedSystemVoice, followedSystemVoice.id == selectedVoiceIdentifier { return followedSystemVoice }
+        return voices.first { voice in voice.id == selectedVoiceIdentifier }
+    }
+
+    /// True when the voice in use is a compact one and a better voice could be downloaded for
+    /// the passage's language: nothing Enhanced, Premium or personal is installed for it.
+    public var canImproveVoiceByDownloading: Bool {
+        guard let voice = selectedVoice ?? automaticVoice, voice.isCompact else { return false }
+        return automaticVoice?.isCompact ?? true
+    }
+
+    /// Where the system keeps its voices: "Read & Speak" since iOS 27, "Spoken Content" before.
+    public static var systemSpeechSettingsName: String {
+        if #available(iOS 27, macOS 27, *) { return "Read & Speak" }
+        return "Spoken Content"
+    }
+
+    public static var voiceDownloadPath: String {
+        #if os(macOS)
+        "System Settings › Accessibility › \(systemSpeechSettingsName) › System Voice › Manage Voices"
+        #else
+        "Settings › Accessibility › \(systemSpeechSettingsName) › Voices"
+        #endif
     }
 
     public func load(_ document: ReadAloudDocument) {
         stop()
         self.document = document
+        readingLanguage = ReadAloudLanguage.language(of: document) ?? ReadAloudLanguage.deviceLanguage
         passageIndex = 0
         message = nil
     }
@@ -232,7 +522,7 @@ public final class ReadAloudSession {
             finishCurrentPassage()
             return
         }
-        if state == .paused, !needsRestart, speech.resume() { state = .speaking; return }
+        if state == .paused, !needsRestart, speech.resume() { state = .speaking; message = nil; return }
         if state == .finished { passageIndex = 0; spokenRange = nil; utteranceStartOffset = 0 }
         speakCurrentPassage()
     }
@@ -249,6 +539,10 @@ public final class ReadAloudSession {
 
     public func stop() {
         invalidateSpeech()
+        speech.releaseAudio()
+        wasSpeakingWhenInterrupted = false
+        leadingPauseSeconds = 0
+        lacksWordTiming = false
         state = .idle
         spokenRange = nil
         utteranceStartOffset = 0
@@ -318,12 +612,28 @@ public final class ReadAloudSession {
         if wasSpeaking { speakCurrentPassage() }
     }
 
-    public func chooseVoice(_ identifier: String) {
-        guard voices.contains(where: { voice in voice.id == identifier }) else { return }
+    /// Records the person's own choice of voice for Graphite, or nil to follow the system.
+    /// Only a person's action calls this: the picker, or the Personal Voice button.
+    public func chooseVoice(_ identifier: String?, madeWith source: ReadAloudVoiceChoice.Source = .picker) {
+        if let identifier, !voices.contains(where: { voice in voice.id == identifier }) { return }
         prepareForVoiceOrSpeedChange()
-        selectedVoiceIdentifier = identifier
-        preferences.set(identifier, forKey: Self.voicePreferenceKey)
+        chosenVoiceIdentifier = identifier
+        if let identifier { ReadAloudVoiceChoice(identifier: identifier, source: source).store(in: preferences, key: Self.voiceChoiceKey) }
+        else { preferences.removeObject(forKey: Self.voiceChoiceKey) }
         message = nil
+    }
+
+    /// Asks once for the person's Personal Voice, from their own tap, and reads with it when allowed.
+    public func requestPersonalVoice() async {
+        personalVoiceStatus = await speech.requestPersonalVoiceAccess()
+        refreshVoices()
+        if personalVoiceStatus == .authorized, let personal = voices.first(where: \.isPersonalVoice) {
+            chooseVoice(personal.id, madeWith: .personalVoiceButton)
+        } else if personalVoiceStatus == .authorized {
+            message = "No Personal Voice is ready on this device yet. Create one in Settings › Accessibility › Personal Voice."
+        } else if personalVoiceStatus == .denied {
+            message = "Graphite is not allowed to use your Personal Voice. Allow it in Settings › Accessibility › Personal Voice."
+        }
     }
 
     public func setSpeed(_ speed: Double) {
@@ -342,12 +652,21 @@ public final class ReadAloudSession {
         // Resume is explicit so changing a picker never starts sound unexpectedly.
     }
 
-    private func invalidateSpeech() { requestIdentifier = nil; speech.stop() }
+    private func invalidateSpeech() {
+        requestIdentifier = nil
+        wordTimingCheck?.cancel()
+        speech.stop()
+    }
 
     private func speakCurrentPassage() {
         guard let passage = currentPassage else { return }
-        guard let selectedVoiceIdentifier, voices.contains(where: { voice in voice.id == selectedVoiceIdentifier }) else {
-            message = "Choose an installed voice to read this passage. Your previous voice has not been replaced."
+        guard let selectedVoiceIdentifier, selectedVoice != nil else {
+            if chosenVoiceIdentifier != nil {
+                message = "The voice you chose is no longer installed. Choose another voice; Graphite does not switch voices on its own."
+            } else {
+                let languageName = Locale.current.localizedString(forIdentifier: readingLanguage) ?? readingLanguage
+                message = "No \(languageName) voice is installed. Download one in \(Self.voiceDownloadPath), or choose another voice."
+            }
             state = .paused
             return
         }
@@ -356,7 +675,19 @@ public final class ReadAloudSession {
         let text = passage.text as NSString
         utteranceStartOffset = min(utteranceStartOffset, text.length)
         do {
-            try speech.speak(text.substring(from: utteranceStartOffset), voiceIdentifier: selectedVoiceIdentifier, speed: speed, requestIdentifier: identifier)
+            speakingVoiceIdentifier = selectedVoiceIdentifier
+            lacksWordTiming = false
+            wordTimingCheck?.cancel()
+            let pause = leadingPauseSeconds / speed
+            leadingPauseSeconds = 0
+            let phoneticRanges = passage.spans.compactMap { span -> ReadAloudPhoneticRange? in
+                guard let notation = span.phoneticNotation, span.speechRange.location >= utteranceStartOffset else { return nil }
+                return ReadAloudPhoneticRange(range: NSRange(location: span.speechRange.location - utteranceStartOffset, length: span.speechRange.length),
+                                              notation: notation)
+            }
+            try speech.speak(ReadAloudUtteranceRequest(text: text.substring(from: utteranceStartOffset), voiceIdentifier: selectedVoiceIdentifier,
+                                                       speed: speed, leadingPauseSeconds: pause, usesSystemSettings: followsSystemVoice,
+                                                       phoneticRanges: phoneticRanges), requestIdentifier: identifier)
             state = .speaking
             needsRestart = false
             message = nil
@@ -369,8 +700,16 @@ public final class ReadAloudSession {
     }
 
     private func receive(_ event: ReadAloudSpeechEvent) {
+        if case .interruptionEnded(let shouldResume) = event {
+            // Resume only reading that a call or another app interrupted, and only when the
+            // system says so; a reading the person paused stays paused.
+            if shouldResume, wasSpeakingWhenInterrupted, state == .paused { play() }
+            wasSpeakingWhenInterrupted = false
+            return
+        }
         if case .interrupted = event {
             guard state == .speaking || state == .paused else { return }
+            wasSpeakingWhenInterrupted = state == .speaking
             invalidateSpeech()
             utteranceStartOffset = spokenRange?.location ?? utteranceStartOffset
             needsRestart = true
@@ -383,7 +722,18 @@ public final class ReadAloudSession {
             guard identifier == requestIdentifier, state == .speaking, let passage = currentPassage,
                   range.location >= 0, range.length > 0, range.location <= passage.text.utf16.count - utteranceStartOffset,
                   range.length <= passage.text.utf16.count - utteranceStartOffset - range.location else { return }
-            spokenRange = NSRange(location: range.location + utteranceStartOffset, length: range.length)
+            let passageRange = NSRange(location: range.location + utteranceStartOffset, length: range.length)
+            // Some voices report a dash or other punctuation as a word; the highlight stays
+            // on the last real word rather than jumping onto a lone mark.
+            let spokenText = (passage.text as NSString).substring(with: passageRange)
+            guard spokenText.rangeOfCharacter(from: .alphanumerics) != nil else { return }
+            spokenRange = passageRange
+            if lacksWordTiming { lacksWordTiming = false }
+            wordTimingCheck?.cancel()
+            if let speakingVoiceIdentifier { voicesWithoutWordTiming.remove(speakingVoiceIdentifier) }
+        case .started(let identifier):
+            guard identifier == requestIdentifier, state == .speaking else { return }
+            startWordTimingCheck(for: identifier)
         case .paused, .continued:
             // These confirm operations already reflected synchronously by pause()
             // and play(). A late confirmation cannot reverse a newer user action.
@@ -401,7 +751,23 @@ public final class ReadAloudSession {
             needsRestart = true
             utteranceStartOffset = spokenRange?.location ?? utteranceStartOffset
             state = .paused
-        case .interrupted: break
+        case .interrupted, .interruptionEnded: break
+        }
+    }
+
+    /// A voice that has given no word positions for a while after starting is remembered, so
+    /// its following passages are highlighted whole from their first moment.
+    private func startWordTimingCheck(for identifier: UUID) {
+        wordTimingCheck?.cancel()
+        if let speakingVoiceIdentifier, voicesWithoutWordTiming.contains(speakingVoiceIdentifier) {
+            lacksWordTiming = true
+            return
+        }
+        wordTimingCheck = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(700))
+            guard let self, !Task.isCancelled, self.requestIdentifier == identifier, self.spokenRange == nil else { return }
+            self.lacksWordTiming = true
+            if let voice = self.speakingVoiceIdentifier { self.voicesWithoutWordTiming.insert(voice) }
         }
     }
 
@@ -409,7 +775,59 @@ public final class ReadAloudSession {
         guard let document else { return }
         spokenRange = nil
         utteranceStartOffset = 0
-        if passageIndex + 1 < document.passages.count { passageIndex += 1; speakCurrentPassage() }
-        else { state = .finished; didFinishDocument?() }
+        if passageIndex + 1 < document.passages.count {
+            let finished = document.passages[passageIndex]
+            passageIndex += 1
+            let next = document.passages[passageIndex]
+            leadingPauseSeconds = max(finished.kind.pauseAfterSeconds, next.kind == .heading ? ReadAloudPassageKind.heading.pauseAfterSeconds : 0)
+            speakCurrentPassage()
+        }
+        else {
+            state = .finished
+            if didFinishDocument?() != true { speech.releaseAudio() }
+        }
+    }
+}
+
+/// One IPA pronunciation within an utterance's text.
+public struct ReadAloudPhoneticRange: Equatable, Sendable {
+    public let range: NSRange
+    public let notation: String
+}
+
+/// Everything one utterance needs: its text, voice, speed, the silence before it, whether the
+/// system's own speech settings are preferred, and IPA pronunciations within the text.
+public struct ReadAloudUtteranceRequest: Equatable, Sendable {
+    public let text: String
+    public let voiceIdentifier: String
+    public let speed: Double
+    public let leadingPauseSeconds: Double
+    public let usesSystemSettings: Bool
+    public var phoneticRanges: [ReadAloudPhoneticRange] = []
+}
+
+/// How much of the text is highlighted while it is read.
+public enum ReadAloudHighlightMode: String, CaseIterable, Sendable {
+    case words, sentences, off
+}
+
+/// The person's own choice of voice for Graphite, with how it was made, so an automatic pick
+/// can never be read back as a choice.
+public struct ReadAloudVoiceChoice: Codable, Equatable, Sendable {
+    public enum Source: String, Codable, Sendable {
+        case picker, personalVoiceButton
+    }
+
+    public let identifier: String
+    public let source: Source
+
+    static func stored(in preferences: UserDefaults, key: String) -> ReadAloudVoiceChoice? {
+        guard let data = preferences.data(forKey: key), data.count <= 4_096 else { return nil }
+        return try? JSONDecoder().decode(ReadAloudVoiceChoice.self, from: data)
+    }
+
+    func store(in preferences: UserDefaults, key: String) {
+        guard let data = try? JSONEncoder().encode(self) else { return }
+        preferences.set(data, forKey: key)
     }
 }

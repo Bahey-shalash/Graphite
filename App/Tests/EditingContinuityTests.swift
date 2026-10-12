@@ -4,6 +4,8 @@ import SwiftUI
 import GraphiteApple
 import GraphiteCore
 import GraphiteIndex
+import PencilKit
+import PDFKit
 @testable import GraphiteUI
 
 /// Undo and redo across tab switches, tab moves, and reading view, in the hosted workspace.
@@ -380,6 +382,175 @@ final class EditingContinuityTests: XCTestCase {
 
     // MARK: Helpers
 
+    // MARK: Fonts and font size (Settings › Appearance › Font)
+
+    /// The vault's text and monospace fonts and its font size reach Live Preview, and a font
+    /// changed while the note is being edited restyles it in place: the cursor stays and the
+    /// rendered blocks are kept.
+    func testEditorUsesTheVaultsFontsAndSizeAndKeepsTheCursorWhenTheyChange() async throws {
+        let note = "# Lecture\n\nBody text with `inline code` in it.\n\n```\nlet answer = 42\n```\n\n$$x^2$$\n\nEnd.\n"
+        let workspace = try await makeWorkspace(notes: ["Lecture.md": note])
+        try writeAppearance(#"{"textFontFamily": "\"Bookerly\", Georgia, serif", "monospaceFontFamily": "Courier New", "baseFontSize": 20}"#)
+        await workspace.reloadVaultAppearance()
+        XCTAssertEqual(workspace.noteTypography.textFamily, .installed("Georgia"), "Bookerly is not on the device, so the next family of the list is used.")
+        XCTAssertEqual(workspace.noteTypography.monospaceFamily, .installed("Courier New"))
+        XCTAssertEqual(workspace.noteBaseFontSize, 20)
+
+        _ = try await openTab("Lecture.md", in: workspace, placement: .currentTab)
+        let controller = try hostWithTypography(workspace)
+        let session = try XCTUnwrap(workspace.markdownSession)
+        session.viewMode = .livePreview
+        let editor = try await visibleEditor(in: controller, showing: session)
+        try await waitUntil { self.renderedBlockViews(in: editor).count == 1 }
+        let expectedBodySize = GraphitePreferences.noteTextSize(20, for: DynamicTypeSize(controller.traitCollection.preferredContentSizeCategory) ?? .large)
+        let source = session.text as NSString
+        let bodyFont = try font(at: source.range(of: "Body").location, in: editor)
+        XCTAssertEqual(bodyFont.familyName, "Georgia")
+        XCTAssertEqual(Double(bodyFont.pointSize), expectedBodySize, accuracy: 0.01, "20 is the size at the default text size, grown with Dynamic Type.")
+        let headingFont = try font(at: source.range(of: "Lecture").location, in: editor)
+        XCTAssertEqual(headingFont.familyName, "Georgia", "Headings are in the text font…")
+        XCTAssertEqual(Double(headingFont.pointSize), expectedBodySize * Double(HeadingTypography.fontScale(level: 1)), accuracy: 0.01, "…at the same multiple of the text size.")
+        XCTAssertEqual(try font(at: source.range(of: "inline code").location, in: editor).familyName, "Courier New")
+        XCTAssertEqual(try font(at: source.range(of: "let answer").location, in: editor).familyName, "Courier New")
+
+        // A font changed in Settings while the note is being edited.
+        editor.beginEditing()
+        let cursor = NSRange(location: source.range(of: "with").location, length: 0)
+        editor.selectedRange = cursor
+        let blockViewBefore = try XCTUnwrap(renderedBlockViews(in: editor).first)
+        workspace.updateVaultAppearance { appearance in appearance.textFontFamilies = FontFamilyList(families: ["Avenir Next"]) }
+        try await waitUntil { (try? self.font(at: source.range(of: "Body").location, in: editor).familyName) == "Avenir Next" }
+        XCTAssertEqual(editor.selectedRange, cursor, "Restyling keeps the cursor where it was.")
+        XCTAssertTrue(editor.isFirstResponder)
+        XCTAssertTrue(renderedBlockViews(in: editor).contains { view in view === blockViewBefore }, "The rendered math block is kept, not built again.")
+        await workspace.saveVaultAppearanceNow()
+        let written = try String(contentsOf: try XCTUnwrap(vaultDirectory).appendingPathComponent(".obsidian/appearance.json"), encoding: .utf8)
+        XCTAssertTrue(written.contains(#""textFontFamily": "Avenir Next""#), written)
+        XCTAssertTrue(written.contains(#""monospaceFontFamily": "Courier New""#), "Unchanged keys stay as they were: \(written)")
+        attachScreenshot(named: "Live Preview in the vault's fonts")
+    }
+
+    /// Reading view draws its text in the text font and its code in the monospace font, at
+    /// the vault's size: the width SwiftUI gives a line is the width of the line in that font.
+    func testReadingViewUsesTheVaultsTextAndMonospaceFonts() async throws {
+        var typography = NoteTypography()
+        typography.textFamily = .installed("Georgia")
+        typography.monospaceFamily = .installed("Courier New")
+        let size = 20.0
+        let root = FileManager.default.temporaryDirectory
+        func renderedWidth(_ markdown: String) async throws -> CGFloat {
+            let measurement = MeasuredWidth()
+            let controller = UIHostingController(rootView: ObsidianMarkdownText(markdown: markdown, root: root, textSize: size, navigate: { _, _ in }, scrollToHeading: { _ in })
+                .environment(\.noteTypography, typography)
+                .fixedSize()
+                .onGeometryChange(for: CGFloat.self) { geometry in geometry.size.width } action: { width in measurement.width = width }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading))
+            try present(controller)
+            try await waitUntil { measurement.width > 0 }
+            // Textual lays its text out a second time once it has measured it.
+            try await Task.sleep(for: .milliseconds(300))
+            return measurement.width
+        }
+        let words = "Illustrated quietly"
+        let georgiaWidth = (words as NSString).size(withAttributes: [.font: typography.textFont(ofSize: size)]).width
+        let systemWidth = (words as NSString).size(withAttributes: [.font: UIFont.systemFont(ofSize: size)]).width
+        XCTAssertGreaterThan(abs(georgiaWidth - systemWidth), 4, "The two fonts set these words at clearly different widths.")
+        let renderedWords = try await renderedWidth(words)
+        XCTAssertEqual(renderedWords, georgiaWidth, accuracy: 2, "Body text is set in Georgia.")
+        let code = "iiiiiiiiii"
+        // Textual sets inline code at 0.94 of the text size.
+        let courierWidth = (code as NSString).size(withAttributes: [.font: typography.monospaceFont(ofSize: size * 0.94)]).width
+        let renderedCode = try await renderedWidth("`\(code)`")
+        XCTAssertEqual(renderedCode, courierWidth, accuracy: 2, "Inline code is set in Courier New, a monospace font as wide for i as for m.")
+    }
+
+    /// Apple Pencil never takes part in the quick font size pinch, so writing or drawing
+    /// with Pencil while a finger rests on the note cannot resize its text, and a pinch on a
+    /// view that zooms by itself is left to that view.
+    func testQuickFontSizePinchIgnoresPencilAndViewsThatZoomThemselves() async throws {
+        let recognizer = QuickFontSizePinchRecognizer()
+        XCTAssertFalse(recognizer.allowedTouchTypes.contains(NSNumber(value: UITouch.TouchType.pencil.rawValue)), "Pencil touches are never delivered to the pinch.")
+        XCTAssertTrue(recognizer.allowedTouchTypes.contains(NSNumber(value: UITouch.TouchType.direct.rawValue)))
+        XCTAssertFalse(recognizer.isEnabled, "Off until quick adjustment is turned on.")
+        XCTAssertFalse(recognizer.cancelsTouchesInView, "Taps and selection under the fingers carry on.")
+
+        let host = UIView(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        host.addGestureRecognizer(recognizer)
+        let paragraph = UIView()
+        host.addSubview(paragraph)
+        XCTAssertTrue(QuickFontSizePinchPolicy.acceptsTouch(ofType: .direct, in: paragraph, under: host, recognizer: recognizer))
+        XCTAssertFalse(QuickFontSizePinchPolicy.acceptsTouch(ofType: .pencil, in: paragraph, under: host, recognizer: recognizer))
+        let canvas = PKCanvasView()
+        let strokeView = UIView()
+        host.addSubview(canvas); canvas.addSubview(strokeView)
+        XCTAssertFalse(QuickFontSizePinchPolicy.acceptsTouch(ofType: .direct, in: strokeView, under: host, recognizer: recognizer), "A drawing canvas keeps its fingers.")
+        let embeddedPDF = PDFView()
+        host.addSubview(embeddedPDF)
+        XCTAssertFalse(QuickFontSizePinchPolicy.acceptsTouch(ofType: .direct, in: embeddedPDF, under: host, recognizer: recognizer), "An embedded PDF zooms itself.")
+        let board = UIView()
+        board.addGestureRecognizer(UIPinchGestureRecognizer())
+        host.addSubview(board)
+        XCTAssertFalse(QuickFontSizePinchPolicy.acceptsTouch(ofType: .direct, in: board, under: host, recognizer: recognizer), "A view with its own pinch keeps it.")
+
+        // In the editor, the pinch follows the setting.
+        let workspace = try await makeWorkspace(notes: ["Lecture.md": "Text.\n"])
+        _ = try await openTab("Lecture.md", in: workspace, placement: .currentTab)
+        let controller = try hostWithTypography(workspace)
+        let session = try XCTUnwrap(workspace.markdownSession)
+        let editor = try await visibleEditor(in: controller, showing: session)
+        let editorPinch = try XCTUnwrap(editor.gestureRecognizers?.compactMap { $0 as? QuickFontSizePinchRecognizer }.first)
+        XCTAssertFalse(editorPinch.isEnabled)
+        workspace.updateVaultAppearance { appearance in appearance.adjustsFontSizeQuickly = true }
+        try await waitUntil { editorPinch.isEnabled }
+        editorPinch.adjustment?.setSize(24)
+        XCTAssertEqual(workspace.noteBaseFontSize, 24)
+        await workspace.saveVaultAppearanceNow()
+    }
+
+    func testPinchingMovesTheSizeInWholeStepsWithinTheRange() {
+        XCTAssertEqual(NoteFontSize.size(afterPinchingBy: 1.25, from: 16), 20)
+        XCTAssertEqual(NoteFontSize.size(afterPinchingBy: 0.1, from: 16), 11, "Never below Apple's smallest text size.")
+        XCTAssertEqual(NoteFontSize.size(afterPinchingBy: 5, from: 16), 30, "Never above Obsidian's largest.")
+        XCTAssertEqual(NoteFontSize.size(afterPinchingBy: .nan, from: 16), 16)
+        var progress = QuickFontSizePinchProgress()
+        XCTAssertNil(progress.size(forScale: 2), "A pinch that did not begin here changes nothing.")
+        progress.begin(at: 18)
+        XCTAssertEqual(progress.size(forScale: 1.1), 20)
+        XCTAssertEqual(progress.size(forScale: 1.2), 22, "Measured from where the pinch began, not compounded.")
+    }
+
+    /// The vault's Obsidian accent is used until an accent is chosen in Graphite.
+    func testTheVaultsAccentIsUsedUntilOneIsChosenHere() async throws {
+        let workspace = try await makeWorkspace(notes: [:])
+        let previousChoice = workspace.preferences.chosenAccentHex
+        defer { workspace.preferences.chosenAccentHex = previousChoice }
+        workspace.preferences.chosenAccentHex = nil
+        try writeAppearance(##"{"accentColor": "#2E8B57"}"##)
+        await workspace.reloadVaultAppearance()
+        XCTAssertEqual(workspace.preferences.accentHex, "#2e8b57")
+        workspace.preferences.chosenAccentHex = "#e93147"
+        XCTAssertEqual(workspace.preferences.accentHex, "#e93147", "A choice made in Graphite wins.")
+        workspace.preferences.chosenAccentHex = nil
+        XCTAssertEqual(workspace.preferences.accentHex, "#2e8b57", "Forgetting it returns to the vault's accent.")
+    }
+
+    private func writeAppearance(_ text: String) throws {
+        let folder = try XCTUnwrap(vaultDirectory).appendingPathComponent(".obsidian")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data(text.utf8).write(to: folder.appendingPathComponent("appearance.json"))
+    }
+
+    private func font(at location: Int, in editor: MarkdownTextView) throws -> UIFont {
+        try XCTUnwrap(editor.textStorage.attribute(.font, at: location, effectiveRange: nil) as? UIFont)
+    }
+
+    /// The workspace's panes with the vault's fonts, as the root view gives them.
+    private func hostWithTypography(_ workspace: WorkspaceModel) throws -> UIHostingController<AnyView> {
+        let controller = UIHostingController(rootView: AnyView(NavigationStack { TypographyHostedPanes(workspace: workspace) }))
+        try present(controller)
+        return controller
+    }
+
     private func makeWorkspace(notes: [String: String]) async throws -> WorkspaceModel {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("EditingContinuity-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -562,6 +733,22 @@ private struct SurroundedEditor: View {
     private var editor: some View {
         NativeMarkdownEditor(session: session, configuration: EditorConfiguration(mode: .source), headingScrollRequest: nil,
                              retention: retention, retentionOwner: owner) { _, _ in }
+    }
+}
+/// A width a hosted view reports from its layout.
+@MainActor
+private final class MeasuredWidth {
+    var width: CGFloat = 0
+}
+
+/// The panes with the workspace's resolved fonts in their environment, read here so a font
+/// change reaches them as it reaches the root view's.
+private struct TypographyHostedPanes: View {
+    let workspace: WorkspaceModel
+
+    var body: some View {
+        WorkspacePanes(workspace: workspace, showsLinksInspector: .constant(false), create: { _ in }, showQuickSwitcher: {})
+            .environment(\.noteTypography, workspace.noteTypography)
     }
 }
 #endif

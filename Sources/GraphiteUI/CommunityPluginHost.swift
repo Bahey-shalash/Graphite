@@ -197,8 +197,17 @@ final class CommunityPluginHost {
     /// Plugins that change how notes read (`registerMarkdownPostProcessor`); while there are
     /// any, the reading view offers each part of a note to them.
     private(set) var postProcessingPluginIdentifiers: [String] = []
-    /// The loaded plugins' style sheets, which copies of their code blocks are shown with.
+    /// The page's style sheets, which copies of code blocks and views are shown with: the
+    /// plugins' own, the vault's theme and snippets, and Style Settings' values.
     private(set) var pluginStyleSheets = ""
+    /// The body classes and inline style plugins and themes set on the page (Style Settings,
+    /// Minimal Theme Settings' schemes and options), which copies take too.
+    private(set) var pluginBodyClasses = ""
+    private(set) var pluginBodyStyle = ""
+    /// The pending send of the vault's theme and snippets (`CommunityPluginThemes.swift`).
+    @ObservationIgnored var styleUpdateTask: Task<Void, Never>?
+    /// The theme in the plugins' page, or empty for none; set when the page is given its styles.
+    var activeThemeName = ""
     /// The code blocks shown in notes, by identifier, to give them the plugin's changes.
     @ObservationIgnored var shownCodeBlocks: [String: CommunityPluginShownCodeBlock] = [:]
     /// The last copy of each code block drawn, kept while Graphite runs, so a block that
@@ -398,6 +407,7 @@ final class CommunityPluginHost {
             "configuration": await applicationConfiguration(),
             "corePlugins": corePluginDescriptions(workspace),
             "secrets": secretStore?.secrets() ?? [:],
+            "appearanceConfiguration": await appearanceConfiguration(),
         ]
         var device: [String: Any] = ["resourcePathPrefix": CommunityPluginSchemeHandler.resourcePathPrefix, "isPhone": false]
         #if canImport(UIKit)
@@ -410,6 +420,7 @@ final class CommunityPluginHost {
             "appearance": appearance,
             "compatibleApiVersion": CommunityPluginCompatibility.providedApiVersion,
             "recentFiles": workspace.recentFiles.paths.prefix(50).map(\.rawValue),
+            "styles": await vaultStyles(),
         ]
         do { _ = try await send(message) } catch { workspace.errorMessage = "Graphite could not start community plugins. " + error.localizedDescription }
     }
@@ -894,6 +905,14 @@ final class CommunityPluginHost {
         case "postProcessors.changed":
             let pluginIdentifiers = message["pluginIdentifiers"] as? [String] ?? []
             if pluginIdentifiers != postProcessingPluginIdentifiers { postProcessingPluginIdentifiers = pluginIdentifiers }
+        case "styles.changed":
+            updatePluginStyleSheets(message["styles"] as? String ?? pluginStyleSheets)
+            let bodyClasses = message["bodyClasses"] as? String ?? "", bodyStyle = message["bodyStyle"] as? String ?? ""
+            if bodyClasses != pluginBodyClasses { pluginBodyClasses = bodyClasses }
+            if bodyStyle != pluginBodyStyle { pluginBodyStyle = bodyStyle }
+        case "appearance.setConfig":
+            guard let key = message["key"] as? String else { return }
+            applyAppearanceSetting(key, value: message["value"])
         case "codeBlock.changed":
             guard let blockIdentifier = message["blockIdentifier"] as? String, let html = message["html"] as? String else { return }
             shownCodeBlocks[blockIdentifier]?.receive(html: html)

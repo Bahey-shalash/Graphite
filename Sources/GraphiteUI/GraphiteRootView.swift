@@ -67,6 +67,8 @@ public struct GraphiteRootView: View {
             }
         }
         .environment(\.accent, workspace.preferences.accentColor)
+        // Notes, embeds and content lists draw in the vault's fonts (Settings › Appearance › Font).
+        .environment(\.noteTypography, workspace.noteTypography)
         // The menu bar's commands and their shortcuts act on this window (`GraphiteCommands`).
         .focusedSceneValue(\.workspaceMenuActions, WorkspaceMenuActions(workspace: workspace, window: windowActions,
                                                                           showCommandPalette: { activePalette = .commandPalette },
@@ -189,8 +191,7 @@ public struct GraphiteRootView: View {
             if phase == .active {
                 Task { await workspace.checkOpenDocumentsForExternalChanges(); await workspace.refreshDirectory(); await workspace.reloadVaultSettings() }
             } else {
-                if workspace.readAloud.isPreparing { workspace.readAloud.stop() }
-                else { workspace.readAloud.session.pause() }
+                // Reading goes on in the background and on the lock screen, like an audiobook.
                 saveBeforeLeavingScreen()
             }
         }
@@ -291,11 +292,11 @@ public struct GraphiteRootView: View {
                     .tint(.primary)
             }
         }
-        if workspace.readAloud.session.document != nil || workspace.readAloud.isPreparing {
-            ToolbarItem(placement: .primaryAction) {
-                Button("Reading Controls", systemImage: "speaker.wave.2") { workspace.readAloud.showsReader = true }
+        if workspace.readAloud.isActive {
+            ToolbarItemGroup(placement: .primaryAction) {
+                ReadAloudToolbarControls(reader: workspace.readAloud, isDisabled: workspace.recording.state.isActive,
+                                         accentColor: workspace.preferences.accentColor)
                     .tint(.primary)
-                    .disabled(workspace.recording.state.isActive)
             }
         }
     }
