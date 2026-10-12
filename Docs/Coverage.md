@@ -4,6 +4,10 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-12.
 
+## Hold to make a shape works on every stroke while a hand rests: 2026-10-12
+
+`StrokeHoldRecognizer` set itself failed after each stroke. A failed recognizer hears no more touches until every touch has lifted, so with a hand resting on the page the strokes after the first were not followed, and holding at their end made no shape. It now stays possible, as the Pencil follower and `DrawnStrokeFollower` do. Checked by `PencilToolsTests.testHoldToShapeFollowsEveryStrokeWhileAHandRests` (hosted: the states the recognizer asks for over three strokes and a cancelled one never include failed; UIKit ignores a state set outside its own touch handling, so the test records them), which fails with the previous code; `PencilToolsTests`, `EvenHighlighterTests` and `PicturesAndPaperTests` (44) pass, and `swift test` (1,701, the one known failure). Not tried with a real hand and Pencil.
+
 ## Checks of the second palm and polish round together: 2026-10-12
 
 On the last of the commits in the four sections below (the size dots, the even highlighter and the cover, the favorite colors), in a clone of alpha 85f7552 outside iCloud: the whole hosted suite on an iPad Pro 11-inch (M5) simulator, iOS 27.0, 224 of 224; `swift test` on macOS, 1,701 tests (825 Core, 137 Index, 208 Apple, 531 UI) with one skipped and the one known failure, `UiEditorMacEditorTests.testHeadingJumpWaitsForAWindowThenSelectsAndScrollsToTheHeading`. Nothing was tried on the iPad or with Apple Pencil.

@@ -277,6 +277,31 @@ final class PencilToolsTests: XCTestCase {
         XCTAssertFalse(holdRecognizer.tracksTouch(drawingTouch))
     }
 
+    /// The hold recognizer follows every stroke of a sequence: with a hand resting on the
+    /// page, its touch stays down while the Pencil draws one stroke after another, and a
+    /// recognizer that failed after the first would hear none of the others. UIKit ignores
+    /// a state set outside its own handling of touches, so the test records the states the
+    /// recognizer asks for.
+    func testHoldToShapeFollowsEveryStrokeWhileAHandRests() throws {
+        RecognizerStateRecorder.record(StrokeHoldRecognizer.self)
+        let holdRecognizer = StrokeHoldRecognizer(target: nil, action: nil)
+        holdRecognizer.tracksTouch = { _ in true }
+        var endedStrokeCount = 0
+        holdRecognizer.touchDidEnd = { _ in endedStrokeCount += 1 }
+        let event = UIEvent()
+        for _ in 0..<3 {
+            let strokeTouch = UITouch()
+            holdRecognizer.touchesBegan([strokeTouch], with: event)
+            holdRecognizer.touchesEnded([strokeTouch], with: event)
+        }
+        let cancelledTouch = UITouch()
+        holdRecognizer.touchesBegan([cancelledTouch], with: event)
+        holdRecognizer.touchesCancelled([cancelledTouch], with: event)
+        XCTAssertEqual(endedStrokeCount, 4)
+        XCTAssertFalse(RecognizerStateRecorder.requestedStates(of: holdRecognizer).contains(.failed),
+                       "It never fails, so it hears the next stroke while a hand still rests on the page.")
+    }
+
     func testDrawingEditorUsesItsOwnHistoryAndTheShapeTool() async throws {
         UserDefaults.standard.set(true, forKey: PDFAnnotationPreferenceKey.drawsShapes)
         let request = DrawingEditorRequest(target: .newDrawing(notePath: try VaultPath("Note.md"), insertionRange: NSRange(location: 0, length: 0)),
@@ -1222,6 +1247,34 @@ private struct WorkspaceWithDrawingEditor: View {
             DrawingEditor(request: request, save: { _, _ in }, exportCopy: { _, _ in throw CocoaError(.featureUnsupported) },
                           preserveDraft: { _ in }, removeDraft: {})
         }
+    }
+}
+
+/// Records the states a recognizer class asks for, which UIKit ignores outside its own
+/// handling of touches, so a test can see them. The class's `setState:` is given one that
+/// records and then calls `UIGestureRecognizer`'s own.
+@MainActor
+private enum RecognizerStateRecorder {
+    private static var recordedClasses: Set<ObjectIdentifier> = []
+    private static var requestedStatesByRecognizer: [ObjectIdentifier: [UIGestureRecognizer.State]] = [:]
+
+    static func record(_ recognizerClass: UIGestureRecognizer.Type) {
+        guard recordedClasses.insert(ObjectIdentifier(recognizerClass)).inserted else { return }
+        let selector = NSSelectorFromString("setState:")
+        guard let originalImplementation = class_getMethodImplementation(UIGestureRecognizer.self, selector) else { return }
+        typealias SetState = @convention(c) (AnyObject, Selector, Int) -> Void
+        let originalSetState = unsafeBitCast(originalImplementation, to: SetState.self)
+        let recordingSetState: @convention(block) (AnyObject, Int) -> Void = { recognizer, rawState in
+            if let state = UIGestureRecognizer.State(rawValue: rawState) {
+                MainActor.assumeIsolated { requestedStatesByRecognizer[ObjectIdentifier(recognizer), default: []].append(state) }
+            }
+            originalSetState(recognizer, selector, rawState)
+        }
+        class_addMethod(recognizerClass, selector, imp_implementationWithBlock(recordingSetState), "v@:q")
+    }
+
+    static func requestedStates(of recognizer: UIGestureRecognizer) -> [UIGestureRecognizer.State] {
+        requestedStatesByRecognizer[ObjectIdentifier(recognizer)] ?? []
     }
 }
 #endif
