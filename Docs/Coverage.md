@@ -4,6 +4,12 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-12.
 
+## The selection frame on a page in dark appearance: 2026-10-12
+
+Reported by the owner on the iPad: in dark appearance, the frame around lassoed handwriting could not be seen on a white PDF page. `SelectionFrameView` drew its line in `label` and its knobs in `systemBackground`, which turn white and black in dark appearance, while a PDF page and a drawing's paper keep their own colors. The frame now draws the accent resolved for light appearance (`PlatformColor.graphiteAccent`, at least 4.5:1 on white; the default ink blue is 6.6:1), over a white halo one point wider on each side, and white knobs ringed in the accent with a soft shadow; with Increase Contrast the line is 2.5 points instead of 1.5. `GraphitePreferences.storedAccentHex()` reads the chosen accent for views made outside SwiftUI.
+
+Checked in the iPad simulator in dark appearance, with handwriting lassoed on a white page of a PDF (the frame and its knobs show), and by `InkSelectionTests` (5) and `PicturesAndPaperTests` (15). Not checked on the iPad, over dark ink or photos, with Increase Contrast, or around a picture.
+
 ## The note editor's first layout, and handing it to a new view: 2026-10-12
 
 Found on commit e3b973c in the iPad simulator: the app crashed as soon as a note opened in Live Preview or Source mode (at launch when a note was restored, and in every hosted test that shows one), `EXC_BAD_ACCESS` at 0x10 in `MarkdownTextView.updateReadAloudHighlights()`. The text view was made by `UITextView(usingTextLayoutManager: true)`, a UIKit factory that creates the object through an initializer Swift does not see, so `MarkdownTextView`'s stored properties never got their initial values and were all zero. That had gone unnoticed while every one of them was valid as zero (only `usesReadableLineLength` started false, and each update set it); Read Aloud's highlight array was the first that was not. `MarkdownTextView()` now calls `UITextView(frame:textContainer: nil)`, which makes a TextKit 2 view. `EditingContinuityTests.testNotesTextViewStartsWithItsInitialValuesOnTextKit2` failed before the change (the readable line length read false) and passes after it. The Mac editor's `MarkdownMacTextView(usingTextLayoutManager:)` uses AppKit's factory of the same kind; its properties are all optional, so it does not crash, but it has not been changed or checked.

@@ -49,12 +49,20 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
     }
     private let previewView = UIImageView()
     private let dimmingLayer = CAShapeLayer()
+    /// The frame's line, over a wider white halo that keeps it visible on dark ink and
+    /// pictures; see `applyColors`.
+    private let outlineHaloLayer = CAShapeLayer()
+    private let outlineLayer = CAShapeLayer()
+    private var knobs: [UIView] = []
     /// Far enough to dim everything around a crop frame on any screen.
     private static let dimmingReach: CGFloat = 20_000
 
     private enum Corner: CaseIterable { case topLeft, topRight, bottomLeft, bottomRight }
     private static let handleDiameter: CGFloat = 14
     private static let borderWidth: CGFloat = 1.5
+    private static let increasedContrastBorderWidth: CGFloat = 2.5
+    /// How far the white halo reaches beyond each side of the line.
+    private static let haloWidth: CGFloat = 1
     /// Handles are small to look at and large to touch.
     private static let handleTouchSide: CGFloat = 44
     private var handles: [Corner: UIView] = [:]
@@ -67,13 +75,15 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
-        layer.borderColor = UIColor.label.withAlphaComponent(0.85).cgColor
-        layer.borderWidth = Self.borderWidth
         previewView.contentMode = .scaleToFill
         previewView.alpha = dragPreviewOpacity
         previewView.isHidden = true
         previewView.isUserInteractionEnabled = false
         addSubview(previewView)
+        for outline in [outlineHaloLayer, outlineLayer] {
+            outline.fillColor = nil
+            layer.addSublayer(outline)
+        }
         dimmingLayer.fillRule = .evenOdd
         dimmingLayer.fillColor = UIColor.black.withAlphaComponent(0.45).cgColor
         dimmingLayer.isHidden = true
@@ -83,13 +93,8 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
         addGestureRecognizer(moveRecognizer)
         for corner in Corner.allCases {
             let handle = UIView(frame: CGRect(x: 0, y: 0, width: Self.handleTouchSide, height: Self.handleTouchSide))
-            let knob = UIView(frame: CGRect(x: 0, y: 0, width: Self.handleDiameter, height: Self.handleDiameter))
-            knob.center = CGPoint(x: Self.handleTouchSide / 2, y: Self.handleTouchSide / 2)
-            knob.backgroundColor = .systemBackground
-            knob.layer.cornerRadius = Self.handleDiameter / 2
-            knob.layer.borderColor = UIColor.label.withAlphaComponent(0.85).cgColor
-            knob.layer.borderWidth = 1.5
-            knob.isUserInteractionEnabled = false
+            let knob = Self.makeKnob(diameter: Self.handleDiameter)
+            knobs.append(knob)
             handle.addSubview(knob)
             let recognizer = UIPanGestureRecognizer(target: self, action: #selector(handleResize(_:)))
             recognizer.maximumNumberOfTouches = 1
@@ -102,6 +107,44 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
         accessibilityLabel = "Selected image"
         accessibilityHint = "Drag to move. Drag a corner to resize."
         accessibilityTraits = .allowsDirectInteraction
+        applyColors()
+        registerForTraitChanges([UITraitAccessibilityContrast.self]) { (frameView: SelectionFrameView, _: UITraitCollection) in
+            frameView.applyColors()
+        }
+    }
+
+    /// A round knob centered in a handle's touch area, its colors set by `applyColors`. A
+    /// soft shadow sets it apart from a white page.
+    private static func makeKnob(diameter: CGFloat) -> UIView {
+        let knob = UIView(frame: CGRect(x: 0, y: 0, width: diameter, height: diameter))
+        knob.center = CGPoint(x: handleTouchSide / 2, y: handleTouchSide / 2)
+        knob.layer.cornerRadius = diameter / 2
+        knob.layer.borderWidth = 1.5
+        knob.layer.shadowColor = UIColor.black.cgColor
+        knob.layer.shadowOpacity = 0.3
+        knob.layer.shadowRadius = 1.5
+        knob.layer.shadowOffset = CGSize(width: 0, height: 0.5)
+        knob.layer.shadowPath = UIBezierPath(ovalIn: knob.bounds).cgPath
+        knob.isUserInteractionEnabled = false
+        return knob
+    }
+
+    /// The frame is drawn over a PDF page or a drawing's paper, which keep their own colors
+    /// in dark appearance, so it does not follow the appearance: its line is the accent as it
+    /// reads on white, over a white halo that keeps it visible on dark ink and pictures, and
+    /// its knobs are white, ringed in the accent. Following the appearance, it was white on
+    /// a white page in dark appearance.
+    private func applyColors() {
+        let pageTraits = UITraitCollection(traitsFrom: [traitCollection, UITraitCollection(userInterfaceStyle: .light)])
+        let accent = PlatformColor.graphiteAccent(hex: GraphitePreferences.storedAccentHex()) ?? .systemBlue
+        let lineColor = accent.resolvedColor(with: pageTraits).cgColor
+        outlineLayer.strokeColor = lineColor
+        outlineHaloLayer.strokeColor = UIColor.white.withAlphaComponent(0.9).cgColor
+        for knob in knobs {
+            knob.backgroundColor = .white
+            knob.layer.borderColor = lineColor
+        }
+        setNeedsLayout()
     }
 
     @available(*, unavailable)
@@ -119,7 +162,15 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
             CATransaction.commit()
         }
         let handleScale = contentScale > 0 ? 1 / contentScale : 1
-        layer.borderWidth = Self.borderWidth * handleScale
+        let lineWidth = (traitCollection.accessibilityContrast == .high ? Self.increasedContrastBorderWidth : Self.borderWidth) * handleScale
+        let outline = UIBezierPath(rect: bounds).cgPath
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        outlineLayer.path = outline
+        outlineLayer.lineWidth = lineWidth
+        outlineHaloLayer.path = outline
+        outlineHaloLayer.lineWidth = lineWidth + 2 * Self.haloWidth * handleScale
+        CATransaction.commit()
         for handle in handles.values { handle.transform = CGAffineTransform(scaleX: handleScale, y: handleScale) }
         handles[.topLeft]?.center = CGPoint(x: bounds.minX, y: bounds.minY)
         handles[.topRight]?.center = CGPoint(x: bounds.maxX, y: bounds.minY)

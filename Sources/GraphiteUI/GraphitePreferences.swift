@@ -213,6 +213,11 @@ final class GraphitePreferences {
     var colorPalette: [PaletteColor] {
         didSet { defaults.set(try? JSONEncoder().encode(colorPalette), forKey: Key.colorPalette) }
     }
+
+    /// The chosen accent, for views made outside SwiftUI's environment.
+    nonisolated static func storedAccentHex(in defaults: UserDefaults = .standard) -> String {
+        defaults.string(forKey: Key.accentHex).flatMap(TextColorMarkup.canonicalHex) ?? GraphiteTheme.defaultAccentHex
+    }
     /// Whether a finished recording is embedded at the cursor of the note it started in.
     var embedsRecordingsInNote: Bool { didSet { defaults.set(embedsRecordingsInNote, forKey: Key.embedsRecordingsInNote) } }
     /// The camera a video recording starts with.
@@ -298,7 +303,7 @@ final class GraphitePreferences {
         colorPalette = Self.storedColorPalette(in: defaults)
         embedsRecordingsInNote = defaults.object(forKey: Key.embedsRecordingsInNote) as? Bool ?? true
         recordingCamera = defaults.string(forKey: Key.recordingCamera).flatMap(CameraPosition.init(rawValue:)) ?? .back
-        accentHex = defaults.string(forKey: Key.accentHex).flatMap(TextColorMarkup.canonicalHex) ?? GraphiteTheme.defaultAccentHex
+        accentHex = Self.storedAccentHex(in: defaults)
         showsInlineTitle = defaults.object(forKey: Key.showsInlineTitle) as? Bool ?? true
         showsFileExtensions = defaults.object(forKey: Key.showsFileExtensions) as? Bool ?? true
         searchSortOrder = defaults.string(forKey: Key.searchSortOrder).flatMap(SearchSortOrder.init(rawValue:)) ?? .fileNameAscending
