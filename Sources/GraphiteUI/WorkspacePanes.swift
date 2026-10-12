@@ -489,7 +489,7 @@ private struct TabDocumentView: View {
                 Color.clear
             }
         } else if let pluginViewIdentifier = document.pluginViewIdentifier {
-            CommunityPluginViewContent(host: workspace.communityPlugins, viewIdentifier: pluginViewIdentifier)
+            CommunityPluginViewContent(host: workspace.communityPlugins, viewIdentifier: pluginViewIdentifier, isInFocusedGroup: isFocused)
                 .id(pluginViewIdentifier)
         } else {
             EmptyTabView(workspace: workspace, tabID: tab.id, create: create, showQuickSwitcher: showQuickSwitcher)

@@ -133,11 +133,43 @@ extension CommunityPluginHost {
 
     /// The base's matching files by group, and its columns: the plugin reads each file's
     /// values from the vault's metadata itself.
-    private static func basesMessage(_ result: BaseQueryResult) -> [String: Any] {
+    static func basesMessage(_ result: BaseQueryResult) -> [String: Any] {
         let groups: [[String: Any]] = result.groups.map { group in
             ["key": group.key?.value.map { value in value.displayText as Any } ?? NSNull(), "paths": group.rows.map(\.path.rawValue)]
         }
-        return ["groups": groups, "properties": result.columns.map { column in column.property.rawValue }]
+        // Formulas are evaluated by Graphite, as its own views show them; a plugin's view reads
+        // each file's values of the view's formula columns.
+        var formulaValues: [String: [String: Any]] = [:]
+        let formulaColumns = result.columns.enumerated().filter { _, column in
+            if case .formula = column.property { return true }
+            return false
+        }
+        if !formulaColumns.isEmpty {
+            for row in result.rows {
+                var values: [String: Any] = [:]
+                for (columnIndex, column) in formulaColumns where row.cells.indices.contains(columnIndex) {
+                    values[column.property.rawValue] = row.cells[columnIndex].value.map(pluginValue) ?? ["type": "null"]
+                }
+                formulaValues[row.path.rawValue] = values
+            }
+        }
+        return ["groups": groups, "properties": result.columns.map { column in column.property.rawValue }, "formulaValues": formulaValues]
+    }
+
+    /// A base value as the runtime makes Obsidian's Bases values of it (`community-plugin-runtime-bases.js`).
+    static func pluginValue(_ value: BaseValue) -> [String: Any] {
+        switch value {
+        case .null: return ["type": "null"]
+        case .boolean(let boolean): return ["type": "boolean", "value": boolean]
+        case .number(let number): return number.isFinite ? ["type": "number", "value": number] : ["type": "null"]
+        case .string(let text): return ["type": "string", "value": text]
+        case .date(let date): return ["type": "date", "value": date.date.timeIntervalSince1970 * 1000, "hasTime": date.hasTime]
+        case .list(let values): return ["type": "list", "value": values.map(pluginValue)]
+        case .link(let link): return ["type": "link", "value": "[[" + link.target + (link.display.map { display in "|" + display } ?? "") + "]]"]
+        case .file(let path): return ["type": "file", "value": path.rawValue]
+        case .object(let object): return ["type": "object", "value": object.entries.map { entry in [entry.key, pluginValue(entry.value)] as [Any] }]
+        case .duration, .regularExpression, .image, .icon, .html: return ["type": "string", "value": value.displayText]
+        }
     }
 
     /// Opens a view saved when Graphite last closed; the new leaf's identifier, or nil when no
@@ -302,6 +334,8 @@ enum CommunityPluginViewSymbol {
 struct CommunityPluginViewContent: View {
     let host: CommunityPluginHost
     let viewIdentifier: String
+    /// Whether the view's tab is on the focused side of the split (a sidebar panel is not).
+    var isInFocusedGroup = true
     @State private var shownView: CommunityPluginShownCodeBlock?
     @State private var size: CGSize = .zero
     @Environment(\.colorScheme) private var colorScheme
@@ -311,7 +345,7 @@ struct CommunityPluginViewContent: View {
 
     var body: some View {
         if host.pluginView(withIdentifier: viewIdentifier)?.isLive == true {
-            CommunityPluginLiveViewContent(host: host, viewIdentifier: viewIdentifier)
+            CommunityPluginLiveViewContent(host: host, viewIdentifier: viewIdentifier, isInFocusedGroup: isInFocusedGroup)
         } else {
             copyContent
         }
@@ -362,6 +396,9 @@ struct CommunityPluginViewContent: View {
 struct CommunityPluginLiveViewContent: View {
     let host: CommunityPluginHost
     let viewIdentifier: String
+    /// A live view on the side not focused does not take the web view from one already
+    /// shown as it appears (both sides restored at launch); a tap there takes it.
+    var isInFocusedGroup = true
 
     var body: some View {
         Group {
@@ -394,7 +431,10 @@ struct CommunityPluginLiveViewContent: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .task(id: viewIdentifier) { _ = await host.showLive(viewIdentifier) }
+        .task(id: viewIdentifier) {
+            if !isInFocusedGroup, let shownView = host.liveViewIdentifier, shownView != viewIdentifier { return }
+            _ = await host.showLive(viewIdentifier)
+        }
         .onDisappear { host.hideLive(viewIdentifier) }
     }
 }

@@ -159,7 +159,10 @@ class ListView extends obsidian.BasesView {
     onDataUpdated() {
         this.containerEl.empty();
         this.containerEl.createDiv({ cls: 'heading', text: String(this.config.get('heading')) });
-        for (const entry of this.data.data) this.containerEl.createDiv({ cls: 'row', text: entry.file.basename + ': ' + entry.getValue('note.status').toString() });
+        for (const entry of this.data.data) {
+            const days = entry.getValue('formula.days');
+            this.containerEl.createDiv({ cls: 'row', text: entry.file.basename + ': ' + entry.getValue('note.status').toString() + (days instanceof obsidian.NumberValue ? ' in ' + days.toString() + ' days' : '') });
+        }
     }
 }
 class ExamplePlugin extends obsidian.Plugin {
@@ -183,6 +186,10 @@ module.exports = ExamplePlugin;`;
         assert.ok(!plain(harness.host.notificationsOf('views.changed').at(-1).views).some((view) => view.leafIdentifier === opened.leafIdentifier), 'not a tab or sidebar view of its own');
         await harness.send({ operation: 'basesView.update', leafIdentifier: opened.leafIdentifier, groups: [{ key: null, paths: ['First.md', 'Second.md'] }] });
         assert.deepEqual(Array.from(content.children).map((element) => element.textContent), ['Open tasks', 'First: open', 'Second: done']);
+        // Formulas come evaluated by Graphite, per file.
+        await harness.send({ operation: 'basesView.update', leafIdentifier: opened.leafIdentifier, groups: [{ key: null, paths: ['First.md'] }],
+            properties: ['note.status', 'formula.days'], formulaValues: { 'First.md': { 'formula.days': { type: 'number', value: 3 } } } });
+        assert.deepEqual(Array.from(content.children).map((element) => element.textContent), ['Open tasks', 'First: open in 3 days']);
     } finally {
         harness.close();
     }

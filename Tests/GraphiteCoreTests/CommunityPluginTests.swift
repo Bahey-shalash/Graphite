@@ -235,4 +235,35 @@ final class CommunityPluginTests: XCTestCase {
         XCTAssertTrue(html.contains("<h1>Title</h1>"))
         XCTAssertTrue(html.contains("<em>text</em>"))
     }
+
+    func testRenderedMarkdownHasObsidiansHighlightsAndCalloutsAndNoFrontmatter() throws {
+        let markdown = """
+        ---
+        tags: [sweep]
+        ---
+        A ==highlight== and `==code==`.
+
+        > [!tip] A callout
+        > Callout body.
+        >
+        > > [!note]-
+        > > Inner.
+
+        > A plain quote
+
+        ```
+        ==kept==
+        ```
+        """
+        let html = try CommunityPluginMarkdownRendering.html(for: markdown)
+        XCTAssertFalse(html.contains("sweep"), "the frontmatter is hidden, as Obsidian hides it")
+        XCTAssertTrue(html.contains("A <mark>highlight</mark> and <code>==code==</code>"), html)
+        XCTAssertTrue(html.contains("<div data-callout-metadata=\"\" data-callout-fold=\"\" data-callout=\"tip\" class=\"callout\"><div class=\"callout-title\"><div class=\"callout-icon\"></div><div class=\"callout-title-inner\">A callout</div></div><div class=\"callout-content\"><p>Callout body.</p>"), html)
+        XCTAssertTrue(html.contains("data-callout=\"note\" class=\"callout is-collapsible is-collapsed\""), html)
+        XCTAssertTrue(html.contains("<div class=\"callout-title-inner\">Note</div>"), "an empty title is the type's name")
+        XCTAssertTrue(html.contains("<blockquote>\n<p>A plain quote</p>\n</blockquote>"), html)
+        XCTAssertTrue(html.contains("==kept=="))
+        XCTAssertEqual(html.components(separatedBy: "<div").count - 1, 10, "two callouts of five elements each")
+        XCTAssertEqual(html.components(separatedBy: "</div>").count - 1, 10, "and every one is closed")
+    }
 }
