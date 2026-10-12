@@ -15,10 +15,13 @@ import ImageIO
 ///
 /// PDFKit also writes the appearance of a picture's stamp as inflated pixels with an
 /// opaque soft mask, several times the size of the JPEG it was drawn from. When the
-/// picture's own bytes (kept under `PDFPageManager.pictureKey`) are a JPEG of exactly the
+/// picture's own bytes (kept under one of `PDFPageManager.storedPictureKeys`: the key of a picture
+/// turned by hand or of an upright one) are a JPEG of exactly the
 /// appearance image's size and color components, and the soft mask is fully opaque, the
 /// image is written as that JPEG (`DCTDecode`), as Core Graphics itself writes a JPEG in a
-/// newly made PDF, with the same color space. The copy of the picture's bytes PDFKit puts
+/// newly made PDF, with the same color space. A turned picture's
+/// appearance draws the same image through a rotation in its content stream, which stays as
+/// it is, so only the image's own object is replaced. The copy of the picture's bytes PDFKit puts
 /// in its own markup data is removed too (see `PictureMarkupCopyRemoval`).
 ///
 /// Only the single-section, uncompressed cross-reference table PDFKit writes is
@@ -235,7 +238,7 @@ private struct CompactionPlanner {
             var references: [Int] = []
             value.collectReferences(into: &references)
             var isPictureCandidate = false
-            if case .dictionary(let dictionary) = value { isPictureCandidate = dictionary.entries["GraphitePictureV1"] != nil }
+            if case .dictionary(let dictionary) = value { isPictureCandidate = PictureStorage.storedImage(in: dictionary) != nil }
             objects[number] = SourceObject(generation: entry.generation, range: entry.offset..<end, references: references,
                                            isPictureCandidate: isPictureCandidate)
         }
@@ -301,6 +304,19 @@ private struct CompactionPlanner {
 
 // MARK: Pictures
 
+/// Where an annotation keeps a Graphite picture's bytes: under the key of a picture turned
+/// by hand or of an upright one, both listed once in `PDFPageManager.storedPictureKeys`.
+private enum PictureStorage {
+    /// The bytes' key in the annotation dictionary and the prefixed base64 text, for the first
+    /// of the keys that holds text.
+    static func storedImage(in annotation: PDFSyntaxDictionary) -> (key: String, bytes: Data)? {
+        for key in PDFPageManager.storedPictureKeys.map(\.rawValue) {
+            if case .string(let storedPicture)? = annotation.entries[key] { return (key, storedPicture) }
+        }
+        return nil
+    }
+}
+
 /// A picture's appearance image written as the JPEG the picture was placed from.
 private struct PictureImageReplacement {
     let objectBytes: Data
@@ -333,7 +349,7 @@ private struct PictureImageReplacement {
         for number in candidates.sorted() {
             guard case .dictionary(let annotation)? = parsedObject(number)?.value,
                   annotation.entries["Subtype"] == .name("Stamp"),
-                  case .string(let storedPicture)? = annotation.entries["GraphitePictureV1"],
+                  let storedPicture = PictureStorage.storedImage(in: annotation)?.bytes,
                   let jpegData = Self.jpegData(fromStoredPicture: storedPicture),
                   let appearance = dictionary(annotation.entries["AP"]),
                   case .reference(let formNumber)? = appearance.entries["N"],
@@ -455,11 +471,11 @@ private enum PictureMarkupCopyRemoval {
             scanner.position = object.range.lowerBound
             guard scanner.readUnsignedInteger() == number, scanner.readUnsignedInteger() == object.generation, scanner.readKeyword() == "obj",
                   case .dictionary(let annotation)? = scanner.readValue(), scanner.streamDataStart(before: object.range.upperBound) == nil,
-                  annotation.entries["GraphitePictureV1"] != nil,
+                  let storedKey = PictureStorage.storedImage(in: annotation)?.key,
                   case .dictionary(let markupData)? = annotation.entries[markupDataKey],
                   case .dictionary(let annotationCopy)? = markupData.entries[annotationCopyKey],
-                  case .string? = annotationCopy.entries["GraphitePictureV1"],
-                  let copyRange = annotationCopy.entryRanges["GraphitePictureV1"],
+                  case .string? = annotationCopy.entries[storedKey],
+                  let copyRange = annotationCopy.entryRanges[storedKey],
                   object.range.contains(copyRange.lowerBound), copyRange.upperBound <= object.range.upperBound else { continue }
             var objectBytes = Data(UnsafeRawBufferPointer(rebasing: bytes[object.range.lowerBound..<copyRange.lowerBound]))
             objectBytes.append(Data(UnsafeRawBufferPointer(rebasing: bytes[copyRange.upperBound..<object.range.upperBound])))
