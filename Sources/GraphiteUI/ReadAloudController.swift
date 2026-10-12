@@ -4,6 +4,19 @@ import PDFKit
 import GraphiteCore
 import GraphiteApple
 
+private struct ReadAloudMarkdownRequest {
+    let sourceText: String
+    let path: VaultPath
+    let selectedRange: NSRange?
+    let scopeDescription: String
+    let paletteHexByName: [String: String]
+}
+
+private struct ReadAloudPDFRequest {
+    let lastPageIndex: Int
+    let range: PDFReadAloudRange?
+}
+
 /// One reading session per window, independent of document navigation. Only a
 /// selected PDF page's text is retained; the next page is loaded after completion.
 @MainActor @Observable
@@ -11,6 +24,7 @@ final class ReadAloudController {
     let session: ReadAloudSession
     var showsReader = false
     var followsReading = true
+    private(set) var stopIdentifier = UUID()
     private(set) var isPreparing = false
     private(set) var title = "Read Aloud"
     private(set) var scopeDescription = ""
@@ -18,29 +32,103 @@ final class ReadAloudController {
     private(set) var sourcePageIndex: Int?
     private(set) var errorMessage: String?
     private(set) var sourceHighlightNotice: String?
+    private(set) var mathematicalStyle: MathematicalSpeechStyle
+    private(set) var pdfReadingOrder: PDFReadingOrder
+    private(set) var recognizedPDFPage: PDFReadAloudPage?
+    private(set) var recognizedPageIdentifier: UUID?
+    private(set) var recognizedWordRange: ClosedRange<Int>?
+    @ObservationIgnored private let preferences: UserDefaults
+    @ObservationIgnored private let markdownPreparation = ReadAloudMarkdownPreparation()
+    @ObservationIgnored private var markdownRequest: ReadAloudMarkdownRequest?
+    @ObservationIgnored private var pdfRequest: ReadAloudPDFRequest?
     private var pdfSource: PDFReadAloudSource?
     private weak var sourcePDF: PDFSession?
+    @ObservationIgnored private var sourcePDFRevision: Int?
     @ObservationIgnored private var preparation: Task<Void, Never>?
     @ObservationIgnored private var preparationIdentifier: UUID?
     @ObservationIgnored private var pdfContinuation: (() -> Void)?
 
-    init(session: ReadAloudSession = ReadAloudSession()) {
+    init(session: ReadAloudSession = ReadAloudSession(), preferences: UserDefaults = .standard) {
         self.session = session
+        self.preferences = preferences
+        mathematicalStyle = preferences.string(forKey: "readAloudMathematicalStyle").flatMap(MathematicalSpeechStyle.init(rawValue:)) ?? .concise
+        pdfReadingOrder = preferences.string(forKey: "readAloudPDFReadingOrder").flatMap(PDFReadingOrder.init(rawValue:)) ?? .layout
         session.didFinishDocument = { [weak self] in self?.continuePDFIfNeeded() }
     }
 
     func readMarkdown(_ markdown: String, path: VaultPath, range: NSRange? = nil,
                       scope: String = "Whole note", paletteHexByName: [String: String] = [:]) {
         begin(title: path.stem, sourceIdentifier: path.rawValue, scope: scope)
+        markdownRequest = ReadAloudMarkdownRequest(sourceText: markdown, path: path, selectedRange: range,
+                                                  scopeDescription: scope, paletteHexByName: paletteHexByName)
         let identifier = preparationIdentifier
+        let mathematicalStyle = mathematicalStyle
+        let markdownPreparation = markdownPreparation
         preparation = Task { [weak self] in
-            let worker = Task.detached(priority: .userInitiated) {
-                try ReadAloudDocument.markdown(markdown, selectedRange: range, paletteHexByName: paletteHexByName)
+            let worker = Task(priority: .userInitiated) {
+                try await markdownPreparation.prepare(markdown, selectedRange: range, paletteHexByName: paletteHexByName,
+                                                      mathematicalStyle: mathematicalStyle)
             }
             do {
                 let document = try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
                 guard let self, identifier == self.preparationIdentifier, !Task.isCancelled else { return }
                 self.finishPreparing(document)
+            } catch { self?.failed(error, identifier: identifier) }
+        }
+    }
+
+    func chooseMathematicalStyle(_ style: MathematicalSpeechStyle) {
+        guard mathematicalStyle != style else { return }
+        mathematicalStyle = style
+        preferences.set(style.rawValue, forKey: "readAloudMathematicalStyle")
+        guard let request = markdownRequest else { return }
+        readMarkdown(request.sourceText, path: request.path, range: request.selectedRange,
+                     scope: request.scopeDescription, paletteHexByName: request.paletteHexByName)
+    }
+
+    func prepareVoiceSample() async throws -> ReadAloudDocument {
+        try await markdownPreparation.prepare("## A moment to study\n\nRead at a comfortable pace. Pause between ideas, and follow each word. For example, $x^2$ means x squared, and $\\frac{a+b}{c}$ is a fraction.",
+                                              mathematicalStyle: mathematicalStyle)
+    }
+
+    func choosePDFReadingOrder(_ readingOrder: PDFReadingOrder) {
+        guard pdfReadingOrder != readingOrder else { return }
+        pdfReadingOrder = readingOrder
+        preferences.set(readingOrder.rawValue, forKey: "readAloudPDFReadingOrder")
+        guard let pdf = sourcePDF, let request = pdfRequest, let pageIndex = sourcePageIndex else { return }
+        guard sourcePDFRevision == pdf.changeVersion else { documentDidChange(pdf.location.path); return }
+        begin(title: title, sourceIdentifier: pdf.location.path, scope: scopeDescription)
+        sourcePDF = pdf
+        sourcePDFRevision = pdf.changeVersion
+        pdfRequest = request
+        loadPDFPage(pdf, pageIndex: pageIndex, lastPageIndex: request.lastPageIndex, range: request.range)
+    }
+
+    func correctRecognizedPDFWords(_ corrections: [Int: String], pageIdentifier: UUID) {
+        applyRecognizedPDFReview(corrections, words: recognizedWordRange, pageIdentifier: pageIdentifier)
+    }
+
+    func applyRecognizedPDFReview(_ corrections: [Int: String], words: ClosedRange<Int>?, pageIdentifier: UUID) {
+        guard pageIdentifier == recognizedPageIdentifier, let snapshot = recognizedPDFPage,
+              let pdf = sourcePDF, let request = pdfRequest, let pageIndex = sourcePageIndex else { return }
+        guard sourcePDFRevision == pdf.changeVersion else { documentDidChange(pdf.location.path); return }
+        stop()
+        session.clear()
+        errorMessage = nil
+        pdfSource = nil
+        recognizedPageIdentifier = nil
+        isPreparing = true
+        preparationIdentifier = UUID()
+        let identifier = preparationIdentifier
+        let revision = pdf.changeVersion
+        preparation = Task { [weak self] in
+            do {
+                let worker = Task.detached(priority: .userInitiated) { try snapshot.correctingRecognizedWords(corrections) }
+                let corrected = try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
+                guard let self else { return }
+                try await self.preparePDFSnapshot(corrected, pdf: pdf, pageIndex: pageIndex,
+                    lastPageIndex: words == nil ? request.lastPageIndex : pageIndex, range: request.range, playsWhenReady: false,
+                    identifier: identifier, revision: revision, recognizedWords: words)
             } catch { self?.failed(error, identifier: identifier) }
         }
     }
@@ -58,6 +146,8 @@ final class ReadAloudController {
             failed(GraphiteError.unavailable("Page reading for encrypted PDFs is not available yet. Select text in the unlocked PDF and choose Read Selection."), identifier: preparationIdentifier); return
         }
         sourcePDF = pdf
+        sourcePDFRevision = pdf.changeVersion
+        pdfRequest = ReadAloudPDFRequest(lastPageIndex: lastPageIndex, range: nil)
         loadPDFPage(pdf, pageIndex: firstPageIndex, lastPageIndex: lastPageIndex)
     }
 
@@ -73,6 +163,7 @@ final class ReadAloudController {
             source = try PDFReadAloudSource.selection(selection, in: pdf.document)
         } catch { failed(error, identifier: preparationIdentifier); return }
         sourcePDF = pdf
+        sourcePDFRevision = pdf.changeVersion
         let revision = pdf.changeVersion
         let identifier = preparationIdentifier
         preparation = Task { [weak self] in
@@ -90,7 +181,10 @@ final class ReadAloudController {
     func readPDFRange(_ pdf: PDFSession, start: PDFReadAloudEndpoint, end: PDFReadAloudEndpoint? = nil) {
         begin(title: pdf.location.deletingPathExtension().lastPathComponent, sourceIdentifier: pdf.location.path,
               scope: end == nil ? "From selected word to end" : "Chosen start and end")
-        guard pdf.document.allowsCopying, !pdf.document.isEncrypted else {
+        guard pdf.document.allowsCopying else {
+            failed(GraphiteError.unavailable("This PDF does not allow text extraction."), identifier: preparationIdentifier); return
+        }
+        guard !pdf.document.isEncrypted else {
             failed(GraphiteError.unavailable("Choose Read Selection for an unlocked encrypted PDF. Page-range extraction is unavailable."), identifier: preparationIdentifier); return
         }
         guard start.revision == pdf.changeVersion, end == nil || end?.revision == pdf.changeVersion else {
@@ -99,12 +193,18 @@ final class ReadAloudController {
         let lastPageIndex = end?.pageIndex ?? pdf.pageCount - 1
         guard start.pageIndex >= 0, start.pageIndex < pdf.pageCount, start.offset >= 0,
               lastPageIndex >= start.pageIndex, lastPageIndex < pdf.pageCount,
-              end == nil || (end?.offset ?? 0) > 0,
-              lastPageIndex != start.pageIndex || (end?.offset ?? Int.max) > start.offset else {
+              end == nil || (end?.offset ?? 0) > 0 else {
+            failed(ReadAloudError.emptyRange, identifier: preparationIdentifier); return
+        }
+        if pdfReadingOrder == .file, lastPageIndex == start.pageIndex,
+           let end, end.offset <= start.offset {
             failed(ReadAloudError.emptyRange, identifier: preparationIdentifier); return
         }
         sourcePDF = pdf
-        loadPDFPage(pdf, pageIndex: start.pageIndex, lastPageIndex: lastPageIndex, range: PDFReadAloudRange(start: start, end: end))
+        sourcePDFRevision = pdf.changeVersion
+        let range = PDFReadAloudRange(start: start, end: end)
+        pdfRequest = ReadAloudPDFRequest(lastPageIndex: lastPageIndex, range: range)
+        loadPDFPage(pdf, pageIndex: start.pageIndex, lastPageIndex: lastPageIndex, range: range)
     }
 
     func readPDFFromSelection(_ pdf: PDFSession) {
@@ -117,12 +217,18 @@ final class ReadAloudController {
 
     func documentDidChange(_ identifier: String) {
         guard sourceIdentifier == identifier else { return }
+        markdownRequest = nil
+        pdfRequest = nil
+        recognizedPDFPage = nil
+        recognizedPageIdentifier = nil
+        recognizedWordRange = nil
         stop()
         session.clear()
         errorMessage = "The document changed. Choose the passage again to read the current version."
     }
 
     func stop() {
+        stopIdentifier = UUID()
         preparationIdentifier = nil
         preparation?.cancel()
         preparation = nil
@@ -131,7 +237,20 @@ final class ReadAloudController {
         session.stop()
     }
 
-    func clear() { stop(); session.clear(); sourceIdentifier = nil; sourcePageIndex = nil; showsReader = false }
+    func clear() {
+        stop(); session.clear()
+        markdownRequest = nil
+        pdfRequest = nil
+        sourcePDF = nil
+        sourcePDFRevision = nil
+        pdfSource = nil
+        recognizedPDFPage = nil
+        recognizedPageIdentifier = nil
+        recognizedWordRange = nil
+        sourceIdentifier = nil
+        sourcePageIndex = nil
+        showsReader = false
+    }
 
     func continuePDFIfNeeded() {
         guard session.state == .finished, let continuation = pdfContinuation else { return }
@@ -146,11 +265,21 @@ final class ReadAloudController {
 
     func highlights(in pdf: PDFSession) -> [PDFReadAloudHighlight] {
         guard sourcePDF === pdf, session.state == .speaking || session.state == .paused,
+              sourcePDFRevision == pdf.changeVersion,
               let range = session.sourceRange else { return [] }
+        if let view = pdf.pdfView, view.document !== pdf.document { return [] }
         return pdfSource?.highlights(for: range) ?? []
     }
 
     func suspendFollowing() { followsReading = false }
+
+    func suspendFollowing(in identifier: String) {
+        if sourceIdentifier == identifier, session.document != nil { followsReading = false }
+    }
+
+    func shouldFollow(_ path: VaultPath) -> Bool {
+        sourceIdentifier == path.rawValue && followsReading && session.state == .speaking
+    }
 
     func shouldFollow(_ pdf: PDFSession) -> Bool {
         sourcePDF === pdf && followsReading && session.state == .speaking
@@ -164,6 +293,11 @@ final class ReadAloudController {
     /// Explicit navigation leaves manual scrolling alone during narration.
     func showPDFPassage() -> Bool {
         guard canShowPDFPassage, let pdf = sourcePDF, let view = pdf.pdfView else { return false }
+        if let highlight = highlights(in: pdf).first, case .recognizedText = highlight.location,
+           let page = pdf.document.page(at: highlight.pageIndex), let bounds = highlight.pageBounds(in: pdf.document) {
+            view.go(to: bounds.insetBy(dx: -16, dy: -40).intersection(page.bounds(for: view.displayBox)), on: page)
+            return true
+        }
         let selection = PDFSelection(document: pdf.document)
         for highlight in highlights(in: pdf) {
             if let word = highlight.selection(in: pdf.document) { selection.add(word) }
@@ -179,13 +313,19 @@ final class ReadAloudController {
     private func begin(title: String, sourceIdentifier: String, scope: String) {
         stop()
         session.clear()
+        markdownRequest = nil
+        pdfRequest = nil
         self.title = title
         self.sourceIdentifier = sourceIdentifier
         scopeDescription = scope
         sourcePageIndex = nil
         sourcePDF = nil
+        sourcePDFRevision = nil
         pdfSource = nil
         sourceHighlightNotice = nil
+        recognizedPDFPage = nil
+        recognizedPageIdentifier = nil
+        recognizedWordRange = nil
         errorMessage = nil
         isPreparing = true
         showsReader = true
@@ -195,45 +335,74 @@ final class ReadAloudController {
 
     private func loadPDFPage(_ pdf: PDFSession, pageIndex: Int, lastPageIndex: Int,
                              range: PDFReadAloudRange? = nil, playsWhenReady: Bool = false) {
+        guard sourcePDFRevision == pdf.changeVersion else { documentDidChange(pdf.location.path); return }
         let identifier = preparationIdentifier
         let revision = pdf.changeVersion
+        let readingOrder = pdfReadingOrder
         isPreparing = true
         pdfSource = nil
+        recognizedPDFPage = nil
+        recognizedPageIdentifier = nil
+        recognizedWordRange = nil
         sourcePageIndex = pageIndex
         scopeDescription = "Page \(pageIndex + 1) · reading through page \(lastPageIndex + 1)"
         preparation = Task { [weak self] in
             do {
-                let pageText = try await pdf.readAloudText(pageIndex: pageIndex)
-                let worker = Task.detached(priority: .userInitiated) {
-                    let selectedRange: NSRange?
-                    if let range {
-                        let startOffset = pageIndex == range.start.pageIndex ? range.start.offset : 0
-                        let endOffset = pageIndex == range.end?.pageIndex ? range.end?.offset ?? 0 : pageText.utf16.count
-                        guard endOffset > startOffset else { throw ReadAloudError.emptyRange }
-                        selectedRange = NSRange(location: startOffset, length: endOffset - startOffset)
-                    } else { selectedRange = nil }
-                    return try ReadAloudDocument.plainText(pageText, selectedRange: selectedRange)
-                }
-                let document = try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
-                guard let self, identifier == self.preparationIdentifier, !Task.isCancelled else { return }
-                guard revision == pdf.changeVersion else { self.documentDidChange(pdf.location.path); return }
-                guard !document.passages.isEmpty else { throw ReadAloudError.noReadableText }
-                // The export is read off the main actor. Verify its coordinates
-                // against this one live page before permitting source highlights.
-                if let page = pdf.document.page(at: pageIndex), page.numberOfCharacters == pageText.utf16.count, page.string == pageText {
-                    self.pdfSource = .page(pageText, pageIndex: pageIndex)
-                    self.sourceHighlightNotice = nil
-                } else {
-                    if range != nil { throw ReadAloudError.sourceMappingUnavailable }
-                    self.sourceHighlightNotice = "This page’s text positions could not be matched safely. Follow the highlighted transcript instead."
-                }
-                if pageIndex < lastPageIndex {
-                    self.pdfContinuation = { [weak self, pdf] in self?.loadPDFPage(pdf, pageIndex: pageIndex + 1, lastPageIndex: lastPageIndex, range: range, playsWhenReady: true) }
-                }
-                self.finishPreparing(document)
-                if playsWhenReady { self.session.play() }
+                let pageSnapshot = try await pdf.readAloudPage(pageIndex: pageIndex, readingOrder: readingOrder)
+                guard let self else { return }
+                try await self.preparePDFSnapshot(pageSnapshot, pdf: pdf, pageIndex: pageIndex, lastPageIndex: lastPageIndex,
+                    range: range, playsWhenReady: playsWhenReady, identifier: identifier, revision: revision)
             } catch { self?.failed(error, identifier: identifier) }
         }
+    }
+
+    private func preparePDFSnapshot(_ snapshot: PDFReadAloudPage, pdf: PDFSession, pageIndex: Int, lastPageIndex: Int,
+                                    range: PDFReadAloudRange?, playsWhenReady: Bool, identifier: UUID?, revision: Int,
+                                    recognizedWords: ClosedRange<Int>? = nil) async throws {
+        guard identifier == preparationIdentifier, !Task.isCancelled else { return }
+        let worker = Task.detached(priority: .userInitiated) {
+            let selectedRange: NSRange?
+            if let recognizedWords {
+                selectedRange = try snapshot.recognizedTextRange(words: recognizedWords)
+            } else if let range {
+                selectedRange = try snapshot.selectedRange(startOffset: pageIndex == range.start.pageIndex ? range.start.offset : nil,
+                    endOffset: pageIndex == range.end?.pageIndex ? range.end?.offset : nil)
+            } else { selectedRange = nil }
+            return try ReadAloudDocument.plainText(snapshot.text, selectedRange: selectedRange)
+        }
+        let document = try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
+        guard identifier == preparationIdentifier, !Task.isCancelled else { return }
+        guard revision == pdf.changeVersion else { documentDidChange(pdf.location.path); return }
+        guard let page = pdf.document.page(at: pageIndex), !document.passages.isEmpty else { throw ReadAloudError.noReadableText }
+        let hasSafeCoordinates: Bool
+        if let recognition = snapshot.recognition {
+            hasSafeCoordinates = page.bounds(for: .mediaBox) == recognition.geometry.mediaBounds && page.bounds(for: .cropBox) == recognition.geometry.cropBounds &&
+                page.rotation == recognition.geometry.rotation
+            recognizedPDFPage = snapshot
+            recognizedPageIdentifier = UUID()
+            recognizedWordRange = recognizedWords
+            if let recognizedWords {
+                scopeDescription = "Page \(pageIndex + 1) · words \(recognizedWords.lowerBound + 1)–\(recognizedWords.upperBound + 1)"
+                pdfRequest = ReadAloudPDFRequest(lastPageIndex: pageIndex, range: nil)
+            }
+        } else {
+            hasSafeCoordinates = page.numberOfCharacters == snapshot.originalText.utf16.count && page.string == snapshot.originalText
+        }
+        if hasSafeCoordinates {
+            pdfSource = .page(snapshot, pageIndex: pageIndex)
+            sourceHighlightNotice = snapshot.layoutNotice
+        } else {
+            if range != nil { throw ReadAloudError.sourceMappingUnavailable }
+            sourceHighlightNotice = "This page’s text positions could not be matched safely. Follow the highlighted transcript instead."
+        }
+        if pageIndex < lastPageIndex {
+            pdfContinuation = { [weak self, pdf] in self?.loadPDFPage(pdf, pageIndex: pageIndex + 1, lastPageIndex: lastPageIndex,
+                range: range, playsWhenReady: true) }
+        }
+        finishPreparing(document)
+        // Recognized text has not been reviewed simply because the previous page
+        // finished. Each scan waits for an explicit Play after preparation.
+        if playsWhenReady && snapshot.recognition == nil { session.play() }
     }
 
     private func finishPreparing(_ document: ReadAloudDocument) {
@@ -252,20 +421,10 @@ final class ReadAloudController {
     }
 }
 
-private actor PDFReadAloudExtraction {
-    func text(in bytes: Data) throws -> String {
-        try Task.checkCancellation()
-        guard let document = PDFDocument(data: bytes), let page = document.page(at: 0), let text = page.string,
-              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ReadAloudError.noReadableText }
-        guard text.utf16.count <= ReadAloudDocument.maximumSourceUTF16Count else { throw ReadAloudError.passageTooLarge }
-        return text
-    }
-}
-
 extension PDFSession {
-    func readAloudText(pageIndex: Int) async throws -> String {
+    func readAloudPage(pageIndex: Int, readingOrder: PDFReadingOrder) async throws -> PDFReadAloudPage {
         guard document.allowsCopying else { throw GraphiteError.unavailable("This PDF does not allow text extraction.") }
         let pageBytes = try await export(pages: [pageIndex])
-        return try await PDFReadAloudExtraction().text(in: pageBytes)
+        return try await PDFReadAloudExtraction().page(in: pageBytes, readingOrder: readingOrder)
     }
 }

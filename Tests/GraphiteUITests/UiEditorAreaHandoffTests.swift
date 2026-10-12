@@ -78,7 +78,7 @@ final class UiEditorAreaHandoffTests: XCTestCase {
         let text = "Intro\n"
         let session = try await makeSession(text: text)
         let coordinator = NativeMarkdownEditor.Coordinator(session: session, configuration: EditorConfiguration())
-        let scrollView = MarkdownMacTextView.scrollableTextView()
+        let scrollView = MarkdownMacTextView.makeScrollableTextView()
         let textView = try XCTUnwrap(scrollView.documentView as? MarkdownMacTextView)
         textView.isRichText = false
         textView.allowsUndo = true

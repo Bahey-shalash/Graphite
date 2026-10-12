@@ -145,6 +145,32 @@ Added after running it in the simulators, on 2026-10-06 and 2026-10-07, at the o
 
 Still to judge on a device: the sharper PDF ink with an Apple Pencil, and its memory at three times a page's size; scrolling and opening notes on an iPhone (in the simulator a 54 KB note slid in 35 ms after the touch, and the main thread was busy 74 ms over 12 seconds of flicking, figures from a fast Mac); hold-to-shape (0.45 seconds at rest after a stroke of 24 points), which may catch pauses in handwriting and is unchanged until it can be tried with a Pencil. Read mode draws PDF ink 16 to 29% heavier than Write mode, older than this increment: the saved outlines take PencilKit's point sizes, which PencilKit does not draw at in full.
 
+## Requested on 2026-10-12: a laser pointer and a better lasso
+
+Added at the user's request, with Goodnotes 6 as the reference. Planned, not implemented.
+
+### 1. Laser pointer
+
+A tool for pointing at a page while presenting or sharing the screen, on the fixed bar and in the floating palette beside Select Ink, with two kinds chosen from its button and remembered:
+
+- **Dot:** a glowing red dot under the Pencil or finger that follows it and is gone when it lifts.
+- **Line:** a red trail that fades a moment after it is drawn.
+
+It works on PDF pages, embedded PDFs and drawings, never changes the document, takes no step in the undo history, and leaves nothing in the saved file. Check it on an external display or with AirPlay mirroring, and with Pencil hover.
+
+### 2. A lasso like Goodnotes'
+
+Graphite's lasso (`InkSelectionController`) takes only ink, with a freehand loop or a tap. Add:
+
+- **Lasso type:** Rectangular (a box dragged from corner to corner) besides Freehand, chosen from the lasso's button and remembered.
+- **Included in selection:** switches for what the lasso takes. Today that means handwriting and pictures: pictures are selected apart from ink (a finger tap, or "Move or Resize Images"), and one selection should move, resize and delete both together as one undo step. Shapes and arrows are saved as ordinary strokes, so telling them apart from handwriting needs them marked when they are made, in a way standard viewers ignore. Text boxes, equations, tape and sticky notes have no counterpart in Graphite; their switches come with them.
+
+### 3. A loop that can be seen
+
+The user cannot see the lasso's loop while drawing it. It is a thin dashed line in the interface's label color at 70% (`InkSelectionController.showLoop`); the likely cause, not yet confirmed in the running app, is that in dark mode this resolves to a light grey on a white page. Its dashes are also not scaled with a zoomed-out PDF page. Draw it in a color that stands out from the paper under it whatever the interface's appearance (for example a dark dash with a light edge, or the accent color with a faint fill of the enclosed area as in Goodnotes), at a width and dash length that stay constant on screen.
+
+Completion evidence: the pointer and both lasso types tried with a Pencil and a finger on a device, in light and dark mode, on white and colored paper and on a zoomed-out PDF page; undo and save/reopen checks for selections that mix ink and pictures; saved files unchanged by the pointer.
+
 ## Remaining: coherent workspace design
 
 Continue reviewing the Markdown workspace, PDF notebook workspace, and drawing editor together: typography, icon weights, popovers, menus, selection states, and light/dark appearance beyond the toolbars. Check landscape, Split View and Slide Over widths in the running app (the control-row threshold is estimated from portrait layouts), Dynamic Type extremes, hardware-keyboard use including ⌘Z for PDFs, and left- and right-handed writing. Extend accessibility validation of the shared controls and focus mode.

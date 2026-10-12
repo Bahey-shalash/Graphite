@@ -70,14 +70,19 @@ struct MarkdownPane: View {
                                 },
                                 blocksCache: session.readingBlocksCache, savedPosition: session.readingPosition,
                                 takeStartingLocation: { [session] in session.takeReadingStartLocation() },
-                                toggleTask: { [session] note, location in await workspace.toggleReadingTask(at: location, in: note, shownBy: session) })
+                                toggleTask: { [session] note, location in await workspace.toggleReadingTask(at: location, in: note, shownBy: session) },
+                                readAloudRange: workspace.readAloud.highlight(in: session.path),
+                                followsReading: workspace.readAloud.shouldFollow(session.path),
+                                suspendReadingFollow: { workspace.readAloud.suspendFollowing(in: session.path.rawValue) })
                 .environment(\.readingImageActions, ReadingImageActions(providerIdentity: ObjectIdentifier(workspace),
                                                                         viewImage: viewImage, editDrawing: drawingEditor, drawOnImage: imageDrawing))
             } else {
                 NativeMarkdownEditor(session: session, configuration: editorConfiguration, environment: livePreviewEnvironment,
                                      headingScrollRequest: document.headingScrollRequest, actions: editorActions,
                                      retention: workspace.markdownEditorRetention, retentionOwner: document,
-                                     readAloudRange: workspace.readAloud.highlight(in: session.path)) { target, isWiki in
+                                     readAloudRange: workspace.readAloud.highlight(in: session.path),
+                                     followsReading: workspace.readAloud.shouldFollow(session.path),
+                                     suspendReadingFollow: { workspace.readAloud.suspendFollowing(in: session.path.rawValue) }) { target, isWiki in
                     follow(target, isWiki: isWiki)
                 }
                 .overlay(alignment: .topLeading) { completionPopup }
@@ -192,7 +197,9 @@ struct MarkdownPane: View {
         ReadingConfiguration(usesReadableLineLength: preferences.usesReadableLineLength, usesStrictLineBreaks: workspace.vaultSettings.usesStrictLineBreaks,
                              colorsEnabled: preferences.isEnabled(.colors), paletteHexByName: paletteHexByName,
                              showsProperties: preferences.isEnabled(.properties), declaredPropertyTypes: session.declaredPropertyTypes, inlineTitle: inlineTitle,
-                             textSize: noteTextSize, drawingVersion: workspace.drawingVersion, indexVersion: workspace.indexVersion)
+                             textSize: noteTextSize, drawingVersion: workspace.drawingVersion, indexVersion: workspace.indexVersion,
+                             mapsReadAloudSourceLocations: workspace.readAloud.sourceIdentifier == session.path.rawValue
+                                && (workspace.readAloud.isPreparing || workspace.readAloud.session.document != nil))
     }
 
     /// The note's name above its text, written as the tab and the title bar write it, so the
@@ -278,7 +285,8 @@ struct MarkdownPane: View {
             baseContext: workspace.baseEmbedContext(for: notePath),
             viewImage: viewImage, editDrawing: drawingEditor, drawOnImage: imageDrawing, indexVersion: workspace.indexVersion,
             // Reading view's column, a little wider than Live Preview's, bounds the decode.
-            embeddedImageColumnWidth: preferences.usesReadableLineLength ? ReadingConfiguration.readableColumnWidth : nil)
+            embeddedImageColumnWidth: preferences.usesReadableLineLength ? ReadingConfiguration.readableColumnWidth : nil,
+            readingContext: LivePreviewReadingContext(controller: workspace.readAloud, path: session.path))
     }
 
     /// Opens a drawing in the editor, where the platform and preferences allow it.

@@ -7,6 +7,7 @@ public struct ReadAloudSpan: Equatable, Sendable {
     public let speechRange: NSRange
     public let sourceRange: NSRange
     public let isVerbatim: Bool
+    public var isEquation: Bool = false
 
     public func sourceRange(for spokenRange: NSRange) -> NSRange? {
         let overlap = NSIntersectionRange(speechRange, spokenRange)
@@ -49,7 +50,8 @@ public struct ReadAloudDocument: Equatable, Sendable {
     /// Parses the whole note before filtering a range, so a selection inside code,
     /// frontmatter, or a hidden comment cannot accidentally narrate private metadata.
     public static func markdown(_ source: String, selectedRange: NSRange? = nil,
-                                paletteHexByName: [String: String] = [:]) throws -> ReadAloudDocument {
+                                paletteHexByName: [String: String] = [:],
+                                mathematicalSpeech: (String) throws -> String? = MathSpeech.expression) throws -> ReadAloudDocument {
         let original = source as NSString
         guard original.length <= maximumSourceUTF16Count else { throw ReadAloudError.passageTooLarge }
         guard !MarkdownNesting.exceedsSafeDepth(source) else { throw ReadAloudError.excessiveNesting }
@@ -102,7 +104,7 @@ public struct ReadAloudDocument: Equatable, Sendable {
             let delimiter = writtenMath.hasPrefix("$$") ? "$$" : "$"
             let hasClosingDelimiter = writtenMath.count >= delimiter.count * 2 && writtenMath.hasPrefix(delimiter) && writtenMath.hasSuffix(delimiter)
             let expression = hasClosingDelimiter ? String(writtenMath.dropFirst(delimiter.count).dropLast(delimiter.count)) : ""
-            let speech = hasClosingDelimiter ? MathSpeech.expression(expression) : nil
+            let speech = hasClosingDelimiter ? try mathematicalSpeech(expression) : nil
             if speech == nil { notices.insert("Some equations are not supported yet. They are announced rather than guessed.") }
             let marker = Character(scalar)
             mathByMarker[marker] = (speech ?? "Equation not yet supported.", range)
@@ -174,7 +176,7 @@ public struct ReadAloudDocument: Equatable, Sendable {
             passageUTF16Count = 0
             passageSpans = []
         }
-        func append(_ text: String, sourceRange: NSRange, isVerbatim: Bool) throws {
+        func append(_ text: String, sourceRange: NSRange, isVerbatim: Bool, isEquation: Bool = false) throws {
             let overlap = NSIntersectionRange(sourceRange, requestedRange)
             guard overlap.length > 0 else { return }
             var spokenText = text
@@ -192,7 +194,7 @@ public struct ReadAloudDocument: Equatable, Sendable {
                 passageSpans[passageSpans.count - 1] = ReadAloudSpan(speechRange: NSUnionRange(lastSpan.speechRange, speechRange),
                                                                   sourceRange: NSUnionRange(lastSpan.sourceRange, spokenSourceRange), isVerbatim: true)
             } else {
-                passageSpans.append(ReadAloudSpan(speechRange: speechRange, sourceRange: spokenSourceRange, isVerbatim: isVerbatim))
+                passageSpans.append(ReadAloudSpan(speechRange: speechRange, sourceRange: spokenSourceRange, isVerbatim: isVerbatim, isEquation: isEquation))
             }
             passageText += spokenText
             passageUTF16Count += speechRange.length
@@ -249,7 +251,7 @@ public struct ReadAloudDocument: Equatable, Sendable {
                     hasExactMapping = true
                 }
                 if let math = mathByMarker[character] {
-                    try append(math.speech, sourceRange: math.sourceRange, isVerbatim: false)
+                    try append(math.speech, sourceRange: math.sourceRange, isVerbatim: false, isEquation: true)
                 } else if character != "\u{2060}" {
                     guard hasExactMapping else { throw ReadAloudError.sourceMappingUnavailable }
                     try append(characterText, sourceRange: mappedRange, isVerbatim: isVerbatim)
@@ -306,7 +308,7 @@ public struct ReadAloudDocument: Equatable, Sendable {
                     let overlap = NSIntersectionRange(span.speechRange, trimmedRange)
                     guard overlap.length > 0, let sourceRange = span.sourceRange(for: overlap) else { return nil }
                     return ReadAloudSpan(speechRange: NSRange(location: overlap.location - trimmedRange.location, length: overlap.length),
-                                         sourceRange: sourceRange, isVerbatim: span.isVerbatim)
+                                         sourceRange: sourceRange, isVerbatim: span.isVerbatim, isEquation: span.isEquation)
                 }
                 passages.append(ReadAloudPassage(id: startingIdentifier + passages.count, text: trimmed, spans: chunkSpans))
             }
@@ -322,12 +324,12 @@ public enum ReadAloudError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .emptyRange: "Choose a non-empty passage within this document."
-        case .noReadableText: "There is no readable text in this passage. Scanned pages need text recognition first."
+        case .noReadableText: "No readable text was found in this passage. Try a clearer page or another passage."
         case .passageTooLarge: "This document or passage exceeds the reader’s current size limit."
         case .excessiveNesting: "This note is nested too deeply to read safely. Choose a simpler passage."
         case .partialEquation: "Select the complete equation so it can be read accurately."
         case .partialFormattedText: "This selection cuts through escaped or formatted text. Select the complete passage."
-        case .sourceMappingUnavailable: "The reader cannot safely follow this note’s formatting yet. Choose a simpler passage or use plain text."
+        case .sourceMappingUnavailable: "The reader could not safely match this passage to its source. Choose another passage or use the transcript."
         }
     }
 }

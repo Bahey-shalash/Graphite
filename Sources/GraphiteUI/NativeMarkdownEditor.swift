@@ -9,6 +9,7 @@ import UIKit
 /// hosts Live Preview's rendered blocks.
 final class MarkdownTextView: UITextView {
     var readAloudRange: NSRange? { didSet { if readAloudRange != oldValue { setNeedsLayout() } } }
+    var followsReading = false { didSet { if followsReading != oldValue { setNeedsLayout() } } }
     private var readAloudHighlights: [UIView] = []
     static let readableColumnWidth: CGFloat = 740
     static let minimumHorizontalInset: CGFloat = 28
@@ -94,6 +95,9 @@ final class MarkdownTextView: UITextView {
             return
         }
         let frames = selectionRects(for: textRange).map(\.rect).filter { frame in frame.width > 0 && frame.height > 0 }
+        if followsReading, window != nil, let frame = frames.first, !bounds.insetBy(dx: 0, dy: 40).contains(frame) {
+            scrollRectToVisible(frame.insetBy(dx: -16, dy: -40), animated: false)
+        }
         guard readAloudHighlights.map(\.frame) != frames else { return }
         readAloudHighlights.forEach { highlight in highlight.removeFromSuperview() }
         readAloudHighlights.removeAll(keepingCapacity: true)
@@ -415,10 +419,13 @@ struct NativeMarkdownEditor: UIViewRepresentable {
     /// The tab the note is open in, which decides whether a kept editor is still wanted.
     var retentionOwner: TabDocument?
     var readAloudRange: NSRange?
+    var followsReading = false
+    var suspendReadingFollow: (() -> Void)?
 
     init(session: MarkdownSession, configuration: EditorConfiguration, environment: LivePreviewEnvironment? = nil,
          headingScrollRequest: HeadingScrollRequest?, actions: EditorActions = EditorActions(),
-         retention: MarkdownEditorRetention? = nil, retentionOwner: TabDocument? = nil, readAloudRange: NSRange? = nil, follow: @escaping (String, Bool) -> Void) {
+         retention: MarkdownEditorRetention? = nil, retentionOwner: TabDocument? = nil, readAloudRange: NSRange? = nil,
+         followsReading: Bool = false, suspendReadingFollow: (() -> Void)? = nil, follow: @escaping (String, Bool) -> Void) {
         self.session = session
         self.configuration = configuration
         self.environment = environment
@@ -427,6 +434,8 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         self.retention = retention
         self.retentionOwner = retentionOwner
         self.readAloudRange = readAloudRange
+        self.followsReading = followsReading
+        self.suspendReadingFollow = suspendReadingFollow
         self.follow = follow
     }
 
@@ -544,6 +553,8 @@ struct NativeMarkdownEditor: UIViewRepresentable {
     private func update(_ textView: MarkdownTextView, coordinator: Coordinator) {
         coordinator.session = session
         textView.readAloudRange = readAloudRange
+        textView.followsReading = followsReading
+        coordinator.suspendReadingFollow = suspendReadingFollow
         let previousBlockPolicy = coordinator.renderedBlockPolicy
         coordinator.environment = environment
         coordinator.follow = follow
@@ -646,6 +657,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         /// Set while a second viewport layout is waiting, so layout passes do not ask for more.
         private var isViewportRelayoutPending = false
         var actions = EditorActions()
+        var suspendReadingFollow: (() -> Void)?
         /// Which optional keyboard toolbar buttons exist; the toolbar is rebuilt when this changes.
         private var keyboardToolbarButtons: KeyboardToolbarButtons?
         /// Set while Graphite changes the text itself, so its own change is not rewritten again.
@@ -1692,6 +1704,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
 
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
             pinnedHeading = nil
+            suspendReadingFollow?()
         }
 
         /// The view on screen for a block, else the one kept since it was last on screen,
@@ -2208,7 +2221,36 @@ import AppKit
 /// items dragged from the sidebar become links, and a click on a link whose markup is
 /// concealed follows it, as on the iPad.
 final class MarkdownMacTextView: NSTextView {
+    /// The inherited convenience factory currently creates TextKit 1. Source
+    /// highlights and native geometry require an explicitly owned TextKit 2 view.
+    static func makeScrollableTextView() -> NSScrollView {
+        let textView = MarkdownMacTextView(usingTextLayoutManager: true)
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        textView.minSize = .zero
+        textView.maxSize = CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = .width
+        textView.textContainer?.containerSize = CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+        textView.textContainer?.widthTracksTextView = true
+        scrollView.documentView = textView
+        return scrollView
+    }
+
     var readAloudRange: NSRange? { didSet { if readAloudRange != oldValue { needsDisplay = true } } }
+    var suspendReadingFollow: (() -> Void)?
+
+    func followReadingRange() {
+        guard window != nil, let range = readAloudRange, range.location >= 0, range.length > 0,
+              let textStorage, range.location <= textStorage.length, range.length <= textStorage.length - range.location else { return }
+        scrollRangeToVisible(range)
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        suspendReadingFollow?()
+        super.scrollWheel(with: event)
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
@@ -2451,13 +2493,16 @@ struct NativeMarkdownEditor: NSViewRepresentable {
     var retention: MarkdownEditorRetention?
     var retentionOwner: TabDocument?
     var readAloudRange: NSRange?
+    var followsReading = false
+    var suspendReadingFollow: (() -> Void)?
 
     /// Rendered blocks are iPad-only, so the Mac does not use `environment`; it is accepted
     /// so both editors share one call. The Mac has no keyboard toolbar either: of `actions`,
     /// it uses pasting, dropping, following links elsewhere, and focusing the note's side.
     init(session: MarkdownSession, configuration: EditorConfiguration, environment: LivePreviewEnvironment? = nil,
          headingScrollRequest: HeadingScrollRequest?, actions: EditorActions = EditorActions(),
-         retention: MarkdownEditorRetention? = nil, retentionOwner: TabDocument? = nil, readAloudRange: NSRange? = nil, follow: @escaping (String, Bool) -> Void) {
+         retention: MarkdownEditorRetention? = nil, retentionOwner: TabDocument? = nil, readAloudRange: NSRange? = nil,
+         followsReading: Bool = false, suspendReadingFollow: (() -> Void)? = nil, follow: @escaping (String, Bool) -> Void) {
         self.session = session
         self.configuration = configuration
         self.headingScrollRequest = headingScrollRequest
@@ -2465,6 +2510,8 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         self.retention = retention
         self.retentionOwner = retentionOwner
         self.readAloudRange = readAloudRange
+        self.followsReading = followsReading
+        self.suspendReadingFollow = suspendReadingFollow
         self.follow = follow
     }
 
@@ -2491,7 +2538,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
     }
 
     private func makeScrollView(coordinator: Coordinator) -> NSScrollView {
-        let scrollView = MarkdownMacTextView.scrollableTextView()
+        let scrollView = MarkdownMacTextView.makeScrollableTextView()
         guard let textView = scrollView.documentView as? MarkdownMacTextView else { return scrollView }
         coordinator.actions = actions
         coordinator.follow = follow
@@ -2536,6 +2583,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         coordinator.follow = follow
         guard let textView = scrollView.documentView as? NSTextView else { return }
         (textView as? MarkdownMacTextView)?.readAloudRange = readAloudRange
+        (textView as? MarkdownMacTextView)?.suspendReadingFollow = suspendReadingFollow
         if coordinator.configuration != configuration {
             coordinator.configuration = configuration
             coordinator.restyleEverything(in: textView)
@@ -2555,6 +2603,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             }
         }
         coordinator.performPendingJumpIfReady(in: textView)
+        if followsReading { (textView as? MarkdownMacTextView)?.followReadingRange() }
     }
 
     static func dismantleNSView(_ container: MarkdownEditorContainerView, coordinator: Coordinator) {
