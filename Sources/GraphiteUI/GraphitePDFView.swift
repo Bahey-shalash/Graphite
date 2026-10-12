@@ -424,7 +424,7 @@ final class PDFPageCanvasView: HistoryCanvasView {
     /// its zoom instead, and a stroke is as wide on the page at any zoom of the PDF, as on
     /// paper. Inks with a narrow range (pen, pencil, highlighter) stop at their widest.
     override func toolForDrawing(_ chosenTool: PKTool) -> PKTool {
-        Self.tool(chosenTool, scaledBy: zoomScale)
+        Self.tool(super.toolForDrawing(chosenTool), scaledBy: zoomScale)
     }
 
     /// Draws with the chosen tool at the canvas's new zoom.
@@ -1039,6 +1039,10 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     }
 
     // MARK: Drawing
+
+    func canvasViewDidFinishRendering(_ canvasView: PKCanvasView) {
+        (canvasView as? HistoryCanvasView)?.drawingDidFinishRendering()
+    }
 
     func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
         guard let canvas = canvasView as? PDFPageCanvasView, !canvas.isShowingWithoutRecording, let page = canvas.page,
