@@ -54,26 +54,40 @@ public struct OnDeviceSpeechAlignment: ReadAloudSpeechAligning {
 
     @available(iOS 26, macOS 26, *)
     private static func transcribe(_ audioFile: URL, language: String) async throws -> [ReadAloudRecognizedWord] {
-        guard SpeechTranscriber.isAvailable else { throw Failure.transcriberUnavailable }
         // "en" alone matched Singapore English on a Mac; a region is added from the device
         // when it speaks the language, otherwise the language's main region.
-        guard let locale = await SpeechTranscriber.supportedLocale(equivalentTo: Self.regionalLocale(for: language)) else {
-            throw Failure.unsupportedLanguage(language)
+        let requested = Self.regionalLocale(for: language)
+        if SpeechTranscriber.isAvailable {
+            guard let locale = await SpeechTranscriber.supportedLocale(equivalentTo: requested) else {
+                throw Failure.unsupportedLanguage(language)
+            }
+            let transcriber = SpeechTranscriber(locale: locale, transcriptionOptions: [], reportingOptions: [], attributeOptions: [.audioTimeRange])
+            return try await analyze(audioFile, module: transcriber, results: transcriber.results.map(\.text))
         }
-        let transcriber = SpeechTranscriber(locale: locale, transcriptionOptions: [], reportingOptions: [], attributeOptions: [.audioTimeRange])
+        // Devices without the newer transcription model still have dictation's, which also
+        // reports when each word was said.
+        guard let locale = await DictationTranscriber.supportedLocale(equivalentTo: requested) else {
+            throw Failure.transcriberUnavailable
+        }
+        let transcriber = DictationTranscriber(locale: locale, contentHints: [], transcriptionOptions: [], reportingOptions: [], attributeOptions: [.audioTimeRange])
+        return try await analyze(audioFile, module: transcriber, results: transcriber.results.map(\.text))
+    }
+
+    @available(iOS 26, macOS 26, *)
+    private static func analyze<Results: AsyncSequence>(_ audioFile: URL, module: any SpeechModule, results: Results) async throws
+        -> [ReadAloudRecognizedWord] where Results.Element == AttributedString {
         // The recognition model for a language is a system download shared by every app; it is
         // fetched once if missing, from Apple, like a keyboard dictionary.
-        if let installation = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
+        if let installation = try await AssetInventory.assetInstallationRequest(supporting: [module]) {
             try await installation.downloadAndInstall()
         }
         let file = try AVAudioFile(forReading: audioFile)
-        let analyzer = try await SpeechAnalyzer(inputAudioFile: file, modules: [transcriber], finishAfterFile: true)
+        let analyzer = try await SpeechAnalyzer(inputAudioFile: file, modules: [module], finishAfterFile: true)
         var words: [ReadAloudRecognizedWord] = []
-        for try await result in transcriber.results {
-            for run in result.text.runs {
+        for try await text in results {
+            for run in text.runs {
                 guard let timeRange = run.audioTimeRange else { continue }
-                let text = String(result.text[run.range].characters)
-                words += split(text, start: timeRange.start.seconds, end: timeRange.end.seconds)
+                words += split(String(text[run.range].characters), start: timeRange.start.seconds, end: timeRange.end.seconds)
             }
         }
         _ = analyzer
