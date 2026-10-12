@@ -1301,6 +1301,31 @@
             workspace.notifyLeavesChanged();
             return { isOpened: true, leafIdentifier: leaf.id };
         },
+        /// Opens a view Graphite showed when it last closed (a tab's or a sidebar panel's), from
+        /// the type and state the view gave then, as Obsidian restores its workspace. Nothing
+        /// opens when no plugin shows that type now.
+        async 'view.restore'(message) {
+            const app = runtime.app;
+            if (!app || !message.viewType || message.viewType === 'markdown' || message.viewType === 'empty') return { isOpened: false };
+            const workspace = app.workspace;
+            if (!workspace.viewCreatorsByType.has(message.viewType)) return { isOpened: false };
+            let state = {};
+            try { state = message.state ? JSON.parse(message.state) : {}; } catch (error) { state = {}; }
+            const leaf = workspace.createPluginLeaf(message.placement === 'left' || message.placement === 'right' ? message.placement : 'tab');
+            // Graphite puts the view back in its tab or panel itself; the leaf does not ask to be shown.
+            leaf.hasBeenShown = true;
+            try {
+                await leaf.setViewState({ type: message.viewType, state, active: false });
+            } catch (error) {
+                console.error('Graphite could not restore a “' + message.viewType + '” view.', error);
+            }
+            if (leaf.view.getViewType() !== message.viewType) {
+                leaf.detach();
+                return { isOpened: false };
+            }
+            workspace.notifyLeavesChanged();
+            return { isOpened: true, leafIdentifier: leaf.id };
+        },
         async 'vault.configuration'(message) {
             runtime.app.vault.configuration = message.configuration || {};
             if (message.corePlugins) runtime.app.internalPlugins.configure(message.corePlugins);

@@ -47,6 +47,8 @@ struct CommunityPluginView: Identifiable, Equatable {
     var isLive = false
     /// The file a live view shows, so opening the file again brings its tab forward.
     var filePath: String?
+    /// The view's state as JSON (`getState`), kept so the view opens again after a restart.
+    var state: String?
 }
 
 /// A plugin asked to show one of its views in the sidebar; the token tells two requests
@@ -180,6 +182,13 @@ final class CommunityPluginHost {
     private(set) var panelTitle = ""
     /// The plugin view the sidebar should show, as a plugin asked (`revealLeaf`).
     var sidebarViewRequest: CommunityPluginSidebarRequest?
+    /// The plugin view the sidebar shows instead of one of Graphite's panels; nil for those.
+    var shownSidebarViewIdentifier: String? {
+        didSet { if shownSidebarViewIdentifier != oldValue { workspace?.pluginViewsDidChange() } }
+    }
+    /// Whether the views open when Graphite last closed were opened again in this run; until
+    /// then the saved layout keeps them as they were saved.
+    @ObservationIgnored var hasRestoredViews = false
     /// The plugin whose options another part of the interface should show (`app.setting.openTabById`).
     var requestedSettingsPlugin: String?
     private(set) var isRuntimeRunning = false
@@ -387,6 +396,8 @@ final class CommunityPluginHost {
         }
         guard webView === pluginWebView else { return }
         _ = try? await send(["operation": "plugins.layoutReady"])
+        guard webView === pluginWebView else { return }
+        await workspace.restorePluginViews()
         activeDocumentDidChange()
     }
 
@@ -501,6 +512,8 @@ final class CommunityPluginHost {
         commands = []
         ribbonActions = []
         pluginViews = []
+        hasRestoredViews = false
+        shownSidebarViewIdentifier = nil
         pluginsWithSettings = []
         codeBlockLanguages = []
         codeBlockLanguageOwners = [:]
@@ -919,9 +932,9 @@ final class CommunityPluginHost {
                 guard let identifier = view["leafIdentifier"] as? String else { return nil }
                 return CommunityPluginView(id: identifier, title: view["title"] as? String ?? "", viewType: view["viewType"] as? String ?? "",
                                            icon: view["icon"] as? String ?? "", placement: CommunityPluginView.Placement(rawValue: view["placement"] as? String ?? "") ?? .tab,
-                                           isLive: view["isLive"] as? Bool == true, filePath: view["filePath"] as? String)
+                                           isLive: view["isLive"] as? Bool == true, filePath: view["filePath"] as? String, state: view["state"] as? String)
             }
-            workspace?.forgetClosedPluginViews(keeping: Set(pluginViews.map(\.id)))
+            workspace?.pluginViewsDidChange()
         case "view.reveal":
             guard let identifier = message["leafIdentifier"] as? String else { return }
             revealView(identifier)

@@ -74,8 +74,12 @@ struct VaultSidebar: View {
 
     /// The chosen panel, or the file list when its plugin was turned off.
     private var panel: SidebarPanel { availablePanels.contains(storedPanel) ? storedPanel : .files }
-    /// A community plugin's view chosen in the picker, shown in place of Graphite's panels.
-    @State private var chosenPluginView: String?
+    /// A community plugin's view chosen in the picker, shown in place of Graphite's panels,
+    /// kept by the plugin host so it is saved with the layout and shown again after a restart.
+    private var chosenPluginView: String? {
+        get { workspace.communityPlugins.shownSidebarViewIdentifier }
+        nonmutating set { workspace.communityPlugins.shownSidebarViewIdentifier = newValue }
+    }
     private var shownPluginView: CommunityPluginView? {
         chosenPluginView.flatMap(workspace.communityPlugins.pluginView(withIdentifier:)).flatMap { view in view.placement == .sidebar ? view : nil }
     }

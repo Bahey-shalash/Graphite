@@ -229,6 +229,27 @@ final class TabLayoutTests: XCTestCase {
         XCTAssertNil(nothingLeft.activeTab.path)
     }
 
+    func testEmptyTabsKeepThePluginViewsTheyShowed() throws {
+        let drawing = SavedTabLayout.PluginView(viewType: "excalidraw", state: #"{"file":"Drawing.excalidraw.md"}"#)
+        var saved = SavedTabLayout(groups: [SavedTabLayout.Group(tabs: [SavedTabLayout.Tab(path: "Gone.md", isPinned: false),
+                                                                        SavedTabLayout.Tab(path: nil, isPinned: false, pluginView: drawing),
+                                                                        SavedTabLayout.Tab(path: nil, isPinned: false)], activeTabIndex: 1)],
+                                   focusedGroupIndex: 0, splitFraction: 0.5)
+        saved.sidebarPluginViews = [SavedTabLayout.PluginView(viewType: "notebook-navigator", state: "{}")]
+        saved.shownSidebarPluginViewType = "notebook-navigator"
+        let decoded = try JSONDecoder().decode(SavedTabLayout.self, from: try JSONEncoder().encode(saved))
+        XCTAssertEqual(decoded, saved)
+        let restored = TabLayout(saved: decoded) { _ in false }
+        XCTAssertEqual(restored.groups[0].tabs.count, 2)
+        XCTAssertEqual(restored.pluginViewsToRestore, [restored.groups[0].tabs[0].id: drawing], "The view stays with its tab after a missing file's tab is left out.")
+        XCTAssertNil(restored.saved.groups[0].tabs[0].pluginView, "The app adds the views it shows to what it saves.")
+
+        let layoutSavedBeforePluginViews = #"{"groups":[{"tabs":[{"isPinned":false}],"activeTabIndex":0}],"focusedGroupIndex":0,"splitFraction":0.5}"#
+        let older = try JSONDecoder().decode(SavedTabLayout.self, from: Data(layoutSavedBeforePluginViews.utf8))
+        XCTAssertNil(older.groups[0].tabs[0].pluginView)
+        XCTAssertNil(older.sidebarPluginViews)
+    }
+
     func testTheSplitFractionStaysInRange() {
         var layout = TabLayout()
         layout.splitFraction = 0.95

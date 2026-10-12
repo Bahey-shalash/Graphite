@@ -187,3 +187,28 @@ module.exports = ExamplePlugin;`;
         harness.close();
     }
 });
+
+test('a view Graphite showed when it closed opens again from the type and state it saved', async () => {
+    const harness = await startRuntime({ files: { 'Drawing.sketch': 'circle\n' } });
+    try {
+        await harness.waitForMetadata();
+        await installAndLoadPlugin(harness, { manifest, mainSource: sketchPlugin });
+        await settle();
+        const opened = plain(await harness.send({ operation: 'file.openInView', path: 'Drawing.sketch' }));
+        const listed = plain(harness.host.notificationsOf('views.changed').at(-1).views).find((view) => view.leafIdentifier === opened.leafIdentifier);
+        assert.deepEqual(JSON.parse(listed.state), { file: 'Drawing.sketch' }, 'the state Graphite saves with the tab');
+
+        const restored = plain(await harness.send({ operation: 'view.restore', viewType: 'sketch', state: listed.state, placement: 'tab' }));
+        assert.equal(restored.isOpened, true);
+        const leaf = harness.app.workspace.getLeafById(restored.leafIdentifier);
+        assert.equal(leaf.view.contentEl.textContent, 'Sketch: circle');
+        assert.equal(plain(harness.host.notificationsOf('view.reveal')).length, 0, 'Graphite puts the view back in its tab itself');
+
+        const before = harness.app.workspace.pluginLeaves.length;
+        assert.deepEqual(plain(await harness.send({ operation: 'view.restore', viewType: 'uninstalled-view', state: '{}', placement: 'right' })), { isOpened: false });
+        assert.deepEqual(plain(await harness.send({ operation: 'view.restore', viewType: 'markdown', state: '{"file":"Drawing.sketch"}', placement: 'tab' })), { isOpened: false });
+        assert.equal(harness.app.workspace.pluginLeaves.length, before, 'no leaf is left behind for a view no plugin shows');
+    } finally {
+        harness.close();
+    }
+});

@@ -53,6 +53,9 @@ final class WorkspaceModel {
     var layoutVaultIdentifier: UUID?
     /// The documents open in the tabs, by tab.
     @ObservationIgnored var tabDocuments: [UUID: TabDocument] = [:]
+    /// Plugins' sidebar views and the one the sidebar showed, saved with the layout so they
+    /// open again after a restart (`CommunityPluginViews.swift`).
+    @ObservationIgnored var restorableSidebarPluginViews: (views: [SavedTabLayout.PluginView], shownViewType: String?) = ([], nil)
     /// The native editors of recently hidden notes, kept with their undo history.
     @ObservationIgnored let markdownEditorRetention = MarkdownEditorRetention()
     /// Where each vault's documents were left (`WorkspacePlaces.swift`). Shared by every
@@ -273,7 +276,7 @@ final class WorkspaceModel {
         EmbeddedPDFSessions.shared.useVault(root: root, owner: self, saving: embeddedPDFSaving(writer: vaultStore.writer))
         // Nothing open in the vault being left is saved into the new vault's layout.
         layoutVaultIdentifier = nil
-        layout = TabLayout(); tabDocuments = [:]; pdfPasswords = [:]
+        layout = TabLayout(); tabDocuments = [:]; pdfPasswords = [:]; restorableSidebarPluginViews = ([], nil)
         markdownEditorRetention.discardHiddenEditors()
         graphCache = nil; graphPositions = [:]
         embeddedBaseModelCache = EmbeddedBaseModelCache()

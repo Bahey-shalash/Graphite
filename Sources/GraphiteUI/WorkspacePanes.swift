@@ -459,6 +459,7 @@ private struct TabDocumentView: View {
                     document.pluginViewIdentifier = nil
                     workspace.communityPlugins.closeView(pluginViewIdentifier)
                 }
+                if tab.path != nil { document.restorablePluginView = nil }
                 await workspace.loadDocumentIfNeeded(for: tab.id)
             }
     }

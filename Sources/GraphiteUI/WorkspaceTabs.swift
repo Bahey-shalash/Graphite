@@ -20,6 +20,9 @@ final class TabDocument {
     var isOpening = false
     /// The community plugin view an empty tab shows (its leaf's identifier), until a file opens in it.
     var pluginViewIdentifier: String?
+    /// What opens the tab's plugin view again after a restart: kept while the view is shown,
+    /// and restored from the saved layout until the view's plugin loads.
+    @ObservationIgnored var restorablePluginView: SavedTabLayout.PluginView?
     /// Why the tab's file could not be opened, shown in the tab until it is tried again.
     var loadFailure: LoadFailure?
     /// Identifies the latest open request, so a slower earlier one cannot replace it.
@@ -397,7 +400,7 @@ extension WorkspaceModel {
     // MARK: Saving the layout
 
     func saveTabLayout() {
-        guard let layoutVaultIdentifier, let data = try? JSONEncoder().encode(layout.saved) else { return }
+        guard let layoutVaultIdentifier, let data = try? JSONEncoder().encode(savedLayoutWithPluginViews()) else { return }
         UserDefaults.standard.set(data, forKey: Self.tabLayoutKey(for: layoutVaultIdentifier))
     }
 
@@ -412,6 +415,7 @@ extension WorkspaceModel {
         if let data = UserDefaults.standard.data(forKey: Self.tabLayoutKey(for: currentVaultIdentifier)),
            let saved = try? JSONDecoder().decode(SavedTabLayout.self, from: data) {
             layout = TabLayout(saved: saved, fileExists: fileExists)
+            takePluginViewsToRestore(from: saved)
         } else if let document = vaultLibrary.vault(withIdentifier: currentVaultIdentifier)?.lastOpenedDocument, fileExists(document) {
             var restoredLayout = TabLayout()
             restoredLayout.show(document, inTab: restoredLayout.activeTab.id, recordsHistory: true)
