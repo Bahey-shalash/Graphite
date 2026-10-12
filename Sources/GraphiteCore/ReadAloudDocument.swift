@@ -226,7 +226,12 @@ public struct ReadAloudDocument: Equatable, Sendable {
         let glyphs: Set<Character> = ["•", "▪", "◦", "●", "○", "■", "□", "➢", "►", "▶", "‣", "⁃", "◆", "◇", "✓", "✔", "\u{F0A7}", "\u{F0B7}", "\u{F0D8}"]
         let dashes: Set<Character> = ["-", "–", "—", "*", "·"]
         let rest = line.dropFirst()
-        if glyphs.contains(first) || (dashes.contains(first) && (rest.first?.isWhitespace ?? false)) {
+        // Slides set in a symbol font (Wingdings) extract their bullets as letters: "n", "q",
+        // "l", "§", "Ø", "ü" alone before a capitalized line ("n DRAM stores charge").
+        let symbolFontBullets: Set<Character> = ["n", "q", "l", "§", "Ø", "ü", "o"]
+        let isSymbolFontBullet = symbolFontBullets.contains(first) && rest.first == " "
+            && (rest.dropFirst().first.map { character in character.isUppercase || character.isNumber } ?? false)
+        if glyphs.contains(first) || isSymbolFontBullet || (dashes.contains(first) && (rest.first?.isWhitespace ?? false)) {
             let spaces = rest.prefix(while: \.isWhitespace)
             return String(first).utf16.count + String(spaces).utf16.count
         }

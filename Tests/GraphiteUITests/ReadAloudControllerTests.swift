@@ -263,6 +263,25 @@ final class ReadAloudControllerTests: XCTestCase {
         return count
     }
 
+    /// PDFKit extracts a re-saved page's text a little differently (here: a figure label moved);
+    /// the words that did not change must still find their exact place on the live page.
+    /// Before, any difference switched off every highlight on the page.
+    func testHighlightsSurviveSmallDifferencesBetweenExportedAndLivePageText() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ReadAloudAlign-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let location = try makePDF(in: directory, pageTexts: ["Static logic keeps its output level."])
+        let pageBytes = try XCTUnwrap(PDFDocument(url: location)?.dataRepresentation())
+        let snapshot = try await PDFReadAloudExtraction().page(in: pageBytes, readingOrder: .file)
+        let liveText = "(a) " + snapshot.originalText
+        let source = try XCTUnwrap(PDFReadAloudSource.page(snapshot, pageIndex: 0, livePageText: liveText))
+        let word = (snapshot.text as NSString).range(of: "output")
+        let highlight = try XCTUnwrap(source.highlights(for: word).first)
+        XCTAssertEqual((liveText as NSString).substring(with: try XCTUnwrap(highlight.characterRange)), "output")
+        XCTAssertNil(PDFReadAloudSource.page(snapshot, pageIndex: 0, livePageText: "Something else entirely, nothing alike."),
+                     "A page that hardly matches is not trusted.")
+    }
+
     /// In the app, choosing Read Document starts reading as soon as the passage is ready and
     /// keeps the page in view; rebuilding it for another math style waits for Play.
     func testAppReadingStartsWhenPreparedWithoutCoveringThePage() async throws {

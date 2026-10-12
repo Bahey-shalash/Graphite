@@ -73,6 +73,65 @@ struct PDFReadAloudSource: Sendable {
     }
 
     @MainActor
+    /// A page whose text was extracted from an exported copy. PDFKit often extracts a page's
+    /// text a little differently once it is saved again (a figure's labels in another order,
+    /// a space more or less), and an exact comparison then disabled every highlight on the
+    /// page: the owner's papers showed no word highlight at all. The exported text is aligned
+    /// to the live page's text instead; every word whose characters are unchanged keeps its
+    /// exact place, and only the changed stretches lose their highlight. Nil when too little
+    /// of the page matches to trust it.
+    static func page(_ snapshot: PDFReadAloudPage, pageIndex: Int, livePageText: String) -> PDFReadAloudSource? {
+        if snapshot.recognition != nil || livePageText == snapshot.originalText { return page(snapshot, pageIndex: pageIndex) }
+        let exported = Array(snapshot.originalText.utf16)
+        let live = Array(livePageText.utf16)
+        guard exported.count <= 200_000, live.count <= 200_000 else { return nil }
+        // Unchanged characters of the exported text, paired with their live offsets.
+        var liveOffsetByExportedOffset = [Int](repeating: -1, count: exported.count)
+        let difference = live.difference(from: exported)
+        var removedExported = Set<Int>()
+        var insertedLive = Set<Int>()
+        for change in difference {
+            switch change {
+            case .remove(let offset, _, _): removedExported.insert(offset)
+            case .insert(let offset, _, _): insertedLive.insert(offset)
+            }
+        }
+        var liveOffset = 0
+        for exportedOffset in exported.indices where !removedExported.contains(exportedOffset) {
+            while insertedLive.contains(liveOffset) { liveOffset += 1 }
+            liveOffsetByExportedOffset[exportedOffset] = liveOffset
+            liveOffset += 1
+        }
+        let matched = liveOffsetByExportedOffset.filter { offset in offset >= 0 }.count
+        guard !exported.isEmpty, Double(matched) / Double(exported.count) >= 0.8 else { return nil }
+        var segments: [Segment] = []
+        for segment in snapshot.segments {
+            // Split each piece into runs that map to consecutive live characters.
+            var runStart: Int?
+            func closeRun(at end: Int) {
+                guard let start = runStart else { return }
+                let pageStart = segment.pageRange.location + start
+                let livePageStart = liveOffsetByExportedOffset[pageStart]
+                segments.append(Segment(textRange: NSRange(location: segment.textRange.location + start, length: end - start),
+                                        pageIndex: pageIndex, pageRange: NSRange(location: livePageStart, length: end - start)))
+                runStart = nil
+            }
+            for offset in 0..<segment.pageRange.length {
+                let exportedOffset = segment.pageRange.location + offset
+                let mapped = exportedOffset < exported.count ? liveOffsetByExportedOffset[exportedOffset] : -1
+                if mapped < 0 {
+                    closeRun(at: offset)
+                } else if let start = runStart, liveOffsetByExportedOffset[segment.pageRange.location + offset - 1] + 1 != mapped || offset == start {
+                    if offset != start { closeRun(at: offset); runStart = offset }
+                } else if runStart == nil {
+                    runStart = offset
+                }
+            }
+            closeRun(at: segment.pageRange.length)
+        }
+        return PDFReadAloudSource(text: snapshot.text, segments: segments)
+    }
+
     static func selection(_ selection: PDFSelection, in document: PDFDocument) throws -> PDFReadAloudSource {
         // A native selection can cover an entire book. Bound the capture as well
         // as the eventual speech text, and retain no live PDFKit objects.
@@ -161,8 +220,14 @@ struct PDFReadAloudHighlight: Equatable, Sendable {
               range.length > 0, range.length <= source.length - range.location,
               source.rangeOfComposedCharacterSequences(for: range) == range,
               source.substring(with: range) == expectedText,
-              let selection = page.selection(for: range), selection.string == expectedText else { return nil }
+              let selection = page.selection(for: range),
+              // Across a line break PDFKit may return the selection's text with other spacing.
+              selection.string.map(Self.withoutWhitespace) == Self.withoutWhitespace(expectedText) else { return nil }
         return selection
+    }
+
+    private static func withoutWhitespace(_ text: String) -> String {
+        String(text.unicodeScalars.filter { scalar in !CharacterSet.whitespacesAndNewlines.contains(scalar) })
     }
 
     @MainActor

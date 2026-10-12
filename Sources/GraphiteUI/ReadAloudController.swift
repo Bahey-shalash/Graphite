@@ -475,6 +475,7 @@ final class ReadAloudController {
         guard let page = pdf.document.page(at: pageIndex), !document.passages.isEmpty else { throw ReadAloudError.noReadableText }
         for text in document.runningText where !pdfRunningText.contains(text) { pdfRunningText = Array((pdfRunningText + [text]).suffix(8)) }
         let hasSafeCoordinates: Bool
+        var alignedSource: PDFReadAloudSource?
         if let recognition = snapshot.recognition {
             hasSafeCoordinates = page.bounds(for: .mediaBox) == recognition.geometry.mediaBounds && page.bounds(for: .cropBox) == recognition.geometry.cropBounds &&
                 page.rotation == recognition.geometry.rotation
@@ -486,10 +487,11 @@ final class ReadAloudController {
                 pdfRequest = ReadAloudPDFRequest(lastPageIndex: pageIndex, range: nil)
             }
         } else {
-            hasSafeCoordinates = page.numberOfCharacters == snapshot.originalText.utf16.count && page.string == snapshot.originalText
+            alignedSource = PDFReadAloudSource.page(snapshot, pageIndex: pageIndex, livePageText: page.string ?? "")
+            hasSafeCoordinates = alignedSource != nil
         }
         if hasSafeCoordinates {
-            pdfSource = .page(snapshot, pageIndex: pageIndex)
+            pdfSource = alignedSource ?? .page(snapshot, pageIndex: pageIndex)
             sourceHighlightNotice = snapshot.layoutNotice
         } else {
             if range != nil { throw ReadAloudError.sourceMappingUnavailable }

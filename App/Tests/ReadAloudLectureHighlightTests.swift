@@ -73,7 +73,7 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
     func testHighlightAppearsAndMovesOnInAPDF() async throws {
         let directory = try makeVault(notes: [:])
         let pdfLocation = directory.appendingPathComponent("Lecture.pdf")
-        let pages = ["Static logic keeps its output at a full level. The noise margin tells how much disturbance it tolerates.",
+        let pages = ["Static CMOS logic keeps its output at a full level. The noise margin tells how much disturbance it tolerates.",
                      "Dynamic logic stores its value as charge on a node, which leaks away over time."]
         let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 612, height: 792))
         try renderer.writePDF(to: pdfLocation) { context in
@@ -90,10 +90,17 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
         let pdfView = try XCTUnwrap(pdf.pdfView)
         workspace.readAloud.readPDF(pdf, firstPageIndex: 0, lastPageIndex: 1)
         func highlighted() -> String? { pdfView.highlightedSelections?.compactMap(\.string).joined(separator: " ") }
-        try await waitUntil(seconds: 20) { !(highlighted() ?? "").isEmpty }
-        let firstWord = highlighted()
-        try await waitUntil(seconds: 20) { let word = highlighted() ?? ""; return !word.isEmpty && word != firstWord }
+        // Word by word, and the respelled acronym ("see moss") lit where "CMOS" is written.
+        var seen = Set<String>()
+        try await waitUntil(seconds: 25) {
+            if let word = highlighted(), !word.isEmpty { seen.insert(word) }
+            return seen.contains("CMOS") && seen.count >= 3
+        }
         attachScreenshot(named: "PDF highlight")
+        // Word by word on the next page too.
+        let secondPage = try XCTUnwrap(pdf.document.page(at: 1))
+        try await waitUntil(seconds: 30) { (pdfView.highlightedSelections ?? []).contains { selection in selection.pages.contains(secondPage) } }
+        attachScreenshot(named: "PDF highlight on the second page")
         workspace.readAloud.clear()
         try await waitUntil { (pdfView.highlightedSelections ?? []).isEmpty }
     }

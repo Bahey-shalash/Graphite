@@ -183,6 +183,12 @@ final class ReadAloudDocumentTests: XCTestCase {
         XCTAssertEqual(try speech("See Fig. on the left, and No. one."), "See Fig. on the left, and No. one.")
     }
 
+    func testSymbolFontBulletsOfSlidesAreNotRead() throws {
+        let slide = "The DRAM Scaling Problem\nn DRAM stores charge in a capacitor\nq Capacitor must be large enough"
+        XCTAssertEqual(try ReadAloudDocument.pageText(slide).passages.map(\.text),
+                       ["The dee ram Scaling Problem", "dee ram stores charge in a capacitor", "Capacitor must be large enough"])
+    }
+
     func testSlideLinesBulletsFootersAndBrokenWordsReadNaturally() throws {
         let slide = "Syllabus\n• Basic static logic\n• Noise margins\nThe on-\nresistance must be equal\nfor both networks.\nL05 Static logic v1.0 EE-330 2026 2"
         let document = try ReadAloudDocument.pageText(slide, pageLabels: ["2"])
