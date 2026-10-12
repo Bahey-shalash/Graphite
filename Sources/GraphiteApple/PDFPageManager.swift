@@ -366,6 +366,11 @@ public enum PDFPageManager {
         destinations.restore(in: exported)
         preserveGraphiteKeysThroughPageTreeRewrite(in: exported)
         guard exported.pageCount == selectedPages.count, let exportedData = exported.dataRepresentation() else { throw GraphiteError.invalidFile("Could not export the selected pages.") }
+        // Without the objects of the pages left out and of replaced annotations, when the
+        // compacted PDF opens with the same pages.
+        if let compacted = PDFObjectCompaction.compacted(exportedData)?.data, PDFDocument(data: compacted)?.pageCount == selectedPages.count {
+            return compacted
+        }
         return exportedData
     }
 }
@@ -477,7 +482,7 @@ public actor PDFFileService {
                         guard let document = PDFDocument(url: source), !document.isLocked else { throw GraphiteError.invalidFile("This PDF is locked or unreadable.") }
                         guard document.allowsDocumentChanges, document.allowsCommenting else { throw GraphiteError.unavailable("This PDF does not permit editing.") }
                         try PDFPageManager.replay(edits, on: document)
-                        guard document.write(to: staging), let reopened = PDFDocument(url: staging), reopened.pageCount == document.pageCount else {
+                        guard Self.write(document, to: staging) else {
                             throw GraphiteError.invalidFile("PDF verification failed. The original file was preserved.")
                         }
                     }
@@ -498,8 +503,23 @@ public actor PDFFileService {
         try writer.replace(destination, expecting: .absent) { staging in
             guard let document = PDFDocument(url: baselineURL) else { throw GraphiteError.invalidFile("The open PDF snapshot is unavailable.") }
             try PDFPageManager.replay(edits, on: document)
-            guard document.write(to: staging), PDFDocument(url: staging)?.pageCount == document.pageCount else { throw GraphiteError.invalidFile("Could not verify the PDF copy.") }
+            guard Self.write(document, to: staging) else { throw GraphiteError.invalidFile("Could not verify the PDF copy.") }
         }
+    }
+
+    /// Writes the document, then rewrites the file without the objects nothing refers to
+    /// any more (see `PDFObjectCompaction`), and returns whether the file opens with every
+    /// page. A compacted file that does not open is not used; the file PDFKit wrote stays.
+    static func write(_ document: PDFDocument, to destination: URL) -> Bool {
+        guard document.write(to: destination) else { return false }
+        let compactedLocation = destination.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString)-compacted.pdf")
+        defer { try? FileManager.default.removeItem(at: compactedLocation) }
+        if (try? PDFObjectCompaction.compact(fileAt: destination, writingTo: compactedLocation)) != nil,
+           PDFDocument(url: compactedLocation)?.pageCount == document.pageCount,
+           (try? FileManager.default.replaceItemAt(destination, withItemAt: compactedLocation)) != nil {
+            return true
+        }
+        return PDFDocument(url: destination)?.pageCount == document.pageCount
     }
     public func export(baselineURL: URL, edits: [PDFEdit], pages: [Int]) throws -> Data {
         guard let document = PDFDocument(url: baselineURL) else { throw GraphiteError.invalidFile("The PDF snapshot is unavailable.") }

@@ -109,6 +109,32 @@ final class PicturesAndPaperTests: XCTestCase {
         attachScreenshot(of: controller, named: "Picture at the top of the PDF view")
     }
 
+    /// Each save rewrote the picture's earlier copies into the file: four moves of one
+    /// photo left 4.4 MB of a 5.5 MB PDF unreachable.
+    func testMovingAPhotoAndSavingAfterEachMoveKeepsThePDFAboutItsSize() async throws {
+        let session = try await openNotebook(pageCount: 1)
+        let page = try XCTUnwrap(session.document.page(at: 0))
+        try await session.addPicture(imageData: try photoJPEG(size: CGSize(width: 1_200, height: 800)))
+        let placed = try XCTUnwrap(session.pictures(on: page).first)
+        XCTAssertTrue(placed.imageData.starts(with: [0xFF, 0xD8]), "A photo stays a JPEG.")
+        try await session.save()
+        let sizeWithPhoto = try XCTUnwrap(session.location.resourceValues(forKeys: [.fileSizeKey]).fileSize)
+        for moveIndex in 1...5 {
+            let selection = try XCTUnwrap(session.selectedPicture)
+            let picture = try XCTUnwrap(session.pictures(on: page).first)
+            endEvent(of: session)
+            try session.movePicture(selection, to: picture.bounds.offsetBy(dx: 0, dy: CGFloat(moveIndex) * -8))
+            try await session.save()
+        }
+        let savedBytes = try Data(contentsOf: session.location)
+        XCTAssertLessThan(savedBytes.count, sizeWithPhoto + 4_096, "Earlier copies of the photo are not kept.")
+        XCTAssertLessThan(savedBytes.count, placed.imageData.count * 3, "The photo is stored as its JPEG, not as pixels.")
+        XCTAssertNotNil(savedBytes.range(of: placed.imageData), "The page shows the photo's own JPEG bytes.")
+        let savedPage = try XCTUnwrap(PDFDocument(url: session.location)?.page(at: 0))
+        XCTAssertEqual(PDFPageManager.pictures(on: savedPage).first?.imageData, placed.imageData)
+        XCTAssertNil(session.errorMessage)
+    }
+
     func testPictureReadFromAFileIsSelectedByATapAndStaysUnderTheInk() async throws {
         let session = try await openNotebook(pageCount: 1)
         try await session.addPicture(imageData: try imageData(size: CGSize(width: 300, height: 300), color: .systemBlue))
@@ -900,6 +926,22 @@ final class PicturesAndPaperTests: XCTestCase {
             context.fill(CGRect(origin: .zero, size: size))
         }
         return try XCTUnwrap(image.pngData())
+    }
+
+    /// A photo-like JPEG of small random blocks, which compresses about as badly as a photo.
+    private func photoJPEG(size: CGSize) throws -> Data {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
+            for row in stride(from: 0, to: size.height, by: 4) {
+                for column in stride(from: 0, to: size.width, by: 4) {
+                    UIColor(red: .random(in: 0...1), green: .random(in: 0...1), blue: .random(in: 0...1), alpha: 1).setFill()
+                    context.fill(CGRect(x: column, y: row, width: 4, height: 4))
+                }
+            }
+        }
+        return try XCTUnwrap(image.jpegData(compressionQuality: 0.8))
     }
 
     /// The color a reader shows at a point of the page, given in the page's coordinates.
