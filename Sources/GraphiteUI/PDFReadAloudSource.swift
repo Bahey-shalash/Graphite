@@ -203,7 +203,7 @@ final class PDFReadAloudHighlighter {
         var remainingSelections = existingSelections.filter { selection in !selections.contains { $0 === selection } }
         selections = highlights.compactMap { highlight in
             guard let document = view.document, let selection = highlight.selection(in: document) else { return nil }
-            selection.color = .systemYellow.withAlphaComponent(0.4)
+            selection.color = ReadAloudHighlightStyle.fill
             return selection
         }
         previousHighlights = highlights

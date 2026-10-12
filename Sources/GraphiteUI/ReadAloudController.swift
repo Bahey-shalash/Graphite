@@ -27,6 +27,8 @@ final class ReadAloudController {
     let session: ReadAloudSession
     var showsReader = false
     var followsReading = true
+    /// The open vault's folder, where `.graphite/pronunciations.json` may add pronunciations.
+    @ObservationIgnored var vaultRoot: URL?
     private(set) var stopIdentifier = UUID()
     private(set) var isPreparing = false
     private(set) var title = "Read Aloud"
@@ -81,10 +83,11 @@ final class ReadAloudController {
         let identifier = preparationIdentifier
         let mathematicalStyle = mathematicalStyle
         let markdownPreparation = markdownPreparation
+        let vaultRoot = vaultRoot
         preparation = Task { [weak self] in
             let worker = Task(priority: .userInitiated) {
                 try await markdownPreparation.prepare(markdown, selectedRange: range, paletteHexByName: paletteHexByName,
-                                                      mathematicalStyle: mathematicalStyle)
+                                                      mathematicalStyle: mathematicalStyle, vaultRoot: vaultRoot)
             }
             do {
                 let document = try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
@@ -186,7 +189,10 @@ final class ReadAloudController {
         let identifier = preparationIdentifier
         preparation = Task { [weak self] in
             do {
-                let worker = Task.detached(priority: .userInitiated) { try ReadAloudDocument.pageText(source.text) }
+                let vaultRoot = self?.vaultRoot
+                let worker = Task.detached(priority: .userInitiated) {
+                    try ReadAloudDocument.pageText(source.text, pronunciations: ReadAloudMarkdownPreparation.pronunciations(vaultRoot: vaultRoot))
+                }
                 let document = try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
                 guard let self, identifier == self.preparationIdentifier, !Task.isCancelled else { return }
                 guard revision == pdf.changeVersion else { self.documentDidChange(pdf.location.path); return }
@@ -334,11 +340,24 @@ final class ReadAloudController {
     /// A passage is loaded, being prepared, or could not be prepared and says why.
     var isActive: Bool { session.document != nil || isPreparing || errorMessage != nil }
 
-    func suspendFollowing() { followsReading = false }
+    /// A person's own scroll pauses following; it comes back by itself a few seconds after
+    /// the last scroll, or at once from Follow Reading in the controls.
+    func suspendFollowing() {
+        followsReading = false
+        followResumption?.cancel()
+        followResumption = Task { [weak self] in
+            try? await Task.sleep(for: Self.followResumptionDelay)
+            guard let self, !Task.isCancelled, self.session.state == .speaking else { return }
+            self.followsReading = true
+        }
+    }
 
     func suspendFollowing(in identifier: String) {
-        if sourceIdentifier == identifier, session.document != nil { followsReading = false }
+        if sourceIdentifier == identifier, session.document != nil { suspendFollowing() }
     }
+
+    static let followResumptionDelay = Duration.seconds(5)
+    @ObservationIgnored private var followResumption: Task<Void, Never>?
 
     func shouldFollow(_ path: VaultPath) -> Bool {
         sourceIdentifier == path.rawValue && followsReading && session.state == .speaking
@@ -437,6 +456,7 @@ final class ReadAloudController {
         // The page's own number and its printed label, to recognize a running footer or header.
         let pageLabels = [String(pageIndex + 1)] + (pdf.document.page(at: pageIndex)?.label.map { label in [label] } ?? [])
         let knownRunningText = pdfRunningText
+        let vaultRoot = vaultRoot
         let worker = Task.detached(priority: .userInitiated) {
             let selectedRange: NSRange?
             if let recognizedWords {
@@ -446,7 +466,8 @@ final class ReadAloudController {
                     endOffset: pageIndex == range.end?.pageIndex ? range.end?.offset : nil)
             } else { selectedRange = nil }
             return try ReadAloudDocument.pageText(snapshot.text, selectedRange: selectedRange, pageLabels: pageLabels,
-                                                  knownRunningText: knownRunningText)
+                                                  knownRunningText: knownRunningText,
+                                                  pronunciations: ReadAloudMarkdownPreparation.pronunciations(vaultRoot: vaultRoot))
         }
         let document = try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
         guard identifier == preparationIdentifier, !Task.isCancelled else { return }

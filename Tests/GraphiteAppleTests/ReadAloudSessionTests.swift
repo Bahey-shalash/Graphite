@@ -16,6 +16,13 @@ private final class TestReadAloudSpeech: ReadAloudSpeaking {
     }
     var releaseCount = 0
     var leadingPauses: [Double] = []
+    var phoneticRequests: [[ReadAloudPhoneticRange]] = []
+    func speak(_ utterance: ReadAloudUtteranceRequest, requestIdentifier: UUID) throws {
+        phoneticRequests.append(utterance.phoneticRanges)
+        try speak(utterance.text, voiceIdentifier: utterance.voiceIdentifier, speed: utterance.speed,
+                  leadingPauseSeconds: utterance.leadingPauseSeconds, usesSystemSettings: utterance.usesSystemSettings,
+                  requestIdentifier: requestIdentifier)
+    }
     var usedSystemSettings: [Bool] = []
     var spokenVoices: [String] = []
     var systemVoicesByLanguage: [String: ReadAloudVoice] = [:]
@@ -210,6 +217,40 @@ final class ReadAloudSessionTests: XCTestCase {
         session.chooseVoice("com.apple.eloquence.en-US.Eddy")
         XCTAssertEqual(ReadAloudSession(speech: speech, preferences: preferences).chosenVoiceIdentifier, "com.apple.eloquence.en-US.Eddy")
         XCTAssertEqual(session.selectedVoice?.qualityDescription, "Classic")
+    }
+
+    /// Words by default, the sentence in Sentences mode, nothing when Off; when the voice gives
+    /// no word positions shortly after it starts, the whole passage instead of nothing.
+    func testHighlightModesAndPassageFallbackWithoutWordTiming() async throws {
+        let (session, speech) = try makeSession()
+        session.load(try ReadAloudDocument.plainText("First sentence here. Second one follows."))
+        session.play()
+        let identifier = try XCTUnwrap(speech.requests.last?.identifier)
+        speech.eventHandler?(.started(identifier))
+        speech.eventHandler?(.spoken(identifier, NSRange(location: 21, length: 6)))
+        XCTAssertEqual(session.highlightRange, NSRange(location: 21, length: 6))
+        session.setHighlightMode(.sentences)
+        XCTAssertEqual(session.highlightRange, NSRange(location: 21, length: 19))
+        session.setHighlightMode(.off)
+        XCTAssertNil(session.highlightRange)
+        XCTAssertNil(session.sourceRange)
+        session.setHighlightMode(.words)
+        // A voice without word positions.
+        session.load(try ReadAloudDocument.plainText("Spoken without word positions."))
+        session.play()
+        speech.eventHandler?(.started(try XCTUnwrap(speech.requests.last?.identifier)))
+        XCTAssertNil(session.highlightRange, "No flash of the whole passage before the first word is due.")
+        try await Task.sleep(for: .milliseconds(900))
+        XCTAssertTrue(session.lacksWordTiming)
+        XCTAssertEqual(session.highlightRange, NSRange(location: 0, length: 30))
+        XCTAssertEqual(session.sourceRange, NSRange(location: 0, length: 30))
+    }
+
+    func testIPAPronunciationsReachTheSpeechEngineRelativeToTheUtterance() throws {
+        let (session, speech) = try makeSession()
+        session.load(try ReadAloudDocument.markdown("The SIMD unit."))
+        session.play()
+        XCTAssertEqual(speech.phoneticRequests.last, [ReadAloudPhoneticRange(range: NSRange(location: 4, length: 7), notation: "ˈsɪmdiː")])
     }
 
     func testAudioIsReleasedWhenReadingStopsOrFinishesButNotBetweenPDFPages() throws {

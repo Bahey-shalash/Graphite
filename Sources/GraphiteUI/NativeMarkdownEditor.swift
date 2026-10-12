@@ -9,8 +9,15 @@ import UIKit
 /// hosts Live Preview's rendered blocks.
 final class MarkdownTextView: UITextView {
     var readAloudRange: NSRange? { didSet { if readAloudRange != oldValue { setNeedsLayout() } } }
-    var followsReading = false { didSet { if followsReading != oldValue { setNeedsLayout() } } }
-    private var readAloudHighlights: [UIView] = []
+    var followsReading = false {
+        didSet {
+            guard followsReading != oldValue else { return }
+            // Following again (after Back to Reading) reveals the current word at once.
+            lastHighlightLayout = nil
+            setNeedsLayout()
+        }
+    }
+    private(set) var readAloudHighlights: [UIView] = []
     static let readableColumnWidth: CGFloat = 740
     static let minimumHorizontalInset: CGFloat = 28
     var usesReadableLineLength = true { didSet { setNeedsLayout() } }
@@ -82,10 +89,25 @@ final class MarkdownTextView: UITextView {
         // Setting equal insets would still invalidate the layout.
         if textContainerInset != insets { textContainerInset = insets }
         didLayout?(self)
-        updateReadAloudHighlights()
+        // UIKit lays a scroll view out on every frame of a scroll. The highlight is measured
+        // again only when the word, the width or the text's height changed, so scrolling by
+        // hand never pays for it, and never scrolls back to it.
+        let highlightLayout = ReadAloudHighlightLayout(range: readAloudRange, width: bounds.width, contentHeight: contentSize.height)
+        if highlightLayout != lastHighlightLayout {
+            let wordChanged = highlightLayout.range != lastHighlightLayout?.range
+            lastHighlightLayout = highlightLayout
+            updateReadAloudHighlights(revealsWord: wordChanged)
+        }
     }
 
-    private func updateReadAloudHighlights() {
+    private struct ReadAloudHighlightLayout: Equatable {
+        let range: NSRange?
+        let width: CGFloat
+        let contentHeight: CGFloat
+    }
+    private var lastHighlightLayout: ReadAloudHighlightLayout?
+
+    private func updateReadAloudHighlights(revealsWord: Bool) {
         guard let range = readAloudRange, range.location >= 0, range.length > 0,
               range.location <= textStorage.length, range.length <= textStorage.length - range.location,
               let start = position(from: beginningOfDocument, offset: range.location),
@@ -95,7 +117,8 @@ final class MarkdownTextView: UITextView {
             return
         }
         let frames = selectionRects(for: textRange).map(\.rect).filter { frame in frame.width > 0 && frame.height > 0 }
-        if followsReading, window != nil, let frame = frames.first, !bounds.insetBy(dx: 0, dy: 40).contains(frame) {
+        let isScrolledByHand = isTracking || isDragging || isDecelerating
+        if revealsWord, followsReading, !isScrolledByHand, window != nil, let frame = frames.first, !bounds.insetBy(dx: 0, dy: 40).contains(frame) {
             scrollRectToVisible(frame.insetBy(dx: -16, dy: -40), animated: false)
         }
         guard readAloudHighlights.map(\.frame) != frames else { return }
@@ -103,7 +126,7 @@ final class MarkdownTextView: UITextView {
         readAloudHighlights.removeAll(keepingCapacity: true)
         for frame in frames {
             let highlight = UIView(frame: frame)
-            highlight.backgroundColor = UIColor.systemYellow.withAlphaComponent(0.3)
+            highlight.backgroundColor = ReadAloudHighlightStyle.fill
             highlight.layer.cornerRadius = 3
             highlight.isUserInteractionEnabled = false
             highlight.isAccessibilityElement = false
@@ -2303,7 +2326,7 @@ final class MarkdownMacTextView: NSTextView {
               let textLayoutManager, let contentManager = textLayoutManager.textContentManager,
               let start = contentManager.location(contentManager.documentRange.location, offsetBy: range.location),
               let end = contentManager.location(start, offsetBy: range.length), let textRange = NSTextRange(location: start, end: end) else { return }
-        NSColor.systemYellow.withAlphaComponent(0.3).setFill()
+        ReadAloudHighlightStyle.fill.setFill()
         textLayoutManager.enumerateTextSegments(in: textRange, type: .standard, options: []) { _, frame, _, _ in
             let positionedFrame = frame.offsetBy(dx: self.textContainerOrigin.x, dy: self.textContainerOrigin.y)
             if positionedFrame.intersects(dirtyRect) { NSBezierPath(roundedRect: positionedFrame, xRadius: 3, yRadius: 3).fill() }
