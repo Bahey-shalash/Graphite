@@ -950,9 +950,10 @@ struct MarkdownPreview: View {
         let frame = readingHighlightFrames.filter { geometry in geometry.sourceRange == range }
             .reduce(CGRect.null) { union, geometry in union.union(geometry.frame) }
         guard !frame.isNull, !frame.isEmpty,
-              frame.minY < readingViewport.topInset + 40 || frame.maxY > readingViewport.height - 40 else { return }
+              frame.minY < readingViewport.topInset + 40 || frame.maxY > readingViewport.height - 120 else { return }
         pendingRestorationOffset = nil
-        let destination = readingViewport.verticalOffset + frame.minY - readingViewport.topInset - 40
+        // The word comes back a third of the way down, so the following lines are in view.
+        let destination = readingViewport.verticalOffset + frame.minY - readingViewport.topInset - (readingViewport.height - readingViewport.topInset) / 3
         scrollPosition.scrollTo(y: max(0, min(destination, readingViewport.maximumVerticalOffset)))
     }
 

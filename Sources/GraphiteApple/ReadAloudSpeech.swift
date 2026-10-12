@@ -722,7 +722,12 @@ public final class ReadAloudSession {
             guard identifier == requestIdentifier, state == .speaking, let passage = currentPassage,
                   range.location >= 0, range.length > 0, range.location <= passage.text.utf16.count - utteranceStartOffset,
                   range.length <= passage.text.utf16.count - utteranceStartOffset - range.location else { return }
-            spokenRange = NSRange(location: range.location + utteranceStartOffset, length: range.length)
+            let passageRange = NSRange(location: range.location + utteranceStartOffset, length: range.length)
+            // Some voices report a dash or other punctuation as a word; the highlight stays
+            // on the last real word rather than jumping onto a lone mark.
+            let spokenText = (passage.text as NSString).substring(with: passageRange)
+            guard spokenText.rangeOfCharacter(from: .alphanumerics) != nil else { return }
+            spokenRange = passageRange
             if lacksWordTiming { lacksWordTiming = false }
             wordTimingCheck?.cancel()
             if let speakingVoiceIdentifier { voicesWithoutWordTiming.remove(speakingVoiceIdentifier) }

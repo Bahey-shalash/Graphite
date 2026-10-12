@@ -506,6 +506,11 @@ private struct ReadAloudSettingsPage: View {
     var body: some View {
         Form {
             ReadAloudVoiceSettings(reader: reader)
+            Section("Pronunciation") {
+                Text("Graphite says common computing terms the usual way: RAM as a word, CPU letter by letter. To add or change a term for this vault, put it in the vault's \(ReadAloudPronunciations.vaultFilePath) file, for example {\"SIMDRAM\": \"sim dee ram\"}.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
         }
         .navigationTitle("Read Aloud")
     }

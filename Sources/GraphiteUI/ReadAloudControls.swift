@@ -68,6 +68,11 @@ struct ReadAloudPlayPauseButton: View {
 struct ReadAloudControlsPanel: View {
     @Bindable var reader: ReadAloudController
     let dismiss: () -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    /// At accessibility text sizes the panel widens, scrolls, stacks its actions and offers
+    /// speed as a menu, since segments and side-by-side buttons would break words apart.
+    private var usesLargeLayout: Bool { dynamicTypeSize.isAccessibilitySize }
 
     /// The system's secondary label color itself: the hierarchical .secondary style measured
     /// 3.1:1 in this popover in dark appearance, below the 4.5:1 small text needs.
@@ -78,6 +83,18 @@ struct ReadAloudControlsPanel: View {
     #endif
 
     var body: some View {
+        // Scrolls only when the text is too large for the screen.
+        ViewThatFits(in: .vertical) {
+            content
+            ScrollView { content }
+        }
+        .frame(idealWidth: usesLargeLayout ? 560 : 360, maxWidth: usesLargeLayout ? 640 : 400)
+        // Opaque, so secondary text stays readable over a white PDF page in dark appearance,
+        // where the popover's glass turned mid-gray behind gray text.
+        .background(GraphiteChrome.barBackground)
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
             transport
@@ -86,11 +103,23 @@ struct ReadAloudControlsPanel: View {
                     .font(.footnote)
                     .foregroundStyle(Self.secondaryText)
             } else {
-                Picker("Speed", selection: Binding(get: { reader.session.speed }, set: { speed in reader.session.setSpeed(speed) })) {
-                    ForEach(ReadAloudVoiceSettings.speeds, id: \.self) { speed in Text(speed.formatted() + "×").tag(speed) }
+                if usesLargeLayout {
+                    HStack {
+                        Text("Speed")
+                        Spacer()
+                        Picker("Speed", selection: Binding(get: { reader.session.speed }, set: { speed in reader.session.setSpeed(speed) })) {
+                            ForEach(ReadAloudVoiceSettings.speeds, id: \.self) { speed in Text(speed.formatted() + "×").tag(speed) }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                    }
+                } else {
+                    Picker("Speed", selection: Binding(get: { reader.session.speed }, set: { speed in reader.session.setSpeed(speed) })) {
+                        ForEach(ReadAloudVoiceSettings.speeds, id: \.self) { speed in Text(speed.formatted() + "×").tag(speed) }
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityLabel("Speed")
                 }
-                .pickerStyle(.segmented)
-                .accessibilityLabel("Speed")
             }
             Toggle("Follow Reading", isOn: $reader.followsReading)
             advice
@@ -98,21 +127,17 @@ struct ReadAloudControlsPanel: View {
             actions
         }
         .padding(20)
-        .frame(idealWidth: 360, maxWidth: 400)
-        // Opaque, so secondary text stays readable over a white PDF page in dark appearance,
-        // where the popover's glass turned mid-gray behind gray text.
-        .background(GraphiteChrome.barBackground)
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(reader.title)
                 .font(.headline)
-                .lineLimit(2)
+                .lineLimit(usesLargeLayout ? 4 : 2)
             Text(statusDescription)
                 .font(.subheadline)
                 .foregroundStyle(Self.secondaryText)
-                .lineLimit(2)
+                .lineLimit(usesLargeLayout ? 6 : 2)
         }
         .accessibilityElement(children: .combine)
     }
@@ -141,7 +166,7 @@ struct ReadAloudControlsPanel: View {
                 .foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)
         } else if reader.session.canImproveVoiceByDownloading {
-            Text("Default-quality voice. Download an Enhanced or Premium voice in \(ReadAloudSession.voiceDownloadPath) for a more natural one.")
+            Text("Default-quality voice. A more natural one: \(ReadAloudSession.voiceDownloadPath).")
                 .font(.footnote)
                 .foregroundStyle(Self.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
@@ -149,7 +174,8 @@ struct ReadAloudControlsPanel: View {
     }
 
     private var actions: some View {
-        HStack {
+        let layout = usesLargeLayout ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12)) : AnyLayout(HStackLayout())
+        return layout {
             Button("Voice and Transcript", systemImage: "text.alignleft") {
                 dismiss()
                 // UIKit drops a sheet presented while this popover is still closing.
@@ -158,7 +184,7 @@ struct ReadAloudControlsPanel: View {
                     reader.showsReader = true
                 }
             }
-            Spacer()
+            if !usesLargeLayout { Spacer() }
             Button("Stop", systemImage: "stop.fill", role: .destructive) {
                 dismiss()
                 reader.clear()

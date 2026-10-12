@@ -118,8 +118,14 @@ final class MarkdownTextView: UITextView {
         }
         let frames = selectionRects(for: textRange).map(\.rect).filter { frame in frame.width > 0 && frame.height > 0 }
         let isScrolledByHand = isTracking || isDragging || isDecelerating
-        if revealsWord, followsReading, !isScrolledByHand, window != nil, let frame = frames.first, !bounds.insetBy(dx: 0, dy: 40).contains(frame) {
-            scrollRectToVisible(frame.insetBy(dx: -16, dy: -40), animated: false)
+        let comfortableArea = bounds.inset(by: UIEdgeInsets(top: adjustedContentInset.top + 40, left: 0, bottom: adjustedContentInset.bottom + 120, right: 0))
+        if revealsWord, followsReading, !isScrolledByHand, window != nil, let frame = frames.first, !comfortableArea.contains(frame) {
+            // The word comes back a third of the way down, not at the very edge, so the
+            // lines that follow are already in view.
+            let visibleHeight = bounds.height - adjustedContentInset.top - adjustedContentInset.bottom
+            let maximumOffset = max(-adjustedContentInset.top, contentSize.height + adjustedContentInset.bottom - bounds.height)
+            let destination = frame.minY - adjustedContentInset.top - visibleHeight / 3
+            setContentOffset(CGPoint(x: contentOffset.x, y: min(max(-adjustedContentInset.top, destination), maximumOffset)), animated: false)
         }
         guard readAloudHighlights.map(\.frame) != frames else { return }
         readAloudHighlights.forEach { highlight in highlight.removeFromSuperview() }
