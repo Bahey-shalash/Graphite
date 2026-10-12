@@ -118,8 +118,8 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
     /// The turning handle stands this far above the frame's top edge, on a short stem.
     private static let rotationStemLength: CGFloat = 26
     private static let rotationKnobDiameter: CGFloat = 24
-    /// A turn with an accessibility action, in radians: 15°.
-    private static let accessibilityTurnStep: CGFloat = .pi / 12
+    /// A rotation with an accessibility action, in radians: 15°.
+    private static let accessibilityRotationStep: CGFloat = .pi / 12
     private let rotationHandle = UIView(frame: CGRect(x: 0, y: 0, width: SelectionFrameView.handleTouchSide, height: SelectionFrameView.handleTouchSide))
     private let rotationStem = UIView()
     private let rotationSymbol = UIImageView(image: UIImage(systemName: "arrow.clockwise", withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)))
@@ -236,8 +236,8 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
         rotationRecognizer.isEnabled = showsRotationHandle
         accessibilityHint = showsRotationHandle ? "Drag to move. Drag a corner to resize. Drag the handle above to rotate." : "Drag to move. Drag a corner to resize."
         accessibilityCustomActions = showsRotationHandle ? [
-            UIAccessibilityCustomAction(name: "Rotate Clockwise", target: self, selector: #selector(turnClockwiseByAccessibilityStep)),
-            UIAccessibilityCustomAction(name: "Rotate Counterclockwise", target: self, selector: #selector(turnCounterclockwiseByAccessibilityStep)),
+            UIAccessibilityCustomAction(name: "Rotate Clockwise", target: self, selector: #selector(rotateClockwiseByAccessibilityStep)),
+            UIAccessibilityCustomAction(name: "Rotate Counterclockwise", target: self, selector: #selector(rotateCounterclockwiseByAccessibilityStep)),
         ] : nil
         setNeedsLayout()
     }
@@ -358,10 +358,10 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
         }
     }
 
-    @objc private func turnClockwiseByAccessibilityStep() -> Bool { turn(by: Self.accessibilityTurnStep) }
-    @objc private func turnCounterclockwiseByAccessibilityStep() -> Bool { turn(by: -Self.accessibilityTurnStep) }
+    @objc private func rotateClockwiseByAccessibilityStep() -> Bool { rotate(by: Self.accessibilityRotationStep) }
+    @objc private func rotateCounterclockwiseByAccessibilityStep() -> Bool { rotate(by: -Self.accessibilityRotationStep) }
 
-    private func turn(by angle: CGFloat) -> Bool {
+    private func rotate(by angle: CGFloat) -> Bool {
         rotation = CGFloat(PictureRotation.normalized(Double(rotation + angle)))
         rotationDidChange?(rotation)
         rotationChangeDidEnd?(rotation)

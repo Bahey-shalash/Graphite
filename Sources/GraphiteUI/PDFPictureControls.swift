@@ -101,7 +101,7 @@ struct PDFPictureArrangementBar: View {
                     .lineLimit(2)
                 Spacer(minLength: 8)
                 PictureEditingButtons(isEnabled: session.selectedPicture != nil, canReorder: pictureCountOnSelectedPage > 1,
-                                      rotate: { run { if let selection = session.selectedPicture { try await session.rotatePicture(selection) } } },
+                                      rotateRight: { run { if let selection = session.selectedPicture { try await session.rotatePictureRight(selection) } } },
                                       crop: { beginCropping() },
                                       moveInOrder: { toFront in run { if let selection = session.selectedPicture { try session.movePictureInOrder(selection, toFront: toFront) } } },
                                       delete: { run { if let selection = session.selectedPicture { try session.removePicture(selection) } } })
@@ -136,18 +136,18 @@ extension PDFPictureArrangementBar {
     }
 }
 
-/// Turn, Crop, Arrange and Delete for the image being arranged, on a drawing or a PDF page.
+/// Rotate Right, Crop, Arrange and Delete for the image being arranged, on a drawing or a PDF page.
 struct PictureEditingButtons: View {
     let isEnabled: Bool
     let canReorder: Bool
-    let rotate: () -> Void
+    let rotateRight: () -> Void
     let crop: () -> Void
     let moveInOrder: (_ toFront: Bool) -> Void
     let delete: () -> Void
 
     var body: some View {
         Group {
-            Button("Turn Image", systemImage: "rotate.right", action: rotate)
+            Button("Rotate Image Right", systemImage: "rotate.right", action: rotateRight)
             Button("Crop Image", systemImage: "crop", action: crop)
             Menu("Arrange", systemImage: "square.3.layers.3d") {
                 Button("Bring to Front", systemImage: "square.3.layers.3d.top.filled") { moveInOrder(true) }
@@ -270,7 +270,7 @@ final class PDFPictureSelectionController {
     /// the annotation is replaced, and the frame stays turned meanwhile.
     private func selectionRotationChangeDidEnd(_ rotation: CGFloat) {
         guard let selection = session.selectedPicture else { return }
-        do { try session.turnPicture(selection, to: Double(rotation)) }
+        do { try session.rotatePicture(selection, to: Double(rotation)) }
         catch { session.errorMessage = error.localizedDescription }
         update()
     }

@@ -78,7 +78,7 @@ final class PDFPictureEditingTests: XCTestCase {
         let placed = try XCTUnwrap(session.pictures(on: page).first)
         let selection = try XCTUnwrap(session.selectedPicture)
 
-        try await step(in: session) { try await session.rotatePicture(selection) }
+        try await step(in: session) { try await session.rotatePictureRight(selection) }
         let turned = try XCTUnwrap(session.pictures(on: page).first)
         XCTAssertEqual(turned.name, placed.name)
         XCTAssertEqual(turned.bounds.width, placed.bounds.height, accuracy: 0.01)
@@ -86,7 +86,7 @@ final class PDFPictureEditingTests: XCTestCase {
         XCTAssertEqual(turned.bounds.midX, placed.bounds.midX, accuracy: 0.01)
         XCTAssertEqual(turned.bounds.midY, placed.bounds.midY, accuracy: 0.01)
         XCTAssertNotEqual(turned.imageData, placed.imageData)
-        XCTAssertEqual(session.undoAvailability.undoActionName, "Turn Image")
+        XCTAssertEqual(session.undoAvailability.undoActionName, "Rotate Image Right")
 
         session.undoAvailability.undo()
         XCTAssertEqual(session.pictures(on: page), [placed])
