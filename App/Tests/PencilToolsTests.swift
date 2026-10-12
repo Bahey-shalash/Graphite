@@ -373,6 +373,49 @@ final class PencilToolsTests: XCTestCase {
         try await waitUntil { (try? self.showsColor(mint, in: controller)) == true && (try? self.showsColor(blue, in: controller)) == false }
     }
 
+    /// The selected size's dot on the bar grows and shrinks as its width is changed.
+    func testTheBarsSizeDotFollowsItsWidth() async throws {
+        let suiteName = "SizeDots-\(UUID().uuidString)"
+        let toolboxDefaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { toolboxDefaults.removePersistentDomain(forName: suiteName) }
+        let toolbox = PencilToolbox(defaults: toolboxDefaults)
+        let penIndex = try XCTUnwrap(toolbox.presets.firstIndex { preset in preset.ink == .pen })
+        toolbox.usePreset(at: penIndex)
+        toolbox.useWidthChoice(at: 2)
+        let controller = try host(AnyView(PencilToolRow(toolbox: toolbox, drawsShapes: .constant(false))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)))
+        func darkPixelCount() throws -> Int { try countOfPixels(in: controller) { red, green, blue in red < 80 && green < 80 && blue < 80 } }
+        try await waitUntil { (try? darkPixelCount()) ?? 0 > 0 }
+        try await Task.sleep(for: .milliseconds(200))
+        let atStartingWidth = try darkPixelCount()
+        toolbox.changeWidthChoice(at: 2, to: toolbox.presetInUse.ink.widthRange.upperBound)
+        try await waitUntil { (try? darkPixelCount()) ?? 0 > atStartingWidth + 100 }
+        toolbox.changeWidthChoice(at: 2, to: toolbox.presetInUse.ink.widthRange.lowerBound)
+        try await waitUntil { (try? darkPixelCount()) ?? Int.max < atStartingWidth - 30 }
+    }
+
+    /// How many pixels in the top of the window satisfy `matches`, at one pixel to the point.
+    private func countOfPixels(in controller: UIViewController, matching matches: (Int, Int, Int) -> Bool) throws -> Int {
+        let window = try XCTUnwrap(controller.view.window)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(bounds: CGRect(x: 0, y: 0, width: window.bounds.width, height: 120), format: format).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let cgImage = try XCTUnwrap(image.cgImage)
+        let width = cgImage.width, height = cgImage.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let context = try XCTUnwrap(CGContext(data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                              space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        var matchingPixelCount = 0
+        for pixelIndex in stride(from: 0, to: pixels.count, by: 4) where pixels[pixelIndex + 3] > 200 {
+            let red = Int(pixels[pixelIndex]), green = Int(pixels[pixelIndex + 1]), blue = Int(pixels[pixelIndex + 2])
+            if matches(red, green, blue) { matchingPixelCount += 1 }
+        }
+        return matchingPixelCount
+    }
+
     /// The favorite colors on a PDF's fixed bar follow Settings › Colors while the bar is shown.
     func testThePDFBarsFavoriteColorsFollowSettingsAtOnce() async throws {
         let paletteKey = "GraphiteColorPalette"

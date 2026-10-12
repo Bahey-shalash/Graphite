@@ -50,11 +50,13 @@ struct PencilToolButtons {
 
     /// One of three sizes, of an ink or of the eraser. Where a second tap on the size in use
     /// opens its width, VoiceOver says so.
-    func sizeButton(choiceIndex: Int, isChosen: Bool, opensWidthWhenChosen: Bool = false, choose: @escaping () -> Void) -> some View {
-        Button(action: choose) {
+    /// One of the three sizes, as a dot as large as its width (`PencilSizeDot`).
+    func sizeButton(choiceIndex: Int, width: Double, isChosen: Bool, opensWidthWhenChosen: Bool = false, choose: @escaping () -> Void) -> some View {
+        let diameter = CGFloat(PencilSizeDot.diameter(forWidth: width))
+        return Button(action: choose) {
             Circle()
                 .fill(.primary)
-                .frame(width: CGFloat(5 + 4 * choiceIndex), height: CGFloat(5 + 4 * choiceIndex))
+                .frame(width: diameter, height: diameter)
                 .frame(width: 28, height: buttonSide)
                 .background(isChosen ? selectedFill : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: GraphiteChrome.cornerRadius, style: .continuous))
                 .frame(height: rowHeight)
@@ -62,6 +64,7 @@ struct PencilToolButtons {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(["Fine", "Medium", "Broad"][min(choiceIndex, 2)])
+        .accessibilityValue(PencilWidthText.millimeters(width))
         .accessibilityHint(isChosen && opensWidthWhenChosen ? "Opens its width" : "")
         .accessibilityAddTraits(isChosen ? .isSelected : [])
     }

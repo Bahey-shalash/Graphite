@@ -131,7 +131,7 @@ struct PencilPalette: View {
             if toolbox.toolInUse == .ink {
                 HStack(spacing: 2) {
                     ForEach(Array(toolbox.presetInUse.widthChoices.enumerated()), id: \.offset) { choiceIndex, width in
-                        buttons.sizeButton(choiceIndex: choiceIndex, isChosen: toolbox.presetInUse.width == width) { toolbox.useWidthChoice(at: choiceIndex) }
+                        buttons.sizeButton(choiceIndex: choiceIndex, width: width, isChosen: toolbox.presetInUse.width == width) { toolbox.useWidthChoice(at: choiceIndex) }
                     }
                     Hairline(axis: .vertical).frame(height: 20).padding(.horizontal, 6)
                     if toolbox.presetInUse.ink == .highlighter {

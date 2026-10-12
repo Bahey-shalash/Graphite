@@ -137,7 +137,7 @@ struct PencilToolRow: View {
             switch toolbox.toolInUse {
             case .ink:
                 ForEach(Array(toolbox.presetInUse.widthChoices.enumerated()), id: \.offset) { choiceIndex, width in
-                    adjustableSizeButton(.ink(choiceIndex: choiceIndex), isChosen: toolbox.presetInUse.width == width) {
+                    adjustableSizeButton(.ink(choiceIndex: choiceIndex), width: width, isChosen: toolbox.presetInUse.width == width) {
                         toolbox.useWidthChoice(at: choiceIndex)
                     }
                 }
@@ -151,7 +151,7 @@ struct PencilToolRow: View {
                 .fixedSize()
                 if !toolbox.erasesWholeStrokes {
                     ForEach(Array(toolbox.eraserWidthChoices.enumerated()), id: \.offset) { choiceIndex, width in
-                        adjustableSizeButton(.eraser(choiceIndex: choiceIndex), isChosen: toolbox.eraserWidth == width) {
+                        adjustableSizeButton(.eraser(choiceIndex: choiceIndex), width: width, isChosen: toolbox.eraserWidth == width) {
                             toolbox.chooseEraserWidth(width)
                         }
                     }
@@ -204,8 +204,8 @@ struct PencilToolRow: View {
 
     /// One of the three sizes. A tap on another size draws with it; a second tap on the size
     /// in use opens its width.
-    private func adjustableSizeButton(_ size: PencilSizeChoice, isChosen: Bool, choose: @escaping () -> Void) -> some View {
-        buttons.sizeButton(choiceIndex: size.choiceIndex, isChosen: isChosen, opensWidthWhenChosen: true) {
+    private func adjustableSizeButton(_ size: PencilSizeChoice, width: Double, isChosen: Bool, choose: @escaping () -> Void) -> some View {
+        buttons.sizeButton(choiceIndex: size.choiceIndex, width: width, isChosen: isChosen, opensWidthWhenChosen: true) {
             if isChosen { adjustedSize = size } else { choose() }
         }
         .popover(isPresented: Binding(get: { adjustedSize == size }, set: { isPresented in if !isPresented, adjustedSize == size { adjustedSize = nil } })) {

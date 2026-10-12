@@ -4,6 +4,10 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-12.
 
+## The size dots on the Pencil bar show their widths: 2026-10-12
+
+Reported by the owner from the iPad (screen recording on alpha cfce131): with Monoline on a PDF, moving its width from 1.4 mm to 0.2 mm and back left the three size dots exactly as they were; the dots were three fixed sizes, whatever the widths. Each dot is now as large as its width (`PencilSizeDot`, see `Architecture.md`), on the fixed bar and in the squeeze palette. Checked: `PencilToolboxTests.testTheSizeDotsFollowTheirWidthsWithinAVisibleRange` (macOS: the owner's monoline case differs by more than 6 points, every ink's three starting sizes by more than 1.5, every width within its range stays between 3.5 and 22 points, the broadest eraser and odd values clamped); `PencilToolsTests.testTheBarsSizeDotFollowsItsWidth` (hosted: the chosen dot's pixels grow and shrink as its width is changed); in the simulator, the pen's dot growing to 8.8 mm and shrinking to 0.3 mm while its popover's slider moved. The buttons keep their size (28 by 44 points). Not looked at on the iPad, nor the squeeze palette (it needs a Pencil).
+
 ## The favorite colors on the Pencil bar follow Settings at once: 2026-10-12
 
 The fixed bar's favorite colors were handed in by `PDFPane`, `EmbeddedPDFViewer` and `DrawingEditor` as `GraphitePreferences.storedColorPalette()` when the view was built, so a palette changed in Settings › Colors showed on the bar only when the document was opened again, as the highlighter's colors did before. `PencilToolRow` and the squeeze palette now follow the stored palette themselves, and the owners no longer pass it. Checked by `PencilToolsTests.testThePDFBarsFavoriteColorsFollowSettingsAtOnce` (hosted): a PDF's fixed bar with the pen in use shows the default red swatch, then, once Settings saves another palette, its color and no red; the same test fails with the previous code (the second wait times out). Not looked at on the iPad.
