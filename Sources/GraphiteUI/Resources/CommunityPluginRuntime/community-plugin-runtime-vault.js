@@ -113,9 +113,28 @@
         }
         async read(path) {
             const normalizedPath = normalizePath(path);
-            const response = await hostBridge.send('vault.read', { path: normalizedPath, encoding: 'text' });
+            let response;
+            try {
+                response = await hostBridge.send('vault.read', { path: normalizedPath, encoding: 'text' });
+            } catch (error) {
+                const settingsFileText = error.kind === 'missing' ? this.absentObsidianSettingsFileText(normalizedPath) : null;
+                if (settingsFileText !== null) return settingsFileText;
+                throw error;
+            }
             this.revisionsByPath.set(normalizedPath, response.revision);
             return response.text;
+        }
+        /// Obsidian writes its own settings files in every vault it opens, and plugins read
+        /// them as they are (Make.md reads `app.json` at load). A vault Obsidian never opened
+        /// has none, so these read as the empty settings Obsidian starts from; nothing is
+        /// written until a plugin writes them.
+        absentObsidianSettingsFileText(normalizedPath) {
+            const configurationFolder = this.vault.configDir || '.obsidian';
+            const settingsFiles = ['app.json', 'appearance.json', 'hotkeys.json'];
+            for (const fileName of settingsFiles) {
+                if (normalizedPath === configurationFolder + '/' + fileName) return '{}';
+            }
+            return null;
         }
         async readBinary(path) {
             const normalizedPath = normalizePath(path);
@@ -148,14 +167,31 @@
             this.vault.reconcileWrittenPath(path, response.stat);
             return response;
         }
+        /// Runs this runtime's writes to one path one after another, each expecting the revision
+        /// the one before it left. Plugins write the same file again before the last write is
+        /// done (two quick `saveData` calls); in Obsidian both succeed and the last one stays,
+        /// where expecting the revision from before the first would refuse the second.
+        writeInTurn(path, write) {
+            if (!this.writesByPath) this.writesByPath = new Map();
+            const previous = this.writesByPath.get(path) || Promise.resolve();
+            const next = previous.catch(() => {}).then(write);
+            const settled = next.catch(() => {});
+            this.writesByPath.set(path, settled);
+            settled.then(() => { if (this.writesByPath.get(path) === settled) this.writesByPath.delete(path); });
+            return next;
+        }
         async write(path, data, options) {
             const normalizedPath = normalizePath(path);
-            await this.writeData(normalizedPath, { text: textFromData(data) }, this.writeExpectation(normalizedPath));
+            const pluginIdentifier = runtime.callingPluginIdentifier();
+            const text = textFromData(data);
+            await this.writeInTurn(normalizedPath, () => this.writeData(normalizedPath, { text }, this.writeExpectation(normalizedPath), true, pluginIdentifier));
             if (options) await this.applyTimes(normalizedPath, options);
         }
         async writeBinary(path, data, options) {
             const normalizedPath = normalizePath(path);
-            await this.writeData(normalizedPath, { base64: arrayBufferToBase64(data) }, this.writeExpectation(normalizedPath));
+            const pluginIdentifier = runtime.callingPluginIdentifier();
+            const base64 = arrayBufferToBase64(data);
+            await this.writeInTurn(normalizedPath, () => this.writeData(normalizedPath, { base64 }, this.writeExpectation(normalizedPath), true, pluginIdentifier));
             if (options) await this.applyTimes(normalizedPath, options);
         }
         async applyTimes(path, options) {
@@ -530,13 +566,23 @@
         getResourcePath(file) {
             return this.adapter.getResourcePath(file.path) + '?' + (file.stat ? file.stat.mtime : 0);
         }
+        /// Obsidian's settings object (undocumented): `app.json` and `appearance.json` merged
+        /// over Obsidian's defaults. Make.md reads the theme from it as it loads.
+        get config() {
+            return Object.assign({}, obsidianDefaultConfiguration, { cssTheme: '', theme: globalScope.document.body.hasClass('theme-dark') ? 'obsidian' : 'moonstone', baseFontSize: 16 }, this.configuration);
+        }
         /// Obsidian's settings from `.obsidian/app.json` (undocumented but widely used).
         getConfig(key) {
             if (Object.prototype.hasOwnProperty.call(this.configuration, key)) return this.configuration[key];
             return Object.prototype.hasOwnProperty.call(obsidianDefaultConfiguration, key) ? obsidianDefaultConfiguration[key] : null;
         }
-        setConfig(key) {
-            runtime.unsupported('Vault.setConfig (“' + key + '”)', 'Change Obsidian settings in Graphite\'s Settings.');
+        /// Graphite's settings are its own, so a plugin's change to Obsidian's settings lasts
+        /// until the plugins restart, for the plugins that read it back, and does not change
+        /// Graphite; it is reported, without failing the plugin (System Dark Mode sets `theme`).
+        setConfig(key, value) {
+            runtime.reportUnsupportedFeature('Changing Obsidian settings from a plugin (“' + key + '”)');
+            if (value === undefined || value === null) delete this.configuration[key];
+            else this.configuration[key] = value;
         }
     }
 

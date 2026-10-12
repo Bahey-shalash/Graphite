@@ -791,6 +791,10 @@
         constructor(app, plugin) {
             super(app);
             this.plugin = plugin;
+            // Obsidian names a plugin's tab after the plugin (undocumented); Smart Connections
+            // renames its tab from it.
+            this.id = plugin && plugin.manifest ? plugin.manifest.id : '';
+            this.name = plugin && plugin.manifest ? plugin.manifest.name : '';
         }
     }
 

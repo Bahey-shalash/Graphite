@@ -383,7 +383,19 @@
     }
     class WorkspaceParent extends WorkspaceItem {}
     class WorkspaceSplit extends WorkspaceParent {}
-    class WorkspaceRoot extends WorkspaceSplit {}
+    /// A window's part of the workspace. Obsidian gives each its `win` and `doc`, which
+    /// plugins use to reach the document their elements are in (Colored Tags styles each
+    /// container's document); Graphite's plugins share the runtime's one page.
+    class WorkspaceContainer extends WorkspaceSplit {
+        get win() { return globalScope; }
+        get doc() { return globalScope.document; }
+    }
+    class WorkspaceRoot extends WorkspaceContainer {
+        constructor() {
+            super();
+            this.containerEl = createDiv({ cls: 'workspace-split mod-vertical mod-root' });
+        }
+    }
     class WorkspaceTabs extends WorkspaceParent {}
     class WorkspaceSidedock extends WorkspaceSplit {
         constructor(side) {
@@ -398,7 +410,6 @@
     }
     class WorkspaceMobileDrawer extends WorkspaceSidedock {}
     class WorkspaceFloating extends WorkspaceParent {}
-    class WorkspaceContainer extends WorkspaceSplit {}
     class WorkspaceWindow extends WorkspaceContainer {}
     class WorkspaceRibbon {
         constructor(side) { this.side = side; this.containerEl = createDiv({ cls: 'workspace-ribbon side-dock-ribbon mod-' + side }); }
@@ -537,6 +548,8 @@
             this.view = new EmptyView(this);
             this.pinned = false;
             this.isDeferred = false;
+            /// A view state waiting for a plugin to register its type.
+            this.waitingViewState = null;
             this.containerEl = createDiv({ cls: 'workspace-leaf' });
             this.tabHeaderEl = createDiv({ cls: 'workspace-tab-header' });
             this.tabHeaderInnerIconEl = this.tabHeaderEl.createDiv({ cls: 'workspace-tab-header-inner-icon' });
@@ -556,7 +569,14 @@
                 return;
             }
             const viewCreator = workspace.viewCreatorsByType.get(viewState.type);
-            if (!viewCreator) runtime.unsupported('Opening a view of type “' + viewState.type + '”', 'No plugin registered it.');
+            if (!viewCreator) {
+                // As in Obsidian, a leaf keeps a view state whose type no plugin has registered
+                // yet, and gets its view once one does (Spaced Repetition opens its review
+                // queue before registering it).
+                this.waitingViewState = { viewState, ephemeralState };
+                return;
+            }
+            this.waitingViewState = null;
             const view = viewCreator(this);
             await this.replaceView(view);
             if (viewState.state) await view.setState(viewState.state, { history: false });

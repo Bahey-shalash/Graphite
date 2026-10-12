@@ -96,14 +96,24 @@ class ExamplePlugin extends obsidian.Plugin {
     }
 });
 
-test('a plugin that needs Node.js fails to load and says why', async () => {
+test('a plugin may require Node.js modules as it loads, and using one fails and says why', async () => {
     const harness = await startRuntime({ files: {} });
     try {
-        const nodeSource = `var fs = require("fs"); class ExamplePlugin extends require("obsidian").Plugin {}; module.exports = ExamplePlugin;`;
-        const nodeAnswer = plain(await installAndLoadPlugin(harness, { manifest, mainSource: nodeSource }));
-        assert.equal(nodeAnswer.isLoaded, false);
-        assert.equal(nodeAnswer.missingModule, 'fs');
-        assert.match(nodeAnswer.errorMessage, /only Obsidian's desktop app provides/);
+        // Bundles for desktop and mobile require Node.js modules as they load and use them only
+        // on desktop; esbuild's and TypeScript's interop read the module as they import it.
+        const loadingSource = `var path = require("path"); var fsPromises = require("fs/promises"); var childProcess = require("node:child_process");
+var interop = Object.keys(path).length + (path.__esModule ? 1 : 0);
+class ExamplePlugin extends require("obsidian").Plugin { onload() { this.isDesktop = typeof path.join === "function" && interop === 0; } }; module.exports = ExamplePlugin;`;
+        const loadingAnswer = plain(await installAndLoadPlugin(harness, { manifest, mainSource: loadingSource }));
+        assert.equal(loadingAnswer.isLoaded, true);
+        assert.deepEqual(plain(harness.host.notificationsOf('plugin.unsupportedFeature')), [], 'requiring is not using');
+        await harness.send({ operation: 'plugin.unload', pluginIdentifier: 'example' });
+
+        const usingSource = `var fs = require("fs"); class ExamplePlugin extends require("obsidian").Plugin { onload() { fs.promises.readFile("note.md"); } }; module.exports = ExamplePlugin;`;
+        const usingAnswer = plain(await installAndLoadPlugin(harness, { manifest, mainSource: usingSource }));
+        assert.equal(usingAnswer.isLoaded, false);
+        assert.equal(usingAnswer.missingModule, 'fs');
+        assert.match(usingAnswer.errorMessage, /only Obsidian's desktop app provides/);
         await settle();
         assert.deepEqual(plain(harness.host.notificationsOf('plugin.unsupportedFeature').map((notification) => [notification.pluginIdentifier, notification.featureName])), [['example', 'Module “fs”']]);
     } finally {

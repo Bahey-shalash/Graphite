@@ -44,11 +44,139 @@
         }
     }
 
+    /// Obsidian's classes are compiled to ES5 functions, so plugins built for ES5 extend them
+    /// with `_super.call(this, …) || this`, which an ES2015 class refuses ("cannot be invoked
+    /// without 'new'"). Plugins get each class as a function that, called with `new` or by a
+    /// subclass's `super`, constructs the class; called as ES5's `_super.call(this, …)`, it
+    /// constructs the class for the subclass that `this` belongs to and returns it, which
+    /// `|| this` (TypeScript) and `_possibleConstructorReturn` (Babel) then use as `this`.
+    /// Its prototype is the class's own, so `instanceof` answers alike for both.
+    const callableClasses = new WeakMap();
+    function isClass(value) {
+        return typeof value === 'function' && /^class[\s{]/.test(Function.prototype.toString.call(value));
+    }
+    function callableClass(classValue) {
+        let callable = callableClasses.get(classValue);
+        if (callable) return callable;
+        callable = function constructClassForPlugin(...constructorArguments) {
+            if (new.target) return Reflect.construct(classValue, constructorArguments, new.target);
+            const subclass = this && typeof this === 'object' && typeof this.constructor === 'function' && this.constructor.prototype instanceof classValue ? this.constructor : classValue;
+            return Reflect.construct(classValue, constructorArguments, subclass);
+        };
+        callable.prototype = classValue.prototype;
+        Object.setPrototypeOf(callable, classValue);
+        Object.defineProperty(callable, 'name', { value: classValue.name });
+        callableClasses.set(classValue, callable);
+        return callable;
+    }
+    const pluginFacingObsidianModule = new Proxy(exportedApi, {
+        get(target, key) {
+            const value = Reflect.get(target, key);
+            return isClass(value) ? callableClass(value) : value;
+        },
+        getOwnPropertyDescriptor(target, key) {
+            const descriptor = Reflect.getOwnPropertyDescriptor(target, key);
+            if (descriptor && 'value' in descriptor && isClass(descriptor.value)) {
+                // A proxy may report a different value only for a configurable property.
+                if (descriptor.configurable) descriptor.value = callableClass(descriptor.value);
+            }
+            return descriptor;
+        },
+    });
+
+    /// Turns a plugin's `main.js` into a CommonJS module function. In WebKit the code is
+    /// loaded as a script from a blob URL of its own, so the plugin's frames in error stacks
+    /// carry an address the runtime maps back to the plugin; elsewhere (the Node tests) it is
+    /// evaluated with a `sourceURL` naming the plugin, which V8's stacks show.
+    let nextPluginSourceNumber = 1;
+    runtime.pluginModuleFactories = {};
+    /// Whether this engine's error stacks show the `sourceURL` of evaluated code (V8 does,
+    /// JavaScriptCore does not), found once by trying it.
+    let stacksShowSourceNames = null;
+    function engineStacksShowSourceNames() {
+        if (stacksShowSourceNames === null) {
+            try {
+                const probe = (0, globalScope.eval)('(function sourceNameProbe() { return new Error().stack; })\n//# sourceURL=plugin:graphite-source-name-probe/main.js');
+                stacksShowSourceNames = /plugin:graphite-source-name-probe\//.test(String(probe()));
+            } catch (error) {
+                stacksShowSourceNames = true;
+            }
+        }
+        return stacksShowSourceNames;
+    }
+    /// How long a plugin's script may take to load from its blob before loading fails.
+    const pluginScriptLoadMilliseconds = 20000;
+    function evaluatePluginSource(pluginIdentifier, mainSource) {
+        const sourceName = '\n})\n//# sourceURL=plugin:' + pluginIdentifier + '/main.js';
+        const document = globalScope.document;
+        const loadsFromScripts = !engineStacksShowSourceNames() && Boolean(globalScope.Blob && globalScope.URL && globalScope.URL.createObjectURL && document);
+        if (!loadsFromScripts) return (0, globalScope.eval)('(function anonymous(require, module, exports) {\n' + mainSource + sourceName);
+        const key = pluginIdentifier + '#' + nextPluginSourceNumber;
+        nextPluginSourceNumber += 1;
+        const wrapped = 'GraphitePluginRuntime.pluginModuleFactories[' + JSON.stringify(key) + '] = (function anonymous(require, module, exports) {\n' + mainSource + sourceName;
+        const address = globalScope.URL.createObjectURL(new globalScope.Blob([wrapped], { type: 'text/javascript' }));
+        runtime.pluginIdentifiersBySourceAddress.set(address, pluginIdentifier);
+        return new Promise((resolve, reject) => {
+            let evaluationError = null;
+            const noteEvaluationError = (event) => { if (event.filename === address) evaluationError = event.error || new Error(event.message); };
+            globalScope.addEventListener('error', noteEvaluationError);
+            const script = document.createElement('script');
+            let isFinished = false;
+            const timeout = globalScope.setTimeout(() => finish(), pluginScriptLoadMilliseconds);
+            const finish = () => {
+                if (isFinished) return;
+                isFinished = true;
+                globalScope.clearTimeout(timeout);
+                globalScope.removeEventListener('error', noteEvaluationError);
+                script.remove();
+                globalScope.URL.revokeObjectURL(address);
+                const moduleFactory = runtime.pluginModuleFactories[key];
+                delete runtime.pluginModuleFactories[key];
+                if (typeof moduleFactory === 'function') resolve(moduleFactory);
+                else reject(evaluationError || new Error('The plugin\'s main.js could not be read as JavaScript.'));
+            };
+            script.onload = finish;
+            script.onerror = finish;
+            script.src = address;
+            document.head.appendChild(script);
+        });
+    }
+
+    /// What a plugin gets for a Node.js or Electron module. Plugins built for desktop and
+    /// mobile require them as they load and use them only on desktop (Git loads `path` and
+    /// `child_process` and uses isomorphic-git on mobile), so requiring one must not fail.
+    /// Anything read from the stand-in is another stand-in; calling or constructing one
+    /// reports the module and throws why it is missing, as requiring it used to.
+    function desktopModuleStandIn(moduleName, memberPath, pluginIdentifier, explanation) {
+        const target = function desktopModuleMember() {};
+        const fail = () => {
+            runtime.reportUnsupportedFeature('Module “' + moduleName + '”', pluginIdentifier);
+            throw new UnsupportedModuleError(moduleName, explanation + (memberPath ? ' (' + memberPath + ')' : ''));
+        };
+        return new Proxy(target, {
+            get(standIn, key) {
+                if (typeof key === 'symbol' || key === '__esModule' || key === 'then' || key === 'prototype' || key === 'toJSON') return undefined;
+                if (key === 'toString' || key === 'valueOf') return () => '[desktop module ' + moduleName + ']';
+                return desktopModuleStandIn(moduleName, memberPath ? memberPath + '.' + key : key, pluginIdentifier, explanation);
+            },
+            has() { return false; },
+            ownKeys() { return ['prototype'].filter((key) => Object.prototype.hasOwnProperty.call(target, key)); },
+            getOwnPropertyDescriptor(standIn, key) { return Reflect.getOwnPropertyDescriptor(standIn, key); },
+            set() { return true; },
+            apply: fail,
+            construct: fail,
+        });
+    }
+
     function createPluginRequire(pluginIdentifier) {
         return function require(moduleName) {
-            if (moduleName === 'obsidian') return exportedApi;
+            if (moduleName === 'obsidian') return pluginFacingObsidianModule;
             if (Object.prototype.hasOwnProperty.call(codeMirrorModules, moduleName)) return codeMirrorModules[moduleName];
             const explanation = missingModuleExplanation(moduleName);
+            const baseName = moduleName.replace(/^node:/, '');
+            if (desktopModuleNames.has(baseName) || desktopModuleNames.has(baseName.split('/')[0])) {
+                return desktopModuleStandIn(baseName, '', pluginIdentifier, explanation);
+            }
             runtime.reportUnsupportedFeature('Module “' + moduleName + '”', pluginIdentifier);
             if (explanation) throw new UnsupportedModuleError(moduleName, explanation);
             throw new UnsupportedModuleError(moduleName, 'It requires “' + moduleName + '”, which Obsidian does not provide to plugins.');
@@ -320,6 +448,12 @@
         registerView(viewType, viewCreator) {
             const workspace = this.app.workspace;
             workspace.viewCreatorsByType.set(viewType, viewCreator);
+            for (const leaf of workspace.pluginLeaves.slice()) {
+                const waiting = leaf.waitingViewState;
+                if (waiting && waiting.viewState.type === viewType) {
+                    leaf.setViewState(waiting.viewState, waiting.ephemeralState).catch((error) => console.error('Graphite could not open a plugin view.', error));
+                }
+            }
             this.register(() => {
                 workspace.detachLeavesOfType(viewType);
                 workspace.viewCreatorsByType.delete(viewType);
@@ -460,8 +594,8 @@
             }
             try {
                 const pluginModule = { exports: {} };
-                const source = '(function anonymous(require, module, exports) {\n' + description.mainSource + '\n})\n//# sourceURL=plugin:' + pluginIdentifier + '/main.js';
-                const moduleFactory = (0, globalScope.eval)(source);
+                let moduleFactory = evaluatePluginSource(pluginIdentifier, description.mainSource);
+                if (moduleFactory && typeof moduleFactory.then === 'function') moduleFactory = await moduleFactory;
                 moduleFactory(createPluginRequire(pluginIdentifier), pluginModule, pluginModule.exports);
                 const PluginClass = pluginModule.exports && (pluginModule.exports.default || pluginModule.exports);
                 if (typeof PluginClass !== 'function') throw new Error('The plugin\'s main.js does not export a plugin class.');
@@ -631,6 +765,38 @@
         };
     }
 
+    /// Obsidian's registry of view types (undocumented), which plugins read to find a view's
+    /// creator or the type that opens a file extension. Its `viewByType` is the workspace's
+    /// own list, so what plugins register through `registerView` appears in it.
+    function makeViewRegistry(workspace) {
+        const viewByType = new Proxy({}, {
+            get(target, viewType) {
+                if (typeof viewType === 'string' && workspace.viewCreatorsByType.has(viewType)) return workspace.viewCreatorsByType.get(viewType);
+                return Reflect.get(target, viewType);
+            },
+            set(target, viewType, viewCreator) { workspace.viewCreatorsByType.set(viewType, viewCreator); return true; },
+            deleteProperty(target, viewType) { workspace.viewCreatorsByType.delete(viewType); return true; },
+            has(target, viewType) { return workspace.viewCreatorsByType.has(viewType); },
+            ownKeys() { return Array.from(workspace.viewCreatorsByType.keys()); },
+            getOwnPropertyDescriptor(target, viewType) {
+                return workspace.viewCreatorsByType.has(viewType) ? { value: workspace.viewCreatorsByType.get(viewType), writable: true, enumerable: true, configurable: true } : undefined;
+            },
+        });
+        const registry = new exportedApi.Events();
+        Object.assign(registry, {
+            viewByType,
+            typeByExtension: {},
+            registerView(viewType, viewCreator) { workspace.viewCreatorsByType.set(viewType, viewCreator); registry.trigger('view-registered', viewType); },
+            unregisterView(viewType) { workspace.viewCreatorsByType.delete(viewType); registry.trigger('view-unregistered', viewType); },
+            getViewCreatorByType(viewType) { return workspace.viewCreatorsByType.get(viewType); },
+            isExtensionRegistered(extension) { return Object.prototype.hasOwnProperty.call(registry.typeByExtension, extension); },
+            getTypeByExtension(extension) { return registry.typeByExtension[extension]; },
+            registerExtensions() { runtime.reportUnsupportedFeature('Opening files in a plugin view'); },
+            unregisterExtensions() {},
+        });
+        return registry;
+    }
+
     class App {
         constructor() {
             this.keymap = new Keymap();
@@ -645,6 +811,7 @@
             this.secretStorage = new exportedApi.SecretStorage();
             this.metadataTypeManager = new MetadataTypeManager(this);
             this.embedRegistry = makeEmbedRegistry();
+            this.viewRegistry = makeViewRegistry(this.workspace);
             // Obsidian's status bar, which its mobile app keeps hidden. Plugins that reach for it
             // (Commander adds its buttons there) get an element that is never shown.
             this.statusBar = { containerEl: createDiv({ cls: 'status-bar' }) };
@@ -652,6 +819,23 @@
             // template's folds into a new note (Calendar, through the daily notes helper) call
             // it; Graphite keeps folds itself, so there are none to copy and nothing is kept.
             this.foldManager = { load() { return null; }, save() {} };
+            // Obsidian's hotkey registry (undocumented). Graphite's keyboard shortcuts are its
+            // own, so plugins that read the hotkeys set for their commands (Editing Toolbar
+            // shows them beside its buttons) find none, and what they set is not used.
+            this.hotkeyManager = {
+                customKeys: {},
+                defaultKeys: {},
+                getHotkeys(commandIdentifier) { return this.customKeys[commandIdentifier] || []; },
+                getDefaultHotkeys(commandIdentifier) { return this.defaultKeys[commandIdentifier] || []; },
+                setHotkeys(commandIdentifier, hotkeys) { this.customKeys[commandIdentifier] = hotkeys; },
+                removeHotkeys(commandIdentifier) { delete this.customKeys[commandIdentifier]; },
+                addDefaultHotkeys(commandIdentifier, hotkeys) { this.defaultKeys[commandIdentifier] = hotkeys; },
+                removeDefaultHotkeys(commandIdentifier) { delete this.defaultKeys[commandIdentifier]; },
+                printHotkeyForCommand() { return ''; },
+                save() {},
+                load() {},
+                bake() {},
+            };
             this.lastEvent = null;
             this.isMobile = true;
             this.appId = '';
@@ -660,6 +844,10 @@
                 openTabById: (tabIdentifier) => hostBridge.notify('settings.open', { pluginIdentifier: tabIdentifier }),
                 close: () => runtime.pluginSurface.handleClosedByPerson(),
                 closeActiveTab: () => runtime.pluginSurface.handleClosedByPerson(),
+                // Obsidian's lists of setting tabs (undocumented): Graphite's own settings are
+                // native, so only the plugins' tabs are listed (Smart Connections finds its own).
+                get pluginTabs() { return Array.from(runtime.settingTabsByPlugin.values()).flat(); },
+                settingTabs: [],
             };
         }
         loadLocalStorage(key) {
@@ -679,9 +867,33 @@
             }
         }
         isDarkMode() { return globalScope.document.body.hasClass('theme-dark'); }
+        /// Obsidian's base theme (undocumented): `obsidian` is dark, `moonstone` light.
+        getTheme() { return this.isDarkMode() ? 'obsidian' : 'moonstone'; }
+        /// Graphite's appearance follows the system and its own settings, so a plugin cannot
+        /// switch it; the request is reported (System Dark Mode does what Graphite already does).
+        setTheme(theme) {
+            if (theme === this.getTheme()) return;
+            runtime.reportUnsupportedFeature('Changing Graphite\'s appearance (light or dark)');
+        }
     }
 
     runtime.ribbon = new RibbonRegistry();
+
+    /// Obsidian's Vim mode adapter, a global its plugins add Vim commands to (Linter sets
+    /// `CodeMirrorAdapter.commands.save` as it loads). Graphite's editor has no Vim mode, so
+    /// what plugins add here is kept and never run.
+    if (!globalScope.CodeMirrorAdapter) {
+        const keptVimDefinitions = () => {};
+        globalScope.CodeMirrorAdapter = {
+            commands: {},
+            Vim: {
+                defineEx: keptVimDefinitions, defineAction: keptVimDefinitions, defineMotion: keptVimDefinitions, defineOperator: keptVimDefinitions,
+                defineOption: keptVimDefinitions, defineRegister: keptVimDefinitions, map: keptVimDefinitions, noremap: keptVimDefinitions,
+                unmap: keptVimDefinitions, mapclear: keptVimDefinitions, mapCommand: keptVimDefinitions, setOption: keptVimDefinitions,
+                getOption: () => undefined, handleEx: keptVimDefinitions, handleKey: keptVimDefinitions, exitInsertMode: keptVimDefinitions,
+            },
+        };
+    }
 
     // MARK: Typing in a note
 

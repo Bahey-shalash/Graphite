@@ -15,16 +15,15 @@
     // Plugin errors that nothing caught reach Graphite's log of the plugin's problems.
     globalScope.addEventListener('error', (event) => {
         runtime.hostBridge.notify('plugin.failure', {
-            pluginIdentifier: /plugin:([^/\s:)]+)\//.exec(event.filename || '') ? /plugin:([^/\s:)]+)\//.exec(event.filename)[1] : runtime.callingPluginIdentifier(),
+            pluginIdentifier: runtime.pluginIdentifierOfSource(event.filename) || runtime.pluginIdentifierInStack(event.error && event.error.stack) || runtime.callingPluginIdentifier(),
             message: event.message || 'An error nothing handled.',
         });
     });
     globalScope.addEventListener('unhandledrejection', (event) => {
         const reason = event.reason;
         const stack = reason && reason.stack ? String(reason.stack) : '';
-        const match = /plugin:([^/\s:)]+)\//.exec(stack);
         runtime.hostBridge.notify('plugin.failure', {
-            pluginIdentifier: match ? match[1] : null,
+            pluginIdentifier: runtime.pluginIdentifierInStack(stack),
             message: reason && reason.message ? reason.message : String(reason),
         });
     });
