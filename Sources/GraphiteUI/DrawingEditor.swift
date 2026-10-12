@@ -192,6 +192,11 @@ struct DrawingEditor: View {
                 // Taking up a tool ends arranging pictures.
                 .onChange(of: toolbox.selection) { _, _ in canvasController.finishArrangingPictures() }
                 .onAppear { if let loadingError = canvasController.loadingError { errorMessage = loadingError } }
+                .onChange(of: canvasController.pictureErrorMessage) { _, message in
+                    guard let message else { return }
+                    errorMessage = message
+                    canvasController.pictureErrorMessage = nil
+                }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background, canvasController.hasChanges, let content = currentContent { preserveDraft(content) }
@@ -372,9 +377,11 @@ struct DrawingEditor: View {
         } catch { errorMessage = error.localizedDescription }
     }
 
+    /// At its own size where that fits, as ⌘V and the lasso's Paste place it.
     private func addPictureFromPasteboard() async {
-        guard let imageData = UIPasteboard.general.image?.pngData() else { return }
-        await addPicture(imageData: imageData)
+        guard case .image(let imageData) = LassoPasteboard.content(ignoringInk: true) else { return }
+        do { try await canvasController.pastePicture(imageData: imageData, centeredAt: nil) }
+        catch { errorMessage = error.localizedDescription }
     }
 
     private func runPictureChange(_ change: @escaping () async throws -> Void) {
@@ -446,6 +453,8 @@ final class DrawingCanvasController {
     var hasInk = false
     var canvasWidth: Double = 0
     var loadingError: String?
+    /// Why a pasted image could not be placed, for the editor's alert.
+    var pictureErrorMessage: String?
     private(set) var pictures: [PlacedPicture]
     /// The paper under the ink. Changing it is a change to the drawing, not a step to undo.
     var paper: DrawingPaper {
@@ -513,9 +522,10 @@ final class DrawingCanvasController {
 
     // MARK: Pictures
 
-    /// Places a picture in the middle of what is on screen, at most 60% of the canvas wide,
-    /// and selects it so it can be moved into place.
-    func addPicture(_ picture: DrawingBackgroundImage) throws {
+    /// Places a picture in the middle of what is on screen, or with its middle at a point of
+    /// the drawing, at most 60% of the canvas wide and no wider than `preferredWidth`, and
+    /// selects it so it can be moved into place.
+    func addPicture(_ picture: DrawingBackgroundImage, centeredAt center: CGPoint? = nil, preferredWidth: Double? = nil) throws {
         guard pictures.count < DrawingLimits.maximumPictureCount else {
             throw GraphiteError.oversized("A drawing can hold \(DrawingLimits.maximumPictureCount) images.")
         }
@@ -523,10 +533,13 @@ final class DrawingCanvasController {
         guard existingBytes + picture.imageData.count <= DrawingLimits.maximumBackgroundImageBytes else {
             throw GraphiteError.oversized("The images on this drawing are as large together as a drawing can hold.")
         }
-        let width = min(picture.frame.width, canvasWidth * Self.newPictureWidthFraction)
+        let width = min(picture.frame.width, canvasWidth * Self.newPictureWidthFraction, preferredWidth ?? .infinity)
         let height = picture.frame.height * width / picture.frame.width
         let visibleRegion = canvasView?.visibleDrawingRegion ?? CGRect(x: 0, y: 0, width: canvasWidth, height: height)
-        let origin = CGPoint(x: (canvasWidth - width) / 2, y: max(visibleRegion.midY - height / 2, visibleRegion.minY + Self.newPictureTopMargin, 0))
+        let origin = center.map { center in
+            // Its middle where asked, kept on the canvas's width and below its top.
+            CGPoint(x: min(max(center.x - width / 2, 0), max(canvasWidth - width, 0)), y: max(center.y - height / 2, 0))
+        } ?? CGPoint(x: (canvasWidth - width) / 2, y: max(visibleRegion.midY - height / 2, visibleRegion.minY + Self.newPictureTopMargin, 0))
         let placed = PlacedPicture(picture: DrawingBackgroundImage(imageData: picture.imageData, frame: CGRect(origin: origin, size: CGSize(width: width, height: height)).integral))
         replacePictures(with: pictures + [placed], actionName: "Add Image")
         isArrangingPictures = true
@@ -536,6 +549,18 @@ final class DrawingCanvasController {
 
     private static let newPictureWidthFraction = 0.6
     private static let newPictureTopMargin = 24.0
+
+    /// Places an image from the pasteboard as a picture: with its middle at a point of the
+    /// drawing, or in the middle of what is on screen, at its own size where that fits
+    /// (`LassoPasteboard.preferredWidth`). Prepared for the full width, so enlarging it later
+    /// does not blur it.
+    func pastePicture(imageData: Data, centeredAt center: CGPoint?) async throws {
+        let canvasWidth = canvasWidth
+        let picture = try await Task.detached(priority: .userInitiated) {
+            try DrawingPictures.picture(from: imageData, canvasWidth: canvasWidth)
+        }.value
+        try addPicture(picture, centeredAt: center, preferredWidth: LassoPasteboard.preferredWidth(ofImageData: imageData).map(Double.init))
+    }
 
     func beginArrangingPictures(selecting identifier: UUID? = nil) {
         guard !pictures.isEmpty else { return }
@@ -806,6 +831,8 @@ final class InfiniteCanvasView: HistoryCanvasView {
     /// Graphite's lasso moved pictures to new frames, or deleted them, with its ink.
     var lassoMovedPictures: (([UUID: CGRect]) -> Void)?
     var lassoDeletedPictures: ((Set<UUID>) -> Void)?
+    /// An image pasted with the lasso, to be placed with its middle at a point of the drawing.
+    var lassoPastedPicture: ((Data, CGPoint) -> Void)?
     /// Where pictures of an area taken with the lasso can be added, and their name.
     var lassoNoteDestination: LassoNoteDestination?
     var lassoCaptureName = "Drawing"
@@ -1149,6 +1176,10 @@ extension InfiniteCanvasView: LassoCanvasContent {
 
     var lassoDisplayQuarterTurns: Int { 0 }
 
+    func pastePicture(_ imageData: Data, centeredAt drawingPoint: CGPoint) {
+        lassoPastedPicture?(imageData, drawingPoint)
+    }
+
     /// The drawing's width, from its top down as far as it goes.
     var lassoDrawingBounds: CGRect { CGRect(x: 0, y: 0, width: canvasWidth, height: .greatestFiniteMagnitude) }
 }
@@ -1201,6 +1232,26 @@ private struct DrawingCanvas: UIViewRepresentable {
         }
         canvasView.lassoMovedPictures = { [controller] frames in controller.movePicturesWithLasso(to: frames) }
         canvasView.lassoDeletedPictures = { [controller] identifiers in controller.deletePicturesWithLasso(identifiers) }
+        canvasView.lassoPastedPicture = { [controller] imageData, center in
+            Task {
+                do { try await controller.pastePicture(imageData: imageData, centeredAt: center) }
+                catch { controller.pictureErrorMessage = error.localizedDescription }
+            }
+        }
+        // ⌘V: ink goes in the middle of what is on screen; an image there as a picture.
+        coordinator.toolPickerHost.pasteFromPasteboard = { [weak canvasView, controller] in
+            guard let canvasView, let content = LassoPasteboard.content() else { return }
+            let visibleRegion = canvasView.visibleDrawingRegion
+            let middle = CGPoint(x: visibleRegion.midX, y: visibleRegion.midY)
+            switch content {
+            case .ink: canvasView.inkSelection.pasteInk(at: CGPoint(x: middle.x * canvasView.zoomScale, y: middle.y * canvasView.zoomScale))
+            case .image(let imageData):
+                Task {
+                    do { try await controller.pastePicture(imageData: imageData, centeredAt: nil) }
+                    catch { controller.pictureErrorMessage = error.localizedDescription }
+                }
+            }
+        }
         canvasView.lassoNoteDestination = noteDestination
         canvasView.lassoCaptureName = title
         controller.canvasWidth = canvasWidth

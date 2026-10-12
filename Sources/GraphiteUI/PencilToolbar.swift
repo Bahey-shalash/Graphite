@@ -176,20 +176,22 @@ struct PencilToolRow: View {
                 .fixedSize()
                 separator
             }
-            // A highlighter marks text in light colors of its own; a pen writes in black and
-            // the note colors.
-            if toolbox.presetInUse.ink == .highlighter {
-                ForEach(highlighterColors) { highlighterColor in colorButton(name: highlighterColor.name, hex: highlighterColor.hex) }
-            } else {
-                colorButton(name: "black", hex: PencilInk.pen.defaultColorHex)
-                ForEach(favoriteColors) { favorite in colorButton(name: favorite.name, hex: favorite.hex) }
+            if Self.offersColors(toolInUse: toolbox.toolInUse) {
+                // A highlighter marks text in light colors of its own; a pen writes in black and
+                // the note colors.
+                if toolbox.presetInUse.ink == .highlighter {
+                    ForEach(highlighterColors) { highlighterColor in colorButton(name: highlighterColor.name, hex: highlighterColor.hex) }
+                } else {
+                    colorButton(name: "black", hex: PencilInk.pen.defaultColorHex)
+                    ForEach(favoriteColors) { favorite in colorButton(name: favorite.name, hex: favorite.hex) }
+                }
+                ColorPicker("Other Color", selection: Binding(
+                    get: { Color(graphiteHex: toolbox.presetInUse.colorHex) ?? .black },
+                    set: { newColor in if let hex = newColor.sRGBHex { toolbox.chooseColor(hex: hex) } }), supportsOpacity: false)
+                    .labelsHidden()
+                    .frame(width: buttonSide, height: rowHeight)
+                separator
             }
-            ColorPicker("Other Color", selection: Binding(
-                get: { Color(graphiteHex: toolbox.presetInUse.colorHex) ?? .black },
-                set: { newColor in if let hex = newColor.sRGBHex { toolbox.chooseColor(hex: hex) } }), supportsOpacity: false)
-                .labelsHidden()
-                .frame(width: buttonSide, height: rowHeight)
-            separator
             toggleButton("Shapes", symbolName: drawsShapes ? "square.fill.on.circle.fill" : "square.on.circle", isOn: $drawsShapes)
             toggleButton("Ruler", symbolName: "ruler", isOn: $toolbox.isRulerActive)
             if let addImage {
@@ -200,6 +202,10 @@ struct PencilToolRow: View {
         }
         .padding(.horizontal, 10)
     }
+
+    /// Whether the colors follow the tool's own controls: not for the laser pointer, which
+    /// points in its own red and whose only choice is Dot or Line.
+    static func offersColors(toolInUse: PencilToolKind) -> Bool { toolInUse != .laser }
 
     private var separator: some View {
         Hairline(axis: .vertical).frame(height: 20).padding(.horizontal, 6)

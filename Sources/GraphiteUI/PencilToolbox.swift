@@ -161,7 +161,8 @@ enum PencilToolKind: String, Codable, CaseIterable, Identifiable {
         case .ink: "pencil.tip"
         case .eraser: "eraser"
         case .lasso: "lasso"
-        case .laser: "laser.burst"
+        // Only a fallback: the bar and the palette draw the laser's own glyph (`LaserPointerGlyph`).
+        case .laser: "cursorarrow.rays"
         }
     }
     /// Whether the canvas draws with PencilKit's tool: the lasso and the laser pointer are

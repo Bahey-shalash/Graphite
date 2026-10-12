@@ -52,9 +52,8 @@ enum PencilToolPalette {
             let selectsInk = PaletteInkSelection.isOn, pointsWithLaser = PaletteInkSelection.pointsWithLaser
             let isInverted = selectsInk || pointsWithLaser || button.isSelected
             var configuration = UIButton.Configuration.plain()
-            let symbolName = selectsInk ? LassoShape.stored.symbolName : pointsWithLaser ? PencilToolKind.laser.symbolName
-                : button.isSelected ? "square.fill.on.circle.fill" : "swatchpalette"
-            configuration.image = UIImage(systemName: symbolName)
+            let symbolName = selectsInk ? LassoShape.stored.symbolName : button.isSelected ? "square.fill.on.circle.fill" : "swatchpalette"
+            configuration.image = pointsWithLaser ? LaserPointerGlyph.templateImage() : UIImage(systemName: symbolName)
             configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 15, weight: .medium)
             configuration.cornerStyle = .capsule
             configuration.baseForegroundColor = isInverted ? .systemBackground : .label
@@ -111,7 +110,7 @@ enum PencilToolPalette {
                 PaletteInkSelection.isOn = true
             }
         }
-        let laserAction = UIAction(title: "Laser Pointer", subtitle: "Point without writing", image: UIImage(systemName: PencilToolKind.laser.symbolName),
+        let laserAction = UIAction(title: "Laser Pointer", subtitle: "Point without writing", image: LaserPointerGlyph.templateImage(),
                                    state: PaletteInkSelection.pointsWithLaser ? .on : .off) { _ in
             PaletteInkSelection.pointsWithLaser.toggle()
         }

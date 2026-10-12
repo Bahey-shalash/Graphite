@@ -315,10 +315,13 @@ final class InkSelectionController: NSObject, UIGestureRecognizerDelegate, @prec
     @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
         guard recognizer.state == .ended else { return }
         let point = recognizer.location(in: canvas)
-        let hadSelection = !selectedStrokeIndices.isEmpty || !selectedPictureIdentifiers.isEmpty || isShowingLassoedArea
+        // A tap on one page ends a selection on another, as a tap beside it does.
+        let otherController = Self.controllerWithSelection.flatMap { other in other === self ? nil : other }
+        otherController?.clearSelection()
+        let hadSelection = !selectedStrokeIndices.isEmpty || !selectedPictureIdentifiers.isEmpty || isShowingLassoedArea || otherController != nil
         // A tap on another stroke selects it at once; beside the ink it ends the selection.
         if selectStroke(at: point) { return }
-        if !hadSelection, Self.strokesOnPasteboard() != nil {
+        if !hadSelection, LassoPasteboard.hasContent {
             pastePoint = point
             canvasMenu.presentEditMenu(with: UIEditMenuConfiguration(identifier: MenuIdentifier.paste as NSString, sourcePoint: point))
         }
@@ -781,8 +784,11 @@ final class InkSelectionController: NSObject, UIGestureRecognizerDelegate, @prec
         let region = contentBounds(strokes: strokes, pictures: pictures).insetBy(dx: -4, dy: -4)
         let picture = LassoAreaCapture.image(of: region, drawing: drawing, content: pictures.isEmpty ? nil : SelectedPicturesContent(controller: self, pictures: pictures),
                                              screenPixelsPerPoint: 2)
-        if let pictureData = picture?.pngData() { pasteboardItem[UTType.png.identifier] = pictureData }
-        UIPasteboard.general.items = [pasteboardItem]
+        if let picture, let pictureData = picture.pngData() {
+            pasteboardItem[UTType.png.identifier] = pictureData
+            LassoPasteboard.rememberScreenshot(picture)
+        }
+        LassoPasteboard.pasteboard.items = [pasteboardItem]
     }
 
     func cutSelection() {
@@ -790,15 +796,23 @@ final class InkSelectionController: NSObject, UIGestureRecognizerDelegate, @prec
         deleteSelection()
     }
 
-    private static func strokesOnPasteboard() -> [PKStroke]? {
-        guard let drawingData = UIPasteboard.general.data(forPasteboardType: PKAppleDrawingTypeIdentifier as String),
-              let drawing = try? PKDrawing(data: drawingData), !drawing.strokes.isEmpty else { return nil }
-        return drawing.strokes
+    /// Pastes what the pasteboard holds with its middle at a point of the canvas: ink as ink,
+    /// selected; an image as a picture, selected for arranging (`LassoPasteboard`).
+    func paste(at point: CGPoint) {
+        switch LassoPasteboard.content() {
+        case .ink(let strokes): pasteInk(strokes, at: point)
+        case .image(let imageData): content?.pastePicture(imageData, centeredAt: drawingPoint(fromCanvas: point))
+        case nil: break
+        }
     }
 
     /// Adds the ink on the pasteboard with its middle at a point of the canvas, and selects it.
     func pasteInk(at point: CGPoint) {
-        guard let strokes = Self.strokesOnPasteboard() else { return }
+        guard case .ink(let strokes) = LassoPasteboard.content() else { return }
+        pasteInk(strokes, at: point)
+    }
+
+    private func pasteInk(_ strokes: [PKStroke], at point: CGPoint) {
         let inkBounds = strokes.reduce(CGRect.null) { bounds, stroke in bounds.union(stroke.renderBounds) }
         let offset = CGAffineTransform(translationX: point.x / zoomScale - inkBounds.midX, y: point.y / zoomScale - inkBounds.midY)
         add(strokes.map { stroke in Self.stroke(stroke, ink: stroke.ink, movedBy: offset) })
@@ -867,22 +881,22 @@ final class InkSelectionController: NSObject, UIGestureRecognizerDelegate, @prec
             if (configuration.identifier as? String) == MenuIdentifier.area { return UIMenu(children: areaMenuElements()) }
             return UIMenu(children: [UIAction(title: "Paste", image: UIImage(systemName: "doc.on.clipboard")) { [weak self] _ in
                 guard let self else { return }
-                self.pasteInk(at: self.pastePoint)
+                self.paste(at: self.pastePoint)
             }])
         }
         return UIMenu(children: selectionMenuElements())
     }
 
-    /// The menu of an area that holds nothing selectable: its picture, and the ink on the
-    /// pasteboard placed in its middle.
+    /// The menu of an area that holds nothing selectable: its picture, and what the pasteboard
+    /// holds placed in its middle.
     func areaMenuElements() -> [UIMenuElement] {
         var elements: [UIMenuElement] = [takeScreenshotAction]
-        if Self.strokesOnPasteboard() != nil, let lassoedLoop {
+        if LassoPasteboard.hasContent, let lassoedLoop {
             let bounds = InkLasso.bounds(of: lassoedLoop)
             elements.append(UIAction(title: "Paste", image: UIImage(systemName: "doc.on.clipboard")) { [weak self] _ in
                 guard let self else { return }
                 self.removeArea()
-                self.pasteInk(at: CGPoint(x: bounds.midX * self.zoomScale, y: bounds.midY * self.zoomScale))
+                self.paste(at: CGPoint(x: bounds.midX * self.zoomScale, y: bounds.midY * self.zoomScale))
             })
         }
         return elements
@@ -998,5 +1012,6 @@ private final class SelectedPicturesContent: LassoCanvasContent {
     var lassoDrawingBounds: CGRect { .infinite }
     var lassoCaptureName: String { "Selection" }
     var lassoNoteDestination: LassoNoteDestination? { nil }
+    func pastePicture(_ imageData: Data, centeredAt drawingPoint: CGPoint) {}
 }
 #endif

@@ -124,5 +124,41 @@ extension PDFPageCanvasView: LassoCanvasContent {
     }
 
     var lassoNoteDestination: LassoNoteDestination? { annotationCoordinator?.noteDestination }
+
+    func pastePicture(_ imageData: Data, centeredAt drawingPoint: CGPoint) {
+        guard let session, let page, let coordinates = pageCoordinates else { return }
+        let pageIndex = session.document.index(for: page)
+        guard pageIndex != NSNotFound else { return }
+        session.pastePicture(imageData, placement: (pageIndex, coordinates.pdfPoint(fromOverlay: drawingPoint)))
+    }
+}
+
+extension PDFSession {
+    /// Places an image from the pasteboard as a picture on a page, with its middle at a point
+    /// of the page, or in the middle of the page in view, at its own size where that fits.
+    func pastePicture(_ imageData: Data, placement: (pageIndex: Int, center: CGPoint)?) {
+        let preferredWidth = LassoPasteboard.preferredWidth(ofImageData: imageData)
+        Task {
+            do { try await addPicture(imageData: imageData, placement: placement, preferredWidth: preferredWidth) }
+            catch { errorMessage = error.localizedDescription }
+        }
+    }
+}
+
+extension PDFAnnotationCoordinator {
+    /// ⌘V while a PDF is written on: ink copied with the lasso goes in the middle of the page
+    /// in view, as ink; an image goes there as a picture.
+    func pasteFromPasteboard() {
+        guard let content = LassoPasteboard.content(), let placement = session.visiblePageCenter?(),
+              let page = session.document.page(at: placement.pageIndex) else { return }
+        switch content {
+        case .image(let imageData):
+            session.pastePicture(imageData, placement: placement)
+        case .ink:
+            guard let canvas = editingCanvas(for: page), let coordinates = try? PageCoordinates(cropBox: page.bounds(for: .cropBox), overlaySize: canvas.drawingSize) else { return }
+            let drawingPoint = coordinates.overlayPoint(fromPDF: placement.center)
+            canvas.inkSelection.pasteInk(at: CGPoint(x: drawingPoint.x * canvas.zoomScale, y: drawingPoint.y * canvas.zoomScale))
+        }
+    }
 }
 #endif
