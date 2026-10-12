@@ -228,6 +228,8 @@ struct GraphitePDFView: UIViewRepresentable {
     var readAloudPen: ((PDFReadAloudPenTap) -> Void)?
     /// The Read Aloud pen's start and end, shown over their pages.
     var readAloudMarkers: [PDFReadAloudMarker] = []
+    /// Where the floating Pencil palette covers the window, or nil, for the floating player.
+    var reportPaletteFrame: ((CGRect?) -> Void)?
     /// The note a PDF embedded in a note belongs to, for the lasso's pictures; a PDF pane's
     /// is the note beside it, from `linkActions`.
     var noteDestination: LassoNoteDestination?
@@ -274,6 +276,7 @@ struct GraphitePDFView: UIViewRepresentable {
         context.coordinator.noteDestination = noteDestination ?? linkActions?.noteDestination
         context.coordinator.beginWritingWithPencil = beginWritingWithPencil
         context.coordinator.readAloudPen = readAloudPen
+        context.coordinator.reportPaletteFrame = reportPaletteFrame
         context.coordinator.update(input: input)
         context.coordinator.highlightReading(readingHighlights, followsReading: followsReading, suspendFollowing: suspendReadingFollow,
                                              reportFrame: reportReadingHighlightFrame)
@@ -789,6 +792,33 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     }
     private var readAloudMarkers: [PDFReadAloudMarker] = []
 
+    /// Set from the view: told where the palette covers the window as it shows, hides or moves.
+    var reportPaletteFrame: ((CGRect?) -> Void)? {
+        didSet {
+            guard reportPaletteFrame != nil, paletteFrameObserver == nil else { return }
+            let observer = PaletteFrameObserver { [weak self] in self?.reportPaletteFrameNow() }
+            toolPicker.addObserver(observer)
+            paletteFrameObserver = observer
+        }
+    }
+    private var paletteFrameObserver: PaletteFrameObserver?
+    /// The height along the bottom of the window that a floating palette takes, with its margin.
+    private static let floatingPaletteBand: CGFloat = 150
+
+    private func reportPaletteFrameNow() {
+        guard let reportPaletteFrame else { return }
+        guard let pdfView, pdfView.window != nil, toolPicker.isVisible else { reportPaletteFrame(nil); return }
+        let obscured = toolPicker.frameObscured(in: pdfView)
+        guard obscured.isNull || obscured.isEmpty, let window = pdfView.window else {
+            reportPaletteFrame(pdfView.convert(obscured, to: nil))
+            return
+        }
+        // A palette floating on iPad reports no frame; it starts along the bottom of the
+        // window, where the player then does not go.
+        reportPaletteFrame(CGRect(x: window.bounds.minX, y: window.bounds.maxY - Self.floatingPaletteBand,
+                                  width: window.bounds.width, height: Self.floatingPaletteBand))
+    }
+
     /// The word under a tap of the pen, or the whole page where the page has no text.
     func handleReadAloudPenTap(atWindowPoint windowPoint: CGPoint) {
         guard let pdfView, let readAloudPen else { return }
@@ -1234,6 +1264,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         presentedScreenObserver.isObserving = input.holdsFirstResponder && isInWindow
         let isCovered = presentedScreenObserver.isViewCovered
         toolPicker.setVisible(input.isEnabled && input.showsToolPicker && isInWindow && !isCovered, forFirstResponder: toolPickerHost)
+        DispatchQueue.main.async { [weak self] in self?.reportPaletteFrameNow() }
         toolPickerHost.takesFirstResponderBackFromSelections = input.holdsFirstResponder && isInWindow
         guard isInsideViewUpdate else {
             updateFirstResponder()
@@ -1459,6 +1490,7 @@ struct GraphitePDFView: NSViewRepresentable {
     /// The Mac has no Pencil canvases, so no Read Aloud pen; accepted so both platforms share one call.
     var readAloudPen: ((PDFReadAloudPenTap) -> Void)?
     var readAloudMarkers: [PDFReadAloudMarker] = []
+    var reportPaletteFrame: ((CGRect?) -> Void)?
     /// The Mac viewer has no lasso; accepted so both platforms share one call.
     var noteDestination: LassoNoteDestination?
 

@@ -71,7 +71,7 @@ struct ReadAloudVoiceSettings: View {
                 .disabled(isRequestingPersonalVoice)
             }
         } header: {
-            Text("Voice and Speed")
+            Text("System Voice and Speed")
         } footer: {
             VStack(alignment: .leading, spacing: 6) {
                 if session.followsSystemVoice {

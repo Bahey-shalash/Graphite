@@ -53,6 +53,7 @@ struct ReadAloudPenGlyph: View {
 
 #if canImport(UIKit)
 import UIKit
+import PencilKit
 
 extension ReadAloudPenGlyph {
     /// The glyph as a template image, for the floating palette's menu and button.
@@ -104,6 +105,14 @@ final class ReadAloudPenController: NSObject, UIGestureRecognizerDelegate {
         guard recognizer.state == .ended, let window = canvas.window else { return }
         canvas.readAloudPenTapped?(recognizer.location(in: window))
     }
+}
+
+/// Hears the floating palette show, hide or move, for the floating player to keep clear of it.
+final class PaletteFrameObserver: NSObject, PKToolPickerObserver {
+    private let changed: @MainActor () -> Void
+    init(changed: @escaping @MainActor () -> Void) { self.changed = changed }
+    func toolPickerVisibilityDidChange(_ toolPicker: PKToolPicker) { MainActor.assumeIsolated { changed() } }
+    func toolPickerFramesObscuredDidChange(_ toolPicker: PKToolPicker) { MainActor.assumeIsolated { changed() } }
 }
 
 /// A touch that lifts within a moment and a few points of where it landed: a tap of the pen.

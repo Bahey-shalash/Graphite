@@ -12,6 +12,8 @@ Voice plan, 2026-10-12: the owner asked for the device's native voices ("the voi
 
 Voice priority update, 2026-10-11: the owner said "we can make the voice nicer later". Keep the current local engine for functional development; do not treat the rejected audition as approved or delay document reading for another voice decision. When voice work resumes, establish online/offline preferences, audition another engine with the same technical passage, then integrate the accepted voice and measure real audio/highlight synchronization. ElevenLabs' [speech-with-timing endpoint](https://elevenlabs.io/docs/api-reference/text-to-speech/convert-with-timestamps) documents original and normalized character timings; original-text agreement must be validated before drawing source highlights. Its documentation states zero-retention requests require enterprise access, so ordinary account requests must not be described as zero retention. An offline candidate is [Kokoro Swift](https://github.com/mweinbach/kokoro-swift); dependency/model licensing, device resource use, source alignment, and listening quality still need evaluation. Neither candidate is integrated or approved. Do not transmit a document, create a paid account, or purchase credits to audition without the corresponding authorization.
 
+Voice engine, 2026-10-12 (branch `alpha-voices`): after the owner's blind test (loved: Kyutai Pocket TTS "alba", Qwen3-TTS 0.6B "Ryan", Dia 1.6B; acceptable: Qwen3-TTS 1.7B, Chatterbox Turbo; rejected: Kokoro, Orpheus, VoxCPM2, Apple's compact voice), Read Aloud became a core plugin with two modes: High Quality (downloaded voice, rendered ahead, the default once a voice is downloaded) and Quick (the system voice). Pocket TTS, both Qwen3-TTS sizes and Chatterbox Turbo are offered on the iPad; Dia only on Macs with 16 GB or more, because on the 8 GB iPad Pro M1 iOS ended the app while Dia rendered its first sentence. Measurements are in `Coverage.md`. Word highlighting for these voices comes from on-device speech recognition of the rendered audio.
+
 ## Product outcome
 
 Let the user listen to a Markdown note or PDF paper in a normal, human-sounding voice while following a highlight on the words being spoken. Support the whole document, a selection, a section, a page range, or a passage with chosen start and end points. Interpret Markdown formatting and LaTeX mathematics before narration. Preserve the user's files.
@@ -48,7 +50,7 @@ Let the user listen to a Markdown note or PDF paper in a normal, human-sounding 
 - [x] Ask for Personal Voice access only from an explicit tap ("Use My Personal Voice…"). The prompt and reading with a Personal Voice are not yet checked on a device.
 - [x] Offer voice and speed in Settings › Read Aloud as well as in Reading Options.
 - [ ] Support document-appropriate language selection and an explicit override. Evaluate mixed-language passages before promising automatic switching.
-- [x] Add a pronunciation dictionary for technical terms and names. Keep overrides separate from source content and invalidate affected cached speech when they change. (Built-in computing and VLSI terms with IPA, a rule for unknown all-caps words, and the vault's `.graphite/pronunciations.json`; nothing is cached, each reading prepares again. Names and the IPA's sound on device are not yet reviewed.)
+- [x] Add a pronunciation dictionary for technical terms and names. Keep overrides separate from source content and invalidate affected cached speech when they change. (Built-in computing and VLSI terms with IPA, a rule for unknown all-caps words, and the vault's `.graphite/pronunciations.json`; downloaded voices read the respelled text, and their cached audio is keyed by that text, so changing a pronunciation re-renders exactly the passages it changes; IPA is used only by the system voice. Names and the IPA's sound on device are not yet reviewed.)
 
 ### Acceptance gate for natural narration
 
@@ -66,14 +68,17 @@ These are proposed release criteria, not measured results.
 - [ ] Inspect `AVSpeechSynthesizer` and available device voices for native playback, pause/resume, rate control, and spoken-range callbacks. Verify supported voices on physical devices.
 - [ ] Evaluate cloud services that return audio plus word or character alignment, such as ElevenLabs. Verify timing support for the specific chosen model and endpoint.
 - [ ] If a preferred voice lacks usable timing, evaluate forced alignment against the generated audio. Measure its accuracy and added delay before adopting it.
+  - Implemented for the downloadable voices with SpeechAnalyzer (iOS/macOS 26+) and `ReadAloudWordAlignment`; on a Mac it timed every word of a Pocket TTS passage rendered on the iPad. Accuracy over whole lectures and the added delay on the iPad are not yet measured; when alignment fails the passage is highlighted.
 - [ ] For an on-device model, measure download size, license terms, memory, battery use, startup latency, sustained playback, and timing support on supported iPads.
-- [ ] Use a focused provider boundary for speech generation, timing, cancellation, available voices, and capability reporting. Keep provider details out of document views.
+  - Measured on the owner's iPad Pro 11-inch M1 (8 GB) for all five voices: size, license, load time, real-time factor cool and hot, peak memory, five minutes of sustained rendering, background behavior (`Coverage.md`). Battery use is not measured.
+- [x] Use a focused provider boundary for speech generation, timing, cancellation, available voices, and capability reporting. Keep provider details out of document views. (`ReadAloudSpeaking`, with `NeuralReadAloudSpeech` for the downloaded voices.)
 - [ ] Handle provider normalization of numbers and abbreviations through an explicit mapping to the original passage.
 - [ ] Keep cloud credentials in secure device storage or a secure service boundary. Ship no private service keys in the application.
 - [ ] Document pricing units, expected cost for representative papers, request limits, retention terms, and network requirements before choosing a service. Recheck these during implementation.
 - [ ] Obtain the user's choice to enable cloud narration before transmitting document passages. Send the requested passage and only the bounded context needed for continuity.
-- [ ] Provide offline behavior with a clear choice to wait, use downloaded audio, or switch to an available local voice. Preserve the reading position.
+- [x] Provide offline behavior with a clear choice to wait, use downloaded audio, or switch to an available local voice. Preserve the reading position. (Everything is local; an unprepared passage waits with its progress shown, or is read by the system voice when the person allows it.)
 - [ ] Cancel unused generation and bound prefetching so stopping or seeking does not generate an entire paper at the user's expense.
+  - Rendering stops when the document is replaced or cleared, Quick is chosen, the voice is deleted, or the app leaves the screen; while a document is open it renders to its end (the owner asked for the whole note ahead). Not bounded by length yet.
 
 ## 3. Read exactly the requested passage
 
@@ -86,7 +91,7 @@ These are proposed release criteria, not measured results.
   - Markdown heading ranges are implemented. PDF Read Section Pages follows nested outlines and includes full boundary pages with explicit disclosure; exact semantic heading endpoints remain open. Scanned review lists offer indexed Start Here/End Here for one page, including corrected phrases; direct page-tap and cross-page recognized endpoints remain open.
 - [x] Add PDF page-range reading and distinguish printed page labels from physical page positions when they differ. The picker explicitly uses physical page positions.
 - [ ] Let the user begin at a tapped word or paragraph through an explicit reading action that does not interfere with selection, links, or Pencil writing.
-  - Live Preview and Source mode: a tap while reading moves reading there, and "Read from Here" is in the edit menu. The reading view and PDF pages remain open.
+  - Live Preview and Source mode: a tap while reading moves reading there, and "Read from Here" is in the edit menu. On PDF pages the Read Aloud pen (Pencil bar) reads from a tapped word, and a second tap reads exactly up to it, with marks on the page. The reading view remains open.
 - [ ] Stop at the requested endpoint without reading the next sentence, page, or section. Generation context outside the range must not become audible output.
 - [ ] Narrate the selected content faithfully. Summaries, explanations, and paraphrases are separate features outside this reader's default behavior.
 - [ ] Preserve the active range after pause/resume, seek, a voice change, and interruptions where the document revision still matches.

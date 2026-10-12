@@ -1,6 +1,7 @@
 import SwiftUI
 import GraphiteCore
 import GraphiteApple
+import GraphiteVoices
 
 /// Settings laid out like Obsidian's: options on the left, one page per area or plugin.
 struct SettingsView: View {
@@ -28,7 +29,9 @@ struct SettingsView: View {
                     Label("Editor", systemImage: "pencil.line").tag(SettingsPage.editor)
                     Label("Files and Links", systemImage: "folder").tag(SettingsPage.filesAndLinks)
                     Label("Appearance", systemImage: "paintbrush").tag(SettingsPage.appearance)
-                    Label("Read Aloud", systemImage: "speaker.wave.2").tag(SettingsPage.readAloud)
+                    if workspace.preferences.isEnabled(.readAloud) {
+                        Label("Read Aloud", systemImage: "speaker.wave.2").tag(SettingsPage.readAloud)
+                    }
                     Label("Core Plugins", systemImage: "puzzlepiece.extension").tag(SettingsPage.corePlugins)
                     Label("Community Plugins", systemImage: "puzzlepiece").tag(SettingsPage.communityPlugins)
                 }
@@ -85,7 +88,7 @@ struct SettingsView: View {
         case .filesAndLinks: FilesAndLinksSettingsPage(workspace: workspace, vaultSettingsChanges: vaultSettingsChanges)
         case .appearance: AppearanceSettingsPage(workspace: workspace, preferences: workspace.preferences)
         case .readAloud: ReadAloudSettingsPage(reader: workspace.readAloud, vaultRoot: workspace.folderAccess?.root)
-        case .corePlugins: CorePluginsSettingsPage(preferences: workspace.preferences)
+        case .corePlugins: CorePluginsSettingsPage(workspace: workspace, preferences: workspace.preferences)
         case .communityPlugins: CommunityPluginsSettingsPage(workspace: workspace) { pluginIdentifier in selectedPage = .communityPlugin(pluginIdentifier) }
         case .communityPlugin(let pluginIdentifier): CommunityPluginOptionsPage(host: workspace.communityPlugins, pluginIdentifier: pluginIdentifier)
         case .plugin(.colors): ColorsSettingsPage(preferences: workspace.preferences)
@@ -94,7 +97,7 @@ struct SettingsView: View {
         case .plugin(.templates): TemplatesSettingsPage(workspace: workspace)
         case .plugin(.dailyNotes): DailyNotesSettingsPage(workspace: workspace)
         case .plugin(.fileRecovery): FileRecoverySettingsPage(workspace: workspace, preferences: workspace.preferences) { dismiss() }
-        case .plugin: CorePluginsSettingsPage(preferences: workspace.preferences)
+        case .plugin: CorePluginsSettingsPage(workspace: workspace, preferences: workspace.preferences)
         }
     }
 }
@@ -134,6 +137,14 @@ private struct GeneralSettingsPage: View {
             }
             Section("About") {
                 LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development build")
+                if let library = ReadAloudVoices.library {
+                    NavigationLink("Voice Credits") {
+                        Form { Section { NeuralVoiceCredits(voices: library.manifest.voices) } footer: {
+                            Text("Read Aloud’s downloadable voices, by their makers, under these licenses.")
+                        } }
+                        .navigationTitle("Voice Credits")
+                    }
+                }
             }
         }
         .navigationTitle("General")
@@ -275,13 +286,16 @@ private struct AccentColorGrid: View {
 }
 
 private struct CorePluginsSettingsPage: View {
+    @Bindable var workspace: WorkspaceModel
     @Bindable var preferences: GraphitePreferences
+    @State private var offersVoiceDeletion = false
+    @State private var downloadedVoiceBytes: Int64 = 0
 
     var body: some View {
         Form {
             Section {
                 ForEach(CorePlugin.allCases) { plugin in
-                    Toggle(isOn: Binding(get: { preferences.isEnabled(plugin) }, set: { isEnabled in preferences.setEnabled(plugin, isEnabled) })) {
+                    Toggle(isOn: Binding(get: { preferences.isEnabled(plugin) }, set: { isEnabled in setEnabled(plugin, isEnabled) })) {
                         Label {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(plugin.title)
@@ -289,12 +303,39 @@ private struct CorePluginsSettingsPage: View {
                             }
                         } icon: { Image(systemName: plugin.systemImage) }
                     }
+                    .confirmationDialog("Delete Downloaded Voices?", isPresented: voiceDeletionOffer(for: plugin), titleVisibility: .visible) {
+                        Button("Delete Voices and Prepared Audio", role: .destructive) {
+                            Task { await ReadAloudVoices.library?.deleteEverything() }
+                        }
+                        Button("Keep Them", role: .cancel) {}
+                    } message: {
+                        Text("Read Aloud is off. Its voices and prepared audio take \(NeuralVoicesSection.size(downloadedVoiceBytes)). Keep them to turn Read Aloud back on without downloading again.")
+                    }
                 }
             } footer: {
                 Text("Turning a plugin off hides it in Graphite. It never changes your notes.")
             }
         }
         .navigationTitle("Core Plugins")
+    }
+
+    /// Anchored to Read Aloud's own switch, so on iPad the question points at what was turned off.
+    private func voiceDeletionOffer(for plugin: CorePlugin) -> Binding<Bool> {
+        plugin == .readAloud ? $offersVoiceDeletion : .constant(false)
+    }
+
+    /// Turning Read Aloud off stops any reading and offers to free the space its voices take.
+    private func setEnabled(_ plugin: CorePlugin, _ isEnabled: Bool) {
+        preferences.setEnabled(plugin, isEnabled)
+        guard plugin == .readAloud, !isEnabled else { return }
+        workspace.readAloud.clear()
+        workspace.readAloud.showsReader = false
+        guard let library = ReadAloudVoices.library else { return }
+        Task {
+            await library.refreshCacheSize()
+            downloadedVoiceBytes = library.voiceBytesOnDisk + library.cacheBytes
+            if downloadedVoiceBytes > 0 { offersVoiceDeletion = true }
+        }
     }
 }
 
@@ -499,16 +540,23 @@ private struct ReadAloudSettingsPage: View {
 
     var body: some View {
         Form {
+            if let library = ReadAloudVoices.library {
+                ReadAloudModeSection(library: library, speech: reader.neuralSpeech)
+                NeuralVoicesSection(library: library)
+            }
+            ReadAloudVoiceSettings(reader: reader)
             Section {
                 Toggle("Floating Player", isOn: $usesFloatingPlayer)
             } footer: {
                 Text("A small player in a corner of the window while reading: skip by sentence, section or page, change speed, and jump back after scrolling. Drag it to another corner. When off, the controls are in the toolbar.")
             }
-            ReadAloudVoiceSettings(reader: reader)
             Section {
                 NavigationLink("Pronunciations") { ReadAloudPronunciationEditor(vaultRoot: vaultRoot) }
             } footer: {
-                Text("How technical terms are said: CMOS as \"see moss\", LUT as \"look-up table\", and your own terms for this vault.")
+                Text("How technical terms are said: CMOS as \"see moss\", LUT as \"look-up table\", and your own terms for this vault. Downloaded voices read the same respellings.")
+            }
+            if let library = ReadAloudVoices.library {
+                ReadAloudStorageSection(library: library)
             }
         }
         .navigationTitle("Read Aloud")

@@ -2,9 +2,11 @@
 import XCTest
 import SwiftUI
 import PDFKit
+import AVFoundation
 import GraphiteApple
 import GraphiteCore
 import GraphiteIndex
+import GraphiteVoices
 @testable import GraphiteUI
 
 /// Reads a lecture-style note (properties, headings, math, an embed, a long body) with the
@@ -199,7 +201,145 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
         attachScreenshot(named: "Floating player clear of the highlight")
     }
 
+    /// The Read Aloud pen on a PDF page: a tap reads from the word, a second tap reads
+    /// exactly to the word tapped, both show their marks over the page, and nothing is drawn
+    /// or changed in the PDF. The floating player says "Reading Selection" and keeps clear of
+    /// the word read.
+    func testReadAloudPenReadsFromATappedWordThenExactlyToASecondTap() async throws {
+        let directory = try makeVault(notes: [:])
+        let pdfLocation = directory.appendingPathComponent("Paper.pdf")
+        let pages = ["Static CMOS logic keeps its output at a full level. The noise margin tells how much disturbance it tolerates.",
+                     "Dynamic logic stores its value as charge on a node, which leaks away over time."]
+        let pdfRenderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 612, height: 792))
+        try pdfRenderer.writePDF(to: pdfLocation) { context in
+            for text in pages {
+                context.beginPage()
+                (text as NSString).draw(in: CGRect(x: 60, y: 80, width: 480, height: 600), withAttributes: [.font: UIFont.systemFont(ofSize: 22)])
+            }
+        }
+        let workspace = try await makeWorkspace(directory: directory)
+        await workspace.open(try VaultPath("Paper.pdf"))
+        let pdf = try XCTUnwrap(workspace.pdfSession)
+        let controller = try hostWithPlayer(workspace)
+        try await waitUntil { pdf.pdfView != nil }
+        let pdfView = try XCTUnwrap(pdf.pdfView)
+        pdf.isWriting = true
+        PaletteInkSelection.pointsToRead = true
+        defer { PaletteInkSelection.pointsToRead = false }
+        let page = try XCTUnwrap(pdf.document.page(at: 0))
+        func canvas() -> PDFPageCanvasView? {
+            descendants(of: controller.view, matching: PDFPageCanvasView.self).first { canvas in canvas.page === page && !canvas.isHidden }
+        }
+        try await waitUntil { canvas()?.pointsToRead == true && canvas()?.readAloudPenTapped != nil }
+        let pageCanvas = try XCTUnwrap(canvas())
+        XCTAssertFalse(pageCanvas.isDrawingEnabled, "The pen never draws.")
+        let annotationsBefore = page.annotations.count
+        let versionBefore = pdf.changeVersion
+
+        func tap(_ word: String) throws {
+            let text = try XCTUnwrap(page.string) as NSString
+            let range = text.range(of: word)
+            XCTAssertNotEqual(range.location, NSNotFound, word)
+            let bounds = try XCTUnwrap(page.selection(for: range)).bounds(for: page)
+            let point = pdfView.convert(pdfView.convert(CGPoint(x: bounds.midX, y: bounds.midY), from: page), to: nil)
+            pageCanvas.readAloudPenTapped?(point)
+        }
+        func markers() -> [ReadAloudPenMarkerView] { descendants(of: pdfView, matching: ReadAloudPenMarkerView.self) }
+        let reader = workspace.readAloud
+        let navigator = workspace.readAloudNavigator
+
+        // One tap: reading starts at "output", marked as the start.
+        try tap("output")
+        try await waitUntil(seconds: 15) { reader.session.document != nil && reader.sourceIdentifier == pdf.location.path }
+        XCTAssertTrue(reader.session.document?.passages.first?.text.hasPrefix("output") ?? false,
+                      String(describing: reader.session.document?.passages.first?.text))
+        try await waitUntil { markers().count == 1 }
+        XCTAssertTrue(markers().first?.isStart ?? false)
+
+        // A second tap: exactly from "output" through "tells", and nothing after it.
+        try tap("tells")
+        try await waitUntil(seconds: 15) {
+            let text = reader.session.document?.passages.map(\.text).joined(separator: " ") ?? ""
+            return text.hasPrefix("output") && text.hasSuffix("tells")
+        }
+        XCTAssertTrue(navigator.isReadingPenSelection)
+        try await waitUntil { markers().count == 2 }
+        XCTAssertEqual(markers().filter(\.isStart).count, 1)
+        try await waitUntil(seconds: 10) { navigator.highlightFrameInWindow != nil }
+        attachScreenshot(named: "Read Aloud pen: start and end marks, Reading Selection")
+
+        // The player keeps clear of the word read while the range plays.
+        var checks = 0
+        let deadline = Date().addingTimeInterval(4)
+        while Date() < deadline {
+            try await Task.sleep(for: .milliseconds(150))
+            guard let player = navigator.playerFrameInWindow, let word = navigator.highlightFrameInWindow, !player.isEmpty else { continue }
+            checks += 1
+            XCTAssertFalse(player.intersects(word), "Player \(player) covers the word \(word).")
+        }
+        XCTAssertGreaterThan(checks, 3)
+
+        // No ink, no annotation, no change to the PDF.
+        XCTAssertTrue(pageCanvas.drawing.strokes.isEmpty)
+        XCTAssertEqual(page.annotations.count, annotationsBefore)
+        XCTAssertEqual(pdf.changeVersion, versionBefore)
+
+        // Stopping clears the marks.
+        reader.clear()
+        try await waitUntil { markers().isEmpty }
+    }
+
+    /// A landscape-wide window (the simulator here cannot be turned): the player sits within
+    /// the window, keeps clear of the word read, and is drawn the same.
+    func testFloatingPlayerInALandscapeWindow() async throws {
+        let directory = try makeVault(notes: [:])
+        let pdfLocation = directory.appendingPathComponent("Wide.pdf")
+        let text = String(repeating: "Static CMOS logic keeps its output at a full level while the noise margin tells how much disturbance it tolerates. ", count: 14)
+        try UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 612, height: 792)).writePDF(to: pdfLocation) { context in
+            context.beginPage()
+            (text as NSString).draw(in: CGRect(x: 60, y: 60, width: 492, height: 680), withAttributes: [.font: UIFont.systemFont(ofSize: 15)])
+        }
+        let workspace = try await makeWorkspace(directory: directory)
+        await workspace.open(try VaultPath("Wide.pdf"))
+        let pdf = try XCTUnwrap(workspace.pdfSession)
+        _ = try hostWithPlayer(workspace)
+        let window = try XCTUnwrap(self.window)
+        window.frame = CGRect(x: 0, y: 0, width: 1210, height: 834)
+        window.layoutIfNeeded()
+        try await waitUntil { pdf.pdfView != nil }
+        workspace.readAloud.readPDF(pdf, firstPageIndex: 0, lastPageIndex: 0)
+        let navigator = workspace.readAloudNavigator
+        try await waitUntil(seconds: 20) { navigator.highlightFrameInWindow != nil && navigator.playerFrameInWindow != nil }
+        var checks = 0
+        let deadline = Date().addingTimeInterval(4)
+        while Date() < deadline {
+            try await Task.sleep(for: .milliseconds(150))
+            guard let player = navigator.playerFrameInWindow, let word = navigator.highlightFrameInWindow, !player.isEmpty else { continue }
+            checks += 1
+            XCTAssertTrue(window.bounds.contains(player), "Player \(player) outside the window \(window.bounds).")
+            XCTAssertFalse(player.intersects(word), "Player \(player) covers the word \(word).")
+        }
+        XCTAssertGreaterThan(checks, 3)
+        attachScreenshot(named: "Player in a landscape window")
+    }
+
     // MARK: Helpers
+
+    private func hostWithPlayer(_ workspace: WorkspaceModel) throws -> UIHostingController<AnyView> {
+        let controller = UIHostingController(rootView: AnyView(ZStack {
+            NavigationStack {
+                WorkspacePanes(workspace: workspace, showsLinksInspector: .constant(false), create: { _ in }, showQuickSwitcher: {})
+            }
+            ReadAloudFloatingPlayer(reader: workspace.readAloud, navigator: workspace.readAloudNavigator)
+        }))
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        self.window = window
+        return controller
+    }
 
     private func openLecture(viewMode: NoteViewMode) async throws -> (WorkspaceModel, MarkdownSession) {
         let workspace = try await makeWorkspace(directory: try makeVault(notes: ["Lecture.md": Self.lecture]))
@@ -249,7 +389,12 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
         func editor() -> MarkdownTextView? {
             descendants(of: controller.view, matching: MarkdownTextView.self).first { editor in editor.window != nil && editor.bounds.height > 100 }
         }
-        try await waitUntil { editor() != nil }
+        try? await waitUntil { editor() != nil }
+        if editor() == nil {
+            let editors = descendants(of: controller.view, matching: MarkdownTextView.self)
+            attachScreenshot(named: "No editor")
+            XCTFail("Editors: \(editors.map { "\($0.bounds) window \($0.window != nil)" }); window \(String(describing: controller.view.window?.bounds))")
+        }
         return try XCTUnwrap(editor())
     }
 
@@ -292,6 +437,11 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+        // Also kept as a file in the app's temporary folder, readable when xcodebuild stops
+        // before writing its result bundle.
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("ReadAloudScreenshots")
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try? image.pngData()?.write(to: folder.appendingPathComponent(name.replacingOccurrences(of: "/", with: "-") + ".png"))
     }
 
     private func descendants<View: UIView>(of parent: UIView, matching type: View.Type) -> [View] {
@@ -351,6 +501,315 @@ private final class FrameGapMeasurement: NSObject {
             continuation?.resume(returning: longestGap)
             continuation = nil
         }
+    }
+}
+
+/// A tiny stand-in for a downloaded voice: a quiet tone a few hundredths of a second per
+/// character, so High Quality reading can be tested end to end (rendering ahead, the cache,
+/// AVAudioEngine playback, word highlighting, waiting and the system-voice fallback) in the
+/// Simulator, which cannot run the MLX models.
+private final class ToneRenderer: NeuralPassageRendering, @unchecked Sendable {
+    // `@unchecked Sendable`: every property is read and written while holding `lock`.
+    private let lock = NSLock()
+    private var renderedTexts: [String] = []
+    private var renderedVoices: [String] = []
+    /// Voices that babble: they run on to twelve times the passage's length, like Qwen3-TTS
+    /// did on a list of spelled acronyms.
+    var babblingVoiceIdentifiers: Set<String> = []
+    private var gate: CheckedContinuation<Void, Never>?
+    private var isGated = false
+    static let secondsPerCharacter = 0.012
+
+    var renders: [String] { lock.withLock { renderedTexts } }
+    var lastText: String? { lock.withLock { renderedTexts.last } }
+    var voices: [String] { lock.withLock { renderedVoices } }
+
+    func holdRendering() { lock.withLock { isGated = true } }
+    func releaseRendering() {
+        let waiting: CheckedContinuation<Void, Never>? = lock.withLock { isGated = false; defer { gate = nil }; return gate }
+        waiting?.resume()
+    }
+
+    func render(_ text: String, voice: NeuralVoiceDescription, voiceFolder: URL, seed: UInt64?) async throws -> RenderedSpeech {
+        if lock.withLock({ isGated }) {
+            await withCheckedContinuation { continuation in
+                let releaseNow: Bool = lock.withLock { if isGated { gate = continuation; return false }; return true }
+                if releaseNow { continuation.resume() }
+            }
+        }
+        lock.withLock { renderedTexts.append(text); renderedVoices.append(voice.id) }
+        let sampleRate = 24_000
+        let babbles = babblingVoiceIdentifiers.contains(voice.id)
+        let secondsPerCharacter = babbles ? 12 / ReadAloudRenderCheck.charactersPerSecond : Self.secondsPerCharacter
+        let count = max(sampleRate / 10, Int(Double(text.count) * secondsPerCharacter * Double(sampleRate)))
+        let samples = (0..<count).map { index in Float(0.05 * sin(Double(index) * 2 * .pi * 220 / Double(sampleRate))) }
+        return RenderedSpeech(samples: samples, sampleRate: sampleRate)
+    }
+
+    func releaseResources() async {}
+}
+
+/// Reports the rendered passage's words evenly spread over its audio, as speech recognition
+/// would for a clear voice.
+private struct EvenAligner: ReadAloudSpeechAligning {
+    let renderer: ToneRenderer
+    func recognizedWords(in audioFile: URL, language: String) async -> [ReadAloudRecognizedWord]? {
+        guard let text = renderer.lastText, let file = try? AVAudioFile(forReading: audioFile) else { return nil }
+        let duration = Double(file.length) / file.fileFormat.sampleRate
+        let words = ReadAloudWordAlignment.words(in: text)
+        return words.enumerated().map { index, word in
+            let start = duration * Double(index) / Double(words.count)
+            return ReadAloudRecognizedWord(text: (text as NSString).substring(with: word.range), startSeconds: start,
+                                           endSeconds: start + duration / Double(words.count))
+        }
+    }
+}
+
+/// The system voice's stand-in: records what it was asked to speak.
+@MainActor
+private final class RecordingQuickSpeech: ReadAloudSpeaking {
+    var eventHandler: (@MainActor (ReadAloudSpeechEvent) -> Void)?
+    var voices = [ReadAloudVoice(id: "quick-voice", name: "Quick", language: "en-US", quality: 3)]
+    var spokenTexts: [String] = []
+    func speak(_ text: String, voiceIdentifier: String, speed: Double, requestIdentifier: UUID) throws { spokenTexts.append(text) }
+    func pause() -> Bool { true }
+    func resume() -> Bool { true }
+    func stop() {}
+}
+
+@MainActor
+final class HighQualityReadAloudTests: XCTestCase {
+    private var folders: [URL] = []
+
+    override func tearDown() async throws {
+        for folder in folders { try? FileManager.default.removeItem(at: folder) }
+        folders = []
+    }
+
+    private func temporaryFolder() throws -> URL {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("HighQualityReadAloudTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        folders.append(folder)
+        return folder
+    }
+
+    /// A library with one test voice, installed unless told otherwise, and a speech that uses
+    /// the tone renderer.
+    private func makeReader(installsVoice: Bool = true, cacheCapacityBytes: Int64 = 50_000_000)
+        throws -> (ReadAloudController, NeuralReadAloudSpeech, ToneRenderer, RecordingQuickSpeech) {
+        let voice = NeuralVoiceDescription(
+            id: "test-tone", name: "Tone", modelName: "Test Tone", modelFamily: .pocketTTS, speaker: "tone", language: "en",
+            qualityNote: "A test tone.", license: NeuralVoiceLicense(name: "MIT", address: URL(string: "https://example.com")!),
+            sources: [NeuralVoiceSource(repository: "test/tone", revision: "r1",
+                                        files: [NeuralVoiceFile(path: "model.safetensors", byteCount: 4, sha256: String(repeating: "0", count: 64))])],
+            platforms: ["iOS", "macOS"], minimumPhysicalMemoryBytes: 1)
+        let installation = NeuralVoiceInstallation(voicesFolder: try temporaryFolder())
+        if installsVoice {
+            try FileManager.default.createDirectory(at: installation.stagingFolder(of: voice), withIntermediateDirectories: true)
+            try Data("test".utf8).write(to: installation.stagingFolder(of: voice).appendingPathComponent("model.safetensors"))
+            try installation.finishInstalling(voice)
+        }
+        let preferences = try XCTUnwrap(UserDefaults(suiteName: "HighQualityReadAloudTests-\(UUID().uuidString)"))
+        let cache = ReadAloudAudioCache(folder: try temporaryFolder(), capacityBytes: cacheCapacityBytes)
+        let library = NeuralVoiceLibrary(manifest: NeuralVoiceManifest(downloadHost: URL(string: "https://example.com")!, voices: [voice]),
+                                         installation: installation, audioCache: cache, preferences: preferences,
+                                         platform: "iOS", physicalMemoryBytes: 1 << 33, startsDownloader: false)
+        let renderer = ToneRenderer()
+        let preparation = ReadAloudPassagePreparation(cache: cache, renderer: renderer, aligner: EvenAligner(renderer: renderer))
+        let quick = RecordingQuickSpeech()
+        let speech = NeuralReadAloudSpeech(quick: quick, library: library, preparation: preparation)
+        let session = ReadAloudSession(speech: speech, preferences: preferences)
+        session.chooseVoice("quick-voice")
+        return (ReadAloudController(session: session, neuralSpeech: speech, preferences: preferences), speech, renderer, quick)
+    }
+
+    private func waitUntil(_ seconds: Double = 10, _ condition: () -> Bool) async throws {
+        let deadline = Date().addingTimeInterval(seconds)
+        while !condition() {
+            guard Date() < deadline else {
+                XCTFail("The condition did not become true within \(seconds) seconds")
+                throw CancellationError()
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    private func testVoice(_ identifier: String, family: NeuralVoiceModelFamily) -> NeuralVoiceDescription {
+        NeuralVoiceDescription(
+            id: identifier, name: identifier, modelName: identifier, modelFamily: family, speaker: nil, language: "en",
+            qualityNote: "A test voice.", license: NeuralVoiceLicense(name: "MIT", address: URL(string: "https://example.com")!),
+            sources: [NeuralVoiceSource(repository: "test/\(identifier)", revision: "r1",
+                                        files: [NeuralVoiceFile(path: "model.safetensors", byteCount: 4, sha256: String(repeating: "0", count: 64))])],
+            platforms: ["iOS", "macOS"], minimumPhysicalMemoryBytes: 1)
+    }
+
+    /// A babbling autoregressive voice is chosen; a Pocket TTS voice is installed too when
+    /// `installsFallback`.
+    private func makeBabblingReader(installsFallback: Bool) throws
+        -> (ReadAloudController, NeuralReadAloudSpeech, ToneRenderer, RecordingQuickSpeech) {
+        let babbler = testVoice("babbler", family: .qwen3TTS)
+        let pocket = testVoice("steady-pocket", family: .pocketTTS)
+        let installation = NeuralVoiceInstallation(voicesFolder: try temporaryFolder())
+        for voice in installsFallback ? [babbler, pocket] : [babbler] {
+            try FileManager.default.createDirectory(at: installation.stagingFolder(of: voice), withIntermediateDirectories: true)
+            try Data("test".utf8).write(to: installation.stagingFolder(of: voice).appendingPathComponent("model.safetensors"))
+            try installation.finishInstalling(voice)
+        }
+        let preferences = try XCTUnwrap(UserDefaults(suiteName: "HighQualityReadAloudTests-\(UUID().uuidString)"))
+        let cache = ReadAloudAudioCache(folder: try temporaryFolder())
+        let library = NeuralVoiceLibrary(manifest: NeuralVoiceManifest(downloadHost: URL(string: "https://example.com")!, voices: [babbler, pocket]),
+                                         installation: installation, audioCache: cache, preferences: preferences,
+                                         platform: "iOS", physicalMemoryBytes: 1 << 33, startsDownloader: false)
+        library.selectVoice(babbler)
+        let renderer = ToneRenderer()
+        renderer.babblingVoiceIdentifiers = ["babbler"]
+        let preparation = ReadAloudPassagePreparation(cache: cache, renderer: renderer, aligner: EvenAligner(renderer: renderer))
+        let quick = RecordingQuickSpeech()
+        let speech = NeuralReadAloudSpeech(quick: quick, library: library, preparation: preparation)
+        let session = ReadAloudSession(speech: speech, preferences: preferences)
+        session.chooseVoice("quick-voice")
+        return (ReadAloudController(session: session, neuralSpeech: speech, preferences: preferences), speech, renderer, quick)
+    }
+
+    func testABabblingRenderingIsRegeneratedThenReadByPocketTTSAndNeverHeard() async throws {
+        let (reader, speech, renderer, quick) = try makeBabblingReader(installsFallback: true)
+        reader.session.load(try ReadAloudDocument.markdown("Write VHDL for the FPGA."))
+        reader.session.play()
+        try await waitUntil(20) { reader.session.state == .speaking && reader.session.spokenRange != nil }
+        XCTAssertEqual(renderer.voices, ["babbler", "babbler", "steady-pocket"], "two attempts with the chosen voice, then the fallback")
+        XCTAssertEqual(renderer.renders[0], "Write VHDL for the FPGA.", "the autoregressive voice gets acronyms as written")
+        XCTAssertEqual(renderer.renders[2], "Write V H D L for the F P G A.", "the fallback reads the passage's respellings")
+        XCTAssertTrue(speech.preparation.lastRejection?.contains("times longer") == true, String(describing: speech.preparation.lastRejection))
+        XCTAssertTrue(quick.spokenTexts.isEmpty)
+        try await waitUntil(20) { reader.session.state == .finished }
+    }
+
+    func testWithoutAFallbackVoiceTheSystemVoiceReadsWhatTheVoiceGarbled() async throws {
+        let (reader, speech, renderer, quick) = try makeBabblingReader(installsFallback: false)
+        reader.session.load(try ReadAloudDocument.markdown("Write VHDL for the FPGA."))
+        reader.session.play()
+        try await waitUntil(20) { !quick.spokenTexts.isEmpty }
+        XCTAssertEqual(renderer.voices, ["babbler", "babbler"])
+        XCTAssertEqual(quick.spokenTexts, ["Write V H D L for the F P G A."])
+        XCTAssertEqual(speech.preparation.systemVoiceTexts, ["Write VHDL for the FPGA."])
+    }
+
+    private let note = "# Memory\n\nCompared with SRAM, DRAM is denser but slower.\n\nRead and write signals come from the controller."
+
+    func testHighQualityRendersAheadPlaysTheVoiceAndHighlightsAlignedWords() async throws {
+        let (reader, speech, renderer, quick) = try makeReader()
+        XCTAssertEqual(speech.library.mode, .highQuality, "High Quality is the default once a voice is downloaded")
+        reader.session.load(try ReadAloudDocument.markdown(note))
+        reader.session.play()
+        var highlightedWords: [String] = []
+        let deadline = Date().addingTimeInterval(20)
+        while reader.session.state != .finished, Date() < deadline {
+            if let range = reader.session.spokenRange, let passage = reader.session.currentPassage {
+                let word = (passage.text as NSString).substring(with: range)
+                if highlightedWords.last != word { highlightedWords.append(word) }
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(reader.session.state, .finished)
+        XCTAssertEqual(Set(renderer.renders), Set(reader.session.document?.passages.map(\.text) ?? []), "every passage is rendered once")
+        XCTAssertEqual(renderer.renders.count, reader.session.document?.passages.count)
+        XCTAssertTrue(quick.spokenTexts.isEmpty, "the system voice never read")
+        // The voice reads the respelled text ("dee ram" for DRAM), and the highlight follows it.
+        XCTAssertTrue(highlightedWords.contains("dee") && highlightedWords.contains("controller"), "words highlighted: \(highlightedWords)")
+        let comparedIndex = try XCTUnwrap(highlightedWords.firstIndex(of: "Compared"))
+        let denserIndex = try XCTUnwrap(highlightedWords.firstIndex(of: "denser"))
+        XCTAssertLessThan(comparedIndex, denserIndex, "the highlight moves forward with the audio")
+
+        // Reading the same note again renders nothing: every passage comes from the cache.
+        reader.session.load(try ReadAloudDocument.markdown(note))
+        reader.session.play()
+        try await waitUntil(20) { reader.session.state == .finished }
+        XCTAssertEqual(renderer.renders.count, reader.session.document?.passages.count)
+
+        // Editing one paragraph re-renders that paragraph alone.
+        reader.session.load(try ReadAloudDocument.markdown(note.replacingOccurrences(of: "denser but slower", with: "denser and slower")))
+        reader.session.play()
+        try await waitUntil(20) { reader.session.state == .finished }
+        XCTAssertEqual(renderer.renders.count, (reader.session.document?.passages.count ?? 0) + 1)
+        XCTAssertTrue(renderer.renders.last?.hasSuffix("is denser and slower.") == true, String(describing: renderer.renders.last))
+    }
+
+    /// The Read Aloud pen's range in High Quality: only the words between the two taps are
+    /// prepared and heard, not the page around them.
+    func testThePensRangeIsPreparedAloneInHighQuality() async throws {
+        let (reader, speech, renderer, quick) = try makeReader()
+        XCTAssertEqual(speech.library.mode, .highQuality)
+        let location = try temporaryFolder().appendingPathComponent("Range.pdf")
+        let text = "Alpha bravo charlie delta echo. Foxtrot golf hotel india juliet."
+        try UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 612, height: 792)).writePDF(to: location) { context in
+            context.beginPage()
+            (text as NSString).draw(in: CGRect(x: 60, y: 80, width: 480, height: 600), withAttributes: [.font: UIFont.systemFont(ofSize: 22)])
+        }
+        let pdf = try await PDFSession.open(location)
+        let pageText = try XCTUnwrap(pdf.document.page(at: 0)?.string) as NSString
+        let start = pageText.range(of: "charlie"), end = pageText.range(of: "golf")
+        reader.readPDFRange(pdf, start: PDFReadAloudEndpoint(pageIndex: 0, offset: start.location, revision: pdf.changeVersion),
+                            end: PDFReadAloudEndpoint(pageIndex: 0, offset: NSMaxRange(end), revision: pdf.changeVersion))
+        try await waitUntil(20) { reader.session.document != nil && !reader.isPreparing }
+        if reader.session.state != .speaking { reader.session.play() }
+        try await waitUntil(30) { reader.session.state == .finished }
+        let rendered = renderer.renders.joined(separator: " ")
+        XCTAssertTrue(rendered.contains("charlie") && rendered.contains("golf"), rendered)
+        for outside in ["Alpha", "bravo", "hotel", "juliet"] { XCTAssertFalse(rendered.contains(outside), "\(outside) was prepared: \(rendered)") }
+        XCTAssertTrue(quick.spokenTexts.isEmpty, "the downloaded voice read it")
+    }
+
+    func testUnpreparedPassageWaitsWithProgressThenTheSystemVoiceFillsInOnceAllowed() async throws {
+        let (reader, speech, renderer, quick) = try makeReader()
+        renderer.holdRendering()
+        reader.session.load(try ReadAloudDocument.markdown(note))
+        reader.session.play()
+        try await waitUntil { speech.isWaitingForPassage }
+        XCTAssertTrue(reader.isWaitingForPreparedAudio)
+        XCTAssertEqual(reader.preparingDescription, "Preparing… 0%")
+        XCTAssertNotNil(reader.preparedAudioShare)
+        XCTAssertTrue(quick.spokenTexts.isEmpty, "without the person's permission reading waits for the voice")
+
+        speech.setReadsUnpreparedPassagesQuickly(true)
+        XCTAssertEqual(quick.spokenTexts, ["Memory"], "the waiting passage starts at once with the system voice")
+        XCTAssertFalse(speech.isWaitingForPassage)
+        renderer.releaseRendering()
+        try await waitUntil { !speech.preparation.isPreparing }
+        XCTAssertEqual(speech.preparation.preparedShare, 1, accuracy: 0.001)
+    }
+
+    func testWithoutADownloadedVoiceQuickModeSpeaksWithTheSystemVoice() async throws {
+        let (reader, speech, renderer, quick) = try makeReader(installsVoice: false)
+        XCTAssertEqual(speech.library.mode, .quick)
+        XCTAssertFalse(speech.readsWithDownloadedVoice)
+        reader.session.load(try ReadAloudDocument.markdown(note))
+        reader.session.play()
+        XCTAssertEqual(quick.spokenTexts, ["Memory"])
+        XCTAssertTrue(renderer.renders.isEmpty)
+        XCTAssertNil(reader.preparedAudioShare)
+    }
+
+    func testChoosingQuickWithADownloadedVoiceUsesTheSystemVoice() async throws {
+        let (reader, speech, renderer, quick) = try makeReader()
+        speech.library.chooseMode(.quick)
+        reader.session.load(try ReadAloudDocument.markdown(note))
+        reader.session.play()
+        XCTAssertEqual(quick.spokenTexts, ["Memory"])
+        XCTAssertTrue(renderer.renders.isEmpty)
+    }
+
+    func testPauseAndResumeHoldThePlaceWithinARenderedPassage() async throws {
+        let (reader, _, _, _) = try makeReader()
+        reader.session.load(try ReadAloudDocument.plainText(String(repeating: "Bitlines are precharged before every read. ", count: 6)))
+        reader.session.play()
+        try await waitUntil { (reader.session.spokenRange?.location ?? 0) > 40 }
+        reader.session.pause()
+        let pausedAt = try XCTUnwrap(reader.session.spokenRange)
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertEqual(reader.session.spokenRange, pausedAt, "nothing moves while paused")
+        reader.session.play()
+        XCTAssertEqual(reader.session.state, .speaking)
+        try await waitUntil { (reader.session.spokenRange?.location ?? 0) > pausedAt.location }
     }
 }
 #endif

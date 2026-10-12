@@ -162,7 +162,7 @@ final class WorkspaceModel {
     }
     let preferences = GraphitePreferences()
     let recording = RecordingController()
-    let readAloud = ReadAloudController(playsWhenPrepared: true)
+    let readAloud = ReadAloudVoices.makeController()
     /// Callouts the person expanded or collapsed, which Read Aloud follows.
     let calloutFolds = CalloutFoldStore()
     /// Jumps, section skips, the listening queue and remembered places for Read Aloud.

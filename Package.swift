@@ -15,7 +15,10 @@ let package = Package(
         .package(url: "https://github.com/groue/GRDB.swift.git", exact: "7.11.1"),
         // Vendored Textual 0.5.0 with Graphite's patches, each listed in Vendor/textual/GRAPHITE-PATCHES.md.
         .package(path: "Vendor/textual"),
-        .package(url: "https://github.com/jpsim/Yams.git", exact: "6.2.2")
+        .package(url: "https://github.com/jpsim/Yams.git", exact: "6.2.2"),
+        // A trimmed copy of mlx-audio-swift (MIT) that runs the downloadable Read Aloud voices;
+        // its changes from upstream are listed in Vendor/mlx-audio-swift/GRAPHITE-PATCHES.md.
+        .package(path: "Vendor/mlx-audio-swift")
     ],
     targets: [
         .target(name: "GraphiteCore", dependencies: [
@@ -24,13 +27,17 @@ let package = Package(
         ]),
         .target(name: "GraphiteIndex", dependencies: ["GraphiteCore", .product(name: "GRDB", package: "GRDB.swift")]),
         .target(name: "GraphiteApple", dependencies: ["GraphiteCore"], resources: [.copy("Resources/MathSpeech")]),
-        .target(name: "GraphiteUI", dependencies: ["GraphiteCore", "GraphiteIndex", "GraphiteApple", .product(name: "Textual", package: "textual")],
+        // The on-device neural voices: model loading and rendering with MLX.
+        .target(name: "GraphiteVoices", dependencies: ["GraphiteCore", "GraphiteApple", .product(name: "MLXAudioTTS", package: "mlx-audio-swift")],
+                resources: [.copy("Resources/NeuralVoices.json"), .copy("Resources/DiaVoicePrompt.json")]),
+        .target(name: "GraphiteUI", dependencies: ["GraphiteCore", "GraphiteIndex", "GraphiteApple", "GraphiteVoices", .product(name: "Textual", package: "textual")],
                 // The Obsidian plugin runtime's page, scripts and vendored libraries, copied as
                 // one folder so the page's relative script paths keep working.
                 // The theme resolver's default variables and probe script (`ThemeTokenResolver`).
                 resources: [.copy("Resources/CommunityPluginRuntime"), .copy("Resources/ThemeResolver")]),
         .executableTarget(name: "GraphiteBenchmarks", dependencies: ["GraphiteCore", "GraphiteIndex"]),
-        .testTarget(name: "GraphiteCoreTests", dependencies: ["GraphiteCore"]),
+        // The babbling clip is a real Qwen3-TTS rendering, to test the checks on real audio.
+        .testTarget(name: "GraphiteCoreTests", dependencies: ["GraphiteCore"], resources: [.copy("Resources/QwenBabbling.m4a")]),
         .testTarget(name: "GraphiteIndexTests", dependencies: ["GraphiteIndex", "GraphiteBenchmarks"]),
         .testTarget(name: "GraphiteAppleTests", dependencies: ["GraphiteApple"]),
         .testTarget(name: "GraphiteUITests", dependencies: ["GraphiteUI", .product(name: "Textual", package: "textual")])

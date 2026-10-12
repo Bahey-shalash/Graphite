@@ -181,7 +181,7 @@ struct PencilToolRow: View {
                 .fixedSize()
                 separator
             case .readAloud:
-                Text(offersReadAloudPen ? "Tap a word to read from it, then another to stop there" : "Nothing to read here")
+                Text(offersReadAloudPen ? "Tap a word to read; tap another to stop there" : "Nothing to read here")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

@@ -42,6 +42,9 @@ final class ReadAloudNavigator {
     /// keep out of its way. Nil when the view showing it does not report it.
     var highlightFrameInWindow: CGRect?
     var windowBounds: CGRect?
+    /// What covers part of the window above the page: the system's floating Pencil palette
+    /// while a PDF is written on.
+    var coveredFrameInWindow: CGRect?
     /// Where the floating player is, for checking that it keeps clear of the highlight.
     @ObservationIgnored var playerFrameInWindow: CGRect?
     private static let positionsKey = "GraphiteReadAloudPositions"

@@ -14,6 +14,9 @@ final class VaultURITests: XCTestCase {
         XCTAssertEqual(uri("graphite://open?path=%2FUsers%2Fme%2FPhysics%2FLecture.md"), VaultURI(vault: nil, action: .open(file: nil, path: "/Users/me/Physics/Lecture.md")))
         XCTAssertEqual(uri("graphite://search?vault=Physics&query=tag%3A%23exam"), VaultURI(vault: "Physics", action: .search(query: "tag:#exam")))
         XCTAssertEqual(uri("graphite://daily?vault=Physics"), VaultURI(vault: "Physics", action: .daily))
+        XCTAssertEqual(uri("graphite://read?vault=Physics&file=Course%2FLecture%201"), VaultURI(vault: "Physics", action: .read(file: "Course/Lecture 1")),
+                       "Graphite's own action: open the note and read it aloud.")
+        XCTAssertNil(uri("graphite://read?vault=Physics"), "Reading needs a note.")
         XCTAssertEqual(uri("GRAPHITE://OPEN?Vault=Physics&FILE=Note"), VaultURI(vault: "Physics", action: .open(file: "Note", path: nil)), "Ignoring capitals.")
         XCTAssertEqual(uri("obsidian:open?vault=Physics&file=Note"), VaultURI(vault: "Physics", action: .open(file: "Note", path: nil)))
         XCTAssertEqual(uri("obsidian://vault/Physics/Course/Lecture%201"), VaultURI(vault: "Physics", action: .open(file: "Course/Lecture 1", path: nil)))

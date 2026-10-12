@@ -63,7 +63,13 @@ enum ReadAloudPlayerPosition: String, CaseIterable {
 /// while the highlighted words are clear of it, otherwise at the other edge, otherwise
 /// beside it at the same edge.
 enum ReadAloudPlayerPlacement {
-    static let panelWidth: CGFloat = 340
+    static let panelWidth: CGFloat = 360
+
+    /// 360 points, or the window's width less its margins on a phone.
+    static func panelWidth(in containerWidth: CGFloat) -> CGFloat {
+        guard containerWidth > 0 else { return panelWidth }
+        return min(panelWidth, max(280, containerWidth - 2 * sideMargin))
+    }
     /// Room around the panel: from the window's edges, below the toolbar and tab strip at
     /// the top, and for the close button on its corner.
     static let sideMargin: CGFloat = 20
@@ -89,12 +95,22 @@ enum ReadAloudPlayerPlacement {
         return CGRect(x: x, y: y, width: panelSize.width, height: panelSize.height)
     }
 
-    static func position(saved: ReadAloudPlayerPosition, panelSize: CGSize, in container: CGRect, avoiding highlight: CGRect?) -> ReadAloudPlayerPosition {
-        guard let highlight, !highlight.isEmpty, panelSize.width > 0, container.width > 0 else { return saved }
+    /// The saved place, unless the highlighted words or something covering the window (the
+    /// system's floating Pencil palette) would be under the panel there.
+    static func position(saved: ReadAloudPlayerPosition, panelSize: CGSize, in container: CGRect, avoiding highlight: CGRect?,
+                         covered: [CGRect] = []) -> ReadAloudPlayerPosition {
+        let coveredFrames = covered.filter { frame in !frame.isNull && !frame.isEmpty }
+        guard panelSize.width > 0, container.width > 0, (highlight.map { !$0.isEmpty } ?? false) || !coveredFrames.isEmpty else { return saved }
+        func isUncovered(_ position: ReadAloudPlayerPosition) -> Bool {
+            let panel = frame(for: position, panelSize: panelSize, in: container)
+            return !coveredFrames.contains { coveredFrame in coveredFrame.intersects(panel) }
+        }
         func isClear(_ position: ReadAloudPlayerPosition) -> Bool {
-            !frame(for: position, panelSize: panelSize, in: container).insetBy(dx: -clearance, dy: -clearance).intersects(highlight)
+            guard isUncovered(position) else { return false }
+            guard let highlight, !highlight.isEmpty else { return true }
+            return !frame(for: position, panelSize: panelSize, in: container).insetBy(dx: -clearance, dy: -clearance).intersects(highlight)
         }
         let candidates = [saved, saved.flipped] + saved.neighborsAtSameEdge + saved.flipped.neighborsAtSameEdge
-        return candidates.first(where: isClear) ?? saved.flipped
+        return candidates.first(where: isClear) ?? candidates.first(where: isUncovered) ?? saved.flipped
     }
 }

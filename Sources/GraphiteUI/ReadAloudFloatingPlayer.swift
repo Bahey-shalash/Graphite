@@ -27,13 +27,16 @@ struct ReadAloudFloatingPlayer: View {
     @State private var containerFrame: CGRect = .zero
     @State private var panelSize: CGSize = .zero
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @ScaledMetric(relativeTo: .body) private var textScale = 1
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var savedPosition: ReadAloudPlayerPosition { ReadAloudPlayerPosition(rawValue: savedPositionRawValue) ?? .bottom }
 
     private var position: ReadAloudPlayerPosition {
         ReadAloudPlayerPlacement.position(saved: savedPosition, panelSize: panelSize, in: containerFrame,
-                                          avoiding: navigator.highlightFrameInWindow)
+                                          avoiding: navigator.highlightFrameInWindow,
+                                          covered: navigator.coveredFrameInWindow.map { [$0] } ?? [])
     }
 
     /// Following is paused because the person scrolled away from what is read.
@@ -72,14 +75,16 @@ struct ReadAloudFloatingPlayer: View {
         .padding(.horizontal, 8)
         .padding(.top, 10)
         .padding(.bottom, 6)
-        .frame(width: ReadAloudPlayerPlacement.panelWidth)
+        .frame(width: ReadAloudPlayerPlacement.panelWidth(in: containerFrame.width))
         .background { ReadAloudPlayerBackground() }
         .overlay(alignment: .topLeading) { closeButton.offset(x: -14, y: -14) }
-        // The system's controller is dark in both appearances.
+        // The system's controller is dark in both appearances, its controls white: menus
+        // would otherwise take the app's accent.
+        .tint(.white)
         .environment(\.colorScheme, .dark)
-        // Controls keep their size past the largest standard text size; a long press shows
-        // each one enlarged (Large Content Viewer), as the system's bars do.
-        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        // Controls grow a little with the text, then keep their size so all six fit; a long
+        // press shows each one enlarged (Large Content Viewer), as the system's bars do.
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         .onGeometryChange(for: CGRect.self) { geometry in geometry.frame(in: .global) } action: { frame in
             panelSize = frame.size
             navigator.playerFrameInWindow = frame
@@ -105,11 +110,15 @@ struct ReadAloudFloatingPlayer: View {
             } else {
                 scrolledAwayButtons
             }
-        } else if reader.isPreparing {
+        } else if reader.isPreparing || reader.isWaitingForPreparedAudio {
+            // A downloaded voice still rendering the passage reading waits for.
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text("Preparing…").font(.subheadline).foregroundStyle(.secondary)
+                Text(reader.isWaitingForPreparedAudio ? reader.preparingDescription : "Preparing…")
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(.secondary)
             }
+            .accessibilityElement(children: .combine)
         } else if navigator.isReadingPenSelection {
             HStack(spacing: 8) {
                 Label("Reading Selection", systemImage: "text.line.first.and.arrowtriangle.forward")
@@ -130,23 +139,25 @@ struct ReadAloudFloatingPlayer: View {
         }
     }
 
-    /// The document's icon and name, then where in it reading is, if it fits.
+    /// The document's icon and name, then where in it reading is, which gives way first.
+    /// (`ViewThatFits` here made a layout cycle that kept the note under it from loading.)
     private var titleRow: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 6) {
-                documentIcon
-                Text(reader.title).font(.subheadline.weight(.semibold)).lineLimit(1)
-                if let place = currentPlace, !dynamicTypeSize.isAccessibilitySize {
-                    Text(place).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
-                }
-            }
-            .fixedSize()
-            HStack(spacing: 6) {
-                documentIcon
-                Text(reader.title).font(.subheadline.weight(.semibold)).lineLimit(1)
+        HStack(spacing: 6) {
+            documentIcon
+            Text(reader.title).font(.subheadline.weight(.semibold)).lineLimit(1).layoutPriority(1)
+            if let place = currentPlace, Self.placeFits(title: reader.title, place: place, textSize: dynamicTypeSize) {
+                Text(place).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
             }
         }
         .accessibilityElement(children: .combine)
+    }
+
+    /// Whether the name and the place fit on the row together, at about seven and a half
+    /// points a character at the standard text size; otherwise the place is left out.
+    static func placeFits(title: String, place: String, textSize: DynamicTypeSize) -> Bool {
+        guard textSize <= .xLarge else { return false }
+        let characters = textSize <= .large ? 38 : 32
+        return title.count + place.count + 2 <= characters
     }
 
     private var documentIcon: some View {
@@ -156,17 +167,21 @@ struct ReadAloudFloatingPlayer: View {
             .accessibilityHidden(true)
     }
 
-    /// The heading being read, or the page of a PDF.
+    /// How far ahead a downloaded voice has prepared, while it still is; else the heading
+    /// being read, or the page of a PDF.
     private var currentPlace: String? {
+        if let share = reader.preparedAudioShare { return "Prepared \(Int((share * 100).rounded()))%" }
         if let pdf = reader.readingPDF, let page = reader.sourcePageIndex { return "Page \(page + 1) of \(pdf.pageCount)" }
         guard let index = navigator.currentSectionIndex else { return nil }
         return navigator.sections.first { section in section.passageIndex == index }?.title
     }
 
+    /// Both as words while they fit; past the large text size, Read from Here is its icon.
     private var scrolledAwayButtons: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 6) { backToReadingButton; readFromHereButton }
+        HStack(spacing: 6) {
             backToReadingButton
+            readFromHereButton
+                .labelStyle(dynamicTypeSize > .large || horizontalSizeClass == .compact ? AnyLabelStyle(.iconOnly) : AnyLabelStyle(.titleAndIcon))
         }
     }
 
@@ -303,7 +318,7 @@ struct ReadAloudFloatingPlayer: View {
             }
         } label: {
             Image(systemName: "doc.plaintext")
-                .font(.system(size: 20, weight: .semibold))
+                .font(.system(size: min(20 * textScale, 26), weight: .semibold))
                 .foregroundStyle(.primary)
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
@@ -370,10 +385,12 @@ private struct ReadAloudTransportButton: View {
     var longPressTitle: String?
     var longPress: (() -> Void)?
     @State private var isPressed = false
+    /// The glyph grows with the text size, up to what still fits the row's 44-point targets.
+    @ScaledMetric(relativeTo: .body) private var textScale = 1
 
     var body: some View {
         Image(systemName: systemImage)
-            .font(.system(size: glyphSize, weight: .semibold))
+            .font(.system(size: min(glyphSize * textScale, glyphSize * 1.3), weight: .semibold))
             .foregroundStyle(isEnabled ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary))
             .frame(width: width, height: 44)
             .contentShape(Rectangle())
@@ -404,10 +421,9 @@ private struct ReadAloudChipStyle: ViewModifier {
     func body(content: Content) -> some View {
         content
             .font(.subheadline.weight(.semibold))
-            .labelStyle(.titleAndIcon)
             .lineLimit(1)
             .foregroundStyle(.primary)
-            .padding(.horizontal, 10)
+            .padding(.horizontal, 8)
             .frame(minHeight: 32)
             .background(Color.white.opacity(0.16), in: Capsule())
             .contentShape(Capsule())
@@ -455,4 +471,11 @@ struct ReadAloudPlayerBackground: View {
                 .overlay { shape.strokeBorder(Color.white.opacity(isIncreased ? 0.7 : 0.14), lineWidth: isIncreased ? 1 : 0.5) }
         }
     }
+}
+
+/// A label style chosen at run time.
+private struct AnyLabelStyle: LabelStyle {
+    private let make: (Configuration) -> AnyView
+    init<Style: LabelStyle>(_ style: Style) { make = { configuration in AnyView(style.makeBody(configuration: configuration)) } }
+    func makeBody(configuration: Configuration) -> some View { make(configuration) }
 }

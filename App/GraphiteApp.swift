@@ -15,9 +15,17 @@ struct GraphiteApp: App {
             .commands { GraphiteCommands() }
         #else
         // iPadOS keeps this to one scene: Info.plist sets UIApplicationSupportsMultipleScenes to false.
-        WindowGroup { GraphiteRootView() }
+        WindowGroup {
+            // A launch argument opens the voice measuring screen instead; see NeuralVoiceBenchmarkScreen.
+            if NeuralVoiceBenchmarkScreen.isRequested { NeuralVoiceBenchmarkScreen() } else { GraphiteRootView() }
+        }
             .defaultSize(width: 1200, height: 820)
             .commands { GraphiteCommands() }
+            // Read Aloud voices download in a background session that can finish while
+            // Graphite is closed; iOS then wakes it to receive the files.
+            .backgroundTask(.urlSession(GraphiteVoiceDownloads.sessionIdentifier)) {
+                await GraphiteVoiceDownloads.handleBackgroundEvents()
+            }
         #endif
     }
 }

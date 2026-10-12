@@ -166,7 +166,10 @@ private struct PDFPaneContent: View {
                                 suspendReadingFollow: { readAloud?.suspendFollowing(in: session.location.path) },
                                 reportReadingHighlightFrame: reportReadingHighlightFrame,
                                 readAloudPen: readAloud == nil || readAloudNavigator == nil ? nil : { tap in readWithPen(tap) },
-                                readAloudMarkers: readAloudMarkers)
+                                readAloudMarkers: readAloudMarkers,
+                                reportPaletteFrame: readAloudNavigator.map { navigator in { frame in
+                                    if navigator.coveredFrameInWindow != frame { navigator.coveredFrameInWindow = frame }
+                                } })
                     .ignoresSafeArea(edges: .bottom)
             }
         }
