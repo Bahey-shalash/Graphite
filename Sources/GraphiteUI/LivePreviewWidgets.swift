@@ -35,6 +35,8 @@ private struct LivePreviewReadingSection: Sendable {
 
 /// What rendered Live Preview blocks need from the workspace, without depending on it.
 struct LivePreviewEnvironment {
+    /// Where callouts keep the person's expansion, so Read Aloud skips folded ones.
+    var calloutFoldNote: (store: CalloutFoldStore, notePath: String)? = nil
     let root: URL
     let textSize: Double
     /// The vault's fonts, which rendered blocks draw their text and code in.
@@ -251,11 +253,12 @@ private struct LivePreviewCalloutView: View {
                     sourceTokens: readingSection?.titleTokens,
                     automaticallyExpandsForReading: readingFollowsSource && (readingActiveSourceRange.map { range in
                         readingSection?.tokens.contains { token in NSIntersectionRange(token.sourceRange, range).length > 0 } ?? false
-                    } ?? false)) {
+                    } ?? false), foldKeyTitle: title) {
             LivePreviewBlockStack(blocks: bodyBlocks, environment: environment, allowsNoteEmbeds: true, revealSource: revealSource, readingSection: readingSection)
                 .contentShape(Rectangle())
                 .onTapGesture(perform: revealSource)
         }
+        .environment(\.calloutFoldNote, environment.calloutFoldNote)
     }
 }
 

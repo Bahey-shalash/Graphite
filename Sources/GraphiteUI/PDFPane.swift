@@ -326,7 +326,12 @@ private struct PDFPaneContent: View {
     @ViewBuilder private var moreMenuItems: some View {
         if let readAloud {
             Menu("Read Aloud", systemImage: "speaker.wave.2") {
-                Button("Read Document") { readAloud.readPDF(session, firstPageIndex: 0, lastPageIndex: session.pageCount - 1) }
+                Button("Read Document") {
+                    // Goes on from the page where reading last stopped.
+                    let remembered = ReadAloudNavigator.rememberedLocation(for: session.location.path) ?? 0
+                    let first = min(max(0, remembered), max(0, session.pageCount - 1))
+                    readAloud.readPDF(session, firstPageIndex: first, lastPageIndex: session.pageCount - 1)
+                }
                 Button("Read This Page") { readAloud.readPDF(session, firstPageIndex: session.currentPageIndex, lastPageIndex: session.currentPageIndex) }
                 Button("Read From This Page") { readAloud.readPDF(session, firstPageIndex: session.currentPageIndex, lastPageIndex: session.pageCount - 1) }
                 Button("Choose Page Range…") { showsReadingPageRange = true }

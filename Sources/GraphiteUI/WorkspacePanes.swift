@@ -273,6 +273,7 @@ private struct TabBar: View {
         Button("Close Other Tabs", systemImage: "xmark.square") { Task { await workspace.closeOtherTabs(keeping: tab.id) } }
             .disabled(group.tabs.count == 1)
         Divider()
+        if let path = tab.path { ReadAloudQueueMenuItems(navigator: workspace.readAloudNavigator, path: path) }
         Button(tab.isPinned ? "Unpin" : "Pin", systemImage: tab.isPinned ? "pin.slash" : "pin") { workspace.togglePin(tab.id) }
         Button(groupIndex == 0 ? "Move to the Right" : "Move to the Left", systemImage: groupIndex == 0 ? "rectangle.righthalf.inset.filled.arrow.right" : "rectangle.lefthalf.inset.filled.arrow.left") {
             workspace.moveTabToOtherGroup(tab.id)

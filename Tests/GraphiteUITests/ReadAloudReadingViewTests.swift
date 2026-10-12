@@ -152,9 +152,11 @@ final class ReadAloudReadingViewTests: XCTestCase {
         XCTAssertLessThanOrEqual(target.frame.maxY, 240)
     }
 
-    func testLivePreviewTableMathAndCollapsedCalloutHighlightActualRenderedContent() async throws {
+    func testLivePreviewTableMathAndOpenCalloutHighlightActualRenderedContent() async throws {
         let path = try VaultPath("Note.md")
-        let samples = ["Before.\n\n| Name | Value |\n| --- | --- |\n| repeat | clear |\n", "Before.\n\n$$x^2$$\n", "> [!note]- Title\n> Read repeat now.\n"]
+        let samples = ["Before.\n\n| Name | Value |\n| --- | --- |\n| repeat | clear |\n", "Before.\n\n$$x^2$$\n", "> [!note]+ Title\n> Read repeat now.\n"]
+        // A folded callout's body is no longer read (the owner's rule) nor expanded for
+        // reading; an open callout highlights its body.
         for source in samples {
             let speech = ReadingProbeSpeech()
             let preferenceName = "ReadAloudWidget-\(UUID().uuidString)"

@@ -157,6 +157,17 @@ final class WorkspaceModel {
     let preferences = GraphitePreferences()
     let recording = RecordingController()
     let readAloud = ReadAloudVoices.makeController()
+    /// Callouts the person expanded or collapsed, which Read Aloud follows.
+    let calloutFolds = CalloutFoldStore()
+    /// Jumps, section skips, the listening queue and remembered places for Read Aloud.
+    @ObservationIgnored lazy var readAloudNavigator: ReadAloudNavigator = {
+        let navigator = ReadAloudNavigator(reader: readAloud)
+        navigator.startReading = { [weak self] path, resumeLocation in
+            Task { @MainActor in await self?.startReadingAloud(path, resumeLocation: resumeLocation) }
+        }
+        navigator.visiblePageIndex = { [weak self] in self?.pdfSession?.currentPageIndex }
+        return navigator
+    }()
     /// The open vault's Obsidian community plugins.
     let communityPlugins = CommunityPluginHost()
     /// Set by indexing when a scan of the whole vault finishes; tests that fill the index
@@ -1386,5 +1397,23 @@ enum ExternalChangeRefresh: Equatable {
             return
         }
         self = changedPaths.isEmpty ? .nothingShown : .files(changedPaths.sorted())
+    }
+}
+
+extension WorkspaceModel {
+    /// Opens a note or PDF from the listening queue and reads it, from where it was left.
+    func startReadingAloud(_ path: VaultPath, resumeLocation: Int?) async {
+        await open(path)
+        if let session = markdownSession, session.path == path {
+            let hidden = ReadAloudFolding.hiddenRanges(in: session.text, foldedKeys: session.foldedKeys,
+                                                       calloutExpansion: calloutFolds.expansion(for: path.rawValue))
+            readAloud.readMarkdown(session.text, path: path, hiddenRanges: hidden)
+            readAloudNavigator.resumeWhenPrepared(at: resumeLocation)
+        } else if let pdf = pdfSession, pdf.location.lastPathComponent == path.name {
+            // A PDF's place is its page, remembered by its file.
+            let remembered = readAloudNavigator.rememberedLocation(for: pdf.location.path) ?? 0
+            let first = min(max(0, remembered), max(0, pdf.pageCount - 1))
+            readAloud.readPDF(pdf, firstPageIndex: first, lastPageIndex: max(first, pdf.pageCount - 1))
+        }
     }
 }

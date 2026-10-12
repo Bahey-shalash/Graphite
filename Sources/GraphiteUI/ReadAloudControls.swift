@@ -111,22 +111,15 @@ struct ReadAloudControlsPanel: View {
                     .font(.footnote)
                     .foregroundStyle(Self.secondaryText)
             } else {
-                if usesLargeLayout {
-                    HStack {
-                        Text("Speed")
-                        Spacer()
-                        Picker("Speed", selection: Binding(get: { reader.session.speed }, set: { speed in reader.session.setSpeed(speed) })) {
-                            ForEach(ReadAloudVoiceSettings.speeds, id: \.self) { speed in Text(speed.formatted() + "×").tag(speed) }
-                        }
-                        .pickerStyle(.menu)
-                        .labelsHidden()
-                    }
-                } else {
+                // Ten speeds, 0.75× to 3×, are a menu rather than segments.
+                HStack {
+                    Text("Speed")
+                    Spacer()
                     Picker("Speed", selection: Binding(get: { reader.session.speed }, set: { speed in reader.session.setSpeed(speed) })) {
                         ForEach(ReadAloudVoiceSettings.speeds, id: \.self) { speed in Text(speed.formatted() + "×").tag(speed) }
                     }
-                    .pickerStyle(.segmented)
-                    .accessibilityLabel("Speed")
+                    .pickerStyle(.menu)
+                    .labelsHidden()
                 }
             }
             Toggle("Follow Reading", isOn: $reader.followsReading)

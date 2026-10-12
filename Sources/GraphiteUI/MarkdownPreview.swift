@@ -2099,18 +2099,35 @@ struct CalloutView<Body: View>: View {
     @Environment(\.accent) private var accent
     @Environment(\.noteTypography) private var typography
     @Environment(\.noteTheme) private var theme
-    @State private var isExpanded: Bool
+    @State private var localIsExpanded: Bool
+    @Environment(\.calloutFoldNote) private var foldNote
+
+    /// The person's expansion, kept where Read Aloud can see it when the note is known.
+    private var isExpanded: Bool {
+        get {
+            guard let foldNote else { return localIsExpanded }
+            return foldNote.store.isExpanded(notePath: foldNote.notePath, key: ReadAloudFolding.calloutKey(type: type, title: foldKeyTitle),
+                                             initially: folding != .collapsed)
+        }
+        nonmutating set {
+            localIsExpanded = newValue
+            foldNote?.store.setExpanded(newValue, notePath: foldNote?.notePath ?? "", key: ReadAloudFolding.calloutKey(type: type, title: foldKeyTitle))
+        }
+    }
+    /// The title as written in the note, which the fold key is made of.
+    var foldKeyTitle: String
     /// Graphite's 8 points, or the theme's corner radius.
     private var calloutRadius: CGFloat { theme?.calloutRadius.map { radius in NoteThemeStyle.scaled(radius, textSize: textSize) } ?? 8 }
 
     init(type: String, title: String, folding: CalloutFolding, root: URL, textSize: Double, navigate: @escaping (String, Bool) -> Void,
          scrollToHeading: ((String) -> Void)? = nil, sourceTokens: [ReadAloudSourceToken]? = nil,
-         automaticallyExpandsForReading: Bool = false, @ViewBuilder content: @escaping () -> Body) {
+         automaticallyExpandsForReading: Bool = false, foldKeyTitle: String? = nil, @ViewBuilder content: @escaping () -> Body) {
         self.type = type; self.title = title; self.folding = folding; self.root = root; self.textSize = textSize; self.navigate = navigate
         self.scrollToHeading = scrollToHeading; self.content = content
         self.sourceTokens = sourceTokens
         self.automaticallyExpandsForReading = automaticallyExpandsForReading
-        _isExpanded = State(initialValue: folding != .collapsed)
+        _localIsExpanded = State(initialValue: folding != .collapsed)
+        self.foldKeyTitle = foldKeyTitle ?? title
     }
 
     var body: some View {
@@ -2150,9 +2167,6 @@ struct CalloutView<Body: View>: View {
             if let borderWidth = theme?.calloutBorderWidth {
                 RoundedRectangle(cornerRadius: calloutRadius).strokeBorder(appearance.color, lineWidth: CGFloat(min(max(borderWidth, 0.5), 6)))
             }
-        }
-        .onChange(of: automaticallyExpandsForReading, initial: true) { _, expands in
-            if expands { isExpanded = true }
         }
     }
 }

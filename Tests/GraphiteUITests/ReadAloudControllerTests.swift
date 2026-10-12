@@ -263,6 +263,47 @@ final class ReadAloudControllerTests: XCTestCase {
         return count
     }
 
+    /// PDFKit extracts a re-saved page's text a little differently (here: a figure label moved);
+    /// the words that did not change must still find their exact place on the live page.
+    /// Before, any difference switched off every highlight on the page.
+    func testHighlightsSurviveSmallDifferencesBetweenExportedAndLivePageText() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ReadAloudAlign-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let location = try makePDF(in: directory, pageTexts: ["Static logic keeps its output level."])
+        let pageBytes = try XCTUnwrap(PDFDocument(url: location)?.dataRepresentation())
+        let snapshot = try await PDFReadAloudExtraction().page(in: pageBytes, readingOrder: .file)
+        let liveText = "(a) " + snapshot.originalText
+        let source = try XCTUnwrap(PDFReadAloudSource.page(snapshot, pageIndex: 0, livePageText: liveText))
+        let word = (snapshot.text as NSString).range(of: "output")
+        let highlight = try XCTUnwrap(source.highlights(for: word).first)
+        XCTAssertEqual((liveText as NSString).substring(with: try XCTUnwrap(highlight.characterRange)), "output")
+        XCTAssertNil(PDFReadAloudSource.page(snapshot, pageIndex: 0, livePageText: "Something else entirely, nothing alike."),
+                     "A page that hardly matches is not trusted.")
+    }
+
+    /// Expanding a folded callout while the note is read brings its body into what is still to
+    /// be read, and reading carries on from where it was.
+    func testUnfoldingWhileReadingAddsTheUnfoldedPassage() async throws {
+        let (reader, speech) = try makeReader()
+        let path = try VaultPath("Folds.md")
+        let note = "Opening line.\n\n> [!note]- Hidden derivation\n> The long hidden proof.\n\nClosing line."
+        let collapsed = ReadAloudFolding.hiddenRanges(in: note, foldedKeys: [], calloutExpansion: [:])
+        reader.readMarkdown(note, path: path, hiddenRanges: collapsed)
+        try await waitForPreparation(reader)
+        XCTAssertEqual(reader.session.document?.passages.map(\.text), ["Opening line.", "Hidden derivation", "Closing line."])
+        reader.session.play()
+        XCTAssertEqual(speech.requests.last?.text, "Opening line.")
+        let expanded = ReadAloudFolding.hiddenRanges(in: note, foldedKeys: [],
+                                                     calloutExpansion: [ReadAloudFolding.calloutKey(type: "note", title: "Hidden derivation"): true])
+        reader.foldsDidChange(in: path, hiddenRanges: expanded)
+        let deadline = ContinuousClock.now + .seconds(5)
+        while reader.session.document?.passages.count != 4, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(reader.session.document?.passages.map(\.text), ["Opening line.", "Hidden derivation", "The long hidden proof.", "Closing line."])
+        XCTAssertEqual(reader.session.passageIndex, 0, "Reading carries on from the same place.")
+        XCTAssertEqual(reader.session.state, .speaking)
+    }
+
     /// In the app, choosing Read Document starts reading as soon as the passage is ready and
     /// keeps the page in view; rebuilding it for another math style waits for Play.
     func testAppReadingStartsWhenPreparedWithoutCoveringThePage() async throws {

@@ -133,7 +133,7 @@ final class ReadAloudDocumentTests: XCTestCase {
     func testSmartPunctuationIsReadAndMapsBackToWhatWasWritten() throws {
         let source = "# Shannon's Expansion -- a note\n\nIt's \"simple\"... really --- see 'L01'.\n\n> [!banana]\n> Unknown type: titled \"Banana\"."
         let document = try ReadAloudDocument.markdown(source)
-        XCTAssertEqual(try speech(source), "Shannon’s Expansion – a note It’s “simple”… really — see ‘L01’. Unknown type: titled “Banana”.")
+        XCTAssertEqual(try speech(source), "Shannon’s Expansion – a note It’s “simple”… really — see ‘L 01’. Unknown type: titled “Banana”.")
         let passage = try XCTUnwrap(document.passages.first)
         let apostrophe = (passage.text as NSString).range(of: "’")
         XCTAssertEqual((source as NSString).substring(with: try XCTUnwrap(passage.sourceRange(for: apostrophe))), "'")
@@ -181,6 +181,34 @@ final class ReadAloudDocumentTests: XCTestCase {
         XCTAssertTrue(tokens.contains("e.g"), "\(tokens)")
         XCTAssertFalse(tokens.contains("example") && !tokens.contains("www.example.com"))
         XCTAssertEqual(try speech("See Fig. on the left, and No. one."), "See Fig. on the left, and No. one.")
+    }
+
+    /// Words broken across lines on the owner's papers: "tran-|sistor" is one word, "low-|power"
+    /// a compound. 320 such breaks in two of their papers: before, every hyphen was kept
+    /// ("transis-tor"); now 302 are read right, and the other 18 are cases where the PDF's
+    /// next line belongs to another column or a figure.
+    func testHyphenatedLineBreaksJoinOrKeepTheirHyphen() throws {
+        func page(_ text: String, words: Set<String> = []) throws -> String {
+            try XCTUnwrap(ReadAloudDocument.pageText(text, hyphenationDictionaryWords: words).passages.first).text
+        }
+        XCTAssertEqual(try page("Each tran-\nsistor switches.", words: ["transistor"]), "Each transistor switches.")
+        XCTAssertEqual(try page("A low-\npower design, like any low-power circuit."), "A low-power design, like any low-power circuit.")
+        XCTAssertEqual(try page("The V-\nshaped curve."), "The V-shaped curve.")
+        XCTAssertEqual(try page("A soft tran\u{00AD}\nsistor here."), "A soft transistor here.")
+        XCTAssertEqual(try page("The sched\u{2010}\nuler and the scheduler."), "The scheduler and the scheduler.")
+        XCTAssertEqual(try page("Memory band\u{2013}\nwidth matters.", words: ["bandwidth"]), "Memory bandwidth matters.")
+        // The highlight of the joined word covers both halves, across the line break.
+        let source = "Each tran-\nsistor switches."
+        let passage = try XCTUnwrap(ReadAloudDocument.pageText(source, hyphenationDictionaryWords: ["transistor"]).passages.first)
+        let word = (passage.text as NSString).range(of: "transistor")
+        XCTAssertEqual((source as NSString).substring(with: try XCTUnwrap(passage.sourceRange(for: word))), "tran-\nsistor")
+        XCTAssertEqual(ReadAloudDocument.hyphenationCandidates(in: source), ["transistor"])
+    }
+
+    func testSymbolFontBulletsOfSlidesAreNotRead() throws {
+        let slide = "The DRAM Scaling Problem\nn DRAM stores charge in a capacitor\nq Capacitor must be large enough"
+        XCTAssertEqual(try ReadAloudDocument.pageText(slide).passages.map(\.text),
+                       ["The dee ram Scaling Problem", "dee ram stores charge in a capacitor", "Capacitor must be large enough"])
     }
 
     func testSlideLinesBulletsFootersAndBrokenWordsReadNaturally() throws {

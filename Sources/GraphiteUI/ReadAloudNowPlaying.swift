@@ -16,6 +16,9 @@ final class ReadAloudNowPlaying {
     }
 
     private var commandTargets: [(MPRemoteCommand, Any)] = []
+    /// The listening queue's next and previous item, for the next and previous track buttons
+    /// of headphones and the lock screen; each returns false when there is no such item.
+    static var queueCommands: (next: @MainActor () -> Bool, previous: @MainActor () -> Bool)?
 
     /// Publishes the title and state; nil clears the lock screen and stops answering controls.
     func update(title: String?, detail: String, state: ReadAloudSession.State, progress: Double?, commands: Commands) {
@@ -57,7 +60,13 @@ final class ReadAloudNowPlaying {
         add(center.playCommand, commands.play)
         add(center.pauseCommand, commands.pause)
         add(center.togglePlayPauseCommand) { commands.pause() || commands.play() }
-        add(center.nextTrackCommand, commands.nextSentence)
-        add(center.previousTrackCommand, commands.previousSentence)
+        // Next and previous track move through the listening queue when there is one; the
+        // skip buttons (and the track buttons without a queue) move by sentence.
+        add(center.nextTrackCommand) { Self.queueCommands?.next() ?? false || commands.nextSentence() }
+        add(center.previousTrackCommand) { Self.queueCommands?.previous() ?? false || commands.previousSentence() }
+        center.skipForwardCommand.preferredIntervals = [10]
+        center.skipBackwardCommand.preferredIntervals = [10]
+        add(center.skipForwardCommand, commands.nextSentence)
+        add(center.skipBackwardCommand, commands.previousSentence)
     }
 }

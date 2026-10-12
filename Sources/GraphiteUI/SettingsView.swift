@@ -87,7 +87,7 @@ struct SettingsView: View {
         case .editor: EditorSettingsPage(workspace: workspace, preferences: workspace.preferences, vaultSettingsChanges: vaultSettingsChanges)
         case .filesAndLinks: FilesAndLinksSettingsPage(workspace: workspace, vaultSettingsChanges: vaultSettingsChanges)
         case .appearance: AppearanceSettingsPage(workspace: workspace, preferences: workspace.preferences)
-        case .readAloud: ReadAloudSettingsPage(reader: workspace.readAloud)
+        case .readAloud: ReadAloudSettingsPage(reader: workspace.readAloud, vaultRoot: workspace.folderAccess?.root)
         case .corePlugins: CorePluginsSettingsPage(workspace: workspace, preferences: workspace.preferences)
         case .communityPlugins: CommunityPluginsSettingsPage(workspace: workspace) { pluginIdentifier in selectedPage = .communityPlugin(pluginIdentifier) }
         case .communityPlugin(let pluginIdentifier): CommunityPluginOptionsPage(host: workspace.communityPlugins, pluginIdentifier: pluginIdentifier)
@@ -535,17 +535,24 @@ private struct DrawingsSettingsPage: View {
 /// Voice and speed for Read Aloud. The math and PDF choices stay with the passage being read.
 private struct ReadAloudSettingsPage: View {
     @Bindable var reader: ReadAloudController
+    let vaultRoot: URL?
+    @AppStorage("GraphiteReadAloudFloatingPlayer") private var usesFloatingPlayer = true
 
     var body: some View {
         Form {
             if let library = ReadAloudVoices.library {
                 ReadAloudModeSection(library: library, speech: reader.neuralSpeech)
             }
+            Section {
+                Toggle("Floating Player", isOn: $usesFloatingPlayer)
+            } footer: {
+                Text("A small player in a corner of the window while reading: skip by sentence, section or page, change speed, and jump back after scrolling. Drag it to another corner. When off, the controls are in the toolbar.")
+            }
             ReadAloudVoiceSettings(reader: reader)
-            Section("Pronunciation") {
-                Text("Graphite says common computing terms the usual way: RAM as a word, CPU letter by letter. To add or change a term for this vault, put it in the vault's \(ReadAloudPronunciations.vaultFilePath) file, for example {\"SIMDRAM\": \"sim dee ram\"}. Downloaded voices read the same respellings; IPA transcriptions are used only by the system voice.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+            Section {
+                NavigationLink("Pronunciations") { ReadAloudPronunciationEditor(vaultRoot: vaultRoot) }
+            } footer: {
+                Text("How technical terms are said: CMOS as \"see moss\", LUT as \"look-up table\", and your own terms for this vault. Downloaded voices read the same respellings.")
             }
             if let library = ReadAloudVoices.library {
                 ReadAloudStorageSection(library: library)
