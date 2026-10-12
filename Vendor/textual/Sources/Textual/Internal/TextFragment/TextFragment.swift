@@ -61,6 +61,7 @@ struct TextFragment<Content: AttributedStringProtocol>: View {
           environment: textEnvironment
         )
       }
+      .modifier(RoundedRunBackgrounds())
       .modifier(TextSelectionBackground())
       .modifier(ReadingHighlight())
       .modifier(AttachmentOverlay(attachments: content.attachments()))

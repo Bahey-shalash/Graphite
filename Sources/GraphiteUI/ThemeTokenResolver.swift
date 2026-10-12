@@ -35,22 +35,69 @@ struct ThemeResolverInputs: Sendable, Equatable {
 @MainActor
 final class ThemeTokenResolver: NSObject, WKNavigationDelegate {
     /// The version of `graphite-default-variables.css` and the probes; part of every fingerprint.
-    nonisolated static let defaultLayerVersion = 2
+    nonisolated static let defaultLayerVersion = 4
 
     private var webView: WKWebView?
     private var loadContinuation: CheckedContinuation<Void, Error>?
+    private var measurementsInProgress: [String: Task<VaultThemeTokens, Error>] = [:]
+    private var latestMeasurement: Task<VaultThemeTokens, Error>?
+    private var measurementGeneration = 0
 
     /// Resolves `inputs`, from the device's cache when the same inputs were resolved before.
     func tokens(for inputs: ThemeResolverInputs) async throws -> VaultThemeTokens {
         let fingerprint = await Task.detached(priority: .utility) { inputs.fingerprint }.value
         if let cached = await Self.cachedTokens(fingerprint: fingerprint) { return cached }
-        let tokens = try await resolve(inputs, fingerprint: fingerprint)
-        await Self.store(tokens)
-        return tokens
+        // The same inputs asked for again while they are measured share that measurement.
+        if let measurement = measurementsInProgress[fingerprint] { return try await measurement.value }
+        // One page is measured at a time: two measurements on the one web view would each
+        // wait for the other's page.
+        let previousMeasurement = latestMeasurement
+        let measurement = Task { @MainActor [weak self] () throws -> VaultThemeTokens in
+            _ = await previousMeasurement?.result
+            guard let self else { throw CancellationError() }
+            let tokens = try await self.resolveWithinDeadline(inputs, fingerprint: fingerprint)
+            await Self.store(tokens)
+            return tokens
+        }
+        measurementsInProgress[fingerprint] = measurement
+        latestMeasurement = measurement
+        defer { measurementsInProgress[fingerprint] = nil }
+        return try await measurement.value
+    }
+
+    /// How long one measurement may take. A web content process that stops answering must
+    /// not hold the theme back for good; notes keep Graphite's look until the next change.
+    static let measurementDeadline = Duration.seconds(15)
+
+    private func resolveWithinDeadline(_ inputs: ThemeResolverInputs, fingerprint: String) async throws -> VaultThemeTokens {
+        let outcome = MeasurementOutcome()
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<VaultThemeTokens, Error>) in
+            Task { @MainActor in
+                do {
+                    let tokens = try await self.resolve(inputs, fingerprint: fingerprint)
+                    if outcome.finish() { continuation.resume(returning: tokens) }
+                } catch {
+                    if outcome.finish() { continuation.resume(throwing: error) }
+                }
+            }
+            Task { @MainActor in
+                try? await Task.sleep(for: Self.measurementDeadline)
+                guard outcome.finish() else { return }
+                // The page is given up: a load still awaited ends, and the web view goes.
+                self.loadContinuation?.resume(throwing: GraphiteError.unavailable("The theme's page did not load."))
+                self.loadContinuation = nil
+                self.releaseWebView()
+                continuation.resume(throwing: GraphiteError.unavailable("The theme could not be measured in time."))
+            }
+        }
     }
 
     private func resolve(_ inputs: ThemeResolverInputs, fingerprint: String) async throws -> VaultThemeTokens {
-        defer { releaseWebView() }
+        // A measurement given up at its deadline may still end later; it must not release the
+        // web view of the measurement after it.
+        measurementGeneration += 1
+        let generation = measurementGeneration
+        defer { if measurementGeneration == generation { releaseWebView() } }
         let webView = try await loadedProbePage()
         let measured = try await webView.callAsyncJavaScript("""
             document.getElementById('graphite-themed-styles').textContent = themed;
@@ -69,8 +116,11 @@ final class ThemeTokenResolver: NSObject, WKNavigationDelegate {
 
     /// The probe page with Graphite's default layer, ready for a theme's styles.
     private func loadedProbePage() async throws -> WKWebView {
+        // The default layer lives with the plugin runtime, which links the same file, so the
+        // values a theme is compared against are the values plugin pages start from.
         guard let folder = Bundle.module.url(forResource: "ThemeResolver", withExtension: nil),
-              let defaults = try? String(contentsOf: folder.appendingPathComponent("graphite-default-variables.css"), encoding: .utf8),
+              let runtimeFolder = Bundle.module.url(forResource: "CommunityPluginRuntime", withExtension: nil),
+              let defaults = try? String(contentsOf: runtimeFolder.appendingPathComponent("graphite-default-variables.css"), encoding: .utf8),
               let probe = try? String(contentsOf: folder.appendingPathComponent("theme-probe.js"), encoding: .utf8) else {
             throw GraphiteError.unavailable("Graphite's theme resources are missing.")
         }
@@ -90,12 +140,6 @@ final class ThemeTokenResolver: NSObject, WKNavigationDelegate {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             loadContinuation = continuation
             webView.loadHTMLString(page, baseURL: nil)
-            // A page that never finishes loading must not hold the theme back for good.
-            Task { [weak self] in
-                try? await Task.sleep(for: .seconds(15))
-                self?.loadContinuation?.resume(throwing: GraphiteError.unavailable("The theme's page did not load."))
-                self?.loadContinuation = nil
-            }
         }
         return webView
     }
@@ -144,5 +188,18 @@ final class ThemeTokenResolver: NSObject, WKNavigationDelegate {
             // Best effort: a cache that cannot be written only means resolving again next time.
             try? data.write(to: folder.appendingPathComponent(tokens.fingerprint + ".json"), options: .atomic)
         }.value
+    }
+}
+
+/// Whether a measurement has ended, by its result or by its deadline; only the first ends it.
+@MainActor
+private final class MeasurementOutcome {
+    private var isFinished = false
+
+    /// True for the first caller only.
+    func finish() -> Bool {
+        guard !isFinished else { return false }
+        isFinished = true
+        return true
     }
 }

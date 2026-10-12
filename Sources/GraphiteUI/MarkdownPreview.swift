@@ -814,7 +814,8 @@ struct MarkdownPreview: View {
                 LazyVStack(alignment: .leading, spacing: 14) {
                     if let inlineTitle = configuration.inlineTitle {
                         Text(inlineTitle)
-                            .font(typography.textSwiftUIFont(size: configuration.textSize * InlineTitleStyle.fontScale).weight(.semibold))
+                            .font(InlineTitleStyle.swiftUIFont(textSize: configuration.textSize, typography: typography, theme: theme))
+                            .foregroundStyle(theme?.inlineTitleColor.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.primary))
                             .accessibilityAddTraits(.isHeader)
                             .padding(.bottom, 6)
                     }
@@ -1362,12 +1363,12 @@ struct ObsidianMarkdownText: View {
                 .textual.textSelection(.enabled)
                 .textual.inlineStyle(inlineStyle)
                 .textual.codeBlockStyle(ObsidianCodeBlockStyle(monospaceFont: typography.monospaceSwiftUIFont(size: textSize), theme: theme))
-                .textual.listItemStyle(ObsidianListItemStyle(textSize: textSize))
+                .textual.listItemStyle(ObsidianListItemStyle(textSize: textSize, theme: theme))
                 .textual.imageAttachmentLoader(VaultImageLoader(root: root))
                 .textual.headingStyle(ObsidianHeadingStyle(theme: theme, typography: typography, textSize: textSize))
                 .textual.tableStyle(ObsidianTableStyle(theme: theme))
                 .textual.thematicBreakStyle(ObsidianThematicBreakStyle(theme: theme))
-                .textual.tableCellStyle(ObsidianTableCellStyle())
+                .textual.tableCellStyle(ObsidianTableCellStyle(theme: theme))
                 .textual.blockQuoteStyle(ObsidianBlockQuoteStyle(theme: theme))
                 .tint(accent)
                 .environment(\.openURL, Self.linkAction(root: root, navigate: navigate, scrollToHeading: scrollToHeading))
@@ -1458,10 +1459,23 @@ struct ReadingThemeColors: Hashable {
     let tag: Color?
     let tagBackground: Color?
     let highlight: Color
+    let highlightText: Color?
+    /// Tag pills and highlights with the theme's corners and border, at a 16-point text
+    /// size; `parser.textSize` scales them.
+    let tagRadius: Double
+    let tagBorder: Color?
+    let tagBorderWidth: Double
+    let highlightRadius: Double
 
     /// Nil without a theme, so the reading view keeps Graphite's own colors.
     init?(theme: NoteThemeStyle?) {
         guard let theme else { return nil }
+        highlightText = theme.highlightTextColor.map { color in Color(color) }
+        // Graphite's tags are pills, as Obsidian's are by default.
+        tagRadius = theme.tagRadius ?? Double(NoteThemeStyle.pillRadius)
+        tagBorder = theme.tagBorderColor.map { color in Color(color) }
+        tagBorderWidth = theme.tagBorderWidth ?? 0
+        highlightRadius = theme.highlightRadius ?? 0
         let link = theme.linkColor ?? theme.accent
         self.link = link.map { color in Color(color) } ?? .accentColor
         unresolvedLink = (theme.unresolvedLinkColor ?? link).map { color in Color(color) } ?? .accentColor
@@ -1490,8 +1504,13 @@ struct ObsidianMarkdownParser: MarkupParser {
         Self.applyMarkers(start: ObsidianInlineMarkup.colorStartMarker, hexEnd: ObsidianInlineMarkup.colorHexEndMarker, end: ObsidianInlineMarkup.colorEndMarker, to: &attributed) { hex, range, text in
             if let color = Color(graphiteHex: hex) { text[range].foregroundColor = color }
         }
+        let themeColors = themeColors, textSize = textSize
         Self.applyMarkers(start: ObsidianInlineMarkup.highlightStartMarker, hexEnd: nil, end: ObsidianInlineMarkup.highlightEndMarker, to: &attributed) { _, range, text in
-            text[range].backgroundColor = themeColors?.highlight ?? Color.yellow.opacity(0.35)
+            guard let themeColors else { text[range].backgroundColor = Color.yellow.opacity(0.35); return }
+            // The theme's highlight, with its rounded ends and text color.
+            text[range][RoundedRunBackgroundAttribute.self] = RoundedRunBackground(
+                color: themeColors.highlight, cornerRadius: NoteThemeStyle.scaled(themeColors.highlightRadius, textSize: textSize), horizontalPadding: 1)
+            if let highlightText = themeColors.highlightText { text[range].foregroundColor = highlightText }
         }
         // A footnote reference is found by its link, not by markers around its number: the
         // references are added to the note's text before `ReadingMarkerEscaping` escapes it,
@@ -1504,7 +1523,7 @@ struct ObsidianMarkdownParser: MarkupParser {
             attributed[range].font = .system(size: max(textSize * 0.7, GraphitePreferences.smallestNoteTextSize), weight: .semibold)
             attributed[range].baselineOffset = textSize * 0.35
         }
-        if let themeColors { Self.applyThemeColors(themeColors, to: &attributed) }
+        if let themeColors { Self.applyThemeColors(themeColors, textSize: textSize, to: &attributed) }
         replaceTaskMarkers(in: &attributed)
         Self.restoreEscapedCharacters(in: &attributed)
         if let sourceTokens { _ = ReadingSourceAlignment.apply(sourceTokens, to: &attributed) }
@@ -1513,7 +1532,7 @@ struct ObsidianMarkdownParser: MarkupParser {
 
     /// Links in the theme's colors by kind, as Obsidian draws internal, unresolved and external
     /// links, and `#tags` in its tag color.
-    static func applyThemeColors(_ colors: ReadingThemeColors, to text: inout AttributedString) {
+    static func applyThemeColors(_ colors: ReadingThemeColors, textSize: Double, to text: inout AttributedString) {
         var linkRuns: [(Range<AttributedString.Index>, Color)] = []
         for (link, range) in text.runs[\.link] {
             guard let link else { continue }
@@ -1539,7 +1558,14 @@ struct ObsidianMarkdownParser: MarkupParser {
             // Not inside code or a link.
             guard !text[range].runs.contains(where: { run in run.link != nil || run.inlinePresentationIntent?.contains(.code) == true }) else { continue }
             text[range].foregroundColor = tagColor
-            if let background = colors.tagBackground { text[range].backgroundColor = background }
+            // A pill: the theme's background, corners and border, narrow enough that the space
+            // between two tags still shows between their pills.
+            if colors.tagBackground != nil || colors.tagBorder != nil {
+                text[range][RoundedRunBackgroundAttribute.self] = RoundedRunBackground(
+                    color: colors.tagBackground ?? .clear, cornerRadius: NoteThemeStyle.scaled(colors.tagRadius, textSize: textSize),
+                    horizontalPadding: NoteThemeStyle.scaled(1.5, textSize: textSize), borderColor: colors.tagBorder,
+                    borderWidth: CGFloat(colors.tagBorderWidth))
+            }
         }
     }
 
@@ -1694,6 +1720,8 @@ struct ObsidianMarkdownParser: MarkupParser {
 /// List items as in Obsidian: a task's checkbox takes the place of its bullet.
 struct ObsidianListItemStyle: StructuredText.ListItemStyle {
     let textSize: Double
+    /// The vault's theme: the bullet and number color.
+    var theme: NoteThemeStyle? = nil
 
     func makeBody(configuration: Configuration) -> some View {
         let task = configuration.content.runs.first?[ReadingTaskAttribute.self]
@@ -1702,6 +1730,7 @@ struct ObsidianListItemStyle: StructuredText.ListItemStyle {
                 ReadingTaskCheckbox(task: task, label: Self.firstParagraphText(of: configuration.content), pointSize: textSize)
             } else {
                 configuration.marker
+                    .foregroundStyle(theme?.listMarkerColor.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.primary))
             }
             configuration.block
         }
@@ -1763,6 +1792,9 @@ struct ObsidianCodeBlockStyle: StructuredText.CodeBlockStyle {
     var theme: NoteThemeStyle? = nil
     private static let border = DynamicColor(light: Color(red: 210 / 255, green: 210 / 255, blue: 215 / 255),
                                              dark: Color(red: 66 / 255, green: 66 / 255, blue: 69 / 255))
+    /// The theme's corner radius for code blocks, or Graphite's 4 points.
+    private var cornerRadius: CGFloat { theme?.codeBlockRadius.map { radius in CGFloat(min(radius, 24)) } ?? 4 }
+
     /// The default highlighter theme's code background, which Textual keeps internal.
     private static let background = DynamicColor(light: Color(red: 0.960784, green: 0.960784, blue: 0.968627),
                                                  dark: Color(red: 0.120543, green: 0.122844, blue: 0.141312))
@@ -1778,9 +1810,11 @@ struct ObsidianCodeBlockStyle: StructuredText.CodeBlockStyle {
                 .padding(.leading, 14)
         }
         .foregroundStyle(theme?.codeColor.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.primary))
-        .background(theme?.codeBackground.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(Self.background))
-        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).stroke(Self.border, lineWidth: 1))
+        .background((theme?.codeBlockBackground ?? theme?.codeBackground).map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(Self.background))
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .stroke(theme?.codeBlockBorderColor.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(Self.border),
+                    lineWidth: theme?.codeBlockBorderWidth.map { width in CGFloat(min(max(width, 0), 6)) } ?? 1))
         .textual.blockSpacing(.fontScaled(top: 0.88, bottom: 0))
     }
 }
@@ -1799,14 +1833,25 @@ struct ObsidianHeadingStyle: StructuredText.HeadingStyle {
         let headingColor = theme?.headingColors[index]
         // The theme's heading font, unless `appearance.json` names a text font, which wins.
         let family = typography.usesAppearanceTextFont ? nil : theme?.headingFamilies[index]
+        let ornament = theme?.headingOrnaments[index]
         // The family is set around the scale, which scales the font it finds.
-        configuration.label
-            .textual.fontScale(HeadingTypography.fontScale(level: level, theme: theme))
-            .modifier(OptionalFontFamily(family: family, textSize: textSize))
-            .textual.blockSpacing(.fontScaled(top: 1.2, bottom: 0.5))
-            .fontWeight(Self.swiftUIWeight(HeadingTypography.weight(level: level, theme: theme)))
-            .italic(theme?.headingItalic[index] == true)
-            .foregroundStyle(headingColor.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.primary))
+        HStack(alignment: .firstTextBaseline, spacing: 0) {
+            // Text a theme puts before a heading (`::before`), such as a level marker.
+            if let prefix = ornament?.prefix {
+                Text(prefix)
+                    .foregroundStyle(ornament?.prefixColor.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.secondary))
+                    .accessibilityHidden(true)
+            }
+            configuration.label
+        }
+        .textCase(ornament?.isUppercase == true ? .uppercase : nil)
+        .textual.fontScale(HeadingTypography.fontScale(level: level, theme: theme))
+        .modifier(OptionalFontFamily(family: family, textSize: textSize))
+        .fontWeight(Self.swiftUIWeight(HeadingTypography.weight(level: level, theme: theme)))
+        .italic(theme?.headingItalic[index] == true)
+        .foregroundStyle(headingColor.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.primary))
+        .modifier(HeadingOrnamentShapes(ornament: ornament, textSize: textSize))
+        .textual.blockSpacing(.fontScaled(top: 1.2, bottom: 0.5))
     }
 
     static func swiftUIWeight(_ weight: PlatformFont.Weight) -> Font.Weight {
@@ -1820,6 +1865,30 @@ struct ObsidianHeadingStyle: StructuredText.HeadingStyle {
         case .heavy: .heavy
         case .black: .black
         default: .semibold
+        }
+    }
+}
+
+/// A theme's heading background and underline, across the column as Obsidian draws them.
+private struct HeadingOrnamentShapes: ViewModifier {
+    let ornament: NoteThemeStyle.HeadingOrnament?
+    let textSize: Double
+
+    func body(content: Content) -> some View {
+        if let ornament, ornament.background != nil || ornament.underlineColor != nil {
+            content
+                .padding(.horizontal, ornament.background == nil ? 0 : NoteThemeStyle.scaled(6, textSize: textSize))
+                .padding(.bottom, ornament.underlineWidth.map { width in CGFloat(width) + NoteThemeStyle.scaled(3, textSize: textSize) } ?? 0)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(ornament.background.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(Color.clear),
+                            in: RoundedRectangle(cornerRadius: NoteThemeStyle.scaled(4, textSize: textSize)))
+                .overlay(alignment: .bottom) {
+                    if let underlineColor = ornament.underlineColor, let width = ornament.underlineWidth {
+                        Rectangle().fill(Color(underlineColor)).frame(height: CGFloat(min(max(width, 0.5), 6))).accessibilityHidden(true)
+                    }
+                }
+        } else {
+            content
         }
     }
 }
@@ -1853,6 +1922,10 @@ struct ObsidianTableStyle: StructuredText.TableStyle {
                 .textual.tableCellSpacing(horizontal: 1, vertical: 1)
                 .textual.tableBackground { layout in
                     FilledRectangles(rectangles: Self.headerShading(in: layout), style: headerStyle)
+                    // A theme's stripes on every second row.
+                    if let stripe = theme?.tableStripeBackground {
+                        FilledRectangles(rectangles: Self.stripes(in: layout), style: Color(stripe))
+                    }
                 }
                 .textual.tableOverlay { layout in
                     FilledRectangles(rectangles: Self.hairlines(in: layout), style: borderStyle)
@@ -1870,6 +1943,11 @@ struct ObsidianTableStyle: StructuredText.TableStyle {
         var headerBounds = layout.rowBounds(0)
         if let firstDivider = layout.horizontalDividers().first { headerBounds.size.height = firstDivider.midY - headerBounds.minY }
         return [headerBounds.integral]
+    }
+
+    /// The body's second, fourth, … rows.
+    private static func stripes(in layout: StructuredText.TableLayout) -> [CGRect] {
+        stride(from: 2, to: layout.numberOfRows, by: 2).map { row in layout.rowBounds(row).integral }
     }
 
     /// Gaps between cells include padding, so a hairline is drawn in their middle.
@@ -1926,9 +2004,13 @@ private struct ScrollContainerWidthProposal: Layout {
 }
 
 struct ObsidianTableCellStyle: StructuredText.TableCellStyle {
+    /// The vault's theme: the header's text color.
+    var theme: NoteThemeStyle? = nil
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .fontWeight(configuration.row == 0 ? .semibold : .regular)
+            .foregroundStyle(configuration.row == 0 ? (theme?.tableHeaderTextColor.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.primary)) : AnyShapeStyle(.primary))
             .textual.padding(.fontScaled(top: 0.35, leading: 0.6, bottom: 0.35, trailing: 0.6))
     }
 }
@@ -1945,7 +2027,12 @@ struct ObsidianBlockQuoteStyle: StructuredText.BlockQuoteStyle {
             configuration.label
                 .foregroundStyle(theme?.textMuted.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.secondary))
                 .textual.padding(.horizontal, .fontScaled(0.9))
+                .textual.padding(.vertical, .fontScaled(theme?.blockquoteBackground == nil ? 0 : 0.5))
         }
+        // A theme's quote box spans the column, as in Obsidian, with its background and corners.
+        .frame(maxWidth: theme?.blockquoteBackground == nil ? nil : .infinity, alignment: .leading)
+        .background(theme?.blockquoteBackground.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(Color.clear),
+                    in: RoundedRectangle(cornerRadius: CGFloat(min(theme?.blockquoteRadius ?? 0, 24))))
     }
 }
 
@@ -1958,13 +2045,35 @@ struct ObsidianThematicBreakStyle: StructuredText.ThematicBreakStyle {
     }
 }
 
+/// A dashed or dotted line across the column.
+private struct DashedRule: View {
+    let color: Color
+    let thickness: CGFloat
+    let isDotted: Bool
+
+    var body: some View {
+        GeometryReader { geometry in
+            Path { path in
+                path.move(to: CGPoint(x: 0, y: thickness / 2))
+                path.addLine(to: CGPoint(x: geometry.size.width, y: thickness / 2))
+            }
+            .stroke(color, style: StrokeStyle(lineWidth: thickness, lineCap: isDotted ? .round : .butt, dash: isDotted ? [0.1, thickness * 3] : [thickness * 4, thickness * 3]))
+        }
+    }
+}
+
 /// The rule itself, shared by reading view and Live Preview.
 struct ThemedRule: View {
     let theme: NoteThemeStyle?
 
     var body: some View {
-        if let color = theme?.horizontalRuleColor {
-            Rectangle().fill(Color(color)).frame(height: CGFloat(min(max(theme?.horizontalRuleThickness ?? 1, 0.5), 6)))
+        let thickness = CGFloat(min(max(theme?.horizontalRuleThickness ?? 1, 0.5), 6))
+        if let style = theme?.horizontalRuleStyle {
+            // Dashed or dotted, as the theme draws its rule.
+            DashedRule(color: theme?.horizontalRuleColor.map { color in Color(color) } ?? Color(NoteThemeStyle.systemSeparator), thickness: thickness, isDotted: style == "dotted")
+                .frame(height: thickness).accessibilityHidden(true)
+        } else if let color = theme?.horizontalRuleColor {
+            Rectangle().fill(Color(color)).frame(height: thickness)
                 .accessibilityHidden(true)
         } else {
             Divider()
@@ -1991,6 +2100,8 @@ struct CalloutView<Body: View>: View {
     @Environment(\.noteTypography) private var typography
     @Environment(\.noteTheme) private var theme
     @State private var isExpanded: Bool
+    /// Graphite's 8 points, or the theme's corner radius.
+    private var calloutRadius: CGFloat { theme?.calloutRadius.map { radius in NoteThemeStyle.scaled(radius, textSize: textSize) } ?? 8 }
 
     init(type: String, title: String, folding: CalloutFolding, root: URL, textSize: Double, navigate: @escaping (String, Bool) -> Void,
          scrollToHeading: ((String) -> Void)? = nil, sourceTokens: [ReadAloudSourceToken]? = nil,
@@ -2033,7 +2144,13 @@ struct CalloutView<Body: View>: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(appearance.color.opacity(CalloutAppearance.tintOpacity), in: RoundedRectangle(cornerRadius: 8))
+        .background(appearance.color.opacity(theme?.calloutTintOpacity ?? CalloutAppearance.tintOpacity), in: RoundedRectangle(cornerRadius: calloutRadius))
+        .overlay {
+            // A theme's callout border, in the callout's own color.
+            if let borderWidth = theme?.calloutBorderWidth {
+                RoundedRectangle(cornerRadius: calloutRadius).strokeBorder(appearance.color, lineWidth: CGFloat(min(max(borderWidth, 0.5), 6)))
+            }
+        }
         .onChange(of: automaticallyExpandsForReading, initial: true) { _, expands in
             if expands { isExpanded = true }
         }

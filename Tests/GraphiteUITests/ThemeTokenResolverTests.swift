@@ -40,6 +40,42 @@ final class ThemeTokenResolverTests: XCTestCase {
         XCTAssertNil(tokens.light.codeBackground)
     }
 
+    /// Theme Phase 3: the shapes and ornaments Graphite draws natively are measured too.
+    func testShapesAndOrnamentsAreResolved() async throws {
+        let css = """
+        body { --tag-radius: 3px; --checkbox-radius: 50%; --blockquote-background-color: rgba(0, 0, 0, 0.05); --list-marker-color: #a03030;
+               --inline-title-color: #205080; --inline-title-size: 2.5em; --code-radius: 10px; --callout-radius: 0px; }
+        .markdown-rendered h2 { border-bottom: 2px solid #a03030; text-transform: uppercase; }
+        .markdown-rendered h3::before { content: "§ "; color: #308030; }
+        .markdown-rendered mark { border-radius: 4px; }
+        .markdown-rendered a.tag { border: 1px solid #a03030; }
+        .markdown-rendered hr { border-top-style: dashed; }
+        .markdown-rendered tbody tr:nth-child(2) td { background-color: #f0f0f0; }
+        .markdown-rendered th { color: #303080; }
+        """
+        let light = try await resolve(css).light
+        XCTAssertEqual(light.tagRadius, 3)
+        XCTAssertEqual(light.tagBorderWidth, 1)
+        XCTAssertEqual(light.tagBorderColor?.hex, "#a03030")
+        XCTAssertEqual(light.highlightRadius, 4)
+        XCTAssertEqual(light.headings[1].underlineWidth, 2)
+        XCTAssertEqual(light.headings[1].underlineColor?.hex, "#a03030")
+        XCTAssertEqual(light.headings[1].isUppercase, true)
+        XCTAssertEqual(light.headings[2].prefix, "§ ")
+        XCTAssertEqual(light.headings[2].prefixColor?.hex, "#308030")
+        XCTAssertNotNil(light.checkboxRadius)
+        XCTAssertNotNil(light.blockquoteBackground)
+        XCTAssertEqual(light.listMarkerColor?.hex, "#a03030")
+        XCTAssertEqual(light.inlineTitle.color?.hex, "#205080")
+        XCTAssertEqual(light.inlineTitle.sizeScale ?? 0, 2.5, accuracy: 0.01)
+        XCTAssertEqual(light.codeBlockRadius, 10)
+        XCTAssertEqual(light.calloutRadius, 0)
+        XCTAssertEqual(light.horizontalRuleStyle, "dashed")
+        XCTAssertEqual(light.tableStripeBackground?.hex, "#f0f0f0")
+        XCTAssertEqual(light.tableHeaderTextColor?.hex, "#303080")
+        XCTAssertGreaterThan(light.changedGroupCount, light.changedPhaseOneGroupCount, "Phase 3 groups count on top of Phase 1's.")
+    }
+
     func testBodyClassesAndInlineVariablesFromThemeSettingsPluginsApply() async throws {
         let css = ".theme-dark.scheme-nord { --background-primary: #2e3440; --text-normal: #d8dee9; }"
         let plain = try await resolve(css)

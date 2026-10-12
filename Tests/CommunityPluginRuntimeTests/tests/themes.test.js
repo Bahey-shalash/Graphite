@@ -125,3 +125,20 @@ test('a theme too large for every copy is left out of copies, not out of the pag
         harness.close();
     }
 });
+
+test('the plugins page shares the default variable layer the theme resolver measures against', () => {
+    const fileSystem = require('node:fs');
+    const path = require('node:path');
+    const runtimeFolder = path.join(__dirname, '../../../Sources/GraphiteUI/Resources/CommunityPluginRuntime');
+    const indexPage = fileSystem.readFileSync(path.join(runtimeFolder, 'index.html'), 'utf8');
+    const defaultLayerPosition = indexPage.indexOf('href="graphite-default-variables.css"');
+    assert.ok(defaultLayerPosition > 0, 'index.html links the default layer');
+    assert.ok(defaultLayerPosition < indexPage.indexOf('href="community-plugin-runtime.css"'), 'the default layer comes first');
+    // Graphite's look is written as the base color scale, so a theme that replaces only the
+    // scale restyles plugin pages: the semantic colors must come from the default layer.
+    const runtimeStyles = fileSystem.readFileSync(path.join(runtimeFolder, 'community-plugin-runtime.css'), 'utf8');
+    for (const semanticColor of ['--background-primary:', '--text-normal:', '--text-muted:', '--text-faint:', '--background-modifier-border:']) {
+        assert.ok(!runtimeStyles.includes(semanticColor), `${semanticColor} comes from the base scale`);
+    }
+    assert.match(runtimeStyles, /--color-base-00: #ffffff/);
+});
