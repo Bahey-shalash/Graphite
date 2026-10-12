@@ -209,9 +209,11 @@ final class InkSelectionController: NSObject, UIGestureRecognizerDelegate, @prec
     }
 
     /// The lasso takes the touches the canvas would draw with: the Pencil, and a finger when
-    /// fingers draw. A touch on the selection's frame moves or resizes it and starts no loop.
+    /// fingers draw, but not a hand resting while Apple Pencil writes (`CanvasToolTouches`). A
+    /// touch on the selection's frame moves or resizes it and starts no loop.
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        guard canvas.drawingGestureRecognizer.allowedTouchTypes.contains(NSNumber(value: touch.type.rawValue)) else { return false }
+        guard canvas.drawingGestureRecognizer.allowedTouchTypes.contains(NSNumber(value: touch.type.rawValue)),
+              !CanvasToolTouches.isHandResting(touch) else { return false }
         if let selectionView, let touchedView = touch.view, touchedView.isDescendant(of: selectionView) { return false }
         if gestureRecognizer === loopRecognizer { touchDownLocation = touch.location(in: canvas) }
         return true

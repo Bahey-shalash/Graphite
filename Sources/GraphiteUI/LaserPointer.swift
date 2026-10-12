@@ -44,6 +44,7 @@ final class LaserPointerController: NSObject, UIGestureRecognizerDelegate {
     /// when fingers draw. Other fingers scroll the page as they do while drawing.
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         canvas.drawingGestureRecognizer.allowedTouchTypes.contains(NSNumber(value: touch.type.rawValue))
+            && !CanvasToolTouches.isHandResting(touch)
     }
 
     private var overlay: LaserPointerOverlayView? {
@@ -78,6 +79,23 @@ final class LaserPointerController: NSObject, UIGestureRecognizerDelegate {
         default:
             overlay.hideDot()
         }
+    }
+}
+
+/// Which touches Graphite's own canvas tools, the lasso and the laser pointer, take. With
+/// finger drawing, a finger is one of them, but a hand resting on the page while Apple
+/// Pencil writes is not: by the same check as palm rejection (`PalmRejection.isHandResting`),
+/// it shows no laser dot and draws no loop.
+@MainActor
+enum CanvasToolTouches {
+    static func isHandResting(_ touch: UITouch) -> Bool {
+        isHandResting(touchType: touch.type, isPalmRejectionOn: PalmRejectionPreference.isOn(),
+                      isPencilActive: PencilActivity.isActive(at: touch.timestamp))
+    }
+
+    /// Only a finger can be a hand; the Pencil and a pointer never are.
+    static func isHandResting(touchType: UITouch.TouchType, isPalmRejectionOn: Bool, isPencilActive: Bool) -> Bool {
+        touchType == .direct && PalmRejection.isHandResting(isPalmRejectionOn: isPalmRejectionOn, isWriting: true, isPencilActive: isPencilActive)
     }
 }
 

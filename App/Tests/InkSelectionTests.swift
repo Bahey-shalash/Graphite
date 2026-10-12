@@ -775,5 +775,34 @@ extension InkSelectionTests {
         let tallScale = LassoAreaCapture.pixelsPerPoint(for: CGRect(x: 0, y: 0, width: 1400, height: 5000), screenPixelsPerPoint: 2)
         XCTAssertLessThanOrEqual(tallScale * tallScale * 1400 * 5000, LassoAreaCapture.maximumPixelCount * 1.0001)
     }
+
+    func testACornerHandlePastThePagesEdgeStandsInsideItAndTakesTouches() async throws {
+        let (session, canvas, page) = try await openPageWithCanvas()
+        // Ink hanging past the page's top-left corner, as a stroke begun off the page.
+        try await draw([stroke(from: CGPoint(x: -40, y: -30), to: CGPoint(x: 120, y: 80))], on: canvas, page: page, session: session)
+        canvas.selectsInk = true
+        canvas.inkSelection.select([0])
+        let frameView = try XCTUnwrap(descendants(of: canvas, matching: SelectionFrameView.self).first)
+        frameView.layoutIfNeeded()
+        let frameInCanvas = frameView.frame
+        XCTAssertLessThan(frameInCanvas.minX, 0, "The frame reaches past the page's edge.")
+        XCTAssertLessThan(frameInCanvas.minY, 0)
+        // The top-left handle stands just inside the corner and takes a touch there.
+        let screenScale = screenScale(of: canvas)
+        // Inside the part of the page a touch reaches: below the bars, where they cover it.
+        let reachableArea = canvas.bounds.inset(by: canvas.safeAreaInsets)
+        let insideCorner = CGPoint(x: reachableArea.minX + 22 / screenScale, y: reachableArea.minY + 22 / screenScale)
+        let touched = try XCTUnwrap(canvas.hitTest(insideCorner, with: nil))
+        XCTAssertTrue(touched.isDescendant(of: frameView) && touched !== frameView, "A handle, not the frame's middle, takes the touch.")
+        attachScreenshot(of: canvas, named: "Handles of ink past the page's corner")
+        _ = session
+    }
+
+    func testAHandRestingWhileThePencilWritesIsNotTakenByTheLaserOrTheLasso() {
+        XCTAssertTrue(CanvasToolTouches.isHandResting(touchType: .direct, isPalmRejectionOn: true, isPencilActive: true))
+        XCTAssertFalse(CanvasToolTouches.isHandResting(touchType: .direct, isPalmRejectionOn: true, isPencilActive: false), "A finger points when no Pencil is about.")
+        XCTAssertFalse(CanvasToolTouches.isHandResting(touchType: .direct, isPalmRejectionOn: false, isPencilActive: true), "With palm rejection off, every finger points.")
+        XCTAssertFalse(CanvasToolTouches.isHandResting(touchType: .pencil, isPalmRejectionOn: true, isPencilActive: true), "The Pencil is never a hand.")
+    }
 }
 #endif

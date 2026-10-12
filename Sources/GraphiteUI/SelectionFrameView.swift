@@ -332,6 +332,13 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
             handle.center = CGPoint(x: cornerPoint.x + outwardX * outwardShift, y: cornerPoint.y + outwardY * outwardShift)
             let knobShift = handleScale > 0 ? outwardShift / handleScale : 0
             handle.subviews.first?.center = CGPoint(x: Self.handleTouchSide / 2 - outwardX * knobShift, y: Self.handleTouchSide / 2 - outwardY * knobShift)
+            // A corner past the edge of the view the frame is in, as of ink at a PDF page's
+            // edge, is cut off there and cannot be touched: the handle, knob and all, stands
+            // just inside the edge instead, as the rotate handle moves below the frame.
+            if let reachableCenter = reachableCenter(for: handle.center, scale: handleScale), reachableCenter != handle.center {
+                handle.center = reachableCenter
+                handle.subviews.first?.center = CGPoint(x: Self.handleTouchSide / 2, y: Self.handleTouchSide / 2)
+            }
         }
         // On a frame too narrow for the rotate handle to stand between the corners'
         // handles, it stands beyond them, so neither covers the other.
@@ -348,6 +355,20 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
         rotationStem.frame = rotationHandleStandsBelow
             ? CGRect(x: bounds.midX - lineWidth / 2, y: bounds.maxY, width: lineWidth, height: stemLength)
             : CGRect(x: bounds.midX - lineWidth / 2, y: bounds.minY - stemLength, width: lineWidth, height: stemLength)
+    }
+
+    /// The nearest point to a handle's center, in this view, at which the whole handle is
+    /// inside the part of the superview a touch reaches (see `canReachHandle`); nil when that
+    /// part is too small to hold a handle, which then stays where it is.
+    private func reachableCenter(for handleCenter: CGPoint, scale handleScale: CGFloat) -> CGPoint? {
+        guard let superview else { return nil }
+        let halfTouchSide = Self.handleTouchSide * handleScale / 2
+        let reachableArea = superview.bounds.inset(by: superview.safeAreaInsets).insetBy(dx: halfTouchSide, dy: halfTouchSide)
+        guard !reachableArea.isNull, reachableArea.width >= 0, reachableArea.height >= 0 else { return nil }
+        let centerInSuperview = convert(handleCenter, to: superview)
+        let clamped = CGPoint(x: min(max(centerInSuperview.x, reachableArea.minX), reachableArea.maxX),
+                              y: min(max(centerInSuperview.y, reachableArea.minY), reachableArea.maxY))
+        return clamped == centerInSuperview ? handleCenter : superview.convert(clamped, to: self)
     }
 
     /// Whether the rotate handle, centered at a point of this view, would be wholly inside
