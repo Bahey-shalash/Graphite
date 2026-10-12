@@ -343,7 +343,7 @@ private struct ColorsSettingsPage: View {
             } header: {
                 Text("Highlighter")
             } footer: {
-                Text("The colors the Pencil tools offer while a highlighter is in use, in place of the palette above: light ones, so the text under a highlight stays easy to read. Notes do not use them.")
+                Text("The colors the Pencil tools offer while a highlighter is in use, in place of the palette above. On a PDF page, a highlighter stroke covers the text under it: to keep the text readable, lower the highlighter's opacity in its options, or select the text and choose Highlight. Notes do not use these colors.")
             }
         }
         .navigationTitle("Colors")
