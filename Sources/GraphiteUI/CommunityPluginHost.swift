@@ -218,6 +218,9 @@ final class CommunityPluginHost {
     private(set) var pluginBasesViews: [String: String] = [:]
     /// The plugin view shown live, in its tab, by the runtime's own web view (one at a time).
     var liveViewIdentifier: String?
+    /// How each live view looked when another took the web view, shown in its tab (beside
+    /// the live one in a split) until a tap makes it live again; its state stays in the page.
+    var liveViewPictures: [String: CommunityPluginViewPicture] = [:]
     /// Counts the times the panel or a settings page gave the web view back, so a live view's
     /// tab shows it again.
     var webViewReleaseCount = 0
@@ -528,6 +531,7 @@ final class CommunityPluginHost {
         pluginsTakeOverNotes = false
         pluginBasesViews = [:]
         liveViewIdentifier = nil
+        liveViewPictures = [:]
         typingRequest = nil
         lastCodeBlockCopies = [:]
         keptCopyOrder = []

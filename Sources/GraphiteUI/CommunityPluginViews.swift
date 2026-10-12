@@ -1,4 +1,5 @@
 import SwiftUI
+import WebKit
 import GraphiteCore
 
 /// Plugins' views (`registerView`, `ItemView`) where Graphite keeps its own: a view a plugin
@@ -61,6 +62,13 @@ extension CommunityPluginHost {
     /// the page. Another view shown live before goes back to being a copy.
     func showLive(_ identifier: String) async -> Bool {
         guard isRuntimeRunning else { return false }
+        // The view giving up the web view leaves a picture of itself in its tab, which may
+        // still be on screen beside this one.
+        if let previous = liveViewIdentifier, previous != identifier, let webView, webView.window != nil,
+           let picture = await CommunityPluginViewPicture.taken(of: webView) {
+            liveViewPictures[previous] = picture
+        }
+        liveViewPictures[identifier] = nil
         liveViewIdentifier = identifier
         let answer = try? await send(["operation": "view.live", "leafIdentifier": identifier], timeout: .seconds(5))
         return answer?["isShown"] as? Bool == true
@@ -189,6 +197,7 @@ extension WorkspaceModel {
             if let view = host.pluginView(withIdentifier: identifier) {
                 if let restorable = Self.restorable(view) { document.restorablePluginView = restorable }
             } else {
+                host.liveViewPictures[identifier] = nil
                 document.pluginViewIdentifier = nil
                 document.restorablePluginView = nil
             }
@@ -356,6 +365,21 @@ struct CommunityPluginLiveViewContent: View {
         Group {
             if host.liveViewIdentifier == viewIdentifier {
                 CommunityPluginLiveWebView(host: host, isPanelPresented: host.isPanelPresented, releaseCount: host.webViewReleaseCount)
+            } else if let picture = host.liveViewPictures[viewIdentifier] {
+                // Two live views on screen at once (a split): the one not holding the web view
+                // shows how it looked, and a tap swaps them, each keeping its state in the page.
+                Button { Task { _ = await host.showLive(viewIdentifier) } } label: {
+                    picture.image.resizable().scaledToFill()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).clipped()
+                        .overlay(alignment: .bottom) {
+                            Label("Tap to Use This View", systemImage: "hand.tap")
+                                .font(.callout).padding(.horizontal, 14).padding(.vertical, 8)
+                                .background(.regularMaterial, in: Capsule()).padding(.bottom, 24)
+                        }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(host.pluginView(withIdentifier: viewIdentifier)?.title ?? "Plugin view"), shown as a picture")
+                .accessibilityHint("Makes this view usable; the other plugin view becomes a picture.")
             } else {
                 ContentUnavailableView {
                     Label(host.pluginView(withIdentifier: viewIdentifier)?.title ?? "Plugin View", systemImage: "rectangle.on.rectangle")
@@ -466,5 +490,20 @@ struct CommunityPluginBasesViewContent: View {
         let viewType: String
         let viewIndex: Int
         let hasResult: Bool
+    }
+}
+
+/// A picture of a live view taken as another view took the runtime's web view.
+struct CommunityPluginViewPicture {
+    let image: Image
+
+    @MainActor static func taken(of webView: WKWebView) async -> CommunityPluginViewPicture? {
+        #if canImport(UIKit)
+        guard let picture = try? await webView.takeSnapshot(configuration: nil) else { return nil }
+        return CommunityPluginViewPicture(image: Image(uiImage: picture))
+        #elseif canImport(AppKit)
+        guard let picture = try? await webView.takeSnapshot(configuration: nil) else { return nil }
+        return CommunityPluginViewPicture(image: Image(nsImage: picture))
+        #endif
     }
 }
