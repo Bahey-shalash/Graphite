@@ -187,12 +187,21 @@ struct GraphitePDFView: UIViewRepresentable {
         view.autoScales = true
         view.pageShadowsEnabled = true
         view.backgroundColor = .secondarySystemBackground
+        // A picture placed on a page is drawn from all its pixels at any size: below high
+        // quality, a picture made smaller than its pixels shows jagged, pixelated edges.
+        view.interpolationQuality = .high
         if isEmbedded { view.pageBreakMargins = UIEdgeInsets(top: 6, left: 6, bottom: 6, right: 6) }
         // PDFKit asks for page overlays only when it creates page views, so the provider
         // must be in place before the document is.
         view.pageOverlayViewProvider = context.coordinator
         view.document = session.document
-        view.pendingInitialPage = initialPageIndex.flatMap(session.document.page(at:))
+        // The place the PDF was left at, when there is one: back from another tab, after a
+        // reload, or after Graphite quit. It is the page at the top edge, which can be the
+        // one before the page PDFKit counts as current, across the view's middle.
+        let keptPlace = session.keptPlace.flatMap { place in place.pageIndex < session.document.pageCount ? place : nil }
+        view.pendingInitialPage = (keptPlace?.pageIndex ?? initialPageIndex).flatMap(session.document.page(at:))
+        view.pendingInitialFractionFromTop = keptPlace.map { place in CGFloat(place.fractionFromTop) }
+        session.livePlace = { [weak view] in view?.pagePlace }
         // The system find bar (⌘F, or the toolbar's Find), which PDFKit fills with its
         // matches. A PDF embedded in a note leaves ⌘F to the note.
         view.isFindInteractionEnabled = !isEmbedded
@@ -213,6 +222,11 @@ struct GraphitePDFView: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ view: GraphitePDFDisplayView, coordinator: PDFAnnotationCoordinator) {
+        // A view made for the PDF again, as when its tab is shown again, comes back here,
+        // unless a newer view of it already shows it.
+        if coordinator.session.pdfView === view || coordinator.session.pdfView == nil, let place = view.pagePlace {
+            coordinator.session.keptPlace = place
+        }
         coordinator.detach()
     }
 }
@@ -230,6 +244,18 @@ final class GraphitePDFDisplayView: PDFView {
     override var inputAccessoryView: UIView? { emptyInputAccessoryView }
     /// PDFKit scrolls to a page reliably only after the first layout.
     var pendingInitialPage: PDFPage?
+    /// How far down `pendingInitialPage` the view's top edge goes then, as a fraction of the
+    /// page's height; nil for its top.
+    var pendingInitialFractionFromTop: CGFloat?
+
+    /// Where the view is: the page at its top edge and how far down that page. Nil before
+    /// the view has shown its first page, when it is not yet anywhere.
+    var pagePlace: PDFPagePlace? {
+        guard pendingInitialPage == nil, bounds.width > 0, bounds.height > 0, let document, let place = currentPlace() else { return nil }
+        let pageIndex = document.index(for: place.page)
+        guard pageIndex != NSNotFound else { return nil }
+        return PDFPagePlace(pageIndex: pageIndex, fractionFromTop: Double(place.fractionFromTop))
+    }
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
@@ -300,6 +326,17 @@ final class GraphitePDFDisplayView: PDFView {
             self.pendingInitialPage = nil
             placeBeforeResize = nil
             go(to: pendingInitialPage)
+            if let fractionFromTop = pendingInitialFractionFromTop {
+                pendingInitialFractionFromTop = nil
+                show((page: pendingInitialPage, fractionFromTop: fractionFromTop))
+                // PDFKit can lay its pages out once more after going to one; the place is
+                // shown again then, as after a resize. The page is found again by its index.
+                let pageIndex = document?.index(for: pendingInitialPage)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, let pageIndex, pageIndex != NSNotFound, let page = self.document?.page(at: pageIndex) else { return }
+                    self.show((page: page, fractionFromTop: fractionFromTop))
+                }
+            }
         } else if let placeBeforeResize {
             show(placeBeforeResize)
         }
@@ -541,6 +578,11 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     private var input = PDFAnnotationInput(isEnabled: false, drawsWithFinger: false, showsToolPicker: false)
     private var markupTapRecognizer: UITapGestureRecognizer?
     private var textSelectionRecognizer: UILongPressGestureRecognizer?
+    /// Takes a resting hand's touches on the pages, which the page's scrolling, zooming,
+    /// tapping and selecting wait for (`PalmRejectionRecognizer`).
+    private var palmRejectionRecognizer: PalmRejectionRecognizer?
+    /// The recognizers already made to wait for palm rejection.
+    private var recognizersWaitingForPalmRejection: Set<ObjectIdentifier> = []
     private var editMenuInteraction: UIEditMenuInteraction?
     private var tappedMarkup: (annotation: PDFAnnotation, page: PDFPage)?
     private var selectionAnchor: (page: PDFPage, point: CGPoint)?
@@ -608,6 +650,11 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         pencilRecognizer.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
         view.addGestureRecognizer(pencilRecognizer)
         pencilWhileReadingRecognizer = pencilRecognizer
+
+        // A hand resting on a page while the Pencil writes does not tap, select, scroll or zoom.
+        palmRejectionRecognizer = PencilActivity.installRecognizers(in: view, isWriting: { [weak self] in self?.input.isEnabled ?? false },
+                                                                    handDidLand: { [weak self] in self?.handDidLandOnPage() })
+        makeWaitForPalmRejection([tapRecognizer, selectionRecognizer])
 
         let menuInteraction = UIEditMenuInteraction(delegate: self)
         view.addInteraction(menuInteraction)
@@ -745,7 +792,36 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
                 recognizer.addTarget(self, action: #selector(scrollGestureChanged(_:)))
                 observedScrollRecognizers.insert(ObjectIdentifier(recognizer))
             }
+            makeWaitForPalmRejection([scrollView.panGestureRecognizer, scrollView.pinchGestureRecognizer].compactMap { recognizer in recognizer })
         }
+        // PDFKit's own taps and long presses on its pages, which it adds as pages are shown.
+        makeWaitForPalmRejection(pageTapsAndPresses(in: view))
+    }
+
+    /// Makes recognizers wait for palm rejection to fail, each once. It fails at once for a
+    /// finger, so they do not wait for one.
+    private func makeWaitForPalmRejection(_ recognizers: [UIGestureRecognizer]) {
+        guard let palmRejectionRecognizer else { return }
+        for recognizer in recognizers where recognizer !== palmRejectionRecognizer
+        && recognizersWaitingForPalmRejection.insert(ObjectIdentifier(recognizer)).inserted {
+            recognizer.require(toFail: palmRejectionRecognizer)
+        }
+    }
+
+    /// The taps and long presses of the pages, not of the Pencil canvases, whose drawing
+    /// must never wait, nor of a picture's selection frame.
+    private func pageTapsAndPresses(in view: UIView) -> [UIGestureRecognizer] {
+        guard !(view is PKCanvasView), !(view is SelectionFrameView) else { return [] }
+        let ownRecognizers = (view.gestureRecognizers ?? []).filter { recognizer in
+            recognizer is UITapGestureRecognizer || recognizer is UILongPressGestureRecognizer
+        }
+        return ownRecognizers + view.subviews.flatMap { subview in pageTapsAndPresses(in: subview) }
+    }
+
+    /// With finger drawing, a stroke a resting hand began on any page is taken back.
+    private func handDidLandOnPage() {
+        guard input.drawsWithFinger else { return }
+        for canvas in canvasesByPage.values { canvas.takeBackStrokeOfHand() }
     }
 
     /// With finger drawing, the first finger of a two-finger scroll or pinch has already
@@ -842,6 +918,8 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     }
 
     func pdfView(_ pdfView: PDFView, willDisplayOverlayView overlayView: UIView, for page: PDFPage) {
+        // PDFKit makes a page's view, with its taps and long presses, as the page is shown.
+        makeWaitForPalmRejection(pageTapsAndPresses(in: overlayView.superview ?? overlayView))
         guard let canvas = (overlayView as? PDFPageOverlayView)?.canvas else { return }
         let identifier = ObjectIdentifier(page)
         displayedPages.insert(identifier)
@@ -878,6 +956,8 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         if let textSelectionRecognizer {
             for recognizer in longPressRecognizers(in: canvas) { recognizer.require(toFail: textSelectionRecognizer) }
         }
+        // Nor does a resting hand open that menu. PencilKit's drawing itself never waits.
+        makeWaitForPalmRejection(longPressRecognizers(in: canvas).filter { recognizer in recognizer !== canvas.drawingGestureRecognizer })
         // A finger tap on a highlight (with finger drawing) opens its menu instead of also
         // leaving a dot. The tap takes only touches on markup or with text selected, so
         // other strokes do not wait for it.
@@ -1250,6 +1330,7 @@ struct GraphitePDFView: NSViewRepresentable {
         let view = PDFView()
         view.document = session.document
         view.autoScales = true
+        view.interpolationQuality = .high
         view.displayMode = .singlePageContinuous
         if let initialPage = initialPageIndex.flatMap(session.document.page(at:)) { view.go(to: initialPage) }
         context.coordinator.pageObserver = PDFViewPageObserver(session: session, view: view)

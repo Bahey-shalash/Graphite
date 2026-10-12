@@ -514,6 +514,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         }
         if let savedScrollLocation = session.savedScrollLocation { coordinator.pendingJump = .topOfCharacter(savedScrollLocation) }
         session.isEditorAttached = true
+        coordinator.reportPlace(of: textView)
         coordinator.installLinkTapRecognizer(on: textView)
         coordinator.rebuildBlocks(in: textView)
         coordinator.restyleEverything(in: textView)
@@ -772,6 +773,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             stopObservingMemoryWarnings()
             textView.findInteraction?.dismissFindNavigator()
             recordScrollLocation(of: textView)
+            session.recordEditorPlace = nil
             widthWhenHidden = textView.bounds.width
             removeAllWidgets()
             textView.removeFromSuperview()
@@ -788,7 +790,17 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             }
             session.isEditorAttached = true
             session.undoAvailability.follow(textView.undoManager)
+            reportPlace(of: textView)
             placeWidgetsAgain(in: textView)
+        }
+
+        /// Lets the session ask where the editor is, as Graphite leaves the screen, while the
+        /// editor shows the note. A pending jump has not landed yet, and is the place.
+        func reportPlace(of textView: MarkdownTextView) {
+            session.recordEditorPlace = { [weak self, weak textView] in
+                guard let self, let textView, textView.window != nil, self.pendingJump == nil else { return }
+                self.recordScrollLocation(of: textView)
+            }
         }
 
         /// Ends the editor for good; its undo history goes with the text view.
@@ -1210,10 +1222,18 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                   let textRange = textView.textRange(from: start, to: end) else { return }
             let edit = CharacterEdit(editedRange: replacementRange, changeInLength: newSource.length - oldSource.length)
             let selection = TextRangeMapping.insertionTarget(textView.selectedRange, through: edit)
+            // Text another app changed, adopted as Graphite comes back to the screen, must not
+            // move the note under the reader, as an insertion does not (`apply(_:to:)`).
+            let contentOffset = textView.contentOffset
             isPerformingEdit = true
             textView.replace(textRange, withText: newSource.substring(with: replacementRange))
             isPerformingEdit = false
             if NSMaxRange(selection) <= textView.textStorage.length { textView.selectedRange = selection }
+            if let textLayoutManager = textView.textLayoutManager {
+                textView.layoutIfNeeded()
+                let maximumOffset = maximumContentOffset(of: textView, layoutManager: textLayoutManager)
+                textView.setContentOffset(CGPoint(x: contentOffset.x, y: min(max(contentOffset.y, -textView.adjustedContentInset.top), maximumOffset)), animated: false)
+            }
             if textState.cachesDescribeOldText || session.text != textView.text { textViewDidChange(textView) }
         }
 

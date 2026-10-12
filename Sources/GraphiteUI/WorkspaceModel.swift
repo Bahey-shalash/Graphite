@@ -197,7 +197,8 @@ final class WorkspaceModel {
         }
         VaultIndex.removeIndex(forVault: vault.id)
         // Opening the folder again makes a new identifier, so nothing would read these again.
-        for key in [Self.expandedFoldersKey(for: vault.id), Self.recentFilesKey(for: vault.id), Self.tabLayoutKey(for: vault.id)] {
+        for key in [Self.expandedFoldersKey(for: vault.id), Self.recentFilesKey(for: vault.id), Self.tabLayoutKey(for: vault.id),
+                    Self.placesKey(for: vault.id)] {
             UserDefaults.standard.removeObject(forKey: key)
         }
     }
@@ -394,6 +395,9 @@ final class WorkspaceModel {
 
     /// Saves every open note and PDF, before files move and when the app leaves the screen.
     func saveOpenDocuments() async throws {
+        // Saving runs as Graphite leaves the screen or the vault, which is when the places
+        // of the open documents must be kept too.
+        rememberPlacesOfOpenDocuments()
         for document in tabDocuments.values { try await document.save() }
     }
 
@@ -1098,6 +1102,7 @@ final class WorkspaceModel {
         layout.replacePrefix(oldPath, with: newPath)
         recentFiles.replacePrefix(oldPath, with: newPath)
         followMoveInFolds(from: oldPath, to: newPath)
+        followMoveInPlaces(from: oldPath, to: newPath)
         followMoveInBookmarks(from: oldPath, to: newPath)
         if let fileRecovery {
             // A renamed note keeps its history; for a folder, each note inside does.
@@ -1111,6 +1116,7 @@ final class WorkspaceModel {
         removeTabDocuments(layout.removeTabs(inside: removedPath))
         recentFiles.remove(inside: removedPath)
         forgetFolds(inside: removedPath)
+        forgetPlaces(inside: removedPath)
     }
 
     // MARK: External changes
@@ -1261,8 +1267,10 @@ final class WorkspaceModel {
                     pdfSession.errorMessage = GraphiteError.conflict.localizedDescription
                     continue
                 }
-                // The reader stays on the page it was reading.
+                // The reader stays on the page it was reading, at the same place on it.
                 reloadedSession.currentPageIndex = min(pdfSession.currentPageIndex, max(reloadedSession.pageCount - 1, 0))
+                let placeOnPage = pdfSession.placeToRemember()
+                reloadedSession.keptPlace = placeOnPage.pageIndex < reloadedSession.pageCount ? placeOnPage : nil
                 document.pdfSession = reloadedSession
             } catch { pdfSession.errorMessage = error.localizedDescription }
         }

@@ -166,12 +166,27 @@ public enum DrawingLimits {
 public struct DrawingBackgroundImage: Sendable, Equatable {
     /// PNG or JPEG data with any orientation already applied.
     public let imageData: Data
-    /// Where the picture is drawn, in the drawing's coordinates.
+    /// Where the picture is drawn before it is turned, in the drawing's coordinates.
     public let frame: CGRect
+    /// How far the picture is turned about the middle of its frame, in radians, clockwise
+    /// as the drawing is shown (`PictureRotation`); zero for an upright picture. The picture
+    /// of a drawing made on an image is always upright.
+    public let rotationRadians: Double
 
-    public init(imageData: Data, frame: CGRect) {
+    public init(imageData: Data, frame: CGRect, rotationRadians: Double = 0) {
         self.imageData = imageData
         self.frame = frame
+        self.rotationRadians = PictureRotation.normalized(rotationRadians)
+    }
+
+    public var isTurned: Bool { rotationRadians != 0 }
+
+    /// The upright rectangle the picture covers once turned.
+    public var boundingFrame: CGRect { PictureRotation.boundingRectangle(of: frame, turnedBy: rotationRadians) }
+
+    /// Whether the picture, as turned, covers a point of the drawing.
+    public func contains(_ point: CGPoint) -> Bool {
+        PictureRotation.rectangle(frame, turnedBy: rotationRadians, contains: point)
     }
 
     public var hasValidGeometry: Bool {
@@ -179,10 +194,11 @@ public struct DrawingBackgroundImage: Sendable, Equatable {
             && frame.minX.isFinite && frame.minY.isFinite && frame.width.isFinite && frame.height.isFinite
             && frame.width > 0 && frame.height > 0
             && frame.width <= DrawingLimits.maximumCanvasWidth && frame.height <= DrawingLimits.maximumCanvasHeight
+            && rotationRadians.isFinite
     }
 
     public func offsetBy(dx: Double, dy: Double) -> DrawingBackgroundImage {
-        DrawingBackgroundImage(imageData: imageData, frame: frame.offsetBy(dx: dx, dy: dy))
+        DrawingBackgroundImage(imageData: imageData, frame: frame.offsetBy(dx: dx, dy: dy), rotationRadians: rotationRadians)
     }
 }
 
@@ -190,10 +206,11 @@ public struct DrawingBackgroundImage: Sendable, Equatable {
 /// original PNG `grPK` record; its field names are part of the stored format. Version 2
 /// adds the picture of a drawing made on an image. Version 3 adds pictures placed on the
 /// drawing and a paper pattern that is part of the saved drawing. Version 4 adds paper
-/// colors and the spacing, color and strength of a shown pattern. A build that does not
-/// know a version treats the file as an ordinary image, so it never saves the ink without
-/// what was under it. A paper pattern that is only a guide while drawing does not raise the
-/// version: a build that does not know it loses the guide and nothing visible.
+/// colors and the spacing, color and strength of a shown pattern. Version 5 adds pictures
+/// turned by any angle. A build that does not know a version treats the file as an
+/// ordinary image, so it never saves the ink without what was under it. A paper pattern
+/// that is only a guide while drawing does not raise the version: a build that does not
+/// know it loses the guide and nothing visible.
 public struct DrawingPayload: Codable, Sendable, Equatable {
     public let version: Int
     public let width: Double
@@ -207,6 +224,8 @@ public struct DrawingPayload: Codable, Sendable, Equatable {
     private let backgroundImageFrame: CGRect?
     private let pictureData: [Data]?
     private let pictureFrames: [CGRect]?
+    /// Each placed picture's angle, written only when one of them is turned.
+    private let pictureRotations: [Double]?
     private let paperPattern: DrawingPaperPattern?
     private let paperAppearsInSavedDrawing: Bool?
     private let paperSpacing: DrawingPaperSpacing?
@@ -220,6 +239,7 @@ public struct DrawingPayload: Codable, Sendable, Equatable {
         case backgroundImageFrame
         case pictureData = "pictures"
         case pictureFrames
+        case pictureRotations
         case paperPattern
         case paperAppearsInSavedDrawing = "paperIsVisible"
         case paperSpacing, paperLineColor, paperLineStrength
@@ -227,7 +247,8 @@ public struct DrawingPayload: Codable, Sendable, Equatable {
 
     public init(width: Double, height: Double, background: DrawingBackground, strokes: Data, visibleContentDigest: Data = Data(),
                 backgroundImage: DrawingBackgroundImage? = nil, pictures: [DrawingBackgroundImage] = [], paper: DrawingPaper = .plain) {
-        version = Self.usesVersion4Content(background: background, paper: paper) ? 4
+        let hasTurnedPictures = pictures.contains { picture in picture.isTurned }
+        version = hasTurnedPictures ? 5 : Self.usesVersion4Content(background: background, paper: paper) ? 4
             : !pictures.isEmpty || paper.isVisibleInSavedDrawing ? 3 : backgroundImage == nil ? 1 : 2
         self.width = width
         self.height = height
@@ -238,6 +259,7 @@ public struct DrawingPayload: Codable, Sendable, Equatable {
         backgroundImageFrame = backgroundImage?.frame
         pictureData = pictures.isEmpty ? nil : pictures.map(\.imageData)
         pictureFrames = pictures.isEmpty ? nil : pictures.map(\.frame)
+        pictureRotations = hasTurnedPictures ? pictures.map(\.rotationRadians) : nil
         paperPattern = paper.pattern == .plain ? nil : paper.pattern
         paperAppearsInSavedDrawing = paper.isVisibleInSavedDrawing ? true : nil
         let keepsStyle = paper.pattern != .plain
@@ -263,7 +285,11 @@ public struct DrawingPayload: Codable, Sendable, Equatable {
     /// The pictures placed on the drawing, the lowest first.
     public var pictures: [DrawingBackgroundImage] {
         guard let pictureData, let pictureFrames, pictureData.count == pictureFrames.count else { return [] }
-        return zip(pictureData, pictureFrames).map { imageData, frame in DrawingBackgroundImage(imageData: imageData, frame: frame) }
+        let rotations = pictureRotations.flatMap { storedRotations in storedRotations.count == pictureData.count ? storedRotations : nil }
+            ?? Array(repeating: 0, count: pictureData.count)
+        return pictureData.indices.map { pictureIndex in
+            DrawingBackgroundImage(imageData: pictureData[pictureIndex], frame: pictureFrames[pictureIndex], rotationRadians: rotations[pictureIndex])
+        }
     }
 
     public var paper: DrawingPaper {
@@ -285,18 +311,26 @@ public struct DrawingPayload: Codable, Sendable, Equatable {
             || (!storedPictures.isEmpty && storedPictures.count == pictureData?.count && storedPictures.count <= DrawingLimits.maximumPictureCount
                 && storedPictures.allSatisfy(\.hasValidGeometry))
         let pictureBytes = (backgroundImageData?.count ?? 0) + (pictureData ?? []).reduce(0) { total, imageData in total + imageData.count }
+        // Angles are written for every picture, and only when one of them is turned.
+        let hasRotationFields = pictureRotations != nil
+        let hasValidRotations = pictureRotations.map { rotations in
+            rotations.count == pictureData?.count && rotations.allSatisfy(\.isFinite) && rotations.contains { rotation in rotation != 0 }
+        } ?? true
         let hasContentOfItsVersion: Bool
         switch version {
-        case 1: hasContentOfItsVersion = !hasBackgroundImageFields && !hasPictureFields && paperAppearsInSavedDrawing != true
-        case 2: hasContentOfItsVersion = hasBackgroundImageFields && !hasPictureFields && paperAppearsInSavedDrawing != true
+        case 1: hasContentOfItsVersion = !hasBackgroundImageFields && !hasPictureFields && paperAppearsInSavedDrawing != true && !hasRotationFields
+        case 2: hasContentOfItsVersion = hasBackgroundImageFields && !hasPictureFields && paperAppearsInSavedDrawing != true && !hasRotationFields
         case 3: hasContentOfItsVersion = (hasPictureFields || paper.isVisibleInSavedDrawing) && !Self.usesVersion4Content(background: background, paper: paper)
-        case 4: hasContentOfItsVersion = Self.usesVersion4Content(background: background, paper: paper)
+            && !hasRotationFields
+        case 4: hasContentOfItsVersion = Self.usesVersion4Content(background: background, paper: paper) && !hasRotationFields
+        case 5: hasContentOfItsVersion = hasRotationFields && hasPictureFields
         default: hasContentOfItsVersion = false
         }
         return width.isFinite && height.isFinite && width > 0 && height > 0
             && width <= DrawingLimits.maximumCanvasWidth && height <= DrawingLimits.maximumCanvasHeight
             && strokes.count <= DrawingLimits.maximumStrokeBytes
-            && hasValidBackgroundImage && hasValidPictures && pictureBytes <= DrawingLimits.maximumBackgroundImageBytes && hasContentOfItsVersion
+            && hasValidBackgroundImage && hasValidPictures && hasValidRotations && pictureBytes <= DrawingLimits.maximumBackgroundImageBytes
+            && hasContentOfItsVersion
     }
 
     public func encoded() throws -> Data {
@@ -315,13 +349,13 @@ public struct DrawingPayload: Codable, Sendable, Equatable {
         guard encodedPayload.count <= DrawingLimits.maximumPayloadBytes,
               isSmallBinaryPropertyList(encodedPayload),
               let payload = try? PropertyListDecoder().decode(DrawingPayload.self, from: encodedPayload),
-              (1...4).contains(payload.version), payload.hasValidGeometry else { return nil }
+              (1...5).contains(payload.version), payload.hasValidGeometry else { return nil }
         return payload
     }
 
-    /// The record is one dictionary of at most fifteen fields, about 36 property list objects,
-    /// and eight more for each picture placed on the drawing.
-    static let maximumPropertyListObjectCount: UInt64 = 64 + 8 * UInt64(DrawingLimits.maximumPictureCount)
+    /// The record is one dictionary of at most sixteen fields, about 38 property list objects,
+    /// and nine more for each picture placed on the drawing.
+    static let maximumPropertyListObjectCount: UInt64 = 64 + 9 * UInt64(DrawingLimits.maximumPictureCount)
 
     /// Graphite writes this record only as a small binary property list. Anything else is
     /// refused before decoding: the decoder recurses into nested containers, and a file

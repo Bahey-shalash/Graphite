@@ -7,18 +7,27 @@ import GraphiteCore
 /// A picture placed on a PDF page, as in a paper notebook where a printed figure is glued
 /// in. It is saved as a standard stamp annotation whose appearance is the picture, so every
 /// PDF reader shows it. The annotation also keeps the picture's own bytes under a Graphite
-/// key, so Graphite can move, resize, remove and restore it exactly, without reading the
-/// appearance back.
+/// key, so Graphite can move, resize, turn, remove and restore it exactly, without reading
+/// the appearance back.
 public struct PDFPicture: Sendable, Equatable {
     /// The annotation's name, unique in its document.
     public let name: String
     /// PNG or JPEG data with any orientation already applied.
     public var imageData: Data
-    /// Where the picture is, in the page's own coordinates.
+    /// Where the picture is before it is turned by hand, in the page's own coordinates.
     public var bounds: CGRect
     /// How many quarter turns clockwise the page was shown at when the picture was placed.
     /// The picture is drawn turned back by as many, so it is upright as the page is read.
     public let quarterTurns: Int
+    /// How far the picture is turned by hand about the middle of its bounds, in radians,
+    /// clockwise as the page is shown, from -π to π (`PictureRotation.normalized`). The
+    /// annotation's rectangle is then the box around it (`annotationBounds`).
+    public var rotationRadians: Double {
+        didSet {
+            let normalizedRadians = PictureRotation.normalized(rotationRadians)
+            if normalizedRadians != rotationRadians { rotationRadians = normalizedRadians }
+        }
+    }
 
     /// Bound on one picture's bytes, which the annotation stores twice.
     public static let maximumImageBytes = 8 * 1_048_576
@@ -28,11 +37,12 @@ public struct PDFPicture: Sendable, Equatable {
     /// starts with one (`/9j/`), which came back without its first characters.
     static let storedImagePrefix = "base64:"
 
-    public init(name: String = UUID().uuidString, imageData: Data, bounds: CGRect, quarterTurns: Int) {
+    public init(name: String = UUID().uuidString, imageData: Data, bounds: CGRect, quarterTurns: Int, rotationRadians: Double = 0) {
         self.name = name
         self.imageData = imageData
         self.bounds = bounds
         self.quarterTurns = ((quarterTurns % 4) + 4) % 4
+        self.rotationRadians = PictureRotation.normalized(rotationRadians)
     }
 
     /// The picture a Graphite stamp annotation holds, or nil for any other annotation.
@@ -44,16 +54,57 @@ public struct PDFPicture: Sendable, Equatable {
               let imageData = Data(base64Encoded: String(storedImage.dropFirst(Self.storedImagePrefix.count))), !imageData.isEmpty,
               let name = annotation.persistentName else { return nil }
         let storedTurns = (annotation.value(forAnnotationKey: PDFPageManager.pictureTurnsKey) as? NSNumber)?.intValue ?? 0
-        self.init(name: name, imageData: imageData, bounds: annotation.bounds, quarterTurns: storedTurns)
+        let turn = Self.storedTurn(of: annotation)
+        self.init(name: name, imageData: imageData, bounds: turn?.bounds ?? annotation.bounds, quarterTurns: storedTurns, rotationRadians: turn?.rotationRadians ?? 0)
+    }
+
+    /// The frame and angle of a picture turned by hand, from its annotation: nil for an
+    /// upright one, or when the stored angle or size cannot be used, which shows the
+    /// picture upright in the annotation's rectangle.
+    private static func storedTurn(of annotation: PDFAnnotation) -> (bounds: CGRect, rotationRadians: Double)? {
+        guard let rotationRadians = (annotation.value(forAnnotationKey: PDFPageManager.pictureRotationKey) as? NSNumber)?.doubleValue,
+              rotationRadians.isFinite, rotationRadians != 0,
+              let storedWidth = (annotation.value(forAnnotationKey: PDFPageManager.pictureWidthKey) as? NSNumber)?.doubleValue,
+              let storedHeight = (annotation.value(forAnnotationKey: PDFPageManager.pictureHeightKey) as? NSNumber)?.doubleValue,
+              storedWidth.isFinite, storedHeight.isFinite, storedWidth > 0, storedHeight > 0 else { return nil }
+        let annotationBounds = annotation.bounds
+        let middle = CGPoint(x: annotationBounds.midX, y: annotationBounds.midY)
+        var size = CGSize(width: storedWidth, height: storedHeight)
+        // Another application may have resized the annotation's rectangle: the picture then
+        // keeps its proportions and fills the new rectangle's width as turned.
+        let expectedWidth = Double(PictureRotation.boundingRectangle(of: CGRect(origin: .zero, size: size), turnedBy: rotationRadians).width)
+        if expectedWidth > 0, abs(expectedWidth - Double(annotationBounds.width)) > Self.storedSizeTolerance {
+            let scale = Double(annotationBounds.width) / expectedWidth
+            size = CGSize(width: storedWidth * scale, height: storedHeight * scale)
+        }
+        return (CGRect(x: Double(middle.x) - Double(size.width) / 2, y: Double(middle.y) - Double(size.height) / 2,
+                       width: Double(size.width), height: Double(size.height)), rotationRadians)
+    }
+
+    /// A rectangle written to a file and read back differs in its last digits.
+    private static let storedSizeTolerance = 0.01
+
+    public var isTurned: Bool { rotationRadians != 0 }
+
+    /// The annotation's rectangle: the upright box around the picture as turned.
+    public var annotationBounds: CGRect {
+        // Page coordinates count upward, where a clockwise turn is a negative angle.
+        PictureRotation.boundingRectangle(of: bounds, turnedBy: -rotationRadians)
+    }
+
+    /// Whether the picture, as turned, covers a point of the page.
+    public func contains(_ pagePoint: CGPoint) -> Bool {
+        PictureRotation.rectangle(bounds, turnedBy: -rotationRadians, contains: pagePoint)
     }
 
     public var hasValidGeometry: Bool {
         !imageData.isEmpty && imageData.count <= Self.maximumImageBytes
             && [bounds.minX, bounds.minY, bounds.width, bounds.height].allSatisfy(\.isFinite) && bounds.width > 0 && bounds.height > 0
+            && rotationRadians.isFinite
     }
 
     public func reference(onPageAt pageIndex: Int) -> PDFAnnotationReference {
-        PDFAnnotationReference(pageIndex: pageIndex, name: name, annotationType: Self.annotationTypeName, bounds: bounds)
+        PDFAnnotationReference(pageIndex: pageIndex, name: name, annotationType: Self.annotationTypeName, bounds: annotationBounds)
     }
 
     /// - Parameter isForWrittenDocument: Whether the annotation's document will be written,
@@ -63,10 +114,16 @@ public struct PDFPicture: Sendable, Equatable {
         guard hasValidGeometry, let image = Self.decodedImage(imageData) else {
             throw GraphiteError.invalidFile("This image cannot be placed on the page.")
         }
-        let annotation = PDFPictureAnnotation(bounds: bounds, image: image, quarterTurns: quarterTurns, drawsAppearance: isForWrittenDocument)
+        let annotation = PDFPictureAnnotation(bounds: annotationBounds, image: image, pictureSize: bounds.size, quarterTurns: quarterTurns,
+                                              rotationRadians: rotationRadians, drawsAppearance: isForWrittenDocument)
         annotation.setPersistentName(name)
         annotation.setValue(Self.storedImagePrefix + imageData.base64EncodedString(), forAnnotationKey: PDFPageManager.pictureKey)
         annotation.setValue(NSNumber(value: quarterTurns), forAnnotationKey: PDFPageManager.pictureTurnsKey)
+        if isTurned {
+            annotation.setValue(NSNumber(value: rotationRadians), forAnnotationKey: PDFPageManager.pictureRotationKey)
+            annotation.setValue(NSNumber(value: Double(bounds.width)), forAnnotationKey: PDFPageManager.pictureWidthKey)
+            annotation.setValue(NSNumber(value: Double(bounds.height)), forAnnotationKey: PDFPageManager.pictureHeightKey)
+        }
         // A picture has no border or note of its own.
         annotation.shouldPrint = true
         return annotation
@@ -85,7 +142,8 @@ public struct PDFPicture: Sendable, Equatable {
 }
 
 /// Draws a picture as a stamp annotation: its appearance in a document that is written, and
-/// itself on the page in a document that is shown.
+/// itself on the page in a document that is shown. A picture turned by hand is drawn turned
+/// about the middle of the annotation's rectangle, the box around it.
 ///
 /// PDFKit calls the same method for both, with different coordinates. For an appearance
 /// the origin is the MediaBox's origin and the page's rotation is not applied; on a shown
@@ -99,11 +157,18 @@ final class PDFPictureAnnotation: PDFAnnotation {
     private var image: CGImage?
     private var quarterTurns: NSNumber?
     private var drawsAppearance: NSNumber?
+    /// The picture's own width and height before it is turned, and its angle, clockwise.
+    private var pictureWidth: NSNumber?
+    private var pictureHeight: NSNumber?
+    private var rotationRadians: NSNumber?
 
-    init(bounds: CGRect, image: CGImage, quarterTurns: Int, drawsAppearance: Bool) {
+    init(bounds: CGRect, image: CGImage, pictureSize: CGSize, quarterTurns: Int, rotationRadians: Double, drawsAppearance: Bool) {
         self.image = image
         self.quarterTurns = NSNumber(value: quarterTurns)
         self.drawsAppearance = NSNumber(value: drawsAppearance)
+        self.pictureWidth = NSNumber(value: Double(pictureSize.width))
+        self.pictureHeight = NSNumber(value: Double(pictureSize.height))
+        self.rotationRadians = NSNumber(value: rotationRadians)
         super.init(bounds: bounds, forType: .stamp, withProperties: nil)
     }
 
@@ -121,6 +186,9 @@ final class PDFPictureAnnotation: PDFAnnotation {
             copiedAnnotation.image = image
             copiedAnnotation.quarterTurns = quarterTurns
             copiedAnnotation.drawsAppearance = drawsAppearance
+            copiedAnnotation.pictureWidth = pictureWidth
+            copiedAnnotation.pictureHeight = pictureHeight
+            copiedAnnotation.rotationRadians = rotationRadians
         }
         return copiedAnnotation
     }
@@ -130,8 +198,11 @@ final class PDFPictureAnnotation: PDFAnnotation {
             super.draw(with: box, in: context)
             return
         }
-        let pictureBounds = bounds
+        let annotationBounds = bounds
+        let pictureSize = CGSize(width: pictureWidth?.doubleValue ?? Double(annotationBounds.width),
+                                 height: pictureHeight?.doubleValue ?? Double(annotationBounds.height))
         let turns = quarterTurns?.intValue ?? 0
+        let handTurnRadians = rotationRadians?.doubleValue ?? 0
         context.saveGState()
         if drawsAppearance?.boolValue == true {
             if let mediaBoxOrigin = page?.bounds(for: .mediaBox).origin {
@@ -141,12 +212,13 @@ final class PDFPictureAnnotation: PDFAnnotation {
             page?.transform(context, for: box)
         }
         context.interpolationQuality = .high
-        context.translateBy(x: pictureBounds.midX, y: pictureBounds.midY)
+        context.translateBy(x: annotationBounds.midX, y: annotationBounds.midY)
         // Page coordinates count upward, where a positive angle turns counterclockwise:
-        // the picture is turned back against the page's own clockwise rotation.
-        context.rotate(by: CGFloat(turns) * .pi / 2)
+        // the picture is turned back against the page's own clockwise rotation, and by the
+        // clockwise turn given by hand.
+        context.rotate(by: CGFloat(turns) * .pi / 2 - CGFloat(handTurnRadians))
         let isSideways = turns % 2 == 1
-        let drawnSize = isSideways ? CGSize(width: pictureBounds.height, height: pictureBounds.width) : pictureBounds.size
+        let drawnSize = isSideways ? CGSize(width: pictureSize.height, height: pictureSize.width) : pictureSize
         context.draw(image, in: CGRect(x: -drawnSize.width / 2, y: -drawnSize.height / 2, width: drawnSize.width, height: drawnSize.height))
         context.restoreGState()
     }

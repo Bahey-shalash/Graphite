@@ -253,6 +253,77 @@ final class PDFPictureTests: XCTestCase {
                                                                                              bounds: .zero), with: turned, order: .unchanged), to: document))
     }
 
+    // MARK: Turned by hand
+
+    private func assertEqual(_ rectangle: CGRect?, _ expected: CGRect, accuracy: CGFloat = 0.01, _ message: String = "",
+                             file: StaticString = #filePath, line: UInt = #line) {
+        guard let rectangle else { return XCTFail("No rectangle. \(message)", file: file, line: line) }
+        for (measuredEdge, expectedEdge) in zip([rectangle.minX, rectangle.minY, rectangle.width, rectangle.height], [expected.minX, expected.minY, expected.width, expected.height]) {
+            XCTAssertEqual(measuredEdge, expectedEdge, accuracy: accuracy, "\(rectangle) is not \(expected). \(message)", file: file, line: line)
+        }
+    }
+
+    func testAPictureTurnedByHandIsShownTurnedAndReadBackWithItsFrameAndAngle() throws {
+        // Red on the left, blue on the right, at (20, 200, 100, 50). Turned a quarter
+        // clockwise about its middle (70, 225), red is on top and the picture stands from
+        // y 175 to 275, 50 points wide.
+        let picture = PDFPicture(imageData: try Self.twoColorImageData(), bounds: CGRect(x: 20, y: 200, width: 100, height: 50), quarterTurns: 0,
+                                 rotationRadians: .pi / 2)
+        assertEqual(picture.annotationBounds, CGRect(x: 45, y: 175, width: 50, height: 100), "The annotation's rectangle is the box around it.")
+        XCTAssertTrue(picture.contains(CGPoint(x: 70, y: 260)))
+        XCTAssertFalse(picture.contains(CGPoint(x: 30, y: 225)), "Where its left end was before it turned.")
+
+        let openDocument = try Self.blankDocument(rotation: 0)
+        try PDFPageManager.apply(.addPicture(page: 0, picture: picture), to: openDocument)
+        let writtenDocument = try Self.blankDocument(rotation: 0)
+        try PDFPageManager.replay([.addPicture(page: 0, picture: picture)], on: writtenDocument)
+        let savedDocument = try XCTUnwrap(PDFDocument(data: try XCTUnwrap(writtenDocument.dataRepresentation())))
+        for (label, document) in [("open", openDocument), ("saved", savedDocument)] {
+            let page = try XCTUnwrap(document.page(at: 0))
+            XCTAssertEqual(try color(of: page, atShownPoint: CGPoint(x: 70, y: 300 - 260)), .red, "Its left end, on top, in the \(label) document")
+            XCTAssertEqual(try color(of: page, atShownPoint: CGPoint(x: 70, y: 300 - 190)), .blue, "Its right end, below, in the \(label) document")
+            XCTAssertEqual(try color(of: page, atShownPoint: CGPoint(x: 30, y: 300 - 225)), .white, "Nothing where it was upright, in the \(label) document")
+        }
+
+        // Graphite reads back the frame before the turn and the angle; any reader sees a stamp.
+        let savedPage = try XCTUnwrap(savedDocument.page(at: 0))
+        XCTAssertEqual(savedPage.annotations.map(\.type), ["Stamp"])
+        assertEqual(savedPage.annotations.first?.bounds, CGRect(x: 45, y: 175, width: 50, height: 100))
+        let readBack = try XCTUnwrap(PDFPageManager.pictures(on: savedPage).first)
+        XCTAssertEqual(readBack.name, picture.name)
+        XCTAssertEqual(readBack.imageData, picture.imageData)
+        XCTAssertEqual(readBack.rotationRadians, .pi / 2, accuracy: 0.0001)
+        assertEqual(readBack.bounds, picture.bounds)
+
+        // Moving and resizing keep the angle; the bounds are the frame before the turn.
+        let newBounds = CGRect(x: 40, y: 100, width: 50, height: 25)
+        try PDFPageManager.apply(.movePicture(readBack.reference(onPageAt: 0), to: newBounds), to: savedDocument)
+        let moved = try XCTUnwrap(PDFPageManager.pictures(on: savedPage).first)
+        XCTAssertEqual(moved.rotationRadians, .pi / 2, accuracy: 0.0001)
+        assertEqual(moved.bounds, newBounds)
+        assertEqual(moved.annotationBounds, CGRect(x: 52.5, y: 87.5, width: 25, height: 50))
+    }
+
+    func testAnUprightPictureWritesNoAngleAndAResizedTurnedStampKeepsItsProportions() throws {
+        let upright = PDFPicture(imageData: try Self.twoColorImageData(), bounds: CGRect(x: 20, y: 200, width: 100, height: 50), quarterTurns: 0)
+        let document = try Self.blankDocument(rotation: 0)
+        try PDFPageManager.apply(.addPicture(page: 0, picture: upright), to: document)
+        let page = try XCTUnwrap(document.page(at: 0))
+        let uprightAnnotation = try XCTUnwrap(page.annotations.first)
+        XCTAssertNil(uprightAnnotation.value(forAnnotationKey: PDFPageManager.pictureRotationKey), "Pictures placed before turning was possible stay as they were.")
+        XCTAssertNil(uprightAnnotation.value(forAnnotationKey: PDFPageManager.pictureWidthKey))
+
+        // Another application doubled the turned picture's rectangle: the picture fills it,
+        // in its own proportions.
+        let turned = PDFPicture(imageData: try Self.twoColorImageData(), bounds: CGRect(x: 20, y: 100, width: 100, height: 50), quarterTurns: 0,
+                                rotationRadians: .pi / 2)
+        try PDFPageManager.apply(.addPicture(page: 0, picture: turned), to: document)
+        let turnedAnnotation = try XCTUnwrap(page.annotations.first { annotation in annotation.persistentName == turned.name })
+        turnedAnnotation.bounds = CGRect(x: 20, y: 25, width: 100, height: 200)
+        let readBack = try XCTUnwrap(PDFPageManager.pictures(on: page).first { picture in picture.name == turned.name })
+        assertEqual(readBack.bounds, CGRect(x: -30, y: 75, width: 200, height: 100))
+    }
+
     func testPicturesThatCannotBePlacedAreRefused() throws {
         let document = try Self.blankDocument(rotation: 0)
         let notAnImage = PDFPicture(imageData: Data("not an image".utf8), bounds: CGRect(x: 0, y: 0, width: 10, height: 10), quarterTurns: 0)

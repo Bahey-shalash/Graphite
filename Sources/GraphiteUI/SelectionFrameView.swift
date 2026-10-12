@@ -1,19 +1,28 @@
 #if canImport(UIKit)
 import UIKit
+import GraphiteCore
 
 /// The frame around what is being arranged, a picture on a drawing or on a PDF page, or
-/// selected ink: drag inside it to move, drag a corner to resize in proportion. The view's
-/// frame is the frame of what it surrounds, in its superview, and its owner moves that
-/// with it.
+/// selected ink: drag inside it to move, drag a corner to resize in proportion, and, for a
+/// picture, drag the handle above it to turn it. The frame is the frame of what it
+/// surrounds, in its superview, and its owner moves that with it.
+///
+/// A turned frame is a view turned by `rotation`; its owner gives and is given its
+/// `unrotatedFrame`, as the picture it surrounds keeps an upright frame and an angle.
 final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
     /// Called when a drag begins, before the frame changes.
     var frameChangeDidBegin: (() -> Void)?
-    /// Called while the frame changes, with the new frame in the superview's coordinates.
+    /// Called while the frame changes, with the new `unrotatedFrame`.
     var frameDidChange: ((CGRect) -> Void)?
-    /// Called when a drag ends, with the final frame.
+    /// Called when a drag ends, with the final `unrotatedFrame`.
     var frameChangeDidEnd: ((CGRect) -> Void)?
     /// Called when a drag is cancelled, after the frame is back where it was.
     var frameChangeWasCancelled: (() -> Void)?
+    /// Called while the handle above the frame turns it, with the new `rotation`.
+    var rotationDidChange: ((CGFloat) -> Void)?
+    /// Called when the frame has been turned, by its handle or by an accessibility action,
+    /// with the final `rotation`.
+    var rotationChangeDidEnd: ((CGFloat) -> Void)?
     /// The smallest side the frame can be resized to, in the superview's points.
     var minimumSideLength: CGFloat = 32
     /// The region the frame's center has to stay in, so it cannot be lost off the page.
@@ -37,16 +46,48 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
     var contentScale: CGFloat = 1 {
         didSet { if contentScale != oldValue { setNeedsLayout() } }
     }
-    /// While a picture is cropped: the picture's frame, which the crop frame stays inside.
-    /// A corner then resizes the frame freely rather than in proportion, the frame does not
-    /// move, and everything outside it is dimmed.
+    /// While a picture is cropped: the picture's frame, before it is turned, which the crop
+    /// frame stays inside. A corner then resizes the frame freely rather than in proportion,
+    /// the frame does not move or turn, and everything outside it is dimmed. The crop frame
+    /// turns with the picture, about the picture's middle.
     var cropLimits: CGRect? {
         didSet {
             moveRecognizer.isEnabled = cropLimits == nil
             dimmingLayer.isHidden = cropLimits == nil
+            updateRotationHandle()
             setNeedsLayout()
         }
     }
+    /// Whether a handle above the frame turns it, as for a picture. Off for selected ink.
+    var allowsRotation = false {
+        didSet { if allowsRotation != oldValue { updateRotationHandle() } }
+    }
+    /// How far the frame is turned about its middle, in radians, clockwise on screen.
+    var rotation: CGFloat = 0 {
+        didSet { if rotation != oldValue { transform = CGAffineTransform(rotationAngle: rotation) } }
+    }
+
+    /// The frame before it is turned, in the superview's coordinates. The frame on screen
+    /// is this rectangle turned by `rotation` about its middle, or, while cropping, about
+    /// the middle of `cropLimits`, the picture's. Set `rotation` and `cropLimits` first.
+    var unrotatedFrame: CGRect {
+        get {
+            let unrotatedCenter = PictureRotation.point(center, turnedBy: -Double(rotation), about: rotationPivot)
+            return CGRect(x: unrotatedCenter.x - bounds.width / 2, y: unrotatedCenter.y - bounds.height / 2, width: bounds.width, height: bounds.height)
+        }
+        set {
+            let unrotatedCenter = CGPoint(x: newValue.midX, y: newValue.midY)
+            bounds = CGRect(origin: .zero, size: newValue.size)
+            center = PictureRotation.point(unrotatedCenter, turnedBy: Double(rotation), about: cropLimits.map { limits in CGPoint(x: limits.midX, y: limits.midY) } ?? unrotatedCenter)
+        }
+    }
+
+    /// The point the frame turns about: the middle of the picture while it is cropped, and
+    /// otherwise the frame's own.
+    private var rotationPivot: CGPoint {
+        cropLimits.map { limits in CGPoint(x: limits.midX, y: limits.midY) } ?? center
+    }
+
     private let previewView = UIImageView()
     private let dimmingLayer = CAShapeLayer()
     /// The frame's line, over a wider white halo that keeps it visible on dark ink and
@@ -69,13 +110,33 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
     private var frameWhenDragBegan: CGRect = .zero
     private(set) lazy var moveRecognizer = UIPanGestureRecognizer(target: self, action: #selector(handleMove(_:)))
     private(set) var resizeRecognizers: [UIPanGestureRecognizer] = []
-    /// The move and resize recognizers, for an owner whose scroll view must wait for them.
-    var dragRecognizers: [UIPanGestureRecognizer] { [moveRecognizer] + resizeRecognizers }
+    /// The move, resize and turn recognizers, for an owner whose scroll view must wait for them.
+    var dragRecognizers: [UIPanGestureRecognizer] { [moveRecognizer] + resizeRecognizers + [rotationRecognizer] }
+
+    // MARK: Turning
+
+    /// The turning handle stands this far above the frame's top edge, on a short stem.
+    private static let rotationStemLength: CGFloat = 26
+    private static let rotationKnobDiameter: CGFloat = 24
+    /// A turn with an accessibility action, in radians: 15°.
+    private static let accessibilityTurnStep: CGFloat = .pi / 12
+    private let rotationHandle = UIView(frame: CGRect(x: 0, y: 0, width: SelectionFrameView.handleTouchSide, height: SelectionFrameView.handleTouchSide))
+    private let rotationStem = UIView()
+    private let rotationSymbol = UIImageView(image: UIImage(systemName: "arrow.clockwise", withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)))
+    private(set) lazy var rotationRecognizer = UIPanGestureRecognizer(target: self, action: #selector(handleRotation(_:)))
+    private var rotationWhenDragBegan: CGFloat = 0
+    /// Where the finger pointed from the frame's middle when the turn began, in radians.
+    private var pointerAngleWhenDragBegan: CGFloat = 0
+    /// Whether the turn is held at a quarter turn, so the snap is felt once as it happens.
+    private var isHeldAtQuarterTurn = false
+    private lazy var snapFeedback = UISelectionFeedbackGenerator()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
         previewView.contentMode = .scaleToFill
+        // A preview smaller than the picture's pixels stays smooth (see `InfiniteCanvasView`).
+        previewView.layer.minificationFilter = .trilinear
         previewView.alpha = dragPreviewOpacity
         previewView.isHidden = true
         previewView.isUserInteractionEnabled = false
@@ -103,10 +164,11 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
             addSubview(handle)
             handles[corner] = handle
         }
+        addRotationHandle()
         isAccessibilityElement = true
         accessibilityLabel = "Selected image"
-        accessibilityHint = "Drag to move. Drag a corner to resize."
         accessibilityTraits = .allowsDirectInteraction
+        updateRotationHandle()
         applyColors()
         registerForTraitChanges([UITraitAccessibilityContrast.self]) { (frameView: SelectionFrameView, _: UITraitCollection) in
             frameView.applyColors()
@@ -144,11 +206,41 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
             knob.backgroundColor = .white
             knob.layer.borderColor = lineColor
         }
+        rotationStem.backgroundColor = UIColor(cgColor: lineColor)
+        rotationSymbol.tintColor = UIColor(cgColor: lineColor)
         setNeedsLayout()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("SelectionFrameView is created in code.") }
+
+    /// The turning handle's knob, stem and arrow take their colors in `applyColors`.
+    private func addRotationHandle() {
+        rotationStem.isUserInteractionEnabled = false
+        addSubview(rotationStem)
+        let knob = Self.makeKnob(diameter: Self.rotationKnobDiameter)
+        knobs.append(knob)
+        rotationSymbol.center = CGPoint(x: Self.rotationKnobDiameter / 2, y: Self.rotationKnobDiameter / 2)
+        knob.addSubview(rotationSymbol)
+        rotationHandle.addSubview(knob)
+        rotationRecognizer.maximumNumberOfTouches = 1
+        rotationHandle.addGestureRecognizer(rotationRecognizer)
+        addSubview(rotationHandle)
+    }
+
+    /// The turning handle shows for a picture, except while it is cropped.
+    private func updateRotationHandle() {
+        let showsRotationHandle = allowsRotation && cropLimits == nil
+        rotationHandle.isHidden = !showsRotationHandle
+        rotationStem.isHidden = !showsRotationHandle
+        rotationRecognizer.isEnabled = showsRotationHandle
+        accessibilityHint = showsRotationHandle ? "Drag to move. Drag a corner to resize. Drag the handle above to rotate." : "Drag to move. Drag a corner to resize."
+        accessibilityCustomActions = showsRotationHandle ? [
+            UIAccessibilityCustomAction(name: "Rotate Clockwise", target: self, selector: #selector(turnClockwiseByAccessibilityStep)),
+            UIAccessibilityCustomAction(name: "Rotate Counterclockwise", target: self, selector: #selector(turnCounterclockwiseByAccessibilityStep)),
+        ] : nil
+        setNeedsLayout()
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -176,39 +268,104 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
         handles[.topRight]?.center = CGPoint(x: bounds.maxX, y: bounds.minY)
         handles[.bottomLeft]?.center = CGPoint(x: bounds.minX, y: bounds.maxY)
         handles[.bottomRight]?.center = CGPoint(x: bounds.maxX, y: bounds.maxY)
+        // On a frame too narrow for the turning handle to stand between the top corners'
+        // handles, it stands above them, so neither covers the other.
+        let standsAboveCornerHandles = bounds.width < Self.handleTouchSide * 2 * handleScale
+        let stemLength = (standsAboveCornerHandles ? Self.handleTouchSide : Self.rotationStemLength) * handleScale
+        rotationHandle.transform = CGAffineTransform(scaleX: handleScale, y: handleScale)
+        rotationHandle.center = CGPoint(x: bounds.midX, y: bounds.minY - stemLength)
+        rotationStem.frame = CGRect(x: bounds.midX - lineWidth / 2, y: bounds.minY - stemLength, width: lineWidth, height: stemLength)
     }
 
-    /// The handles reach outside the frame they resize.
+    /// The handles reach outside the frame they resize or turn.
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         bounds.contains(point) || handles.values.contains { handle in handle.frame.contains(point) }
+            || (!rotationHandle.isHidden && rotationHandle.frame.contains(point))
     }
 
-    /// A touch on a corner handle resizes; it must not also move the picture.
+    /// A touch on a corner handle resizes, and one on the turning handle turns; neither
+    /// must also move the picture.
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         guard gestureRecognizer === moveRecognizer else { return true }
-        return !handles.values.contains { handle in touch.view === handle }
+        return !handles.values.contains { handle in touch.view === handle } && touch.view !== rotationHandle
     }
 
     @objc private func handleMove(_ recognizer: UIPanGestureRecognizer) {
         guard let superview else { return }
-        if recognizer.state == .began { frameWhenDragBegan = frame }
+        if recognizer.state == .began { frameWhenDragBegan = unrotatedFrame }
         let translation = recognizer.translation(in: superview)
-        frame = Self.moved(frameWhenDragBegan, by: translation, keepingCenterIn: centerLimits)
+        // Moving never happens while cropping, so the frame turns about its own middle and
+        // moves as it is shown.
+        unrotatedFrame = Self.moved(frameWhenDragBegan, by: translation, keepingCenterIn: centerLimits)
         report(recognizer.state)
     }
 
     @objc private func handleResize(_ recognizer: UIPanGestureRecognizer) {
         guard let superview, let corner = handles.first(where: { _, handle in handle === recognizer.view })?.key else { return }
-        if recognizer.state == .began { frameWhenDragBegan = frame }
-        let translation = recognizer.translation(in: superview)
+        if recognizer.state == .began { frameWhenDragBegan = unrotatedFrame }
+        // The corners are the frame's own and turn with it, so the drag is measured along
+        // the frame's sides.
+        let translation = PictureRotation.vector(recognizer.translation(in: superview), turnedBy: -Double(rotation))
         let pullsRight = corner == .topRight || corner == .bottomRight, pullsDown = corner == .bottomLeft || corner == .bottomRight
         if let cropLimits {
-            frame = Self.cropped(frameWhenDragBegan, byDragging: translation, pullsRight: pullsRight, pullsDown: pullsDown,
-                                 minimumSideLength: minimumSideLength, within: cropLimits)
+            unrotatedFrame = Self.cropped(frameWhenDragBegan, byDragging: translation, pullsRight: pullsRight, pullsDown: pullsDown,
+                                          minimumSideLength: minimumSideLength, within: cropLimits)
         } else {
-            frame = Self.resized(frameWhenDragBegan, byDragging: translation, pullsRight: pullsRight, pullsDown: pullsDown, minimumSideLength: minimumSideLength)
+            let resizedFrame = Self.resized(frameWhenDragBegan, byDragging: translation, pullsRight: pullsRight, pullsDown: pullsDown,
+                                            minimumSideLength: minimumSideLength)
+            // The corner opposite the dragged one stays where it is on screen: the resized
+            // frame is turned about the middle the frame had.
+            unrotatedFrame = PictureRotation.rectangle(resizedFrame, withMiddleTurnedBy: Double(rotation),
+                                                       about: CGPoint(x: frameWhenDragBegan.midX, y: frameWhenDragBegan.midY))
         }
         report(recognizer.state)
+    }
+
+    /// Turns the frame about its middle as far as the finger has gone around it, and puts
+    /// it exactly straight, or exactly a quarter turn, when it comes close.
+    @objc private func handleRotation(_ recognizer: UIPanGestureRecognizer) {
+        guard let superview else { return }
+        let location = recognizer.location(in: superview)
+        let pointerAngle = atan2(location.y - center.y, location.x - center.x)
+        if recognizer.state == .began {
+            frameWhenDragBegan = unrotatedFrame
+            rotationWhenDragBegan = rotation
+            pointerAngleWhenDragBegan = pointerAngle
+            isHeldAtQuarterTurn = PictureRotation.isNearQuarterTurn(Double(rotation))
+            snapFeedback.prepare()
+        }
+        let freeAngle = PictureRotation.normalized(Double(rotationWhenDragBegan + pointerAngle - pointerAngleWhenDragBegan))
+        let isAtQuarterTurn = PictureRotation.isNearQuarterTurn(freeAngle)
+        if isAtQuarterTurn, !isHeldAtQuarterTurn { snapFeedback.selectionChanged() }
+        isHeldAtQuarterTurn = isAtQuarterTurn
+        rotation = CGFloat(PictureRotation.snapped(freeAngle))
+        switch recognizer.state {
+        case .began:
+            frameChangeDidBegin?()
+            previewView.isHidden = dragPreview == nil
+        case .changed:
+            rotationDidChange?(rotation)
+        case .ended:
+            previewView.isHidden = true
+            rotationDidChange?(rotation)
+            rotationChangeDidEnd?(rotation)
+        case .cancelled, .failed:
+            previewView.isHidden = true
+            rotation = rotationWhenDragBegan
+            rotationDidChange?(rotation)
+            frameChangeWasCancelled?()
+        default: break
+        }
+    }
+
+    @objc private func turnClockwiseByAccessibilityStep() -> Bool { turn(by: Self.accessibilityTurnStep) }
+    @objc private func turnCounterclockwiseByAccessibilityStep() -> Bool { turn(by: -Self.accessibilityTurnStep) }
+
+    private func turn(by angle: CGFloat) -> Bool {
+        rotation = CGFloat(PictureRotation.normalized(Double(rotation + angle)))
+        rotationDidChange?(rotation)
+        rotationChangeDidEnd?(rotation)
+        return true
     }
 
     private func report(_ state: UIGestureRecognizer.State) {
@@ -217,15 +374,15 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
             frameChangeDidBegin?()
             previewView.isHidden = dragPreview == nil
         case .changed:
-            frameDidChange?(frame)
+            frameDidChange?(unrotatedFrame)
         case .ended:
             previewView.isHidden = true
-            frameDidChange?(frame)
-            frameChangeDidEnd?(frame)
+            frameDidChange?(unrotatedFrame)
+            frameChangeDidEnd?(unrotatedFrame)
         case .cancelled, .failed:
             previewView.isHidden = true
-            frame = frameWhenDragBegan
-            frameDidChange?(frame)
+            unrotatedFrame = frameWhenDragBegan
+            frameDidChange?(unrotatedFrame)
             frameChangeWasCancelled?()
         default: break
         }

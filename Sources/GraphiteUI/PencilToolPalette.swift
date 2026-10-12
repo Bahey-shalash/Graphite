@@ -82,8 +82,10 @@ enum PencilToolPalette {
         button.accessibilityValue = (isOn ? "Shapes on" : "Shapes off") + (PaletteInkSelection.isOn ? ", selecting ink" : "")
     }
 
-    /// Favorite colors as a row of swatches, then the Draw Shapes switch.
-    static func menuElements(for toolPicker: PKToolPicker, palette: [PaletteColor] = GraphitePreferences.storedColorPalette()) -> [UIMenuElement] {
+    /// Favorite colors as a row of swatches, or the highlighter's own colors while the marker
+    /// is in use, then the Draw Shapes switch.
+    static func menuElements(for toolPicker: PKToolPicker, palette: [PaletteColor] = GraphitePreferences.storedColorPalette(),
+                             highlighterPalette: [PaletteColor] = GraphitePreferences.storedHighlighterPalette()) -> [UIMenuElement] {
         let shapesAction = UIAction(title: "Draw Shapes", image: UIImage(systemName: "square.on.circle"),
                                     state: drawsShapes ? .on : .off) { _ in
             UserDefaults.standard.set(!drawsShapes, forKey: drawsShapesPreferenceKey)
@@ -92,13 +94,17 @@ enum PencilToolPalette {
                                        state: PaletteInkSelection.isOn ? .on : .off) { _ in
             PaletteInkSelection.isOn.toggle()
         }
-        return [favoriteColorsMenu(for: toolPicker, palette: palette), UIMenu(options: .displayInline, children: [shapesAction, selectionAction])]
+        let colorsMenu = inkingToolInUse(of: toolPicker)?.inkType == .marker
+            ? favoriteColorsMenu(for: toolPicker, palette: highlighterPalette, title: "Highlighter Colors")
+            : favoriteColorsMenu(for: toolPicker, palette: palette)
+        return [colorsMenu, UIMenu(options: .displayInline, children: [shapesAction, selectionAction])]
     }
 
     // MARK: Favorite colors
 
-    /// The colors of Settings › Colors, the list the notes' Format › Color menu uses.
-    static func favoriteColorsMenu(for toolPicker: PKToolPicker, palette: [PaletteColor]) -> UIMenu {
+    /// The colors of Settings › Colors, the list the notes' Format › Color menu uses, or the
+    /// highlighter's own list there.
+    static func favoriteColorsMenu(for toolPicker: PKToolPicker, palette: [PaletteColor], title: String = "Favorite Colors") -> UIMenu {
         let colorInUse = inkingToolInUse(of: toolPicker).flatMap { tool in tool.color.graphiteHexWithoutOpacity }
         let swatches = palette.compactMap { favorite -> UIAction? in
             guard let color = UIColor(graphiteHex: favorite.hex) else { return nil }
@@ -114,7 +120,7 @@ enum PencilToolPalette {
         guard !swatches.isEmpty else {
             return UIMenu(options: .displayInline, children: [UIAction(title: "Add colors in Settings › Colors", attributes: .disabled) { _ in }])
         }
-        return UIMenu(title: "Favorite Colors", options: [.displayInline, .displayAsPalette], children: swatches)
+        return UIMenu(title: title, options: [.displayInline, .displayAsPalette], children: swatches)
     }
 
     static func inkingToolInUse(of toolPicker: PKToolPicker) -> PKInkingTool? {

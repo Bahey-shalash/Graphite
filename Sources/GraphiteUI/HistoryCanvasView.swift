@@ -149,6 +149,20 @@ class HistoryCanvasView: PKCanvasView {
         }
     }
 
+    /// A hand landed on the page (`PalmRejectionRecognizer`): with finger drawing, the
+    /// stroke its touch began is taken back, unless Apple Pencil is drawing. PencilKit's
+    /// drawing never waits for palm rejection, so the stroke is cancelled once PencilKit has
+    /// begun it, as a scroll that takes over a finger's stroke cancels it.
+    func takeBackStrokeOfHand() {
+        guard drawingPolicy == .anyInput else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !PencilActivity.isPencilTouching(at: PencilActivity.now) else { return }
+            // Whether PencilKit has begun the stroke yet or not, starting over drops it.
+            self.drawingGestureRecognizer.isEnabled = false
+            self.drawingGestureRecognizer.isEnabled = true
+        }
+    }
+
     /// True while something other than drawing has the canvas, as arranging pictures has.
     var isDrawingSuspended = false {
         didSet { if isDrawingSuspended != oldValue { applyDrawingEnabled() } }
@@ -202,8 +216,10 @@ class HistoryCanvasView: PKCanvasView {
     }
 
     /// The drawing to record for the change the canvas just reported, asked once for each
-    /// change. With the shape tool on, or after a hold at the end of the stroke, a stroke
-    /// just drawn is replaced by its shape, which the canvas then shows.
+    /// change. A highlighter stroke just drawn takes one width when the highlighter ignores
+    /// tilt (`EvenHighlighter`). With the shape tool on, or after a hold at the end of the
+    /// stroke, a stroke just drawn is replaced by its shape. The canvas then shows what the
+    /// stroke became.
     func drawingAfterShapeRecognition(shapeToolIsOn: Bool) -> PKDrawing {
         let reportedDrawing = drawing
         let expectation = arrivingStroke
@@ -213,12 +229,18 @@ class HistoryCanvasView: PKCanvasView {
         if expectation == .isMadeByCanvas { return reportedDrawing }
         let strokeWasHeld = expectation == .awaitsItsShape
         if strokeWasHeld { removeShapePreview() }
-        // One stroke more than before is, nearly always, a stroke just drawn.
-        if reportedDrawing.strokes.count == recordedDrawing.strokes.count + 1, let newStroke = reportedDrawing.strokes.last {
+        let evenDrawing = drawingWithEvenHighlighterStroke(reportedDrawing)
+        let drawnDrawing = evenDrawing ?? reportedDrawing
+        // One stroke more than before is, nearly always, a stroke just drawn. An even
+        // highlighter stroke leaves its even footprint, so a shape dragged from a hold is even too.
+        if drawnDrawing.strokes.count == recordedDrawing.strokes.count + 1, let newStroke = drawnDrawing.strokes.last {
             rememberFootprint(of: newStroke)
         }
         guard shapeToolIsOn || strokeWasHeld,
-              let shapedDrawing = PencilShapes.replacingNewStroke(in: reportedDrawing, previousDrawing: recordedDrawing) else { return reportedDrawing }
+              let shapedDrawing = PencilShapes.replacingNewStroke(in: drawnDrawing, previousDrawing: recordedDrawing) else {
+            if let evenDrawing { showWithoutRecording(evenDrawing) }
+            return drawnDrawing
+        }
         showWithoutRecording(shapedDrawing)
         // Apple Pencil Pro taps when a stroke snaps to a shape; after a hold it already has.
         if !strokeWasHeld, let shapeBounds = shapedDrawing.strokes.last?.renderBounds {
@@ -228,6 +250,36 @@ class HistoryCanvasView: PKCanvasView {
     }
 
     private lazy var shapeFeedback = UICanvasFeedbackGenerator(view: self)
+
+    /// The drawing with the marker stroke just drawn at one width, the tool's, when the
+    /// highlighter ignores tilt; nil when there is no such stroke or the preference is off.
+    private func drawingWithEvenHighlighterStroke(_ reportedDrawing: PKDrawing) -> PKDrawing? {
+        // Asked at every stroke: the comparison of the whole drawing waits until a
+        // highlighter stroke has arrived to be looked at.
+        guard evenHighlighterTool != nil, reportedDrawing.strokes.count == recordedDrawing.strokes.count + 1,
+              reportedDrawing.strokes.last?.ink.inkType == .marker,
+              let change = PencilDrawingChange(from: recordedDrawing, to: reportedDrawing), let newStrokeIndex = change.appendedStrokeIndex,
+              newStrokeIndex < reportedDrawing.strokes.count,
+              let evenStroke = evenHighlighterStroke(reportedDrawing.strokes[newStrokeIndex]) else { return nil }
+        var strokes = reportedDrawing.strokes
+        strokes[newStrokeIndex] = evenStroke
+        return PKDrawing(strokes: strokes)
+    }
+
+    /// The canvas's highlighter, while it is in use and ignores tilt; nil otherwise.
+    private var evenHighlighterTool: PKInkingTool? {
+        guard EvenHighlighterPreference.isOn(), zoomScale > 0, let inkingTool = tool as? PKInkingTool, inkingTool.inkType == .marker else { return nil }
+        return inkingTool
+    }
+
+    /// The stroke at the width of the canvas's highlighter, when it is a highlighter stroke
+    /// and the highlighter ignores tilt; nil otherwise.
+    private func evenHighlighterStroke(_ stroke: PKStroke) -> PKStroke? {
+        guard let inkingTool = evenHighlighterTool else { return nil }
+        // PencilKit draws a tool as wide on screen at any zoom of its canvas, so in the
+        // drawing's points the stroke is the tool's width over the zoom.
+        return EvenHighlighter.evenStroke(stroke, width: inkingTool.width / zoomScale)
+    }
 
     // MARK: Footprints
 
@@ -338,8 +390,9 @@ class HistoryCanvasView: PKCanvasView {
             guard !wasCancelled, zoomScale > 0 else { return }
             // From the canvas's coordinates to the drawing's.
             let drawingShape = shape.dragging(from: heldPoint, to: draggedPoint).transformed(scale: 1 / Double(zoomScale), rotation: 0, about: .zero)
+            let shapeStroke = PencilShapes.shapeStroke(drawingShape, ink: ink, footprint: footprint)
             expect(.isMadeByCanvas)
-            drawing = PKDrawing(strokes: drawing.strokes + [PencilShapes.shapeStroke(drawingShape, ink: ink, footprint: footprint)])
+            drawing = PKDrawing(strokes: drawing.strokes + [evenHighlighterStroke(shapeStroke) ?? shapeStroke])
         case nil:
             break
         }

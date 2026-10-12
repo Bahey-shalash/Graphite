@@ -315,7 +315,35 @@ private struct ColorsSettingsPage: View {
             } header: {
                 Text("Palette")
             } footer: {
-                Text("Format › Color writes the hex color, as the Colors plugin for Obsidian does (`~={#e93147}text=~`), so notes look the same in both apps. A note written with a name, as in `~={red}text=~`, takes the color of that name here, so renaming or removing a color changes it.\n\nThe same colors are the Favorite Colors of the Pencil tools, for drawings and PDFs.")
+                Text("Format › Color writes the hex color, as the Colors plugin for Obsidian does (`~={#e93147}text=~`), so notes look the same in both apps. A note written with a name, as in `~={red}text=~`, takes the color of that name here, so renaming or removing a color changes it.\n\nThe same colors are the Favorite Colors of the Pencil tools, for drawings and PDFs. A highlighter has its own, below.")
+            }
+            Section {
+                ForEach($preferences.highlighterPalette) { $color in
+                    HStack(spacing: 12) {
+                        ColorPicker("Color", selection: Binding(get: { Color(graphiteHex: color.hex) ?? .yellow }, set: { newColor in
+                            if let hex = newColor.sRGBHex { color.hex = hex }
+                        }), supportsOpacity: false)
+                        .labelsHidden()
+                        TextField("Name", text: $color.name)
+                            .autocorrectionDisabled()
+                            #if canImport(UIKit)
+                            .textInputAutocapitalization(.never)
+                            #endif
+                        Text(color.hex).font(.caption.monospaced()).foregroundStyle(.secondary)
+                    }
+                }
+                .onDelete { offsets in preferences.highlighterPalette.remove(atOffsets: offsets) }
+                .onMove { offsets, destination in preferences.highlighterPalette.move(fromOffsets: offsets, toOffset: destination) }
+                Button("Add Color", systemImage: "plus") {
+                    preferences.highlighterPalette.append(PaletteColor(name: PaletteColorNames.unusedName(in: preferences.highlighterPalette), hex: "#f6d743"))
+                }
+                Button("Restore Default Highlighter Colors", systemImage: "arrow.counterclockwise") {
+                    preferences.highlighterPalette = PaletteColor.defaultHighlighterPalette
+                }
+            } header: {
+                Text("Highlighter")
+            } footer: {
+                Text("The colors the Pencil tools offer while a highlighter is in use, in place of the palette above: light ones, so the text under a highlight stays easy to read. Notes do not use them.")
             }
         }
         .navigationTitle("Colors")
@@ -345,6 +373,8 @@ enum PaletteColorNames {
 
 private struct DrawingsSettingsPage: View {
     @Bindable var preferences: GraphitePreferences
+    /// Also changed from the highlighter's options on the fixed bar, so read where it is kept.
+    @AppStorage(EvenHighlighterPreference.key) private var highlighterIgnoresTilt = false
 
     var body: some View {
         Form {
@@ -416,6 +446,13 @@ private struct DrawingsSettingsPage: View {
                 Text("Shapes")
             } footer: {
                 Text("Draw a line, a circle, an ellipse, a triangle or a rectangle and keep the Pencil still at the end: the clean shape appears, and takes the stroke's place when you lift. The Shapes button of the tools does the same for every stroke, without holding.")
+            }
+            Section {
+                Toggle("Highlighter Ignores Tilt", isOn: $highlighterIgnoresTilt)
+            } header: {
+                Text("Highlighter")
+            } footer: {
+                Text("The highlighter draws the width you chose however Apple Pencil is tilted or turned, so highlights over lines of text match. Each stroke takes that width when you lift the Pencil.")
             }
             Section {
                 Toggle("Double-Tap or Squeeze to Draw in Notes", isOn: $preferences.drawsOnPencilDoubleTap)

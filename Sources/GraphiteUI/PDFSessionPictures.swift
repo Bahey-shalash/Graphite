@@ -62,7 +62,8 @@ extension PDFSession {
         selectedPicture = PDFPictureSelection(pictureName: picture.name, page: historyPage)
     }
 
-    /// Moves or resizes the picture; undo puts it back where it was.
+    /// Moves or resizes the picture, to bounds before it is turned; undo puts it back where
+    /// it was.
     func movePicture(_ selection: PDFPictureSelection, to newBounds: CGRect) throws {
         guard let page = selection.page.page, let picture = pictures(on: page).first(where: { picture in picture.name == selection.pictureName }) else {
             throw GraphiteError.invalidFile("This image no longer exists.")
@@ -73,9 +74,12 @@ extension PDFSession {
         let previousBounds = picture.bounds
         let historyPage = selection.page
         let pictureName = picture.name
+        let rotationRadians = picture.rotationRadians
         func move(in session: PDFSession, from currentBounds: CGRect, to targetBounds: CGRect) throws {
+            // The annotation's rectangle is the box around the picture as turned.
             let reference = PDFAnnotationReference(pageIndex: try session.currentIndex(of: historyPage), name: pictureName,
-                                                   annotationType: PDFPicture.annotationTypeName, bounds: currentBounds)
+                                                   annotationType: PDFPicture.annotationTypeName,
+                                                   bounds: PictureRotation.boundingRectangle(of: currentBounds, turnedBy: -rotationRadians))
             try session.apply(.movePicture(reference, to: targetBounds))
         }
         try move(in: self, from: previousBounds, to: bounds)
@@ -104,11 +108,21 @@ extension PDFSession {
         let pageIndex = try currentIndex(of: page)
         // The picture may have been moved since this step was recorded; its name finds it.
         try apply(.removeAnnotation(PDFAnnotationReference(pageIndex: pageIndex, name: picture.name,
-                                                           annotationType: PDFPicture.annotationTypeName, bounds: picture.bounds)))
+                                                           annotationType: PDFPicture.annotationTypeName, bounds: picture.annotationBounds)))
         if selectedPicture?.pictureName == picture.name { selectedPicture = nil }
     }
 
     // MARK: Turning, cropping and ordering
+
+    /// Turns the picture by hand to an angle, in radians, clockwise as the page is shown,
+    /// about its middle. The picture's bytes stay as they are.
+    func turnPicture(_ selection: PDFPictureSelection, to rotationRadians: Double) throws {
+        let (_, picture) = try pageAndPicture(of: selection)
+        var turned = picture
+        turned.rotationRadians = PictureRotation.normalized(rotationRadians)
+        guard turned != picture else { return }
+        try replacePicture(picture, with: turned, order: .unchanged, on: selection.page, actionName: "Rotate Image")
+    }
 
     /// Turns the picture a quarter turn clockwise as it is shown, about its middle.
     func rotatePicture(_ selection: PDFPictureSelection) async throws {
@@ -123,7 +137,8 @@ extension PDFSession {
     }
 
     /// Keeps the part of the picture shown inside `pageBounds`, a rectangle of the page's
-    /// coordinates inside the picture's bounds.
+    /// coordinates inside the picture's bounds, given as the bounds are: before the picture
+    /// is turned by hand.
     func cropPicture(_ selection: PDFPictureSelection, to pageBounds: CGRect) async throws {
         let (_, picture) = try pageAndPicture(of: selection)
         let pictureBounds = picture.bounds
@@ -140,7 +155,11 @@ extension PDFSession {
         let pictureData = picture.imageData
         var cropped = picture
         cropped.imageData = try await Task.detached(priority: .userInitiated) { try PictureEditing.cropped(pictureData, to: imageRegion) }.value
-        cropped.bounds = croppedBounds
+        // The part kept stays where it was shown: a picture of its own, turned as the
+        // picture was, about its own middle. Page coordinates count upward, where a
+        // clockwise turn is a negative angle.
+        cropped.bounds = PictureRotation.rectangle(croppedBounds, withMiddleTurnedBy: -picture.rotationRadians,
+                                                   about: CGPoint(x: pictureBounds.midX, y: pictureBounds.midY))
         try replacePicture(picture, with: cropped, order: .unchanged, on: selection.page, actionName: "Crop Image")
     }
 
@@ -181,7 +200,7 @@ extension PDFSession {
 
     /// The topmost picture at a point of the page, in the page's coordinates.
     func picture(at pagePoint: CGPoint, on page: PDFPage) -> PDFPicture? {
-        pictures(on: page).last { picture in picture.bounds.contains(pagePoint) }
+        pictures(on: page).last { picture in picture.contains(pagePoint) }
     }
 
     /// The rectangle moved so its middle is on the page: a picture can hang over an edge

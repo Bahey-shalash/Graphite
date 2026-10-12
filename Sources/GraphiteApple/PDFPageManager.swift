@@ -36,7 +36,8 @@ public enum PDFEdit: Sendable {
     case removeAnnotation(PDFAnnotationReference)
     /// Places a picture on a page, under the page's Pencil ink.
     case addPicture(page: Int, picture: PDFPicture)
-    /// Moves or resizes a picture Graphite placed.
+    /// Moves or resizes a picture Graphite placed, to a frame before it is turned
+    /// (`PDFPicture.bounds`); it keeps its angle.
     case movePicture(PDFAnnotationReference, to: CGRect)
     /// Puts another picture in the place of one Graphite placed, as when it is turned or
     /// cropped, and places it among the page's other pictures.
@@ -84,6 +85,13 @@ public enum PDFPageManager {
     public static let pictureKey = PDFAnnotationKey(rawValue: "GraphitePictureV1")
     /// The quarter turns a picture is drawn turned back by.
     public static let pictureTurnsKey = PDFAnnotationKey(rawValue: "GraphitePictureTurns")
+    /// How far a picture is turned by hand, in radians, clockwise as the page is shown;
+    /// written only for a turned picture, with its own width and height.
+    public static let pictureRotationKey = PDFAnnotationKey(rawValue: "GraphitePictureRotation")
+    /// The width and height of a turned picture before it is turned, in page points. Its
+    /// annotation's rectangle is the box around it as turned.
+    public static let pictureWidthKey = PDFAnnotationKey(rawValue: "GraphitePictureWidth")
+    public static let pictureHeightKey = PDFAnnotationKey(rawValue: "GraphitePictureHeight")
 
     /// Applies one edit. Documents that will be written pass `drawsInkOutlines` so Pencil
     /// ink is saved with its variable-width appearance (see `PDFOutlinedInkAnnotation`) and
@@ -148,7 +156,8 @@ public enum PDFPageManager {
                 throw GraphiteError.invalidFile("This image no longer exists.")
             }
             // A new annotation rather than new bounds: an annotation read from a file shows
-            // the appearance it was written with, at the size it was written.
+            // the appearance it was written with, at the size it was written. The picture
+            // keeps its angle; the bounds are its frame before it is turned.
             targetPage.removeAnnotation(annotation)
             picture.bounds = newBounds
             try addPicture(picture, to: targetPage, isForWrittenDocument: drawsInkOutlines)
@@ -285,7 +294,8 @@ public enum PDFPageManager {
     /// in `annotationNameKey`; another application's named markup gets the same backup
     /// here, so edits recorded against its name still find it in the written file.
     public static func preserveGraphiteKeysThroughPageTreeRewrite(in document: PDFDocument) {
-        let graphiteKeys = [groupKey, drawingKey, strokeNamesKey, annotationNameKey, pictureKey, pictureTurnsKey]
+        let graphiteKeys = [groupKey, drawingKey, strokeNamesKey, annotationNameKey, pictureKey, pictureTurnsKey,
+                            pictureRotationKey, pictureWidthKey, pictureHeightKey]
         for pageIndex in 0..<document.pageCount {
             for annotation in document.page(at: pageIndex)?.annotations ?? [] {
                 for key in graphiteKeys {

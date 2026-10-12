@@ -489,6 +489,57 @@ final class VectorPictureTests: XCTestCase {
         XCTAssertTrue(isBlack(shown.color(at: CGPoint(x: 200, y: 150))))
     }
 
+    // MARK: Turned pictures
+
+    /// A picture 160 by 40 points around (200, 150), red on its left half and transparent on
+    /// its right, turned a quarter turn clockwise: it then stands from y 70 to 230, 40 points
+    /// wide, with its red half on top.
+    private func turnedPictureDrawing() throws -> (drawing: VectorDrawing, picture: DrawingBackgroundImage) {
+        let picture = DrawingBackgroundImage(imageData: try pictureData(width: 160, height: 40, color: .red, type: .png, transparentRightHalf: true),
+                                             frame: CGRect(x: 120, y: 130, width: 160, height: 40), rotationRadians: .pi / 2)
+        return (VectorDrawing(size: Self.drawingSize, background: .white, pictures: [picture], shapes: []), picture)
+    }
+
+    private func assertShowsTurnedPicture(_ rendering: Rendering, reader: String, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(isClose(rendering.color(at: CGPoint(x: 200, y: 80)), to: .red), "\(reader): the red left half, turned clockwise to the top", file: file, line: line)
+        XCTAssertTrue(isWhite(rendering.color(at: CGPoint(x: 200, y: 220))), "\(reader): the transparent right half, at the bottom", file: file, line: line)
+        XCTAssertTrue(isWhite(rendering.color(at: CGPoint(x: 135, y: 150))), "\(reader): nothing where the picture was before it turned", file: file, line: line)
+        XCTAssertTrue(isWhite(rendering.color(at: CGPoint(x: 265, y: 150))), "\(reader): nothing on its other side", file: file, line: line)
+    }
+
+    func testTurnedPictureShowsTurnedInEveryReaderAndReadsBackItsAngle() throws {
+        let (drawing, picture) = try turnedPictureDrawing()
+        let drawingPayload = payload(for: drawing, paper: .plain)
+        XCTAssertEqual(drawingPayload.version, 5, "A build that cannot turn pictures must not take this drawing for one of its own.")
+
+        let pdfFile = try PDFDrawingFile.encode(drawing, payload: drawingPayload)
+        assertShowsTurnedPicture(try pdfRendering(of: pdfFile), reader: "Core Graphics")
+        assertShowsTurnedPicture(try pdfKitRendering(of: pdfFile), reader: "PDFKit")
+        XCTAssertEqual(PDFDrawingFile.readMetadata(pdfFile).payload?.pictures, [picture])
+
+        let svgFile = try SVGDrawingFile.encode(drawing, payload: drawingPayload)
+        let attributes = try XCTUnwrap(try collectedElements(of: svgFile).pictureAttributes.first)
+        XCTAssertEqual(attributes["transform"], "rotate(90 200 150)", "SVG's own rotation, about the picture's middle.")
+        XCTAssertEqual(SVGDrawingFile.readMetadata(svgFile).payload?.pictures, [picture])
+        let reread = try XCTUnwrap(try SVGDrawingFile.vectorDrawing(from: svgFile).pictures.first)
+        XCTAssertEqual(reread.frame, picture.frame)
+        XCTAssertEqual(reread.rotationRadians, picture.rotationRadians, accuracy: 0.0001)
+        assertShowsTurnedPicture(try rendering(of: try VectorDrawingRenderer.image(for: drawing, maximumPixelDimension: 800)), reader: "Graphite's preview")
+        #if canImport(AppKit)
+        assertShowsTurnedPicture(try coreSVGRendering(of: svgFile), reader: "Apple's SVG renderer")
+        #endif
+    }
+
+    func testSVGReaderTakesOnlyTheRotationGraphiteWrites() throws {
+        let frame = CGRect(x: 120, y: 130, width: 160, height: 40)
+        XCTAssertEqual(try SVGDrawingFile.pictureRotationRadians(fromTransform: "rotate(-12.5 200 150)", of: frame), -12.5 * .pi / 180, accuracy: 1e-9)
+        XCTAssertEqual(try SVGDrawingFile.pictureRotationRadians(fromTransform: "rotate(30 200.01 149.99)", of: frame), .pi / 6, accuracy: 1e-9,
+                       "The middle is written to a hundredth of a point.")
+        for foreignTransform in ["rotate(90 0 0)", "rotate(90)", "matrix(0 1 -1 0 350 -50)", "rotate(90 200 150) scale(2)", "rotate(nan 200 150)"] {
+            XCTAssertThrowsError(try SVGDrawingFile.pictureRotationRadians(fromTransform: foreignTransform, of: frame), foreignTransform)
+        }
+    }
+
     func testPDFWithTheWholePictureBudgetFitsAndRoundTrips() throws {
         let pictures = try picturesFillingTheBudget()
         let drawing = VectorDrawing(size: Self.drawingSize, background: .white, pictures: pictures, shapes: [try band(fromX: 20, toX: 380, atY: 250)])
