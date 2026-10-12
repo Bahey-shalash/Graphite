@@ -168,6 +168,17 @@ final class CommunityPluginShownCodeBlock {
         deliver(["eventType": "key", "elementPath": elementPath, "key": key])
     }
 
+    /// A context menu, hover or drag in the copy, delivered to the plugin's block: `details`
+    /// carries the element's path, the position in the block, and a drag's phase.
+    func forward(_ type: String, details: [String: Any]) {
+        guard ["contextmenu", "hover", "gesture"].contains(type) else { return }
+        var event: [String: Any] = ["eventType": type, "x": details["x"] as? Double ?? 0, "y": details["y"] as? Double ?? 0]
+        if let path = details["path"] as? [Int] { event["elementPath"] = path }
+        for key in ["phase", "pointerType"] { if let value = details[key] as? String { event[key] = value } }
+        if let overPath = details["overPath"] as? [Int] { event["overPath"] = overPath }
+        deliver(event)
+    }
+
     private func deliver(_ event: [String: Any]) {
         guard let host else { return }
         var message = event
@@ -407,6 +418,10 @@ enum CommunityPluginCodeBlockPage {
            a block sits on the note's own page. */
         html:has(body.graphite-view-page.graphite-themed), body.graphite-view-page.graphite-themed { background: var(--background-primary) !important; }
         body.graphite-view-page .graphite-code-block-root { height: 100vh; padding: 0; }
+        /* A long press on an element with a context menu opens the plugin's menu, not the
+           system's; an element the plugin drags is dragged, not scrolled. */
+        [data-graphite-listens~="menu"] { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+        [draggable="true"] { touch-action: none; -webkit-user-drag: none; }
         .graphite-code-block-root > .workspace-leaf { height: 100%; display: flex; flex-direction: column; }
         .graphite-code-block-root > .workspace-leaf > .workspace-leaf-content { display: flex; flex-direction: column; height: 100%; }
         .graphite-code-block-root .view-content { flex: 1 1 auto; overflow: auto; padding: 8px 6px; -webkit-overflow-scrolling: touch; }
@@ -518,6 +533,12 @@ enum CommunityPluginCodeBlockPage {
         new ResizeObserver(reportHeight).observe(document.documentElement);
         document.addEventListener('click', (event) => {
             const element = event.target instanceof Element ? event.target : null;
+            if (suppressesNextClick) {
+                suppressesNextClick = false;
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
             if (!blockElement() || !element || !blockElement().contains(element)) return;
             // Typing goes to text fields here; the plugin hears the text, not the tap.
             if (element.matches('input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]), textarea, select')) return;
@@ -525,6 +546,126 @@ enum CommunityPluginCodeBlockPage {
             event.stopPropagation();
             handler.postMessage({ kind: 'tap', path: pathTo(element) });
         }, true);
+        /// The nearest element, from `element` up to the block, that the plugin listens to for
+        /// `kind` of event (`data-graphite-listens`, written by the plugins' page).
+        function listener(element, kind) {
+            for (let current = element; current && blockElement() && blockElement().contains(current); current = current.parentElement) {
+                if ((current.getAttribute('data-graphite-listens') || '').split(' ').includes(kind)) return current;
+                if (kind === 'drag' && current.getAttribute('draggable') === 'true') return current;
+            }
+            return null;
+        }
+        /// A position measured from the block's top left corner, which the plugins' page
+        /// finds in its own block.
+        function positionOf(event) {
+            const bounds = blockElement().getBoundingClientRect();
+            return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+        }
+        function inBlock(event) {
+            const element = event.target instanceof Element ? event.target : null;
+            return blockElement() && element && blockElement().contains(element) ? element : null;
+        }
+        /// A tap that ended a long press or a drag is not a tap.
+        let suppressesNextClick = false;
+        function send(type, element, event, extra) {
+            handler.postMessage(Object.assign({ kind: 'event', type, path: element ? pathTo(element) : null }, positionOf(event), extra || {}));
+        }
+
+        // A right-click, or a two-finger click on a trackpad.
+        document.addEventListener('contextmenu', (event) => {
+            const element = inBlock(event);
+            if (!element || !listener(element, 'menu')) return;
+            event.preventDefault();
+            send('contextmenu', element, event);
+        }, true);
+
+        // A long press on a touch screen opens the menu, as in Obsidian on iPad.
+        let longPress = null;
+        document.addEventListener('pointerdown', (event) => {
+            const element = inBlock(event);
+            suppressesNextClick = false;
+            if (longPress) { clearTimeout(longPress.timer); longPress = null; }
+            if (event.pointerType === 'mouse' || !element || !listener(element, 'menu')) return;
+            const start = { clientX: event.clientX, clientY: event.clientY };
+            longPress = { start, timer: setTimeout(() => {
+                longPress = null;
+                suppressesNextClick = true;
+                send('contextmenu', element, start);
+            }, 500) };
+        }, true);
+        function endLongPress(event) {
+            if (!longPress) return;
+            if (event.type === 'pointermove' && Math.hypot(event.clientX - longPress.start.clientX, event.clientY - longPress.start.clientY) < 10) return;
+            clearTimeout(longPress.timer);
+            longPress = null;
+        }
+        for (const type of ['pointermove', 'pointerup', 'pointercancel']) document.addEventListener(type, endLongPress, true);
+
+        // Hovering with a mouse, trackpad or Pencil: the plugin hears the pointer move onto
+        // an element and off it (link previews, buttons that show on hover).
+        let hovered = null;
+        let hoverFrame = 0;
+        document.addEventListener('pointermove', (event) => {
+            if (event.buttons !== 0 || event.pointerType === 'touch') return;
+            const element = inBlock(event);
+            const target = element && listener(element, 'hover') ? element : null;
+            if (target === hovered) return;
+            hovered = target;
+            cancelAnimationFrame(hoverFrame);
+            hoverFrame = requestAnimationFrame(() => send('hover', hovered, event));
+        }, true);
+        document.addEventListener('pointerleave', (event) => {
+            if (!hovered) return;
+            hovered = null;
+            send('hover', null, event);
+        }, true);
+
+        // A press that moves: a drag the plugin follows (sortable lists, cards, and with a
+        // mouse or trackpad sliders too). It reaches the plugin only once it moves, so a tap
+        // stays a tap.
+        let drag = null;
+        document.addEventListener('pointerdown', (event) => {
+            const element = inBlock(event);
+            drag = null;
+            if (!element || event.button !== 0) return;
+            // On a touch screen only an element marked draggable is held (it does not scroll);
+            // elsewhere a finger scrolls.
+            const isDraggable = Boolean(element.closest('[draggable="true"]'));
+            if (event.pointerType !== 'mouse' ? !isDraggable : !(isDraggable || listener(element, 'drag') || listener(element, 'press'))) return;
+            drag = { element, start: { clientX: event.clientX, clientY: event.clientY }, pointerType: event.pointerType, isStarted: false, frame: 0 };
+        }, true);
+        document.addEventListener('pointermove', (event) => {
+            if (!drag || event.buttons === 0) return;
+            if (!drag.isStarted) {
+                if (Math.hypot(event.clientX - drag.start.clientX, event.clientY - drag.start.clientY) < 6) return;
+                drag.isStarted = true;
+                suppressesNextClick = true;
+                send('gesture', drag.element, drag.start, { phase: 'down', pointerType: drag.pointerType });
+            }
+            event.preventDefault();
+            const lastEvent = { clientX: event.clientX, clientY: event.clientY };
+            cancelAnimationFrame(drag.frame);
+            const current = drag;
+            drag.frame = requestAnimationFrame(() => {
+                const over = document.elementFromPoint(lastEvent.clientX, lastEvent.clientY);
+                send('gesture', current.element, lastEvent, { phase: 'move', overPath: over && blockElement().contains(over) ? pathTo(over) : null, pointerType: current.pointerType });
+            });
+        }, true);
+        function endDrag(event) {
+            if (!drag) return;
+            const ended = drag;
+            drag = null;
+            cancelAnimationFrame(ended.frame);
+            if (!ended.isStarted) return;
+            const over = document.elementFromPoint(event.clientX, event.clientY);
+            send('gesture', ended.element, event, { phase: event.type === 'pointercancel' ? 'cancel' : 'up',
+                                                     overPath: over && blockElement().contains(over) ? pathTo(over) : null, pointerType: ended.pointerType });
+        }
+        document.addEventListener('pointerup', endDrag, true);
+        document.addEventListener('pointercancel', endDrag, true);
+        // The copy's own drag of a link or picture would carry it out of the block.
+        document.addEventListener('dragstart', (event) => { if (inBlock(event)) event.preventDefault(); }, true);
+
         function forwardText(event) {
             const element = event.target instanceof Element ? event.target : null;
             if (!blockElement() || !element || !blockElement().contains(element) || !('value' in element)) return;
@@ -565,6 +706,8 @@ final class CommunityPluginCodeBlockDisplayCoordinator: NSObject, WKScriptMessag
             if let path = body["path"] as? [Int], let value = body["value"] as? String { block?.enter(value, elementPath: path) }
         case "key":
             if let path = body["path"] as? [Int], let key = body["key"] as? String { block?.press(key, elementPath: path) }
+        case "event":
+            if let type = body["type"] as? String { block?.forward(type, details: body) }
         default:
             break
         }

@@ -42,6 +42,164 @@
         return area;
     }
 
+    // MARK: Events copies forward
+
+    /// The events plugins listen for on their elements that a copy cannot turn into a tap: a
+    /// context menu (right-click, or a long press on a touch screen), hovering, presses that
+    /// drag, and drag and drop. Each element listening for one says so in an attribute,
+    /// which its copy carries, so the copy forwards these only where a plugin listens.
+    const forwardedEventKinds = {
+        contextmenu: 'menu',
+        mouseover: 'hover', mouseenter: 'hover', mouseout: 'hover', mouseleave: 'hover',
+        pointerover: 'hover', pointerenter: 'hover', pointerout: 'hover', pointerleave: 'hover',
+        mousedown: 'press', pointerdown: 'press', touchstart: 'press',
+        dragstart: 'drag', dragenter: 'drop', dragover: 'drop', drop: 'drop',
+    };
+    const listenAttribute = 'data-graphite-listens';
+    const originalAddEventListener = globalScope.EventTarget.prototype.addEventListener;
+    globalScope.EventTarget.prototype.addEventListener = function addEventListener(type, listener, options) {
+        const kind = forwardedEventKinds[type];
+        if (kind && globalScope.Element && this instanceof globalScope.Element) {
+            const kinds = (this.getAttribute(listenAttribute) || '').split(' ').filter(Boolean);
+            if (!kinds.includes(kind)) this.setAttribute(listenAttribute, kinds.concat(kind).join(' '));
+        }
+        return originalAddEventListener.call(this, type, listener, options);
+    };
+
+    /// Where a position in the copy, measured from the block's top left corner, is here.
+    function pointIn(entry, message) {
+        const bounds = followReplacement(entry).getBoundingClientRect();
+        const clientX = bounds.left + (Number(message.x) || 0);
+        const clientY = bounds.top + (Number(message.y) || 0);
+        return { clientX, clientY, screenX: clientX, screenY: clientY };
+    }
+
+    function mouseOptions(point, extra) {
+        return Object.assign({ bubbles: true, cancelable: true, composed: true, view: globalScope }, point, extra);
+    }
+
+    /// A right-click or long press: plugins open their menu (`Menu.showAtMouseEvent`).
+    function openContextMenu(entry, element, message) {
+        const options = mouseOptions(pointIn(entry, message), { button: 2, buttons: 2 });
+        if (typeof globalScope.PointerEvent === 'function') element.dispatchEvent(new globalScope.PointerEvent('pointerdown', Object.assign({ pointerType: 'mouse', isPrimary: true }, options)));
+        element.dispatchEvent(new globalScope.MouseEvent('contextmenu', options));
+    }
+
+    function ancestorsUpTo(element, root) {
+        const ancestors = [];
+        for (let current = element; current && current !== root.parentNode; current = current.parentNode) ancestors.push(current);
+        return ancestors;
+    }
+
+    /// The pointer moved onto another element of the copy (a mouse, trackpad or hovering
+    /// Pencil), or left it: over and out events bubble from the elements, enter and leave
+    /// go to each element the pointer entered or left, as a browser sends them.
+    function hover(entry, element, message) {
+        const root = followReplacement(entry);
+        const previous = entry.hoveredElement && root.contains(entry.hoveredElement) ? entry.hoveredElement : null;
+        if (previous === element) return;
+        entry.hoveredElement = element;
+        const options = mouseOptions(pointIn(entry, message), {});
+        const hasPointerEvents = typeof globalScope.PointerEvent === 'function';
+        const previousAncestors = previous ? ancestorsUpTo(previous, root) : [];
+        const newAncestors = element ? ancestorsUpTo(element, root) : [];
+        if (previous) {
+            if (hasPointerEvents) previous.dispatchEvent(new globalScope.PointerEvent('pointerout', Object.assign({ pointerType: 'mouse' }, options, { relatedTarget: element })));
+            previous.dispatchEvent(new globalScope.MouseEvent('mouseout', Object.assign({}, options, { relatedTarget: element })));
+            for (const left of previousAncestors.filter((ancestor) => !newAncestors.includes(ancestor))) {
+                const leaveOptions = Object.assign({}, options, { bubbles: false, relatedTarget: element });
+                if (hasPointerEvents) left.dispatchEvent(new globalScope.PointerEvent('pointerleave', Object.assign({ pointerType: 'mouse' }, leaveOptions)));
+                left.dispatchEvent(new globalScope.MouseEvent('mouseleave', leaveOptions));
+            }
+        }
+        if (element) {
+            if (hasPointerEvents) element.dispatchEvent(new globalScope.PointerEvent('pointerover', Object.assign({ pointerType: 'mouse' }, options, { relatedTarget: previous })));
+            element.dispatchEvent(new globalScope.MouseEvent('mouseover', Object.assign({}, options, { relatedTarget: previous })));
+            for (const entered of newAncestors.filter((ancestor) => !previousAncestors.includes(ancestor)).reverse()) {
+                const enterOptions = Object.assign({}, options, { bubbles: false, relatedTarget: previous });
+                if (hasPointerEvents) entered.dispatchEvent(new globalScope.PointerEvent('pointerenter', Object.assign({ pointerType: 'mouse' }, enterOptions)));
+                entered.dispatchEvent(new globalScope.MouseEvent('mouseenter', enterOptions));
+            }
+        }
+    }
+
+    /// A data transfer for a drag, Obsidian's own where the page has one, otherwise a
+    /// stand-in holding what the plugin sets.
+    function newDataTransfer() {
+        try { if (typeof globalScope.DataTransfer === 'function') return new globalScope.DataTransfer(); } catch (error) { /* a stand-in follows */ }
+        const data = new Map();
+        return {
+            dropEffect: 'none', effectAllowed: 'all', files: [], items: [],
+            get types() { return Array.from(data.keys()); },
+            setData(format, value) { data.set(String(format), String(value)); },
+            getData(format) { return data.has(String(format)) ? data.get(String(format)) : ''; },
+            clearData(format) { if (format === undefined) data.clear(); else data.delete(String(format)); },
+            setDragImage() {},
+        };
+    }
+
+    function dragEvent(type, point, dataTransfer) {
+        const options = mouseOptions(point, { dataTransfer });
+        let event = null;
+        try { if (typeof globalScope.DragEvent === 'function') event = new globalScope.DragEvent(type, options); } catch (error) { event = null; }
+        if (!event || event.dataTransfer !== dataTransfer) {
+            event = new globalScope.MouseEvent(type, mouseOptions(point, {}));
+            Object.defineProperty(event, 'dataTransfer', { value: dataTransfer });
+        }
+        return event;
+    }
+
+    /// A press that moves in the copy: for an element that can be dragged (`draggable`, or
+    /// one listening for `dragstart`), drag and drop as a browser runs it, over the elements
+    /// the copy finds under the finger; otherwise pointer and mouse presses and moves, which
+    /// sliders and sortable lists follow.
+    function gesture(entry, message) {
+        const point = pointIn(entry, message);
+        const over = (message.overPath ? elementAtPath(entry, message.overPath) : null) || (entry.gesture && entry.gesture.source);
+        const hasPointerEvents = typeof globalScope.PointerEvent === 'function';
+        const pointerOptions = (extra) => Object.assign({ pointerType: message.pointerType || 'touch', isPrimary: true, pointerId: 1 }, mouseOptions(point, extra));
+        if (message.phase === 'down') {
+            const source = elementAtPath(entry, message.elementPath);
+            if (!source) return;
+            const draggable = source.closest('[draggable="true"]') || source.closest('[' + listenAttribute + '~="drag"]');
+            entry.gesture = { source, draggable: draggable && followReplacement(entry).contains(draggable) ? draggable : null, dataTransfer: null, over: null, accepts: false };
+            if (hasPointerEvents) source.dispatchEvent(new globalScope.PointerEvent('pointerdown', pointerOptions({ button: 0, buttons: 1 })));
+            source.dispatchEvent(new globalScope.MouseEvent('mousedown', mouseOptions(point, { button: 0, buttons: 1 })));
+            return;
+        }
+        const state = entry.gesture;
+        if (!state) return;
+        if (state.draggable) {
+            if (!state.dataTransfer && message.phase === 'move') {
+                state.dataTransfer = newDataTransfer();
+                if (!state.draggable.dispatchEvent(dragEvent('dragstart', point, state.dataTransfer))) { state.draggable = null; return; }
+            }
+            if (!state.dataTransfer) { entry.gesture = null; return; }
+            if (over && over !== state.over) {
+                if (state.over) state.over.dispatchEvent(dragEvent('dragleave', point, state.dataTransfer));
+                over.dispatchEvent(dragEvent('dragenter', point, state.dataTransfer));
+                state.over = over;
+            }
+            // A drop target says it takes the drop by cancelling `dragover`.
+            if (over && message.phase !== 'cancel') state.accepts = !over.dispatchEvent(dragEvent('dragover', point, state.dataTransfer));
+            if (message.phase === 'up' || message.phase === 'cancel') {
+                if (message.phase === 'up' && over && state.accepts) over.dispatchEvent(dragEvent('drop', point, state.dataTransfer));
+                state.draggable.dispatchEvent(dragEvent('dragend', point, state.dataTransfer));
+                entry.gesture = null;
+            }
+            return;
+        }
+        const target = over || state.source;
+        if (message.phase === 'move') {
+            if (hasPointerEvents) target.dispatchEvent(new globalScope.PointerEvent('pointermove', pointerOptions({ buttons: 1 })));
+            target.dispatchEvent(new globalScope.MouseEvent('mousemove', mouseOptions(point, { buttons: 1 })));
+            return;
+        }
+        if (hasPointerEvents) target.dispatchEvent(new globalScope.PointerEvent(message.phase === 'cancel' ? 'pointercancel' : 'pointerup', pointerOptions({ button: 0, buttons: 0 })));
+        target.dispatchEvent(new globalScope.MouseEvent('mouseup', mouseOptions(point, { button: 0, buttons: 0 })));
+        entry.gesture = null;
+    }
+
     // MARK: Copies of blocks
 
     /// Copies what the live block shows that its HTML does not hold: whether boxes are
@@ -537,17 +695,28 @@
         async 'codeBlock.event'(message) {
             const entry = drawnBlocks.get(message.blockIdentifier);
             if (!entry) return { isHandled: false };
-            const element = elementAtPath(entry, message.elementPath);
-            if (!element) return { isHandled: false };
             // A Live Preview block may have moved since it was drawn: Graphite says where it is now.
             if (message.sectionIsCurrent) entry.section = sectionInformation(message);
+            const eventType = message.eventType || 'tap';
+            if (eventType === 'hover') {
+                hover(entry, message.elementPath ? elementAtPath(entry, message.elementPath) : null, message);
+                return { isHandled: true };
+            }
+            if (eventType === 'gesture') {
+                gesture(entry, message);
+                // Moves change the block as they go; its copy follows as other changes do.
+                if (message.phase === 'move' || message.phase === 'down') return { isHandled: true };
+            }
+            const element = eventType === 'gesture' ? followReplacement(entry) : elementAtPath(entry, message.elementPath);
+            if (!element) return { isHandled: false };
             // A task of the note itself is ticked by Graphite, in the note.
-            if (message.eventType !== 'input' && element.matches('input[data-graphite-task-line]')) {
+            if ((eventType === 'tap' || eventType === 'key') && element.matches('input[data-graphite-task-line]')) {
                 return { isHandled: true, taskLine: Number(element.getAttribute('data-graphite-task-line')) };
             }
-            if (message.eventType === 'input') enter(element, message.value);
-            else if (message.eventType === 'key') press(element, message.key);
-            else tap(element);
+            if (eventType === 'input') enter(element, message.value);
+            else if (eventType === 'key') press(element, message.key);
+            else if (eventType === 'contextmenu') openContextMenu(entry, element, message);
+            else if (eventType === 'tap') tap(element);
             // The plugin's handlers usually change the block at once; its copy goes back with
             // the answer, and later changes as usual.
             await new Promise((resolve) => globalScope.setTimeout(resolve, 0));

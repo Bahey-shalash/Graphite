@@ -65,10 +65,12 @@ extension CommunityPluginHost {
         // The view giving up the web view leaves a picture of itself in its tab, which may
         // still be on screen beside this one.
         if let previous = liveViewIdentifier, previous != identifier, let webView, webView.window != nil,
+           ContinuousClock.now - liveViewChangeTime > .seconds(1.5),
            let picture = await CommunityPluginViewPicture.taken(of: webView) {
             liveViewPictures[previous] = picture
         }
         liveViewPictures[identifier] = nil
+        if liveViewIdentifier != identifier { liveViewChangeTime = .now }
         liveViewIdentifier = identifier
         let answer = try? await send(["operation": "view.live", "leafIdentifier": identifier], timeout: .seconds(5))
         return answer?["isShown"] as? Bool == true
@@ -369,7 +371,8 @@ struct CommunityPluginLiveViewContent: View {
                 // Two live views on screen at once (a split): the one not holding the web view
                 // shows how it looked, and a tap swaps them, each keeping its state in the page.
                 Button { Task { _ = await host.showLive(viewIdentifier) } } label: {
-                    picture.image.resizable().scaledToFill()
+                    // At the size it was taken, in points: the tab rarely changes size meanwhile.
+                    picture.image
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).clipped()
                         .overlay(alignment: .bottom) {
                             Label("Tap to Use This View", systemImage: "hand.tap")
@@ -384,7 +387,7 @@ struct CommunityPluginLiveViewContent: View {
                 ContentUnavailableView {
                     Label(host.pluginView(withIdentifier: viewIdentifier)?.title ?? "Plugin View", systemImage: "rectangle.on.rectangle")
                 } description: {
-                    Text("This view is open in another tab.")
+                    Text("This view is in use in another tab or beside this one.")
                 } actions: {
                     Button("Show Here") { Task { _ = await host.showLive(viewIdentifier) } }
                 }

@@ -221,6 +221,9 @@ final class CommunityPluginHost {
     /// How each live view looked when another took the web view, shown in its tab (beside
     /// the live one in a split) until a tap makes it live again; its state stays in the page.
     var liveViewPictures: [String: CommunityPluginViewPicture] = [:]
+    /// When the live view last changed: a view that has just gone live has not laid itself
+    /// out at its tab's size yet, so no picture is kept of it.
+    @ObservationIgnored var liveViewChangeTime = ContinuousClock.now
     /// Counts the times the panel or a settings page gave the web view back, so a live view's
     /// tab shows it again.
     var webViewReleaseCount = 0
