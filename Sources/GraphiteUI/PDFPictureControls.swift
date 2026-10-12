@@ -95,7 +95,7 @@ struct PDFPictureArrangementBar: View {
                 .fontWeight(.semibold)
                 .tint(.primary)
             } else {
-                Text("Drag the image to move it, a corner to resize it, or the handle above it to rotate it.")
+                Text("Drag the image to move it, a corner to resize it, or the arrow handle to rotate it.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)

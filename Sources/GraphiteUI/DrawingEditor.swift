@@ -210,7 +210,7 @@ struct DrawingEditor: View {
                     .fontWeight(.semibold)
                     .tint(.primary)
             } else {
-                Text(canvasController.selectedPictureIdentifier == nil ? "Tap an image to select it." : "Drag the image to move it, a corner to resize it, or the handle above it to rotate it.")
+                Text(canvasController.selectedPictureIdentifier == nil ? "Tap an image to select it." : "Drag the image to move it, a corner to resize it, or the arrow handle to rotate it.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 8)
