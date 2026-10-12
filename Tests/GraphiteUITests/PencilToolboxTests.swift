@@ -505,4 +505,34 @@ final class PencilToolboxTests: XCTestCase {
         XCTAssertTrue(showsTools(width: narrowest, controls: false))
         XCTAssertFalse(showsTools(width: narrowest - 1, controls: false))
     }
+
+    /// The tool kinds and the stored state as main, without the laser pointer, reads them.
+    private enum ToolKindWithoutLaser: String, Codable { case ink, eraser, lasso }
+    private struct StoredStateWithoutLaser: Codable {
+        var toolInUse: ToolKindWithoutLaser
+        var presets: [InkPreset]
+        var presetInUseIndex: Int
+        var erasesWholeStrokes: Bool
+        var eraserWidth: Double
+        var eraserWidthChoices: [Double]?
+    }
+
+    func testTheLaserIsNeverSavedSoABuildWithoutItKeepsThePresets() throws {
+        let toolbox = PencilToolbox(defaults: defaults)
+        toolbox.chooseInk(.fountainPen)
+        toolbox.use(.eraser)
+        toolbox.use(.laser)
+        XCTAssertEqual(toolbox.toolInUse, .laser)
+        let saved = try XCTUnwrap(defaults.data(forKey: PencilToolbox.storageKey))
+        if let exportPath = ProcessInfo.processInfo.environment["GRAPHITE_TOOLBOX_STATE_EXPORT"] { try saved.write(to: URL(fileURLWithPath: exportPath)) }
+        let readWithoutLaser = try JSONDecoder().decode(StoredStateWithoutLaser.self, from: saved)
+        XCTAssertEqual(readWithoutLaser.toolInUse, .eraser, "The tool before the laser is saved in its place.")
+        XCTAssertEqual(readWithoutLaser.presets.first?.ink, .fountainPen, "The presets survive.")
+        // Read again, the toolbox has the eraser, not the laser.
+        XCTAssertEqual(PencilToolbox(defaults: defaults).toolInUse, .eraser)
+        // The laser straight after a launch saves the tool the launch had.
+        let relaunched = PencilToolbox(defaults: defaults)
+        relaunched.use(.laser)
+        XCTAssertEqual(try JSONDecoder().decode(StoredStateWithoutLaser.self, from: try XCTUnwrap(defaults.data(forKey: PencilToolbox.storageKey))).toolInUse, .eraser)
+    }
 }

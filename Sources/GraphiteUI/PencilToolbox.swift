@@ -240,7 +240,9 @@ final class PencilToolbox {
         if !hasStoredPresets { storedPresets = Self.defaultPresets }
         presets = storedPresets
         presetInUseIndex = hasStoredPresets ? min(max(stored?.presetInUseIndex ?? 0, 0), storedPresets.count - 1) : 0
-        toolInUse = stored?.toolInUse ?? .ink
+        let storedTool = stored?.toolInUse ?? .ink
+        toolInUse = storedTool
+        toolSavedInPlaceOfLaser = storedTool == .laser ? .ink : storedTool
         erasesWholeStrokes = stored?.erasesWholeStrokes ?? true
         let storedEraserWidthChoices = stored?.eraserWidthChoices.flatMap { widths in Self.validatedEraserWidthChoices(widths) } ?? Self.defaultEraserWidthChoices
         eraserWidthChoices = storedEraserWidthChoices
@@ -252,8 +254,16 @@ final class PencilToolbox {
         widths.count == defaultEraserWidthChoices.count && widths.allSatisfy(eraserWidthRange.contains) ? widths : nil
     }
 
+    /// The tool kept between launches in place of the laser pointer: the one in use before
+    /// it. The laser points while presenting and is put away with the app; and a build
+    /// without it could not read a saved state naming it, and would start with its default
+    /// presets.
+    @ObservationIgnored private var toolSavedInPlaceOfLaser = PencilToolKind.ink
+
     private func selectionChanged() {
-        let state = StoredState(toolInUse: toolInUse, presets: presets, presetInUseIndex: presetInUseIndex,
+        if toolInUse != .laser { toolSavedInPlaceOfLaser = toolInUse }
+        let savedTool = toolInUse == .laser ? toolSavedInPlaceOfLaser : toolInUse
+        let state = StoredState(toolInUse: savedTool, presets: presets, presetInUseIndex: presetInUseIndex,
                                 erasesWholeStrokes: erasesWholeStrokes, eraserWidth: eraserWidth, eraserWidthChoices: eraserWidthChoices)
         defaults.set(try? JSONEncoder().encode(state), forKey: Self.storageKey)
         NotificationCenter.default.post(name: Self.selectionDidChange, object: self)
