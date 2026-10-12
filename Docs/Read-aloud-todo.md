@@ -86,6 +86,7 @@ These are proposed release criteria, not measured results.
   - Markdown heading ranges are implemented. PDF Read Section Pages follows nested outlines and includes full boundary pages with explicit disclosure; exact semantic heading endpoints remain open. Scanned review lists offer indexed Start Here/End Here for one page, including corrected phrases; direct page-tap and cross-page recognized endpoints remain open.
 - [x] Add PDF page-range reading and distinguish printed page labels from physical page positions when they differ. The picker explicitly uses physical page positions.
 - [ ] Let the user begin at a tapped word or paragraph through an explicit reading action that does not interfere with selection, links, or Pencil writing.
+  - Live Preview and Source mode: a tap while reading moves reading there, and "Read from Here" is in the edit menu. The reading view and PDF pages remain open.
 - [ ] Stop at the requested endpoint without reading the next sentence, page, or section. Generation context outside the range must not become audible output.
 - [ ] Narrate the selected content faithfully. Summaries, explanations, and paraphrases are separate features outside this reader's default behavior.
 - [ ] Preserve the active range after pause/resume, seek, a voice change, and interruptions where the document revision still matches.
@@ -194,6 +195,7 @@ These are proposed release criteria, not measured results.
 - [x] Keep playback session ownership separate from a document view so tab navigation does not recreate the speech engine.
 - [ ] Define switching documents and vaults: stop before releasing required file access, preserve a valid checkpoint, and show which document is speaking.
 - [ ] Store a device-local resume checkpoint using document identity, revision, and semantic anchor. Revalidate it after external edits, renames, page changes, or note edits.
+  - A device-local place per note (source location) and PDF (page) is kept and Read Document resumes there, with Start Over. Revision checks and renames remain open.
 - [x] On an edit affecting the passage, pause and rebuild or ask the user to restart from a known anchor. Never continue highlighting unrelated content using stale offsets.
 - [ ] Handle calls, audio-route changes, headphones disconnecting, app backgrounding, screen locking, and system playback interruptions.
   - Implemented: playback audio session, reading continues in the background and when locked (seen in the simulator), unplugging pauses, an interruption resumes only if it was speaking and the system allows it (unit-tested). Calls, headphones and the silent switch still need a real iPad.
