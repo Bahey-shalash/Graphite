@@ -83,7 +83,7 @@ struct EmbeddedPDFViewer: View {
             statusBanner
             #if canImport(UIKit)
             if let session, isAnnotating, !session.isProtected, usesFixedToolbar {
-                PencilToolbar(toolbox: toolbox, favoriteColors: GraphitePreferences.storedColorPalette(), drawsShapes: $drawsShapes,
+                PencilToolbar(toolbox: toolbox, drawsShapes: $drawsShapes,
                               addImage: { pictureSource = .photoLibrary }, undoAvailability: session.undoAvailability)
             }
             #endif

@@ -359,7 +359,7 @@ final class PencilToolsTests: XCTestCase {
         let toolbox = PencilToolbox(defaults: toolboxDefaults)
         let highlighterIndex = try XCTUnwrap(toolbox.presets.firstIndex { preset in preset.ink == .highlighter })
         toolbox.usePreset(at: highlighterIndex)
-        let controller = try host(AnyView(PencilToolRow(toolbox: toolbox, favoriteColors: [], drawsShapes: .constant(false))
+        let controller = try host(AnyView(PencilToolRow(toolbox: toolbox, drawsShapes: .constant(false))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)))
         // The swatches are told apart by their colors: SwiftUI gives tests no accessibility tree.
         let blue = (red: 0x85, green: 0xc7, blue: 0xff)
@@ -373,12 +373,49 @@ final class PencilToolsTests: XCTestCase {
         try await waitUntil { (try? self.showsColor(mint, in: controller)) == true && (try? self.showsColor(blue, in: controller)) == false }
     }
 
+    /// The favorite colors on a PDF's fixed bar follow Settings › Colors while the bar is shown.
+    func testThePDFBarsFavoriteColorsFollowSettingsAtOnce() async throws {
+        let paletteKey = "GraphiteColorPalette"
+        let savedPalette = UserDefaults.standard.data(forKey: paletteKey)
+        let savedStyle = UserDefaults.standard.object(forKey: PencilToolbarStyle.preferenceKey)
+        let toolbox = PencilToolbox.shared
+        let savedPresetIndex = toolbox.presets.firstIndex { preset in preset.id == toolbox.presetInUse.id }
+        let savedToolInUse = toolbox.toolInUse
+        defer {
+            if let savedPalette { UserDefaults.standard.set(savedPalette, forKey: paletteKey) } else { UserDefaults.standard.removeObject(forKey: paletteKey) }
+            if let savedStyle { UserDefaults.standard.set(savedStyle, forKey: PencilToolbarStyle.preferenceKey) }
+            else { UserDefaults.standard.removeObject(forKey: PencilToolbarStyle.preferenceKey) }
+            if savedToolInUse == .ink, let savedPresetIndex { toolbox.usePreset(at: savedPresetIndex) }
+        }
+        UserDefaults.standard.removeObject(forKey: paletteKey)
+        UserDefaults.standard.set(PencilToolbarStyle.fixed.rawValue, forKey: PencilToolbarStyle.preferenceKey)
+        let penIndex = try XCTUnwrap(toolbox.presets.firstIndex { preset in preset.ink == .pen })
+        toolbox.usePreset(at: penIndex)
+
+        let location = FileManager.default.temporaryDirectory.appendingPathComponent("FavoriteColors-\(UUID().uuidString).pdf")
+        try PDFTemplateGenerator.documentData(paper: PaperSpecification(template: .blank)).write(to: location)
+        temporaryLocations.append(location)
+        let session = try await PDFSession.open(location)
+        let controller = try host(AnyView(NavigationStack { PDFPane(session: session, resolveConflict: { _ in }) }))
+        let defaultRed = (red: 0xe9, green: 0x31, blue: 0x47)
+        let brown = (red: 0xa0, green: 0x5a, blue: 0x2c)
+        try await waitUntil { (try? self.showsColor(defaultRed, in: controller, withinTop: 240)) == true }
+        XCTAssertFalse(try showsColor(brown, in: controller, withinTop: 240))
+
+        // As Settings › Colors saves an edited palette.
+        let preferences = GraphitePreferences(defaults: .standard)
+        preferences.colorPalette = [PaletteColor(name: "brown", hex: "#a05a2c")]
+        try await waitUntil {
+            (try? self.showsColor(brown, in: controller, withinTop: 240)) == true && (try? self.showsColor(defaultRed, in: controller, withinTop: 240)) == false
+        }
+    }
+
     /// Whether the window shows a few pixels of a color, as a swatch is filled with it.
-    private func showsColor(_ color: (red: Int, green: Int, blue: Int), in controller: UIViewController) throws -> Bool {
+    private func showsColor(_ color: (red: Int, green: Int, blue: Int), in controller: UIViewController, withinTop topHeight: CGFloat = 120) throws -> Bool {
         let window = try XCTUnwrap(controller.view.window)
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
-        let image = UIGraphicsImageRenderer(bounds: CGRect(x: 0, y: 0, width: window.bounds.width, height: 120), format: format).image { _ in
+        let image = UIGraphicsImageRenderer(bounds: CGRect(x: 0, y: 0, width: window.bounds.width, height: topHeight), format: format).image { _ in
             window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
         }
         let cgImage = try XCTUnwrap(image.cgImage)

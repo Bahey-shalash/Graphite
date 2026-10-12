@@ -215,7 +215,17 @@ final class GraphitePreferences {
     /// The palette as saved, for code without the preferences object, such as the Pencil
     /// palette's Favorite Colors menu.
     nonisolated static func storedColorPalette(in defaults: UserDefaults = .standard) -> [PaletteColor] {
-        defaults.data(forKey: Key.colorPalette).flatMap { storedPalette in try? JSONDecoder().decode([PaletteColor].self, from: storedPalette) }
+        colorPalette(decoding: defaults.data(forKey: Key.colorPalette))
+    }
+
+    /// Where the palette is kept, for views that follow changes to it (`@AppStorage`) while
+    /// Settings is open beside them, as the Pencil tool bar does.
+    nonisolated static let colorPaletteKey = Key.colorPalette
+
+    /// The palette from what is kept under `colorPaletteKey`; the default colors when
+    /// nothing, or something unreadable, is kept there.
+    nonisolated static func colorPalette(decoding storedPalette: Data?) -> [PaletteColor] {
+        storedPalette.flatMap { storedPalette in try? JSONDecoder().decode([PaletteColor].self, from: storedPalette) }
             ?? PaletteColor.defaultPalette
     }
 

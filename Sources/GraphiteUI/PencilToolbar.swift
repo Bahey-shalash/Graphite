@@ -43,7 +43,6 @@ enum PencilInkSample {
 /// document's own controls at its ends where they have no other place.
 struct PencilToolbar<LeadingControls: View, TrailingControls: View>: View {
     @Bindable var toolbox: PencilToolbox
-    let favoriteColors: [PaletteColor]
     @Binding var drawsShapes: Bool
     /// Nil where images cannot be added.
     var addImage: (() -> Void)?
@@ -57,7 +56,7 @@ struct PencilToolbar<LeadingControls: View, TrailingControls: View>: View {
     var body: some View {
         HStack(spacing: 12) {
             leadingControls.padding(.leading, 16)
-            PencilToolRow(toolbox: toolbox, favoriteColors: favoriteColors, drawsShapes: $drawsShapes, addImage: addImage,
+            PencilToolRow(toolbox: toolbox, drawsShapes: $drawsShapes, addImage: addImage,
                           undoAvailability: undoAvailability)
                 .frame(maxWidth: .infinity)
             trailingControls
@@ -86,7 +85,6 @@ struct PencilToolbar<LeadingControls: View, TrailingControls: View>: View {
 /// so it is not told apart by color alone.
 struct PencilToolRow: View {
     @Bindable var toolbox: PencilToolbox
-    let favoriteColors: [PaletteColor]
     @Binding var drawsShapes: Bool
     /// Nil where images cannot be added.
     var addImage: (() -> Void)?
@@ -96,12 +94,17 @@ struct PencilToolRow: View {
     /// The highlighter's colors as Settings keeps them, followed so a change there shows on
     /// the bar at once, not only when the bar is made again.
     @AppStorage(GraphitePreferences.highlighterPaletteKey) private var storedHighlighterPalette: Data?
+    /// The favorite colors as Settings › Colors keeps them, followed in the same way. They
+    /// were handed in by the bar's owner as it was made, and a change showed only when the
+    /// document was opened again.
+    @AppStorage(GraphitePreferences.colorPaletteKey) private var storedColorPalette: Data?
     @State private var showsInkOptions = false
     /// The size whose width is open for changing.
     @State private var adjustedSize: PencilSizeChoice?
 
     /// The colors offered while a highlighter is in use, in place of the favorite colors.
     private var highlighterColors: [PaletteColor] { GraphitePreferences.highlighterPalette(decoding: storedHighlighterPalette) }
+    private var favoriteColors: [PaletteColor] { GraphitePreferences.colorPalette(decoding: storedColorPalette) }
     private var buttonSide: CGFloat { PencilToolbarMetrics.buttonSide }
     private var selectedFill: AnyShapeStyle { PencilToolbarMetrics.selectedFill }
 
@@ -122,7 +125,7 @@ struct PencilToolRow: View {
         .frame(height: rowHeight)
         .tint(.primary)
         // Apple's palette answers Apple Pencil's double tap and squeeze; the row takes its place.
-        .background { PencilGestureReceiver(toolbox: toolbox, favoriteColors: favoriteColors, undoAvailability: undoAvailability) }
+        .background { PencilGestureReceiver(toolbox: toolbox, undoAvailability: undoAvailability) }
     }
 
     private var tools: some View {
@@ -231,9 +234,8 @@ struct PencilToolRow: View {
 }
 
 extension PencilToolbar where LeadingControls == EmptyView, TrailingControls == EmptyView {
-    init(toolbox: PencilToolbox, favoriteColors: [PaletteColor], drawsShapes: Binding<Bool>, addImage: (() -> Void)? = nil,
-         undoAvailability: UndoAvailability? = nil) {
-        self.init(toolbox: toolbox, favoriteColors: favoriteColors, drawsShapes: drawsShapes, addImage: addImage, undoAvailability: undoAvailability,
+    init(toolbox: PencilToolbox, drawsShapes: Binding<Bool>, addImage: (() -> Void)? = nil, undoAvailability: UndoAvailability? = nil) {
+        self.init(toolbox: toolbox, drawsShapes: drawsShapes, addImage: addImage, undoAvailability: undoAvailability,
                   leadingControls: { EmptyView() }, trailingControls: { EmptyView() })
     }
 }
@@ -252,7 +254,7 @@ struct TabBarPencilTools: View {
 
     var body: some View {
         if session.showsFixedPencilTools(style: toolbarStyle, showsTools: showsToolPicker, horizontalSizeClass: horizontalSizeClass, isFocused: isFocused) {
-            PencilToolRow(toolbox: PencilToolbox.shared, favoriteColors: GraphitePreferences.storedColorPalette(), drawsShapes: $drawsShapes,
+            PencilToolRow(toolbox: PencilToolbox.shared, drawsShapes: $drawsShapes,
                           addImage: { pictureSource = .photoLibrary }, undoAvailability: session.undoAvailability, rowHeight: PencilToolbarMetrics.heightInTabBar)
                 .modifier(PDFPictureAdding(session: session, source: $pictureSource))
         }

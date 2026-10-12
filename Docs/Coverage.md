@@ -4,6 +4,10 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-12.
 
+## The favorite colors on the Pencil bar follow Settings at once: 2026-10-12
+
+The fixed bar's favorite colors were handed in by `PDFPane`, `EmbeddedPDFViewer` and `DrawingEditor` as `GraphitePreferences.storedColorPalette()` when the view was built, so a palette changed in Settings › Colors showed on the bar only when the document was opened again, as the highlighter's colors did before. `PencilToolRow` and the squeeze palette now follow the stored palette themselves, and the owners no longer pass it. Checked by `PencilToolsTests.testThePDFBarsFavoriteColorsFollowSettingsAtOnce` (hosted): a PDF's fixed bar with the pen in use shows the default red swatch, then, once Settings saves another palette, its color and no red; the same test fails with the previous code (the second wait times out). Not looked at on the iPad.
+
 ## Drawings in Live Preview no longer flicker: 2026-10-12
 
 Reported by the owner with a screen recording from the iPad: while typing under the drawings at the end of a note, the drawings went black for about 75 ms, now and then; moving the cursor onto a drawing's line and off it showed a spinner and an empty space for a frame or two; scrolling showed spinners. Three causes, each reproduced in the iPad simulator with a copy of the recorded note and its six drawings, with frame recordings (`simctl io recordVideo`) and breakpoints that log:

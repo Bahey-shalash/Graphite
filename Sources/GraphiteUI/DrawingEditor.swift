@@ -139,7 +139,7 @@ struct DrawingEditor: View {
                     // The bar stays while pictures are arranged: removing it would move the
                     // drawing under the finger.
                     if usesFixedToolbar, showsToolPicker {
-                        PencilToolbar(toolbox: toolbox, favoriteColors: GraphitePreferences.storedColorPalette(), drawsShapes: $drawsShapes,
+                        PencilToolbar(toolbox: toolbox, drawsShapes: $drawsShapes,
                                       addImage: { showsPhotoPicker = true },
                                       undoAvailability: canvasController.undoAvailability)
                     }
