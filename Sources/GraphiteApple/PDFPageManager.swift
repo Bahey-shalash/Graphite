@@ -81,8 +81,14 @@ public enum PDFPageManager {
     /// Repeats the annotation's `/NM` name. PDFKit drops `/NM` when a save also changes the
     /// page tree (inserting, deleting, or moving pages), but keeps custom keys.
     public static let annotationNameKey = PDFAnnotationKey(rawValue: "GraphiteAnnotationName")
-    /// The bytes of a picture placed on a page, as prefixed base64 text; see `PDFPicture`.
+    /// The bytes of an upright picture placed on a page, as prefixed base64 text; see
+    /// `PDFPicture`. Builds before turning was possible read only this key.
     public static let pictureKey = PDFAnnotationKey(rawValue: "GraphitePictureV1")
+    /// The bytes of a picture turned by hand, in the same form. A build that reads only
+    /// `pictureKey` takes the stamp for another application's: it shows it turned, as its
+    /// appearance is, and leaves it alone, rather than taking it for an upright picture
+    /// filling its rectangle and stretching it when it is moved.
+    public static let turnedPictureKey = PDFAnnotationKey(rawValue: "GraphitePictureV2")
     /// The quarter turns a picture is drawn turned back by.
     public static let pictureTurnsKey = PDFAnnotationKey(rawValue: "GraphitePictureTurns")
     /// How far a picture is turned by hand, in radians, clockwise as the page is shown;
@@ -92,6 +98,12 @@ public enum PDFPageManager {
     /// annotation's rectangle is the box around it as turned.
     public static let pictureWidthKey = PDFAnnotationKey(rawValue: "GraphitePictureWidth")
     public static let pictureHeightKey = PDFAnnotationKey(rawValue: "GraphitePictureHeight")
+
+    /// Makes a document that is shown, never written, draw Graphite's pictures itself
+    /// (`PDFPictureDrawingDelegate`). Call it before any page's annotations are read.
+    public static func prepareForDisplay(_ document: PDFDocument) {
+        document.delegate = PDFPictureDrawingDelegate.shared
+    }
 
     /// Applies one edit. Documents that will be written pass `drawsInkOutlines` so Pencil
     /// ink is saved with its variable-width appearance (see `PDFOutlinedInkAnnotation`) and
@@ -105,6 +117,8 @@ public enum PDFPageManager {
         case .insert(let data, let insertionIndex):
             guard insertionIndex >= 0, insertionIndex <= document.pageCount,
                   let incoming = PDFDocument(data: data), !incoming.isLocked else { throw GraphiteError.invalidFile("Cannot import these PDF pages.") }
+            // Pages put back by undo carry Graphite's pictures; a shown document draws them.
+            if !drawsInkOutlines { prepareForDisplay(incoming) }
             for pageIndex in 0..<incoming.pageCount {
                 guard let importedPage = incoming.page(at: pageIndex)?.copy() as? PDFPage else { throw GraphiteError.invalidFile("Cannot copy imported page.") }
                 document.insert(importedPage, at: insertionIndex + pageIndex)
@@ -225,7 +239,8 @@ public enum PDFPageManager {
 
     /// Whether the annotation is a picture Graphite placed, without decoding its picture.
     private static func isPicture(_ annotation: PDFAnnotation) -> Bool {
-        annotation.type == PDFPicture.annotationTypeName && annotation.value(forAnnotationKey: pictureKey) != nil
+        annotation.type == PDFPicture.annotationTypeName
+            && (annotation.value(forAnnotationKey: pictureKey) != nil || annotation.value(forAnnotationKey: turnedPictureKey) != nil)
     }
 
     /// The pictures Graphite placed on a page, the lowest first.
@@ -294,7 +309,7 @@ public enum PDFPageManager {
     /// in `annotationNameKey`; another application's named markup gets the same backup
     /// here, so edits recorded against its name still find it in the written file.
     public static func preserveGraphiteKeysThroughPageTreeRewrite(in document: PDFDocument) {
-        let graphiteKeys = [groupKey, drawingKey, strokeNamesKey, annotationNameKey, pictureKey, pictureTurnsKey,
+        let graphiteKeys = [groupKey, drawingKey, strokeNamesKey, annotationNameKey, pictureKey, turnedPictureKey, pictureTurnsKey,
                             pictureRotationKey, pictureWidthKey, pictureHeightKey]
         for pageIndex in 0..<document.pageCount {
             for annotation in document.page(at: pageIndex)?.annotations ?? [] {
@@ -351,6 +366,11 @@ public enum PDFPageManager {
         destinations.restore(in: exported)
         preserveGraphiteKeysThroughPageTreeRewrite(in: exported)
         guard exported.pageCount == selectedPages.count, let exportedData = exported.dataRepresentation() else { throw GraphiteError.invalidFile("Could not export the selected pages.") }
+        // Without the objects of the pages left out and of replaced annotations, when the
+        // compacted PDF opens with the same pages.
+        if let compacted = PDFObjectCompaction.compacted(exportedData)?.data, PDFDocument(data: compacted)?.pageCount == selectedPages.count {
+            return compacted
+        }
         return exportedData
     }
 }
@@ -462,7 +482,7 @@ public actor PDFFileService {
                         guard let document = PDFDocument(url: source), !document.isLocked else { throw GraphiteError.invalidFile("This PDF is locked or unreadable.") }
                         guard document.allowsDocumentChanges, document.allowsCommenting else { throw GraphiteError.unavailable("This PDF does not permit editing.") }
                         try PDFPageManager.replay(edits, on: document)
-                        guard document.write(to: staging), let reopened = PDFDocument(url: staging), reopened.pageCount == document.pageCount else {
+                        guard Self.write(document, to: staging) else {
                             throw GraphiteError.invalidFile("PDF verification failed. The original file was preserved.")
                         }
                     }
@@ -483,8 +503,23 @@ public actor PDFFileService {
         try writer.replace(destination, expecting: .absent) { staging in
             guard let document = PDFDocument(url: baselineURL) else { throw GraphiteError.invalidFile("The open PDF snapshot is unavailable.") }
             try PDFPageManager.replay(edits, on: document)
-            guard document.write(to: staging), PDFDocument(url: staging)?.pageCount == document.pageCount else { throw GraphiteError.invalidFile("Could not verify the PDF copy.") }
+            guard Self.write(document, to: staging) else { throw GraphiteError.invalidFile("Could not verify the PDF copy.") }
         }
+    }
+
+    /// Writes the document, then rewrites the file without the objects nothing refers to
+    /// any more (see `PDFObjectCompaction`), and returns whether the file opens with every
+    /// page. A compacted file that does not open is not used; the file PDFKit wrote stays.
+    static func write(_ document: PDFDocument, to destination: URL) -> Bool {
+        guard document.write(to: destination) else { return false }
+        let compactedLocation = destination.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString)-compacted.pdf")
+        defer { try? FileManager.default.removeItem(at: compactedLocation) }
+        if (try? PDFObjectCompaction.compact(fileAt: destination, writingTo: compactedLocation)) != nil,
+           PDFDocument(url: compactedLocation)?.pageCount == document.pageCount,
+           (try? FileManager.default.replaceItemAt(destination, withItemAt: compactedLocation)) != nil {
+            return true
+        }
+        return PDFDocument(url: destination)?.pageCount == document.pageCount
     }
     public func export(baselineURL: URL, edits: [PDFEdit], pages: [Int]) throws -> Data {
         guard let document = PDFDocument(url: baselineURL) else { throw GraphiteError.invalidFile("The PDF snapshot is unavailable.") }

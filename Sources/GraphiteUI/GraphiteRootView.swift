@@ -132,7 +132,7 @@ public struct GraphiteRootView: View {
             }
         }
         .fullScreenCover(item: $workspace.drawingEditorRequest) { request in
-            DrawingEditor(request: request) { content, format in
+            DrawingEditor(request: request, noteDestination: workspace.lassoNoteDestination(for: request)) { content, format in
                 try await workspace.saveDrawing(content, format: format, for: request)
             } exportCopy: { content, format in
                 try await workspace.exportDrawingCopy(content, format: format, title: request.title)

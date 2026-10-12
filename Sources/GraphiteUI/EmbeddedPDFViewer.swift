@@ -22,6 +22,9 @@ struct EmbeddedPDFViewer: View {
     let location: URL
     let startPageNumber: Int?
     let height: CGFloat
+    /// Changes when files the vault shows change; the embed then shows this PDF as saved
+    /// elsewhere, such as from its own tab, unless it has annotations not saved yet.
+    let drawingVersion: Int
     /// Opens the PDF in the full PDF pane at a zero-based page index.
     let openInPane: (Int) -> Void
 
@@ -53,6 +56,8 @@ struct EmbeddedPDFViewer: View {
     private var usesFixedToolbar: Bool { toolbarStyle == .fixed && horizontalSizeClass != .compact }
     #endif
     @Environment(\.scenePhase) private var scenePhase
+    /// The note this PDF is embedded in, where the lasso's pictures of its pages go.
+    @Environment(\.lassoNoteDestination) private var noteDestination
 
     /// What the conflict banner says instead of its default text.
     private enum ConflictNotice {
@@ -65,10 +70,11 @@ struct EmbeddedPDFViewer: View {
     ///   - startPageNumber: One-based page to show first, from `#page=N`.
     ///   - height: Viewer height in points, from `#height=N`; defaults to 560.
     ///   - openInPane: Opens the PDF in the full PDF pane at the page shown here.
-    init(location: URL, startPageNumber: Int? = nil, height: CGFloat? = nil, openInPane: @escaping (Int) -> Void) {
+    init(location: URL, startPageNumber: Int? = nil, height: CGFloat? = nil, drawingVersion: Int = 0, openInPane: @escaping (Int) -> Void) {
         self.location = location
         self.startPageNumber = startPageNumber
         self.height = height.map { requestedHeight in min(max(requestedHeight, CGFloat(PDFEmbedOptions.minimumHeight)), CGFloat(PDFEmbedOptions.maximumHeight)) } ?? Self.defaultHeight
+        self.drawingVersion = drawingVersion
         self.openInPane = openInPane
     }
 
@@ -79,7 +85,7 @@ struct EmbeddedPDFViewer: View {
             statusBanner
             #if canImport(UIKit)
             if let session, isAnnotating, !session.isProtected, usesFixedToolbar {
-                PencilToolbar(toolbox: toolbox, favoriteColors: GraphitePreferences.storedColorPalette(), drawsShapes: $drawsShapes,
+                PencilToolbar(toolbox: toolbox, drawsShapes: $drawsShapes,
                               addImage: { pictureSource = .photoLibrary }, undoAvailability: session.undoAvailability)
             }
             #endif
@@ -113,6 +119,17 @@ struct EmbeddedPDFViewer: View {
                     } else {
                         try await Self.withBackgroundTime { try await session.save() }
                     }
+                } catch {
+                    session.errorMessage = error.localizedDescription
+                }
+            }
+        }
+        // Live Preview keeps this view when a file changes, where it used to make it again.
+        .onChange(of: drawingVersion) {
+            guard let session else { return }
+            Task {
+                do {
+                    if try await session.hasChangedExternally(), !session.hasUnsavedChanges { reload() }
                 } catch {
                     session.errorMessage = error.localizedDescription
                 }
@@ -291,7 +308,8 @@ struct EmbeddedPDFViewer: View {
                 GraphitePDFView(session: session,
                                 input: annotationInput(for: session),
                                 isEmbedded: true,
-                                initialPageIndex: session.currentPageIndex)
+                                initialPageIndex: session.currentPageIndex,
+                                noteDestination: noteDestination)
                     // A reloaded file is a new session; its view and canvases start fresh.
                     .id(ObjectIdentifier(session))
             }

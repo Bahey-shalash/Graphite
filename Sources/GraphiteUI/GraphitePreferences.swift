@@ -215,7 +215,17 @@ final class GraphitePreferences {
     /// The palette as saved, for code without the preferences object, such as the Pencil
     /// palette's Favorite Colors menu.
     nonisolated static func storedColorPalette(in defaults: UserDefaults = .standard) -> [PaletteColor] {
-        defaults.data(forKey: Key.colorPalette).flatMap { storedPalette in try? JSONDecoder().decode([PaletteColor].self, from: storedPalette) }
+        colorPalette(decoding: defaults.data(forKey: Key.colorPalette))
+    }
+
+    /// Where the palette is kept, for views that follow changes to it (`@AppStorage`) while
+    /// Settings is open beside them, as the Pencil tool bar does.
+    nonisolated static let colorPaletteKey = Key.colorPalette
+
+    /// The palette from what is kept under `colorPaletteKey`; the default colors when
+    /// nothing, or something unreadable, is kept there.
+    nonisolated static func colorPalette(decoding storedPalette: Data?) -> [PaletteColor] {
+        storedPalette.flatMap { storedPalette in try? JSONDecoder().decode([PaletteColor].self, from: storedPalette) }
             ?? PaletteColor.defaultPalette
     }
 
@@ -229,7 +239,17 @@ final class GraphitePreferences {
     }
     /// The highlighter's colors, as saved, for the Pencil tools.
     nonisolated static func storedHighlighterPalette(in defaults: UserDefaults = .standard) -> [PaletteColor] {
-        defaults.data(forKey: Key.highlighterPalette).flatMap { storedPalette in try? JSONDecoder().decode([PaletteColor].self, from: storedPalette) }
+        highlighterPalette(decoding: defaults.data(forKey: Key.highlighterPalette))
+    }
+
+    /// Where the highlighter's colors are kept, for views that follow changes to them
+    /// (`@AppStorage`) while Settings is open beside them.
+    nonisolated static let highlighterPaletteKey = Key.highlighterPalette
+
+    /// The highlighter's colors from what is kept under `highlighterPaletteKey`; the default
+    /// colors when nothing, or something unreadable, is kept there.
+    nonisolated static func highlighterPalette(decoding storedPalette: Data?) -> [PaletteColor] {
+        storedPalette.flatMap { storedPalette in try? JSONDecoder().decode([PaletteColor].self, from: storedPalette) }
             ?? PaletteColor.defaultHighlighterPalette
     }
 

@@ -62,10 +62,7 @@ struct MarkdownPane: View {
                                 headingScrollRequest: $document.headingScrollRequest,
                                 handledScrollToken: Binding(get: { session.handledHeadingScrollToken }, set: { token in session.handledHeadingScrollToken = token }),
                                 navigate: { target, isWiki in follow(target, isWiki: isWiki) },
-                                openPDF: { path, pageIndex in
-                                    workspace.activateTab(tabID)
-                                    Task { await workspace.open(path, pdfPageIndex: pageIndex) }
-                                },
+                                openPDF: openPDF,
                                 updateProperties: preferences.isEnabled(.properties) ? { properties in session.replaceProperties(properties) } : nil,
                                 baseContext: workspace.baseEmbedContext(for: session.path),
                                 folding: ReadingFolding(foldedKeys: session.foldedKeys) { [session] key in
@@ -77,6 +74,7 @@ struct MarkdownPane: View {
                 .environment(\.readingImageActions, ReadingImageActions(providerIdentity: ObjectIdentifier(workspace),
                                                                         viewImage: viewImage, editDrawing: drawingEditor, drawOnImage: imageDrawing))
                 .environment(\.communityPluginCodeBlocks, workspace.communityPlugins.isRuntimeRunning ? workspace.communityPlugins : nil)
+                .environment(\.lassoNoteDestination, LassoNoteDestination.note(session, in: workspace))
             } else {
                 NativeMarkdownEditor(session: session, configuration: editorConfiguration, environment: livePreviewEnvironment,
                                      headingScrollRequest: document.headingScrollRequest, actions: editorActions,
@@ -262,6 +260,14 @@ struct MarkdownPane: View {
         Task { await workspace.follow(target, from: session.path, isWiki: isWiki) }
     }
 
+    /// Opens an embedded PDF in the PDF view at a zero-based page, for an embed's "Open in
+    /// PDF View" in either view mode. Unlike a page link, which leaves the note focused, it
+    /// takes the person to the PDF: to its tab, or to the other side where it is open.
+    private func openPDF(_ path: VaultPath, at pageIndex: Int) {
+        workspace.activateTab(tabID)
+        Task { await workspace.open(path, pdfPageIndex: pageIndex) }
+    }
+
     /// Applies an editing command from a menu to the note.
     private func run(_ command: EditorCommand) {
         guard let edit = MarkdownEditing.edit(for: command, in: session.text as NSString, selection: session.selection,
@@ -279,12 +285,14 @@ struct MarkdownPane: View {
             resolve: { [workspace] target, isWiki in await workspace.resolveLink(target, from: notePath, isWiki: isWiki) },
             open: { [workspace] path in Task { await workspace.open(path) } },
             follow: { [workspace] target, isWiki in Task { await workspace.follow(target, from: notePath, isWiki: isWiki) } },
+            openPDF: openPDF,
             updateProperties: preferences.isEnabled(.properties) ? { [session] properties in session.replaceProperties(properties) } : nil,
             declaredPropertyTypes: session.declaredPropertyTypes,
             baseContext: workspace.baseEmbedContext(for: notePath),
             viewImage: viewImage, editDrawing: drawingEditor, drawOnImage: imageDrawing, indexVersion: workspace.indexVersion,
             // Reading view's column, a little wider than Live Preview's, bounds the decode.
-            embeddedImageColumnWidth: preferences.usesReadableLineLength ? ReadingConfiguration.readableColumnWidth : nil)
+            embeddedImageColumnWidth: preferences.usesReadableLineLength ? ReadingConfiguration.readableColumnWidth : nil,
+            lassoNoteDestination: LassoNoteDestination.note(session, in: workspace))
     }
 
     /// Opens a drawing in the editor, where the platform and preferences allow it.

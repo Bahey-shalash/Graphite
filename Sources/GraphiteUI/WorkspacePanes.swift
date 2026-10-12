@@ -568,7 +568,10 @@ extension TabDocumentView {
                     }
                 }
             },
-            noteName: note.map { note in workspace.preferences.displayName(for: note.path) })
+            noteName: note.map { note in workspace.preferences.displayName(for: note.path) },
+            addImageToNote: note.map { note in
+                { pngData, name in Task { await workspace.addLassoPicture(pngData, named: name, to: note) } }
+            })
     }
 }
 

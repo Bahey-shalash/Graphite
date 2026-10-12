@@ -22,21 +22,18 @@ enum PencilGestureResponse: Equatable {
 /// Receives Apple Pencil's double tap and squeeze for the fixed bar it sits behind.
 struct PencilGestureReceiver: UIViewRepresentable {
     let toolbox: PencilToolbox
-    let favoriteColors: [PaletteColor]
     let undoAvailability: UndoAvailability?
 
     func makeUIView(context: Context) -> PencilGestureReceiverView { PencilGestureReceiverView() }
 
     func updateUIView(_ receiver: PencilGestureReceiverView, context: Context) {
         receiver.toolbox = toolbox
-        receiver.favoriteColors = favoriteColors
         receiver.undoAvailability = undoAvailability
     }
 }
 
 final class PencilGestureReceiverView: UIView, UIPencilInteractionDelegate {
     var toolbox: PencilToolbox?
-    var favoriteColors: [PaletteColor] = []
     var undoAvailability: UndoAvailability?
 
     override init(frame: CGRect) {
@@ -80,7 +77,7 @@ final class PencilGestureReceiverView: UIView, UIPencilInteractionDelegate {
             }
             presenter = presentedController
         }
-        let palette = PencilPaletteController(toolbox: toolbox, favoriteColors: favoriteColors, undoAvailability: undoAvailability)
+        let palette = PencilPaletteController(toolbox: toolbox, undoAvailability: undoAvailability)
         palette.modalPresentationStyle = .popover
         if let popover = palette.popoverPresentationController {
             popover.sourceView = self
@@ -96,9 +93,9 @@ final class PencilGestureReceiverView: UIView, UIPencilInteractionDelegate {
 /// lasso, the sizes and colors of the tool in use, and Undo and Redo. Choosing a tool, a
 /// size or a color closes it.
 final class PencilPaletteController: UIHostingController<PencilPalette> {
-    init(toolbox: PencilToolbox, favoriteColors: [PaletteColor], undoAvailability: UndoAvailability?) {
-        super.init(rootView: PencilPalette(toolbox: toolbox, favoriteColors: favoriteColors, undoAvailability: undoAvailability, close: {}))
-        rootView = PencilPalette(toolbox: toolbox, favoriteColors: favoriteColors, undoAvailability: undoAvailability) { [weak self] in
+    init(toolbox: PencilToolbox, undoAvailability: UndoAvailability?) {
+        super.init(rootView: PencilPalette(toolbox: toolbox, undoAvailability: undoAvailability, close: {}))
+        rootView = PencilPalette(toolbox: toolbox, undoAvailability: undoAvailability) { [weak self] in
             self?.dismiss(animated: true)
         }
         sizingOptions = .preferredContentSize
@@ -109,11 +106,15 @@ final class PencilPaletteController: UIHostingController<PencilPalette> {
 
 struct PencilPalette: View {
     let toolbox: PencilToolbox
-    let favoriteColors: [PaletteColor]
     let undoAvailability: UndoAvailability?
     let close: () -> Void
+    /// The highlighter's colors as Settings keeps them, followed as on the bar.
+    @AppStorage(GraphitePreferences.highlighterPaletteKey) private var storedHighlighterPalette: Data?
     /// The colors offered while a highlighter is in use, as on the bar.
-    var highlighterColors: [PaletteColor] = GraphitePreferences.storedHighlighterPalette()
+    private var highlighterColors: [PaletteColor] { GraphitePreferences.highlighterPalette(decoding: storedHighlighterPalette) }
+    /// The favorite colors as Settings keeps them, followed as on the bar.
+    @AppStorage(GraphitePreferences.colorPaletteKey) private var storedColorPalette: Data?
+    private var favoriteColors: [PaletteColor] { GraphitePreferences.colorPalette(decoding: storedColorPalette) }
 
     var body: some View {
         let buttons = PencilToolButtons(toolbox: toolbox, rowHeight: PencilToolbarMetrics.buttonSide + 4)
@@ -124,13 +125,14 @@ struct PencilPalette: View {
                 }
                 buttons.toolButton(.eraser)
                 buttons.toolButton(.lasso)
+                buttons.toolButton(.laser)
             }
             // The tools stand on a line, as on the bar.
             .overlay(alignment: .bottom) { Hairline() }
             if toolbox.toolInUse == .ink {
                 HStack(spacing: 2) {
                     ForEach(Array(toolbox.presetInUse.widthChoices.enumerated()), id: \.offset) { choiceIndex, width in
-                        buttons.sizeButton(choiceIndex: choiceIndex, isChosen: toolbox.presetInUse.width == width) { toolbox.useWidthChoice(at: choiceIndex) }
+                        buttons.sizeButton(choiceIndex: choiceIndex, width: width, isChosen: toolbox.presetInUse.width == width) { toolbox.useWidthChoice(at: choiceIndex) }
                     }
                     Hairline(axis: .vertical).frame(height: 20).padding(.horizontal, 6)
                     if toolbox.presetInUse.ink == .highlighter {

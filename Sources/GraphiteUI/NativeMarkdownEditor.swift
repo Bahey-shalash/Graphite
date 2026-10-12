@@ -31,6 +31,11 @@ final class MarkdownTextView: UITextView {
     /// or when Graphite asks.
     private var lastTouchUptime: TimeInterval = -.infinity
     private var isEditingRequested = false
+    /// True while the note's view goes away and the text view gives up the keyboard. Ending
+    /// editing in an embedded PDF hands focus on to the text view around it, and a note
+    /// touched a moment before took it: it began editing and made its own tab active again,
+    /// right after an embed's "Open in PDF View" had shown the PDF's tab.
+    var refusesFocus = false
 
     /// A text view on TextKit 2, the system's default for a text view made in code. Not
     /// `UITextView(usingTextLayoutManager:)`: that factory makes the view through an
@@ -50,7 +55,7 @@ final class MarkdownTextView: UITextView {
 
     override var canBecomeFirstResponder: Bool {
         let wasRecentlyTouched = ProcessInfo.processInfo.systemUptime - lastTouchUptime < 1
-        return super.canBecomeFirstResponder && (isFirstResponder || isEditingRequested || wasRecentlyTouched)
+        return super.canBecomeFirstResponder && (isFirstResponder || (!refusesFocus && (isEditingRequested || wasRecentlyTouched)))
     }
 
     /// Starts editing on Graphite's behalf, for example to show a rendered block's source.
@@ -540,8 +545,6 @@ struct NativeMarkdownEditor: UIViewRepresentable {
     private func update(_ textView: MarkdownTextView, coordinator: Coordinator) {
         coordinator.session = session
         textView.readAloudRange = readAloudRange
-        // Rendered drawings must be rebuilt after a drawing file is rewritten.
-        if coordinator.environment?.drawingVersion != environment?.drawingVersion { coordinator.removeAllWidgets() }
         let previousBlockPolicy = coordinator.renderedBlockPolicy
         coordinator.environment = environment
         coordinator.follow = follow
@@ -559,11 +562,15 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             coordinator.rebuildBlocks(in: textView, forcesBlockScan: true)
             coordinator.restyleEverything(in: textView)
         }
-        // Rendered blocks already on screen show the new settings, index state and
-        // accent in place, keeping their own state (such as a base's chosen view).
+        // Rendered blocks already on screen show the new settings, index state, files and
+        // accent in place, keeping their own state (such as a base's chosen view). A changed
+        // file reaches them too: each looks its files up again and keeps showing what it
+        // shows until then. Rebuilding them blanked every drawing in the note for a few
+        // frames after each save, since the system reports the note's own save as a change.
         let widgetSignature = LivePreviewWidgetSignature(environment: environment, accentHex: configuration.accentHex, notePath: session.path.rawValue)
         if coordinator.widgetSignature != widgetSignature {
             let changesOnlyIndex = coordinator.widgetSignature?.appearance == widgetSignature.appearance
+                && coordinator.widgetSignature?.drawingVersion == widgetSignature.drawingVersion
             coordinator.widgetSignature = widgetSignature
             coordinator.refreshWidgets(in: textView, onlyThoseReadingIndex: changesOnlyIndex)
         }
@@ -669,6 +676,13 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         /// Measured heights of rendered blocks, keyed by their content: the height each
         /// block's view last reported in this editor, whatever the width then.
         private var reservedHeights: [LivePreviewBlockKey: CGFloat] = [:]
+        /// The height the text last kept for each rendered block, which a view's report is
+        /// compared with. It can differ from `reservedHeights` and from the shared heights: a
+        /// note styled before its text view had a width (as when it opens again) keeps the
+        /// estimate, and a later report equal to an earlier editor's measurement had left
+        /// that estimate in place, a gap that moved the blocks below it away from where they
+        /// were drawn.
+        private var heightsKeptInText: [LivePreviewBlockKey: CGFloat] = [:]
         private static let reservedHeightsKeptBeyondBlocks = 64
         /// Heights measured by every editor, for blocks this editor has not measured yet.
         /// Shared across editors on purpose: they are disposable, bounded, and main-actor only.
@@ -686,6 +700,8 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         /// Later tries for a rendered block still missing after the passes above, which can
         /// happen when TextKit lays out the viewport only after the view settles.
         private var delayedPlacementTries = 0
+        /// Set while blocks are placed again on a viewport laid out for them in the same pass.
+        private var isPlacingOnViewportLaidOutNow = false
         /// The text column's width when rendered blocks were last placed, and the placement
         /// waiting for a new width to settle.
         private var placedColumnWidth: CGFloat = 0
@@ -750,6 +766,10 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         func viewWasDismantled(with container: MarkdownEditorContainerView) {
             containersInUse.remove(container)
             guard let textView = container.textViewShownHere else { return }
+            // The keyboard given up here, by the text view or a view inside it, does not
+            // come back to the note.
+            textView.refusesFocus = true
+            defer { textView.refusesFocus = false }
             isLettingGoOfTextView = true
             textView.endEditing(true)
             if let remainingContainer = containersInUse.newest {
@@ -960,6 +980,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             guard reservedHeights.count > 2 * blockEntries.count + Self.reservedHeightsKeptBeyondBlocks else { return }
             let keysInNote = Set(blockEntries.map(\.key))
             reservedHeights = reservedHeights.filter { key, _ in keysInNote.contains(key) }
+            heightsKeptInText = heightsKeptInText.filter { key, _ in keysInNote.contains(key) }
             blockKeysAwaitingRestyle.formIntersection(keysInNote)
         }
 
@@ -974,7 +995,9 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             if textState.cachesDescribeOldText { rebuildBlocks(in: textView) }
             textState.discardUnstyledEdit()
             styler.applyStyles(to: textView.textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true,
-                               revealedMarkup: revealedMarkup, concealedBlocks: concealedBlocks(in: textView), foldedRegions: foldedRegions,
+                               revealedMarkup: revealedMarkup,
+                               concealedBlocks: concealedBlocks(in: textView, styledRange: NSRange(location: 0, length: textView.textStorage.length)),
+                               foldedRegions: foldedRegions,
                                blockContextCheckpoints: blockContextCheckpoints)
             textView.typingAttributes = styler.baseAttributes
             textView.setNeedsLayout()
@@ -983,7 +1006,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         private func restyle(_ range: NSRange, in textView: UITextView) {
             let selectedRange = textView.selectedRange
             styler.applyStyles(to: textView.textStorage, editedRange: range, restyleEverything: false,
-                               revealedMarkup: revealedMarkup, concealedBlocks: concealedBlocks(in: textView), foldedRegions: foldedRegions,
+                               revealedMarkup: revealedMarkup, concealedBlocks: concealedBlocks(in: textView, styledRange: range), foldedRegions: foldedRegions,
                                blockContextCheckpoints: blockContextCheckpoints)
             textView.selectedRange = selectedRange
             textView.typingAttributes = styler.baseAttributes
@@ -1021,7 +1044,9 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             isEditing && LivePreviewBlockActivity.isActive(blockRange: entry.range, selection: selection, in: source)
         }
 
-        private func concealedBlocks(in textView: UITextView) -> [ConcealedBlock] {
+        /// - Parameter styledRange: The text being styled, whose blocks' heights are recorded
+        ///   in `heightsKeptInText`; nil when the styled blocks are not known in advance.
+        private func concealedBlocks(in textView: UITextView, styledRange: NSRange?) -> [ConcealedBlock] {
             guard isLivePreview, !textState.cachesDescribeOldText else { return [] }
             let source = currentSource(of: textView)
             let selection = textView.selectedRange
@@ -1033,7 +1058,9 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                 // A folded section hides its blocks too.
                 guard NoteFolding.regions(hiding: entry.range.location, in: folded).isEmpty else { return nil }
                 guard !isActive(entry, selection: selection, in: source) else { return nil }
-                return ConcealedBlock(range: entry.range, reservedHeight: reservedHeight(of: entry, columnWidth: columnWidth))
+                let height = reservedHeight(of: entry, columnWidth: columnWidth)
+                if let styledRange, NSIntersectionRange(entry.range, styledRange).length > 0 { heightsKeptInText[entry.key] = height }
+                return ConcealedBlock(range: entry.range, reservedHeight: height)
             }
         }
 
@@ -1548,7 +1575,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             for blockIndex in blocksChangingActivity { restyle(blockEntries[blockIndex].range, in: textView) }
             let selectedRange = textView.selectedRange
             let restyledRanges = styler.applyRevealedMarkupChange(to: textView.textStorage, from: previousMarkup, to: newMarkup,
-                                                                  concealedBlocks: concealedBlocks(in: textView), foldedRegions: foldedRegions,
+                                                                  concealedBlocks: concealedBlocks(in: textView, styledRange: nil), foldedRegions: foldedRegions,
                                                                   blockContextCheckpoints: blockContextCheckpoints)
             guard !blocksChangingActivity.isEmpty || !restyledRanges.isEmpty else { return }
             // Set only when styling moved it: setting the selection costs UIKit tens of
@@ -1648,6 +1675,23 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                 }
                 return true
             }
+            // The cursor leaving a block restyles it, which replaces its fragment, and TextKit
+            // lays the viewport out only after this pass. Waiting a turn of the run loop showed
+            // a frame or two with the text below already moved down and the block's space
+            // empty. The viewport is laid out now instead, and the blocks placed on it. Laying
+            // it out can scroll the view, as when the block takes its height back below a
+            // selection that UIKit keeps in sight, so it is laid out once more where it went.
+            if !keysAwaitingLayout.isEmpty, !isPlacingOnViewportLaidOutNow {
+                isPlacingOnViewportLaidOutNow = true
+                defer { isPlacingOnViewportLaidOutNow = false }
+                for _ in 0..<2 {
+                    let offsetBeforeLayout = textView.contentOffset
+                    textLayoutManager.textViewportLayoutController.layoutViewport()
+                    if textView.contentOffset == offsetBeforeLayout { break }
+                }
+                positionWidgets(in: textView)
+                return
+            }
             for (key, host) in widgetHosts where !keysInUse.contains(key) {
                 host.view.removeFromSuperview()
                 widgetHosts[key] = nil
@@ -1742,6 +1786,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                 self.updateReservedHeight(height, for: key, in: textView)
             })
             return AnyView(widget
+                .environment(\.lassoNoteDestination, environment.lassoNoteDestination)
                 .environment(\.colorScheme, textView.traitCollection.userInterfaceStyle == .dark ? .dark : .light)
                 .tint(accent)
                 .environment(\.accent, accent))
@@ -1752,8 +1797,10 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             // Measured at the width the view was laid out at, which can lag the text view's.
             let measuredWidth = widgetHosts[key]?.view.bounds.width ?? textView.contentColumnWidth
             let sharedKey = MeasuredBlockHeightCache.Key(blockKey: key, columnWidth: measuredWidth, textSize: configuration.textSize)
-            // The height the styling reserved: this editor's last report, else an earlier editor's.
-            let styledHeight = reservedHeights[key] ?? sharedKey.flatMap { sharedKey in Self.sharedMeasuredHeights.height(for: sharedKey) }
+            // The height the styling reserved in the text, else this editor's last report, else
+            // an earlier editor's.
+            let styledHeight = heightsKeptInText[key] ?? reservedHeights[key]
+                ?? sharedKey.flatMap { sharedKey in Self.sharedMeasuredHeights.height(for: sharedKey) }
             if let sharedKey { Self.sharedMeasuredHeights.record(height, for: sharedKey) }
             if let styledHeight, abs(styledHeight - height) <= 1 {
                 reservedHeights[key] = styledHeight
@@ -2978,14 +3025,19 @@ extension NativeMarkdownEditor {
 struct LivePreviewWidgetSignature: Equatable {
     let appearance: String
     let index: String
+    /// Changes when a file the vault shows changes, such as a drawing saved; every block
+    /// that shows a file looks it up again.
+    let drawingVersion: Int
 
     /// `notePath` is where the blocks' links are followed from; the note can be renamed.
     init(environment: LivePreviewEnvironment?, accentHex: String, notePath: String) {
         guard let environment else {
             appearance = ""
             index = ""
+            drawingVersion = 0
             return
         }
+        drawingVersion = environment.drawingVersion
         let palette = environment.paletteHexByName.sorted { leftEntry, rightEntry in leftEntry.key < rightEntry.key }
             .map { entry in "\(entry.key)=\(entry.value)" }.joined(separator: ",")
         let declaredPropertyTypes = environment.declaredPropertyTypes.sorted { leftEntry, rightEntry in leftEntry.key < rightEntry.key }

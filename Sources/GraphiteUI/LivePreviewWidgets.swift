@@ -12,6 +12,9 @@ struct LivePreviewEnvironment {
     let resolve: (String, Bool) async -> VaultPath?
     let open: (VaultPath) -> Void
     let follow: (String, Bool) -> Void
+    /// Opens an embedded PDF in the PDF view at a zero-based page, focusing it; without it,
+    /// an embed follows a page link to the PDF instead.
+    var openPDF: ((VaultPath, Int) -> Void)? = nil
     /// Nil when the Properties view is turned off: the frontmatter then stays as text.
     let updateProperties: (([NoteProperty]) -> Void)?
     /// Property types assigned in `.obsidian/types.json`, which the frontmatter is read with.
@@ -29,6 +32,8 @@ struct LivePreviewEnvironment {
     /// The widest, in points, the note's column shows an embedded image; nil when the
     /// column is as wide as the window. Images are decoded for this width.
     var embeddedImageColumnWidth: CGFloat? = nil
+    /// Where the lasso's pictures of an embedded PDF go: this note.
+    var lassoNoteDestination: LassoNoteDestination? = nil
 }
 
 /// A rendered stand-in for concealed Live Preview source.
@@ -219,18 +224,24 @@ private struct RenderedMarkdownBlock: View {
 
     private struct PreparedMarkdown {
         let sourceKey: String
+        let textKey: String
         let markdown: String
         let hasUnresolvedEmbeds: Bool
     }
 
-    /// Everything the prepared text depends on besides the index. The editor keeps this
-    /// view while colors, the palette, or a drawing change, so a preparation made for
-    /// anything else is stale and is not shown.
-    private var sourceKey: String {
+    /// What the prepared text depends on besides the index and the files it shows: the
+    /// source, colors, and the palette. The editor keeps this view while they change, so
+    /// a preparation made for other text is stale and is not shown.
+    private var textKey: String {
         let palette = environment.paletteHexByName.sorted { firstEntry, secondEntry in firstEntry.key < secondEntry.key }
             .map { entry in "\(entry.key)=\(entry.value)" }.joined(separator: ",")
-        return "\(markdown.hashValue)|\(environment.drawingVersion)|\(environment.colorsEnabled)|\(palette)"
+        return "\(markdown.hashValue)|\(environment.colorsEnabled)|\(palette)"
     }
+
+    /// Everything the prepared text depends on besides the index. After a file changes, the
+    /// text is prepared again, and the earlier preparation, which differs at most in its
+    /// images, is shown until then rather than the unprepared text.
+    private var sourceKey: String { "\(textKey)|\(environment.drawingVersion)" }
 
     /// An embed not found yet (the vault may still be indexing) is looked up again when
     /// the index changes; a table whose embeds were all found is not prepared again.
@@ -242,7 +253,8 @@ private struct RenderedMarkdownBlock: View {
 
     var body: some View {
         let key = sourceKey
-        let preparedMarkdown = prepared?.sourceKey == key ? prepared?.markdown : nil
+        let currentTextKey = textKey
+        let preparedMarkdown = prepared?.textKey == currentTextKey ? prepared?.markdown : nil
         ObsidianMarkdownText(markdown: preparedMarkdown ?? LivePreviewText.prepared(markdown, colorsEnabled: environment.colorsEnabled, paletteHexByName: environment.paletteHexByName),
                              root: environment.root, textSize: environment.textSize, navigate: environment.follow,
                              // `follow` scrolls the note to a heading written as `#heading`,
@@ -252,7 +264,8 @@ private struct RenderedMarkdownBlock: View {
                 guard preparationTaskKey != settledPreparationTaskKey else { return }
                 let preparation = await LivePreviewText.preparedResolvingEmbeds(markdown, environment: environment)
                 guard !Task.isCancelled else { return }
-                prepared = PreparedMarkdown(sourceKey: key, markdown: preparation.markdown, hasUnresolvedEmbeds: preparation.hasUnresolvedEmbeds)
+                prepared = PreparedMarkdown(sourceKey: key, textKey: currentTextKey, markdown: preparation.markdown,
+                                            hasUnresolvedEmbeds: preparation.hasUnresolvedEmbeds)
                 settledPreparationTaskKey = preparationTaskKey
             }
     }
@@ -353,7 +366,7 @@ private struct LivePreviewEmbedView: View {
 
     var body: some View {
         Group {
-            switch resolution {
+            switch shownResolution {
             case .loading:
                 ProgressView().frame(maxWidth: .infinity, minHeight: 60)
             case .missing:
@@ -374,8 +387,13 @@ private struct LivePreviewEmbedView: View {
             case .audio(let location, let name):
                 EmbeddedAudioPlayer(location: location, name: name)
             case .pdf(let path, let location, let options):
-                EmbeddedPDFViewer(location: location, startPageNumber: options.startPageNumber, height: options.height.map { height in CGFloat(height) }) { pageIndex in
-                    environment.follow(path.rawValue + "#page=\(pageIndex + 1)", true)
+                EmbeddedPDFViewer(location: location, startPageNumber: options.startPageNumber, height: options.height.map { height in CGFloat(height) },
+                                  drawingVersion: environment.drawingVersion) { pageIndex in
+                    if let openPDF = environment.openPDF {
+                        openPDF(path, pageIndex)
+                    } else {
+                        environment.follow(path.rawValue + "#page=\(pageIndex + 1)", true)
+                    }
                 }
             case .note(let path, let heading, let blocks):
                 // Drawn like reading view's embedded notes: a link to the note, then its content.
@@ -429,12 +447,26 @@ private struct LivePreviewEmbedView: View {
     }
 
     private var isLoading: Bool {
-        if case .loading = resolution { return true }
+        if case .loading = shownResolution { return true }
         return false
+    }
+
+    /// What the embed shows: the lookup's result, or until the first lookup ends, the
+    /// picture it last showed at this width. A view made again for an embed, scrolled back
+    /// into view or with the cursor leaving its line, then shows the drawing in its first
+    /// frame rather than an empty frame and a progress indicator; the lookup replaces it
+    /// if the file has changed.
+    private var shownResolution: EmbedResolution {
+        guard case .loading = resolution, let foundImage = LivePreviewEmbedImageLocations.foundImage(for: embed, in: environment.root),
+              let thumbnail = ReadingImageCache.shared.lastThumbnail(for: foundImage.location, kind: .block, displayPixelWidth: displayPixelWidth) else {
+            return resolution
+        }
+        return .image(path: foundImage.path, image: thumbnail.image, aspectRatio: thumbnail.aspectRatio, isEditableDrawing: thumbnail.isEditableDrawing)
     }
 
     private func resolve() async {
         guard let path = await environment.resolve(embed.target, embed.isWiki), let location = try? path.url(in: environment.root) else {
+            LivePreviewEmbedImageLocations.forget(embed, in: environment.root)
             resolution = .missing
             return
         }
@@ -446,11 +478,14 @@ private struct LivePreviewEmbedView: View {
             // Widget views are discarded off screen and after a drawing is saved; the shared
             // cache makes an image again only when its file changed.
             guard let thumbnail = try? await ReadingImageCache.shared.thumbnail(for: location, kind: .block, displayPixelWidth: displayPixelWidth) else {
+                LivePreviewEmbedImageLocations.forget(embed, in: environment.root)
                 resolution = .unreadable(path); return
             }
+            LivePreviewEmbedImageLocations.remember(LivePreviewEmbedImageLocations.FoundImage(path: path, location: location), for: embed, in: environment.root)
             resolution = .image(path: path, image: thumbnail.image, aspectRatio: thumbnail.aspectRatio, isEditableDrawing: thumbnail.isEditableDrawing)
             return
         }
+        LivePreviewEmbedImageLocations.forget(embed, in: environment.root)
         let subpath = embed.target.split(separator: "#", maxSplits: 1).dropFirst().first.map(String.init)
         if DocumentKind(path: path) == .pdf {
             resolution = .pdf(path, location, subpath.map(PDFEmbedOptions.init(fragment:)) ?? PDFEmbedOptions())
@@ -474,5 +509,40 @@ private struct LivePreviewEmbedView: View {
               let source = String(data: snapshot.data, encoding: .utf8), let body = try? MarkdownSemantics.parse(source).body else { return nil }
         guard let part = NoteBlocks.embeddedPart(of: body, subpath: subpath) else { return .missingSection }
         return .blocks(NotePreviewDocument.blocks(from: part))
+    }
+}
+
+/// Where each embedded image was last found, by vault and embed, so a rendered embed made
+/// again can show its last picture, kept by `ReadingImageCache`, while it looks the file
+/// up again. Finding the file waits for the index, so without this every new view of an
+/// embed showed a progress indicator for a few frames, even for a drawing on screen a
+/// moment before. Past `maximumCount` it starts over, which costs only those frames.
+@MainActor
+enum LivePreviewEmbedImageLocations {
+    struct FoundImage: Equatable {
+        let path: VaultPath
+        let location: URL
+    }
+
+    static let maximumCount = 2_000
+    private static var foundImages: [String: FoundImage] = [:]
+
+    static func foundImage(for embed: EmbedReference, in root: URL) -> FoundImage? {
+        foundImages[key(for: embed, in: root)]
+    }
+
+    static func remember(_ foundImage: FoundImage, for embed: EmbedReference, in root: URL) {
+        let key = key(for: embed, in: root)
+        if foundImages[key] == nil, foundImages.count >= maximumCount { foundImages.removeAll() }
+        foundImages[key] = foundImage
+    }
+
+    /// An embed that no longer finds an image, so a new view of it does not show one.
+    static func forget(_ embed: EmbedReference, in root: URL) {
+        foundImages[key(for: embed, in: root)] = nil
+    }
+
+    private static func key(for embed: EmbedReference, in root: URL) -> String {
+        "\(root.standardizedFileURL.path)|\(embed.isWiki)|\(embed.target)"
     }
 }

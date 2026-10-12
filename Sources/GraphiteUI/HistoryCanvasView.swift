@@ -65,13 +65,47 @@ class HistoryCanvasView: PKCanvasView {
     private var paletteToolCorrection: PaletteToolCorrection?
 
     /// The tool the canvas draws with for a tool chosen in the palette or the bar: the same
-    /// one, except on a canvas zoomed to draw sharper (`PDFPageCanvasView`).
-    func toolForDrawing(_ chosenTool: PKTool) -> PKTool { chosenTool }
+    /// one, except for the highlighter while it ignores tilt, and on a canvas zoomed to draw
+    /// sharper (`PDFPageCanvasView`). While the highlighter ignores tilt, the canvas draws
+    /// with an invisible stand-in and shows the stroke itself (`EvenHighlighter`): PencilKit's
+    /// live stroke follows the Pencil's tilt, and changed at the lift into the even one.
+    func toolForDrawing(_ chosenTool: PKTool) -> PKTool {
+        isEvenHighlighterPreferenceOn = EvenHighlighterPreference.isOn()
+        guard isEvenHighlighterPreferenceOn, let highlighter = chosenTool as? PKInkingTool, highlighter.inkType == .marker,
+              highlighter.color.cgColor.alpha > 0 else {
+            evenHighlighterColor = nil
+            return chosenTool
+        }
+        evenHighlighterColor = highlighter.color
+        return EvenHighlighter.invisibleStandIn(for: highlighter)
+    }
+
+    /// The topmost of the canvas's own views under PencilKit's ink, such as the drawing
+    /// editor's paper and pictures; nil when PencilKit's views are the canvas's first.
+    var topViewUnderInk: UIView? { nil }
+
+    /// The highlighter's color while the canvas draws with its invisible stand-in.
+    private(set) var evenHighlighterColor: UIColor?
+    /// The preference as the canvas's tool was last made, to make it again when it changes.
+    private var isEvenHighlighterPreferenceOn = false
+    private var evenHighlighterPreferenceObserver: NSObjectProtocol?
+
+    /// Settings, or the highlighter's options on the bar, can change the preference while the
+    /// canvas is shown: its tool is made again, so the stand-in is never left in use without it.
+    private func followEvenHighlighterPreference() {
+        guard evenHighlighterPreferenceObserver == nil else { return }
+        evenHighlighterPreferenceObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, EvenHighlighterPreference.isOn() != self.isEvenHighlighterPreferenceOn else { return }
+                self.retakeChosenTool()
+            }
+        }
+    }
 
     /// Takes the chosen tool again, after what `toolForDrawing` returns has changed.
     func retakeChosenTool() {
         if let fixedTool {
-            if fixedTool.kind != .lasso { tool = toolForDrawing(fixedTool.tool) }
+            if fixedTool.kind.drawsInk { tool = toolForDrawing(fixedTool.tool) }
         } else if followsToolPicker, let followedToolPicker, let selectedTool = Self.selectedTool(of: followedToolPicker) {
             tool = toolForDrawing(selectedTool)
         }
@@ -91,8 +125,10 @@ class HistoryCanvasView: PKCanvasView {
             guard newFixedTool != fixedTool else { return }
             fixedTool = newFixedTool
             selectsInk = newFixedTool.kind == .lasso
-            // The lasso is Graphite's own; PencilKit's tool stays what it was and draws nothing.
-            if newFixedTool.kind != .lasso { tool = toolForDrawing(newFixedTool.tool) }
+            pointsWithLaser = newFixedTool.kind == .laser
+            // The lasso and the laser are Graphite's own; PencilKit's tool stays what it was
+            // and draws nothing.
+            if newFixedTool.kind.drawsInk { tool = toolForDrawing(newFixedTool.tool) }
             isRulerActive = newFixedTool.isRulerActive
         } else if !followsToolPicker {
             fixedTool = nil
@@ -111,8 +147,12 @@ class HistoryCanvasView: PKCanvasView {
                 retakeChosenTool()
             }
             selectsInk = PaletteInkSelection.isOn
+            pointsWithLaser = PaletteInkSelection.pointsWithLaser
             paletteInkSelectionObserver = NotificationCenter.default.addObserver(forName: PaletteInkSelection.didChange, object: nil, queue: nil) { [weak self] _ in
-                MainActor.assumeIsolated { self?.selectsInk = PaletteInkSelection.isOn }
+                MainActor.assumeIsolated {
+                    self?.selectsInk = PaletteInkSelection.isOn
+                    self?.pointsWithLaser = PaletteInkSelection.pointsWithLaser
+                }
             }
         }
     }
@@ -149,18 +189,41 @@ class HistoryCanvasView: PKCanvasView {
         }
     }
 
-    /// A hand landed on the page (`PalmRejectionRecognizer`): with finger drawing, the
-    /// stroke its touch began is taken back, unless Apple Pencil is drawing. PencilKit's
-    /// drawing never waits for palm rejection, so the stroke is cancelled once PencilKit has
-    /// begun it, as a scroll that takes over a finger's stroke cancels it.
-    func takeBackStrokeOfHand() {
+    /// A hand's touches landed or moved on the page (`PalmRejectionRecognizer`): with finger
+    /// drawing, a stroke the hand began is taken back. PencilKit's drawing never waits for
+    /// palm rejection, so the stroke is looked at on the next turn of the main queue, once
+    /// PencilKit has begun it. It is cancelled only when every touch the drawing recognizer
+    /// follows is one of the hand's and Apple Pencil is not on the screen
+    /// (`PalmRejection.isStrokeDrawnByHand`): a Pencil stroke is never cancelled, even when a
+    /// Pencil touch was not seen by `PencilActivity`.
+    func takeBackStroke(ofHand handTouches: [UITouch]) {
         guard drawingPolicy == .anyInput else { return }
+        for handTouch in handTouches { pendingHandTouches.add(handTouch) }
+        guard !isHandStrokeCheckScheduled else { return }
+        isHandStrokeCheckScheduled = true
         DispatchQueue.main.async { [weak self] in
-            guard let self, !PencilActivity.isPencilTouching(at: PencilActivity.now) else { return }
-            // Whether PencilKit has begun the stroke yet or not, starting over drops it.
-            self.drawingGestureRecognizer.isEnabled = false
-            self.drawingGestureRecognizer.isEnabled = true
+            MainActor.assumeIsolated { self?.takeBackStrokeOfPendingHand() }
         }
+    }
+
+    /// The hand's touches waiting for the next look at the stroke, held weakly as UIKit owns them.
+    private let pendingHandTouches = NSHashTable<UITouch>.weakObjects()
+    private var isHandStrokeCheckScheduled = false
+
+    private func takeBackStrokeOfPendingHand() {
+        isHandStrokeCheckScheduled = false
+        let handTouchLocations = pendingHandTouches.allObjects
+            .filter { handTouch in handTouch.phase != .ended && handTouch.phase != .cancelled }
+            .map { handTouch in handTouch.location(in: self) }
+        pendingHandTouches.removeAllObjects()
+        let recognizer = drawingGestureRecognizer
+        let drawingTouchLocations = (0..<recognizer.numberOfTouches).map { touchIndex in recognizer.location(ofTouch: touchIndex, in: self) }
+        guard drawingPolicy == .anyInput,
+              PalmRejection.isStrokeDrawnByHand(drawingTouchLocations: drawingTouchLocations, handTouchLocations: handTouchLocations,
+                                                isPencilTouching: PencilActivity.isPencilTouching(at: PencilActivity.now)) else { return }
+        // Whether PencilKit has begun the stroke yet or not, starting over drops it.
+        recognizer.isEnabled = false
+        recognizer.isEnabled = true
     }
 
     /// True while something other than drawing has the canvas, as arranging pictures has.
@@ -169,7 +232,33 @@ class HistoryCanvasView: PKCanvasView {
     }
 
     private func applyDrawingEnabled() {
-        isDrawingEnabled = !isDrawingSuspended && !selectsInk
+        isDrawingEnabled = !isDrawingSuspended && !selectsInk && !pointsWithLaser
+    }
+
+    // MARK: Pointing
+
+    private var hasLaserPointer = false
+    /// The laser pointer on this canvas (`LaserPointerController`).
+    private(set) lazy var laserPointer: LaserPointerController = {
+        hasLaserPointer = true
+        return LaserPointerController(canvas: self)
+    }()
+
+    /// Whether the canvas points with the laser instead of drawing.
+    var pointsWithLaser: Bool {
+        get { hasLaserPointer && laserPointer.isActive }
+        set {
+            guard newValue != pointsWithLaser else { return }
+            laserPointer.isActive = newValue
+            applyDrawingEnabled()
+        }
+    }
+
+    /// Scrolling and zooming move the lasso's selection with the drawing; its frame and a
+    /// marked area are placed again, at the same size on screen.
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if hasInkSelection { inkSelection.canvasDidChangeScale() }
     }
 
     /// Gives the canvas a drawing it made from its own, as when Graphite's lasso moves,
@@ -238,10 +327,10 @@ class HistoryCanvasView: PKCanvasView {
         }
         guard shapeToolIsOn || strokeWasHeld,
               let shapedDrawing = PencilShapes.replacingNewStroke(in: drawnDrawing, previousDrawing: recordedDrawing) else {
-            if let evenDrawing { showWithoutRecording(evenDrawing) }
+            if let evenDrawing { showReplacingStrokeJustDrawn(evenDrawing) }
             return drawnDrawing
         }
-        showWithoutRecording(shapedDrawing)
+        showReplacingStrokeJustDrawn(shapedDrawing)
         // Apple Pencil Pro taps when a stroke snaps to a shape; after a hold it already has.
         if !strokeWasHeld, let shapeBounds = shapedDrawing.strokes.last?.renderBounds {
             shapeFeedback.pathCompleted(at: CGPoint(x: shapeBounds.midX * zoomScale, y: shapeBounds.midY * zoomScale))
@@ -253,10 +342,12 @@ class HistoryCanvasView: PKCanvasView {
 
     /// The drawing with the marker stroke just drawn at one width, the tool's, when the
     /// highlighter ignores tilt; nil when there is no such stroke or the preference is off.
+    /// A stroke of the invisible stand-in always takes the highlighter's ink.
     private func drawingWithEvenHighlighterStroke(_ reportedDrawing: PKDrawing) -> PKDrawing? {
         // Asked at every stroke: the comparison of the whole drawing waits until a
         // highlighter stroke has arrived to be looked at.
-        guard evenHighlighterTool != nil, reportedDrawing.strokes.count == recordedDrawing.strokes.count + 1,
+        guard let lastStroke = reportedDrawing.strokes.last, evenHighlighterInk != nil || EvenHighlighter.isInvisible(lastStroke.ink),
+              reportedDrawing.strokes.count == recordedDrawing.strokes.count + 1,
               reportedDrawing.strokes.last?.ink.inkType == .marker,
               let change = PencilDrawingChange(from: recordedDrawing, to: reportedDrawing), let newStrokeIndex = change.appendedStrokeIndex,
               newStrokeIndex < reportedDrawing.strokes.count,
@@ -266,19 +357,28 @@ class HistoryCanvasView: PKCanvasView {
         return PKDrawing(strokes: strokes)
     }
 
-    /// The canvas's highlighter, while it is in use and ignores tilt; nil otherwise.
-    private var evenHighlighterTool: PKInkingTool? {
-        guard EvenHighlighterPreference.isOn(), zoomScale > 0, let inkingTool = tool as? PKInkingTool, inkingTool.inkType == .marker else { return nil }
-        return inkingTool
+    /// The ink of the canvas's highlighter, while it is in use and ignores tilt: the real
+    /// one, not its invisible stand-in's. Nil otherwise.
+    private var evenHighlighterInk: PKInk? {
+        guard zoomScale > 0, let inkingTool = tool as? PKInkingTool, inkingTool.inkType == .marker else { return nil }
+        if EvenHighlighter.isInvisible(inkingTool.ink) {
+            return PKInk(.marker, color: evenHighlighterColor ?? inkingTool.color.withAlphaComponent(1))
+        }
+        return EvenHighlighterPreference.isOn() ? inkingTool.ink : nil
     }
 
-    /// The stroke at the width of the canvas's highlighter, when it is a highlighter stroke
-    /// and the highlighter ignores tilt; nil otherwise.
+    /// The stroke at the width of the canvas's highlighter, in its ink, when it is a
+    /// highlighter stroke and the highlighter ignores tilt; nil otherwise. A stroke of the
+    /// invisible stand-in, as one that arrives after the tool changed, never stays invisible.
     private func evenHighlighterStroke(_ stroke: PKStroke) -> PKStroke? {
-        guard let inkingTool = evenHighlighterTool else { return nil }
+        let isInvisible = EvenHighlighter.isInvisible(stroke.ink)
+        guard let ink = evenHighlighterInk ?? (isInvisible ? PKInk(.marker, color: evenHighlighterColor ?? stroke.ink.color.withAlphaComponent(1)) : nil),
+              zoomScale > 0 else { return nil }
         // PencilKit draws a tool as wide on screen at any zoom of its canvas, so in the
         // drawing's points the stroke is the tool's width over the zoom.
-        return EvenHighlighter.evenStroke(stroke, width: inkingTool.width / zoomScale)
+        let toolWidth = (tool as? PKInkingTool).map { inkingTool in inkingTool.inkType == .marker ? inkingTool.width : nil } ?? nil
+        let drawnWidth = Array(stroke.path).first.map { point in point.size.width * EvenHighlighter.chiselLengthPerPointSize * zoomScale } ?? 0
+        return EvenHighlighter.evenStroke(stroke, width: (toolWidth ?? drawnWidth) / zoomScale, ink: ink)
     }
 
     // MARK: Footprints
@@ -336,6 +436,8 @@ class HistoryCanvasView: PKCanvasView {
     override func didMoveToWindow() {
         super.didMoveToWindow()
         if window != nil, strokeHoldRecognizer.view == nil { addGestureRecognizer(strokeHoldRecognizer) }
+        if window != nil, evenStrokeFollower.view == nil { addGestureRecognizer(evenStrokeFollower) }
+        if window != nil { followEvenHighlighterPreference() }
     }
 
     var isShowingShapePreview: Bool { shapePreviewLayer.superlayer != nil }
@@ -347,7 +449,9 @@ class HistoryCanvasView: PKCanvasView {
         if case .dragged = heldShape { return }
         guard let inkingTool = tool as? PKInkingTool, let heldPoint = strokePoints.last, let shape = ShapeRecognizer.recognize(strokePoints) else { return }
         heldShape = .overStroke(shape: shape, heldPoint: heldPoint)
-        showShapePreview(shape, color: inkingTool.color, width: Self.footprint(of: inkingTool)?.size.width ?? inkingTool.width)
+        // The shape shows instead of the highlighter's band, which comes back if the stroke goes on.
+        removeEvenStrokeLayer()
+        showShapePreview(shape, color: shownColor(of: inkingTool.ink), width: Self.footprint(of: inkingTool)?.size.width ?? inkingTool.width)
         // Apple Pencil Pro taps when the stroke snaps to its shape.
         shapeFeedback.pathCompleted(at: heldPoint)
     }
@@ -362,14 +466,15 @@ class HistoryCanvasView: PKCanvasView {
                 // The stroke goes on: PencilKit is still drawing it.
                 heldShape = nil
                 removeShapePreview()
+                if !evenStrokePoints.isEmpty { showEvenStroke(predicted: []) }
                 return
             }
             discardStrokeBeingDrawn()
             heldShape = .dragged(shape: shape, heldPoint: heldPoint, draggedPoint: point, ink: inkingTool.ink, footprint: footprint)
-            showShapePreview(shape.dragging(from: heldPoint, to: point), color: inkingTool.color, width: footprint.size.width)
+            showShapePreview(shape.dragging(from: heldPoint, to: point), color: shownColor(of: inkingTool.ink), width: footprint.size.width)
         case .dragged(let shape, let heldPoint, _, let ink, let footprint):
             heldShape = .dragged(shape: shape, heldPoint: heldPoint, draggedPoint: point, ink: ink, footprint: footprint)
-            showShapePreview(shape.dragging(from: heldPoint, to: point), color: ink.color, width: footprint.size.width)
+            showShapePreview(shape.dragging(from: heldPoint, to: point), color: shownColor(of: ink), width: footprint.size.width)
         case nil:
             break
         }
@@ -392,6 +497,7 @@ class HistoryCanvasView: PKCanvasView {
             let drawingShape = shape.dragging(from: heldPoint, to: draggedPoint).transformed(scale: 1 / Double(zoomScale), rotation: 0, about: .zero)
             let shapeStroke = PencilShapes.shapeStroke(drawingShape, ink: ink, footprint: footprint)
             expect(.isMadeByCanvas)
+            coverUntilRendered()
             drawing = PKDrawing(strokes: drawing.strokes + [evenHighlighterStroke(shapeStroke) ?? shapeStroke])
         case nil:
             break
@@ -443,6 +549,175 @@ class HistoryCanvasView: PKCanvasView {
         shapePreviewLayer.removeFromSuperlayer()
         CATransaction.commit()
     }
+
+    /// The color ink is shown in: the highlighter's for its invisible stand-in.
+    private func shownColor(of ink: PKInk) -> UIColor {
+        EvenHighlighter.isInvisible(ink) ? (evenHighlighterColor ?? ink.color.withAlphaComponent(1)) : ink.color
+    }
+
+    // MARK: Replacing the stroke just drawn without a gap
+
+    /// Shows the drawing the stroke just drawn became, its shape or its even form. PencilKit
+    /// draws a drawing it is given anew, and showed neither the stroke nor what replaced it
+    /// for about 30 milliseconds (two to four frames, seen in simulator recordings). The
+    /// canvas as it was stays over it until PencilKit has drawn the new drawing.
+    private func showReplacingStrokeJustDrawn(_ drawing: PKDrawing) {
+        coverUntilRendered()
+        showWithoutRecording(drawing)
+    }
+
+    /// The canvas as it was, shown in its place while PencilKit draws a new drawing.
+    private var renderCover: UIView?
+    private var renderCoverExpiry: DispatchWorkItem?
+    /// The longest the canvas stays covered, should PencilKit not report the drawing drawn.
+    private static let longestRenderCoverSeconds: TimeInterval = 0.5
+
+    /// Lays a picture of the canvas over it, beside it in its superview, and hides the
+    /// canvas's own content under it with an empty mask. The picture alone shows the canvas
+    /// meanwhile: laid over the canvas still showing, it would darken every translucent
+    /// stroke. A mask does not change what touches reach the canvas, so the next stroke
+    /// begins as always.
+    private func coverUntilRendered() {
+        guard window != nil, renderCover == nil, let superview, let canvasAsItWas = snapshotView(afterScreenUpdates: false) else { return }
+        canvasAsItWas.isUserInteractionEnabled = false
+        canvasAsItWas.bounds = CGRect(origin: .zero, size: bounds.size)
+        canvasAsItWas.center = center
+        canvasAsItWas.transform = transform
+        superview.insertSubview(canvasAsItWas, aboveSubview: self)
+        renderCover = canvasAsItWas
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.mask = CALayer()
+        CATransaction.commit()
+        hideEvenStroke()
+        let expiry = DispatchWorkItem { [weak self] in self?.removeRenderCover() }
+        renderCoverExpiry = expiry
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.longestRenderCoverSeconds, execute: expiry)
+    }
+
+    /// PencilKit has drawn the canvas's drawing (`PKCanvasViewDelegate.canvasViewDidFinishRendering`).
+    func drawingDidFinishRendering() {
+        removeRenderCover()
+    }
+
+    private func removeRenderCover() {
+        renderCoverExpiry?.cancel()
+        renderCoverExpiry = nil
+        guard let renderCover else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.mask = nil
+        renderCover.removeFromSuperview()
+        CATransaction.commit()
+        self.renderCover = nil
+    }
+
+    var isCoveredWhileRendering: Bool { renderCover != nil }
+
+    // MARK: The even highlighter's stroke while it is drawn
+
+    /// Shows the stroke the invisible stand-in is drawing as the band its even form draws
+    /// (`EvenHighlighter.bandPath`), in the highlighter's color, so nothing changes at the lift.
+    private let evenStrokeLayer = CAShapeLayer()
+    private var evenStrokePoints: [CGPoint] = []
+    /// Whether PencilKit has begun drawing the stroke the layer shows: once it stops, as when
+    /// palm rejection or a held shape takes the stroke back, the layer goes too.
+    private var hasSeenEvenStrokeDrawn = false
+    private var evenStrokeExpiry: DispatchWorkItem?
+
+    private lazy var evenStrokeFollower: DrawnStrokeFollower = {
+        let follower = DrawnStrokeFollower(target: nil, action: nil)
+        follower.followsTouch = { [weak self] touch in
+            guard let self, let inkingTool = self.tool as? PKInkingTool, EvenHighlighter.isInvisible(inkingTool.ink),
+                  self.isDrawingEnabled, self.drawingGestureRecognizer.isEnabled else { return false }
+            return self.drawingGestureRecognizer.allowedTouchTypes.contains(NSNumber(value: touch.type.rawValue))
+        }
+        follower.strokeDidBegin = { [weak self] point in self?.beginEvenStroke(at: point) }
+        follower.strokeDidMove = { [weak self] points, predictedPoints in self?.extendEvenStroke(with: points, predicted: predictedPoints) }
+        follower.strokeDidEnd = { [weak self] wasCancelled in self?.endEvenStroke(wasCancelled: wasCancelled) }
+        return follower
+    }()
+
+    /// For tests, which cannot send touches: shows the band of a stroke being drawn through
+    /// points in the canvas's own coordinates, as the stroke's touch would.
+    func showEvenStrokeBeingDrawn(through points: [CGPoint]) {
+        guard let firstPoint = points.first else { return }
+        beginEvenStroke(at: firstPoint)
+        evenStrokePoints += points.dropFirst()
+        showEvenStroke(predicted: [])
+    }
+
+    var isShowingEvenStroke: Bool { evenStrokeLayer.superlayer != nil }
+
+    private func beginEvenStroke(at point: CGPoint) {
+        evenStrokeExpiry?.cancel()
+        evenStrokePoints = [point]
+        hasSeenEvenStrokeDrawn = false
+        showEvenStroke(predicted: [])
+    }
+
+    private func extendEvenStroke(with points: [CGPoint], predicted predictedPoints: [CGPoint]) {
+        guard !evenStrokePoints.isEmpty else { return }
+        let drawingState = drawingGestureRecognizer.state
+        if drawingState == .began || drawingState == .changed {
+            hasSeenEvenStrokeDrawn = true
+        } else if hasSeenEvenStrokeDrawn || !drawingGestureRecognizer.isEnabled {
+            // PencilKit dropped the stroke.
+            hideEvenStroke()
+            return
+        }
+        evenStrokePoints += points
+        showEvenStroke(predicted: predictedPoints)
+    }
+
+    private func endEvenStroke(wasCancelled: Bool) {
+        guard !evenStrokePoints.isEmpty else { return }
+        if wasCancelled {
+            hideEvenStroke()
+            return
+        }
+        // The band stays until the even stroke takes its place; should no stroke arrive, as
+        // when PencilKit discarded it, it goes.
+        showEvenStroke(predicted: [])
+        let expiry = DispatchWorkItem { [weak self] in self?.hideEvenStroke() }
+        evenStrokeExpiry = expiry
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.strokeArrivalTime, execute: expiry)
+    }
+
+    private func showEvenStroke(predicted predictedPoints: [CGPoint]) {
+        guard let inkingTool = tool as? PKInkingTool, !isShowingShapePreview else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        evenStrokeLayer.path = EvenHighlighter.bandPath(through: evenStrokePoints + predictedPoints, width: inkingTool.width)
+        evenStrokeLayer.fillColor = nil
+        // The color the canvas draws the ink in, which PencilKit adapts to a dark canvas.
+        evenStrokeLayer.strokeColor = PKInkingTool.convertColor(shownColor(of: inkingTool.ink), from: .light, to: traitCollection.userInterfaceStyle).cgColor
+        evenStrokeLayer.lineWidth = inkingTool.width * EvenHighlighter.bandHeightPerWidth
+        evenStrokeLayer.opacity = Float(EvenHighlighter.bandOpacity(forWidth: inkingTool.width))
+        evenStrokeLayer.lineCap = .butt
+        evenStrokeLayer.lineJoin = .round
+        // Under PencilKit's own views, as PencilKit draws a highlight: under the ink it
+        // crosses, which stays as dark as it is.
+        if evenStrokeLayer.superlayer == nil {
+            if let topViewUnderInk { layer.insertSublayer(evenStrokeLayer, above: topViewUnderInk.layer) } else { layer.insertSublayer(evenStrokeLayer, at: 0) }
+        }
+        CATransaction.commit()
+    }
+
+    private func hideEvenStroke() {
+        evenStrokeExpiry?.cancel()
+        evenStrokeExpiry = nil
+        evenStrokePoints = []
+        removeEvenStrokeLayer()
+    }
+
+    private func removeEvenStrokeLayer() {
+        guard evenStrokeLayer.superlayer != nil else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        evenStrokeLayer.removeFromSuperlayer()
+        CATransaction.commit()
+    }
 }
 
 /// Invisible first responder that keeps the tool picker on screen while canvases come and
@@ -463,6 +738,19 @@ final class PencilToolPickerHostView: UIView {
 
     override var canBecomeFirstResponder: Bool { true }
     override var undoManager: UndoManager? { documentUndoManager ?? super.undoManager }
+
+    /// ⌘V on the page: pastes ink as ink and an image as a picture (`LassoPasteboard`); nil
+    /// where nothing can be pasted.
+    var pasteFromPasteboard: (() -> Void)?
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(paste(_:)) { return pasteFromPasteboard != nil && LassoPasteboard.hasContent }
+        return super.canPerformAction(action, withSender: sender)
+    }
+
+    override func paste(_ sender: Any?) {
+        pasteFromPasteboard?()
+    }
     /// The host never types; without this it would use the input view of a canvas around it.
     override var inputView: UIView? { nil }
 

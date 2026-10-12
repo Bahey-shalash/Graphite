@@ -4,6 +4,7 @@ import SwiftUI
 import PencilKit
 import PDFKit
 import ImageIO
+import UIKit.UIGestureRecognizerSubclass
 import GraphiteApple
 import GraphiteCore
 import GraphiteIndex
@@ -276,6 +277,31 @@ final class PencilToolsTests: XCTestCase {
         XCTAssertFalse(holdRecognizer.tracksTouch(drawingTouch))
     }
 
+    /// The hold recognizer follows every stroke of a sequence: with a hand resting on the
+    /// page, its touch stays down while the Pencil draws one stroke after another, and a
+    /// recognizer that failed after the first would hear none of the others. UIKit ignores
+    /// a state set outside its own handling of touches, so the test records the states the
+    /// recognizer asks for.
+    func testHoldToShapeFollowsEveryStrokeWhileAHandRests() throws {
+        RecognizerStateRecorder.record(StrokeHoldRecognizer.self)
+        let holdRecognizer = StrokeHoldRecognizer(target: nil, action: nil)
+        holdRecognizer.tracksTouch = { _ in true }
+        var endedStrokeCount = 0
+        holdRecognizer.touchDidEnd = { _ in endedStrokeCount += 1 }
+        let event = UIEvent()
+        for _ in 0..<3 {
+            let strokeTouch = UITouch()
+            holdRecognizer.touchesBegan([strokeTouch], with: event)
+            holdRecognizer.touchesEnded([strokeTouch], with: event)
+        }
+        let cancelledTouch = UITouch()
+        holdRecognizer.touchesBegan([cancelledTouch], with: event)
+        holdRecognizer.touchesCancelled([cancelledTouch], with: event)
+        XCTAssertEqual(endedStrokeCount, 4)
+        XCTAssertFalse(RecognizerStateRecorder.requestedStates(of: holdRecognizer).contains(.failed),
+                       "It never fails, so it hears the next stroke while a hand still rests on the page.")
+    }
+
     func testDrawingEditorUsesItsOwnHistoryAndTheShapeTool() async throws {
         UserDefaults.standard.set(true, forKey: PDFAnnotationPreferenceKey.drawsShapes)
         let request = DrawingEditorRequest(target: .newDrawing(notePath: try VaultPath("Note.md"), insertionRange: NSRange(location: 0, length: 0)),
@@ -330,10 +356,9 @@ final class PencilToolsTests: XCTestCase {
         canvas.drawing = PKDrawing(strokes: [tiltedStroke(ink: PKInk(.marker, color: .systemYellow), atY: 200)])
         try await waitUntil { history.canUndo }
         let highlight = try XCTUnwrap(canvas.drawing.strokes.first)
-        for point in highlight.path {
-            XCTAssertEqual(point.size.width, toolWidth / canvas.zoomScale, accuracy: 0.01, "As wide as the tool at every point.")
-            XCTAssertEqual(point.size.height, toolWidth / canvas.zoomScale, accuracy: 0.01)
-        }
+        let firstPointSize = try XCTUnwrap(Array(highlight.path).first?.size)
+        for point in highlight.path { XCTAssertEqual(point.size, firstPointSize, "One tip at every point.") }
+        XCTAssertEqual(highlight.renderBounds.height, toolWidth / canvas.zoomScale, accuracy: 3, "As tall as the tool is wide, across a line.")
         XCTAssertEqual(history.undoActionName, "Drawing", "One step with the stroke.")
 
         // A pen keeps every point as it was drawn.
@@ -343,6 +368,334 @@ final class PencilToolsTests: XCTestCase {
         canvas.drawing = PKDrawing(strokes: canvas.drawing.strokes + [penStroke])
         try await waitUntil { canvas.drawing.strokes.count == 2 }
         XCTAssertEqual(canvas.drawing.strokes.last.map { stroke in Array(stroke.path).map(\.size) }, Array(penStroke.path).map(\.size))
+    }
+
+    /// The bar's highlighter colors follow Settings while the bar is shown.
+    func testTheBarsHighlighterColorsFollowSettingsAtOnce() async throws {
+        let paletteKey = GraphitePreferences.highlighterPaletteKey
+        let savedPalette = UserDefaults.standard.data(forKey: paletteKey)
+        defer {
+            if let savedPalette { UserDefaults.standard.set(savedPalette, forKey: paletteKey) } else { UserDefaults.standard.removeObject(forKey: paletteKey) }
+        }
+        UserDefaults.standard.removeObject(forKey: paletteKey)
+        let suiteName = "HighlighterColors-\(UUID().uuidString)"
+        let toolboxDefaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { toolboxDefaults.removePersistentDomain(forName: suiteName) }
+        let toolbox = PencilToolbox(defaults: toolboxDefaults)
+        let highlighterIndex = try XCTUnwrap(toolbox.presets.firstIndex { preset in preset.ink == .highlighter })
+        toolbox.usePreset(at: highlighterIndex)
+        let controller = try host(AnyView(PencilToolRow(toolbox: toolbox, drawsShapes: .constant(false))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)))
+        // The swatches are told apart by their colors: SwiftUI gives tests no accessibility tree.
+        let blue = (red: 0x85, green: 0xc7, blue: 0xff)
+        let mint = (red: 0x22, green: 0xaa, blue: 0x44)
+        try await waitUntil { (try? self.showsColor(blue, in: controller)) == true }
+        XCTAssertFalse(try showsColor(mint, in: controller))
+
+        // As Settings › Colors saves an edited list.
+        let preferences = GraphitePreferences(defaults: .standard)
+        preferences.highlighterPalette = [PaletteColor(name: "mint", hex: "#22aa44")]
+        try await waitUntil { (try? self.showsColor(mint, in: controller)) == true && (try? self.showsColor(blue, in: controller)) == false }
+    }
+
+    /// The selected size's dot on the bar grows and shrinks as its width is changed.
+    func testTheBarsSizeDotFollowsItsWidth() async throws {
+        let suiteName = "SizeDots-\(UUID().uuidString)"
+        let toolboxDefaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { toolboxDefaults.removePersistentDomain(forName: suiteName) }
+        let toolbox = PencilToolbox(defaults: toolboxDefaults)
+        let penIndex = try XCTUnwrap(toolbox.presets.firstIndex { preset in preset.ink == .pen })
+        toolbox.usePreset(at: penIndex)
+        toolbox.useWidthChoice(at: 2)
+        let controller = try host(AnyView(PencilToolRow(toolbox: toolbox, drawsShapes: .constant(false))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)))
+        func darkPixelCount() throws -> Int { try countOfPixels(in: controller) { red, green, blue in red < 80 && green < 80 && blue < 80 } }
+        try await waitUntil { (try? darkPixelCount()) ?? 0 > 0 }
+        try await Task.sleep(for: .milliseconds(200))
+        let atStartingWidth = try darkPixelCount()
+        toolbox.changeWidthChoice(at: 2, to: toolbox.presetInUse.ink.widthRange.upperBound)
+        try await waitUntil { (try? darkPixelCount()) ?? 0 > atStartingWidth + 100 }
+        toolbox.changeWidthChoice(at: 2, to: toolbox.presetInUse.ink.widthRange.lowerBound)
+        try await waitUntil { (try? darkPixelCount()) ?? Int.max < atStartingWidth - 30 }
+    }
+
+    /// How many pixels in the top of the window satisfy `matches`, at one pixel to the point.
+    private func countOfPixels(in controller: UIViewController, matching matches: (Int, Int, Int) -> Bool) throws -> Int {
+        let window = try XCTUnwrap(controller.view.window)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(bounds: CGRect(x: 0, y: 0, width: window.bounds.width, height: 120), format: format).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let cgImage = try XCTUnwrap(image.cgImage)
+        let width = cgImage.width, height = cgImage.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let context = try XCTUnwrap(CGContext(data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                              space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        var matchingPixelCount = 0
+        for pixelIndex in stride(from: 0, to: pixels.count, by: 4) where pixels[pixelIndex + 3] > 200 {
+            let red = Int(pixels[pixelIndex]), green = Int(pixels[pixelIndex + 1]), blue = Int(pixels[pixelIndex + 2])
+            if matches(red, green, blue) { matchingPixelCount += 1 }
+        }
+        return matchingPixelCount
+    }
+
+    /// The favorite colors on a PDF's fixed bar follow Settings › Colors while the bar is shown.
+    func testThePDFBarsFavoriteColorsFollowSettingsAtOnce() async throws {
+        let paletteKey = "GraphiteColorPalette"
+        let savedPalette = UserDefaults.standard.data(forKey: paletteKey)
+        let savedStyle = UserDefaults.standard.object(forKey: PencilToolbarStyle.preferenceKey)
+        let toolbox = PencilToolbox.shared
+        let savedPresetIndex = toolbox.presets.firstIndex { preset in preset.id == toolbox.presetInUse.id }
+        let savedToolInUse = toolbox.toolInUse
+        defer {
+            if let savedPalette { UserDefaults.standard.set(savedPalette, forKey: paletteKey) } else { UserDefaults.standard.removeObject(forKey: paletteKey) }
+            if let savedStyle { UserDefaults.standard.set(savedStyle, forKey: PencilToolbarStyle.preferenceKey) }
+            else { UserDefaults.standard.removeObject(forKey: PencilToolbarStyle.preferenceKey) }
+            if savedToolInUse == .ink, let savedPresetIndex { toolbox.usePreset(at: savedPresetIndex) }
+        }
+        UserDefaults.standard.removeObject(forKey: paletteKey)
+        UserDefaults.standard.set(PencilToolbarStyle.fixed.rawValue, forKey: PencilToolbarStyle.preferenceKey)
+        let penIndex = try XCTUnwrap(toolbox.presets.firstIndex { preset in preset.ink == .pen })
+        toolbox.usePreset(at: penIndex)
+
+        let location = FileManager.default.temporaryDirectory.appendingPathComponent("FavoriteColors-\(UUID().uuidString).pdf")
+        try PDFTemplateGenerator.documentData(paper: PaperSpecification(template: .blank)).write(to: location)
+        temporaryLocations.append(location)
+        let session = try await PDFSession.open(location)
+        let controller = try host(AnyView(NavigationStack { PDFPane(session: session, resolveConflict: { _ in }) }))
+        let defaultRed = (red: 0xe9, green: 0x31, blue: 0x47)
+        let brown = (red: 0xa0, green: 0x5a, blue: 0x2c)
+        try await waitUntil { (try? self.showsColor(defaultRed, in: controller, withinTop: 240)) == true }
+        XCTAssertFalse(try showsColor(brown, in: controller, withinTop: 240))
+
+        // As Settings › Colors saves an edited palette.
+        let preferences = GraphitePreferences(defaults: .standard)
+        preferences.colorPalette = [PaletteColor(name: "brown", hex: "#a05a2c")]
+        try await waitUntil {
+            (try? self.showsColor(brown, in: controller, withinTop: 240)) == true && (try? self.showsColor(defaultRed, in: controller, withinTop: 240)) == false
+        }
+    }
+
+    /// Whether the window shows a few pixels of a color, as a swatch is filled with it.
+    private func showsColor(_ color: (red: Int, green: Int, blue: Int), in controller: UIViewController, withinTop topHeight: CGFloat = 120) throws -> Bool {
+        let window = try XCTUnwrap(controller.view.window)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(bounds: CGRect(x: 0, y: 0, width: window.bounds.width, height: topHeight), format: format).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let cgImage = try XCTUnwrap(image.cgImage)
+        let width = cgImage.width, height = cgImage.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let context = try XCTUnwrap(CGContext(data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                              space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        var matchingPixelCount = 0
+        for pixelIndex in stride(from: 0, to: pixels.count, by: 4)
+        where abs(Int(pixels[pixelIndex]) - color.red) <= 6 && abs(Int(pixels[pixelIndex + 1]) - color.green) <= 6 && abs(Int(pixels[pixelIndex + 2]) - color.blue) <= 6 {
+            matchingPixelCount += 1
+        }
+        return matchingPixelCount >= 20
+    }
+
+    // MARK: Palm rejection
+
+    /// Palm rejection holds up the page's scrolling, zooming and tapping, never PencilKit's
+    /// drawing, and takes a hand only while the page is written on.
+    func testPalmRejectionHoldsUpPageGesturesButNeverPencilKitsDrawing() async throws {
+        let location = FileManager.default.temporaryDirectory.appendingPathComponent("Palm-\(UUID().uuidString).pdf")
+        try PDFTemplateGenerator.documentData(paper: PaperSpecification(template: .blank)).write(to: location)
+        temporaryLocations.append(location)
+        let session = try await PDFSession.open(location)
+        _ = try host(AnyView(NavigationStack { PDFPane(session: session, resolveConflict: { _ in }) }))
+        let page = try XCTUnwrap(session.document.page(at: 0))
+        func coordinator() -> PDFAnnotationCoordinator? { (session.pdfView as? GraphitePDFDisplayView)?.annotationCoordinator }
+        try await waitUntil { coordinator()?.editingCanvas(for: page) != nil }
+        let pdfCoordinator = try XCTUnwrap(coordinator())
+        let canvas = try XCTUnwrap(pdfCoordinator.editingCanvas(for: page))
+        let pdfView = try XCTUnwrap(session.pdfView)
+        let palmRecognizer = try XCTUnwrap(pdfCoordinator.palmRejectionRecognizer)
+        XCTAssertEqual(palmRecognizer.allowedTouchTypes, [NSNumber(value: UITouch.TouchType.direct.rawValue)], "It never sees the Pencil.")
+        XCTAssertFalse(palmRecognizer.cancelsTouchesInView)
+        XCTAssertFalse(palmRecognizer.delaysTouchesBegan)
+        XCTAssertFalse(palmRecognizer.delaysTouchesEnded)
+        let pageScrollViews = descendants(of: pdfView, matching: UIScrollView.self).filter { scrollView in !(scrollView is PKCanvasView) }
+        XCTAssertFalse(pageScrollViews.isEmpty)
+        for scrollView in pageScrollViews {
+            XCTAssertTrue(pdfCoordinator.waitsForPalmRejection(scrollView.panGestureRecognizer))
+            if let pinchRecognizer = scrollView.pinchGestureRecognizer { XCTAssertTrue(pdfCoordinator.waitsForPalmRejection(pinchRecognizer)) }
+        }
+        XCTAssertFalse(pdfCoordinator.waitsForPalmRejection(canvas.drawingGestureRecognizer), "Ink is never held up.")
+        XCTAssertTrue(palmRecognizer.isWriting())
+        session.isWriting = false
+        try await waitUntil { !palmRecognizer.isWriting() }
+
+        let request = DrawingEditorRequest(target: .newDrawing(notePath: try VaultPath("Note.md"), insertionRange: NSRange(location: 0, length: 0)),
+                                           title: "New Drawing", initialStrokeData: Data(), canvasWidth: nil, background: .white, format: .png)
+        let controller = try host(AnyView(DrawingEditor(request: request, save: { _, _ in },
+            exportCopy: { _, _ in throw CocoaError(.featureUnsupported) }, preserveDraft: { _ in }, removeDraft: {})))
+        try await waitUntil { !self.descendants(of: controller.view, matching: InfiniteCanvasView.self).isEmpty }
+        let drawingCanvas = try XCTUnwrap(descendants(of: controller.view, matching: InfiniteCanvasView.self).first)
+        let drawingPalmRecognizer = try XCTUnwrap(drawingCanvas.palmRejectionRecognizer)
+        XCTAssertTrue(drawingCanvas.waitsForPalmRejection(drawingCanvas.panGestureRecognizer))
+        if let pinchRecognizer = drawingCanvas.pinchGestureRecognizer { XCTAssertTrue(drawingCanvas.waitsForPalmRejection(pinchRecognizer)) }
+        XCTAssertFalse(drawingCanvas.waitsForPalmRejection(drawingCanvas.drawingGestureRecognizer), "Ink is never held up.")
+        XCTAssertTrue(drawingPalmRecognizer.isWriting())
+        // While pictures are arranged, the Pencil does not write, and a hand is a hand.
+        drawingCanvas.showPictures([], selected: nil, isArranging: true)
+        XCTAssertFalse(drawingPalmRecognizer.isWriting())
+        drawingCanvas.showPictures([], selected: nil, isArranging: false)
+        XCTAssertTrue(drawingPalmRecognizer.isWriting())
+    }
+
+    /// Recognizers made to wait are held weakly: one made at a freed one's address waits too.
+    func testARecognizerAtAFreedRecognizersAddressIsStillMadeToWait() {
+        let installation = PalmRejectionInstallation(recognizer: PalmRejectionRecognizer(target: nil, action: nil))
+        for _ in 0..<200 {
+            autoreleasepool {
+                let recognizer = UIPanGestureRecognizer(target: nil, action: nil)
+                XCTAssertFalse(installation.isWaiting(recognizer), "A new recognizer is not taken for a freed one.")
+                installation.makeWait([recognizer])
+                XCTAssertTrue(installation.isWaiting(recognizer))
+            }
+        }
+        let keptRecognizer = UITapGestureRecognizer(target: nil, action: nil)
+        installation.makeWait([keptRecognizer, keptRecognizer])
+        XCTAssertTrue(installation.isWaiting(keptRecognizer))
+    }
+
+    /// A hover whose recognizer left the window, or went away, without an ending stops making
+    /// fingers wait at once, not twenty seconds later; one still going on keeps them waiting.
+    func testAHoverWhoseEndingWasLostStopsMakingFingersWait() throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        window.makeKeyAndVisible()
+        windows.append(window)
+        let pageView = UIView(frame: window.bounds)
+        window.addSubview(pageView)
+        let hoverRecognizer = PencilHoverRecognizer(target: nil, action: nil)
+        pageView.addGestureRecognizer(hoverRecognizer)
+        hoverRecognizer.state = .began
+        let afterTheLingeringMoment = { PencilActivity.now + PencilActivityState.lingeringSeconds + 0.05 }
+        PencilActivity.hoverDidChange(hoverRecognizer, isHovering: true)
+        XCTAssertTrue(PencilActivity.isActive(at: PencilActivity.now))
+        XCTAssertTrue(PencilActivity.isActive(at: afterTheLingeringMoment()), "A hover still going on is heard from as it is asked about.")
+        pageView.removeFromSuperview()
+        XCTAssertFalse(PencilActivity.isActive(at: afterTheLingeringMoment()), "Its view left the window: the hover is over.")
+
+        var freedRecognizer: PencilHoverRecognizer? = PencilHoverRecognizer(target: nil, action: nil)
+        let otherPageView = UIView(frame: window.bounds)
+        window.addSubview(otherPageView)
+        otherPageView.addGestureRecognizer(try XCTUnwrap(freedRecognizer))
+        freedRecognizer?.state = .began
+        PencilActivity.hoverDidChange(try XCTUnwrap(freedRecognizer), isHovering: true)
+        XCTAssertTrue(PencilActivity.isActive(at: afterTheLingeringMoment()))
+        otherPageView.gestureRecognizers?.forEach { recognizer in otherPageView.removeGestureRecognizer(recognizer) }
+        freedRecognizer = nil
+        XCTAssertFalse(PencilActivity.isActive(at: afterTheLingeringMoment()), "Its recognizer is gone: the hover is over.")
+        otherPageView.removeFromSuperview()
+    }
+
+    /// With the highlighter ignoring tilt, the canvas draws with an invisible stand-in and
+    /// shows the band the stroke will become; at the lift a tilted Pencil's stroke becomes
+    /// that band, so nothing on screen changes, and no frame shows the canvas without it.
+    func testAnEvenHighlightLooksTheSameBeforeAndAfterTheLift() async throws {
+        UserDefaults.standard.set(false, forKey: PDFAnnotationPreferenceKey.drawsShapes)
+        UserDefaults.standard.set(true, forKey: EvenHighlighterPreference.key)
+        defer { UserDefaults.standard.removeObject(forKey: EvenHighlighterPreference.key) }
+        let request = DrawingEditorRequest(target: .newDrawing(notePath: try VaultPath("Note.md"), insertionRange: NSRange(location: 0, length: 0)),
+                                           title: "New Drawing", initialStrokeData: Data(), canvasWidth: nil, background: .white, format: .png)
+        let controller = try host(AnyView(DrawingEditor(request: request, save: { _, _ in },
+            exportCopy: { _, _ in throw CocoaError(.featureUnsupported) }, preserveDraft: { _ in }, removeDraft: {})))
+        try await waitUntil { !self.descendants(of: controller.view, matching: InfiniteCanvasView.self).isEmpty }
+        let canvas = try XCTUnwrap(descendants(of: controller.view, matching: InfiniteCanvasView.self).first)
+        let history = try XCTUnwrap(try XCTUnwrap(descendants(of: controller.view, matching: PencilToolPickerHostView.self).first).undoManager)
+        try await Task.sleep(for: .milliseconds(300))
+        let highlighterColor = UIColor(red: 0.965, green: 0.843, blue: 0.263, alpha: 1)
+        canvas.tool = canvas.toolForDrawing(PKInkingTool(.marker, color: highlighterColor, width: 24))
+        let standIn = try XCTUnwrap(canvas.tool as? PKInkingTool)
+        XCTAssertTrue(EvenHighlighter.isInvisible(standIn.ink), "The canvas draws nothing of its own while the highlighter ignores tilt.")
+
+        // The stroke as a tilted, turning Pencil draws it, which PencilKit draws invisibly.
+        let canvasPoints = (0...16).map { step in CGPoint(x: canvas.bounds.minX + 150 + 25 * CGFloat(step), y: canvas.bounds.minY + 300 + 3 * sin(CGFloat(step))) }
+        let tiltedPoints = canvasPoints.enumerated().map { pointIndex, canvasPoint in
+            PKStrokePoint(location: CGPoint(x: canvasPoint.x / canvas.zoomScale, y: canvasPoint.y / canvas.zoomScale), timeOffset: TimeInterval(pointIndex) * 0.016,
+                          size: CGSize(width: 30 + 2 * CGFloat(pointIndex), height: 14), opacity: 1.4 - 0.01 * CGFloat(pointIndex), force: 0.3 + 0.1 * CGFloat(pointIndex),
+                          azimuth: 0.4 + 0.05 * CGFloat(pointIndex), altitude: .pi / 5)
+        }
+        let invisibleStroke = PKStroke(ink: standIn.ink, path: PKStrokePath(controlPoints: tiltedPoints, creationDate: Date()))
+        let band = canvas.convert(EvenHighlighter.bandPath(through: canvasPoints, width: standIn.width).boundingBoxOfPath.insetBy(dx: -12, dy: -12), to: nil)
+
+        canvas.showEvenStrokeBeingDrawn(through: canvasPoints)
+        try await Task.sleep(for: .milliseconds(100))
+        let whileDrawing = try windowPixels(of: controller, in: band)
+        canvas.drawing = PKDrawing(strokes: canvas.drawing.strokes + [invisibleStroke])
+        XCTAssertTrue(canvas.isCoveredWhileRendering, "The canvas as it was, with the band, shows until PencilKit has drawn the stroke.")
+        try await waitUntil { history.canUndo && !canvas.isCoveredWhileRendering && !canvas.isShowingEvenStroke }
+        try await Task.sleep(for: .milliseconds(200))
+        let afterTheLift = try windowPixels(of: controller, in: band)
+
+        let highlight = try XCTUnwrap(canvas.drawing.strokes.last)
+        XCTAssertFalse(EvenHighlighter.isInvisible(highlight.ink), "The stroke kept takes the highlighter's ink.")
+        XCTAssertEqual(highlight.ink.color.cgColor.alpha, 1, accuracy: 0.001)
+        let inked = { (pixel: (Int, Int, Int)) in pixel.2 < 200 }
+        let inkedWhileDrawing = whileDrawing.filter(inked).count, inkedAfterTheLift = afterTheLift.filter(inked).count
+        XCTAssertGreaterThan(inkedWhileDrawing, 1000)
+        XCTAssertEqual(Double(inkedAfterTheLift), Double(inkedWhileDrawing), accuracy: Double(inkedWhileDrawing) * 0.12, "As large before and after.")
+        // The same color: PencilKit softens the band's edges over a pixel or two, which the
+        // band drawn while the stroke is drawn does not, so only the inside is compared.
+        let inkedInBoth = zip(whileDrawing, afterTheLift).filter { before, after in inked(before) && inked(after) }
+        func medianBlue(_ pixels: [(Int, Int, Int)]) -> Int { pixels.map(\.2).sorted()[pixels.count / 2] }
+        XCTAssertFalse(inkedInBoth.isEmpty)
+        XCTAssertEqual(Double(medianBlue(inkedInBoth.map(\.0))), Double(medianBlue(inkedInBoth.map(\.1))), accuracy: 6)
+        let changedPixels = inkedInBoth.filter { before, after in
+            abs(before.0 - after.0) > 24 || abs(before.1 - after.1) > 24 || abs(before.2 - after.2) > 24
+        }.count
+        XCTAssertLessThan(Double(changedPixels), Double(inkedWhileDrawing) * 0.15, "Only the softened edges differ.")
+        attachScreenshot(of: controller, named: "Even highlight after the lift")
+    }
+
+    /// The window's pixels in a rectangle of window points, one pixel to the point.
+    private func windowPixels(of controller: UIViewController, in rectangle: CGRect) throws -> [(Int, Int, Int)] {
+        let window = try XCTUnwrap(controller.view.window)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(bounds: rectangle, format: format).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let cgImage = try XCTUnwrap(image.cgImage)
+        let width = cgImage.width, height = cgImage.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let context = try XCTUnwrap(CGContext(data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                              space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        var colors: [(Int, Int, Int)] = []
+        colors.reserveCapacity(width * height)
+        for pixelIndex in stride(from: 0, to: pixels.count, by: 4) {
+            colors.append((Int(pixels[pixelIndex]), Int(pixels[pixelIndex + 1]), Int(pixels[pixelIndex + 2])))
+        }
+        return colors
+    }
+
+    /// The shape tool replaces the stroke just drawn; the canvas as it was covers PencilKit's
+    /// redrawing, so no frame shows neither, and the cover goes once PencilKit has drawn.
+    func testAShapeReplacingAStrokeIsCoveredUntilPencilKitHasDrawnIt() async throws {
+        UserDefaults.standard.set(true, forKey: PDFAnnotationPreferenceKey.drawsShapes)
+        let request = DrawingEditorRequest(target: .newDrawing(notePath: try VaultPath("Note.md"), insertionRange: NSRange(location: 0, length: 0)),
+                                           title: "New Drawing", initialStrokeData: Data(), canvasWidth: nil, background: .white, format: .png)
+        let controller = try host(AnyView(DrawingEditor(request: request, save: { _, _ in },
+            exportCopy: { _, _ in throw CocoaError(.featureUnsupported) }, preserveDraft: { _ in }, removeDraft: {})))
+        try await waitUntil { !self.descendants(of: controller.view, matching: InfiniteCanvasView.self).isEmpty }
+        let canvas = try XCTUnwrap(descendants(of: controller.view, matching: InfiniteCanvasView.self).first)
+        try await Task.sleep(for: .milliseconds(300))
+        canvas.drawing = PKDrawing(strokes: [stroke(through: circlePoints(center: CGPoint(x: 300, y: 300), radius: 60))])
+        XCTAssertTrue(canvas.isCoveredWhileRendering, "Covered from the moment the shape replaces the stroke.")
+        XCTAssertNotNil(canvas.layer.mask)
+        try await waitUntil { !canvas.isCoveredWhileRendering }
+        XCTAssertNil(canvas.layer.mask, "The canvas shows its own drawing again.")
     }
 
     // MARK: Palette
@@ -371,15 +724,18 @@ final class PencilToolsTests: XCTestCase {
         XCTAssertTrue(accessoryButton.isSelected)
         XCTAssertEqual(accessoryButton.accessibilityValue, "Shapes on", "The state is announced, not shown by color alone.")
 
-        // The menu: the favorite colors, then the Draw Shapes switch showing the preference.
+        // The menu: the favorite colors, the Draw Shapes switch showing the preference, then
+        // Select Ink with the lasso's type, and the laser pointer with its kind.
         let elements = PencilToolPalette.menuElements(for: toolPicker, palette: [PaletteColor(name: "red", hex: "#e93147")])
-        XCTAssertEqual(elements.count, 2)
-        let shapesSwitch = try XCTUnwrap((elements.last as? UIMenu)?.children.first as? UIAction)
+        XCTAssertEqual(elements.count, 4)
+        let shapesSwitch = try XCTUnwrap((elements[1] as? UIMenu)?.children.first as? UIAction)
         XCTAssertEqual(shapesSwitch.title, "Draw Shapes")
         XCTAssertEqual(shapesSwitch.state, .off)
+        XCTAssertEqual((elements[2] as? UIMenu)?.children.map(\.title), ["Select Ink", "Lasso Type"])
+        XCTAssertEqual((elements[3] as? UIMenu)?.children.map(\.title), ["Laser Pointer", "Laser Type"])
         UserDefaults.standard.set(true, forKey: PDFAnnotationPreferenceKey.drawsShapes)
         let elementsWithShapesOn = PencilToolPalette.menuElements(for: toolPicker, palette: [])
-        XCTAssertEqual(((elementsWithShapesOn.last as? UIMenu)?.children.first as? UIAction)?.state, .on)
+        XCTAssertEqual(((elementsWithShapesOn[1] as? UIMenu)?.children.first as? UIAction)?.state, .on)
     }
 
     func testFavoriteColorGoesToTheToolInUseAndKeepsItsKindWidthAndOpacity() throws {
@@ -894,6 +1250,34 @@ private struct WorkspaceWithDrawingEditor: View {
             DrawingEditor(request: request, save: { _, _ in }, exportCopy: { _, _ in throw CocoaError(.featureUnsupported) },
                           preserveDraft: { _ in }, removeDraft: {})
         }
+    }
+}
+
+/// Records the states a recognizer class asks for, which UIKit ignores outside its own
+/// handling of touches, so a test can see them. The class's `setState:` is given one that
+/// records and then calls `UIGestureRecognizer`'s own.
+@MainActor
+private enum RecognizerStateRecorder {
+    private static var recordedClasses: Set<ObjectIdentifier> = []
+    private static var requestedStatesByRecognizer: [ObjectIdentifier: [UIGestureRecognizer.State]] = [:]
+
+    static func record(_ recognizerClass: UIGestureRecognizer.Type) {
+        guard recordedClasses.insert(ObjectIdentifier(recognizerClass)).inserted else { return }
+        let selector = NSSelectorFromString("setState:")
+        guard let originalImplementation = class_getMethodImplementation(UIGestureRecognizer.self, selector) else { return }
+        typealias SetState = @convention(c) (AnyObject, Selector, Int) -> Void
+        let originalSetState = unsafeBitCast(originalImplementation, to: SetState.self)
+        let recordingSetState: @convention(block) (AnyObject, Int) -> Void = { recognizer, rawState in
+            if let state = UIGestureRecognizer.State(rawValue: rawState) {
+                MainActor.assumeIsolated { requestedStatesByRecognizer[ObjectIdentifier(recognizer), default: []].append(state) }
+            }
+            originalSetState(recognizer, selector, rawState)
+        }
+        class_addMethod(recognizerClass, selector, imp_implementationWithBlock(recordingSetState), "v@:q")
+    }
+
+    static func requestedStates(of recognizer: UIGestureRecognizer) -> [UIGestureRecognizer.State] {
+        requestedStatesByRecognizer[ObjectIdentifier(recognizer)] ?? []
     }
 }
 #endif

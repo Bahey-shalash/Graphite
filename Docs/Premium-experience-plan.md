@@ -145,6 +145,33 @@ Added after running it in the simulators, on 2026-10-06 and 2026-10-07, at the o
 
 Still to judge on a device: the sharper PDF ink with an Apple Pencil, and its memory at three times a page's size; scrolling and opening notes on an iPhone (in the simulator a 54 KB note slid in 35 ms after the touch, and the main thread was busy 74 ms over 12 seconds of flicking, figures from a fast Mac); hold-to-shape (0.45 seconds at rest after a stroke of 24 points), which may catch pauses in handwriting and is unchanged until it can be tried with a Pencil. Read mode draws PDF ink 16 to 29% heavier than Write mode, older than this increment: the saved outlines take PencilKit's point sizes, which PencilKit does not draw at in full.
 
+## Requested on 2026-10-12: a laser pointer and a better lasso
+
+Added at the user's request, with Goodnotes 6 as the reference. Built on 2026-10-12 (branch `alpha-lasso`) except where marked **Not built**; checked with hosted tests in the iPad simulator and by finger in the running app there, not on a device or with Apple Pencil (see `Coverage.md`).
+
+### 1. Laser pointer: built
+
+A tool for pointing at a page while presenting or sharing the screen, on the fixed bar after the lasso and in the floating palette's accessory menu (Laser Pointer, with Laser Type), with two kinds chosen from its button and remembered:
+
+- **Dot:** a glowing red dot under the Pencil or finger that follows it and is gone when it lifts; with Apple Pencil hover it shows faintly while the Pencil hovers.
+- **Line:** a red trail that shortens from its start, each part gone 0.9 seconds after it was drawn.
+
+It works on PDF pages, embedded PDFs and drawings (it is a tool of every `HistoryCanvasView`), never changes the document, takes no step in the undo history, and leaves nothing in the saved file: it is drawn in a view over the window. Still to check: an external display or AirPlay mirroring, Pencil hover on hardware, and a resting palm with finger drawing on.
+
+### 2. A lasso like Goodnotes': built in part
+
+- **Lasso type: built.** Rectangular (a box dragged from corner to corner) besides Freehand, chosen on the bar from Freehand | Rectangle beside the lasso while it is in use, and in the palette from Lasso Type; remembered.
+- **One selection of handwriting and pictures: built.** A loop or box takes the strokes and the pictures mostly inside it, on PDF pages and on drawings; the selection moves, resizes and deletes both together as one undo step. Copy puts a picture of the whole selection on the pasteboard; Cut and Duplicate are offered for ink alone, since Graphite pastes ink, not pictures.
+- **Take Screenshot: built** (asked for separately, like Goodnotes' lasso "Take Screenshot"). The menu of a selection, or of a lassoed area with nothing in it, draws the area afresh with the page or paper, its pictures and the ink at 288 pixels per inch at any zoom, and offers it in the share sheet: Copy, Save Image, sharing, and Add to “Note” for the note beside a PDF, the note a PDF is embedded in, or the note a drawing belongs to.
+- **Not built: switches for what the lasso takes** ("Included in selection"). With handwriting and pictures the only kinds there are, two switches would add a control for little; they belong with text boxes, equations, tape and sticky notes, which Graphite does not have.
+- **Not built: telling shapes and arrows apart from handwriting.** They are saved as ordinary strokes; marking them needs a change to how strokes are saved (in a way standard viewers ignore), which is outside this work.
+
+### 3. A loop that can be seen: built
+
+The loop was the interface's label color at 70%, light grey on a white page in dark appearance, with dashes that shrank on a zoomed-out page. It is now the accent as it reads on white (6.6:1 against white with the default accent) over a white halo, 1.5 points wide with 6-point dashes on screen at any zoom; a box being dragged and a marked area are tinted with the accent at 8%.
+
+Completion evidence still needed: the pointer and both lasso types tried with a Pencil and a finger on a device, in light and dark mode, on white and colored paper and on a zoomed-out PDF page; undo and save/reopen of selections that mix ink and pictures on the device; the share sheet's Save Image and Add to Note by hand.
+
 ## Remaining: coherent workspace design
 
 Continue reviewing the Markdown workspace, PDF notebook workspace, and drawing editor together: typography, icon weights, popovers, menus, selection states, and light/dark appearance beyond the toolbars. Check landscape, Split View and Slide Over widths in the running app (the control-row threshold is estimated from portrait layouts), Dynamic Type extremes, hardware-keyboard use including ⌘Z for PDFs, and left- and right-handed writing. Extend accessibility validation of the shared controls and focus mode.

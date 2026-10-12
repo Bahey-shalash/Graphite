@@ -505,4 +505,59 @@ final class PencilToolboxTests: XCTestCase {
         XCTAssertTrue(showsTools(width: narrowest, controls: false))
         XCTAssertFalse(showsTools(width: narrowest - 1, controls: false))
     }
+
+    /// The tool kinds and the stored state as main, without the laser pointer, reads them.
+    private enum ToolKindWithoutLaser: String, Codable { case ink, eraser, lasso }
+    private struct StoredStateWithoutLaser: Codable {
+        var toolInUse: ToolKindWithoutLaser
+        var presets: [InkPreset]
+        var presetInUseIndex: Int
+        var erasesWholeStrokes: Bool
+        var eraserWidth: Double
+        var eraserWidthChoices: [Double]?
+    }
+
+    func testTheLaserIsNeverSavedSoABuildWithoutItKeepsThePresets() throws {
+        let toolbox = PencilToolbox(defaults: defaults)
+        toolbox.chooseInk(.fountainPen)
+        toolbox.use(.eraser)
+        toolbox.use(.laser)
+        XCTAssertEqual(toolbox.toolInUse, .laser)
+        let saved = try XCTUnwrap(defaults.data(forKey: PencilToolbox.storageKey))
+        if let exportPath = ProcessInfo.processInfo.environment["GRAPHITE_TOOLBOX_STATE_EXPORT"] { try saved.write(to: URL(fileURLWithPath: exportPath)) }
+        let readWithoutLaser = try JSONDecoder().decode(StoredStateWithoutLaser.self, from: saved)
+        XCTAssertEqual(readWithoutLaser.toolInUse, .eraser, "The tool before the laser is saved in its place.")
+        XCTAssertEqual(readWithoutLaser.presets.first?.ink, .fountainPen, "The presets survive.")
+        // Read again, the toolbox has the eraser, not the laser.
+        XCTAssertEqual(PencilToolbox(defaults: defaults).toolInUse, .eraser)
+        // The laser straight after a launch saves the tool the launch had.
+        let relaunched = PencilToolbox(defaults: defaults)
+        relaunched.use(.laser)
+        XCTAssertEqual(try JSONDecoder().decode(StoredStateWithoutLaser.self, from: try XCTUnwrap(defaults.data(forKey: PencilToolbox.storageKey))).toolInUse, .eraser)
+    }
+
+    /// The bar's size dots show the widths they stand for: a width changed in its popover
+    /// changes its dot, every ink's three sizes are told apart, and every dot stays visible
+    /// and inside its button.
+    func testTheSizeDotsFollowTheirWidthsWithinAVisibleRange() {
+        // The owner's case: monoline from 1.4 mm down to 0.2 mm and back.
+        let monolineBroad = PencilSizeDot.diameter(forWidth: 1.4 / PencilWidthText.millimetersPerPoint)
+        let monolineFine = PencilSizeDot.diameter(forWidth: 0.2 / PencilWidthText.millimetersPerPoint)
+        XCTAssertGreaterThan(monolineBroad - monolineFine, 6)
+        for ink in PencilInk.allCases {
+            let diameters = ink.widthChoices.map(PencilSizeDot.diameter(forWidth:))
+            for (smaller, larger) in zip(diameters, diameters.dropFirst()) {
+                XCTAssertGreaterThan(larger - smaller, 1.5, "\(ink): its three sizes look different.")
+            }
+            for width in [ink.widthRange.lowerBound, ink.widthRange.upperBound] {
+                let diameter = PencilSizeDot.diameter(forWidth: width)
+                XCTAssertGreaterThanOrEqual(diameter, PencilSizeDot.smallestDiameter)
+                XCTAssertLessThanOrEqual(diameter, PencilSizeDot.largestDiameter)
+            }
+        }
+        XCTAssertLessThanOrEqual(PencilSizeDot.largestDiameter, 28, "Inside the 28-point button.")
+        XCTAssertEqual(PencilSizeDot.diameter(forWidth: 100), PencilSizeDot.largestDiameter, "The broadest eraser is clamped.")
+        XCTAssertEqual(PencilSizeDot.diameter(forWidth: 0.1), PencilSizeDot.smallestDiameter)
+        XCTAssertEqual(PencilSizeDot.diameter(forWidth: .nan), PencilSizeDot.smallestDiameter)
+    }
 }

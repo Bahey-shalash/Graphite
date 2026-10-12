@@ -12,6 +12,14 @@ struct PDFLinkActions {
     /// Inserts the quote into the note open on the other side, named `noteName`.
     let quoteInNote: ((_ pageIndex: Int, _ text: String) -> Void)?
     let noteName: String?
+    /// Adds a picture taken with the lasso to that note, as an attachment.
+    var addImageToNote: ((_ pngData: Data, _ name: String) -> Void)? = nil
+
+    /// Where the lasso's pictures of the page can be added: the note open beside the PDF.
+    var noteDestination: LassoNoteDestination? {
+        guard let addImageToNote, let noteName else { return nil }
+        return LassoNoteDestination(noteName: noteName, addImage: addImageToNote)
+    }
 }
 
 /// How a PDF view accepts annotation input.
@@ -177,6 +185,9 @@ struct GraphitePDFView: UIViewRepresentable {
     var readingHighlights: [PDFReadAloudHighlight] = []
     var followsReading = false
     var suspendReadingFollow: (() -> Void)?
+    /// The note a PDF embedded in a note belongs to, for the lasso's pictures; a PDF pane's
+    /// is the note beside it, from `linkActions`.
+    var noteDestination: LassoNoteDestination?
 
     func makeCoordinator() -> PDFAnnotationCoordinator { PDFAnnotationCoordinator(session: session, isEmbedded: isEmbedded) }
 
@@ -208,6 +219,7 @@ struct GraphitePDFView: UIViewRepresentable {
         context.coordinator.attach(to: view)
         context.coordinator.beginInteraction = beginInteraction
         context.coordinator.linkActions = linkActions
+        context.coordinator.noteDestination = noteDestination ?? linkActions?.noteDestination
         context.coordinator.beginWritingWithPencil = beginWritingWithPencil
         session.pdfView = view
         return view
@@ -216,6 +228,7 @@ struct GraphitePDFView: UIViewRepresentable {
     func updateUIView(_ view: GraphitePDFDisplayView, context: Context) {
         context.coordinator.beginInteraction = beginInteraction
         context.coordinator.linkActions = linkActions
+        context.coordinator.noteDestination = noteDestination ?? linkActions?.noteDestination
         context.coordinator.beginWritingWithPencil = beginWritingWithPencil
         context.coordinator.update(input: input)
         context.coordinator.highlightReading(readingHighlights, followsReading: followsReading, suspendFollowing: suspendReadingFollow)
@@ -399,6 +412,8 @@ final class PDFPageCanvasView: HistoryCanvasView {
     var isRestoringStoredInk = false
     /// The view PDFKit places over the page, which holds this canvas and the writing guides.
     private(set) weak var overlayView: PDFPageOverlayView?
+    /// The owner of the PDF view's canvases, whose session the lasso's pictures belong to.
+    weak var annotationCoordinator: PDFAnnotationCoordinator?
 
     init(page: PDFPage, inkTracker: PDFPageInkTracker) {
         self.page = page
@@ -424,7 +439,7 @@ final class PDFPageCanvasView: HistoryCanvasView {
     /// its zoom instead, and a stroke is as wide on the page at any zoom of the PDF, as on
     /// paper. Inks with a narrow range (pen, pencil, highlighter) stop at their widest.
     override func toolForDrawing(_ chosenTool: PKTool) -> PKTool {
-        Self.tool(chosenTool, scaledBy: zoomScale)
+        Self.tool(super.toolForDrawing(chosenTool), scaledBy: zoomScale)
     }
 
     /// Draws with the chosen tool at the canvas's new zoom.
@@ -559,6 +574,8 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     let isEmbedded: Bool
     var beginInteraction: (() -> Void)?
     var linkActions: PDFLinkActions?
+    /// Where the lasso's pictures of a page can be added as an attachment.
+    var noteDestination: LassoNoteDestination?
     /// See `GraphitePDFView.beginWritingWithPencil`.
     var beginWritingWithPencil: (() -> Void)?
     private var pencilWhileReadingRecognizer: PencilTouchDownRecognizer?
@@ -580,9 +597,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     private var textSelectionRecognizer: UILongPressGestureRecognizer?
     /// Takes a resting hand's touches on the pages, which the page's scrolling, zooming,
     /// tapping and selecting wait for (`PalmRejectionRecognizer`).
-    private var palmRejectionRecognizer: PalmRejectionRecognizer?
-    /// The recognizers already made to wait for palm rejection.
-    private var recognizersWaitingForPalmRejection: Set<ObjectIdentifier> = []
+    private var palmRejection: PalmRejectionInstallation?
     private var editMenuInteraction: UIEditMenuInteraction?
     private var tappedMarkup: (annotation: PDFAnnotation, page: PDFPage)?
     private var selectionAnchor: (page: PDFPage, point: CGPoint)?
@@ -594,7 +609,8 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     private var renderingScaleUpdate: DispatchWorkItem?
     /// For tests, which cannot send touches.
     var pictureSelectionController: PDFPictureSelectionController? { pictureSelection }
-    private var observedScrollRecognizers: Set<ObjectIdentifier> = []
+    /// Held weakly: a recognizer made later at a freed one's address is observed too.
+    private let observedScrollRecognizers = NSHashTable<UIGestureRecognizer>.weakObjects()
     /// The scroll views around this embed that it restricts while annotating.
     private var restrictedEnclosingScrollViews: [ObjectIdentifier] = []
     private var hasAppliedInput = false
@@ -652,8 +668,8 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         pencilWhileReadingRecognizer = pencilRecognizer
 
         // A hand resting on a page while the Pencil writes does not tap, select, scroll or zoom.
-        palmRejectionRecognizer = PencilActivity.installRecognizers(in: view, isWriting: { [weak self] in self?.input.isEnabled ?? false },
-                                                                    handDidLand: { [weak self] in self?.handDidLandOnPage() })
+        palmRejection = PencilActivity.installRecognizers(in: view, isWriting: { [weak self] in self?.input.isEnabled ?? false },
+                                                          handTouchesDidChange: { [weak self] handTouches in self?.handTouchesDidChange(handTouches) })
         makeWaitForPalmRejection([tapRecognizer, selectionRecognizer])
 
         let menuInteraction = UIEditMenuInteraction(delegate: self)
@@ -736,6 +752,8 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
             pdfView.clearSelection()
         }
         for canvas in canvasesByPage.values { configure(canvas) }
+        // ⌘V pastes while the PDF is written on (`PDFAnnotationCoordinator.pasteFromPasteboard`).
+        toolPickerHost.pasteFromPasteboard = newInput.isEnabled ? { [weak self] in self?.pasteFromPasteboard() } : nil
         configureScrollGestures(of: pdfView)
         configureEnclosingScrollViews(of: pdfView)
         // With finger drawing, a long press belongs to the pen, as in Goodnotes.
@@ -788,9 +806,9 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
             scrollView.panGestureRecognizer.minimumNumberOfTouches = input.isEnabled && input.drawsWithFinger ? 2 : 1
             scrollView.pinchGestureRecognizer?.allowedTouchTypes = input.isEnabled ? withoutPencil : allTouchTypes
             for recognizer in [scrollView.panGestureRecognizer, scrollView.pinchGestureRecognizer].compactMap({ recognizer in recognizer })
-            where !observedScrollRecognizers.contains(ObjectIdentifier(recognizer)) {
+            where !observedScrollRecognizers.contains(recognizer) {
                 recognizer.addTarget(self, action: #selector(scrollGestureChanged(_:)))
-                observedScrollRecognizers.insert(ObjectIdentifier(recognizer))
+                observedScrollRecognizers.add(recognizer)
             }
             makeWaitForPalmRejection([scrollView.panGestureRecognizer, scrollView.pinchGestureRecognizer].compactMap { recognizer in recognizer })
         }
@@ -799,14 +817,18 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     }
 
     /// Makes recognizers wait for palm rejection to fail, each once. It fails at once for a
-    /// finger, so they do not wait for one.
+    /// finger while the Pencil is not active, so they do not wait for one.
     private func makeWaitForPalmRejection(_ recognizers: [UIGestureRecognizer]) {
-        guard let palmRejectionRecognizer else { return }
-        for recognizer in recognizers where recognizer !== palmRejectionRecognizer
-        && recognizersWaitingForPalmRejection.insert(ObjectIdentifier(recognizer)).inserted {
-            recognizer.require(toFail: palmRejectionRecognizer)
-        }
+        palmRejection?.makeWait(recognizers)
     }
+
+    /// For tests, which cannot send touches: whether a recognizer waits for palm rejection.
+    func waitsForPalmRejection(_ recognizer: UIGestureRecognizer) -> Bool {
+        palmRejection?.isWaiting(recognizer) ?? false
+    }
+
+    /// For tests: the recognizer that takes a resting hand's touches.
+    var palmRejectionRecognizer: PalmRejectionRecognizer? { palmRejection?.recognizer }
 
     /// The taps and long presses of the pages, not of the Pencil canvases, whose drawing
     /// must never wait, nor of a picture's selection frame.
@@ -819,9 +841,9 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     }
 
     /// With finger drawing, a stroke a resting hand began on any page is taken back.
-    private func handDidLandOnPage() {
+    private func handTouchesDidChange(_ handTouches: [UITouch]) {
         guard input.drawsWithFinger else { return }
-        for canvas in canvasesByPage.values { canvas.takeBackStrokeOfHand() }
+        for canvas in canvasesByPage.values { canvas.takeBackStroke(ofHand: handTouches) }
     }
 
     /// With finger drawing, the first finger of a two-finger scroll or pinch has already
@@ -942,6 +964,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
 
     private func makeCanvas(for page: PDFPage) -> PDFPageCanvasView {
         let canvas = PDFPageCanvasView(page: page, inkTracker: PDFPageInkTracker(group: PDFInkGroups.newGroup(on: page)))
+        canvas.annotationCoordinator = self
         canvas.backgroundColor = .clear
         canvas.isOpaque = false
         // Pages are white paper; dark-mode ink adaptation would make black ink invisible.
@@ -1036,6 +1059,10 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     }
 
     // MARK: Drawing
+
+    func canvasViewDidFinishRendering(_ canvasView: PKCanvasView) {
+        (canvasView as? HistoryCanvasView)?.drawingDidFinishRendering()
+    }
 
     func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
         guard let canvas = canvasView as? PDFPageCanvasView, !canvas.isShowingWithoutRecording, let page = canvas.page,
@@ -1323,6 +1350,8 @@ struct GraphitePDFView: NSViewRepresentable {
     var readingHighlights: [PDFReadAloudHighlight] = []
     var followsReading = false
     var suspendReadingFollow: (() -> Void)?
+    /// The Mac viewer has no lasso; accepted so both platforms share one call.
+    var noteDestination: LassoNoteDestination?
 
     final class Coordinator {
         var pageObserver: PDFViewPageObserver?

@@ -71,6 +71,7 @@ private actor PDFLoader {
                 let baseline = PDFBaselineSnapshot(location: PDFBaselineSnapshot.makeLocation())
                 try FileManager.default.copyItem(at: source, to: baseline.location)
                 guard let document = PDFDocument(url: baseline.location) else { throw GraphiteError.invalidFile("This PDF is unreadable.") }
+                PDFPageManager.prepareForDisplay(document)
                 if document.isLocked {
                     guard let password else { throw PDFPasswordRequired(wasPasswordWrong: false) }
                     guard document.unlock(withPassword: password) else { throw PDFPasswordRequired(wasPasswordWrong: true) }
