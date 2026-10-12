@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import UIKit
+import UIKit.UIGestureRecognizerSubclass
 
 /// The laser pointer on one canvas: for pointing at a page while presenting or sharing the
 /// screen. A glowing red dot follows the Pencil or finger and is gone when it lifts
@@ -13,10 +14,8 @@ import UIKit
 final class LaserPointerController: NSObject, UIGestureRecognizerDelegate {
     private unowned let canvas: HistoryCanvasView
     /// Begins as soon as a touch lands, with no distance to travel first.
-    private lazy var touchRecognizer: UILongPressGestureRecognizer = {
-        let recognizer = UILongPressGestureRecognizer(target: self, action: #selector(handleTouch(_:)))
-        recognizer.minimumPressDuration = 0
-        recognizer.allowableMovement = .greatestFiniteMagnitude
+    private lazy var touchRecognizer: LaserTouchRecognizer = {
+        let recognizer = LaserTouchRecognizer(target: self, action: #selector(handleTouch(_:)))
         recognizer.delegate = self
         return recognizer
     }()
@@ -51,7 +50,7 @@ final class LaserPointerController: NSObject, UIGestureRecognizerDelegate {
         canvas.window.map(LaserPointerOverlayView.overlay(in:))
     }
 
-    @objc private func handleTouch(_ recognizer: UILongPressGestureRecognizer) {
+    @objc private func handleTouch(_ recognizer: LaserTouchRecognizer) {
         guard let overlay, let window = canvas.window else { return }
         let point = recognizer.location(in: window)
         let style = LaserPointerStyle.stored
@@ -79,6 +78,46 @@ final class LaserPointerController: NSObject, UIGestureRecognizerDelegate {
         default:
             overlay.hideDot()
         }
+    }
+}
+
+/// Follows one touch from the moment it lands until it lifts: began, changed with each
+/// move, ended. A long press with no minimum duration ended as soon as the touch moved in
+/// the simulator, which left a dot where the touch began and no line.
+final class LaserTouchRecognizer: UIGestureRecognizer {
+    private weak var trackedTouch: UITouch?
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard trackedTouch == nil, let touch = touches.first else {
+            for touch in touches where touch !== trackedTouch { ignore(touch, for: event) }
+            return
+        }
+        trackedTouch = touch
+        state = .began
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let trackedTouch, touches.contains(trackedTouch) else { return }
+        state = .changed
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let trackedTouch, touches.contains(trackedTouch) else { return }
+        state = .ended
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let trackedTouch, touches.contains(trackedTouch) else { return }
+        state = .cancelled
+    }
+
+    override func reset() {
+        super.reset()
+        trackedTouch = nil
+    }
+
+    override func location(in view: UIView?) -> CGPoint {
+        trackedTouch?.location(in: view) ?? super.location(in: view)
     }
 }
 

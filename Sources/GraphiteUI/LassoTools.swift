@@ -71,9 +71,13 @@ struct LassoNoteDestination {
 
 extension WorkspaceModel {
     /// Saves a picture taken with the lasso as an attachment of the note, where the note's
-    /// attachments go, and embeds it at the note's cursor, as a pasted image is.
+    /// attachments go, and embeds it as a pasted image is: at the cursor once the person
+    /// has placed it, else at the end, so pictures collect in the order they were taken,
+    /// as quotes from a PDF do.
     func addLassoPicture(_ pngData: Data, named name: String, to note: MarkdownSession) async {
-        await saveAttachment(pngData, stem: LassoNoteDestination.fileStem(for: name), fileExtension: "png", into: note)
+        let endOfNote = NSRange(location: (note.text as NSString).length, length: 0)
+        await saveAttachment(pngData, stem: LassoNoteDestination.fileStem(for: name), fileExtension: "png", into: note,
+                             at: note.hasPlacedCursor ? nil : endOfNote)
     }
 }
 

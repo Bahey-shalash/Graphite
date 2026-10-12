@@ -277,6 +277,10 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
         // A handle's touch area reaches at most a quarter of the frame's shorter side into
         // it, so a small frame, around a word or a dot, keeps its middle for moving; the
         // area moves outward instead, and the knob stays on the corner.
+        // A frame too small for four knobs to stand apart, around a dot or a short word, has
+        // one, at its bottom-right corner, as Goodnotes does; four knobs touched each other.
+        let showsOneHandle = min(bounds.width, bounds.height) < Self.handleTouchSide * handleScale && cropLimits == nil
+        for (corner, handle) in handles { handle.isHidden = showsOneHandle && corner != .bottomRight }
         let halfTouchSide = Self.handleTouchSide / 2 * handleScale
         let inwardReach = min(halfTouchSide, min(bounds.width, bounds.height) / 4)
         let outwardShift = halfTouchSide - inwardReach
@@ -300,7 +304,7 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
 
     /// The handles reach outside the frame they resize or turn.
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-        bounds.contains(point) || handles.values.contains { handle in handle.frame.contains(point) }
+        bounds.contains(point) || handles.values.contains { handle in !handle.isHidden && handle.frame.contains(point) }
             || (!rotationHandle.isHidden && rotationHandle.frame.contains(point))
     }
 

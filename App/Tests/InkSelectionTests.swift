@@ -492,6 +492,8 @@ extension InkSelectionTests {
         XCTAssertTrue(frameView.hitTest(middle, with: nil) === frameView, "A touch in the middle of a small frame moves it.")
         let corner = CGPoint(x: frameView.bounds.maxX + 4 / screenScale(of: canvas), y: frameView.bounds.maxY + 4 / screenScale(of: canvas))
         XCTAssertFalse(frameView.hitTest(corner, with: nil) === frameView, "Beside the corner, the handle resizes.")
+        let besideTopLeft = CGPoint(x: -4 / screenScale(of: canvas), y: -4 / screenScale(of: canvas))
+        XCTAssertNil(frameView.hitTest(besideTopLeft, with: nil), "A frame too small for four knobs has one, at its bottom-right corner.")
     }
 
     func testTheFrameFollowsTheInkAndKeepsItsSizeOnScreenWhenThePageIsZoomed() async throws {

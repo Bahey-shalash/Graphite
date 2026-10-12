@@ -212,9 +212,13 @@ final class InkSelectionController: NSObject, UIGestureRecognizerDelegate, @prec
     /// fingers draw. A touch on the selection's frame moves or resizes it and starts no loop.
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         guard canvas.drawingGestureRecognizer.allowedTouchTypes.contains(NSNumber(value: touch.type.rawValue)) else { return false }
-        guard let selectionView, let touchedView = touch.view else { return true }
-        return !touchedView.isDescendant(of: selectionView)
+        if let selectionView, let touchedView = touch.view, touchedView.isDescendant(of: selectionView) { return false }
+        if gestureRecognizer === loopRecognizer { touchDownLocation = touch.location(in: canvas) }
+        return true
     }
+
+    /// Where the touch the loop recognizer was given came down, in the canvas's coordinates.
+    private var touchDownLocation: CGPoint?
 
     // MARK: Coordinates
 
@@ -243,10 +247,11 @@ final class InkSelectionController: NSObject, UIGestureRecognizerDelegate, @prec
         let point = recognizer.location(in: canvas)
         switch recognizer.state {
         case .began:
-            // The pan is recognized only after the touch has moved a little; the loop starts
-            // where the touch came down.
-            let translation = recognizer.translation(in: canvas)
-            loopDidBegin(at: CGPoint(x: point.x - translation.x, y: point.y - translation.y), reaching: point)
+            // The pan is recognized only after the touch has moved a little, and its
+            // translation starts from there; the loop starts where the touch came down. A
+            // rectangle began 15 points late, cutting off the corner it was dragged from.
+            loopDidBegin(at: touchDownLocation ?? point, reaching: point)
+            touchDownLocation = nil
         case .changed:
             loopDidMove(to: point)
         case .ended:
