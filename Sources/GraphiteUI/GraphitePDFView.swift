@@ -12,6 +12,14 @@ struct PDFLinkActions {
     /// Inserts the quote into the note open on the other side, named `noteName`.
     let quoteInNote: ((_ pageIndex: Int, _ text: String) -> Void)?
     let noteName: String?
+    /// Adds a picture taken with the lasso to that note, as an attachment.
+    var addImageToNote: ((_ pngData: Data, _ name: String) -> Void)? = nil
+
+    /// Where the lasso's pictures of the page can be added: the note open beside the PDF.
+    var noteDestination: LassoNoteDestination? {
+        guard let addImageToNote, let noteName else { return nil }
+        return LassoNoteDestination(noteName: noteName, addImage: addImageToNote)
+    }
 }
 
 /// How a PDF view accepts annotation input.
@@ -187,6 +195,9 @@ struct GraphitePDFView: UIViewRepresentable {
     var readingHighlights: [PDFReadAloudHighlight] = []
     var followsReading = false
     var suspendReadingFollow: (() -> Void)?
+    /// The note a PDF embedded in a note belongs to, for the lasso's pictures; a PDF pane's
+    /// is the note beside it, from `linkActions`.
+    var noteDestination: LassoNoteDestination?
 
     func makeCoordinator() -> PDFAnnotationCoordinator { PDFAnnotationCoordinator(session: session, isEmbedded: isEmbedded) }
 
@@ -197,18 +208,28 @@ struct GraphitePDFView: UIViewRepresentable {
         view.autoScales = true
         view.pageShadowsEnabled = true
         view.backgroundColor = .secondarySystemBackground
+        // A picture placed on a page is drawn from all its pixels at any size: below high
+        // quality, a picture made smaller than its pixels shows jagged, pixelated edges.
+        view.interpolationQuality = .high
         if isEmbedded { view.pageBreakMargins = UIEdgeInsets(top: 6, left: 6, bottom: 6, right: 6) }
         // PDFKit asks for page overlays only when it creates page views, so the provider
         // must be in place before the document is.
         view.pageOverlayViewProvider = context.coordinator
         view.document = session.document
-        view.pendingInitialPage = initialPageIndex.flatMap(session.document.page(at:))
+        // The place the PDF was left at, when there is one: back from another tab, after a
+        // reload, or after Graphite quit. It is the page at the top edge, which can be the
+        // one before the page PDFKit counts as current, across the view's middle.
+        let keptPlace = session.keptPlace.flatMap { place in place.pageIndex < session.document.pageCount ? place : nil }
+        view.pendingInitialPage = (keptPlace?.pageIndex ?? initialPageIndex).flatMap(session.document.page(at:))
+        view.pendingInitialFractionFromTop = keptPlace.map { place in CGFloat(place.fractionFromTop) }
+        session.livePlace = { [weak view] in view?.pagePlace }
         // The system find bar (⌘F, or the toolbar's Find), which PDFKit fills with its
         // matches. A PDF embedded in a note leaves ⌘F to the note.
         view.isFindInteractionEnabled = !isEmbedded
         context.coordinator.attach(to: view)
         context.coordinator.beginInteraction = beginInteraction
         context.coordinator.linkActions = linkActions
+        context.coordinator.noteDestination = noteDestination ?? linkActions?.noteDestination
         context.coordinator.beginWritingWithPencil = beginWritingWithPencil
         session.pdfView = view
         return view
@@ -217,12 +238,18 @@ struct GraphitePDFView: UIViewRepresentable {
     func updateUIView(_ view: GraphitePDFDisplayView, context: Context) {
         context.coordinator.beginInteraction = beginInteraction
         context.coordinator.linkActions = linkActions
+        context.coordinator.noteDestination = noteDestination ?? linkActions?.noteDestination
         context.coordinator.beginWritingWithPencil = beginWritingWithPencil
         context.coordinator.update(input: input)
         context.coordinator.highlightReading(readingHighlights, followsReading: followsReading, suspendFollowing: suspendReadingFollow)
     }
 
     static func dismantleUIView(_ view: GraphitePDFDisplayView, coordinator: PDFAnnotationCoordinator) {
+        // A view made for the PDF again, as when its tab is shown again, comes back here,
+        // unless a newer view of it already shows it.
+        if coordinator.session.pdfView === view || coordinator.session.pdfView == nil, let place = view.pagePlace {
+            coordinator.session.keptPlace = place
+        }
         coordinator.detach()
     }
 }
@@ -240,6 +267,18 @@ final class GraphitePDFDisplayView: PDFView {
     override var inputAccessoryView: UIView? { emptyInputAccessoryView }
     /// PDFKit scrolls to a page reliably only after the first layout.
     var pendingInitialPage: PDFPage?
+    /// How far down `pendingInitialPage` the view's top edge goes then, as a fraction of the
+    /// page's height; nil for its top.
+    var pendingInitialFractionFromTop: CGFloat?
+
+    /// Where the view is: the page at its top edge and how far down that page. Nil before
+    /// the view has shown its first page, when it is not yet anywhere.
+    var pagePlace: PDFPagePlace? {
+        guard pendingInitialPage == nil, bounds.width > 0, bounds.height > 0, let document, let place = currentPlace() else { return nil }
+        let pageIndex = document.index(for: place.page)
+        guard pageIndex != NSNotFound else { return nil }
+        return PDFPagePlace(pageIndex: pageIndex, fractionFromTop: Double(place.fractionFromTop))
+    }
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
@@ -310,6 +349,17 @@ final class GraphitePDFDisplayView: PDFView {
             self.pendingInitialPage = nil
             placeBeforeResize = nil
             go(to: pendingInitialPage)
+            if let fractionFromTop = pendingInitialFractionFromTop {
+                pendingInitialFractionFromTop = nil
+                show((page: pendingInitialPage, fractionFromTop: fractionFromTop))
+                // PDFKit can lay its pages out once more after going to one; the place is
+                // shown again then, as after a resize. The page is found again by its index.
+                let pageIndex = document?.index(for: pendingInitialPage)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, let pageIndex, pageIndex != NSNotFound, let page = self.document?.page(at: pageIndex) else { return }
+                    self.show((page: page, fractionFromTop: fractionFromTop))
+                }
+            }
         } else if let placeBeforeResize {
             show(placeBeforeResize)
         }
@@ -372,6 +422,8 @@ final class PDFPageCanvasView: HistoryCanvasView {
     var isRestoringStoredInk = false
     /// The view PDFKit places over the page, which holds this canvas and the writing guides.
     private(set) weak var overlayView: PDFPageOverlayView?
+    /// The owner of the PDF view's canvases, whose session the lasso's pictures belong to.
+    weak var annotationCoordinator: PDFAnnotationCoordinator?
 
     init(page: PDFPage, inkTracker: PDFPageInkTracker) {
         self.page = page
@@ -397,7 +449,7 @@ final class PDFPageCanvasView: HistoryCanvasView {
     /// its zoom instead, and a stroke is as wide on the page at any zoom of the PDF, as on
     /// paper. Inks with a narrow range (pen, pencil, highlighter) stop at their widest.
     override func toolForDrawing(_ chosenTool: PKTool) -> PKTool {
-        Self.tool(chosenTool, scaledBy: zoomScale)
+        Self.tool(super.toolForDrawing(chosenTool), scaledBy: zoomScale)
     }
 
     /// Draws with the chosen tool at the canvas's new zoom.
@@ -532,6 +584,8 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     let isEmbedded: Bool
     var beginInteraction: (() -> Void)?
     var linkActions: PDFLinkActions?
+    /// Where the lasso's pictures of a page can be added as an attachment.
+    var noteDestination: LassoNoteDestination?
     /// See `GraphitePDFView.beginWritingWithPencil`.
     var beginWritingWithPencil: (() -> Void)?
     private var pencilWhileReadingRecognizer: PencilTouchDownRecognizer?
@@ -551,6 +605,9 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     private var input = PDFAnnotationInput(isEnabled: false, drawsWithFinger: false, showsToolPicker: false)
     private var markupTapRecognizer: UITapGestureRecognizer?
     private var textSelectionRecognizer: UILongPressGestureRecognizer?
+    /// Takes a resting hand's touches on the pages, which the page's scrolling, zooming,
+    /// tapping and selecting wait for (`PalmRejectionRecognizer`).
+    private var palmRejection: PalmRejectionInstallation?
     private var editMenuInteraction: UIEditMenuInteraction?
     private var tappedMarkup: (annotation: PDFAnnotation, page: PDFPage)?
     private var selectionAnchor: (page: PDFPage, point: CGPoint)?
@@ -562,7 +619,8 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     private var renderingScaleUpdate: DispatchWorkItem?
     /// For tests, which cannot send touches.
     var pictureSelectionController: PDFPictureSelectionController? { pictureSelection }
-    private var observedScrollRecognizers: Set<ObjectIdentifier> = []
+    /// Held weakly: a recognizer made later at a freed one's address is observed too.
+    private let observedScrollRecognizers = NSHashTable<UIGestureRecognizer>.weakObjects()
     /// The scroll views around this embed that it restricts while annotating.
     private var restrictedEnclosingScrollViews: [ObjectIdentifier] = []
     private var hasAppliedInput = false
@@ -618,6 +676,11 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         pencilRecognizer.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
         view.addGestureRecognizer(pencilRecognizer)
         pencilWhileReadingRecognizer = pencilRecognizer
+
+        // A hand resting on a page while the Pencil writes does not tap, select, scroll or zoom.
+        palmRejection = PencilActivity.installRecognizers(in: view, isWriting: { [weak self] in self?.input.isEnabled ?? false },
+                                                          handTouchesDidChange: { [weak self] handTouches in self?.handTouchesDidChange(handTouches) })
+        makeWaitForPalmRejection([tapRecognizer, selectionRecognizer])
 
         let menuInteraction = UIEditMenuInteraction(delegate: self)
         view.addInteraction(menuInteraction)
@@ -699,6 +762,8 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
             pdfView.clearSelection()
         }
         for canvas in canvasesByPage.values { configure(canvas) }
+        // ⌘V pastes while the PDF is written on (`PDFAnnotationCoordinator.pasteFromPasteboard`).
+        toolPickerHost.pasteFromPasteboard = newInput.isEnabled ? { [weak self] in self?.pasteFromPasteboard() } : nil
         configureScrollGestures(of: pdfView)
         configureEnclosingScrollViews(of: pdfView)
         // With finger drawing, a long press belongs to the pen, as in Goodnotes.
@@ -751,11 +816,44 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
             scrollView.panGestureRecognizer.minimumNumberOfTouches = input.isEnabled && input.drawsWithFinger ? 2 : 1
             scrollView.pinchGestureRecognizer?.allowedTouchTypes = input.isEnabled ? withoutPencil : allTouchTypes
             for recognizer in [scrollView.panGestureRecognizer, scrollView.pinchGestureRecognizer].compactMap({ recognizer in recognizer })
-            where !observedScrollRecognizers.contains(ObjectIdentifier(recognizer)) {
+            where !observedScrollRecognizers.contains(recognizer) {
                 recognizer.addTarget(self, action: #selector(scrollGestureChanged(_:)))
-                observedScrollRecognizers.insert(ObjectIdentifier(recognizer))
+                observedScrollRecognizers.add(recognizer)
             }
+            makeWaitForPalmRejection([scrollView.panGestureRecognizer, scrollView.pinchGestureRecognizer].compactMap { recognizer in recognizer })
         }
+        // PDFKit's own taps and long presses on its pages, which it adds as pages are shown.
+        makeWaitForPalmRejection(pageTapsAndPresses(in: view))
+    }
+
+    /// Makes recognizers wait for palm rejection to fail, each once. It fails at once for a
+    /// finger while the Pencil is not active, so they do not wait for one.
+    private func makeWaitForPalmRejection(_ recognizers: [UIGestureRecognizer]) {
+        palmRejection?.makeWait(recognizers)
+    }
+
+    /// For tests, which cannot send touches: whether a recognizer waits for palm rejection.
+    func waitsForPalmRejection(_ recognizer: UIGestureRecognizer) -> Bool {
+        palmRejection?.isWaiting(recognizer) ?? false
+    }
+
+    /// For tests: the recognizer that takes a resting hand's touches.
+    var palmRejectionRecognizer: PalmRejectionRecognizer? { palmRejection?.recognizer }
+
+    /// The taps and long presses of the pages, not of the Pencil canvases, whose drawing
+    /// must never wait, nor of a picture's selection frame.
+    private func pageTapsAndPresses(in view: UIView) -> [UIGestureRecognizer] {
+        guard !(view is PKCanvasView), !(view is SelectionFrameView) else { return [] }
+        let ownRecognizers = (view.gestureRecognizers ?? []).filter { recognizer in
+            recognizer is UITapGestureRecognizer || recognizer is UILongPressGestureRecognizer
+        }
+        return ownRecognizers + view.subviews.flatMap { subview in pageTapsAndPresses(in: subview) }
+    }
+
+    /// With finger drawing, a stroke a resting hand began on any page is taken back.
+    private func handTouchesDidChange(_ handTouches: [UITouch]) {
+        guard input.drawsWithFinger else { return }
+        for canvas in canvasesByPage.values { canvas.takeBackStroke(ofHand: handTouches) }
     }
 
     /// With finger drawing, the first finger of a two-finger scroll or pinch has already
@@ -852,6 +950,8 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     }
 
     func pdfView(_ pdfView: PDFView, willDisplayOverlayView overlayView: UIView, for page: PDFPage) {
+        // PDFKit makes a page's view, with its taps and long presses, as the page is shown.
+        makeWaitForPalmRejection(pageTapsAndPresses(in: overlayView.superview ?? overlayView))
         guard let canvas = (overlayView as? PDFPageOverlayView)?.canvas else { return }
         let identifier = ObjectIdentifier(page)
         displayedPages.insert(identifier)
@@ -874,6 +974,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
 
     private func makeCanvas(for page: PDFPage) -> PDFPageCanvasView {
         let canvas = PDFPageCanvasView(page: page, inkTracker: PDFPageInkTracker(group: PDFInkGroups.newGroup(on: page)))
+        canvas.annotationCoordinator = self
         canvas.backgroundColor = .clear
         canvas.isOpaque = false
         // Pages are white paper; dark-mode ink adaptation would make black ink invisible.
@@ -888,6 +989,8 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         if let textSelectionRecognizer {
             for recognizer in longPressRecognizers(in: canvas) { recognizer.require(toFail: textSelectionRecognizer) }
         }
+        // Nor does a resting hand open that menu. PencilKit's drawing itself never waits.
+        makeWaitForPalmRejection(longPressRecognizers(in: canvas).filter { recognizer in recognizer !== canvas.drawingGestureRecognizer })
         // A finger tap on a highlight (with finger drawing) opens its menu instead of also
         // leaving a dot. The tap takes only touches on markup or with text selected, so
         // other strokes do not wait for it.
@@ -966,6 +1069,10 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     }
 
     // MARK: Drawing
+
+    func canvasViewDidFinishRendering(_ canvasView: PKCanvasView) {
+        (canvasView as? HistoryCanvasView)?.drawingDidFinishRendering()
+    }
 
     func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
         guard let canvas = canvasView as? PDFPageCanvasView, !canvas.isShowingWithoutRecording, let page = canvas.page,
@@ -1169,6 +1276,10 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         guard gestureRecognizer === markupTapRecognizer, let pdfView else { return true }
+        // A touch on a picture's selection frame or one of its handles moves, resizes or turns
+        // the picture. Taken as a tap too, a quick drag on a handle outside the picture ended
+        // arranging instead; the drawing editor's `PictureTapGate` leaves such touches out too.
+        if let touchedView = touch.view, touchedView is SelectionFrameView || touchedView.superview is SelectionFrameView { return false }
         return input.isEnabled && takesTap(at: touch.location(in: pdfView), in: pdfView)
     }
 
@@ -1249,6 +1360,8 @@ struct GraphitePDFView: NSViewRepresentable {
     var readingHighlights: [PDFReadAloudHighlight] = []
     var followsReading = false
     var suspendReadingFollow: (() -> Void)?
+    /// The Mac viewer has no lasso; accepted so both platforms share one call.
+    var noteDestination: LassoNoteDestination?
 
     final class Coordinator {
         var pageObserver: PDFViewPageObserver?
@@ -1260,6 +1373,7 @@ struct GraphitePDFView: NSViewRepresentable {
         let view = PDFView()
         view.document = session.document
         view.autoScales = true
+        view.interpolationQuality = .high
         view.displayMode = .singlePageContinuous
         if let initialPage = initialPageIndex.flatMap(session.document.page(at:)) { view.go(to: initialPage) }
         context.coordinator.pageObserver = PDFViewPageObserver(session: session, view: view)

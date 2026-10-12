@@ -18,6 +18,8 @@ final class TabDocument {
     /// The view a `[[Books.base#Gallery]]` link asked the tab's base to show.
     var baseViewRequest: BaseViewRequest?
     var isOpening = false
+    /// The community plugin view an empty tab shows (its leaf's identifier), until a file opens in it.
+    var pluginViewIdentifier: String?
     /// Why the tab's file could not be opened, shown in the tab until it is tried again.
     var loadFailure: LoadFailure?
     /// Identifies the latest open request, so a slower earlier one cannot replace it.
@@ -191,7 +193,11 @@ extension WorkspaceModel {
     /// with its undo history (see `MarkdownEditorRetention`) can still reference the tab's
     /// document, which then no longer shows that note, so the editor is let go of too.
     func removeTabDocuments(_ tabIDs: [UUID]) {
+        // A closed tab's file opens where it was left when it is opened again.
+        rememberPlaces(of: tabIDs.compactMap { tabID in tabDocuments[tabID] })
         for tabID in tabIDs {
+            // A plugin view closes with its tab, as in Obsidian.
+            if let pluginViewIdentifier = tabDocuments[tabID]?.pluginViewIdentifier { communityPlugins.closeView(pluginViewIdentifier) }
             tabDocuments[tabID]?.unload()
             tabDocuments[tabID] = nil
         }
@@ -245,6 +251,7 @@ extension WorkspaceModel {
             guard let session = document.pdfSession, let path = document.loadedPath, !document.isOpening,
                   !session.hasUnsavedChanges, !session.isSaving, !session.hasExternalConflict else { continue }
             document.releasedPDFPage = (path, session.currentPageIndex)
+            rememberPlaces(of: [document])
             document.unload()
         }
     }
@@ -308,6 +315,9 @@ extension WorkspaceModel {
     func load(_ path: VaultPath, into tabID: UUID, pdfPageIndex: Int?, recordsHistory: Bool, reportsFailure: Bool = true) async -> Bool {
         guard let store, let folderAccess else { return false }
         let document = document(for: tabID)
+        // A page asked for, as by a link, is shown at its top; otherwise the PDF opens where
+        // it was left.
+        let isPDFPageRequested = pdfPageIndex != nil
         let pdfPageIndex = pdfPageIndex ?? document.releasedPDFPage.flatMap { releasedPage in releasedPage.path == path ? releasedPage.pageIndex : nil }
         let requestIdentifier = UUID()
         document.requestIdentifier = requestIdentifier
@@ -324,7 +334,7 @@ extension WorkspaceModel {
                 newMarkdown = try MarkdownSession(path: path, snapshot: snapshot, store: store) { [weak self] savedPath in self?.refreshIndex(for: [savedPath]) }
                 newMarkdown?.textDidChange = { [weak self] in self?.readAloud.documentDidChange(path.rawValue) }
                 newMarkdown?.viewMode = preferences.initialNoteViewMode
-                if let newMarkdown { restoreFolds(of: newMarkdown); watchForRecovery(newMarkdown) }
+                if let newMarkdown { restoreFolds(of: newMarkdown); returnToRememberedPlace(of: newMarkdown); watchForRecovery(newMarkdown) }
                 newPDF = nil
             case .pdf:
                 let location = try path.url(in: folderAccess.root)
@@ -334,6 +344,10 @@ extension WorkspaceModel {
                 } else {
                     newPDF = try await openPDFSession(at: location, password: pdfPasswords[path])
                     if let pdfPageIndex, let newPDF { newPDF.currentPageIndex = min(max(pdfPageIndex, 0), max(newPDF.pageCount - 1, 0)) }
+                    if !isPDFPageRequested, let newPDF, let place = rememberedPlace(ofPDFAt: path, pageCount: newPDF.pageCount) {
+                        newPDF.currentPageIndex = place.pageIndex
+                        newPDF.keptPlace = place
+                    }
                 }
                 newMarkdown = nil
             case .canvas where preferences.isEnabled(.canvas):
@@ -350,6 +364,8 @@ extension WorkspaceModel {
                 activateTab(otherTabID)
                 return false
             }
+            // The file the tab showed until now opens where it was left, when it is opened again.
+            if document.loadedPath != nil, document.loadedPath != path { rememberPlaces(of: [document]) }
             document.headingScrollRequest = nil
             if document.baseViewRequest?.path != path { document.baseViewRequest = nil }
             document.loadFailure = nil

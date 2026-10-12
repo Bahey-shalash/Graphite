@@ -141,7 +141,7 @@ public actor DrawingFileService {
               allPictures.reduce(0, { total, picture in total + picture.imageData.count }) <= DrawingLimits.maximumBackgroundImageBytes else {
             throw GraphiteError.oversized("The images on this drawing are too large to save with it. Your strokes are still open.")
         }
-        let contentBounds = DrawingCanvasGeometry.contentBounds(inkBounds: inkBounds, pictureFrames: content.pictures.map(\.frame))
+        let contentBounds = DrawingCanvasGeometry.contentBounds(inkBounds: inkBounds, pictureFrames: content.pictures.map(\.boundingFrame))
         let unalignedBounds = content.backgroundImage.map { backgroundImage in
             DrawingCanvasGeometry.exportBounds(inkBounds: contentBounds, backgroundImageFrame: backgroundImage.frame)
         } ?? DrawingCanvasGeometry.exportBounds(inkBounds: contentBounds, canvasWidth: content.canvasWidth)
@@ -206,8 +206,8 @@ public actor DrawingFileService {
     public func draftFileData(for content: DrawingContent) throws -> Data {
         let drawing = try PKDrawing(data: content.strokeData)
         let allPictures = [content.backgroundImage].compactMap { picture in picture } + content.pictures
-        let height = max(allPictures.map(\.frame.maxY).max() ?? 0, drawing.strokes.isEmpty ? 0 : drawing.bounds.maxY, DrawingLimits.minimumExportHeight)
-        let width = max(content.canvasWidth, allPictures.map(\.frame.maxX).max() ?? 0)
+        let height = max(allPictures.map(\.boundingFrame.maxY).max() ?? 0, drawing.strokes.isEmpty ? 0 : drawing.bounds.maxY, DrawingLimits.minimumExportHeight)
+        let width = max(content.canvasWidth, allPictures.map(\.boundingFrame.maxX).max() ?? 0)
         let payload = DrawingPayload(width: width, height: height, background: content.background, strokes: drawing.dataRepresentation(),
                                      backgroundImage: content.backgroundImage, pictures: content.pictures, paper: content.paper)
         let fileData = try SVGDrawingFile.encode(PencilVectorConverter.vectorDrawing(from: drawing, size: CGSize(width: width, height: height),
@@ -241,7 +241,7 @@ public actor DrawingFileService {
     private func pngImage(for drawing: PKDrawing, size: CGSize, background: DrawingBackground, backgroundImage: DrawingBackgroundImage? = nil,
                           pictures: [DrawingBackgroundImage] = [], paper: DrawingPaper = .plain) throws -> BandedPNGEncoder.EncodedImage {
         let decodedPictures = try ([backgroundImage].compactMap { picture in picture } + pictures).map { picture in
-            UnderInk.Picture(image: try Self.decodedPicture(picture.imageData), frame: picture.frame)
+            UnderInk.Picture(image: try Self.decodedPicture(picture.imageData), placement: picture)
         }
         // A picture drawn on fills its region with its own pixels; around it the paper is white.
         let paperColor = DrawingPaperRenderer.paperColor(of: backgroundImage == nil ? background : .white)
@@ -274,7 +274,8 @@ public actor DrawingFileService {
     private struct UnderInk {
         struct Picture {
             let image: CGImage
-            let frame: CGRect
+            /// Where the picture is and how it is turned; its bytes are `image`.
+            let placement: DrawingBackgroundImage
         }
         /// Nil for a drawing without paper.
         let paperColor: VectorInkColor?
@@ -313,13 +314,8 @@ public actor DrawingFileService {
         context.translateBy(x: -bandRectangle.minX, y: -bandRectangle.minY)
         DrawingPaperRenderer.draw(underInk.paper, in: bandRectangle, context: context)
         context.interpolationQuality = .high
-        for picture in underInk.pictures where picture.frame.intersects(bandRectangle) {
-            context.saveGState()
-            // An image is drawn upright by turning its own rows back up.
-            context.translateBy(x: picture.frame.minX, y: picture.frame.maxY)
-            context.scaleBy(x: 1, y: -1)
-            context.draw(picture.image, in: CGRect(origin: .zero, size: picture.frame.size))
-            context.restoreGState()
+        for picture in underInk.pictures where picture.placement.boundingFrame.intersects(bandRectangle) {
+            VectorDrawingRenderer.drawPicture(picture.image, placedAs: picture.placement, in: context)
         }
         context.restoreGState()
         context.draw(inkImage, in: pixelBounds)

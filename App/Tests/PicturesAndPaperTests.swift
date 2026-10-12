@@ -109,6 +109,32 @@ final class PicturesAndPaperTests: XCTestCase {
         attachScreenshot(of: controller, named: "Picture at the top of the PDF view")
     }
 
+    /// Each save rewrote the picture's earlier copies into the file: four moves of one
+    /// photo left 4.4 MB of a 5.5 MB PDF unreachable.
+    func testMovingAPhotoAndSavingAfterEachMoveKeepsThePDFAboutItsSize() async throws {
+        let session = try await openNotebook(pageCount: 1)
+        let page = try XCTUnwrap(session.document.page(at: 0))
+        try await session.addPicture(imageData: try photoJPEG(size: CGSize(width: 1_200, height: 800)))
+        let placed = try XCTUnwrap(session.pictures(on: page).first)
+        XCTAssertTrue(placed.imageData.starts(with: [0xFF, 0xD8]), "A photo stays a JPEG.")
+        try await session.save()
+        let sizeWithPhoto = try XCTUnwrap(session.location.resourceValues(forKeys: [.fileSizeKey]).fileSize)
+        for moveIndex in 1...5 {
+            let selection = try XCTUnwrap(session.selectedPicture)
+            let picture = try XCTUnwrap(session.pictures(on: page).first)
+            endEvent(of: session)
+            try session.movePicture(selection, to: picture.bounds.offsetBy(dx: 0, dy: CGFloat(moveIndex) * -8))
+            try await session.save()
+        }
+        let savedBytes = try Data(contentsOf: session.location)
+        XCTAssertLessThan(savedBytes.count, sizeWithPhoto + 4_096, "Earlier copies of the photo are not kept.")
+        XCTAssertLessThan(savedBytes.count, placed.imageData.count * 3, "The photo is stored as its JPEG, not as pixels.")
+        XCTAssertNotNil(savedBytes.range(of: placed.imageData), "The page shows the photo's own JPEG bytes.")
+        let savedPage = try XCTUnwrap(PDFDocument(url: session.location)?.page(at: 0))
+        XCTAssertEqual(PDFPageManager.pictures(on: savedPage).first?.imageData, placed.imageData)
+        XCTAssertNil(session.errorMessage)
+    }
+
     func testPictureReadFromAFileIsSelectedByATapAndStaysUnderTheInk() async throws {
         let session = try await openNotebook(pageCount: 1)
         try await session.addPicture(imageData: try imageData(size: CGSize(width: 300, height: 300), color: .systemBlue))
@@ -120,6 +146,9 @@ final class PicturesAndPaperTests: XCTestCase {
         let controller = try host(AnyView(NavigationStack { PDFPane(session: reopened, resolveConflict: { _ in }) }))
         let page = try XCTUnwrap(reopened.document.page(at: 0))
         let picture = try XCTUnwrap(reopened.pictures(on: page).first)
+        // Graphite draws it from its own bytes, not PDFKit from its saved appearance,
+        // which PDFView draws with moiré when the picture is made small.
+        XCTAssertEqual(page.annotations.first.map { annotation in String(describing: type(of: annotation)) }, "PDFPictureAnnotation")
         let pdfView = try XCTUnwrap(reopened.pdfView)
         let coordinator = try XCTUnwrap((pdfView as? GraphitePDFDisplayView)?.annotationCoordinator)
         let canvas = try await editingCanvas(for: page, in: reopened)
@@ -333,14 +362,14 @@ final class PicturesAndPaperTests: XCTestCase {
 
         // Turned about its middle, with its sides swapped and its bytes turned.
         controller.pictureWasTapped(first.id)
-        try await controller.rotateSelectedPicture()
+        try await controller.rotateSelectedPictureRight()
         let turned = try XCTUnwrap(controller.pictures.first)
         XCTAssertEqual(turned.id, first.id)
         XCTAssertEqual(turned.picture.frame.width, first.picture.frame.height, accuracy: 0.01)
         XCTAssertEqual(turned.picture.frame.midX, first.picture.frame.midX, accuracy: 0.01)
         XCTAssertEqual(turned.picture.frame.midY, first.picture.frame.midY, accuracy: 0.01)
         XCTAssertEqual(UIImage(data: turned.picture.imageData)?.size.width, UIImage(data: first.picture.imageData)?.size.height)
-        XCTAssertEqual(controller.history.undoActionName, "Turn Image")
+        XCTAssertEqual(controller.history.undoActionName, "Rotate Image Right")
         endEvent(of: controller.history)
         controller.history.undo()
         XCTAssertEqual(controller.pictures.first?.picture, first.picture)
@@ -380,6 +409,52 @@ final class PicturesAndPaperTests: XCTestCase {
         controller.beginCroppingPicture()
         controller.finishArrangingPictures()
         XCTAssertFalse(controller.isCroppingPicture)
+    }
+
+    func testAPictureOnADrawingTurnedByHandKeepsItsAngleThroughMovesTurnsCropsAndUndo() async throws {
+        let controller = DrawingCanvasController()
+        controller.canvasWidth = 760
+        try controller.addPicture(DrawingBackgroundImage(imageData: try twoColorImageData(size: CGSize(width: 400, height: 200)),
+                                                         frame: CGRect(x: 0, y: 0, width: 400, height: 200)))
+        let placed = try XCTUnwrap(controller.pictures.first)
+        endEvent(of: controller.history)
+
+        // Turning by hand changes only the angle, as one step.
+        controller.pictureRotationChangeDidEnd(placed.id, rotationRadians: .pi / 6)
+        let turnedByHand = try XCTUnwrap(controller.pictures.first?.picture)
+        XCTAssertEqual(turnedByHand.rotationRadians, .pi / 6, accuracy: 1e-9)
+        XCTAssertEqual(turnedByHand.frame, placed.picture.frame)
+        XCTAssertEqual(turnedByHand.imageData, placed.picture.imageData)
+        XCTAssertEqual(controller.history.undoActionName, "Rotate Image")
+        endEvent(of: controller.history)
+        controller.history.undo()
+        XCTAssertEqual(controller.pictures.first?.picture, placed.picture)
+        controller.history.redo()
+        endEvent(of: controller.history)
+
+        // Moving and the quarter turn keep the angle.
+        controller.pictureFrameChangeDidEnd(placed.id, frame: CGRect(x: 100, y: 200, width: 200, height: 100))
+        XCTAssertEqual(controller.pictures.first?.picture.rotationRadians ?? 0, .pi / 6, accuracy: 1e-9)
+        endEvent(of: controller.history)
+        controller.pictureWasTapped(placed.id)
+        try await controller.rotateSelectedPictureRight()
+        let quarterTurned = try XCTUnwrap(controller.pictures.first?.picture)
+        XCTAssertEqual(quarterTurned.rotationRadians, .pi / 6, accuracy: 1e-9)
+        XCTAssertEqual(quarterTurned.frame, CGRect(x: 150, y: 150, width: 100, height: 200))
+        endEvent(of: controller.history)
+
+        // A crop keeps the part where it was shown: the top half, turned 30° clockwise about
+        // the picture's middle, is up and to the right of it.
+        let frame = quarterTurned.frame
+        try await controller.cropSelectedPicture(to: CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: frame.height / 2))
+        let cropped = try XCTUnwrap(controller.pictures.first?.picture)
+        XCTAssertEqual(cropped.rotationRadians, .pi / 6, accuracy: 1e-9)
+        XCTAssertEqual(cropped.frame.size, CGSize(width: 100, height: 100))
+        let shownMiddle = PictureRotation.point(CGPoint(x: frame.midX, y: frame.minY + frame.height / 4), turnedBy: .pi / 6,
+                                                about: CGPoint(x: frame.midX, y: frame.midY))
+        XCTAssertEqual(cropped.frame.midX, shownMiddle.x, accuracy: 0.01)
+        XCTAssertEqual(cropped.frame.midY, shownMiddle.y, accuracy: 0.01)
+        XCTAssertGreaterThan(cropped.frame.midX, frame.midX)
     }
 
     /// Red on the left half, blue on the right.
@@ -556,6 +631,90 @@ final class PicturesAndPaperTests: XCTestCase {
         XCTAssertEqual(SelectionFrameView.handleCenter(at: .zero, of: frameBounds, within: nil, handleHalfSide: 22), .zero)
     }
 
+    /// The rotate handle stands above the frame unless a touch could not reach it there, as
+    /// for a picture at the top of a PDF's first page, and VoiceOver reads and changes the
+    /// angle with the frame's actions.
+    func testTheRotateHandleStaysWhereATouchReachesItAndVoiceOverReadsTheAngle() throws {
+        let scrollView = UIScrollView(frame: CGRect(x: 0, y: 0, width: 400, height: 600))
+        scrollView.contentSize = CGSize(width: 400, height: 2_000)
+        let selection = SelectionFrameView(frame: .zero)
+        selection.allowsRotation = true
+        var reportedRotations: [CGFloat] = []
+        selection.rotationChangeDidEnd = { rotation in reportedRotations.append(rotation) }
+        scrollView.addSubview(selection)
+
+        selection.unrotatedFrame = CGRect(x: 100, y: 300, width: 200, height: 100)
+        selection.layoutIfNeeded()
+        XCTAssertFalse(selection.rotationHandleStandsBelow, "With room above, the handle is above.")
+        selection.unrotatedFrame = CGRect(x: 100, y: 10, width: 200, height: 100)
+        selection.layoutIfNeeded()
+        XCTAssertTrue(selection.rotationHandleStandsBelow, "At the top edge it stands below, where a touch reaches it.")
+        // Turned upside down, the frame's top is at the bottom on screen, where there is room.
+        selection.rotation = .pi
+        selection.unrotatedFrame = CGRect(x: 100, y: 10, width: 200, height: 100)
+        selection.layoutIfNeeded()
+        XCTAssertFalse(selection.rotationHandleStandsBelow)
+        selection.rotation = 0
+        // Scrolling the frame up to the top edge moves the handle below it.
+        selection.unrotatedFrame = CGRect(x: 100, y: 300, width: 200, height: 100)
+        selection.layoutIfNeeded()
+        scrollView.contentOffset = CGPoint(x: 0, y: 290)
+        selection.layoutIfNeeded()
+        XCTAssertTrue(selection.rotationHandleStandsBelow)
+
+        XCTAssertEqual(selection.accessibilityValue, "Upright")
+        func perform(_ actionName: String) throws {
+            let action = try XCTUnwrap(selection.accessibilityCustomActions?.first { action in action.name == actionName })
+            _ = selection.perform(action.selector)
+        }
+        try perform("Rotate Clockwise")
+        XCTAssertEqual(selection.accessibilityValue, "Rotated 15° clockwise")
+        try perform("Rotate Counterclockwise")
+        try perform("Rotate Counterclockwise")
+        XCTAssertEqual(selection.accessibilityValue, "Rotated 15° counterclockwise")
+        XCTAssertEqual(reportedRotations.count, 3, "Each action is one rotation the owner records.")
+        XCTAssertEqual(Double(try XCTUnwrap(reportedRotations.last)), -.pi / 12, accuracy: 0.0001)
+        // While cropping there is no rotation to read or change.
+        selection.cropLimits = CGRect(x: 100, y: 300, width: 200, height: 100)
+        XCTAssertNil(selection.accessibilityValue)
+        XCTAssertNil(selection.accessibilityCustomActions)
+    }
+
+    /// A frame turned by an angle other than a quarter turn, near the top of what its
+    /// superview shows: its handles had been placed against the box around the region as
+    /// turned, so the frame and the rotate handle were drawn over the tab bar.
+    func testATurnedFrameAtTheTopKeepsItsHandlesAndItsDrawingInReach() throws {
+        let container = UIView(frame: CGRect(x: 0, y: 0, width: 600, height: 800))
+        let selection = SelectionFrameView(frame: .zero)
+        selection.allowsRotation = true
+        selection.staysInSuperviewSafeArea = true
+        container.addSubview(selection)
+        selection.rotation = -.pi / 7
+        selection.unrotatedFrame = CGRect(x: 150, y: -60, width: 300, height: 360)
+        selection.layoutIfNeeded()
+        let handles = selection.resizeRecognizers.compactMap(\.view) + [selection.rotationRecognizer.view].compactMap { $0 }
+        XCTAssertEqual(handles.count, 5)
+        for handle in handles where !handle.isHidden {
+            // The four corners of the handle's touch area, turned with the frame.
+            let corners = [CGPoint(x: handle.bounds.minX, y: handle.bounds.minY), CGPoint(x: handle.bounds.maxX, y: handle.bounds.minY),
+                           CGPoint(x: handle.bounds.minX, y: handle.bounds.maxY), CGPoint(x: handle.bounds.maxX, y: handle.bounds.maxY)]
+            for corner in corners {
+                let cornerInContainer = handle.convert(corner, to: container)
+                XCTAssertTrue(container.bounds.insetBy(dx: -0.5, dy: -0.5).contains(cornerInContainer), "A handle reaches out of the container at \(cornerInContainer).")
+            }
+        }
+        XCTAssertTrue(selection.rotationHandleStandsBelow, "Above the turned frame there is no room.")
+        // The mask is the region as turned: nothing is drawn, and no touch taken, above the top.
+        let mask = try XCTUnwrap(selection.layer.mask as? CAShapeLayer)
+        let maskPath = try XCTUnwrap(mask.path)
+        let aboveTheTop = selection.convert(CGPoint(x: 300, y: -5), from: container)
+        let belowTheTop = selection.convert(CGPoint(x: 300, y: 5), from: container)
+        XCTAssertFalse(maskPath.contains(aboveTheTop))
+        XCTAssertTrue(maskPath.contains(belowTheTop))
+        XCTAssertFalse(selection.point(inside: aboveTheTop, with: nil), "A touch above the container is refused.")
+        XCTAssertTrue(selection.point(inside: belowTheTop, with: nil))
+    }
+
     // MARK: Fixed tool bar
 
     func testFixedToolBarGivesCanvasesItsToolAndThePaletteTakesOverAgain() async throws {
@@ -591,8 +750,18 @@ final class PicturesAndPaperTests: XCTestCase {
         toolbox.use(.lasso)
         try await waitUntil { canvas.selectsInk }
         XCTAssertFalse(canvas.isDrawingEnabled)
+        try await Task.sleep(for: .milliseconds(300))
+        attachScreenshot(of: controller, named: "Fixed bar with the lasso and its type")
+        // The laser pointer is the bar's too: the canvas points and draws nothing.
+        controller.view.window?.overrideUserInterfaceStyle = .dark
+        toolbox.use(.laser)
+        try await waitUntil { canvas.pointsWithLaser && !canvas.selectsInk }
+        XCTAssertFalse(canvas.isDrawingEnabled)
+        try await Task.sleep(for: .milliseconds(300))
+        attachScreenshot(of: controller, named: "Fixed bar with the laser pointer, dark appearance")
+        controller.view.window?.overrideUserInterfaceStyle = .unspecified
         toolbox.usePreset(at: 0)
-        try await waitUntil { !canvas.selectsInk }
+        try await waitUntil { !canvas.selectsInk && !canvas.pointsWithLaser }
         XCTAssertTrue(canvas.isDrawingEnabled)
 
         // Back to the floating palette: the canvas follows the system's picker again.
@@ -729,7 +898,7 @@ final class PicturesAndPaperTests: XCTestCase {
         selection.kind = .eraser
         XCTAssertEqual((selection.tool as? PKEraserTool)?.eraserType, .vector)
         selection.erasesWholeStrokes = false
-        for width in PencilToolbox.eraserWidthChoices {
+        for width in PencilToolbox.defaultEraserWidthChoices {
             selection.eraserWidth = width
             let eraser = try XCTUnwrap(selection.tool as? PKEraserTool)
             XCTAssertEqual(eraser.eraserType, .fixedWidthBitmap)
@@ -792,6 +961,22 @@ final class PicturesAndPaperTests: XCTestCase {
             context.fill(CGRect(origin: .zero, size: size))
         }
         return try XCTUnwrap(image.pngData())
+    }
+
+    /// A photo-like JPEG of small random blocks, which compresses about as badly as a photo.
+    private func photoJPEG(size: CGSize) throws -> Data {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
+            for row in stride(from: 0, to: size.height, by: 4) {
+                for column in stride(from: 0, to: size.width, by: 4) {
+                    UIColor(red: .random(in: 0...1), green: .random(in: 0...1), blue: .random(in: 0...1), alpha: 1).setFill()
+                    context.fill(CGRect(x: column, y: row, width: 4, height: 4))
+                }
+            }
+        }
+        return try XCTUnwrap(image.jpegData(compressionQuality: 0.8))
     }
 
     /// The color a reader shows at a point of the page, given in the page's coordinates.

@@ -36,5 +36,6 @@ This update reviewed source and existing test assertions. It did not run builds,
 - [Architecture](Docs/Architecture.md): module direction, ownership, storage, and technical risks.
 - [Implementation coverage](Docs/Coverage.md): implemented behavior, dated validation, and incomplete or unverified work.
 - [SOLID compliance tracker](Docs/SOLID.md): supporting source references, contract gaps, and completion evidence.
+- [Community plugins](Docs/Community-plugins.md): how Graphite runs Obsidian community plugins, what works, what does not yet, and how it was checked.
 
 Update this README and the detailed tracker when responsibilities, dependency boundaries, or contract evidence change. Feature completeness and test counts alone do not establish SOLID compliance.

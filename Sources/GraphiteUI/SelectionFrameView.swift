@@ -1,41 +1,52 @@
 #if canImport(UIKit)
 import UIKit
+import GraphiteCore
 
 /// The frame around what is being arranged, a picture on a drawing or on a PDF page, or
-/// selected ink: drag inside it to move, drag a corner to resize in proportion. The view's
-/// frame is the frame of what it surrounds, in its superview, and its owner moves that
-/// with it.
+/// selected ink: drag inside it to move, drag a corner to resize in proportion, and, for a
+/// picture, drag its rotate handle, above it or below it where there is no room above. The frame is the frame of what it
+/// surrounds, in its superview, and its owner moves that with it.
+///
+/// A turned frame is a view turned by `rotation`; its owner gives and is given its
+/// `unrotatedFrame`, as the picture it surrounds keeps an upright frame and an angle.
 final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
     /// Called when a drag begins, before the frame changes.
     var frameChangeDidBegin: (() -> Void)?
-    /// Called while the frame changes, with the new frame in the superview's coordinates.
+    /// Called while the frame changes, with the new `unrotatedFrame`.
     var frameDidChange: ((CGRect) -> Void)?
-    /// Called when a drag ends, with the final frame.
+    /// Called when a drag ends, with the final `unrotatedFrame`.
     var frameChangeDidEnd: ((CGRect) -> Void)?
     /// Called when a drag is cancelled, after the frame is back where it was.
     var frameChangeWasCancelled: (() -> Void)?
+    /// Called while the rotate handle turns the frame, with the new `rotation`.
+    var rotationDidChange: ((CGFloat) -> Void)?
+    /// Called when the frame has been turned, by its handle or by an accessibility action,
+    /// with the final `rotation`.
+    var rotationChangeDidEnd: ((CGFloat) -> Void)?
     /// The smallest side the frame can be resized to, in the superview's points.
     var minimumSideLength: CGFloat = 32
     /// The region the frame's center has to stay in, so it cannot be lost off the page.
     var centerLimits: CGRect = .infinite
-    /// Keeps the frame to what its superview shows and can be touched in: the superview's
-    /// bounds less its safe area, as for a PDF view whose top edge is at the tab bar or under
-    /// a navigation bar. The frame is drawn only there, and a corner handle that would reach
-    /// out of it moves inward along the frame's sides (never past the opposite side) until it is
-    /// inside: near the top of the view, a handle had been under the tab bar, where touches
-    /// go to the bar, and could not be dragged. Off for a frame in a scroll view's content,
-    /// which scrolls into reach.
+    /// Keeps the frame to what its superview shows and can be touched in, the reachable
+    /// region, as for a PDF view whose top edge is at the tab bar or under a navigation bar:
+    /// the frame is drawn only there, and touches outside it are refused, so they go to the
+    /// bar. The handles stand in the reachable region whether this is on or not (see
+    /// `layoutSubviews`). Off for ink, whose frame may hang past the page it is drawn on.
     var staysInSuperviewSafeArea = false {
         didSet { if staysInSuperviewSafeArea != oldValue { setNeedsLayout() } }
     }
-    /// The superview's bounds less its safe area, in this view's coordinates, when the frame
-    /// stays in it.
+    /// The part of the superview a touch reaches, in the superview's coordinates: its bounds,
+    /// which a scroll view moves as it scrolls, less its safe area, where bars cover it. Nil
+    /// without a superview. It is kept in the superview's coordinates because a turned frame
+    /// sees it as a turned rectangle; the rectangle around it as turned reached over the bars.
     private var reachableRegion: CGRect? {
-        guard staysInSuperviewSafeArea, let superview else { return nil }
-        return convert(superview.bounds.inset(by: superview.safeAreaInsets), from: superview)
+        guard let superview else { return nil }
+        let region = superview.bounds.inset(by: superview.safeAreaInsets)
+        guard !region.isNull, region.width >= 0, region.height >= 0 else { return nil }
+        return region
     }
-    /// Hides what is outside the reachable region.
-    private let reachableMask = CALayer()
+    /// Hides what is outside the reachable region: the region, as turned in this view.
+    private let reachableMask = CAShapeLayer()
     /// Shown inside the frame while it is dragged, for an owner whose content moves only
     /// when the drag ends: faintly over content that stays where it was, or, at full
     /// strength, in place of content the owner hides for the drag.
@@ -55,16 +66,55 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
     var contentScale: CGFloat = 1 {
         didSet { if contentScale != oldValue { setNeedsLayout() } }
     }
-    /// While a picture is cropped: the picture's frame, which the crop frame stays inside.
-    /// A corner then resizes the frame freely rather than in proportion, the frame does not
-    /// move, and everything outside it is dimmed.
+    /// While a picture is cropped: the picture's frame, before it is turned, which the crop
+    /// frame stays inside. A corner then resizes the frame freely rather than in proportion,
+    /// the frame does not move or turn, and everything outside it is dimmed. The crop frame
+    /// turns with the picture, about the picture's middle.
     var cropLimits: CGRect? {
         didSet {
             moveRecognizer.isEnabled = cropLimits == nil
             dimmingLayer.isHidden = cropLimits == nil
+            updateRotationHandle()
             setNeedsLayout()
         }
     }
+    /// Whether a rotate handle turns the frame, as for a picture. Off for selected ink.
+    var allowsRotation = false {
+        didSet { if allowsRotation != oldValue { updateRotationHandle() } }
+    }
+    /// How far the frame is turned about its middle, in radians, clockwise on screen.
+    var rotation: CGFloat = 0 {
+        didSet {
+            guard rotation != oldValue else { return }
+            transform = CGAffineTransform(rotationAngle: rotation)
+            updateAccessibilityValue()
+            setNeedsLayout()
+        }
+    }
+
+    /// The frame before it is turned, in the superview's coordinates. The frame on screen
+    /// is this rectangle turned by `rotation` about its middle, or, while cropping, about
+    /// the middle of `cropLimits`, the picture's. Set `rotation` and `cropLimits` first.
+    var unrotatedFrame: CGRect {
+        get {
+            let unrotatedCenter = PictureRotation.point(center, turnedBy: -Double(rotation), about: rotationPivot)
+            return CGRect(x: unrotatedCenter.x - bounds.width / 2, y: unrotatedCenter.y - bounds.height / 2, width: bounds.width, height: bounds.height)
+        }
+        set {
+            let unrotatedCenter = CGPoint(x: newValue.midX, y: newValue.midY)
+            bounds = CGRect(origin: .zero, size: newValue.size)
+            center = PictureRotation.point(unrotatedCenter, turnedBy: Double(rotation), about: cropLimits.map { limits in CGPoint(x: limits.midX, y: limits.midY) } ?? unrotatedCenter)
+            // Where the frame is on screen decides the rotate handle's side.
+            setNeedsLayout()
+        }
+    }
+
+    /// The point the frame turns about: the middle of the picture while it is cropped, and
+    /// otherwise the frame's own.
+    private var rotationPivot: CGPoint {
+        cropLimits.map { limits in CGPoint(x: limits.midX, y: limits.midY) } ?? center
+    }
+
     private let previewView = UIImageView()
     private let dimmingLayer = CAShapeLayer()
     /// The frame's line, over a wider white halo that keeps it visible on dark ink and
@@ -87,13 +137,41 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
     private var frameWhenDragBegan: CGRect = .zero
     private(set) lazy var moveRecognizer = UIPanGestureRecognizer(target: self, action: #selector(handleMove(_:)))
     private(set) var resizeRecognizers: [UIPanGestureRecognizer] = []
-    /// The move and resize recognizers, for an owner whose scroll view must wait for them.
-    var dragRecognizers: [UIPanGestureRecognizer] { [moveRecognizer] + resizeRecognizers }
+    /// The move, resize and turn recognizers, for an owner whose scroll view must wait for them.
+    var dragRecognizers: [UIPanGestureRecognizer] { [moveRecognizer] + resizeRecognizers + [rotationRecognizer] }
+
+    // MARK: Turning
+
+    /// The rotate handle stands this far above the frame's top edge, on a short stem, or
+    /// below its bottom edge when it could not be reached above (`rotationHandleStandsBelow`).
+    private static let rotationStemLength: CGFloat = 26
+    private static let rotationKnobDiameter: CGFloat = 24
+    /// A rotation with an accessibility action, in radians: 15°.
+    private static let accessibilityRotationStep: CGFloat = .pi / 12
+    private let rotationHandle = UIView(frame: CGRect(x: 0, y: 0, width: SelectionFrameView.handleTouchSide, height: SelectionFrameView.handleTouchSide))
+    private let rotationStem = UIView()
+    private let rotationSymbol = UIImageView(image: UIImage(systemName: "arrow.clockwise", withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)))
+    private(set) lazy var rotationRecognizer = UIPanGestureRecognizer(target: self, action: #selector(handleRotation(_:)))
+    private var rotationWhenDragBegan: CGFloat = 0
+    /// Where the finger pointed from the frame's middle when the turn began, in radians.
+    private var pointerAngleWhenDragBegan: CGFloat = 0
+    /// Whether the turn is held at a quarter turn, so the snap is felt once as it happens.
+    private var isHeldAtQuarterTurn = false
+    private lazy var snapFeedback = UISelectionFeedbackGenerator()
+    /// Whether the rotate handle stands below the frame: above it, it would be outside the
+    /// view the frame is in or under its bars, where a touch cannot reach it, as for a
+    /// picture at the top of a PDF's first page. Kept while the handle is dragged.
+    private(set) var rotationHandleStandsBelow = false
+    /// Lays the handle out again as the scroll view the frame is in scrolls, which moves
+    /// the frame on screen without changing it.
+    private var scrollObservation: NSKeyValueObservation?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
         previewView.contentMode = .scaleToFill
+        // A preview smaller than the picture's pixels stays smooth (see `InfiniteCanvasView`).
+        previewView.layer.minificationFilter = .trilinear
         previewView.alpha = dragPreviewOpacity
         previewView.isHidden = true
         previewView.isUserInteractionEnabled = false
@@ -121,10 +199,11 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
             addSubview(handle)
             handles[corner] = handle
         }
+        addRotationHandle()
         isAccessibilityElement = true
         accessibilityLabel = "Selected image"
-        accessibilityHint = "Drag to move. Drag a corner to resize."
         accessibilityTraits = .allowsDirectInteraction
+        updateRotationHandle()
         applyColors()
         registerForTraitChanges([UITraitAccessibilityContrast.self]) { (frameView: SelectionFrameView, _: UITraitCollection) in
             frameView.applyColors()
@@ -153,30 +232,96 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
     /// its knobs are white, ringed in the accent. Following the appearance, it was white on
     /// a white page in dark appearance.
     private func applyColors() {
-        let pageTraits = UITraitCollection(traitsFrom: [traitCollection, UITraitCollection(userInterfaceStyle: .light)])
-        let accent = PlatformColor.graphiteAccent(hex: GraphitePreferences.storedAccentHex()) ?? .systemBlue
-        let lineColor = accent.resolvedColor(with: pageTraits).cgColor
+        let lineColor = LassoColors.line(for: traitCollection).cgColor
         outlineLayer.strokeColor = lineColor
-        outlineHaloLayer.strokeColor = UIColor.white.withAlphaComponent(0.9).cgColor
+        outlineHaloLayer.strokeColor = LassoColors.halo.cgColor
         for knob in knobs {
             knob.backgroundColor = .white
             knob.layer.borderColor = lineColor
         }
+        rotationStem.backgroundColor = UIColor(cgColor: lineColor)
+        rotationSymbol.tintColor = UIColor(cgColor: lineColor)
         setNeedsLayout()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("SelectionFrameView is created in code.") }
 
+    /// The turning handle's knob, stem and arrow take their colors in `applyColors`.
+    private func addRotationHandle() {
+        rotationStem.isUserInteractionEnabled = false
+        addSubview(rotationStem)
+        let knob = Self.makeKnob(diameter: Self.rotationKnobDiameter)
+        knobs.append(knob)
+        rotationSymbol.center = CGPoint(x: Self.rotationKnobDiameter / 2, y: Self.rotationKnobDiameter / 2)
+        knob.addSubview(rotationSymbol)
+        rotationHandle.addSubview(knob)
+        rotationRecognizer.maximumNumberOfTouches = 1
+        rotationHandle.addGestureRecognizer(rotationRecognizer)
+        addSubview(rotationHandle)
+    }
+
+    /// The turning handle shows for a picture, except while it is cropped.
+    private func updateRotationHandle() {
+        let showsRotationHandle = allowsRotation && cropLimits == nil
+        rotationHandle.isHidden = !showsRotationHandle
+        rotationStem.isHidden = !showsRotationHandle
+        rotationRecognizer.isEnabled = showsRotationHandle
+        accessibilityHint = showsRotationHandle ? "Drag to move. Drag a corner to resize. Drag the arrow handle to rotate." : "Drag to move. Drag a corner to resize."
+        updateAccessibilityActions()
+        updateAccessibilityValue()
+        setNeedsLayout()
+    }
+
+    /// Actions VoiceOver offers on the frame besides rotating it, such as the selection
+    /// menu's, which is out of reach once VoiceOver moves on.
+    var additionalAccessibilityActions: [UIAccessibilityCustomAction] = [] {
+        didSet { updateAccessibilityActions() }
+    }
+
+    private func updateAccessibilityActions() {
+        let showsRotationHandle = allowsRotation && cropLimits == nil
+        let rotationActions = showsRotationHandle ? [
+            UIAccessibilityCustomAction(name: "Rotate Clockwise", target: self, selector: #selector(rotateClockwiseByAccessibilityStep)),
+            UIAccessibilityCustomAction(name: "Rotate Counterclockwise", target: self, selector: #selector(rotateCounterclockwiseByAccessibilityStep)),
+        ] : []
+        let actions = rotationActions + additionalAccessibilityActions
+        accessibilityCustomActions = actions.isEmpty ? nil : actions
+    }
+
+    /// The angle, for VoiceOver, where the frame can be rotated: what Rotate Clockwise and
+    /// Rotate Counterclockwise change.
+    private func updateAccessibilityValue() {
+        guard allowsRotation, cropLimits == nil else {
+            accessibilityValue = nil
+            return
+        }
+        accessibilityValue = Self.describedRotation(rotation)
+    }
+
+    /// "Upright", or the angle in whole degrees and its direction, as VoiceOver reads it.
+    static func describedRotation(_ rotation: CGFloat) -> String {
+        let degrees = Int((Double(PictureRotation.normalized(Double(rotation))) * 180 / .pi).rounded())
+        if degrees == 0 { return "Upright" }
+        return degrees > 0 ? "Rotated \(degrees)° clockwise" : "Rotated \(-degrees)° counterclockwise"
+    }
+
+    override func didMoveToSuperview() {
+        super.didMoveToSuperview()
+        scrollObservation = (superview as? UIScrollView)?.observe(\.contentOffset) { [weak self] _, _ in
+            MainActor.assumeIsolated { self?.setNeedsLayout() }
+        }
+    }
+
     /// Moving the frame moves it against the reachable region, so its handles are placed again.
     override var frame: CGRect {
-        didSet { if frame.origin != oldValue.origin, staysInSuperviewSafeArea { setNeedsLayout() } }
+        didSet { if frame.origin != oldValue.origin { setNeedsLayout() } }
     }
 
     /// The safe area changes as the frame moves under a bar, or as the bars change.
     override func safeAreaInsetsDidChange() {
         super.safeAreaInsetsDidChange()
-        if staysInSuperviewSafeArea { setNeedsLayout() }
+        setNeedsLayout()
     }
 
     override func layoutSubviews() {
@@ -200,19 +345,65 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
         outlineHaloLayer.path = outline
         outlineHaloLayer.lineWidth = lineWidth + 2 * Self.haloWidth * handleScale
         CATransaction.commit()
-        for handle in handles.values { handle.transform = CGAffineTransform(scaleX: handleScale, y: handleScale) }
+        // Where each handle stands, by one rule: a corner's handle is on its corner, its touch
+        // area reaching at most a quarter of the frame's shorter side into the frame, so a small
+        // frame, around a word or a dot, keeps its middle for moving (the area moves outward
+        // instead, and the knob stays on the corner). A handle whose touch area would then be
+        // outside the reachable region, the superview's bounds less its safe area, stands just
+        // inside it, knob and all, moved along the frame's sides but never past the opposite
+        // side (`handleCenter`): past a PDF page's edge, under the tab bar or under a navigation
+        // bar a touch does not reach it. The rotate handle stands above the frame, or below it
+        // where it would be out of that region above.
+        // A frame too small for four knobs to stand apart, around a dot or a short word, has
+        // one, at its bottom-right corner, as Goodnotes does; four knobs touched each other.
+        let showsOneHandle = min(bounds.width, bounds.height) < Self.handleTouchSide * handleScale && cropLimits == nil
+        for (corner, handle) in handles { handle.isHidden = showsOneHandle && corner != .bottomRight }
         let reachableRegion = reachableRegion
-        let handleHalfSide = Self.handleTouchSide * handleScale / 2
-        for corner in Corner.allCases {
-            let isRight = corner == .topRight || corner == .bottomRight, isBottom = corner == .bottomLeft || corner == .bottomRight
-            handles[corner]?.center = Self.handleCenter(at: CGPoint(x: isRight ? bounds.maxX : bounds.minX, y: isBottom ? bounds.maxY : bounds.minY),
-                                                        of: bounds, within: reachableRegion, handleHalfSide: handleHalfSide)
+        let halfTouchSide = Self.handleTouchSide / 2 * handleScale
+        let inwardReach = min(halfTouchSide, min(bounds.width, bounds.height) / 4)
+        let outwardShift = halfTouchSide - inwardReach
+        for (corner, handle) in handles {
+            let outwardX: CGFloat = corner == .topLeft || corner == .bottomLeft ? -1 : 1
+            let outwardY: CGFloat = corner == .topLeft || corner == .topRight ? -1 : 1
+            let cornerPoint = CGPoint(x: outwardX < 0 ? bounds.minX : bounds.maxX, y: outwardY < 0 ? bounds.minY : bounds.maxY)
+            let centerOnCorner = CGPoint(x: cornerPoint.x + outwardX * outwardShift, y: cornerPoint.y + outwardY * outwardShift)
+            let reachableCenter = reachableRegion.map { region in handleCenter(at: centerOnCorner, within: region, handleHalfSide: halfTouchSide) } ?? centerOnCorner
+            handle.transform = CGAffineTransform(scaleX: handleScale, y: handleScale)
+            handle.center = reachableCenter
+            let knobShift = handleScale > 0 && reachableCenter == centerOnCorner ? outwardShift / handleScale : 0
+            handle.subviews.first?.center = CGPoint(x: Self.handleTouchSide / 2 - outwardX * knobShift, y: Self.handleTouchSide / 2 - outwardY * knobShift)
         }
+        // On a frame too narrow for the rotate handle to stand between the corners'
+        // handles, it stands beyond them, so neither covers the other.
+        let standsBeyondCornerHandles = bounds.width < Self.handleTouchSide * 2 * handleScale
+        let stemLength = (standsBeyondCornerHandles ? Self.handleTouchSide : Self.rotationStemLength) * handleScale
+        let centerAbove = CGPoint(x: bounds.midX, y: bounds.minY - stemLength)
+        let centerBelow = CGPoint(x: bounds.midX, y: bounds.maxY + stemLength)
+        let isBeingRotated = rotationRecognizer.state == .began || rotationRecognizer.state == .changed
+        if !isBeingRotated {
+            rotationHandleStandsBelow = reachableRegion.map { region in
+                !canReachHandle(at: centerAbove, within: region, handleHalfSide: halfTouchSide)
+                    && canReachHandle(at: centerBelow, within: region, handleHalfSide: halfTouchSide)
+            } ?? false
+        }
+        rotationHandle.transform = CGAffineTransform(scaleX: handleScale, y: handleScale)
+        rotationHandle.center = rotationHandleStandsBelow ? centerBelow : centerAbove
+        rotationStem.frame = rotationHandleStandsBelow
+            ? CGRect(x: bounds.midX - lineWidth / 2, y: bounds.maxY, width: lineWidth, height: stemLength)
+            : CGRect(x: bounds.midX - lineWidth / 2, y: bounds.minY - stemLength, width: lineWidth, height: stemLength)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        if let reachableRegion {
-            reachableMask.backgroundColor = UIColor.black.cgColor
-            reachableMask.frame = reachableRegion
+        if staysInSuperviewSafeArea, let reachableRegion, let superview {
+            let corners = [CGPoint(x: reachableRegion.minX, y: reachableRegion.minY), CGPoint(x: reachableRegion.maxX, y: reachableRegion.minY),
+                           CGPoint(x: reachableRegion.maxX, y: reachableRegion.maxY), CGPoint(x: reachableRegion.minX, y: reachableRegion.maxY)]
+            let regionPath = UIBezierPath()
+            for (cornerIndex, corner) in corners.enumerated() {
+                let cornerInFrame = convert(corner, from: superview)
+                if cornerIndex == 0 { regionPath.move(to: cornerInFrame) } else { regionPath.addLine(to: cornerInFrame) }
+            }
+            regionPath.close()
+            reachableMask.fillColor = UIColor.black.cgColor
+            reachableMask.path = regionPath.cgPath
             layer.mask = reachableMask
         } else {
             layer.mask = nil
@@ -220,56 +411,157 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
         CATransaction.commit()
     }
 
-    /// Where a corner's handle goes: on the corner, or moved inward along the frame's sides
-    /// until its touch area is inside the reachable region, but never past the opposite side.
-    /// A frame mostly out of reach can have its handles past its middle, still each on the
-    /// side of its own corner.
+    /// Where a corner's handle goes in this view, against the reachable region in the
+    /// superview's coordinates. Upright or turned by quarter turns, the region is a rectangle
+    /// in this view too, and `handleCenter(at:of:within:handleHalfSide:)` moves the handle
+    /// along the frame's sides. Turned by another angle, a handle out of reach goes to the
+    /// nearest point at which its touch area, turned with the frame, is inside the region,
+    /// still on its own corner's side of the frame.
+    private func handleCenter(at corner: CGPoint, within reachableRegion: CGRect, handleHalfSide: CGFloat) -> CGPoint {
+        guard let superview else { return corner }
+        let quarterTurns = rotation / (.pi / 2)
+        if abs(quarterTurns - quarterTurns.rounded()) < 0.0001 {
+            return Self.handleCenter(at: corner, of: bounds, within: convert(reachableRegion, from: superview), handleHalfSide: handleHalfSide)
+        }
+        if canReachHandle(at: corner, within: reachableRegion, handleHalfSide: handleHalfSide) { return corner }
+        let halfExtent = turnedHalfExtent(ofHandleHalfSide: handleHalfSide)
+        let cornerInSuperview = convert(corner, to: superview)
+        let reachableCenter = CGPoint(x: Self.kept(cornerInSuperview.x, between: reachableRegion.minX + halfExtent, and: reachableRegion.maxX - halfExtent),
+                                      y: Self.kept(cornerInSuperview.y, between: reachableRegion.minY + halfExtent, and: reachableRegion.maxY - halfExtent))
+        return Self.keptOnTheSideOfItsCorner(convert(reachableCenter, from: superview), corner: corner, of: bounds)
+    }
+
+    /// Whether a handle centered at a point of this view, its touch area turned with the
+    /// frame, is wholly inside the reachable region, given in the superview's coordinates.
+    private func canReachHandle(at handleCenter: CGPoint, within reachableRegion: CGRect, handleHalfSide: CGFloat) -> Bool {
+        guard let superview else { return true }
+        let halfExtent = turnedHalfExtent(ofHandleHalfSide: handleHalfSide)
+        return reachableRegion.insetBy(dx: halfExtent, dy: halfExtent).contains(convert(handleCenter, to: superview))
+    }
+
+    /// How far a handle's square touch area, turned with the frame, reaches from its center
+    /// along the superview's axes.
+    private func turnedHalfExtent(ofHandleHalfSide handleHalfSide: CGFloat) -> CGFloat {
+        handleHalfSide * (abs(cos(rotation)) + abs(sin(rotation)))
+    }
+
+    /// Where a corner's handle goes: where it stands for its corner, or moved inward along the
+    /// frame's sides until its touch area is inside the reachable region, but never past the
+    /// opposite side. A frame mostly out of reach can have its handles past its middle, still
+    /// each on the side of its own corner. The frame and the region share their axes.
     static func handleCenter(at corner: CGPoint, of frameBounds: CGRect, within reachableRegion: CGRect?, handleHalfSide: CGFloat) -> CGPoint {
         guard let reachableRegion else { return corner }
-        func kept(_ coordinate: CGFloat, between lowestCoordinate: CGFloat, and highestCoordinate: CGFloat) -> CGFloat {
-            guard lowestCoordinate <= highestCoordinate else { return (lowestCoordinate + highestCoordinate) / 2 }
-            return min(max(coordinate, lowestCoordinate), highestCoordinate)
-        }
-        var center = CGPoint(x: kept(corner.x, between: reachableRegion.minX + handleHalfSide, and: reachableRegion.maxX - handleHalfSide),
+        let center = CGPoint(x: kept(corner.x, between: reachableRegion.minX + handleHalfSide, and: reachableRegion.maxX - handleHalfSide),
                              y: kept(corner.y, between: reachableRegion.minY + handleHalfSide, and: reachableRegion.maxY - handleHalfSide))
-        center.x = corner.x <= frameBounds.midX ? min(center.x, frameBounds.maxX) : max(center.x, frameBounds.minX)
-        center.y = corner.y <= frameBounds.midY ? min(center.y, frameBounds.maxY) : max(center.y, frameBounds.minY)
-        return center
+        return keptOnTheSideOfItsCorner(center, corner: corner, of: frameBounds)
     }
 
-    /// The handles reach outside the frame they resize. What is outside the reachable region
-    /// is hidden and takes no touches.
+    /// A coordinate kept between two others, or halfway between them when they cross.
+    private static func kept(_ coordinate: CGFloat, between lowestCoordinate: CGFloat, and highestCoordinate: CGFloat) -> CGFloat {
+        guard lowestCoordinate <= highestCoordinate else { return (lowestCoordinate + highestCoordinate) / 2 }
+        return min(max(coordinate, lowestCoordinate), highestCoordinate)
+    }
+
+    /// A handle's center kept from passing the side of the frame opposite its corner.
+    private static func keptOnTheSideOfItsCorner(_ center: CGPoint, corner: CGPoint, of frameBounds: CGRect) -> CGPoint {
+        CGPoint(x: corner.x <= frameBounds.midX ? min(center.x, frameBounds.maxX) : max(center.x, frameBounds.minX),
+                y: corner.y <= frameBounds.midY ? min(center.y, frameBounds.maxY) : max(center.y, frameBounds.minY))
+    }
+
+    /// The handles reach outside the frame they resize or turn. With
+    /// `staysInSuperviewSafeArea`, what is outside the reachable region is hidden and takes
+    /// no touches.
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-        if let reachableRegion, !reachableRegion.contains(point) { return false }
-        return bounds.contains(point) || handles.values.contains { handle in handle.frame.contains(point) }
+        if staysInSuperviewSafeArea, let reachableRegion, let superview, !reachableRegion.contains(convert(point, to: superview)) { return false }
+        return bounds.contains(point) || handles.values.contains { handle in !handle.isHidden && handle.frame.contains(point) }
+            || (!rotationHandle.isHidden && rotationHandle.frame.contains(point))
     }
 
-    /// A touch on a corner handle resizes; it must not also move the picture.
+    /// A touch on a corner handle resizes, and one on the turning handle turns; neither
+    /// must also move the picture.
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         guard gestureRecognizer === moveRecognizer else { return true }
-        return !handles.values.contains { handle in touch.view === handle }
+        return !handles.values.contains { handle in touch.view === handle } && touch.view !== rotationHandle
     }
 
     @objc private func handleMove(_ recognizer: UIPanGestureRecognizer) {
         guard let superview else { return }
-        if recognizer.state == .began { frameWhenDragBegan = frame }
+        if recognizer.state == .began { frameWhenDragBegan = unrotatedFrame }
         let translation = recognizer.translation(in: superview)
-        frame = Self.moved(frameWhenDragBegan, by: translation, keepingCenterIn: centerLimits)
+        // Moving never happens while cropping, so the frame turns about its own middle and
+        // moves as it is shown.
+        unrotatedFrame = Self.moved(frameWhenDragBegan, by: translation, keepingCenterIn: centerLimits)
         report(recognizer.state)
     }
 
     @objc private func handleResize(_ recognizer: UIPanGestureRecognizer) {
         guard let superview, let corner = handles.first(where: { _, handle in handle === recognizer.view })?.key else { return }
-        if recognizer.state == .began { frameWhenDragBegan = frame }
-        let translation = recognizer.translation(in: superview)
+        if recognizer.state == .began { frameWhenDragBegan = unrotatedFrame }
+        // The corners are the frame's own and turn with it, so the drag is measured along
+        // the frame's sides.
+        let translation = PictureRotation.vector(recognizer.translation(in: superview), turnedBy: -Double(rotation))
         let pullsRight = corner == .topRight || corner == .bottomRight, pullsDown = corner == .bottomLeft || corner == .bottomRight
         if let cropLimits {
-            frame = Self.cropped(frameWhenDragBegan, byDragging: translation, pullsRight: pullsRight, pullsDown: pullsDown,
-                                 minimumSideLength: minimumSideLength, within: cropLimits)
+            unrotatedFrame = Self.cropped(frameWhenDragBegan, byDragging: translation, pullsRight: pullsRight, pullsDown: pullsDown,
+                                          minimumSideLength: minimumSideLength, within: cropLimits)
         } else {
-            frame = Self.resized(frameWhenDragBegan, byDragging: translation, pullsRight: pullsRight, pullsDown: pullsDown, minimumSideLength: minimumSideLength)
+            let resizedFrame = Self.resized(frameWhenDragBegan, byDragging: translation, pullsRight: pullsRight, pullsDown: pullsDown,
+                                            minimumSideLength: minimumSideLength)
+            // The corner opposite the dragged one stays where it is on screen: the resized
+            // frame is turned about the middle the frame had.
+            unrotatedFrame = PictureRotation.rectangle(resizedFrame, withMiddleTurnedBy: Double(rotation),
+                                                       about: CGPoint(x: frameWhenDragBegan.midX, y: frameWhenDragBegan.midY))
         }
         report(recognizer.state)
+    }
+
+    /// Turns the frame about its middle as far as the finger has gone around it, and puts
+    /// it exactly straight, or exactly a quarter turn, when it comes close.
+    @objc private func handleRotation(_ recognizer: UIPanGestureRecognizer) {
+        guard let superview else { return }
+        let location = recognizer.location(in: superview)
+        let pointerAngle = atan2(location.y - center.y, location.x - center.x)
+        if recognizer.state == .began {
+            frameWhenDragBegan = unrotatedFrame
+            rotationWhenDragBegan = rotation
+            pointerAngleWhenDragBegan = pointerAngle
+            isHeldAtQuarterTurn = PictureRotation.isNearQuarterTurn(Double(rotation))
+            snapFeedback.prepare()
+        }
+        let freeAngle = PictureRotation.normalized(Double(rotationWhenDragBegan + pointerAngle - pointerAngleWhenDragBegan))
+        let isAtQuarterTurn = PictureRotation.isNearQuarterTurn(freeAngle)
+        if isAtQuarterTurn, !isHeldAtQuarterTurn { snapFeedback.selectionChanged() }
+        isHeldAtQuarterTurn = isAtQuarterTurn
+        rotation = CGFloat(PictureRotation.snapped(freeAngle))
+        switch recognizer.state {
+        case .began:
+            frameChangeDidBegin?()
+            previewView.isHidden = dragPreview == nil
+        case .changed:
+            rotationDidChange?(rotation)
+        case .ended:
+            previewView.isHidden = true
+            rotationDidChange?(rotation)
+            rotationChangeDidEnd?(rotation)
+        case .cancelled, .failed:
+            previewView.isHidden = true
+            rotation = rotationWhenDragBegan
+            rotationDidChange?(rotation)
+            frameChangeWasCancelled?()
+        default: break
+        }
+    }
+
+    @objc private func rotateClockwiseByAccessibilityStep() -> Bool { rotate(by: Self.accessibilityRotationStep) }
+    @objc private func rotateCounterclockwiseByAccessibilityStep() -> Bool { rotate(by: -Self.accessibilityRotationStep) }
+
+    private func rotate(by angle: CGFloat) -> Bool {
+        rotation = CGFloat(PictureRotation.normalized(Double(rotation + angle)))
+        rotationDidChange?(rotation)
+        rotationChangeDidEnd?(rotation)
+        // VoiceOver says the new angle, as a slider says its new value.
+        UIAccessibility.post(notification: .announcement, argument: Self.describedRotation(rotation))
+        return true
     }
 
     private func report(_ state: UIGestureRecognizer.State) {
@@ -278,15 +570,15 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
             frameChangeDidBegin?()
             previewView.isHidden = dragPreview == nil
         case .changed:
-            frameDidChange?(frame)
+            frameDidChange?(unrotatedFrame)
         case .ended:
             previewView.isHidden = true
-            frameDidChange?(frame)
-            frameChangeDidEnd?(frame)
+            frameDidChange?(unrotatedFrame)
+            frameChangeDidEnd?(unrotatedFrame)
         case .cancelled, .failed:
             previewView.isHidden = true
-            frame = frameWhenDragBegan
-            frameDidChange?(frame)
+            unrotatedFrame = frameWhenDragBegan
+            frameDidChange?(unrotatedFrame)
             frameChangeWasCancelled?()
         default: break
         }

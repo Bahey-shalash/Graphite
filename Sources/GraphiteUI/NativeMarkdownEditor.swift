@@ -528,6 +528,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         }
         if let savedScrollLocation = session.savedScrollLocation { coordinator.pendingJump = .topOfCharacter(savedScrollLocation) }
         session.isEditorAttached = true
+        coordinator.reportPlace(of: textView)
         coordinator.installLinkTapRecognizer(on: textView)
         coordinator.rebuildBlocks(in: textView)
         coordinator.restyleEverything(in: textView)
@@ -726,6 +727,14 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         /// suggestions whose edits are still being made. Their edits arrive after
         /// asynchronous work and are moved past typing that happened meanwhile.
         private var completionContextRevision: Int?
+        /// The text and cursor community plugins last heard of, and the revision they answered
+        /// with suggestions for.
+        private struct PluginEditorState: Equatable {
+            let textRevision: Int
+            let cursor: Int
+        }
+        private var lastPluginEditorState: PluginEditorState?
+        private var pluginSuggestionRevision: Int?
         private var acceptedCompletionRevisions: [Int] = []
         /// Only a few are kept: the edits use the latest.
         private static let maximumAcceptedCompletionRevisions = 8
@@ -804,6 +813,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             stopObservingMemoryWarnings()
             textView.findInteraction?.dismissFindNavigator()
             recordScrollLocation(of: textView)
+            session.recordEditorPlace = nil
             widthWhenHidden = textView.bounds.width
             removeAllWidgets()
             textView.removeFromSuperview()
@@ -820,7 +830,17 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             }
             session.isEditorAttached = true
             session.undoAvailability.follow(textView.undoManager)
+            reportPlace(of: textView)
             placeWidgetsAgain(in: textView)
+        }
+
+        /// Lets the session ask where the editor is, as Graphite leaves the screen, while the
+        /// editor shows the note. A pending jump has not landed yet, and is the place.
+        func reportPlace(of textView: MarkdownTextView) {
+            session.recordEditorPlace = { [weak self, weak textView] in
+                guard let self, let textView, textView.window != nil, self.pendingJump == nil else { return }
+                self.recordScrollLocation(of: textView)
+            }
         }
 
         /// Ends the editor for good; its undo history goes with the text view.
@@ -1249,10 +1269,18 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                   let textRange = textView.textRange(from: start, to: end) else { return }
             let edit = CharacterEdit(editedRange: replacementRange, changeInLength: newSource.length - oldSource.length)
             let selection = TextRangeMapping.insertionTarget(textView.selectedRange, through: edit)
+            // Text another app changed, adopted as Graphite comes back to the screen, must not
+            // move the note under the reader, as an insertion does not (`apply(_:to:)`).
+            let contentOffset = textView.contentOffset
             isPerformingEdit = true
             textView.replace(textRange, withText: newSource.substring(with: replacementRange))
             isPerformingEdit = false
             if NSMaxRange(selection) <= textView.textStorage.length { textView.selectedRange = selection }
+            if let textLayoutManager = textView.textLayoutManager {
+                textView.layoutIfNeeded()
+                let maximumOffset = maximumContentOffset(of: textView, layoutManager: textLayoutManager)
+                textView.setContentOffset(CGPoint(x: contentOffset.x, y: min(max(contentOffset.y, -textView.adjustedContentInset.top), maximumOffset)), animated: false)
+            }
             if textState.cachesDescribeOldText || session.text != textView.text { textViewDidChange(textView) }
         }
 
@@ -1359,7 +1387,16 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                 session.completion.update(context: nil, caretRect: .zero)
                 return
             }
-            let context = LinkCompletion.context(in: currentSource(of: textView), cursor: textView.selectedRange.location)
+            var context = LinkCompletion.context(in: currentSource(of: textView), cursor: textView.selectedRange.location)
+            if context == nil, let pluginEditorDidChange = actions.pluginEditorDidChange {
+                // Plugins hear each change and cursor move once; scrolling asks again for the same.
+                let key = PluginEditorState(textRevision: textRevision, cursor: textView.selectedRange.location)
+                if key != lastPluginEditorState {
+                    lastPluginEditorState = key
+                    pluginSuggestionRevision = pluginEditorDidChange()
+                }
+                context = pluginSuggestionRevision.map { revision in CompletionContext.pluginSuggestion(revision: revision) }
+            }
             var caretRect = CGRect.zero
             if context != nil, let end = textView.selectedTextRange?.end {
                 caretRect = textView.caretRect(for: end).offsetBy(dx: -textView.contentOffset.x, dy: -textView.contentOffset.y)
@@ -1502,6 +1539,12 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             placementAfterWidthChange = placement
             // After the sidebar's animation, which changes the width many times.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: placement)
+        }
+
+        /// The system's edit menu, with community plugins' items for the cursor after it.
+        func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
+            guard let pluginItems = actions.pluginEditMenuElement?() else { return nil }
+            return UIMenu(children: suggestedActions + [pluginItems])
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
@@ -1756,6 +1799,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                 self.updateReservedHeight(height, for: key, in: textView)
             })
             return AnyView(widget
+                .environment(\.lassoNoteDestination, environment.lassoNoteDestination)
                 .environment(\.colorScheme, textView.traitCollection.userInterfaceStyle == .dark ? .dark : .light)
                 .tint(accent)
                 .environment(\.accent, accent))

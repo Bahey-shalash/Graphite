@@ -18,6 +18,8 @@ struct PDFPictureSelection: Equatable {
 extension PDFSession {
     /// A new picture is this wide at most, as a fraction of the page as it is shown.
     static let newPictureWidthFraction = 0.6
+    /// How many times a placed picture's pixels a pasted one keeps.
+    static let pastedPictureSharpnessFactor: CGFloat = 2
 
     func pictures(on page: PDFPage) -> [PDFPicture] {
         PDFPageManager.pictures(on: page)
@@ -26,9 +28,14 @@ extension PDFSession {
     /// Places an image on the page in view, in the middle of what is shown of it, upright
     /// as the page is read, and selects it so it can be moved into place.
     ///
-    /// - Parameter imageData: Any image ImageIO reads; it is prepared off the main actor.
-    func addPicture(imageData: Data) async throws {
-        let placement = visiblePageCenter?()
+    /// - Parameters:
+    ///   - imageData: Any image ImageIO reads; it is prepared off the main actor.
+    ///   - requestedPlacement: Where its middle goes, a page and a point of it in the page's
+    ///     coordinates, as where a paste was asked for; the middle of the page in view when nil.
+    ///   - preferredWidth: How wide it is shown, in points, when narrower than the 60% of the
+    ///     page a picture is at most, as a pasted image keeps its own size.
+    func addPicture(imageData: Data, placement requestedPlacement: (pageIndex: Int, center: CGPoint)? = nil, preferredWidth: CGFloat? = nil) async throws {
+        let placement = requestedPlacement ?? visiblePageCenter?()
         let pageIndex = placement?.pageIndex ?? currentPageIndex
         guard pageIndex >= 0, pageIndex < document.pageCount, let page = document.page(at: pageIndex) else {
             throw GraphiteError.invalidFile("Page no longer exists.")
@@ -39,13 +46,19 @@ extension PDFSession {
         // The page as it is read: a page turned a quarter is as wide as its box is tall.
         let shownPageWidth = isSideways ? cropBox.height : cropBox.width
         let shownPictureWidth = shownPageWidth * Self.newPictureWidthFraction
+        // A pasted image, such as a screenshot of a page taken at 4 pixels per point, keeps
+        // twice the pixels a placed picture does, so it is as sharp as the page around it
+        // when the page is zoomed in.
+        let preparedWidth = shownPictureWidth * (preferredWidth == nil ? 1 : Self.pastedPictureSharpnessFactor)
         let prepared = try await Task.detached(priority: .userInitiated) {
-            try DrawingPictures.picture(from: imageData, canvasWidth: shownPictureWidth)
+            try DrawingPictures.picture(from: imageData, canvasWidth: preparedWidth)
         }.value
         guard prepared.imageData.count <= PDFPicture.maximumImageBytes else { throw GraphiteError.oversized("This image is too large to place on a page.") }
         // The page may have changed while the image was prepared.
         guard page.document === document, document.index(for: page) != NSNotFound else { throw GraphiteError.invalidFile("Page no longer exists.") }
-        let shownSize = prepared.frame.size
+        // Prepared at the widest it is placed, so it stays sharp when made larger later.
+        let shownScale = min(shownPictureWidth, preferredWidth ?? .infinity) / max(prepared.frame.width, 1)
+        let shownSize = CGSize(width: prepared.frame.width * shownScale, height: prepared.frame.height * shownScale)
         let sizeOnPage = isSideways ? CGSize(width: shownSize.height, height: shownSize.width) : shownSize
         let center = placement?.pageIndex == document.index(for: page) ? placement?.center : nil
         let middle = center ?? CGPoint(x: cropBox.midX, y: cropBox.midY)
@@ -62,7 +75,8 @@ extension PDFSession {
         selectedPicture = PDFPictureSelection(pictureName: picture.name, page: historyPage)
     }
 
-    /// Moves or resizes the picture; undo puts it back where it was.
+    /// Moves or resizes the picture, to bounds before it is turned; undo puts it back where
+    /// it was.
     func movePicture(_ selection: PDFPictureSelection, to newBounds: CGRect) throws {
         guard let page = selection.page.page, let picture = pictures(on: page).first(where: { picture in picture.name == selection.pictureName }) else {
             throw GraphiteError.invalidFile("This image no longer exists.")
@@ -73,9 +87,12 @@ extension PDFSession {
         let previousBounds = picture.bounds
         let historyPage = selection.page
         let pictureName = picture.name
+        let rotationRadians = picture.rotationRadians
         func move(in session: PDFSession, from currentBounds: CGRect, to targetBounds: CGRect) throws {
+            // The annotation's rectangle is the box around the picture as turned.
             let reference = PDFAnnotationReference(pageIndex: try session.currentIndex(of: historyPage), name: pictureName,
-                                                   annotationType: PDFPicture.annotationTypeName, bounds: currentBounds)
+                                                   annotationType: PDFPicture.annotationTypeName,
+                                                   bounds: PictureRotation.boundingRectangle(of: currentBounds, turnedBy: -rotationRadians))
             try session.apply(.movePicture(reference, to: targetBounds))
         }
         try move(in: self, from: previousBounds, to: bounds)
@@ -104,14 +121,25 @@ extension PDFSession {
         let pageIndex = try currentIndex(of: page)
         // The picture may have been moved since this step was recorded; its name finds it.
         try apply(.removeAnnotation(PDFAnnotationReference(pageIndex: pageIndex, name: picture.name,
-                                                           annotationType: PDFPicture.annotationTypeName, bounds: picture.bounds)))
+                                                           annotationType: PDFPicture.annotationTypeName, bounds: picture.annotationBounds)))
         if selectedPicture?.pictureName == picture.name { selectedPicture = nil }
     }
 
     // MARK: Turning, cropping and ordering
 
-    /// Turns the picture a quarter turn clockwise as it is shown, about its middle.
-    func rotatePicture(_ selection: PDFPictureSelection) async throws {
+    /// Rotates the picture to any angle, in radians, clockwise as the page is shown, about
+    /// its middle, as with its rotate handle. The picture's bytes stay as they are.
+    func rotatePicture(_ selection: PDFPictureSelection, to rotationRadians: Double) throws {
+        let (_, picture) = try pageAndPicture(of: selection)
+        var turned = picture
+        turned.rotationRadians = PictureRotation.normalized(rotationRadians)
+        guard turned != picture else { return }
+        try replacePicture(picture, with: turned, order: .unchanged, on: selection.page, actionName: "Rotate Image")
+    }
+
+    /// Rotates the picture a quarter turn clockwise as it is shown, about its middle, as
+    /// Rotate Right does in Preview; its angle from the rotate handle stays as it is.
+    func rotatePictureRight(_ selection: PDFPictureSelection) async throws {
         let (page, picture) = try pageAndPicture(of: selection)
         let pictureData = picture.imageData
         var turned = picture
@@ -119,11 +147,12 @@ extension PDFSession {
         let bounds = picture.bounds
         turned.bounds = Self.keepingCenter(of: CGRect(x: bounds.midX - bounds.height / 2, y: bounds.midY - bounds.width / 2,
                                                       width: bounds.height, height: bounds.width), inside: page.bounds(for: .cropBox))
-        try replacePicture(picture, with: turned, order: .unchanged, on: selection.page, actionName: "Turn Image")
+        try replacePicture(picture, with: turned, order: .unchanged, on: selection.page, actionName: "Rotate Image Right")
     }
 
     /// Keeps the part of the picture shown inside `pageBounds`, a rectangle of the page's
-    /// coordinates inside the picture's bounds.
+    /// coordinates inside the picture's bounds, given as the bounds are: before the picture
+    /// is turned by hand.
     func cropPicture(_ selection: PDFPictureSelection, to pageBounds: CGRect) async throws {
         let (_, picture) = try pageAndPicture(of: selection)
         let pictureBounds = picture.bounds
@@ -140,7 +169,11 @@ extension PDFSession {
         let pictureData = picture.imageData
         var cropped = picture
         cropped.imageData = try await Task.detached(priority: .userInitiated) { try PictureEditing.cropped(pictureData, to: imageRegion) }.value
-        cropped.bounds = croppedBounds
+        // The part kept stays where it was shown: a picture of its own, turned as the
+        // picture was, about its own middle. Page coordinates count upward, where a
+        // clockwise turn is a negative angle.
+        cropped.bounds = PictureRotation.rectangle(croppedBounds, withMiddleTurnedBy: -picture.rotationRadians,
+                                                   about: CGPoint(x: pictureBounds.midX, y: pictureBounds.midY))
         try replacePicture(picture, with: cropped, order: .unchanged, on: selection.page, actionName: "Crop Image")
     }
 
@@ -181,7 +214,7 @@ extension PDFSession {
 
     /// The topmost picture at a point of the page, in the page's coordinates.
     func picture(at pagePoint: CGPoint, on page: PDFPage) -> PDFPicture? {
-        pictures(on: page).last { picture in picture.bounds.contains(pagePoint) }
+        pictures(on: page).last { picture in picture.contains(pagePoint) }
     }
 
     /// The rectangle moved so its middle is on the page: a picture can hang over an edge

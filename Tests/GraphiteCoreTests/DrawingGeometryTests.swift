@@ -197,4 +197,89 @@ final class DrawingGeometryTests: XCTestCase {
         let unplaced = DrawingBackgroundImage(imageData: Data([1]), frame: CGRect(x: 0, y: 0, width: 0, height: 10))
         XCTAssertThrowsError(try DrawingPayload(width: 100, height: 100, background: .white, strokes: strokes, pictures: [unplaced]).encoded())
     }
+
+    // MARK: Turned pictures
+
+    func testAnglesAreKeptWithinOneTurnAndSnapToQuarterTurnsNearby() {
+        XCTAssertEqual(PictureRotation.normalized(5 * .pi / 2), .pi / 2, accuracy: 1e-12)
+        XCTAssertEqual(PictureRotation.normalized(-.pi), .pi, accuracy: 1e-12, "A half turn is π, never -π.")
+        XCTAssertEqual(PictureRotation.normalized(-5 * .pi / 2), -.pi / 2, accuracy: 1e-12)
+        XCTAssertEqual(PictureRotation.normalized(.nan), 0)
+        let degree = Double.pi / 180
+        XCTAssertEqual(PictureRotation.snapped(3 * degree), 0)
+        XCTAssertEqual(PictureRotation.snapped(88 * degree), .pi / 2, accuracy: 1e-12)
+        XCTAssertEqual(PictureRotation.snapped(-176 * degree), .pi, accuracy: 1e-12)
+        XCTAssertEqual(PictureRotation.snapped(10 * degree), 10 * degree, accuracy: 1e-12, "Farther from a quarter turn, the angle stays.")
+        XCTAssertTrue(PictureRotation.isNearQuarterTurn(-268 * degree))
+        XCTAssertFalse(PictureRotation.isNearQuarterTurn(45 * degree))
+    }
+
+    func testATurnedPictureCoversItsFrameTurnedAboutItsMiddle() {
+        // 100 by 40 around (150, 120), turned a quarter clockwise where y points down.
+        let picture = DrawingBackgroundImage(imageData: Data([1]), frame: CGRect(x: 100, y: 100, width: 100, height: 40), rotationRadians: .pi / 2)
+        XCTAssertTrue(picture.isTurned)
+        let boundingFrame = picture.boundingFrame
+        XCTAssertEqual(boundingFrame.minX, 130, accuracy: 1e-9)
+        XCTAssertEqual(boundingFrame.minY, 70, accuracy: 1e-9)
+        XCTAssertEqual(boundingFrame.width, 40, accuracy: 1e-9)
+        XCTAssertEqual(boundingFrame.height, 100, accuracy: 1e-9)
+        XCTAssertTrue(picture.contains(CGPoint(x: 150, y: 80)), "The turned picture reaches up there.")
+        XCTAssertFalse(picture.contains(CGPoint(x: 105, y: 120)), "Its end before it turned is empty.")
+        // A clockwise quarter turn where y points down takes the right side to the bottom.
+        let turnedRightEnd = PictureRotation.point(CGPoint(x: 200, y: 120), turnedBy: .pi / 2, about: CGPoint(x: 150, y: 120))
+        XCTAssertEqual(turnedRightEnd.x, 150, accuracy: 1e-9)
+        XCTAssertEqual(turnedRightEnd.y, 170, accuracy: 1e-9)
+        // Upright pictures keep their frame exactly.
+        let upright = DrawingBackgroundImage(imageData: Data([1]), frame: CGRect(x: 10.5, y: 20.25, width: 30, height: 40))
+        XCTAssertFalse(upright.isTurned)
+        XCTAssertEqual(upright.boundingFrame, upright.frame)
+        XCTAssertEqual(upright.offsetBy(dx: 5, dy: 5).rotationRadians, 0)
+        XCTAssertEqual(picture.offsetBy(dx: 5, dy: -5).rotationRadians, .pi / 2, accuracy: 1e-12, "Moving a picture keeps its angle.")
+    }
+
+    func testAPartOfATurnedPictureIsPlacedWhereItWasShown() {
+        // The right half of a 100 by 40 picture around (150, 120) turned a quarter clockwise:
+        // that half was shown below the middle, so on its own its middle is (150, 145).
+        let rightHalf = PictureRotation.rectangle(CGRect(x: 150, y: 100, width: 50, height: 40), withMiddleTurnedBy: .pi / 2, about: CGPoint(x: 150, y: 120))
+        XCTAssertEqual(rightHalf.midX, 150, accuracy: 1e-9)
+        XCTAssertEqual(rightHalf.midY, 145, accuracy: 1e-9)
+        XCTAssertEqual(rightHalf.size, CGSize(width: 50, height: 40))
+    }
+
+    func testPayloadWithATurnedPictureIsVersionFiveAndKeepsEveryAngle() throws {
+        let strokes = Data([1, 2, 3])
+        let turned = DrawingBackgroundImage(imageData: Data([7, 7]), frame: CGRect(x: 10, y: 20, width: 100, height: 50), rotationRadians: 0.3)
+        let upright = DrawingBackgroundImage(imageData: Data([8]), frame: CGRect(x: 0, y: 0, width: 30, height: 30))
+        let payload = DrawingPayload(width: 760, height: 300, background: .ivory, strokes: strokes, pictures: [upright, turned])
+        XCTAssertEqual(payload.version, 5, "Turned pictures need a build that turns them, whatever else the drawing has.")
+        let decoded = try XCTUnwrap(DrawingPayload.decodeIfValid(try payload.encoded()))
+        XCTAssertEqual(decoded.pictures, [upright, turned])
+        XCTAssertEqual(decoded.background, .ivory)
+        XCTAssertEqual(payload.replacingVisibleContentDigest(Data([9])).pictures, [upright, turned], "Writing the digest keeps the angles.")
+        // Upright pictures alone stay version 3, which earlier builds read.
+        XCTAssertEqual(DrawingPayload(width: 760, height: 300, background: .white, strokes: strokes, pictures: [upright]).version, 3)
+        // The most pictures a drawing holds, every one turned, still fit the record's bound.
+        let manyTurned = (0..<DrawingLimits.maximumPictureCount).map { pictureIndex in
+            DrawingBackgroundImage(imageData: Data([UInt8(pictureIndex)]), frame: CGRect(x: Double(pictureIndex), y: 1.5 * Double(pictureIndex), width: 10 + Double(pictureIndex), height: 7),
+                                   rotationRadians: 0.01 * Double(pictureIndex + 1))
+        }
+        let payloadWithMostPictures = DrawingPayload(width: 760, height: 300, background: .white, strokes: strokes,
+                                  backgroundImage: DrawingBackgroundImage(imageData: Data([99]), frame: CGRect(x: 0, y: 0, width: 760, height: 300)), pictures: manyTurned)
+        XCTAssertEqual(try XCTUnwrap(DrawingPayload.decodeIfValid(try payloadWithMostPictures.encoded())).pictures, manyTurned)
+    }
+
+    func testPayloadRefusesAnglesThatDoNotMatchItsPicturesOrItsVersion() throws {
+        func payload(_ fields: [String: Any]) throws -> Data {
+            var record: [String: Any] = ["version": 5, "width": 760.0, "height": 300.0, "background": "white", "strokes": Data([1]), "pixelDigest": Data(),
+                                         "pictures": [Data([7])], "pictureFrames": [[[10.0, 20.0], [100.0, 50.0]]], "pictureRotations": [0.3]]
+            for (key, value) in fields { record[key] = value }
+            return try PropertyListSerialization.data(fromPropertyList: record, format: .binary, options: 0)
+        }
+        XCTAssertEqual(DrawingPayload.decodeIfValid(try payload([:]))?.pictures.first?.rotationRadians ?? 0, 0.3, accuracy: 1e-12)
+        XCTAssertNil(DrawingPayload.decodeIfValid(try payload(["pictureRotations": [0.3, 0.4]])), "One angle for each picture.")
+        XCTAssertNil(DrawingPayload.decodeIfValid(try payload(["pictureRotations": [0.0]])), "Angles are written only for a turned picture.")
+        XCTAssertNil(DrawingPayload.decodeIfValid(try payload(["pictureRotations": [Double.infinity]])))
+        XCTAssertNil(DrawingPayload.decodeIfValid(try payload(["version": 3])), "An earlier version has no angles.")
+        XCTAssertNil(DrawingPayload.decodeIfValid(try payload(["version": 6])), "A later version is an ordinary image to this build.")
+    }
 }

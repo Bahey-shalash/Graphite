@@ -131,6 +131,14 @@ struct PaletteColor: Codable, Equatable, Identifiable {
         PaletteColor(name: "cyan", hex: "#00bfbc"), PaletteColor(name: "blue", hex: "#086ddd"),
         PaletteColor(name: "purple", hex: "#7852ee"), PaletteColor(name: "pink", hex: "#d53984"),
     ]
+
+    /// Light colors to mark text with, which text stays readable under; the first is the
+    /// highlighter's own yellow, and most are the tints of PDF text highlights.
+    static let defaultHighlighterPalette = [
+        PaletteColor(name: "yellow", hex: "#f6d743"), PaletteColor(name: "green", hex: "#8fe378"),
+        PaletteColor(name: "blue", hex: "#85c7ff"), PaletteColor(name: "pink", hex: "#ff9ec9"),
+        PaletteColor(name: "purple", hex: "#c7a3ff"), PaletteColor(name: "orange", hex: "#ffb35c"),
+    ]
 }
 
 /// Graphite's own preferences on this device. Settings Obsidian shares with the vault,
@@ -148,6 +156,7 @@ final class GraphitePreferences {
         static let textSize = "GraphiteTextSize"
         static let usesSpellChecking = "GraphiteUsesSpellChecking"
         static let colorPalette = "GraphiteColorPalette"
+        static let highlighterPalette = "GraphiteHighlighterPalette"
         static let embedsRecordingsInNote = "GraphiteEmbedsRecordingsInNote"
         static let recordingCamera = "GraphiteRecordingCamera"
         static let accentHex = "GraphiteAccentColor"
@@ -206,7 +215,17 @@ final class GraphitePreferences {
     /// The palette as saved, for code without the preferences object, such as the Pencil
     /// palette's Favorite Colors menu.
     nonisolated static func storedColorPalette(in defaults: UserDefaults = .standard) -> [PaletteColor] {
-        defaults.data(forKey: Key.colorPalette).flatMap { storedPalette in try? JSONDecoder().decode([PaletteColor].self, from: storedPalette) }
+        colorPalette(decoding: defaults.data(forKey: Key.colorPalette))
+    }
+
+    /// Where the palette is kept, for views that follow changes to it (`@AppStorage`) while
+    /// Settings is open beside them, as the Pencil tool bar does.
+    nonisolated static let colorPaletteKey = Key.colorPalette
+
+    /// The palette from what is kept under `colorPaletteKey`; the default colors when
+    /// nothing, or something unreadable, is kept there.
+    nonisolated static func colorPalette(decoding storedPalette: Data?) -> [PaletteColor] {
+        storedPalette.flatMap { storedPalette in try? JSONDecoder().decode([PaletteColor].self, from: storedPalette) }
             ?? PaletteColor.defaultPalette
     }
 
@@ -217,6 +236,27 @@ final class GraphitePreferences {
     /// The chosen accent, for views made outside SwiftUI's environment.
     nonisolated static func storedAccentHex(in defaults: UserDefaults = .standard) -> String {
         defaults.string(forKey: Key.accentHex).flatMap(TextColorMarkup.canonicalHex) ?? GraphiteTheme.defaultAccentHex
+    }
+    /// The highlighter's colors, as saved, for the Pencil tools.
+    nonisolated static func storedHighlighterPalette(in defaults: UserDefaults = .standard) -> [PaletteColor] {
+        highlighterPalette(decoding: defaults.data(forKey: Key.highlighterPalette))
+    }
+
+    /// Where the highlighter's colors are kept, for views that follow changes to them
+    /// (`@AppStorage`) while Settings is open beside them.
+    nonisolated static let highlighterPaletteKey = Key.highlighterPalette
+
+    /// The highlighter's colors from what is kept under `highlighterPaletteKey`; the default
+    /// colors when nothing, or something unreadable, is kept there.
+    nonisolated static func highlighterPalette(decoding storedPalette: Data?) -> [PaletteColor] {
+        storedPalette.flatMap { storedPalette in try? JSONDecoder().decode([PaletteColor].self, from: storedPalette) }
+            ?? PaletteColor.defaultHighlighterPalette
+    }
+
+    /// The colors the Pencil tools offer while a highlighter is in use, apart from the
+    /// favorite colors, which are for writing.
+    var highlighterPalette: [PaletteColor] {
+        didSet { defaults.set(try? JSONEncoder().encode(highlighterPalette), forKey: Key.highlighterPalette) }
     }
     /// Whether a finished recording is embedded at the cursor of the note it started in.
     var embedsRecordingsInNote: Bool { didSet { defaults.set(embedsRecordingsInNote, forKey: Key.embedsRecordingsInNote) } }
@@ -301,6 +341,7 @@ final class GraphitePreferences {
         textSize = Self.textSizeRange.contains(storedTextSize) ? storedTextSize : 17
         usesSpellChecking = defaults.object(forKey: Key.usesSpellChecking) as? Bool ?? true
         colorPalette = Self.storedColorPalette(in: defaults)
+        highlighterPalette = Self.storedHighlighterPalette(in: defaults)
         embedsRecordingsInNote = defaults.object(forKey: Key.embedsRecordingsInNote) as? Bool ?? true
         recordingCamera = defaults.string(forKey: Key.recordingCamera).flatMap(CameraPosition.init(rawValue:)) ?? .back
         accentHex = Self.storedAccentHex(in: defaults)

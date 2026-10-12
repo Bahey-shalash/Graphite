@@ -88,6 +88,8 @@ struct DrawingEditor: View {
     let preserveDraft: (DrawingContent) -> Void
     /// Called when the user closes the editor, saved or not; its recovery copy is no longer needed.
     let removeDraft: () -> Void
+    /// The note the drawing goes into, where the lasso's pictures of an area can be added.
+    var noteDestination: LassoNoteDestination?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -109,11 +111,13 @@ struct DrawingEditor: View {
     @State private var showsToolPicker = true
 
     init(request: DrawingEditorRequest,
+         noteDestination: LassoNoteDestination? = nil,
          save: @escaping (DrawingContent, DrawingFormat) async throws -> Void,
          exportCopy: @escaping (DrawingContent, DrawingFormat) async throws -> URL,
          preserveDraft: @escaping (DrawingContent) -> Void,
          removeDraft: @escaping () -> Void) {
         self.request = request
+        self.noteDestination = noteDestination
         self.save = save
         self.exportCopy = exportCopy
         self.preserveDraft = preserveDraft
@@ -132,14 +136,15 @@ struct DrawingEditor: View {
                           backgroundImage: request.backgroundImage,
                           drawsWithFinger: drawsWithFinger, drawsShapes: drawsShapes,
                           showsToolPicker: showsToolPicker && !usesFixedToolbar && !canvasController.isArrangingPictures,
-                          fixedTool: usesFixedToolbar ? toolbox.selection : nil)
+                          fixedTool: usesFixedToolbar ? toolbox.selection : nil,
+                          noteDestination: noteDestination, title: request.title)
                 .ignoresSafeArea(edges: .bottom)
                 .background(Color.white)
                 .safeAreaInset(edge: .top, spacing: 0) {
                     // The bar stays while pictures are arranged: removing it would move the
                     // drawing under the finger.
                     if usesFixedToolbar, showsToolPicker {
-                        PencilToolbar(toolbox: toolbox, favoriteColors: GraphitePreferences.storedColorPalette(), drawsShapes: $drawsShapes,
+                        PencilToolbar(toolbox: toolbox, drawsShapes: $drawsShapes,
                                       addImage: { showsPhotoPicker = true },
                                       undoAvailability: canvasController.undoAvailability)
                     }
@@ -187,6 +192,11 @@ struct DrawingEditor: View {
                 // Taking up a tool ends arranging pictures.
                 .onChange(of: toolbox.selection) { _, _ in canvasController.finishArrangingPictures() }
                 .onAppear { if let loadingError = canvasController.loadingError { errorMessage = loadingError } }
+                .onChange(of: canvasController.pictureErrorMessage) { _, message in
+                    guard let message else { return }
+                    errorMessage = message
+                    canvasController.pictureErrorMessage = nil
+                }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background, canvasController.hasChanges, let content = currentContent { preserveDraft(content) }
@@ -210,12 +220,12 @@ struct DrawingEditor: View {
                     .fontWeight(.semibold)
                     .tint(.primary)
             } else {
-                Text(canvasController.selectedPictureIdentifier == nil ? "Tap an image to select it." : "Drag the image to move it, or a corner to resize it.")
+                Text(canvasController.selectedPictureIdentifier == nil ? "Tap an image to select it." : "Drag the image to move it, a corner to resize it, or the arrow handle to rotate it.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 8)
                 PictureEditingButtons(isEnabled: canvasController.selectedPictureIdentifier != nil, canReorder: canvasController.pictures.count > 1,
-                                      rotate: { runPictureChange { try await canvasController.rotateSelectedPicture() } },
+                                      rotateRight: { runPictureChange { try await canvasController.rotateSelectedPictureRight() } },
                                       crop: { canvasController.beginCroppingPicture() },
                                       moveInOrder: { toFront in canvasController.moveSelectedPictureInOrder(toFront: toFront) },
                                       delete: { canvasController.deleteSelectedPicture() })
@@ -367,9 +377,11 @@ struct DrawingEditor: View {
         } catch { errorMessage = error.localizedDescription }
     }
 
+    /// At its own size where that fits, as ⌘V and the lasso's Paste place it.
     private func addPictureFromPasteboard() async {
-        guard let imageData = UIPasteboard.general.image?.pngData() else { return }
-        await addPicture(imageData: imageData)
+        guard case .image(let imageData) = LassoPasteboard.content(ignoringInk: true) else { return }
+        do { try await canvasController.pastePicture(imageData: imageData, centeredAt: nil) }
+        catch { errorMessage = error.localizedDescription }
     }
 
     private func runPictureChange(_ change: @escaping () async throws -> Void) {
@@ -441,6 +453,8 @@ final class DrawingCanvasController {
     var hasInk = false
     var canvasWidth: Double = 0
     var loadingError: String?
+    /// Why a pasted image could not be placed, for the editor's alert.
+    var pictureErrorMessage: String?
     private(set) var pictures: [PlacedPicture]
     /// The paper under the ink. Changing it is a change to the drawing, not a step to undo.
     var paper: DrawingPaper {
@@ -508,9 +522,10 @@ final class DrawingCanvasController {
 
     // MARK: Pictures
 
-    /// Places a picture in the middle of what is on screen, at most 60% of the canvas wide,
-    /// and selects it so it can be moved into place.
-    func addPicture(_ picture: DrawingBackgroundImage) throws {
+    /// Places a picture in the middle of what is on screen, or with its middle at a point of
+    /// the drawing, at most 60% of the canvas wide and no wider than `preferredWidth`, and
+    /// selects it so it can be moved into place.
+    func addPicture(_ picture: DrawingBackgroundImage, centeredAt center: CGPoint? = nil, preferredWidth: Double? = nil) throws {
         guard pictures.count < DrawingLimits.maximumPictureCount else {
             throw GraphiteError.oversized("A drawing can hold \(DrawingLimits.maximumPictureCount) images.")
         }
@@ -518,10 +533,13 @@ final class DrawingCanvasController {
         guard existingBytes + picture.imageData.count <= DrawingLimits.maximumBackgroundImageBytes else {
             throw GraphiteError.oversized("The images on this drawing are as large together as a drawing can hold.")
         }
-        let width = min(picture.frame.width, canvasWidth * Self.newPictureWidthFraction)
+        let width = min(picture.frame.width, canvasWidth * Self.newPictureWidthFraction, preferredWidth ?? .infinity)
         let height = picture.frame.height * width / picture.frame.width
         let visibleRegion = canvasView?.visibleDrawingRegion ?? CGRect(x: 0, y: 0, width: canvasWidth, height: height)
-        let origin = CGPoint(x: (canvasWidth - width) / 2, y: max(visibleRegion.midY - height / 2, visibleRegion.minY + Self.newPictureTopMargin, 0))
+        let origin = center.map { center in
+            // Its middle where asked, kept on the canvas's width and below its top.
+            CGPoint(x: min(max(center.x - width / 2, 0), max(canvasWidth - width, 0)), y: max(center.y - height / 2, 0))
+        } ?? CGPoint(x: (canvasWidth - width) / 2, y: max(visibleRegion.midY - height / 2, visibleRegion.minY + Self.newPictureTopMargin, 0))
         let placed = PlacedPicture(picture: DrawingBackgroundImage(imageData: picture.imageData, frame: CGRect(origin: origin, size: CGSize(width: width, height: height)).integral))
         replacePictures(with: pictures + [placed], actionName: "Add Image")
         isArrangingPictures = true
@@ -531,6 +549,18 @@ final class DrawingCanvasController {
 
     private static let newPictureWidthFraction = 0.6
     private static let newPictureTopMargin = 24.0
+
+    /// Places an image from the pasteboard as a picture: with its middle at a point of the
+    /// drawing, or in the middle of what is on screen, at its own size where that fits
+    /// (`LassoPasteboard.preferredWidth`). Prepared for the full width, so enlarging it later
+    /// does not blur it.
+    func pastePicture(imageData: Data, centeredAt center: CGPoint?) async throws {
+        let canvasWidth = canvasWidth
+        let picture = try await Task.detached(priority: .userInitiated) {
+            try DrawingPictures.picture(from: imageData, canvasWidth: canvasWidth)
+        }.value
+        try addPicture(picture, centeredAt: center, preferredWidth: LassoPasteboard.preferredWidth(ofImageData: imageData).map(Double.init))
+    }
 
     func beginArrangingPictures(selecting identifier: UUID? = nil) {
         guard !pictures.isEmpty else { return }
@@ -564,15 +594,17 @@ final class DrawingCanvasController {
         pictures.firstIndex { placed in placed.id == selectedPictureIdentifier }
     }
 
-    /// Turns the selected picture a quarter turn clockwise about its middle.
-    func rotateSelectedPicture() async throws {
+    /// Rotates the selected picture a quarter turn clockwise about its middle; its angle
+    /// from the rotate handle stays as it is.
+    func rotateSelectedPictureRight() async throws {
         guard let pictureIndex = selectedPictureIndex else { return }
         let placed = pictures[pictureIndex]
         let pictureData = placed.picture.imageData
         let turnedData = try await Task.detached(priority: .userInitiated) { try PictureEditing.rotatedClockwise(pictureData) }.value
         let frame = placed.picture.frame
         let turnedFrame = CGRect(x: frame.midX - frame.height / 2, y: frame.midY - frame.width / 2, width: frame.height, height: frame.width)
-        replacePicture(placed.id, with: DrawingBackgroundImage(imageData: turnedData, frame: turnedFrame), actionName: "Turn Image")
+        replacePicture(placed.id, with: DrawingBackgroundImage(imageData: turnedData, frame: turnedFrame, rotationRadians: placed.picture.rotationRadians),
+                       actionName: "Rotate Image Right")
     }
 
     func beginCroppingPicture() {
@@ -593,7 +625,8 @@ final class DrawingCanvasController {
         try await cropSelectedPicture(to: cropFrame)
     }
 
-    /// Keeps the part of the selected picture inside a frame of the drawing's coordinates.
+    /// Keeps the part of the selected picture inside a frame of the drawing's coordinates,
+    /// given as the picture's own frame is: before the picture is turned.
     func cropSelectedPicture(to cropFrame: CGRect) async throws {
         guard let pictureIndex = selectedPictureIndex else { return }
         let placed = pictures[pictureIndex]
@@ -604,7 +637,12 @@ final class DrawingCanvasController {
                             width: keptFrame.width / frame.width, height: keptFrame.height / frame.height)
         let pictureData = placed.picture.imageData
         let croppedData = try await Task.detached(priority: .userInitiated) { try PictureEditing.cropped(pictureData, to: region) }.value
-        replacePicture(placed.id, with: DrawingBackgroundImage(imageData: croppedData, frame: keptFrame), actionName: "Crop Image")
+        // The part kept stays where it was shown: a picture of its own, turned as the
+        // picture was, about its own middle.
+        let rotationRadians = placed.picture.rotationRadians
+        let croppedFrame = PictureRotation.rectangle(keptFrame, withMiddleTurnedBy: rotationRadians, about: CGPoint(x: frame.midX, y: frame.midY))
+        replacePicture(placed.id, with: DrawingBackgroundImage(imageData: croppedData, frame: croppedFrame, rotationRadians: rotationRadians),
+                       actionName: "Crop Image")
     }
 
     /// Puts the selected picture over or under the drawing's other pictures; ink stays over them all.
@@ -644,9 +682,45 @@ final class DrawingCanvasController {
 
     func pictureFrameChangeDidEnd(_ identifier: UUID, frame: CGRect) {
         guard let pictureIndex = pictures.firstIndex(where: { placed in placed.id == identifier }), pictures[pictureIndex].picture.frame != frame else { return }
+        let picture = pictures[pictureIndex].picture
         var movedPictures = pictures
-        movedPictures[pictureIndex].picture = DrawingBackgroundImage(imageData: movedPictures[pictureIndex].picture.imageData, frame: frame)
+        movedPictures[pictureIndex].picture = DrawingBackgroundImage(imageData: picture.imageData, frame: frame, rotationRadians: picture.rotationRadians)
         replacePictures(with: movedPictures, actionName: "Move Image")
+        showPicturesAndPaper()
+    }
+
+    /// The picture was rotated by its handle to an angle, clockwise, in radians.
+    func pictureRotationChangeDidEnd(_ identifier: UUID, rotationRadians: Double) {
+        guard let pictureIndex = pictures.firstIndex(where: { placed in placed.id == identifier }) else { return }
+        let picture = pictures[pictureIndex].picture
+        let turnedPicture = DrawingBackgroundImage(imageData: picture.imageData, frame: picture.frame, rotationRadians: rotationRadians)
+        guard turnedPicture != picture else { return }
+        var turnedPictures = pictures
+        turnedPictures[pictureIndex].picture = turnedPicture
+        replacePictures(with: turnedPictures, actionName: "Rotate Image")
+        showPicturesAndPaper()
+    }
+
+    /// Graphite's lasso moved or resized pictures with the ink it selected: one step with the
+    /// ink's change, which the canvas recorded in the same turn of the run loop.
+    func movePicturesWithLasso(to frames: [UUID: CGRect]) {
+        let movedPictures = pictures.map { placed -> PlacedPicture in
+            guard let frame = frames[placed.id] else { return placed }
+            var moved = placed
+            moved.picture = DrawingBackgroundImage(imageData: placed.picture.imageData, frame: frame, rotationRadians: placed.picture.rotationRadians)
+            return moved
+        }
+        guard movedPictures != pictures else { return }
+        replacePictures(with: movedPictures, actionName: "Move Selection")
+        showPicturesAndPaper()
+    }
+
+    /// Graphite's lasso deleted pictures with the ink it selected, in one step.
+    func deletePicturesWithLasso(_ identifiers: Set<UUID>) {
+        let remainingPictures = pictures.filter { placed in !identifiers.contains(placed.id) }
+        guard remainingPictures.count != pictures.count else { return }
+        if let selectedPictureIdentifier, identifiers.contains(selectedPictureIdentifier) { self.selectedPictureIdentifier = nil }
+        replacePictures(with: remainingPictures, actionName: "Delete Selection")
         showPicturesAndPaper()
     }
 
@@ -752,11 +826,24 @@ final class InfiniteCanvasView: HistoryCanvasView {
     /// A picture was tapped (nil: a tap beside every picture while arranging).
     var pictureWasTapped: ((UUID?) -> Void)?
     var pictureFrameChangeDidEnd: ((UUID, CGRect) -> Void)?
+    /// A picture was turned by its handle, to an angle in radians, clockwise.
+    var pictureRotationChangeDidEnd: ((UUID, Double) -> Void)?
+    /// Graphite's lasso moved pictures to new frames, or deleted them, with its ink.
+    var lassoMovedPictures: (([UUID: CGRect]) -> Void)?
+    var lassoDeletedPictures: ((Set<UUID>) -> Void)?
+    /// An image pasted with the lasso, to be placed with its middle at a point of the drawing.
+    var lassoPastedPicture: ((Data, CGPoint) -> Void)?
+    /// Where pictures of an area taken with the lasso can be added, and their name.
+    var lassoNoteDestination: LassoNoteDestination?
+    var lassoCaptureName = "Drawing"
     private var fittedBoundsWidth: CGFloat = 0
     private let paperView = DrawingPaperView()
     /// The picture under the ink of a drawing made on an image, in canvas coordinates.
     private var basePictureView: UIImageView?
     private var basePictureFrame: CGRect = .null
+    /// The paper as chosen, for pictures of an area, which show it as the note will.
+    private var chosenPaper: DrawingPaper = .plain
+    private var chosenBackground: DrawingBackground = .white
     private var pictures: [PlacedPicture] = []
     private var pictureViews: [UUID: UIImageView] = [:]
     private var selectedPictureIdentifier: UUID?
@@ -771,13 +858,22 @@ final class InfiniteCanvasView: HistoryCanvasView {
     private(set) var cropFrame: CGRect?
     private lazy var pictureTapRecognizer = UITapGestureRecognizer(target: self, action: #selector(handlePictureTap(_:)))
     private let pictureTapGate = PictureTapGate()
+    /// Takes a resting hand's touches, which scrolling, zooming and tapping a picture wait for.
+    private var palmRejection: PalmRejectionInstallation?
 
     /// The paper pattern shown under the ink.
     var paperPattern: DrawingPaperPattern { paperView.paper.pattern }
 
+    /// The highest of the paper and the pictures, all under the ink.
+    override var topViewUnderInk: UIView? {
+        pictures.last.flatMap { placed in pictureViews[placed.id] } ?? basePictureView ?? paperView
+    }
+
     /// Shows the paper and its color under the ink. `asSaved` shows it as the note will:
     /// without a pattern that is only a guide, and with no paper where there is none.
     func showPaper(_ paper: DrawingPaper, background: DrawingBackground, asSaved: Bool) {
+        chosenPaper = paper
+        chosenBackground = background
         paperView.paper = asSaved && !paper.appearsInSavedDrawing ? .plain : paper
         paperView.paperColor = background.colorHex.flatMap { hex in UIColor(graphiteHex: hex) }
         paperView.showsMissingPaper = asSaved && background == .transparent
@@ -791,6 +887,38 @@ final class InfiniteCanvasView: HistoryCanvasView {
         pictureTapGate.canvas = self
         pictureTapRecognizer.delegate = pictureTapGate
         addGestureRecognizer(pictureTapRecognizer)
+        // A hand resting on the drawing while the Pencil writes does not scroll, zoom or
+        // select a picture; with finger drawing, it does not draw. While pictures are being
+        // arranged, the Pencil does not write, and fingers move and select them as always.
+        palmRejection = PencilActivity.installRecognizers(in: self, isWriting: { [weak self] in self.map { canvas in !canvas.isArrangingPictures } ?? false },
+                                                          handTouchesDidChange: { [weak self] handTouches in self?.takeBackStroke(ofHand: handTouches) })
+        makeWaitForPalmRejection([panGestureRecognizer, pictureTapRecognizer])
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        // PencilKit's own long press (its Select All and Insert Space menu), once it has one.
+        if window != nil { makeWaitForPalmRejection(Self.longPresses(in: self).filter { recognizer in recognizer !== drawingGestureRecognizer }) }
+    }
+
+    /// Makes recognizers wait for palm rejection to fail, each once. It fails at once for a
+    /// finger while the Pencil is not active, so they do not wait for one. PencilKit's drawing
+    /// never waits for it.
+    private func makeWaitForPalmRejection(_ recognizers: [UIGestureRecognizer]) {
+        palmRejection?.makeWait(recognizers)
+    }
+
+    /// For tests, which cannot send touches: whether a recognizer waits for palm rejection.
+    func waitsForPalmRejection(_ recognizer: UIGestureRecognizer) -> Bool {
+        palmRejection?.isWaiting(recognizer) ?? false
+    }
+
+    /// For tests: the recognizer that takes a resting hand's touches.
+    var palmRejectionRecognizer: PalmRejectionRecognizer? { palmRejection?.recognizer }
+
+    private static func longPresses(in view: UIView) -> [UIGestureRecognizer] {
+        (view.gestureRecognizers ?? []).filter { recognizer in recognizer is UILongPressGestureRecognizer }
+            + view.subviews.flatMap { subview in subview is SelectionFrameView ? [] : longPresses(in: subview) }
     }
 
     @available(*, unavailable)
@@ -807,6 +935,7 @@ final class InfiniteCanvasView: HistoryCanvasView {
         let imageView = basePictureView ?? UIImageView()
         imageView.image = picture
         imageView.contentMode = .scaleToFill
+        imageView.layer.minificationFilter = .trilinear
         imageView.isUserInteractionEnabled = false
         imageView.accessibilityLabel = "Image being drawn on"
         if imageView.superview == nil { insertSubview(imageView, aboveSubview: paperView) }
@@ -831,6 +960,10 @@ final class InfiniteCanvasView: HistoryCanvasView {
             let imageView = pictureViews[placed.id] ?? {
                 let newView = UIImageView()
                 newView.contentMode = .scaleToFill
+                // Core Animation's default filter reads only a few of a picture's pixels for
+                // each one shown, so a picture made smaller than its pixels looked jagged and
+                // pixelated; the trilinear filter reads them all, from smaller copies.
+                newView.layer.minificationFilter = .trilinear
                 newView.isUserInteractionEnabled = false
                 newView.isAccessibilityElement = true
                 newView.accessibilityLabel = "Image"
@@ -862,8 +995,11 @@ final class InfiniteCanvasView: HistoryCanvasView {
         }
         let selection = selectionView ?? {
             let newSelection = SelectionFrameView(frame: .zero)
+            newSelection.allowsRotation = true
             newSelection.frameDidChange = { [weak self] frame in self?.selectionFrameDidChange(frame) }
             newSelection.frameChangeDidEnd = { [weak self] frame in self?.selectionFrameChangeDidEnd(frame) }
+            newSelection.rotationDidChange = { [weak self] rotation in self?.selectionRotationDidChange(rotation) }
+            newSelection.rotationChangeDidEnd = { [weak self] rotation in self?.selectionRotationChangeDidEnd(rotation) }
             // Dragging a picture must not scroll the page with it.
             for recognizer in newSelection.dragRecognizers { panGestureRecognizer.require(toFail: recognizer) }
             selectionView = newSelection
@@ -875,8 +1011,18 @@ final class InfiniteCanvasView: HistoryCanvasView {
 
     private func selectionFrameDidChange(_ frame: CGRect) {
         // A crop frame moves over the picture, which stays where it is.
-        guard let selectedPictureIdentifier, zoomScale > 0, !isCroppingPicture else { return }
-        pictureViews[selectedPictureIdentifier]?.frame = frame
+        guard let selectedPictureIdentifier, zoomScale > 0, !isCroppingPicture, let pictureView = pictureViews[selectedPictureIdentifier] else { return }
+        place(pictureView, in: frame, turnedBy: selectionView?.rotation ?? 0)
+    }
+
+    private func selectionRotationDidChange(_ rotation: CGFloat) {
+        guard let selectedPictureIdentifier else { return }
+        pictureViews[selectedPictureIdentifier]?.transform = CGAffineTransform(rotationAngle: rotation)
+    }
+
+    private func selectionRotationChangeDidEnd(_ rotation: CGFloat) {
+        guard let selectedPictureIdentifier else { return }
+        pictureRotationChangeDidEnd?(selectedPictureIdentifier, Double(rotation))
     }
 
     private func selectionFrameChangeDidEnd(_ frame: CGRect) {
@@ -893,7 +1039,7 @@ final class InfiniteCanvasView: HistoryCanvasView {
     func picture(atContentPoint contentPoint: CGPoint) -> UUID? {
         guard zoomScale > 0 else { return nil }
         let drawingPoint = CGPoint(x: contentPoint.x / zoomScale, y: contentPoint.y / zoomScale)
-        return pictures.last { placed in placed.picture.frame.contains(drawingPoint) }?.id
+        return pictures.last { placed in placed.picture.contains(drawingPoint) }?.id
     }
 
     @objc private func handlePictureTap(_ recognizer: UITapGestureRecognizer) {
@@ -905,13 +1051,26 @@ final class InfiniteCanvasView: HistoryCanvasView {
         CGRect(x: frame.minX * zoomScale, y: frame.minY * zoomScale, width: frame.width * zoomScale, height: frame.height * zoomScale)
     }
 
+    /// Places a picture's view at a frame of the canvas, turned about the frame's middle. A
+    /// turned view's frame is the box around it, so its size and middle place it.
+    private func place(_ pictureView: UIView, in frame: CGRect, turnedBy rotation: CGFloat) {
+        pictureView.transform = CGAffineTransform(rotationAngle: rotation)
+        pictureView.bounds = CGRect(origin: .zero, size: frame.size)
+        pictureView.center = CGPoint(x: frame.midX, y: frame.midY)
+    }
+
     private func positionPictures() {
         if let basePictureView, !basePictureFrame.isNull { basePictureView.frame = zoomed(basePictureFrame) }
-        for placed in pictures { pictureViews[placed.id]?.frame = zoomed(placed.picture.frame) }
+        for placed in pictures {
+            guard let pictureView = pictureViews[placed.id] else { continue }
+            place(pictureView, in: zoomed(placed.picture.frame), turnedBy: CGFloat(placed.picture.rotationRadians))
+        }
         if let selectionView, let selected = pictures.first(where: { placed in placed.id == selectedPictureIdentifier }) {
             let pictureFrame = zoomed(selected.picture.frame)
+            // The angle and the crop's limits first: they decide where the frame is turned about.
+            selectionView.rotation = CGFloat(selected.picture.rotationRadians)
             selectionView.cropLimits = isCroppingPicture ? pictureFrame : nil
-            selectionView.frame = isCroppingPicture ? zoomed(cropFrame ?? selected.picture.frame) : pictureFrame
+            selectionView.unrotatedFrame = isCroppingPicture ? zoomed(cropFrame ?? selected.picture.frame) : pictureFrame
             // A picture stays where it can be reached: its middle on the canvas, not above its top.
             selectionView.centerLimits = CGRect(x: 0, y: 0, width: canvasWidth * zoomScale, height: .greatestFiniteMagnitude)
         }
@@ -937,6 +1096,9 @@ final class InfiniteCanvasView: HistoryCanvasView {
         let fittingScale = bounds.width / canvasWidth
         minimumZoomScale = fittingScale
         maximumZoomScale = fittingScale * 4
+        // UIKit makes the pinch only once the canvas can zoom: it was missing when the canvas
+        // was made, and a resting hand zoomed the drawing.
+        makeWaitForPalmRejection([pinchGestureRecognizer].compactMap { recognizer in recognizer })
         if wasFitted || zoomScale < fittingScale { zoomScale = fittingScale }
         updateContentSize()
         // Zooming keeps the middle of the view in place, which would open the drawing
@@ -960,12 +1122,66 @@ final class InfiniteCanvasView: HistoryCanvasView {
         guard canvasWidth > 0, zoomScale > 0 else { return }
         positionPictures()
         let visibleHeight = bounds.height / zoomScale
-        let pictureBottom = max(basePictureFrame.isNull ? 0 : basePictureFrame.maxY, pictures.map(\.picture.frame.maxY).max() ?? 0)
+        let pictureBottom = max(basePictureFrame.isNull ? 0 : basePictureFrame.maxY, pictures.map(\.picture.boundingFrame.maxY).max() ?? 0)
         let contentBottom = max(drawing.strokes.isEmpty ? 0 : drawing.bounds.maxY, pictureBottom)
         let canvasHeight = max(visibleHeight, contentBottom + visibleHeight * 0.75)
         let newContentSize = CGSize(width: canvasWidth * zoomScale, height: canvasHeight * zoomScale)
         if contentSize != newContentSize { contentSize = newContentSize }
     }
+}
+
+/// What Graphite's lasso takes on a drawing besides the ink: the pictures placed on it,
+/// which the drawing's controller moves and deletes as steps of its history, and the paper
+/// and pictures under the ink, for a picture of an area.
+extension InfiniteCanvasView: LassoCanvasContent {
+    func lassoPictures() -> [LassoPicture] {
+        pictures.map { placed in
+            LassoPicture(identifier: placed.id.uuidString, frame: placed.picture.frame, rotationRadians: placed.picture.rotationRadians)
+        }
+    }
+
+    func lassoPictureImage(_ identifier: String) -> UIImage? {
+        pictures.first { placed in placed.id.uuidString == identifier }.flatMap { placed in pictureViews[placed.id]?.image ?? UIImage(data: placed.picture.imageData) }
+    }
+
+    func moveLassoPictures(to frames: [String: CGRect]) {
+        let framesByIdentifier = Dictionary(uniqueKeysWithValues: frames.compactMap { identifier, frame in UUID(uuidString: identifier).map { uuid in (uuid, frame) } })
+        lassoMovedPictures?(framesByIdentifier)
+    }
+
+    func deleteLassoPictures(_ identifiers: [String]) {
+        lassoDeletedPictures?(Set(identifiers.compactMap(UUID.init(uuidString:))))
+    }
+
+    func setLassoPicturesHidden(_ identifiers: Set<String>) {
+        for (identifier, pictureView) in pictureViews { pictureView.isHidden = identifiers.contains(identifier.uuidString) }
+    }
+
+    /// The paper's color and, when it appears in the note, its pattern; the picture drawn on,
+    /// then the placed pictures, the lowest first.
+    func drawContentUnderInk(in context: CGContext, region: CGRect) {
+        if let paperColor = DrawingPaperRenderer.paperColor(of: chosenBackground) {
+            context.setFillColor(CGColor(srgbRed: paperColor.red, green: paperColor.green, blue: paperColor.blue, alpha: paperColor.alpha))
+            context.fill(region)
+        }
+        if chosenPaper.appearsInSavedDrawing { DrawingPaperRenderer.draw(chosenPaper, in: region, context: context) }
+        if let basePicture = basePictureView?.image, !basePictureFrame.isNull {
+            LassoAreaCapture.draw(basePicture, in: basePictureFrame, turnedBy: 0, context: context)
+        }
+        for placed in pictures where placed.picture.boundingFrame.intersects(region) {
+            guard let image = pictureViews[placed.id]?.image else { continue }
+            LassoAreaCapture.draw(image, in: placed.picture.frame, turnedBy: placed.picture.rotationRadians, context: context)
+        }
+    }
+
+    var lassoDisplayQuarterTurns: Int { 0 }
+
+    func pastePicture(_ imageData: Data, centeredAt drawingPoint: CGPoint) {
+        lassoPastedPicture?(imageData, drawingPoint)
+    }
+
+    /// The drawing's width, from its top down as far as it goes.
+    var lassoDrawingBounds: CGRect { CGRect(x: 0, y: 0, width: canvasWidth, height: .greatestFiniteMagnitude) }
 }
 
 /// Decides which taps select a picture: every finger tap while pictures are being arranged,
@@ -992,6 +1208,10 @@ private struct DrawingCanvas: UIViewRepresentable {
     let showsToolPicker: Bool
     /// The tool of the fixed tool bar; nil while the floating palette chooses the tool.
     let fixedTool: PencilToolSelection?
+    /// The note the drawing belongs to, where the lasso's pictures of an area can go.
+    var noteDestination: LassoNoteDestination?
+    /// The drawing's title, which names the lasso's pictures of it.
+    var title = "Drawing"
 
     func makeCoordinator() -> Coordinator { Coordinator(controller: controller) }
 
@@ -1007,6 +1227,33 @@ private struct DrawingCanvas: UIViewRepresentable {
         canvasView.onCanvasWidthResolved = { [controller] resolvedWidth in controller.canvasWidth = Double(resolvedWidth) }
         canvasView.pictureWasTapped = { [controller] identifier in controller.pictureWasTapped(identifier) }
         canvasView.pictureFrameChangeDidEnd = { [controller] identifier, frame in controller.pictureFrameChangeDidEnd(identifier, frame: frame) }
+        canvasView.pictureRotationChangeDidEnd = { [controller] identifier, rotationRadians in
+            controller.pictureRotationChangeDidEnd(identifier, rotationRadians: rotationRadians)
+        }
+        canvasView.lassoMovedPictures = { [controller] frames in controller.movePicturesWithLasso(to: frames) }
+        canvasView.lassoDeletedPictures = { [controller] identifiers in controller.deletePicturesWithLasso(identifiers) }
+        canvasView.lassoPastedPicture = { [controller] imageData, center in
+            Task {
+                do { try await controller.pastePicture(imageData: imageData, centeredAt: center) }
+                catch { controller.pictureErrorMessage = error.localizedDescription }
+            }
+        }
+        // ⌘V: ink goes in the middle of what is on screen; an image there as a picture.
+        coordinator.toolPickerHost.pasteFromPasteboard = { [weak canvasView, controller] in
+            guard let canvasView, let content = LassoPasteboard.content() else { return }
+            let visibleRegion = canvasView.visibleDrawingRegion
+            let middle = CGPoint(x: visibleRegion.midX, y: visibleRegion.midY)
+            switch content {
+            case .ink: canvasView.inkSelection.pasteInk(at: CGPoint(x: middle.x * canvasView.zoomScale, y: middle.y * canvasView.zoomScale))
+            case .image(let imageData):
+                Task {
+                    do { try await controller.pastePicture(imageData: imageData, centeredAt: nil) }
+                    catch { controller.pictureErrorMessage = error.localizedDescription }
+                }
+            }
+        }
+        canvasView.lassoNoteDestination = noteDestination
+        canvasView.lassoCaptureName = title
         controller.canvasWidth = canvasWidth
         if !initialStrokeData.isEmpty {
             do { canvasView.drawing = try PKDrawing(data: initialStrokeData) }
@@ -1107,6 +1354,10 @@ private struct DrawingCanvas: UIViewRepresentable {
         func stopObservingToolbox() {
             if let toolboxObserver { NotificationCenter.default.removeObserver(toolboxObserver) }
             toolboxObserver = nil
+        }
+
+        func canvasViewDidFinishRendering(_ canvasView: PKCanvasView) {
+            (canvasView as? HistoryCanvasView)?.drawingDidFinishRendering()
         }
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {

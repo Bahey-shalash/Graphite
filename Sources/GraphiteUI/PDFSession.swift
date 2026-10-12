@@ -71,6 +71,7 @@ private actor PDFLoader {
                 let baseline = PDFBaselineSnapshot(location: PDFBaselineSnapshot.makeLocation())
                 try FileManager.default.copyItem(at: source, to: baseline.location)
                 guard let document = PDFDocument(url: baseline.location) else { throw GraphiteError.invalidFile("This PDF is unreadable.") }
+                PDFPageManager.prepareForDisplay(document)
                 if document.isLocked {
                     guard let password else { throw PDFPasswordRequired(wasPasswordWrong: false) }
                     guard document.unlock(withPassword: password) else { throw PDFPasswordRequired(wasPasswordWrong: true) }
@@ -241,6 +242,23 @@ final class PDFSession {
     let identifier = UUID()
 
     var currentPageIndex = 0
+    /// Where the PDF was shown when its view last went away, or where it was left before
+    /// Graphite quit, so the next view of it comes back to the same place on the page.
+    @ObservationIgnored var keptPlace: PDFPagePlace?
+    /// Set by the view that shows the PDF: where it is shown now, once it has a size.
+    @ObservationIgnored var livePlace: (@MainActor () -> PDFPagePlace?)?
+
+    /// Where the PDF is shown, to open it there again after Graphite quits: the view's
+    /// place, or the one kept when it went away, or the top of the page it was on. A place is
+    /// the page at the top edge, which can be the one before `currentPageIndex`, the page
+    /// PDFKit counts as current, across the view's middle.
+    func placeToRemember() -> PDFPagePlace {
+        if let livePlace = livePlace?() {
+            keptPlace = livePlace
+            return livePlace
+        }
+        return keptPlace ?? PDFPagePlace(pageIndex: currentPageIndex, fractionFromTop: 0)
+    }
     /// The picture being moved or resized, if any; see `PDFSessionPictures.swift`.
     var selectedPicture: PDFPictureSelection? {
         didSet { if selectedPicture != oldValue { pictureCrop = nil } }
@@ -542,6 +560,8 @@ final class PDFSession {
         guard let page = document.page(at: pageIndex) else { return }
         pdfView?.go(to: page)
         currentPageIndex = pageIndex
+        // A page asked for is shown at its top, also by the next view of the PDF.
+        keptPlace = nil
     }
 
     // MARK: Pages

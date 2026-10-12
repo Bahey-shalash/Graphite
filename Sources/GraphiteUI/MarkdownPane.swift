@@ -76,6 +76,8 @@ struct MarkdownPane: View {
                                 suspendReadingFollow: { workspace.readAloud.suspendFollowing(in: session.path.rawValue) })
                 .environment(\.readingImageActions, ReadingImageActions(providerIdentity: ObjectIdentifier(workspace),
                                                                         viewImage: viewImage, editDrawing: drawingEditor, drawOnImage: imageDrawing))
+                .environment(\.communityPluginCodeBlocks, workspace.communityPlugins.isRuntimeRunning ? workspace.communityPlugins : nil)
+                .environment(\.lassoNoteDestination, LassoNoteDestination.note(session, in: workspace))
             } else {
                 NativeMarkdownEditor(session: session, configuration: editorConfiguration, environment: livePreviewEnvironment,
                                      headingScrollRequest: document.headingScrollRequest, actions: editorActions,
@@ -199,7 +201,9 @@ struct MarkdownPane: View {
                              showsProperties: preferences.isEnabled(.properties), declaredPropertyTypes: session.declaredPropertyTypes, inlineTitle: inlineTitle,
                              textSize: noteTextSize, drawingVersion: workspace.drawingVersion, indexVersion: workspace.indexVersion,
                              mapsReadAloudSourceLocations: workspace.readAloud.sourceIdentifier == session.path.rawValue
-                                && (workspace.readAloud.isPreparing || workspace.readAloud.session.document != nil))
+                                && (workspace.readAloud.isPreparing || workspace.readAloud.session.document != nil),
+                             pluginCodeBlockLanguages: workspace.communityPlugins.codeBlockLanguages,
+                             runsPluginPostProcessors: workspace.communityPlugins.runsMarkdownPostProcessors)
     }
 
     /// The note's name above its text, written as the tab and the title bar write it, so the
@@ -241,6 +245,15 @@ struct MarkdownPane: View {
         }
         #endif
         actions.beginEditing = { [workspace, tabID] in workspace.activateTab(tabID) }
+        let pluginHost = workspace.communityPlugins
+        if pluginHost.isRuntimeRunning && (pluginHost.hasEditorSuggestions || pluginHost.hasEditorChangeListeners) {
+            actions.pluginEditorDidChange = { [pluginHost, session] in pluginHost.editorDidChange(in: session) }
+        }
+        #if canImport(UIKit)
+        if workspace.communityPlugins.hasEditorMenuItems {
+            actions.pluginEditMenuElement = { [host = workspace.communityPlugins] in host.editorMenuElement() }
+        }
+        #endif
         actions.followLinkElsewhere = { [workspace, session] target, isWiki, placement in
             Task { await workspace.follow(target, from: session.path, isWiki: isWiki, placement: placement) }
         }
@@ -286,7 +299,8 @@ struct MarkdownPane: View {
             viewImage: viewImage, editDrawing: drawingEditor, drawOnImage: imageDrawing, indexVersion: workspace.indexVersion,
             // Reading view's column, a little wider than Live Preview's, bounds the decode.
             embeddedImageColumnWidth: preferences.usesReadableLineLength ? ReadingConfiguration.readableColumnWidth : nil,
-            readingContext: LivePreviewReadingContext(controller: workspace.readAloud, path: session.path))
+            readingContext: LivePreviewReadingContext(controller: workspace.readAloud, path: session.path),
+            lassoNoteDestination: LassoNoteDestination.note(session, in: workspace))
     }
 
     /// Opens a drawing in the editor, where the platform and preferences allow it.
@@ -472,6 +486,7 @@ struct MarkdownPane: View {
         if preferences.isEnabled(.fileRecovery) {
             Button("File Recovery…", systemImage: "clock.arrow.circlepath") { workspace.fileRecoveryRequest = FileRecoveryRequest(path: session.path) }
         }
+        CommunityPluginFileActionsButton(host: workspace.communityPlugins, path: session.path, source: "more-options")
         WorkspaceMoreMenuItems()
     }
 

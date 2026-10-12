@@ -32,6 +32,12 @@ struct ReadingConfiguration: Equatable, Sendable {
     var indexVersion = 0
     /// Derived source-word mapping is needed only for a note with a reading session.
     var mapsReadAloudSourceLocations = false
+    /// Code block languages the vault's community plugins draw; such blocks are drawn by
+    /// their plugin instead of shown as code.
+    var pluginCodeBlockLanguages: Set<String> = []
+    /// Whether community plugins change how notes read (Markdown post-processors); each
+    /// run of Markdown is then offered to them.
+    var runsPluginPostProcessors = false
 }
 
 /// A reading-view block after links are resolved and files located.
@@ -58,13 +64,20 @@ indirect enum RenderedBlock: Identifiable, Sendable {
     case image(id: Int, path: VaultPath, location: URL, displaySize: EmbedDisplaySize?, version: Int)
     /// The note's footnotes, numbered, after its last block.
     case footnotes(id: Int, notes: [RenderedFootnote])
+    /// A code block a community plugin draws, such as a Dataview or Tasks query. `note` is
+    /// the note the block is written in (an embedded note's own path), and `firstLine` the
+    /// zero-based line of its opening fence there, nil when not known.
+    case pluginCodeBlock(id: Int, language: String, source: String, note: VaultPath, firstLine: Int?, lineCount: Int)
+    /// A run of Markdown offered to plugins' post-processors: `text` is Graphite's own
+    /// rendering of it, shown unless a plugin changes the section.
+    case pluginSection(id: Int, text: String, request: CommunityPluginReadingBlockRequest)
 
     var id: String {
         switch self {
         case .properties: "properties"
         case .markdown(let id, _), .displayMath(let id, _), .heading(let id, _, _, _), .callout(let id, _, _, _, _), .video(let id, _), .audio(let id, _, _),
              .pdf(let id, _, _, _), .transclusion(let id, _, _, _), .base(let id, _), .baseFile(let id, _, _), .missingEmbed(let id, _), .missingSection(let id, _, _), .image(let id, _, _, _, _),
-             .footnotes(let id, _): "block-\(id)"
+             .footnotes(let id, _), .pluginCodeBlock(let id, _, _, _, _, _), .pluginSection(let id, _, _): "block-\(id)"
         }
     }
 }
@@ -265,7 +278,8 @@ actor ReadingViewBuilder {
         let taskSource = TaskSource(noteText: source) { bodyOffset in
             readableBody.offsets.originalOffset(of: bodyOffset).map { offset in offset + frontmatterLength }
         }
-        let locatedBlocks = NotePreviewDocument.locatedBlocks(from: readableBody.text)
+        let locatedBlocks = Self.sectioned(NotePreviewDocument.locatedBlocks(from: readableBody.text, pluginCodeBlockLanguages: configuration.pluginCodeBlockLanguages),
+                                           for: configuration)
         let renderedBody = try await render(locatedBlocks, note: note, root: root, index: index, configuration: configuration,
                                             allowsTransclusion: allowsTransclusion, taskSource: taskSource)
         // Each located block renders as one block, in order.
@@ -332,6 +346,13 @@ actor ReadingViewBuilder {
 
     private func identifier() -> Int { nextIdentifier += 1; return nextIdentifier }
 
+    /// While plugins change how notes read, runs of Markdown are divided into Obsidian's
+    /// sections, so a plugin's change shows in the section it changed and the rest of the
+    /// run stays Graphite's.
+    private static func sectioned(_ blocks: [NotePreviewDocument.LocatedBlock], for configuration: ReadingConfiguration) -> [NotePreviewDocument.LocatedBlock] {
+        configuration.runsPluginPostProcessors ? NotePreviewDocument.dividedIntoSections(blocks) : blocks
+    }
+
     /// The text of the note a run of blocks was split from, in which their tasks are found.
     private struct TaskSource {
         /// The whole note, frontmatter included, which a tap on a checkbox changes.
@@ -339,6 +360,13 @@ actor ReadingViewBuilder {
         /// Where a place in the body the blocks were split from is in `noteText`; nil for
         /// text the note does not have, such as a footnote's number.
         let noteOffset: (_ bodyOffset: Int) -> Int?
+
+        /// The zero-based line of the note on which a place in the body is.
+        func noteLine(ofBodyOffset bodyOffset: Int) -> Int? {
+            guard let offset = noteOffset(bodyOffset) else { return nil }
+            let prefix = (noteText as NSString).substring(to: min(offset, (noteText as NSString).length))
+            return prefix.utf16.reduce(0) { lineCount, codeUnit in codeUnit == 10 ? lineCount + 1 : lineCount }
+        }
     }
 
     /// - Parameter allowsTransclusion: False exactly for the body of an embedded note, which
@@ -353,7 +381,14 @@ actor ReadingViewBuilder {
                     guard locatedBlock.lineStartOffsets.indices.contains(lineIndex), let lineStart = taskSource.noteOffset(locatedBlock.lineStartOffsets[lineIndex]) else { return nil }
                     return ReadingTasks.location(ofTaskStartingAt: lineStart, status: status, in: taskSource.noteText)
                 }
-                rendered.append(.markdown(id: identifier(), text: text))
+                if configuration.runsPluginPostProcessors {
+                    let request = CommunityPluginReadingBlockRequest(kind: .section, source: markdown, note: note,
+                                                                     firstLine: taskSource.noteLine(ofBodyOffset: locatedBlock.startOffset),
+                                                                     lineCount: max(1, locatedBlock.lineStartOffsets.count))
+                    rendered.append(.pluginSection(id: identifier(), text: text, request: request))
+                } else {
+                    rendered.append(.markdown(id: identifier(), text: text))
+                }
             case .heading(let level, let text, let anchor):
                 rendered.append(.heading(id: identifier(), level: level, text: try await prepared(text, note: note, root: root, index: index, configuration: configuration),
                                          anchor: allowsTransclusion ? scrollTarget(forHeadingWithAnchor: anchor) : nil))
@@ -370,6 +405,9 @@ actor ReadingViewBuilder {
                 rendered.append(.base(id: identifier(), yaml: yaml))
             case .displayMath(let markdown):
                 rendered.append(.displayMath(id: identifier(), text: try await prepared(markdown, note: note, root: root, index: index, configuration: configuration)))
+            case .pluginCodeBlock(let language, let source):
+                rendered.append(.pluginCodeBlock(id: identifier(), language: language, source: source, note: note,
+                                                 firstLine: taskSource.noteLine(ofBodyOffset: locatedBlock.startOffset), lineCount: locatedBlock.lineCount))
             }
         }
         return rendered
@@ -415,7 +453,8 @@ actor ReadingViewBuilder {
             }
             // A task of an embedded note is ticked in that note, as in Obsidian.
             let taskSource = TaskSource(noteText: transcludedSource) { sectionOffset in transcludedFrontmatterLength + section.location + sectionOffset }
-            let body = try await render(NotePreviewDocument.locatedBlocks(from: section.text), note: path, root: root, index: index, configuration: configuration,
+            let body = try await render(Self.sectioned(NotePreviewDocument.locatedBlocks(from: section.text, pluginCodeBlockLanguages: configuration.pluginCodeBlockLanguages),
+                                                       for: configuration), note: path, root: root, index: index, configuration: configuration,
                                         allowsTransclusion: false, taskSource: taskSource)
             return .transclusion(id: identifier(), path: path, heading: subpath, body: body)
         case .image, .pdf:
@@ -645,6 +684,10 @@ final class ReadingPosition {
         return location == 0 ? nil : location
     }
 
+    /// Whether the reading view has laid out blocks to tell where it is: then a nil
+    /// `topLocation()` is the very top, not a place unknown.
+    var hasLaidOutBlocks: Bool { !blockFrames.isEmpty }
+
     private func blockLocationAtTop() -> Int? {
         guard verticalOffset > 1 else { return nil }
         let shownBlocks = blockLocations.compactMap { location in blockFrames[location.blockIdentifier].map { frame in (location, frame) } }
@@ -722,6 +765,10 @@ struct MarkdownPreview: View {
     @State private var scrollPosition = ScrollPosition(y: 0)
     @State private var hasRestoredPosition = false
     @State private var pendingRestorationOffset: CGFloat?
+    /// Where this view was before it restored the saved position, when nothing was saved:
+    /// its first layout settling, or a scroll that came first. Kept apart from the saved
+    /// position, so it is never taken for one and restored over a scroll.
+    @State private var offsetBeforeRestoring: CGFloat?
     @State private var blocks: [RenderedBlock] = []
     @State private var readingSourceTokensByBlock: [String: [ReadAloudSourceToken]] = [:]
     @State private var readingHighlightFrames: [ReadingHighlightGeometry] = []
@@ -769,8 +816,14 @@ struct MarkdownPreview: View {
                 readingViewport = viewport
                 savedPosition?.visibleTop = viewport.topInset
                 // Until a saved position is restored, the view's first offsets must not
-                // replace it; with nothing saved, a scroll that comes first is recorded.
-                guard hasRestoredPosition || (savedPosition?.verticalOffset ?? 0) == 0 else { return }
+                // replace it. With nothing saved, they are kept aside, and recorded once the
+                // view knows it has nothing to restore. An offset recorded straight away, such
+                // as one taken while the view settles under the window's bars, was restored
+                // as if saved, and pulled back a scroll made meanwhile.
+                guard hasRestoredPosition else {
+                    if (savedPosition?.verticalOffset ?? 0) == 0 { offsetBeforeRestoring = viewport.verticalOffset }
+                    return
+                }
                 if let pendingRestorationOffset {
                     let reachableOffset = min(pendingRestorationOffset, viewport.maximumVerticalOffset)
                     guard abs(viewport.verticalOffset - reachableOffset) < 1 else { return }
@@ -825,10 +878,12 @@ struct MarkdownPreview: View {
             // asked to scroll before it has built anything to scroll to.
             .task(id: "\(blocks.count)-\(headingScrollRequest?.token.uuidString ?? "")") {
                 guard !blocks.isEmpty else { return }
-                // Switched from writing: the line that was at the top of the editor.
+                // Switched from writing, or opened where it was left: the line that was at the
+                // top. A link or a search match to show wins over it.
                 if !hasRestoredPosition, let startingLocation = takeStartingLocation?() {
                     hasRestoredPosition = true
-                    await scrollToTop(of: startingLocation, scrollProxy: scrollProxy)
+                    let hasNewHeadingRequest = headingScrollRequest.map { request in request.token != handledScrollToken } ?? false
+                    if !hasNewHeadingRequest { await scrollToTop(of: startingLocation, scrollProxy: scrollProxy) }
                 }
                 if !hasRestoredPosition {
                     hasRestoredPosition = true
@@ -838,6 +893,9 @@ struct MarkdownPreview: View {
                         await Task.yield()
                         guard !Task.isCancelled else { return }
                         scrollPosition.scrollTo(y: verticalOffset)
+                    } else if (savedPosition?.verticalOffset ?? 0) == 0, let offsetBeforeRestoring {
+                        // Nothing to restore: where the view already is, as after a first scroll.
+                        savedPosition?.verticalOffset = offsetBeforeRestoring
                     }
                 }
                 guard let request = headingScrollRequest, request.token != handledScrollToken else { return }
@@ -1018,6 +1076,8 @@ extension ReadingConfiguration {
         hasher.combine(mapsReadAloudSourceLocations)
         hasher.combine(paletteHexByName.sorted { firstEntry, secondEntry in firstEntry.key < secondEntry.key }.map { entry in entry.key + entry.value })
         hasher.combine(declaredPropertyTypes.sorted { firstEntry, secondEntry in firstEntry.key < secondEntry.key }.map { entry in entry.key + "=" + entry.value.rawValue })
+        hasher.combine(pluginCodeBlockLanguages.sorted())
+        hasher.combine(runsPluginPostProcessors)
         return hasher.finalize()
     }
 }
@@ -1057,6 +1117,8 @@ struct ReadingBlocksView: View {
             return false
         }
     }
+    /// Draws plugins' code blocks; nil where plugins do not draw, which shows them as code.
+    @Environment(\.communityPluginCodeBlocks) private var pluginCodeBlocks
 
     /// Each block with its heading's fold key, and whether a folded heading above hides it.
     private var visibleBlocks: [(block: RenderedBlock, foldKey: String?, hasBody: Bool)] {
@@ -1105,6 +1167,15 @@ struct ReadingBlocksView: View {
             case .markdown(_, let text):
                 ObsidianMarkdownText(markdown: text, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading,
                                      sourceTokens: readingSourceTokensByBlock[block.id])
+            case .pluginSection(_, let text, let request):
+                if let codeBlocks = pluginCodeBlocks {
+                    CommunityPluginSectionView(host: codeBlocks, request: request, textSize: textSize) {
+                        ObsidianMarkdownText(markdown: text, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading)
+                    }
+                } else {
+                    ObsidianMarkdownText(markdown: text, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading,
+                                         sourceTokens: readingSourceTokensByBlock[block.id])
+                }
             case .displayMath(_, let text):
                 // Centered, as Obsidian shows display math.
                 ObsidianMarkdownText(markdown: text, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading,
@@ -1180,6 +1251,14 @@ struct ReadingBlocksView: View {
                     .font(.callout).foregroundStyle(.secondary)
                     .padding(12).frame(maxWidth: .infinity, alignment: .leading)
                     .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+            case .pluginCodeBlock(_, let language, let source, let note, let firstLine, let lineCount):
+                if let codeBlocks = pluginCodeBlocks {
+                    CommunityPluginCodeBlockView(host: codeBlocks, request: CommunityPluginReadingBlockRequest(kind: .codeBlock(language: language), source: source, note: note,
+                                                                                                             firstLine: firstLine, lineCount: lineCount),
+                                                 textSize: textSize)
+                } else {
+                    ObsidianMarkdownText(markdown: "```" + language + "\n" + source + "\n```", root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading)
+                }
             case .missingSection(_, let path, let subpath):
                 Button { navigate(path.rawValue, true) } label: {
                     Label(NoteBlocks.missingSectionMessage(subpath: subpath, noteName: path.stem), systemImage: "questionmark.square.dashed")

@@ -11,8 +11,10 @@ struct SettingsView: View {
     @State private var vaultSettingsChanges = VaultSettingsChanges()
 
     enum SettingsPage: Hashable {
-        case general, editor, filesAndLinks, appearance, readAloud, corePlugins
+        case general, editor, filesAndLinks, appearance, readAloud, corePlugins, communityPlugins
         case plugin(CorePlugin)
+        /// A community plugin's own settings tab, by plugin identifier.
+        case communityPlugin(String)
     }
 
     /// Plugins that have options of their own, like Obsidian's plugin tabs.
@@ -28,12 +30,22 @@ struct SettingsView: View {
                     Label("Appearance", systemImage: "paintbrush").tag(SettingsPage.appearance)
                     Label("Read Aloud", systemImage: "speaker.wave.2").tag(SettingsPage.readAloud)
                     Label("Core Plugins", systemImage: "puzzlepiece.extension").tag(SettingsPage.corePlugins)
+                    Label("Community Plugins", systemImage: "puzzlepiece").tag(SettingsPage.communityPlugins)
                 }
                 let enabledConfigurablePlugins = Self.configurablePlugins.filter(workspace.preferences.isEnabled)
                 if !enabledConfigurablePlugins.isEmpty {
                     Section("Core Plugins") {
                         ForEach(enabledConfigurablePlugins) { plugin in
                             Label(plugin.title, systemImage: plugin.systemImage).tag(SettingsPage.plugin(plugin))
+                        }
+                    }
+                }
+                let communityPlugins = workspace.communityPlugins
+                let configurableCommunityPlugins = communityPlugins.inventory.plugins.filter { plugin in communityPlugins.pluginsWithSettings.contains(plugin.id) }
+                if !configurableCommunityPlugins.isEmpty {
+                    Section("Community Plugins") {
+                        ForEach(configurableCommunityPlugins) { plugin in
+                            Label(plugin.manifest.name, systemImage: "puzzlepiece.extension").tag(SettingsPage.communityPlugin(plugin.id))
                         }
                     }
                 }
@@ -55,6 +67,15 @@ struct SettingsView: View {
         // The root view's alert cannot appear over this sheet, and a setting that failed to
         // save must say so while its page is still open.
         .messageAlert($workspace.errorMessage)
+        // A plugin asked to show settings (`app.setting.open` or `openTabById`).
+        .onAppear { showRequestedCommunityPluginSettings() }
+        .onChange(of: workspace.communityPlugins.requestedSettingsPlugin) { showRequestedCommunityPluginSettings() }
+    }
+
+    private func showRequestedCommunityPluginSettings() {
+        guard let requestedPlugin = workspace.communityPlugins.requestedSettingsPlugin else { return }
+        workspace.communityPlugins.requestedSettingsPlugin = nil
+        selectedPage = requestedPlugin.isEmpty ? .communityPlugins : .communityPlugin(requestedPlugin)
     }
 
     @ViewBuilder private var page: some View {
@@ -65,6 +86,8 @@ struct SettingsView: View {
         case .appearance: AppearanceSettingsPage(preferences: workspace.preferences)
         case .readAloud: ReadAloudSettingsPage(reader: workspace.readAloud)
         case .corePlugins: CorePluginsSettingsPage(preferences: workspace.preferences)
+        case .communityPlugins: CommunityPluginsSettingsPage(workspace: workspace) { pluginIdentifier in selectedPage = .communityPlugin(pluginIdentifier) }
+        case .communityPlugin(let pluginIdentifier): CommunityPluginOptionsPage(host: workspace.communityPlugins, pluginIdentifier: pluginIdentifier)
         case .plugin(.colors): ColorsSettingsPage(preferences: workspace.preferences)
         case .plugin(.drawings): DrawingsSettingsPage(preferences: workspace.preferences)
         case .plugin(.audioRecorder): AudioRecorderSettingsPage(preferences: workspace.preferences)
@@ -317,7 +340,35 @@ private struct ColorsSettingsPage: View {
             } header: {
                 Text("Palette")
             } footer: {
-                Text("Format › Color writes the hex color, as the Colors plugin for Obsidian does (`~={#e93147}text=~`), so notes look the same in both apps. A note written with a name, as in `~={red}text=~`, takes the color of that name here, so renaming or removing a color changes it.\n\nThe same colors are the Favorite Colors of the Pencil tools, for drawings and PDFs.")
+                Text("Format › Color writes the hex color, as the Colors plugin for Obsidian does (`~={#e93147}text=~`), so notes look the same in both apps. A note written with a name, as in `~={red}text=~`, takes the color of that name here, so renaming or removing a color changes it.\n\nThe same colors are the Favorite Colors of the Pencil tools, for drawings and PDFs. A highlighter has its own, below.")
+            }
+            Section {
+                ForEach($preferences.highlighterPalette) { $color in
+                    HStack(spacing: 12) {
+                        ColorPicker("Color", selection: Binding(get: { Color(graphiteHex: color.hex) ?? .yellow }, set: { newColor in
+                            if let hex = newColor.sRGBHex { color.hex = hex }
+                        }), supportsOpacity: false)
+                        .labelsHidden()
+                        TextField("Name", text: $color.name)
+                            .autocorrectionDisabled()
+                            #if canImport(UIKit)
+                            .textInputAutocapitalization(.never)
+                            #endif
+                        Text(color.hex).font(.caption.monospaced()).foregroundStyle(.secondary)
+                    }
+                }
+                .onDelete { offsets in preferences.highlighterPalette.remove(atOffsets: offsets) }
+                .onMove { offsets, destination in preferences.highlighterPalette.move(fromOffsets: offsets, toOffset: destination) }
+                Button("Add Color", systemImage: "plus") {
+                    preferences.highlighterPalette.append(PaletteColor(name: PaletteColorNames.unusedName(in: preferences.highlighterPalette), hex: "#f6d743"))
+                }
+                Button("Restore Default Highlighter Colors", systemImage: "arrow.counterclockwise") {
+                    preferences.highlighterPalette = PaletteColor.defaultHighlighterPalette
+                }
+            } header: {
+                Text("Highlighter")
+            } footer: {
+                Text("The colors the Pencil tools offer while a highlighter is in use, in place of the palette above. On a PDF page, a highlighter stroke covers the text under it: to keep the text readable, lower the highlighter's opacity in its options, or select the text and choose Highlight. Notes do not use these colors.")
             }
         }
         .navigationTitle("Colors")
@@ -347,6 +398,10 @@ enum PaletteColorNames {
 
 private struct DrawingsSettingsPage: View {
     @Bindable var preferences: GraphitePreferences
+    /// Also changed from the highlighter's options on the fixed bar, so read where it is kept.
+    @AppStorage(EvenHighlighterPreference.key) private var highlighterIgnoresTilt = false
+    /// Read by every page as each touch lands (`PalmRejectionPreference`), so it applies at once.
+    @AppStorage(PalmRejectionPreference.key) private var rejectsPalms = true
 
     var body: some View {
         Form {
@@ -420,11 +475,23 @@ private struct DrawingsSettingsPage: View {
                 Text("Draw a line, a circle, an ellipse, a triangle or a rectangle and keep the Pencil still at the end: the clean shape appears, and takes the stroke's place when you lift. The Shapes button of the tools does the same for every stroke, without holding.")
             }
             Section {
+                Toggle("Highlighter Ignores Tilt", isOn: $highlighterIgnoresTilt)
+            } header: {
+                Text("Highlighter")
+            } footer: {
+                Text("The highlighter draws the width you chose however Apple Pencil is tilted or turned, so highlights over lines of text match. Each stroke takes that width when you lift the Pencil.")
+            }
+            Section {
                 Toggle("Double-Tap or Squeeze to Draw in Notes", isOn: $preferences.drawsOnPencilDoubleTap)
             } header: {
                 Text("Apple Pencil")
             } footer: {
                 Text("While you write a note, double-tap Apple Pencil, or squeeze Apple Pencil Pro, to start a drawing where the cursor is or where the Pencil hovers. When the gesture is set to something else in the Apple Pencil settings of iPadOS, Graphite leaves it alone.")
+            }
+            Section {
+                Toggle("Palm Rejection", isOn: $rejectsPalms)
+            } footer: {
+                Text("While Apple Pencil writes on a page, a hand resting on it does not scroll, zoom, tap or select.")
             }
             #endif
         }

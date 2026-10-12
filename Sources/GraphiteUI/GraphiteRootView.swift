@@ -111,6 +111,7 @@ public struct GraphiteRootView: View {
             }
         }
         .modifier(FileManagementPresentation(workspace: workspace))
+        .modifier(CommunityPluginPresentation(workspace: workspace) { showsSettings = true })
         #if canImport(UIKit)
         .fullScreenCover(isPresented: $workspace.isGraphPresented) {
             VaultGraphScreen(workspace: workspace).tint(workspace.preferences.accentColor)
@@ -131,7 +132,7 @@ public struct GraphiteRootView: View {
             }
         }
         .fullScreenCover(item: $workspace.drawingEditorRequest) { request in
-            DrawingEditor(request: request) { content, format in
+            DrawingEditor(request: request, noteDestination: workspace.lassoNoteDestination(for: request)) { content, format in
                 try await workspace.saveDrawing(content, format: format, for: request)
             } exportCopy: { content, format in
                 try await workspace.exportDrawingCopy(content, format: format, title: request.title)
@@ -167,6 +168,8 @@ public struct GraphiteRootView: View {
         }
         // A search asked for from anywhere (⇧⌘F, a tag, a link) shows where it happens.
         .onChange(of: workspace.searchFocusRequest) { showSidebar() }
+        // A plugin's sidebar view asked to be shown.
+        .onChange(of: workspace.communityPlugins.sidebarViewRequest) { _, request in if request != nil { showSidebar() } }
         // A file opened from the list, a link or a search shows on a phone at once.
         .onChange(of: workspace.selection) { _, selection in
             if selection != nil { showDocumentColumn() }
@@ -178,7 +181,11 @@ public struct GraphiteRootView: View {
         .onOpenURL { url in
             if isVaultRestored { Task { await workspace.handle(url) } } else { pendingLinks.append(url) }
         }
-        .onChange(of: scenePhase) { _, phase in
+        .onChange(of: scenePhase) { previousPhase, phase in
+            // Taken at once as Graphite stops being active, not in the save that follows: by
+            // the time that task runs, iPadOS can have resized the window for its app switcher
+            // snapshots, and an editor laid out again then reports a line further down.
+            if previousPhase == .active { workspace.rememberPlacesOfOpenDocuments() }
             if phase == .active {
                 Task { await workspace.checkOpenDocumentsForExternalChanges(); await workspace.refreshDirectory(); await workspace.reloadVaultSettings() }
             } else {

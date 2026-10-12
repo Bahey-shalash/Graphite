@@ -49,7 +49,8 @@ public struct VectorDrawing: Sendable, Equatable {
     public let size: CGSize
     public let background: DrawingBackground
     public let shapesUnderPictures: [VectorShape]
-    /// Each picture's PNG or JPEG bytes as stored, stretched to its frame; the lowest first.
+    /// Each picture's PNG or JPEG bytes as stored, stretched to its frame and turned with
+    /// it; the lowest first.
     public let pictures: [DrawingBackgroundImage]
     public let shapes: [VectorShape]
     public init(size: CGSize, background: DrawingBackground, shapesUnderPictures: [VectorShape] = [], pictures: [DrawingBackgroundImage] = [],
@@ -284,17 +285,26 @@ public enum VectorDrawingRenderer {
             context.saveGState()
             context.interpolationQuality = .high
             for picture in drawing.pictures {
-                let image = try pictureImage(picture)
-                context.saveGState()
-                // An image is drawn upright by turning its own rows back up.
-                context.translateBy(x: picture.frame.minX, y: picture.frame.maxY)
-                context.scaleBy(x: 1, y: -1)
-                context.draw(image, in: CGRect(origin: .zero, size: picture.frame.size))
-                context.restoreGState()
+                drawPicture(try pictureImage(picture), placedAs: picture, in: context)
             }
             context.restoreGState()
         }
         fill(drawing.shapes, in: context)
+    }
+
+    /// Draws a picture's image into a context whose origin is the drawing's top-left
+    /// corner, y down: stretched to the picture's frame and turned as the picture is.
+    static func drawPicture(_ image: CGImage, placedAs picture: DrawingBackgroundImage, in context: CGContext) {
+        let frame = picture.frame
+        context.saveGState()
+        // With y down, a positive angle turns clockwise, as the picture's does.
+        context.translateBy(x: frame.midX, y: frame.midY)
+        context.rotate(by: CGFloat(picture.rotationRadians))
+        // An image is drawn upright by turning its own rows back up.
+        context.translateBy(x: -frame.width / 2, y: frame.height / 2)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(image, in: CGRect(origin: .zero, size: frame.size))
+        context.restoreGState()
     }
 
     private static func fill(_ shapes: [VectorShape], in context: CGContext) {

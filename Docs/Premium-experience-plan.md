@@ -1,6 +1,6 @@
 # Premium experience implementation plan
 
-This plan follows `OBJECTIVE.md`. It tracks the work toward a polished daily study application, not a claim that Graphite has reached Goodnotes or Obsidian parity. Community plugin installation, integrations, and runtime implementation remain deferred.
+This plan follows `OBJECTIVE.md`. It tracks the work toward a polished daily study application, not a claim that Graphite has reached Goodnotes or Obsidian parity. Community plugin installation and the runtime began on 2026-10-10, at the owner's request; see `Community-plugins.md`.
 
 ## Immediate priorities: images, paper, and Pencil interaction
 
@@ -39,7 +39,7 @@ Handwriting improvement is explicitly welcome: investigate optional refinement t
 
 A first implementation landed the same day (the fifth increment); verification is in `Coverage.md` under "Images, paper, and the fixed tool bar". None of it was tried with a physical Pencil, so no priority is complete by the evidence asked for below.
 
-1. **Images.** Implemented: inserting from Photos, Files and the clipboard into PDF pages, embedded PDFs and drawings; several pictures in one page or drawing; selecting (a finger tap, or "Move or Resize Images"), moving, resizing in proportion, deleting; undo and redo for each; pictures always under the ink; saved as a standard stamp annotation in PDFs and into the PNG of drawings. Turning, cropping and ordering among themselves came with the seventh increment. Pictures in SVG and PDF drawings came with the seventh increment. Not implemented: pictures over the ink. The source image is only read; nothing is copied into the attachment folder, since the picture lives in the PDF or the drawing.
+1. **Images.** Implemented: inserting from Photos, Files and the clipboard into PDF pages, embedded PDFs and drawings; several pictures in one page or drawing; selecting (a finger tap, or "Move or Resize Images"), moving, resizing in proportion, deleting; undo and redo for each; pictures always under the ink; saved as a standard stamp annotation in PDFs and into the PNG of drawings. Turning, cropping and ordering among themselves came with the seventh increment. Pictures in SVG and PDF drawings came with the seventh increment. Turning by any angle with a handle above the frame, and smooth drawing of pictures made smaller, were written on 2026-10-11 and are not yet built or verified (`Coverage.md`). Not implemented: pictures over the ink, and turning with a two-finger twist. The source image is only read; nothing is copied into the attachment folder, since the picture lives in the PDF or the drawing.
 2. **Paper.** Implemented: plain, squared, ruled and dotted paper per drawing, kept with the drawing and restored in the editor; a default for new drawings in Settings; "Show Paper in the Note" per drawing and as a default, so the guide while drawing and the saved appearance are independent; white or transparent background per drawing; guides are never baked into a drawing that does not show them. The seventh increment added spacing, line color and strength, paper colors, a preview of the saved appearance, drawings without paper shown on white in dark notes, and writing guides on PDF pages that are never saved. Not yet: the saved PNG, SVG and PDF drawings draw the pattern in the standard style on white paper, whatever style and color the editor shows.
 3. **Floating or fixed tools.** Implemented: the Settings choice, applied to PDF pages, embedded PDFs and the drawing editor, with the same PencilKit canvases and the same undo history. Limits: the fixed bar keeps its own tools, colors and widths, separate from the palette's (PencilKit offers no way to read or set the palette's tools in full); since the sixth increment each of its tools can be any of PencilKit's inks; since the seventh increment it answers double tap and squeeze itself (eraser, previous tool, a palette at the tip), and a long press on Undo or Redo opens a scrubber; it sits above the page for either hand, or in the tab bar where that has room, and scrolls sideways when narrow; compact widths always use the palette.
 4. **Pencil and Scribble audit.** Recorded in `Architecture.md` ("What Graphite uses of Apple Pencil and PencilKit"). Added: squeeze starts a drawing in a note; the Pencil Pro's tap when a stroke snaps to a shape. Everything that needs a Pencil is unverified.
@@ -64,7 +64,7 @@ Implemented on 2026-09-30; targeted validation is recorded in `Coverage.md`:
 
 - Markdown and PDF workspaces use the same Read/Write picker, sized with Dynamic Type. Compact layouts keep it in a row below navigation. Markdown's Live Preview and Source choices remain in More.
 - Focus mode hides navigation panels, tab bars, and secondary navigation buttons while keeping document tools and recording controls available. Exiting restores the previous panel arrangement. Opening a panel or requesting sidebar search leaves focus mode. The command palette also exposes Toggle focus mode.
-- Reading view retains a vertical-position checkpoint in the open note session and restores it when its view is recreated. A new heading request takes precedence. The checkpoint is lightweight and is not written into the note or kept across app relaunches. Changed text or layout can change which passage occupies that offset.
+- Reading view retains a vertical-position checkpoint in the open note session and restores it when its view is recreated. A new heading request takes precedence. The checkpoint is lightweight and is not written into the note. Changed text or layout can change which passage occupies that offset. Since 2026-10-11 the place of every note and PDF is also kept on the device across app relaunches (`Architecture.md`, where documents were left); that is written but not yet built or verified.
 - Hiding and restoring the tab bar preserves the active native editor, selection, and undo history in hosted iPad and iPhone tests. This does not address undo across actual document switches.
 
 ## Third increment: editing continuity and consistent document controls
@@ -147,29 +147,30 @@ Still to judge on a device: the sharper PDF ink with an Apple Pencil, and its me
 
 ## Requested on 2026-10-12: a laser pointer and a better lasso
 
-Added at the user's request, with Goodnotes 6 as the reference. Planned, not implemented.
+Added at the user's request, with Goodnotes 6 as the reference. Built on 2026-10-12 (branch `alpha-lasso`) except where marked **Not built**; checked with hosted tests in the iPad simulator and by finger in the running app there, not on a device or with Apple Pencil (see `Coverage.md`).
 
-### 1. Laser pointer
+### 1. Laser pointer: built
 
-A tool for pointing at a page while presenting or sharing the screen, on the fixed bar and in the floating palette beside Select Ink, with two kinds chosen from its button and remembered:
+A tool for pointing at a page while presenting or sharing the screen, on the fixed bar after the lasso and in the floating palette's accessory menu (Laser Pointer, with Laser Type), with two kinds chosen from its button and remembered:
 
-- **Dot:** a glowing red dot under the Pencil or finger that follows it and is gone when it lifts.
-- **Line:** a red trail that fades a moment after it is drawn.
+- **Dot:** a glowing red dot under the Pencil or finger that follows it and is gone when it lifts; with Apple Pencil hover it shows faintly while the Pencil hovers.
+- **Line:** a red trail that shortens from its start, each part gone 0.9 seconds after it was drawn.
 
-It works on PDF pages, embedded PDFs and drawings, never changes the document, takes no step in the undo history, and leaves nothing in the saved file. Check it on an external display or with AirPlay mirroring, and with Pencil hover.
+It works on PDF pages, embedded PDFs and drawings (it is a tool of every `HistoryCanvasView`), never changes the document, takes no step in the undo history, and leaves nothing in the saved file: it is drawn in a view over the window. Still to check: an external display or AirPlay mirroring, Pencil hover on hardware, and a resting palm with finger drawing on.
 
-### 2. A lasso like Goodnotes'
+### 2. A lasso like Goodnotes': built in part
 
-Graphite's lasso (`InkSelectionController`) takes only ink, with a freehand loop or a tap. Add:
+- **Lasso type: built.** Rectangular (a box dragged from corner to corner) besides Freehand, chosen on the bar from Freehand | Rectangle beside the lasso while it is in use, and in the palette from Lasso Type; remembered.
+- **One selection of handwriting and pictures: built.** A loop or box takes the strokes and the pictures mostly inside it, on PDF pages and on drawings; the selection moves, resizes and deletes both together as one undo step. Copy puts a picture of the whole selection on the pasteboard; Cut and Duplicate are offered for ink alone, since Graphite pastes ink, not pictures.
+- **Take Screenshot: built** (asked for separately, like Goodnotes' lasso "Take Screenshot"). The menu of a selection, or of a lassoed area with nothing in it, draws the area afresh with the page or paper, its pictures and the ink at 288 pixels per inch at any zoom, and offers it in the share sheet: Copy, Save Image, sharing, and Add to “Note” for the note beside a PDF, the note a PDF is embedded in, or the note a drawing belongs to.
+- **Not built: switches for what the lasso takes** ("Included in selection"). With handwriting and pictures the only kinds there are, two switches would add a control for little; they belong with text boxes, equations, tape and sticky notes, which Graphite does not have.
+- **Not built: telling shapes and arrows apart from handwriting.** They are saved as ordinary strokes; marking them needs a change to how strokes are saved (in a way standard viewers ignore), which is outside this work.
 
-- **Lasso type:** Rectangular (a box dragged from corner to corner) besides Freehand, chosen from the lasso's button and remembered.
-- **Included in selection:** switches for what the lasso takes. Today that means handwriting and pictures: pictures are selected apart from ink (a finger tap, or "Move or Resize Images"), and one selection should move, resize and delete both together as one undo step. Shapes and arrows are saved as ordinary strokes, so telling them apart from handwriting needs them marked when they are made, in a way standard viewers ignore. Text boxes, equations, tape and sticky notes have no counterpart in Graphite; their switches come with them.
+### 3. A loop that can be seen: built
 
-### 3. A loop that can be seen
+The loop was the interface's label color at 70%, light grey on a white page in dark appearance, with dashes that shrank on a zoomed-out page. It is now the accent as it reads on white (6.6:1 against white with the default accent) over a white halo, 1.5 points wide with 6-point dashes on screen at any zoom; a box being dragged and a marked area are tinted with the accent at 8%.
 
-The user cannot see the lasso's loop while drawing it. It is a thin dashed line in the interface's label color at 70% (`InkSelectionController.showLoop`); the likely cause, not yet confirmed in the running app, is that in dark mode this resolves to a light grey on a white page. Its dashes are also not scaled with a zoomed-out PDF page. Draw it in a color that stands out from the paper under it whatever the interface's appearance (for example a dark dash with a light edge, or the accent color with a faint fill of the enclosed area as in Goodnotes), at a width and dash length that stay constant on screen.
-
-Completion evidence: the pointer and both lasso types tried with a Pencil and a finger on a device, in light and dark mode, on white and colored paper and on a zoomed-out PDF page; undo and save/reopen checks for selections that mix ink and pictures; saved files unchanged by the pointer.
+Completion evidence still needed: the pointer and both lasso types tried with a Pencil and a finger on a device, in light and dark mode, on white and colored paper and on a zoomed-out PDF page; undo and save/reopen of selections that mix ink and pictures on the device; the share sheet's Save Image and Add to Note by hand.
 
 ## Remaining: coherent workspace design
 
@@ -199,6 +200,6 @@ Completion evidence: agreed feature scope, device interaction checks, undo behav
 
 Use `Obsidian-mobile-gaps.md` and a real course vault to prioritize remaining editor, table, Canvas, navigation, and settings gaps. Update `Coverage.md` as behavior is implemented and verified.
 
-## Future: existing Obsidian plugin execution
+## Started: existing Obsidian plugin execution
 
-After the premium experience work, investigate running existing packages from Obsidian's community directory, GitHub, and other sources without Graphite-specific versions. Preserve settings and file formats, document supported APIs and unsupported dependencies, and protect native input responsiveness. Universal compatibility is not yet validated.
+Begun on 2026-10-10, at the owner's request, ahead of the order above. `Community-plugins.md` describes the runtime (a web view running Graphite's `obsidian` module), installation from Obsidian's directory and GitHub, what six real plugins do in it, what is reported as unsupported, and the order of the remaining work: running it on a device first, then plugins' code blocks in the reading view, context menus, typing suggestions, and plugin views as tabs and panels. Universal compatibility is not yet validated.

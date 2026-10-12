@@ -55,6 +55,10 @@ final class WorkspaceModel {
     @ObservationIgnored var tabDocuments: [UUID: TabDocument] = [:]
     /// The native editors of recently hidden notes, kept with their undo history.
     @ObservationIgnored let markdownEditorRetention = MarkdownEditorRetention()
+    /// Where each vault's documents were left (`WorkspacePlaces.swift`). Shared by every
+    /// workspace of the app; a test gives its workspace one of its own, so places it leaves
+    /// stay out of the app's preferences and out of other tests.
+    @ObservationIgnored var documentPlaceStore = DocumentPlaceStore.shared
     /// Bases inside the open vault's notes keep their results here while scrolled out of
     /// sight. Replaced when another vault opens, since its models read the old vault.
     @ObservationIgnored private(set) var embeddedBaseModelCache = EmbeddedBaseModelCache()
@@ -139,6 +143,8 @@ final class WorkspaceModel {
     let preferences = GraphitePreferences()
     let recording = RecordingController()
     let readAloud = ReadAloudController(playsWhenPrepared: true)
+    /// The open vault's Obsidian community plugins.
+    let communityPlugins = CommunityPluginHost()
     /// Set by indexing when a scan of the whole vault finishes; tests that fill the index
     /// themselves set it too.
     var hasCompletedIndexScan = false
@@ -196,15 +202,18 @@ final class WorkspaceModel {
             Task.detached(priority: .utility) { try? fileRecovery.removeAllSnapshots() }
         }
         VaultIndex.removeIndex(forVault: vault.id)
+        CommunityPluginHost.forgetVault(vault.id)
         // Opening the folder again makes a new identifier, so nothing would read these again.
         for key in [Self.expandedFoldersKey(for: vault.id), Self.recentFilesKey(for: vault.id), Self.tabLayoutKey(for: vault.id)] {
             UserDefaults.standard.removeObject(forKey: key)
         }
+        documentPlaceStore.forgetVault(vault.id)
     }
 
     /// Refuses to leave the vault during a recording, and saves every open document.
     private func prepareToLeaveCurrentVault() async throws {
         guard !recording.state.isActive else { throw GraphiteError.unavailable("Finish the current recording before switching vaults.") }
+        rememberPlacesOfOpenDocuments()
         try await saveOpenDocuments()
     }
 
@@ -237,6 +246,8 @@ final class WorkspaceModel {
             vaultMonitor.stop()
             throw error
         }
+        // The plugins of the vault being left unload before anything of it closes.
+        await communityPlugins.vaultWillClose()
         monitor?.stop(); stopIndexing(); externalChangeTask?.cancel()
         pendingExternalChanges.removeAll(); firstPendingExternalChangeInstant = nil
         indexingMessage = ""
@@ -275,6 +286,7 @@ final class WorkspaceModel {
         // Returns to where the user left this vault, as Obsidian restores its workspace.
         restoreTabLayout()
         checkForUnfinishedRecordings()
+        communityPlugins.vaultDidOpen(self)
         if preferences.isEnabled(.dailyNotes), dailyNoteSettings.opensOnStartup { await openDailyNote() }
     }
 
@@ -1098,6 +1110,7 @@ final class WorkspaceModel {
         layout.replacePrefix(oldPath, with: newPath)
         recentFiles.replacePrefix(oldPath, with: newPath)
         followMoveInFolds(from: oldPath, to: newPath)
+        followMoveInPlaces(from: oldPath, to: newPath)
         followMoveInBookmarks(from: oldPath, to: newPath)
         if let fileRecovery {
             // A renamed note keeps its history; for a folder, each note inside does.
@@ -1111,6 +1124,7 @@ final class WorkspaceModel {
         removeTabDocuments(layout.removeTabs(inside: removedPath))
         recentFiles.remove(inside: removedPath)
         forgetFolds(inside: removedPath)
+        forgetPlaces(inside: removedPath)
     }
 
     // MARK: External changes
@@ -1261,8 +1275,10 @@ final class WorkspaceModel {
                     pdfSession.errorMessage = GraphiteError.conflict.localizedDescription
                     continue
                 }
-                // The reader stays on the page it was reading.
+                // The reader stays on the page it was reading, at the same place on it.
                 reloadedSession.currentPageIndex = min(pdfSession.currentPageIndex, max(reloadedSession.pageCount - 1, 0))
+                let placeOnPage = pdfSession.placeToRemember()
+                reloadedSession.keptPlace = placeOnPage.pageIndex < reloadedSession.pageCount ? placeOnPage : nil
                 document.pdfSession = reloadedSession
             } catch { pdfSession.errorMessage = error.localizedDescription }
         }

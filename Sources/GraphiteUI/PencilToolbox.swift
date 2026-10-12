@@ -63,7 +63,8 @@ enum PencilInk: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    /// Three widths to choose from on the bar, from fine to broad.
+    /// The three widths a tool of this ink starts with on the bar, from fine to broad. Each
+    /// tool can change its own (`InkPreset.widthChoices`).
     var widthChoices: [Double] {
         switch self {
         case .pen: [1.6, 2.8, 4.8]
@@ -88,13 +89,17 @@ enum PencilInk: String, Codable, CaseIterable, Identifiable {
 }
 
 /// One drawing tool of the bar as its owner set it up: an ink with its color, width and
-/// opacity. The bar starts with three and holds up to `PencilToolbox.maximumPresetCount`.
+/// opacity, and the three widths the bar offers for it. The bar starts with three tools and
+/// holds up to `PencilToolbox.maximumPresetCount`.
 struct InkPreset: Codable, Equatable, Identifiable {
     var id = UUID()
     var ink: PencilInk
     var colorHex: String
     var width: Double
     var opacity = 1.0
+    /// The tool's three sizes on the bar, from the ink's own (`PencilInk.widthChoices`); a
+    /// second tap on the size in use changes its width.
+    var widthChoices: [Double]
 
     static let opacityRange = 0.1...1.0
 
@@ -102,22 +107,45 @@ struct InkPreset: Codable, Equatable, Identifiable {
         self.ink = ink
         colorHex = ink.defaultColorHex
         width = ink.mediumWidth
+        widthChoices = ink.widthChoices
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, ink, colorHex, width, opacity, widthChoices
+    }
+
+    /// A tool saved before its sizes could be changed has the ink's own.
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        ink = try container.decode(PencilInk.self, forKey: .ink)
+        colorHex = try container.decode(String.self, forKey: .colorHex)
+        width = try container.decode(Double.self, forKey: .width)
+        opacity = try container.decode(Double.self, forKey: .opacity)
+        widthChoices = try container.decodeIfPresent([Double].self, forKey: .widthChoices) ?? ink.widthChoices
     }
 
     /// The preset with every value one the bar can show: a stored state written by another
     /// build, or by hand, may hold others.
     var validated: InkPreset {
         var preset = self
+        let widthRange = ink.widthRange
+        func drawableWidth(_ width: Double, otherwise fallbackWidth: Double) -> Double {
+            width.isFinite ? min(max(width, widthRange.lowerBound), widthRange.upperBound) : fallbackWidth
+        }
         preset.colorHex = TextColorMarkup.canonicalHex(colorHex) ?? ink.defaultColorHex
-        preset.width = width.isFinite ? min(max(width, ink.widthRange.lowerBound), ink.widthRange.upperBound) : ink.mediumWidth
+        preset.width = drawableWidth(width, otherwise: ink.mediumWidth)
         preset.opacity = opacity.isFinite ? min(max(opacity, Self.opacityRange.lowerBound), Self.opacityRange.upperBound) : 1
+        preset.widthChoices = widthChoices.count == ink.widthChoices.count
+            ? zip(widthChoices, ink.widthChoices).map { storedWidth, inkWidth in drawableWidth(storedWidth, otherwise: inkWidth) }
+            : ink.widthChoices
         return preset
     }
 }
 
-/// What the bar has in use: one of its inks, the eraser, or the lasso.
+/// What the bar has in use: one of its inks, the eraser, the lasso, or the laser pointer.
 enum PencilToolKind: String, Codable, CaseIterable, Identifiable {
-    case ink, eraser, lasso
+    case ink, eraser, lasso, laser
 
     var id: String { rawValue }
     var title: String {
@@ -125,6 +153,7 @@ enum PencilToolKind: String, Codable, CaseIterable, Identifiable {
         case .ink: "Ink"
         case .eraser: "Eraser"
         case .lasso: "Lasso"
+        case .laser: "Laser Pointer"
         }
     }
     var symbolName: String {
@@ -132,8 +161,13 @@ enum PencilToolKind: String, Codable, CaseIterable, Identifiable {
         case .ink: "pencil.tip"
         case .eraser: "eraser"
         case .lasso: "lasso"
+        // Only a fallback: the bar and the palette draw the laser's own glyph (`LaserPointerGlyph`).
+        case .laser: "cursorarrow.rays"
         }
     }
+    /// Whether the canvas draws with PencilKit's tool: the lasso and the laser pointer are
+    /// Graphite's own and draw nothing.
+    var drawsInk: Bool { self == .ink || self == .eraser }
 }
 
 /// The tool a canvas draws with, as a value, so a canvas is updated exactly when it changes.
@@ -154,8 +188,10 @@ final class PencilToolbox {
     static let shared = PencilToolbox()
     static let storageKey = "GraphitePencilToolbox.v2"
     static let maximumPresetCount = 6
-    /// The sizes of the eraser that removes only the ink it passes over.
-    static let eraserWidthChoices: [Double] = [18, 36, 64]
+    /// The three sizes the eraser that removes only the ink it passes over starts with.
+    static let defaultEraserWidthChoices: [Double] = [18, 36, 64]
+    /// The widths those sizes can be changed to, in points.
+    static let eraserWidthRange: ClosedRange<Double> = 4...100
 
     static var defaultPresets: [InkPreset] { [InkPreset(ink: .pen), InkPreset(ink: .pencil), InkPreset(ink: .highlighter)] }
 
@@ -165,6 +201,8 @@ final class PencilToolbox {
         var presetInUseIndex: Int
         var erasesWholeStrokes: Bool
         var eraserWidth: Double
+        /// Absent from a state saved before the eraser's sizes could be changed.
+        var eraserWidthChoices: [Double]?
     }
 
     @ObservationIgnored private var lastPencilGestureTimestamp: TimeInterval?
@@ -188,6 +226,8 @@ final class PencilToolbox {
     private(set) var presetInUseIndex: Int { didSet { selectionChanged() } }
     var erasesWholeStrokes: Bool { didSet { selectionChanged() } }
     private(set) var eraserWidth: Double { didSet { selectionChanged() } }
+    /// The pixel eraser's three sizes on the bar; a second tap on the one in use changes it.
+    private(set) var eraserWidthChoices: [Double] { didSet { selectionChanged() } }
     /// The ruler is put away with the app, like a real one.
     var isRulerActive = false { didSet { NotificationCenter.default.post(name: Self.selectionDidChange, object: self) } }
 
@@ -201,14 +241,31 @@ final class PencilToolbox {
         if !hasStoredPresets { storedPresets = Self.defaultPresets }
         presets = storedPresets
         presetInUseIndex = hasStoredPresets ? min(max(stored?.presetInUseIndex ?? 0, 0), storedPresets.count - 1) : 0
-        toolInUse = stored?.toolInUse ?? .ink
+        let storedTool = stored?.toolInUse ?? .ink
+        toolInUse = storedTool
+        toolSavedInPlaceOfLaser = storedTool == .laser ? .ink : storedTool
         erasesWholeStrokes = stored?.erasesWholeStrokes ?? true
-        eraserWidth = stored.map(\.eraserWidth).flatMap { width in Self.eraserWidthChoices.contains(width) ? width : nil } ?? Self.eraserWidthChoices[1]
+        let storedEraserWidthChoices = stored?.eraserWidthChoices.flatMap { widths in Self.validatedEraserWidthChoices(widths) } ?? Self.defaultEraserWidthChoices
+        eraserWidthChoices = storedEraserWidthChoices
+        eraserWidth = stored.map(\.eraserWidth).flatMap { width in storedEraserWidthChoices.contains(width) ? width : nil } ?? storedEraserWidthChoices[1]
     }
 
+    /// Three widths the eraser can erase with, or nil for anything else.
+    private static func validatedEraserWidthChoices(_ widths: [Double]) -> [Double]? {
+        widths.count == defaultEraserWidthChoices.count && widths.allSatisfy(eraserWidthRange.contains) ? widths : nil
+    }
+
+    /// The tool kept between launches in place of the laser pointer: the one in use before
+    /// it. The laser points while presenting and is put away with the app; and a build
+    /// without it could not read a saved state naming it, and would start with its default
+    /// presets.
+    @ObservationIgnored private var toolSavedInPlaceOfLaser = PencilToolKind.ink
+
     private func selectionChanged() {
-        let state = StoredState(toolInUse: toolInUse, presets: presets, presetInUseIndex: presetInUseIndex,
-                                erasesWholeStrokes: erasesWholeStrokes, eraserWidth: eraserWidth)
+        if toolInUse != .laser { toolSavedInPlaceOfLaser = toolInUse }
+        let savedTool = toolInUse == .laser ? toolSavedInPlaceOfLaser : toolInUse
+        let state = StoredState(toolInUse: savedTool, presets: presets, presetInUseIndex: presetInUseIndex,
+                                erasesWholeStrokes: erasesWholeStrokes, eraserWidth: eraserWidth, eraserWidthChoices: eraserWidthChoices)
         defaults.set(try? JSONEncoder().encode(state), forKey: Self.storageKey)
         NotificationCenter.default.post(name: Self.selectionDidChange, object: self)
     }
@@ -273,10 +330,36 @@ final class PencilToolbox {
         if presets[presetInUseIndex].colorHex != canonicalHex { presets[presetInUseIndex].colorHex = canonicalHex }
     }
 
-    /// Any width the ink can draw; the bar offers three, its options every one between.
+    /// Any width the ink can draw, as the options' slider gives it. The size in use on the
+    /// bar, when the width was one of the three, takes the new width.
     func chooseWidth(_ width: Double) {
         guard toolInUse == .ink, width.isFinite, presetInUse.ink.widthRange.contains(width), presetInUse.width != width else { return }
-        presets[presetInUseIndex].width = width
+        if let chosenWidthIndex {
+            changeWidthChoice(at: chosenWidthIndex, to: width)
+        } else {
+            presets[presetInUseIndex].width = width
+        }
+    }
+
+    /// Which of the three sizes of the ink in use is chosen; nil when its width is none of them.
+    var chosenWidthIndex: Int? { presetInUse.widthChoices.firstIndex(of: presetInUse.width) }
+
+    /// Draws with one of the three sizes of the ink in use.
+    func useWidthChoice(at choiceIndex: Int) {
+        guard toolInUse == .ink, presetInUse.widthChoices.indices.contains(choiceIndex) else { return }
+        let width = presetInUse.widthChoices[choiceIndex]
+        if presetInUse.width != width { presets[presetInUseIndex].width = width }
+    }
+
+    /// Gives one of the three sizes of the ink in use another width, kept within what the
+    /// ink draws, and draws with it.
+    func changeWidthChoice(at choiceIndex: Int, to width: Double) {
+        guard toolInUse == .ink, presetInUse.widthChoices.indices.contains(choiceIndex), width.isFinite else { return }
+        let widthRange = presetInUse.ink.widthRange
+        var preset = presetInUse
+        preset.widthChoices[choiceIndex] = min(max(width, widthRange.lowerBound), widthRange.upperBound)
+        preset.width = preset.widthChoices[choiceIndex]
+        if preset != presetInUse { presets[presetInUseIndex] = preset }
     }
 
     func chooseOpacity(_ opacity: Double) {
@@ -285,7 +368,8 @@ final class PencilToolbox {
     }
 
     /// Turns the preset in use into another ink. It keeps its color; the width becomes the
-    /// new ink's medium one, as a pen's width would be a hairline for watercolor.
+    /// new ink's medium one and the sizes the new ink's, as a pen's width would be a hairline
+    /// for watercolor.
     func chooseInk(_ ink: PencilInk) {
         guard toolInUse == .ink, presetInUse.ink != ink else { return }
         var preset = presetInUse
@@ -294,6 +378,7 @@ final class PencilToolbox {
         if preset.colorHex == preset.ink.defaultColorHex { preset.colorHex = ink.defaultColorHex }
         preset.ink = ink
         preset.width = ink.mediumWidth
+        preset.widthChoices = ink.widthChoices
         presets[presetInUseIndex] = preset
     }
 
@@ -319,13 +404,64 @@ final class PencilToolbox {
     }
 
     func chooseEraserWidth(_ width: Double) {
-        guard Self.eraserWidthChoices.contains(width), eraserWidth != width else { return }
+        guard eraserWidthChoices.contains(width), eraserWidth != width else { return }
         eraserWidth = width
+    }
+
+    /// Gives one of the eraser's three sizes another width, within `eraserWidthRange`, and
+    /// erases with it.
+    func changeEraserWidthChoice(at choiceIndex: Int, to width: Double) {
+        guard eraserWidthChoices.indices.contains(choiceIndex), width.isFinite else { return }
+        let erasingWidth = min(max(width, Self.eraserWidthRange.lowerBound), Self.eraserWidthRange.upperBound)
+        if eraserWidthChoices[choiceIndex] != erasingWidth { eraserWidthChoices[choiceIndex] = erasingWidth }
+        if eraserWidth != erasingWidth { eraserWidth = erasingWidth }
     }
 
     var selection: PencilToolSelection {
         PencilToolSelection(kind: toolInUse, preset: presetInUse, erasesWholeStrokes: erasesWholeStrokes,
                             eraserWidth: eraserWidth, isRulerActive: isRulerActive)
+    }
+}
+
+/// One of the bar's three sizes: of the ink in use, or of the pixel eraser.
+enum PencilSizeChoice: Equatable {
+    case ink(choiceIndex: Int)
+    case eraser(choiceIndex: Int)
+
+    var choiceIndex: Int {
+        switch self {
+        case .ink(let choiceIndex), .eraser(let choiceIndex): choiceIndex
+        }
+    }
+}
+
+/// How large the bar draws the dot of one of its sizes: by the width it stands for, so a
+/// width changed in its popover shows on the bar at once, and the dots of every ink compare.
+/// Widths run from half a point (monoline) to a hundred (the eraser), far more than a dot
+/// beside the tools can show as drawn, so the dot grows with the width's logarithm, within a
+/// range that stays visible and fits the 28-point button: each of a tool's three starting
+/// sizes is about two points from the next.
+enum PencilSizeDot {
+    static let smallestDiameter: Double = 3.5
+    static let largestDiameter: Double = 22
+    /// The widths drawn as the smallest and the largest dot; narrower and wider ones are clamped.
+    static let narrowestWidth: Double = 0.5
+    static let widestWidth: Double = 60
+
+    static func diameter(forWidth width: Double) -> Double {
+        guard width.isFinite, width > narrowestWidth else { return smallestDiameter }
+        let fraction = min(log(width / narrowestWidth) / log(widestWidth / narrowestWidth), 1)
+        return smallestDiameter + (largestDiameter - smallestDiameter) * fraction
+    }
+}
+
+/// Widths as people speak of a pen on paper: millimeters, a point being 1/72 inch on the
+/// page or the drawing.
+enum PencilWidthText {
+    static let millimetersPerPoint = 25.4 / 72
+
+    static func millimeters(_ widthInPoints: Double) -> String {
+        (widthInPoints * millimetersPerPoint).formatted(.number.precision(.fractionLength(1))) + " mm"
     }
 }
 
@@ -371,467 +507,8 @@ extension PencilToolSelection {
         switch kind {
         case .ink: preset.inkingTool
         case .eraser: erasesWholeStrokes ? PKEraserTool(.vector) : PKEraserTool(.fixedWidthBitmap, width: CGFloat(eraserWidth))
-        case .lasso: PKLassoTool()
+        case .lasso, .laser: PKLassoTool()
         }
-    }
-}
-
-/// A short stroke in an ink, drawn by PencilKit itself, so the inks are told apart by how
-/// they draw rather than by a symbol.
-@MainActor
-enum PencilInkSample {
-    static let size = CGSize(width: 68, height: 30)
-    private static let cache = NSCache<NSString, UIImage>()
-
-    static func image(of ink: PencilInk, colorHex: String, colorScheme: ColorScheme, displayScale: CGFloat) -> UIImage {
-        let cacheKey = "\(ink.rawValue)|\(colorHex)|\(colorScheme == .dark)|\(displayScale)" as NSString
-        if let cachedImage = cache.object(forKey: cacheKey) { return cachedImage }
-        // Broad inks are drawn narrower than on a page, to fit the sample, and the finest
-        // ones broader, to be seen in it.
-        let sampleWidth = CGFloat(min(max(ink.mediumWidth, 2.5), 11))
-        let strokeBounds = CGRect(origin: .zero, size: size).insetBy(dx: 9, dy: 0)
-        let pointCount = 28
-        let points = (0..<pointCount).map { pointIndex in
-            let progress = CGFloat(pointIndex) / CGFloat(pointCount - 1)
-            let location = CGPoint(x: strokeBounds.minX + strokeBounds.width * progress, y: size.height / 2 - sin(progress * 2 * .pi) * 6)
-            // Pressed harder in the middle, as a hand would, which the pen and the pencil show.
-            return PKStrokePoint(location: location, timeOffset: TimeInterval(pointIndex) * 0.02, size: CGSize(width: sampleWidth, height: sampleWidth),
-                                 opacity: 1, force: 0.6 + 0.8 * sin(progress * .pi), azimuth: .pi / 4, altitude: .pi / 3)
-        }
-        let stroke = PKStroke(ink: PKInk(ink.inkType, color: UIColor(graphiteHex: colorHex) ?? .black),
-                              path: PKStrokePath(controlPoints: points, creationDate: Date(timeIntervalSinceReferenceDate: 0)))
-        var sampleImage = UIImage()
-        // PencilKit lightens dark inks on a dark background, as the popover's is in dark mode.
-        UITraitCollection(userInterfaceStyle: colorScheme == .dark ? .dark : .light).performAsCurrent {
-            sampleImage = PKDrawing(strokes: [stroke]).image(from: CGRect(origin: .zero, size: size), scale: displayScale)
-        }
-        cache.setObject(sampleImage, forKey: cacheKey)
-        return sampleImage
-    }
-}
-
-/// The fixed tool bar: the tools (`PencilToolRow`) in a row of their own, with the
-/// document's own controls at its ends where they have no other place.
-struct PencilToolbar<LeadingControls: View, TrailingControls: View>: View {
-    @Bindable var toolbox: PencilToolbox
-    let favoriteColors: [PaletteColor]
-    @Binding var drawsShapes: Bool
-    /// Nil where images cannot be added.
-    var addImage: (() -> Void)?
-    /// The document's history, for the Undo and Redo of the palette Apple Pencil's squeeze opens.
-    var undoAvailability: UndoAvailability?
-    /// The document's own controls, such as Write, Undo and Redo, where they have no
-    /// other place: the bar shares its row with them rather than adding one.
-    @ViewBuilder var leadingControls: LeadingControls
-    @ViewBuilder var trailingControls: TrailingControls
-
-    var body: some View {
-        HStack(spacing: 12) {
-            leadingControls.padding(.leading, 16)
-            PencilToolRow(toolbox: toolbox, favoriteColors: favoriteColors, drawsShapes: $drawsShapes, addImage: addImage,
-                          undoAvailability: undoAvailability)
-                .frame(maxWidth: .infinity)
-            trailingControls
-                .labelStyle(.iconOnly)
-                .padding(.trailing, 16)
-        }
-        .frame(height: PencilToolbarMetrics.height)
-        .tint(.primary)
-        .background(GraphiteChrome.barBackground)
-        .overlay(alignment: .bottom) { Hairline() }
-    }
-}
-
-/// The fixed bar's tools in one row: the ink presets, the eraser and the lasso; the width of
-/// the tool in use; its color, from the favorite colors of Settings › Colors; then the shape
-/// tool, the ruler, and adding an image. The row takes the width it needs where that fits
-/// and scrolls sideways where it does not. The fixed bar shows it, and so does a side's tab
-/// bar where it has room.
-///
-/// A second tap on the ink in use opens its options: every ink PencilKit has, any width and
-/// opacity, and adding or removing a preset.
-///
-/// The inks, the eraser and the lasso are drawn standing upright, as in Apple's palette,
-/// each ink's tip in its color; the tool in use stands raised and has the selected trait,
-/// so it is not told apart by color alone.
-struct PencilToolRow: View {
-    @Bindable var toolbox: PencilToolbox
-    let favoriteColors: [PaletteColor]
-    @Binding var drawsShapes: Bool
-    /// Nil where images cannot be added.
-    var addImage: (() -> Void)?
-    /// The document's history, for the Undo and Redo of the palette Apple Pencil's squeeze opens.
-    var undoAvailability: UndoAvailability?
-    var rowHeight: CGFloat = PencilToolbarMetrics.height
-    @State private var showsInkOptions = false
-
-    private var buttonSide: CGFloat { PencilToolbarMetrics.buttonSide }
-    private var selectedFill: AnyShapeStyle { PencilToolbarMetrics.selectedFill }
-
-    var body: some View {
-        ViewThatFits(in: .horizontal) {
-            tools
-            // Where the row does not fit, its ends fade, so a tool cut off by the edge
-            // reads as more to scroll to.
-            ScrollView(.horizontal, showsIndicators: false) { tools }
-                .mask {
-                    HStack(spacing: 0) {
-                        LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing).frame(width: 12)
-                        Color.black
-                        LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing).frame(width: 12)
-                    }
-                }
-        }
-        .frame(height: rowHeight)
-        .tint(.primary)
-        // Apple's palette answers Apple Pencil's double tap and squeeze; the row takes its place.
-        .background { PencilGestureReceiver(toolbox: toolbox, favoriteColors: favoriteColors, undoAvailability: undoAvailability) }
-    }
-
-    private var tools: some View {
-        HStack(spacing: 2) {
-            ForEach(Array(toolbox.presets.enumerated()), id: \.element.id) { presetIndex, preset in presetButton(preset, at: presetIndex) }
-            toolButton(.eraser)
-            toolButton(.lasso)
-            separator
-            switch toolbox.toolInUse {
-            case .ink:
-                ForEach(toolbox.presetInUse.ink.widthChoices, id: \.self) { width in
-                    sizeButton(choiceIndex: toolbox.presetInUse.ink.widthChoices.firstIndex(of: width) ?? 0, isChosen: toolbox.presetInUse.width == width) {
-                        toolbox.chooseWidth(width)
-                    }
-                }
-                separator
-            case .eraser:
-                Picker("Eraser", selection: $toolbox.erasesWholeStrokes) {
-                    Text("Strokes").tag(true)
-                    Text("Pixels").tag(false)
-                }
-                .pickerStyle(.segmented)
-                .fixedSize()
-                if !toolbox.erasesWholeStrokes {
-                    ForEach(PencilToolbox.eraserWidthChoices, id: \.self) { width in
-                        sizeButton(choiceIndex: PencilToolbox.eraserWidthChoices.firstIndex(of: width) ?? 0, isChosen: toolbox.eraserWidth == width) {
-                            toolbox.chooseEraserWidth(width)
-                        }
-                    }
-                }
-                separator
-            case .lasso:
-                EmptyView()
-            }
-            colorButton(name: "black", hex: PencilInk.pen.defaultColorHex)
-            ForEach(favoriteColors) { favorite in colorButton(name: favorite.name, hex: favorite.hex) }
-            ColorPicker("Other Color", selection: Binding(
-                get: { Color(graphiteHex: toolbox.presetInUse.colorHex) ?? .black },
-                set: { newColor in if let hex = newColor.sRGBHex { toolbox.chooseColor(hex: hex) } }), supportsOpacity: false)
-                .labelsHidden()
-                .frame(width: buttonSide, height: rowHeight)
-            separator
-            toggleButton("Shapes", symbolName: drawsShapes ? "square.fill.on.circle.fill" : "square.on.circle", isOn: $drawsShapes)
-            toggleButton("Ruler", symbolName: "ruler", isOn: $toolbox.isRulerActive)
-            if let addImage {
-                Button("Add Image", systemImage: "photo.badge.plus", action: addImage)
-                    .labelStyle(.iconOnly)
-                    .frame(width: buttonSide, height: rowHeight)
-            }
-        }
-        .padding(.horizontal, 10)
-    }
-
-    private var separator: some View {
-        Hairline(axis: .vertical).frame(height: 20).padding(.horizontal, 6)
-    }
-
-    private var buttons: PencilToolButtons { PencilToolButtons(toolbox: toolbox, rowHeight: rowHeight) }
-
-    private func presetButton(_ preset: InkPreset, at presetIndex: Int) -> some View {
-        let isInUse = toolbox.toolInUse == .ink && toolbox.presetInUseIndex == presetIndex
-        return buttons.presetButton(preset, at: presetIndex) { showsInkOptions = true }
-            .popover(isPresented: Binding(get: { showsInkOptions && isInUse }, set: { isPresented in showsInkOptions = isPresented })) {
-                PencilInkOptions(toolbox: toolbox)
-                    .presentationCompactAdaptation(.popover)
-            }
-    }
-
-    private func toolButton(_ kind: PencilToolKind) -> some View { buttons.toolButton(kind) }
-
-    private func sizeButton(choiceIndex: Int, isChosen: Bool, choose: @escaping () -> Void) -> some View {
-        buttons.sizeButton(choiceIndex: choiceIndex, isChosen: isChosen, choose: choose)
-    }
-
-    private func colorButton(name: String, hex: String) -> some View { buttons.colorButton(name: name, hex: hex) }
-
-    private func toggleButton(_ title: String, symbolName: String, isOn: Binding<Bool>) -> some View {
-        Button {
-            isOn.wrappedValue.toggle()
-        } label: {
-            Image(systemName: symbolName)
-                .font(.system(size: 16, weight: isOn.wrappedValue ? .semibold : .regular))
-                .frame(width: buttonSide, height: buttonSide)
-                .background(isOn.wrappedValue ? selectedFill : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: GraphiteChrome.cornerRadius, style: .continuous))
-                .frame(height: rowHeight)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(title)
-        .accessibilityValue(isOn.wrappedValue ? "On" : "Off")
-    }
-}
-
-extension PencilToolbar where LeadingControls == EmptyView, TrailingControls == EmptyView {
-    init(toolbox: PencilToolbox, favoriteColors: [PaletteColor], drawsShapes: Binding<Bool>, addImage: (() -> Void)? = nil,
-         undoAvailability: UndoAvailability? = nil) {
-        self.init(toolbox: toolbox, favoriteColors: favoriteColors, drawsShapes: drawsShapes, addImage: addImage, undoAvailability: undoAvailability,
-                  leadingControls: { EmptyView() }, trailingControls: { EmptyView() })
-    }
-}
-
-/// The fixed bar's tools at the end of a side's tab bar, for the PDF its active tab shows,
-/// while that PDF is written on: in the row that is there anyway rather than a row of their
-/// own above the page. The side decides whether its tab bar has room.
-struct TabBarPencilTools: View {
-    let session: PDFSession
-    let isFocused: Bool
-    @AppStorage(PencilToolbarStyle.preferenceKey) private var toolbarStyle = PencilToolbarStyle.floating
-    @AppStorage(PDFAnnotationPreferenceKey.showsToolPicker) private var showsToolPicker = true
-    @AppStorage(PDFAnnotationPreferenceKey.drawsShapes) private var drawsShapes = false
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @State private var pictureSource: PDFPictureSource?
-
-    var body: some View {
-        if session.showsFixedPencilTools(style: toolbarStyle, showsTools: showsToolPicker, horizontalSizeClass: horizontalSizeClass, isFocused: isFocused) {
-            PencilToolRow(toolbox: PencilToolbox.shared, favoriteColors: GraphitePreferences.storedColorPalette(), drawsShapes: $drawsShapes,
-                          addImage: { pictureSource = .photoLibrary }, undoAvailability: session.undoAvailability, rowHeight: PencilToolbarMetrics.heightInTabBar)
-                .modifier(PDFPictureAdding(session: session, source: $pictureSource))
-        }
-    }
-}
-
-extension PDFSession {
-    /// Whether the fixed bar's tools are shown for this PDF: the fixed bar is chosen and
-    /// shown, the width is not compact, and the PDF is written on, can be changed, and is on
-    /// the focused side.
-    func showsFixedPencilTools(style: PencilToolbarStyle, showsTools: Bool, horizontalSizeClass: UserInterfaceSizeClass?, isFocused: Bool) -> Bool {
-        style == .fixed && horizontalSizeClass != .compact && showsTools && isFocused && isWriting && !isProtected
-    }
-
-    /// Whether the system's floating palette is over the page: it has Undo and Redo of its
-    /// own, so the document's would repeat them. A compact width always uses the palette, and
-    /// arranging a picture puts it away.
-    func showsFloatingPencilPalette(style: PencilToolbarStyle, showsTools: Bool, horizontalSizeClass: UserInterfaceSizeClass?, isFocused: Bool) -> Bool {
-        (style == .floating || horizontalSizeClass == .compact) && showsTools && isFocused && isWriting && !isProtected && selectedPicture == nil
-    }
-}
-
-/// The buttons of the bar's tools, shared by the fixed bar and the palette Apple Pencil's
-/// squeeze opens.
-@MainActor
-struct PencilToolButtons {
-    let toolbox: PencilToolbox
-    let rowHeight: CGFloat
-
-    private var buttonSide: CGFloat { PencilToolbarMetrics.buttonSide }
-    private var selectedFill: AnyShapeStyle { PencilToolbarMetrics.selectedFill }
-
-    /// An ink preset; a tap on the one in use calls `tapOnPresetInUse`.
-    func presetButton(_ preset: InkPreset, at presetIndex: Int, tapOnPresetInUse: @escaping () -> Void) -> some View {
-        let isInUse = toolbox.toolInUse == .ink && toolbox.presetInUseIndex == presetIndex
-        return Button {
-            if isInUse { tapOnPresetInUse() } else { toolbox.usePreset(at: presetIndex) }
-        } label: {
-            glyphLabel(PencilToolGlyph(tool: .ink(preset.ink), inkHex: preset.colorHex, inkOpacity: preset.opacity, isInUse: isInUse))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(preset.ink.title)
-        .accessibilityHint(isInUse ? "Opens the ink's options" : "")
-        .accessibilityAddTraits(isInUse ? .isSelected : [])
-    }
-
-    func toolButton(_ kind: PencilToolKind) -> some View {
-        let isInUse = toolbox.toolInUse == kind
-        return Button {
-            toolbox.use(kind)
-        } label: {
-            glyphLabel(PencilToolGlyph(tool: kind == .lasso ? .lasso : .eraser, isInUse: isInUse))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(kind.title)
-        .accessibilityAddTraits(isInUse ? .isSelected : [])
-    }
-
-    /// A tool centered in the row, taking touches over the row's whole height.
-    private func glyphLabel(_ glyph: PencilToolGlyph) -> some View {
-        glyph
-            .frame(width: buttonSide, height: rowHeight)
-            .contentShape(Rectangle())
-    }
-
-    /// One of three sizes, of an ink or of the eraser.
-    func sizeButton(choiceIndex: Int, isChosen: Bool, choose: @escaping () -> Void) -> some View {
-        Button(action: choose) {
-            Circle()
-                .fill(.primary)
-                .frame(width: CGFloat(5 + 4 * choiceIndex), height: CGFloat(5 + 4 * choiceIndex))
-                .frame(width: 28, height: buttonSide)
-                .background(isChosen ? selectedFill : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: GraphiteChrome.cornerRadius, style: .continuous))
-                .frame(height: rowHeight)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(["Fine", "Medium", "Broad"][min(choiceIndex, 2)])
-        .accessibilityAddTraits(isChosen ? .isSelected : [])
-    }
-
-    func colorButton(name: String, hex: String) -> some View {
-        let isInUse = toolbox.toolInUse == .ink && TextColorMarkup.canonicalHex(hex) == toolbox.presetInUse.colorHex
-        return Button {
-            toolbox.chooseColor(hex: hex)
-        } label: {
-            Circle()
-                .fill(Color(graphiteHex: hex) ?? .black)
-                .overlay { Circle().strokeBorder(Color.primary.opacity(0.15), lineWidth: 0.5) }
-                .frame(width: 20, height: 20)
-                // A ring, so the color in use is marked by shape as well.
-                .overlay { if isInUse { Circle().strokeBorder(.primary, lineWidth: 2).frame(width: 28, height: 28) } }
-                .frame(width: 30, height: rowHeight)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(name)
-        .accessibilityAddTraits(isInUse ? .isSelected : [])
-    }
-}
-
-enum PencilToolbarMetrics {
-    static let height: CGFloat = 44
-    /// The tools' row inside a tab bar: a little lower than the bar, which centers it.
-    static let heightInTabBar: CGFloat = 40
-    static let buttonSide: CGFloat = 36
-    /// The background of the tool in use.
-    static var selectedFill: AnyShapeStyle { AnyShapeStyle(Color(PlatformColor.primaryText(opacity: 0.1, increasedContrastOpacity: 0.2))) }
-}
-
-/// A tool of the bar as Apple's SF Symbols draw it: the ink's own symbol (`PencilInk.symbolName`),
-/// the eraser or the lasso, with a short bar in the ink's color under an ink, so the bar shows
-/// what each tool draws. The tool in use is drawn at full strength on the bar's faint fill,
-/// as the sizes and colors beside it are, so it is marked by more than color.
-struct PencilToolGlyph: View {
-    enum Tool: Equatable {
-        case ink(PencilInk)
-        case eraser
-        case lasso
-    }
-
-    let tool: Tool
-    var inkHex: String = PencilInk.pen.defaultColorHex
-    var inkOpacity: Double = 1
-    let isInUse: Bool
-
-    private var symbolName: String {
-        switch tool {
-        case .ink(let ink): ink.symbolName
-        case .eraser: PencilToolKind.eraser.symbolName
-        case .lasso: PencilToolKind.lasso.symbolName
-        }
-    }
-
-    private var inkColor: Color? {
-        guard case .ink = tool else { return nil }
-        // A faint ink, such as a highlighter at low opacity, still shows which color it is.
-        return (Color(graphiteHex: inkHex) ?? .black).opacity(max(inkOpacity, 0.45))
-    }
-
-    var body: some View {
-        VStack(spacing: 3) {
-            Image(systemName: symbolName)
-                .font(.system(size: 17, weight: isInUse ? .semibold : .regular))
-                .foregroundStyle(isInUse ? .primary : .secondary)
-                .frame(height: 22)
-            Capsule()
-                .fill(inkColor ?? .clear)
-                .overlay { if inkColor != nil { Capsule().strokeBorder(Color.primary.opacity(0.15), lineWidth: 0.5) } }
-                .frame(width: 16, height: 3)
-        }
-        .frame(width: PencilToolbarMetrics.buttonSide, height: PencilToolbarMetrics.buttonSide)
-        .background(isInUse ? PencilToolbarMetrics.selectedFill : AnyShapeStyle(.clear),
-                    in: RoundedRectangle(cornerRadius: GraphiteChrome.cornerRadius, style: .continuous))
-        .accessibilityHidden(true)
-    }
-}
-
-/// The options of the ink preset in use: which ink it is, its width and its opacity, and
-/// adding or removing a preset.
-struct PencilInkOptions: View {
-    @Bindable var toolbox: PencilToolbox
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.displayScale) private var displayScale
-    @Environment(\.dismiss) private var dismiss
-
-    private static let inkColumns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 4)
-
-    var body: some View {
-        let preset = toolbox.presetInUse
-        VStack(alignment: .leading, spacing: 16) {
-            LazyVGrid(columns: Self.inkColumns, spacing: 8) {
-                ForEach(PencilInk.availableInks) { ink in inkButton(ink, preset: preset) }
-            }
-            VStack(spacing: 10) {
-                LabeledContent("Width") {
-                    Slider(value: Binding(get: { toolbox.presetInUse.width }, set: { width in toolbox.chooseWidth(width) }), in: preset.ink.widthRange)
-                        .accessibilityLabel("Width")
-                        .accessibilityValue(preset.width.formatted(.number.precision(.fractionLength(1))) + " points")
-                }
-                LabeledContent("Opacity") {
-                    Slider(value: Binding(get: { toolbox.presetInUse.opacity }, set: { opacity in toolbox.chooseOpacity(opacity) }), in: InkPreset.opacityRange)
-                        .accessibilityLabel("Opacity")
-                        .accessibilityValue(preset.opacity.formatted(.percent.precision(.fractionLength(0))))
-                }
-            }
-            .font(.callout)
-            Divider()
-            HStack {
-                // The options belong to the tool they were opened from, which is then no
-                // longer the one in use, or gone.
-                Button("Add a Tool", systemImage: "plus") {
-                    toolbox.addPreset()
-                    dismiss()
-                }
-                .disabled(!toolbox.canAddPreset)
-                .help("Adds a copy of this tool to the bar, to set up differently")
-                Spacer()
-                Button("Remove", systemImage: "minus.circle", role: .destructive) {
-                    toolbox.removePresetInUse()
-                    dismiss()
-                }
-                .disabled(!toolbox.canRemovePreset)
-            }
-            .font(.callout)
-            .buttonStyle(.borderless)
-        }
-        .padding(16)
-        .frame(width: 360)
-        .tint(.primary)
-    }
-
-    private func inkButton(_ ink: PencilInk, preset: InkPreset) -> some View {
-        let isInUse = preset.ink == ink
-        return Button {
-            toolbox.chooseInk(ink)
-        } label: {
-            VStack(spacing: 2) {
-                Image(uiImage: PencilInkSample.image(of: ink, colorHex: preset.colorHex, colorScheme: colorScheme, displayScale: displayScale))
-                    .accessibilityHidden(true)
-                Text(ink.title).font(.caption).lineLimit(1).minimumScaleFactor(0.8)
-            }
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity)
-            .background(isInUse ? AnyShapeStyle(.primary.opacity(0.14)) : AnyShapeStyle(.primary.opacity(0.04)), in: RoundedRectangle(cornerRadius: 10))
-            .contentShape(RoundedRectangle(cornerRadius: 10))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(ink.title)
-        .accessibilityAddTraits(isInUse ? .isSelected : [])
     }
 }
 #endif

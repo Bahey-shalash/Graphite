@@ -42,6 +42,7 @@ public enum SVGDrawingFile {
             for (picture, source) in zip(drawing.pictures, pictureSources) {
                 document.append(contentsOf: "<image x=\"\(formatted(picture.frame.minX))\" y=\"\(formatted(picture.frame.minY))\"".utf8)
                 document.append(contentsOf: " width=\"\(formatted(picture.frame.width))\" height=\"\(formatted(picture.frame.height))\"".utf8)
+                if picture.isTurned { document.append(contentsOf: " transform=\"\(rotationTransform(of: picture))\"".utf8) }
                 document.append(contentsOf: " preserveAspectRatio=\"none\" xlink:href=\"".utf8)
                 document.append(contentsOf: source.dataURIPrefix.utf8)
                 document.append(contentsOf: source.imageData.base64EncodedData())
@@ -60,6 +61,33 @@ public enum SVGDrawingFile {
         document.append(contentsOf: visibleTail)
         guard document.count <= maximumFileBytes else { throw GraphiteError.oversized("This drawing is too complex for an SVG file.") }
         return Data(document)
+    }
+
+    /// SVG turns by degrees, clockwise where y points down, as a picture's angle does,
+    /// about a point given after the angle: the middle of the picture's frame.
+    static func rotationTransform(of picture: DrawingBackgroundImage) -> String {
+        let degrees = picture.rotationRadians * 180 / .pi
+        return "rotate(\(formatted(degrees, fractionDigits: rotationFractionDigits)) \(formatted(picture.frame.midX)) \(formatted(picture.frame.midY)))"
+    }
+
+    /// Degrees to a thousandth: a picture's corner moves less than a hundredth of a point
+    /// at the largest size a drawing has.
+    static let rotationFractionDigits = 3
+
+    /// The angle of a picture `SVGDrawingFile.rotationTransform(of:)` turned: a rotation by
+    /// degrees about the middle of the picture's frame, and nothing else.
+    static func pictureRotationRadians(fromTransform transform: String, of frame: CGRect) throws -> Double {
+        let unreadable = GraphiteError.invalidFile("A picture in this SVG drawing is turned in a way Graphite does not write.")
+        let rotationPrefix = "rotate(", rotationSuffix = ")"
+        guard transform.hasPrefix(rotationPrefix), transform.hasSuffix(rotationSuffix) else { throw unreadable }
+        let numberTexts = transform.dropFirst(rotationPrefix.count).dropLast(rotationSuffix.count).split(separator: " ")
+        let numbers = numberTexts.compactMap { numberText in Double(numberText) }
+        // The middle and the frame are each written to a hundredth of a point, so the
+        // middle of the frame read back can be that far off twice over.
+        let middleTolerance = 0.02
+        guard numbers.count == 3, numberTexts.count == 3, numbers.allSatisfy(\.isFinite),
+              abs(numbers[1] - Double(frame.midX)) <= middleTolerance, abs(numbers[2] - Double(frame.midY)) <= middleTolerance else { throw unreadable }
+        return numbers[0] * .pi / 180
     }
 
     private static func appendGroup(of shapes: [VectorShape], to document: inout [UInt8]) {
@@ -280,7 +308,9 @@ private final class GraphiteSVGReader: NSObject, XMLParserDelegate {
         guard pictureBytes <= DrawingLimits.maximumBackgroundImageBytes, frameNumbers.count == 4 else {
             throw GraphiteError.invalidFile("A picture in this SVG drawing cannot be read.")
         }
-        let picture = DrawingBackgroundImage(imageData: imageData, frame: CGRect(x: frameNumbers[0], y: frameNumbers[1], width: frameNumbers[2], height: frameNumbers[3]))
+        let frame = CGRect(x: frameNumbers[0], y: frameNumbers[1], width: frameNumbers[2], height: frameNumbers[3])
+        let rotationRadians = try attributes["transform"].map { transform in try SVGDrawingFile.pictureRotationRadians(fromTransform: transform, of: frame) } ?? 0
+        let picture = DrawingBackgroundImage(imageData: imageData, frame: frame, rotationRadians: rotationRadians)
         guard picture.hasValidGeometry else { throw GraphiteError.invalidFile("A picture in this SVG drawing cannot be read.") }
         if pictures.isEmpty {
             shapesUnderPictures = shapes

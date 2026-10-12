@@ -64,6 +64,8 @@ struct LivePreviewEnvironment {
     /// column is as wide as the window. Images are decoded for this width.
     var embeddedImageColumnWidth: CGFloat? = nil
     var readingContext: LivePreviewReadingContext? = nil
+    /// Where the lasso's pictures of an embedded PDF go: this note.
+    var lassoNoteDestination: LassoNoteDestination? = nil
 }
 
 /// A rendered stand-in for concealed Live Preview source.
@@ -292,6 +294,9 @@ private struct LivePreviewBlockStack: View {
             AnyView(BaseCodeBlockView(yaml: yaml, context: environment.baseContext))
         case .displayMath(let markdown):
             AnyView(RenderedMarkdownBlock(markdown: markdown, environment: environment, sourceTokens: readingSection?.tokens).frame(maxWidth: .infinity))
+        case .pluginCodeBlock(let language, let source):
+            // Blocks here are split without plugin languages, so this does not occur; shown as code.
+            AnyView(RenderedMarkdownBlock(markdown: "```" + language + "\n" + source + "\n```", environment: environment))
         }
     }
 }

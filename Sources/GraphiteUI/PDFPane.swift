@@ -131,7 +131,7 @@ private struct PDFPaneContent: View {
                     && session.showsFixedPencilTools(style: toolbarStyle, showsTools: showsToolPicker, horizontalSizeClass: horizontalSizeClass, isFocused: isFocused)
                 if showsControlRow && showsFixedToolbar {
                     // One row for both, as in Focus, where no tab bar holds the controls.
-                    PencilToolbar(toolbox: toolbox, favoriteColors: GraphitePreferences.storedColorPalette(), drawsShapes: $drawsShapes,
+                    PencilToolbar(toolbox: toolbox, drawsShapes: $drawsShapes,
                                   addImage: { pictureSource = .photoLibrary }, undoAvailability: session.undoAvailability) {
                         EmptyView()
                     } trailingControls: {
@@ -147,7 +147,7 @@ private struct PDFPaneContent: View {
                         UndoRedoButtons(availability: session.undoAvailability)
                     }
                 } else if showsFixedToolbar {
-                    PencilToolbar(toolbox: toolbox, favoriteColors: GraphitePreferences.storedColorPalette(), drawsShapes: $drawsShapes,
+                    PencilToolbar(toolbox: toolbox, drawsShapes: $drawsShapes,
                                   addImage: { pictureSource = .photoLibrary }, undoAvailability: session.undoAvailability)
                 }
             }
