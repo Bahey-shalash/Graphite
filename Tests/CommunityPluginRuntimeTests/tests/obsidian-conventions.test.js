@@ -251,3 +251,75 @@ module.exports = ExamplePlugin;`;
         harness.close();
     }
 });
+
+test('Obsidian 1.13\'s setting pages and its undocumented Setting rows work on the plugin panel', async () => {
+    // Obsidian's own Importer walks its steps with setting pages and lists formats with them.
+    const source = `"use strict";
+var obsidian = require("obsidian");
+class StepPage extends obsidian.SettingPage {
+    display() { this.containerEl.empty(); new obsidian.Setting(this.containerEl).setName('Choose files').setIcon('lucide-plus').setAction(() => { this.plugin.chose = true; }); }
+}
+class ExampleTab extends obsidian.PluginSettingTab {
+    display() {
+        this.containerEl.empty();
+        const group = new obsidian.SettingGroup(this.containerEl).addClass('mod-list');
+        for (const format of ['Markdown', 'Notion']) {
+            new obsidian.Setting(group.listEl).setName(format).setNavigable(() => {
+                const page = new StepPage(); page.plugin = this.plugin; page.title = 'Import from ' + format;
+                this.app.setting.openPage(page);
+            });
+        }
+    }
+}
+class ExamplePlugin extends obsidian.Plugin { onload() { this.addSettingTab(new ExampleTab(this.app, this)); } }
+module.exports = ExamplePlugin;`;
+    const harness = await startRuntime({ files: {} });
+    try {
+        assert.deepEqual(plain(await installAndLoadPlugin(harness, { manifest, mainSource: source })), { isLoaded: true });
+        await harness.send({ operation: 'settings.show', pluginIdentifier: 'example' });
+        const document = harness.window.document;
+        const rows = Array.from(document.querySelectorAll('.setting-group.mod-list .setting-item.mod-navigable'));
+        assert.deepEqual(rows.map((row) => row.querySelector('.setting-item-name').textContent), ['Markdown', 'Notion']);
+        rows[0].click();
+        const page = document.querySelector('.setting-page');
+        assert.ok(page, 'the step page is shown');
+        assert.equal(page.querySelector('.setting-page-title').textContent, 'Import from Markdown');
+        page.querySelector('.setting-item.mod-clickable').click();
+        assert.equal(harness.app.plugins.plugins.example.chose, true);
+        assert.ok(page.querySelector('.setting-item-icon svg'), 'the row has its icon');
+        page.querySelector('.setting-page-back').click();
+        assert.equal(document.querySelector('.setting-page'), null, 'Back closes the page');
+        assert.equal(rows[0].isConnected && getComputedDisplay(rows[0].closest('.vertical-tab-content')), '', 'the tab is shown again');
+    } finally {
+        harness.close();
+    }
+    function getComputedDisplay(element) { return element ? element.style.display : 'missing'; }
+});
+
+test('a note opened in a leaf goes through setViewState, which plugins patch, and paths have a full form', async () => {
+    // Excalidraw patches WorkspaceLeaf.prototype.setViewState; ReadItLater measures getFullPath.
+    const source = `"use strict";
+var obsidian = require("obsidian");
+class ExamplePlugin extends obsidian.Plugin {
+    async onload() {
+        const original = obsidian.WorkspaceLeaf.prototype.setViewState;
+        const plugin = this;
+        obsidian.WorkspaceLeaf.prototype.setViewState = function (state, eState) { plugin.seen = state; return original.call(this, state, eState); };
+        this.register(() => { obsidian.WorkspaceLeaf.prototype.setViewState = original; });
+        await this.app.workspace.getLeaf(false).openFile(this.app.vault.getFileByPath('Note.md'));
+        this.fullPath = this.app.vault.adapter.getFullPath('Folder/Note.md');
+    }
+}
+module.exports = ExamplePlugin;`;
+    const harness = await startRuntime({ files: { 'Note.md': 'x\n' } });
+    try {
+        await harness.waitForMetadata();
+        assert.deepEqual(plain(await installAndLoadPlugin(harness, { manifest, mainSource: source })), { isLoaded: true });
+        const plugin = harness.app.plugins.plugins.example;
+        assert.deepEqual(plain(plugin.seen), { type: 'markdown', state: { file: 'Note.md' } });
+        assert.equal(plain(harness.host.openedFiles).at(-1).path, 'Note.md');
+        assert.match(plugin.fullPath, /\/Folder\/Note\.md$/);
+    } finally {
+        harness.close();
+    }
+});

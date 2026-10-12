@@ -17,6 +17,9 @@ public struct VaultURI: Equatable, Sendable {
         case new(name: String?, file: String?, content: String, opensNote: Bool, mode: NewNoteMode)
         /// Opens today's daily note.
         case daily
+        /// An action a community plugin registered (`registerObsidianProtocolHandler`), with
+        /// the link's parameters as written, the vault's included, as Obsidian passes them.
+        case plugin(action: String, parameters: [String: String])
     }
 
     /// What `new` does when the note exists already.
@@ -69,7 +72,13 @@ public struct VaultURI: Equatable, Sendable {
             guard let vaultName = parts.first else { return nil }
             self.init(vault: vaultName, action: .open(file: parts.count > 1 ? parts[1] : nil, path: nil))
         default:
-            return nil
+            // Any other action is a plugin's (Advanced URI's `advanced-uri`), named in the host
+            // or path; a plugin may register one with a slash (`smart-plugins/callback`).
+            guard !actionName.isEmpty, actionName.unicodeScalars.allSatisfy({ scalar in CharacterSet.alphanumerics.contains(scalar) || "-_/.".unicodeScalars.contains(scalar) }) else { return nil }
+            let action = host.isEmpty ? actionName : (host + components.path).trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+            var pluginParameters: [String: String] = [:]
+            for item in components.queryItems ?? [] where pluginParameters[item.name] == nil { pluginParameters[item.name] = item.value ?? "" }
+            self.init(vault: nonEmpty("vault"), action: .plugin(action: action, parameters: pluginParameters))
         }
     }
 

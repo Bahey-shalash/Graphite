@@ -847,6 +847,10 @@
                 // Obsidian's lists of setting tabs (undocumented): Graphite's own settings are
                 // native, so only the plugins' tabs are listed (Smart Connections finds its own).
                 get pluginTabs() { return Array.from(runtime.settingTabsByPlugin.values()).flat(); },
+                get activeTab() { return runtime.pluginSurface.shownSettingTab; },
+                // Obsidian 1.13's pages over a setting tab (Importer walks its steps with them).
+                openPage: (page) => runtime.pluginSurface.openSettingPage(page),
+                closePage: () => runtime.pluginSurface.closeSettingPage(),
                 settingTabs: [],
             };
         }

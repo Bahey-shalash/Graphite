@@ -585,6 +585,16 @@ enum Pasteboard {
         NSPasteboard.general.setString(text, forType: .string)
         #endif
     }
+
+    /// The text on the pasteboard, if any. On iPad and iPhone, iOS tells the person that
+    /// Graphite read it.
+    static var text: String? {
+        #if canImport(UIKit)
+        UIPasteboard.general.string
+        #else
+        NSPasteboard.general.string(forType: .string)
+        #endif
+    }
 }
 
 /// Asks for the password of a protected PDF. The password stays in memory until Graphite quits.

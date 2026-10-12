@@ -85,6 +85,18 @@
 
     /// A path as the adapter takes it: the vault's root may be named "/" or "." (isomorphic-git,
     /// which Git uses on mobile, asks for "/"), and is "" for Graphite.
+    /// A file's stat, or none for a path no file can be at: outside the vault ("../x", which
+    /// isomorphic-git looks in for a parent repository) or not a valid path. Obsidian's adapter
+    /// answers these as missing too, rather than failing.
+    async function statOrNothing(path) {
+        try {
+            return await hostBridge.send('vault.stat', { path });
+        } catch (error) {
+            if (error.kind === 'outsideVault' || error.kind === 'invalidPath') return { stat: null };
+            throw error;
+        }
+    }
+
     function adapterPath(path) {
         const normalizedPath = normalizePath(path);
         return normalizedPath === '/' || normalizedPath === '.' ? '' : normalizedPath;
@@ -104,13 +116,13 @@
         async exists(path, isCaseSensitive) {
             const normalizedPath = adapterPath(path);
             if (normalizedPath === '') return true;
-            const response = await hostBridge.send('vault.stat', { path: normalizedPath });
+            const response = await statOrNothing(normalizedPath);
             if (!response.stat) return false;
             if (isCaseSensitive && response.storedPath && response.storedPath !== normalizedPath) return false;
             return true;
         }
         async stat(path) {
-            const response = await hostBridge.send('vault.stat', { path: adapterPath(path) });
+            const response = await statOrNothing(adapterPath(path));
             if (!response.stat) return null;
             return { type: response.stat.isFolder ? 'folder' : 'file', ctime: response.stat.created || 0, mtime: response.stat.modified || 0, size: response.stat.size || 0 };
         }
@@ -219,8 +231,12 @@
             await this.writeData(normalizedPath, { base64: arrayBufferToBase64(combined.buffer) }, this.writeExpectation(normalizedPath));
             if (options) await this.applyTimes(normalizedPath, options);
         }
+        /// A file's full path, as Obsidian mobile's adapter gives it. Plugins use it to keep
+        /// names within the system's path length (ReadItLater); Graphite gives the path under the
+        /// vault's name, without saying where the vault is on the device, which plugins cannot
+        /// reach directly anyway.
         getFullPath(path) {
-            runtime.unsupported('DataAdapter.getFullPath (“' + path + '”)', 'Plugins reach vault files through the vault, not by their place on the device.');
+            return '/' + this.vault.vaultName + '/' + normalizePath(path);
         }
         /// Calls for the same file run one after another, as in Obsidian, where `process` reads
         /// and writes in one step: each transform sees the text the one before it wrote.

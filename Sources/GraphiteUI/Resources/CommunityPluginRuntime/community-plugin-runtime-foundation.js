@@ -20,6 +20,9 @@
             super(message);
             this.name = 'HostOperationError';
             this.kind = kind;
+            // As Node's file system names it, which libraries plugins bundle check for
+            // (isomorphic-git takes ENOENT as "not there").
+            if (kind === 'missing') this.code = 'ENOENT';
         }
     }
     runtime.HostOperationError = HostOperationError;

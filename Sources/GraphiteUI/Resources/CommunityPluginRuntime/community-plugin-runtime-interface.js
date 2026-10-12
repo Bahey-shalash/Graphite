@@ -129,6 +129,8 @@
             return handler;
         }
         unregister(handler) { this.keymapEventHandlers.remove(handler); }
+        /// Obsidian's name for the scope's handlers (undocumented); Excalidraw puts its own first.
+        get keys() { return this.keymapEventHandlers; }
         handleKeyEvent(event) {
             const modifiers = Keymap.modifiersOf(event);
             for (const handler of this.keymapEventHandlers.slice().reverse()) {
@@ -189,7 +191,34 @@
         hostElement() {
             return globalScope.document.querySelector('.graphite-plugin-surface') || globalScope.document.body;
         },
+        /// Pages a setting tab opened over itself (`app.setting.openPage`), the top one shown.
+        settingPages: [],
+        openSettingPage(page) {
+            const host = this.hostElement();
+            const below = this.settingPages.last() ? this.settingPages.last().rootEl : (this.shownSettingTab ? this.shownSettingTab.containerEl : null);
+            if (below) below.hide();
+            if (!page.titlebarEl.querySelector('.setting-page-title')) {
+                const back = page.titlebarEl.createDiv({ cls: 'setting-page-back clickable-icon', attr: { 'aria-label': 'Back' } });
+                exportedApi.setIcon(back.createSpan(), 'chevron-left');
+                back.createSpan({ text: 'Back' });
+                back.addEventListener('click', () => this.closeSettingPage());
+                page.titlebarEl.createDiv({ cls: 'setting-page-title', text: page.title || '' });
+            }
+            this.settingPages.push(page);
+            host.appendChild(page.rootEl);
+            page.rootEl.show();
+            try { page.display(); } catch (error) { console.error(error); }
+        },
+        closeSettingPage() {
+            const page = this.settingPages.pop();
+            if (!page) return;
+            try { page.hide(); } catch (error) { console.error(error); }
+            page.rootEl.detach();
+            const below = this.settingPages.last() ? this.settingPages.last().rootEl : (this.shownSettingTab ? this.shownSettingTab.containerEl : null);
+            if (below) below.show();
+        },
         clearShownContent() {
+            while (this.settingPages.length > 0) this.closeSettingPage();
             if (this.shownSettingTab) {
                 const settingTab = this.shownSettingTab;
                 this.shownSettingTab = null;
@@ -679,6 +708,40 @@
         setName(name) { this.nameEl.setText(name); return this; }
         setDesc(description) { this.descEl.setText(description); return this; }
         setClass(className) { this.settingEl.addClass(className); return this; }
+        /// An icon before the row's name (undocumented; Importer's "Choose files" rows).
+        setIcon(icon) {
+            if (!this.iconEl) this.iconEl = createDiv({ cls: 'setting-item-icon' });
+            this.settingEl.prepend(this.iconEl);
+            exportedApi.setIcon(this.iconEl, icon);
+            return this;
+        }
+        /// A row that does something when tapped (undocumented), without a chevron.
+        setAction(callback) {
+            this.settingEl.addClass('mod-clickable');
+            if (this.actionListener) this.settingEl.removeEventListener('click', this.actionListener);
+            this.actionListener = (event) => {
+                if (event.target.closest('button, input, select, textarea, a, .checkbox-container')) return;
+                callback(event);
+            };
+            this.settingEl.addEventListener('click', this.actionListener);
+            return this;
+        }
+        /// A row that leads somewhere when tapped (undocumented; Obsidian's own Importer lists
+        /// its formats with it): the whole row answers, with a chevron at its end.
+        setNavigable(callback) {
+            this.settingEl.addClass('mod-clickable', 'mod-navigable');
+            if (!this.navigationChevronEl) {
+                this.navigationChevronEl = this.controlEl.createDiv({ cls: 'setting-item-chevron' });
+                exportedApi.setIcon(this.navigationChevronEl, 'chevron-right');
+            }
+            if (this.navigationListener) this.settingEl.removeEventListener('click', this.navigationListener);
+            this.navigationListener = (event) => {
+                if (event.target.closest('button, input, select, textarea, a, .checkbox-container')) return;
+                callback(event);
+            };
+            this.settingEl.addEventListener('click', this.navigationListener);
+            return this;
+        }
         setTooltip(tooltip, options) { setTooltip(this.nameEl, tooltip, options); return this; }
         setHeading() { this.settingEl.addClass('setting-item-heading'); return this; }
         setDisabled(isDisabled) {

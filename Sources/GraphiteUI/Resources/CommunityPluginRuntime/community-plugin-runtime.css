@@ -278,3 +278,10 @@ body.theme-dark { --mono-rgb-0: 0, 0, 0; --mono-rgb-100: 255, 255, 255; }
 :where(.markdown-rendered) mark { background-color: var(--text-highlight-bg); color: var(--text-normal); border-radius: 2px; }
 :where(.markdown-rendered) a.tag, :where(.markdown-rendered) .tag { color: var(--text-accent); background: rgba(var(--color-blue-rgb), 0.1); border-radius: 1em; padding: 0.1em 0.6em; font-size: 0.875em; text-decoration: none; }
 :where(.markdown-rendered) img { max-width: 100%; }
+
+/* Rows that lead to a page or a step (Setting.setNavigable, Importer's formats), and a setting's leading icon */
+.setting-item.mod-navigable { cursor: pointer; }
+.setting-item-chevron, .setting-page-chevron { color: var(--text-faint); display: flex; align-items: center; }
+.setting-item-icon { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex-shrink: 0; color: var(--text-muted); }
+.setting-page-titlebar { display: flex; align-items: center; gap: var(--size-4-2); margin-bottom: var(--size-4-3); }
+.setting-page-titlebar .setting-page-title { font-size: var(--font-ui-large); font-weight: var(--font-semibold); }

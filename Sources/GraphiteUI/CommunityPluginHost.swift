@@ -822,6 +822,13 @@ final class CommunityPluginHost {
             return [:] as [String: Any]
         case "workspace.renameFile":
             return await renameFileUpdatingLinks(message)
+        case "clipboard.readText":
+            // WebKit refuses the hidden plugins' page the clipboard; plugins read it through
+            // Graphite when they act on the person's command (ReadItLater, Linter's paste).
+            return ["text": Pasteboard.text ?? ""] as [String: Any]
+        case "clipboard.writeText":
+            Pasteboard.copy(message["text"] as? String ?? "")
+            return [:] as [String: Any]
         case "menu.show":
             let chosenPosition: Any = await showMenu(message["items"] as? [[String: Any]] ?? []) ?? NSNull()
             return ["chosenPosition": chosenPosition] as [String: Any]
@@ -962,6 +969,15 @@ final class CommunityPluginHost {
         notices.append(CommunityPluginNotice(id: noticeIdentifier, message: message, pluginName: pluginName))
         if notices.count > 4 { notices.removeFirst() }
         scheduleNoticeRemoval(noticeIdentifier, afterMilliseconds: 6000)
+    }
+
+    /// Hands a link's action to the plugin that registered it (`registerObsidianProtocolHandler`),
+    /// starting the plugins first when the vault has them on; false when no plugin took it.
+    func openPluginLink(action: String, parameters: [String: String]) async -> Bool {
+        if !isRuntimeRunning, let workspace { await startIfNeeded(workspace) }
+        guard isRuntimeRunning else { return false }
+        let answer = try? await send(["operation": "protocol.open", "action": action, "parameters": parameters], timeout: .seconds(10))
+        return answer?["isHandled"] as? Bool == true
     }
 
     /// A tap on a plugin's notice, or on one of its buttons: the runtime clicks the notice or

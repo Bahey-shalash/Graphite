@@ -571,7 +571,11 @@
         async setViewState(viewState, ephemeralState) {
             const workspace = this.app.workspace;
             if (viewState.type === 'markdown' && viewState.state && viewState.state.file) {
-                await hostBridge.send('workspace.openFile', { path: viewState.state.file, placement: this.kind === 'mirror' ? 'currentTab' : 'newTab' });
+                await hostBridge.send('workspace.openFile', {
+                    path: viewState.state.file,
+                    placement: this.kind === 'mirror' ? 'currentTab' : 'newTab',
+                    subpath: ephemeralState && ephemeralState.subpath ? ephemeralState.subpath : null,
+                });
                 return;
             }
             if (viewState.type === 'empty') {
@@ -627,6 +631,12 @@
             hostBridge.notify('view.reveal', { leafIdentifier: this.id, placement: placementOf(this) });
         }
         async openFile(file, openState) {
+            // As in Obsidian, a note opens through setViewState, which plugins patch to show
+            // their own view for some notes (Excalidraw's drawings are .excalidraw.md notes).
+            if (file && file.extension === 'md') {
+                await this.setViewState({ type: 'markdown', state: Object.assign({ file: file.path }, openState && openState.state), active: openState ? openState.active : undefined }, openState && openState.eState);
+                return;
+            }
             await hostBridge.send('workspace.openFile', { path: file.path, placement: this.kind === 'mirror' ? 'currentTab' : 'newTab', subpath: openState && openState.eState && openState.eState.subpath ? openState.eState.subpath : null });
         }
         getDisplayText() { return this.view.getDisplayText(); }

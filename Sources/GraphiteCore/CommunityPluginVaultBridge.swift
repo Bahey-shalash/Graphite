@@ -163,6 +163,9 @@ public struct CommunityPluginVaultBridge: Sendable {
         var folders: [String] = []
         for child in children {
             guard let childPath = try? folder.appending(child.lastPathComponent) else { continue }
+            // A symbolic link that leads out of the vault is not listed: nothing can read it,
+            // and libraries that list then stat each entry (isomorphic-git) would stop at it.
+            if (try? child.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true, (try? childPath.url(in: store.root)) == nil { continue }
             let isDirectory = (try? child.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
             if isDirectory { folders.append(childPath.rawValue) } else { files.append(childPath.rawValue) }
         }
