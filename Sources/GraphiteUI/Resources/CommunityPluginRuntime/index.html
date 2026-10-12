@@ -2,7 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- As on Obsidian mobile, the page itself never zooms: a pinch or a Pencil stroke in a live
+     view (Excalidraw) reaches the plugin, which zooms and draws itself. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Community plugins</title>
 <link rel="stylesheet" href="community-plugin-runtime.css">
 <!-- The order matters: each runtime file builds on the ones before it. The Node tests read this list. -->

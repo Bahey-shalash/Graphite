@@ -373,8 +373,20 @@ final class CommunityPluginHost {
         configuration.websiteDataStore = WKWebsiteDataStore(forIdentifier: vaultIdentifier)
         configuration.setURLSchemeHandler(handler, forURLScheme: CommunityPluginSchemeHandler.scheme)
         configuration.userContentController.addScriptMessageHandler(messageReceiver, contentWorld: .page, name: "graphitePlugins")
+        #if canImport(UIKit)
+        // The page's own viewport keeps it from zooming (Obsidian mobile's), so a pinch reaches
+        // a live view's plugin.
+        configuration.ignoresViewportScaleLimits = false
+        #endif
         let pluginWebView = WKWebView(frame: .zero, configuration: configuration)
         pluginWebView.navigationDelegate = messageReceiver
+        #if canImport(UIKit)
+        // Apple Pencil and touches reach the page as pointer events (`pointerType` "pen", with
+        // `pressure`, `tiltX` and `tiltY`, and hovering as moves without buttons), which
+        // Excalidraw draws with. The page never rubber-bands under a stroke that starts
+        // outside the plugin's canvas.
+        pluginWebView.scrollView.bounces = false
+        #endif
         #if DEBUG
         pluginWebView.isInspectable = true
         #endif
