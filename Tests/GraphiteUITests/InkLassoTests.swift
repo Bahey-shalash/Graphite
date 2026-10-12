@@ -66,4 +66,42 @@ final class InkLassoTests: XCTestCase {
         PaletteInkSelection.isOn = false
         XCTAssertEqual(notificationCount, 2)
     }
+
+    func testARectangularLassoIsTheBoxBetweenTwoCornersDraggedEitherWay() {
+        let dragged = InkLasso.rectangleLoop(from: CGPoint(x: 100, y: 80), to: CGPoint(x: 20, y: 10))
+        XCTAssertEqual(InkLasso.bounds(of: dragged), CGRect(x: 20, y: 10, width: 80, height: 70))
+        XCTAssertTrue(InkLasso.isPoint(CGPoint(x: 50, y: 50), insideLoop: dragged))
+        XCTAssertFalse(InkLasso.isPoint(CGPoint(x: 10, y: 50), insideLoop: dragged))
+        XCTAssertTrue(InkLasso.bounds(of: []).isNull)
+    }
+
+    func testAPictureIsTakenWhenMostOfItsAreaIsInsideTheLoopAsTurned() {
+        // A picture half over the loop's right edge is not taken; one mostly inside is.
+        let halfOutside = InkLasso.samplePoints(ofRectangle: CGRect(x: 50, y: 20, width: 100, height: 60), turnedBy: 0)
+        XCTAssertEqual(InkLasso.enclosedFraction(of: halfOutside, inLoop: square), 0.5)
+        let mostlyInside = InkLasso.samplePoints(ofRectangle: CGRect(x: 10, y: 20, width: 100, height: 60), turnedBy: 0)
+        XCTAssertGreaterThanOrEqual(InkLasso.enclosedFraction(of: mostlyInside, inLoop: square), InkLasso.minimumEnclosedFraction)
+        // A long, thin picture turned a quarter fits where it would not upright.
+        let tall = CGRect(x: -20, y: 40, width: 140, height: 20)
+        XCTAssertLessThan(InkLasso.enclosedFraction(of: InkLasso.samplePoints(ofRectangle: tall, turnedBy: 0), inLoop: [CGPoint(x: 35, y: -30), CGPoint(x: 65, y: -30), CGPoint(x: 65, y: 130), CGPoint(x: 35, y: 130)]), 0.6)
+        XCTAssertEqual(InkLasso.enclosedFraction(of: InkLasso.samplePoints(ofRectangle: tall, turnedBy: .pi / 2), inLoop: [CGPoint(x: 35, y: -30), CGPoint(x: 65, y: -30), CGPoint(x: 65, y: 130), CGPoint(x: 35, y: 130)]), 1)
+    }
+
+    func testTheLassoTypeIsRememberedAndStartsFreehand() {
+        let defaults = UserDefaults.standard
+        let storedShape = defaults.object(forKey: LassoShape.preferenceKey)
+        defer { defaults.set(storedShape, forKey: LassoShape.preferenceKey) }
+        defaults.removeObject(forKey: LassoShape.preferenceKey)
+        XCTAssertEqual(LassoShape.stored, .freehand)
+        LassoShape.stored = .rectangle
+        XCTAssertEqual(LassoShape.stored, .rectangle)
+        defaults.set("triangle", forKey: LassoShape.preferenceKey)
+        XCTAssertEqual(LassoShape.stored, .freehand, "A value another build wrote reads as the default.")
+    }
+
+    func testAPictureNamedAfterAPageBecomesAFileNameLinksCanHold() {
+        XCTAssertEqual(LassoNoteDestination.fileStem(for: "Lecture 3, page 4"), "Lecture 3, page 4")
+        XCTAssertEqual(LassoNoteDestination.fileStem(for: "a/b:c|d"), "a-b-c-d")
+        XCTAssertEqual(LassoNoteDestination.fileStem(for: "..."), "Screenshot")
+    }
 }

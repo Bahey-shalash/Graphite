@@ -53,6 +53,8 @@ struct EmbeddedPDFViewer: View {
     private var usesFixedToolbar: Bool { toolbarStyle == .fixed && horizontalSizeClass != .compact }
     #endif
     @Environment(\.scenePhase) private var scenePhase
+    /// The note this PDF is embedded in, where the lasso's pictures of its pages go.
+    @Environment(\.lassoNoteDestination) private var noteDestination
 
     /// What the conflict banner says instead of its default text.
     private enum ConflictNotice {
@@ -291,7 +293,8 @@ struct EmbeddedPDFViewer: View {
                 GraphitePDFView(session: session,
                                 input: annotationInput(for: session),
                                 isEmbedded: true,
-                                initialPageIndex: session.currentPageIndex)
+                                initialPageIndex: session.currentPageIndex,
+                                noteDestination: noteDestination)
                     // A reloaded file is a new session; its view and canvases start fresh.
                     .id(ObjectIdentifier(session))
             }

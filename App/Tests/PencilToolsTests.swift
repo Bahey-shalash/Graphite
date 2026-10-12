@@ -371,15 +371,17 @@ final class PencilToolsTests: XCTestCase {
         XCTAssertTrue(accessoryButton.isSelected)
         XCTAssertEqual(accessoryButton.accessibilityValue, "Shapes on", "The state is announced, not shown by color alone.")
 
-        // The menu: the favorite colors, then the Draw Shapes switch showing the preference.
+        // The menu: the favorite colors, the Draw Shapes switch showing the preference, then
+        // Select Ink with the lasso's type.
         let elements = PencilToolPalette.menuElements(for: toolPicker, palette: [PaletteColor(name: "red", hex: "#e93147")])
-        XCTAssertEqual(elements.count, 2)
-        let shapesSwitch = try XCTUnwrap((elements.last as? UIMenu)?.children.first as? UIAction)
+        XCTAssertEqual(elements.count, 3)
+        let shapesSwitch = try XCTUnwrap((elements[1] as? UIMenu)?.children.first as? UIAction)
         XCTAssertEqual(shapesSwitch.title, "Draw Shapes")
         XCTAssertEqual(shapesSwitch.state, .off)
+        XCTAssertEqual((elements[2] as? UIMenu)?.children.map(\.title), ["Select Ink", "Lasso Type"])
         UserDefaults.standard.set(true, forKey: PDFAnnotationPreferenceKey.drawsShapes)
         let elementsWithShapesOn = PencilToolPalette.menuElements(for: toolPicker, palette: [])
-        XCTAssertEqual(((elementsWithShapesOn.last as? UIMenu)?.children.first as? UIAction)?.state, .on)
+        XCTAssertEqual(((elementsWithShapesOn[1] as? UIMenu)?.children.first as? UIAction)?.state, .on)
     }
 
     func testFavoriteColorGoesToTheToolInUseAndKeepsItsKindWidthAndOpacity() throws {

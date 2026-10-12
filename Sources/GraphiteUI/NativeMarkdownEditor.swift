@@ -1719,6 +1719,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                 self.updateReservedHeight(height, for: key, in: textView)
             })
             return AnyView(widget
+                .environment(\.lassoNoteDestination, environment.lassoNoteDestination)
                 .environment(\.colorScheme, textView.traitCollection.userInterfaceStyle == .dark ? .dark : .light)
                 .tint(accent)
                 .environment(\.accent, accent))

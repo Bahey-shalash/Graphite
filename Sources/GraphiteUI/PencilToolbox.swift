@@ -567,6 +567,7 @@ struct PencilToolRow: View {
     /// The colors offered while a highlighter is in use, in place of the favorite colors.
     var highlighterColors: [PaletteColor] = GraphitePreferences.storedHighlighterPalette()
     @State private var showsInkOptions = false
+    @AppStorage(LassoShape.preferenceKey) private var lassoShape = LassoShape.freehand
     /// The size whose width is open for changing.
     @State private var adjustedSize: PencilSizeChoice?
 
@@ -623,7 +624,13 @@ struct PencilToolRow: View {
                 }
                 separator
             case .lasso:
-                EmptyView()
+                // Remembered for every canvas, as Goodnotes keeps its lasso's type.
+                Picker("Lasso Type", selection: $lassoShape) {
+                    ForEach(LassoShape.allCases) { shape in Text(shape.title).tag(shape) }
+                }
+                .pickerStyle(.segmented)
+                .fixedSize()
+                separator
             }
             // A highlighter marks text in light colors of its own; a pen writes in black and
             // the note colors.
@@ -772,7 +779,7 @@ struct PencilToolButtons {
         return Button {
             toolbox.use(kind)
         } label: {
-            glyphLabel(PencilToolGlyph(tool: kind == .lasso ? .lasso : .eraser, isInUse: isInUse))
+            glyphLabel(PencilToolGlyph(tool: PencilToolGlyph.Tool(kind: kind), isInUse: isInUse))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(kind.title)
@@ -842,6 +849,14 @@ struct PencilToolGlyph: View {
         case ink(PencilInk)
         case eraser
         case lasso
+
+        /// The glyph of a tool other than an ink.
+        init(kind: PencilToolKind) {
+            switch kind {
+            case .eraser, .ink: self = .eraser
+            case .lasso: self = .lasso
+            }
+        }
     }
 
     let tool: Tool

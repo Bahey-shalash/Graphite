@@ -76,6 +76,7 @@ struct MarkdownPane: View {
                                 toggleTask: { [session] note, location in await workspace.toggleReadingTask(at: location, in: note, shownBy: session) })
                 .environment(\.readingImageActions, ReadingImageActions(providerIdentity: ObjectIdentifier(workspace),
                                                                         viewImage: viewImage, editDrawing: drawingEditor, drawOnImage: imageDrawing))
+                .environment(\.lassoNoteDestination, LassoNoteDestination.note(session, in: workspace))
             } else {
                 NativeMarkdownEditor(session: session, configuration: editorConfiguration, environment: livePreviewEnvironment,
                                      headingScrollRequest: document.headingScrollRequest, actions: editorActions,
@@ -272,7 +273,8 @@ struct MarkdownPane: View {
             baseContext: workspace.baseEmbedContext(for: notePath),
             viewImage: viewImage, editDrawing: drawingEditor, drawOnImage: imageDrawing, indexVersion: workspace.indexVersion,
             // Reading view's column, a little wider than Live Preview's, bounds the decode.
-            embeddedImageColumnWidth: preferences.usesReadableLineLength ? ReadingConfiguration.readableColumnWidth : nil)
+            embeddedImageColumnWidth: preferences.usesReadableLineLength ? ReadingConfiguration.readableColumnWidth : nil,
+            lassoNoteDestination: LassoNoteDestination.note(session, in: workspace))
     }
 
     /// Opens a drawing in the editor, where the platform and preferences allow it.

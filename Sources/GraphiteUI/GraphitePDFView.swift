@@ -12,6 +12,14 @@ struct PDFLinkActions {
     /// Inserts the quote into the note open on the other side, named `noteName`.
     let quoteInNote: ((_ pageIndex: Int, _ text: String) -> Void)?
     let noteName: String?
+    /// Adds a picture taken with the lasso to that note, as an attachment.
+    var addImageToNote: ((_ pngData: Data, _ name: String) -> Void)? = nil
+
+    /// Where the lasso's pictures of the page can be added: the note open beside the PDF.
+    var noteDestination: LassoNoteDestination? {
+        guard let addImageToNote, let noteName else { return nil }
+        return LassoNoteDestination(noteName: noteName, addImage: addImageToNote)
+    }
 }
 
 /// How a PDF view accepts annotation input.
@@ -177,6 +185,9 @@ struct GraphitePDFView: UIViewRepresentable {
     var readingHighlights: [PDFReadAloudHighlight] = []
     var followsReading = false
     var suspendReadingFollow: (() -> Void)?
+    /// The note a PDF embedded in a note belongs to, for the lasso's pictures; a PDF pane's
+    /// is the note beside it, from `linkActions`.
+    var noteDestination: LassoNoteDestination?
 
     func makeCoordinator() -> PDFAnnotationCoordinator { PDFAnnotationCoordinator(session: session, isEmbedded: isEmbedded) }
 
@@ -208,6 +219,7 @@ struct GraphitePDFView: UIViewRepresentable {
         context.coordinator.attach(to: view)
         context.coordinator.beginInteraction = beginInteraction
         context.coordinator.linkActions = linkActions
+        context.coordinator.noteDestination = noteDestination ?? linkActions?.noteDestination
         context.coordinator.beginWritingWithPencil = beginWritingWithPencil
         session.pdfView = view
         return view
@@ -216,6 +228,7 @@ struct GraphitePDFView: UIViewRepresentable {
     func updateUIView(_ view: GraphitePDFDisplayView, context: Context) {
         context.coordinator.beginInteraction = beginInteraction
         context.coordinator.linkActions = linkActions
+        context.coordinator.noteDestination = noteDestination ?? linkActions?.noteDestination
         context.coordinator.beginWritingWithPencil = beginWritingWithPencil
         context.coordinator.update(input: input)
         context.coordinator.highlightReading(readingHighlights, followsReading: followsReading, suspendFollowing: suspendReadingFollow)
@@ -399,6 +412,8 @@ final class PDFPageCanvasView: HistoryCanvasView {
     var isRestoringStoredInk = false
     /// The view PDFKit places over the page, which holds this canvas and the writing guides.
     private(set) weak var overlayView: PDFPageOverlayView?
+    /// The owner of the PDF view's canvases, whose session the lasso's pictures belong to.
+    weak var annotationCoordinator: PDFAnnotationCoordinator?
 
     init(page: PDFPage, inkTracker: PDFPageInkTracker) {
         self.page = page
@@ -559,6 +574,8 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     let isEmbedded: Bool
     var beginInteraction: (() -> Void)?
     var linkActions: PDFLinkActions?
+    /// Where the lasso's pictures of a page can be added as an attachment.
+    var noteDestination: LassoNoteDestination?
     /// See `GraphitePDFView.beginWritingWithPencil`.
     var beginWritingWithPencil: (() -> Void)?
     private var pencilWhileReadingRecognizer: PencilTouchDownRecognizer?
@@ -942,6 +959,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
 
     private func makeCanvas(for page: PDFPage) -> PDFPageCanvasView {
         let canvas = PDFPageCanvasView(page: page, inkTracker: PDFPageInkTracker(group: PDFInkGroups.newGroup(on: page)))
+        canvas.annotationCoordinator = self
         canvas.backgroundColor = .clear
         canvas.isOpaque = false
         // Pages are white paper; dark-mode ink adaptation would make black ink invisible.
@@ -1323,6 +1341,8 @@ struct GraphitePDFView: NSViewRepresentable {
     var readingHighlights: [PDFReadAloudHighlight] = []
     var followsReading = false
     var suspendReadingFollow: (() -> Void)?
+    /// The Mac viewer has no lasso; accepted so both platforms share one call.
+    var noteDestination: LassoNoteDestination?
 
     final class Coordinator {
         var pageObserver: PDFViewPageObserver?

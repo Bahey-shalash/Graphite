@@ -29,6 +29,8 @@ struct LivePreviewEnvironment {
     /// The widest, in points, the note's column shows an embedded image; nil when the
     /// column is as wide as the window. Images are decoded for this width.
     var embeddedImageColumnWidth: CGFloat? = nil
+    /// Where the lasso's pictures of an embedded PDF go: this note.
+    var lassoNoteDestination: LassoNoteDestination? = nil
 }
 
 /// A rendered stand-in for concealed Live Preview source.

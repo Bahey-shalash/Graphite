@@ -41,7 +41,7 @@ final class InkSelectionTests: XCTestCase {
         XCTAssertFalse(canvas.isDrawingEnabled, "A canvas that selects does not draw.")
         let selection = canvas.inkSelection
         // Around the upper stroke only.
-        selection.selectStrokes(enclosedBy: loop(around: CGRect(x: 80, y: 80, width: 240, height: 40)))
+        selection.selectContents(enclosedBy: loop(around: CGRect(x: 80, y: 80, width: 240, height: 40)))
         XCTAssertEqual(selection.selectedStrokeIndices, [0])
         let frame = try XCTUnwrap(selection.selectionFrame)
         XCTAssertTrue(frame.contains(CGRect(x: 100, y: 99, width: 200, height: 2)), "The frame surrounds the ink with room to spare.")
@@ -49,10 +49,10 @@ final class InkSelectionTests: XCTestCase {
         XCTAssertEqual(descendants(of: canvas, matching: SelectionFrameView.self).count, 1)
 
         // A loop over the left third of both takes neither; one around everything takes both.
-        selection.selectStrokes(enclosedBy: loop(around: CGRect(x: 80, y: 80, width: 80, height: 140)))
+        selection.selectContents(enclosedBy: loop(around: CGRect(x: 80, y: 80, width: 80, height: 140)))
         XCTAssertTrue(selection.selectedStrokeIndices.isEmpty)
         XCTAssertTrue(descendants(of: canvas, matching: SelectionFrameView.self).isEmpty)
-        selection.selectStrokes(enclosedBy: loop(around: CGRect(x: 80, y: 80, width: 240, height: 140)))
+        selection.selectContents(enclosedBy: loop(around: CGRect(x: 80, y: 80, width: 240, height: 140)))
         XCTAssertEqual(selection.selectedStrokeIndices, [0, 1])
 
         // A tap takes the stroke passing under it, and nothing where there is no ink.
@@ -62,8 +62,9 @@ final class InkSelectionTests: XCTestCase {
         XCTAssertTrue(selection.selectedStrokeIndices.isEmpty)
 
         // The menu offers the clipboard actions and the colors of Settings › Colors.
+        selection.select([1])
         let menu = selection.selectionMenuElements(palette: [PaletteColor(name: "red", hex: "#e93147")])
-        XCTAssertEqual(menu.compactMap { element in (element as? UIAction)?.title }, ["Cut", "Copy", "Duplicate", "Smooth", "Delete"])
+        XCTAssertEqual(menu.compactMap { element in (element as? UIAction)?.title }, ["Cut", "Copy", "Duplicate", "Smooth", "Take Screenshot", "Delete"])
         let colorMenu = try XCTUnwrap(menu.compactMap { element in element as? UIMenu }.first)
         XCTAssertEqual(colorMenu.children.map(\.title), ["black", "red"])
 
@@ -340,6 +341,372 @@ final class InkSelectionTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(20))
         }
         XCTAssertTrue(condition(), "The hosted view did not reach the expected state.")
+    }
+}
+
+// MARK: The lasso's loop, types, pictures and screenshots
+
+extension InkSelectionTests {
+    /// How large a point of the canvas is on screen.
+    private func screenScale(of canvas: UIView) -> CGFloat {
+        canvas.convert(CGRect(x: 0, y: 0, width: 1, height: 1), to: nil).width
+    }
+
+    private func canvasPoint(_ drawingPoint: CGPoint, on canvas: PKCanvasView) -> CGPoint {
+        CGPoint(x: drawingPoint.x * canvas.zoomScale, y: drawingPoint.y * canvas.zoomScale)
+    }
+
+    private func contrastRatio(_ color: CGColor, against background: UIColor = .white) -> Double {
+        func luminance(_ color: UIColor) -> Double {
+            var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0
+            color.getRed(&red, green: &green, blue: &blue, alpha: nil)
+            func linear(_ component: CGFloat) -> Double {
+                let value = Double(component)
+                return value <= 0.03928 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+            }
+            return 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
+        }
+        let lighter = max(luminance(UIColor(cgColor: color)), luminance(background)), darker = min(luminance(UIColor(cgColor: color)), luminance(background))
+        return (lighter + 0.05) / (darker + 0.05)
+    }
+
+    private func pictureData(size: CGSize, color: UIColor) throws -> Data {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
+            color.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+        }
+        return try XCTUnwrap(image.pngData())
+    }
+
+    /// The color of an image at a point given in its own points from its top-left corner.
+    private func color(of image: UIImage, at point: CGPoint) throws -> (red: Double, green: Double, blue: Double, alpha: Double) {
+        let cgImage = try XCTUnwrap(image.cgImage)
+        let colorSpace = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+        var pixel = [UInt8](repeating: 0, count: 4)
+        let context = try XCTUnwrap(CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4, space: colorSpace,
+                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        let pixelsPerPoint = Double(cgImage.width) / Double(image.size.width)
+        context.draw(cgImage, in: CGRect(x: -point.x * pixelsPerPoint, y: -(Double(cgImage.height) - point.y * pixelsPerPoint - 1),
+                                         width: Double(cgImage.width), height: Double(cgImage.height)))
+        return (Double(pixel[0]) / 255, Double(pixel[1]) / 255, Double(pixel[2]) / 255, Double(pixel[3]) / 255)
+    }
+
+    private func attachScreenshot(of view: UIView, named name: String) {
+        guard let window = view.window else { return }
+        let screenshot = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        attach(screenshot, named: name)
+    }
+
+    private func attach(_ image: UIImage, named name: String) {
+        let attachment = XCTAttachment(image: image)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    private func dot(at point: CGPoint) -> PKStroke {
+        let dotPoint = PKStrokePoint(location: point, timeOffset: 0, size: CGSize(width: 5, height: 5), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+        return PKStroke(ink: PKInk(.pen, color: .black), path: PKStrokePath(controlPoints: [dotPoint], creationDate: Date()))
+    }
+
+    func testTheLoopIsTheAccentAsOnWhiteOverAHaloAtTheSameWidthAtAnyZoomAndInDarkAppearance() async throws {
+        let (session, canvas, _) = try await openPageWithCanvas()
+        let window = try XCTUnwrap(canvas.window)
+        window.overrideUserInterfaceStyle = .dark
+        defer { window.overrideUserInterfaceStyle = .unspecified }
+        canvas.selectsInk = true
+        let selection = canvas.inkSelection
+        let pdfView = try XCTUnwrap(session.pdfView as? GraphitePDFDisplayView)
+        let fittedScale = pdfView.scaleFactor
+        for scaleFactor in [fittedScale, fittedScale * 0.5, fittedScale * 2.5] {
+            pdfView.scaleFactor = scaleFactor
+            pdfView.layoutIfNeeded()
+            try await Task.sleep(for: .milliseconds(150))
+            selection.loopDidBegin(at: canvasPoint(CGPoint(x: 100, y: 100), on: canvas), reaching: canvasPoint(CGPoint(x: 140, y: 110), on: canvas))
+            selection.loopDidMove(to: canvasPoint(CGPoint(x: 200, y: 180), on: canvas))
+            selection.loopDidMove(to: canvasPoint(CGPoint(x: 120, y: 220), on: canvas))
+            let layers = try XCTUnwrap(selection.shownLoopLayers, "The loop shows while it is drawn.")
+            let scale = screenScale(of: canvas)
+            XCTAssertEqual(layers.line.lineWidth * scale, 1.5, accuracy: 0.01, "The line is 1.5 points on screen at any zoom.")
+            XCTAssertEqual(CGFloat(layers.line.lineDashPattern?.first?.doubleValue ?? 0) * scale, 6, accuracy: 0.01)
+            XCTAssertEqual(layers.halo.lineWidth * scale, 3.5, accuracy: 0.01, "A point of white halo on each side.")
+            if scaleFactor == fittedScale * 0.5 { attachScreenshot(of: canvas, named: "Lasso loop on a zoomed-out page, dark appearance") }
+            selection.loopWasCancelled()
+            XCTAssertNil(selection.shownLoopLayers)
+        }
+        // On the white page in dark appearance, the line is the accent as it reads on white.
+        selection.loopDidBegin(at: canvasPoint(CGPoint(x: 100, y: 100), on: canvas), reaching: canvasPoint(CGPoint(x: 140, y: 110), on: canvas))
+        let layers = try XCTUnwrap(selection.shownLoopLayers)
+        let lineColor = try XCTUnwrap(layers.line.strokeColor)
+        XCTAssertGreaterThanOrEqual(contrastRatio(lineColor), 3, "The line stands out from a white page: \(contrastRatio(lineColor)):1.")
+        XCTAssertEqual(UIColor(cgColor: try XCTUnwrap(layers.halo.strokeColor)).cgColor.alpha, 0.9, accuracy: 0.01)
+        selection.loopWasCancelled()
+    }
+
+    func testALoopTakesADotARectangleTakesWhatItEnclosesAndATapMovesTheSelection() async throws {
+        let shapeBefore = LassoShape.stored
+        defer { LassoShape.stored = shapeBefore }
+        let (session, canvas, page) = try await openPageWithCanvas()
+        let line = stroke(from: CGPoint(x: 100, y: 300), to: CGPoint(x: 300, y: 300))
+        try await draw([dot(at: CGPoint(x: 150, y: 150)), line], on: canvas, page: page, session: session)
+        canvas.selectsInk = true
+        let selection = canvas.inkSelection
+
+        // A freehand loop around the dot of an "i" takes it.
+        LassoShape.stored = .freehand
+        selection.selectContents(enclosedBy: loop(around: CGRect(x: 130, y: 130, width: 40, height: 40)).map { point in canvasPoint(point, on: canvas) })
+        XCTAssertEqual(selection.selectedStrokeIndices, [0])
+
+        // A rectangle dragged from one corner to the other takes what it encloses.
+        LassoShape.stored = .rectangle
+        selection.loopDidBegin(at: canvasPoint(CGPoint(x: 80, y: 260), on: canvas), reaching: canvasPoint(CGPoint(x: 120, y: 280), on: canvas))
+        selection.loopDidMove(to: canvasPoint(CGPoint(x: 250, y: 330), on: canvas))
+        let rectangleLayers = try XCTUnwrap(selection.shownLoopLayers)
+        XCTAssertNotNil(rectangleLayers.line.fillColor, "The box being dragged is tinted.")
+        attachScreenshot(of: canvas, named: "Rectangular lasso being dragged")
+        selection.loopDidEnd(at: canvasPoint(CGPoint(x: 320, y: 330), on: canvas))
+        XCTAssertEqual(selection.selectedStrokeIndices, [1])
+        XCTAssertNotNil(selection.selectionFrame)
+
+        // A box thinner than a tap's reach on screen is a slip, and takes nothing.
+        selection.loopDidBegin(at: canvasPoint(CGPoint(x: 80, y: 290), on: canvas), reaching: canvasPoint(CGPoint(x: 90, y: 291), on: canvas))
+        selection.loopDidEnd(at: canvasPoint(CGPoint(x: 320, y: 292), on: canvas))
+        XCTAssertTrue(selection.selectedStrokeIndices.isEmpty)
+        XCTAssertFalse(selection.isShowingLassoedArea)
+
+        // With one stroke selected, a tap on another selects it at once.
+        selection.select([1])
+        XCTAssertTrue(selection.selectStroke(at: canvasPoint(CGPoint(x: 150, y: 151), on: canvas)))
+        XCTAssertEqual(selection.selectedStrokeIndices, [0])
+
+        // The frame around a dot is small, but its middle moves it: the handles' touch areas
+        // reach only a quarter of the way in.
+        let frameView = try XCTUnwrap(descendants(of: canvas, matching: SelectionFrameView.self).first)
+        frameView.layoutIfNeeded()
+        let middle = CGPoint(x: frameView.bounds.midX, y: frameView.bounds.midY)
+        XCTAssertTrue(frameView.hitTest(middle, with: nil) === frameView, "A touch in the middle of a small frame moves it.")
+        let corner = CGPoint(x: frameView.bounds.maxX + 4 / screenScale(of: canvas), y: frameView.bounds.maxY + 4 / screenScale(of: canvas))
+        XCTAssertFalse(frameView.hitTest(corner, with: nil) === frameView, "Beside the corner, the handle resizes.")
+    }
+
+    func testTheFrameFollowsTheInkAndKeepsItsSizeOnScreenWhenThePageIsZoomed() async throws {
+        let (session, canvas, page) = try await openPageWithCanvas()
+        try await draw([stroke(from: CGPoint(x: 100, y: 100), to: CGPoint(x: 300, y: 100))], on: canvas, page: page, session: session)
+        canvas.selectsInk = true
+        let selection = canvas.inkSelection
+        selection.select([0])
+        let pdfView = try XCTUnwrap(session.pdfView as? GraphitePDFDisplayView)
+        pdfView.scaleFactor *= 2.2
+        pdfView.layoutIfNeeded()
+        // The overlay draws the canvas sharper in steps, which moves the frame's coordinates.
+        try await waitUntil {
+            guard let frame = selection.selectionFrame, let frameView = self.descendants(of: canvas, matching: SelectionFrameView.self).first else { return false }
+            let inkFrame = CGRect(x: 100 * canvas.zoomScale, y: 98 * canvas.zoomScale, width: 200 * canvas.zoomScale, height: 4 * canvas.zoomScale)
+            return frame.contains(inkFrame) && abs(frameView.contentScale - self.screenScale(of: canvas)) < 0.01
+        }
+        attachScreenshot(of: canvas, named: "Selected ink on a zoomed-in page")
+    }
+
+    func testAnAreaWithNothingInItIsMarkedAndItsMenuTakesAScreenshot() async throws {
+        let (session, canvas, page) = try await openPageWithCanvas()
+        try await draw([stroke(from: CGPoint(x: 100, y: 500), to: CGPoint(x: 300, y: 500))], on: canvas, page: page, session: session)
+        canvas.selectsInk = true
+        let selection = canvas.inkSelection
+        let area = CGRect(x: 60, y: 60, width: 300, height: 200)
+        selection.selectContents(enclosedBy: loop(around: area).map { point in canvasPoint(point, on: canvas) })
+        XCTAssertTrue(selection.selectedStrokeIndices.isEmpty)
+        XCTAssertTrue(selection.isShowingLassoedArea)
+        XCTAssertNotNil(selection.shownLoopLayers?.line.fillColor, "The marked area is tinted.")
+        XCTAssertEqual(selection.areaMenuElements().map(\.title), ["Take Screenshot"])
+        let region = try XCTUnwrap(selection.captureRegion)
+        XCTAssertEqual(region.minX, area.minX, accuracy: 0.5)
+        XCTAssertEqual(region.width, area.width, accuracy: 0.5)
+        attachScreenshot(of: canvas, named: "Marked area")
+        // A tap beside it ends it.
+        XCTAssertFalse(selection.selectStroke(at: canvasPoint(CGPoint(x: 400, y: 700), on: canvas)))
+        XCTAssertFalse(selection.isShowingLassoedArea)
+        XCTAssertNil(selection.shownLoopLayers)
+    }
+
+    func testAScreenshotDrawsThePageItsPicturesAndInkAtPrintResolutionAtAnyZoom() async throws {
+        let (session, canvas, page) = try await openPageWithCanvas()
+        try await session.addPicture(imageData: try pictureData(size: CGSize(width: 400, height: 200), color: .red))
+        session.selectedPicture = nil
+        endEvent(of: session.undoManager)
+        let picture = try XCTUnwrap(canvas.lassoPictures().first)
+        // Black ink across the top of the picture, and a highlighter on the white page.
+        let ink = stroke(from: CGPoint(x: picture.frame.minX + 20, y: picture.frame.minY + 10), to: CGPoint(x: picture.frame.maxX - 20, y: picture.frame.minY + 10), width: 6)
+        let highlight = stroke(from: CGPoint(x: picture.frame.minX, y: picture.frame.maxY + 40), to: CGPoint(x: picture.frame.maxX, y: picture.frame.maxY + 40),
+                               ink: PKInk(.marker, color: UIColor(red: 1, green: 1, blue: 0, alpha: 0.5)), width: 20)
+        try await draw([ink, highlight], on: canvas, page: page, session: session)
+        canvas.selectsInk = true
+        let selection = canvas.inkSelection
+        let area = picture.frame.insetBy(dx: -30, dy: -30).union(highlight.renderBounds.insetBy(dx: -10, dy: -10))
+        selection.selectContents(enclosedBy: loop(around: area).map { point in canvasPoint(point, on: canvas) })
+        XCTAssertEqual(selection.selectedStrokeIndices, [0, 1])
+        XCTAssertEqual(selection.selectedPictureIdentifiers, [picture.identifier])
+        let region = try XCTUnwrap(selection.captureRegion)
+
+        let pdfView = try XCTUnwrap(session.pdfView as? GraphitePDFDisplayView)
+        var pixelSizes: [CGSize] = []
+        for scaleFactor in [pdfView.scaleFactor, pdfView.scaleFactor * 0.4] {
+            pdfView.scaleFactor = scaleFactor
+            pdfView.layoutIfNeeded()
+            try await Task.sleep(for: .milliseconds(150))
+            let image = try XCTUnwrap(selection.captureImage())
+            pixelSizes.append(CGSize(width: image.size.width * image.scale, height: image.size.height * image.scale))
+            XCTAssertEqual(image.size.width, region.integral.width, accuracy: 0.5)
+            XCTAssertGreaterThanOrEqual(image.scale, LassoAreaCapture.preferredPixelsPerPoint, "Drawn at 288 pixels per inch, not taken from the screen.")
+            func local(_ point: CGPoint) -> CGPoint { CGPoint(x: point.x - region.integral.minX, y: point.y - region.integral.minY) }
+            let pictureColor = try color(of: image, at: local(CGPoint(x: picture.frame.midX, y: picture.frame.midY + 30)))
+            XCTAssertGreaterThan(pictureColor.red, 0.8); XCTAssertLessThan(pictureColor.green, 0.3)
+            let inkColor = try color(of: image, at: local(CGPoint(x: picture.frame.midX, y: picture.frame.minY + 10)))
+            XCTAssertLessThan(inkColor.red, 0.3, "The ink is drawn over the picture.")
+            let highlightColor = try color(of: image, at: local(CGPoint(x: picture.frame.midX, y: picture.frame.maxY + 40)))
+            XCTAssertGreaterThan(highlightColor.red, 0.9)
+            XCTAssertEqual(highlightColor.blue, 0.5, accuracy: 0.15, "The highlighter is drawn once, not again from the page's annotation.")
+            let paperColor = try color(of: image, at: local(CGPoint(x: region.minX + 3, y: region.minY + 3)))
+            XCTAssertGreaterThan(paperColor.blue, 0.95, "The page is white paper.")
+            if scaleFactor != pdfView.scaleFactor || pixelSizes.count == 1 { attach(image, named: "Screenshot of a page area at scale \(scaleFactor)") }
+        }
+        XCTAssertEqual(pixelSizes.first, pixelSizes.last, "A zoomed-out page gives the same sharp picture.")
+
+        // A page shown turned gives the picture turned as it is shown.
+        page.rotation = 90
+        defer { page.rotation = 0 }
+        let turnedImage = try XCTUnwrap(selection.captureImage())
+        XCTAssertEqual(turnedImage.size.width, region.integral.height, accuracy: 0.5)
+        XCTAssertEqual(turnedImage.size.height, region.integral.width, accuracy: 0.5)
+    }
+
+    func testInkAndPicturesSelectedTogetherMoveResizeAndDeleteAsOneUndoStep() async throws {
+        let (session, canvas, page) = try await openPageWithCanvas()
+        try await session.addPicture(imageData: try pictureData(size: CGSize(width: 400, height: 200), color: .systemTeal))
+        session.selectedPicture = nil
+        endEvent(of: session.undoManager)
+        let picture = try XCTUnwrap(canvas.lassoPictures().first)
+        let pictureBoundsBefore = try XCTUnwrap(session.pictures(on: page).first).bounds
+        let writing = stroke(from: CGPoint(x: picture.frame.minX, y: picture.frame.minY - 30), to: CGPoint(x: picture.frame.maxX, y: picture.frame.minY - 30))
+        try await draw([writing], on: canvas, page: page, session: session)
+        canvas.selectsInk = true
+        let selection = canvas.inkSelection
+        selection.selectContents(enclosedBy: loop(around: picture.frame.insetBy(dx: -20, dy: -50)).map { point in canvasPoint(point, on: canvas) })
+        XCTAssertEqual(selection.selectedStrokeIndices, [0])
+        XCTAssertEqual(selection.selectedPictureIdentifiers, [picture.identifier])
+        XCTAssertEqual(selection.selectionMenuElements(palette: []).compactMap { element in (element as? UIAction)?.title },
+                       ["Copy", "Smooth", "Take Screenshot", "Delete"], "Ink and pictures are copied as a picture; Cut and Duplicate would lose the pictures.")
+        let frameView = try XCTUnwrap(descendants(of: canvas, matching: SelectionFrameView.self).first)
+        XCTAssertEqual(frameView.accessibilityLabel, "Selected ink and images")
+        XCTAssertTrue(frameView.accessibilityCustomActions?.contains { action in action.name == "Take Screenshot" } ?? false)
+        attachScreenshot(of: canvas, named: "Ink and a picture selected together")
+
+        // Moved by (40, 60) and half as large again: the picture and the ink go together.
+        let frame = try XCTUnwrap(selection.selectionFrame)
+        let newFrame = CGRect(x: frame.minX + 40 * canvas.zoomScale, y: frame.minY + 60 * canvas.zoomScale, width: frame.width * 1.5, height: frame.height * 1.5)
+        let versionBefore = session.changeVersion
+        selection.moveSelection(in: canvas.drawing, from: frame, to: newFrame)
+        try await waitUntil { session.changeVersion > versionBefore }
+        let movedPicture = try XCTUnwrap(canvas.lassoPictures().first)
+        XCTAssertGreaterThan(movedPicture.frame.width, picture.frame.width * 1.4)
+        XCTAssertGreaterThan(movedPicture.frame.minX, picture.frame.minX + 30)
+        let movedInk = try XCTUnwrap(canvas.drawing.strokes.first)
+        XCTAssertLessThan(movedInk.renderBounds.maxY, movedPicture.frame.minY, "The ink stays above the picture.")
+        XCTAssertGreaterThan(movedInk.renderBounds.minX, writing.renderBounds.minX + 30)
+        XCTAssertEqual(selection.selectedPictureIdentifiers, [picture.identifier], "Both stay selected.")
+        endEvent(of: session.undoManager)
+
+        // One undo puts both back.
+        session.undoAvailability.undo()
+        try await waitUntil { canvas.drawing.strokes.first?.path.first?.location == writing.path.first?.location }
+        XCTAssertEqual(try XCTUnwrap(session.pictures(on: page).first).bounds, pictureBoundsBefore)
+        endEvent(of: session.undoManager)
+
+        // Deleting both is one step too.
+        selection.select([0], pictures: [picture.identifier])
+        selection.deleteSelection()
+        try await waitUntil { canvas.drawing.strokes.isEmpty && session.pictures(on: page).isEmpty }
+        endEvent(of: session.undoManager)
+        session.undoAvailability.undo()
+        try await waitUntil { canvas.drawing.strokes.count == 1 && session.pictures(on: page).count == 1 }
+        XCTAssertNil(session.errorMessage)
+    }
+
+    func testOnADrawingTheLassoMovesInkAndPicturesTogetherAndTakesAScreenshot() async throws {
+        var request = DrawingEditorRequest(target: .newDrawing(notePath: try VaultPath("Note.md"), insertionRange: NSRange(location: 0, length: 0)),
+                                           title: "Circuit", initialStrokeData: PKDrawing(strokes: [stroke(from: CGPoint(x: 60, y: 90), to: CGPoint(x: 240, y: 90))]).dataRepresentation(),
+                                           canvasWidth: 760, background: .white, format: .png)
+        request.pictures = [DrawingBackgroundImage(imageData: try pictureData(size: CGSize(width: 200, height: 100), color: .red),
+                                                   frame: CGRect(x: 40, y: 120, width: 200, height: 100))]
+        var addedPictures: [(Data, String)] = []
+        let destination = LassoNoteDestination(noteName: "Note") { pngData, name in addedPictures.append((pngData, name)) }
+        let controller = UIHostingController(rootView: AnyView(DrawingEditor(request: request, noteDestination: destination, save: { _, _ in },
+            exportCopy: { _, _ in throw CocoaError(.featureUnsupported) }, preserveDraft: { _ in }, removeDraft: {})))
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        windows.append(window)
+        try await waitUntil { !self.descendants(of: controller.view, matching: InfiniteCanvasView.self).isEmpty }
+        let canvas = try XCTUnwrap(descendants(of: controller.view, matching: InfiniteCanvasView.self).first)
+        try await waitUntil { canvas.zoomScale > 0 && canvas.bounds.width > 0 }
+        let history = try XCTUnwrap(descendants(of: canvas, matching: PencilToolPickerHostView.self).first?.documentUndoManager)
+        canvas.selectsInk = true
+        let selection = canvas.inkSelection
+        selection.selectContents(enclosedBy: loop(around: CGRect(x: 20, y: 60, width: 260, height: 180)).map { point in canvasPoint(point, on: canvas) })
+        XCTAssertEqual(selection.selectedStrokeIndices, [0])
+        XCTAssertEqual(selection.selectedPictureIdentifiers.count, 1)
+
+        // The picture of the area: white paper, the red picture, the black ink.
+        let image = try XCTUnwrap(selection.captureImage())
+        XCTAssertEqual(image.size.width, 260, accuracy: 0.5)
+        XCTAssertGreaterThan(try color(of: image, at: CGPoint(x: 120, y: 120)).red, 0.8)
+        XCTAssertLessThan(try color(of: image, at: CGPoint(x: 120, y: 120)).green, 0.3)
+        XCTAssertLessThan(try color(of: image, at: CGPoint(x: 100, y: 30)).red, 0.3)
+        XCTAssertGreaterThan(try color(of: image, at: CGPoint(x: 250, y: 10)).green, 0.95)
+        attach(image, named: "Screenshot of a drawing area")
+        // Add to Note gives the note the picture's PNG, named after the drawing.
+        let activity = AddToNoteActivity(destination: destination, image: image, name: canvas.lassoCaptureName)
+        XCTAssertEqual(activity.activityTitle, "Add to “Note”")
+        activity.perform()
+        XCTAssertEqual(addedPictures.first?.1, "Circuit")
+        let addedImage = try XCTUnwrap(addedPictures.first.flatMap { pngData, _ in UIImage(data: pngData) })
+        XCTAssertEqual(addedImage.size.width * addedImage.scale, image.size.width * image.scale, accuracy: 1)
+
+        // Take Screenshot offers the picture in the share sheet, at the area.
+        selection.takeScreenshot()
+        try await waitUntil { controller.presentedViewController is UIActivityViewController }
+        try await Task.sleep(for: .seconds(1.5))
+        attachScreenshot(of: canvas, named: "Share sheet of a drawing area's screenshot")
+        controller.dismiss(animated: false)
+        try await waitUntil { controller.presentedViewController == nil }
+        XCTAssertEqual(selection.selectedPictureIdentifiers.count, 1, "The selection stays to be worked on.")
+
+        // Moving moves both, and one undo puts both back.
+        endEvent(of: history)
+        let frame = try XCTUnwrap(selection.selectionFrame)
+        selection.moveSelection(in: canvas.drawing, from: frame, to: frame.offsetBy(dx: 100 * canvas.zoomScale, dy: 200 * canvas.zoomScale))
+        let movedPicture = try XCTUnwrap(canvas.lassoPictures().first)
+        XCTAssertEqual(movedPicture.frame.minX, 140, accuracy: 1)
+        XCTAssertEqual(movedPicture.frame.minY, 320, accuracy: 1)
+        XCTAssertEqual(canvas.drawing.strokes.first?.path.first?.location.x ?? 0, 160, accuracy: 1)
+        endEvent(of: history)
+        history.undo()
+        try await waitUntil { canvas.lassoPictures().first?.frame.minX == 40 }
+        XCTAssertEqual(canvas.drawing.strokes.first?.path.first?.location.x ?? 0, 60, accuracy: 0.5)
+    }
+
+    func testPicturesOfAnAreaAreDrawnAtPrintResolutionWithinTheirPixelLimits() {
+        XCTAssertEqual(LassoAreaCapture.pixelsPerPoint(for: CGRect(x: 0, y: 0, width: 600, height: 800), screenPixelsPerPoint: 2), 4)
+        XCTAssertEqual(LassoAreaCapture.pixelsPerPoint(for: CGRect(x: 0, y: 0, width: 600, height: 800), screenPixelsPerPoint: 6), 6, "A finer screen gives a finer picture.")
+        XCTAssertLessThanOrEqual(LassoAreaCapture.pixelsPerPoint(for: CGRect(x: 0, y: 0, width: 3000, height: 3000), screenPixelsPerPoint: 2) * 3000, 6_000)
+        let tallScale = LassoAreaCapture.pixelsPerPoint(for: CGRect(x: 0, y: 0, width: 1400, height: 5000), screenPixelsPerPoint: 2)
+        XCTAssertLessThanOrEqual(tallScale * tallScale * 1400 * 5000, LassoAreaCapture.maximumPixelCount * 1.0001)
     }
 }
 #endif

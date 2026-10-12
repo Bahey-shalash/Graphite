@@ -197,11 +197,9 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
     /// its knobs are white, ringed in the accent. Following the appearance, it was white on
     /// a white page in dark appearance.
     private func applyColors() {
-        let pageTraits = UITraitCollection(traitsFrom: [traitCollection, UITraitCollection(userInterfaceStyle: .light)])
-        let accent = PlatformColor.graphiteAccent(hex: GraphitePreferences.storedAccentHex()) ?? .systemBlue
-        let lineColor = accent.resolvedColor(with: pageTraits).cgColor
+        let lineColor = LassoColors.line(for: traitCollection).cgColor
         outlineLayer.strokeColor = lineColor
-        outlineHaloLayer.strokeColor = UIColor.white.withAlphaComponent(0.9).cgColor
+        outlineHaloLayer.strokeColor = LassoColors.halo.cgColor
         for knob in knobs {
             knob.backgroundColor = .white
             knob.layer.borderColor = lineColor
@@ -235,11 +233,24 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
         rotationStem.isHidden = !showsRotationHandle
         rotationRecognizer.isEnabled = showsRotationHandle
         accessibilityHint = showsRotationHandle ? "Drag to move. Drag a corner to resize. Drag the handle above to rotate." : "Drag to move. Drag a corner to resize."
-        accessibilityCustomActions = showsRotationHandle ? [
+        updateAccessibilityActions()
+        setNeedsLayout()
+    }
+
+    /// Actions VoiceOver offers on the frame besides turning it, such as the selection
+    /// menu's, which is out of reach once VoiceOver moves on.
+    var additionalAccessibilityActions: [UIAccessibilityCustomAction] = [] {
+        didSet { updateAccessibilityActions() }
+    }
+
+    private func updateAccessibilityActions() {
+        let showsRotationHandle = allowsRotation && cropLimits == nil
+        let turningActions = showsRotationHandle ? [
             UIAccessibilityCustomAction(name: "Rotate Clockwise", target: self, selector: #selector(turnClockwiseByAccessibilityStep)),
             UIAccessibilityCustomAction(name: "Rotate Counterclockwise", target: self, selector: #selector(turnCounterclockwiseByAccessibilityStep)),
-        ] : nil
-        setNeedsLayout()
+        ] : []
+        let actions = turningActions + additionalAccessibilityActions
+        accessibilityCustomActions = actions.isEmpty ? nil : actions
     }
 
     override func layoutSubviews() {
@@ -263,11 +274,21 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
         outlineHaloLayer.path = outline
         outlineHaloLayer.lineWidth = lineWidth + 2 * Self.haloWidth * handleScale
         CATransaction.commit()
-        for handle in handles.values { handle.transform = CGAffineTransform(scaleX: handleScale, y: handleScale) }
-        handles[.topLeft]?.center = CGPoint(x: bounds.minX, y: bounds.minY)
-        handles[.topRight]?.center = CGPoint(x: bounds.maxX, y: bounds.minY)
-        handles[.bottomLeft]?.center = CGPoint(x: bounds.minX, y: bounds.maxY)
-        handles[.bottomRight]?.center = CGPoint(x: bounds.maxX, y: bounds.maxY)
+        // A handle's touch area reaches at most a quarter of the frame's shorter side into
+        // it, so a small frame, around a word or a dot, keeps its middle for moving; the
+        // area moves outward instead, and the knob stays on the corner.
+        let halfTouchSide = Self.handleTouchSide / 2 * handleScale
+        let inwardReach = min(halfTouchSide, min(bounds.width, bounds.height) / 4)
+        let outwardShift = halfTouchSide - inwardReach
+        for (corner, handle) in handles {
+            let outwardX: CGFloat = corner == .topLeft || corner == .bottomLeft ? -1 : 1
+            let outwardY: CGFloat = corner == .topLeft || corner == .topRight ? -1 : 1
+            let cornerPoint = CGPoint(x: outwardX < 0 ? bounds.minX : bounds.maxX, y: outwardY < 0 ? bounds.minY : bounds.maxY)
+            handle.transform = CGAffineTransform(scaleX: handleScale, y: handleScale)
+            handle.center = CGPoint(x: cornerPoint.x + outwardX * outwardShift, y: cornerPoint.y + outwardY * outwardShift)
+            let knobShift = handleScale > 0 ? outwardShift / handleScale : 0
+            handle.subviews.first?.center = CGPoint(x: Self.handleTouchSide / 2 - outwardX * knobShift, y: Self.handleTouchSide / 2 - outwardY * knobShift)
+        }
         // On a frame too narrow for the turning handle to stand between the top corners'
         // handles, it stands above them, so neither covers the other.
         let standsAboveCornerHandles = bounds.width < Self.handleTouchSide * 2 * handleScale

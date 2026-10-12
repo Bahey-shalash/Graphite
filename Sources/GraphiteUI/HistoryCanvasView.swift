@@ -172,6 +172,13 @@ class HistoryCanvasView: PKCanvasView {
         isDrawingEnabled = !isDrawingSuspended && !selectsInk
     }
 
+    /// Scrolling and zooming move the lasso's selection with the drawing; its frame and a
+    /// marked area are placed again, at the same size on screen.
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if hasInkSelection { inkSelection.canvasDidChangeScale() }
+    }
+
     /// Gives the canvas a drawing it made from its own, as when Graphite's lasso moves,
     /// recolors or adds strokes. The canvas reports it like a stroke just drawn, so its
     /// owner records the change, but no shape is looked for in it.

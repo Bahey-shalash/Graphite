@@ -10,7 +10,8 @@ import PencilKit
 /// launches. Graphite adds one button at its end, whose menu has Favorite Colors, which
 /// gives the tool in use one of the colors of Settings › Colors, the list the notes'
 /// Format › Color menu uses; Draw Shapes, which turns the shape tool on and off
-/// (`PencilShapes`); and Select Ink, which turns on Graphite's lasso (`InkSelectionController`).
+/// (`PencilShapes`); Select Ink, which turns on Graphite's lasso (`InkSelectionController`),
+/// with its type, freehand or rectangular.
 @MainActor
 enum PencilToolPalette {
     /// Whether strokes become the shapes they were meant to be; shared by every canvas.
@@ -48,16 +49,18 @@ enum PencilToolPalette {
         // the pen in use; otherwise it is the colors button.
         button.configurationUpdateHandler = { button in
             let selectsInk = PaletteInkSelection.isOn
+            let isInverted = selectsInk || button.isSelected
             var configuration = UIButton.Configuration.plain()
-            configuration.image = UIImage(systemName: selectsInk ? "lasso" : button.isSelected ? "square.fill.on.circle.fill" : "swatchpalette")
+            let symbolName = selectsInk ? LassoShape.stored.symbolName : button.isSelected ? "square.fill.on.circle.fill" : "swatchpalette"
+            configuration.image = UIImage(systemName: symbolName)
             configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 15, weight: .medium)
             configuration.cornerStyle = .capsule
-            configuration.baseForegroundColor = selectsInk || button.isSelected ? .systemBackground : .label
-            configuration.background.backgroundColor = selectsInk || button.isSelected ? .label : .tertiarySystemFill
+            configuration.baseForegroundColor = isInverted ? .systemBackground : .label
+            configuration.background.backgroundColor = isInverted ? .label : .tertiarySystemFill
             button.configuration = configuration
         }
         button.accessibilityLabel = "Colors, Shapes and Selection"
-        button.accessibilityHint = "Gives the pen in use one of your colors, turns strokes into shapes, or selects ink to move, resize and recolor"
+        button.accessibilityHint = "Gives the pen in use one of your colors, turns strokes into shapes, or selects ink and images to move, resize or capture"
         button.showsLargeContentViewer = true
         button.largeContentTitle = "Colors, Shapes and Selection"
         button.showsMenuAsPrimaryAction = true
@@ -79,7 +82,12 @@ enum PencilToolPalette {
     static func updateShapesButton(_ item: UIBarButtonItem, isOn: Bool) {
         guard let button = item.customView as? UIButton else { return }
         button.isSelected = isOn
-        button.accessibilityValue = (isOn ? "Shapes on" : "Shapes off") + (PaletteInkSelection.isOn ? ", selecting ink" : "")
+        button.accessibilityValue = accessibilityValue(shapesAreOn: isOn)
+    }
+
+    /// Whether shapes are on, and the tool of Graphite's that is in use.
+    static func accessibilityValue(shapesAreOn: Bool) -> String {
+        (shapesAreOn ? "Shapes on" : "Shapes off") + (PaletteInkSelection.isOn ? ", selecting ink" : "")
     }
 
     /// Favorite colors as a row of swatches, or the highlighter's own colors while the marker
@@ -90,14 +98,26 @@ enum PencilToolPalette {
                                     state: drawsShapes ? .on : .off) { _ in
             UserDefaults.standard.set(!drawsShapes, forKey: drawsShapesPreferenceKey)
         }
-        let selectionAction = UIAction(title: "Select Ink", subtitle: "Move, resize or recolor", image: UIImage(systemName: "lasso"),
+        let selectionAction = UIAction(title: "Select Ink", subtitle: "Move, resize, recolor or capture", image: UIImage(systemName: "lasso"),
                                        state: PaletteInkSelection.isOn ? .on : .off) { _ in
             PaletteInkSelection.isOn.toggle()
+        }
+        // Choosing a type also takes up the tool: it is chosen to be used.
+        let lassoShapes = LassoShape.allCases.map { shape in
+            UIAction(title: shape.title, image: UIImage(systemName: shape.symbolName), state: LassoShape.stored == shape ? .on : .off) { _ in
+                LassoShape.stored = shape
+                PaletteInkSelection.isOn = true
+            }
         }
         let colorsMenu = inkingToolInUse(of: toolPicker)?.inkType == .marker
             ? favoriteColorsMenu(for: toolPicker, palette: highlighterPalette, title: "Highlighter Colors")
             : favoriteColorsMenu(for: toolPicker, palette: palette)
-        return [colorsMenu, UIMenu(options: .displayInline, children: [shapesAction, selectionAction])]
+        return [colorsMenu, UIMenu(options: .displayInline, children: [shapesAction]),
+                UIMenu(options: .displayInline, children: [
+                    selectionAction,
+                    UIMenu(title: "Lasso Type", subtitle: LassoShape.stored.title, image: UIImage(systemName: LassoShape.stored.symbolName),
+                           options: .singleSelection, children: lassoShapes),
+                ])]
     }
 
     // MARK: Favorite colors
@@ -154,7 +174,7 @@ private final class PaletteAccessoryButton: UIButton {
 
     @objc private func inkSelectionDidChange() {
         setNeedsUpdateConfiguration()
-        accessibilityValue = (isSelected ? "Shapes on" : "Shapes off") + (PaletteInkSelection.isOn ? ", selecting ink" : "")
+        accessibilityValue = PencilToolPalette.accessibilityValue(shapesAreOn: isSelected)
     }
 }
 

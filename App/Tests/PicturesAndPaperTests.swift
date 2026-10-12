@@ -595,6 +595,8 @@ final class PicturesAndPaperTests: XCTestCase {
         toolbox.use(.lasso)
         try await waitUntil { canvas.selectsInk }
         XCTAssertFalse(canvas.isDrawingEnabled)
+        try await Task.sleep(for: .milliseconds(300))
+        attachScreenshot(of: controller, named: "Fixed bar with the lasso and its type")
         toolbox.usePreset(at: 0)
         try await waitUntil { !canvas.selectsInk }
         XCTAssertTrue(canvas.isDrawingEnabled)

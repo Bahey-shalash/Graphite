@@ -88,6 +88,8 @@ struct DrawingEditor: View {
     let preserveDraft: (DrawingContent) -> Void
     /// Called when the user closes the editor, saved or not; its recovery copy is no longer needed.
     let removeDraft: () -> Void
+    /// The note the drawing goes into, where the lasso's pictures of an area can be added.
+    var noteDestination: LassoNoteDestination?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -109,11 +111,13 @@ struct DrawingEditor: View {
     @State private var showsToolPicker = true
 
     init(request: DrawingEditorRequest,
+         noteDestination: LassoNoteDestination? = nil,
          save: @escaping (DrawingContent, DrawingFormat) async throws -> Void,
          exportCopy: @escaping (DrawingContent, DrawingFormat) async throws -> URL,
          preserveDraft: @escaping (DrawingContent) -> Void,
          removeDraft: @escaping () -> Void) {
         self.request = request
+        self.noteDestination = noteDestination
         self.save = save
         self.exportCopy = exportCopy
         self.preserveDraft = preserveDraft
@@ -132,7 +136,8 @@ struct DrawingEditor: View {
                           backgroundImage: request.backgroundImage,
                           drawsWithFinger: drawsWithFinger, drawsShapes: drawsShapes,
                           showsToolPicker: showsToolPicker && !usesFixedToolbar && !canvasController.isArrangingPictures,
-                          fixedTool: usesFixedToolbar ? toolbox.selection : nil)
+                          fixedTool: usesFixedToolbar ? toolbox.selection : nil,
+                          noteDestination: noteDestination, title: request.title)
                 .ignoresSafeArea(edges: .bottom)
                 .background(Color.white)
                 .safeAreaInset(edge: .top, spacing: 0) {
@@ -670,6 +675,29 @@ final class DrawingCanvasController {
         showPicturesAndPaper()
     }
 
+    /// Graphite's lasso moved or resized pictures with the ink it selected: one step with the
+    /// ink's change, which the canvas recorded in the same turn of the run loop.
+    func movePicturesWithLasso(to frames: [UUID: CGRect]) {
+        let movedPictures = pictures.map { placed -> PlacedPicture in
+            guard let frame = frames[placed.id] else { return placed }
+            var moved = placed
+            moved.picture = DrawingBackgroundImage(imageData: placed.picture.imageData, frame: frame, rotationRadians: placed.picture.rotationRadians)
+            return moved
+        }
+        guard movedPictures != pictures else { return }
+        replacePictures(with: movedPictures, actionName: "Move Selection")
+        showPicturesAndPaper()
+    }
+
+    /// Graphite's lasso deleted pictures with the ink it selected, in one step.
+    func deletePicturesWithLasso(_ identifiers: Set<UUID>) {
+        let remainingPictures = pictures.filter { placed in !identifiers.contains(placed.id) }
+        guard remainingPictures.count != pictures.count else { return }
+        if let selectedPictureIdentifier, identifiers.contains(selectedPictureIdentifier) { self.selectedPictureIdentifier = nil }
+        replacePictures(with: remainingPictures, actionName: "Delete Selection")
+        showPicturesAndPaper()
+    }
+
     /// One undo step: undo puts the earlier pictures back, and registers the step again for redo.
     private func replacePictures(with newPictures: [PlacedPicture], actionName: String) {
         let earlierPictures = pictures
@@ -774,11 +802,20 @@ final class InfiniteCanvasView: HistoryCanvasView {
     var pictureFrameChangeDidEnd: ((UUID, CGRect) -> Void)?
     /// A picture was turned by its handle, to an angle in radians, clockwise.
     var pictureRotationChangeDidEnd: ((UUID, Double) -> Void)?
+    /// Graphite's lasso moved pictures to new frames, or deleted them, with its ink.
+    var lassoMovedPictures: (([UUID: CGRect]) -> Void)?
+    var lassoDeletedPictures: ((Set<UUID>) -> Void)?
+    /// Where pictures of an area taken with the lasso can be added, and their name.
+    var lassoNoteDestination: LassoNoteDestination?
+    var lassoCaptureName = "Drawing"
     private var fittedBoundsWidth: CGFloat = 0
     private let paperView = DrawingPaperView()
     /// The picture under the ink of a drawing made on an image, in canvas coordinates.
     private var basePictureView: UIImageView?
     private var basePictureFrame: CGRect = .null
+    /// The paper as chosen, for pictures of an area, which show it as the note will.
+    private var chosenPaper: DrawingPaper = .plain
+    private var chosenBackground: DrawingBackground = .white
     private var pictures: [PlacedPicture] = []
     private var pictureViews: [UUID: UIImageView] = [:]
     private var selectedPictureIdentifier: UUID?
@@ -803,6 +840,8 @@ final class InfiniteCanvasView: HistoryCanvasView {
     /// Shows the paper and its color under the ink. `asSaved` shows it as the note will:
     /// without a pattern that is only a guide, and with no paper where there is none.
     func showPaper(_ paper: DrawingPaper, background: DrawingBackground, asSaved: Bool) {
+        chosenPaper = paper
+        chosenBackground = background
         paperView.paper = asSaved && !paper.appearsInSavedDrawing ? .plain : paper
         paperView.paperColor = background.colorHex.flatMap { hex in UIColor(graphiteHex: hex) }
         paperView.showsMissingPaper = asSaved && background == .transparent
@@ -1051,6 +1090,56 @@ final class InfiniteCanvasView: HistoryCanvasView {
     }
 }
 
+/// What Graphite's lasso takes on a drawing besides the ink: the pictures placed on it,
+/// which the drawing's controller moves and deletes as steps of its history, and the paper
+/// and pictures under the ink, for a picture of an area.
+extension InfiniteCanvasView: LassoCanvasContent {
+    func lassoPictures() -> [LassoPicture] {
+        pictures.map { placed in
+            LassoPicture(identifier: placed.id.uuidString, frame: placed.picture.frame, rotationRadians: placed.picture.rotationRadians)
+        }
+    }
+
+    func lassoPictureImage(_ identifier: String) -> UIImage? {
+        pictures.first { placed in placed.id.uuidString == identifier }.flatMap { placed in pictureViews[placed.id]?.image ?? UIImage(data: placed.picture.imageData) }
+    }
+
+    func moveLassoPictures(to frames: [String: CGRect]) {
+        let framesByIdentifier = Dictionary(uniqueKeysWithValues: frames.compactMap { identifier, frame in UUID(uuidString: identifier).map { uuid in (uuid, frame) } })
+        lassoMovedPictures?(framesByIdentifier)
+    }
+
+    func deleteLassoPictures(_ identifiers: [String]) {
+        lassoDeletedPictures?(Set(identifiers.compactMap(UUID.init(uuidString:))))
+    }
+
+    func setLassoPicturesHidden(_ identifiers: Set<String>) {
+        for (identifier, pictureView) in pictureViews { pictureView.isHidden = identifiers.contains(identifier.uuidString) }
+    }
+
+    /// The paper's color and, when it appears in the note, its pattern; the picture drawn on,
+    /// then the placed pictures, the lowest first.
+    func drawContentUnderInk(in context: CGContext, region: CGRect) {
+        if let paperColor = DrawingPaperRenderer.paperColor(of: chosenBackground) {
+            context.setFillColor(CGColor(srgbRed: paperColor.red, green: paperColor.green, blue: paperColor.blue, alpha: paperColor.alpha))
+            context.fill(region)
+        }
+        if chosenPaper.appearsInSavedDrawing { DrawingPaperRenderer.draw(chosenPaper, in: region, context: context) }
+        if let basePicture = basePictureView?.image, !basePictureFrame.isNull {
+            LassoAreaCapture.draw(basePicture, in: basePictureFrame, turnedBy: 0, context: context)
+        }
+        for placed in pictures where placed.picture.boundingFrame.intersects(region) {
+            guard let image = pictureViews[placed.id]?.image else { continue }
+            LassoAreaCapture.draw(image, in: placed.picture.frame, turnedBy: placed.picture.rotationRadians, context: context)
+        }
+    }
+
+    var lassoDisplayQuarterTurns: Int { 0 }
+
+    /// The drawing's width, from its top down as far as it goes.
+    var lassoDrawingBounds: CGRect { CGRect(x: 0, y: 0, width: canvasWidth, height: .greatestFiniteMagnitude) }
+}
+
 /// Decides which taps select a picture: every finger tap while pictures are being arranged,
 /// and otherwise a finger tap on a picture when fingers do not draw. The canvas cannot be
 /// the recognizer's delegate itself: a scroll view answers those questions for its own
@@ -1075,6 +1164,10 @@ private struct DrawingCanvas: UIViewRepresentable {
     let showsToolPicker: Bool
     /// The tool of the fixed tool bar; nil while the floating palette chooses the tool.
     let fixedTool: PencilToolSelection?
+    /// The note the drawing belongs to, where the lasso's pictures of an area can go.
+    var noteDestination: LassoNoteDestination?
+    /// The drawing's title, which names the lasso's pictures of it.
+    var title = "Drawing"
 
     func makeCoordinator() -> Coordinator { Coordinator(controller: controller) }
 
@@ -1093,6 +1186,10 @@ private struct DrawingCanvas: UIViewRepresentable {
         canvasView.pictureRotationChangeDidEnd = { [controller] identifier, rotationRadians in
             controller.pictureRotationChangeDidEnd(identifier, rotationRadians: rotationRadians)
         }
+        canvasView.lassoMovedPictures = { [controller] frames in controller.movePicturesWithLasso(to: frames) }
+        canvasView.lassoDeletedPictures = { [controller] identifiers in controller.deletePicturesWithLasso(identifiers) }
+        canvasView.lassoNoteDestination = noteDestination
+        canvasView.lassoCaptureName = title
         controller.canvasWidth = canvasWidth
         if !initialStrokeData.isEmpty {
             do { canvasView.drawing = try PKDrawing(data: initialStrokeData) }
