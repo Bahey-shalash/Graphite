@@ -291,7 +291,10 @@ public struct ReadAloudDocument: Equatable, Sendable {
             let delimiter = writtenMath.hasPrefix("$$") ? "$$" : "$"
             let hasClosingDelimiter = writtenMath.count >= delimiter.count * 2 && writtenMath.hasPrefix(delimiter) && writtenMath.hasSuffix(delimiter)
             let expression = hasClosingDelimiter ? String(writtenMath.dropFirst(delimiter.count).dropLast(delimiter.count)) : ""
-            let speech = hasClosingDelimiter ? try mathematicalSpeech(expression) : nil
+            // A lone subscripted quantity, $V_{DD}$ or $V_{th}$, is said as engineers say it
+            // ("V D D", "V threshold") rather than "V sub D D"; anything else goes to the interpreter.
+            let speech = hasClosingDelimiter
+                ? try (ReadAloudPronunciations.singleSubscriptedSymbol(expression) ?? mathematicalSpeech(expression)) : nil
             if speech == nil { notices.insert("Some equations are not supported yet. They are announced rather than guessed.") }
             let marker = Character(scalar)
             mathByMarker[marker] = (speech ?? "Equation not yet supported.", range)
@@ -550,12 +553,12 @@ public struct ReadAloudDocument: Equatable, Sendable {
                 replacements.append(SpokenReplacement(range: match.range, speech: speech))
             }
         }
-        // Acronyms and technical terms: RAM as "ram", CPU as "C P U", SIMD as "sim dee".
-        for match in ReadAloudPronunciations.candidateWord?.matches(in: text, range: fullRange) ?? []
-        where !replacements.contains(where: { existing in NSIntersectionRange(existing.range, match.range).length > 0 }) {
-            let word = (text as NSString).substring(with: match.range)
-            guard let pronunciation = pronunciations.pronunciation(of: word), pronunciation.say != word else { continue }
-            replacements.append(SpokenReplacement(range: match.range, speech: pronunciation.say, phoneticNotation: pronunciation.ipa))
+        // Technical words, numbers with units, subscripts in prose and symbols: CMOS as
+        // "see moss", "10 nm" as "10 nanometers", V_DD as "V D D", "≈" as "approximately".
+        for replacement in pronunciations.replacements(in: text)
+        where !replacements.contains(where: { existing in NSIntersectionRange(existing.range, replacement.range).length > 0 }) {
+            replacements.append(SpokenReplacement(range: replacement.range, speech: replacement.speech,
+                                                  phoneticNotation: replacement.phoneticNotation))
         }
         return replacements.sorted { first, second in first.range.location < second.range.location }
     }

@@ -133,7 +133,7 @@ final class ReadAloudDocumentTests: XCTestCase {
     func testSmartPunctuationIsReadAndMapsBackToWhatWasWritten() throws {
         let source = "# Shannon's Expansion -- a note\n\nIt's \"simple\"... really --- see 'L01'.\n\n> [!banana]\n> Unknown type: titled \"Banana\"."
         let document = try ReadAloudDocument.markdown(source)
-        XCTAssertEqual(try speech(source), "Shannon’s Expansion – a note It’s “simple”… really — see ‘L01’. Unknown type: titled “Banana”.")
+        XCTAssertEqual(try speech(source), "Shannon’s Expansion – a note It’s “simple”… really — see ‘L 01’. Unknown type: titled “Banana”.")
         let passage = try XCTUnwrap(document.passages.first)
         let apostrophe = (passage.text as NSString).range(of: "’")
         XCTAssertEqual((source as NSString).substring(with: try XCTUnwrap(passage.sourceRange(for: apostrophe))), "'")
