@@ -127,4 +127,31 @@ final class ReadAloudDocumentTests: XCTestCase {
         XCTAssertEqual(try ReadAloudDocument.markdown(source, selectedRange: second.range).passages.map(\.text), ["Café 😀", "Second.", "Last title", "Final."])
         XCTAssertTrue(try ReadAloudSection.sections(in: "A note without headings.").isEmpty)
     }
+
+    /// Real notes are full of apostrophes, quotes and double hyphens, which the parser turns
+    /// into typographic marks. They used to stop the whole note with "could not safely match".
+    func testSmartPunctuationIsReadAndMapsBackToWhatWasWritten() throws {
+        let source = "# Shannon's Expansion -- a note\n\nIt's \"simple\"... really --- see 'L01'.\n\n> [!banana]\n> Unknown type: titled \"Banana\"."
+        let document = try ReadAloudDocument.markdown(source)
+        XCTAssertEqual(try speech(source), "Shannon’s Expansion – a note It’s “simple”… really — see ‘L01’. Unknown type: titled “Banana”.")
+        let passage = try XCTUnwrap(document.passages.first)
+        let apostrophe = (passage.text as NSString).range(of: "’")
+        XCTAssertEqual((source as NSString).substring(with: try XCTUnwrap(passage.sourceRange(for: apostrophe))), "'")
+        let word = (passage.text as NSString).range(of: "Expansion")
+        XCTAssertEqual((source as NSString).substring(with: try XCTUnwrap(passage.sourceRange(for: word))), "Expansion")
+        let second = try XCTUnwrap(document.passages.dropFirst().first)
+        let dash = (second.text as NSString).range(of: "—")
+        XCTAssertEqual((source as NSString).substring(with: try XCTUnwrap(second.sourceRange(for: dash))), "---")
+    }
+
+    func testDisplayMathInsideACalloutIsReadNotAnnouncedAsUnsupported() throws {
+        XCTAssertEqual(try speech("> [!note] PUN\n> $$x^2$$\n>\n> $$\n> y^2\n> $$"), "PUN x squared y squared")
+    }
+
+    func testTablesWithEscapedPipesAndBrokenTablesAreRead() throws {
+        let escaped = "| Expression | Meaning |\n| --- | --- |\n| a \\| b | logical or |\n| a \\\\| b | edge |"
+        XCTAssertFalse(try speech(escaped).isEmpty)
+        let broken = "| A | B | C |\n| --- | --- |\n| a | b | c |"
+        XCTAssertTrue(try speech(broken).contains("a | b | c"))
+    }
 }

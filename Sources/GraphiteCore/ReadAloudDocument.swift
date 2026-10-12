@@ -100,7 +100,7 @@ public struct ReadAloudDocument: Equatable, Sendable {
             while occupiedScalars.contains(markerCodePoint) { markerCodePoint += 1 }
             guard markerCodePoint <= 0xF8FF, let scalar = Unicode.Scalar(markerCodePoint) else { throw ReadAloudError.passageTooLarge }
             markerCodePoint += 1
-            let writtenMath = original.substring(with: range).trimmingCharacters(in: .whitespacesAndNewlines)
+            let writtenMath = Self.removingQuoteMarkers(original.substring(with: range)).trimmingCharacters(in: .whitespacesAndNewlines)
             let delimiter = writtenMath.hasPrefix("$$") ? "$$" : "$"
             let hasClosingDelimiter = writtenMath.count >= delimiter.count * 2 && writtenMath.hasPrefix(delimiter) && writtenMath.hasSuffix(delimiter)
             let expression = hasClosingDelimiter ? String(writtenMath.dropFirst(delimiter.count).dropLast(delimiter.count)) : ""
@@ -250,11 +250,25 @@ public struct ReadAloudDocument: Equatable, Sendable {
                     isVerbatim = true
                     hasExactMapping = true
                 }
+                // The parser's smart punctuation turns ' " -- --- ... into typographic marks,
+                // so "Shannon's" in the note arrives as "Shannon’s". Map each mark back to the
+                // plain characters actually written.
+                if !hasExactMapping, let writtenForms = Self.typographicSourceForms[character] {
+                    for writtenForm in writtenForms where remainingLength >= writtenForm.utf16.count
+                        && prepared.substring(with: NSRange(location: sourceOffset, length: writtenForm.utf16.count)) == writtenForm {
+                        mappedRange = NSRange(location: sourceOffset, length: writtenForm.utf16.count)
+                        hasExactMapping = true
+                        break
+                    }
+                }
                 if let math = mathByMarker[character] {
                     try append(math.speech, sourceRange: math.sourceRange, isVerbatim: false, isEquation: true)
                 } else if character != "\u{2060}" {
-                    guard hasExactMapping else { throw ReadAloudError.sourceMappingUnavailable }
-                    try append(characterText, sourceRange: mappedRange, isVerbatim: isVerbatim)
+                    // Any other rewrite the parser makes is still read: the character is tied to
+                    // the rest of its text run, so the highlight covers the run instead of
+                    // pointing at a wrong word, and the note is never refused for one mark.
+                    if !hasExactMapping { mappedRange = NSRange(location: sourceOffset, length: remainingLength) }
+                    if mappedRange.length > 0 { try append(characterText, sourceRange: mappedRange, isVerbatim: isVerbatim) }
                 }
                 sourceOffset = NSMaxRange(mappedRange)
             }
@@ -263,6 +277,24 @@ public struct ReadAloudDocument: Equatable, Sendable {
         guard !passages.isEmpty else { throw ReadAloudError.noReadableText }
         return ReadAloudDocument(passages: passages, notices: notices.sorted())
     }
+
+    /// Display math inside a callout or quote carries the "> " of every line it spans; those
+    /// markers belong to the quote, not to the equation.
+    private static func removingQuoteMarkers(_ writtenMath: String) -> String {
+        writtenMath.split(separator: "\n", omittingEmptySubsequences: false).map { line in
+            var remainder = line[...]
+            while let first = remainder.first(where: { character in character != " " && character != "\t" }), first == ">" {
+                remainder = remainder.drop(while: { character in character == " " || character == "\t" }).dropFirst()
+            }
+            return String(remainder)
+        }.joined(separator: "\n")
+    }
+
+    /// The plain characters swift-markdown's smart punctuation can turn into each mark.
+    private static let typographicSourceForms: [Character: [String]] = [
+        "\u{2019}": ["'"], "\u{2018}": ["'"], "\u{201C}": ["\""], "\u{201D}": ["\""],
+        "\u{2014}": ["---"], "\u{2013}": ["--"], "\u{2026}": ["..."]
+    ]
 
     private static func readingRange(in source: String, selectedRange: NSRange?) throws -> NSRange {
         let original = source as NSString
