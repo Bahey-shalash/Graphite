@@ -28,7 +28,11 @@ extension WorkspaceModel {
         let fontsChanged = appearance.textFontFamilies != vaultAppearance.textFontFamilies
             || appearance.monospaceFontFamilies != vaultAppearance.monospaceFontFamilies
             || appearance.interfaceFontFamilies != vaultAppearance.interfaceFontFamilies
-        if appearance != vaultAppearance { vaultAppearance = appearance }
+        if appearance != vaultAppearance {
+            vaultAppearance = appearance
+            // The plugins' page takes the theme, snippets and appearance settings too.
+            communityPlugins.vaultStylesDidChange()
+        }
         if preferences.vaultAccentHex != appearance.accentHex { preferences.vaultAccentHex = appearance.accentHex }
         guard fontsChanged else { return }
         resolveNoteTypography()
@@ -92,6 +96,8 @@ extension WorkspaceModel {
             // The store compares with the settings it last read or saved, so only the keys
             // changed here are written over what Obsidian may have changed meanwhile.
             try await store.saveAppearance(vaultAppearance)
+            // Plugins read the saved file through `vault.getConfig`.
+            communityPlugins.vaultStylesDidChange()
         } catch {
             errorMessage = "Graphite could not save the appearance settings to this vault. " + error.localizedDescription
         }

@@ -1,0 +1,121 @@
+// The vault's Obsidian theme and CSS snippets in the plugins' page: Graphite sends them,
+// the page adds them after the plugins' styles, `app.customCss` reports them, and the page
+// tells Graphite when its styles or body classes change so copies of blocks and views follow.
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { startRuntime, installAndLoadPlugin, plain, settle } = require('../support/runtime-harness');
+
+const themeCSS = `/* @settings
+name: Example Theme
+id: example-theme
+settings:
+  - id: example-accent
+    title: Accent
+    type: variable-color
+    format: hex
+    default: '#ff0000'
+*/
+body.theme-dark { --background-primary: #101010; }
+body.theme-light { --background-primary: #fafafa; }
+body.example-scheme { --text-normal: #123456; }`;
+
+const styles = {
+    theme: { name: 'Example', css: themeCSS },
+    snippets: [{ name: 'boxes', css: 'blockquote { border: 1px solid; }' }],
+    installedThemes: ['Example', 'Other'],
+    snippetNames: ['boxes', 'off'],
+    accent: { hue: 254, saturation: 80, lightness: 68 },
+};
+
+async function nextStyleNotification(harness, count) {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+        const notifications = harness.host.notificationsOf('styles.changed');
+        if (notifications.length > count) return plain(notifications.at(-1));
+        await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    throw new Error('No styles.changed notification.');
+}
+
+test('the theme and enabled snippets join the page after the plugins\' styles, and app.customCss reports them', async () => {
+    const harness = await startRuntime({});
+    try {
+        const manifest = { id: 'styled', name: 'Styled', version: '1.0.0', minAppVersion: '1.0.0', description: 'Test', author: 'Graphite' };
+        await installAndLoadPlugin(harness, { manifest, styles: '.styled { color: red; }',
+            mainSource: '"use strict"; var o = require("obsidian"); module.exports = class extends o.Plugin { onload() { this.changes = 0; this.registerEvent(this.app.workspace.on("css-change", () => { this.changes += 1; })); } };' });
+        const before = harness.host.notificationsOf('styles.changed').length;
+        await harness.send({ operation: 'appearance.styles', styles, appearanceConfiguration: { cssTheme: 'Example', theme: 'obsidian', baseFontSize: 18 } });
+        const document = harness.window.document;
+        const styleElements = Array.from(document.head.querySelectorAll('style'));
+        const themePosition = styleElements.findIndex((element) => element.getAttribute('data-graphite-theme') === 'Example');
+        const pluginPosition = styleElements.findIndex((element) => element.getAttribute('data-graphite-plugin') === 'styled');
+        assert.ok(themePosition > pluginPosition && pluginPosition >= 0, 'the theme comes after the plugins\' styles');
+        assert.equal(document.head.querySelector('style[data-graphite-snippet="boxes"]').textContent, 'blockquote { border: 1px solid; }');
+        const customCss = harness.app.customCss;
+        assert.equal(customCss.theme, 'Example');
+        assert.deepEqual(plain(Array.from(customCss.enabledSnippets)), ['boxes']);
+        assert.deepEqual(plain(customCss.snippets), ['boxes', 'off']);
+        assert.equal(customCss.getThemeFolder(), '.obsidian/themes');
+        assert.ok(harness.app.plugins.getPlugin('styled').changes >= 1, 'plugins hear css-change, as Style Settings reparses on it');
+        assert.equal(harness.app.vault.getConfig('baseFontSize'), 18, 'getConfig reads appearance.json too');
+        assert.equal(harness.app.vault.getConfig('cssTheme'), 'Example');
+        assert.equal(document.body.style.getPropertyValue('--accent-h'), '254');
+
+        const notification = await nextStyleNotification(harness, before);
+        assert.match(notification.styles, /\.styled \{ color: red; \}/);
+        assert.match(notification.styles, /@settings/, 'copies get the theme, with its settings comments');
+        assert.match(notification.bodyStyle, /--accent-h: 254/);
+
+        // A plugin sets a class on the body, as Minimal Theme Settings and Style Settings do.
+        const count = harness.host.notificationsOf('styles.changed').length;
+        document.body.classList.add('example-scheme', 'css-settings-manager');
+        const classNotification = await nextStyleNotification(harness, count);
+        assert.deepEqual(classNotification.bodyClasses.split(' ').sort(), ['css-settings-manager', 'example-scheme'], 'the runtime\'s own and light or dark classes are left to each copy');
+
+        // The same styles sent again change nothing in the page.
+        const themeElement = document.head.querySelector('style[data-graphite-theme]');
+        await harness.send({ operation: 'appearance.styles', styles, appearanceConfiguration: {} });
+        assert.equal(document.head.querySelector('style[data-graphite-theme]'), themeElement);
+
+        // No theme: its element goes.
+        await harness.send({ operation: 'appearance.styles', styles: { snippets: [] }, appearanceConfiguration: {} });
+        assert.equal(document.head.querySelector('style[data-graphite-theme]'), null);
+        assert.equal(document.head.querySelector('style[data-graphite-snippet]'), null);
+        assert.equal(harness.app.customCss.theme, '');
+    } finally {
+        harness.close();
+    }
+});
+
+test('choosing a theme or snippets from a plugin goes through Graphite; the light or dark choice stays in the page', async () => {
+    const harness = await startRuntime({});
+    try {
+        harness.app.customCss.setTheme('Minimal');
+        harness.app.customCss.setCssEnabledStatus('boxes', true);
+        harness.app.vault.setConfig('baseFontSize', 20);
+        harness.app.setTheme('moonstone');
+        await settle();
+        assert.deepEqual(plain(harness.host.notificationsOf('appearance.setConfig').map((message) => [message.key, message.value])),
+            [['cssTheme', 'Minimal'], ['enabledCssSnippets', ['boxes']], ['baseFontSize', 20]]);
+        assert.equal(harness.app.getTheme(), 'moonstone');
+        assert.equal(harness.app.vault.getConfig('baseFontSize'), 20);
+        assert.throws(() => harness.app.vault.setConfig('vimMode', true), /setConfig/, 'other settings stay Graphite\'s to change');
+    } finally {
+        harness.close();
+    }
+});
+
+test('a theme too large for every copy is left out of copies, not out of the page', async () => {
+    const harness = await startRuntime({});
+    try {
+        const largeTheme = 'body { --x: 1; }\n' + '/* padding */\n'.repeat(260000);
+        await harness.send({ operation: 'appearance.styles', styles: { theme: { name: 'Large', css: largeTheme }, snippets: [{ name: 'boxes', css: 'blockquote { border: 1px solid; }' }] }, appearanceConfiguration: {} });
+        assert.ok(harness.window.document.head.querySelector('style[data-graphite-theme="Large"]'));
+        const copyStyles = harness.runtime.pluginStyles();
+        assert.ok(!copyStyles.includes('/* padding */'), 'the theme is not sent to copies');
+        assert.match(copyStyles, /blockquote/, 'snippets still are');
+    } finally {
+        harness.close();
+    }
+});

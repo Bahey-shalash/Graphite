@@ -1166,6 +1166,8 @@ final class WorkspaceModel {
             guard store === refreshedStore else { return }
             // Obsidian changed its fonts, font size or accent.
             if changedLocations.contains(where: Self.isAppearanceFile) { await reloadVaultAppearance() }
+            // A theme or snippet file was added, changed or removed.
+            if changedLocations.contains(where: ObsidianStyleFiles.isStyleFile) { communityPlugins.vaultStylesDidChange() }
             // Only the open documents another app is known to have changed are read again.
             switch refresh {
             case .nothingShown: break

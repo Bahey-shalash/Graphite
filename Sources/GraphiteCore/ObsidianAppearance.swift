@@ -127,11 +127,11 @@ public struct ObsidianAppearance: Equatable, Sendable {
     /// Light, dark or following the system; nil when the file does not say.
     public private(set) var baseTheme: ObsidianBaseTheme?
     /// The community theme's folder under `.obsidian/themes`, or empty for the default theme.
-    /// Graphite does not draw themes yet.
-    public private(set) var cssTheme = ""
-    /// The CSS snippets turned on, by file name under `.obsidian/snippets` without `.css`.
-    /// Graphite does not apply snippets yet.
-    public private(set) var enabledCssSnippets: [String] = []
+    /// Community plugins' pages and copies use it; Graphite's own note styling does not yet.
+    public var cssTheme = ""
+    /// The CSS snippets turned on, by file name under `.obsidian/snippets` without `.css`,
+    /// used as the theme is.
+    public var enabledCssSnippets: [String] = []
 
     /// Obsidian's defaults, as for a vault without the file.
     public init() {}
@@ -157,6 +157,13 @@ public struct ObsidianAppearance: Equatable, Sendable {
     /// The font size that applies: the file's, kept within Obsidian's range, or 16.
     public var effectiveBaseFontSize: Int {
         min(max(baseFontSize ?? Self.defaultBaseFontSize, Self.baseFontSizeRange.lowerBound), Self.baseFontSizeRange.upperBound)
+    }
+
+    /// A list of names as a top-level member's value, laid out as `JSON.stringify(settings,
+    /// null, 2)` lays it out: one name per line, indented under the member.
+    static func memberText(for names: [String]) -> String {
+        guard !names.isEmpty else { return "[]" }
+        return "[\n" + names.map { name in "    " + ApplicationConfigurationObject.jsonText(for: name) }.joined(separator: ",\n") + "\n  ]"
     }
 
     /// A number Obsidian wrote, which JavaScript may have written with a fraction (`16.5`).
@@ -195,6 +202,8 @@ public struct ObsidianAppearance: Equatable, Sendable {
         ]
         if let baseFontSize { valueTexts.append((Self.baseFontSizeKey, String(baseFontSize))) }
         valueTexts.append((Self.baseFontSizeActionKey, String(adjustsFontSizeQuickly)))
+        valueTexts.append((Self.cssThemeKey, ApplicationConfigurationObject.jsonText(for: cssTheme)))
+        valueTexts.append((Self.enabledCssSnippetsKey, Self.memberText(for: enabledCssSnippets)))
         return valueTexts
     }
 }

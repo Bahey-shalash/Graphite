@@ -507,6 +507,32 @@ test('Style Settings: loads and says no theme or snippet offers settings', { ski
     }
 });
 
+test('Style Settings: finds a theme\'s settings and sets its variables on the page, which copies take', { skip: !builtPlugin('obsidian-style-settings') }, async () => {
+    const { harness, answer, pageErrors } = await loadInStudyVault('obsidian-style-settings');
+    try {
+        assert.deepEqual(answer, { isLoaded: true });
+        const themeCSS = '/* @settings\nname: Example Theme\nid: example-theme\nsettings:\n  - id: example-accent\n    title: Example accent\n    type: variable-color\n    format: hex\n    default: \'#ff0000\'\n*/\nbody { --example-accent: #ff0000; }';
+        await harness.send({ operation: 'appearance.styles', styles: { theme: { name: 'Example', css: themeCSS }, snippets: [] }, appearanceConfiguration: { cssTheme: 'Example' } });
+        // Style Settings reads the page's style sheets a moment after css-change.
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        await harness.send({ operation: 'settings.show', pluginIdentifier: 'obsidian-style-settings' });
+        await settle();
+        // The settings tab redraws once Style Settings has read the page again.
+        for (let attempt = 0; attempt < 100 && !/Example Theme/.test(surfaceText(harness)); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+        assert.match(surfaceText(harness), /Example Theme/, 'the theme\'s settings are listed');
+        const plugin = harness.app.plugins.getPlugin('obsidian-style-settings');
+        plugin.settingsManager.setSetting('example-theme', 'example-accent', '#00ff00');
+        await settle();
+        const managerStyle = harness.window.document.getElementById('css-settings-manager');
+        assert.match(managerStyle.textContent, /--example-accent:\s*#00ff00/);
+        assert.ok(harness.window.document.body.classList.contains('css-settings-manager'));
+        assert.match(harness.runtime.pluginStyles(), /--example-accent:\s*#00ff00/, 'copies get the value with the page\'s styles');
+        assert.deepEqual(pageErrors, []);
+    } finally {
+        harness.close();
+    }
+});
+
 test('Homepage: loads, adds its commands and ribbon button, draws its settings', { skip: !builtPlugin('homepage') }, async () => {
     const { harness, answer, commandNames, unsupported, pageErrors } = await loadInStudyVault('homepage');
     try {

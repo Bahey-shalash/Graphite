@@ -241,6 +241,7 @@ private struct AppearanceSettingsPage: View {
             }
             if workspace.store != nil {
                 FontSettingsSection(workspace: workspace)
+                ThemeSettingsSection(workspace: workspace)
             }
         }
         .navigationTitle("Appearance")

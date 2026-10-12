@@ -184,4 +184,73 @@ final class ObsidianAppearanceTests: XCTestCase {
         let leftovers = try FileManager.default.contentsOfDirectory(atPath: vault.appendingPathComponent(".obsidian").path)
         XCTAssertEqual(leftovers, ["appearance.json"], "The atomic write leaves no staging file behind.")
     }
+
+    // MARK: Themes and snippets
+
+    func testChoosingAThemeAndSnippetsIsWrittenAsObsidianWritesIt() throws {
+        let existing = Data(ownersVaultAppearance.utf8)
+        let previous = try ObsidianAppearance(configurationData: existing)
+        var changed = previous
+        changed.cssTheme = "Minimal"
+        changed.enabledCssSnippets = ["fast-text-color", "latex-boxes"]
+        let written = String(decoding: try changed.mergedConfigurationData(existingData: existing, changedFrom: previous), as: UTF8.self)
+        XCTAssertTrue(written.contains("""
+          "cssTheme": "Minimal",
+          "enabledCssSnippets": [
+            "fast-text-color",
+            "latex-boxes"
+          ],
+        """), written)
+        XCTAssertEqual(try ObsidianAppearance(configurationData: Data(written.utf8)), changed)
+        var unchanged = try ObsidianAppearance(configurationData: Data(#"{"enabledCssSnippets": ["a","b"], "cssTheme": "Things"}"#.utf8))
+        unchanged.baseFontSize = 18
+        let rewritten = String(decoding: try unchanged.mergedConfigurationData(existingData: Data(#"{"enabledCssSnippets": ["a","b"], "cssTheme": "Things"}"#.utf8)), as: UTF8.self)
+        XCTAssertTrue(rewritten.contains(#""enabledCssSnippets": ["a","b"]"#), "An unchanged list keeps its layout: \(rewritten)")
+        var cleared = changed
+        cleared.enabledCssSnippets = []
+        cleared.cssTheme = ""
+        let clearedText = String(decoding: try cleared.mergedConfigurationData(existingData: Data(written.utf8), changedFrom: changed), as: UTF8.self)
+        XCTAssertTrue(clearedText.contains(#""cssTheme": """#) && clearedText.contains(#""enabledCssSnippets": []"#), clearedText)
+    }
+
+    func testTheStoreListsThemesAndSnippetsAndReadsTheirCSS() async throws {
+        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("Vault-\(UUID().uuidString)")
+        let themes = vault.appendingPathComponent(".obsidian/themes"), snippets = vault.appendingPathComponent(".obsidian/snippets")
+        try FileManager.default.createDirectory(at: themes.appendingPathComponent("Minimal"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: themes.appendingPathComponent("Empty"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: snippets, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: vault) }
+        try Data("body { --background-primary: #fff; }".utf8).write(to: themes.appendingPathComponent("Minimal/theme.css"))
+        try Data("blockquote { border: 1px solid; }".utf8).write(to: snippets.appendingPathComponent("latex-boxes.css"))
+        try Data("not css".utf8).write(to: snippets.appendingPathComponent("notes.txt"))
+        let store = VaultStore(root: vault)
+        let themeNames = await store.installedThemeNames()
+        XCTAssertEqual(themeNames, ["Minimal"], "A folder without theme.css is not a theme.")
+        let snippetNames = await store.snippetNames()
+        XCTAssertEqual(snippetNames, ["latex-boxes"])
+        let themeCSS = await store.themeStyleSheet(named: "Minimal")
+        XCTAssertEqual(themeCSS, "body { --background-primary: #fff; }")
+        let missingTheme = await store.themeStyleSheet(named: "Things")
+        XCTAssertNil(missingTheme)
+        let escapingTheme = await store.themeStyleSheet(named: "../../secret")
+        XCTAssertNil(escapingTheme, "A name is one folder inside the themes folder.")
+        let snippetCSS = await store.snippetStyleSheet(named: "latex-boxes")
+        XCTAssertEqual(snippetCSS, "blockquote { border: 1px solid; }")
+        XCTAssertTrue(ObsidianStyleFiles.isStyleFile(themes.appendingPathComponent("Minimal/theme.css")))
+        XCTAssertTrue(ObsidianStyleFiles.isStyleFile(snippets.appendingPathComponent("latex-boxes.css")))
+        XCTAssertFalse(ObsidianStyleFiles.isStyleFile(vault.appendingPathComponent(".obsidian/app.json")))
+    }
+
+    func testThemeDirectoryEntriesAreReadAndSearched() throws {
+        let entries = try JSONDecoder().decode([ObsidianThemeDirectoryEntry].self, from: Data("""
+        [{"name": "Minimal", "author": "kepano", "repo": "kepano/obsidian-minimal", "screenshot": "dark.png", "modes": ["dark", "light"]},
+         {"name": "Flexoki", "author": "kepano", "repo": "kepano/flexoki-obsidian"},
+         {"name": "Things", "author": "colineckert", "repo": "colineckert/obsidian-things", "modes": ["light", "dark"], "legacy": true}]
+        """.utf8))
+        XCTAssertEqual(entries.map(\.name), ["Minimal", "Flexoki", "Things"])
+        XCTAssertEqual(entries[1].modes, [], "Modes are optional in the directory.")
+        XCTAssertEqual(ObsidianThemeDirectoryEntry.search(entries, for: "flex").map(\.name), ["Flexoki"])
+        XCTAssertEqual(ObsidianThemeDirectoryEntry.search(entries, for: "kepano").map(\.name), ["Minimal", "Flexoki"])
+        XCTAssertEqual(ObsidianThemeInstaller.manifestValue("name", in: Data(#"{"name": "Minimal", "version": "8.1.0"}"#.utf8)), "Minimal")
+    }
 }

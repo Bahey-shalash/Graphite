@@ -226,6 +226,8 @@ struct CommunityPluginPresentation: ViewModifier {
             .onChange(of: workspace.markdownSession?.viewMode) { host.activeDocumentDidChange() }
             .onChange(of: host.isRuntimeRunning) { host.activeDocumentDidChange() }
             .onChange(of: colorScheme, initial: true) { _, scheme in host.appearanceDidChange(isDark: scheme == .dark) }
+            // Themes derive their accent shades from Graphite's accent.
+            .onChange(of: workspace.preferences.accentHex) { host.vaultStylesDidChange() }
             .onChange(of: host.requestedSettingsPlugin) { _, requestedPlugin in
                 if requestedPlugin != nil { showSettings() }
             }

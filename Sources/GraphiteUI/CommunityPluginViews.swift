@@ -86,7 +86,8 @@ struct CommunityPluginViewContent: View {
             case .drawn(let html):
                 if let shownView {
                     CommunityPluginCodeBlockDisplay(block: shownView, html: html, styleSheets: host.pluginStyleSheets, isDark: colorScheme == .dark,
-                                                    textSize: scaledTextSize, accentHex: accent.sRGBHex, fillsSpace: true)
+                                                    textSize: scaledTextSize, accentHex: accent.sRGBHex, fillsSpace: true,
+                                                    bodyClasses: host.pluginBodyClasses, bodyStyle: host.pluginBodyStyle, hasTheme: !host.activeThemeName.isEmpty)
                 }
             case .failed(let message):
                 ContentUnavailableView(message, systemImage: "puzzlepiece.extension")

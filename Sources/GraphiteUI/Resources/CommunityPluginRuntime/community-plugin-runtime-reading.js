@@ -115,16 +115,77 @@
         hostBridge.notify('codeBlock.changed', { blockIdentifier: entry.blockIdentifier, html });
     }
 
-    /// The style sheets plugins added to the page, which the copies need to look as they do
-    /// here: each plugin's styles.css, and the styles its components add themselves (Svelte
-    /// components, as in Calendar, add theirs to the page's head, some through the CSS object
-    /// model, which leaves the element's text empty).
-    function pluginStyles() {
-        return Array.from(globalScope.document.querySelectorAll('style')).map((styleElement) => {
-            if (styleElement.textContent.trim() !== '') return styleElement.textContent;
-            try { return Array.from(styleElement.sheet ? styleElement.sheet.cssRules : []).map((rule) => rule.cssText).join('\n'); } catch (error) { return ''; }
-        }).join('\n');
+    /// The most style text sent to copies. Every copy of a block or view parses what it is
+    /// given, so a theme that would take the total past this (themes with fonts written into
+    /// their file reach several megabytes) is left out of copies, which keep the plugins'
+    /// styles, Style Settings' values and the snippets.
+    const maximumCopyStyleCharacters = 3 * 1024 * 1024;
+
+    function styleText(styleElement) {
+        if (styleElement.textContent.trim() !== '') return styleElement.textContent;
+        try { return Array.from(styleElement.sheet ? styleElement.sheet.cssRules : []).map((rule) => rule.cssText).join('\n'); } catch (error) { return ''; }
     }
+
+    /// The style sheets in the page, which the copies need to look as they do here: each
+    /// plugin's styles.css, the styles its components add themselves (Svelte components, as
+    /// in Calendar, add theirs to the page's head, some through the CSS object model, which
+    /// leaves the element's text empty), the vault's theme and snippets, and the variables
+    /// Style Settings writes.
+    function pluginStyles() {
+        const styleElements = Array.from(globalScope.document.querySelectorAll('style'));
+        const texts = styleElements.map(styleText);
+        const total = texts.reduce((sum, text) => sum + text.length, 0);
+        if (total <= maximumCopyStyleCharacters) return texts.join('\n');
+        return texts.filter((text, position) => !styleElements[position].hasAttribute('data-graphite-theme')).join('\n');
+    }
+    runtime.pluginStyles = pluginStyles;
+
+    /// The page body's classes and inline style that copies take: those plugins and themes
+    /// set (Style Settings' `css-settings-manager`, Minimal Theme Settings' scheme and option
+    /// classes and its variables), without the runtime's own and the light or dark class, which
+    /// each copy sets from Graphite's appearance.
+    function bodyPresentation() {
+        const body = globalScope.document.body;
+        const ownClasses = new Set(['graphite-plugin-runtime', 'theme-light', 'theme-dark', 'is-mobile', 'is-ios', 'is-tablet', 'is-phone']);
+        return {
+            bodyClasses: Array.from(body.classList).filter((className) => !ownClasses.has(className)).join(' '),
+            bodyStyle: body.getAttribute('style') || '',
+        };
+    }
+    runtime.bodyPresentation = bodyPresentation;
+
+    let lastSentStyles = null;
+    let isStyleNotificationScheduled = false;
+    /// Tells Graphite when the page's styles or body classes change (a plugin loads, Style
+    /// Settings or Minimal Theme Settings changes a value, the theme changes), so the copies
+    /// already shown restyle without being drawn again.
+    function scheduleStyleNotification() {
+        if (isStyleNotificationScheduled) return;
+        isStyleNotificationScheduled = true;
+        globalScope.setTimeout(() => {
+            isStyleNotificationScheduled = false;
+            const presentation = Object.assign({ styles: pluginStyles() }, bodyPresentation());
+            const key = presentation.styles.length + '\u0000' + presentation.bodyClasses + '\u0000' + presentation.bodyStyle + '\u0000' + presentation.styles;
+            if (key === lastSentStyles) return;
+            lastSentStyles = key;
+            hostBridge.notify('styles.changed', presentation);
+        }, 150);
+    }
+    const styleObserver = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+            const target = mutation.target;
+            const isHead = target === globalScope.document.head || (target.parentNode && target.parentNode.nodeName === 'STYLE') || target.nodeName === 'STYLE'
+                || Array.from(mutation.addedNodes || []).concat(Array.from(mutation.removedNodes || [])).some((node) => node.nodeName === 'STYLE');
+            if (isHead || target === globalScope.document.body) { scheduleStyleNotification(); return; }
+        }
+    });
+    // The runtime's scripts run in the page's head, before its body exists.
+    function observeStyles() {
+        styleObserver.observe(globalScope.document.head, { childList: true, subtree: true, characterData: true });
+        styleObserver.observe(globalScope.document.body, { attributes: true, attributeFilter: ['class', 'style'] });
+        scheduleStyleNotification();
+    }
+    if (globalScope.document.body) observeStyles(); else globalScope.document.addEventListener('DOMContentLoaded', observeStyles);
 
     // MARK: Drawing and releasing blocks
 

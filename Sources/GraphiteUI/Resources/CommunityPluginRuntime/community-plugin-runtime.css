@@ -1,12 +1,14 @@
 /* The plugin panel's look. Obsidian plugins style themselves with Obsidian's CSS variables
-   and class names, so those are defined here, in Graphite's colors and Apple's system font. */
+   and class names, so those are defined here, in Graphite's colors and Apple's system font.
+   The variables are set with no specificity (`:where`), as Obsidian's own layer is overridden
+   by themes: a theme's `.theme-dark { … }` must win over these defaults. */
 
 :root {
     color-scheme: light dark;
     -webkit-text-size-adjust: 100%;
 }
 
-body {
+:where(body) {
     --font-interface: -apple-system, system-ui, sans-serif;
     --font-text: -apple-system, system-ui, sans-serif;
     --font-monospace: ui-monospace, "SF Mono", Menlo, monospace;
@@ -42,7 +44,7 @@ body {
     margin: 0;
 }
 
-body.theme-light {
+:where(body.theme-light) {
     --background-primary: #ffffff;
     --background-primary-alt: #f6f6f8;
     --background-secondary: #f2f2f7;
@@ -69,7 +71,7 @@ body.theme-light {
     --code-normal: #1c1c1e;
 }
 
-body.theme-dark {
+:where(body.theme-dark) {
     --background-primary: #1c1c1e;
     --background-primary-alt: #232325;
     --background-secondary: #2c2c2e;
@@ -96,7 +98,7 @@ body.theme-dark {
     --code-normal: #f2f2f7;
 }
 
-body { background: var(--background-primary); color: var(--text-normal); }
+:where(body) { background: var(--background-primary); color: var(--text-normal); }
 a { color: var(--text-accent); }
 .app-container { min-height: 100vh; }
 .graphite-plugin-surface { padding: var(--size-4-4); padding-bottom: calc(var(--size-4-8) + env(safe-area-inset-bottom)); }

@@ -79,7 +79,14 @@
         strictLineBreaks: false, useTab: true, tabSize: 4, spellcheck: true, autoPairBrackets: true, autoPairMarkdown: true,
         smartIndentList: true, foldHeading: true, foldIndent: true, showLineNumber: false, livePreview: true, defaultViewMode: 'source',
         showFrontmatter: false, propertiesInDocument: 'visible', userIgnoreFilters: [], fileSortOrder: 'alphabetical', vimMode: false,
+        theme: 'system', accentColor: '', cssTheme: '', enabledCssSnippets: [], textFontFamily: '', interfaceFontFamily: '',
+        monospaceFontFamily: '', baseFontSize: 16, baseFontSizeAction: false, translucency: false,
     };
+
+    /// The `.obsidian/appearance.json` keys Graphite writes when a plugin sets them; Graphite
+    /// shows the change too. Everything else in that file is read only.
+    const graphiteWrittenAppearanceKeys = new Set(['cssTheme', 'enabledCssSnippets', 'textFontFamily', 'interfaceFontFamily',
+        'monospaceFontFamily', 'baseFontSize', 'baseFontSizeAction']);
 
     // MARK: Data adapter
 
@@ -530,12 +537,27 @@
         getResourcePath(file) {
             return this.adapter.getResourcePath(file.path) + '?' + (file.stat ? file.stat.mtime : 0);
         }
-        /// Obsidian's settings from `.obsidian/app.json` (undocumented but widely used).
+        /// Obsidian's settings from `.obsidian/app.json` and `.obsidian/appearance.json`
+        /// (undocumented but widely used).
         getConfig(key) {
             if (Object.prototype.hasOwnProperty.call(this.configuration, key)) return this.configuration[key];
+            const appearance = this.appearanceConfiguration || {};
+            if (Object.prototype.hasOwnProperty.call(appearance, key)) return appearance[key];
             return Object.prototype.hasOwnProperty.call(obsidianDefaultConfiguration, key) ? obsidianDefaultConfiguration[key] : null;
         }
-        setConfig(key) {
+        /// Appearance settings Graphite shares are written through Graphite. `theme` (light,
+        /// dark or the system's) is kept here only: Graphite's own appearance setting decides
+        /// light or dark, and the page follows it.
+        setConfig(key, value) {
+            if (key === 'theme') {
+                this.appearanceConfiguration = Object.assign({}, this.appearanceConfiguration, { theme: value });
+                return;
+            }
+            if (graphiteWrittenAppearanceKeys.has(key)) {
+                this.appearanceConfiguration = Object.assign({}, this.appearanceConfiguration, { [key]: value });
+                hostBridge.notify('appearance.setConfig', { key, value });
+                return;
+            }
             runtime.unsupported('Vault.setConfig (“' + key + '”)', 'Change Obsidian settings in Graphite\'s Settings.');
         }
     }
