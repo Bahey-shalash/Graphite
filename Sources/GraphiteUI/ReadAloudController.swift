@@ -50,6 +50,8 @@ final class ReadAloudController {
     @ObservationIgnored private var preparation: Task<Void, Never>?
     @ObservationIgnored private var preparationIdentifier: UUID?
     @ObservationIgnored private var pdfContinuation: (() -> Void)?
+    /// Footer and header text found on the pages read so far, skipped on the following ones.
+    @ObservationIgnored private var pdfRunningText: [String] = []
     /// In the app a chosen passage starts as soon as it is ready, like Play in any audio app;
     /// tests prepare first and play explicitly. Rebuilding a passage for a new math or PDF
     /// reading order, and a scanned page that needs review, still wait for Play.
@@ -184,7 +186,7 @@ final class ReadAloudController {
         let identifier = preparationIdentifier
         preparation = Task { [weak self] in
             do {
-                let worker = Task.detached(priority: .userInitiated) { try ReadAloudDocument.plainText(source.text) }
+                let worker = Task.detached(priority: .userInitiated) { try ReadAloudDocument.pageText(source.text) }
                 let document = try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
                 guard let self, identifier == self.preparationIdentifier, !Task.isCancelled else { return }
                 guard revision == pdf.changeVersion else { self.documentDidChange(pdf.location.path); return }
@@ -377,6 +379,7 @@ final class ReadAloudController {
     private func begin(title: String, sourceIdentifier: String, scope: String) {
         stop()
         session.clear()
+        pdfRunningText = []
         markdownRequest = nil
         pdfRequest = nil
         self.title = title
@@ -431,6 +434,9 @@ final class ReadAloudController {
                                     range: PDFReadAloudRange?, playsWhenReady: Bool, identifier: UUID?, revision: Int,
                                     recognizedWords: ClosedRange<Int>? = nil) async throws {
         guard identifier == preparationIdentifier, !Task.isCancelled else { return }
+        // The page's own number and its printed label, to recognize a running footer or header.
+        let pageLabels = [String(pageIndex + 1)] + (pdf.document.page(at: pageIndex)?.label.map { label in [label] } ?? [])
+        let knownRunningText = pdfRunningText
         let worker = Task.detached(priority: .userInitiated) {
             let selectedRange: NSRange?
             if let recognizedWords {
@@ -439,12 +445,14 @@ final class ReadAloudController {
                 selectedRange = try snapshot.selectedRange(startOffset: pageIndex == range.start.pageIndex ? range.start.offset : nil,
                     endOffset: pageIndex == range.end?.pageIndex ? range.end?.offset : nil)
             } else { selectedRange = nil }
-            return try ReadAloudDocument.plainText(snapshot.text, selectedRange: selectedRange)
+            return try ReadAloudDocument.pageText(snapshot.text, selectedRange: selectedRange, pageLabels: pageLabels,
+                                                  knownRunningText: knownRunningText)
         }
         let document = try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
         guard identifier == preparationIdentifier, !Task.isCancelled else { return }
         guard revision == pdf.changeVersion else { documentDidChange(pdf.location.path); return }
         guard let page = pdf.document.page(at: pageIndex), !document.passages.isEmpty else { throw ReadAloudError.noReadableText }
+        for text in document.runningText where !pdfRunningText.contains(text) { pdfRunningText = Array((pdfRunningText + [text]).suffix(8)) }
         let hasSafeCoordinates: Bool
         if let recognition = snapshot.recognition {
             hasSafeCoordinates = page.bounds(for: .mediaBox) == recognition.geometry.mediaBounds && page.bounds(for: .cropBox) == recognition.geometry.cropBounds &&

@@ -15,6 +15,11 @@ private final class TestReadAloudSpeech: ReadAloudSpeaking {
         requests.append((text, requestIdentifier))
     }
     var releaseCount = 0
+    var leadingPauses: [Double] = []
+    func speak(_ text: String, voiceIdentifier: String, speed: Double, leadingPauseSeconds: Double, requestIdentifier: UUID) throws {
+        leadingPauses.append(leadingPauseSeconds)
+        try speak(text, voiceIdentifier: voiceIdentifier, speed: speed, requestIdentifier: requestIdentifier)
+    }
     func pause() -> Bool { true }
     func resume() -> Bool { canResume }
     func stop() {}
@@ -133,6 +138,19 @@ final class ReadAloudSessionTests: XCTestCase {
         speech.eventHandler?(.interrupted)
         speech.eventHandler?(.interruptionEnded(shouldResume: true))
         XCTAssertEqual(session.state, .paused, "A reading the person paused must not start by itself.")
+    }
+
+    /// A heading is followed by a longer breath than a list item, and a heading is preceded by one.
+    func testPausesBetweenPassagesFollowWhatTheyAre() throws {
+        let (session, speech) = try makeSession()
+        session.load(try ReadAloudDocument.markdown("# Title\n\nBody one.\n\n- First item\n- Second item\n\n## Next"))
+        XCTAssertEqual(session.document?.passages.map(\.kind), [.heading, .paragraph, .listItem, .listItem, .heading])
+        session.play()
+        for _ in 0..<4 { speech.eventHandler?(.finished(try XCTUnwrap(speech.requests.last?.identifier))) }
+        XCTAssertEqual(speech.leadingPauses, [0, 0.6, 0.35, 0.25, 0.6])
+        session.setSpeed(1.25)
+        session.play()
+        XCTAssertEqual(speech.leadingPauses.last, 0, "Resuming starts at once.")
     }
 
     func testAudioIsReleasedWhenReadingStopsOrFinishesButNotBetweenPDFPages() throws {

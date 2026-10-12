@@ -87,6 +87,8 @@ public protocol ReadAloudSpeaking: AnyObject {
     var eventHandler: (@MainActor (ReadAloudSpeechEvent) -> Void)? { get set }
     var voices: [ReadAloudVoice] { get }
     func speak(_ text: String, voiceIdentifier: String, speed: Double, requestIdentifier: UUID) throws
+    /// Speaks after a silence, the breath between a heading and the paragraph that follows.
+    func speak(_ text: String, voiceIdentifier: String, speed: Double, leadingPauseSeconds: Double, requestIdentifier: UUID) throws
     func pause() -> Bool
     func resume() -> Bool
     func stop()
@@ -100,6 +102,9 @@ public protocol ReadAloudSpeaking: AnyObject {
 }
 
 public extension ReadAloudSpeaking {
+    func speak(_ text: String, voiceIdentifier: String, speed: Double, leadingPauseSeconds: Double, requestIdentifier: UUID) throws {
+        try speak(text, voiceIdentifier: voiceIdentifier, speed: speed, requestIdentifier: requestIdentifier)
+    }
     func systemDefaultVoiceIdentifier(language: String) -> String? { nil }
     var personalVoiceStatus: ReadAloudPersonalVoiceStatus { .unsupported }
     func requestPersonalVoiceAccess() async -> ReadAloudPersonalVoiceStatus { .unsupported }
@@ -175,6 +180,10 @@ public final class AppleReadAloudSpeech: NSObject, ReadAloudSpeaking, AVSpeechSy
     }
 
     public func speak(_ text: String, voiceIdentifier: String, speed: Double, requestIdentifier: UUID) throws {
+        try speak(text, voiceIdentifier: voiceIdentifier, speed: speed, leadingPauseSeconds: 0, requestIdentifier: requestIdentifier)
+    }
+
+    public func speak(_ text: String, voiceIdentifier: String, speed: Double, leadingPauseSeconds: Double, requestIdentifier: UUID) throws {
         guard let voice = AVSpeechSynthesisVoice(identifier: voiceIdentifier) else {
             throw GraphiteError.unavailable("The chosen voice is no longer installed. Choose a voice before continuing.")
         }
@@ -185,7 +194,9 @@ public final class AppleReadAloudSpeech: NSObject, ReadAloudSpeaking, AVSpeechSy
         utterance.rate = min(AVSpeechUtteranceMaximumSpeechRate, max(AVSpeechUtteranceMinimumSpeechRate, AVSpeechUtteranceDefaultSpeechRate * Float(speed)))
         utterance.pitchMultiplier = 1
         utterance.volume = 1
-        utterance.postUtteranceDelay = 0.18
+        // The pause belongs before the next passage rather than after this one, so pausing or
+        // moving at the end of a passage never waits for a silence nobody will hear.
+        utterance.preUtteranceDelay = max(0, min(leadingPauseSeconds, 2))
         activeUtterance = utterance
         self.requestIdentifier = requestIdentifier
         synthesizer.speak(utterance)
@@ -310,6 +321,8 @@ public final class ReadAloudSession {
     @ObservationIgnored private var utteranceStartOffset = 0
     @ObservationIgnored private var needsRestart = false
     @ObservationIgnored private var wasSpeakingWhenInterrupted = false
+    /// The silence before the next passage, from the kind of passage that just ended.
+    @ObservationIgnored private var leadingPauseSeconds = 0.0
     /// Called when the last passage ends; returns true when more follows (a PDF's next page),
     /// so the audio session stays active through the short preparation in between.
     @ObservationIgnored public var didFinishDocument: (@MainActor () -> Bool)?
@@ -395,6 +408,7 @@ public final class ReadAloudSession {
         invalidateSpeech()
         speech.releaseAudio()
         wasSpeakingWhenInterrupted = false
+        leadingPauseSeconds = 0
         state = .idle
         spokenRange = nil
         utteranceStartOffset = 0
@@ -522,7 +536,10 @@ public final class ReadAloudSession {
         let text = passage.text as NSString
         utteranceStartOffset = min(utteranceStartOffset, text.length)
         do {
-            try speech.speak(text.substring(from: utteranceStartOffset), voiceIdentifier: selectedVoiceIdentifier, speed: speed, requestIdentifier: identifier)
+            let pause = leadingPauseSeconds / speed
+            leadingPauseSeconds = 0
+            try speech.speak(text.substring(from: utteranceStartOffset), voiceIdentifier: selectedVoiceIdentifier, speed: speed,
+                             leadingPauseSeconds: pause, requestIdentifier: identifier)
             state = .speaking
             needsRestart = false
             message = nil
@@ -583,7 +600,13 @@ public final class ReadAloudSession {
         guard let document else { return }
         spokenRange = nil
         utteranceStartOffset = 0
-        if passageIndex + 1 < document.passages.count { passageIndex += 1; speakCurrentPassage() }
+        if passageIndex + 1 < document.passages.count {
+            let finished = document.passages[passageIndex]
+            passageIndex += 1
+            let next = document.passages[passageIndex]
+            leadingPauseSeconds = max(finished.kind.pauseAfterSeconds, next.kind == .heading ? ReadAloudPassageKind.heading.pauseAfterSeconds : 0)
+            speakCurrentPassage()
+        }
         else {
             state = .finished
             if didFinishDocument?() != true { speech.releaseAudio() }

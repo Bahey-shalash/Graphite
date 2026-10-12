@@ -29,6 +29,19 @@ public struct ReadAloudSourceToken: Hashable, Sendable {
                     previousEquationRange = span.sourceRange
                 }
             }
+            for span in passage.spans where !span.isEquation {
+                guard let writtenText = span.writtenText else { continue }
+                // Said differently from how it is written: the rendered note shows the
+                // written words, so those are the tokens, at their place in the source.
+                prose.replaceCharacters(in: span.speechRange, with: String(repeating: " ", count: span.speechRange.length))
+                guard span.sourceRange.length == writtenText.utf16.count else { continue }
+                writtenText.enumerateSubstrings(in: writtenText.startIndex..<writtenText.endIndex,
+                                                options: [.byWords, .substringNotRequired]) { _, range, _, _ in
+                    let wordRange = NSRange(range, in: writtenText)
+                    tokens.append(Self(text: (writtenText as NSString).substring(with: wordRange),
+                                       sourceRange: NSRange(location: span.sourceRange.location + wordRange.location, length: wordRange.length)))
+                }
+            }
             let proseText = prose as String
             proseText.enumerateSubstrings(in: proseText.startIndex..<proseText.endIndex,
                                          options: [.byWords, .substringNotRequired]) { _, range, _, _ in
