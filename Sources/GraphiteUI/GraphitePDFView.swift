@@ -580,9 +580,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     private var textSelectionRecognizer: UILongPressGestureRecognizer?
     /// Takes a resting hand's touches on the pages, which the page's scrolling, zooming,
     /// tapping and selecting wait for (`PalmRejectionRecognizer`).
-    private var palmRejectionRecognizer: PalmRejectionRecognizer?
-    /// The recognizers already made to wait for palm rejection.
-    private var recognizersWaitingForPalmRejection: Set<ObjectIdentifier> = []
+    private var palmRejection: PalmRejectionInstallation?
     private var editMenuInteraction: UIEditMenuInteraction?
     private var tappedMarkup: (annotation: PDFAnnotation, page: PDFPage)?
     private var selectionAnchor: (page: PDFPage, point: CGPoint)?
@@ -594,7 +592,8 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     private var renderingScaleUpdate: DispatchWorkItem?
     /// For tests, which cannot send touches.
     var pictureSelectionController: PDFPictureSelectionController? { pictureSelection }
-    private var observedScrollRecognizers: Set<ObjectIdentifier> = []
+    /// Held weakly: a recognizer made later at a freed one's address is observed too.
+    private let observedScrollRecognizers = NSHashTable<UIGestureRecognizer>.weakObjects()
     /// The scroll views around this embed that it restricts while annotating.
     private var restrictedEnclosingScrollViews: [ObjectIdentifier] = []
     private var hasAppliedInput = false
@@ -652,8 +651,8 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         pencilWhileReadingRecognizer = pencilRecognizer
 
         // A hand resting on a page while the Pencil writes does not tap, select, scroll or zoom.
-        palmRejectionRecognizer = PencilActivity.installRecognizers(in: view, isWriting: { [weak self] in self?.input.isEnabled ?? false },
-                                                                    handDidLand: { [weak self] in self?.handDidLandOnPage() })
+        palmRejection = PencilActivity.installRecognizers(in: view, isWriting: { [weak self] in self?.input.isEnabled ?? false },
+                                                          handTouchesDidChange: { [weak self] handTouches in self?.handTouchesDidChange(handTouches) })
         makeWaitForPalmRejection([tapRecognizer, selectionRecognizer])
 
         let menuInteraction = UIEditMenuInteraction(delegate: self)
@@ -788,9 +787,9 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
             scrollView.panGestureRecognizer.minimumNumberOfTouches = input.isEnabled && input.drawsWithFinger ? 2 : 1
             scrollView.pinchGestureRecognizer?.allowedTouchTypes = input.isEnabled ? withoutPencil : allTouchTypes
             for recognizer in [scrollView.panGestureRecognizer, scrollView.pinchGestureRecognizer].compactMap({ recognizer in recognizer })
-            where !observedScrollRecognizers.contains(ObjectIdentifier(recognizer)) {
+            where !observedScrollRecognizers.contains(recognizer) {
                 recognizer.addTarget(self, action: #selector(scrollGestureChanged(_:)))
-                observedScrollRecognizers.insert(ObjectIdentifier(recognizer))
+                observedScrollRecognizers.add(recognizer)
             }
             makeWaitForPalmRejection([scrollView.panGestureRecognizer, scrollView.pinchGestureRecognizer].compactMap { recognizer in recognizer })
         }
@@ -799,14 +798,18 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     }
 
     /// Makes recognizers wait for palm rejection to fail, each once. It fails at once for a
-    /// finger, so they do not wait for one.
+    /// finger while the Pencil is not active, so they do not wait for one.
     private func makeWaitForPalmRejection(_ recognizers: [UIGestureRecognizer]) {
-        guard let palmRejectionRecognizer else { return }
-        for recognizer in recognizers where recognizer !== palmRejectionRecognizer
-        && recognizersWaitingForPalmRejection.insert(ObjectIdentifier(recognizer)).inserted {
-            recognizer.require(toFail: palmRejectionRecognizer)
-        }
+        palmRejection?.makeWait(recognizers)
     }
+
+    /// For tests, which cannot send touches: whether a recognizer waits for palm rejection.
+    func waitsForPalmRejection(_ recognizer: UIGestureRecognizer) -> Bool {
+        palmRejection?.isWaiting(recognizer) ?? false
+    }
+
+    /// For tests: the recognizer that takes a resting hand's touches.
+    var palmRejectionRecognizer: PalmRejectionRecognizer? { palmRejection?.recognizer }
 
     /// The taps and long presses of the pages, not of the Pencil canvases, whose drawing
     /// must never wait, nor of a picture's selection frame.
@@ -819,9 +822,9 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     }
 
     /// With finger drawing, a stroke a resting hand began on any page is taken back.
-    private func handDidLandOnPage() {
+    private func handTouchesDidChange(_ handTouches: [UITouch]) {
         guard input.drawsWithFinger else { return }
-        for canvas in canvasesByPage.values { canvas.takeBackStrokeOfHand() }
+        for canvas in canvasesByPage.values { canvas.takeBackStroke(ofHand: handTouches) }
     }
 
     /// With finger drawing, the first finger of a two-finger scroll or pinch has already
