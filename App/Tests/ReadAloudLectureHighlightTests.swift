@@ -169,7 +169,7 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
             NavigationStack {
                 WorkspacePanes(workspace: workspace, showsLinksInspector: .constant(false), create: { _ in }, showQuickSwitcher: {})
             }
-            ReadAloudFloatingPlayer(reader: workspace.readAloud, navigator: workspace.readAloudNavigator, accentColor: .blue)
+            ReadAloudFloatingPlayer(reader: workspace.readAloud, navigator: workspace.readAloudNavigator)
         })
         let controller = UIHostingController(rootView: rootView)
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)

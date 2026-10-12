@@ -53,8 +53,7 @@ public struct GraphiteRootView: View {
             detailColumn
                 .overlay {
                     if usesFloatingPlayer && workspace.readAloud.isActive && !workspace.recording.state.isActive {
-                        ReadAloudFloatingPlayer(reader: workspace.readAloud, navigator: workspace.readAloudNavigator,
-                                                accentColor: workspace.preferences.accentColor)
+                        ReadAloudFloatingPlayer(reader: workspace.readAloud, navigator: workspace.readAloudNavigator)
                     }
                 }
         }

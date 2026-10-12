@@ -133,7 +133,11 @@ struct MarkdownPane: View {
         .environment(\.calloutFoldNote, (workspace.calloutFolds, session.path.rawValue))
         // In the reading view, "Read from Here" after scrolling starts at the top block shown.
         .onChange(of: viewMode, initial: true) { _, mode in
-            if mode == .reading { workspace.readAloudNavigator.visibleLocation = { [session] in session.readingPosition.topLocation() } }
+            if mode == .reading {
+                workspace.readAloudNavigator.visibleLocation = { [session] in session.readingPosition.topLocation() }
+                // The reading view has no tap to read yet; "Read from Here" is in the player.
+                workspace.readAloudNavigator.supportsTapToRead = false
+            }
         }
         // The text and the cursor change at every keystroke. Only these small views read
         // them, so typing and moving the cursor do not rebuild the pane and its toolbar.
@@ -551,7 +555,10 @@ struct MarkdownPane: View {
             readFromHere: { location in
                 startReading(range: NSRange(location: location, length: max(0, textLength - location)), scope: "From here to the end")
             },
-            registerVisibleLocation: { provider in navigator.visibleLocation = provider },
+            registerVisibleLocation: { provider in
+                navigator.visibleLocation = provider
+                navigator.supportsTapToRead = true
+            },
             reportHighlightFrame: { frame, window in
                 if navigator.highlightFrameInWindow != frame { navigator.highlightFrameInWindow = frame }
                 if navigator.windowBounds != window { navigator.windowBounds = window }
