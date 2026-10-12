@@ -248,7 +248,10 @@ final class ReadAloudSessionTests: XCTestCase {
 
     func testIPAPronunciationsReachTheSpeechEngineRelativeToTheUtterance() throws {
         let (session, speech) = try makeSession()
-        session.load(try ReadAloudDocument.markdown("The SIMD unit."))
+        // IPA is opt-in (plain respelling is the default for every voice).
+        var pronunciations = ReadAloudPronunciations(terms: ["SIMD": .init(say: "sim dee", ipa: "ˈsɪmdiː")])
+        pronunciations.usesPhoneticNotation = true
+        session.load(try ReadAloudDocument.markdown("The SIMD unit.", pronunciations: pronunciations))
         session.play()
         XCTAssertEqual(speech.phoneticRequests.last, [ReadAloudPhoneticRange(range: NSRange(location: 4, length: 7), notation: "ˈsɪmdiː")])
     }

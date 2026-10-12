@@ -282,6 +282,28 @@ final class ReadAloudControllerTests: XCTestCase {
                      "A page that hardly matches is not trusted.")
     }
 
+    /// Expanding a folded callout while the note is read brings its body into what is still to
+    /// be read, and reading carries on from where it was.
+    func testUnfoldingWhileReadingAddsTheUnfoldedPassage() async throws {
+        let (reader, speech) = try makeReader()
+        let path = try VaultPath("Folds.md")
+        let note = "Opening line.\n\n> [!note]- Hidden derivation\n> The long hidden proof.\n\nClosing line."
+        let collapsed = ReadAloudFolding.hiddenRanges(in: note, foldedKeys: [], calloutExpansion: [:])
+        reader.readMarkdown(note, path: path, hiddenRanges: collapsed)
+        try await waitForPreparation(reader)
+        XCTAssertEqual(reader.session.document?.passages.map(\.text), ["Opening line.", "Hidden derivation", "Closing line."])
+        reader.session.play()
+        XCTAssertEqual(speech.requests.last?.text, "Opening line.")
+        let expanded = ReadAloudFolding.hiddenRanges(in: note, foldedKeys: [],
+                                                     calloutExpansion: [ReadAloudFolding.calloutKey(type: "note", title: "Hidden derivation"): true])
+        reader.foldsDidChange(in: path, hiddenRanges: expanded)
+        let deadline = ContinuousClock.now + .seconds(5)
+        while reader.session.document?.passages.count != 4, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(reader.session.document?.passages.map(\.text), ["Opening line.", "Hidden derivation", "The long hidden proof.", "Closing line."])
+        XCTAssertEqual(reader.session.passageIndex, 0, "Reading carries on from the same place.")
+        XCTAssertEqual(reader.session.state, .speaking)
+    }
+
     /// In the app, choosing Read Document starts reading as soon as the passage is ready and
     /// keeps the page in view; rebuilding it for another math style waits for Play.
     func testAppReadingStartsWhenPreparedWithoutCoveringThePage() async throws {

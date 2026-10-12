@@ -124,6 +124,12 @@ struct MarkdownPane: View {
         .onChange(of: session.text) { _, _ in
             readingStartOffset = nil
         }
+        // Folding or unfolding while this note is read changes what is still to be read.
+        .onChange(of: session.foldedKeys) { _, _ in workspace.readAloud.foldsDidChange(in: session.path, hiddenRanges: foldedRanges) }
+        .onChange(of: workspace.calloutFolds.expansion(for: session.path.rawValue)) { _, _ in
+            workspace.readAloud.foldsDidChange(in: session.path, hiddenRanges: foldedRanges)
+        }
+        .environment(\.calloutFoldNote, (workspace.calloutFolds, session.path.rawValue))
         // The text and the cursor change at every keystroke. Only these small views read
         // them, so typing and moving the cursor do not rebuild the pane and its toolbar.
         .background {
@@ -300,6 +306,7 @@ struct MarkdownPane: View {
         guard viewMode == .livePreview, let root = workspace.folderAccess?.root else { return nil }
         let notePath = session.path
         return LivePreviewEnvironment(
+            calloutFoldNote: (workspace.calloutFolds, notePath.rawValue),
             root: root, textSize: noteTextSize, typography: workspace.noteTypography, theme: workspace.noteTheme, colorsEnabled: preferences.isEnabled(.colors), paletteHexByName: paletteHexByName,
             drawingVersion: workspace.drawingVersion,
             resolve: { [workspace] target, isWiki in await workspace.resolveLink(target, from: notePath, isWiki: isWiki) },
@@ -505,7 +512,14 @@ struct MarkdownPane: View {
 
     private func startReading(range: NSRange? = nil, scope: String = "Whole note") {
         guard !workspace.recording.state.isActive else { return }
-        workspace.readAloud.readMarkdown(session.text, path: session.path, range: range, scope: scope, paletteHexByName: paletteHexByName)
+        workspace.readAloud.readMarkdown(session.text, path: session.path, range: range, scope: scope, paletteHexByName: paletteHexByName,
+                                         hiddenRanges: foldedRanges)
+    }
+
+    /// What the person folded away in this note, which Read Aloud does not read.
+    private var foldedRanges: [NSRange] {
+        ReadAloudFolding.hiddenRanges(in: session.text, foldedKeys: session.foldedKeys,
+                                      calloutExpansion: workspace.calloutFolds.expansion(for: session.path.rawValue))
     }
 
     private var usesDocumentControlRow: Bool {

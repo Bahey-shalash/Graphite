@@ -12,9 +12,9 @@ public actor ReadAloudMarkdownPreparation {
     public func prepare(_ source: String, selectedRange: NSRange? = nil,
                         paletteHexByName: [String: String] = [:],
                         mathematicalStyle: MathematicalSpeechStyle = .concise,
-                        vaultRoot: URL? = nil) throws -> ReadAloudDocument {
+                        vaultRoot: URL? = nil, hiddenRanges: [NSRange] = []) throws -> ReadAloudDocument {
         try ReadAloudDocument.markdown(source, selectedRange: selectedRange, paletteHexByName: paletteHexByName,
-                                       pronunciations: Self.pronunciations(vaultRoot: vaultRoot)) { expression in
+                                       pronunciations: Self.pronunciations(vaultRoot: vaultRoot), hiddenRanges: hiddenRanges) { expression in
             try Task.checkCancellation()
             if mathematicalInterpreter == nil { mathematicalInterpreter = try OfflineMathematicalInterpreter() }
             return mathematicalInterpreter?.speech(for: expression, style: mathematicalStyle)

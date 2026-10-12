@@ -298,7 +298,7 @@ public enum NotePreviewDocument {
         return (source.substring(with: match.range(at: 1)).count, source.substring(with: match.range(at: 2)))
     }
 
-    private static func calloutHeader(in line: String) -> (type: String, title: String, folding: CalloutFolding)? {
+    static func calloutHeader(in line: String) -> (type: String, title: String, folding: CalloutFolding)? {
         guard let calloutHeaderPattern, let match = calloutHeaderPattern.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) else { return nil }
         let source = line as NSString
         let type = source.substring(with: match.range(at: 1)).lowercased()

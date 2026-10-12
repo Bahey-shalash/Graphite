@@ -13,6 +13,7 @@ private struct ReadAloudMarkdownRequest {
     let selectedRange: NSRange?
     let scopeDescription: String
     let paletteHexByName: [String: String]
+    var hiddenRanges: [NSRange] = []
 }
 
 private struct ReadAloudPDFRequest {
@@ -52,6 +53,7 @@ final class ReadAloudController {
     @ObservationIgnored private var preparation: Task<Void, Never>?
     @ObservationIgnored private var preparationIdentifier: UUID?
     @ObservationIgnored private var pdfContinuation: (() -> Void)?
+    @ObservationIgnored private var foldPreparationIdentifier: UUID?
     /// Footer and header text found on the pages read so far, skipped on the following ones.
     @ObservationIgnored private var pdfRunningText: [String] = []
     /// In the app a chosen passage starts as soon as it is ready, like Play in any audio app;
@@ -75,11 +77,12 @@ final class ReadAloudController {
     }
 
     func readMarkdown(_ markdown: String, path: VaultPath, range: NSRange? = nil,
-                      scope: String = "Whole note", paletteHexByName: [String: String] = [:], startsPlaying: Bool = true) {
+                      scope: String = "Whole note", paletteHexByName: [String: String] = [:], startsPlaying: Bool = true,
+                      hiddenRanges: [NSRange] = []) {
         begin(title: path.stem, sourceIdentifier: path.rawValue, scope: scope)
         playsCurrentPreparation = playsWhenPrepared && startsPlaying
         markdownRequest = ReadAloudMarkdownRequest(sourceText: markdown, path: path, selectedRange: range,
-                                                  scopeDescription: scope, paletteHexByName: paletteHexByName)
+                                                  scopeDescription: scope, paletteHexByName: paletteHexByName, hiddenRanges: hiddenRanges)
         let identifier = preparationIdentifier
         let mathematicalStyle = mathematicalStyle
         let markdownPreparation = markdownPreparation
@@ -87,7 +90,7 @@ final class ReadAloudController {
         preparation = Task { [weak self] in
             let worker = Task(priority: .userInitiated) {
                 try await markdownPreparation.prepare(markdown, selectedRange: range, paletteHexByName: paletteHexByName,
-                                                      mathematicalStyle: mathematicalStyle, vaultRoot: vaultRoot)
+                                                      mathematicalStyle: mathematicalStyle, vaultRoot: vaultRoot, hiddenRanges: hiddenRanges)
             }
             do {
                 let document = try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
@@ -97,13 +100,44 @@ final class ReadAloudController {
         }
     }
 
+    /// The person folded or unfolded part of the note being read: the passage is prepared again
+    /// without what is now hidden, and reading goes on from where it was, so a section folded
+    /// ahead is skipped and one unfolded ahead is read.
+    func foldsDidChange(in path: VaultPath, hiddenRanges: [NSRange]) {
+        guard let request = markdownRequest, request.path == path, request.hiddenRanges != hiddenRanges,
+              session.document != nil || isPreparing else { return }
+        let wasSpeaking = session.state == .speaking
+        let position = session.sourceRange?.location
+            ?? session.currentPassage?.spans.map(\.sourceRange.location).min() ?? 0
+        let identifier = UUID()
+        foldPreparationIdentifier = identifier
+        let markdownPreparation = markdownPreparation
+        let mathematicalStyle = mathematicalStyle
+        let vaultRoot = vaultRoot
+        markdownRequest?.hiddenRanges = hiddenRanges
+        Task { [weak self] in
+            guard let document = try? await markdownPreparation.prepare(request.sourceText, selectedRange: request.selectedRange,
+                                                                        paletteHexByName: request.paletteHexByName,
+                                                                        mathematicalStyle: mathematicalStyle, vaultRoot: vaultRoot,
+                                                                        hiddenRanges: hiddenRanges),
+                  let self, self.foldPreparationIdentifier == identifier, self.markdownRequest?.path == path else { return }
+            let resumeIndex = document.passages.firstIndex { passage in
+                (passage.spans.map { span in NSMaxRange(span.sourceRange) }.max() ?? 0) > position
+            } ?? max(0, document.passages.count - 1)
+            self.session.load(document)
+            self.session.move(to: resumeIndex)
+            if wasSpeaking { self.session.play() }
+        }
+    }
+
     func chooseMathematicalStyle(_ style: MathematicalSpeechStyle) {
         guard mathematicalStyle != style else { return }
         mathematicalStyle = style
         preferences.set(style.rawValue, forKey: "readAloudMathematicalStyle")
         guard let request = markdownRequest else { return }
         readMarkdown(request.sourceText, path: request.path, range: request.selectedRange,
-                     scope: request.scopeDescription, paletteHexByName: request.paletteHexByName, startsPlaying: false)
+                     scope: request.scopeDescription, paletteHexByName: request.paletteHexByName, startsPlaying: false,
+                     hiddenRanges: request.hiddenRanges)
     }
 
     func prepareVoiceSample() async throws -> ReadAloudDocument {
