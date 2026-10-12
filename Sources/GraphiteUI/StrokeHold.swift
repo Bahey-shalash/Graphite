@@ -124,8 +124,10 @@ final class StrokeHoldRecognizer: UIGestureRecognizer {
         trackedTouch = nil
         rest = nil
         strokePoints = []
+        // It stays possible rather than failing: a failed recognizer hears no more touches
+        // until every touch has lifted, and a hand resting on the page keeps one down while
+        // the Pencil draws the next stroke, which then could not be held into a shape.
         touchDidEnd(wasCancelled)
-        if state == .possible { state = .failed }
     }
 
     private func scheduleHold() {
