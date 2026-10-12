@@ -77,6 +77,8 @@ struct CommunityPluginViewContent: View {
     @State private var size: CGSize = .zero
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accent) private var accent
+    /// Obsidian's interface text size, 15 points, grown and shrunk with the system's text size.
+    @ScaledMetric(relativeTo: .body) private var scaledTextSize: Double = 15
 
     var body: some View {
         Group {
@@ -84,7 +86,7 @@ struct CommunityPluginViewContent: View {
             case .drawn(let html):
                 if let shownView {
                     CommunityPluginCodeBlockDisplay(block: shownView, html: html, styleSheets: host.pluginStyleSheets, isDark: colorScheme == .dark,
-                                                    textSize: 15, accentHex: accent.sRGBHex, fillsSpace: true)
+                                                    textSize: scaledTextSize, accentHex: accent.sRGBHex, fillsSpace: true)
                 }
             case .failed(let message):
                 ContentUnavailableView(message, systemImage: "puzzlepiece.extension")

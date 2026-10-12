@@ -86,6 +86,18 @@ struct VaultSidebar: View {
         case pluginView(String)
     }
 
+    /// Plugins' sidebar views the picker offers: the first three and the one shown, so the
+    /// picker keeps to about seven segments, as Apple recommends; the command palette lists
+    /// every view ("Show …").
+    private var pickerPluginViews: [CommunityPluginView] {
+        let views = workspace.communityPlugins.sidebarViews
+        var offered = Array(views.prefix(Self.maximumPluginSegments))
+        if let shownPluginView, !offered.contains(shownPluginView) { offered.append(shownPluginView) }
+        return offered
+    }
+
+    private static let maximumPluginSegments = 3
+
     private var pickerChoice: Binding<SidebarChoice> {
         Binding(get: { shownPluginView.map { view in .pluginView(view.id) } ?? .panel(panel) }, set: { choice in
             // A search would keep hiding the chosen list.
@@ -173,7 +185,7 @@ struct VaultSidebar: View {
             if workspace.store != nil && availablePanels.count + workspace.communityPlugins.sidebarViews.count > 1 {
                 Picker("Sidebar", selection: pickerChoice) {
                     ForEach(availablePanels) { panel in Label(panel.title, systemImage: panel.systemImage).tag(SidebarChoice.panel(panel)) }
-                    ForEach(workspace.communityPlugins.sidebarViews) { view in
+                    ForEach(pickerPluginViews) { view in
                         Label(view.title, systemImage: CommunityPluginViewSymbol.systemImage(forIcon: view.icon)).tag(SidebarChoice.pluginView(view.id))
                     }
                 }

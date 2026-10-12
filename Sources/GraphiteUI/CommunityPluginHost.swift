@@ -188,6 +188,8 @@ final class CommunityPluginHost {
     /// The last copy of each code block drawn, kept while Graphite runs, so a block that
     /// scrolls back into view shows at once, at its height, while it is drawn again.
     @ObservationIgnored var lastCodeBlockCopies: [CommunityPluginReadingBlockRequest: CommunityPluginCodeBlockCopy] = [:]
+    /// The kept copies, least recently drawn first.
+    @ObservationIgnored var keptCopyOrder: [CommunityPluginReadingBlockRequest] = []
 
     // MARK: Ownership
 
@@ -460,6 +462,7 @@ final class CommunityPluginHost {
         hasEditorChangeListeners = false
         typingRequest = nil
         lastCodeBlockCopies = [:]
+        keptCopyOrder = []
         isPanelPresented = false
         pendingMenu?.finish(choosing: nil)
         pendingMenu = nil

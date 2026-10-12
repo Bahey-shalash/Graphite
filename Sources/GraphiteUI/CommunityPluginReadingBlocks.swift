@@ -145,7 +145,7 @@ final class CommunityPluginShownCodeBlock {
 
     func receive(html: String) {
         appearance = .drawn(html: html)
-        if let request { host?.lastCodeBlockCopies[request] = CommunityPluginCodeBlockCopy(html: html, height: height) }
+        if let request { host?.keepCopy(CommunityPluginCodeBlockCopy(html: html, height: height), for: request) }
     }
 
     func heightDidChange(_ newHeight: CGFloat) {
@@ -193,6 +193,17 @@ final class CommunityPluginShownCodeBlock {
 }
 
 extension CommunityPluginHost {
+    /// Copies kept at most, so a long session of reading many notes does not keep every
+    /// block's HTML; the copies least recently drawn go first.
+    static let maximumKeptCopies = 64
+
+    func keepCopy(_ copy: CommunityPluginCodeBlockCopy, for request: CommunityPluginReadingBlockRequest) {
+        lastCodeBlockCopies[request] = copy
+        keptCopyOrder.removeAll { keptRequest in keptRequest == request }
+        keptCopyOrder.append(request)
+        while keptCopyOrder.count > Self.maximumKeptCopies { lastCodeBlockCopies[keptCopyOrder.removeFirst()] = nil }
+    }
+
     /// The text of a note open in Graphite, as its editor holds it.
     func openNoteText(at path: VaultPath) -> String? {
         workspace?.openMarkdownSession(at: path)?.text
@@ -442,6 +453,11 @@ enum CommunityPluginCodeBlockPage {
                 document.body.classList.toggle('theme-dark', isDark);
                 document.body.classList.toggle('theme-light', !isDark);
                 document.body.style.setProperty('--font-text-size', textSize + 'px');
+                // A view uses Obsidian's interface sizes, which follow the system's text size too.
+                const scale = fillsSpace ? textSize / 15 : 1;
+                for (const [name, size] of [['--font-ui-smaller', 12], ['--font-ui-small', 13], ['--font-ui-medium', 15], ['--font-ui-large', 20]]) {
+                    document.body.style.setProperty(name, (size * scale) + 'px');
+                }
                 if (accent) {
                     document.body.style.setProperty('--color-accent', accent);
                     document.body.style.setProperty('--interactive-accent', accent);
