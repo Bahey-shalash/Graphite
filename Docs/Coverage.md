@@ -4,6 +4,12 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-12.
 
+## The even highlighter draws the chosen height, without a jump at the lift: 2026-10-12
+
+A review asked whether the even highlighter's change at the lift looked like a jump. In the simulator it did, and not only from tilt: a finger's highlighter stroke on a PDF page, with the highlighter ignoring tilt, was 60 points tall while drawn and 34 points after the lift, because the even points were the whole tool width at an azimuth that lays PencilKit's chisel tip along the stroke. They are now two thirds of the width, turned across the rows, as PencilKit records a finger's or an upright Pencil's points; the band is as tall as the tool is wide (see `Architecture.md`).
+
+Checked: `EvenHighlighterTests` (4, hosted) measures what PencilKit draws (`renderBounds`): a highlight across a line is as tall as the tool is wide, the same height and length as an upright stroke, and the same from a tilted stroke; `PencilToolsTests.testHighlighterThatIgnoresTiltDrawsOneWidthAndOtherInksStayAsDrawn` checks the band's height in the drawing editor. In the simulator, a frame recording of a finger stroke shows the band the same height before and after the lift. It also shows the stroke missing for about 20 ms at the lift, while PencilKit draws the replaced drawing; the shape tool replaces the drawing the same way, and this was not looked into further. A tilted Pencil's stroke still changes at the lift; not seen, needing the iPad.
+
 ## What Settings says about highlights on PDF pages: 2026-10-12
 
 Settings › Colors › Highlighter said the highlighter's light colors keep the text under a highlight easy to read. On a PDF page they do not: seen in the simulator, a highlighter stroke at full opacity covers the text under it in solid yellow (also on main). Blending highlighter ink with multiply, as real highlighters and Goodnotes look, was not done: PencilKit draws every stroke of a page in one canvas, and multiplying the whole canvas would make white or light ink vanish on dark slides and darken colored ink over figures (see `Architecture.md`, the even highlighter paragraph, for what a real fix needs). The footer now says what happens and what keeps text readable: a lower opacity in the highlighter's options (seen in the simulator: at about 40 percent the text under a highlight reads clearly) or selecting the text and choosing Highlight.

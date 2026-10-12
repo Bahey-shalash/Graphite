@@ -331,10 +331,9 @@ final class PencilToolsTests: XCTestCase {
         canvas.drawing = PKDrawing(strokes: [tiltedStroke(ink: PKInk(.marker, color: .systemYellow), atY: 200)])
         try await waitUntil { history.canUndo }
         let highlight = try XCTUnwrap(canvas.drawing.strokes.first)
-        for point in highlight.path {
-            XCTAssertEqual(point.size.width, toolWidth / canvas.zoomScale, accuracy: 0.01, "As wide as the tool at every point.")
-            XCTAssertEqual(point.size.height, toolWidth / canvas.zoomScale, accuracy: 0.01)
-        }
+        let firstPointSize = try XCTUnwrap(Array(highlight.path).first?.size)
+        for point in highlight.path { XCTAssertEqual(point.size, firstPointSize, "One tip at every point.") }
+        XCTAssertEqual(highlight.renderBounds.height, toolWidth / canvas.zoomScale, accuracy: 3, "As tall as the tool is wide, across a line.")
         XCTAssertEqual(history.undoActionName, "Drawing", "One step with the stroke.")
 
         // A pen keeps every point as it was drawn.
