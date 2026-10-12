@@ -564,12 +564,15 @@ struct PencilToolRow: View {
     /// The document's history, for the Undo and Redo of the palette Apple Pencil's squeeze opens.
     var undoAvailability: UndoAvailability?
     var rowHeight: CGFloat = PencilToolbarMetrics.height
-    /// The colors offered while a highlighter is in use, in place of the favorite colors.
-    var highlighterColors: [PaletteColor] = GraphitePreferences.storedHighlighterPalette()
+    /// The highlighter's colors as Settings keeps them, followed so a change there shows on
+    /// the bar at once, not only when the bar is made again.
+    @AppStorage(GraphitePreferences.highlighterPaletteKey) private var storedHighlighterPalette: Data?
     @State private var showsInkOptions = false
     /// The size whose width is open for changing.
     @State private var adjustedSize: PencilSizeChoice?
 
+    /// The colors offered while a highlighter is in use, in place of the favorite colors.
+    private var highlighterColors: [PaletteColor] { GraphitePreferences.highlighterPalette(decoding: storedHighlighterPalette) }
     private var buttonSide: CGFloat { PencilToolbarMetrics.buttonSide }
     private var selectedFill: AnyShapeStyle { PencilToolbarMetrics.selectedFill }
 

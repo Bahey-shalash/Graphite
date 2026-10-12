@@ -346,6 +346,56 @@ final class PencilToolsTests: XCTestCase {
         XCTAssertEqual(canvas.drawing.strokes.last.map { stroke in Array(stroke.path).map(\.size) }, Array(penStroke.path).map(\.size))
     }
 
+    /// The bar's highlighter colors follow Settings while the bar is shown.
+    func testTheBarsHighlighterColorsFollowSettingsAtOnce() async throws {
+        let paletteKey = GraphitePreferences.highlighterPaletteKey
+        let savedPalette = UserDefaults.standard.data(forKey: paletteKey)
+        defer {
+            if let savedPalette { UserDefaults.standard.set(savedPalette, forKey: paletteKey) } else { UserDefaults.standard.removeObject(forKey: paletteKey) }
+        }
+        UserDefaults.standard.removeObject(forKey: paletteKey)
+        let suiteName = "HighlighterColors-\(UUID().uuidString)"
+        let toolboxDefaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { toolboxDefaults.removePersistentDomain(forName: suiteName) }
+        let toolbox = PencilToolbox(defaults: toolboxDefaults)
+        let highlighterIndex = try XCTUnwrap(toolbox.presets.firstIndex { preset in preset.ink == .highlighter })
+        toolbox.usePreset(at: highlighterIndex)
+        let controller = try host(AnyView(PencilToolRow(toolbox: toolbox, favoriteColors: [], drawsShapes: .constant(false))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)))
+        // The swatches are told apart by their colors: SwiftUI gives tests no accessibility tree.
+        let blue = (red: 0x85, green: 0xc7, blue: 0xff)
+        let mint = (red: 0x22, green: 0xaa, blue: 0x44)
+        try await waitUntil { (try? self.showsColor(blue, in: controller)) == true }
+        XCTAssertFalse(try showsColor(mint, in: controller))
+
+        // As Settings › Colors saves an edited list.
+        let preferences = GraphitePreferences(defaults: .standard)
+        preferences.highlighterPalette = [PaletteColor(name: "mint", hex: "#22aa44")]
+        try await waitUntil { (try? self.showsColor(mint, in: controller)) == true && (try? self.showsColor(blue, in: controller)) == false }
+    }
+
+    /// Whether the window shows a few pixels of a color, as a swatch is filled with it.
+    private func showsColor(_ color: (red: Int, green: Int, blue: Int), in controller: UIViewController) throws -> Bool {
+        let window = try XCTUnwrap(controller.view.window)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(bounds: CGRect(x: 0, y: 0, width: window.bounds.width, height: 120), format: format).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let cgImage = try XCTUnwrap(image.cgImage)
+        let width = cgImage.width, height = cgImage.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let context = try XCTUnwrap(CGContext(data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                              space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        var matchingPixelCount = 0
+        for pixelIndex in stride(from: 0, to: pixels.count, by: 4)
+        where abs(Int(pixels[pixelIndex]) - color.red) <= 6 && abs(Int(pixels[pixelIndex + 1]) - color.green) <= 6 && abs(Int(pixels[pixelIndex + 2]) - color.blue) <= 6 {
+            matchingPixelCount += 1
+        }
+        return matchingPixelCount >= 20
+    }
+
     // MARK: Palm rejection
 
     /// Palm rejection holds up the page's scrolling, zooming and tapping, never PencilKit's

@@ -4,6 +4,10 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-12.
 
+## The highlighter's colors follow Settings at once: 2026-10-12
+
+The fixed bar and the squeeze palette read the highlighter's colors once, when they were made, so a color changed in Settings › Colors showed only after the bar was made again. They now follow the stored list. Checked by `PencilToolsTests.testTheBarsHighlighterColorsFollowSettingsAtOnce` (hosted): a bar on screen with the highlighter in use shows the default blue swatch, then, once Settings saves another list, that list's color and no blue; with the previous code the same test fails. Not looked at on the iPad.
+
 ## Palm rejection hardened, with a switch in Settings: 2026-10-12
 
 A review of alpha's palm rejection (written without a compiler, never tried with a Pencil) found that a broad touch was rejected with no Pencil about, and with finger drawing took back the person's own stroke; that a missed Pencil touch could let finger drawing's take-back cancel a Pencil stroke; that recognizers and touches were tracked by object address, which a freed object hands on; that a lost touch or hover ending could keep fingers waiting 20 seconds; and that the Pencil follower failed after the first stroke of a sequence, so with a hand resting it no longer heard later Pencil touches. All are changed as described in `Architecture.md` (the palm rejection paragraph): no breadth rule; liveness asked of UIKit, with one second as the bound for what cannot be asked; weak tables and per-recognizer numbers; take-back only of a stroke every touch of which is the hand's; and a Settings switch, Palm Rejection, on by default and read as each touch lands. Writing the hosted test also found that the drawing editor's pinch was never made to wait (UIKit creates it only once the canvas can zoom), so a resting hand could zoom a drawing; it now waits.
