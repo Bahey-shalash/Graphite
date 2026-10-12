@@ -375,6 +375,8 @@ private struct DrawingsSettingsPage: View {
     @Bindable var preferences: GraphitePreferences
     /// Also changed from the highlighter's options on the fixed bar, so read where it is kept.
     @AppStorage(EvenHighlighterPreference.key) private var highlighterIgnoresTilt = false
+    /// Read by every page as each touch lands (`PalmRejectionPreference`), so it applies at once.
+    @AppStorage(PalmRejectionPreference.key) private var rejectsPalms = true
 
     var body: some View {
         Form {
@@ -460,6 +462,11 @@ private struct DrawingsSettingsPage: View {
                 Text("Apple Pencil")
             } footer: {
                 Text("While you write a note, double-tap Apple Pencil, or squeeze Apple Pencil Pro, to start a drawing where the cursor is or where the Pencil hovers. When the gesture is set to something else in the Apple Pencil settings of iPadOS, Graphite leaves it alone.")
+            }
+            Section {
+                Toggle("Palm Rejection", isOn: $rejectsPalms)
+            } footer: {
+                Text("While Apple Pencil writes on a page, a hand resting on it does not scroll, zoom, tap or select.")
             }
             #endif
         }

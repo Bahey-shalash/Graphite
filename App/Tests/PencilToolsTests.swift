@@ -4,6 +4,7 @@ import SwiftUI
 import PencilKit
 import PDFKit
 import ImageIO
+import UIKit.UIGestureRecognizerSubclass
 import GraphiteApple
 import GraphiteCore
 import GraphiteIndex
@@ -343,6 +344,105 @@ final class PencilToolsTests: XCTestCase {
         canvas.drawing = PKDrawing(strokes: canvas.drawing.strokes + [penStroke])
         try await waitUntil { canvas.drawing.strokes.count == 2 }
         XCTAssertEqual(canvas.drawing.strokes.last.map { stroke in Array(stroke.path).map(\.size) }, Array(penStroke.path).map(\.size))
+    }
+
+    // MARK: Palm rejection
+
+    /// Palm rejection holds up the page's scrolling, zooming and tapping, never PencilKit's
+    /// drawing, and takes a hand only while the page is written on.
+    func testPalmRejectionHoldsUpPageGesturesButNeverPencilKitsDrawing() async throws {
+        let location = FileManager.default.temporaryDirectory.appendingPathComponent("Palm-\(UUID().uuidString).pdf")
+        try PDFTemplateGenerator.documentData(paper: PaperSpecification(template: .blank)).write(to: location)
+        temporaryLocations.append(location)
+        let session = try await PDFSession.open(location)
+        _ = try host(AnyView(NavigationStack { PDFPane(session: session, resolveConflict: { _ in }) }))
+        let page = try XCTUnwrap(session.document.page(at: 0))
+        func coordinator() -> PDFAnnotationCoordinator? { (session.pdfView as? GraphitePDFDisplayView)?.annotationCoordinator }
+        try await waitUntil { coordinator()?.editingCanvas(for: page) != nil }
+        let pdfCoordinator = try XCTUnwrap(coordinator())
+        let canvas = try XCTUnwrap(pdfCoordinator.editingCanvas(for: page))
+        let pdfView = try XCTUnwrap(session.pdfView)
+        let palmRecognizer = try XCTUnwrap(pdfCoordinator.palmRejectionRecognizer)
+        XCTAssertEqual(palmRecognizer.allowedTouchTypes, [NSNumber(value: UITouch.TouchType.direct.rawValue)], "It never sees the Pencil.")
+        XCTAssertFalse(palmRecognizer.cancelsTouchesInView)
+        XCTAssertFalse(palmRecognizer.delaysTouchesBegan)
+        XCTAssertFalse(palmRecognizer.delaysTouchesEnded)
+        let pageScrollViews = descendants(of: pdfView, matching: UIScrollView.self).filter { scrollView in !(scrollView is PKCanvasView) }
+        XCTAssertFalse(pageScrollViews.isEmpty)
+        for scrollView in pageScrollViews {
+            XCTAssertTrue(pdfCoordinator.waitsForPalmRejection(scrollView.panGestureRecognizer))
+            if let pinchRecognizer = scrollView.pinchGestureRecognizer { XCTAssertTrue(pdfCoordinator.waitsForPalmRejection(pinchRecognizer)) }
+        }
+        XCTAssertFalse(pdfCoordinator.waitsForPalmRejection(canvas.drawingGestureRecognizer), "Ink is never held up.")
+        XCTAssertTrue(palmRecognizer.isWriting())
+        session.isWriting = false
+        try await waitUntil { !palmRecognizer.isWriting() }
+
+        let request = DrawingEditorRequest(target: .newDrawing(notePath: try VaultPath("Note.md"), insertionRange: NSRange(location: 0, length: 0)),
+                                           title: "New Drawing", initialStrokeData: Data(), canvasWidth: nil, background: .white, format: .png)
+        let controller = try host(AnyView(DrawingEditor(request: request, save: { _, _ in },
+            exportCopy: { _, _ in throw CocoaError(.featureUnsupported) }, preserveDraft: { _ in }, removeDraft: {})))
+        try await waitUntil { !self.descendants(of: controller.view, matching: InfiniteCanvasView.self).isEmpty }
+        let drawingCanvas = try XCTUnwrap(descendants(of: controller.view, matching: InfiniteCanvasView.self).first)
+        let drawingPalmRecognizer = try XCTUnwrap(drawingCanvas.palmRejectionRecognizer)
+        XCTAssertTrue(drawingCanvas.waitsForPalmRejection(drawingCanvas.panGestureRecognizer))
+        if let pinchRecognizer = drawingCanvas.pinchGestureRecognizer { XCTAssertTrue(drawingCanvas.waitsForPalmRejection(pinchRecognizer)) }
+        XCTAssertFalse(drawingCanvas.waitsForPalmRejection(drawingCanvas.drawingGestureRecognizer), "Ink is never held up.")
+        XCTAssertTrue(drawingPalmRecognizer.isWriting())
+        // While pictures are arranged, the Pencil does not write, and a hand is a hand.
+        drawingCanvas.showPictures([], selected: nil, isArranging: true)
+        XCTAssertFalse(drawingPalmRecognizer.isWriting())
+        drawingCanvas.showPictures([], selected: nil, isArranging: false)
+        XCTAssertTrue(drawingPalmRecognizer.isWriting())
+    }
+
+    /// Recognizers made to wait are held weakly: one made at a freed one's address waits too.
+    func testARecognizerAtAFreedRecognizersAddressIsStillMadeToWait() {
+        let installation = PalmRejectionInstallation(recognizer: PalmRejectionRecognizer(target: nil, action: nil))
+        for _ in 0..<200 {
+            autoreleasepool {
+                let recognizer = UIPanGestureRecognizer(target: nil, action: nil)
+                XCTAssertFalse(installation.isWaiting(recognizer), "A new recognizer is not taken for a freed one.")
+                installation.makeWait([recognizer])
+                XCTAssertTrue(installation.isWaiting(recognizer))
+            }
+        }
+        let keptRecognizer = UITapGestureRecognizer(target: nil, action: nil)
+        installation.makeWait([keptRecognizer, keptRecognizer])
+        XCTAssertTrue(installation.isWaiting(keptRecognizer))
+    }
+
+    /// A hover whose recognizer left the window, or went away, without an ending stops making
+    /// fingers wait at once, not twenty seconds later; one still going on keeps them waiting.
+    func testAHoverWhoseEndingWasLostStopsMakingFingersWait() throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        window.makeKeyAndVisible()
+        windows.append(window)
+        let pageView = UIView(frame: window.bounds)
+        window.addSubview(pageView)
+        let hoverRecognizer = PencilHoverRecognizer(target: nil, action: nil)
+        pageView.addGestureRecognizer(hoverRecognizer)
+        hoverRecognizer.state = .began
+        let afterTheLingeringMoment = { PencilActivity.now + PencilActivityState.lingeringSeconds + 0.05 }
+        PencilActivity.hoverDidChange(hoverRecognizer, isHovering: true)
+        XCTAssertTrue(PencilActivity.isActive(at: PencilActivity.now))
+        XCTAssertTrue(PencilActivity.isActive(at: afterTheLingeringMoment()), "A hover still going on is heard from as it is asked about.")
+        pageView.removeFromSuperview()
+        XCTAssertFalse(PencilActivity.isActive(at: afterTheLingeringMoment()), "Its view left the window: the hover is over.")
+
+        var freedRecognizer: PencilHoverRecognizer? = PencilHoverRecognizer(target: nil, action: nil)
+        let otherPageView = UIView(frame: window.bounds)
+        window.addSubview(otherPageView)
+        otherPageView.addGestureRecognizer(try XCTUnwrap(freedRecognizer))
+        freedRecognizer?.state = .began
+        PencilActivity.hoverDidChange(try XCTUnwrap(freedRecognizer), isHovering: true)
+        XCTAssertTrue(PencilActivity.isActive(at: afterTheLingeringMoment()))
+        otherPageView.gestureRecognizers?.forEach { recognizer in otherPageView.removeGestureRecognizer(recognizer) }
+        freedRecognizer = nil
+        XCTAssertFalse(PencilActivity.isActive(at: afterTheLingeringMoment()), "Its recognizer is gone: the hover is over.")
+        otherPageView.removeFromSuperview()
     }
 
     // MARK: Palette
