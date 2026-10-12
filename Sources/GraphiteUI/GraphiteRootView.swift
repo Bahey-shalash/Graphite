@@ -290,7 +290,7 @@ public struct GraphiteRootView: View {
                     .tint(.primary)
             }
         }
-        if workspace.readAloud.isActive {
+        if workspace.readAloud.isActive, workspace.preferences.isEnabled(.readAloud) {
             ToolbarItemGroup(placement: .primaryAction) {
                 ReadAloudToolbarControls(reader: workspace.readAloud, isDisabled: workspace.recording.state.isActive,
                                          accentColor: workspace.preferences.accentColor)

@@ -1,0 +1,356 @@
+{
+  "formatVersion": 1,
+  "downloadHost": "https://huggingface.co",
+  "voices": [
+    {
+      "id": "pocket-tts-alba",
+      "name": "Alba",
+      "modelName": "Kyutai Pocket TTS",
+      "modelFamily": "pocket-tts",
+      "speaker": "alba",
+      "language": "en",
+      "qualityNote": "Warm, natural narration. On an iPad Pro M1 it prepares speech two to three times faster than it is read, so reading starts within seconds.",
+      "license": {
+        "name": "CC BY 4.0",
+        "address": "https://creativecommons.org/licenses/by/4.0/",
+        "attribution": "Pocket TTS by Kyutai (kyutai.org), CC BY 4.0, converted for MLX by mlx-community."
+      },
+      "sources": [
+        {
+          "repository": "mlx-community/pocket-tts",
+          "revision": "cbf71d5f6657bbc3f4bc02f85ee408261225bec7",
+          "files": [
+            {
+              "path": "config.json",
+              "byteCount": 1664,
+              "sha256": "403ff12260596fbfa348c7b07237c378b9ad8db9d8acd04d671470421954a68e"
+            },
+            {
+              "path": "embeddings/alba.safetensors",
+              "byteCount": 512088,
+              "sha256": "ad234695323e4030336b6afc8a050c97e3110603e11ecd8226d9562488300a50"
+            },
+            {
+              "path": "model.safetensors",
+              "byteCount": 235739497,
+              "sha256": "60ddd85019dddbe6c1d220e311ca5fc753972978a89f563c0bbe1ae943120072"
+            },
+            {
+              "path": "special_tokens_map.json",
+              "byteCount": 95,
+              "sha256": "0655d856e7dd462048486aac66d4247753e5cab12480baeb9f4e8f7fe03f7d4c"
+            },
+            {
+              "path": "tokenizer.json",
+              "byteCount": 244993,
+              "sha256": "ef29c4871fd62c7beb928150edc095be1327f0924c0eab9e06b95918b39eff5f"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "byteCount": 220,
+              "sha256": "ad6dc6a5790d0f94170998ab79921c97d28ea54602abcdb33cba3132d13ac233"
+            }
+          ]
+        }
+      ],
+      "platforms": [
+        "iOS",
+        "macOS"
+      ],
+      "minimumPhysicalMemoryBytes": 4294967296
+    },
+    {
+      "id": "qwen3-tts-0.6b-ryan",
+      "name": "Ryan",
+      "modelName": "Qwen3-TTS 0.6B",
+      "modelFamily": "qwen3-tts",
+      "speaker": "Ryan",
+      "language": "en",
+      "qualityNote": "Clear, expressive narration. On an iPad Pro M1 it prepares about as fast as it is read while the iPad is cool, and at about half that speed once it is warm, so a long note may take a few minutes.",
+      "license": {
+        "name": "Apache 2.0",
+        "address": "https://www.apache.org/licenses/LICENSE-2.0",
+        "attribution": "Qwen3-TTS by the Qwen team, Alibaba Cloud, Apache 2.0."
+      },
+      "sources": [
+        {
+          "repository": "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit",
+          "revision": "049ef77fe8816b536193c0c25f9a214d17921282",
+          "files": [
+            {
+              "path": "config.json",
+              "byteCount": 6058,
+              "sha256": "2eea3665564268139c3beb8d497fd3c2e4524e9eed5452836cdf1de96ed3cdbd"
+            },
+            {
+              "path": "generation_config.json",
+              "byteCount": 245,
+              "sha256": "f1b90b4513f3b34c62851049e2492d7b4c5940daf1276f89c82b8ef04127f3aa"
+            },
+            {
+              "path": "merges.txt",
+              "byteCount": 1671839,
+              "sha256": "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3"
+            },
+            {
+              "path": "model.safetensors",
+              "byteCount": 1286743170,
+              "sha256": "3bcb2c4a127e6243e81a30b7126c7865f686d3559de4f938e5d3b150c6a9560d"
+            },
+            {
+              "path": "model.safetensors.index.json",
+              "byteCount": 71447,
+              "sha256": "0c92041960fa189cf35ae538c8d9ca07c468edddd0c9bb52274c5d4d287a860b"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "byteCount": 127,
+              "sha256": "efdde1022ea9d76928bf7a9cd53139138f5ba2e466e837f08f6105ab1af1c119"
+            },
+            {
+              "path": "speech_tokenizer/config.json",
+              "byteCount": 2336,
+              "sha256": "ee65bb901c876664ab8707c487157aa1a6ee57c65969b28fb5ec9dc211e68167"
+            },
+            {
+              "path": "speech_tokenizer/configuration.json",
+              "byteCount": 76,
+              "sha256": "6bc26d64eb5024b4d1dab5a52371958b429256d6c9d59787f1f5294a54e0cebd"
+            },
+            {
+              "path": "speech_tokenizer/model.safetensors",
+              "byteCount": 682293092,
+              "sha256": "836b7b357f5ea43e889936a3709af68dfe3751881acefe4ecf0dbd30ba571258"
+            },
+            {
+              "path": "speech_tokenizer/preprocessor_config.json",
+              "byteCount": 234,
+              "sha256": "fcb3805e597e786d4067706e602f6688524640f8d3396790e2e09b5942fcbdfb"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "byteCount": 7344,
+              "sha256": "dc3c31c3bdaedd5016382bb3cbe07323026775ad51f5a4fb564505992ae4a670"
+            },
+            {
+              "path": "vocab.json",
+              "byteCount": 2776833,
+              "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+            }
+          ]
+        }
+      ],
+      "platforms": [
+        "iOS",
+        "macOS"
+      ],
+      "minimumPhysicalMemoryBytes": 7516192768
+    },
+    {
+      "id": "qwen3-tts-1.7b-ryan",
+      "name": "Ryan (Large)",
+      "modelName": "Qwen3-TTS 1.7B",
+      "modelFamily": "qwen3-tts",
+      "speaker": "Ryan",
+      "language": "en",
+      "qualityNote": "The larger Ryan. On an iPad Pro M1 it prepares at about reading speed while cool and uses most of the memory Graphite may have, so a long note takes several minutes.",
+      "license": {
+        "name": "Apache 2.0",
+        "address": "https://www.apache.org/licenses/LICENSE-2.0",
+        "attribution": "Qwen3-TTS by the Qwen team, Alibaba Cloud, Apache 2.0."
+      },
+      "sources": [
+        {
+          "repository": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit",
+          "revision": "41d3337e8b7f2843a75841595fc14e4b9a7a4b96",
+          "files": [
+            {
+              "path": "config.json",
+              "byteCount": 6058,
+              "sha256": "43f29f9ab55cf387bd2ce1d07e9d95a5ca8974fa2fda4e2b45c13ae64aad3bfa"
+            },
+            {
+              "path": "generation_config.json",
+              "byteCount": 245,
+              "sha256": "f1b90b4513f3b34c62851049e2492d7b4c5940daf1276f89c82b8ef04127f3aa"
+            },
+            {
+              "path": "merges.txt",
+              "byteCount": 1671839,
+              "sha256": "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3"
+            },
+            {
+              "path": "model.safetensors",
+              "byteCount": 2393308931,
+              "sha256": "b696f4bf45f54497b6de758981e76f1410bd68af05a657477dee466b0202df1a"
+            },
+            {
+              "path": "model.safetensors.index.json",
+              "byteCount": 71786,
+              "sha256": "2551ed02dc288b90cd6b7ec98652433f08ef2ae98fb3eda5248a4b9e5b47d08b"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "byteCount": 127,
+              "sha256": "efdde1022ea9d76928bf7a9cd53139138f5ba2e466e837f08f6105ab1af1c119"
+            },
+            {
+              "path": "speech_tokenizer/config.json",
+              "byteCount": 2336,
+              "sha256": "ee65bb901c876664ab8707c487157aa1a6ee57c65969b28fb5ec9dc211e68167"
+            },
+            {
+              "path": "speech_tokenizer/configuration.json",
+              "byteCount": 76,
+              "sha256": "6bc26d64eb5024b4d1dab5a52371958b429256d6c9d59787f1f5294a54e0cebd"
+            },
+            {
+              "path": "speech_tokenizer/model.safetensors",
+              "byteCount": 682293092,
+              "sha256": "836b7b357f5ea43e889936a3709af68dfe3751881acefe4ecf0dbd30ba571258"
+            },
+            {
+              "path": "speech_tokenizer/preprocessor_config.json",
+              "byteCount": 234,
+              "sha256": "fcb3805e597e786d4067706e602f6688524640f8d3396790e2e09b5942fcbdfb"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "byteCount": 7344,
+              "sha256": "dc3c31c3bdaedd5016382bb3cbe07323026775ad51f5a4fb564505992ae4a670"
+            },
+            {
+              "path": "vocab.json",
+              "byteCount": 2776833,
+              "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+            }
+          ]
+        }
+      ],
+      "platforms": [
+        "iOS",
+        "macOS"
+      ],
+      "minimumPhysicalMemoryBytes": 7516192768
+    },
+    {
+      "id": "chatterbox-turbo",
+      "name": "Chatterbox",
+      "modelName": "Chatterbox Turbo",
+      "modelFamily": "chatterbox-turbo",
+      "language": "en",
+      "qualityNote": "Lively, clear narration. On an iPad Pro M1 it prepares at about reading speed.",
+      "license": {
+        "name": "MIT",
+        "address": "https://huggingface.co/ResembleAI/chatterbox-turbo",
+        "attribution": "Chatterbox Turbo by Resemble AI, MIT License."
+      },
+      "sources": [
+        {
+          "repository": "mlx-community/chatterbox-turbo-8bit",
+          "revision": "2f2e21a03863f86a1274d1060dcc188e7cde77e1",
+          "files": [
+            {
+              "path": "added_tokens.json",
+              "byteCount": 418,
+              "sha256": "72e4ab6acb0d9309ac3df4b526ae5fd80a2da5bc5ab7bb02d85096a374f69193"
+            },
+            {
+              "path": "conds.safetensors",
+              "byteCount": 164884,
+              "sha256": "df9ad2c54848027d94cf01f9fc0ed22bc5d3165df6e6a85c903c1124b8a78a4a"
+            },
+            {
+              "path": "config.json",
+              "byteCount": 2565,
+              "sha256": "cb2d9e9bcc2db2c3204220b7443b7132df7678a48238551c159715a51c68fa4f"
+            },
+            {
+              "path": "merges.txt",
+              "byteCount": 456318,
+              "sha256": "1ce1664773c50f3e0cc8842619a93edc4624525b728b188a9e0be33b7726adc5"
+            },
+            {
+              "path": "model.safetensors",
+              "byteCount": 706233417,
+              "sha256": "cbfe447b04d11bb2d877f1305c37945ca109ffcf74a982a533e4baa40f273ba2"
+            },
+            {
+              "path": "special_tokens_map.json",
+              "byteCount": 470,
+              "sha256": "92ba8063bf40aa163eadebbfe0de07c2aebe44cf0d4a9e8726580b0781fd2640"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "byteCount": 3878,
+              "sha256": "bca16a2ac1ddbd78b8d6228f0031884cc74b6ea54b967d6f6d2ebae9ccde23e6"
+            },
+            {
+              "path": "vocab.json",
+              "byteCount": 999186,
+              "sha256": "f6bd25a65e4e63ca31360e9fb11c7e4f9a391a78385d640acd814092dd6eee4f"
+            }
+          ]
+        }
+      ],
+      "platforms": [
+        "iOS",
+        "macOS"
+      ],
+      "minimumPhysicalMemoryBytes": 7516192768
+    },
+    {
+      "id": "dia-1.6b",
+      "name": "Dia",
+      "modelName": "Dia 1.6B",
+      "modelFamily": "dia",
+      "language": "en",
+      "qualityNote": "Very expressive narration with one fixed voice. Mac only: it needs about 11 GB of memory and prepares two to five times slower than it is read even on a fast Mac.",
+      "license": {
+        "name": "Apache 2.0",
+        "address": "https://huggingface.co/nari-labs/Dia-1.6B",
+        "attribution": "Dia by Nari Labs, Apache 2.0; Descript Audio Codec, MIT."
+      },
+      "sources": [
+        {
+          "repository": "mlx-community/Dia-1.6B-fp16",
+          "revision": "4575dd9622ffa7dd14cc4342e1aac4bb7841904d",
+          "files": [
+            {
+              "path": "config.json",
+              "byteCount": 1197,
+              "sha256": "b111d877cf2c49f3a1986dd7549aacd1972c408ca61711b7888fc3128976aae0"
+            },
+            {
+              "path": "model.safetensors",
+              "byteCount": 3222361673,
+              "sha256": "b0a027738bc5a2361f2134f3bf372e4a5923133b13a31c326425c715a32127a6"
+            }
+          ]
+        },
+        {
+          "repository": "mlx-community/descript-audio-codec-44khz",
+          "revision": "91dff27c81edbb0992be17ac51d2c7d515411a32",
+          "files": [
+            {
+              "path": "config.json",
+              "byteCount": 219,
+              "sha256": "c3ad73d9f58d6aa4889856597eea8147c36ea49efc2fcb8efcb9a812b30917ec",
+              "destinationPath": "codec/config.json"
+            },
+            {
+              "path": "model.safetensors",
+              "byteCount": 306644869,
+              "sha256": "cf9b0711afdc362182afda1d6addfd1b6b6e95509dec85fe237ac9a0b8a7522b",
+              "destinationPath": "codec/model.safetensors"
+            }
+          ]
+        }
+      ],
+      "platforms": [
+        "macOS"
+      ],
+      "minimumPhysicalMemoryBytes": 16106127360
+    }
+  ]
+}

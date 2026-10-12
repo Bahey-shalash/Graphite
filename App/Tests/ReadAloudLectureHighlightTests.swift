@@ -2,9 +2,11 @@
 import XCTest
 import SwiftUI
 import PDFKit
+import AVFoundation
 import GraphiteApple
 import GraphiteCore
 import GraphiteIndex
+import GraphiteVoices
 @testable import GraphiteUI
 
 /// Reads a lecture-style note (properties, headings, math, an embed, a long body) with the
@@ -270,6 +272,223 @@ private final class FrameGapMeasurement: NSObject {
             continuation?.resume(returning: longestGap)
             continuation = nil
         }
+    }
+}
+
+/// A tiny stand-in for a downloaded voice: a quiet tone a few hundredths of a second per
+/// character, so High Quality reading can be tested end to end (rendering ahead, the cache,
+/// AVAudioEngine playback, word highlighting, waiting and the system-voice fallback) in the
+/// Simulator, which cannot run the MLX models.
+private final class ToneRenderer: NeuralPassageRendering, @unchecked Sendable {
+    // `@unchecked Sendable`: every property is read and written while holding `lock`.
+    private let lock = NSLock()
+    private var renderedTexts: [String] = []
+    private var gate: CheckedContinuation<Void, Never>?
+    private var isGated = false
+    static let secondsPerCharacter = 0.012
+
+    var renders: [String] { lock.withLock { renderedTexts } }
+    var lastText: String? { lock.withLock { renderedTexts.last } }
+
+    func holdRendering() { lock.withLock { isGated = true } }
+    func releaseRendering() {
+        let waiting: CheckedContinuation<Void, Never>? = lock.withLock { isGated = false; defer { gate = nil }; return gate }
+        waiting?.resume()
+    }
+
+    func render(_ text: String, voice: NeuralVoiceDescription, voiceFolder: URL) async throws -> RenderedSpeech {
+        if lock.withLock({ isGated }) {
+            await withCheckedContinuation { continuation in
+                let releaseNow: Bool = lock.withLock { if isGated { gate = continuation; return false }; return true }
+                if releaseNow { continuation.resume() }
+            }
+        }
+        lock.withLock { renderedTexts.append(text) }
+        let sampleRate = 24_000
+        let count = max(sampleRate / 10, Int(Double(text.count) * Self.secondsPerCharacter * Double(sampleRate)))
+        let samples = (0..<count).map { index in Float(0.05 * sin(Double(index) * 2 * .pi * 220 / Double(sampleRate))) }
+        return RenderedSpeech(samples: samples, sampleRate: sampleRate)
+    }
+
+    func releaseResources() async {}
+}
+
+/// Reports the rendered passage's words evenly spread over its audio, as speech recognition
+/// would for a clear voice.
+private struct EvenAligner: ReadAloudSpeechAligning {
+    let renderer: ToneRenderer
+    func recognizedWords(in audioFile: URL, language: String) async -> [ReadAloudRecognizedWord]? {
+        guard let text = renderer.lastText, let file = try? AVAudioFile(forReading: audioFile) else { return nil }
+        let duration = Double(file.length) / file.fileFormat.sampleRate
+        let words = ReadAloudWordAlignment.words(in: text)
+        return words.enumerated().map { index, word in
+            let start = duration * Double(index) / Double(words.count)
+            return ReadAloudRecognizedWord(text: (text as NSString).substring(with: word.range), startSeconds: start,
+                                           endSeconds: start + duration / Double(words.count))
+        }
+    }
+}
+
+/// The system voice's stand-in: records what it was asked to speak.
+@MainActor
+private final class RecordingQuickSpeech: ReadAloudSpeaking {
+    var eventHandler: (@MainActor (ReadAloudSpeechEvent) -> Void)?
+    var voices = [ReadAloudVoice(id: "quick-voice", name: "Quick", language: "en-US", quality: 3)]
+    var spokenTexts: [String] = []
+    func speak(_ text: String, voiceIdentifier: String, speed: Double, requestIdentifier: UUID) throws { spokenTexts.append(text) }
+    func pause() -> Bool { true }
+    func resume() -> Bool { true }
+    func stop() {}
+}
+
+@MainActor
+final class HighQualityReadAloudTests: XCTestCase {
+    private var folders: [URL] = []
+
+    override func tearDown() async throws {
+        for folder in folders { try? FileManager.default.removeItem(at: folder) }
+        folders = []
+    }
+
+    private func temporaryFolder() throws -> URL {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("HighQualityReadAloudTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        folders.append(folder)
+        return folder
+    }
+
+    /// A library with one test voice, installed unless told otherwise, and a speech that uses
+    /// the tone renderer.
+    private func makeReader(installsVoice: Bool = true, cacheCapacityBytes: Int64 = 50_000_000)
+        throws -> (ReadAloudController, NeuralReadAloudSpeech, ToneRenderer, RecordingQuickSpeech) {
+        let voice = NeuralVoiceDescription(
+            id: "test-tone", name: "Tone", modelName: "Test Tone", modelFamily: .pocketTTS, speaker: "tone", language: "en",
+            qualityNote: "A test tone.", license: NeuralVoiceLicense(name: "MIT", address: URL(string: "https://example.com")!),
+            sources: [NeuralVoiceSource(repository: "test/tone", revision: "r1",
+                                        files: [NeuralVoiceFile(path: "model.safetensors", byteCount: 4, sha256: String(repeating: "0", count: 64))])],
+            platforms: ["iOS", "macOS"], minimumPhysicalMemoryBytes: 1)
+        let installation = NeuralVoiceInstallation(voicesFolder: try temporaryFolder())
+        if installsVoice {
+            try FileManager.default.createDirectory(at: installation.stagingFolder(of: voice), withIntermediateDirectories: true)
+            try Data("test".utf8).write(to: installation.stagingFolder(of: voice).appendingPathComponent("model.safetensors"))
+            try installation.finishInstalling(voice)
+        }
+        let preferences = try XCTUnwrap(UserDefaults(suiteName: "HighQualityReadAloudTests-\(UUID().uuidString)"))
+        let cache = ReadAloudAudioCache(folder: try temporaryFolder(), capacityBytes: cacheCapacityBytes)
+        let library = NeuralVoiceLibrary(manifest: NeuralVoiceManifest(downloadHost: URL(string: "https://example.com")!, voices: [voice]),
+                                         installation: installation, audioCache: cache, preferences: preferences,
+                                         platform: "iOS", physicalMemoryBytes: 1 << 33, startsDownloader: false)
+        let renderer = ToneRenderer()
+        let preparation = ReadAloudPassagePreparation(cache: cache, renderer: renderer, aligner: EvenAligner(renderer: renderer))
+        let quick = RecordingQuickSpeech()
+        let speech = NeuralReadAloudSpeech(quick: quick, library: library, preparation: preparation)
+        let session = ReadAloudSession(speech: speech, preferences: preferences)
+        session.chooseVoice("quick-voice")
+        return (ReadAloudController(session: session, neuralSpeech: speech, preferences: preferences), speech, renderer, quick)
+    }
+
+    private func waitUntil(_ seconds: Double = 10, _ condition: () -> Bool) async throws {
+        let deadline = Date().addingTimeInterval(seconds)
+        while !condition() {
+            guard Date() < deadline else {
+                XCTFail("The condition did not become true within \(seconds) seconds")
+                throw CancellationError()
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    private let note = "# Memory\n\nCompared with SRAM, DRAM is denser but slower.\n\nRead and write signals come from the controller."
+
+    func testHighQualityRendersAheadPlaysTheVoiceAndHighlightsAlignedWords() async throws {
+        let (reader, speech, renderer, quick) = try makeReader()
+        XCTAssertEqual(speech.library.mode, .highQuality, "High Quality is the default once a voice is downloaded")
+        reader.session.load(try ReadAloudDocument.markdown(note))
+        reader.session.play()
+        var highlightedWords: [String] = []
+        let deadline = Date().addingTimeInterval(20)
+        while reader.session.state != .finished, Date() < deadline {
+            if let range = reader.session.spokenRange, let passage = reader.session.currentPassage {
+                let word = (passage.text as NSString).substring(with: range)
+                if highlightedWords.last != word { highlightedWords.append(word) }
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(reader.session.state, .finished)
+        XCTAssertEqual(Set(renderer.renders), Set(reader.session.document?.passages.map(\.text) ?? []), "every passage is rendered once")
+        XCTAssertEqual(renderer.renders.count, reader.session.document?.passages.count)
+        XCTAssertTrue(quick.spokenTexts.isEmpty, "the system voice never read")
+        // The voice reads the respelled text ("dee ram" for DRAM), and the highlight follows it.
+        XCTAssertTrue(highlightedWords.contains("dee") && highlightedWords.contains("controller"), "words highlighted: \(highlightedWords)")
+        let comparedIndex = try XCTUnwrap(highlightedWords.firstIndex(of: "Compared"))
+        let denserIndex = try XCTUnwrap(highlightedWords.firstIndex(of: "denser"))
+        XCTAssertLessThan(comparedIndex, denserIndex, "the highlight moves forward with the audio")
+
+        // Reading the same note again renders nothing: every passage comes from the cache.
+        reader.session.load(try ReadAloudDocument.markdown(note))
+        reader.session.play()
+        try await waitUntil(20) { reader.session.state == .finished }
+        XCTAssertEqual(renderer.renders.count, reader.session.document?.passages.count)
+
+        // Editing one paragraph re-renders that paragraph alone.
+        reader.session.load(try ReadAloudDocument.markdown(note.replacingOccurrences(of: "denser but slower", with: "denser and slower")))
+        reader.session.play()
+        try await waitUntil(20) { reader.session.state == .finished }
+        XCTAssertEqual(renderer.renders.count, (reader.session.document?.passages.count ?? 0) + 1)
+        XCTAssertTrue(renderer.renders.last?.hasSuffix("is denser and slower.") == true, String(describing: renderer.renders.last))
+    }
+
+    func testUnpreparedPassageWaitsWithProgressThenTheSystemVoiceFillsInOnceAllowed() async throws {
+        let (reader, speech, renderer, quick) = try makeReader()
+        renderer.holdRendering()
+        reader.session.load(try ReadAloudDocument.markdown(note))
+        reader.session.play()
+        try await waitUntil { speech.isWaitingForPassage }
+        XCTAssertTrue(reader.isWaitingForPreparedAudio)
+        XCTAssertEqual(reader.preparingDescription, "Preparing… 0%")
+        XCTAssertNotNil(reader.preparedAudioShare)
+        XCTAssertTrue(quick.spokenTexts.isEmpty, "without the person's permission reading waits for the voice")
+
+        speech.setReadsUnpreparedPassagesQuickly(true)
+        XCTAssertEqual(quick.spokenTexts, ["Memory"], "the waiting passage starts at once with the system voice")
+        XCTAssertFalse(speech.isWaitingForPassage)
+        renderer.releaseRendering()
+        try await waitUntil { !speech.preparation.isPreparing }
+        XCTAssertEqual(speech.preparation.preparedShare, 1, accuracy: 0.001)
+    }
+
+    func testWithoutADownloadedVoiceQuickModeSpeaksWithTheSystemVoice() async throws {
+        let (reader, speech, renderer, quick) = try makeReader(installsVoice: false)
+        XCTAssertEqual(speech.library.mode, .quick)
+        XCTAssertFalse(speech.readsWithDownloadedVoice)
+        reader.session.load(try ReadAloudDocument.markdown(note))
+        reader.session.play()
+        XCTAssertEqual(quick.spokenTexts, ["Memory"])
+        XCTAssertTrue(renderer.renders.isEmpty)
+        XCTAssertNil(reader.preparedAudioShare)
+    }
+
+    func testChoosingQuickWithADownloadedVoiceUsesTheSystemVoice() async throws {
+        let (reader, speech, renderer, quick) = try makeReader()
+        speech.library.chooseMode(.quick)
+        reader.session.load(try ReadAloudDocument.markdown(note))
+        reader.session.play()
+        XCTAssertEqual(quick.spokenTexts, ["Memory"])
+        XCTAssertTrue(renderer.renders.isEmpty)
+    }
+
+    func testPauseAndResumeHoldThePlaceWithinARenderedPassage() async throws {
+        let (reader, _, _, _) = try makeReader()
+        reader.session.load(try ReadAloudDocument.plainText(String(repeating: "Bitlines are precharged before every read. ", count: 6)))
+        reader.session.play()
+        try await waitUntil { (reader.session.spokenRange?.location ?? 0) > 40 }
+        reader.session.pause()
+        let pausedAt = try XCTUnwrap(reader.session.spokenRange)
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertEqual(reader.session.spokenRange, pausedAt, "nothing moves while paused")
+        reader.session.play()
+        XCTAssertEqual(reader.session.state, .speaking)
+        try await waitUntil { (reader.session.spokenRange?.location ?? 0) > pausedAt.location }
     }
 }
 #endif

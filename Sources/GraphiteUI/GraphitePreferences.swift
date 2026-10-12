@@ -9,7 +9,7 @@ import GraphiteApple
 /// Graphite features that can be switched off, like Obsidian's core plugins.
 enum CorePlugin: String, CaseIterable, Identifiable, Codable {
     case backlinks, outgoingLinks, outline, properties, tags, wordCount
-    case colors, drawings, audioRecorder, bases
+    case colors, drawings, audioRecorder, readAloud, bases
     case templates, dailyNotes, footnotes, fileRecovery, bookmarks, graph, canvas
 
     var id: String { rawValue }
@@ -25,6 +25,7 @@ enum CorePlugin: String, CaseIterable, Identifiable, Codable {
         case .colors: "Colors"
         case .drawings: "Pencil Drawings"
         case .audioRecorder: "Audio Recorder"
+        case .readAloud: "Read Aloud"
         case .bases: "Bases"
         case .templates: "Templates"
         case .dailyNotes: "Daily Notes"
@@ -47,6 +48,7 @@ enum CorePlugin: String, CaseIterable, Identifiable, Codable {
         case .colors: "Colors text with ~={#hex}text=~, compatible with the Colors plugin for Obsidian."
         case .drawings: "Draw with Apple Pencil and embed the drawing in a note."
         case .audioRecorder: "Records lectures into ordinary audio and video files in the vault."
+        case .readAloud: "Reads notes and PDFs aloud with a natural voice, highlighting each word, entirely on this device."
         case .bases: "Opens .base files and base code blocks as tables, cards, lists, and maps."
         case .templates: "Inserts notes from a templates folder, filling in the title, date, and time."
         case .dailyNotes: "Opens a note for today, created from a template, and the notes of other days."
@@ -69,6 +71,7 @@ enum CorePlugin: String, CaseIterable, Identifiable, Codable {
         case .colors: "paintpalette"
         case .drawings: "pencil.tip.crop.circle"
         case .audioRecorder: "mic"
+        case .readAloud: "speaker.wave.2"
         case .bases: "tablecells"
         case .templates: "doc.on.doc"
         case .dailyNotes: "calendar"

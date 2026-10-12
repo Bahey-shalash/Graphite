@@ -17,6 +17,9 @@ public struct VaultURI: Equatable, Sendable {
         case new(name: String?, file: String?, content: String, opensNote: Bool, mode: NewNoteMode)
         /// Opens today's daily note.
         case daily
+        /// Graphite's own: opens a note, as `open` does, and reads it aloud from the start,
+        /// so a Shortcut or another app can start listening to a lecture note.
+        case read(file: String)
     }
 
     /// What `new` does when the note exists already.
@@ -63,6 +66,9 @@ public struct VaultURI: Equatable, Sendable {
             self.init(vault: nonEmpty("vault"), action: .new(name: name, file: file, content: parameters["content"] ?? "", opensNote: !flag("silent"), mode: mode))
         case "daily":
             self.init(vault: nonEmpty("vault"), action: .daily)
+        case "read":
+            guard let file = nonEmpty("file") else { return nil }
+            self.init(vault: nonEmpty("vault"), action: .read(file: file))
         case "vault":
             // `obsidian://vault/Physics/Course/Lecture 1`: the vault, then the file.
             let parts = components.path.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: true).map(String.init)

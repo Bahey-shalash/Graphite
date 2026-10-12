@@ -1,6 +1,7 @@
 import SwiftUI
 import GraphiteCore
 import GraphiteApple
+import GraphiteVoices
 
 /// Read Aloud's place in the window toolbar while a passage is loaded: Pause or Resume in
 /// one tap, and the reading controls in a popover that leaves the page and its highlighted
@@ -20,6 +21,13 @@ struct ReadAloudToolbarControls: View {
                     .controlSize(.small)
                     .frame(minWidth: 44, minHeight: 44)
                     .accessibilityLabel("Preparing to Read")
+            } else if reader.isWaitingForPreparedAudio {
+                // The downloaded voice is still rendering the passage reading has reached.
+                ProgressView(value: reader.neuralSpeech?.preparation.preparedShare ?? 0)
+                    .progressViewStyle(.circular)
+                    .controlSize(.small)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .accessibilityLabel(reader.preparingDescription)
             } else if reader.session.document != nil {
                 ReadAloudPlayPauseButton(reader: reader, prominent: false)
             }
@@ -122,6 +130,7 @@ struct ReadAloudControlsPanel: View {
                 }
             }
             Toggle("Follow Reading", isOn: $reader.followsReading)
+            preparation
             advice
             Divider()
             actions
@@ -159,8 +168,26 @@ struct ReadAloudControlsPanel: View {
         .disabled(reader.session.document == nil || reader.isPreparing)
     }
 
+    /// While the downloaded voice is still preparing the note: how far it is, and the choice
+    /// to let the system voice read the passages that are not ready yet.
+    @ViewBuilder private var preparation: some View {
+        if let share = reader.preparedAudioShare, let neuralSpeech = reader.neuralSpeech {
+            VStack(alignment: .leading, spacing: 8) {
+                ProgressView(value: share) {
+                    Text(reader.isWaitingForPreparedAudio ? reader.preparingDescription : "Prepared \(Int((share * 100).rounded()))%")
+                        .font(.subheadline)
+                }
+                .accessibilityIdentifier("readAloudPreparationProgress")
+                Toggle("Read Unprepared Passages with System Voice", isOn: Binding(
+                    get: { neuralSpeech.library.readsUnpreparedPassagesQuickly },
+                    set: { readsQuickly in neuralSpeech.setReadsUnpreparedPassagesQuickly(readsQuickly) }))
+                    .font(.subheadline)
+            }
+        }
+    }
+
     @ViewBuilder private var advice: some View {
-        if let message = reader.errorMessage ?? reader.session.message {
+        if let message = reader.errorMessage ?? reader.session.message ?? reader.neuralSpeech?.preparation.failureMessage {
             Text(message)
                 .font(.callout)
                 .foregroundStyle(.orange)
@@ -196,6 +223,7 @@ struct ReadAloudControlsPanel: View {
     private var statusDescription: String {
         var parts: [String] = []
         if reader.isPreparing { parts.append("Preparing…") }
+        else if reader.isWaitingForPreparedAudio { parts.append(reader.preparingDescription) }
         else {
             switch reader.session.state {
             case .speaking: parts.append("Reading")
@@ -205,7 +233,9 @@ struct ReadAloudControlsPanel: View {
             }
         }
         if !reader.scopeDescription.isEmpty { parts.append(reader.scopeDescription) }
-        if let voice = reader.session.selectedVoice { parts.append("\(voice.name) (\(voice.qualityDescription))") }
+        if let neuralVoice = reader.neuralSpeech?.currentVoiceName {
+            parts.append(neuralVoice)
+        } else if let voice = reader.session.selectedVoice { parts.append("\(voice.name) (\(voice.qualityDescription))") }
         return parts.joined(separator: " · ")
     }
 }

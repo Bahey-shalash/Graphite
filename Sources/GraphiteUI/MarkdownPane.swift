@@ -429,7 +429,7 @@ struct MarkdownPane: View {
     }
     #endif
 
-    @ViewBuilder private var moreMenuItems: some View {
+    @ViewBuilder private var readAloudMenu: some View {
         Menu("Read Aloud", systemImage: "speaker.wave.2") {
             Button("Read Document") { startReading() }
             Button("Choose Section…") { showsReadingSections = true }
@@ -451,6 +451,10 @@ struct MarkdownPane: View {
         }
         .disabled(workspace.recording.state.isActive)
         if workspace.recording.state.isActive { Text("Finish recording to read aloud.") }
+    }
+
+    @ViewBuilder private var moreMenuItems: some View {
+        if preferences.isEnabled(.readAloud) { readAloudMenu }
         Picker("View", selection: $session.viewMode) {
             Label("Reading View", systemImage: "book").tag(NoteViewMode.reading)
             Label("Live Preview", systemImage: "eye").tag(NoteViewMode.livePreview)

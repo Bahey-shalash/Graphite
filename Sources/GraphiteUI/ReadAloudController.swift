@@ -6,6 +6,7 @@ import UIKit
 #endif
 import GraphiteCore
 import GraphiteApple
+import GraphiteVoices
 
 private struct ReadAloudMarkdownRequest {
     let sourceText: String
@@ -63,8 +64,14 @@ final class ReadAloudController {
     /// the system's shared Now Playing state.
     @ObservationIgnored private let nowPlaying: ReadAloudNowPlaying?
 
-    init(session: ReadAloudSession = ReadAloudSession(), preferences: UserDefaults = .standard, playsWhenPrepared: Bool = false) {
+    /// High Quality reading with a downloaded voice, when this controller's session speaks
+    /// through it; nil for the system voice alone (tests, and builds without the manifest).
+    @ObservationIgnored let neuralSpeech: NeuralReadAloudSpeech?
+
+    init(session: ReadAloudSession = ReadAloudSession(), neuralSpeech: NeuralReadAloudSpeech? = nil,
+         preferences: UserDefaults = .standard, playsWhenPrepared: Bool = false) {
         self.session = session
+        self.neuralSpeech = neuralSpeech
         self.preferences = preferences
         self.playsWhenPrepared = playsWhenPrepared
         nowPlaying = playsWhenPrepared ? ReadAloudNowPlaying() : nil
@@ -340,6 +347,23 @@ final class ReadAloudController {
     /// A passage is loaded, being prepared, or could not be prepared and says why.
     var isActive: Bool { session.document != nil || isPreparing || errorMessage != nil }
 
+    /// High Quality reading is waiting for its next passage to be rendered.
+    var isWaitingForPreparedAudio: Bool { neuralSpeech?.isWaitingForPassage ?? false }
+
+    /// How much of the rest of the document the downloaded voice has prepared, while it is
+    /// still preparing; nil in Quick mode and once everything is ready.
+    var preparedAudioShare: Double? {
+        guard let neuralSpeech, neuralSpeech.readsWithDownloadedVoice, neuralSpeech.preparation.isPreparing,
+              session.document != nil else { return nil }
+        return neuralSpeech.preparation.preparedShare
+    }
+
+    /// "Preparing… 40%", the words the controls show while reading waits for the voice.
+    var preparingDescription: String {
+        let share = neuralSpeech?.preparation.preparedShare ?? 0
+        return "Preparing… \(Int((share * 100).rounded()))%"
+    }
+
     /// A person's own scroll pauses following; it comes back by itself a few seconds after
     /// the last scroll, or at once from Follow Reading in the controls.
     func suspendFollowing() {
@@ -509,6 +533,7 @@ final class ReadAloudController {
         isPreparing = false
         preparation = nil
         session.load(document)
+        neuralSpeech?.setLanguage(session.readingLanguage)
         let plays = playsCurrentPreparation && !needsReview
         playsCurrentPreparation = false
         if plays { session.play() }
