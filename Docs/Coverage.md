@@ -4,6 +4,19 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-12.
 
+## Community plugins' file views, Bases views, paste and drop, and splits: 2026-10-12
+
+The four largest gaps of the community plugin sweep, on the branch `alpha-plugins-5`. `Community-plugins.md` describes each (How it works › In notes, menus, typing and tabs) and how it was checked (How it was verified › File views, Bases views, paste and drop, and splits).
+
+- File views: files with an extension a plugin registered, and notes a plugin claims through `setViewState`, open in the plugin's view in a tab, shown live with the runtime's own web view (`CommunityPluginLiveViewContent`, `file.openInView`, `view.live`), so Excalidraw draws by finger and Fountain's editor types; file views save when Graphite leaves the screen (found by the check: a drawing's last 30 seconds were lost when the app ended).
+- Bases: plugins' view types show in Graphite's bases (`CommunityPluginBasesViewContent`, `basesView.open`); TaskNotes' Kanban moves a task between status columns.
+- Paste and drop: `editor-paste` and `editor-drop` reach plugins first; Link or Card's choice works and two Undos restore the note.
+- Splits: `splitActiveLeaf` views open on the other side of Graphite's split (Mind Map).
+
+Tests: Node `file-views.test.js` (4), 81 runtime tests, all passing. The whole iPad integration suite: 299 tests, 298 passing in the full run; `BasesViewsTests.testTheMapFetchesTiles…` timed out under load and passed alone. `swift test`: 1,812 tests (873 Core, 137 Index, 246 Apple, 556 UI), one skipped, no failures.
+
+Not verified: on a device or with Apple Pencil; two live views at once; Excalidraw's embedded notes; TaskNotes' calendar views.
+
 ## A sweep of 48 community plugins, and the runtime fixes it led to: 2026-10-12
 
 At the owner's request: install a sample of Obsidian's community plugins through Graphite's own installer and try each in the iPad simulator, so that nothing breaks, then fix in the runtime what is general. The sample, the results per plugin and how each was tried are in `Community-plugins.md` (How it was verified › A sweep of the directory): the 23 most downloaded that the Node checks did not cover and that run on mobile, every plugin by kepano, Contextual Typography, and 18 drawn at random. 16 work, 13 partly, 17 are blocked (by an API or part of the interface Graphite does not give plugins, or by an account the test did not have), Linter fails on its own first-run bug, and Highlights View has no release.
