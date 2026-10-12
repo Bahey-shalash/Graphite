@@ -32,6 +32,16 @@ final class MarkdownTextView: UITextView {
     private var lastTouchUptime: TimeInterval = -.infinity
     private var isEditingRequested = false
 
+    /// A text view on TextKit 2, the system's default for a text view made in code. Not
+    /// `UITextView(usingTextLayoutManager:)`: that factory makes the view through an
+    /// initializer Swift does not see, which left the properties above without their
+    /// initial values, all zero, and crashed the first layout once one was an array.
+    init() {
+        super.init(frame: .zero, textContainer: nil)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let hitView = super.hitTest(point, with: event)
         if hitView != nil, event?.type == .touches { lastTouchUptime = ProcessInfo.processInfo.systemUptime }
@@ -438,7 +448,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
     }
 
     private func makeTextView(coordinator: Coordinator) -> MarkdownTextView {
-        let textView = MarkdownTextView(usingTextLayoutManager: true)
+        let textView = MarkdownTextView()
         coordinator.environment = environment
         coordinator.follow = follow
         textView.textLayoutManager?.delegate = coordinator
@@ -591,6 +601,8 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         weak var retentionOwner: TabDocument?
         /// The containers of the SwiftUI views that show this note.
         private var containersInUse = EditorContainersInUse<MarkdownEditorContainerView>()
+        /// Set while a dismantled view lets go of the text view; see `viewWasDismantled`.
+        private var isLettingGoOfTextView = false
         /// The text view's width when it left the screen; a new width reflows the note,
         /// so it returns to its top line rather than to the old pixel offset.
         private var widthWhenHidden: CGFloat?
@@ -705,11 +717,11 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         /// there until that view is dismantled: SwiftUI makes the new view in the middle
         /// of its update, where taking the keyboard from the text view made SwiftUI update
         /// again from inside that update, and it can dismantle the new view before the
-        /// earlier one.
+        /// earlier one. So does a view made while a dismantled one lets go of the text view.
         func viewWasMade(with container: MarkdownEditorContainerView) {
             let isShownInEarlierView = containersInUse.contains { earlierContainer in earlierContainer.textViewShownHere != nil }
             containersInUse.add(container)
-            guard let textView, !isShownInEarlierView, container.textViewShownHere == nil else { return }
+            guard let textView, !isShownInEarlierView, !isLettingGoOfTextView, container.textViewShownHere == nil else { return }
             // The same text view, cursor, layout, and undo history as when it was hidden.
             container.host(textView)
             resume(textView)
@@ -719,15 +731,31 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         /// moves to the newest view of the note that is left (the split opening or
         /// closing, a tab moved to the other side); with none left, the editor leaves
         /// the screen.
+        ///
+        /// The keyboard goes first, from the text view or from a view inside it, such as an
+        /// embedded PDF or a rendered block's field. Giving it up can lay the window out at
+        /// once, and SwiftUI then makes the note's next view in the middle of this
+        /// dismantling; that view gets the text view once this one has let it go. Moving it
+        /// there while UIKit was still removing it left SwiftUI updating without end (an
+        /// iPad, 2026-10-10).
         func viewWasDismantled(with container: MarkdownEditorContainerView) {
             containersInUse.remove(container)
             guard let textView = container.textViewShownHere else { return }
+            isLettingGoOfTextView = true
+            textView.endEditing(true)
             if let remainingContainer = containersInUse.newest {
                 remainingContainer.host(textView)
                 placeWidgetsAgain(in: textView)
+                isLettingGoOfTextView = false
                 return
             }
             suspend(textView)
+            isLettingGoOfTextView = false
+            if let containerMadeMeanwhile = containersInUse.newest {
+                containerMadeMeanwhile.host(textView)
+                resume(textView)
+                return
+            }
             if retention?.keepHiddenEditor(self, owner: retentionOwner) != true { discardRetainedEditor() }
         }
 
@@ -737,7 +765,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         /// the editor adopts as an undoable edit when it is shown again.
         func suspend(_ textView: MarkdownTextView) {
             // Ends editing first, so leaving editing does not place rendered blocks again.
-            if textView.isFirstResponder { textView.resignFirstResponder() }
+            textView.endEditing(true)
             session.applyPendingInsertionsBeforeSaving = nil
             session.isEditorAttached = false
             stopObservingCharacterEdits()

@@ -2,7 +2,15 @@
 
 What Graphite does today, how each part is verified, and what is still missing. `OBJECTIVE.md` describes the complete product; this file tracks progress toward it. Update it with every change that adds, removes, or re-verifies behavior.
 
-Last updated: 2026-10-10.
+Last updated: 2026-10-12.
+
+## The note editor's first layout, and handing it to a new view: 2026-10-12
+
+Found on commit e3b973c in the iPad simulator: the app crashed as soon as a note opened in Live Preview or Source mode (at launch when a note was restored, and in every hosted test that shows one), `EXC_BAD_ACCESS` at 0x10 in `MarkdownTextView.updateReadAloudHighlights()`. The text view was made by `UITextView(usingTextLayoutManager: true)`, a UIKit factory that creates the object through an initializer Swift does not see, so `MarkdownTextView`'s stored properties never got their initial values and were all zero. That had gone unnoticed while every one of them was valid as zero (only `usesReadableLineLength` started false, and each update set it); Read Aloud's highlight array was the first that was not. `MarkdownTextView()` now calls `UITextView(frame:textContainer: nil)`, which makes a TextKit 2 view. `EditingContinuityTests.testNotesTextViewStartsWithItsInitialValuesOnTextKit2` failed before the change (the readable line length read false) and passes after it. The Mac editor's `MarkdownMacTextView(usingTextLayoutManager:)` uses AppKit's factory of the same kind; its properties are all optional, so it does not crash, but it has not been changed or checked.
+
+Reported by the owner on the iPad (Release build of 2026-10-10): tapping Annotate on a PDF embedded in a note froze Graphite until it was ended, twice. Both of the iPad's reports show SwiftUI dismantling the note's view while a view inside its text view held the keyboard; giving the keyboard up laid the window out at once, SwiftUI made the note's next view inside that dismantling, and moving the text view into it while UIKit was still removing it left SwiftUI updating without end. The editor now ends editing inside the text view first, and a view made while a dismantled one lets go of the text view gets it once that is done (`NativeMarkdownEditor.Coordinator.viewWasDismantled`). `testAViewMadeWhileTheNoteLeavesItsViewGetsTheTextView` takes those steps one by one: without the change the text view was moved mid-removal and the note was kept as hidden although on screen; with it the test passes. The freeze itself was not reproduced: the owner's note and PDF, the same build and settings, the keyboard up and the PDF open in another tab, by finger in the iPad simulator, all annotated normally. What made SwiftUI dismantle the note's view on the iPad is not known (a Pencil tap, or a width class change, which rebuilds the whole document area through `DocumentTitle`'s two branches, are candidates). Not yet checked on the iPad.
+
+Checked: the hosted suite on the iPad simulator, 201 of 201 (with the three new tests), on e3b973c with only this change.
 
 ## The Pencil palette under sheets: 2026-10-10
 

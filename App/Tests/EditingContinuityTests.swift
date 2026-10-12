@@ -173,6 +173,79 @@ final class EditingContinuityTests: XCTestCase {
         attachScreenshot(named: "Note after the split closed while editing")
     }
 
+    /// The note's text view is made with its own initial values and on TextKit 2. Made by
+    /// UIKit's `UITextView(usingTextLayoutManager:)`, its properties were left zero: Live
+    /// Preview's column started full width, and the first array among them crashed the
+    /// view's first layout (Read Aloud's highlights, 2026-10-11).
+    func testNotesTextViewStartsWithItsInitialValuesOnTextKit2() {
+        let textView = MarkdownTextView()
+        XCTAssertTrue(textView.usesReadableLineLength)
+        XCTAssertNotNil(textView.textLayoutManager)
+        textView.frame = CGRect(x: 0, y: 0, width: 600, height: 400)
+        textView.layoutIfNeeded()
+    }
+
+    /// A change around the note's view, as when the window title stops or starts being
+    /// editable with the width class, makes SwiftUI dismantle the note's view and make a new
+    /// one. With the cursor in the note, the text view moves to the new view with its edit.
+    func testNoteMovesToItsNewViewWhenTheViewAroundItChangesWhileEditing() async throws {
+        let workspace = try await makeWorkspace(notes: ["Lecture.md": "# Lecture\n\nA paragraph.\n"])
+        let lectureTab = try await openTab("Lecture.md", in: workspace, placement: .currentTab)
+        let document = workspace.document(for: lectureTab)
+        let lectureSession = try XCTUnwrap(document.markdownSession)
+        let surroundings = EditorSurroundings()
+        let controller = UIHostingController(rootView: SurroundedEditor(surroundings: surroundings, session: lectureSession,
+                                                                        retention: workspace.markdownEditorRetention, owner: document))
+        try present(controller)
+        let editor = try await visibleEditor(in: controller, showing: lectureSession)
+        try await type(" Edited.", into: editor, session: lectureSession)
+        XCTAssertTrue(editor.isFirstResponder)
+        let firstContainer = try XCTUnwrap(editor.superview)
+
+        surroundings.hasEditableTitle.toggle()
+        try await waitUntil { self.containers(in: controller).count == 1 && editor.superview === self.containers(in: controller).first
+            && editor.superview !== firstContainer && editor.bounds.width > 0 }
+        XCTAssertTrue(lectureSession.isEditorAttached)
+        XCTAssertFalse(workspace.markdownEditorRetention.hasHiddenEditor(for: lectureSession), "The note is on screen, not kept for later.")
+        editor.undoManager?.undo()
+        try await waitUntil { lectureSession.text == "# Lecture\n\nA paragraph.\n" }
+        attachScreenshot(named: "Note in its new view")
+    }
+
+    /// The steps an iPad took on 2026-10-10, one by one: something inside the note's text
+    /// view holds the keyboard when SwiftUI dismantles the note's view, and giving the
+    /// keyboard up lays the window out at once, which makes the note's next view in the
+    /// middle of that dismantling. Moving the text view into it there, while UIKit was still
+    /// removing it from the old view, left SwiftUI updating without end. The new view gets the
+    /// text view once the old one has let it go.
+    func testAViewMadeWhileTheNoteLeavesItsViewGetsTheTextView() async throws {
+        let workspace = try await makeWorkspace(notes: ["Lecture.md": "# Lecture\n\nA paragraph.\n"])
+        let lectureTab = try await openTab("Lecture.md", in: workspace, placement: .currentTab)
+        let document = workspace.document(for: lectureTab)
+        let lectureSession = try XCTUnwrap(document.markdownSession)
+        let controller = UIHostingController(rootView: EditorViews(shownViews: ShownEditorViews(), session: lectureSession,
+                                                                   retention: workspace.markdownEditorRetention, owner: document))
+        try present(controller)
+        let editor = try await visibleEditor(in: controller, showing: lectureSession)
+        let coordinator = try XCTUnwrap(editor.delegate as? NativeMarkdownEditor.Coordinator)
+        let firstContainer = try XCTUnwrap(editor.superview as? MarkdownEditorContainerView)
+        let field = FieldThatLaysOutAsItResigns(frame: CGRect(x: 0, y: 0, width: 120, height: 32))
+        editor.addSubview(field)
+        XCTAssertTrue(field.becomeFirstResponder())
+        let nextContainer = MarkdownEditorContainerView(frame: firstContainer.frame)
+        field.didResign = { [weak field] in
+            field?.didResign = {}
+            controller.view.addSubview(nextContainer)
+            coordinator.viewWasMade(with: nextContainer)
+        }
+
+        coordinator.viewWasDismantled(with: firstContainer)
+        XCTAssertFalse(field.isFirstResponder)
+        XCTAssertTrue(editor.superview === nextContainer, "The view made meanwhile shows the note.")
+        XCTAssertTrue(lectureSession.isEditorAttached)
+        XCTAssertFalse(workspace.markdownEditorRetention.hasHiddenEditor(for: lectureSession), "The note is on screen, not kept for later.")
+    }
+
     func testUndoSurvivesReadingViewAndReturningToWrite() async throws {
         let workspace = try await makeWorkspace(notes: ["Reading.md": "# Reading\n\nA paragraph.\n"])
         let tab = try await openTab("Reading.md", in: workspace, placement: .currentTab)
@@ -404,6 +477,49 @@ private struct EditorViews: View {
             if shownViews.showsViewThatStays { editor }
             if shownViews.showsFirstView { editor }
             if shownViews.showsPassingView { editor }
+        }
+    }
+
+    private var editor: some View {
+        NativeMarkdownEditor(session: session, configuration: EditorConfiguration(mode: .source), headingScrollRequest: nil,
+                             retention: retention, retentionOwner: owner) { _, _ in }
+    }
+}
+
+/// A text field inside the note's text view, as a rendered block's field is, that does what
+/// the keyboard does as it goes away: lays the window out at once, here making the note's
+/// next view.
+private final class FieldThatLaysOutAsItResigns: UITextField {
+    var didResign: () -> Void = {}
+
+    override func resignFirstResponder() -> Bool {
+        let hasResigned = super.resignFirstResponder()
+        didResign()
+        return hasResigned
+    }
+}
+
+/// What surrounds the note's view in `SurroundedEditor`.
+@MainActor @Observable
+private final class EditorSurroundings {
+    var hasEditableTitle = true
+}
+
+/// One view of a note under a title that is editable or plain, as `GraphiteRootView`'s
+/// title is with the width class: SwiftUI makes the note's view again when it changes.
+private struct SurroundedEditor: View {
+    let surroundings: EditorSurroundings
+    let session: MarkdownSession
+    let retention: MarkdownEditorRetention
+    let owner: TabDocument
+
+    var body: some View {
+        NavigationStack {
+            if surroundings.hasEditableTitle {
+                editor.navigationTitle(.constant("Lecture"))
+            } else {
+                editor.navigationTitle("Lecture")
+            }
         }
     }
 
