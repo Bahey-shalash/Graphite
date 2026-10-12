@@ -450,6 +450,55 @@ final class PDFPictureTests: XCTestCase {
         assertEqual(readBack.bounds, CGRect(x: -30, y: 75, width: 200, height: 100))
     }
 
+    /// A turned picture is stored under a key builds before turning do not read, so they
+    /// leave it as another application's stamp instead of stretching it upright; an upright
+    /// picture stays under the key they read. Files of the first build that turned pictures,
+    /// with a turned picture under the old key, are still read turned.
+    func testATurnedPictureIsStoredUnderItsOwnKeyAndOlderFilesAreStillRead() throws {
+        let upright = PDFPicture(imageData: try Self.twoColorImageData(), bounds: CGRect(x: 20, y: 200, width: 100, height: 50), quarterTurns: 0)
+        let turned = PDFPicture(imageData: try Self.twoColorImageData(), bounds: CGRect(x: 20, y: 100, width: 100, height: 50), quarterTurns: 0,
+                                rotationRadians: .pi / 2)
+        let writtenDocument = try Self.blankDocument(rotation: 0)
+        try PDFPageManager.replay([.addPicture(page: 0, picture: upright), .addPicture(page: 0, picture: turned)], on: writtenDocument)
+        let savedDocument = try XCTUnwrap(PDFDocument(data: try XCTUnwrap(writtenDocument.dataRepresentation())))
+        let savedPage = try XCTUnwrap(savedDocument.page(at: 0))
+        let uprightAnnotation = try XCTUnwrap(savedPage.annotations.first { annotation in annotation.persistentName == upright.name })
+        let turnedAnnotation = try XCTUnwrap(savedPage.annotations.first { annotation in annotation.persistentName == turned.name })
+        XCTAssertNotNil(uprightAnnotation.value(forAnnotationKey: PDFPageManager.pictureKey))
+        XCTAssertNil(uprightAnnotation.value(forAnnotationKey: PDFPageManager.turnedPictureKey))
+        XCTAssertNil(turnedAnnotation.value(forAnnotationKey: PDFPageManager.pictureKey), "A build that reads only the old key does not take it for its own.")
+        XCTAssertNotNil(turnedAnnotation.value(forAnnotationKey: PDFPageManager.turnedPictureKey))
+        XCTAssertEqual(PDFPageManager.pictures(on: savedPage).map(\.name), [upright.name, turned.name])
+
+        // Turned back upright, the picture returns to the old key.
+        var straightened = try XCTUnwrap(PDFPageManager.pictures(on: savedPage).last)
+        straightened.rotationRadians = 0
+        try PDFPageManager.replay([.replacePicture(turned.reference(onPageAt: 0), with: straightened, order: .unchanged)], on: savedDocument)
+        let straightenedAnnotation = try XCTUnwrap(savedPage.annotations.first { annotation in annotation.persistentName == turned.name })
+        XCTAssertNotNil(straightenedAnnotation.value(forAnnotationKey: PDFPageManager.pictureKey))
+        XCTAssertNil(straightenedAnnotation.value(forAnnotationKey: PDFPageManager.turnedPictureKey))
+
+        // A turned picture written under the old key, as on 2026-10-11, reads turned.
+        let olderDocument = try Self.blankDocument(rotation: 0)
+        try PDFPageManager.replay([.addPicture(page: 0, picture: turned)], on: olderDocument)
+        let olderAnnotation = try XCTUnwrap(olderDocument.page(at: 0)?.annotations.first)
+        olderAnnotation.setValue(try XCTUnwrap(olderAnnotation.value(forAnnotationKey: PDFPageManager.turnedPictureKey)), forAnnotationKey: PDFPageManager.pictureKey)
+        olderAnnotation.removeValue(forAnnotationKey: PDFPageManager.turnedPictureKey)
+        let olderPage = try XCTUnwrap(PDFDocument(data: try XCTUnwrap(olderDocument.dataRepresentation()))?.page(at: 0))
+        let olderPicture = try XCTUnwrap(PDFPageManager.pictures(on: olderPage).first)
+        XCTAssertEqual(olderPicture.rotationRadians, .pi / 2, accuracy: 0.0001)
+        assertEqual(olderPicture.bounds, turned.bounds)
+
+        // The new key is kept when a save also rewrites the page tree.
+        let reopened = try XCTUnwrap(PDFDocument(data: try XCTUnwrap(writtenDocument.dataRepresentation())))
+        let blankPage = try XCTUnwrap(try Self.blankDocument(rotation: 0).dataRepresentation())
+        try PDFPageManager.replay([.insert(data: blankPage, at: 0)], on: reopened)
+        let rewrittenPage = try XCTUnwrap(PDFDocument(data: try XCTUnwrap(reopened.dataRepresentation()))?.page(at: 1))
+        let rewrittenTurned = try XCTUnwrap(PDFPageManager.pictures(on: rewrittenPage).first { picture in picture.name == turned.name })
+        XCTAssertEqual(rewrittenTurned.rotationRadians, .pi / 2, accuracy: 0.0001)
+        XCTAssertEqual(rewrittenTurned.imageData, turned.imageData)
+    }
+
     func testPicturesThatCannotBePlacedAreRefused() throws {
         let document = try Self.blankDocument(rotation: 0)
         let notAnImage = PDFPicture(imageData: Data("not an image".utf8), bounds: CGRect(x: 0, y: 0, width: 10, height: 10), quarterTurns: 0)

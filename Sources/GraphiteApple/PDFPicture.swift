@@ -45,10 +45,13 @@ public struct PDFPicture: Sendable, Equatable {
         self.rotationRadians = PictureRotation.normalized(rotationRadians)
     }
 
-    /// The picture a Graphite stamp annotation holds, or nil for any other annotation.
+    /// The picture a Graphite stamp annotation holds, or nil for any other annotation. A
+    /// turned picture is under `turnedPictureKey`; one turned by a build of 2026-10-11 is
+    /// under `pictureKey` with its angle, and is read turned as well.
     public init?(annotation: PDFAnnotation) {
         guard annotation.type == Self.annotationTypeName,
-              let storedImage = annotation.value(forAnnotationKey: PDFPageManager.pictureKey) as? String,
+              let storedImage = (annotation.value(forAnnotationKey: PDFPageManager.turnedPictureKey)
+                                 ?? annotation.value(forAnnotationKey: PDFPageManager.pictureKey)) as? String,
               storedImage.hasPrefix(Self.storedImagePrefix),
               storedImage.utf8.count <= Self.storedImagePrefix.utf8.count + (Self.maximumImageBytes + 2) / 3 * 4,
               let imageData = Data(base64Encoded: String(storedImage.dropFirst(Self.storedImagePrefix.count))), !imageData.isEmpty,
@@ -117,7 +120,9 @@ public struct PDFPicture: Sendable, Equatable {
         let annotation = PDFPictureAnnotation(bounds: annotationBounds, image: image, pictureSize: bounds.size, quarterTurns: quarterTurns,
                                               rotationRadians: rotationRadians, drawsAppearance: isForWrittenDocument)
         annotation.setPersistentName(name)
-        annotation.setValue(Self.storedImagePrefix + imageData.base64EncodedString(), forAnnotationKey: PDFPageManager.pictureKey)
+        // An upright picture stays under the key every build reads; see `turnedPictureKey`.
+        annotation.setValue(Self.storedImagePrefix + imageData.base64EncodedString(),
+                            forAnnotationKey: isTurned ? PDFPageManager.turnedPictureKey : PDFPageManager.pictureKey)
         annotation.setValue(NSNumber(value: quarterTurns), forAnnotationKey: PDFPageManager.pictureTurnsKey)
         if isTurned {
             annotation.setValue(NSNumber(value: rotationRadians), forAnnotationKey: PDFPageManager.pictureRotationKey)
