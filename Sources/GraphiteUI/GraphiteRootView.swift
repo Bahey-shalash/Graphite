@@ -7,6 +7,8 @@ import GraphiteIndex
 public struct GraphiteRootView: View {
     @State private var workspace = WorkspaceModel()
     @State private var showsSettings = false
+    /// Settings › Read Aloud › Floating Player; off keeps the controls in the toolbar.
+    @AppStorage("GraphiteReadAloudFloatingPlayer") private var usesFloatingPlayer = true
     /// `graphite://` links wait until the last vault has reopened.
     @State private var isVaultRestored = false
     @State private var pendingLinks: [URL] = []
@@ -49,6 +51,12 @@ public struct GraphiteRootView: View {
                 .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 480)
         } detail: {
             detailColumn
+                .overlay {
+                    if usesFloatingPlayer && workspace.readAloud.isActive && !workspace.recording.state.isActive {
+                        ReadAloudFloatingPlayer(reader: workspace.readAloud, navigator: workspace.readAloudNavigator,
+                                                accentColor: workspace.preferences.accentColor)
+                    }
+                }
         }
         .onGeometryChange(for: Bool.self) { geometry in geometry.size.height > geometry.size.width } action: { isTallerThanWide in
             isWindowTallerThanWide = isTallerThanWide
@@ -294,7 +302,7 @@ public struct GraphiteRootView: View {
                     .tint(.primary)
             }
         }
-        if workspace.readAloud.isActive {
+        if workspace.readAloud.isActive && !usesFloatingPlayer {
             ToolbarItemGroup(placement: .primaryAction) {
                 ReadAloudToolbarControls(reader: workspace.readAloud, isDisabled: workspace.recording.state.isActive,
                                          accentColor: workspace.preferences.accentColor)

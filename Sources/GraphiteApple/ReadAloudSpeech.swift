@@ -253,7 +253,7 @@ public final class AppleReadAloudSpeech: NSObject, ReadAloudSpeaking, AVSpeechSy
         }
         let utterance = request.phoneticRanges.isEmpty ? AVSpeechUtterance(string: text) : AVSpeechUtterance(attributedString: attributedText)
         utterance.voice = voice
-        utterance.rate = min(AVSpeechUtteranceMaximumSpeechRate, max(AVSpeechUtteranceMinimumSpeechRate, AVSpeechUtteranceDefaultSpeechRate * Float(speed)))
+        utterance.rate = Self.rate(forSpeed: speed)
         utterance.pitchMultiplier = 1
         utterance.volume = 1
         // The pause belongs before the next passage rather than after this one, so pausing or
@@ -295,6 +295,17 @@ public final class AppleReadAloudSpeech: NSObject, ReadAloudSpeaking, AVSpeechSy
         guard audioSession.category == .playback else { return }
         try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
         #endif
+    }
+
+    /// The synthesizer's rate for a speed. Its scale is not linear: 0.5 is normal and 1.0 the
+    /// fastest a voice reads, about three times normal. Speeds below normal scale the rate;
+    /// faster ones spread over what remains, so 3× is the voice's fastest. The voice keeps its
+    /// pitch at every rate.
+    public nonisolated static func rate(forSpeed speed: Double) -> Float {
+        let normal = AVSpeechUtteranceDefaultSpeechRate
+        let fastest = AVSpeechUtteranceMaximumSpeechRate
+        let rate = speed <= 1 ? normal * Float(speed) : normal + (fastest - normal) * Float((speed - 1) / 2)
+        return min(fastest, max(AVSpeechUtteranceMinimumSpeechRate, rate))
     }
 
     public func pause() -> Bool { synthesizer.pauseSpeaking(at: .immediate) }
@@ -408,6 +419,8 @@ public final class ReadAloudSession {
     /// A new key: the previous one also stored automatic choices, which pinned the first voice
     /// found (often the robotic Fred) even after a Premium voice was downloaded.
     private static let voiceChoiceKey = "GraphiteReadAloudVoiceChoice"
+    /// From a slow, careful 0.5× to 3× for listening through a lot.
+    public static let speedRange: ClosedRange<Double> = 0.5...3
     private static let highlightModeKey = "GraphiteReadAloudHighlightMode"
     /// Earlier builds stored automatic picks under these keys as if the person had chosen them
     /// (the owner's iPad kept the robotic Eloquence "Eddy" that way). They are never read and
@@ -422,7 +435,7 @@ public final class ReadAloudSession {
         highlightMode = preferences.string(forKey: Self.highlightModeKey).flatMap(ReadAloudHighlightMode.init(rawValue:)) ?? .words
         readingLanguage = ReadAloudLanguage.deviceLanguage
         let savedSpeed = preferences.double(forKey: Self.speedPreferenceKey)
-        if savedSpeed.isFinite, (0.5...1.5).contains(savedSpeed) { speed = savedSpeed }
+        if savedSpeed.isFinite, Self.speedRange.contains(savedSpeed) { speed = savedSpeed }
         refreshVoices()
         speech.eventHandler = { [weak self] event in self?.receive(event) }
     }
@@ -637,7 +650,7 @@ public final class ReadAloudSession {
     }
 
     public func setSpeed(_ speed: Double) {
-        guard speed.isFinite, (0.5...1.5).contains(speed), speed != self.speed else { return }
+        guard speed.isFinite, Self.speedRange.contains(speed), speed != self.speed else { return }
         prepareForVoiceOrSpeedChange()
         self.speed = speed
         preferences.set(speed, forKey: Self.speedPreferenceKey)

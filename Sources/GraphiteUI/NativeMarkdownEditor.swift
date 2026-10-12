@@ -18,6 +18,8 @@ final class MarkdownTextView: UITextView {
         }
     }
     private(set) var readAloudHighlights: [UIView] = []
+    /// Tells the floating player where the highlight is on screen, so it can move aside.
+    var reportReadingHighlightFrame: ((CGRect?, CGRect?) -> Void)?
     static let readableColumnWidth: CGFloat = 740
     static let minimumHorizontalInset: CGFloat = 28
     var usesReadableLineLength = true { didSet { setNeedsLayout() } }
@@ -99,6 +101,10 @@ final class MarkdownTextView: UITextView {
             let wordChanged = highlightLayout.range != lastHighlightLayout?.range
             lastHighlightLayout = highlightLayout
             updateReadAloudHighlights(revealsWord: wordChanged)
+        } else if let window, let first = readAloudHighlights.first {
+            // Scrolling moves the highlight on screen; the player is told where it now is.
+            let union = readAloudHighlights.dropFirst().reduce(first.frame) { $0.union($1.frame) }
+            reportReadingHighlightFrame?(convert(union, to: nil), window.bounds)
         }
     }
 
@@ -116,9 +122,15 @@ final class MarkdownTextView: UITextView {
               let end = position(from: start, offset: range.length), let textRange = textRange(from: start, to: end) else {
             readAloudHighlights.forEach { highlight in highlight.removeFromSuperview() }
             readAloudHighlights.removeAll(keepingCapacity: true)
+            reportReadingHighlightFrame?(nil, nil)
             return
         }
         let frames = selectionRects(for: textRange).map(\.rect).filter { frame in frame.width > 0 && frame.height > 0 }
+        defer {
+            if let window, let first = frames.first {
+                reportReadingHighlightFrame?(convert(frames.dropFirst().reduce(first) { $0.union($1) }, to: nil), window.bounds)
+            }
+        }
         let isScrolledByHand = isTracking || isDragging || isDecelerating
         let comfortableArea = bounds.inset(by: UIEdgeInsets(top: adjustedContentInset.top + 40, left: 0, bottom: adjustedContentInset.bottom + 120, right: 0))
         if revealsWord, followsReading, !isScrolledByHand, window != nil, let frame = frames.first, !comfortableArea.contains(frame) {
@@ -452,11 +464,13 @@ struct NativeMarkdownEditor: UIViewRepresentable {
     var readAloudRange: NSRange?
     var followsReading = false
     var suspendReadingFollow: (() -> Void)?
+    var readAloudHooks: ReadAloudEditorHooks?
 
     init(session: MarkdownSession, configuration: EditorConfiguration, environment: LivePreviewEnvironment? = nil,
          headingScrollRequest: HeadingScrollRequest?, actions: EditorActions = EditorActions(),
          retention: MarkdownEditorRetention? = nil, retentionOwner: TabDocument? = nil, readAloudRange: NSRange? = nil,
-         followsReading: Bool = false, suspendReadingFollow: (() -> Void)? = nil, follow: @escaping (String, Bool) -> Void) {
+         followsReading: Bool = false, suspendReadingFollow: (() -> Void)? = nil, readAloudHooks: ReadAloudEditorHooks? = nil,
+         follow: @escaping (String, Bool) -> Void) {
         self.session = session
         self.configuration = configuration
         self.environment = environment
@@ -467,6 +481,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         self.readAloudRange = readAloudRange
         self.followsReading = followsReading
         self.suspendReadingFollow = suspendReadingFollow
+        self.readAloudHooks = readAloudHooks
         self.follow = follow
     }
 
@@ -590,6 +605,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         textView.readAloudRange = readAloudRange
         textView.followsReading = followsReading
         coordinator.suspendReadingFollow = suspendReadingFollow
+        coordinator.installReadAloudHooks(readAloudHooks, in: textView)
         let previousBlockPolicy = coordinator.renderedBlockPolicy
         coordinator.environment = environment
         coordinator.follow = follow
@@ -1582,8 +1598,48 @@ struct NativeMarkdownEditor: UIViewRepresentable {
 
         /// The system's edit menu, with community plugins' items for the cursor after it.
         func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
-            guard let pluginItems = actions.pluginEditMenuElement?() else { return nil }
-            return UIMenu(children: suggestedActions + [pluginItems])
+            var extraItems: [UIMenuElement] = []
+            if let readAloudHooks {
+                extraItems.append(UIAction(title: "Read from Here", image: UIImage(systemName: "speaker.wave.2")) { _ in
+                    readAloudHooks.readFromHere(range.location)
+                })
+            }
+            if let pluginItems = actions.pluginEditMenuElement?() { extraItems.append(pluginItems) }
+            guard !extraItems.isEmpty else { return nil }
+            return UIMenu(children: suggestedActions + extraItems)
+        }
+
+        // MARK: Read Aloud
+
+        var readAloudHooks: ReadAloudEditorHooks?
+        private var readAloudTapRecognizer: UITapGestureRecognizer?
+        private let readAloudTapDelegate = SimultaneousTapDelegate()
+
+        /// While the note is read, a tap moves reading to the tapped paragraph (or marks a
+        /// range end); the view also reports its first visible line and the highlight's place.
+        func installReadAloudHooks(_ hooks: ReadAloudEditorHooks?, in textView: MarkdownTextView) {
+            readAloudHooks = hooks
+            textView.reportReadingHighlightFrame = hooks?.reportHighlightFrame
+            if hooks != nil, readAloudTapRecognizer == nil {
+                let recognizer = UITapGestureRecognizer(target: self, action: #selector(readAloudTap(_:)))
+                recognizer.cancelsTouchesInView = false
+                recognizer.delegate = readAloudTapDelegate
+                textView.addGestureRecognizer(recognizer)
+                readAloudTapRecognizer = recognizer
+            }
+            readAloudTapRecognizer?.isEnabled = hooks?.isReadingThisNote ?? false
+            hooks?.registerVisibleLocation { [weak textView] in
+                guard let textView else { return nil }
+                let point = CGPoint(x: textView.textContainerInset.left + 8, y: textView.contentOffset.y + textView.adjustedContentInset.top + 12)
+                guard let position = textView.closestPosition(to: point) else { return nil }
+                return textView.offset(from: textView.beginningOfDocument, to: position)
+            }
+        }
+
+        @objc private func readAloudTap(_ recognizer: UITapGestureRecognizer) {
+            guard let textView = recognizer.view as? UITextView, let hooks = readAloudHooks, hooks.isReadingThisNote,
+                  let position = textView.closestPosition(to: recognizer.location(in: textView)) else { return }
+            hooks.tapped(textView.offset(from: textView.beginningOfDocument, to: position))
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
@@ -2606,7 +2662,8 @@ struct NativeMarkdownEditor: NSViewRepresentable {
     init(session: MarkdownSession, configuration: EditorConfiguration, environment: LivePreviewEnvironment? = nil,
          headingScrollRequest: HeadingScrollRequest?, actions: EditorActions = EditorActions(),
          retention: MarkdownEditorRetention? = nil, retentionOwner: TabDocument? = nil, readAloudRange: NSRange? = nil,
-         followsReading: Bool = false, suspendReadingFollow: (() -> Void)? = nil, follow: @escaping (String, Bool) -> Void) {
+         followsReading: Bool = false, suspendReadingFollow: (() -> Void)? = nil,
+         readAloudHooks: ReadAloudEditorHooks? = nil, follow: @escaping (String, Bool) -> Void) {
         self.session = session
         self.configuration = configuration
         self.headingScrollRequest = headingScrollRequest

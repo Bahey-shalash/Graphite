@@ -495,9 +495,15 @@ private struct DrawingsSettingsPage: View {
 private struct ReadAloudSettingsPage: View {
     @Bindable var reader: ReadAloudController
     let vaultRoot: URL?
+    @AppStorage("GraphiteReadAloudFloatingPlayer") private var usesFloatingPlayer = true
 
     var body: some View {
         Form {
+            Section {
+                Toggle("Floating Player", isOn: $usesFloatingPlayer)
+            } footer: {
+                Text("A small player in a corner of the window while reading: skip by sentence, section or page, change speed, and jump back after scrolling. Drag it to another corner. When off, the controls are in the toolbar.")
+            }
             ReadAloudVoiceSettings(reader: reader)
             Section {
                 NavigationLink("Pronunciations") { ReadAloudPronunciationEditor(vaultRoot: vaultRoot) }

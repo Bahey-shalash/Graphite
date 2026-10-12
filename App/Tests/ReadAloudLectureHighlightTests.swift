@@ -125,6 +125,80 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
         XCTAssertEqual(workspace.readAloud.session.state, .speaking)
     }
 
+    // MARK: Player and navigation
+
+    /// The player's section skip, a jump by tap, and "Read from Here" after scrolling away all
+    /// move reading where asked, with the real voice in Live Preview.
+    func testSectionSkipTapAndReadFromHereMoveReading() async throws {
+        let (workspace, session) = try await openLecture(viewMode: .livePreview)
+        let controller = try host(workspace)
+        let editor = try await visibleEditor(in: controller)
+        let reader = workspace.readAloud
+        let navigator = workspace.readAloudNavigator
+        reader.readMarkdown(session.text, path: session.path)
+        try await waitUntil(seconds: 20) { reader.session.state == .speaking }
+        // Section skip: to the next heading.
+        navigator.skipSection(forward: true)
+        XCTAssertEqual(reader.session.currentPassage?.kind, .heading)
+        let afterSkip = reader.session.passageIndex
+        navigator.skipSection(forward: true)
+        XCTAssertGreaterThan(reader.session.passageIndex, afterSkip)
+        XCTAssertEqual(navigator.sections.first { $0.passageIndex == navigator.currentSectionIndex }?.title.hasPrefix("Section"), true)
+        // A tap on "Section 7" moves reading there.
+        let target = (session.text as NSString).range(of: "## Section 7").location
+        _ = navigator.tapped(atSourceLocation: target + 4)
+        XCTAssertEqual(reader.session.currentPassage?.text, "Section 7")
+        // Scrolling away pauses following; "Read from Here" reads from the top of the screen.
+        editor.delegate?.scrollViewWillBeginDragging?(editor)
+        try await waitUntil { !reader.followsReading }
+        editor.setContentOffset(CGPoint(x: 0, y: max(0, editor.contentSize.height - editor.bounds.height)), animated: false)
+        editor.layoutIfNeeded()
+        let visible = try XCTUnwrap(navigator.visibleLocation?())
+        navigator.readFromVisiblePosition()
+        XCTAssertTrue(reader.followsReading)
+        let readingAt = try XCTUnwrap(reader.session.currentPassage?.spans.map(\.sourceRange.location).min())
+        XCTAssertGreaterThanOrEqual(readingAt + 400, visible, "Reading moved to what is on screen.")
+        XCTAssertLessThanOrEqual(readingAt, visible + 600)
+        XCTAssertGreaterThan(visible, 0)
+    }
+
+    /// The floating player keeps clear of the highlighted line, in portrait at the largest text.
+    func testFloatingPlayerNeverCoversTheHighlightedLine() async throws {
+        let (workspace, session) = try await openLecture(viewMode: .livePreview)
+        let rootView = AnyView(ZStack {
+            NavigationStack {
+                WorkspacePanes(workspace: workspace, showsLinksInspector: .constant(false), create: { _ in }, showQuickSwitcher: {})
+            }
+            ReadAloudFloatingPlayer(reader: workspace.readAloud, navigator: workspace.readAloudNavigator, accentColor: .blue)
+        })
+        let controller = UIHostingController(rootView: rootView)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        self.window = window
+        let editor = try await visibleEditor(in: controller)
+        workspace.readAloud.readMarkdown(session.text, path: session.path)
+        try await waitUntil(seconds: 20) { !editor.readAloudHighlights.isEmpty }
+        // Put the word being read at the bottom of the screen, under where the player sits.
+        workspace.readAloud.followsReading = false
+        if let word = editor.readAloudHighlights.first?.frame {
+            editor.setContentOffset(CGPoint(x: 0, y: max(0, word.maxY - editor.bounds.height + 40)), animated: false)
+        }
+        var checks = 0
+        let deadline = Date().addingTimeInterval(6)
+        while Date() < deadline {
+            try await Task.sleep(for: .milliseconds(150))
+            guard let player = workspace.readAloudNavigator.playerFrameInWindow,
+                  let highlight = workspace.readAloudNavigator.highlightFrameInWindow, !player.isEmpty else { continue }
+            checks += 1
+            XCTAssertFalse(player.intersects(highlight), "Player \(player) covers the highlight \(highlight).")
+        }
+        XCTAssertGreaterThan(checks, 3)
+        attachScreenshot(named: "Floating player clear of the highlight")
+    }
+
     // MARK: Helpers
 
     private func openLecture(viewMode: NoteViewMode) async throws -> (WorkspaceModel, MarkdownSession) {

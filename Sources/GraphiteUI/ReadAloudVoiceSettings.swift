@@ -15,7 +15,8 @@ struct ReadAloudVoiceSettings: View {
     @State private var samplePreparation: Task<Void, Never>?
     @State private var isRequestingPersonalVoice = false
 
-    static let speeds: [Double] = [0.75, 0.9, 1.0, 1.1, 1.25, 1.5]
+    /// 0.75× to 3× in quarter steps, for heavy listening.
+    static let speeds: [Double] = stride(from: 0.75, through: 3.0, by: 0.25).map { $0 }
 
     private var session: ReadAloudSession { reader.session }
 

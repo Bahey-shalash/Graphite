@@ -371,6 +371,12 @@ final class ReadAloudController {
             }))
     }
 
+    /// The PDF being read, if any, and the last page of the read: for the player's page steps.
+    var readingPDF: PDFSession? { sourcePDF }
+    /// The note being read, as written, for showing its headings in the player.
+    var readingSourceText: String? { markdownRequest?.sourceText }
+    var readingPDFLastPageIndex: Int? { pdfRequest?.lastPageIndex }
+
     /// A passage is loaded, being prepared, or could not be prepared and says why.
     var isActive: Bool { session.document != nil || isPreparing || errorMessage != nil }
 
