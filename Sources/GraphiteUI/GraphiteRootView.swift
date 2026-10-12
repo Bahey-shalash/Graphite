@@ -178,7 +178,11 @@ public struct GraphiteRootView: View {
         .onOpenURL { url in
             if isVaultRestored { Task { await workspace.handle(url) } } else { pendingLinks.append(url) }
         }
-        .onChange(of: scenePhase) { _, phase in
+        .onChange(of: scenePhase) { previousPhase, phase in
+            // Taken at once as Graphite stops being active, not in the save that follows: by
+            // the time that task runs, iPadOS can have resized the window for its app switcher
+            // snapshots, and an editor laid out again then reports a line further down.
+            if previousPhase == .active { workspace.rememberPlacesOfOpenDocuments() }
             if phase == .active {
                 Task { await workspace.checkOpenDocumentsForExternalChanges(); await workspace.refreshDirectory(); await workspace.reloadVaultSettings() }
             } else {

@@ -1239,6 +1239,10 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         guard gestureRecognizer === markupTapRecognizer, let pdfView else { return true }
+        // A touch on a picture's selection frame or one of its handles moves, resizes or turns
+        // the picture. Taken as a tap too, a quick drag on a handle outside the picture ended
+        // arranging instead; the drawing editor's `PictureTapGate` leaves such touches out too.
+        if let touchedView = touch.view, touchedView is SelectionFrameView || touchedView.superview is SelectionFrameView { return false }
         return input.isEnabled && takesTap(at: touch.location(in: pdfView), in: pdfView)
     }
 

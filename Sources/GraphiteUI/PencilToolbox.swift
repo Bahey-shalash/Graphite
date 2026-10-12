@@ -407,6 +407,28 @@ final class PencilToolbox {
     }
 }
 
+/// One of the bar's three sizes: of the ink in use, or of the pixel eraser.
+enum PencilSizeChoice: Equatable {
+    case ink(choiceIndex: Int)
+    case eraser(choiceIndex: Int)
+
+    var choiceIndex: Int {
+        switch self {
+        case .ink(let choiceIndex), .eraser(let choiceIndex): choiceIndex
+        }
+    }
+}
+
+/// Widths as people speak of a pen on paper: millimeters, a point being 1/72 inch on the
+/// page or the drawing.
+enum PencilWidthText {
+    static let millimetersPerPoint = 25.4 / 72
+
+    static func millimeters(_ widthInPoints: Double) -> String {
+        (widthInPoints * millimetersPerPoint).formatted(.number.precision(.fractionLength(1))) + " mm"
+    }
+}
+
 #if canImport(UIKit)
 import UIKit
 import PencilKit
@@ -856,28 +878,6 @@ struct PencilToolGlyph: View {
         .background(isInUse ? PencilToolbarMetrics.selectedFill : AnyShapeStyle(.clear),
                     in: RoundedRectangle(cornerRadius: GraphiteChrome.cornerRadius, style: .continuous))
         .accessibilityHidden(true)
-    }
-}
-
-/// One of the bar's three sizes: of the ink in use, or of the pixel eraser.
-enum PencilSizeChoice: Equatable {
-    case ink(choiceIndex: Int)
-    case eraser(choiceIndex: Int)
-
-    var choiceIndex: Int {
-        switch self {
-        case .ink(let choiceIndex), .eraser(let choiceIndex): choiceIndex
-        }
-    }
-}
-
-/// Widths as people speak of a pen on paper: millimeters, a point being 1/72 inch on the
-/// page or the drawing.
-enum PencilWidthText {
-    static let millimetersPerPoint = 25.4 / 72
-
-    static func millimeters(_ widthInPoints: Double) -> String {
-        (widthInPoints * millimetersPerPoint).formatted(.number.precision(.fractionLength(1))) + " mm"
     }
 }
 

@@ -206,6 +206,7 @@ final class WorkspaceModel {
     /// Refuses to leave the vault during a recording, and saves every open document.
     private func prepareToLeaveCurrentVault() async throws {
         guard !recording.state.isActive else { throw GraphiteError.unavailable("Finish the current recording before switching vaults.") }
+        rememberPlacesOfOpenDocuments()
         try await saveOpenDocuments()
     }
 
@@ -395,9 +396,6 @@ final class WorkspaceModel {
 
     /// Saves every open note and PDF, before files move and when the app leaves the screen.
     func saveOpenDocuments() async throws {
-        // Saving runs as Graphite leaves the screen or the vault, which is when the places
-        // of the open documents must be kept too.
-        rememberPlacesOfOpenDocuments()
         for document in tabDocuments.values { try await document.save() }
     }
 
