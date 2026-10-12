@@ -5,7 +5,7 @@ import GraphiteApple
 
 struct ReadAloudReader: View {
     @Bindable var reader: ReadAloudController
-    @State private var preview = ReadAloudSession()
+    @State private var preview = ReadAloudSession(preferences: UserDefaults(suiteName: "com.graphite.study.readAloudSample") ?? .standard)
     @State private var previewPreparation: Task<Void, Never>?
     @State private var previewPreparationIdentifier: UUID?
     @State private var previewError: String?
@@ -56,15 +56,12 @@ struct ReadAloudReader: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(reader.scopeDescription).font(.subheadline).foregroundStyle(.secondary)
             HStack {
-                Picker("Voice", selection: Binding(get: { reader.session.selectedVoiceIdentifier ?? "" }, set: { identifier in
+                Picker("Voice", selection: Binding(get: { reader.session.chosenVoiceIdentifier }, set: { identifier in
                     stopPreview(); reader.session.chooseVoice(identifier)
                 })) {
-                    Text("Choose a voice").tag("")
-                    if let selected = reader.session.selectedVoiceIdentifier, !reader.session.voices.contains(where: { voice in voice.id == selected }) {
-                        Text("Previous voice unavailable").tag(selected)
-                    }
-                    ForEach(reader.session.voices) { voice in
-                        Text("\(voice.name) · \(voice.language) · \(voice.qualityDescription)").tag(voice.id)
+                    Text(reader.session.automaticVoice.map { voice in "Automatic: \(voice.name) (\(voice.qualityDescription))" } ?? "Automatic").tag(String?.none)
+                    ForEach(reader.session.voices.filter { voice in voice.languageCode == reader.session.readingLanguage.split(separator: "-").first || voice.id == reader.session.chosenVoiceIdentifier }) { voice in
+                        Text("\(voice.name) (\(voice.qualityDescription))").tag(String?.some(voice.id))
                     }
                 }
                 Menu("Preview", systemImage: "speaker.wave.2") {
@@ -77,18 +74,18 @@ struct ReadAloudReader: View {
                 }
                 .disabled(reader.session.selectedVoiceIdentifier == nil || reader.isPreparing)
             }
-            Text("Uses installed Apple voices on this device. Premium and Enhanced are Apple’s quality labels. Preview a voice to judge how natural it sounds.")
-                .font(.caption).foregroundStyle(.secondary)
             if preview.state == .speaking {
                 Text("Playing voice preview. Your reading position is paused.").font(.caption).foregroundStyle(.secondary)
             } else if previewPreparation != nil {
                 ProgressView("Preparing voice preview…").font(.caption)
             }
-            Text("More voices can be downloaded in your device’s Accessibility settings. Math narration currently uses English. Cloud voices are not available yet.")
-                .font(.caption).foregroundStyle(.secondary)
+            if reader.session.canImproveVoiceByDownloading {
+                Text("This is a compact voice. For a more natural one, download an Enhanced or Premium voice in Settings › Accessibility › Spoken Content › Voices.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             HStack {
                 Picker("Speed", selection: Binding(get: { reader.session.speed }, set: { speed in stopPreview(); reader.session.setSpeed(speed) })) {
-                    ForEach([0.5, 0.75, 1.0, 1.25, 1.5], id: \.self) { speed in Text(speed.formatted() + "×").tag(speed) }
+                    ForEach(ReadAloudVoiceSettings.speeds, id: \.self) { speed in Text(speed.formatted() + "×").tag(speed) }
                 }
                 Toggle("Follow Reading", isOn: $reader.followsReading).toggleStyle(.switch)
             }
