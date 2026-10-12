@@ -4,6 +4,10 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-12.
 
+## Places kept in memory: 2026-10-12
+
+Where each document was left was decoded from the device's preferences, and encoded back, on every read and every change: every tab switch and every document opened read the whole list of up to 400 places. `DocumentPlaceStore` now reads a vault's places once and writes only when they change, shared by every workspace of the app. Removing a vault forgets its places in memory too. Checked by `DocumentPlaceStoreTests` (3, macOS: read once and kept, written only on change, damaged places read as none and replaced, a forgotten vault's places gone) and the whole hosted suite. Not looked at separately in the simulator; the PDF place on relaunch was seen with the final build (see below).
+
 ## The Pencil tool bar's code in four files: 2026-10-12
 
 `PencilToolbox.swift` had grown to about 1,040 lines. It now keeps the tool bar's state and the inks (`PencilToolbarStyle`, `PencilInk`, `InkPreset`, `PencilToolbox` and their PencilKit tools); `PencilToolbar.swift` has the bar, its row and the tab bar's tools; `PencilToolButtons.swift` the buttons the bar and the squeeze palette share, the bar's metrics and the tool glyphs; `PencilToolOptions.swift` the size editor and the ink options. The code moved unchanged (checked line by line); the package picks the files up by folder, so the Xcode project needed no change. Checked by building for iPad and macOS and by the hosted `PencilToolsTests`.

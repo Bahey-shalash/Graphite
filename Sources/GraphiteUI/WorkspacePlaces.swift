@@ -11,16 +11,12 @@ extension WorkspaceModel {
 
     private var placeMemory: DocumentPlaceMemory {
         get {
-            guard let currentVaultIdentifier, let storedPlaces = UserDefaults.standard.data(forKey: Self.placesKey(for: currentVaultIdentifier)) else {
-                return DocumentPlaceMemory()
-            }
-            // Places another build wrote, or damaged ones, are only conveniences: lost, they
-            // leave documents opening at their start.
-            return (try? JSONDecoder().decode(DocumentPlaceMemory.self, from: storedPlaces)) ?? DocumentPlaceMemory()
+            guard let currentVaultIdentifier else { return DocumentPlaceMemory() }
+            return documentPlaceStore.memory(forVault: currentVaultIdentifier)
         }
         set {
-            guard let currentVaultIdentifier, let encodedPlaces = try? JSONEncoder().encode(newValue) else { return }
-            UserDefaults.standard.set(encodedPlaces, forKey: Self.placesKey(for: currentVaultIdentifier))
+            guard let currentVaultIdentifier else { return }
+            documentPlaceStore.update(newValue, forVault: currentVaultIdentifier)
         }
     }
 
@@ -72,5 +68,45 @@ extension WorkspaceModel {
         var memory = placeMemory
         memory.forget(inside: removedPath)
         placeMemory = memory
+    }
+}
+
+/// Where documents were left, for each vault: read from the device's preferences once per
+/// vault, then kept in memory and written back only when it changes. Every workspace of the
+/// app shares one store (`shared`), so two windows on one vault do not overwrite each
+/// other's places with copies read earlier.
+@MainActor
+final class DocumentPlaceStore {
+    static let shared = DocumentPlaceStore(defaults: .standard)
+
+    private let defaults: UserDefaults
+    private var memories: [UUID: DocumentPlaceMemory] = [:]
+
+    init(defaults: UserDefaults) {
+        self.defaults = defaults
+    }
+
+    func memory(forVault vaultIdentifier: UUID) -> DocumentPlaceMemory {
+        if let memory = memories[vaultIdentifier] { return memory }
+        // Places another build wrote, or damaged ones, are only conveniences: lost, they
+        // leave documents opening at their start.
+        let memory = defaults.data(forKey: WorkspaceModel.placesKey(for: vaultIdentifier))
+            .flatMap { storedPlaces in try? JSONDecoder().decode(DocumentPlaceMemory.self, from: storedPlaces) }
+            ?? DocumentPlaceMemory()
+        memories[vaultIdentifier] = memory
+        return memory
+    }
+
+    func update(_ memory: DocumentPlaceMemory, forVault vaultIdentifier: UUID) {
+        guard memory != self.memory(forVault: vaultIdentifier) else { return }
+        memories[vaultIdentifier] = memory
+        guard let encodedPlaces = try? JSONEncoder().encode(memory) else { return }
+        defaults.set(encodedPlaces, forKey: WorkspaceModel.placesKey(for: vaultIdentifier))
+    }
+
+    /// Forgets a vault's places, in memory and on the device, as when the vault is removed.
+    func forgetVault(_ vaultIdentifier: UUID) {
+        memories[vaultIdentifier] = nil
+        defaults.removeObject(forKey: WorkspaceModel.placesKey(for: vaultIdentifier))
     }
 }
