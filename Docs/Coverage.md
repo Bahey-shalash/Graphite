@@ -4,6 +4,10 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-12.
 
+## Checks of the second palm and polish round together: 2026-10-12
+
+On the last of the commits in the four sections below (the size dots, the even highlighter and the cover, the favorite colors), in a clone of alpha 85f7552 outside iCloud: the whole hosted suite on an iPad Pro 11-inch (M5) simulator, iOS 27.0, 224 of 224; `swift test` on macOS, 1,701 tests (825 Core, 137 Index, 208 Apple, 531 UI) with one skipped and the one known failure, `UiEditorMacEditorTests.testHeadingJumpWaitsForAWindowThenSelectsAndScrollsToTheHeading`. Nothing was tried on the iPad or with Apple Pencil.
+
 ## The even highlighter looks the same while drawn and after, and no frame loses the stroke: 2026-10-12
 
 Reported by the owner from the iPad with a real Pencil (alpha cfce131): with Ignore Pencil Tilt on and a narrow highlighter, the stroke was a broad tilted band while drawn and became the thin even stroke at the lift. Also found in this round: replacing a stroke just drawn (the even highlighter, the shape tool) left the canvas without it for about 30 ms. See `Architecture.md`, the even highlighter paragraphs, for how both now work: PencilKit draws with an invisible stand-in while Graphite draws the band the stroke will become, and the canvas as it was covers PencilKit's redrawing.
