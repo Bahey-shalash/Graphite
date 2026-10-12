@@ -4,6 +4,10 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-12.
 
+## A reading view's first scroll is not pulled back: 2026-10-12
+
+`PencilWorkspaceTests.testReadingPositionSurvivesViewRecreationAndNewHeadingTakesPriority` timed out once in a full alpha run (both of its waits for the scrolled offset) and passed alone. Alpha's per-vault places are not involved: the test hosts a `MarkdownPreview` with its own `ReadingPosition` and no workspace, and workspaces in tests have no vault identifier, so they keep no places. The run's log shows no dropped scroll-geometry update after the test's scroll, so the scroll was seen and set aside: the reading view, with nothing saved, recorded its offsets into the shared checkpoint straight away, and once any of them was not zero (as while a view settles under the window's bars) it was taken for a saved position, restored, and the restoration pulled the test's scroll back. Such offsets are now kept apart until the view knows it has nothing to restore (see `Architecture.md`, reading position). The failure could not be made to happen again, before or after the change: the test passed 40 times alone, the whole `PencilWorkspaceTests` class 25 times (10 with 18 busy processes), and the whole hosted suite on this branch. So the cause above is the explanation that fits the log, not one seen happening.
+
 ## Places kept in memory: 2026-10-12
 
 Where each document was left was decoded from the device's preferences, and encoded back, on every read and every change: every tab switch and every document opened read the whole list of up to 400 places. `DocumentPlaceStore` now reads a vault's places once and writes only when they change, shared by every workspace of the app. Removing a vault forgets its places in memory too. Checked by `DocumentPlaceStoreTests` (3, macOS: read once and kept, written only on change, damaged places read as none and replaced, a forgotten vault's places gone) and the whole hosted suite. Not looked at separately in the simulator; the PDF place on relaunch was seen with the final build (see below).
