@@ -18,6 +18,24 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
     var minimumSideLength: CGFloat = 32
     /// The region the frame's center has to stay in, so it cannot be lost off the page.
     var centerLimits: CGRect = .infinite
+    /// Keeps the frame to what its superview shows and can be touched in: the superview's
+    /// bounds less its safe area, as for a PDF view whose top edge is at the tab bar or under
+    /// a navigation bar. The frame is drawn only there, and a corner handle that would reach
+    /// out of it moves inward along the frame's sides (never past the opposite side) until it is
+    /// inside: near the top of the view, a handle had been under the tab bar, where touches
+    /// go to the bar, and could not be dragged. Off for a frame in a scroll view's content,
+    /// which scrolls into reach.
+    var staysInSuperviewSafeArea = false {
+        didSet { if staysInSuperviewSafeArea != oldValue { setNeedsLayout() } }
+    }
+    /// The superview's bounds less its safe area, in this view's coordinates, when the frame
+    /// stays in it.
+    private var reachableRegion: CGRect? {
+        guard staysInSuperviewSafeArea, let superview else { return nil }
+        return convert(superview.bounds.inset(by: superview.safeAreaInsets), from: superview)
+    }
+    /// Hides what is outside the reachable region.
+    private let reachableMask = CALayer()
     /// Shown inside the frame while it is dragged, for an owner whose content moves only
     /// when the drag ends: faintly over content that stays where it was, or, at full
     /// strength, in place of content the owner hides for the drag.
@@ -150,6 +168,17 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("SelectionFrameView is created in code.") }
 
+    /// Moving the frame moves it against the reachable region, so its handles are placed again.
+    override var frame: CGRect {
+        didSet { if frame.origin != oldValue.origin, staysInSuperviewSafeArea { setNeedsLayout() } }
+    }
+
+    /// The safe area changes as the frame moves under a bar, or as the bars change.
+    override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        if staysInSuperviewSafeArea { setNeedsLayout() }
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         previewView.frame = bounds.insetBy(dx: dragPreviewInset, dy: dragPreviewInset)
@@ -172,15 +201,47 @@ final class SelectionFrameView: UIView, UIGestureRecognizerDelegate {
         outlineHaloLayer.lineWidth = lineWidth + 2 * Self.haloWidth * handleScale
         CATransaction.commit()
         for handle in handles.values { handle.transform = CGAffineTransform(scaleX: handleScale, y: handleScale) }
-        handles[.topLeft]?.center = CGPoint(x: bounds.minX, y: bounds.minY)
-        handles[.topRight]?.center = CGPoint(x: bounds.maxX, y: bounds.minY)
-        handles[.bottomLeft]?.center = CGPoint(x: bounds.minX, y: bounds.maxY)
-        handles[.bottomRight]?.center = CGPoint(x: bounds.maxX, y: bounds.maxY)
+        let reachableRegion = reachableRegion
+        let handleHalfSide = Self.handleTouchSide * handleScale / 2
+        for corner in Corner.allCases {
+            let isRight = corner == .topRight || corner == .bottomRight, isBottom = corner == .bottomLeft || corner == .bottomRight
+            handles[corner]?.center = Self.handleCenter(at: CGPoint(x: isRight ? bounds.maxX : bounds.minX, y: isBottom ? bounds.maxY : bounds.minY),
+                                                        of: bounds, within: reachableRegion, handleHalfSide: handleHalfSide)
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if let reachableRegion {
+            reachableMask.backgroundColor = UIColor.black.cgColor
+            reachableMask.frame = reachableRegion
+            layer.mask = reachableMask
+        } else {
+            layer.mask = nil
+        }
+        CATransaction.commit()
     }
 
-    /// The handles reach outside the frame they resize.
+    /// Where a corner's handle goes: on the corner, or moved inward along the frame's sides
+    /// until its touch area is inside the reachable region, but never past the opposite side.
+    /// A frame mostly out of reach can have its handles past its middle, still each on the
+    /// side of its own corner.
+    static func handleCenter(at corner: CGPoint, of frameBounds: CGRect, within reachableRegion: CGRect?, handleHalfSide: CGFloat) -> CGPoint {
+        guard let reachableRegion else { return corner }
+        func kept(_ coordinate: CGFloat, between lowestCoordinate: CGFloat, and highestCoordinate: CGFloat) -> CGFloat {
+            guard lowestCoordinate <= highestCoordinate else { return (lowestCoordinate + highestCoordinate) / 2 }
+            return min(max(coordinate, lowestCoordinate), highestCoordinate)
+        }
+        var center = CGPoint(x: kept(corner.x, between: reachableRegion.minX + handleHalfSide, and: reachableRegion.maxX - handleHalfSide),
+                             y: kept(corner.y, between: reachableRegion.minY + handleHalfSide, and: reachableRegion.maxY - handleHalfSide))
+        center.x = corner.x <= frameBounds.midX ? min(center.x, frameBounds.maxX) : max(center.x, frameBounds.minX)
+        center.y = corner.y <= frameBounds.midY ? min(center.y, frameBounds.maxY) : max(center.y, frameBounds.minY)
+        return center
+    }
+
+    /// The handles reach outside the frame they resize. What is outside the reachable region
+    /// is hidden and takes no touches.
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-        bounds.contains(point) || handles.values.contains { handle in handle.frame.contains(point) }
+        if let reachableRegion, !reachableRegion.contains(point) { return false }
+        return bounds.contains(point) || handles.values.contains { handle in handle.frame.contains(point) }
     }
 
     /// A touch on a corner handle resizes; it must not also move the picture.

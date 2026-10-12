@@ -235,6 +235,8 @@ final class PDFPictureSelectionController {
     private func makeSelectionView(in pdfView: PDFView) -> SelectionFrameView {
         let selection = SelectionFrameView(frame: .zero)
         selection.frameChangeDidEnd = { [weak self] frame in self?.selectionFrameChangeDidEnd(frame) }
+        // Only what the PDF view shows takes touches: the tab bar is at its top edge.
+        selection.staysInSuperviewSafeArea = true
         pdfView.addSubview(selection)
         selectionView = selection
         if let scrollView = Self.scrollView(in: pdfView) {

@@ -4,6 +4,10 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-12.
 
+## Every corner of a picture near the top of a PDF can be dragged: 2026-10-12
+
+Found on 2026-10-12: near the top edge of the PDF view, a selected picture's corner handle could be under the tab bar, where touches went to the bar, so it could not be dragged; the frame's line was also drawn over the bar. The frame now stays inside what the PDF view shows, and a handle that would leave it moves inward along the frame's sides (`SelectionFrameView.staysInSuperviewSafeArea`, see `Architecture.md`). `PicturesAndPaperTests.testEveryCornerHandleOfAPictureAtTheTopOfTheViewCanBeTouched` places a picture half above page 1's top and checks, in a hosted PDF pane under a navigation bar, that every handle is inside the visible part of the PDF view and that a touch at its middle reaches it; it failed before the change (two handles under the bar, touches reaching the bar's content view and its Undo button) and passes after. `testSelectionFrameMovesWithinLimitsAndResizesInProportion` covers the placement rule. In the iPad simulator app: before, with a picture scrolled up under the tab bar, the frame's line ran over the tab bar and the top bar; after, the frame is cut at the PDF view's top, its top handles sit just below the tab bar, and dragging the top-left one by finger resized the picture. Not checked on the iPad or with a Pencil, in landscape, or in an embedded PDF in a note (the same controller places the frame there). Frames around lassoed ink and pictures in drawings are unchanged.
+
 ## Drawings in Live Preview no longer flicker: 2026-10-12
 
 Reported by the owner with a screen recording from the iPad: while typing under the drawings at the end of a note, the drawings went black for about 75 ms, now and then; moving the cursor onto a drawing's line and off it showed a spinner and an empty space for a frame or two; scrolling showed spinners. Three causes, each reproduced in the iPad simulator with a copy of the recorded note and its six drawings, with frame recordings (`simctl io recordVideo`) and breakpoints that log:
