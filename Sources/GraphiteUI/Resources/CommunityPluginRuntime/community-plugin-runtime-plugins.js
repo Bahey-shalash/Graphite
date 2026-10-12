@@ -1200,6 +1200,9 @@
             app.workspace.trigger('editor-menu', menu, view.editor, view);
             return offerMenu(message.menuIdentifier, menu);
         },
+        async 'notice.tap'(message) {
+            return { isHandled: runtime.tapNotice(message.noticeIdentifier, typeof message.actionIndex === 'number' ? message.actionIndex : null) };
+        },
         async 'menu.choose'(message) {
             const openMenu = closeMenu(message.menuIdentifier);
             if (!openMenu) return { outcome: 'missing' };

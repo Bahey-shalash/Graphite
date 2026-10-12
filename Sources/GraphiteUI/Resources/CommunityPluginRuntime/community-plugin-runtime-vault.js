@@ -83,6 +83,13 @@
 
     // MARK: Data adapter
 
+    /// A path as the adapter takes it: the vault's root may be named "/" or "." (isomorphic-git,
+    /// which Git uses on mobile, asks for "/"), and is "" for Graphite.
+    function adapterPath(path) {
+        const normalizedPath = normalizePath(path);
+        return normalizedPath === '/' || normalizedPath === '.' ? '' : normalizedPath;
+    }
+
     /// The vault's file system as Obsidian mobile's adapter exposes it: paths relative to the
     /// vault, including hidden ones such as the configuration folder.
     class DataAdapter {
@@ -95,14 +102,15 @@
             return this.vault.vaultName;
         }
         async exists(path, isCaseSensitive) {
-            const normalizedPath = normalizePath(path);
+            const normalizedPath = adapterPath(path);
+            if (normalizedPath === '') return true;
             const response = await hostBridge.send('vault.stat', { path: normalizedPath });
             if (!response.stat) return false;
             if (isCaseSensitive && response.storedPath && response.storedPath !== normalizedPath) return false;
             return true;
         }
         async stat(path) {
-            const response = await hostBridge.send('vault.stat', { path: normalizePath(path) });
+            const response = await hostBridge.send('vault.stat', { path: adapterPath(path) });
             if (!response.stat) return null;
             return { type: response.stat.isFolder ? 'folder' : 'file', ctime: response.stat.created || 0, mtime: response.stat.modified || 0, size: response.stat.size || 0 };
         }

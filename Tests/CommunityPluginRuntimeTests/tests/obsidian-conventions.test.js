@@ -164,3 +164,90 @@ module.exports = ExamplePlugin;`;
         harness.close();
     }
 });
+
+test('a code block that puts its own element in the block\'s place is shown as drawn', async () => {
+    // Admonition replaces the element it is given (`el.replaceWith(admonition)`).
+    const source = `"use strict";
+var obsidian = require("obsidian");
+class ExamplePlugin extends obsidian.Plugin {
+    onload() {
+        this.registerMarkdownCodeBlockProcessor('example-callout', (text, el) => {
+            const callout = createDiv({ cls: 'callout', attr: { 'data-callout': 'note' } });
+            callout.createDiv({ cls: 'callout-title', text: 'Title' });
+            callout.createDiv({ cls: 'callout-content', text });
+            el.replaceWith(callout);
+        });
+    }
+}
+module.exports = ExamplePlugin;`;
+    const harness = await startRuntime({ files: { 'Note.md': '```example-callout\nBody\n```\n' } });
+    try {
+        assert.deepEqual(plain(await installAndLoadPlugin(harness, { manifest, mainSource: source })), { isLoaded: true });
+        const answer = plain(await harness.send({ operation: 'codeBlock.render', width: 700, blockIdentifier: 'replaced', language: 'example-callout', source: 'Body', sourcePath: 'Note.md' }));
+        assert.equal(answer.isDrawn, true);
+        assert.match(answer.html, /^<div class="callout" data-callout="note"><div class="callout-title">Title<\/div><div class="callout-content">Body<\/div><\/div>$/);
+    } finally {
+        harness.close();
+    }
+});
+
+test('a notice\'s links and buttons are offered with it, and a tap on one clicks it', async () => {
+    // Smart Connections asks to "Load Smart Environment" from a notice on mobile.
+    const source = `"use strict";
+var obsidian = require("obsidian");
+class ExamplePlugin extends obsidian.Plugin {
+    onload() {
+        const message = document.createDocumentFragment();
+        message.append('Loading deferred on mobile.');
+        const button = document.createElement('button');
+        button.textContent = 'Load now';
+        button.addEventListener('click', () => { this.loadedFromNotice = true; });
+        message.append(button);
+        new obsidian.Notice(message, 0);
+        const plain = new obsidian.Notice('Click me', 0);
+        plain.noticeEl.addEventListener('click', () => { this.noticeClicked = true; });
+    }
+}
+module.exports = ExamplePlugin;`;
+    const harness = await startRuntime({ files: {} });
+    try {
+        assert.deepEqual(plain(await installAndLoadPlugin(harness, { manifest, mainSource: source })), { isLoaded: true });
+        await settle();
+        const shown = plain(harness.host.notificationsOf('notice.show'));
+        assert.deepEqual(shown.map((notice) => [notice.message, notice.actions]), [['Loading deferred on mobile.Load now', ['Load now']], ['Click me', []]]);
+        assert.deepEqual(plain(await harness.send({ operation: 'notice.tap', noticeIdentifier: shown[0].noticeIdentifier, actionIndex: 0 })), { isHandled: true });
+        assert.deepEqual(plain(await harness.send({ operation: 'notice.tap', noticeIdentifier: shown[1].noticeIdentifier })), { isHandled: true });
+        const plugin = harness.app.plugins.plugins.example;
+        assert.equal(plugin.loadedFromNotice, true);
+        assert.equal(plugin.noticeClicked, true);
+        assert.deepEqual(plain(harness.host.notificationsOf('notice.hide').map((notice) => notice.noticeIdentifier)), shown.map((notice) => notice.noticeIdentifier));
+    } finally {
+        harness.close();
+    }
+});
+
+test('the adapter takes "/" for the vault\'s root, and menus have Obsidian\'s element', async () => {
+    // isomorphic-git (Git on mobile) asks for "/"; Highlightr styles its menu's element.
+    const source = `"use strict";
+var obsidian = require("obsidian");
+class ExamplePlugin extends obsidian.Plugin {
+    async onload() {
+        this.rootExists = await this.app.vault.adapter.exists('/');
+        this.rootStat = await this.app.vault.adapter.stat('/');
+        const menu = new obsidian.Menu();
+        menu.dom.addClass('example-menu');
+        this.menuClass = menu.dom.className;
+    }
+}
+module.exports = ExamplePlugin;`;
+    const harness = await startRuntime({ files: { 'Note.md': 'x\n' } });
+    try {
+        assert.deepEqual(plain(await installAndLoadPlugin(harness, { manifest, mainSource: source })), { isLoaded: true });
+        const plugin = harness.app.plugins.plugins.example;
+        assert.equal(plugin.rootExists, true);
+        assert.equal(plugin.rootStat && plugin.rootStat.type, 'folder');
+        assert.match(plugin.menuClass, /example-menu/);
+    } finally {
+        harness.close();
+    }
+});

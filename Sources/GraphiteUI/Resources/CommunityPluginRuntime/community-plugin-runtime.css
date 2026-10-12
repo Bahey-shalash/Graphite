@@ -169,7 +169,11 @@ input[type="range"] { accent-color: var(--interactive-accent); }
 .modal-button-container { display: flex; gap: var(--size-4-2); justify-content: flex-end; margin-top: var(--size-4-4); flex-wrap: wrap; }
 
 /* Suggestion lists (quick pickers) */
-.prompt { padding: 0; }
+/* Everything a modal's container holds stands above its background, as in Obsidian, whatever its class:
+   plugins replace `.modal` with their own (Omnisearch's window is a `.prompt`), and an element without a
+   position would be drawn under the background's. */
+.modal-container > :not(.modal-bg) { position: relative; }
+.prompt { padding: 0; width: 100%; max-width: 760px; box-sizing: border-box; }
 .prompt-input { width: 100%; font-size: var(--font-ui-medium); border-radius: var(--radius-l); }
 .prompt-results { margin-top: var(--size-4-3); }
 .suggestion-item { padding: 10px 12px; border-radius: var(--radius-m); cursor: pointer; }
@@ -228,3 +232,49 @@ pre code { display: block; padding: var(--size-4-3); overflow: auto; }
 .nav-file-title, .tree-item-self { display: flex; align-items: center; gap: var(--size-2-3); min-height: 44px; padding: 0 var(--size-4-2); border-radius: var(--radius-m); color: var(--text-normal); cursor: pointer; box-sizing: border-box; }
 .nav-file-title.is-active, .tree-item-self.is-active { background: var(--background-modifier-active-hover); }
 .nav-file-title-content, .tree-item-inner { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Obsidian's callouts, which plugins draw with its classes and variables (Admonition draws its blocks as
+   callouts and sets --callout-color to one of these): an RGB triple per color, used as rgb() and rgba() */
+body {
+    --color-red-rgb: 255, 59, 48; --color-orange-rgb: 255, 149, 0; --color-yellow-rgb: 255, 204, 0; --color-green-rgb: 52, 199, 89;
+    --color-cyan-rgb: 50, 173, 230; --color-blue-rgb: 0, 122, 255; --color-purple-rgb: 175, 82, 222; --color-pink-rgb: 255, 45, 85;
+    --mono-rgb-0: 255, 255, 255; --mono-rgb-100: 0, 0, 0;
+    --callout-default: var(--color-blue-rgb); --callout-info: var(--color-blue-rgb); --callout-todo: var(--color-blue-rgb);
+    --callout-summary: var(--color-cyan-rgb); --callout-tip: var(--color-cyan-rgb); --callout-important: var(--color-cyan-rgb);
+    --callout-success: var(--color-green-rgb); --callout-question: var(--color-orange-rgb); --callout-warning: var(--color-orange-rgb);
+    --callout-fail: var(--color-red-rgb); --callout-error: var(--color-red-rgb); --callout-bug: var(--color-red-rgb);
+    --callout-example: var(--color-purple-rgb); --callout-quote: 158, 158, 158;
+    --callout-border-width: 0px; --callout-border-opacity: 0.25; --callout-padding: 12px 12px 12px 24px; --callout-radius: var(--radius-s);
+    --callout-title-padding: 0; --callout-title-size: inherit; --callout-title-weight: var(--font-semibold); --callout-content-padding: 0;
+    --text-highlight-bg: rgba(255, 208, 0, 0.4);
+}
+body.theme-dark { --mono-rgb-0: 0, 0, 0; --mono-rgb-100: 255, 255, 255; }
+.callout { --callout-color: var(--callout-default); overflow: hidden; border: var(--callout-border-width) solid rgba(var(--callout-color), var(--callout-border-opacity)); border-radius: var(--callout-radius); margin: 1em 0; background-color: rgba(var(--callout-color), 0.1); padding: var(--callout-padding); }
+.callout[data-callout="info"] { --callout-color: var(--callout-info); }
+.callout[data-callout="todo"] { --callout-color: var(--callout-todo); }
+.callout[data-callout="abstract"], .callout[data-callout="summary"], .callout[data-callout="tldr"] { --callout-color: var(--callout-summary); }
+.callout[data-callout="tip"], .callout[data-callout="hint"], .callout[data-callout="important"] { --callout-color: var(--callout-tip); }
+.callout[data-callout="success"], .callout[data-callout="check"], .callout[data-callout="done"] { --callout-color: var(--callout-success); }
+.callout[data-callout="question"], .callout[data-callout="help"], .callout[data-callout="faq"] { --callout-color: var(--callout-question); }
+.callout[data-callout="warning"], .callout[data-callout="caution"], .callout[data-callout="attention"] { --callout-color: var(--callout-warning); }
+.callout[data-callout="failure"], .callout[data-callout="fail"], .callout[data-callout="missing"] { --callout-color: var(--callout-fail); }
+.callout[data-callout="danger"], .callout[data-callout="error"] { --callout-color: var(--callout-error); }
+.callout[data-callout="bug"] { --callout-color: var(--callout-bug); }
+.callout[data-callout="example"] { --callout-color: var(--callout-example); }
+.callout[data-callout="quote"], .callout[data-callout="cite"] { --callout-color: var(--callout-quote); }
+.callout-title { display: flex; gap: var(--size-2-2); align-items: flex-start; padding: var(--callout-title-padding); font-size: var(--callout-title-size); font-weight: var(--callout-title-weight); color: rgb(var(--callout-color)); line-height: var(--line-height-tight); }
+.callout-icon { flex: 0 0 auto; display: flex; align-items: center; color: rgb(var(--callout-color)); }
+.callout-icon:empty { display: none; }
+.callout-title-inner { color: rgb(var(--callout-color)); }
+.callout-fold { display: flex; align-items: center; padding-inline-end: var(--size-2-3); }
+.callout.is-collapsible .callout-title { cursor: pointer; }
+.callout-content { overflow-x: auto; padding: var(--callout-content-padding); }
+.callout-content > :first-child { margin-top: var(--size-2-3); }
+.callout.is-collapsed .callout-content { display: none; }
+
+/* What Obsidian's reading view gives every note, which plugins' blocks and sections reuse */
+:where(.markdown-rendered) blockquote { border-inline-start: 3px solid var(--interactive-accent); margin: var(--size-4-2) 0; padding: 0 var(--size-4-4); color: var(--text-muted); }
+:where(.markdown-rendered) hr { border: none; border-top: 2px solid var(--background-modifier-border); margin: var(--size-4-6) 0; }
+:where(.markdown-rendered) mark { background-color: var(--text-highlight-bg); color: var(--text-normal); border-radius: 2px; }
+:where(.markdown-rendered) a.tag, :where(.markdown-rendered) .tag { color: var(--text-accent); background: rgba(var(--color-blue-rgb), 0.1); border-radius: 1em; padding: 0.1em 0.6em; font-size: 0.875em; text-decoration: none; }
+:where(.markdown-rendered) img { max-width: 100%; }

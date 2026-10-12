@@ -254,6 +254,14 @@
 
     let nextNoticeNumber = 1;
 
+    /// Notices on screen, by identifier, so a tap on Graphite's toast reaches the notice.
+    const shownNotices = new Map();
+
+    /// The links and buttons a notice holds, which Graphite shows as buttons on its toast.
+    function noticeActions(notice) {
+        return Array.from(notice.noticeEl.querySelectorAll('a, button, [role="button"]'));
+    }
+
     class Notice {
         constructor(message, durationMilliseconds) {
             this.noticeIdentifier = 'notice-' + nextNoticeNumber;
@@ -263,12 +271,20 @@
             this.messageEl = this.noticeEl.createDiv({ cls: 'notice-message' });
             this.messageEl.setText(message === undefined ? '' : message);
             const duration = durationMilliseconds === undefined ? 4500 : durationMilliseconds;
-            hostBridge.notify('notice.show', {
-                noticeIdentifier: this.noticeIdentifier,
-                message: this.messageEl.getText(),
-                durationMilliseconds: duration,
-                pluginIdentifier: runtime.callingPluginIdentifier(),
+            const pluginIdentifier = runtime.callingPluginIdentifier();
+            shownNotices.set(this.noticeIdentifier, this);
+            // Told once the plugin's code returns, so buttons it adds to the notice right away
+            // (Smart Connections' "Load Smart Environment") are on Graphite's toast too.
+            Promise.resolve().then(() => {
+                hostBridge.notify('notice.show', {
+                    noticeIdentifier: this.noticeIdentifier,
+                    message: this.messageEl.getText(),
+                    actions: noticeActions(this).map((element) => element.textContent.replace(/\s+/g, ' ').trim() || 'Open'),
+                    durationMilliseconds: duration,
+                    pluginIdentifier,
+                });
             });
+            if (duration > 0) globalScope.setTimeout(() => shownNotices.delete(this.noticeIdentifier), duration + 1000);
         }
         setMessage(message) {
             this.messageEl.setText(message);
@@ -276,9 +292,22 @@
             return this;
         }
         hide() {
+            shownNotices.delete(this.noticeIdentifier);
             hostBridge.notify('notice.hide', { noticeIdentifier: this.noticeIdentifier });
         }
     }
+
+    /// The person tapped a notice's toast, or one of its buttons: as a click on the notice in
+    /// Obsidian, the plugin's handler runs and the notice goes.
+    runtime.tapNotice = function tapNotice(noticeIdentifier, actionIndex) {
+        const notice = shownNotices.get(noticeIdentifier);
+        if (!notice) return false;
+        const actions = noticeActions(notice);
+        const target = typeof actionIndex === 'number' ? actions[actionIndex] : notice.noticeEl;
+        if (target) target.click();
+        notice.hide();
+        return Boolean(target);
+    };
 
     // MARK: Modals
 
@@ -1045,6 +1074,10 @@
             this.items = [];
             this.hideCallbacks = [];
             this.isUsingNativeMenu = true;
+            // Obsidian's menu element (undocumented), which plugins style (Highlightr adds its
+            // class). Graphite shows menus natively, so it is never drawn.
+            this.dom = createDiv({ cls: 'menu' });
+            this.scrollEl = this.dom.createDiv({ cls: 'menu-scroll' });
         }
         setNoIcon() { return this; }
         setUseNativeMenu(isUsingNativeMenu) { this.isUsingNativeMenu = isUsingNativeMenu; return this; }

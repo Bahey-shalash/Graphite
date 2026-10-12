@@ -13,6 +13,9 @@
     const hostBridge = runtime.hostBridge;
 
     let nextLeafNumber = 1;
+    /// Leaves are numbered per start of the runtime, so a tab Graphite kept from an earlier
+    /// start (whose view is gone) never shows a new, unrelated view that got the same number.
+    const leafIdentifierPrefix = 'graphite-leaf-' + Date.now().toString(36) + '-';
 
     /// Where Graphite shows a plugin leaf: `sidebar` for Obsidian's side docks, `tab` for the rest.
     function placementOf(leaf) {
@@ -35,6 +38,9 @@
         focus() {}
         blur() {}
         hasFocus() { return true; }
+        /// Where a position is on screen (undocumented, from CodeMirror). Graphite shows
+        /// plugins' menus natively beside the editor, so no screen position is given.
+        coordsAtPos() { return { left: 0, right: 0, top: 0, bottom: 0 }; }
         getScrollInfo() { return { top: 0, left: 0 }; }
         scrollTo() {}
         scrollIntoView() {}
@@ -103,6 +109,7 @@
         return runtime.unsupported('Obsidian\'s CodeMirror editor view (editor.cm)', 'Graphite\'s editor is native, so commands that work on CodeMirror\'s view directly cannot run.');
     }
 
+    const screenGeometryNames = new Set(['coordsAtPos', 'coordsForChar', 'posAtCoords', 'posAtDOM', 'domAtPos', 'lineBlockAt', 'lineBlockAtHeight', 'defaultLineHeight', 'defaultCharacterWidth', 'documentTop', 'scrollDOM', 'contentDOM', 'dom', 'visibleRanges', 'viewport']);
     function codeMirrorViewStandIn() {
         const activeView = () => (runtime.app ? runtime.app.workspace.getActiveViewOfType(MarkdownView) : null);
         let view = null;
@@ -125,6 +132,9 @@
             get(target, name) {
                 if (typeof name === 'symbol' || name === 'then') return undefined;
                 if (name === 'state') return state;
+                // The editor's places on screen, which plugins look up with a fallback
+                // (Highlightr: `cm.coordsAtPos?.(…) ?? editor.coordsAtPos(…)`).
+                if (screenGeometryNames.has(name)) return undefined;
                 return unsupportedCodeMirrorView();
             },
         });
@@ -543,7 +553,7 @@
             super();
             this.app = app;
             this.kind = kind;
-            this.id = 'graphite-leaf-' + nextLeafNumber;
+            this.id = leafIdentifierPrefix + nextLeafNumber;
             nextLeafNumber += 1;
             this.view = new EmptyView(this);
             this.pinned = false;
@@ -583,6 +593,7 @@
             if (ephemeralState) view.setEphemeralState(ephemeralState);
             if (viewState.active) await workspace.revealLeaf(this);
             workspace.notifyLeavesChanged();
+            await this.showIfNew(Boolean(viewState.active));
         }
         async replaceView(view) {
             const previousView = this.view;
@@ -599,7 +610,21 @@
         async open(view) {
             await this.replaceView(view);
             this.app.workspace.notifyLeavesChanged();
+            await this.showIfNew(false);
             return view;
+        }
+        /// Obsidian shows a new tab or split as soon as it has a view; Graphite opens its tab.
+        /// The note stays the active leaf, as it does beside a new split in Obsidian (Mind Map
+        /// draws the active note's map, and would otherwise find itself active). Sidebar leaves
+        /// stay where they are until revealed, as Obsidian's sidebars do.
+        async showIfNew(isRevealed) {
+            if (this.hasBeenShown || (this.kind !== 'tab' && this.kind !== 'split')) return;
+            this.hasBeenShown = true;
+            if (isRevealed) return;
+            const workspace = this.app.workspace;
+            workspace.revealedLeaf = this;
+            workspace.notifyLeavesChanged();
+            hostBridge.notify('view.reveal', { leafIdentifier: this.id, placement: placementOf(this) });
         }
         async openFile(file, openState) {
             await hostBridge.send('workspace.openFile', { path: file.path, placement: this.kind === 'mirror' ? 'currentTab' : 'newTab', subpath: openState && openState.eState && openState.eState.subpath ? openState.eState.subpath : null });
@@ -622,6 +647,7 @@
             workspace.pluginLeaves.remove(this);
             this.view.close();
             this.containerEl.detach();
+            if (this.waitingPlace) { this.waitingPlace.remove(); this.waitingPlace = null; }
             if (workspace.activeLeaf === this) workspace.activeLeaf = workspace.markdownLeaf.view instanceof MarkdownView && workspace.markdownLeaf.view.file ? workspace.markdownLeaf : null;
             workspace.notifyLeavesChanged();
             workspace.trigger('layout-change');
@@ -735,6 +761,10 @@
         /// Tells Graphite which plugin views exist and where each belongs: a sidebar's views
         /// (`getLeftLeaf`, `getRightLeaf`) in Graphite's sidebar, the others in a tab. A leaf
         /// that holds no view yet is left out.
+        /// The handlers plugins registered for `obsidian://` actions (undocumented), by action;
+        /// Smart Connections checks for its own before registering it.
+        get protocolHandlers() { return runtime.protocolHandlers || new Map(); }
+
         notifyLeavesChanged() {
             hostBridge.notify('views.changed', {
                 views: this.pluginLeaves.filter((leaf) => !(leaf.view instanceof EmptyView)).map((leaf) => ({
@@ -784,6 +814,7 @@
         createPluginLeaf(kind) {
             const leaf = new WorkspaceLeaf(this.app, kind);
             this.pluginLeaves.push(leaf);
+            if (runtime.placeNewLeaf) runtime.placeNewLeaf(leaf);
             return leaf;
         }
         getLeavesOfType(viewType) {

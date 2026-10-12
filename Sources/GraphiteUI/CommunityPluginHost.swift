@@ -65,6 +65,8 @@ struct CommunityPluginNotice: Identifiable, Equatable {
     let id: String
     var message: String
     let pluginName: String?
+    /// The titles of the links and buttons the plugin put in its notice, shown as buttons.
+    var actions: [String] = []
 }
 
 /// A plugin's `Menu`, waiting for the person to choose an item.
@@ -914,7 +916,8 @@ final class CommunityPluginHost {
             showNotice("\(pluginName) did not overwrite “\(message["path"] as? String ?? "")”: the file changed after it read it.", pluginIdentifier: pluginIdentifier)
         case "notice.show":
             guard let noticeIdentifier = message["noticeIdentifier"] as? String else { return }
-            let notice = CommunityPluginNotice(id: noticeIdentifier, message: message["message"] as? String ?? "", pluginName: pluginIdentifier.flatMap(pluginName(of:)))
+            let notice = CommunityPluginNotice(id: noticeIdentifier, message: message["message"] as? String ?? "", pluginName: pluginIdentifier.flatMap(pluginName(of:)),
+                                               actions: (message["actions"] as? [String] ?? []).prefix(3).map { title in title })
             notices.append(notice)
             if notices.count > 4 { notices.removeFirst() }
             let duration = message["durationMilliseconds"] as? Int ?? 4500
@@ -959,6 +962,16 @@ final class CommunityPluginHost {
         notices.append(CommunityPluginNotice(id: noticeIdentifier, message: message, pluginName: pluginName))
         if notices.count > 4 { notices.removeFirst() }
         scheduleNoticeRemoval(noticeIdentifier, afterMilliseconds: 6000)
+    }
+
+    /// A tap on a plugin's notice, or on one of its buttons: the runtime clicks the notice or
+    /// the button, as a click does in Obsidian, and the notice goes.
+    func tapNotice(_ noticeIdentifier: String, actionIndex: Int?) {
+        notices.removeAll { notice in notice.id == noticeIdentifier }
+        guard isRuntimeRunning, !noticeIdentifier.hasPrefix("graphite-") else { return }
+        var message: [String: Any] = ["operation": "notice.tap", "noticeIdentifier": noticeIdentifier]
+        if let actionIndex { message["actionIndex"] = actionIndex }
+        Task { _ = try? await send(message, timeout: .seconds(5)) }
     }
 
     private func scheduleNoticeRemoval(_ noticeIdentifier: String, afterMilliseconds milliseconds: Int) {

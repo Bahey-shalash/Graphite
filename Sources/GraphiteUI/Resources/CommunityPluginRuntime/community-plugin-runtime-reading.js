@@ -88,7 +88,27 @@
         });
     }
 
+    /// Plugins may put their own element in the block's place (`el.replaceWith(…)`, as
+    /// Admonition does) instead of drawing into it; what is in the place is then the block.
+    /// Several elements in its place are gathered into one, which taps are found from.
+    function followReplacement(entry) {
+        if (entry.leaf || entry.element.parentNode === entry.container) return entry.element;
+        const replacements = Array.from(entry.container.children);
+        if (replacements.length === 0) return entry.element;
+        if (replacements.length === 1) {
+            entry.element = replacements[0];
+        } else {
+            const gathered = globalScope.document.createElement('div');
+            gathered.className = entry.element.className;
+            for (const replacement of replacements) gathered.appendChild(replacement);
+            entry.container.appendChild(gathered);
+            entry.element = gathered;
+        }
+        return entry.element;
+    }
+
     function copyOf(entry) {
+        followReplacement(entry);
         const copiedRoot = entry.element.cloneNode(true);
         copyLiveState(entry.element, copiedRoot);
         const html = copiedRoot.outerHTML;
@@ -120,10 +140,15 @@
     /// components, as in Calendar, add theirs to the page's head, some through the CSS object
     /// model, which leaves the element's text empty).
     function pluginStyles() {
-        return Array.from(globalScope.document.querySelectorAll('style')).map((styleElement) => {
+        const fromElements = Array.from(globalScope.document.querySelectorAll('style')).map((styleElement) => {
             if (styleElement.textContent.trim() !== '') return styleElement.textContent;
             try { return Array.from(styleElement.sheet ? styleElement.sheet.cssRules : []).map((rule) => rule.cssText).join('\n'); } catch (error) { return ''; }
-        }).join('\n');
+        });
+        // Style sheets made in script and adopted by the page (Admonition's callout colors).
+        const adopted = Array.from(globalScope.document.adoptedStyleSheets || []).map((sheet) => {
+            try { return Array.from(sheet.cssRules).map((rule) => rule.cssText).join('\n'); } catch (error) { return ''; }
+        });
+        return fromElements.concat(adopted).join('\n');
     }
 
     // MARK: Drawing and releasing blocks
@@ -260,7 +285,7 @@
         watch(entry);
         await runPostProcessors(entry);
         if (entry.isReleased) return { isDrawn: false, message: 'The section was closed while it was drawn.' };
-        if (entry.addedChildCount === 0 && visibleSignature(entry.element) === signatureBefore) {
+        if (entry.addedChildCount === 0 && visibleSignature(followReplacement(entry)) === signatureBefore) {
             release(message.blockIdentifier);
             return { isDrawn: true, isChanged: false };
         }
@@ -270,7 +295,7 @@
 
     /// Element children, by position, from the block's element down to the one tapped.
     function elementAtPath(entry, elementPath) {
-        let element = entry.element;
+        let element = followReplacement(entry);
         for (const position of elementPath || []) {
             if (!element || !element.children || typeof position !== 'number') return null;
             element = element.children[position];
@@ -319,6 +344,7 @@
         for (const entry of drawnBlocks.values()) { if (entry.leaf === leaf) release(entry.blockIdentifier); }
         const container = readingArea().createDiv({ cls: 'graphite-reading-block graphite-plugin-view' });
         container.appendChild(leaf.containerEl);
+        if (leaf.waitingPlace) { leaf.waitingPlace.remove(); leaf.waitingPlace = null; }
         const entry = {
             blockIdentifier: message.blockIdentifier, container, element: leaf.containerEl, leaf, component: null, addedChildCount: 0,
             observer: null, isCopyScheduled: false, isReleased: false, lastSentHTML: null,
@@ -330,11 +356,42 @@
         return { isDrawn: true, html: entry.lastSentHTML, styles: pluginStyles(), title: leaf.getDisplayText() };
     }
 
+    /// The size Graphite last gave a tab's view and a sidebar panel's view.
+    const lastViewSizes = { tab: { width: 700, height: 600 }, sidebar: { width: 320, height: 600 } };
+    function placementOfLeaf(leaf) { return leaf.kind === 'left' || leaf.kind === 'right' ? 'sidebar' : 'tab'; }
+
     function resizeView(entry, width, height) {
-        entry.container.style.width = Math.max(200, Math.min(4000, Number(width) || 700)) + 'px';
-        entry.container.style.height = Math.max(100, Math.min(4000, Number(height) || 600)) + 'px';
+        const size = { width: Math.max(200, Math.min(4000, Number(width) || 700)), height: Math.max(100, Math.min(4000, Number(height) || 600)) };
+        lastViewSizes[placementOfLeaf(entry.leaf)] = size;
+        entry.container.style.width = size.width + 'px';
+        entry.container.style.height = size.height + 'px';
         try { entry.leaf.onResize(); } catch (error) { console.error(error); }
+        scheduleWorkspaceResize();
     }
+
+    /// Obsidian's workspace says `resize` whenever its panes change size; plugins redraw on it
+    /// (Mind Map draws its map then). Sizes that arrive together are one resize.
+    let isWorkspaceResizeScheduled = false;
+    function scheduleWorkspaceResize() {
+        if (isWorkspaceResizeScheduled || !runtime.app) return;
+        isWorkspaceResizeScheduled = true;
+        globalScope.setTimeout(() => {
+            isWorkspaceResizeScheduled = false;
+            try { runtime.app.workspace.trigger('resize'); } catch (error) { console.error(error); }
+        }, 50);
+    }
+
+    /// A new leaf waits in the page, at the size its tab or panel last had, until Graphite
+    /// shows it: plugins measure their view as it opens (Mind Map fits its map to it), and
+    /// an element outside the page measures nothing.
+    runtime.placeNewLeaf = function placeNewLeaf(leaf) {
+        const size = lastViewSizes[placementOfLeaf(leaf)];
+        const place = readingArea().createDiv({ cls: 'graphite-reading-block graphite-plugin-view' });
+        place.style.width = size.width + 'px';
+        place.style.height = size.height + 'px';
+        place.appendChild(leaf.containerEl);
+        leaf.waitingPlace = place;
+    };
 
     Object.assign(runtime.messageHandlers, {
         async 'view.attach'(message) {
