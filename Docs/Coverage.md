@@ -2,7 +2,29 @@
 
 What Graphite does today, how each part is verified, and what is still missing. `OBJECTIVE.md` describes the complete product; this file tracks progress toward it. Update it with every change that adds, removes, or re-verifies behavior.
 
-Last updated: 2026-10-12.
+Last updated: 2026-10-13.
+
+## Freezes: the owner's reports read, ink kept, a PDF that stops taking touches, evidence on the device: 2026-10-13
+
+The owner's iPad (alpha Release builds) "often freezes". The reports copied from it, symbolicated by the system (frames of Graphite's own code are named in them), all threads read:
+- 10-10 20:33 and 20:34 (0x8BADF00D, swiped away): a note's editor dismantled while it had the keyboard; the keyboard leaving laid the window out, SwiftUI made the note's next editor inside that dismantling, and handing the text view over changed the first responder inside a SwiftUI update (`NativeMarkdownEditor.Coordinator.suspend` → `viewWasMade` → `_UIHostingView._didChange(toFirstResponder:)` → `UpdateStack::update`). Fixed on 10-12 (db36718); the current code waits for the dismantled view to let go.
+- 10-12 18:50 and 18:52 (one build; 18:52 a 10-second scene-update watchdog in the foreground): SwiftUI text layout, then `Character.hashValue` under `MarkdownPreview.body` while the keyboard's accessory changed. The reading view hashed the whole note at each update. Not reproduced as a freeze: in a hosted test a 0.8 MB note read aloud in the reading view kept the main thread busy 20 % of the time with the previous code. Made cheaper (see `Architecture.md`, Responsiveness and freeze evidence).
+- 10-12 23:31 (swiped away): `PKToolPicker setVisible:forFirstResponder:` from `PDFAnnotationCoordinator.updateToolPickerVisibility` in a PDF view update, inside PencilKit's map of tool pickers. Checked that a PDF view built again six times lets go of its coordinator and palette (`MainThreadResponsivenessTests.testPDFViewsBuiltAgainLetGoOfTheirPalettes`); no loop or leak found, cause not established.
+- 10-12 20:22 to 20:52: crashes of MLX (`_mlx_error`, `raw_ptr`) in the neural voice benchmark screen, not freezes.
+- 10-13 13:43 and 13:54: no report; the app ended when an lldb attach was tried. The owner then described and filmed the 13:54 kind: the PDF takes no touch at all (no scroll, no zoom) while the rest of Graphite works, switching tabs and back revives it, and strokes drawn just before are lost.
+
+Ink: a page scrolled away and back while Graphite kept its canvas got a new canvas, restored from the page's last saved record, so strokes drawn since the last save vanished from the page and from the file at the next stroke on it. Fixed (the kept canvas goes into PDFKit's new overlay). Every canvas's unrecorded ink is now recorded at release, before every save and before the view is built again.
+
+The PDF that takes no touches was not reproduced: the simulator cannot send Apple Pencil touches. Palm rejection, which every scroll, zoom and tap of a page waits for, was driven with stand-in touches: a Pencil touch cancelled, one whose end went elsewhere, and a finger while the Pencil was down all let fingers scroll again with the previous code; a Pencil touch object left going without change, or given to a later finger, kept every finger a resting hand with the previous code, and no longer does. Whether an iPad does either is not known. `PDFPaneHealthMonitor` now notices a PDF that stops answering, writes what it saw and builds the view again.
+
+Checked (hosted, iPad simulator):
+- `PDFInkSafetyTests`: strokes survive their page scrolling away and back (fails with the previous code: 0 of 2 strokes on the page's canvas, 1 of 3 editable in the file); strokes made just before switching tabs, and before Graphite leaves the screen, are in the file; ink a canvas never reported is recorded when the view is built again; a recognizer of the PDF left under way with no touch is reset within a few seconds and recorded (`PDFRepaired-*.json`, with the recognizers and the view a touch reaches).
+- `PalmRejectionTouchTests`: the five touch sequences above; the last two fail with the previous `PencilActivity`.
+- `PDFPaneHealthTests` (macOS package tests): when finger gestures that changed nothing count.
+- `MainThreadResponsivenessTests`: a 3-second main-thread stall leaves `MainThreadStall-*.json` with the main thread asleep in the kernel and image UUIDs, then `MainThreadStallEnded-*.json`; a 0.8 MB note in the reading view costs about 10 ms of main thread per word changed (19 before); the same note read aloud for real; a PDF read aloud while written on in a 507-point window: no AttributeGraph cycle, the main thread never unanswered for 1 second; PDF views built again let go of their palettes.
+- `~/.graphite-tools/fetch-diagnostics.sh` run against the iPad, read only: it reports that `Library/Diagnostics` does not exist yet, as no build with it has run; copying another folder of the container showed the files land directly in the destination.
+
+Not established: the cause of the PDF that takes no touches on the iPad, and whether the monitor's rebuild revives it there; MetricKit payloads on the iPad (they come a day later); the watchdog's frames in a Release build; the 23:31 tool picker freeze; windowed scenes beyond what the window work tried.
 
 ## A PDF being written on, in a window of any size: 2026-10-13
 
