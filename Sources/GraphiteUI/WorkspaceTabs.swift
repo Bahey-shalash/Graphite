@@ -335,7 +335,13 @@ extension WorkspaceModel {
             case .markdown:
                 let snapshot = try await store.read(path, maximumBytes: MarkdownSession.maximumEditableBytes)
                 newMarkdown = try MarkdownSession(path: path, snapshot: snapshot, store: store) { [weak self] savedPath in self?.refreshIndex(for: [savedPath]) }
-                newMarkdown?.textDidChange = { [weak self] in self?.readAloud.documentDidChange(path.rawValue) }
+                // An edit while the note is read: reading goes on at the same sentence.
+                newMarkdown?.textDidChange = { [weak self, weak newMarkdown] in
+                    guard let self, let newMarkdown else { return }
+                    readAloud.noteTextDidChange(path: path, text: newMarkdown.text,
+                        hiddenRanges: ReadAloudFolding.hiddenRanges(in: newMarkdown.text, foldedKeys: newMarkdown.foldedKeys,
+                                                                    calloutExpansion: calloutFolds.expansion(for: path.rawValue)))
+                }
                 newMarkdown?.viewMode = preferences.initialNoteViewMode
                 if let newMarkdown { restoreFolds(of: newMarkdown); returnToRememberedPlace(of: newMarkdown); watchForRecovery(newMarkdown) }
                 newPDF = nil

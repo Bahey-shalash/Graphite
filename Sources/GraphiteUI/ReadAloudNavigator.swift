@@ -211,6 +211,10 @@ final class ReadAloudNavigator {
         let range: NSRange
         /// The word's place on the page, in page space, for its marker.
         let bounds: CGRect
+        /// The word with some of the page's text around it, and where the word starts in it,
+        /// to find the word again by text when pages move (`PDFPaneContent.located`).
+        var context = ""
+        var wordOffsetInContext = 0
 
         /// Earlier in the document: an earlier page, or earlier on the same page.
         func precedes(_ other: PenMark) -> Bool {

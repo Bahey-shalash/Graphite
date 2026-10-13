@@ -69,7 +69,7 @@ struct PDFReadAloudSource: Sendable {
         guard let segment = isEnd ? source.segments.last : source.segments.first,
               let pageRange = segment.pageRange else { throw ReadAloudError.emptyRange }
         return PDFReadAloudEndpoint(pageIndex: segment.pageIndex,
-            offset: isEnd ? NSMaxRange(pageRange) : pageRange.location, revision: pdf.changeVersion)
+            offset: isEnd ? NSMaxRange(pageRange) : pageRange.location, revision: pdf.readingTextVersion)
     }
 
     @MainActor

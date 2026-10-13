@@ -608,6 +608,13 @@ public final class ReadAloudSession {
 
     public func repeatPassage() { move(to: passageIndex) }
 
+    /// Moves to a place inside a passage (an offset in its spoken text), keeping whether it
+    /// was speaking: for continuing at the same sentence after the text around it changed.
+    public func move(to index: Int, offset: Int) {
+        guard let document, document.passages.indices.contains(index) else { return }
+        seek(to: index, offset: min(max(0, offset), (document.passages[index].text as NSString).length))
+    }
+
     private var currentSentenceStart: Int {
         let offset = spokenRange?.location ?? utteranceStartOffset
         return sentenceRanges(in: currentPassage).last(where: { $0.location <= offset })?.location ?? 0

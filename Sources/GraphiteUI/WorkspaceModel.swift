@@ -1268,7 +1268,11 @@ final class WorkspaceModel {
     /// each file it writes (the PDF, or a separate copy beside it) from `didSave`.
     func openPDFSession(at location: URL, password: String?) async throws -> PDFSession {
         let session = try await PDFSession.open(location, password: password, writer: store?.writer ?? AtomicFileWriter())
-        session.contentDidChange = { [weak self] in self?.readAloud.documentDidChange(location.path) }
+        // Ink and saves are not changes to what is read; Read Aloud looks at the pages' text.
+        session.contentDidChange = { [weak self, weak session] in
+            guard let self, let session else { return }
+            readAloud.pdfContentDidChange(session)
+        }
         session.didSave = { [weak self] savedLocation in
             guard let self, let savedPath = vaultPath(for: savedLocation) else { return }
             refreshIndex(for: [savedPath])

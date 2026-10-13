@@ -291,6 +291,10 @@ final class PDFSession {
     @ObservationIgnored var contentDidChange: (@MainActor () -> Void)?
     /// Changes when pages are inserted, deleted, or reordered; page lists redraw on it.
     private(set) var pageListVersion = 0
+    /// Changes only when the pages' text can have changed: pages inserted, deleted, moved or
+    /// turned. Ink, highlights, pictures, lasso moves, erasing and saving leave it alone, so
+    /// Read Aloud reads on while the person writes (`ReadAloudController.pdfContentDidChange`).
+    var readingTextVersion: Int { pageListVersion }
     /// Changes when bookmarks or the outline change.
     private(set) var outlineVersion = 0
     @ObservationIgnored private var cachedOutlineEntries: (version: Int, entries: [PDFOutlineEntry])?

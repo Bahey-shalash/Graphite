@@ -116,7 +116,9 @@ private struct PDFPaneContent: View {
     private var readAloudMarkers: [PDFReadAloudMarker] {
         guard let readAloudNavigator else { return [] }
         let marks = readAloudNavigator.penMarks(for: session.location.path)
-        return marks.enumerated().map { index, mark in PDFReadAloudMarker(pageIndex: mark.pageIndex, bounds: mark.bounds, isStart: index == 0) }
+        return marks.enumerated().compactMap { index, mark in
+            mark.located(in: session.document).map { located in PDFReadAloudMarker(pageIndex: located.pageIndex, bounds: located.bounds, isStart: index == 0) }
+        }
     }
 
     /// A tap of the Read Aloud pen: the first reads from the word, the second reads exactly
@@ -128,15 +130,23 @@ private struct PDFPaneContent: View {
             readAloudNavigator.clearPenMarks()
             readAloud.readPDF(session, firstPageIndex: pageIndex, lastPageIndex: session.pageCount - 1)
         case .word(let pageIndex, let range, let bounds):
-            let mark = ReadAloudNavigator.PenMark(sourceIdentifier: session.location.path, pageIndex: pageIndex, range: range, bounds: bounds)
+            var mark = ReadAloudNavigator.PenMark(sourceIdentifier: session.location.path, pageIndex: pageIndex, range: range, bounds: bounds)
+            if let pageText = session.document.page(at: pageIndex)?.string as NSString?, NSMaxRange(range) <= pageText.length {
+                let contextStart = max(0, range.location - 40)
+                let contextEnd = min(pageText.length, NSMaxRange(range) + 40)
+                mark.context = pageText.substring(with: NSRange(location: contextStart, length: contextEnd - contextStart))
+                mark.wordOffsetInContext = range.location - contextStart
+            }
             switch readAloudNavigator.penTapped(mark) {
             case .readFrom(let start):
-                readAloud.readPDFRange(session, start: PDFReadAloudEndpoint(pageIndex: start.pageIndex, offset: start.range.location, revision: session.changeVersion))
+                readAloud.readPDFRange(session, start: PDFReadAloudEndpoint(pageIndex: start.pageIndex, offset: start.range.location, revision: session.readingTextVersion))
             case .readRange(let start, let end):
                 let session = session
+                // Repeat finds both words again by their text, in case pages moved meanwhile.
                 let read = {
-                    readAloud.readPDFRange(session, start: PDFReadAloudEndpoint(pageIndex: start.pageIndex, offset: start.range.location, revision: session.changeVersion),
-                                           end: PDFReadAloudEndpoint(pageIndex: end.pageIndex, offset: NSMaxRange(end.range), revision: session.changeVersion))
+                    guard let start = start.located(in: session.document), let end = end.located(in: session.document) else { return }
+                    readAloud.readPDFRange(session, start: PDFReadAloudEndpoint(pageIndex: start.pageIndex, offset: start.range.location, revision: session.readingTextVersion),
+                                           end: PDFReadAloudEndpoint(pageIndex: end.pageIndex, offset: NSMaxRange(end.range), revision: session.readingTextVersion))
                 }
                 readAloudNavigator.readingPenRange(replay: read)
                 read()
@@ -219,7 +229,7 @@ private struct PDFPaneContent: View {
         .onChange(of: session.isWriting) { _, isWriting in if !isWriting { session.selectedPicture = nil } }
         .onChange(of: toolbox.selection) { _, _ in session.selectedPicture = nil }
         #endif
-        .onChange(of: session.changeVersion) { _, _ in readingStart = nil }
+        .onChange(of: session.readingTextVersion) { _, _ in readingStart = nil }
         .onAppear {
             // Maps the snapshot now, before an autosave can replace it, so thumbnails are
             // drawn from the file rather than from the live document.
@@ -828,5 +838,30 @@ private struct NavigationSubtitle: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+extension ReadAloudNavigator.PenMark {
+    /// This mark in the document as it is now: where it was while its page still holds the
+    /// same words there (ink and saves change nothing), otherwise found again by its text on
+    /// the pages, when pages were inserted, removed or moved. Nil when its text is gone.
+    func located(in document: PDFDocument) -> Self? {
+        guard !context.isEmpty else { return self }
+        let contextLength = (context as NSString).length
+        if let pageText = document.page(at: pageIndex)?.string as NSString? {
+            let contextStart = range.location - wordOffsetInContext
+            if contextStart >= 0, contextStart + contextLength <= pageText.length,
+               pageText.substring(with: NSRange(location: contextStart, length: contextLength)) == context { return self }
+        }
+        for candidateIndex in 0..<document.pageCount {
+            guard let page = document.page(at: candidateIndex), let pageText = page.string as NSString? else { continue }
+            let found = pageText.range(of: context, options: .literal)
+            guard found.location != NSNotFound else { continue }
+            let wordRange = NSRange(location: found.location + wordOffsetInContext, length: range.length)
+            return ReadAloudNavigator.PenMark(sourceIdentifier: sourceIdentifier, pageIndex: candidateIndex, range: wordRange,
+                                              bounds: page.selection(for: wordRange)?.bounds(for: page) ?? bounds,
+                                              context: context, wordOffsetInContext: wordOffsetInContext)
+        }
+        return nil
     }
 }

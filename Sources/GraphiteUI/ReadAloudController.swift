@@ -50,7 +50,18 @@ final class ReadAloudController {
     @ObservationIgnored private var pdfRequest: ReadAloudPDFRequest?
     private var pdfSource: PDFReadAloudSource?
     private weak var sourcePDF: PDFSession?
+    /// The PDF's `readingTextVersion` when its pages were read: ink never changes it.
     @ObservationIgnored private var sourcePDFRevision: Int?
+    /// The page being read and the last page to read, by identity, so pages inserted or
+    /// removed elsewhere only renumber them (`reanchorPDF`).
+    @ObservationIgnored private weak var readingPDFPage: PDFPage?
+    @ObservationIgnored private weak var readingPDFLastPage: PDFPage?
+    /// Where to continue once the text is prepared again: the passage's spoken text, the
+    /// offset in it, and whether it was being spoken.
+    @ObservationIgnored private var pendingPosition: (passageText: String, offset: Int, plays: Bool)?
+    @ObservationIgnored private var noteReanchoring: Task<Void, Never>?
+    /// True while an edited note is prepared again; its highlight waits for the new text.
+    private(set) var isReanchoringNote = false
     @ObservationIgnored private var preparation: Task<Void, Never>?
     @ObservationIgnored private var preparationIdentifier: UUID?
     @ObservationIgnored private var pdfContinuation: (() -> Void)?
@@ -157,11 +168,11 @@ final class ReadAloudController {
         pdfReadingOrder = readingOrder
         preferences.set(readingOrder.rawValue, forKey: "readAloudPDFReadingOrder")
         guard let pdf = sourcePDF, let request = pdfRequest, let pageIndex = sourcePageIndex else { return }
-        guard sourcePDFRevision == pdf.changeVersion else { documentDidChange(pdf.location.path); return }
+        guard sourcePDFRevision == pdf.readingTextVersion else { documentDidChange(pdf.location.path); return }
         begin(title: title, sourceIdentifier: pdf.location.path, scope: scopeDescription)
         playsCurrentPreparation = false
         sourcePDF = pdf
-        sourcePDFRevision = pdf.changeVersion
+        sourcePDFRevision = pdf.readingTextVersion
         pdfRequest = request
         loadPDFPage(pdf, pageIndex: pageIndex, lastPageIndex: request.lastPageIndex, range: request.range)
     }
@@ -173,7 +184,7 @@ final class ReadAloudController {
     func applyRecognizedPDFReview(_ corrections: [Int: String], words: ClosedRange<Int>?, pageIdentifier: UUID) {
         guard pageIdentifier == recognizedPageIdentifier, let snapshot = recognizedPDFPage,
               let pdf = sourcePDF, let request = pdfRequest, let pageIndex = sourcePageIndex else { return }
-        guard sourcePDFRevision == pdf.changeVersion else { documentDidChange(pdf.location.path); return }
+        guard sourcePDFRevision == pdf.readingTextVersion else { documentDidChange(pdf.location.path); return }
         stop()
         session.clear()
         errorMessage = nil
@@ -182,7 +193,7 @@ final class ReadAloudController {
         isPreparing = true
         preparationIdentifier = UUID()
         let identifier = preparationIdentifier
-        let revision = pdf.changeVersion
+        let revision = pdf.readingTextVersion
         preparation = Task { [weak self] in
             do {
                 let worker = Task.detached(priority: .userInitiated) { try snapshot.correctingRecognizedWords(corrections) }
@@ -208,7 +219,8 @@ final class ReadAloudController {
             failed(GraphiteError.unavailable("Page reading for encrypted PDFs is not available yet. Select text in the unlocked PDF and choose Read Selection."), identifier: preparationIdentifier); return
         }
         sourcePDF = pdf
-        sourcePDFRevision = pdf.changeVersion
+        sourcePDFRevision = pdf.readingTextVersion
+        readingPDFLastPage = pdf.document.page(at: lastPageIndex)
         pdfRequest = ReadAloudPDFRequest(lastPageIndex: lastPageIndex, range: nil)
         loadPDFPage(pdf, pageIndex: firstPageIndex, lastPageIndex: lastPageIndex)
     }
@@ -225,8 +237,8 @@ final class ReadAloudController {
             source = try PDFReadAloudSource.selection(selection, in: pdf.document)
         } catch { failed(error, identifier: preparationIdentifier); return }
         sourcePDF = pdf
-        sourcePDFRevision = pdf.changeVersion
-        let revision = pdf.changeVersion
+        sourcePDFRevision = pdf.readingTextVersion
+        let revision = pdf.readingTextVersion
         let identifier = preparationIdentifier
         preparation = Task { [weak self] in
             do {
@@ -236,7 +248,7 @@ final class ReadAloudController {
                 }
                 let document = try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
                 guard let self, identifier == self.preparationIdentifier, !Task.isCancelled else { return }
-                guard revision == pdf.changeVersion else { self.documentDidChange(pdf.location.path); return }
+                guard revision == pdf.readingTextVersion else { self.documentDidChange(pdf.location.path); return }
                 self.pdfSource = source
                 self.finishPreparing(document)
             } catch { self?.failed(error, identifier: identifier) }
@@ -252,7 +264,7 @@ final class ReadAloudController {
         guard !pdf.document.isEncrypted else {
             failed(GraphiteError.unavailable("Choose Read Selection for an unlocked encrypted PDF. Page-range extraction is unavailable."), identifier: preparationIdentifier); return
         }
-        guard start.revision == pdf.changeVersion, end == nil || end?.revision == pdf.changeVersion else {
+        guard start.revision == pdf.readingTextVersion, end == nil || end?.revision == pdf.readingTextVersion else {
             failed(GraphiteError.unavailable("The PDF changed. Choose the reading start and end again."), identifier: preparationIdentifier); return
         }
         let lastPageIndex = end?.pageIndex ?? pdf.pageCount - 1
@@ -266,7 +278,8 @@ final class ReadAloudController {
             failed(ReadAloudError.emptyRange, identifier: preparationIdentifier); return
         }
         sourcePDF = pdf
-        sourcePDFRevision = pdf.changeVersion
+        sourcePDFRevision = pdf.readingTextVersion
+        readingPDFLastPage = pdf.document.page(at: lastPageIndex)
         let range = PDFReadAloudRange(start: start, end: end)
         pdfRequest = ReadAloudPDFRequest(lastPageIndex: lastPageIndex, range: range)
         loadPDFPage(pdf, pageIndex: start.pageIndex, lastPageIndex: lastPageIndex, range: range)
@@ -278,6 +291,97 @@ final class ReadAloudController {
             begin(title: pdf.location.deletingPathExtension().lastPathComponent, sourceIdentifier: pdf.location.path, scope: "From selected word")
             failed(error, identifier: preparationIdentifier)
         }
+    }
+
+    // MARK: Changes while reading
+
+    /// The PDF being read changed. Ink, highlights, pictures, erasing and saves change
+    /// nothing that is read and are ignored; only pages inserted, removed, moved or turned
+    /// (`PDFSession.readingTextVersion`) make reading find its page again.
+    func pdfContentDidChange(_ pdf: PDFSession) {
+        guard sourcePDF === pdf, sourceIdentifier == pdf.location.path, sourcePDFRevision != pdf.readingTextVersion else { return }
+        reanchorPDF(pdf)
+    }
+
+    /// Finds the page being read again by identity, with its new number, and reads on from
+    /// the same passage and word. Its text is compared too: a page whose words changed is
+    /// read again from the passage that still matches.
+    private func reanchorPDF(_ pdf: PDFSession) {
+        guard sourcePDF === pdf, let request = pdfRequest else { documentDidChange(pdf.location.path); return }
+        guard let page = readingPDFPage, case let pageIndex = pdf.document.index(for: page), pageIndex != NSNotFound,
+              let oldPageIndex = sourcePageIndex else {
+            pauseForChange("The page being read was removed from the PDF. Choose where to continue.")
+            return
+        }
+        let lastPageIndex = readingPDFLastPage.map { pdf.document.index(for: $0) }.flatMap { index in index == NSNotFound ? nil : index }
+            ?? min(max(pageIndex, request.lastPageIndex + pageIndex - oldPageIndex), pdf.pageCount - 1)
+        let version = pdf.readingTextVersion
+        let shift = pageIndex - oldPageIndex
+        let range = request.range.map { range in
+            PDFReadAloudRange(start: PDFReadAloudEndpoint(pageIndex: range.start.pageIndex + shift, offset: range.start.offset, revision: version),
+                              end: range.end.map { end in PDFReadAloudEndpoint(pageIndex: lastPageIndex, offset: end.offset, revision: version) })
+        }
+        let wasSpeaking = session.state == .speaking
+        if let passage = session.currentPassage {
+            pendingPosition = (passage.text, session.spokenRange?.location ?? 0, wasSpeaking)
+        }
+        stop()
+        preparationIdentifier = UUID()
+        sourcePDFRevision = version
+        pdfRequest = ReadAloudPDFRequest(lastPageIndex: lastPageIndex, range: range)
+        loadPDFPage(pdf, pageIndex: pageIndex, lastPageIndex: lastPageIndex, range: range, playsWhenReady: wasSpeaking)
+    }
+
+    /// Reading cannot go on where it was: it pauses, keeps what was read, and says why.
+    private func pauseForChange(_ message: String) {
+        session.pause()
+        pdfContinuation = nil
+        errorMessage = message
+    }
+
+    /// A note being read was edited. Once typing pauses, the note is prepared again and
+    /// reading goes on at the same sentence, found again by its text; only when that
+    /// sentence is gone does reading pause and say so.
+    func noteTextDidChange(path: VaultPath, text: String, hiddenRanges: [NSRange]) {
+        guard let request = markdownRequest, request.path == path, request.sourceText != text,
+              session.document != nil || isPreparing else { return }
+        isReanchoringNote = true
+        noteReanchoring?.cancel()
+        noteReanchoring = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard let self, !Task.isCancelled else { return }
+            await self.reanchorNote(path: path, text: text, hiddenRanges: hiddenRanges)
+        }
+    }
+
+    private func reanchorNote(path: VaultPath, text: String, hiddenRanges: [NSRange]) async {
+        guard let request = markdownRequest, request.path == path else { isReanchoringNote = false; return }
+        let wasSpeaking = session.state == .speaking
+        // The sentence being read, as written in the note before the edit.
+        let anchor = session.currentPassage.flatMap { passage in
+            ReadAloudReanchoring.anchor(in: request.sourceText, passage: passage, spokenOffset: session.spokenRange?.location ?? 0)
+        }
+        guard let newLocation = anchor.flatMap({ anchor in ReadAloudReanchoring.location(of: anchor, in: text) }) else {
+            isReanchoringNote = false
+            markdownRequest = nil
+            pauseForChange("The sentence being read was changed or removed. Choose where to continue.")
+            return
+        }
+        let selectedRange = request.selectedRange.flatMap { range in
+            ReadAloudReanchoring.range(of: (request.sourceText as NSString).substring(with: range), near: range.location, in: text)
+        }
+        guard let document = try? await markdownPreparation.prepare(text, selectedRange: selectedRange, paletteHexByName: request.paletteHexByName,
+                                                                    mathematicalStyle: mathematicalStyle, vaultRoot: vaultRoot,
+                                                                    hiddenRanges: hiddenRanges),
+              markdownRequest?.path == path, !Task.isCancelled else { isReanchoringNote = false; return }
+        markdownRequest = ReadAloudMarkdownRequest(sourceText: text, path: path, selectedRange: selectedRange,
+                                                  scopeDescription: request.scopeDescription, paletteHexByName: request.paletteHexByName,
+                                                  hiddenRanges: hiddenRanges)
+        let position = ReadAloudReanchoring.position(of: newLocation, in: document)
+        session.load(document)
+        session.move(to: position.passageIndex, offset: position.offset)
+        isReanchoringNote = false
+        if wasSpeaking { session.play() }
     }
 
     func documentDidChange(_ identifier: String) {
@@ -308,6 +412,11 @@ final class ReadAloudController {
         pdfRequest = nil
         sourcePDF = nil
         sourcePDFRevision = nil
+        readingPDFPage = nil
+        readingPDFLastPage = nil
+        pendingPosition = nil
+        noteReanchoring?.cancel()
+        isReanchoringNote = false
         pdfSource = nil
         recognizedPDFPage = nil
         recognizedPageIdentifier = nil
@@ -328,13 +437,13 @@ final class ReadAloudController {
     }
 
     func highlight(in path: VaultPath) -> NSRange? {
-        guard sourceIdentifier == path.rawValue, session.state == .speaking || session.state == .paused else { return nil }
+        guard sourceIdentifier == path.rawValue, !isReanchoringNote, session.state == .speaking || session.state == .paused else { return nil }
         return session.sourceRange
     }
 
     func highlights(in pdf: PDFSession) -> [PDFReadAloudHighlight] {
         guard sourcePDF === pdf, session.state == .speaking || session.state == .paused,
-              sourcePDFRevision == pdf.changeVersion,
+              sourcePDFRevision == pdf.readingTextVersion,
               let range = session.sourceRange else { return [] }
         if let view = pdf.pdfView, view.document !== pdf.document { return [] }
         return pdfSource?.highlights(for: range) ?? []
@@ -471,6 +580,11 @@ final class ReadAloudController {
         sourcePageIndex = nil
         sourcePDF = nil
         sourcePDFRevision = nil
+        readingPDFPage = nil
+        readingPDFLastPage = nil
+        pendingPosition = nil
+        noteReanchoring?.cancel()
+        isReanchoringNote = false
         pdfSource = nil
         sourceHighlightNotice = nil
         recognizedPDFPage = nil
@@ -488,9 +602,9 @@ final class ReadAloudController {
 
     private func loadPDFPage(_ pdf: PDFSession, pageIndex: Int, lastPageIndex: Int,
                              range: PDFReadAloudRange? = nil, playsWhenReady: Bool = false) {
-        guard sourcePDFRevision == pdf.changeVersion else { documentDidChange(pdf.location.path); return }
+        guard sourcePDFRevision == pdf.readingTextVersion else { reanchorPDF(pdf); return }
         let identifier = preparationIdentifier
-        let revision = pdf.changeVersion
+        let revision = pdf.readingTextVersion
         let readingOrder = pdfReadingOrder
         isPreparing = true
         pdfSource = nil
@@ -538,8 +652,9 @@ final class ReadAloudController {
         }
         let document = try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
         guard identifier == preparationIdentifier, !Task.isCancelled else { return }
-        guard revision == pdf.changeVersion else { documentDidChange(pdf.location.path); return }
+        guard revision == pdf.readingTextVersion else { reanchorPDF(pdf); return }
         guard let page = pdf.document.page(at: pageIndex), !document.passages.isEmpty else { throw ReadAloudError.noReadableText }
+        readingPDFPage = page
         for text in document.runningText where !pdfRunningText.contains(text) { pdfRunningText = Array((pdfRunningText + [text]).suffix(8)) }
         let hasSafeCoordinates: Bool
         var alignedSource: PDFReadAloudSource?
@@ -579,8 +694,16 @@ final class ReadAloudController {
         preparation = nil
         session.load(document)
         neuralSpeech?.setLanguage(session.readingLanguage)
-        let plays = playsCurrentPreparation && !needsReview
+        var plays = playsCurrentPreparation && !needsReview
         playsCurrentPreparation = false
+        // Prepared again after its pages moved: on at the same passage and word.
+        if let position = pendingPosition {
+            pendingPosition = nil
+            if let index = document.passages.firstIndex(where: { passage in passage.text == position.passageText }) {
+                session.move(to: index, offset: position.offset)
+            }
+            plays = position.plays && !needsReview
+        }
         if plays { session.play() }
         if needsReview || session.message != nil { showsReader = true }
     }

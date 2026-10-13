@@ -102,7 +102,7 @@ struct ReadAloudFloatingPlayer: View {
             statusText("Tap where the passage starts", systemImage: "text.line.first.and.arrowtriangle.forward")
         } else if case .awaitingEnd = navigator.rangeSelection {
             statusText("Tap where the passage ends", systemImage: "text.line.last.and.arrowtriangle.forward")
-        } else if let error = reader.errorMessage, reader.session.document == nil, !reader.isPreparing {
+        } else if let error = reader.errorMessage, !reader.isPreparing {
             statusText(error, systemImage: "exclamationmark.triangle")
         } else if hasScrolledAway {
             if showsTapHint {
