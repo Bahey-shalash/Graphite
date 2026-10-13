@@ -273,7 +273,7 @@ private struct FollowingProbe: View {
                         configuration: ReadingConfiguration(mapsReadAloudSourceLocations: true),
                         headingScrollRequest: .constant(nil), handledScrollToken: .constant(nil),
                         navigate: { _, _ in }, openPDF: { _, _ in }, updateProperties: nil,
-                        savedPosition: position, readAloudRange: state.range, followsReading: state.followsReading)
+                        savedPosition: position, readingWord: ReadingWordSource { state.range }, followsReading: state.followsReading)
             .onPreferenceChange(ReadingHighlightGeometryKey.self) { frames in
                 MainActor.assumeIsolated { state.frames = frames }
             }
