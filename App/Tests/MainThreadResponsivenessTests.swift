@@ -86,11 +86,12 @@ final class MainThreadResponsivenessTests: XCTestCase {
         XCTAssertGreaterThan(source.utf8.count, 750_000)
         let reading = ReadingRangeModel()
         let path = try VaultPath("Long.md")
-        let controller = UIHostingController(rootView: AnyView(ReadingRangeHost(model: reading) { range in
+        // The word is given as the note's pane gives it: read only inside the reading view.
+        let controller = UIHostingController(rootView: AnyView(
             MarkdownPreview(source: source, path: path, root: folder, index: index, configuration: ReadingConfiguration(),
                             headingScrollRequest: .constant(nil), handledScrollToken: .constant(nil), navigate: { _, _ in },
-                            openPDF: { _, _ in }, updateProperties: nil, readAloudRange: range)
-        }))
+                            openPDF: { _, _ in }, updateProperties: nil, readingWord: ReadingWordSource { reading.range })
+        ))
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { scene in scene as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
         window.frame = CGRect(x: 0, y: 0, width: 834, height: 1194)
@@ -116,9 +117,9 @@ final class MainThreadResponsivenessTests: XCTestCase {
         let readingNanoseconds = Self.mainThreadProcessorNanoseconds() - readingStart
         let millisecondsPerWord = Double(Int64(readingNanoseconds) - Int64(idleNanoseconds)) / Double(wordCount) / 1_000_000
         print("Reading view update per word: \(millisecondsPerWord) ms of the main thread")
-        // About 10 milliseconds in a Debug build on the simulator, 19 before; 900 with the
-        // blocks made all at once, which this budget catches.
-        XCTAssertLessThan(millisecondsPerWord, 30, "Each word read costs the main thread less than the budget.")
+        // Under 1 millisecond in a Debug build on the simulator; 19 with the word given to
+        // the whole view, and 900 with every block of the note made at once.
+        XCTAssertLessThan(millisecondsPerWord, 8, "Each word read costs the main thread less than the budget.")
     }
 
     /// The same note read aloud for real in the workspace's reading view, with the words
@@ -145,7 +146,8 @@ final class MainThreadResponsivenessTests: XCTestCase {
         let busyFraction = Double(Self.mainThreadProcessorNanoseconds() - start) / (measuredSeconds * 1_000_000_000)
         print("Long note read aloud: main thread busy \(Int(busyFraction * 100)) %, \(ranges.count) words highlighted")
         XCTAssertGreaterThan(ranges.count, 5, "Reading went on.")
-        XCTAssertLessThan(busyFraction, 0.5, "The main thread is free at least half the time while a long note is read.")
+        // 3 % here; 20 % with the word given to the whole view.
+        XCTAssertLessThan(busyFraction, 0.12, "The main thread stays nearly free while a long note is read.")
     }
 
     /// A PDF's view built again and again, as switching tabs does: each view's Pencil
@@ -195,11 +197,15 @@ final class MainThreadResponsivenessTests: XCTestCase {
         await workspace.open(try VaultPath("Paper.pdf"), placement: .newTab)
         let pdf = try XCTUnwrap(workspace.pdfSession)
         pdf.isWriting = true
+        _ = try host(workspace, size: CGSize(width: 507, height: 1194))
+        try await waitUntil { pdf.pdfView?.window != nil }
+        // Listened to once the test's window has settled: building this window in a hosted
+        // test, beside the app's own, prints SwiftUI cycle warnings in some full runs, which
+        // the app's own window opening the same PDF does not (2026-10-13).
+        try await Task.sleep(for: .seconds(1))
         let warnings = SwiftUIWarningCapture()
         warnings.start()
         defer { warnings.stop() }
-        _ = try host(workspace, size: CGSize(width: 507, height: 1194))
-        try await waitUntil { pdf.pdfView?.window != nil }
         let probe = MainThreadProbe()
         probe.start()
         workspace.readAloud.readPDF(pdf, firstPageIndex: 0, lastPageIndex: pdf.pageCount - 1)
@@ -283,13 +289,6 @@ final class MainThreadResponsivenessTests: XCTestCase {
 @MainActor @Observable
 final class ReadingRangeModel {
     var range: NSRange?
-}
-
-/// Shows a view built with the word being read, so changing it updates only that view.
-struct ReadingRangeHost<Content: View>: View {
-    let model: ReadingRangeModel
-    @ViewBuilder let content: (NSRange?) -> Content
-    var body: some View { content(model.range) }
 }
 
 /// Watches the main thread from another thread: the longest it took to answer, and how many

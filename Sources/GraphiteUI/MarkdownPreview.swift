@@ -743,12 +743,6 @@ private struct ReadingViewport: Equatable {
     var height: CGFloat = 0
 }
 
-private struct ReadingFollowRequest: Hashable {
-    let range: NSRange?
-    let followsReading: Bool
-    let blockCount: Int
-    let mappingCount: Int
-}
 
 struct MarkdownPreview: View {
     let source: String
@@ -778,7 +772,9 @@ struct MarkdownPreview: View {
     /// Ticks or unticks a task of this note, or of a note it embeds; nil draws checkboxes
     /// as pictures. False when the note no longer has the task at that place.
     var toggleTask: (@MainActor (VaultPath, ReadingTasks.Location) async -> Bool)? = nil
-    var readAloudRange: NSRange? = nil
+    /// Where the word read aloud is. Only a small view inside reads it, so a new word changes
+    /// the texts it leaves and enters and nothing else (`ReadingWordTracker`).
+    var readingWord: ReadingWordSource? = nil
     var followsReading = false
     var suspendReadingFollow: (() -> Void)? = nil
     @State private var scrollPosition = ScrollPosition(y: 0)
@@ -794,8 +790,9 @@ struct MarkdownPreview: View {
     @State private var offsetBeforeRestoring: CGFloat?
     @State private var blocks: [RenderedBlock] = []
     @State private var readingSourceTokensByBlock: [String: [ReadAloudSourceToken]] = [:]
-    @State private var readingHighlightFrames: [ReadingHighlightGeometry] = []
-    @State private var readingViewport = ReadingViewport(verticalOffset: 0, maximumVerticalOffset: 0, topInset: 0)
+    /// The word read, where it is drawn and where the view is scrolled, for following the
+    /// word; kept out of the view's state, which each would otherwise update at every word.
+    @State private var readingFollow = ReadingFollowState()
     @State private var errorMessage: String?
     /// Whether the last build had embeds it could not find, which may appear once indexed.
     @State private var hasMissingEmbeds = false
@@ -805,6 +802,8 @@ struct MarkdownPreview: View {
     @State private var blocksVersion = 0
     /// What the blocks do when tapped, in one object that stays (`ReadingNoteBlocks`).
     @State private var blockActions = ReadingBlockActions()
+    /// The word read, one cell per text, so a word changes only the texts it leaves and enters.
+    @State private var wordCells = ReadingWordCells()
     @State private var mediaPlayers = ReadingMediaPlayers()
     /// Counts the tasks ticked in embedded notes. Their text is read from their files, so
     /// the note is built again although its own text is the same.
@@ -843,7 +842,7 @@ struct MarkdownPreview: View {
                                 maximumVerticalOffset: max(0, geometry.contentSize.height + geometry.contentInsets.top + geometry.contentInsets.bottom - geometry.containerSize.height),
                                 topInset: geometry.contentInsets.top, height: geometry.containerSize.height)
             } action: { _, viewport in
-                readingViewport = viewport
+                readingFollow.viewport = viewport
                 savedPosition?.visibleTop = viewport.topInset
                 // Until a saved position is restored, the view's first offsets must not
                 // replace it. With nothing saved, they are kept aside, and recorded once the
@@ -871,32 +870,25 @@ struct MarkdownPreview: View {
             }
             .onPreferenceChange(ReadingHighlightGeometryKey.self) { frames in
                 MainActor.assumeIsolated {
-                    readingHighlightFrames = frames
+                    readingFollow.highlightFrames = frames
                     followReadingWordIfNeeded()
                 }
             }
-            .onChange(of: followsReading) { _, _ in followReadingWordIfNeeded() }
-            .task(id: ReadingFollowRequest(range: readAloudRange, followsReading: followsReading,
-                                          blockCount: blocks.count, mappingCount: readingSourceTokensByBlock.count)) {
-                guard followsReading, let range = readAloudRange else { return }
-                revealFoldedReadingSection(containing: range)
-                await Task.yield()
-                guard !Task.isCancelled, !readingHighlightFrames.contains(where: { frame in frame.sourceRange == range }),
-                      let (identifier, _) = savedPosition?.block(containing: range.location),
-                      savedPosition?.frame(ofBlock: identifier) == nil else { return }
-                // Lazy stacks revise estimated heights as distant blocks appear.
-                // Reconcile a bounded number of layouts instead of assuming the
-                // first estimated destination reveals the actual word.
-                for _ in 0..<3 {
-                    guard !Task.isCancelled, followsReading, readAloudRange == range else { return }
-                    scrollProxy.scrollTo(identifier, anchor: .center)
-                    try? await Task.sleep(for: .milliseconds(80))
-                    if readingHighlightFrames.contains(where: { frame in frame.sourceRange == range }) { return }
+            .onChange(of: followsReading) { _, _ in
+                wordDidMove(to: readingFollow.range)
+                followReadingWordIfNeeded()
+            }
+            .background {
+                if let readingWord {
+                    ReadingWordTracker(source: readingWord) { range in
+                        readingFollow.scrollProxy = scrollProxy
+                        wordDidMove(to: range)
+                    }
                 }
             }
             .environment(\.baseEmbedContext, baseContext)
             .environment(\.readingSourceTokensByBlock, readingSourceTokensByBlock)
-            .environment(\.readingActiveSourceRange, readAloudRange)
+            .environment(\.readingWordCells, wordCells)
             .environment(\.readingFollowsSource, followsReading)
             .environment(\.readingMediaPlayers, mediaPlayers)
             .environment(\.readingTaskContext, toggleTask.map { toggleTask in
@@ -975,9 +967,36 @@ struct MarkdownPreview: View {
         scrollPosition.scrollTo(y: savedPosition.verticalOffset + (frame.minY - savedPosition.visibleTop) + fractionDown * frame.height)
     }
 
+    /// The word read moved: its text shows it, and the view follows it when it follows reading.
+    private func wordDidMove(to range: NSRange?) {
+        readingFollow.range = range
+        wordCells.show(range)
+        readingFollow.followTask?.cancel()
+        guard followsReading, let range else { return }
+        revealFoldedReadingSection(containing: range)
+        let readingFollow = readingFollow
+        let savedPosition = savedPosition
+        readingFollow.followTask = Task { @MainActor in
+            await Task.yield()
+            guard !Task.isCancelled, !readingFollow.highlightFrames.contains(where: { frame in frame.sourceRange == range }),
+                  let (identifier, _) = savedPosition?.block(containing: range.location),
+                  savedPosition?.frame(ofBlock: identifier) == nil else { return }
+            // Lazy stacks revise estimated heights as distant blocks appear.
+            // Reconcile a bounded number of layouts instead of assuming the
+            // first estimated destination reveals the actual word.
+            for _ in 0..<3 {
+                guard !Task.isCancelled, readingFollow.range == range else { return }
+                readingFollow.scrollProxy?.scrollTo(identifier, anchor: .center)
+                try? await Task.sleep(for: .milliseconds(80))
+                if readingFollow.highlightFrames.contains(where: { frame in frame.sourceRange == range }) { return }
+            }
+        }
+    }
+
     private func followReadingWordIfNeeded() {
-        guard followsReading, let range = readAloudRange, readingViewport.height > 80 else { return }
-        let frame = readingHighlightFrames.filter { geometry in geometry.sourceRange == range }
+        let readingViewport = readingFollow.viewport
+        guard followsReading, let range = readingFollow.range, readingViewport.height > 80 else { return }
+        let frame = readingFollow.highlightFrames.filter { geometry in geometry.sourceRange == range }
             .reduce(CGRect.null) { union, geometry in union.union(geometry.frame) }
         guard !frame.isNull, !frame.isEmpty,
               frame.minY < readingViewport.topInset + 40 || frame.maxY > readingViewport.height - 120 else { return }
@@ -1010,6 +1029,8 @@ struct MarkdownPreview: View {
     private func show(_ build: ReadingBlocksCache.Build) {
         savedPosition?.blockLocations = build.blockLocations
         readingSourceTokensByBlock = build.readingSourceTokensByBlock
+        wordCells.index(build.readingSourceTokensByBlock)
+        wordDidMove(to: readingFollow.range)
         blocks = build.blocks; errorMessage = nil
         blocksVersion += 1
         hasMissingEmbeds = build.hasMissingEmbeds
@@ -1031,6 +1052,121 @@ struct MarkdownPreview: View {
             buildsWithoutDelay = true
         }
         return didToggle
+    }
+}
+
+/// Where the word read aloud is, as a function the reading view calls only from a small view
+/// of its own (`ReadingWordTracker`): reading it in the view's body would update the whole
+/// view, and the pane around it, at every word.
+struct ReadingWordSource {
+    let range: @MainActor () -> NSRange?
+}
+
+/// Reads the word read aloud and reports it when it moves. It is the only view that reads
+/// it, so it is the only view SwiftUI updates for a new word.
+private struct ReadingWordTracker: View {
+    let source: ReadingWordSource
+    let wordDidMove: (NSRange?) -> Void
+
+    var body: some View {
+        let range = source.range()
+        Color.clear
+            .onChange(of: range, initial: true) { _, newRange in wordDidMove(newRange) }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+/// The reading view's word read and what following it needs, kept out of the view's state.
+@MainActor
+fileprivate final class ReadingFollowState {
+    var range: NSRange?
+    var highlightFrames: [ReadingHighlightGeometry] = []
+    var viewport = ReadingViewport(verticalOffset: 0, maximumVerticalOffset: 0, topInset: 0)
+    var scrollProxy: ScrollViewProxy?
+    var followTask: Task<Void, Never>?
+}
+
+/// The word read aloud for one text of the reading view. Only the text whose cell it is
+/// reads it, so a new word updates the text it leaves and the one it enters, not every text.
+@MainActor @Observable
+final class ReadingWordCell {
+    var range: NSRange?
+}
+
+/// The cells of the word read, one per text of the note, found by the text's first word.
+/// Moving to the next word looks the text up by binary search over where the texts start;
+/// nothing goes over the note.
+@MainActor
+final class ReadingWordCells {
+    private struct TextSpan {
+        let firstLocation: Int
+        let end: Int
+        let tokens: [ReadAloudSourceToken]
+    }
+
+    private var cells: [Int: ReadingWordCell] = [:]
+    /// The word read wherever it is, for the few views that look at every word, as a
+    /// callout opening for the word inside it.
+    let current = ReadingWordCell()
+    /// Each text with words, by where its first word starts.
+    private var spans: [TextSpan] = []
+    private var shownFirstLocation: Int?
+
+    /// The cell of the text whose words these are; nil for a text without words.
+    func cell(forTextWith tokens: [ReadAloudSourceToken]) -> ReadingWordCell? {
+        guard let firstLocation = tokens.first?.sourceRange.location else { return nil }
+        if let cell = cells[firstLocation] { return cell }
+        let cell = ReadingWordCell()
+        cells[firstLocation] = cell
+        return cell
+    }
+
+    /// Takes the texts of a new build of the note.
+    func index(_ tokensByBlock: [String: [ReadAloudSourceToken]]) {
+        spans = tokensByBlock.values.compactMap { tokens in
+            guard let first = tokens.first else { return nil }
+            return TextSpan(firstLocation: first.sourceRange.location, end: tokens.map { token in NSMaxRange(token.sourceRange) }.max() ?? 0, tokens: tokens)
+        }.sorted { leftSpan, rightSpan in leftSpan.firstLocation < rightSpan.firstLocation }
+        for (firstLocation, cell) in cells where !spans.contains(where: { span in span.firstLocation == firstLocation }) {
+            cell.range = nil
+        }
+        shownFirstLocation = nil
+    }
+
+    /// Shows the word read in the text that holds it, and in no other.
+    func show(_ range: NSRange?) {
+        if current.range != range { current.range = range }
+        let firstLocation = range.flatMap(textFirstLocation(holding:))
+        if let shownFirstLocation, shownFirstLocation != firstLocation { cells[shownFirstLocation]?.range = nil }
+        shownFirstLocation = firstLocation
+        guard let firstLocation else { return }
+        let cell = cells[firstLocation] ?? cellCreated(at: firstLocation)
+        if cell.range != range { cell.range = range }
+    }
+
+    private func cellCreated(at firstLocation: Int) -> ReadingWordCell {
+        let cell = ReadingWordCell()
+        cells[firstLocation] = cell
+        return cell
+    }
+
+    /// The text whose words include the range: the last text starting at or before it, or one
+    /// of the few before that when texts nest, as a callout's title and its body do.
+    private func textFirstLocation(holding range: NSRange) -> Int? {
+        var lowerIndex = 0
+        var upperIndex = spans.count
+        while lowerIndex < upperIndex {
+            let middleIndex = (lowerIndex + upperIndex) / 2
+            if spans[middleIndex].firstLocation <= range.location { lowerIndex = middleIndex + 1 } else { upperIndex = middleIndex }
+        }
+        let nearestNestingCount = 4
+        for spanIndex in stride(from: lowerIndex - 1, through: max(0, lowerIndex - nearestNestingCount), by: -1) {
+            let span = spans[spanIndex]
+            guard range.location < span.end else { continue }
+            if span.tokens.contains(where: { token in NSIntersectionRange(token.sourceRange, range).length > 0 }) { return span.firstLocation }
+        }
+        return nil
     }
 }
 
@@ -1381,8 +1517,10 @@ private struct ReadingCallout<Content: View>: View {
     let blocksInside: [RenderedBlock]
     let content: () -> Content
     @Environment(\.readingSourceTokensByBlock) private var readingSourceTokensByBlock
-    @Environment(\.readingActiveSourceRange) private var readingActiveSourceRange
+    @Environment(\.readingWordCells) private var readingWordCells
     @Environment(\.readingFollowsSource) private var readingFollowsSource
+    /// The word read: the reading view's current word.
+    private var readingActiveSourceRange: NSRange? { readingWordCells?.current.range }
 
     init(type: String, title: String, folding: CalloutFolding, root: URL, textSize: Double, navigate: @escaping (String, Bool) -> Void,
          scrollToHeading: @escaping (String) -> Void, sourceTokens: [ReadAloudSourceToken]?, blocksInside: [RenderedBlock],
@@ -1443,19 +1581,18 @@ struct ObsidianMarkdownText: View {
     let navigate: (String, Bool) -> Void
     let scrollToHeading: (String) -> Void
     var sourceTokens: [ReadAloudSourceToken]? = nil
-    @Environment(\.readingActiveSourceRange) private var readingActiveSourceRange
+    /// The reading view's cells of the word read, one per text; nil elsewhere, as in Live
+    /// Preview's rendered blocks, which pass the word in the environment.
+    @Environment(\.readingWordCells) private var readingWordCells
 
     var body: some View {
-        ObsidianMarkdownTextContent(markdown: markdown, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading,
-                                    sourceTokens: sourceTokens, activeRange: activeRangeInText)
-            .equatable()
-    }
-
-    /// The word being read, when one of this text's words is it.
-    private var activeRangeInText: NSRange? {
-        guard let range = readingActiveSourceRange, let sourceTokens,
-              sourceTokens.contains(where: { token in NSIntersectionRange(token.sourceRange, range).length > 0 }) else { return nil }
-        return range
+        if let readingWordCells {
+            WordCellText(markdown: markdown, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading,
+                         sourceTokens: sourceTokens, cell: sourceTokens.flatMap { tokens in readingWordCells.cell(forTextWith: tokens) })
+        } else {
+            WordEnvironmentText(markdown: markdown, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading,
+                                sourceTokens: sourceTokens)
+        }
     }
 
     /// Graphite's line spacing in reading view without a theme: Textual's own.
@@ -1496,6 +1633,47 @@ struct ObsidianMarkdownText: View {
             }
             return .systemAction
         }
+    }
+}
+
+/// A text of the reading view: it hears the word read only through its own cell, which
+/// changes only when the word enters or leaves this text.
+private struct WordCellText: View {
+    let markdown: String
+    let root: URL
+    let textSize: Double
+    let navigate: (String, Bool) -> Void
+    let scrollToHeading: (String) -> Void
+    let sourceTokens: [ReadAloudSourceToken]?
+    let cell: ReadingWordCell?
+
+    var body: some View {
+        ObsidianMarkdownTextContent(markdown: markdown, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading,
+                                    sourceTokens: sourceTokens, activeRange: cell?.range)
+            .equatable()
+    }
+}
+
+/// A text that finds the word read in the environment, as Live Preview's rendered blocks give it.
+private struct WordEnvironmentText: View {
+    let markdown: String
+    let root: URL
+    let textSize: Double
+    let navigate: (String, Bool) -> Void
+    let scrollToHeading: (String) -> Void
+    let sourceTokens: [ReadAloudSourceToken]?
+    @Environment(\.readingActiveSourceRange) private var readingActiveSourceRange
+
+    var body: some View {
+        ObsidianMarkdownTextContent(markdown: markdown, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading,
+                                    sourceTokens: sourceTokens, activeRange: activeRangeInText)
+            .equatable()
+    }
+
+    private var activeRangeInText: NSRange? {
+        guard let range = readingActiveSourceRange, let sourceTokens,
+              sourceTokens.contains(where: { token in NSIntersectionRange(token.sourceRange, range).length > 0 }) else { return nil }
+        return range
     }
 }
 

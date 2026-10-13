@@ -71,7 +71,7 @@ struct MarkdownPane: View {
                                 blocksCache: session.readingBlocksCache, savedPosition: session.readingPosition,
                                 takeStartingLocation: { [session] in session.takeReadingStartLocation() },
                                 toggleTask: { [session] note, location in await workspace.toggleReadingTask(at: location, in: note, shownBy: session) },
-                                readAloudRange: workspace.readAloud.highlight(in: session.path),
+                                readingWord: ReadingWordSource { [readAloud = workspace.readAloud, path = session.path] in readAloud.highlight(in: path) },
                                 followsReading: workspace.readAloud.shouldFollow(session.path),
                                 suspendReadingFollow: { workspace.readAloud.suspendFollowing(in: session.path.rawValue) })
                 .environment(\.readingImageActions, ReadingImageActions(providerIdentity: ObjectIdentifier(workspace),
