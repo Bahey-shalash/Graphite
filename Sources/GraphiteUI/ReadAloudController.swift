@@ -306,7 +306,9 @@ final class ReadAloudController {
     /// Finds the page being read again by identity, with its new number, and reads on from
     /// the same passage and word. Its text is compared too: a page whose words changed is
     /// read again from the passage that still matches.
-    private func reanchorPDF(_ pdf: PDFSession) {
+    /// `continuingTo` is the page that was about to be read next (its number before the
+    /// change); reading then starts at the top of that page instead of returning to the word.
+    private func reanchorPDF(_ pdf: PDFSession, continuingTo nextPageIndex: Int? = nil, playsWhenReady: Bool = false) {
         guard sourcePDF === pdf, let request = pdfRequest else { documentDidChange(pdf.location.path); return }
         guard let page = readingPDFPage, case let pageIndex = pdf.document.index(for: page), pageIndex != NSNotFound,
               let oldPageIndex = sourcePageIndex else {
@@ -322,14 +324,20 @@ final class ReadAloudController {
                               end: range.end.map { end in PDFReadAloudEndpoint(pageIndex: lastPageIndex, offset: end.offset, revision: version) })
         }
         let wasSpeaking = session.state == .speaking
-        if let passage = session.currentPassage {
+        let targetPageIndex = nextPageIndex.map { next in next + shift } ?? pageIndex
+        if nextPageIndex == nil, let passage = session.currentPassage {
             pendingPosition = (passage.text, session.spokenRange?.location ?? 0, wasSpeaking)
         }
-        stop()
+        guard targetPageIndex >= 0, targetPageIndex < pdf.pageCount, targetPageIndex <= max(lastPageIndex, pageIndex) else {
+            pauseForChange("The pages still to read were removed from the PDF.")
+            return
+        }
+        if nextPageIndex == nil { stop() }
         preparationIdentifier = UUID()
         sourcePDFRevision = version
         pdfRequest = ReadAloudPDFRequest(lastPageIndex: lastPageIndex, range: range)
-        loadPDFPage(pdf, pageIndex: pageIndex, lastPageIndex: lastPageIndex, range: range, playsWhenReady: wasSpeaking)
+        loadPDFPage(pdf, pageIndex: targetPageIndex, lastPageIndex: lastPageIndex, range: range,
+                    playsWhenReady: nextPageIndex == nil ? wasSpeaking : playsWhenReady)
     }
 
     /// Reading cannot go on where it was: it pauses, keeps what was read, and says why.
@@ -602,7 +610,10 @@ final class ReadAloudController {
 
     private func loadPDFPage(_ pdf: PDFSession, pageIndex: Int, lastPageIndex: Int,
                              range: PDFReadAloudRange? = nil, playsWhenReady: Bool = false) {
-        guard sourcePDFRevision == pdf.readingTextVersion else { reanchorPDF(pdf); return }
+        guard sourcePDFRevision == pdf.readingTextVersion else {
+            reanchorPDF(pdf, continuingTo: pageIndex, playsWhenReady: playsWhenReady)
+            return
+        }
         let identifier = preparationIdentifier
         let revision = pdf.readingTextVersion
         let readingOrder = pdfReadingOrder

@@ -474,7 +474,8 @@ final class ReadAloudControllerTests: XCTestCase {
         reader.clear()
     }
 
-    func testPDFRevisionChangeBetweenLazyPagesStopsWithoutWorkspaceNotification() async throws {
+    /// A page turned between two pages read: the text is the same, so reading goes on to it.
+    func testPDFPageTurnedBetweenLazyPagesReadsOn() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ReadAloudPDFRevision-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -486,11 +487,37 @@ final class ReadAloudControllerTests: XCTestCase {
         let request = try XCTUnwrap(speech.requests.last?.identifier)
         try pdf.apply(.rotate(page: 1, clockwise: true))
         speech.eventHandler?(.finished(request))
-        XCTAssertNil(reader.session.document)
-        XCTAssertEqual(reader.session.state, .idle)
-        XCTAssertNotNil(reader.errorMessage)
-        XCTAssertEqual(speech.requests.count, 1)
-        XCTAssertTrue(reader.highlights(in: pdf).isEmpty)
+        try await waitForPreparation(reader)
+        XCTAssertNil(reader.errorMessage)
+        XCTAssertEqual(reader.sourcePageIndex, 1)
+        XCTAssertEqual(reader.session.document?.passages.first?.text, "Second page.")
+        reader.clear()
+    }
+
+    /// Ink and saves are not changes to what is read: the highlight stays and reading goes on.
+    func testInkOnThePageReadKeepsReadingAndItsHighlight() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ReadAloudPDFInk-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pdf = try await PDFSession.open(makePDF(in: directory, pageTexts: ["First page words.", "Second page."]))
+        let (reader, speech) = try makeReader()
+        reader.readPDF(pdf, firstPageIndex: 0, lastPageIndex: 1)
+        try await waitForPreparation(reader)
+        reader.session.play()
+        let request = try XCTUnwrap(speech.requests.last?.identifier)
+        speech.eventHandler?(.started(request)); speech.eventHandler?(.spoken(request, NSRange(location: 6, length: 4)))
+        let before = reader.highlights(in: pdf)
+        XCTAssertFalse(before.isEmpty)
+        let versionBefore = pdf.readingTextVersion
+        // A picture placed on the page, as ink and markup are, changes the PDF but not its text.
+        let page = try XCTUnwrap(pdf.document.page(at: 0))
+        page.addAnnotation(PDFAnnotation(bounds: CGRect(x: 10, y: 10, width: 40, height: 40), forType: .ink, withProperties: nil))
+        pdf.contentDidChange?()
+        XCTAssertEqual(pdf.readingTextVersion, versionBefore)
+        reader.pdfContentDidChange(pdf)
+        XCTAssertNil(reader.errorMessage)
+        XCTAssertEqual(reader.session.state, .speaking)
+        XCTAssertEqual(reader.highlights(in: pdf), before)
         reader.clear()
     }
 
