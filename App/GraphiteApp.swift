@@ -3,6 +3,11 @@ import GraphiteUI
 
 @main
 struct GraphiteApp: App {
+    init() {
+        // Hang and crash reports, and a record of any freeze, in Library/Diagnostics.
+        GraphiteDiagnostics.start()
+    }
+
     var body: some Scene {
         #if os(macOS)
         // A single window. Each window builds its own workspace, which reopens the last

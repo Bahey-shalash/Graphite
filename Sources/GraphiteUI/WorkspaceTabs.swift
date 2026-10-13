@@ -117,6 +117,8 @@ extension WorkspaceModel {
         guard layout.activeTab.id != tabID else { return }
         let previousTabID = layout.group(containing: tabID)?.activeTabID
         layout.focus(tabID: tabID)
+        // The kind of file only: names stay private, even in the developer's records.
+        DiagnosticContext.note("Showed a tab of " + (layout.tab(withID: tabID)?.path.map { path in "a .\(path.fileExtension) file" } ?? "no file"))
         if let previousTabID, previousTabID != tabID { saveInBackground(previousTabID) }
     }
 
