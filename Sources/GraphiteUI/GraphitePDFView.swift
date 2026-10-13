@@ -740,6 +740,8 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     private var hasPendingFirstResponderUpdate = false
     /// True once the view is dismantled; the coordinator is not used again.
     private var isDetached = false
+    /// Watches that the PDF keeps taking touches (`PDFPaneHealthMonitor`).
+    private var healthMonitor: PDFPaneHealthMonitor?
 
     /// A scroll view around annotating embeds, with the gesture settings it had before.
     private struct EnclosingScrollRestriction {
@@ -799,6 +801,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         view.addInteraction(menuInteraction)
         editMenuInteraction = menuInteraction
         pageObserver = PDFViewPageObserver(session: session, view: view)
+        healthMonitor = PDFPaneHealthMonitor(coordinator: self, pdfView: view)
         toolboxObserver = NotificationCenter.default.addObserver(forName: PencilToolbox.selectionDidChange, object: PencilToolbox.shared, queue: nil) { [weak self] _ in
             MainActor.assumeIsolated { self?.takeFixedToolFromToolbox() }
         }
@@ -830,6 +833,8 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
 
     func detach() {
         isDetached = true
+        healthMonitor?.stop()
+        healthMonitor = nil
         presentedScreenObserver.isObserving = false
         toolPicker.setVisible(false, forFirstResponder: toolPickerHost)
         toolPickerHost.takesFirstResponderBackFromSelections = false
@@ -975,6 +980,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     }
 
     func windowDidChange() {
+        healthMonitor?.windowDidChange(to: pdfView?.window)
         // SwiftUI settles focus after inserting the view; claim first responder after it.
         Task { @MainActor [weak self] in self?.updateToolPickerVisibility() }
     }
@@ -1137,7 +1143,18 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
 
     func pdfView(_ view: PDFView, overlayViewFor page: PDFPage) -> UIView? {
         let identifier = ObjectIdentifier(page)
-        if let existing = canvasesByPage[identifier], existing.page === page, let overlayView = existing.overlayView { return overlayView }
+        if let existing = canvasesByPage[identifier], existing.page === page {
+            if let overlayView = existing.overlayView { return overlayView }
+            // PDFKit let go of the page's view, and the overlay with it, while the canvas was
+            // kept. The canvas goes into a new overlay with its drawing, history and pending
+            // record. A new canvas restored the page's ink from its last saved record and lost
+            // every stroke drawn since, on screen and, at the next stroke, in the file
+            // (seen on the owner's iPad, 2026-10-13).
+            let overlayView = PDFPageOverlayView(canvas: existing)
+            overlayView.setRenderingScale(PDFPageOverlayView.renderingScale(forZoom: view.scaleFactor))
+            return overlayView
+        }
+        if let replaced = canvasesByPage.removeValue(forKey: identifier) { release(replaced) }
         let canvas = makeCanvas(for: page)
         canvasesByPage[identifier] = canvas
         let overlayView = PDFPageOverlayView(canvas: canvas)
@@ -1258,6 +1275,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     }
 
     private func release(_ canvas: PDFPageCanvasView) {
+        recordUnrecordedInk(of: canvas)
         writeDeferredInkRecord(of: canvas)
         canvas.stopFollowing(toolPicker)
         canvas.delegate = nil
@@ -1305,7 +1323,94 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
 
     /// Writes the re-editing records that drawing deferred, for every canvas.
     func writeDeferredInkRecords() {
-        for canvas in canvasesByPage.values { writeDeferredInkRecord(of: canvas) }
+        for canvas in canvasesByPage.values {
+            recordUnrecordedInk(of: canvas)
+            writeDeferredInkRecord(of: canvas)
+        }
+    }
+
+    // MARK: Health (`PDFPaneHealthMonitor`)
+
+    var drawsWithFinger: Bool { input.drawsWithFinger }
+    var isWriting: Bool { input.isEnabled }
+
+    /// Records ink a canvas shows that the PDF does not have yet, as when a change of the
+    /// canvas never reached its delegate. A stroke still being drawn is not part of it.
+    func recordUnrecordedInk(of canvas: PDFPageCanvasView) {
+        guard canvas.delegate === self, canvas.hasRestoredStoredInk, !canvas.isRestoringStoredInk,
+              PencilDrawingChange(from: canvas.recordedDrawing, to: canvas.drawing) != nil else { return }
+        canvasViewDrawingDidChange(canvas)
+    }
+
+    /// Puts right what must hold for every canvas on screen, and says what it changed: the
+    /// canvas is the page's own, counted as shown, recording its changes, and taking touches
+    /// while the PDF is written on. A canvas on screen that is not the page's own cannot be
+    /// trusted with the page's ink; the view is built again instead.
+    func repairCanvases() -> [String] {
+        guard !isDetached, let pdfView else { return [] }
+        var repairs: [String] = []
+        for overlay in Self.overlays(in: pdfView) where overlay.window != nil {
+            let canvas = overlay.canvas
+            guard let page = canvas.page else { continue }
+            let pageIndex = session.document.index(for: page)
+            guard pageIndex != NSNotFound else { continue }
+            let identifier = ObjectIdentifier(page)
+            guard canvasesByPage[identifier] === canvas else {
+                repairs.append("Page \(pageIndex + 1) showed a canvas that is not its own; the view was built again")
+                rebuildViewAfterRecordingInk()
+                return repairs
+            }
+            var needsConfiguring = false
+            if !displayedPages.contains(identifier) {
+                displayedPages.insert(identifier)
+                hiddenCanvasOrder.removeAll { hiddenIdentifier in hiddenIdentifier == identifier }
+                repairs.append("Page \(pageIndex + 1) was shown but not counted as shown")
+                needsConfiguring = true
+            }
+            if canvas.hasRestoredStoredInk, !canvas.isRestoringStoredInk, canvas.delegate == nil {
+                canvas.delegate = self
+                repairs.append("Page \(pageIndex + 1)'s canvas did not record its changes")
+            }
+            if canvas.resumeDrawingLeftOff(forLongerThan: PDFPaneHealthMonitor.stuckGestureSeconds) {
+                repairs.append("Page \(pageIndex + 1)'s canvas had drawing switched off for a held shape whose touch never ended")
+            }
+            if input.isEnabled, !canvas.isRestoringStoredInk, !canvas.isUserInteractionEnabled || canvas.isHidden {
+                repairs.append("Page \(pageIndex + 1)'s canvas took no touches while writing")
+                needsConfiguring = true
+            }
+            if needsConfiguring { configure(canvas) }
+        }
+        return repairs
+    }
+
+    /// Each canvas on screen or kept, for a diagnostic record.
+    func canvasDiagnostics() -> [String] {
+        guard let pdfView else { return [] }
+        let shown = Self.overlays(in: pdfView).map(\.canvas)
+        let kept = canvasesByPage.values.filter { canvas in !shown.contains { shownCanvas in shownCanvas === canvas } }
+        return (shown + kept).map { canvas in
+            let pageIndex = canvas.page.map { page in session.document.index(for: page) } ?? NSNotFound
+            let isOwn = canvas.page.map { page in canvasesByPage[ObjectIdentifier(page)] === canvas } ?? false
+            return "page \(pageIndex == NSNotFound ? "none" : String(pageIndex + 1)): own \(isOwn), on screen \(canvas.window != nil), "
+                + "counted as shown \(canvas.page.map { page in displayedPages.contains(ObjectIdentifier(page)) } ?? false), "
+                + "records changes \(canvas.delegate === self), touches \(canvas.isUserInteractionEnabled), hidden \(canvas.isHidden), "
+                + "restoring \(canvas.isRestoringStoredInk), strokes \(canvas.drawing.strokes.count), "
+                + "drawing gesture \(canvas.drawingGestureRecognizer.state.rawValue) with \(canvas.drawingGestureRecognizer.numberOfTouches) touches, "
+                + "zoom \(String(format: "%.2f", canvas.zoomScale)), size \(NSCoder.string(for: canvas.bounds.size))"
+        }
+    }
+
+    /// Records every canvas's ink, then has the PDF's view built again, as switching tabs
+    /// does. An embedded PDF is not rebuilt: the note around it is.
+    func rebuildViewAfterRecordingInk() {
+        guard !isDetached, !isEmbedded else { return }
+        writeDeferredInkRecords()
+        PencilActivity.forgetPencil()
+        session.rebuildView()
+    }
+
+    private static func overlays(in view: UIView) -> [PDFPageOverlayView] {
+        ((view as? PDFPageOverlayView).map { [$0] } ?? []) + view.subviews.flatMap { subview in overlays(in: subview) }
     }
 
     private func writeDeferredInkRecord(of canvas: PDFPageCanvasView) {

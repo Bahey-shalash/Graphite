@@ -182,6 +182,8 @@ private struct PDFPaneContent: View {
                                     if navigator.coveredFrameInWindow != frame { navigator.coveredFrameInWindow = frame }
                                 } })
                     .ignoresSafeArea(edges: .bottom)
+                    // A view found to take no touches is built again (`PDFPaneHealthMonitor`).
+                    .id(session.viewGeneration)
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {

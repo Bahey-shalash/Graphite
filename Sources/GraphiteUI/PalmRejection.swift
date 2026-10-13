@@ -163,10 +163,21 @@ enum PencilActivity {
     /// each: one still going on is heard from now, and one that ended, or whose object is gone,
     /// is taken to have ended when it was last heard from. So a lost ending keeps fingers
     /// waiting no longer than the lingering moment after the Pencil's last report.
+    ///
+    /// A touch still going on is heard from at its own timestamp, which UIKit advances only
+    /// as the touch changes, not at the time of asking: a touch object UIKit kept going, or
+    /// gave to a later finger touch, would otherwise keep the Pencil on the screen for good,
+    /// and every finger on the page would be taken for a resting hand, so the page would
+    /// neither scroll nor zoom.
     private static func forgetLostEndings() {
         let time = now
         if state.hasPencilTouch {
-            if let pencilTouch, isOngoing(pencilTouch) { state.pencilDidMove(at: time) } else { state.pencilTouchWasLost() }
+            if let pencilTouch, pencilTouch.type == .pencil, isOngoing(pencilTouch) {
+                state.pencilDidMove(at: pencilTouch.timestamp)
+            } else {
+                state.pencilTouchWasLost()
+                pencilTouch = nil
+            }
         }
         for recognizerNumber in state.hoveringRecognizerNumbers {
             if let recognizer = hoveringRecognizers[recognizerNumber]?.recognizer, isHovering(recognizer) {
@@ -176,6 +187,22 @@ enum PencilActivity {
                 hoveringRecognizers[recognizerNumber] = nil
             }
         }
+    }
+
+    /// Forgets the Pencil's touch and hovers, as if it had just left: for a page found to
+    /// take no touches (`PDFPaneHealthMonitor`).
+    static func forgetPencil() {
+        if state.hasPencilTouch { state.pencilTouchWasLost() }
+        pencilTouch = nil
+        for recognizerNumber in state.hoveringRecognizerNumbers { state.hoverWasLost(recognizerNumber) }
+        hoveringRecognizers.removeAll()
+    }
+
+    /// The Pencil's activity as the page sees it now, for a diagnostic record.
+    static var diagnosticDescription: String {
+        let time = now
+        let touchDescription = pencilTouch.map { touch in "a touch of type \(touch.type.rawValue), phase \(touch.phase.rawValue), \(String(format: "%.1f", time - touch.timestamp)) s since it changed" } ?? "no touch held"
+        return "active \(isActive(at: time)), touching \(isPencilTouching(at: time)), \(touchDescription), hovers \(state.hoveringRecognizerNumbers.count)"
     }
 
     private static func isOngoing(_ touch: UITouch) -> Bool {
@@ -372,9 +399,12 @@ final class PalmRejectionRecognizer: UIGestureRecognizer {
         handTouches.removeAllObjects()
     }
 
-    /// The hand is taken until its last touch lifts.
+    /// The hand is taken until its last touch lifts. A touch whose end never reached this
+    /// recognizer is let go as well, so the page's scrolling, which waits for this one, is
+    /// never held after the hand has gone.
     private func finish(_ touches: Set<UITouch>, wasCancelled: Bool) {
         for touch in touches { handTouches.remove(touch) }
+        for touch in handTouches.allObjects where touch.phase == .ended || touch.phase == .cancelled { handTouches.remove(touch) }
         guard handTouches.allObjects.isEmpty else { return }
         switch state {
         case .began, .changed: state = wasCancelled ? .cancelled : .ended

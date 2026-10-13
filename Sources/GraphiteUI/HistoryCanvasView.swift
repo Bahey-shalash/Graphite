@@ -535,16 +535,28 @@ class HistoryCanvasView: PKCanvasView {
     private func discardStrokeBeingDrawn() {
         guard drawingGestureRecognizer.state == .began || drawingGestureRecognizer.state == .changed else { return }
         drawingGestureRecognizer.isEnabled = false
-        hasSwitchedOffDrawing = true
+        drawingSwitchedOffTime = ProcessInfo.processInfo.systemUptime
     }
 
-    /// True while the canvas itself has PencilKit's drawing recognizer switched off.
-    private var hasSwitchedOffDrawing = false
+    /// When the canvas itself switched PencilKit's drawing recognizer off; nil while it is on.
+    private var drawingSwitchedOffTime: TimeInterval?
 
     private func resumeDrawing() {
-        guard hasSwitchedOffDrawing else { return }
-        hasSwitchedOffDrawing = false
+        guard drawingSwitchedOffTime != nil else { return }
+        drawingSwitchedOffTime = nil
         drawingGestureRecognizer.isEnabled = true
+    }
+
+    /// Turns drawing back on when the canvas switched it off for a held shape over
+    /// `seconds` ago and the end of that touch never came, as when the canvas left the
+    /// window mid-stroke: the page would otherwise never draw again. True when it did.
+    func resumeDrawingLeftOff(forLongerThan seconds: TimeInterval) -> Bool {
+        guard let drawingSwitchedOffTime, ProcessInfo.processInfo.systemUptime - drawingSwitchedOffTime >= seconds,
+              !PencilActivity.isPencilTouching(at: PencilActivity.now) else { return false }
+        heldShape = nil
+        removeShapePreview()
+        resumeDrawing()
+        return true
     }
 
     /// Shows a shape, given in the canvas's own coordinates, in the ink's color.

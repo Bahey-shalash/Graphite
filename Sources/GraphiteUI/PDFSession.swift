@@ -276,6 +276,9 @@ final class PDFSession {
     /// Keep the pane's input mode while its view is rebuilt, without modifying the PDF.
     /// Writing is the default for this Pencil-first workspace; Read restores PDFKit selection.
     var isWriting = true
+    /// Changes when the PDF's view must be built again, as switching tabs builds it: a view
+    /// found to take no touches is replaced (`PDFPaneHealthMonitor`).
+    private(set) var viewGeneration = 0
     private(set) var pageCount: Int
     /// Document settings the next page change would remove from the file (see
     /// `PDFStructureInspection`). Empty when page changes lose nothing.
@@ -380,6 +383,12 @@ final class PDFSession {
         scheduleAutosave()
     }
 
+    /// Builds the PDF's view again, at the same place; its canvases' ink is recorded as the
+    /// old view is taken down.
+    func rebuildView() {
+        viewGeneration += 1
+    }
+
     /// Registers the view that owns Pencil canvases; `write` applies their deferred records.
     func registerPendingInkRecordWriter(for owner: AnyObject, _ write: @escaping () -> Void) {
         pendingInkRecordWriters[ObjectIdentifier(owner)] = write
@@ -426,9 +435,10 @@ final class PDFSession {
             // Whichever waiter resumes first clears the finished save, so no waiter spins on it.
             if runningSave == previousSave { runningSave = nil }
         }
+        // Ink a canvas shows but has not recorded yet is recorded first, so it is saved too.
+        if !hasExternalConflict { writePendingInkRecords() }
         guard hasUnsavedChanges else { return }
         guard !hasExternalConflict else { throw GraphiteError.conflict }
-        writePendingInkRecords()
         let saveTask = Task { try await self.writePendingEdits() }
         runningSave = saveTask
         defer { if runningSave == saveTask { runningSave = nil } }
