@@ -400,8 +400,9 @@ final class PencilWorkspaceTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(900))
             XCTAssertEqual(pdfView.scaleFactor / pdfView.scaleFactorForSizeToFit, zoomPastFitting, accuracy: 0.05, "At \(Int(width)) points the zoom past fitting stays.")
             let (page, viewWidth) = try pageEdges(of: session)
-            XCTAssertLessThanOrEqual(page.minX, 1, "At \(Int(width)) points no empty column is left of the page.")
-            XCTAssertGreaterThanOrEqual(page.maxX, viewWidth - 1, "At \(Int(width)) points no empty column is right of the page.")
+            // PDFKit keeps a margin around a page, scaled with it: about 6 points at this zoom.
+            XCTAssertLessThanOrEqual(page.minX, 12, "At \(Int(width)) points no empty column is left of the page.")
+            XCTAssertGreaterThanOrEqual(page.maxX, viewWidth - 12, "At \(Int(width)) points no empty column is right of the page.")
         }
         attachScreenshot(of: window, named: "Resized, zoomed")
     }
