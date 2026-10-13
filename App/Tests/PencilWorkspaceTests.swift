@@ -358,6 +358,31 @@ final class PencilWorkspaceTests: XCTestCase {
         }
     }
 
+    /// Graphite's own scene lets iPadOS size its window freely, in either orientation, and
+    /// lays its window out at the scene's size. A default size given to the window group was
+    /// taken by iPadOS 27 as the window's smallest and largest size alike, 1,200 by 852
+    /// points: a window tiled at half the screen was laid out 1,065 points wide and cut off
+    /// at its right edge. Tests that set a window's frame never saw it.
+    func testGraphitesSceneCanBeAnySizeAndIsLaidOutAtIt() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let originalOrientations: UIInterfaceOrientationMask = scene.effectiveGeometry.interfaceOrientation.isPortrait ? .portrait : .landscape
+        defer { scene.requestGeometryUpdate(.iOS(interfaceOrientations: originalOrientations)) }
+        for orientations in [UIInterfaceOrientationMask.landscapeRight, .portrait] {
+            scene.requestGeometryUpdate(.iOS(interfaceOrientations: orientations))
+            try await Task.sleep(for: .milliseconds(1500))
+            let restrictions = try XCTUnwrap(scene.sizeRestrictions)
+            XCTAssertLessThanOrEqual(restrictions.minimumSize.width, 375, "A window as narrow as a third of the screen, or Slide Over.")
+            XCTAssertLessThanOrEqual(restrictions.minimumSize.height, 600)
+            XCTAssertGreaterThanOrEqual(restrictions.maximumSize.width, scene.screen.bounds.width, "A window as wide as the screen.")
+            XCTAssertGreaterThanOrEqual(restrictions.maximumSize.height, scene.screen.bounds.height)
+            let sceneSize = scene.coordinateSpace.bounds.size
+            for window in scene.windows where window.rootViewController != nil && !window.isHidden && window.windowLevel == .normal {
+                XCTAssertEqual(window.bounds.size, sceneSize, "The window is laid out at the scene's size.")
+                if let rootView = window.rootViewController?.view { XCTAssertEqual(rootView.bounds.width, sceneSize.width, accuracy: 0.5) }
+            }
+        }
+    }
+
     /// A PDF fitted to its window's width, or zoomed past that, keeps fitting, or keeps its
     /// zoom past fitting, when the window changes size, though a pinch has turned PDFKit's own
     /// fitting off; the page never runs off one edge with an empty column at the other.

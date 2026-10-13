@@ -4,6 +4,12 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-12.
 
+## A window tiled beside another app is laid out at its own size: 2026-10-13
+
+The fix above did not help on the owner's iPad (alpha 6cff25c, landscape, Graphite tiled on the right half beside ChatGPT): the page, title, tabs and Pencil bar were all laid out wider than the window and cut off at its right edge. Reproduced in the simulator by turning the scene to landscape (`requestGeometryUpdate`) and tiling the window on the right half with the window controls: the scene reported 1,065 by 834 points in a half-screen tile, and its `sizeRestrictions` were 1,200 by 852 points as both minimum and maximum, set by the window group's `.defaultSize(width: 1200, height: 820)`. Removing the default size on iPadOS (the Mac keeps it): the same tile is a 600 by 834 scene, compact, laid out to its edges (screenshot `shots/x6.png` in the build folder, against `x4.png` before). The hosted tests above set window frames directly and so never saw the scene's size.
+
+Checked: `PencilWorkspaceTests.testGraphitesSceneCanBeAnySizeAndIsLaidOutAtIt` (hosted, the app's own scene turned to landscape and back to portrait: its size restrictions allow 375 points or less and the whole screen, and its windows and root view are laid out at the scene's size); with the previous scene it fails (minimum and maximum 1,200 by 852). Not established: the owner's iPad, which needs a build installed.
+
 ## A PDF being written on, in a window of any size: 2026-10-13
 
 Reported by the owner from the iPad (alpha 8a6ccb8, a window beside ChatGPT, and the same PDF full screen afterwards): the page did not fit the window and ran off one edge with an empty column at the other; the Pencil bar's tools were cut off in the tab row; the toolbar lost Back, Forward and More and clipped the title. Reproduced in a hosted test: a page zoomed by a pinch (PDFKit's own fitting off) in a 1,194-point window stayed 867 points wide in a 590-, 375- or 820-point window. See `Architecture.md`, the fixed tool bar paragraph, for the three changes: the zoom follows the width, the Pencil row has a compact form with a popover, and narrow regular windows fold a PDF's secondary toolbar actions into More.
