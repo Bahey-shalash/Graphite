@@ -79,6 +79,7 @@ private struct PDFPaneContent: View {
     private var usesFixedToolbar: Bool { toolbarStyle == .fixed && horizontalSizeClass != .compact }
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.usesDocumentControlRow) private var usesDocumentControlRowSetting
+    @Environment(\.foldsSecondaryToolbarActions) private var foldsSecondaryToolbarActions
     @Environment(\.showsDocumentControlsInTabBar) private var showsDocumentControlsInTabBar
     @Environment(\.showsPencilToolsInTabBar) private var showsPencilToolsInTabBar
     private var usesDocumentControlRow: Bool {
@@ -342,7 +343,7 @@ private struct PDFPaneContent: View {
         // compact width shows only Undo, Redo, Write and More: the pages, the search and
         // adding pages are in More, and while writing, the palette has its own Undo and Redo.
         ToolbarItemGroup(placement: .primaryAction) { Group {
-            if !isCompactWidthOnAnyPlatform {
+            if !foldsSecondaryActions {
                 Button(showsPages ? "Hide Pages" : "Show Pages", systemImage: "square.grid.2x2") {
                     withAnimation(GraphiteMotion.animation(.snappy)) { showsPages.toggle() }
                 }
@@ -351,7 +352,7 @@ private struct PDFPaneContent: View {
                 #endif
             }
             if !session.isProtected {
-                if !isCompactWidthOnAnyPlatform {
+                if !foldsSecondaryActions {
                     PDFAddPageMenu(commands: commands, insertionIndexAfter: session.currentPageIndex + 1, insertionIndexBefore: session.currentPageIndex)
                 }
                 #if canImport(UIKit)
@@ -411,7 +412,7 @@ private struct PDFPaneContent: View {
                 }
             }.disabled(isRecording || !session.document.allowsCopying)
         }
-        if isCompactWidthOnAnyPlatform {
+        if foldsSecondaryActions {
             Section {
                 Button(showsPages ? "Hide Pages" : "Show Pages", systemImage: "square.grid.2x2") {
                     withAnimation(GraphiteMotion.animation(.snappy)) { showsPages.toggle() }
@@ -457,7 +458,7 @@ private struct PDFPaneContent: View {
             #endif
             PDFPageActionsMenuContent(commands: commands, pageIndices: [session.currentPageIndex], isBookmarked: session.bookmarkedPageIndices.contains(session.currentPageIndex))
         }
-        if !isCompactWidthOnAnyPlatform {
+        if !foldsSecondaryActions {
             Section { goToPageButton }
         }
         WorkspaceMoreMenuItems()
@@ -485,6 +486,10 @@ private struct PDFPaneContent: View {
     }
 
     /// Whether the width is compact; never on macOS, which has no size classes to speak of.
+    /// Whether the pages, find and adding pages are in More rather than in the toolbar: in a
+    /// compact width, and in a regular one too narrow for them beside the title.
+    private var foldsSecondaryActions: Bool { isCompactWidthOnAnyPlatform || foldsSecondaryToolbarActions }
+
     private var isCompactWidthOnAnyPlatform: Bool {
         #if canImport(UIKit)
         isCompactWidth

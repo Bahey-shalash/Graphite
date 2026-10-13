@@ -43,6 +43,7 @@ struct WorkspacePanes: View {
         panes
             .onGeometryChange(for: CGFloat.self) { geometry in geometry.size.width } action: { width in detailWidth = width }
             .environment(\.usesDocumentControlRow, DocumentToolbarLayout.usesControlRow(detailWidth: detailWidth, horizontalSizeClass: horizontalSizeClass))
+            .environment(\.foldsSecondaryToolbarActions, DocumentToolbarLayout.foldsSecondaryActions(detailWidth: detailWidth, horizontalSizeClass: horizontalSizeClass))
             #if canImport(UIKit)
             // A touch anywhere on a side focuses it, so the toolbar and new files follow. The
             // touch is only observed: a SwiftUI gesture over the editor would compete with

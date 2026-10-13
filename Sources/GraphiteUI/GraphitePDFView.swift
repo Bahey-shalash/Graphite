@@ -341,6 +341,15 @@ final class GraphitePDFDisplayView: PDFView {
         willSet { rememberPlaceBeforeResizing(to: newValue.size) }
     }
 
+    /// The zoom when the width began to change: whether the pages fitted the width, and
+    /// how far past that they were zoomed. PDFKit fits the pages to a new width only while
+    /// it scales them itself, which a pinch, even one back to the fitting size, turns off:
+    /// a page zoomed in a wide window then kept its size in a narrower one, running off one
+    /// edge with empty space at the other (reported by the owner, 2026-10-13).
+    private var zoomBeforeResize: PDFResizeZoom?
+    /// The width the pages were last fitted or zoomed for.
+    private var lastLaidOutWidth: CGFloat = 0
+
     private func rememberPlaceBeforeResizing(to newSize: CGSize) {
         // UIKit sets the frame while the view is still being created, before PDFKit is
         // ready to be asked anything; a view that is not on screen has no place to keep.
@@ -349,11 +358,17 @@ final class GraphitePDFDisplayView: PDFView {
         // The place is read once, when a resize begins, and kept until it ends: read again
         // at every step of a divider drag, small errors would add up.
         if placeBeforeResize == nil { placeBeforeResize = currentPlace() }
+        if zoomBeforeResize == nil {
+            zoomBeforeResize = PDFResizeZoom(isScaledByPDFKit: autoScales, scale: scaleFactor, fittingScale: scaleFactorForSizeToFit)
+        }
         resizeEndWorkItem?.cancel()
         // PDFKit may finish rescaling after the last layout, so the place is shown once
         // more when the width has settled.
         let workItem = DispatchWorkItem { [weak self] in
-            guard let self, let placeBeforeResize = self.placeBeforeResize else { return }
+            guard let self else { return }
+            self.applyZoomAfterResize()
+            self.zoomBeforeResize = nil
+            guard let placeBeforeResize = self.placeBeforeResize else { return }
             self.placeBeforeResize = nil
             self.show(placeBeforeResize)
         }
@@ -400,7 +415,39 @@ final class GraphitePDFDisplayView: PDFView {
                 }
             }
         } else if let placeBeforeResize {
+            if abs(bounds.width - lastLaidOutWidth) > 0.5 { applyZoomAfterResize() }
             show(placeBeforeResize)
+        }
+        if bounds.width > 0 { lastLaidOutWidth = bounds.width }
+    }
+
+    /// Fits the pages to the new width when they fitted the old one, and keeps them as far
+    /// past fitting as they were otherwise, so a page never runs off one edge with empty
+    /// space at the other.
+    private func applyZoomAfterResize() {
+        guard let zoomBeforeResize, bounds.width > 0 else { return }
+        let fittingScale = scaleFactorForSizeToFit
+        guard fittingScale.isFinite, fittingScale > 0 else { return }
+        switch zoomBeforeResize.scaleAfterResize(fittingScale: fittingScale) {
+        case .fitsByPDFKit:
+            if !autoScales { autoScales = true }
+        case .scale(let scale):
+            let clampedScale = min(max(scale, minScaleFactor), maxScaleFactor)
+            if abs(scaleFactor - clampedScale) > 0.0001 { scaleFactor = clampedScale }
+        }
+        keepPagesInView()
+    }
+
+    /// Pages narrower than the view are centered; wider ones are scrolled no further than
+    /// their edges.
+    private func keepPagesInView() {
+        guard let scrollView = documentView?.enclosingScrollView else { return }
+        let insets = scrollView.adjustedContentInset
+        let minimumOffset = -insets.left
+        let maximumOffset = max(minimumOffset, scrollView.contentSize.width - scrollView.bounds.width + insets.right)
+        let offset = min(max(scrollView.contentOffset.x, minimumOffset), maximumOffset)
+        if abs(offset - scrollView.contentOffset.x) > 0.5 {
+            scrollView.setContentOffset(CGPoint(x: offset, y: scrollView.contentOffset.y), animated: false)
         }
     }
 
@@ -431,6 +478,33 @@ final class GraphitePDFDisplayView: PDFView {
             return canvas.hitTest(canvas.convert(point, from: self), with: event) ?? canvas
         }
         return super.hitTest(point, with: event)
+    }
+}
+
+/// The zoom of a PDF when its view's width began to change, and the zoom it takes after.
+struct PDFResizeZoom: Equatable {
+    /// Within this fraction of the fitting zoom, a page is taken to fit the width: a pinch
+    /// rarely lands on it exactly.
+    static let fittingTolerance: CGFloat = 0.03
+
+    /// The zoom past fitting the old width, 1 when the pages fitted it.
+    let zoomPastFitting: CGFloat
+    let fittedWidth: Bool
+
+    init(isScaledByPDFKit: Bool, scale: CGFloat, fittingScale: CGFloat) {
+        let zoomPastFitting = fittingScale > 0 && scale.isFinite ? scale / fittingScale : 1
+        fittedWidth = isScaledByPDFKit || abs(zoomPastFitting - 1) <= Self.fittingTolerance
+        self.zoomPastFitting = fittedWidth ? 1 : zoomPastFitting
+    }
+
+    enum ScaleAfterResize: Equatable {
+        /// PDFKit fits the pages to the width, as it does until a pinch.
+        case fitsByPDFKit
+        case scale(CGFloat)
+    }
+
+    func scaleAfterResize(fittingScale: CGFloat) -> ScaleAfterResize {
+        fittedWidth ? .fitsByPDFKit : .scale(fittingScale * zoomPastFitting)
     }
 }
 
