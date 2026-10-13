@@ -68,4 +68,6 @@ extension EnvironmentValues {
     @Entry var readingSourceTokensByBlock: [String: [ReadAloudSourceToken]] = [:]
     @Entry var readingActiveSourceRange: NSRange? = nil
     @Entry var readingFollowsSource = false
+    /// The fill behind the word read aloud in rendered text (`ObsidianMarkdownText`).
+    @Entry var readingHighlightFill: Color = ReadAloudHighlightStyle.color
 }

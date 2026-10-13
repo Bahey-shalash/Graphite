@@ -801,6 +801,10 @@ struct MarkdownPreview: View {
     @State private var hasMissingEmbeds = false
     /// What `blocks` were built from.
     @State private var shownBuildKey: ReadingBuildKey?
+    /// Counts the builds shown, so the blocks' view tells a new build from the same one.
+    @State private var blocksVersion = 0
+    /// What the blocks do when tapped, in one object that stays (`ReadingNoteBlocks`).
+    @State private var blockActions = ReadingBlockActions()
     @State private var mediaPlayers = ReadingMediaPlayers()
     /// Counts the tasks ticked in embedded notes. Their text is read from their files, so
     /// the note is built again although its own text is the same.
@@ -819,11 +823,13 @@ struct MarkdownPreview: View {
                             .accessibilityAddTraits(.isHeader)
                             .padding(.bottom, 6)
                     }
-                    ReadingBlocksView(blocks: blocks, root: root, textSize: configuration.textSize, navigate: navigate, scrollToHeading: { anchor in
+                    let _ = blockActions.update(navigate: navigate, scrollToHeading: { anchor in
                         pendingRestorationOffset = nil
                         withAnimation(GraphiteMotion.animation()) { scrollProxy.scrollTo(anchor, anchor: .top) }
-                    }, openPDF: openPDF, updateProperties: updateProperties, folding: folding, declaredPropertyTypes: configuration.declaredPropertyTypes,
-                       blockPositions: savedPosition)
+                    }, openPDF: openPDF, updateProperties: updateProperties, toggleFold: folding?.toggle)
+                    ReadingNoteBlocks(blocks: blocks, blocksVersion: blocksVersion, root: root, textSize: configuration.textSize,
+                                      foldedKeys: folding?.foldedKeys, declaredPropertyTypes: configuration.declaredPropertyTypes,
+                                      canUpdateProperties: updateProperties != nil, blockPositions: savedPosition, actions: blockActions)
                     if let errorMessage { Text(errorMessage).foregroundStyle(.secondary) }
                 }
                 .frame(maxWidth: configuration.usesReadableLineLength ? readableColumnWidth : .infinity, alignment: .leading)
@@ -892,7 +898,6 @@ struct MarkdownPreview: View {
             .environment(\.readingSourceTokensByBlock, readingSourceTokensByBlock)
             .environment(\.readingActiveSourceRange, readAloudRange)
             .environment(\.readingFollowsSource, followsReading)
-            .textual.readingHighlight(readAloudRange, color: ReadAloudHighlightStyle.color, coordinateSpace: ReadingCoordinateSpace.name)
             .environment(\.readingMediaPlayers, mediaPlayers)
             .environment(\.readingTaskContext, toggleTask.map { toggleTask in
                 ReadingTaskContext(note: path) { note, location in await toggle(location, in: note, with: toggleTask) }
@@ -930,7 +935,8 @@ struct MarkdownPreview: View {
                 withAnimation(GraphiteMotion.animation()) { scrollProxy.scrollTo(target, anchor: .top) }
             }
         }
-        .task(id: "\(configuration.drawingVersion)-\(configuration.hashValueForReload)-\(source.hashValue)-\(hasMissingEmbeds ? configuration.indexVersion : -1)-\(embeddedNoteTaskEditCount)") {
+        .task(id: ReadingBuildRequest(source: source, drawingVersion: configuration.drawingVersion, renderingHash: configuration.hashValueForReload,
+                                      indexVersion: hasMissingEmbeds ? configuration.indexVersion : -1, embeddedNoteTaskEditCount: embeddedNoteTaskEditCount)) {
             if let shownBuildKey, shownBuildKey.describesBuild(of: source, path: path, root: root, configuration: configuration) { return }
             if blocks.isEmpty, let cachedBuild = blocksCache?.lastBuild, cachedBuild.key.describesBuild(of: source, path: path, root: root, configuration: configuration) {
                 show(cachedBuild)
@@ -1005,6 +1011,7 @@ struct MarkdownPreview: View {
         savedPosition?.blockLocations = build.blockLocations
         readingSourceTokensByBlock = build.readingSourceTokensByBlock
         blocks = build.blocks; errorMessage = nil
+        blocksVersion += 1
         hasMissingEmbeds = build.hasMissingEmbeds
         shownBuildKey = build.key
         mediaPlayers.keepPlaybacks(for: Self.mediaLocations(in: build.blocks))
@@ -1025,6 +1032,78 @@ struct MarkdownPreview: View {
         }
         return didToggle
     }
+}
+
+/// What the note's blocks do when tapped: follow a link, scroll to a heading, open a PDF,
+/// change the properties, fold a heading. The reading view makes new closures for these at
+/// every update, as at each word read aloud; kept in one object whose identity stays, they
+/// do not make the blocks' view go over every block of the note again.
+@MainActor
+final class ReadingBlockActions {
+    private(set) var navigate: (String, Bool) -> Void = { _, _ in }
+    private(set) var scrollToHeading: (String) -> Void = { _ in }
+    private(set) var openPDF: (VaultPath, Int) -> Void = { _, _ in }
+    private(set) var updateProperties: (([NoteProperty]) -> Void)?
+    private(set) var toggleFold: ((String) -> Void)?
+
+    func update(navigate: @escaping (String, Bool) -> Void, scrollToHeading: @escaping (String) -> Void,
+                openPDF: @escaping (VaultPath, Int) -> Void, updateProperties: (([NoteProperty]) -> Void)?, toggleFold: ((String) -> Void)?) {
+        self.navigate = navigate; self.scrollToHeading = scrollToHeading; self.openPDF = openPDF
+        self.updateProperties = updateProperties; self.toggleFold = toggleFold
+    }
+}
+
+/// The note's own blocks in the reading view. It holds only values and the actions' object,
+/// and SwiftUI compares it with `==`, so the update that each word read aloud makes does not
+/// go over every block of a long note again (2,600 blocks for a 0.8 MB note). It is not
+/// wrapped in `.equatable()`: that makes it one view to the lazy stack around it, which then
+/// makes every block of the note at once (900 ms of the main thread per word, seen while
+/// this was written).
+private struct ReadingNoteBlocks: View, Equatable {
+    let blocks: [RenderedBlock]
+    /// Which build of the note `blocks` are.
+    let blocksVersion: Int
+    let root: URL
+    let textSize: Double
+    let foldedKeys: Set<String>?
+    let declaredPropertyTypes: [String: PropertyType]
+    let canUpdateProperties: Bool
+    let blockPositions: ReadingPosition?
+    let actions: ReadingBlockActions
+
+    nonisolated static func == (leftBlocks: ReadingNoteBlocks, rightBlocks: ReadingNoteBlocks) -> Bool {
+        MainActor.assumeIsolated {
+            leftBlocks.blocksVersion == rightBlocks.blocksVersion && leftBlocks.root == rightBlocks.root
+                && leftBlocks.textSize == rightBlocks.textSize && leftBlocks.foldedKeys == rightBlocks.foldedKeys
+                && leftBlocks.declaredPropertyTypes == rightBlocks.declaredPropertyTypes
+                && leftBlocks.canUpdateProperties == rightBlocks.canUpdateProperties
+                && leftBlocks.blockPositions === rightBlocks.blockPositions && leftBlocks.actions === rightBlocks.actions
+        }
+    }
+
+    var body: some View {
+        // Each closure asks the actions' object at the time it runs, for the latest one.
+        ReadingBlocksView(blocks: blocks, root: root, textSize: textSize,
+                          navigate: { [actions] target, isWiki in actions.navigate(target, isWiki) },
+                          scrollToHeading: { [actions] anchor in actions.scrollToHeading(anchor) },
+                          openPDF: { [actions] path, pageIndex in actions.openPDF(path, pageIndex) },
+                          updateProperties: canUpdateProperties ? { [actions] properties in actions.updateProperties?(properties) } : nil,
+                          folding: foldedKeys.map { keys in ReadingFolding(foldedKeys: keys) { [actions] key in actions.toggleFold?(key) } },
+                          declaredPropertyTypes: declaredPropertyTypes, blockPositions: blockPositions)
+    }
+}
+
+/// What starts a new build of the reading view: SwiftUI compares it at every update of the
+/// view, as each word read aloud makes. The note's text is compared, not hashed: comparing a
+/// text with itself, the same storage, takes no time, where hashing read the whole note at
+/// every update. A long note read aloud kept the main thread hashing until the system ended
+/// Graphite (`Character.hashValue` under `MarkdownPreview.body`, the owner's iPad, 2026-10-12).
+private struct ReadingBuildRequest: Equatable {
+    let source: String
+    let drawingVersion: Int
+    let renderingHash: Int
+    let indexVersion: Int
+    let embeddedNoteTaskEditCount: Int
 }
 
 /// What a reading-view build depends on.
@@ -1131,18 +1210,10 @@ struct ReadingBlocksView: View {
     /// Follows where the note's own blocks are as the view scrolls; nil for embedded notes.
     var blockPositions: ReadingPosition? = nil
     @Environment(\.readingTaskContext) private var taskContext
+    // The word being read is not read here: it changes with every word, and this view's body
+    // goes over every block of the note. Only the views that show the word, and callouts
+    // (`ReadingCallout`), read it.
     @Environment(\.readingSourceTokensByBlock) private var readingSourceTokensByBlock
-    @Environment(\.readingActiveSourceRange) private var readingActiveSourceRange
-    @Environment(\.readingFollowsSource) private var readingFollowsSource
-
-    private func containsReadingWord(_ blocks: [RenderedBlock]) -> Bool {
-        guard readingFollowsSource, let range = readingActiveSourceRange else { return false }
-        return blocks.contains { block in
-            if readingSourceTokensByBlock[block.id]?.contains(where: { token in NSIntersectionRange(token.sourceRange, range).length > 0 }) == true { return true }
-            if case .callout(_, _, _, _, let body) = block { return containsReadingWord(body) }
-            return false
-        }
-    }
     /// Draws plugins' code blocks; nil where plugins do not draw, which shows them as code.
     @Environment(\.communityPluginCodeBlocks) private var pluginCodeBlocks
 
@@ -1230,9 +1301,8 @@ struct ReadingBlocksView: View {
                     }
                 if let anchor { heading.id(anchor) } else { heading }
             case .callout(_, let type, let title, let folding, let body):
-                CalloutView(type: type, title: title, folding: folding, root: root, textSize: textSize, navigate: navigate,
-                            scrollToHeading: scrollToHeading, sourceTokens: readingSourceTokensByBlock[block.id],
-                            automaticallyExpandsForReading: containsReadingWord(body)) {
+                ReadingCallout(type: type, title: title, folding: folding, root: root, textSize: textSize, navigate: navigate,
+                               scrollToHeading: scrollToHeading, sourceTokens: readingSourceTokensByBlock[block.id], blocksInside: body) {
                     ReadingBlocksView(blocks: body, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading, openPDF: openPDF, updateProperties: nil)
                 }
             case .video(_, let location):
@@ -1297,6 +1367,47 @@ struct ReadingBlocksView: View {
     }
 }
 
+/// A callout in the reading view, which opens while the word being read is inside it.
+private struct ReadingCallout<Content: View>: View {
+    let type: String
+    let title: String
+    let folding: CalloutFolding
+    let root: URL
+    let textSize: Double
+    let navigate: (String, Bool) -> Void
+    let scrollToHeading: (String) -> Void
+    let sourceTokens: [ReadAloudSourceToken]?
+    /// The callout's own blocks.
+    let blocksInside: [RenderedBlock]
+    let content: () -> Content
+    @Environment(\.readingSourceTokensByBlock) private var readingSourceTokensByBlock
+    @Environment(\.readingActiveSourceRange) private var readingActiveSourceRange
+    @Environment(\.readingFollowsSource) private var readingFollowsSource
+
+    init(type: String, title: String, folding: CalloutFolding, root: URL, textSize: Double, navigate: @escaping (String, Bool) -> Void,
+         scrollToHeading: @escaping (String) -> Void, sourceTokens: [ReadAloudSourceToken]?, blocksInside: [RenderedBlock],
+         @ViewBuilder content: @escaping () -> Content) {
+        self.type = type; self.title = title; self.folding = folding; self.root = root; self.textSize = textSize
+        self.navigate = navigate; self.scrollToHeading = scrollToHeading; self.sourceTokens = sourceTokens
+        self.blocksInside = blocksInside; self.content = content
+    }
+
+    var body: some View {
+        CalloutView(type: type, title: title, folding: folding, root: root, textSize: textSize, navigate: navigate,
+                    scrollToHeading: scrollToHeading, sourceTokens: sourceTokens,
+                    automaticallyExpandsForReading: containsReadingWord(blocksInside), content: content)
+    }
+
+    private func containsReadingWord(_ blocks: [RenderedBlock]) -> Bool {
+        guard readingFollowsSource, let range = readingActiveSourceRange else { return false }
+        return blocks.contains { block in
+            if readingSourceTokensByBlock[block.id]?.contains(where: { token in NSIntersectionRange(token.sourceRange, range).length > 0 }) == true { return true }
+            if case .callout(_, _, _, _, let body) = block { return containsReadingWord(body) }
+            return false
+        }
+    }
+}
+
 /// Reports a block's frame in the reading view as it scrolls, where the note's place is
 /// followed (`ReadingPosition`); does nothing for embedded notes.
 private struct ReadingBlockPositionReporter: ViewModifier {
@@ -1320,11 +1431,13 @@ private struct ReadingBlockPositionReporter: ViewModifier {
 }
 
 /// One Markdown run rendered with Obsidian-like styles and Graphite's link handling.
+///
+/// The word read aloud changes several times a second, and every text of the note on screen
+/// hears of it. This view only finds whether the word is in its text; the text is drawn
+/// again only when it is (`ObsidianMarkdownTextContent`). Drawing every text of a long note
+/// again at each word took the main thread whole while a note was read aloud.
 struct ObsidianMarkdownText: View {
     let markdown: String
-    @Environment(\.accent) private var accent
-    @Environment(\.noteTypography) private var typography
-    @Environment(\.noteTheme) private var theme
     let root: URL
     let textSize: Double
     let navigate: (String, Bool) -> Void
@@ -1333,78 +1446,20 @@ struct ObsidianMarkdownText: View {
     @Environment(\.readingActiveSourceRange) private var readingActiveSourceRange
 
     var body: some View {
-        if let numberedEquation {
-            NumberedEquationView(equation: numberedEquation, textSize: textSize)
-                .background {
-                    if let activeRange = readingActiveSourceRange, sourceTokens?.contains(where: { token in
-                        token.isEquation && NSIntersectionRange(token.sourceRange, activeRange).length > 0
-                    }) == true {
-                        RoundedRectangle(cornerRadius: 3).fill(ReadAloudHighlightStyle.color)
-                        GeometryReader { geometry in
-                            Color.clear.preference(key: ReadingHighlightGeometryKey.self,
-                                                   value: [ReadingHighlightGeometry(sourceRange: activeRange,
-                                                                                     frame: geometry.frame(in: .named(ReadingCoordinateSpace.name)))])
-                        }
-                        .allowsHitTesting(false)
-                    }
-                }
-        } else {
-            StructuredText(markdown, parser: ObsidianMarkdownParser(baseURL: root, textSize: textSize, sourceTokens: sourceTokens,
-                                                                    themeColors: ReadingThemeColors(theme: theme)))
-                // StructuredText parses again only when its text changes, and the parse sizes
-                // footnote numbers and colors the theme's links and tags, so a new text size or
-                // theme starts a new view.
-                .id(textSize)
-                .id(sourceTokens)
-                .id(theme?.tokens.fingerprint)
-                .font(typography.textSwiftUIFont(size: textSize))
-                .foregroundStyle(theme?.textNormal.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.primary))
-                .textual.lineSpacing(.fontScaled(theme?.lineHeight.map { height in max(0, height - 1.2) } ?? Self.graphiteLineSpacing))
-                .textual.textSelection(.enabled)
-                .textual.inlineStyle(inlineStyle)
-                .textual.codeBlockStyle(ObsidianCodeBlockStyle(monospaceFont: typography.monospaceSwiftUIFont(size: textSize), theme: theme))
-                .textual.listItemStyle(ObsidianListItemStyle(textSize: textSize, theme: theme))
-                .textual.imageAttachmentLoader(VaultImageLoader(root: root))
-                .textual.headingStyle(ObsidianHeadingStyle(theme: theme, typography: typography, textSize: textSize))
-                .textual.tableStyle(ObsidianTableStyle(theme: theme))
-                .textual.thematicBreakStyle(ObsidianThematicBreakStyle(theme: theme))
-                .textual.tableCellStyle(ObsidianTableCellStyle(theme: theme))
-                .textual.blockQuoteStyle(ObsidianBlockQuoteStyle(theme: theme))
-                .tint(accent)
-                .environment(\.openURL, Self.linkAction(root: root, navigate: navigate, scrollToHeading: scrollToHeading))
-        }
+        ObsidianMarkdownTextContent(markdown: markdown, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading,
+                                    sourceTokens: sourceTokens, activeRange: activeRangeInText)
+            .equatable()
     }
 
-    /// Links in the accent, and inline code in the monospace font. SF Mono keeps Textual's
-    /// own code style, which follows a heading's size; another family is set as a font.
-    private var inlineStyle: InlineStyle {
-        // With a theme, the parser colors each link (internal, unresolved, external) and tag.
-        var linkedStyle = theme == nil ? InlineStyle.default.link(.foregroundColor(accent)) : InlineStyle.default.link(KeptTextProperty())
-        if theme?.linksAreUnderlined == true { linkedStyle = InlineStyle.default.link(.underlineStyle(.single)) }
-        // The theme's bold and italic colors.
-        if let boldColor = theme?.boldColor { linkedStyle = linkedStyle.strong(.fontWeight(.semibold), .foregroundColor(Color(boldColor))) }
-        if let italicColor = theme?.italicColor { linkedStyle = linkedStyle.emphasis(.italic, .foregroundColor(Color(italicColor))) }
-        let codeBackground = theme?.codeBackground.map { color in Color(color) }
-        guard case .installed = typography.monospaceFamily else {
-            guard let codeBackground else { return linkedStyle }
-            return linkedStyle.code(.monospaced, .fontScale(0.94), .backgroundColor(codeBackground))
-        }
-        if let codeBackground {
-            return linkedStyle.code(.font(typography.monospaceSwiftUIFont(size: textSize)), .fontScale(0.94), .backgroundColor(codeBackground))
-        }
-        return linkedStyle.code(.font(typography.monospaceSwiftUIFont(size: textSize)), .fontScale(0.94))
+    /// The word being read, when one of this text's words is it.
+    private var activeRangeInText: NSRange? {
+        guard let range = readingActiveSourceRange, let sourceTokens,
+              sourceTokens.contains(where: { token in NSIntersectionRange(token.sourceRange, range).length > 0 }) else { return nil }
+        return range
     }
 
     /// Graphite's line spacing in reading view without a theme: Textual's own.
     static let graphiteLineSpacing = 0.0
-
-    /// The display formula with equation numbers that is all of the text, which is laid
-    /// out with its numbers at the right of the column. One the typesetter cannot draw is
-    /// left to the Markdown renderer, which shows it as its source.
-    private var numberedEquation: NumberedEquation? {
-        guard let equation = ObsidianInlineMarkup.numberedEquation(aloneIn: markdown), NumberedEquationView.canDraw(equation, textSize: textSize) else { return nil }
-        return equation
-    }
 
     /// Follows links in rendered Markdown: Wikilinks and note links inside Graphite, files
     /// in the vault by their path, and anything else, such as web pages, with the system.
@@ -1444,9 +1499,104 @@ struct ObsidianMarkdownText: View {
     }
 }
 
-/// Parses Markdown with math, then turns Graphite's private color, highlight, and task
-/// markers into text attributes and checkboxes.
-/// Leaves a run's attributes as the parser set them, for links the parser colors itself.
+/// The text of `ObsidianMarkdownText`, drawn again only when what it shows changes: the
+/// word read aloud reaches it only while the word is inside it.
+private struct ObsidianMarkdownTextContent: View, Equatable {
+    let markdown: String
+    @Environment(\.accent) private var accent
+    @Environment(\.noteTypography) private var typography
+    @Environment(\.noteTheme) private var theme
+    let root: URL
+    let textSize: Double
+    let navigate: (String, Bool) -> Void
+    let scrollToHeading: (String) -> Void
+    let sourceTokens: [ReadAloudSourceToken]?
+    /// The word being read, when it is in this text; nil otherwise.
+    let activeRange: NSRange?
+    @Environment(\.readingHighlightFill) private var readingHighlightFill
+
+    /// The same text, read at the same word. The closures are left out: their owners make
+    /// new ones at every update, which do the same.
+    nonisolated static func == (leftText: ObsidianMarkdownTextContent, rightText: ObsidianMarkdownTextContent) -> Bool {
+        leftText.markdown == rightText.markdown && leftText.root == rightText.root && leftText.textSize == rightText.textSize
+            && leftText.sourceTokens == rightText.sourceTokens && leftText.activeRange == rightText.activeRange
+    }
+
+    var body: some View {
+        if let numberedEquation {
+            NumberedEquationView(equation: numberedEquation, textSize: textSize)
+                .background {
+                    if let activeRange, sourceTokens?.contains(where: { token in
+                        token.isEquation && NSIntersectionRange(token.sourceRange, activeRange).length > 0
+                    }) == true {
+                        RoundedRectangle(cornerRadius: 3).fill(ReadAloudHighlightStyle.color)
+                        GeometryReader { geometry in
+                            Color.clear.preference(key: ReadingHighlightGeometryKey.self,
+                                                   value: [ReadingHighlightGeometry(sourceRange: activeRange,
+                                                                                     frame: geometry.frame(in: .named(ReadingCoordinateSpace.name)))])
+                        }
+                        .allowsHitTesting(false)
+                    }
+                }
+        } else {
+            StructuredText(markdown, parser: ObsidianMarkdownParser(baseURL: root, textSize: textSize, sourceTokens: sourceTokens,
+                                                                    themeColors: ReadingThemeColors(theme: theme)))
+                // StructuredText parses again only when its text changes, and the parse sizes
+                // footnote numbers and colors the theme's links and tags, so a new text size or
+                // theme starts a new view.
+                .id(textSize)
+                .id(sourceTokens)
+                .id(theme?.tokens.fingerprint)
+                .font(typography.textSwiftUIFont(size: textSize))
+                .foregroundStyle(theme?.textNormal.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.primary))
+                .textual.lineSpacing(.fontScaled(theme?.lineHeight.map { height in max(0, height - 1.2) } ?? ObsidianMarkdownText.graphiteLineSpacing))
+                .textual.textSelection(.enabled)
+                .textual.inlineStyle(inlineStyle)
+                .textual.codeBlockStyle(ObsidianCodeBlockStyle(monospaceFont: typography.monospaceSwiftUIFont(size: textSize), theme: theme))
+                .textual.listItemStyle(ObsidianListItemStyle(textSize: textSize, theme: theme))
+                .textual.imageAttachmentLoader(VaultImageLoader(root: root))
+                .textual.headingStyle(ObsidianHeadingStyle(theme: theme, typography: typography, textSize: textSize))
+                .textual.tableStyle(ObsidianTableStyle(theme: theme))
+                .textual.thematicBreakStyle(ObsidianThematicBreakStyle(theme: theme))
+                .textual.tableCellStyle(ObsidianTableCellStyle(theme: theme))
+                .textual.blockQuoteStyle(ObsidianBlockQuoteStyle(theme: theme))
+                .tint(accent)
+                .environment(\.openURL, ObsidianMarkdownText.linkAction(root: root, navigate: navigate, scrollToHeading: scrollToHeading))
+                .textual.readingHighlight(activeRange, color: readingHighlightFill, coordinateSpace: ReadingCoordinateSpace.name)
+        }
+    }
+
+    /// Links in the accent, and inline code in the monospace font. SF Mono keeps Textual's
+    /// own code style, which follows a heading's size; another family is set as a font.
+    private var inlineStyle: InlineStyle {
+        // With a theme, the parser colors each link (internal, unresolved, external) and tag.
+        var linkedStyle = theme == nil ? InlineStyle.default.link(.foregroundColor(accent)) : InlineStyle.default.link(KeptTextProperty())
+        if theme?.linksAreUnderlined == true { linkedStyle = InlineStyle.default.link(.underlineStyle(.single)) }
+        // The theme's bold and italic colors.
+        if let boldColor = theme?.boldColor { linkedStyle = linkedStyle.strong(.fontWeight(.semibold), .foregroundColor(Color(boldColor))) }
+        if let italicColor = theme?.italicColor { linkedStyle = linkedStyle.emphasis(.italic, .foregroundColor(Color(italicColor))) }
+        let codeBackground = theme?.codeBackground.map { color in Color(color) }
+        guard case .installed = typography.monospaceFamily else {
+            guard let codeBackground else { return linkedStyle }
+            return linkedStyle.code(.monospaced, .fontScale(0.94), .backgroundColor(codeBackground))
+        }
+        if let codeBackground {
+            return linkedStyle.code(.font(typography.monospaceSwiftUIFont(size: textSize)), .fontScale(0.94), .backgroundColor(codeBackground))
+        }
+        return linkedStyle.code(.font(typography.monospaceSwiftUIFont(size: textSize)), .fontScale(0.94))
+    }
+
+
+    /// The display formula with equation numbers that is all of the text, which is laid
+    /// out with its numbers at the right of the column. One the typesetter cannot draw is
+    /// left to the Markdown renderer, which shows it as its source.
+    private var numberedEquation: NumberedEquation? {
+        guard let equation = ObsidianInlineMarkup.numberedEquation(aloneIn: markdown), NumberedEquationView.canDraw(equation, textSize: textSize) else { return nil }
+        return equation
+    }
+
+}
+
 struct KeptTextProperty: TextProperty {
     func apply(in attributes: inout AttributeContainer, environment: TextEnvironmentValues) {}
 }

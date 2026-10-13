@@ -139,6 +139,8 @@ struct LivePreviewWidgetView: View {
         .environment(\.readingActiveSourceRange, readingRange)
         .environment(\.readingFollowsSource, environment.readingContext.map { context in context.controller.shouldFollow(context.path) } ?? false)
         .textual.readingHighlight(readingRange, coordinateSpace: ReadingCoordinateSpace.name)
+        // Textual's own fill, which rendered blocks in Live Preview have always used.
+        .environment(\.readingHighlightFill, .yellow.opacity(0.35))
         .task(id: LivePreviewReadingRequest(sourceText: block.markdown, paletteHexByName: environment.paletteHexByName,
                                            hasReadingSession: hasReadingSession)) {
             guard hasReadingSession else { readingSnapshot = nil; return }
