@@ -485,11 +485,17 @@ private struct PDFPaneContent: View {
         }
     }
 
-    /// Whether the width is compact; never on macOS, which has no size classes to speak of.
     /// Whether the pages, find and adding pages are in More rather than in the toolbar: in a
     /// compact width, and in a regular one too narrow for them beside the title.
-    private var foldsSecondaryActions: Bool { isCompactWidthOnAnyPlatform || foldsSecondaryToolbarActions }
+    private var foldsSecondaryActions: Bool {
+        #if canImport(UIKit)
+        isCompactWidth || foldsSecondaryToolbarActions
+        #else
+        false
+        #endif
+    }
 
+    /// Whether the width is compact; never on macOS, which has no size classes to speak of.
     private var isCompactWidthOnAnyPlatform: Bool {
         #if canImport(UIKit)
         isCompactWidth
