@@ -48,4 +48,20 @@ final class PDFPaneHealthTests: XCTestCase {
         XCTAssertFalse(count.add(gesture(fingers: 2, drawsWithFinger: true), at: 20), "Two fingers scroll even with finger drawing.")
         XCTAssertEqual(count.unansweredTimes.count, 1)
     }
+
+    /// A drag or a pinch that moved the pages and was put back where it began springs back:
+    /// it answered nothing. One that stayed, or that only moved a little, was answered.
+    func testAGestureWhoseResultWasPutBackWasUndone() {
+        typealias Position = UnansweredGestureCount.PagePosition
+        let start = Position(offset: CGPoint(x: 300, y: 1200), scale: 2.5)
+        let dragged = Position(offset: CGPoint(x: 300, y: 1450), scale: 2.5)
+        XCTAssertTrue(UnansweredGestureCount.wasUndone(from: start, movedTo: dragged, nowAt: start), "Dragged, then put back.")
+        XCTAssertTrue(UnansweredGestureCount.wasUndone(from: start, movedTo: dragged, nowAt: Position(offset: CGPoint(x: 301, y: 1201), scale: 2.5)))
+        XCTAssertFalse(UnansweredGestureCount.wasUndone(from: start, movedTo: dragged, nowAt: dragged), "Dragged, and it stayed.")
+        let pinched = Position(offset: CGPoint(x: 600, y: 1800), scale: 3.5)
+        XCTAssertTrue(UnansweredGestureCount.wasUndone(from: start, movedTo: pinched, nowAt: start), "Pinched, then put back.")
+        XCTAssertFalse(UnansweredGestureCount.wasUndone(from: start, movedTo: pinched, nowAt: pinched))
+        let nudged = Position(offset: CGPoint(x: 300, y: 1210), scale: 2.5)
+        XCTAssertFalse(UnansweredGestureCount.wasUndone(from: start, movedTo: nudged, nowAt: start), "A nudge of a few points is not a result.")
+    }
 }

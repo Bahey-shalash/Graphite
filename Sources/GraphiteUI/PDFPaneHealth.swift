@@ -29,6 +29,34 @@ struct UnansweredGestureCount {
 
     private(set) var unansweredTimes: [TimeInterval] = []
 
+    /// Where the pages are: the scroll offset and the zoom.
+    struct PagePosition: Equatable {
+        var offset: CGPoint
+        var scale: CGFloat
+    }
+
+    /// A gesture's result is checked again this long after the gesture ends.
+    static let undoneWithinSeconds: TimeInterval = 1
+    /// How far a gesture must have moved the pages, or changed the zoom, for its result to be
+    /// one that can be undone.
+    static let undoableMovementPoints: CGFloat = 20
+    static let undoableZoomFraction: CGFloat = 0.05
+    /// Back within this of where the gesture began is back where it began.
+    static let sameOffsetPoints: CGFloat = 2
+    static let sameZoomFraction: CGFloat = 0.005
+
+    /// Whether something put the pages back where a gesture found them after the gesture had
+    /// moved them: a gesture that moves the page and then springs back answered nothing,
+    /// though it changed the offset or the zoom while the finger was down.
+    static func wasUndone(from start: PagePosition, movedTo end: PagePosition, nowAt current: PagePosition) -> Bool {
+        guard start.scale > 0 else { return false }
+        let moved = hypot(end.offset.x - start.offset.x, end.offset.y - start.offset.y) >= undoableMovementPoints
+            || abs(end.scale / start.scale - 1) >= undoableZoomFraction
+        let isBack = hypot(current.offset.x - start.offset.x, current.offset.y - start.offset.y) <= sameOffsetPoints
+            && abs(current.scale / start.scale - 1) < sameZoomFraction
+        return moved && isBack
+    }
+
     /// Adds a gesture that ended at `time`; true when the PDF is taken to have stopped taking
     /// touches, after which the count starts again.
     mutating func add(_ gesture: Gesture, at time: TimeInterval) -> Bool {
@@ -68,7 +96,11 @@ import GraphiteApple
 ///   window (`UnansweredGestureCount` says which count). When the touches reached the PDF
 ///   and several such gestures in a row changed nothing (no scroll, no zoom, no edit, no
 ///   text selected), the PDF stopped taking touches: a record is written and the view is
-///   built again, as switching tabs does, after every canvas's ink is recorded. When they
+///   built again, as switching tabs does, after every canvas's ink is recorded. A gesture
+///   that moved the pages counts as not answered too when something put them back where
+///   it found them within a second (a page that springs back after every drag or pinch,
+///   reported by the owner, 2026-10-13), unless it was pulled past an edge or a zoom limit,
+///   where the scroll view rightly springs back. When they
 ///   reached another view over the PDF, only a record is written: that view may be a
 ///   control the person meant to use.
 /// - Once a second, the page canvases and the recognizers of the PDF are checked for states
@@ -96,6 +128,17 @@ final class PDFPaneHealthMonitor {
     private var gestureStart: GestureStart?
     /// Set once the view is to be built again, so the old one is left alone meanwhile.
     private(set) var hasRequestedRebuild = false
+    /// The last gesture that moved the pages, until it is checked again a moment after it
+    /// ended (`UnansweredGestureCount.wasUndone`).
+    private var movedGesture: MovedGesture?
+    private var undoneCheck: DispatchWorkItem?
+
+    private struct MovedGesture {
+        let gesture: UnansweredGestureCount.Gesture
+        let start: UnansweredGestureCount.PagePosition
+        let end: UnansweredGestureCount.PagePosition
+        let locationInWindow: CGPoint
+    }
 
     private struct GestureStart {
         let contentOffset: CGPoint
@@ -124,6 +167,9 @@ final class PDFPaneHealthMonitor {
     /// Follows the window the PDF view is in now, or none.
     func windowDidChange(to window: UIWindow?) {
         guard window !== observedWindow else { return }
+        undoneCheck?.cancel()
+        undoneCheck = nil
+        movedGesture = nil
         observedWindow?.removeGestureRecognizer(observer)
         observedWindow = window
         window?.addGestureRecognizer(observer)
@@ -148,6 +194,8 @@ final class PDFPaneHealthMonitor {
     private var mainScrollView: UIScrollView? { pdfView?.documentView?.enclosingScrollViewForHealth }
 
     private func gestureBegan(_ touches: [UITouch]) {
+        // The gesture before is settled now, before this one moves the pages again.
+        settleMovedGesture()
         gestureStart = nil
         // A finger on a PDF embedded in a note may scroll the note instead, rightly; a sheet
         // or popover over the PDF takes the touches meant for it.
@@ -222,6 +270,14 @@ final class PDFPaneHealthMonitor {
             Self.log.notice("A finger gesture on the PDF changed nothing; the touch reached the PDF: \(start.reachedPDF)")
         }
         if start.reachedPDF {
+            if start.wasAnswered, let movedGesture = movedGestureToCheck(start, gesture: gesture) {
+                // Answered by moving the pages: whether the move lasts is known a moment later.
+                self.movedGesture = movedGesture
+                let check = DispatchWorkItem { [weak self] in self?.settleMovedGesture() }
+                undoneCheck = check
+                DispatchQueue.main.asyncAfter(deadline: .now() + UnansweredGestureCount.undoneWithinSeconds, execute: check)
+                return
+            }
             guard unansweredInPDF.add(gesture, at: now) else { return }
             paneStoppedTakingTouches(lastTouchInWindow: start.locationInWindow)
         } else {
@@ -233,10 +289,58 @@ final class PDFPaneHealthMonitor {
         }
     }
 
+    /// The pages as a gesture left them, when only moving them answered it and they are not
+    /// pulled past their edges or zoom limits, where the scroll view rightly springs back.
+    private func movedGestureToCheck(_ start: GestureStart, gesture: UnansweredGestureCount.Gesture) -> MovedGesture? {
+        guard let pdfView, let coordinator, let scrollView = mainScrollView,
+              coordinator.session.changeVersion == start.changeVersion, pdfView.currentSelection?.string == start.selectedText,
+              Self.isWithinLimits(scrollView, pdfView: pdfView) else { return nil }
+        return MovedGesture(gesture: gesture, start: UnansweredGestureCount.PagePosition(offset: start.contentOffset, scale: start.scaleFactor),
+                            end: UnansweredGestureCount.PagePosition(offset: scrollView.contentOffset, scale: pdfView.scaleFactor),
+                            locationInWindow: start.locationInWindow)
+    }
+
+    /// Counts the last gesture that moved the pages: answered if they stayed moved, not
+    /// answered if something put them back where the gesture found them.
+    private func settleMovedGesture() {
+        undoneCheck?.cancel()
+        undoneCheck = nil
+        guard let movedGesture else { return }
+        self.movedGesture = nil
+        guard let pdfView, let scrollView = mainScrollView, !hasRequestedRebuild else { return }
+        // A fling or a bounce still under way is the pages moving as the person sent them.
+        let isMovingByItself = scrollView.isDecelerating || scrollView.isZoomBouncing
+        let now = UnansweredGestureCount.PagePosition(offset: scrollView.contentOffset, scale: pdfView.scaleFactor)
+        let wasUndone = !isMovingByItself && UnansweredGestureCount.wasUndone(from: movedGesture.start, movedTo: movedGesture.end, nowAt: now)
+        var gesture = movedGesture.gesture
+        gesture.wasAnswered = !wasUndone
+        if wasUndone {
+            Self.log.notice("A finger gesture moved the PDF and something put it back within a second")
+        }
+        guard unansweredInPDF.add(gesture, at: ProcessInfo.processInfo.systemUptime) else { return }
+        paneStoppedTakingTouches(lastTouchInWindow: movedGesture.locationInWindow,
+                                 cause: "Finger gestures moved the pages, and something put them back where they were within a second.")
+    }
+
+    /// Whether the pages are inside their scrollable range and zoom limits.
+    private static func isWithinLimits(_ scrollView: UIScrollView, pdfView: PDFView) -> Bool {
+        let insets = scrollView.adjustedContentInset
+        let offset = scrollView.contentOffset
+        let tolerance: CGFloat = 1
+        let maximumX = max(-insets.left, scrollView.contentSize.width - scrollView.bounds.width + insets.right)
+        let maximumY = max(-insets.top, scrollView.contentSize.height - scrollView.bounds.height + insets.bottom)
+        let scale = pdfView.scaleFactor
+        return offset.x >= -insets.left - tolerance && offset.x <= maximumX + tolerance
+            && offset.y >= -insets.top - tolerance && offset.y <= maximumY + tolerance
+            && scale >= pdfView.minScaleFactor * 0.999 && scale <= pdfView.maxScaleFactor * 1.001
+    }
+
     /// Records what the PDF looked like, then builds its view again.
-    private func paneStoppedTakingTouches(lastTouchInWindow: CGPoint) {
+    private func paneStoppedTakingTouches(lastTouchInWindow: CGPoint,
+                                          cause: String = "Finger gestures on the PDF changed nothing: no scroll, no zoom, no edit, no text selected.") {
         guard let coordinator, !hasRequestedRebuild else { return }
         var fields = describe(touchAt: lastTouchInWindow)
+        fields["cause"] = cause
         fields["action"] = "The PDF's ink was recorded and its view built again, as switching tabs does."
         DiagnosticRecords.write(kind: "PDFStoppedTakingTouches", fields: fields)
         DiagnosticContext.note("The PDF stopped taking touches; its view was built again")
