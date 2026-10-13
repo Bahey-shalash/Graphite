@@ -2,7 +2,19 @@
 
 What Graphite does today, how each part is verified, and what is still missing. `OBJECTIVE.md` describes the complete product; this file tracks progress toward it. Update it with every change that adds, removes, or re-verifies behavior.
 
-Last updated: 2026-10-12.
+Last updated: 2026-10-13.
+
+## A PDF in a side window settles and stays still: 2026-10-13
+
+The owner's recording on alpha 6cff25c (portrait, Graphite in the right half, about 400 points, beside ChatGPT) showed the PDF's zoom and place changing every half second while the title and Pencil bar stayed cut off on the right. The cut-off is the scene laid out wider than the window (next section). Checked whether the refit added in 6cff25c fights with anything:
+- The previous refit, with the 1,200-point default size put back, in the simulator's windowing: a 600-point tile, a pinch, a scroll, and the window made narrower than its restriction allowed (laid out 1,065 wide and cut off): each PDF view width was logged once, with no width changing back and forth and no refit at a pinch or scroll. The instability in the recording was not reproduced, and whether it was the owner pinching on a page laid out wider than the window is not known.
+- The refit now chooses the zoom only on a real change of the view's width, never at a layout pass of the same width, and choosing it again for the same width changes nothing. A pinch, scroll or fling under way when the width changes wins: the resize then keeps neither zoom nor place (`isMovedByPerson`). Widths and zooms chosen go to the debug log, category `PDFResize`.
+- `PencilWorkspaceTests.testThePDFRefitsWhenTheWindowChangesSize` (hosted) now also counts PDFKit's zoom-change notifications and the PDF view's widths for two seconds after each resize (1194 → 590 → 820 → 375 → 1194 fitting, 590 and 820 zoomed): 0 zoom changes and one width each time, and the zoom chosen at most once per resize.
+- `PencilWorkspaceTests.testThePDFFitsGraphitesOwnWindowAndStaysStill` (hosted, new): the workspace in a window at the scene's own size, with the same checks as for every window size above, then two seconds untouched (0 zoom changes, one width) and the zoom a pinch leaves (PDFKit's fitting off, 1.6 times fitting) kept for two seconds, not taken for a resize. Run in the test simulator (full screen, 834×1210, regular) and in the other simulator with Graphite tiled beside the home screen: landscape 411×834 and 578×834, both compact; widths logged `[411]` and `[578]`, 0 zoom changes.
+- In that simulator, the window dragged from 1,065 down to 609 and to 411 points: the log shows each width once as the drag passes (the sidebar folding away at the compact width makes one step wider), then nothing; a pinch afterwards keeps its zoom.
+- Not established: a pinch or scroll under way while the width changes (hosted tests cannot hold a gesture), portrait windows (the simulator's windows ignore a request to turn), and the owner's iPad, which needs a build installed.
+
+`testReadingPositionSurvivesViewRecreationAndNewHeadingTakesPriority`, flaky in full hosted runs (alpha 6cff25c merged, 2026-10-13, and alpha-lasso, 2026-10-12; both failures were two timed-out waits, 12 seconds), is a Markdown reading view the PDF refit does not touch. The failure fits the test's own scroll, set from UIKit, never being recorded: the restored view then matched the unrecorded position at the top, so only the two waits failed. It passed 25 times alone, 6 times in its class and in a full run here, so the cause was not seen; the test now scrolls again until the view keeps the scroll, checks the scroll was recorded, and its waits report their own line.
 
 ## A window tiled beside another app is laid out at its own size: 2026-10-13
 
