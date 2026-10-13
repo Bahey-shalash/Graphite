@@ -90,6 +90,18 @@ enum DocumentToolbarLayout {
         return detailWidth < minimumDetailWidthForToolbarControls
     }
 
+    /// Narrower than this, a document's secondary toolbar actions (a PDF's pages, find and
+    /// adding pages) go to its More menu, as in a compact width: a window this narrow beside
+    /// another app also shows the window's own controls in its toolbar, and the actions
+    /// pushed the title and More out of it (reported by the owner, 2026-10-13).
+    static let minimumDetailWidthForSecondaryActions: CGFloat = 760
+
+    static func foldsSecondaryActions(detailWidth: CGFloat?, horizontalSizeClass: UserInterfaceSizeClass?) -> Bool {
+        if horizontalSizeClass == .compact { return true }
+        guard let detailWidth else { return false }
+        return detailWidth < minimumDetailWidthForSecondaryActions
+    }
+
     /// Whether the controls the toolbar has no room for go to the end of a side's tab bar.
     /// A row of their own would take a strip of the page for three controls; the tab bar is
     /// there anyway and mostly empty.
@@ -101,7 +113,7 @@ enum DocumentToolbarLayout {
 
     /// The narrowest a tab bar gives the fixed bar's tools, which scroll sideways where
     /// they need more; narrower, they keep a row of their own.
-    static let minimumPencilToolsWidthInTabBar: CGFloat = 320
+    static let minimumPencilToolsWidthInTabBar: CGFloat = 380
     /// What a tab bar keeps for its tabs beside the tools: one tab at least.
     static let minimumTabsWidthBesidePencilTools: CGFloat = 160
     /// The tab bar's own buttons, New Tab and Split Right.
@@ -131,6 +143,9 @@ extension EnvironmentValues {
     /// True where the side's tab bar has room for the fixed bar's tools
     /// (`TabBarPencilTools`), so a PDF written on shows no row for them.
     @Entry var showsPencilToolsInTabBar = false
+    /// True where a document's secondary toolbar actions go to its More menu
+    /// (`DocumentToolbarLayout.foldsSecondaryActions`).
+    @Entry var foldsSecondaryToolbarActions = false
 }
 
 /// Undo, Redo and Write of a side's active document, at the end of its tab bar.

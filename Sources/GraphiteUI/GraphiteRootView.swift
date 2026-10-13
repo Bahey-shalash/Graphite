@@ -44,6 +44,13 @@ public struct GraphiteRootView: View {
 
     public init() {}
 
+    /// For tests: the root view of a workspace already opened on a vault, which it does not
+    /// replace with the last vault this device opened.
+    init(workspace: WorkspaceModel) {
+        _workspace = State(initialValue: workspace)
+        _isRestoringVault = State(initialValue: false)
+    }
+
     public var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility, preferredCompactColumn: $preferredCompactColumn) {
             VaultSidebar(workspace: workspace, creation: $creation, showsSettings: $showsSettings, showsVaultManager: $showsVaultManager,

@@ -241,6 +241,172 @@ final class PencilWorkspaceTests: XCTestCase {
         attachScreenshot(of: window, named: "Ink while writing, zoomed")
     }
 
+    /// The window sizes an iPad gives Graphite: the screen, halves and thirds of it in either
+    /// orientation, and freely sized windows. Each is checked at the size class iPadOS gives
+    /// it; where that depends on the screen and the window's arrangement, at both.
+    static let windowSizes: [(size: CGSize, sizeClasses: [UIUserInterfaceSizeClass])] = [
+        (CGSize(width: 375, height: 834), [.compact]),
+        (CGSize(width: 507, height: 834), [.compact, .regular]),
+        (CGSize(width: 590, height: 834), [.compact, .regular]),
+        (CGSize(width: 694, height: 834), [.compact, .regular]),
+        (CGSize(width: 820, height: 1180), [.regular]),
+        (CGSize(width: 1194, height: 834), [.regular]),
+    ]
+
+    /// A workspace showing a PDF being written on, with a note in another tab, in a vault of
+    /// its own.
+    private func pdfWorkspace(in directory: URL) async throws -> (WorkspaceModel, PDFSession) {
+        try PDFTemplateGenerator.documentData(paper: PaperSpecification(template: .ruled), pageCount: 4).write(to: directory.appendingPathComponent("Paper.pdf"))
+        try Data("# Untitled\n".utf8).write(to: directory.appendingPathComponent("Untitled.md"))
+        let workspace = WorkspaceModel()
+        workspace.folderAccess = FolderAccess(root: directory)
+        workspace.store = VaultStore(root: directory)
+        workspace.index = try VaultIndex(databaseURL: directory.appendingPathComponent("index.sqlite"))
+        await workspace.open(try VaultPath("Untitled.md"))
+        await workspace.open(try VaultPath("Paper.pdf"), placement: .newTab)
+        let session = try XCTUnwrap(workspace.pdfSession)
+        session.isWriting = true
+        return (workspace, session)
+    }
+
+    /// The page's edges in its view, and the view's width.
+    private func pageEdges(of session: PDFSession) throws -> (page: CGRect, viewWidth: CGFloat) {
+        let pdfView = try XCTUnwrap(session.pdfView)
+        let page = try XCTUnwrap(pdfView.currentPage ?? session.document.page(at: 0))
+        return (pdfView.convert(page.bounds(for: .cropBox), from: page), pdfView.bounds.width)
+    }
+
+    /// The bars' buttons and title UIKit shows (the navigation bar's and the bottom bar's),
+    /// each with its kind and frame in the window, and whether one of them shows the More
+    /// menu's ellipsis. UIKit's bar buttons carry no label of their own a test can read.
+    private func barControls(in window: UIWindow) -> (controls: [(kind: String, frame: CGRect)], showsMore: Bool) {
+        var controls: [(String, CGRect)] = []
+        var showsMore = false
+        func visit(_ view: UIView) {
+            guard !view.isHidden, view.alpha > 0.01 else { return }
+            let kind = String(describing: type(of: view))
+            if kind.contains("ButtonBarButton") || kind.contains("TitleControl") {
+                controls.append((kind, view.convert(view.bounds, to: window)))
+            }
+            if let imageView = view as? UIImageView, imageView.image?.description.contains("ellipsis") == true { showsMore = true }
+            view.subviews.forEach(visit)
+        }
+        (descendants(of: window, matching: UINavigationBar.self) + descendants(of: window, matching: UIToolbar.self)).forEach(visit)
+        return (controls, showsMore)
+    }
+
+    /// A PDF being written on, in the whole workspace (sidebar, toolbar, tabs and the fixed
+    /// Pencil bar), in a window of every size: the page fits the window's width, the Pencil
+    /// bar is whole or compact, never cut off, and every bar control is inside the window.
+    func testThePDFWorkspaceFitsEveryWindowSize() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("WindowSizes-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let savedStyle = UserDefaults.standard.object(forKey: PencilToolbarStyle.preferenceKey)
+        UserDefaults.standard.set(PencilToolbarStyle.fixed.rawValue, forKey: PencilToolbarStyle.preferenceKey)
+        defer {
+            if let savedStyle { UserDefaults.standard.set(savedStyle, forKey: PencilToolbarStyle.preferenceKey) }
+            else { UserDefaults.standard.removeObject(forKey: PencilToolbarStyle.preferenceKey) }
+        }
+        let (workspace, session) = try await pdfWorkspace(in: directory)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        for (size, sizeClasses) in Self.windowSizes {
+            for sizeClass in sizeClasses {
+                let name = "\(Int(size.width))x\(Int(size.height)) \(sizeClass == .compact ? "compact" : "regular")"
+                let controller = UIHostingController(rootView: GraphiteRootView(workspace: workspace))
+                controller.traitOverrides.horizontalSizeClass = sizeClass
+                let window = UIWindow(windowScene: scene)
+                window.frame = CGRect(origin: .zero, size: size)
+                window.rootViewController = controller
+                PencilToolRowForm.lastShown = nil
+                window.makeKeyAndVisible()
+                try await waitUntil { (session.pdfView as? GraphitePDFDisplayView)?.window === window }
+                try await Task.sleep(for: .milliseconds(1500))
+                attachScreenshot(of: window, named: name)
+
+                let (page, viewWidth) = try pageEdges(of: session)
+                XCTAssertGreaterThanOrEqual(page.minX, -1, "\(name): the page starts inside its view.")
+                XCTAssertLessThanOrEqual(page.maxX, viewWidth + 1, "\(name): the page ends inside its view.")
+                XCTAssertLessThanOrEqual(viewWidth - page.width, 40, "\(name): the page fits the width, with no empty column.")
+                let pdfFrame = try XCTUnwrap(session.pdfView).convert(try XCTUnwrap(session.pdfView).bounds, to: window)
+                XCTAssertGreaterThanOrEqual(pdfFrame.minX, -1, "\(name): the PDF is inside the window.")
+                XCTAssertLessThanOrEqual(pdfFrame.maxX, size.width + 1, "\(name): the PDF is inside the window.")
+
+                if sizeClass == .regular {
+                    let shownRow = try XCTUnwrap(PencilToolRowForm.lastShown, "\(name): the fixed Pencil bar shows.")
+                    XCTAssertNotEqual(shownRow.form, .scrolling, "\(name): the Pencil bar is whole or compact, not cut off.")
+                    XCTAssertGreaterThanOrEqual(shownRow.frameInWindow.minX, -0.5, "\(name): the Pencil bar starts inside the window.")
+                    XCTAssertLessThanOrEqual(shownRow.frameInWindow.maxX, size.width + 0.5, "\(name): the Pencil bar ends inside the window.")
+                }
+                let (controls, showsMore) = barControls(in: window)
+                XCTAssertFalse(controls.isEmpty)
+                for control in controls {
+                    XCTAssertGreaterThanOrEqual(control.frame.minX, -0.5, "\(name): a \(control.kind) is inside the window.")
+                    XCTAssertLessThanOrEqual(control.frame.maxX, size.width + 0.5, "\(name): a \(control.kind) is inside the window.")
+                    XCTAssertGreaterThan(control.frame.width, 1, "\(name): a \(control.kind) is not squeezed away.")
+                }
+                let titles = controls.filter { control in control.kind.contains("TitleControl") }
+                for title in titles {
+                    XCTAssertGreaterThanOrEqual(title.frame.width, 60, "\(name): the title stays readable.")
+                    XCTAssertFalse(controls.contains { control in control.kind.contains("ButtonBarButton") && control.frame.intersects(title.frame.insetBy(dx: 1, dy: 1)) },
+                                   "\(name): no button covers the title.")
+                }
+                XCTAssertTrue(showsMore, "\(name): the More menu, which holds what the bar has no room for, shows.")
+                window.isHidden = true
+                window.rootViewController = nil
+            }
+        }
+    }
+
+    /// A PDF fitted to its window's width, or zoomed past that, keeps fitting, or keeps its
+    /// zoom past fitting, when the window changes size, though a pinch has turned PDFKit's own
+    /// fitting off; the page never runs off one edge with an empty column at the other.
+    func testThePDFRefitsWhenTheWindowChangesSize() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("WindowResize-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (workspace, session) = try await pdfWorkspace(in: directory)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let controller = UIHostingController(rootView: GraphiteRootView(workspace: workspace))
+        controller.traitOverrides.horizontalSizeClass = .regular
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 1194, height: 834)
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        try await waitUntil { (session.pdfView as? GraphitePDFDisplayView)?.window === window }
+        try await Task.sleep(for: .milliseconds(1000))
+        let pdfView = try XCTUnwrap(session.pdfView)
+
+        // Pinched back to fitting: PDFKit no longer fits the page itself.
+        pdfView.autoScales = false
+        pdfView.scaleFactor = pdfView.scaleFactorForSizeToFit
+        for width in [590.0, 820.0, 375.0, 1194.0] as [CGFloat] {
+            window.frame = CGRect(x: 0, y: 0, width: width, height: 834)
+            try await Task.sleep(for: .milliseconds(900))
+            let (page, viewWidth) = try pageEdges(of: session)
+            XCTAssertLessThanOrEqual(abs(viewWidth - page.width), 40, "At \(Int(width)) points the page fits the width again.")
+            XCTAssertGreaterThanOrEqual(page.minX, -1)
+            XCTAssertLessThanOrEqual(page.maxX, viewWidth + 1)
+        }
+        attachScreenshot(of: window, named: "Resized, fitting")
+
+        // Zoomed in to write: the zoom past fitting stays, and no column is left empty.
+        pdfView.autoScales = false
+        pdfView.scaleFactor = pdfView.scaleFactorForSizeToFit * 1.5
+        let zoomPastFitting = pdfView.scaleFactor / pdfView.scaleFactorForSizeToFit
+        for width in [590.0, 820.0] as [CGFloat] {
+            window.frame = CGRect(x: 0, y: 0, width: width, height: 834)
+            try await Task.sleep(for: .milliseconds(900))
+            XCTAssertEqual(pdfView.scaleFactor / pdfView.scaleFactorForSizeToFit, zoomPastFitting, accuracy: 0.05, "At \(Int(width)) points the zoom past fitting stays.")
+            let (page, viewWidth) = try pageEdges(of: session)
+            // PDFKit keeps a margin around a page, scaled with it: about 6 points at this zoom.
+            XCTAssertLessThanOrEqual(page.minX, 12, "At \(Int(width)) points no empty column is left of the page.")
+            XCTAssertGreaterThanOrEqual(page.maxX, viewWidth - 12, "At \(Int(width)) points no empty column is right of the page.")
+        }
+        attachScreenshot(of: window, named: "Resized, zoomed")
+    }
+
     /// Zoomed in to write on a page, the canvas draws its ink at the zoom it is seen at, not
     /// at the page's size magnified, while its drawing, its place over the page and the width
     /// of a stroke on the page stay what they are at the page's own size.

@@ -114,12 +114,19 @@ struct PencilToolRow: View {
     private var buttonSide: CGFloat { PencilToolbarMetrics.buttonSide }
     private var selectedFill: AnyShapeStyle { PencilToolbarMetrics.selectedFill }
 
+    /// How much of the row shows, by the width it has (`PencilToolRowLayout`).
+    @State private var showsCompactOptions = false
+
     var body: some View {
+        // The whole row where it fits; else the tools, with the size, the color and the rest
+        // behind one control, so nothing is cut off and nothing has to be scrolled to; only
+        // in a window too narrow even for that do the tools scroll, with fading ends.
         ViewThatFits(in: .horizontal) {
-            tools
-            // Where the row does not fit, its ends fade, so a tool cut off by the edge
-            // reads as more to scroll to.
-            ScrollView(.horizontal, showsIndicators: false) { tools }
+            fullRow
+                .reportingLayout(.full)
+            compactRow
+                .reportingLayout(.compact)
+            ScrollView(.horizontal, showsIndicators: false) { compactRow }
                 .mask {
                     HStack(spacing: 0) {
                         LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing).frame(width: 12)
@@ -127,6 +134,7 @@ struct PencilToolRow: View {
                         LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing).frame(width: 12)
                     }
                 }
+                .reportingLayout(.scrolling)
         }
         .frame(height: rowHeight)
         .tint(.primary)
@@ -134,85 +142,180 @@ struct PencilToolRow: View {
         .background { PencilGestureReceiver(toolbox: toolbox, undoAvailability: undoAvailability) }
     }
 
-    private var tools: some View {
+    private var fullRow: some View {
+        HStack(spacing: 2) {
+            toolButtons
+            separator
+            toolOptions(sizesOpenWidth: true)
+            if Self.offersColors(toolInUse: toolbox.toolInUse) {
+                colorButtons
+                separator
+            }
+            extraButtons
+        }
+        .padding(.horizontal, 10)
+    }
+
+    /// The tools, and one control for the size, the color and the rest, which opens them in
+    /// a popover: Apple's own way when a bar has no room for its controls.
+    private var compactRow: some View {
+        HStack(spacing: 2) {
+            toolButtons
+            separator
+            compactOptionsButton
+        }
+        .padding(.horizontal, 10)
+    }
+
+    private var toolButtons: some View {
         HStack(spacing: 2) {
             ForEach(Array(toolbox.presets.enumerated()), id: \.element.id) { presetIndex, preset in presetButton(preset, at: presetIndex) }
             toolButton(.eraser)
             toolButton(.lasso)
             toolButton(.laser)
             if offersReadAloudPen { toolButton(.readAloud) }
-            separator
-            switch toolbox.toolInUse {
-            case .ink:
-                ForEach(Array(toolbox.presetInUse.widthChoices.enumerated()), id: \.offset) { choiceIndex, width in
+        }
+    }
+
+    /// The tool in use's own choices: the three sizes of an ink, the eraser's kind and sizes,
+    /// the lasso's shape, the laser's style. On the bar a second tap on the size in use opens
+    /// its width; in the compact control's popover, the ink's options give the width.
+    @ViewBuilder private func toolOptions(sizesOpenWidth: Bool) -> some View {
+        switch toolbox.toolInUse {
+        case .ink:
+            ForEach(Array(toolbox.presetInUse.widthChoices.enumerated()), id: \.offset) { choiceIndex, width in
+                if sizesOpenWidth {
                     adjustableSizeButton(.ink(choiceIndex: choiceIndex), width: width, isChosen: toolbox.presetInUse.width == width) {
                         toolbox.useWidthChoice(at: choiceIndex)
                     }
+                } else {
+                    buttons.sizeButton(choiceIndex: choiceIndex, width: width, isChosen: toolbox.presetInUse.width == width) {
+                        toolbox.useWidthChoice(at: choiceIndex)
+                    }
                 }
-                separator
-            case .eraser:
-                Picker("Eraser", selection: $toolbox.erasesWholeStrokes) {
-                    Text("Strokes").tag(true)
-                    Text("Pixels").tag(false)
-                }
-                .pickerStyle(.segmented)
-                .fixedSize()
-                if !toolbox.erasesWholeStrokes {
-                    ForEach(Array(toolbox.eraserWidthChoices.enumerated()), id: \.offset) { choiceIndex, width in
+            }
+            separator
+        case .eraser:
+            Picker("Eraser", selection: $toolbox.erasesWholeStrokes) {
+                Text("Strokes").tag(true)
+                Text("Pixels").tag(false)
+            }
+            .pickerStyle(.segmented)
+            .fixedSize()
+            if !toolbox.erasesWholeStrokes {
+                ForEach(Array(toolbox.eraserWidthChoices.enumerated()), id: \.offset) { choiceIndex, width in
+                    if sizesOpenWidth {
                         adjustableSizeButton(.eraser(choiceIndex: choiceIndex), width: width, isChosen: toolbox.eraserWidth == width) {
+                            toolbox.chooseEraserWidth(width)
+                        }
+                    } else {
+                        buttons.sizeButton(choiceIndex: choiceIndex, width: width, isChosen: toolbox.eraserWidth == width) {
                             toolbox.chooseEraserWidth(width)
                         }
                     }
                 }
-                separator
-            case .lasso:
-                // Remembered for every canvas, as Goodnotes keeps its lasso's type.
-                Picker("Lasso Type", selection: $lassoShape) {
-                    ForEach(LassoShape.allCases) { shape in Text(shape.title).tag(shape) }
-                }
-                .pickerStyle(.segmented)
+            }
+            separator
+        case .lasso:
+            // Remembered for every canvas, as Goodnotes keeps its lasso's type.
+            Picker("Lasso Type", selection: $lassoShape) {
+                ForEach(LassoShape.allCases) { shape in Text(shape.title).tag(shape) }
+            }
+            .pickerStyle(.segmented)
+            .fixedSize()
+            separator
+        case .laser:
+            Picker("Laser Pointer", selection: $laserPointerStyle) {
+                ForEach(LaserPointerStyle.allCases) { style in Text(style.title).tag(style) }
+            }
+            .pickerStyle(.segmented)
+            .fixedSize()
+            separator
+        case .readAloud:
+            Text(offersReadAloudPen ? "Tap a word to read; tap another to stop there" : "Nothing to read here")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
                 .fixedSize()
-                separator
-            case .laser:
-                Picker("Laser Pointer", selection: $laserPointerStyle) {
-                    ForEach(LaserPointerStyle.allCases) { style in Text(style.title).tag(style) }
-                }
-                .pickerStyle(.segmented)
-                .fixedSize()
-                separator
-            case .readAloud:
-                Text(offersReadAloudPen ? "Tap a word to read; tap another to stop there" : "Nothing to read here")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .fixedSize()
-                separator
-            }
-            if Self.offersColors(toolInUse: toolbox.toolInUse) {
-                // A highlighter marks text in light colors of its own; a pen writes in black and
-                // the note colors.
-                if toolbox.presetInUse.ink == .highlighter {
-                    ForEach(highlighterColors) { highlighterColor in colorButton(name: highlighterColor.name, hex: highlighterColor.hex) }
-                } else {
-                    colorButton(name: "black", hex: PencilInk.pen.defaultColorHex)
-                    ForEach(favoriteColors) { favorite in colorButton(name: favorite.name, hex: favorite.hex) }
-                }
-                ColorPicker("Other Color", selection: Binding(
-                    get: { Color(graphiteHex: toolbox.presetInUse.colorHex) ?? .black },
-                    set: { newColor in if let hex = newColor.sRGBHex { toolbox.chooseColor(hex: hex) } }), supportsOpacity: false)
-                    .labelsHidden()
-                    .frame(width: buttonSide, height: rowHeight)
-                separator
-            }
-            toggleButton("Shapes", symbolName: drawsShapes ? "square.fill.on.circle.fill" : "square.on.circle", isOn: $drawsShapes)
-            toggleButton("Ruler", symbolName: "ruler", isOn: $toolbox.isRulerActive)
-            if let addImage {
-                Button("Add Image", systemImage: "photo.badge.plus", action: addImage)
-                    .labelStyle(.iconOnly)
-                    .frame(width: buttonSide, height: rowHeight)
-            }
+            separator
         }
-        .padding(.horizontal, 10)
+    }
+
+    /// A highlighter marks text in light colors of its own; a pen writes in black and the
+    /// note colors.
+    @ViewBuilder private var colorButtons: some View {
+        if toolbox.presetInUse.ink == .highlighter {
+            ForEach(highlighterColors) { highlighterColor in colorButton(name: highlighterColor.name, hex: highlighterColor.hex) }
+        } else {
+            colorButton(name: "black", hex: PencilInk.pen.defaultColorHex)
+            ForEach(favoriteColors) { favorite in colorButton(name: favorite.name, hex: favorite.hex) }
+        }
+        ColorPicker("Other Color", selection: Binding(
+            get: { Color(graphiteHex: toolbox.presetInUse.colorHex) ?? .black },
+            set: { newColor in if let hex = newColor.sRGBHex { toolbox.chooseColor(hex: hex) } }), supportsOpacity: false)
+            .labelsHidden()
+            .frame(width: buttonSide, height: rowHeight)
+    }
+
+    @ViewBuilder private var extraButtons: some View {
+        toggleButton("Shapes", symbolName: drawsShapes ? "square.fill.on.circle.fill" : "square.on.circle", isOn: $drawsShapes)
+        toggleButton("Ruler", symbolName: "ruler", isOn: $toolbox.isRulerActive)
+        if let addImage {
+            Button("Add Image", systemImage: "photo.badge.plus", action: addImage)
+                .labelStyle(.iconOnly)
+                .frame(width: buttonSide, height: rowHeight)
+        }
+    }
+
+    /// The compact row's one control for everything after the tools. It shows the ink in
+    /// use as a dot of its color and size, or the tool's symbol, and opens the rest.
+    private var compactOptionsButton: some View {
+        Button {
+            showsCompactOptions = true
+        } label: {
+            compactOptionsGlyph
+                .frame(width: buttonSide, height: buttonSide)
+                .background(showsCompactOptions ? selectedFill : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: GraphiteChrome.cornerRadius, style: .continuous))
+                .frame(width: max(buttonSide, 44), height: rowHeight)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Size, Color and More")
+        .accessibilityValue(compactOptionsDescription)
+        .popover(isPresented: $showsCompactOptions) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 2) { toolOptions(sizesOpenWidth: false) }
+                if Self.offersColors(toolInUse: toolbox.toolInUse) {
+                    HStack(spacing: 2) { colorButtons }
+                }
+                HStack(spacing: 2) { extraButtons }
+            }
+            .padding(12)
+            .tint(.primary)
+            .presentationCompactAdaptation(.popover)
+        }
+    }
+
+    @ViewBuilder private var compactOptionsGlyph: some View {
+        switch toolbox.toolInUse {
+        case .ink:
+            let diameter = CGFloat(PencilSizeDot.diameter(forWidth: toolbox.presetInUse.width))
+            Circle()
+                .fill(Color(graphiteHex: toolbox.presetInUse.colorHex) ?? .black)
+                .overlay { Circle().strokeBorder(Color.primary.opacity(0.25), lineWidth: 0.5) }
+                .frame(width: max(diameter, 10), height: max(diameter, 10))
+        default:
+            Image(systemName: "slider.horizontal.3")
+                .font(.system(size: 16))
+        }
+    }
+
+    private var compactOptionsDescription: String {
+        switch toolbox.toolInUse {
+        case .ink: PencilWidthText.millimeters(toolbox.presetInUse.width)
+        case .eraser: toolbox.erasesWholeStrokes ? "Strokes" : PencilWidthText.millimeters(toolbox.eraserWidth)
+        default: ""
+        }
     }
 
     /// Whether the colors follow the tool's own controls: not for the laser pointer, which
@@ -264,6 +367,24 @@ struct PencilToolRow: View {
         .buttonStyle(.plain)
         .accessibilityLabel(title)
         .accessibilityValue(isOn.wrappedValue ? "On" : "Off")
+    }
+}
+
+/// Which form of the Pencil tool row is shown: the whole row, the compact one, or the
+/// compact one scrolling, in a window too narrow even for that.
+enum PencilToolRowForm: Equatable {
+    case full, compact, scrolling
+
+    /// For tests, which cannot see SwiftUI's views: the form last shown, and where, in its
+    /// window's coordinates.
+    @MainActor static var lastShown: (form: PencilToolRowForm, frameInWindow: CGRect)?
+}
+
+private extension View {
+    func reportingLayout(_ form: PencilToolRowForm) -> some View {
+        onGeometryChange(for: CGRect.self) { geometry in geometry.frame(in: .global) } action: { frame in
+            PencilToolRowForm.lastShown = (form, frame)
+        }
     }
 }
 
