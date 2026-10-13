@@ -719,7 +719,9 @@ class HistoryCanvasView: PKCanvasView {
         // The color the canvas draws the ink in, which PencilKit adapts to a dark canvas.
         evenStrokeLayer.strokeColor = PKInkingTool.convertColor(shownColor(of: inkingTool.ink), from: .light, to: traitCollection.userInterfaceStyle).cgColor
         evenStrokeLayer.lineWidth = inkingTool.width * EvenHighlighter.bandHeightPerWidth
-        evenStrokeLayer.opacity = Float(EvenHighlighter.bandOpacity(forWidth: inkingTool.width))
+        // PencilKit softens a marker's edges in the drawing's own points, so how strong the
+        // band's middle is follows its width in the drawing, not on screen.
+        evenStrokeLayer.opacity = Float(EvenHighlighter.bandOpacity(forWidth: inkingTool.width / max(zoomScale, 0.01)))
         evenStrokeLayer.lineCap = .butt
         evenStrokeLayer.lineJoin = .round
         // Under PencilKit's own views, as PencilKit draws a highlight: under the ink it
