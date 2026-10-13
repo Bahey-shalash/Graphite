@@ -521,11 +521,16 @@ final class ReadAloudController {
         return "Preparing… \(Int((share * 100).rounded()))%"
     }
 
-    /// A person's own scroll pauses following; it comes back by itself a few seconds after
-    /// the last scroll, or at once from Follow Reading in the controls.
-    func suspendFollowing() {
+    /// A person's own scroll pauses following. In a note it comes back by itself a few
+    /// seconds after the last scroll; on a PDF (`resumesByItself` false) it waits for Back to
+    /// Reading: the person zooms and moves a PDF's page to write on it, and a page that went
+    /// back to the word read by itself took their place away. Follow Reading in the controls
+    /// brings it back at once in both.
+    func suspendFollowing(resumesByItself: Bool = true) {
         followsReading = false
         followResumption?.cancel()
+        followResumption = nil
+        guard resumesByItself else { return }
         followResumption = Task { [weak self] in
             try? await Task.sleep(for: Self.followResumptionDelay)
             guard let self, !Task.isCancelled, self.session.state == .speaking else { return }
@@ -533,8 +538,8 @@ final class ReadAloudController {
         }
     }
 
-    func suspendFollowing(in identifier: String) {
-        if sourceIdentifier == identifier, session.document != nil { suspendFollowing() }
+    func suspendFollowing(in identifier: String, resumesByItself: Bool = true) {
+        if sourceIdentifier == identifier, session.document != nil { suspendFollowing(resumesByItself: resumesByItself) }
     }
 
     static let followResumptionDelay = Duration.seconds(5)
@@ -599,6 +604,10 @@ final class ReadAloudController {
         recognizedPageIdentifier = nil
         recognizedWordRange = nil
         errorMessage = nil
+        // A new reading follows what it reads, whatever the last one was left at.
+        followResumption?.cancel()
+        followResumption = nil
+        followsReading = true
         isPreparing = true
         // The app keeps the page in view and shows the controls in the toolbar; the options
         // sheet opens by itself only when something needs the person's attention.

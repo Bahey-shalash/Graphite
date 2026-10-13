@@ -12,6 +12,8 @@
 		C4A1D5E0B7F2496A8E000001 /* ReadAloudWhileWritingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4A1D5E0B7F2496A8E000002 /* ReadAloudWhileWritingTests.swift */; };
 		D7B3E1A0C4F2496A8E000001 /* MainThreadResponsivenessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7B3E1A0C4F2496A8E000002 /* MainThreadResponsivenessTests.swift */; };
 		D7B3E1A0C4F2496A8E000005 /* PalmRejectionTouchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7B3E1A0C4F2496A8E000006 /* PalmRejectionTouchTests.swift */; };
+		B0A11CE0000000000000A003 /* PDFGestureWinsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A11CE0000000000000A004 /* PDFGestureWinsTests.swift */; };
+		B0A11CE0000000000000A001 /* SynthesizedTouches.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A11CE0000000000000A002 /* SynthesizedTouches.swift */; };
 		D7B3E1A0C4F2496A8E000003 /* PDFInkSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7B3E1A0C4F2496A8E000004 /* PDFInkSafetyTests.swift */; };
 		B38AFB9C7CF94493A3000001 /* PDFReadAloudScanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B38AFB9C7CF94493A3000002 /* PDFReadAloudScanTests.swift */; };
 		B38AFB9C7CF94493A2000001 /* PDFReadAloudExtractionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B38AFB9C7CF94493A2000002 /* PDFReadAloudExtractionTests.swift */; };
@@ -73,6 +75,8 @@
 		C4A1D5E0B7F2496A8E000002 /* ReadAloudWhileWritingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/ReadAloudWhileWritingTests.swift; sourceTree = "<group>"; };
 		D7B3E1A0C4F2496A8E000002 /* MainThreadResponsivenessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/MainThreadResponsivenessTests.swift; sourceTree = "<group>"; };
 		D7B3E1A0C4F2496A8E000006 /* PalmRejectionTouchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/PalmRejectionTouchTests.swift; sourceTree = "<group>"; };
+		B0A11CE0000000000000A004 /* PDFGestureWinsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/PDFGestureWinsTests.swift; sourceTree = "<group>"; };
+		B0A11CE0000000000000A002 /* SynthesizedTouches.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/SynthesizedTouches.swift; sourceTree = "<group>"; };
 		D7B3E1A0C4F2496A8E000004 /* PDFInkSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/PDFInkSafetyTests.swift; sourceTree = "<group>"; };
 		B38AFB9C7CF94493A3000002 /* PDFReadAloudScanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/PDFReadAloudScanTests.swift; sourceTree = "<group>"; };
 		B38AFB9C7CF94493A2000002 /* PDFReadAloudExtractionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/PDFReadAloudExtractionTests.swift; sourceTree = "<group>"; };
@@ -146,6 +150,8 @@
 				C4A1D5E0B7F2496A8E000002 /* ReadAloudWhileWritingTests.swift */,
 				D7B3E1A0C4F2496A8E000002 /* MainThreadResponsivenessTests.swift */,
 				D7B3E1A0C4F2496A8E000006 /* PalmRejectionTouchTests.swift */,
+				B0A11CE0000000000000A004 /* PDFGestureWinsTests.swift */,
+				B0A11CE0000000000000A002 /* SynthesizedTouches.swift */,
 				D7B3E1A0C4F2496A8E000004 /* PDFInkSafetyTests.swift */,
 				B38AFB9C7CF94493A3000002 /* PDFReadAloudScanTests.swift */,
 				B38AFB9C7CF94493A2000002 /* PDFReadAloudExtractionTests.swift */,
@@ -307,6 +313,8 @@
 				C4A1D5E0B7F2496A8E000001 /* ReadAloudWhileWritingTests.swift in Sources */,
 				D7B3E1A0C4F2496A8E000001 /* MainThreadResponsivenessTests.swift in Sources */,
 				D7B3E1A0C4F2496A8E000005 /* PalmRejectionTouchTests.swift in Sources */,
+				B0A11CE0000000000000A003 /* PDFGestureWinsTests.swift in Sources */,
+				B0A11CE0000000000000A001 /* SynthesizedTouches.swift in Sources */,
 				D7B3E1A0C4F2496A8E000003 /* PDFInkSafetyTests.swift in Sources */,
 				B38AFB9C7CF94493A3000001 /* PDFReadAloudScanTests.swift in Sources */,
 				B38AFB9C7CF94493A2000001 /* PDFReadAloudExtractionTests.swift in Sources */,

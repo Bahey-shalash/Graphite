@@ -250,14 +250,25 @@ struct PDFReadAloudHighlight: Equatable, Sendable {
 
 /// Owns only the temporary selections it adds. Search highlights and the user's
 /// native selection survive updates and teardown; no PDF annotations are made.
+///
+/// Following brings each word read into view once, when reading reaches it or following
+/// comes back (Back to Reading), never at a view update in between. SwiftUI updates the
+/// PDF's view each time the word's place on screen changes, which scrolling the word into
+/// view changes too: revealing at every update scrolled the page back and forth between
+/// two offsets without end, at full speed on the main thread, and took back every pinch
+/// and scroll the person made (seen in the simulator, 2026-10-13).
 @MainActor
 final class PDFReadAloudHighlighter {
     private var selections: [PDFSelection] = []
     private var previousHighlights: [PDFReadAloudHighlight] = []
     private var recognizedOverlay: PDFRecognizedReadingOverlay?
     private weak var highlightedDocument: PDFDocument?
+    /// The word last brought into view while following; nil while not following, so the
+    /// word read when following comes back is brought into view once.
+    private var revealedWord: PDFReadAloudHighlight?
 
     func update(_ highlights: [PDFReadAloudHighlight], in view: PDFView, followsReading: Bool = false) {
+        if !followsReading { revealedWord = nil }
         let existingSelections = view.highlightedSelections ?? []
         if highlights == previousHighlights, highlightedDocument === view.document,
            selections.allSatisfy({ readingSelection in existingSelections.contains { $0 === readingSelection } }) {
@@ -305,13 +316,24 @@ final class PDFReadAloudHighlighter {
         return view.convert(bounds, from: page)
     }
 
+    /// Brings the word read into view, once for each word, and never while the person moves
+    /// or touches the pages: their scroll or pinch wins.
     private func revealWordIfNeeded(in view: PDFView) {
-        guard let document = view.document, let highlight = previousHighlights.first,
+        guard let document = view.document, let highlight = previousHighlights.first, highlight != revealedWord,
               let page = document.page(at: highlight.pageIndex), let bounds = highlight.pageBounds(in: document),
               view.bounds.width > 32, view.bounds.height > 80,
-              view.scaleFactor.isFinite, view.scaleFactor > 0 else { return }
+              view.scaleFactor.isFinite, view.scaleFactor > 0, !Self.isTouchedOrMoved(view) else { return }
+        revealedWord = highlight
         let wordBounds = view.convert(bounds, from: page)
-        if !view.bounds.insetBy(dx: 16, dy: 40).contains(wordBounds) {
+        #if canImport(UIKit)
+        if let scrollView = (view as? GraphitePDFDisplayView)?.pagesScrollView {
+            revealWord(wordBounds, by: scrollView, in: view)
+            return
+        }
+        #endif
+        // A word already on screen stays where it is. The margin asked for below is wider
+        // than this one, so a word just brought into view counts as on screen.
+        if !view.bounds.insetBy(dx: 8, dy: 16).contains(wordBounds) {
             // go(to: selection) can leave the last pixels against the viewport's
             // edge. Request surrounding page space for comfortable screen margins.
             let destination = bounds
@@ -319,5 +341,44 @@ final class PDFReadAloudHighlighter {
                 .intersection(page.bounds(for: view.displayBox))
             if !destination.isEmpty { view.go(to: destination, on: page) }
         }
+    }
+
+    #if canImport(UIKit)
+    /// Scrolls the pages so the word read is on screen, without changing the zoom. A word
+    /// below or above the part on screen goes near its top, so the lines after it can be
+    /// read; one off to a side comes just inside that side. PDFKit's `go(to:on:)` left a
+    /// word it scrolled to a fraction of a point short of the margin asked for, and going to
+    /// the next word moved the page back by 20 points, word after word.
+    private func revealWord(_ wordBounds: CGRect, by scrollView: UIScrollView, in view: PDFView) {
+        let visible = scrollView.convert(scrollView.bounds, to: view).inset(by: scrollView.adjustedContentInset)
+        // A word already on screen stays where it is.
+        guard !visible.insetBy(dx: 8, dy: 16).contains(wordBounds) else { return }
+        let comfortable = visible.insetBy(dx: 16, dy: 40)
+        var offset = scrollView.contentOffset
+        if wordBounds.minY < comfortable.minY || wordBounds.maxY > comfortable.maxY {
+            offset.y += wordBounds.minY - comfortable.minY
+        }
+        if wordBounds.minX < comfortable.minX {
+            offset.x += wordBounds.minX - comfortable.minX
+        } else if wordBounds.maxX > comfortable.maxX {
+            offset.x += min(wordBounds.maxX - comfortable.maxX, wordBounds.minX - comfortable.minX)
+        }
+        let insets = scrollView.adjustedContentInset
+        offset.x = min(max(offset.x, -insets.left), max(-insets.left, scrollView.contentSize.width - scrollView.bounds.width + insets.right))
+        offset.y = min(max(offset.y, -insets.top), max(-insets.top, scrollView.contentSize.height - scrollView.bounds.height + insets.bottom))
+        guard abs(offset.x - scrollView.contentOffset.x) > 0.5 || abs(offset.y - scrollView.contentOffset.y) > 0.5 else { return }
+        scrollView.setContentOffset(offset, animated: false)
+    }
+    #endif
+
+    /// Whether a finger or Apple Pencil is on the pages, or they are still moving from a
+    /// scroll, a fling or a pinch.
+    private static func isTouchedOrMoved(_ view: PDFView) -> Bool {
+        #if canImport(UIKit)
+        if let displayView = view as? GraphitePDFDisplayView, displayView.isMovedByPerson { return true }
+        return PencilActivity.isPencilTouching(at: PencilActivity.now)
+        #else
+        return false
+        #endif
     }
 }

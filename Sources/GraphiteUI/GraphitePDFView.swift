@@ -104,6 +104,7 @@ final class PDFViewPageObserver: NSObject {
         notificationObservers.removeAll()
         #if canImport(UIKit)
         observedScrollView?.panGestureRecognizer.removeTarget(self, action: #selector(manualScrollBegan(_:)))
+        observedScrollView?.pinchGestureRecognizer?.removeTarget(self, action: #selector(manualScrollBegan(_:)))
         observedScrollView = nil
         scrollOffsetObservation = nil
         #else
@@ -148,8 +149,11 @@ final class PDFViewPageObserver: NSObject {
         #if canImport(UIKit)
         guard let scrollView = view?.documentView?.enclosingScrollView, scrollView !== observedScrollView else { return }
         observedScrollView?.panGestureRecognizer.removeTarget(self, action: #selector(manualScrollBegan(_:)))
+        observedScrollView?.pinchGestureRecognizer?.removeTarget(self, action: #selector(manualScrollBegan(_:)))
         observedScrollView = scrollView
+        // A pinch pauses following as a scroll does: following took back every pinch.
         scrollView.panGestureRecognizer.addTarget(self, action: #selector(manualScrollBegan(_:)))
+        scrollView.pinchGestureRecognizer?.addTarget(self, action: #selector(manualScrollBegan(_:)))
         #else
         guard scrollMonitor == nil else { return }
         scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
@@ -164,7 +168,7 @@ final class PDFViewPageObserver: NSObject {
     }
 
     #if canImport(UIKit)
-    @objc private func manualScrollBegan(_ recognizer: UIPanGestureRecognizer) {
+    @objc private func manualScrollBegan(_ recognizer: UIGestureRecognizer) {
         if recognizer.state == .began { suspendReadingFollow?() }
     }
     #endif
@@ -355,10 +359,13 @@ final class GraphitePDFDisplayView: PDFView {
     /// tests that check a resize settles at once and stays settled.
     private(set) var zoomChangesForWidth = 0
 
+    /// The scroll view PDFKit scrolls and zooms the pages in.
+    var pagesScrollView: UIScrollView? { documentView?.enclosingScrollView }
+
     /// Whether a finger is pinching, scrolling or flinging the pages, or they are bouncing
     /// back after it: the person moves the pages then, and a resize does not move them too.
     var isMovedByPerson: Bool {
-        guard let scrollView = documentView?.enclosingScrollView else { return false }
+        guard let scrollView = pagesScrollView else { return false }
         let pinchState = scrollView.pinchGestureRecognizer?.state
         return scrollView.isZooming || scrollView.isZoomBouncing || scrollView.isTracking || scrollView.isDragging
             || scrollView.isDecelerating || pinchState == .began || pinchState == .changed

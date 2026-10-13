@@ -174,7 +174,7 @@ private struct PDFPaneContent: View {
                                 beginWritingWithPencil: session.isProtected ? nil : { focus(); session.isWriting = true },
                                 readingHighlights: readAloud?.highlights(in: session) ?? [],
                                 followsReading: readAloud?.shouldFollow(session) ?? false,
-                                suspendReadingFollow: { readAloud?.suspendFollowing(in: session.location.path) },
+                                suspendReadingFollow: { readAloud?.suspendFollowing(in: session.location.path, resumesByItself: false) },
                                 reportReadingHighlightFrame: reportReadingHighlightFrame,
                                 readAloudPen: readAloud == nil || readAloudNavigator == nil ? nil : { tap in readWithPen(tap) },
                                 readAloudMarkers: readAloudMarkers,
