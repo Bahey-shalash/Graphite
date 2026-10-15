@@ -468,8 +468,19 @@ final class WorkspaceModel {
     func refreshDirectory() async {
         guard let store else { return }
         do {
-            rootEntries = try await store.children(of: .root, sortedBy: vaultSettings.fileSortOrder); directoryVersion += 1
-            checkConflictVersions(of: rootEntries.lazy.filter { entry in !entry.isDirectory }.map(\.path))
+            let entries = try await store.children(of: .root, sortedBy: vaultSettings.fileSortOrder)
+            // Expanded folders list their contents again whatever happened at the root.
+            directoryVersion += 1
+            // An unchanged listing asks the file provider about nothing again. Every listed
+            // file was queued for a conflict check, up to 5,000 of a 24,712-file root, each
+            // time anything in the vault changed, which Obsidian does every few seconds to
+            // its `.obsidian` files when it runs beside Graphite (measured 2026-10-16).
+            guard entries != rootEntries else { return }
+            let listedPaths = Set(rootEntries.lazy.map(\.path))
+            rootEntries = entries
+            // Files listed before were already asked about; a version a file gains or loses
+            // is reported as a change to that file, which checks it again.
+            checkConflictVersions(of: entries.lazy.filter { entry in !entry.isDirectory && !listedPaths.contains(entry.path) }.map(\.path))
         } catch { errorMessage = error.localizedDescription }
     }
 
