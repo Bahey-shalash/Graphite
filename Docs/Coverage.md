@@ -2,7 +2,15 @@
 
 What Graphite does today, how each part is verified, and what is still missing. `OBJECTIVE.md` describes the complete product; this file tracks progress toward it. Update it with every change that adds, removes, or re-verifies behavior.
 
-Last updated: 2026-10-15.
+Last updated: 2026-10-16.
+
+## Map View, a core plugin: the vault's places and the open note's: 2026-10-16
+
+Asked by the owner as something as present as the graph view, beyond Bases' map. A note is placed by a `coordinates` property, which Bases' map view and Obsidian's Maps plugin read, or `location`, which the Map View community plugin writes, each as `[lat, lng]` or `"lat, lng"`; the map only reads them. Settings › Core Plugins › Map View turns it off. View › Map View and the palette's "Map view: Open map view" show every placed note, with a path filter and Show All; "Map view: Open local map" and the right sidebar's map panel show the open note and the notes one link away. Nearby notes gather into one numbered marker; choosing it zooms in on them, choosing a note opens it. Notes are named without their extension, and the map frames them with room for their markers. On the Mac the whole-vault map is a page-sized sheet; on iPadOS it covers the screen, as the graph view does.
+
+Checked: `VaultPlacesTests` (Index): both properties in both forms, `coordinates` read first, and no place for an address, a mapping, decimal commas or a latitude past 90; a place moves with its property and goes with it. `UiMapViewMacTests` (macOS package tests, MapKit's map view hosted): the vault map has a marker for each of three placed notes, and selecting one opens its note; the local map has the open note and the note it links to, not a placed note it does not link to. A scratch app showing both screens on a vault of eight places (captured on screen): seven European notes gather into one marker beside Tokyo, and the local map frames Paris and its two linked notes. On this change, `swift test` on macOS: 574 UI tests (one skipped) and 139 Index tests, no failure; the iPad simulator app builds.
+
+Not verified: a vault with thousands of places; the map by hand on the Mac or the iPad (markers chosen with a pointer or a finger, the right sidebar's panel in the app); VoiceOver on markers. The owner's vault has no note with either property yet, so his map is empty.
 
 ## A vault with tens of thousands of files at its root opens on the Mac: 2026-10-15
 

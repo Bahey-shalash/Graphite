@@ -888,7 +888,7 @@ struct NoteLinksInspector: View {
     }
 
     enum InspectorPanel: String, CaseIterable, Identifiable {
-        case outline, backlinks, outgoingLinks, tags, footnotes, graph
+        case outline, backlinks, outgoingLinks, tags, footnotes, graph, map
         var id: String { rawValue }
         var plugin: CorePlugin {
             switch self {
@@ -898,6 +898,7 @@ struct NoteLinksInspector: View {
             case .tags: .tags
             case .footnotes: .footnotes
             case .graph: .graph
+            case .map: .map
             }
         }
     }
@@ -915,6 +916,8 @@ struct NoteLinksInspector: View {
                 .pickerStyle(.segmented).padding(10)
                 if selectedPanel == .graph {
                     LocalGraphPanel(session: session, workspace: workspace)
+                } else if selectedPanel == .map {
+                    LocalMapPanel(session: session, workspace: workspace)
                 } else {
                     List { panelContent }
                 }
@@ -1102,7 +1105,7 @@ struct NoteLinksInspector: View {
                 if tags.isEmpty { Text("No tags").foregroundStyle(.secondary) }
                 ForEach(tags, id: \.self) { tag in Button("#" + tag) { workspace.searchQuery = "#" + tag } }
             }
-        case .graph:
+        case .graph, .map:
             // Drawn in place of the list; see `body`.
             EmptyView()
         }

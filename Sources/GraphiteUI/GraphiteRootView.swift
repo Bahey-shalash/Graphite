@@ -139,6 +139,16 @@ public struct GraphiteRootView: View {
             VaultGraphScreen(workspace: workspace).tint(workspace.preferences.accentColor)
         }
         #endif
+        #if canImport(UIKit)
+        .fullScreenCover(isPresented: $workspace.isMapPresented) {
+            VaultMapScreen(workspace: workspace).tint(workspace.preferences.accentColor)
+        }
+        #else
+        .sheet(isPresented: $workspace.isMapPresented) {
+            // A map wants room: the page size a Mac sheet offers, not its content's size.
+            VaultMapScreen(workspace: workspace).tint(workspace.preferences.accentColor).presentationSizing(.page)
+        }
+        #endif
         .sheet(item: $workspace.fileRecoveryRequest) { request in
             FileRecoverySheet(workspace: workspace, request: request)
                 .tint(workspace.preferences.accentColor)

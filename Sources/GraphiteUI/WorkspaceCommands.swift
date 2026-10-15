@@ -73,6 +73,17 @@ enum WorkspaceCommandList {
                 })
             }
         }
+        if workspace.preferences.isEnabled(.map) {
+            commands.append(PaletteCommand(id: "map-open", title: "Map view: Open map view", systemImage: "map") {
+                workspace.isMapPresented = true
+            })
+            if workspace.markdownSession != nil {
+                commands.append(PaletteCommand(id: "map-local", title: "Map view: Open local map", systemImage: "mappin.and.ellipse") {
+                    UserDefaults.standard.set(NoteLinksInspector.InspectorPanel.map.rawValue, forKey: "GraphiteInspectorPanel")
+                    window.showLinksInspector()
+                })
+            }
+        }
         if workspace.preferences.isEnabled(.bookmarks) {
             commands.append(PaletteCommand(id: "bookmarks-show", title: "Bookmarks: Show bookmarks", systemImage: "bookmark") {
                 UserDefaults.standard.set(SidebarPanel.bookmarks.rawValue, forKey: SidebarPanelSettingKey.panel)
