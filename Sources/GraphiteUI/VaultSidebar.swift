@@ -530,11 +530,20 @@ private struct FileTreeRow {
 /// minutes and never showed (measured 2026-10-15). The wrapper hides every list trait set
 /// inside it, so the selection tag, insets, separator and background are set here, outside
 /// it, and so is the drag: inside it, either one kept a click on the Mac from selecting a file.
-private struct FileTreeRows: View {
+private struct FileTreeRows: View, Equatable {
     @Bindable var workspace: WorkspaceModel
     let requestCreation: (CreationKind, VaultPath) -> Void
     @State private var contents = FileTreeContents()
     @Environment(\.accent) private var accent
+
+    /// The tree is the same as long as its workspace is: `requestCreation` is a new closure
+    /// each time the sidebar is drawn but always sets the same binding, and what the tree
+    /// reads from the workspace is tracked by Observation. Without this, each redraw of the
+    /// sidebar, as opening a note causes, rebuilt every row: 1.4 s of the main thread with
+    /// 24,712 rows on the Mac, where the outline view keeps them all (measured 2026-10-16).
+    nonisolated static func ==(leftTree: FileTreeRows, rightTree: FileTreeRows) -> Bool {
+        leftTree.workspace === rightTree.workspace
+    }
 
     var body: some View {
         ForEach(visibleRows, id: \.entry.path.rawValue) { row in

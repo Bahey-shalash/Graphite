@@ -295,7 +295,21 @@ final class GraphitePreferences {
     /// The order of search results, as in Obsidian's search.
     var searchSortOrder: SearchSortOrder { didSet { defaults.set(searchSortOrder.rawValue, forKey: Key.searchSortOrder) } }
     /// The accent as drawn: the chosen color, lightened in dark appearance to stay readable.
-    var accentColor: Color { Color.graphiteAccent(hex: accentHex) ?? Color.graphiteAccent(hex: GraphiteTheme.defaultAccentHex) ?? .blue }
+    var accentColor: Color { Self.accentColor(forHex: accentHex) }
+
+    /// One color per accent. The accent follows the appearance through a dynamic platform
+    /// color, a new object each time it is made, and SwiftUI compares colors by that object:
+    /// made again on each read, the accent counted as changed on every redraw of the root
+    /// view and redrew every view that reads it, such as all 24,712 rows of a large vault's
+    /// file tree on the Mac each time a note opened (measured 2026-10-16).
+    private static var accentColorsByHex: [String: Color] = [:]
+
+    private static func accentColor(forHex hex: String) -> Color {
+        if let accentColor = accentColorsByHex[hex] { return accentColor }
+        let accentColor = Color.graphiteAccent(hex: hex) ?? Color.graphiteAccent(hex: GraphiteTheme.defaultAccentHex) ?? .blue
+        accentColorsByHex[hex] = accentColor
+        return accentColor
+    }
     /// The accent exactly as chosen, for the color picker.
     var chosenAccentColor: Color { Color(graphiteHex: accentHex) ?? Color(graphiteHex: GraphiteTheme.defaultAccentHex) ?? .blue }
     /// File recovery's "Snapshot interval": at most one copy of a note per this many minutes.
