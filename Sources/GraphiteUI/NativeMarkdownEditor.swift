@@ -2508,6 +2508,9 @@ final class MarkdownMacTextView: NSTextView {
     /// Called when the view enters a window or first gets a width, the two things a jump
     /// needs to measure the note; set by the coordinator.
     var didBecomeMeasurable: ((MarkdownMacTextView) -> Void)?
+    /// Called when the text column moves or changes width, which the views placed over the
+    /// text follow; set by the coordinator.
+    var didMoveTextColumn: (() -> Void)?
 
     private var canInsertAttachments: Bool { insertAttachment != nil || insertLinkToVaultFile != nil }
 
@@ -2523,10 +2526,12 @@ final class MarkdownMacTextView: NSTextView {
     }
 
     override func setFrameSize(_ newSize: NSSize) {
-        let hadWidth = frame.width > 0
+        let previousWidth = frame.width
         super.setFrameSize(newSize)
         updateReadableInset()
-        if !hadWidth, newSize.width > 0 { didBecomeMeasurable?(self) }
+        // The view grows taller with its text; only a new width moves the column.
+        if newSize.width != previousWidth { didMoveTextColumn?() }
+        if previousWidth <= 0, newSize.width > 0 { didBecomeMeasurable?(self) }
     }
 
     /// The readable column's width (Graphite's, or the vault theme's line width), or nil to
@@ -2540,6 +2545,7 @@ final class MarkdownMacTextView: NSTextView {
         let horizontalInset = readableColumnWidth.map { width in max(Self.minimumHorizontalInset, (frame.width - width) / 2) } ?? Self.minimumHorizontalInset
         guard abs(textContainerInset.width - horizontalInset) > 0.5 else { return }
         textContainerInset = CGSize(width: horizontalInset, height: textContainerInset.height)
+        didMoveTextColumn?()
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -2802,10 +2808,12 @@ struct NativeMarkdownEditor: NSViewRepresentable {
     var readAloudRange: NSRange?
     var followsReading = false
     var suspendReadingFollow: (() -> Void)?
+    /// What Live Preview's rendered blocks read. Of them the Mac renders the note's
+    /// properties, as Obsidian shows them above the note; other blocks stay styled source.
+    let environment: LivePreviewEnvironment?
 
-    /// Rendered blocks are iPad-only, so the Mac does not use `environment`; it is accepted
-    /// so both editors share one call. The Mac has no keyboard toolbar either: of `actions`,
-    /// it uses pasting, dropping, following links elsewhere, and focusing the note's side.
+    /// The Mac has no keyboard toolbar: of `actions`, it uses pasting, dropping, following
+    /// links elsewhere, and focusing the note's side.
     init(session: MarkdownSession, configuration: EditorConfiguration, environment: LivePreviewEnvironment? = nil,
          headingScrollRequest: HeadingScrollRequest?, actions: EditorActions = EditorActions(),
          retention: MarkdownEditorRetention? = nil, retentionOwner: TabDocument? = nil, readAloudRange: NSRange? = nil,
@@ -2820,6 +2828,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         self.readAloudRange = readAloudRange
         self.followsReading = followsReading
         self.suspendReadingFollow = suspendReadingFollow
+        self.environment = environment
         self.follow = follow
     }
 
@@ -2850,6 +2859,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         guard let textView = scrollView.documentView as? MarkdownMacTextView else { return scrollView }
         coordinator.actions = actions
         coordinator.follow = follow
+        coordinator.environment = environment
         textView.isRichText = false
         textView.quickFontSize = actions.quickFontSize
         textView.readableColumnWidth = configuration.usesReadableLineLength
@@ -2874,6 +2884,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         session.isEditorAttached = true
         session.undoAvailability.follow(coordinator.noteUndoManager)
         coordinator.restyleEverything(in: textView)
+        coordinator.keepSelectionOutOfConcealedProperties(in: textView)
         return scrollView
     }
 
@@ -2903,10 +2914,16 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             await coordinator?.actions.pluginContextMenuItems?() ?? []
         }
         (textView as? MarkdownMacTextView)?.offerPasteToPlugins = coordinator.actions.pluginPaste
-        if coordinator.configuration != configuration {
-            coordinator.configuration = configuration
+        let previouslyRendersProperties = coordinator.rendersProperties
+        let hasNewConfiguration = coordinator.configuration != configuration
+        coordinator.configuration = configuration
+        coordinator.environment = environment
+        // Turning the Properties view on or off changes what is concealed, as the configuration can.
+        if hasNewConfiguration || coordinator.rendersProperties != previouslyRendersProperties {
             coordinator.restyleEverything(in: textView)
+            coordinator.keepSelectionOutOfConcealedProperties(in: textView)
         }
+        coordinator.refreshPropertiesPanel(in: textView)
         let hasAppliedInsertion = coordinator.applyPendingInsertions(to: textView)
         if !hasAppliedInsertion, !textView.hasMarkedText(), session.text != coordinator.lastSynchronizedText {
             // The file changed on disk, or properties were edited from a panel.
@@ -2929,8 +2946,8 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         coordinator.viewWasDismantled(with: container)
     }
 
-    /// On the Mac, Live Preview conceals markup away from the selection as on the iPad;
-    /// rendered blocks are iPad-only for now, so they stay as styled source here.
+    /// On the Mac, Live Preview conceals markup away from the selection as on the iPad. Of
+    /// its rendered blocks, the Mac renders the properties; the others stay styled source.
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate, RetainableMarkdownEditor {
         var session: MarkdownSession
@@ -2959,7 +2976,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         }
         var pendingJump: Jump?
         /// The text last styled and the edits styling has not caught up with, so each edit
-        /// restyles only the lines it changed. The Mac finds no rendered blocks.
+        /// restyles only the lines it changed. The only block the Mac finds is the frontmatter.
         private let textState = LivePreviewTextState()
         private var characterEditObserver: NSObjectProtocol?
         /// The markup the styling shows as written in Live Preview; see `RevealedMarkup`.
@@ -2970,6 +2987,26 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         var lastSynchronizedText = ""
         /// Pastes and drops whose content is still loading or saving.
         private var pendingInsertionRequests = PendingInsertionRequests()
+        /// What the rendered properties read; nil in Source mode.
+        var environment: LivePreviewEnvironment?
+        /// The note's properties, drawn over their concealed YAML at the top of the note.
+        private var propertiesHost: NSHostingView<AnyView>?
+        /// The frontmatter, environment, and appearance the properties view was built with.
+        private var propertiesHostBlockKey: LivePreviewBlockKey?
+        private var propertiesHostSignature: LivePreviewWidgetSignature?
+        /// The height the properties view last reported, kept across edits to the
+        /// properties: each gives the frontmatter a new key, and its height rarely changes.
+        private var reportedPropertiesHeight: CGFloat?
+        /// The height the concealed YAML reserves in the text now, which the view is given.
+        private var propertiesHeightInText: CGFloat?
+        /// Heights the properties views of every Mac editor measured, so a note opened again
+        /// reserves its properties' height at once instead of correcting an estimate.
+        private static var sharedMeasuredHeights = MeasuredBlockHeightCache(capacity: 500)
+        /// Set by "Edit Source": the YAML shows, and the cursor can be in it, until the
+        /// cursor leaves it.
+        private(set) var showsPropertiesSource = false
+        /// Set while Graphite changes the text itself, which may change the YAML.
+        private var isApplyingOwnEdit = false
 
         init(session: MarkdownSession, configuration: EditorConfiguration) {
             self.session = session
@@ -2977,6 +3014,10 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         }
 
         private var styler: MarkdownTextStyler { MarkdownTextStyler(configuration: configuration, accentColor: NSColor.graphiteAccent(hex: configuration.accentHex) ?? .controlAccentColor) }
+
+        /// Whether the frontmatter is rendered as properties, as Obsidian's Live Preview shows
+        /// them; without the Properties view it stays styled source.
+        var rendersProperties: Bool { configuration.mode == .livePreview && environment?.updateProperties != nil }
 
         func undoManager(for view: NSTextView) -> UndoManager? { noteUndoManager }
 
@@ -3055,6 +3096,10 @@ struct NativeMarkdownEditor: NSViewRepresentable {
                 return self.followLink(atCharacter: characterIndex, modifierFlags: modifierFlags, in: textView)
             }
             textView.didBecomeFirstResponder = { [weak self] in self?.actions.beginEditing?() }
+            textView.didMoveTextColumn = { [weak self, weak textView] in
+                guard let self, let textView else { return }
+                self.placePropertiesPanel(in: textView)
+            }
             textView.didBecomeMeasurable = { [weak self] measurableView in
                 // Not from inside the window change or layout itself.
                 DispatchQueue.main.async { [weak self, weak measurableView] in
@@ -3114,30 +3159,37 @@ struct NativeMarkdownEditor: NSViewRepresentable {
 
         func restyleEverything(in textView: NSTextView) {
             guard let textStorage = textView.textStorage else { return }
-            textState.update(source: currentSource(of: textView), findsBlocks: false, isRendered: { _ in true })
+            updateTextState(of: textView)
             textState.discardUnstyledEdit()
             revealedMarkup = markupRevealedBySelection(in: textView)
-            styler.applyStyles(to: textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedMarkup: revealedMarkup, concealedBlocks: [],
-                               blockContextCheckpoints: blockContextCheckpoints)
+            styler.applyStyles(to: textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedMarkup: revealedMarkup,
+                               concealedBlocks: concealedBlocks(in: textView, restyledFrom: 0), blockContextCheckpoints: blockContextCheckpoints)
             UndrawnReplacementStyling.showSource(in: textStorage, range: NSRange(location: 0, length: textStorage.length), baseFont: styler.baseFont, typography: styler.configuration.typography)
             textView.typingAttributes = styler.baseAttributes
+            placePropertiesPanel(in: textView)
         }
 
         private func restyle(_ range: NSRange, in textView: NSTextView) {
             guard let textStorage = textView.textStorage, textStorage.length > 0 else { return }
             let location = min(range.location, textStorage.length)
             let lineRange = textStorage.mutableString.lineRange(for: NSRange(location: location, length: min(range.length, textStorage.length - location)))
-            styler.applyStyles(to: textStorage, editedRange: lineRange, restyleEverything: false, revealedMarkup: revealedMarkup, concealedBlocks: [],
-                               blockContextCheckpoints: blockContextCheckpoints)
+            styler.applyStyles(to: textStorage, editedRange: lineRange, restyleEverything: false, revealedMarkup: revealedMarkup,
+                               concealedBlocks: concealedBlocks(in: textView, restyledFrom: lineRange.location), blockContextCheckpoints: blockContextCheckpoints)
             UndrawnReplacementStyling.showSource(in: textStorage, range: lineRange, baseFont: styler.baseFont, typography: styler.configuration.typography)
             textView.typingAttributes = styler.baseAttributes
+            placePropertiesPanel(in: textView)
+        }
+
+        private func updateTextState(of textView: NSTextView) {
+            textState.update(source: currentSource(of: textView), findsBlocks: rendersProperties, findsOnlyFrontmatter: true,
+                             isRendered: { block in block.kind == .frontmatter })
         }
 
         /// Restyles what the edits since the last styling changed, once no text is marked:
         /// styling would disturb an input method's composition.
         private func settleTextChange(in textView: NSTextView) {
             guard !textView.hasMarkedText(), textState.cachesDescribeOldText || textState.hasUnstyledEdit else { return }
-            textState.update(source: currentSource(of: textView), findsBlocks: false, isRendered: { _ in true })
+            updateTextState(of: textView)
             revealedMarkup = markupRevealedBySelection(in: textView)
             guard let plan = textState.takeRestylePlan(revealedRange: revealedMarkup?.shownLineRange) else { return }
             switch plan {
@@ -3164,7 +3216,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             let newMarkup = markupRevealedBySelection(in: textView)
             guard newMarkup != previousMarkup else { return }
             revealedMarkup = newMarkup
-            let restyledRanges = styler.applyRevealedMarkupChange(to: textStorage, from: previousMarkup, to: newMarkup, concealedBlocks: [],
+            let restyledRanges = styler.applyRevealedMarkupChange(to: textStorage, from: previousMarkup, to: newMarkup, concealedBlocks: concealedBlocks(in: textView, restyledFrom: nil),
                                                                   blockContextCheckpoints: blockContextCheckpoints)
             guard !restyledRanges.isEmpty else { return }
             for restyledRange in restyledRanges { UndrawnReplacementStyling.showSource(in: textStorage, range: restyledRange, baseFont: styler.baseFont, typography: styler.configuration.typography) }
@@ -3183,7 +3235,24 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             session.selection = textView.selectedRange()
+            concealPropertiesSourceIfLeft(in: textView)
             updateRevealedMarkup(in: textView)
+        }
+
+        func textView(_ textView: NSTextView, willChangeSelectionFromCharacterRange oldSelectedCharRange: NSRange,
+                      toCharacterRange newSelectedCharRange: NSRange) -> NSRange {
+            guard let entry = concealedPropertiesEntry(in: textView) else { return newSelectedCharRange }
+            return Self.selection(newSelectedCharRange, keptBelowConcealedPropertiesEndingAt: NSMaxRange(entry.range))
+        }
+
+        /// An edit that starts in the concealed YAML and reaches its end, as a backspace at
+        /// the start of the note's text does, would join the properties' closing line to the
+        /// text and turn the properties into text; it is refused. Replacing the whole YAML,
+        /// as after Select All, and edits inside it, as find and replace makes, are allowed.
+        func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
+            guard !isApplyingOwnEdit, !noteUndoManager.isUndoing, !noteUndoManager.isRedoing,
+                  let entry = concealedPropertiesEntry(in: textView) else { return true }
+            return !Self.cutsIntoConcealedProperties(affectedCharRange, propertiesEnd: NSMaxRange(entry.range))
         }
 
         /// Applies every insertion waiting in the session, in order, and tells whether there
@@ -3202,6 +3271,8 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         /// block goes where its request points now, past the note's changes since.
         func apply(_ insertion: EditorInsertion, to textView: NSTextView) {
             appliedInsertionIdentifier = insertion.id
+            isApplyingOwnEdit = true
+            defer { isApplyingOwnEdit = false }
             let source = currentSource(of: textView)
             var insertionText = insertion.text
             var insertionRange = insertion.range
@@ -3246,6 +3317,8 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             let replacement = newSource.substring(with: replacementRange)
             let edit = CharacterEdit(editedRange: replacementRange, changeInLength: newSource.length - oldSource.length)
             let selection = TextRangeMapping.insertionTarget(textView.selectedRange(), through: edit)
+            isApplyingOwnEdit = true
+            defer { isApplyingOwnEdit = false }
             guard textView.shouldChangeText(in: replacedRange, replacementString: replacement) else {
                 textView.string = newText
                 restyleEverything(in: textView)
@@ -3254,6 +3327,178 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             textStorage.replaceCharacters(in: replacedRange, with: replacement)
             textView.didChangeText()
             if NSMaxRange(selection) <= textStorage.length { textView.setSelectedRange(selection) }
+        }
+
+        // MARK: Properties
+
+        /// The frontmatter, while the properties are rendered and it describes the text on screen.
+        private var propertiesEntry: LivePreviewBlockEntry? {
+            guard rendersProperties, !textState.cachesDescribeOldText else { return nil }
+            return textState.blockEntries.first { entry in entry.block.kind == .frontmatter && entry.range.location == 0 }
+        }
+
+        /// The frontmatter while its YAML is concealed under the properties view.
+        private func concealedPropertiesEntry(in textView: NSTextView) -> LivePreviewBlockEntry? {
+            guard !showsPropertiesSource, let entry = propertiesEntry, NSMaxRange(entry.range) <= (textView.textStorage?.length ?? 0) else { return nil }
+            return entry
+        }
+
+        /// - Parameter styledLocation: Where the restyled lines start; nil when the styling
+        ///   leaves the YAML alone. The line before the restyled ones is restyled too, so the
+        ///   YAML is from a line right after it on.
+        private func concealedBlocks(in textView: NSTextView, restyledFrom styledLocation: Int?) -> [ConcealedBlock] {
+            guard let entry = concealedPropertiesEntry(in: textView) else {
+                if styledLocation != nil { propertiesHeightInText = nil }
+                return []
+            }
+            let height = reservedPropertiesHeight(of: entry, in: textView)
+            if let styledLocation, styledLocation <= NSMaxRange(entry.range) { propertiesHeightInText = height }
+            return [ConcealedBlock(range: entry.range, reservedHeight: height)]
+        }
+
+        /// The width of the text column, which the properties view takes.
+        private func columnWidth(of textView: NSTextView) -> CGFloat {
+            guard let textContainer = textView.textContainer else { return 0 }
+            return textContainer.size.width - 2 * textContainer.lineFragmentPadding
+        }
+
+        private func measuredHeightKey(for entry: LivePreviewBlockEntry, columnWidth: CGFloat) -> MeasuredBlockHeightCache.Key? {
+            MeasuredBlockHeightCache.Key(blockKey: entry.key, columnWidth: columnWidth, textSize: configuration.textSize,
+                                         typography: configuration.typography, themeFingerprint: configuration.theme?.tokens.fingerprint ?? "")
+        }
+
+        /// The height the YAML's lines reserve: the one measured for these properties at this
+        /// width, else the one this editor's view last reported, else the iPad's estimate.
+        private func reservedPropertiesHeight(of entry: LivePreviewBlockEntry, in textView: NSTextView) -> CGFloat {
+            if let key = measuredHeightKey(for: entry, columnWidth: columnWidth(of: textView)), let measuredHeight = Self.sharedMeasuredHeights.height(for: key) {
+                return measuredHeight
+            }
+            if let reportedPropertiesHeight { return reportedPropertiesHeight }
+            return 44 + 34 * CGFloat(entry.block.markdown.components(separatedBy: "\n").count - 2)
+        }
+
+        /// A selection that starts in the concealed YAML starts after it instead, so the
+        /// cursor never lands in text that is not drawn. A selection of the whole YAML, as
+        /// Select All makes, is kept.
+        static func selection(_ selection: NSRange, keptBelowConcealedPropertiesEndingAt propertiesEnd: Int) -> NSRange {
+            guard selection.location < propertiesEnd else { return selection }
+            if selection.location == 0, selection.length > 0, NSMaxRange(selection) >= propertiesEnd { return selection }
+            return NSRange(location: propertiesEnd, length: max(NSMaxRange(selection), propertiesEnd) - propertiesEnd)
+        }
+
+        static func cutsIntoConcealedProperties(_ range: NSRange, propertiesEnd: Int) -> Bool {
+            range.location > 0 && range.location < propertiesEnd && NSMaxRange(range) >= propertiesEnd
+        }
+
+        /// Moves the selection out of the concealed YAML, as when a note opens with the cursor
+        /// at its start; AppKit asks the delegate only about selections made after it is set.
+        func keepSelectionOutOfConcealedProperties(in textView: NSTextView) {
+            guard let entry = concealedPropertiesEntry(in: textView) else { return }
+            let selection = textView.selectedRange()
+            let keptSelection = Self.selection(selection, keptBelowConcealedPropertiesEndingAt: NSMaxRange(entry.range))
+            if keptSelection != selection { textView.setSelectedRange(keptSelection) }
+        }
+
+        /// Conceals the YAML "Edit Source" showed once the cursor leaves it. While it is
+        /// being edited into something that is not frontmatter, it stays shown.
+        private func concealPropertiesSourceIfLeft(in textView: NSTextView) {
+            guard showsPropertiesSource, !textView.hasMarkedText(), !textState.hasUnstyledEdit, let entry = propertiesEntry,
+                  !LivePreviewBlockActivity.isActive(blockRange: entry.range, selection: textView.selectedRange(), in: currentSource(of: textView)) else { return }
+            showsPropertiesSource = false
+            restyle(entry.range, in: textView)
+        }
+
+        /// Shows the YAML in place of the properties view, with the cursor on its first
+        /// property: the view's "Edit Source".
+        func showPropertiesSource(in textView: NSTextView) {
+            guard !textView.hasMarkedText(), !textState.hasUnstyledEdit, let entry = concealedPropertiesEntry(in: textView) else { return }
+            showsPropertiesSource = true
+            restyle(entry.range, in: textView)
+            let source = currentSource(of: textView)
+            let firstPropertyLocation = min(NSMaxRange(source.lineRange(for: NSRange(location: 0, length: 0))), NSMaxRange(entry.range))
+            textView.window?.makeFirstResponder(textView)
+            textView.setSelectedRange(NSRange(location: firstPropertyLocation, length: 0))
+            textView.scrollRangeToVisible(NSRange(location: 0, length: 0))
+        }
+
+        /// Gives the properties view the current environment and appearance, keeping its own
+        /// state, such as a property being typed in.
+        func refreshPropertiesPanel(in textView: NSTextView) {
+            let signature = LivePreviewWidgetSignature(environment: environment, accentHex: configuration.accentHex, notePath: session.path.rawValue)
+            guard signature != propertiesHostSignature else { return }
+            propertiesHostSignature = signature
+            propertiesHostBlockKey = nil
+            placePropertiesPanel(in: textView)
+        }
+
+        /// Puts the properties view over the concealed YAML, at the top of the text column;
+        /// it leaves when nothing is concealed. A hidden YAML line's height is a hundredth of
+        /// a point, so the view starts where the note's text does.
+        func placePropertiesPanel(in textView: NSTextView) {
+            guard let environment, let entry = concealedPropertiesEntry(in: textView), let textContainer = textView.textContainer,
+                  columnWidth(of: textView) > 0 else {
+                propertiesHost?.removeFromSuperview()
+                return
+            }
+            let rootView = propertiesHostBlockKey == entry.key ? nil : propertiesRootView(for: entry, environment: environment, textView: textView)
+            let host: NSHostingView<AnyView>
+            if let propertiesHost {
+                host = propertiesHost
+                if let rootView { host.rootView = rootView }
+            } else {
+                host = NSHostingView(rootView: rootView ?? propertiesRootView(for: entry, environment: environment, textView: textView))
+                // The frame is set here, from the text's layout, not from the view's content.
+                host.sizingOptions = []
+                propertiesHost = host
+            }
+            propertiesHostBlockKey = entry.key
+            // A height measured at a new width, or by another editor, is reserved in the text first.
+            let reservedHeight = reservedPropertiesHeight(of: entry, in: textView)
+            if let propertiesHeightInText, abs(propertiesHeightInText - reservedHeight) > 1, !textView.hasMarkedText(), !textState.hasUnstyledEdit {
+                restyle(entry.range, in: textView)
+                return
+            }
+            let frame = CGRect(x: textView.textContainerOrigin.x + textContainer.lineFragmentPadding, y: textView.textContainerOrigin.y,
+                               width: columnWidth(of: textView), height: propertiesHeightInText ?? reservedHeight)
+            if host.frame != frame { host.frame = frame }
+            if host.superview !== textView { textView.addSubview(host) }
+        }
+
+        /// The hosted view takes the appearance from the text view it is in; the vault's
+        /// fonts, theme and accent are passed in, as on the iPad. Its actions find the
+        /// frontmatter when they run, since the view is kept while the note changes.
+        private func propertiesRootView(for entry: LivePreviewBlockEntry, environment: LivePreviewEnvironment, textView: NSTextView) -> AnyView {
+            let accent = Color.graphiteAccent(hex: configuration.accentHex) ?? .accentColor
+            let widget = LivePreviewWidgetView(block: entry.block, environment: environment, revealSource: { [weak self, weak textView] in
+                // Not from inside the button's own action, which the view's removal would end.
+                DispatchQueue.main.async { [weak self, weak textView] in
+                    guard let self, let textView else { return }
+                    self.showPropertiesSource(in: textView)
+                }
+            }, reportHeight: { [weak self, weak textView] height in
+                guard let self, let textView else { return }
+                self.updatePropertiesHeight(height, in: textView)
+            })
+            return AnyView(widget
+                .environment(\.lassoNoteDestination, environment.lassoNoteDestination)
+                .environment(\.noteTypography, environment.typography)
+                .environment(\.noteTheme, environment.theme)
+                .tint(accent)
+                .environment(\.accent, accent))
+        }
+
+        /// Reserves the height the properties view measured, restyling the YAML's last line
+        /// only when it differs from what the text reserves.
+        private func updatePropertiesHeight(_ height: CGFloat, in textView: NSTextView) {
+            guard height > 1, let entry = concealedPropertiesEntry(in: textView) else { return }
+            // Measured at the width the view was laid out at, which can lag the column's.
+            if let key = measuredHeightKey(for: entry, columnWidth: propertiesHost?.frame.width ?? columnWidth(of: textView)) {
+                Self.sharedMeasuredHeights.record(height, for: key)
+            }
+            reportedPropertiesHeight = height
+            // Mid-edit, the edit restyles the properties once it settles.
+            guard abs((propertiesHeightInText ?? 0) - height) > 1, !textView.hasMarkedText(), !textState.hasUnstyledEdit else { return }
+            restyle(entry.range, in: textView)
         }
 
         // MARK: Links
