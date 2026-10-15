@@ -46,6 +46,20 @@ final class VaultPlacesTests: XCTestCase {
         XCTAssertEqual(coordinatesByPath["Travel/Tokyo.md"], BaseCoordinate(latitude: 35.6762, longitude: 139.6503))
     }
 
+    func testAVaultsOwnPropertyPlacesNotesInTheFormsItsPluginWrites() async throws {
+        // The owner's vault: Geocoding Properties writes `Coordonnées: lat,lng`, with or
+        // without a space, and leaves the property empty when it found nothing.
+        try write("---\nCoordonnées: 35.6459053,139.7002239\n---\n# 1LDK\n", to: "Travel/1LDK.md")
+        try write("---\nCoordonnées: 43.64879055325513, -79.38156041948037\n---\n", to: "Travel/Toronto.md")
+        try write("---\nCoordonnées:\n---\n", to: "Travel/Empty.md")
+        _ = try await index.reconcile(root: vault)
+
+        let places = try await index.placedNotes(propertyNames: ["Coordonnées", "coordinates", "location"])
+        XCTAssertEqual(places.map(\.path.rawValue).sorted(), ["Travel/1LDK.md", "Travel/Toronto.md"])
+        let defaultPlaces = try await index.placedNotes()
+        XCTAssertTrue(defaultPlaces.isEmpty, "Without the vault's own property nothing is placed.")
+    }
+
     func testAPlaceFollowsTheNoteWhenItsPropertyChangesOrGoesAway() async throws {
         try write("---\ncoordinates: [48.8566, 2.3522]\n---\n", to: "Travel/Paris.md")
         _ = try await index.reconcile(root: vault)
