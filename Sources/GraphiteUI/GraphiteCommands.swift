@@ -106,6 +106,10 @@ public struct GraphiteCommands: Commands {
             Button("Graph View") { workspace?.isGraphPresented = true }
                 .disabled(workspace?.store == nil)
         }
+        if workspace?.preferences.isEnabled(.map) == true {
+            Button("Map View") { workspace?.isMapPresented = true }
+                .disabled(workspace?.store == nil)
+        }
         Button(workspace?.layout.isSplit == true ? "Close This Side" : "Split Right") {
             guard let workspace else { return }
             if workspace.layout.isSplit { Task { await workspace.closeGroup(workspace.layout.focusedGroupID) } } else { workspace.splitRight() }

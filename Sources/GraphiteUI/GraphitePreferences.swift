@@ -10,7 +10,7 @@ import GraphiteApple
 enum CorePlugin: String, CaseIterable, Identifiable, Codable {
     case backlinks, outgoingLinks, outline, properties, tags, wordCount
     case colors, drawings, audioRecorder, readAloud, bases
-    case templates, dailyNotes, footnotes, fileRecovery, bookmarks, graph, canvas
+    case templates, dailyNotes, footnotes, fileRecovery, bookmarks, graph, map, canvas
 
     var id: String { rawValue }
 
@@ -33,6 +33,7 @@ enum CorePlugin: String, CaseIterable, Identifiable, Codable {
         case .fileRecovery: "File Recovery"
         case .bookmarks: "Bookmarks"
         case .graph: "Graph View"
+        case .map: "Map View"
         case .canvas: "Canvas"
         }
     }
@@ -56,6 +57,7 @@ enum CorePlugin: String, CaseIterable, Identifiable, Codable {
         case .fileRecovery: "Keeps copies of notes as they are edited, outside the vault, to recover earlier versions and deleted notes."
         case .bookmarks: "Keeps notes, headings, folders, and searches at hand in the left sidebar, shared with Obsidian."
         case .graph: "Draws the vault's notes and links, and each note's neighborhood in the right sidebar."
+        case .map: "Places notes with a coordinates or location property on Apple's map, and the open note's linked places in the right sidebar."
         case .canvas: "Opens .canvas files as boards of cards and connections, to read and to edit."
         }
     }
@@ -79,6 +81,7 @@ enum CorePlugin: String, CaseIterable, Identifiable, Codable {
         case .fileRecovery: "clock.arrow.circlepath"
         case .bookmarks: "bookmark"
         case .graph: "point.3.connected.trianglepath.dotted"
+        case .map: "map"
         case .canvas: "rectangle.3.group"
         }
     }

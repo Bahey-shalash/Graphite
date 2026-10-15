@@ -139,6 +139,10 @@ final class WorkspaceModel {
     @ObservationIgnored var graphPositions: [String: SIMD2<Double>] = [:]
     /// Whether the graph view is on screen.
     var isGraphPresented = false
+    /// The notes the map places, read once per index change.
+    @ObservationIgnored var placedNotesCache: (indexVersion: Int, notes: [PlacedNote])?
+    /// Whether the map view is on screen.
+    var isMapPresented = false
     /// An unfinished recording offered back, one at a time.
     var recordingRecoveryOffer: RecoverableRecording?
     /// Files that iCloud or another file provider keeps other versions of, among those
@@ -292,7 +296,7 @@ final class WorkspaceModel {
         layoutVaultIdentifier = nil
         layout = TabLayout(); tabDocuments = [:]; pdfPasswords = [:]; restorableSidebarPluginViews = ([], nil); pickedSidebarFiles = nil
         markdownEditorRetention.discardHiddenEditors()
-        graphCache = nil; graphPositions = [:]
+        graphCache = nil; graphPositions = [:]; placedNotesCache = nil
         embeddedBaseModelCache = EmbeddedBaseModelCache()
         // `expandedFolders` is replaced below, once the new vault is current: clearing it
         // here would save an empty list for the vault being left.
