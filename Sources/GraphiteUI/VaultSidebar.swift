@@ -329,11 +329,7 @@ struct VaultSidebar: View {
             } else if workspace.rootEntries.isEmpty {
                 Text("This vault is empty. Create a note with the \(Image(systemName: "square.and.pencil")) button.").foregroundStyle(.secondary)
             } else {
-                // Identified by text, so a row's implicit selection tag is not a `VaultPath`:
-                // only files, which tag themselves, can be selected. A folder just folds.
-                ForEach(workspace.rootEntries, id: \.path.rawValue) { entry in
-                    VaultEntryRow(entry: entry, workspace: workspace) { kind, directory in creation = CreationRequest(kind: kind, directory: directory) }
-                }
+                FileTreeRows(workspace: workspace) { kind, directory in creation = CreationRequest(kind: kind, directory: directory) }
             }
     }
 
@@ -510,26 +506,82 @@ private struct SearchResultRow: View {
 
 // MARK: Files and folders
 
+/// What the file tree's rows share: each expanded folder's contents as its row last listed
+/// them, which the tree places after the folder, and the folder a drag is over. Kept while
+/// the tree shows, so a folder opened again draws its rows at once.
+@MainActor @Observable private final class FileTreeContents {
+    var childrenByFolder: [VaultPath: [VaultEntry]] = [:]
+    var dropTargetFolder: VaultPath?
+}
+
+/// A file or folder of the tree, at its depth in the vault.
+private struct FileTreeRow {
+    let entry: VaultEntry
+    let depth: Int
+}
+
+/// The vault's file tree as one row per file or folder shown, an expanded folder's contents
+/// following it.
+///
+/// Each row is a single view (`.equatable()`), so the list finds a row by its position at
+/// once. Without it a row's view count is known only once the row is made, and the Mac's
+/// outline view, which looks up every row each time it inserts rows, made all the rows
+/// before each one: a vault of 24,680 files at its root kept the main thread busy for
+/// minutes and never showed (measured 2026-10-15). The wrapper hides every list trait set
+/// inside it, so the selection tag, insets, separator and background are set here, outside
+/// it, and so is the drag: inside it, either one kept a click on the Mac from selecting a file.
+private struct FileTreeRows: View {
+    @Bindable var workspace: WorkspaceModel
+    let requestCreation: (CreationKind, VaultPath) -> Void
+    @State private var contents = FileTreeContents()
+    @Environment(\.accent) private var accent
+
+    var body: some View {
+        ForEach(visibleRows, id: \.entry.path.rawValue) { row in
+            VaultEntryRow(entry: row.entry, depth: row.depth, workspace: workspace, contents: contents, requestCreation: requestCreation)
+                .equatable()
+                // Only files can be selected; a folder just folds.
+                .tag(row.entry.path)
+                .selectionDisabled(row.entry.isDirectory)
+                .fileTreeRow()
+                .listRowBackground(contents.dropTargetFolder == row.entry.path ? RoundedRectangle(cornerRadius: GraphiteChrome.cornerRadius).fill(accent.opacity(0.18)) : nil)
+                .draggable(VaultItemTransfer(path: row.entry.path.rawValue)) { VaultItemDragPreview(entry: row.entry, workspace: workspace) }
+        }
+    }
+
+    private var visibleRows: [FileTreeRow] {
+        var rows: [FileTreeRow] = []
+        appendRows(for: workspace.rootEntries, depth: 0, to: &rows)
+        return rows
+    }
+
+    private func appendRows(for entries: [VaultEntry], depth: Int, to rows: inout [FileTreeRow]) {
+        for entry in entries {
+            rows.append(FileTreeRow(entry: entry, depth: depth))
+            guard entry.isDirectory, workspace.expandedFolders.contains(entry.path),
+                  let children = contents.childrenByFolder[entry.path] else { continue }
+            appendRows(for: children, depth: depth + 1, to: &rows)
+        }
+    }
+}
+
 /// A file or folder of the file tree, as Obsidian's file explorer draws one: the name alone,
 /// a folder marked by the chevron before it, a level of nesting by an indent and a faint
-/// guide line, and a file's extension muted after its name. An expanded folder's contents
-/// follow it as rows of their own.
+/// guide line, and a file's extension muted after its name. A folder's row lists its
+/// contents when it expands; `FileTreeRows` shows them as rows of their own.
 private struct VaultEntryRow: View, Equatable {
     let entry: VaultEntry
     /// How deep in the vault the row is: 0 at its root.
     var depth = 0
     @Bindable var workspace: WorkspaceModel
+    let contents: FileTreeContents
     let requestCreation: (CreationKind, VaultPath) -> Void
-    @State private var children: [VaultEntry] = []
-    @State private var isDropTargeted = false
     @Environment(\.accent) private var accent
 
     /// Rows compare by their entry and depth alone, so an update of the list does not rebuild
     /// every row: `requestCreation` is a new closure each time but always sets the same
-    /// binding, and what a row reads from the workspace is tracked by Observation on its own.
-    /// SwiftUI uses this comparison without an `.equatable()` wrapper, and the wrapper must
-    /// not be added: it makes a row a single view, so an expanded folder's contents are drawn
-    /// inside the folder's row, centered and squeezed, instead of as rows of the list.
+    /// binding, `contents` is the same object for the whole tree, and what a row reads from
+    /// the workspace or `contents` is tracked by Observation on its own.
     nonisolated static func ==(leftRow: VaultEntryRow, rightRow: VaultEntryRow) -> Bool {
         leftRow.entry == rightRow.entry && leftRow.depth == rightRow.depth
     }
@@ -540,14 +592,11 @@ private struct VaultEntryRow: View, Equatable {
         })
     }
 
+    private var isDropTargeted: Bool { contents.dropTargetFolder == entry.path }
+
     var body: some View {
         if entry.isDirectory {
             folderRow
-            if isExpanded.wrappedValue {
-                ForEach(children, id: \.path.rawValue) { child in
-                    VaultEntryRow(entry: child, depth: depth + 1, workspace: workspace, requestCreation: requestCreation)
-                }
-            }
         } else {
             fileRow
         }
@@ -570,21 +619,24 @@ private struct VaultEntryRow: View, Equatable {
         .accessibilityValue(isExpanded.wrappedValue ? "Expanded" : "Collapsed")
         .accessibilityHint("Folder")
         .contextMenu { folderMenu }
-        .draggable(VaultItemTransfer(path: entry.path.rawValue)) { dragPreview }
         .dropDestination(for: VaultItemTransfer.self) { items, _ in
             let paths = items.compactMap { item in try? VaultPath(item.path) }.filter { path in path != entry.path }
             guard !paths.isEmpty else { return false }
             Task { for path in paths { await workspace.move(path, into: entry.path) } }
             return true
-        } isTargeted: { isTargeted in isDropTargeted = isTargeted }
-        .fileTreeRow()
-        .listRowBackground(isDropTargeted ? RoundedRectangle(cornerRadius: GraphiteChrome.cornerRadius).fill(accent.opacity(0.18)) : nil)
+        } isTargeted: { isTargeted in
+            if isTargeted {
+                contents.dropTargetFolder = entry.path
+            } else if isDropTargeted {
+                contents.dropTargetFolder = nil
+            }
+        }
         .task(id: "\(isExpanded.wrappedValue)-\(workspace.directoryVersion)-\(workspace.vaultSettings.fileSortOrder.rawValue)") {
             guard isExpanded.wrappedValue, let store = workspace.store else { return }
             do {
                 let listedChildren = try await store.children(of: entry.path, sortedBy: workspace.vaultSettings.fileSortOrder)
                 // Every directory refresh lists the folder again; unchanged rows are left alone.
-                if listedChildren != children { children = listedChildren }
+                if listedChildren != contents.childrenByFolder[entry.path] { contents.childrenByFolder[entry.path] = listedChildren }
                 workspace.checkConflictVersions(of: listedChildren.lazy.filter { child in !child.isDirectory }.map(\.path))
             } catch {
                 // A folder another app removed or renamed goes away with its parent's next
@@ -610,9 +662,7 @@ private struct VaultEntryRow: View, Equatable {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(workspace.preferences.displayName(for: entry.path))
-        .tag(entry.path)
         .contextMenu { fileMenu }
-        .draggable(VaultItemTransfer(path: entry.path.rawValue)) { dragPreview }
         // A drop on a file lands in the file's folder, as in Obsidian. Without this the
         // list's own destination would take it and move the item to the vault's root.
         .dropDestination(for: VaultItemTransfer.self) { items, _ in
@@ -622,7 +672,6 @@ private struct VaultEntryRow: View, Equatable {
             Task { for path in paths { await workspace.move(path, into: folder) } }
             return true
         }
-        .fileTreeRow()
     }
 
     /// The extension after the name, muted so the name reads first: always for files other
@@ -633,11 +682,6 @@ private struct VaultEntryRow: View, Equatable {
         guard !fileExtension.isEmpty else { return nil }
         if entry.kind == .markdown && !workspace.preferences.showsFileExtensions { return nil }
         return "." + fileExtension
-    }
-
-    private var dragPreview: some View {
-        Label(workspace.preferences.displayName(for: entry.path), systemImage: entry.isDirectory ? "folder" : symbol)
-            .padding(8).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
 
     @ViewBuilder private var fileMenu: some View {
@@ -692,18 +736,33 @@ private struct VaultEntryRow: View, Equatable {
     private func copyToPasteboard(_ text: String) {
         #if canImport(UIKit)
         UIPasteboard.general.string = text
+        #elseif canImport(AppKit)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
         #endif
+    }
+}
+
+/// What a file or folder looks like while it is dragged: its icon and name.
+private struct VaultItemDragPreview: View {
+    let entry: VaultEntry
+    let workspace: WorkspaceModel
+
+    var body: some View {
+        Label(workspace.preferences.displayName(for: entry.path), systemImage: symbol)
+            .padding(8).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
 
     private var symbol: String {
+        if entry.isDirectory { return "folder" }
         switch entry.kind {
-        case .markdown: "doc.text"
-        case .pdf: "doc.richtext"
-        case .image: "photo"
-        case .media: entry.path.fileExtension == "mp4" || entry.path.fileExtension == "mov" ? "film" : "waveform"
-        case .base: "tablecells"
-        case .canvas: "rectangle.3.group"
-        case .other: "doc"
+        case .markdown: return "doc.text"
+        case .pdf: return "doc.richtext"
+        case .image: return "photo"
+        case .media: return entry.path.fileExtension == "mp4" || entry.path.fileExtension == "mov" ? "film" : "waveform"
+        case .base: return "tablecells"
+        case .canvas: return "rectangle.3.group"
+        case .other: return "doc"
         }
     }
 }

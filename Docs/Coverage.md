@@ -2,7 +2,19 @@
 
 What Graphite does today, how each part is verified, and what is still missing. `OBJECTIVE.md` describes the complete product; this file tracks progress toward it. Update it with every change that adds, removes, or re-verifies behavior.
 
-Last updated: 2026-10-13.
+Last updated: 2026-10-15.
+
+## A vault with tens of thousands of files at its root opens on the Mac: 2026-10-15
+
+Opening a vault of 24,680 entries at its root (36,392 files) froze the Mac app: the main thread stayed at 100 % in `NSOutlineView insertItemsAtIndexes` for more than four minutes and the files never showed (`sample` of the Debug build). The sidebar's outline view looks up every row as it inserts rows (`_shouldHaveFlatIndentation`), and SwiftUI found each `VaultEntryRow` only by making all the rows before it: a row's number of views was known only once it was made, a folder's row also drawing its expanded contents.
+
+`FileTreeRows` now lists one row per file or folder shown, an expanded folder's contents following it (the contents its row lists, and the folder a drag is over, are kept in `FileTreeContents`), and marks each row `.equatable()`, which makes it a single view. The wrapper hides every list trait set inside it, so the selection tag (with `selectionDisabled` for folders), insets, separator and a drop target's background are set outside it, and so is the row's `draggable` (its preview is `VaultItemDragPreview`). "Copy Vault Path" and "Copy Graphite URL" now copy on the Mac; they copied only with UIKit.
+
+The first versions kept the tag, then the drag, inside the wrapper, and the owner found that clicking a file opened nothing (2026-10-16). It was found by clicking the real sidebar: a scratch app outside the repository hosts `VaultSidebar` (`@testable import GraphiteUI`) in a window that becomes the key window, as the test process's cannot, and sends it mouse clicks. With the tag inside `.equatable()`, an opened file's row was not selected; with `draggable` inside it, the outline view's click selected nothing (removing `draggable` alone fixed it, removing `dropDestination` alone did not, and handing the drag to the outline view with `itemProvider` did not either). With both outside: a click on a file selects and opens it, a click on a folder expands it, and an opened file's row is selected.
+
+Checked: the Mac app (Debug, arm64) with that vault: the files show and the main thread is idle 7 s after launch, 2.5 s of its CPU time in all, the index's threads doing the rest. `UiFileTreeMacTests` (macOS package tests): the real sidebar with 2,000 files at the root and two nested folders; the outline view's rows follow expanding, folding and expanding again, nested contents included, in about 1.3 s (three runs), and the same test with the previous sidebar fails at about 20 s; an opened file's row is the outline view's selected row, which fails with the tag inside the wrapper. A click itself cannot be synthesized there: the test process's window never becomes the key window. The iPad simulator app builds.
+
+Not verified: that a file dragged onto a folder moves there, on the Mac or the iPad (a drag session cannot be synthesized by these checks); the context menus by hand; the iPad's file tree by hand and the hosted iPad suite.
 
 ## A PDF page that springs back after every drag and pinch: 2026-10-13
 
