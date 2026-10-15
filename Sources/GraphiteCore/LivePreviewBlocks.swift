@@ -32,10 +32,9 @@ public enum LivePreviewBlockScanner {
     ///   a fenced block in one of them is drawn by its plugin in Live Preview too.
     public static func blocks(in text: NSString, pluginCodeBlockLanguages: Set<String> = []) -> [LivePreviewBlock] {
         var blocks: [LivePreviewBlock] = []
-        let frontmatterLength = FrontmatterLocator.length(in: text)
-        if frontmatterLength > 0 {
-            blocks.append(LivePreviewBlock(kind: .frontmatter, range: NSRange(location: 0, length: frontmatterLength), markdown: text.substring(to: frontmatterLength)))
-        }
+        let frontmatter = frontmatterBlock(in: text)
+        if let frontmatter { blocks.append(frontmatter) }
+        let frontmatterLength = frontmatter?.range.length ?? 0
         let lines = lines(in: text, from: frontmatterLength)
         let mathLines = DisplayMathLines(lines.map(\.content))
         var lineIndex = 0
@@ -139,6 +138,14 @@ public enum LivePreviewBlockScanner {
     /// Each range includes its line break; the content excludes it, so a Windows note's
     /// "\r" never reaches fence, math or table detection. U+2028 and U+2029 stay inside a
     /// line, as reading view keeps them.
+    /// The leading frontmatter alone, for an editor that renders only the properties. It
+    /// reads the start of the note, not every line.
+    public static func frontmatterBlock(in text: NSString) -> LivePreviewBlock? {
+        let frontmatterLength = FrontmatterLocator.length(in: text)
+        guard frontmatterLength > 0 else { return nil }
+        return LivePreviewBlock(kind: .frontmatter, range: NSRange(location: 0, length: frontmatterLength), markdown: text.substring(to: frontmatterLength))
+    }
+
     private static func lines(in text: NSString, from start: Int) -> [(range: NSRange, content: String)] {
         var lines: [(range: NSRange, content: String)] = []
         var lineStart = start
