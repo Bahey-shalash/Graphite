@@ -1,0 +1,47 @@
+import XCTest
+@testable import GraphiteCore
+
+/// The properties a vault places notes with, as its map plugins are set up.
+final class PlacedNotePropertyNamesTests: XCTestCase {
+    private var vault: URL!
+
+    override func setUp() async throws {
+        vault = FileManager.default.temporaryDirectory.appendingPathComponent("PlacePropertiesVault-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: vault)
+    }
+
+    private func writeSettings(_ json: String, forPlugin identifier: String) throws {
+        let folder = vault.appendingPathComponent(".obsidian/plugins/\(identifier)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data(json.utf8).write(to: folder.appendingPathComponent("data.json"))
+    }
+
+    func testAVaultWithoutMapPluginsUsesTheDefaults() {
+        XCTAssertEqual(PlacedNote.propertyNames(vaultRoot: vault), ["coordinates", "location"])
+    }
+
+    func testThePropertiesThePluginsAreSetToUseComeFirst() throws {
+        // As in the owner's vault: Geocoding Properties writes coordinates into `Coordonnées`.
+        try writeSettings(#"{"properties":{"address":{"frontmatterKey":"Adresse","enabled":true},"location":{"frontmatterKey":"Coordonnées","enabled":true}}}"#,
+                          forPlugin: "geocoding-properties")
+        try writeSettings(#"{"frontMatterKey":"geo"}"#, forPlugin: "obsidian-map-view")
+        XCTAssertEqual(PlacedNote.propertyNames(vaultRoot: vault), ["Coordonnées", "geo", "coordinates", "location"])
+    }
+
+    func testATurnedOffPropertyAndRepeatedNamesAreLeftOut() throws {
+        try writeSettings(#"{"properties":{"location":{"frontmatterKey":"Coordonnées","enabled":false}}}"#, forPlugin: "geocoding-properties")
+        try writeSettings(#"{"frontMatterKey":"Location"}"#, forPlugin: "obsidian-map-view")
+        XCTAssertEqual(PlacedNote.propertyNames(vaultRoot: vault), ["Location", "coordinates"])
+    }
+
+    func testUnreadableOrOversizedSettingsAreIgnored() throws {
+        try writeSettings("not JSON", forPlugin: "geocoding-properties")
+        let oversized = String(repeating: " ", count: PlacedNote.maximumSettingsBytes) + #"{"frontMatterKey":"geo"}"#
+        try writeSettings(oversized, forPlugin: "obsidian-map-view")
+        XCTAssertEqual(PlacedNote.propertyNames(vaultRoot: vault), ["coordinates", "location"])
+    }
+}

@@ -3,15 +3,15 @@ import GRDB
 import GraphiteCore
 
 extension VaultIndex {
-    /// Every note a `coordinates` or `location` property places (`PlacedNote.propertyNames`),
-    /// for the map view. Only those properties' rows are read, through the index on their
-    /// key, so the cost follows the number of placed notes rather than the vault's size.
-    public func placedNotes() throws -> [PlacedNote] {
-        let names = PlacedNote.propertyNames
+    /// Every note one of `propertyNames` places (`PlacedNote.propertyNames(vaultRoot:)`), for
+    /// the map view. Only those properties' rows are read, through the index on their key, so
+    /// the cost follows the number of placed notes rather than the vault's size.
+    public func placedNotes(propertyNames: [String] = PlacedNote.defaultPropertyNames) throws -> [PlacedNote] {
+        guard !propertyNames.isEmpty else { return [] }
         return try databaseQueue.read { database in
-            let condition = names.map { _ in "key = ? COLLATE NOCASE" }.joined(separator: " OR ")
+            let condition = propertyNames.map { _ in "key = ? COLLATE NOCASE" }.joined(separator: " OR ")
             let rows = try Row.fetchAll(database, sql: "SELECT path, key, node FROM properties WHERE \(condition) ORDER BY path, position",
-                                        arguments: StatementArguments(names))
+                                        arguments: StatementArguments(propertyNames))
             let decoder = JSONDecoder()
             var entriesByPath: [String: [BaseFrontmatterEntry]] = [:]
             var orderedPaths: [String] = []
@@ -25,7 +25,7 @@ extension VaultIndex {
             }
             return orderedPaths.compactMap { pathText in
                 guard let path = try? VaultPath(pathText),
-                      let coordinate = PlacedNote.coordinate(in: entriesByPath[pathText] ?? [], source: path) else { return nil }
+                      let coordinate = PlacedNote.coordinate(in: entriesByPath[pathText] ?? [], propertyNames: propertyNames, source: path) else { return nil }
                 return PlacedNote(path: path, coordinate: coordinate)
             }
         }

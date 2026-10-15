@@ -140,7 +140,7 @@ final class WorkspaceModel {
     /// Whether the graph view is on screen.
     var isGraphPresented = false
     /// The notes the map places, read once per index change.
-    @ObservationIgnored var placedNotesCache: (indexVersion: Int, notes: [PlacedNote])?
+    @ObservationIgnored var placedNotesCache: (indexVersion: Int, propertyNames: [String], notes: [PlacedNote])?
     /// Whether the map view is on screen.
     var isMapPresented = false
     /// An unfinished recording offered back, one at a time.
