@@ -178,6 +178,7 @@ final class WorkspaceModel {
             Task { @MainActor in await self?.startReadingAloud(path, resumeLocation: resumeLocation) }
         }
         navigator.visiblePageIndex = { [weak self] in self?.pdfSession?.currentPageIndex }
+        navigator.vaultRoot = { [weak self] in self?.folderAccess?.root }
         return navigator
     }()
     /// The open vault's Obsidian community plugins.
@@ -287,6 +288,9 @@ final class WorkspaceModel {
         }
         // The plugins of the vault being left unload before anything of it closes.
         await communityPlugins.vaultWillClose()
+        // The editors stayed editable through the waits above: what was typed meanwhile is
+        // saved now, with nothing to wait for between this and the documents closing.
+        for document in tabDocuments.values { try? await document.saveAllChanges() }
         monitor?.stop(); stopIndexing(); externalChangeTask?.cancel()
         pendingExternalChanges.removeAll(); firstPendingExternalChangeInstant = nil
         indexingMessage = ""
@@ -463,8 +467,14 @@ final class WorkspaceModel {
     }
 
     /// Saves every open note and PDF, before files move and when the app leaves the screen.
+    /// One that cannot be saved, such as a note changed in another app, does not keep the
+    /// others from saving; the first failure is reported after all were tried.
     func saveOpenDocuments() async throws {
-        for document in tabDocuments.values { try await document.save() }
+        var firstFailure: Error?
+        for document in tabDocuments.values {
+            do { try await document.save() } catch { firstFailure = firstFailure ?? error }
+        }
+        if let firstFailure { throw firstFailure }
     }
 
     func refreshDirectory() async {

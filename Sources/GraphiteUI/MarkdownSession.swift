@@ -127,7 +127,7 @@ final class MarkdownSession {
     private var savedText: String
     /// Foundation's UTF-8 decoding drops a leading byte-order mark, so it is remembered and
     /// written back: saving must not change bytes the person did not edit.
-    private var hasByteOrderMark: Bool
+    private(set) var hasByteOrderMark: Bool
     private var revision: FileRevision
     private var activeSave: Task<Void, Error>?
     var isSaving: Bool { activeSave != nil }

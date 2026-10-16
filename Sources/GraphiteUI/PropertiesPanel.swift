@@ -146,7 +146,9 @@ struct PropertyListEditing: Equatable {
     mutating func adding(_ name: String, parsedProperties: [NoteProperty]) -> [NoteProperty]? {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let currentProperties = properties(parsedProperties: parsedProperties)
-        guard !trimmedName.isEmpty, !currentProperties.contains(where: { existing in existing.key == trimmedName }) else { return nil }
+        // Obsidian takes `Tags` and `tags` for one property, so a name differing only in case is taken.
+        guard !trimmedName.isEmpty,
+              !currentProperties.contains(where: { existing in existing.key.caseInsensitiveCompare(trimmedName) == .orderedSame }) else { return nil }
         return record(currentProperties + [NoteProperty(key: trimmedName, value: .empty)])
     }
 
@@ -272,6 +274,7 @@ private struct PropertyRow: View {
             TextField("Empty", text: $draftText)
                 .focused($isTextFocused)
                 .disabled(!isEditable)
+                .literalTextEntry()
                 #if canImport(UIKit)
                 .keyboardType(.decimalPad)
                 #endif
@@ -288,6 +291,7 @@ private struct PropertyRow: View {
         TextField("Empty", text: $draftText)
             .focused($isTextFocused)
             .disabled(!isEditable)
+            .literalTextEntry()
             .onSubmit(commitDraftText)
     }
 
@@ -707,5 +711,18 @@ struct WrappingRowLayout: Layout {
         }
         if !currentRow.indices.isEmpty { rows.append(currentRow) }
         return rows
+    }
+}
+
+extension View {
+    /// Text that is written into a note's Markdown or YAML, or names a file: what is typed
+    /// is kept as typed. Autocorrection on the iPad also turns `--` and `---` into dashes
+    /// and straight quotes into curly ones, which changed property values, YAML and names.
+    func literalTextEntry() -> some View {
+        #if canImport(UIKit)
+        autocorrectionDisabled().textInputAutocapitalization(.never)
+        #else
+        autocorrectionDisabled()
+        #endif
     }
 }

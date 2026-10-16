@@ -214,10 +214,12 @@ public struct TabLayout: Equatable, Sendable {
     }
 
     /// Closes every other unpinned tab of the tab's group, and returns the closed tabs.
+    /// `onlyClosing`, when given, limits it to those tabs: the ones saved before closing,
+    /// so a tab opened meanwhile is not closed unsaved.
     @discardableResult
-    public mutating func closeOtherTabs(keeping tabID: UUID) -> [UUID] {
+    public mutating func closeOtherTabs(keeping tabID: UUID, onlyClosing allowedTabs: Set<UUID>? = nil) -> [UUID] {
         guard let group = group(containing: tabID) else { return [] }
-        let closedTabs = group.tabs.filter { tab in tab.id != tabID && !tab.isPinned }
+        let closedTabs = group.tabs.filter { tab in tab.id != tabID && !tab.isPinned && allowedTabs?.contains(tab.id) != false }
         for tab in closedTabs { closeTab(tab.id) }
         focus(tabID: tabID)
         return closedTabs.map(\.id)
