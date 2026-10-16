@@ -46,6 +46,16 @@ final class UiWorkspaceAreaPDFHandoffTests: XCTestCase {
         return page.annotations.filter { annotation in PDFMarkupKind(annotationType: annotation.type) != nil }.count
     }
 
+    /// Next to a portrait page turned a quarter, which shows landscape, the new page is
+    /// landscape like the page in view; it was portrait.
+    func testInsertingPaperBesideATurnedPageMatchesThePageAsShown() async throws {
+        let session = try await PDFSession.open(try makePDF(named: "Turned.pdf", pageSize: CGSize(width: 595, height: 842)))
+        try XCTUnwrap(session.document.page(at: 0)).rotation = 90
+        try await session.insertPaper(PaperSpecification(template: .dotted), at: 1)
+        let insertedBounds = try XCTUnwrap(session.document.page(at: 1)).bounds(for: .cropBox)
+        XCTAssertGreaterThan(insertedBounds.width, insertedBounds.height, "The new page is landscape, as the turned page is shown.")
+    }
+
     /// A 300 dpi A4 scan whose pixels became points is larger than the sizes offered for new
     /// notebooks. Inserting a page used to fail with "Choose a paper size from 1 to 40 inches".
     func testInsertingPaperIntoAScanSizedPDFMatchesItsPageSize() async throws {

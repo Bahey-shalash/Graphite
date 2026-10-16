@@ -50,21 +50,16 @@ struct PDFPagesSidebar: View {
                     }
                     .padding(.vertical, 8)
                 }
-                .onAppear { scrollToCurrentPage(with: scrollProxy, animated: false) }
-                .onChange(of: session.currentPageIndex) { scrollToCurrentPage(with: scrollProxy, animated: true) }
+                // Follows the page in view from a view of its own: read here, each page turned
+                // rebuilt every row of the list.
+                .background { PDFCurrentPageFollower(session: session, scrollProxy: scrollProxy) }
             }
             Divider()
             selectionBar
         }
     }
 
-    private func scrollToCurrentPage(with scrollProxy: ScrollViewProxy, animated: Bool) {
-        guard let page = session.document.page(at: session.currentPageIndex) else { return }
-        withAnimation(animated ? GraphiteMotion.animation() : nil) { scrollProxy.scrollTo(ObjectIdentifier(page), anchor: .center) }
-    }
-
     private func pageRow(page: PDFPage, pageIndex: Int, isBookmarked: Bool) -> some View {
-        let isCurrent = pageIndex == session.currentPageIndex
         let isSelected = selectedPages.contains(page)
         return Button {
             if isSelecting {
@@ -90,12 +85,10 @@ struct PDFPagesSidebar: View {
                                 .padding(6)
                         }
                     }
-                Text("\(pageIndex + 1)")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                PDFPageRowNumber(session: session, pageIndex: pageIndex)
             }
             .padding(8)
-            .background(isCurrent && !isSelecting ? AnyShapeStyle(.tint.opacity(0.14)) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 10))
+            .modifier(PDFCurrentPageHighlight(session: session, pageIndex: pageIndex, isSelecting: isSelecting))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -234,6 +227,48 @@ struct PDFPageSelection {
     /// Where the selected pages are now, in page order, leaving out deleted pages.
     func pageIndices(in document: PDFDocument) -> [Int] {
         pagesByIdentifier.values.map(document.index(for:)).filter { pageIndex in pageIndex != NSNotFound }.sorted()
+    }
+}
+
+/// Keeps the page in view in the middle of the list as pages are turned.
+struct PDFCurrentPageFollower: View {
+    let session: PDFSession
+    let scrollProxy: ScrollViewProxy
+
+    var body: some View {
+        Color.clear
+            .onAppear { scrollToCurrentPage(animated: false) }
+            .onChange(of: session.currentPageIndex) { scrollToCurrentPage(animated: true) }
+    }
+
+    private func scrollToCurrentPage(animated: Bool) {
+        guard let page = session.document.page(at: session.currentPageIndex) else { return }
+        withAnimation(animated ? GraphiteMotion.animation() : nil) { scrollProxy.scrollTo(ObjectIdentifier(page), anchor: .center) }
+    }
+}
+
+/// A row's page number, in the accent color for the page in view. Each row reads the page
+/// in view itself, so a page turned redraws the rows on screen, not the whole list.
+private struct PDFPageRowNumber: View {
+    let session: PDFSession
+    let pageIndex: Int
+
+    var body: some View {
+        Text("\(pageIndex + 1)")
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(pageIndex == session.currentPageIndex ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+    }
+}
+
+/// The tinted background behind the row of the page in view, outside Select mode.
+private struct PDFCurrentPageHighlight: ViewModifier {
+    let session: PDFSession
+    let pageIndex: Int
+    let isSelecting: Bool
+
+    func body(content: Content) -> some View {
+        content.background(pageIndex == session.currentPageIndex && !isSelecting ? AnyShapeStyle(.tint.opacity(0.14)) : AnyShapeStyle(.clear),
+                           in: RoundedRectangle(cornerRadius: 10))
     }
 }
 

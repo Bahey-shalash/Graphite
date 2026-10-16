@@ -221,6 +221,9 @@ extension PDFSession {
         // Boxes, not indices: pages can move while the copy is made.
         let deletedPages = try sortedIndices.map { pageIndex in try historyPage(atIndex: pageIndex) }
         var copiedRuns: [PDFRemovedPageRun]?
+        // Ink a canvas has not recorded yet is recorded now: the copy would record it, and
+        // the change of version made every first attempt after writing fail.
+        writePendingInkRecords()
         for _ in 0..<Self.maximumDeletionCopyAttempts {
             let versionBeforeCopy = changeVersion
             let currentIndices = try deletedPages.map { deletedPage in try currentIndex(of: deletedPage) }
@@ -235,9 +238,12 @@ extension PDFSession {
             }
             break
         }
+        // Pages are never deleted without the copy Undo puts back.
+        guard let copiedRuns else {
+            throw GraphiteError.unavailable("The pages kept changing while they were copied for Undo, so they were not deleted. Try again.")
+        }
         let indicesToDelete = try deletedPages.map { deletedPage in try currentIndex(of: deletedPage) }
         try apply(.delete(pages: indicesToDelete))
-        guard let copiedRuns else { return }
         registerStep(named: deletedPages.count == 1 ? "Delete Page" : "Delete Pages") { session in
             try session.putBack(copiedRuns)
         } redo: { session in

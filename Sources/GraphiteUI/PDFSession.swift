@@ -546,13 +546,37 @@ final class PDFSession {
         let location = location
         let writer = writer
         let revisionBeforeRead = revision
+        // A file with the size and modification date it had at the last check that found it
+        // unchanged is not read again: an embed checked its whole PDF, hashing every byte,
+        // whenever any file of the vault changed.
+        let stamp = Self.fileStamp(of: location)
+        if let stamp, let unchangedStamp, unchangedStamp.stamp == stamp, unchangedStamp.revision == revisionBeforeRead { return false }
         let currentRevision = try await Task.detached { try Self.readRevision(of: location, writer: writer) }.value
         // A save that ran during the read replaced the file, so the hash may be of the
         // file before it. The next check compares with the revision that save wrote.
         guard !isSaving, revision == revisionBeforeRead else { return false }
         let changed = currentRevision != revision
+        if !changed, let stamp { unchangedStamp = (stamp, revisionBeforeRead) }
         if changed && hasUnsavedChanges { hasExternalConflict = true; errorMessage = GraphiteError.conflict.localizedDescription }
         return changed
+    }
+
+    /// The file's size and modification date, read before a check, and the revision the
+    /// check found the file still at.
+    @ObservationIgnored private var unchangedStamp: (stamp: FileStamp, revision: FileRevision)?
+
+    struct FileStamp: Equatable {
+        let modificationDate: Date
+        let size: Int
+    }
+
+    nonisolated private static func fileStamp(of location: URL) -> FileStamp? {
+        // A URL keeps the values it read; this one is read fresh each time.
+        var freshLocation = location
+        freshLocation.removeAllCachedResourceValues()
+        guard let values = try? freshLocation.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
+              let modificationDate = values.contentModificationDate, let size = values.fileSize else { return nil }
+        return FileStamp(modificationDate: modificationDate, size: size)
     }
 
     /// Hashes the file inside a coordinated read, so a sync provider that is writing it
@@ -583,8 +607,11 @@ final class PDFSession {
     /// Inserts a page of paper the size of the page in view, in the spacing and colors
     /// `paper` gives.
     func insertPaper(_ paper: PaperSpecification, at insertionIndex: Int) async throws {
-        let referenceBounds = document.page(at: min(currentPageIndex, max(0, pageCount - 1)))?.bounds(for: .cropBox) ?? CGRect(x: 0, y: 0, width: 595.28, height: 841.89)
-        let pageSize = referenceBounds.size
+        let referencePage = document.page(at: min(currentPageIndex, max(0, pageCount - 1)))
+        let referenceBounds = referencePage?.bounds(for: .cropBox) ?? CGRect(x: 0, y: 0, width: 595.28, height: 841.89)
+        // The page as shown: a portrait page turned a quarter is shown landscape.
+        let isQuarterTurned = ((referencePage?.rotation ?? 0) / 90) % 2 != 0
+        let pageSize = isQuarterTurned ? CGSize(width: referenceBounds.height, height: referenceBounds.width) : referenceBounds.size
         let paperData = try await Task.detached { try PDFTemplateGenerator.pageData(paper: paper, matching: pageSize) }.value
         let clampedIndex = min(max(0, insertionIndex), pageCount)
         try insertPages(paperData, at: clampedIndex, actionName: "Insert Page")
