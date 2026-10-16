@@ -90,7 +90,7 @@ final class MarkdownStyleScannerTests: XCTestCase {
         let spans = MarkdownStyleScanner.spans(in: source, range: NSRange(location: 0, length: source.length)).filter { span in span.style == .codeBlock }
         let codeStart = NSMaxRange(source.lineRange(for: NSRange(location: source.range(of: "```C++").location, length: 0)))
         XCTAssertEqual(spans.map { span in source.substring(with: span.range) }, ["int a;", "", "int b;", "> x = 1"], "A blank code line has an empty span.")
-        XCTAssertEqual(spans[0].fencedCodeBlock, FencedCodeBlock(language: "C++", codeStart: codeStart, quoteDepth: 0))
+        XCTAssertEqual(spans[0].fencedCodeBlock, FencedCodeBlock(language: "C++", codeStart: codeStart, quoteDepth: 0, fence: "```"))
         XCTAssertEqual(spans[1].fencedCodeBlock, spans[0].fencedCodeBlock)
         XCTAssertEqual(spans[2].fencedCodeBlock, spans[0].fencedCodeBlock)
         XCTAssertEqual(spans[3].fencedCodeBlock?.language, "py")

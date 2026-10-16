@@ -161,6 +161,7 @@ final class GraphitePreferences {
         static let appearanceMode = "GraphiteAppearanceMode"
         static let textSize = "GraphiteTextSize"
         static let usesSpellChecking = "GraphiteUsesSpellChecking"
+        static let formatsCodeBlocks = "GraphiteFormatsCodeBlocks"
         static let colorPalette = "GraphiteColorPalette"
         static let highlighterPalette = "GraphiteHighlighterPalette"
         static let embedsRecordingsInNote = "GraphiteEmbedsRecordingsInNote"
@@ -220,6 +221,8 @@ final class GraphitePreferences {
     /// shown at it, so notes keep their size until a size is chosen for the vault.
     let legacyChosenTextSize: Double?
     var usesSpellChecking: Bool { didSet { defaults.set(usesSpellChecking, forKey: Key.usesSpellChecking) } }
+    /// Whether a code block is formatted when the cursor leaves it after an edit.
+    var formatsCodeBlocks: Bool { didSet { defaults.set(formatsCodeBlocks, forKey: Key.formatsCodeBlocks) } }
     /// The palette as saved, for code without the preferences object, such as the Pencil
     /// palette's Favorite Colors menu.
     nonisolated static func storedColorPalette(in defaults: UserDefaults = .standard) -> [PaletteColor] {
@@ -376,6 +379,7 @@ final class GraphitePreferences {
         let storedTextSize = defaults.double(forKey: Key.textSize)
         legacyChosenTextSize = (12...28).contains(storedTextSize) ? storedTextSize : nil
         usesSpellChecking = defaults.object(forKey: Key.usesSpellChecking) as? Bool ?? true
+        formatsCodeBlocks = defaults.object(forKey: Key.formatsCodeBlocks) as? Bool ?? true
         colorPalette = Self.storedColorPalette(in: defaults)
         highlighterPalette = Self.storedHighlighterPalette(in: defaults)
         embedsRecordingsInNote = defaults.object(forKey: Key.embedsRecordingsInNote) as? Bool ?? true

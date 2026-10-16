@@ -82,6 +82,32 @@ final class CodeHighlightingTests: XCTestCase {
         XCTAssertGreaterThan(darkPixels, 500, "Reading view draws the code in syntax colors in dark appearance.")
     }
 
+    /// A block whose code was typed into is formatted when the cursor leaves it, and Undo
+    /// takes the formatting back.
+    func testAnEditedBlockIsFormattedWhenTheCursorLeavesIt() async throws {
+        let note = "Intro\n\n```c\nint main(){\nreturn 0;\n\n\n}\n```\n\nAfter the block.\n"
+        let (session, controller) = try await openNote(note)
+        session.viewMode = .source
+        let editor = try await editor(in: controller, showing: session.text)
+        editor.beginEditing()
+        XCTAssertTrue(editor.isFirstResponder, "The editor is being edited, as after a tap.")
+        editor.selectedRange = NSRange(location: NSMaxRange((editor.text as NSString).range(of: "return 0;")), length: 0)
+        try await Task.sleep(for: .milliseconds(200))
+        editor.insertText("\nint y=1,z=2;")
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertTrue(editor.text.contains("int main(){\nreturn 0;\nint y=1,z=2;"), "Nothing is formatted while the cursor is in the block.")
+        editor.selectedRange = NSRange(location: (editor.text as NSString).range(of: "After").location, length: 0)
+        try await Task.sleep(for: .milliseconds(500))
+        let formatted = "Intro\n\n```c\nint main() {\n    return 0;\n    int y=1, z=2;\n}\n```\n\nAfter the block.\n"
+        XCTAssertEqual(editor.text, formatted)
+        XCTAssertEqual(session.text, formatted, "The note saves the formatted code.")
+        attachScreenshot(named: "Formatted after leaving the block")
+
+        editor.undoManager?.undo()
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertTrue(editor.text.contains("int main(){\nreturn 0;\nint y=1,z=2;\n\n\n}"), "Undo takes back the formatting.")
+    }
+
     // MARK: Helpers
 
     private func foregroundColor(of text: String, in textStorage: NSTextStorage, occurrence: Int = 0) -> UIColor? {
