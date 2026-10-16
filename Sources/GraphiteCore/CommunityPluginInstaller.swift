@@ -135,7 +135,12 @@ public struct CommunityPluginInstaller: Sendable {
             guard let requiredVersion = requiredVersion as? String,
                   ObsidianVersionNumber.compare(requiredVersion, providedApiVersion) != .orderedDescending else { return nil }
             return pluginVersion
-        }.max { firstVersion, secondVersion in ObsidianVersionNumber.compare(firstVersion, secondVersion) == .orderedAscending }
+        }.max { firstVersion, secondVersion in
+            // Versions written differently that compare the same ("1.2" and "1.2.0") are
+            // ordered by their text, so the same file always picks the same release.
+            let order = ObsidianVersionNumber.compare(firstVersion, secondVersion)
+            return order == .orderedSame ? firstVersion < secondVersion : order == .orderedAscending
+        }
     }
 
     /// Replaces whatever is there now, as an update does.

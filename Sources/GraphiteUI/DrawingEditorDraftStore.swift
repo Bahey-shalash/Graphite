@@ -86,13 +86,17 @@ final class DrawingEditorDraftStore {
         let drawingLocation = Self.drawingLocation(for: draft.requestIdentifier, in: directory)
         let descriptionLocation = Self.descriptionLocation(for: draft.requestIdentifier, in: directory)
         enqueue {
+            var hasReplacedDrawing = false
             do {
                 let fileData = try await drawingFile()
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
                 try fileData.write(to: drawingLocation, options: .atomic)
+                hasReplacedDrawing = true
                 try JSONEncoder().encode(draft).write(to: descriptionLocation, options: .atomic)
             } catch {
-                try? FileManager.default.removeItem(at: descriptionLocation)
+                // An earlier draft of this drawing stays recoverable when this one fails to
+                // encode; its description goes only once its drawing file was replaced.
+                if hasReplacedDrawing { try? FileManager.default.removeItem(at: descriptionLocation) }
             }
         }
     }

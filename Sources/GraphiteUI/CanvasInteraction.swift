@@ -316,8 +316,13 @@ extension CanvasSession {
             nodeCopies.append(CanvasNodeCopy(sourceIdentifier: node.id, newIdentifier: copyIdentifier,
                                              origin: CGPoint(x: node.frame.minX + NewCardSize.duplicateOffset, y: node.frame.minY + NewCardSize.duplicateOffset)))
         }
+        // A connection is copied when both its cards are selected, as the file resolves its
+        // ends: with two cards sharing an identifier, it names the first.
+        let selectedNodeIDs = Set(selectedNodes.map(\.id))
         let edgeCopies = file.edges.compactMap { edge -> CanvasEdgeCopy? in
-            guard let fromNode = newNamesBySourceName[edge.fromNode], let toNode = newNamesBySourceName[edge.toNode] else { return nil }
+            guard let fromSource = file.node(named: edge.fromNode), let toSource = file.node(named: edge.toNode),
+                  selectedNodeIDs.contains(fromSource.id), selectedNodeIDs.contains(toSource.id),
+                  let fromNode = newNamesBySourceName[edge.fromNode], let toNode = newNamesBySourceName[edge.toNode] else { return nil }
             return CanvasEdgeCopy(sourceIdentifier: edge.id, newIdentifier: newIdentifier(), fromNode: fromNode, toNode: toNode)
         }
         if perform([.duplicate(nodes: nodeCopies, edges: edgeCopies)], named: nodeCopies.count == 1 ? "Duplicate Card" : "Duplicate Cards") {

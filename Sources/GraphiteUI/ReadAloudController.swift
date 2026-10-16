@@ -326,7 +326,7 @@ final class ReadAloudController {
         let wasSpeaking = session.state == .speaking
         let targetPageIndex = nextPageIndex.map { next in next + shift } ?? pageIndex
         if nextPageIndex == nil, let passage = session.currentPassage {
-            pendingPosition = (passage.text, session.spokenRange?.location ?? 0, wasSpeaking)
+            pendingPosition = (passage.text, session.currentOffset, wasSpeaking)
         }
         guard targetPageIndex >= 0, targetPageIndex < pdf.pageCount, targetPageIndex <= max(lastPageIndex, pageIndex) else {
             pauseForChange("The pages still to read were removed from the PDF.")
@@ -350,9 +350,12 @@ final class ReadAloudController {
     /// A note being read was edited. Once typing pauses, the note is prepared again and
     /// reading goes on at the same sentence, found again by its text; only when that
     /// sentence is gone does reading pause and say so.
-    func noteTextDidChange(path: VaultPath, text: String, hiddenRanges: [NSRange]) {
+    /// - Parameter hiddenRanges: Worked out only for the note being read: it scans the whole
+    ///   note, which ran on every keystroke in every note.
+    func noteTextDidChange(path: VaultPath, text: String, hiddenRanges hiddenRangesOfText: @autoclosure () -> [NSRange]) {
         guard let request = markdownRequest, request.path == path, request.sourceText != text,
               session.document != nil || isPreparing else { return }
+        let hiddenRanges = hiddenRangesOfText()
         isReanchoringNote = true
         noteReanchoring?.cancel()
         noteReanchoring = Task { [weak self] in
@@ -367,7 +370,7 @@ final class ReadAloudController {
         let wasSpeaking = session.state == .speaking
         // The sentence being read, as written in the note before the edit.
         let anchor = session.currentPassage.flatMap { passage in
-            ReadAloudReanchoring.anchor(in: request.sourceText, passage: passage, spokenOffset: session.spokenRange?.location ?? 0)
+            ReadAloudReanchoring.anchor(in: request.sourceText, passage: passage, spokenOffset: session.currentOffset)
         }
         guard let newLocation = anchor.flatMap({ anchor in ReadAloudReanchoring.location(of: anchor, in: text) }) else {
             isReanchoringNote = false
@@ -381,7 +384,11 @@ final class ReadAloudController {
         guard let document = try? await markdownPreparation.prepare(text, selectedRange: selectedRange, paletteHexByName: request.paletteHexByName,
                                                                     mathematicalStyle: mathematicalStyle, vaultRoot: vaultRoot,
                                                                     hiddenRanges: hiddenRanges),
-              markdownRequest?.path == path, !Task.isCancelled else { isReanchoringNote = false; return }
+              markdownRequest?.path == path, !Task.isCancelled else {
+            // A newer edit cancelled this one and is preparing the note: its flag stays.
+            if !Task.isCancelled { isReanchoringNote = false }
+            return
+        }
         markdownRequest = ReadAloudMarkdownRequest(sourceText: text, path: path, selectedRange: selectedRange,
                                                   scopeDescription: request.scopeDescription, paletteHexByName: request.paletteHexByName,
                                                   hiddenRanges: hiddenRanges)
@@ -655,8 +662,11 @@ final class ReadAloudController {
         let pageLabels = [String(pageIndex + 1)] + (pdf.document.page(at: pageIndex)?.label.map { label in [label] } ?? [])
         let knownRunningText = pdfRunningText
         let vaultRoot = vaultRoot
+        // The page's own language: the session's is still the previous document's here, and
+        // the code goes up to its first `-`, as "fil" and "yue" have three letters.
+        let pageLanguage = ReadAloudLanguage.language(ofText: snapshot.text) ?? session.readingLanguage
         let hyphenationWords = ReadAloudSpelling.dictionaryWords(among: ReadAloudDocument.hyphenationCandidates(in: snapshot.text),
-                                                                 language: String(session.readingLanguage.prefix(2)))
+                                                                 language: String(pageLanguage.prefix { character in character != "-" && character != "_" }))
         let worker = Task.detached(priority: .userInitiated) {
             let selectedRange: NSRange?
             if let recognizedWords {

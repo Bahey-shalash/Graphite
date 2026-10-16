@@ -253,10 +253,18 @@ enum NoteFontSize {
         min(max(size, adjustableRange.lowerBound), adjustableRange.upperBound)
     }
 
+    /// A size from a measure that can be anything, such as a plugin's setting or a pinch's
+    /// scale: clamped before it becomes a whole number, as a value past `Int`'s range
+    /// would stop the app.
+    static func clamped(_ size: Double) -> Int {
+        guard size.isFinite else { return defaultSize }
+        return Int(min(max(size, Double(adjustableRange.lowerBound)), Double(adjustableRange.upperBound)).rounded())
+    }
+
     /// The size a pinch that has scaled the text by `scale` arrives at, from `startingSize`.
     /// Sizes move in whole steps, as Obsidian's do.
     static func size(afterPinchingBy scale: CGFloat, from startingSize: Int) -> Int {
         guard scale.isFinite, scale > 0 else { return startingSize }
-        return clamped(Int((CGFloat(startingSize) * scale).rounded()))
+        return clamped(Double(CGFloat(startingSize) * scale))
     }
 }

@@ -10,7 +10,9 @@ public enum CanvasColor: Hashable, Sendable {
 
     public static let presets: [CanvasColor] = (1...6).map(CanvasColor.preset)
 
-    /// Reads `"1"` to `"6"` and `#rrggbb` (or the short `#rgb`); anything else is no color.
+    /// Reads `"1"` to `"6"` and `#rrggbb` (or the short `#rgb`); `#rrggbbaa` and `#rgba`,
+    /// which other canvas tools write, give their color without the opacity, which a card
+    /// does not have. Anything else is no color.
     public init?(text: String) {
         if let presetNumber = Int(text), (1...6).contains(presetNumber), text.count == 1 {
             self = .preset(presetNumber)
@@ -18,11 +20,24 @@ public enum CanvasColor: Hashable, Sendable {
         }
         guard text.hasPrefix("#") else { return nil }
         var digits = Array(text.dropFirst())
-        if digits.count == 3 { digits = digits.flatMap { digit in [digit, digit] } }
+        if digits.count == 3 || digits.count == 4 { digits = digits.prefix(3).flatMap { digit in [digit, digit] } }
+        if digits.count == 8, digits.allSatisfy(\.isHexDigit) { digits = Array(digits.prefix(6)) }
         guard digits.count == 6, digits.allSatisfy(\.isHexDigit), digits.allSatisfy(\.isASCII),
               let red = UInt8(String(digits[0..<2]), radix: 16), let green = UInt8(String(digits[2..<4]), radix: 16),
               let blue = UInt8(String(digits[4..<6]), radix: 16) else { return nil }
         self = .custom(red: red, green: green, blue: blue)
+    }
+
+    /// A color written as text, or as the number of a preset (`"color": 3`), which some
+    /// canvas generators write.
+    init?(jsonValue: CanvasJSONValue) {
+        if let text = jsonValue.string {
+            self.init(text: text)
+        } else if let number = jsonValue.number, number.rounded() == number, (1...6).contains(number) {
+            self = .preset(Int(number))
+        } else {
+            return nil
+        }
     }
 
     /// The color as a canvas file writes it.
@@ -189,7 +204,7 @@ public struct CanvasFile: Sendable {
             nodeIndexesByIdentifier[identifier] = readNodes.count
             if nodeIndexesByIdentifierInFile[identifierInFile] == nil { nodeIndexesByIdentifierInFile[identifierInFile] = readNodes.count }
             readNodes.append(CanvasNode(id: identifier, identifierInFile: identifierInFile, content: Self.content(of: value), frame: frame,
-                                        color: value.member("color")?.value.string.flatMap(CanvasColor.init(text:))))
+                                        color: value.member("color").flatMap { member in CanvasColor(jsonValue: member.value) }))
             readNodeElementIndexes.append(elementIndex)
         }
 
@@ -207,7 +222,7 @@ public struct CanvasFile: Sendable {
                 toSide: value.member("toSide")?.value.string.flatMap(CanvasSide.init(rawValue:)),
                 fromEnd: value.member("fromEnd")?.value.string.flatMap(CanvasEdgeEnd.init(rawValue:)) ?? .none,
                 toEnd: value.member("toEnd")?.value.string.flatMap(CanvasEdgeEnd.init(rawValue:)) ?? .arrow,
-                color: value.member("color")?.value.string.flatMap(CanvasColor.init(text:)),
+                color: value.member("color").flatMap { member in CanvasColor(jsonValue: member.value) },
                 label: value.member("label")?.value.string))
             readEdgeElementIndexes.append(elementIndex)
         }

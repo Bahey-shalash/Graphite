@@ -32,6 +32,9 @@ final class ReadAloudNavigator {
     @ObservationIgnored private let preferences: UserDefaults
     /// Opens a note or PDF and starts reading it; set by the workspace.
     @ObservationIgnored var startReading: ((VaultPath, _ resumeLocation: Int?) -> Void)?
+    /// The vault's folder. A PDF is read under its file's location, not its place in the
+    /// vault, which the history, the queue and remembered places need.
+    @ObservationIgnored var vaultRoot: (() -> URL?)?
     /// Where the first visible line of the note being read starts, from the view showing it.
     @ObservationIgnored var visibleLocation: (() -> Int?)?
     /// The first page shown of the PDF being read.
@@ -49,6 +52,8 @@ final class ReadAloudNavigator {
     @ObservationIgnored var playerFrameInWindow: CGRect?
     private static let positionsKey = "GraphiteReadAloudPositions"
     private static let maximumRememberedPositions = 300
+    /// The identifiers of the places kept, least recently kept first.
+    private static let positionsOrderKey = "GraphiteReadAloudPositionsOrder"
 
     init(reader: ReadAloudController, preferences: UserDefaults = .standard) {
         self.reader = reader
@@ -299,16 +304,34 @@ final class ReadAloudNavigator {
     func advance() -> Bool {
         guard !queue.isEmpty else { return false }
         let next = queue.removeFirst()
-        if let current = reader.sourceIdentifier.map({ identifier in identifier }), let path = try? VaultPath(current) { history.append(path) }
-        startReading?(next.path, rememberedLocation(for: next.path.rawValue))
+        if let current = reader.sourceIdentifier, let path = vaultPath(ofSource: current) { history.append(path) }
+        startReading?(next.path, rememberedLocation(for: next.path))
         return true
     }
 
     /// Back to the note or PDF read before this one; the current one goes back to the queue.
     func goToPreviousItem() {
         guard let previous = history.popLast() else { return }
-        if let current = reader.sourceIdentifier, let path = try? VaultPath(current) { queue.insert(QueueItem(path: path), at: 0) }
-        startReading?(previous, rememberedLocation(for: previous.rawValue))
+        if let current = reader.sourceIdentifier, let path = vaultPath(ofSource: current) { queue.insert(QueueItem(path: path), at: 0) }
+        startReading?(previous, rememberedLocation(for: previous))
+    }
+
+    /// The note or PDF read, as a place in the vault: a note is read under its vault path,
+    /// a PDF under its file's location. PDFs were left out of the history and the queue.
+    func vaultPath(ofSource identifier: String) -> VaultPath? {
+        if let path = try? VaultPath(identifier) { return path }
+        guard identifier.hasPrefix("/"), let rootPath = vaultRoot?()?.resolvingSymlinksInPath().path else { return nil }
+        let location = URL(fileURLWithPath: identifier).resolvingSymlinksInPath().path
+        guard location.hasPrefix(rootPath + "/") else { return nil }
+        return try? VaultPath(String(location.dropFirst(rootPath.count + 1)))
+    }
+
+    /// Where reading stopped in a note or PDF of the vault, under either name it is read by.
+    func rememberedLocation(for path: VaultPath) -> Int? {
+        if let location = rememberedLocation(for: path.rawValue) { return location }
+        guard let root = vaultRoot?() else { return nil }
+        return rememberedLocation(for: root.appendingPathComponent(path.rawValue).path)
+            ?? rememberedLocation(for: root.resolvingSymlinksInPath().appendingPathComponent(path.rawValue).path)
     }
 
     // MARK: Remembered positions
@@ -328,11 +351,22 @@ final class ReadAloudNavigator {
         preferences.set(positions, forKey: Self.positionsKey)
     }
 
-    private func remember(_ location: Int, for identifier: String) {
+    /// Keeps the place, forgetting the place least recently kept once there are too many.
+    /// The places were dropped in alphabetical order, so a note named early in the
+    /// alphabet lost its place to every new one.
+    func remember(_ location: Int, for identifier: String) {
         var positions = preferences.dictionary(forKey: Self.positionsKey) as? [String: Int] ?? [:]
         positions[identifier] = location
-        if positions.count > Self.maximumRememberedPositions, let oldest = positions.keys.sorted().first { positions[oldest] = nil }
+        var order = (preferences.stringArray(forKey: Self.positionsOrderKey) ?? []).filter { keptIdentifier in
+            keptIdentifier != identifier && positions[keptIdentifier] != nil
+        }
+        // Places kept before their order was, oldest first as far as can be told.
+        let orderedIdentifiers = Set(order)
+        let unorderedIdentifiers = positions.keys.filter { keptIdentifier in keptIdentifier != identifier && !orderedIdentifiers.contains(keptIdentifier) }.sorted()
+        order = unorderedIdentifiers + order + [identifier]
+        while order.count > Self.maximumRememberedPositions { positions[order.removeFirst()] = nil }
         preferences.set(positions, forKey: Self.positionsKey)
+        preferences.set(order, forKey: Self.positionsOrderKey)
     }
 
     /// Keeps each note's place as passages go by, and moves on to the queue (or repeats the
