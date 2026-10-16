@@ -59,6 +59,8 @@ final class UiEditorMacRenderedBlocksTests: XCTestCase {
         window.isReleasedWhenClosed = false
         windows.append(window)
         window.contentView = scrollView
+        // The note has keyboard focus, as after a click in it: markup shows at the cursor only then.
+        window.makeFirstResponder(textView)
         scrollView.frame = NSRect(x: 0, y: 0, width: 700, height: height)
         textView.frame.size.width = 700
         scrollView.layoutSubtreeIfNeeded()
@@ -121,6 +123,22 @@ final class UiEditorMacRenderedBlocksTests: XCTestCase {
         XCTAssertTrue(isConcealed(Self.tableRange.location + 3, in: textView))
         try await waitUntil { self.blockViews(in: textView).count == 1 }
         XCTAssertTrue(blockViews(in: textView).first === tableView, "The view kept off screen comes back, not a new one")
+    }
+
+    /// A note opened from the file list keeps its cursor at the start without keyboard focus:
+    /// a block there is drawn, and shows its source only once the note has focus.
+    func testABlockAtTheCursorShowsItsSourceOnlyWhileTheNoteHasKeyboardFocus() async throws {
+        let calloutNote = "> [!info] What to check\n> A line inside the callout.\n\nAfter the callout\n"
+        let (coordinator, textView, _) = try await makeEditor(text: calloutNote)
+        let window = try XCTUnwrap(textView.window)
+        moveCursor(to: NSRange(location: 3, length: 0), in: textView, coordinator)
+        XCTAssertFalse(isConcealed(3, in: textView), "With focus, the callout under the cursor shows its source")
+        window.makeFirstResponder(nil)
+        XCTAssertTrue(isConcealed(3, in: textView), "Focus elsewhere, as in the file list, draws the callout")
+        try await waitUntil { self.blockViews(in: textView).count == 1 }
+        window.makeFirstResponder(textView)
+        XCTAssertFalse(isConcealed(3, in: textView), "Focus back in the note shows the source at the cursor again")
+        XCTAssertTrue(blockViews(in: textView).isEmpty)
     }
 
     /// A click on a block's view puts the cursor at the block's start, showing its source.

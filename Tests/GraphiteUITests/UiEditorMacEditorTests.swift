@@ -9,8 +9,11 @@ import GraphiteCore
 @MainActor
 final class UiEditorMacEditorTests: XCTestCase {
     private var vaultDirectories: [URL] = []
+    private var windows: [NSWindow] = []
 
     override func tearDown() async throws {
+        for window in windows { window.contentView = nil }
+        windows = []
         for vaultDirectory in vaultDirectories { try? FileManager.default.removeItem(at: vaultDirectory) }
         vaultDirectories = []
         try await super.tearDown()
@@ -27,7 +30,10 @@ final class UiEditorMacEditorTests: XCTestCase {
     }
 
     /// A text view connected to a coordinator the way `makeNSView` connects it.
-    private func makeEditor(text: String, mode: EditingMode = .livePreview) async throws -> (NativeMarkdownEditor.Coordinator, MarkdownMacTextView, NSScrollView) {
+    /// - Parameter hasKeyboardFocus: Puts the view in a window with keyboard focus, as after a
+    ///   click in the note: markup shows at the cursor only then.
+    private func makeEditor(text: String, mode: EditingMode = .livePreview, hasKeyboardFocus: Bool = false) async throws
+        -> (NativeMarkdownEditor.Coordinator, MarkdownMacTextView, NSScrollView) {
         let session = try await makeSession(text: text)
         var configuration = EditorConfiguration()
         configuration.mode = mode
@@ -41,6 +47,12 @@ final class UiEditorMacEditorTests: XCTestCase {
         textView.delegate = coordinator
         coordinator.connect(textView)
         coordinator.restyleEverything(in: textView)
+        if hasKeyboardFocus {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: true)
+            windows.append(window)
+            window.contentView = scrollView
+            window.makeFirstResponder(textView)
+        }
         return (coordinator, textView, scrollView)
     }
 
@@ -101,7 +113,7 @@ final class UiEditorMacEditorTests: XCTestCase {
     /// click on the box of the cursor's line, where `[ ]` shows as written, places the cursor.
     func testAClickOnADrawnTaskBoxChecksItAndCanBeUndone() async throws {
         let text = "- [ ] Write the essay\n- [x] Read the paper\nLast line"
-        let (coordinator, textView, _) = try await makeEditor(text: text)
+        let (coordinator, textView, _) = try await makeEditor(text: text, hasKeyboardFocus: true)
         let source = text as NSString
         textView.setSelectedRange(NSRange(location: source.length, length: 0))
         coordinator.textViewDidChangeSelection(Notification(name: NSTextView.didChangeSelectionNotification, object: textView))
@@ -125,7 +137,7 @@ final class UiEditorMacEditorTests: XCTestCase {
 
     func testTypingAndMovingTheCursorRestyleOnlyTheLinesInvolved() async throws {
         let lines = (0..<200).map { index in "Paragraph \(index) with **bold** text" }
-        let (coordinator, textView, _) = try await makeEditor(text: lines.joined(separator: "\n"))
+        let (coordinator, textView, _) = try await makeEditor(text: lines.joined(separator: "\n"), hasKeyboardFocus: true)
         let textStorage = try XCTUnwrap(textView.textStorage)
         let source = NSString(string: textStorage.string)
         let sentinelKey = NSAttributedString.Key("UiEditorSentinel")
@@ -160,7 +172,7 @@ final class UiEditorMacEditorTests: XCTestCase {
     /// after the old cursor line hides its markup again (P7).
     func testMovingTheCursorRestylesNeitherTheLinesBetweenNorLeavesTheNextLineRevealed() async throws {
         let lines = ["Top line"] + (1..<200).map { index in "# Heading \(index)" }
-        let (coordinator, textView, _) = try await makeEditor(text: lines.joined(separator: "\n"))
+        let (coordinator, textView, _) = try await makeEditor(text: lines.joined(separator: "\n"), hasKeyboardFocus: true)
         let textStorage = try XCTUnwrap(textView.textStorage)
         let source = NSString(string: textStorage.string)
         let sentinelKey = NSAttributedString.Key("UiEditorSentinel")
@@ -229,7 +241,7 @@ final class UiEditorMacEditorTests: XCTestCase {
 
     func testOnlyTheElementUnderTheCursorShowsItsMarkupAsTheCursorMoves() async throws {
         let text = "# Title with **bold**\nPlain **bold** and [[Note|alias]] and ==mark==\n- item with `code`\n"
-        let (coordinator, textView, _) = try await makeEditor(text: text)
+        let (coordinator, textView, _) = try await makeEditor(text: text, hasKeyboardFocus: true)
         let textStorage = try XCTUnwrap(textView.textStorage)
         let source = text as NSString
         let secondLine = source.lineRange(for: NSRange(location: source.range(of: "Plain").location, length: 0))
@@ -263,7 +275,7 @@ final class UiEditorMacEditorTests: XCTestCase {
     /// the cursor.
     func testTypingDeletingAndUndoKeepTheMarkupOfTheElementBeingEdited() async throws {
         let text = "Intro line\nSome **bold** text and [[Note]] here\nLast line with ==mark==\n"
-        let (coordinator, textView, _) = try await makeEditor(text: text)
+        let (coordinator, textView, _) = try await makeEditor(text: text, hasKeyboardFocus: true)
         let textStorage = try XCTUnwrap(textView.textStorage)
         let source = text as NSString
         let bold = source.range(of: "**bold**")
@@ -339,7 +351,7 @@ final class UiEditorMacEditorTests: XCTestCase {
 
     func testClickedLinksFollowOnlyWhereTheirMarkupIsConcealed() async throws {
         let text = "Cursor in [[Here]] not [[There]]\nSee [[Target]] now\n`[[Code]]`"
-        let (coordinator, textView, _) = try await makeEditor(text: text)
+        let (coordinator, textView, _) = try await makeEditor(text: text, hasKeyboardFocus: true)
         var followed: [String] = []
         coordinator.follow = { target, _ in followed.append(target) }
         let source = text as NSString
