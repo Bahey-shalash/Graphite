@@ -180,18 +180,20 @@ struct VaultSidebar: View {
             #endif
             if workspace.store != nil {
                 ToolbarItemGroup(placement: .primaryAction) {
-                    Menu("New", systemImage: "square.and.pencil") {
-                        Button("New Note", systemImage: "doc.text") { creation = CreationRequest(kind: .note) }
-                        Button("New Notebook", systemImage: "book.closed") { creation = CreationRequest(kind: .notebook) }
-                        if workspace.preferences.isEnabled(.bases) { Button("New Base", systemImage: "tablecells") { creation = CreationRequest(kind: .base) } }
-                        if workspace.preferences.isEnabled(.canvas) { Button("New Canvas", systemImage: "rectangle.3.group") { creation = CreationRequest(kind: .canvas) } }
-                        if workspace.preferences.isEnabled(.dailyNotes) {
-                            Button("Today's Daily Note", systemImage: "calendar") { Task { await workspace.openDailyNote() } }
-                        }
-                        Divider()
-                        Button("New Folder", systemImage: "folder.badge.plus") { workspace.fileSheet = .newFolder(in: workspace.newFileDirectory(nil)) }
+                    #if os(macOS)
+                    // A click makes a note, as Notes' compose button does; the arrow beside it
+                    // offers the other kinds.
+                    Menu { newDocumentMenuItems } label: {
+                        Label("New Note", systemImage: "square.and.pencil")
+                    } primaryAction: {
+                        creation = CreationRequest(kind: .note)
                     }
                     .tint(.primary)
+                    .help("New Note")
+                    #else
+                    Menu("New", systemImage: "square.and.pencil") { newDocumentMenuItems }
+                    .tint(.primary)
+                    #endif
                     Menu("\(panel.title) Options", systemImage: "ellipsis") { panelMenu }
                     .tint(.primary)
                 }
@@ -246,6 +248,18 @@ struct VaultSidebar: View {
         case .files:
             FileExplorerMenuItems(workspace: workspace) { path in fileToReveal = path }
         }
+    }
+
+    @ViewBuilder private var newDocumentMenuItems: some View {
+        Button("New Note", systemImage: "doc.text") { creation = CreationRequest(kind: .note) }
+        Button("New Notebook", systemImage: "book.closed") { creation = CreationRequest(kind: .notebook) }
+        if workspace.preferences.isEnabled(.bases) { Button("New Base", systemImage: "tablecells") { creation = CreationRequest(kind: .base) } }
+        if workspace.preferences.isEnabled(.canvas) { Button("New Canvas", systemImage: "rectangle.3.group") { creation = CreationRequest(kind: .canvas) } }
+        if workspace.preferences.isEnabled(.dailyNotes) {
+            Button("Today's Daily Note", systemImage: "calendar") { Task { await workspace.openDailyNote() } }
+        }
+        Divider()
+        Button("New Folder", systemImage: "folder.badge.plus") { workspace.fileSheet = .newFolder(in: workspace.newFileDirectory(nil)) }
     }
 
     /// The chosen list, or a community plugin's view, which fills the sidebar below the picker
