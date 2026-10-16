@@ -427,9 +427,13 @@ final class PerformanceBenchmarkTests: XCTestCase {
         editor.window?.displayIfNeeded()
     }
 
-    /// SwiftUI's hosted views, which Live Preview places in the text view for its blocks.
+    /// SwiftUI's hosted views, which Live Preview places in the text view for its blocks:
+    /// `NSHostingView` itself before 50fce43, its subclass `RenderedBlockHostingView` since.
     private func blockViews(in editor: MarkdownMacTextView) -> [NSView] {
-        editor.subviews.filter { subview in String(describing: Swift.type(of: subview)).hasPrefix("NSHostingView") }
+        editor.subviews.filter { subview in
+            let typeName = String(describing: Swift.type(of: subview))
+            return typeName.hasPrefix("NSHostingView") || typeName == "RenderedBlockHostingView"
+        }
     }
 
     private func enclosingScrollView(of view: NSView) -> NSScrollView? {
