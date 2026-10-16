@@ -20,6 +20,8 @@ struct LocalMapPanel: View {
     }
 
     var body: some View {
+        // Found once per update: the neighborhood was searched twice, for the count and the map.
+        let localNotes = localNotes
         VStack(spacing: 0) {
             HStack {
                 Text(localNotes.map { notes in notes.count == 1 ? "1 place" : "\(notes.count.formatted()) places" } ?? " ")

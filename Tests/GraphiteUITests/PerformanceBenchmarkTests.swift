@@ -71,6 +71,7 @@ final class PerformanceBenchmarkTests: XCTestCase {
             workspace.index = index
             _ = try await index.reconcile(root: vault)
 
+            let footprintBeforeOpening = ProcessResourceUsage.memoryFootprintBytes()
             // Opening: from the request to a laid-out editor with its first blocks drawn.
             let opening = BenchmarkMeasurement(scenario: "note-open", run: run)
             await workspace.open(notePath, placement: .currentTab)
@@ -92,6 +93,9 @@ final class PerformanceBenchmarkTests: XCTestCase {
             // Scrolling to the end and back, a step of 40% of the window at a time.
             let scrolling = BenchmarkMeasurement(scenario: "note-scroll", run: run)
             for direction in [1.0, -1.0] {
+                // Each way on its own too: down, blocks are drawn the first time; up, again.
+                let way = BenchmarkMeasurement(scenario: direction > 0 ? "note-scroll-down" : "note-scroll-up", run: run)
+                defer { way.finish() }
                 var stepCount = 0
                 while stepCount < 2_000 {
                     let viewportHeight = visibleBounds(of: editor).height
@@ -100,6 +104,7 @@ final class PerformanceBenchmarkTests: XCTestCase {
                     let nextOffset = min(lastOffset, max(0, currentOffset + direction * viewportHeight * 0.4))
                     if abs(nextOffset - currentOffset) < 1 { break }
                     await scrolling.measureFrame { self.scroll(editor, to: nextOffset) }
+                    way.recordFrame(from: scrolling)
                     stepCount += 1
                 }
             }
@@ -114,8 +119,9 @@ final class PerformanceBenchmarkTests: XCTestCase {
                 await typing.measureFrame { self.type(String(character), in: editor) }
             }
             typing.finish()
-            close(window)
             try? await workspace.document(for: tab).saveAllChanges()
+            close(window)
+            try await reportMemoryKept(scenario: "note-memory-kept-after-close", run: run, since: footprintBeforeOpening)
         }
     }
 
@@ -125,6 +131,7 @@ final class PerformanceBenchmarkTests: XCTestCase {
         let directory = try makeTemporaryDirectory(named: "PDFBenchmark")
         let location = try Self.makeLecturePDF(at: directory.appendingPathComponent("Lecture.pdf"), pageCount: 150)
         for run in 1...Self.runCount {
+            let footprintBeforeOpening = ProcessResourceUsage.memoryFootprintBytes()
             let opening = BenchmarkMeasurement(scenario: "pdf-open", run: run)
             let session = try await PDFSession.open(location)
             let window = host(NavigationStack {
@@ -141,21 +148,21 @@ final class PerformanceBenchmarkTests: XCTestCase {
             }
             opening.finish()
 
-            let scrollView = try XCTUnwrap(pdfScrollView(of: pdfView), "PDFKit's scroll view was not found.")
+            // Page by page to the end, as a reader turning pages does: each turn is a page
+            // change PDFKit reports, which the pane, its sidebar and the session follow.
+            // Scrolling the scroll view from code did not make PDFKit report page changes.
             let scrolling = BenchmarkMeasurement(scenario: "pdf-scroll", run: run)
-            var stepCount = 0
-            while stepCount < 3_000 {
-                let viewportHeight = visibleBounds(of: scrollView).height
-                let currentOffset = scrollOffset(of: scrollView)
-                let lastOffset = max(0, documentHeight(of: scrollView) - viewportHeight)
-                let nextOffset = min(lastOffset, currentOffset + viewportHeight * 0.5)
-                if abs(nextOffset - currentOffset) < 1 { break }
-                await scrolling.measureFrame { self.scroll(scrollView, to: nextOffset) }
-                stepCount += 1
+            for pageIndex in 1..<session.document.pageCount {
+                guard let page = session.document.page(at: pageIndex) else { continue }
+                await scrolling.measureFrame {
+                    pdfView.go(to: page)
+                    self.layOut(window)
+                }
             }
             scrolling.finish()
             XCTAssertGreaterThan(session.currentPageIndex, 100, "The scroll did not reach the end of the PDF.")
             close(window)
+            try await reportMemoryKept(scenario: "pdf-memory-kept-after-close", run: run, since: footprintBeforeOpening)
         }
     }
 
@@ -303,6 +310,13 @@ final class PerformanceBenchmarkTests: XCTestCase {
         return location
     }
 
+    /// The memory still taken a moment after a document's window closed, against before it opened.
+    private func reportMemoryKept(scenario: String, run: Int, since footprintBeforeOpening: UInt64) async throws {
+        try await Task.sleep(for: .seconds(1.5))
+        let kept = (Double(ProcessResourceUsage.memoryFootprintBytes()) - Double(footprintBeforeOpening)) / 1_048_576
+        print("GRAPHITE-BENCH platform=\(Self.platformName) scenario=\(scenario) run=\(run) kept_mb=\(String(format: "%.2f", kept))")
+    }
+
     // MARK: Waiting
 
     private func waitForValue<Value>(timeout: Duration, _ value: () -> Value?) async throws -> Value {
@@ -340,6 +354,7 @@ final class PerformanceBenchmarkTests: XCTestCase {
     private func close(_ window: UIWindow) {
         window.isHidden = true
         window.rootViewController = nil
+        windows.removeAll { openWindow in openWindow === window }
     }
 
     private func contentView(of window: UIWindow) -> UIView { window }
@@ -363,10 +378,6 @@ final class PerformanceBenchmarkTests: XCTestCase {
             }
             return false
         }
-    }
-
-    private func pdfScrollView(of pdfView: PDFView) -> UIScrollView? {
-        descendants(of: pdfView, matching: UIScrollView.self).first
     }
 
     private func visibleBounds(of scrollView: UIScrollView) -> CGRect { scrollView.bounds }
@@ -393,6 +404,7 @@ final class PerformanceBenchmarkTests: XCTestCase {
     private func close(_ window: NSWindow) {
         window.contentView = nil
         window.close()
+        windows.removeAll { openWindow in openWindow === window }
     }
 
     private func contentView(of window: NSWindow) -> NSView { window.contentView ?? NSView() }
@@ -418,10 +430,6 @@ final class PerformanceBenchmarkTests: XCTestCase {
     /// SwiftUI's hosted views, which Live Preview places in the text view for its blocks.
     private func blockViews(in editor: MarkdownMacTextView) -> [NSView] {
         editor.subviews.filter { subview in String(describing: Swift.type(of: subview)).hasPrefix("NSHostingView") }
-    }
-
-    private func pdfScrollView(of pdfView: PDFView) -> NSScrollView? {
-        descendants(of: pdfView, matching: NSScrollView.self).first
     }
 
     private func enclosingScrollView(of view: NSView) -> NSScrollView? {
@@ -450,6 +458,7 @@ final class BenchmarkMeasurement {
     private let run: Int
     private let startTime = ContinuousClock.now
     private let startProcessorSeconds = ProcessResourceUsage.processorSeconds()
+    private let startMainThreadSeconds = ProcessResourceUsage.mainThreadProcessorSeconds()
     private let startFootprintBytes = ProcessResourceUsage.memoryFootprintBytes()
     private var peakFootprintBytes: UInt64
     private var frameDurations: [Duration] = []
@@ -472,9 +481,16 @@ final class BenchmarkMeasurement {
         peakFootprintBytes = max(peakFootprintBytes, ProcessResourceUsage.memoryFootprintBytes())
     }
 
+    /// Counts the frame `other` measured last in this measurement too.
+    func recordFrame(from other: BenchmarkMeasurement) {
+        if let frame = other.frameDurations.last { frameDurations.append(frame) }
+        peakFootprintBytes = max(peakFootprintBytes, other.peakFootprintBytes)
+    }
+
     func finish() {
         let wallMilliseconds = Self.milliseconds(startTime.duration(to: .now))
         let processorMilliseconds = (ProcessResourceUsage.processorSeconds() - startProcessorSeconds) * 1_000
+        let mainThreadMilliseconds = (ProcessResourceUsage.mainThreadProcessorSeconds() - startMainThreadSeconds) * 1_000
         let endFootprintBytes = ProcessResourceUsage.memoryFootprintBytes()
         peakFootprintBytes = max(peakFootprintBytes, endFootprintBytes)
         let sortedFrames = frameDurations.map(Self.milliseconds).sorted()
@@ -484,7 +500,7 @@ final class BenchmarkMeasurement {
         let megabyte = 1_048_576.0
         let fields: [(String, String)] = [
             ("platform", PerformanceBenchmarkTests.platformNameForMeasurement), ("scenario", scenario), ("run", "\(run)"),
-            ("wall_ms", Self.format(wallMilliseconds)), ("cpu_ms", Self.format(processorMilliseconds)),
+            ("wall_ms", Self.format(wallMilliseconds)), ("main_cpu_ms", Self.format(mainThreadMilliseconds)), ("cpu_ms", Self.format(processorMilliseconds)),
             ("cpu_share", Self.format(wallMilliseconds > 0 ? processorMilliseconds / wallMilliseconds : 0)),
             ("footprint_start_mb", Self.format(Double(startFootprintBytes) / megabyte)),
             ("footprint_peak_mb", Self.format(Double(peakFootprintBytes) / megabyte)),
@@ -516,6 +532,22 @@ enum ProcessResourceUsage {
         getrusage(RUSAGE_SELF, &usage)
         return Double(usage.ru_utime.tv_sec) + Double(usage.ru_utime.tv_usec) / 1_000_000
             + Double(usage.ru_stime.tv_sec) + Double(usage.ru_stime.tv_usec) / 1_000_000
+    }
+
+    /// The main thread's own processor time, which the app's other threads, and on the
+    /// simulator the system's, do not blur. Read on the main thread.
+    static func mainThreadProcessorSeconds() -> Double {
+        var information = thread_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout<thread_basic_info>.size / MemoryLayout<integer_t>.size)
+        let thread = pthread_mach_thread_np(pthread_self())
+        let result = withUnsafeMutablePointer(to: &information) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { reboundPointer in
+                thread_info(thread, thread_flavor_t(THREAD_BASIC_INFO), reboundPointer, &count)
+            }
+        }
+        guard result == KERN_SUCCESS else { return 0 }
+        return Double(information.user_time.seconds) + Double(information.user_time.microseconds) / 1_000_000
+            + Double(information.system_time.seconds) + Double(information.system_time.microseconds) / 1_000_000
     }
 
     static func memoryFootprintBytes() -> UInt64 {

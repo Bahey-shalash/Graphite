@@ -128,9 +128,23 @@ final class UiEditorRenderedBlockReuseTests: XCTestCase {
         XCTAssertTrue(pool.isEmpty)
     }
 
+    /// A small table's view is estimated as small, so a note of small tables keeps its views
+    /// as it scrolls; every table was estimated as large as a 12-by-4 one.
+    func testTablesAreEstimatedFromTheirSize() throws {
+        func table(_ markdown: String) throws -> LivePreviewBlock {
+            try XCTUnwrap(LivePreviewBlockScanner.blocks(in: "Intro\n\n\(markdown)\n\nAfter\n" as NSString).first { block in block.kind == .table })
+        }
+        let smallTable = try table("| a | b | c |\n| - | - | - |\n| 1 | 2 | 3 |\n| 4 | 5 | 6 |")
+        let largeTable = try table((["| a | b | c | d |", "| - | - | - | - |"] + (1...12).map { _ in "| 1 | 2 | 3 | 4 |" }).joined(separator: "\n"))
+        let small = try XCTUnwrap(DetachedWidgetPool<String>.estimatedMegabytes(of: smallTable))
+        let large = try XCTUnwrap(DetachedWidgetPool<String>.estimatedMegabytes(of: largeTable))
+        XCTAssertLessThan(small, 2)
+        XCTAssertEqual(large, 6, accuracy: 0.5, "As measured for a 12-by-4 table")
+    }
+
     /// A player kept off screen could go on playing, so audio and video are built again.
     func testPlayersAreNeverKept() {
-        let estimates = blocks.map { block in DetachedWidgetPool<String>.estimatedMegabytes(of: block.kind) }
+        let estimates = blocks.map { block in DetachedWidgetPool<String>.estimatedMegabytes(of: block) }
         XCTAssertNotNil(estimates[3], "image embed")
         XCTAssertNil(estimates[4], "audio embed")
         XCTAssertTrue(estimates.enumerated().allSatisfy { index, estimate in index == 4 || estimate != nil })
