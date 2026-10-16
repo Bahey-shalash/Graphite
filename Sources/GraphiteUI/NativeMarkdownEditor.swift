@@ -1487,6 +1487,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         func textViewDidEndEditing(_ textView: UITextView) {
             isEditing = false
             session.isTyping = false
+            formatCodeBlockLeftBehind(in: textView, editingEnded: true)
             // A suggestion chosen as the keyboard closes still gets its edits.
             recordAcceptedCompletion()
             completionContextRevision = nil
@@ -1580,10 +1581,23 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             session.selection = textView.selectedRange
             guard !isApplyingInsertion else { return }
             updateRevealedMarkup(in: textView)
+            formatCodeBlockLeftBehind(in: textView, editingEnded: false)
             // During an edit the selection is reported before the text; `textViewDidChange`
             // updates the suggestions right after, for the same selection.
             guard !textState.cachesDescribeOldText else { return }
             updateCompletion(in: textView)
+        }
+
+        /// Formats the code block the user edited once the selection leaves it or editing
+        /// ends, on the next turn of the run loop rather than inside the text view's callback,
+        /// through the text view so Undo puts the code back.
+        private func formatCodeBlockLeftBehind(in textView: UITextView, editingEnded: Bool) {
+            guard configuration.formatsCodeBlocks else { return }
+            DispatchQueue.main.async { [weak self, weak textView] in
+                guard let self, let textView, textView.markedTextRange == nil,
+                      let edit = self.styling.codeFormattingEdit(afterSelectionChangeIn: textView, editingEnded: editingEnded) else { return }
+                self.perform(edit, in: textView)
+            }
         }
 
         /// Restyles the markup that starts or stops showing as the selection moves: the
@@ -2871,6 +2885,31 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             session.selection = textView.selectedRange()
             concealPropertiesSourceIfLeft(in: textView)
             styling.restyleRevealedMarkup(in: textView)
+            formatCodeBlockLeftBehind(in: textView, editingEnded: false)
+        }
+
+        func textDidEndEditing(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            formatCodeBlockLeftBehind(in: textView, editingEnded: true)
+        }
+
+        /// Formats the code block the user edited once the selection leaves it or editing
+        /// ends, on the next turn of the run loop, through the text view so Undo puts the
+        /// code back.
+        private func formatCodeBlockLeftBehind(in textView: NSTextView, editingEnded: Bool) {
+            guard configuration.formatsCodeBlocks else { return }
+            DispatchQueue.main.async { [weak self, weak textView] in
+                guard let self, let textView, !textView.hasMarkedText(), let textStorage = textView.textStorage,
+                      let edit = self.styling.codeFormattingEdit(afterSelectionChangeIn: textView, editingEnded: editingEnded),
+                      NSMaxRange(edit.range) <= textStorage.length else { return }
+                textView.breakUndoCoalescing()
+                self.isApplyingOwnEdit = true
+                defer { self.isApplyingOwnEdit = false }
+                guard textView.shouldChangeText(in: edit.range, replacementString: edit.replacement) else { return }
+                textStorage.replaceCharacters(in: edit.range, with: edit.replacement)
+                textView.didChangeText()
+                if NSMaxRange(edit.selectionAfter) <= textStorage.length { textView.setSelectedRange(edit.selectionAfter) }
+            }
         }
 
         func textView(_ textView: NSTextView, willChangeSelectionFromCharacterRange oldSelectedCharRange: NSRange,

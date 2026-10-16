@@ -211,6 +211,14 @@ private struct EditorSettingsPage: View {
                 Text("With strict line breaks off, a single line break starts a new line when reading, as in Obsidian. This option is stored in the vault's .obsidian/app.json.")
                     .formFooterAlignment()
             }
+            Section {
+                Toggle("Format Code Blocks", isOn: $preferences.formatsCodeBlocks)
+            } header: {
+                Text("Code")
+            } footer: {
+                Text("When you leave a code block you edited, its indentation and spacing are tidied for its language. Undo puts it back.")
+                    .formFooterAlignment()
+            }
             // Only the iPad editor continues lists, pairs characters, and indents as you
             // type; the Mac editor has none of these, so they would do nothing there.
             #if canImport(UIKit)

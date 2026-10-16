@@ -60,6 +60,40 @@ public struct FencedCodeBlock: Equatable, Sendable {
     public let codeStart: Int
     /// Quote markers before the opening fence, which every line of the block repeats.
     public let quoteDepth: Int
+    /// The run of backticks or tildes that opened the block, which a closing fence repeats.
+    public let fence: String
+
+    /// The block's code: from `codeStart` to the start of its closing fence's line, or to the
+    /// end of the text for a block left open. A line with fewer quote markers ends a quoted
+    /// block too.
+    public func codeRange(in text: NSString) -> NSRange {
+        let start = min(codeStart, text.length)
+        var lineStart = start
+        while lineStart < text.length {
+            let lineRange = text.lineRange(for: NSRange(location: lineStart, length: 0))
+            let line = text.substring(with: lineRange)
+            let (depth, content) = MarkdownStyleScanner.quoteMarkersAndContent(of: line, maximumDepth: quoteDepth)
+            if depth < quoteDepth || CodeFence.closes(fence, content) { break }
+            lineStart = NSMaxRange(lineRange)
+        }
+        return NSRange(location: start, length: lineStart - start)
+    }
+
+    /// Whether `location` is in the block's code, found without reading every line of the
+    /// block: only a closing fence between the code's start and `location` ends it first.
+    public func contains(_ location: Int, in text: NSString) -> Bool {
+        guard location >= codeStart, location <= text.length else { return false }
+        var searchStart = codeStart
+        while searchStart < location {
+            let found = text.range(of: fence, options: .literal, range: NSRange(location: searchStart, length: location - searchStart))
+            guard found.location != NSNotFound else { return true }
+            let lineRange = text.lineRange(for: NSRange(location: found.location, length: 0))
+            let (depth, content) = MarkdownStyleScanner.quoteMarkersAndContent(of: text.substring(with: lineRange), maximumDepth: quoteDepth)
+            if depth == quoteDepth, CodeFence.closes(fence, content), lineRange.location <= location { return false }
+            searchStart = max(NSMaxRange(found), lineRange.location + 1)
+        }
+        return true
+    }
 }
 
 /// Multi-line constructs whose content is not ordinary Markdown.
@@ -288,7 +322,7 @@ public enum MarkdownStyleScanner {
         case .normal, .frontmatter:
             let (depth, content) = quoteMarkersAndContent(of: line, maximumDepth: .max)
             if let (fence, info) = CodeFence.opening(content) {
-                let codeBlock = FencedCodeBlock(language: NotePreviewDocument.codeBlockLanguage(ofFenceInfo: info), codeStart: lineEnd, quoteDepth: depth)
+                let codeBlock = FencedCodeBlock(language: NotePreviewDocument.codeBlockLanguage(ofFenceInfo: info), codeStart: lineEnd, quoteDepth: depth, fence: fence)
                 return BlockState(context: .fencedCode, openFence: fence, fenceQuoteDepth: depth, fencedCodeBlock: codeBlock)
             }
             if opensDisplayMathBlock(content) { return BlockState(context: .mathBlock) }
@@ -331,7 +365,7 @@ public enum MarkdownStyleScanner {
     }
 
     /// Up to `maximumDepth` leading quote markers, and the trimmed text after them.
-    private static func quoteMarkersAndContent(of line: String, maximumDepth: Int) -> (depth: Int, content: String) {
+    static func quoteMarkersAndContent(of line: String, maximumDepth: Int) -> (depth: Int, content: String) {
         var remainder = Substring(line.trimmingCharacters(in: .whitespacesAndNewlines))
         var depth = 0
         while depth < maximumDepth && remainder.hasPrefix(">") {

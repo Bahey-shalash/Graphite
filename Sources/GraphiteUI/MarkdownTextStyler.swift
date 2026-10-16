@@ -22,6 +22,9 @@ struct EditorConfiguration: Equatable {
     /// The vault's Obsidian theme, or nil for Graphite's own look.
     var theme: NoteThemeStyle?
     var usesSpellChecking = true
+    /// Whether a fenced code block is formatted when the cursor leaves it after an edit
+    /// (`CodeFormatter`).
+    var formatsCodeBlocks = true
     var colorsEnabled = true
     var paletteHexByName: [String: String] = [:]
     /// Pairing, list continuation and indentation, from the vault's editor settings.
