@@ -407,7 +407,15 @@ public final class ReadAloudSession {
     /// (the best installed voice for the passage's language when the system has none).
     public private(set) var chosenVoiceIdentifier: String?
     public private(set) var speed = 1.0
-    public private(set) var voices: [ReadAloudVoice] = []
+    /// The installed voices, listed the first time they are needed rather than when the
+    /// session is made: the system's list took a tenth of a second at every launch on the
+    /// Mac, whether or not anything was read (measured 2026-10-16).
+    public var voices: [ReadAloudVoice] {
+        if !hasListedVoices { refreshVoices() }
+        return listedVoices
+    }
+    private var listedVoices: [ReadAloudVoice] = []
+    @ObservationIgnored private var hasListedVoices = false
     /// The language of the loaded passage (BCP 47, such as en-US), recognized from its words so an
     /// English lecture on a French iPad is not read with a French voice.
     public private(set) var readingLanguage: String
@@ -443,7 +451,6 @@ public final class ReadAloudSession {
         readingLanguage = ReadAloudLanguage.deviceLanguage
         let savedSpeed = preferences.double(forKey: Self.speedPreferenceKey)
         if savedSpeed.isFinite, Self.speedRange.contains(savedSpeed) { speed = savedSpeed }
-        refreshVoices()
         speech.eventHandler = { [weak self] event in self?.receive(event) }
     }
 
@@ -469,7 +476,8 @@ public final class ReadAloudSession {
     }
 
     public func refreshVoices() {
-        voices = speech.voices
+        hasListedVoices = true
+        listedVoices = speech.voices
         personalVoiceStatus = speech.personalVoiceStatus
     }
 

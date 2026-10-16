@@ -21,7 +21,19 @@ enum InstalledFontFamilies {
 
     /// The installed family `name` means, or nil when no installed family has that name.
     static func family(named name: String) -> String? {
-        lookup[name.lowercased()]
+        #if os(macOS)
+        // The Mac answers for one family, ignoring case and in the system's spelling, as the
+        // whole list does: listing every installed family took a tenth of a second each
+        // time a vault opened (measured 2026-10-16).
+        if familiesByLowercasedName == nil {
+            guard let fontName = NSFontManager.shared.availableMembers(ofFontFamily: name)?.first?.first as? String,
+                  let family = NSFont(name: fontName, size: NSFont.systemFontSize)?.familyName,
+                  // Family names starting with a dot are the system font's private faces.
+                  !family.hasPrefix(".") else { return nil }
+            return family
+        }
+        #endif
+        return lookup[name.lowercased()]
     }
 
     /// Lists the families again, after fonts were installed or activated while Graphite runs.
