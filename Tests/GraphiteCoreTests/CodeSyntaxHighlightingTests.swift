@@ -65,9 +65,11 @@ final class CodeSyntaxHighlightingTests: XCTestCase {
         try assertKind(.typeName, of: ["int", "void", "size_t", "char"], in: code, "c")
         try assertKind(.keyword, of: ["return"], in: code, "c")
         try assertKind(.function, of: ["main", "printf"], in: code, "c")
-        try assertKind(.number, of: ["10", "0x1F"], in: code, "c")
-        try assertKind(.constant, of: ["MAX_SIZE", "NULL"], in: code, "c")
-        try assertPlain(["count", "letter"], in: code, "c")
+        try assertKind(.number, of: ["0x1F"], in: code, "c")
+        try assertKind(.constant, of: ["NULL"], in: code, "c")
+        try assertKind(.preprocessor, of: ["MAX_SIZE", "10"], in: code, "c")
+        try assertKind(.identifier, of: ["count", "letter"], in: code, "c")
+        try assertKind(.operator, of: ["="], in: code, "c")
     }
 
     func testCPlusPlus() throws {
@@ -85,7 +87,7 @@ final class CodeSyntaxHighlightingTests: XCTestCase {
         try assertKind(.typeName, of: ["graphite", "Buffer", "Base", "vector", "T"], in: code, "cpp")
         try assertKind(.number, of: ["1'000'000"], in: code, "cpp")
         try assertKind(.constant, of: ["nullptr"], in: code, "cpp")
-        try assertPlain(["std", "items"], in: code, "cpp")
+        try assertKind(.identifier, of: ["std", "items"], in: code, "cpp")
         XCTAssertEqual(try texts(.comment, in: "/* one\ntwo */ int x;", "c++"), ["/* one", "two */"], "A block comment continues on the next line.")
     }
 
@@ -124,7 +126,7 @@ final class CodeSyntaxHighlightingTests: XCTestCase {
         try assertKind(.string, of: ["\"\"\"Length.", "        Spans lines.\"\"\"", "r\"C:\\new\"", "f'{x}'"], in: code, "python")
         try assertKind(.comment, of: ["# Pythagoras"], in: code, "python")
         try assertKind(.constant, of: ["None", "True", "self"], in: code, "python")
-        try assertPlain(["math", "path"], in: code, "python")
+        try assertKind(.identifier, of: ["math", "path"], in: code, "python")
     }
 
     func testJavaScriptAndTypeScript() throws {
@@ -137,7 +139,7 @@ final class CodeSyntaxHighlightingTests: XCTestCase {
         try assertKind(.string, of: ["`Hello", "${name}`"], in: code, "js")
         try assertKind(.function, of: ["greet"], in: code, "js")
         try assertKind(.typeName, of: ["Map"], in: code, "js")
-        try assertPlain(["$element"], in: code, "js")
+        try assertKind(.identifier, of: ["$element"], in: code, "js")
         let typeScript = "interface Shape { area(): number; readonly name: string }\ntype Id = string | undefined"
         try assertKind(.keyword, of: ["interface", "readonly", "type"], in: typeScript, "ts")
         try assertKind(.typeName, of: ["Shape", "number", "string", "Id"], in: typeScript, "ts")
@@ -227,7 +229,7 @@ final class CodeSyntaxHighlightingTests: XCTestCase {
         try assertKind(.typeName, of: ["int", "error"], in: code, "go")
         try assertKind(.function, of: ["Start", "Errorf", "len"], in: code, "golang")
         try assertKind(.string, of: ["`raw", "string`", "\"port %d\""], in: code, "go")
-        try assertPlain(["Server", "fmt"], in: code, "go")
+        try assertKind(.identifier, of: ["Server", "fmt"], in: code, "go")
     }
 
     // MARK: Hardware description languages
@@ -257,7 +259,8 @@ final class CodeSyntaxHighlightingTests: XCTestCase {
         try assertKind(.string, of: ["\"0000\"", "'1'"], in: code, "vhdl")
         try assertKind(.comment, of: ["-- the counter"], in: code, "vhdl")
         try assertKind(.keyword, of: ["ENTITY", "Begin"], in: "ENTITY x IS\nBegin", "vhdl")
-        try assertPlain(["CLKxCI", "STATE"], in: code, "vhdl")
+        try assertKind(.identifier, of: ["CLKxCI", "STATE"], in: code, "vhdl")
+        try assertKind(.operator, of: ["<="], in: code, "vhdl")
     }
 
     func testVerilogAndSystemVerilog() throws {
@@ -385,6 +388,36 @@ final class CodeSyntaxHighlightingTests: XCTestCase {
         try assertKind(.variable, of: ["--accent"], in: code, "css")
         try assertKind(.keyword, of: ["@media"], in: code, "css")
         try assertKind(.function, of: ["var"], in: code, "css")
+    }
+
+    /// The owner's example of how a block should look, after Obsidian.
+    func testTheHLSExampleIsColoredAsInObsidian() throws {
+        let code = """
+            // length → scalar → s_axilite
+            uint32_t SumArray(uint32_t *input, uint32_t length) {
+                #pragma HLS INTERFACE m_axi port=input offset=slave
+                uint32_t sum = 0;
+                for (uint32_t i = 0; i < length; ++i) sum += input[i];
+                return sum;
+            }
+            """
+        let found = try tokens(code, "C++")
+        func kinds(of text: String) -> Set<CodeTokenKind> { Set(found.filter { token in token.text == text }.map(\.kind)) }
+        XCTAssertEqual(kinds(of: "uint32_t"), [.typeName])
+        XCTAssertEqual(kinds(of: "for"), [.keyword])
+        XCTAssertEqual(kinds(of: "return"), [.keyword])
+        XCTAssertEqual(kinds(of: "0"), [.number])
+        XCTAssertEqual(kinds(of: "SumArray"), [.function])
+        XCTAssertTrue(kinds(of: "input").contains(.identifier))
+        XCTAssertTrue(kinds(of: "sum").contains(.identifier))
+        XCTAssertEqual(kinds(of: "length"), [.identifier])
+        for operatorText in ["*", "=", "<", "++", "+="] { XCTAssertEqual(kinds(of: operatorText), [.operator], operatorText) }
+        // The whole directive line reads as one directive.
+        let directiveLine = (code as NSString).range(of: "#pragma HLS INTERFACE m_axi port=input offset=slave")
+        let directiveTokens = found.filter { token in (code as NSString).range(of: token.text, range: directiveLine).location != NSNotFound && directiveLine.length > 0 }
+        XCTAssertEqual(Set(directiveTokens.filter { token in token.text.contains("port") || token.text.contains("slave") || token.text == "HLS" }.map(\.kind)), [.preprocessor])
+        XCTAssertEqual(found.first?.kind, .comment)
+        XCTAssertFalse(found.contains { token in [";", "(", ")", "[", "]", "{", "}", ","].contains(token.text) }, "Punctuation keeps the text color.")
     }
 
     // MARK: Line states

@@ -12,11 +12,13 @@ import GraphiteIndex
 final class CodeHighlightingTests: XCTestCase {
     private var window: UIWindow?
     private var vaultDirectory: URL?
+    private var workspace: WorkspaceModel?
 
     override func tearDown() async throws {
         window?.isHidden = true
         window?.rootViewController = nil
         window = nil
+        workspace = nil
         if let vaultDirectory { try? FileManager.default.removeItem(at: vaultDirectory) }
         vaultDirectory = nil
     }
@@ -108,6 +110,52 @@ final class CodeHighlightingTests: XCTestCase {
         XCTAssertTrue(editor.text.contains("int main(){\nreturn 0;\nint y=1,z=2;\n\n\n}"), "Undo takes back the formatting.")
     }
 
+    /// The owner's example, in Live Preview and reading view, in Obsidian's colors and in
+    /// One Monokai, light and dark, for review.
+    func testCodeBlockBoxesInEachViewAndTheme() async throws {
+        let note = """
+            Prose before the block.
+
+            ```C++
+            // length  → scalar           → s_axilite
+            // input   → pointer to DRAM  → m_axi
+
+            uint32_t SumArray(uint32_t *input, uint32_t length) {
+                #pragma HLS INTERFACE s_axilite port=length
+                #pragma HLS INTERFACE m_axi     port=input offset=slave
+
+                uint32_t sum = 0;
+                for (uint32_t i = 0; i < length; ++i) sum += input[i];
+                return sum;
+            }
+            ```
+
+            Prose after the block.
+            """
+        let (session, controller) = try await openNote(note)
+        let preferences = try XCTUnwrap(workspace).preferences
+        let chosenTheme = preferences.codeColorTheme
+        defer { preferences.codeColorTheme = chosenTheme }
+        for codeTheme in [CodeColorTheme.obsidian, .oneMonokai] {
+            preferences.codeColorTheme = codeTheme
+            for mode in [NoteViewMode.livePreview, .reading] {
+                session.viewMode = mode
+                if mode == .livePreview {
+                    let editor = try await editor(in: controller, showing: session.text)
+                    let decoration = editor.textStorage.attribute(ConcealedReplacement.codeBlockKey, at: (editor.text as NSString).range(of: "return sum").location,
+                                                                  effectiveRange: nil) as? CodeBlockLineDecoration
+                    XCTAssertEqual(decoration?.background, CodeSyntaxColors.palette(codeTheme: codeTheme, noteTheme: nil).background, "\(codeTheme)")
+                }
+                for style in [UIUserInterfaceStyle.light, .dark] {
+                    try XCTUnwrap(window).overrideUserInterfaceStyle = style
+                    try await Task.sleep(for: .milliseconds(mode == .reading ? 1_200 : 500))
+                    attachScreenshot(named: "\(codeTheme.title) \(mode) \(style == .dark ? "dark" : "light")")
+                }
+                try XCTUnwrap(window).overrideUserInterfaceStyle = .light
+            }
+        }
+    }
+
     // MARK: Helpers
 
     private func foregroundColor(of text: String, in textStorage: NSTextStorage, occurrence: Int = 0) -> UIColor? {
@@ -161,6 +209,7 @@ final class CodeHighlightingTests: XCTestCase {
         vaultDirectory = directory
         try Data(text.utf8).write(to: directory.appendingPathComponent("Code.md"))
         let workspace = WorkspaceModel()
+        self.workspace = workspace
         workspace.folderAccess = FolderAccess(root: directory)
         workspace.store = VaultStore(root: directory)
         let index = try VaultIndex(databaseURL: directory.appendingPathComponent("index.sqlite"))

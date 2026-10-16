@@ -20,6 +20,10 @@ public enum CodeTokenKind: String, CaseIterable, Sendable {
     case property
     /// A variable written with a sigil, or a register: `$HOME`, `%rax`, `x0`.
     case variable
+    /// Any other name in code: a variable, a parameter, a field.
+    case identifier
+    /// `=`, `+=`, `<`, `++`, `*`, `->`, `<=`.
+    case `operator`
 }
 
 /// A run of code of one kind. Text between tokens is plain code.
@@ -234,6 +238,9 @@ private struct CodeLineScanner {
     var state: CodeLineState
     let collectsTokens: Bool
     private(set) var tokens: [CodeToken] = []
+    /// The kind a C preprocessor line gives its code after the directive: the whole of
+    /// `#pragma HLS INTERFACE m_axi port=input` reads as one directive.
+    private var directiveLineKind: CodeTokenKind?
 
     init(language: CodeLanguage, units: UnsafeBufferPointer<UInt16>, state: CodeLineState, collectsTokens: Bool) {
         self.language = language
@@ -254,8 +261,9 @@ private struct CodeLineScanner {
         }
     }
 
-    private mutating func emit(_ start: Int, _ end: Int, _ kind: CodeTokenKind) {
+    private mutating func emit(_ start: Int, _ end: Int, _ tokenKind: CodeTokenKind) {
         guard collectsTokens, end > start else { return }
+        let kind = tokenKind == .string || tokenKind == .comment ? tokenKind : directiveLineKind ?? tokenKind
         if let lastToken = tokens.last, lastToken.kind == kind, NSMaxRange(lastToken.range) == start {
             tokens[tokens.count - 1] = CodeToken(range: NSRange(location: lastToken.range.location, length: end - lastToken.range.location), kind: kind)
         } else {
@@ -286,6 +294,8 @@ private struct CodeLineScanner {
     }
 
     private mutating func scanGeneralLine(_ lineStart: Int, _ lineEnd: Int) {
+        directiveLineKind = nil
+        defer { directiveLineKind = nil }
         var index = continueOpenConstruct(lineStart, lineEnd)
         guard index < lineEnd || state != .normal else { return }
         /// The last unit that is not a space before `index`, or 0.
@@ -358,9 +368,17 @@ private struct CodeLineScanner {
             }
             // The `=` of MATLAB's `function y = scaled(x)` keeps the declaration waiting for its name.
             if unit != CodeUnits.equals { declaredKind = nil }
+            if features.contains(.identifiersAndOperators), Self.operatorUnits.contains(unit) {
+                while index < lineEnd, Self.operatorUnits.contains(units[index]) { index += 1 }
+                emit(tokenStart, index, .operator)
+                continue
+            }
             index = scanSigil(at: index, lineStart: lineStart, lineEnd: lineEnd, isFirstTokenOfLine: isFirstTokenOfLine)
         }
     }
+
+    /// Characters operators are made of. Comments starting with `/` or `-` are found first.
+    private static let operatorUnits = Set("=+-*/%<>!&|^~?".utf16)
 
     // MARK: Identifiers
 
@@ -459,8 +477,9 @@ private struct CodeLineScanner {
             return end + 1
         }
         if features.contains(.marksFunctionCalls), next.unit == CodeUnits.openingParenthesis {
-            // `Point(1, 2)` and `new Map()` make a value of a type; `MAX(a, b)` is a macro.
-            let isTypeName = features.contains(.capitalizedIdentifiersAreTypes) && CodeUnits.isUppercaseASCIILetter(units[start]) && !isAllCapitals(start, end)
+            // `Point(1, 2)` and `new Map()` make a value of a type; `MAX(a, b)` is a macro. In
+            // C++ and C# a capitalized name is as often a function, `SumArray(input)`.
+            let isTypeName = features.contains(.capitalizedCallsMakeTypes) && CodeUnits.isUppercaseASCIILetter(units[start]) && !isAllCapitals(start, end)
             emit(start, end, isTypeName ? .typeName : .function)
             return end
         }
@@ -480,7 +499,9 @@ private struct CodeLineScanner {
         }
         if features.contains(.underscoreTypeSuffix), end - start > 2, units[end - 2] == CodeUnits.underscore, units[end - 1] == UInt16(UInt8(ascii: "t")) {
             emit(start, end, .typeName)
+            return end
         }
+        if features.contains(.identifiersAndOperators) { emit(start, end, .identifier) }
         return end
     }
 
@@ -700,6 +721,7 @@ private struct CodeLineScanner {
                 let directiveStart = end
                 end = scanIdentifier(from: end, lineEnd: lineEnd)
                 emit(index, end, .preprocessor)
+                directiveLineKind = .preprocessor
                 let directive = word(directiveStart, end)
                 let next = nextVisibleUnit(from: end, lineEnd: lineEnd)
                 if ["include", "import", "include_next"].contains(directive), next.unit == CodeUnits.lessThan {

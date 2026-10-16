@@ -82,6 +82,10 @@ public struct CodeLanguage: Hashable, Sendable {
         static let digitSeparatorQuotes = Features(rawValue: 1 << 24)
         /// CSS's properties, selectors, hex colors and custom properties.
         static let cssRules = Features(rawValue: 1 << 25)
+        /// Names that are nothing else, and operators, are tokens of their own.
+        static let identifiersAndOperators = Features(rawValue: 1 << 26)
+        /// `Point(1, 2)` makes a value of the type `Point`: functions are written in lower case.
+        static let capitalizedCallsMakeTypes = Features(rawValue: 1 << 27)
     }
 
     struct BlockCommentRule: Sendable {
@@ -202,7 +206,7 @@ public struct CodeLanguage: Hashable, Sendable {
 
     private static let cStyleComments = [BlockCommentRule("/*", "*/")]
     private static let doubleAndSingleQuotes: [StringRule] = [.escaped("\""), .escaped("'")]
-    private static let cStyleFeatures: Features = [.marksFunctionCalls, .uppercaseIdentifiersAreConstants]
+    private static let cStyleFeatures: Features = [.marksFunctionCalls, .uppercaseIdentifiersAreConstants, .identifiersAndOperators]
 
     private static let cKeywords = """
         auto break case const continue default do else enum extern for goto if inline register restrict return sizeof static struct switch \
@@ -260,7 +264,7 @@ public struct CodeLanguage: Hashable, Sendable {
         strings: [StringRule(opening: "\"\"\"", closing: "\"\"\"", spansLines: true), .escaped("\""), .escaped("'")])
 
     static let java = CodeLanguage(
-        name: "java", features: cStyleFeatures.union([.capitalizedIdentifiersAreTypes, .atAttributes]),
+        name: "java", features: cStyleFeatures.union([.capitalizedIdentifiersAreTypes, .capitalizedCallsMakeTypes, .atAttributes]),
         keywords: """
             abstract assert break case catch class continue default do else enum extends final finally for if implements import instanceof \
             interface native new package private protected public return static strictfp super switch synchronized this throw throws \
@@ -272,7 +276,7 @@ public struct CodeLanguage: Hashable, Sendable {
         identifierExtraCharacters: "$")
 
     static let kotlin = CodeLanguage(
-        name: "kotlin", features: cStyleFeatures.union([.capitalizedIdentifiersAreTypes, .atAttributes]),
+        name: "kotlin", features: cStyleFeatures.union([.capitalizedIdentifiersAreTypes, .capitalizedCallsMakeTypes, .atAttributes]),
         keywords: """
             as break class continue do else for fun if in interface is object package return super this throw try typealias val var when \
             while by catch constructor delegate dynamic field file finally get import init param property receiver set setparam where \
@@ -289,13 +293,13 @@ public struct CodeLanguage: Hashable, Sendable {
         """
 
     static let javaScript = CodeLanguage(
-        name: "javascript", features: cStyleFeatures.union([.capitalizedIdentifiersAreTypes, .atAttributes]),
+        name: "javascript", features: cStyleFeatures.union([.capitalizedIdentifiersAreTypes, .capitalizedCallsMakeTypes, .atAttributes]),
         keywords: javaScriptKeywords, constants: "true false null undefined NaN Infinity",
         functionDeclarationKeywords: "function", typeDeclarationKeywords: "class", lineComments: ["//"], blockComments: cStyleComments,
         strings: [.escaped("\""), .escaped("'"), .escaped("`", spansLines: true)], identifierExtraCharacters: "$")
 
     static let typeScript = CodeLanguage(
-        name: "typescript", features: cStyleFeatures.union([.capitalizedIdentifiersAreTypes, .atAttributes]),
+        name: "typescript", features: cStyleFeatures.union([.capitalizedIdentifiersAreTypes, .capitalizedCallsMakeTypes, .atAttributes]),
         keywords: javaScriptKeywords + """
              type interface enum namespace declare abstract implements private protected public readonly keyof infer is asserts \
             satisfies module override unique
@@ -306,7 +310,7 @@ public struct CodeLanguage: Hashable, Sendable {
         strings: [.escaped("\""), .escaped("'"), .escaped("`", spansLines: true)], identifierExtraCharacters: "$")
 
     static let python = CodeLanguage(
-        name: "python", features: cStyleFeatures.union([.capitalizedIdentifiersAreTypes, .atAttributes]),
+        name: "python", features: cStyleFeatures.union([.capitalizedIdentifiersAreTypes, .capitalizedCallsMakeTypes, .atAttributes]),
         keywords: """
             and as assert async await break class continue def del elif else except finally for from global if import in is lambda \
             nonlocal not or pass raise return try while with yield match case
@@ -324,7 +328,7 @@ public struct CodeLanguage: Hashable, Sendable {
                   StringRule(opening: "'''", closing: "'''", usesBackslashEscapes: true, spansLines: true), .escaped("\""), .escaped("'")])
 
     static let swift = CodeLanguage(
-        name: "swift", features: [.marksFunctionCalls, .capitalizedIdentifiersAreTypes, .hashDirectives, .atAttributes],
+        name: "swift", features: [.marksFunctionCalls, .capitalizedIdentifiersAreTypes, .capitalizedCallsMakeTypes, .hashDirectives, .atAttributes, .identifiersAndOperators],
         keywords: """
             associatedtype class deinit enum extension fileprivate func import init inout internal let open operator private \
             precedencegroup protocol public rethrows static struct subscript typealias var break case catch continue default defer do \
@@ -337,7 +341,7 @@ public struct CodeLanguage: Hashable, Sendable {
         strings: [StringRule(opening: "\"\"\"", closing: "\"\"\"", usesBackslashEscapes: true, spansLines: true), .escaped("\"")])
 
     static let rust = CodeLanguage(
-        name: "rust", features: cStyleFeatures.union([.capitalizedIdentifiersAreTypes, .bracketAttributes, .macroBang, .characterLiteralsOnly]),
+        name: "rust", features: cStyleFeatures.union([.capitalizedIdentifiersAreTypes, .capitalizedCallsMakeTypes, .bracketAttributes, .macroBang, .characterLiteralsOnly]),
         keywords: """
             as async await break const continue crate dyn else enum extern fn for if impl in let loop match mod move mut pub ref return \
             self Self static struct super trait type union unsafe use where while yield macro_rules
@@ -348,7 +352,7 @@ public struct CodeLanguage: Hashable, Sendable {
         strings: [.escaped("\"", spansLines: true)])
 
     static let go = CodeLanguage(
-        name: "go", features: [.marksFunctionCalls],
+        name: "go", features: [.marksFunctionCalls, .identifiersAndOperators],
         keywords: """
             break case chan const continue default defer else fallthrough for func go goto if import interface map package range return \
             select struct switch type var
@@ -386,7 +390,7 @@ public struct CodeLanguage: Hashable, Sendable {
         strings: [.escaped("\""), StringRule(opening: "'", closing: "'", doubledClosingEscapes: true)])
 
     static let sql = CodeLanguage(
-        name: "sql", features: [.marksFunctionCalls], ignoresCase: true,
+        name: "sql", features: [.marksFunctionCalls, .identifiersAndOperators], ignoresCase: true,
         keywords: """
             select from where insert into values update set delete create table drop alter add column index view primary key foreign \
             references not unique default check constraint join inner left right outer full cross on as and or in is like ilike between \
@@ -405,7 +409,7 @@ public struct CodeLanguage: Hashable, Sendable {
                   StringRule(opening: "`", closing: "`", kind: .property)])
 
     static let vhdl = CodeLanguage(
-        name: "vhdl", features: [.vhdlNumbers, .characterLiteralsOnly], ignoresCase: true,
+        name: "vhdl", features: [.vhdlNumbers, .characterLiteralsOnly, .identifiersAndOperators], ignoresCase: true,
         keywords: """
             abs access after alias all and architecture array assert attribute begin block body buffer bus case component configuration \
             constant context disconnect downto else elsif end entity exit file for force function generate generic group guarded if impure \
@@ -431,7 +435,7 @@ public struct CodeLanguage: Hashable, Sendable {
         strings: [StringRule(opening: "\"", closing: "\"", doubledClosingEscapes: true)])
 
     static let verilog = CodeLanguage(
-        name: "verilog", features: [.dollarFunctions, .backtickDirectives, .verilogNumbers, .uppercaseIdentifiersAreConstants],
+        name: "verilog", features: [.dollarFunctions, .backtickDirectives, .verilogNumbers, .uppercaseIdentifiersAreConstants, .identifiersAndOperators],
         keywords: """
             always always_comb always_ff always_latch and assign automatic begin buf bufif0 bufif1 case casex casez cell cmos config \
             deassign default defparam design disable edge else end endcase endconfig endfunction endgenerate endmodule endprimitive \
@@ -474,7 +478,7 @@ public struct CodeLanguage: Hashable, Sendable {
     }()
 
     static let matlab = CodeLanguage(
-        name: "matlab", features: [.transposeQuote],
+        name: "matlab", features: [.transposeQuote, .identifiersAndOperators],
         keywords: """
             break case catch classdef continue else elseif end for function global if otherwise parfor persistent return spmd switch try \
             while properties methods events enumeration arguments
@@ -503,7 +507,7 @@ public struct CodeLanguage: Hashable, Sendable {
         lineComments: ["//"], blockComments: cStyleComments, strings: doubleAndSingleQuotes, identifierExtraCharacters: "-")
 
     static let ruby = CodeLanguage(
-        name: "ruby", features: [.capitalizedIdentifiersAreTypes, .atVariables, .dollarVariables, .uppercaseIdentifiersAreConstants],
+        name: "ruby", features: [.capitalizedIdentifiersAreTypes, .capitalizedCallsMakeTypes, .atVariables, .dollarVariables, .uppercaseIdentifiersAreConstants, .identifiersAndOperators],
         keywords: """
             alias and begin break case class def defined do else elsif end ensure for if in module next not or redo rescue retry return \
             super then undef unless until when while yield require require_relative include extend attr_accessor attr_reader \
@@ -515,7 +519,7 @@ public struct CodeLanguage: Hashable, Sendable {
         strings: [.escaped("\"", spansLines: true), .escaped("'", spansLines: true)])
 
     static let lua = CodeLanguage(
-        name: "lua", features: [.marksFunctionCalls],
+        name: "lua", features: [.marksFunctionCalls, .identifiersAndOperators],
         keywords: "and break do else elseif end for function goto if in local not or repeat return then until while",
         constants: "true false nil", builtinFunctions: "print pairs ipairs require type tostring tonumber setmetatable getmetatable error assert pcall select",
         functionDeclarationKeywords: "function", lineComments: ["--"],

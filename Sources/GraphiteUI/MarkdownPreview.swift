@@ -1684,6 +1684,7 @@ private struct ObsidianMarkdownTextContent: View, Equatable {
     @Environment(\.accent) private var accent
     @Environment(\.noteTypography) private var typography
     @Environment(\.noteTheme) private var theme
+    @Environment(\.codeColorTheme) private var codeColorTheme
     let root: URL
     let textSize: Double
     let navigate: (String, Bool) -> Void
@@ -1730,9 +1731,9 @@ private struct ObsidianMarkdownTextContent: View, Equatable {
                 .textual.lineSpacing(.fontScaled(theme?.lineHeight.map { height in max(0, height - 1.2) } ?? ObsidianMarkdownText.graphiteLineSpacing))
                 .textual.textSelection(.enabled)
                 .textual.inlineStyle(inlineStyle)
-                .textual.codeBlockStyle(ObsidianCodeBlockStyle(monospaceFont: typography.monospaceSwiftUIFont(size: textSize), theme: theme))
+                .textual.codeBlockStyle(ObsidianCodeBlockStyle(monospaceFont: typography.monospaceSwiftUIFont(size: textSize), theme: theme, codeTheme: codeColorTheme))
                 // Code is colored as the editor colors it (`CodeSyntaxColors`).
-                .textual.highlighterTheme(CodeSyntaxColors.highlighterTheme(theme: theme))
+                .textual.highlighterTheme(CodeSyntaxColors.highlighterTheme(codeTheme: codeColorTheme, noteTheme: theme))
                 .textual.codeSegmenter(CodeSyntaxColors.readingSegments)
                 .textual.listItemStyle(ObsidianListItemStyle(textSize: textSize, theme: theme))
                 .textual.imageAttachmentLoader(VaultImageLoader(root: root))
@@ -2115,37 +2116,51 @@ extension Color {
 
 // MARK: Obsidian-like styles
 
-/// Code blocks as Textual draws them by default, in the vault's monospace font: the default
-/// style's `.monospaced()` would leave a chosen text font in place for code.
+/// Code blocks as the editor draws them (`CodeBlockLineDecoration`), in the vault's
+/// monospace font: one box without a border, as in Obsidian, the language at its top right,
+/// and the code inset from its edges. The default style's `.monospaced()` would leave a
+/// chosen text font in place for code.
 struct ObsidianCodeBlockStyle: StructuredText.CodeBlockStyle {
     let monospaceFont: Font
-    /// The vault's theme: its code background and text color.
+    /// The vault's theme: its code background and text color, corners and border.
     var theme: NoteThemeStyle? = nil
-    private static let border = DynamicColor(light: Color(red: 210 / 255, green: 210 / 255, blue: 215 / 255),
-                                             dark: Color(red: 66 / 255, green: 66 / 255, blue: 69 / 255))
-    /// The theme's corner radius for code blocks, or Graphite's 4 points.
-    private var cornerRadius: CGFloat { theme?.codeBlockRadius.map { radius in CGFloat(min(radius, 24)) } ?? 4 }
+    /// The code theme, whose box and text colors win over the vault theme's.
+    var codeTheme = CodeColorTheme.obsidian
 
-    /// The default highlighter theme's code background, which Textual keeps internal.
-    private static let background = DynamicColor(light: Color(red: 0.960784, green: 0.960784, blue: 0.968627),
-                                                 dark: Color(red: 0.120543, green: 0.122844, blue: 0.141312))
-
+    @MainActor
     func makeBody(configuration: Configuration) -> some View {
+        let language = configuration.languageHint.map { hint in NotePreviewDocument.codeBlockLanguage(ofFenceInfo: hint) } ?? ""
+        let cornerRadius = CodeSyntaxColors.blockCornerRadius(theme: theme)
+        let palette = CodeSyntaxColors.palette(codeTheme: codeTheme, noteTheme: theme)
         Overflow {
             configuration.label
                 .font(monospaceFont)
                 .textual.lineSpacing(.fontScaled(0.39))
                 .textual.fontScale(0.882)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.vertical, 8)
-                .padding(.leading, 14)
+                .padding(.top, language.isEmpty ? 12 : 26)
+                .padding(.bottom, 12)
+                .padding(.horizontal, 15)
         }
-        .foregroundStyle(theme?.codeColor.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.primary))
-        .background((theme?.codeBlockBackground ?? theme?.codeBackground).map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(Self.background))
+        .foregroundStyle(Color(palette.text))
+        .background(Color(palette.background))
+        .overlay(alignment: .topTrailing) {
+            if !language.isEmpty {
+                Text(language)
+                    .font(.footnote)
+                    .foregroundStyle(Color(palette.quietText))
+                    .padding(.top, 7)
+                    .padding(.trailing, 15)
+                    .accessibilityLabel("\(language) code")
+            }
+        }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .stroke(theme?.codeBlockBorderColor.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(Self.border),
-                    lineWidth: theme?.codeBlockBorderWidth.map { width in CGFloat(min(max(width, 0), 6)) } ?? 1))
+        .overlay {
+            // A theme's border, when it gives one; Graphite's box has none.
+            if let borderWidth = theme?.codeBlockBorderWidth, borderWidth > 0, let borderColor = theme?.codeBlockBorderColor {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).stroke(Color(borderColor), lineWidth: CGFloat(min(borderWidth, 6)))
+            }
+        }
         .textual.blockSpacing(.fontScaled(top: 0.88, bottom: 0))
     }
 }

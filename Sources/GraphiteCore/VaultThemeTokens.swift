@@ -203,6 +203,7 @@ public struct ThemeModeTokens: Codable, Hashable, Sendable {
         CodeTokenKind.string.rawValue: "string", CodeTokenKind.number.rawValue: "number", CodeTokenKind.constant.rawValue: "boolean",
         CodeTokenKind.comment.rawValue: "comment", CodeTokenKind.preprocessor.rawValue: "important", CodeTokenKind.attribute.rawValue: "tag",
         CodeTokenKind.property.rawValue: "property", CodeTokenKind.variable.rawValue: "variable",
+        CodeTokenKind.identifier.rawValue: "property", CodeTokenKind.operator.rawValue: "operator",
     ]
 
     public struct HeadingTokens: Codable, Hashable, Sendable {
