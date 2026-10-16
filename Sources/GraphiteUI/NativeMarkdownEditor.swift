@@ -2471,6 +2471,9 @@ final class MarkdownMacTextView: NSTextView {
     var reportUnreadableItem: (() -> Void)?
     /// Follows the link a click lands on and says whether there was one; set by the coordinator.
     var followLinkOnClick: ((_ characterIndex: Int, _ modifierFlags: NSEvent.ModifierFlags) -> Bool)?
+    /// Checks or unchecks the drawn task box a click lands on and says whether there was
+    /// one; set by the coordinator.
+    var toggleTaskOnClick: ((_ characterIndex: Int) -> Bool)?
     /// Called when the view takes keyboard focus; set by the coordinator.
     var didBecomeFirstResponder: (() -> Void)?
     /// Control-scrolling or pinching the trackpad changes the vault's font size; nil when
@@ -2551,6 +2554,7 @@ final class MarkdownMacTextView: NSTextView {
             return
         }
         let characterIndex = characterIndexForInsertion(at: convert(event.locationInWindow, from: nil))
+        if event.clickCount == 1, toggleTaskOnClick?(characterIndex) == true { return }
         if event.clickCount == 1, followLinkOnClick?(characterIndex, event.modifierFlags) == true { return }
         super.mouseDown(with: event)
     }
@@ -2712,57 +2716,6 @@ enum MacPastedAttachment: Equatable {
         guard let tiffData = pasteboard.data(forType: .tiff),
               let pngData = NSBitmapImageRep(data: tiffData)?.representation(using: .png, properties: [:]) else { return nil }
         return (pngData, "png")
-    }
-}
-
-/// The Mac has no layout fragment that draws bullets, checkboxes, quote bars, heading
-/// separators, and formulas over their hidden source, so that source stays visible there,
-/// in the color the drawing would have had.
-enum UndrawnReplacementStyling {
-    static func showSource(in textStorage: NSTextStorage, range: NSRange, baseFont: NSFont, typography: NoteTypography = .standard) {
-        let checkedRange = NSIntersectionRange(range, NSRange(location: 0, length: textStorage.length))
-        guard checkedRange.length > 0 else { return }
-        var replacements: [(range: NSRange, replacement: ConcealedReplacement)] = []
-        textStorage.enumerateAttribute(ConcealedReplacement.attributeKey, in: checkedRange) { value, attributeRange, _ in
-            guard let rawValue = value as? String, let replacement = ConcealedReplacement(rawValue: rawValue) else { return }
-            replacements.append((attributeRange, replacement))
-        }
-        guard !replacements.isEmpty else { return }
-        textStorage.beginEditing()
-        for (replacedRange, replacement) in replacements {
-            let color = textStorage.attribute(ConcealedReplacement.colorAttributeKey, at: replacedRange.location, effectiveRange: nil) as? NSColor ?? .secondaryLabelColor
-            for key in [ConcealedReplacement.attributeKey, ConcealedReplacement.colorAttributeKey, ConcealedReplacement.mathAttributeKey, .kern] {
-                textStorage.removeAttribute(key, range: replacedRange)
-            }
-            switch replacement {
-            case .inlineMath:
-                // Styled as Source mode styles math.
-                textStorage.addAttribute(.font, value: typography.monospaceFont(ofSize: baseFont.pointSize * 0.9), range: replacedRange)
-                textStorage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: replacedRange)
-            case .uncheckedTask, .checkedTask:
-                textStorage.addAttribute(.foregroundColor, value: color, range: replacedRange)
-                showListMarker(before: replacedRange.location, in: textStorage, baseFont: baseFont)
-            case .bullet, .subpathSeparator, .quoteBar:
-                textStorage.addAttribute(.foregroundColor, value: color, range: replacedRange)
-            }
-        }
-        textStorage.endEditing()
-    }
-
-    /// A drawn checkbox stands in for its list marker, which is hidden with nothing
-    /// marking it; on the Mac the marker shows with the checkbox's source.
-    private static func showListMarker(before checkboxLocation: Int, in textStorage: NSTextStorage, baseFont: NSFont) {
-        let lineStart = textStorage.mutableString.lineRange(for: NSRange(location: checkboxLocation, length: 0)).location
-        let prefixRange = NSRange(location: lineStart, length: checkboxLocation - lineStart)
-        guard prefixRange.length > 0 else { return }
-        var hiddenRanges: [NSRange] = []
-        textStorage.enumerateAttribute(.font, in: prefixRange) { value, fontRange, _ in
-            if let font = value as? NSFont, font.pointSize < 1 { hiddenRanges.append(fontRange) }
-        }
-        for hiddenRange in hiddenRanges {
-            textStorage.addAttribute(.font, value: baseFont, range: hiddenRange)
-            textStorage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: hiddenRange)
-        }
     }
 }
 
@@ -2945,7 +2898,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
     /// On the Mac, Live Preview conceals markup away from the selection and draws its blocks
     /// as views over their concealed source, as on the iPad.
     @MainActor
-    final class Coordinator: NSObject, NSTextViewDelegate, RetainableMarkdownEditor {
+    final class Coordinator: NSObject, NSTextViewDelegate, NSTextLayoutManagerDelegate, RetainableMarkdownEditor {
         var session: MarkdownSession
         var configuration: EditorConfiguration
         /// The editor's views, which live as long as it: a hidden note's retention can keep
@@ -3115,6 +3068,13 @@ struct NativeMarkdownEditor: NSViewRepresentable {
                 return self.followLink(atCharacter: characterIndex, modifierFlags: modifierFlags, in: textView)
             }
             textView.didBecomeFirstResponder = { [weak self] in self?.actions.beginEditing?() }
+            textView.toggleTaskOnClick = { [weak self, weak textView] characterIndex in
+                guard let self, let textView else { return false }
+                return self.toggleTask(atCharacter: characterIndex, in: textView)
+            }
+            // Bullets, task boxes, quote bars and inline math are drawn over their hidden
+            // markup, as on the iPad.
+            textView.textLayoutManager?.delegate = self
             textView.didMoveTextColumn = { [weak self, weak textView] in
                 guard let self, let textView else { return }
                 self.schedulePlacement(in: textView)
@@ -3200,7 +3160,6 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             styler.applyStyles(to: textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedMarkup: revealedMarkup,
                                concealedBlocks: concealedBlocks(in: textView, restyledRange: NSRange(location: 0, length: textStorage.length)),
                                blockContextCheckpoints: blockContextCheckpoints)
-            UndrawnReplacementStyling.showSource(in: textStorage, range: NSRange(location: 0, length: textStorage.length), baseFont: styler.baseFont, typography: styler.configuration.typography)
             textView.typingAttributes = styler.baseAttributes
             schedulePlacement(in: textView)
         }
@@ -3212,7 +3171,6 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             styler.applyStyles(to: textStorage, editedRange: lineRange, restyleEverything: false, revealedMarkup: revealedMarkup,
                                concealedBlocks: concealedBlocks(in: textView, restyledRange: linesRestyled(for: lineRange, in: textStorage.mutableString)),
                                blockContextCheckpoints: blockContextCheckpoints)
-            UndrawnReplacementStyling.showSource(in: textStorage, range: lineRange, baseFont: styler.baseFont, typography: styler.configuration.typography)
             textView.typingAttributes = styler.baseAttributes
             schedulePlacement(in: textView)
         }
@@ -3268,7 +3226,6 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             let restyledRanges = styler.applyRevealedMarkupChange(to: textStorage, from: previousMarkup, to: newMarkup, concealedBlocks: concealedBlocks(in: textView, restyledRange: nil),
                                                                   blockContextCheckpoints: blockContextCheckpoints)
             guard !restyledRanges.isEmpty else { return }
-            for restyledRange in restyledRanges { UndrawnReplacementStyling.showSource(in: textStorage, range: restyledRange, baseFont: styler.baseFont, typography: styler.configuration.typography) }
             textView.typingAttributes = styler.baseAttributes
         }
 
@@ -3737,6 +3694,35 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             estimatedBlockHeights = estimatedBlockHeights.filter { key, _ in keysInNote.contains(key) }
             heightsKeptInText = heightsKeptInText.filter { key, _ in keysInNote.contains(key) }
             blockKeysAwaitingRestyle.formIntersection(keysInNote)
+        }
+
+        // MARK: Drawn replacements and tasks
+
+        nonisolated func textLayoutManager(_ textLayoutManager: NSTextLayoutManager, textLayoutFragmentFor location: NSTextLocation,
+                                           in textElement: NSTextElement) -> NSTextLayoutFragment {
+            ConcealedReplacementLayoutFragment(textElement: textElement, range: textElement.elementRange)
+        }
+
+        /// Checks or unchecks the drawn task box at a clicked character, through the text view
+        /// so it can be undone. On the selection's lines the box shows as `[ ]`, and a click
+        /// there places the cursor.
+        func toggleTask(atCharacter characterIndex: Int, in textView: NSTextView) -> Bool {
+            guard configuration.mode == .livePreview, !textState.cachesDescribeOldText, !textView.hasMarkedText(),
+                  let textStorage = textView.textStorage else { return false }
+            let source = currentSource(of: textView)
+            guard characterIndex <= source.length else { return false }
+            let lineRange = source.lineRange(for: NSRange(location: characterIndex, length: 0))
+            if let revealedMarkup, revealedMarkup.showsLineMarker(at: lineRange.location) { return false }
+            guard let checkboxRange = LivePreviewTapTargets.taskCheckboxRange(at: characterIndex, in: source) else { return false }
+            let stateRange = NSRange(location: checkboxRange.location + 1, length: 1)
+            guard NSMaxRange(stateRange) <= source.length else { return false }
+            let newState = source.substring(with: stateRange) == " " ? "x" : " "
+            let selection = textView.selectedRange()
+            guard textView.shouldChangeText(in: stateRange, replacementString: newState) else { return true }
+            textStorage.replaceCharacters(in: stateRange, with: newState)
+            textView.didChangeText()
+            if NSMaxRange(selection) <= textStorage.length { textView.setSelectedRange(selection) }
+            return true
         }
 
         // MARK: Links

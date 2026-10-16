@@ -189,19 +189,13 @@ struct MarkdownTextStyler {
     let configuration: EditorConfiguration
     let accentColor: PlatformColor
     /// Whether the text view draws `ConcealedReplacement`s (bullets, checkboxes, quote bars,
-    /// the subpath separator, inline math) over their hidden markup. Only the iPad editor
-    /// installs `ConcealedReplacementLayoutFragment`; without it, that markup stays visible
-    /// as styled source, because hiding it would leave a blank gap.
-    var drawsConcealedReplacements = MarkdownTextStyler.platformDrawsConcealedReplacements
+    /// the subpath separator, inline math) over their hidden markup, as both editors do with
+    /// `ConcealedReplacementLayoutFragment`. Without it, that markup stays visible as styled
+    /// source, because hiding it would leave a blank gap.
+    var drawsConcealedReplacements = true
     /// Concealed text stays in the document (so saving and undo are exact) but takes no
     /// visible room.
     private static let concealedFont = PlatformFont.systemFont(ofSize: 0.01)
-
-    #if canImport(UIKit)
-    static let platformDrawsConcealedReplacements = true
-    #else
-    static let platformDrawsConcealedReplacements = false
-    #endif
 
     var baseFont: PlatformFont { configuration.typography.textFont(ofSize: configuration.textSize) }
 
