@@ -2217,6 +2217,9 @@ final class MarkdownMacTextView: NSTextView {
     var toggleTaskOnClick: ((_ characterIndex: Int) -> Bool)?
     /// Called when the view takes keyboard focus; set by the coordinator.
     var didBecomeFirstResponder: (() -> Void)?
+    /// Called when the view gives up keyboard focus, as when the file list takes it; set by
+    /// the coordinator.
+    var didResignFirstResponder: (() -> Void)?
     /// Control-scrolling or pinching the trackpad changes the vault's font size; nil when
     /// quick adjustment is off. Set by the coordinator.
     var quickFontSize: QuickFontSizeAdjustment?
@@ -2254,6 +2257,12 @@ final class MarkdownMacTextView: NSTextView {
         let didBecome = super.becomeFirstResponder()
         if didBecome { didBecomeFirstResponder?() }
         return didBecome
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let didResign = super.resignFirstResponder()
+        if didResign { didResignFirstResponder?() }
+        return didResign
     }
 
     override func viewDidMoveToWindow() {
@@ -2695,6 +2704,8 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             // The properties show their YAML after "Edit Source", as Obsidian keeps them above the note.
             styling = MarkdownEditorStyling(configuration: configuration, propertiesSource: .afterEditSource(isShown: false), detachedViewsBudgetMegabytes: 64)
             super.init()
+            // Until the note has keyboard focus; see `followKeyboardFocus`.
+            styling.revealsMarkupAtSelection = false
             styling.didRestyle = { [weak self] restyledTextView in
                 guard let self, let textView = restyledTextView as? NSTextView else { return }
                 self.schedulePlacement(in: textView)
@@ -2785,7 +2796,18 @@ struct NativeMarkdownEditor: NSViewRepresentable {
                 guard let self, let textView else { return false }
                 return self.followLink(atCharacter: characterIndex, modifierFlags: modifierFlags, in: textView)
             }
-            textView.didBecomeFirstResponder = { [weak self] in self?.actions.beginEditing?() }
+            // Markup and a block's source show at the cursor only while the note has keyboard
+            // focus, as on the iPad: a note opened from the file list, its cursor at the start,
+            // showed the callout or table there as source until a click in the note.
+            textView.didBecomeFirstResponder = { [weak self, weak textView] in
+                guard let self, let textView else { return }
+                self.actions.beginEditing?()
+                self.followKeyboardFocus(true, in: textView)
+            }
+            textView.didResignFirstResponder = { [weak self, weak textView] in
+                guard let self, let textView else { return }
+                self.followKeyboardFocus(false, in: textView)
+            }
             textView.toggleTaskOnClick = { [weak self, weak textView] characterIndex in
                 guard let self, let textView else { return false }
                 return self.toggleTask(atCharacter: characterIndex, in: textView)
@@ -2864,6 +2886,14 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             // Plugins hear the note change as in Obsidian's editor (`editor-change`). The
             // Mac shows no suggestions list, so suggestions plugins answer go unused.
             _ = actions.pluginEditorDidChange?()
+        }
+
+        /// Shows the markup at the cursor once the note has keyboard focus, and hides it, the
+        /// blocks drawn again, once it has not.
+        private func followKeyboardFocus(_ hasKeyboardFocus: Bool, in textView: NSTextView) {
+            guard styling.revealsMarkupAtSelection != hasKeyboardFocus else { return }
+            styling.revealsMarkupAtSelection = hasKeyboardFocus
+            styling.restyleRevealedMarkup(in: textView)
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {

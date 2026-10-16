@@ -57,6 +57,8 @@ final class UiEditorMacPropertiesTests: XCTestCase {
         window.isReleasedWhenClosed = false
         windows.append(window)
         window.contentView = scrollView
+        // The note has keyboard focus, as after a click in it: markup shows at the cursor only then.
+        window.makeFirstResponder(textView)
         scrollView.frame = NSRect(x: 0, y: 0, width: 700, height: 500)
         textView.frame.size.width = 700
         scrollView.layoutSubtreeIfNeeded()
