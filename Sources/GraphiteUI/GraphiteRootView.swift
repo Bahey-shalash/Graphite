@@ -111,7 +111,7 @@ public struct GraphiteRootView: View {
         .sheet(isPresented: $workspace.isVaultManagerPresented) {
             NavigationStack { VaultManagerView(workspace: workspace) }
                 .tint(workspace.preferences.accentColor)
-                .frame(minWidth: 420, minHeight: 480)
+                .frame(minWidth: 480, minHeight: 360)
         }
         .sheet(isPresented: $showsTabSwitcher) {
             TabSwitcher(workspace: workspace)
@@ -146,7 +146,9 @@ public struct GraphiteRootView: View {
         }
         #else
         .sheet(isPresented: $workspace.isGraphPresented) {
-            VaultGraphScreen(workspace: workspace).tint(workspace.preferences.accentColor)
+            // The graph has no size of its own: without the page size it was drawn 470 by 152
+            // points, its nodes squeezed into a line.
+            VaultGraphScreen(workspace: workspace).tint(workspace.preferences.accentColor).presentationSizing(.page)
         }
         #endif
         #if canImport(UIKit)
@@ -416,7 +418,7 @@ public struct GraphiteRootView: View {
             DelayedProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if workspace.store == nil {
             VaultManagerView(workspace: workspace, isPresentedAsSheet: false)
-                .frame(maxWidth: 640)
+                .frame(maxWidth: 600)
                 .frame(maxWidth: .infinity)
         } else {
             WorkspacePanes(workspace: workspace, showsLinksInspector: $showsInspector,

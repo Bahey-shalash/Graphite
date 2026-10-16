@@ -84,50 +84,7 @@ struct VaultManagerView: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        List {
-            if !isPresentedAsSheet {
-                Section {
-                    VStack(spacing: 12) {
-                        Image(systemName: "pencil.and.scribble").font(.system(size: 52, weight: .light)).foregroundStyle(.tint)
-                        Text("Welcome to Graphite").font(.largeTitle.weight(.semibold))
-                        Text("Notes, handwriting, PDFs, and lectures, kept in ordinary files you own. A vault is a folder, and it can be an existing Obsidian vault.")
-                            .font(.title3).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 24)
-                    .listRowBackground(Color.clear)
-                }
-            }
-            if !workspace.vaultLibrary.vaults.isEmpty {
-                Section {
-                    ForEach(workspace.vaultLibrary.vaults) { vault in
-                        KnownVaultRow(vault: vault, location: workspace.vaultLibrary.readableLocation(of: vault), isOpen: vault.id == workspace.currentVaultIdentifier) {
-                            Task { await open { try await workspace.openVault(vault) } }
-                        } remove: {
-                            workspace.removeFromVaultList(vault)
-                        }
-                    }
-                } header: {
-                    // The sheet's title already says "Vaults".
-                    if !isPresentedAsSheet { Text("Your vaults") }
-                }
-            }
-            Section {
-                Button { showsNewVaultForm = true } label: {
-                    VaultActionLabel(title: "Create New Vault", detail: "Start a vault in a new, empty folder.", systemImage: "plus.rectangle.on.folder")
-                }
-                Button { showsFolderPicker = true } label: {
-                    VaultActionLabel(title: "Open Folder as Vault", detail: "Choose an existing folder, such as an Obsidian vault in iCloud Drive.", systemImage: "folder")
-                }
-            } footer: {
-                if !workspace.vaultLibrary.vaults.isEmpty {
-                    Text("Removing a vault from this list forgets it and deletes its File recovery snapshots on this device. The folder and its files stay where they are.")
-                }
-            }
-        }
-        #if canImport(UIKit)
-        .listStyle(.insetGrouped)
-        #endif
+        vaultList
         .navigationTitle(isPresentedAsSheet ? "Vaults" : "")
         #if canImport(UIKit)
         .navigationBarTitleDisplayMode(.inline)
@@ -146,6 +103,76 @@ struct VaultManagerView: View {
                 .tint(accent)
         }
         .errorAlert($errorMessage)
+    }
+
+    /// On the Mac, a grouped form like System Settings', its rows the width of the window;
+    /// the welcome screen's has no background of its own, so it sits on the window's.
+    @ViewBuilder private var vaultList: some View {
+        #if os(macOS)
+        if isPresentedAsSheet {
+            Form { vaultSections }.formStyle(.grouped)
+        } else {
+            VStack(spacing: 0) {
+                welcomeHeader.padding(.top, 56).padding(.horizontal, 24)
+                Form { vaultSections }.formStyle(.grouped).scrollContentBackground(.hidden)
+            }
+        }
+        #else
+        List {
+            if !isPresentedAsSheet {
+                Section {
+                    welcomeHeader
+                        .padding(.vertical, 24)
+                        .listRowBackground(Color.clear)
+                }
+            }
+            vaultSections
+        }
+        .listStyle(.insetGrouped)
+        #endif
+    }
+
+    private var welcomeHeader: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "pencil.and.scribble").font(.system(size: 52, weight: .light)).foregroundStyle(.tint)
+            Text("Welcome to Graphite").font(.largeTitle.weight(.semibold))
+            Text("Notes, handwriting, PDFs, and lectures, kept in ordinary files you own. A vault is a folder, and it can be an existing Obsidian vault.")
+                .font(.title3).foregroundStyle(.secondary).multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder private var vaultSections: some View {
+        if !workspace.vaultLibrary.vaults.isEmpty {
+            Section {
+                ForEach(workspace.vaultLibrary.vaults) { vault in
+                    KnownVaultRow(vault: vault, location: workspace.vaultLibrary.readableLocation(of: vault), isOpen: vault.id == workspace.currentVaultIdentifier) {
+                        Task { await open { try await workspace.openVault(vault) } }
+                    } remove: {
+                        workspace.removeFromVaultList(vault)
+                    }
+                }
+            } header: {
+                // The sheet's title already says "Vaults".
+                if !isPresentedAsSheet { Text("Your vaults") }
+            }
+        }
+        Section {
+            Button { showsNewVaultForm = true } label: {
+                VaultActionLabel(title: "Create New Vault", detail: "Start a vault in a new, empty folder.", systemImage: "plus.rectangle.on.folder")
+            }
+            Button { showsFolderPicker = true } label: {
+                VaultActionLabel(title: "Open Folder as Vault", detail: "Choose an existing folder, such as an Obsidian vault in iCloud Drive.", systemImage: "folder")
+            }
+        } footer: {
+            if !workspace.vaultLibrary.vaults.isEmpty {
+                Text("Removing a vault from this list forgets it and deletes its File recovery snapshots on this device. The folder and its files stay where they are.")
+            }
+        }
+        #if os(macOS)
+        // Rows of the form, as the vaults above are, rather than bordered buttons.
+        .buttonStyle(.plain)
+        #endif
     }
 
     /// Runs an opening action and closes the sheet once the vault is open.
@@ -202,13 +229,19 @@ private struct VaultActionLabel: View {
     var body: some View {
         HStack(spacing: 14) {
             Image(systemName: systemImage).font(.title2).frame(width: 32)
+                #if os(macOS)
+                .foregroundStyle(.tint)
+                #endif
             VStack(alignment: .leading, spacing: 3) {
                 Text(title).font(.body.weight(.medium))
                 // A concrete color, so the button's tint does not wash out the description.
                 Text(detail).font(.caption).foregroundStyle(Color.secondary)
             }
+            Spacer(minLength: 0)
         }
         .padding(.vertical, 4)
+        // The whole row answers a click, as a vault's row does.
+        .contentShape(Rectangle())
     }
 }
 
