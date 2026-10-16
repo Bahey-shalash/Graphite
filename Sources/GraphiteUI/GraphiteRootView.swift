@@ -713,7 +713,13 @@ private struct CreateDocumentSheet: View {
                 }
             }
         }
+        // A note needs only its name: the Mac's sheet takes its form's height rather than
+        // leaving half of it empty; a notebook's paper options make it taller.
+        #if os(macOS)
+        .frame(minWidth: 380, minHeight: kind == .notebook ? 320 : 180)
+        #else
         .frame(minWidth: 360, minHeight: 320)
+        #endif
         .onAppear { isNameFocused = true }
     }
 
