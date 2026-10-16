@@ -2888,6 +2888,10 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         }
 
         func discardRetainedEditor() {
+            // Blocks' views are taken out of the text view first: one still in it when the
+            // text view goes stays registered with AppKit's notification center, and keeps
+            // its environment, the note's session and the workspace's closures with it.
+            styling.renderedBlocks.removeAllViews()
             scrollView?.removeFromSuperview()
             scrollView = nil
         }
