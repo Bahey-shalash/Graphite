@@ -37,8 +37,11 @@ struct VaultSwitcherBar: View {
         }
         .padding(.horizontal, 20).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.bar)
+        // The sidebar's bar draws the background (`sidebarBar`); the iPad's is set off from
+        // the rows by a line, and the Mac's scroll edge effect needs none.
+        #if canImport(UIKit)
         .overlay(alignment: .top) { Hairline() }
+        #endif
     }
 }
 

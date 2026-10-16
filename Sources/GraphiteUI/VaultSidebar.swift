@@ -199,7 +199,7 @@ struct VaultSidebar: View {
                 }
             }
         }
-        .safeAreaInset(edge: .top, spacing: 0) {
+        .sidebarBar(edge: .top) {
             if workspace.store != nil && availablePanels.count + workspace.communityPlugins.sidebarViews.count > 1 {
                 Picker("Sidebar", selection: pickerChoice) {
                     ForEach(availablePanels) { panel in Label(panel.title, systemImage: panel.systemImage).tag(SidebarChoice.panel(panel)) }
@@ -214,11 +214,9 @@ struct VaultSidebar: View {
                 .labelStyle(.iconOnly)
                 .labelsHidden()
                 .padding(.horizontal, 16).padding(.vertical, 6)
-                // Rows scroll under the picker; without a background they would show through.
-                .background(.bar)
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        .sidebarBar(edge: .bottom) {
             // A phone switches vaults from the title, and its search field is at the bottom.
             if !isCompactWidth { VaultSwitcherBar(workspace: workspace) { showsVaultManager = true } }
         }
@@ -308,7 +306,7 @@ struct VaultSidebar: View {
                     #if canImport(UIKit)
                     .environment(\.editMode, .constant(.active))
                     #endif
-                    .safeAreaInset(edge: .bottom) { pickingBar(pickedFiles) }
+                    .sidebarBar(edge: .bottom, spacing: nil) { pickingBar(pickedFiles) }
             } else {
                 openingList
             }
@@ -345,7 +343,6 @@ struct VaultSidebar: View {
             .disabled(pickedFiles.isEmpty)
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
-        .background(.bar)
     }
 
     /// The file list as it usually is: picking a file opens it.

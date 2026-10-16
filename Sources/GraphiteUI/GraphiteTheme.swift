@@ -221,6 +221,20 @@ extension Color {
 }
 
 extension View {
+    /// A bar at the top or bottom of the sidebar, over the rows that scroll under it. The
+    /// iPad draws it on the bars' material, which hides the rows. The Mac leaves it on the
+    /// sidebar's own material, with the system's scroll edge effect fading the rows under
+    /// it, as Finder's and Mail's sidebars do: the bars' material is opaque there, and drew
+    /// a white box behind the sidebar's picker, up under the toolbar, and a white band
+    /// under the vault switcher.
+    func sidebarBar<Bar: View>(edge: VerticalEdge, spacing: CGFloat? = 0, @ViewBuilder content: () -> Bar) -> some View {
+        #if os(macOS)
+        safeAreaBar(edge: edge, spacing: spacing, content: content)
+        #else
+        safeAreaInset(edge: edge, spacing: spacing) { content().background(.bar) }
+        #endif
+    }
+
     /// A form section's explanation under its section's leading edge, as System Settings
     /// sets them. The Mac's grouped forms set footers flush right, the place of a button
     /// such as "Details…", which made paragraphs ragged on the left.
