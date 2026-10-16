@@ -198,8 +198,10 @@ struct VaultSidebar: View {
                 }
                 .pickerStyle(.segmented)
                 // Symbols, which fit four panels in a phone's width or a narrow sidebar where
-                // their names were cut off; VoiceOver reads the names.
+                // their names were cut off; VoiceOver reads the names. The Mac otherwise writes
+                // the picker's own name, "Sidebar", before it.
                 .labelStyle(.iconOnly)
+                .labelsHidden()
                 .padding(.horizontal, 16).padding(.vertical, 6)
                 // Rows scroll under the picker; without a background they would show through.
                 .background(.bar)
