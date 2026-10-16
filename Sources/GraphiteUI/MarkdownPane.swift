@@ -217,7 +217,7 @@ struct MarkdownPane: View {
     private var editorConfiguration: EditorConfiguration {
         EditorConfiguration(mode: viewMode == .source ? .source : .livePreview, usesReadableLineLength: preferences.usesReadableLineLength,
                             textSize: noteTextSize, typography: workspace.noteTypography, theme: workspace.noteTheme, usesSpellChecking: preferences.usesSpellChecking,
-                            colorsEnabled: preferences.isEnabled(.colors), paletteHexByName: paletteHexByName,
+                            formatsCodeBlocks: preferences.formatsCodeBlocks, colorsEnabled: preferences.isEnabled(.colors), paletteHexByName: paletteHexByName,
                             editingBehavior: EditingBehavior(settings: workspace.vaultSettings), accentHex: preferences.accentHex,
                             inlineTitle: inlineTitle)
     }

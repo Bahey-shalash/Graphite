@@ -264,6 +264,80 @@ final class MarkdownEditorStyling {
         return true
     }
 
+    // MARK: Formatting code
+
+    /// The fenced code block the selection is in, with its code when the selection entered
+    /// it. Leaving a block whose code changed meanwhile formats it; a block only read,
+    /// scrolled or moved through is never rewritten.
+    private struct VisitedCodeBlock {
+        let block: FencedCodeBlock
+        let codeAtEntry: String
+    }
+
+    private var visitedCodeBlock: VisitedCodeBlock?
+
+    /// Follows the selection into and out of fenced code. Returns the edit that formats the
+    /// block the selection left, or the one it is in when `editingEnded`, when its code
+    /// changed while the selection was in it; nil otherwise, and when the code is already
+    /// formatted or its language is not formatted.
+    func codeFormattingEdit(afterSelectionChangeIn textView: any MarkdownStyledTextView, editingEnded: Bool) -> MarkdownTextEdit? {
+        guard configuration.formatsCodeBlocks, canStyle(textView) else {
+            if !configuration.formatsCodeBlocks { visitedCodeBlock = nil }
+            return nil
+        }
+        let source = currentSource(of: textView)
+        let selection = textView.styledSelection
+        guard let visited = visitedCodeBlock else {
+            if !editingEnded { visitedCodeBlock = codeBlock(at: selection.location, in: textView, source: source) }
+            return nil
+        }
+        if !editingEnded, visited.block.contains(selection.location, in: source), visited.block.contains(NSMaxRange(selection), in: source) { return nil }
+        visitedCodeBlock = nil
+        let edit = formattingEdit(of: visited, in: source, selection: selection)
+        // Moving straight into another block: it is followed from now, unless the edit
+        // above it is about to move it.
+        if edit == nil, !editingEnded { visitedCodeBlock = codeBlock(at: selection.location, in: textView, source: source) }
+        return edit
+    }
+
+    /// The formattable block whose code holds `location`, with its code now.
+    private func codeBlock(at location: Int, in textView: any MarkdownStyledTextView, source: NSString) -> VisitedCodeBlock? {
+        let textStorage = textView.styledTextStorage
+        guard location <= source.length, textStorage.length == source.length else { return nil }
+        let lineRange = source.lineRange(for: NSRange(location: location, length: 0))
+        // Prose is answered from the block context alone, which the checkpoints keep cheap.
+        guard blockContextCheckpoints.blockContext(atLineStart: lineRange.location, in: textStorage, source: source) == .fencedCode else { return nil }
+        let codeLine = blockContextCheckpoints.spans(in: textStorage, source: source, range: NSRange(location: lineRange.location, length: 0))
+            .first { span in span.style == .codeBlock && span.range.location >= lineRange.location && span.range.location <= NSMaxRange(lineRange) }
+        // Quoted code (in a callout) would need its `>` markers kept on every line; it is left alone.
+        guard let block = codeLine?.fencedCodeBlock, block.quoteDepth == 0, let language = CodeLanguage.named(block.language),
+              CodeFormatter.formats(language) else { return nil }
+        return VisitedCodeBlock(block: block, codeAtEntry: source.substring(with: block.codeRange(in: source)))
+    }
+
+    private func formattingEdit(of visited: VisitedCodeBlock, in source: NSString, selection: NSRange) -> MarkdownTextEdit? {
+        let block = visited.block
+        // The block must still start where it was found: the line before its code opens it.
+        guard block.codeStart > 0, block.codeStart <= source.length,
+              let opening = CodeFence.opening(source.substring(with: source.lineRange(for: NSRange(location: block.codeStart - 1, length: 0)))
+                .trimmingCharacters(in: .whitespacesAndNewlines)), opening.fence == block.fence,
+              let language = CodeLanguage.named(block.language) else { return nil }
+        let codeRange = block.codeRange(in: source)
+        let code = source.substring(with: codeRange)
+        guard code != visited.codeAtEntry, let formatted = CodeFormatter.formatted(code, language: language), formatted != code else { return nil }
+        let formattedLength = (formatted as NSString).length
+        let selectionAfter: NSRange
+        if selection.location >= NSMaxRange(codeRange) {
+            selectionAfter = NSRange(location: selection.location + formattedLength - codeRange.length, length: selection.length)
+        } else if selection.location > codeRange.location {
+            // Editing ended inside the block: the cursor stays as near its place as it can.
+            selectionAfter = NSRange(location: min(selection.location, codeRange.location + formattedLength), length: 0)
+        } else {
+            selectionAfter = selection
+        }
+        return MarkdownTextEdit(range: codeRange, replacement: formatted, selectionAfter: selectionAfter)
+    }
+
     // MARK: Rendered blocks
 
     /// The blocks whose source is concealed under their views, in note order: every block
