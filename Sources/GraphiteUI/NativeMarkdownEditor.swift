@@ -2498,18 +2498,14 @@ final class MarkdownMacTextView: NSTextView {
     /// Called when the text column moves or changes width, which the views placed over the
     /// text follow; set by the coordinator.
     var didMoveTextColumn: (() -> Void)?
-    /// Called once TextKit has laid out the viewport, where the rendered blocks are placed;
-    /// set by the coordinator. Systems before macOS 27 do not report it.
+    /// Called once TextKit has laid out the viewport, as the view scrolls or its text
+    /// changes, where the rendered blocks are placed; set by the coordinator.
     var didLayOutViewport: (() -> Void)?
 
     override func textViewportLayoutControllerDidLayout(_ textViewportLayoutController: NSTextViewportLayoutController) {
-        // AppKit implements it from macOS 27; on an earlier system the view's own
-        // implementation, if any, is private, and only this one answers.
-        if Self.textViewImplementsViewportDidLayout { super.textViewportLayoutControllerDidLayout(textViewportLayoutController) }
+        super.textViewportLayoutControllerDidLayout(textViewportLayoutController)
         didLayOutViewport?()
     }
-
-    private static let textViewImplementsViewportDidLayout = NSTextView.instancesRespond(to: #selector(NSTextView.textViewportLayoutControllerDidLayout(_:)))
 
     private var canInsertAttachments: Bool { insertAttachment != nil || insertLinkToVaultFile != nil }
 
@@ -2961,9 +2957,6 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         /// blocks' heights at once instead of correcting estimates with visible jumps.
         private static var sharedMeasuredHeights = MeasuredBlockHeightCache(capacity: 2_000)
         private var isPlacementScheduled = false
-        /// Placement passes in a row that found blocks TextKit had not laid out yet.
-        private var placementPasses = 0
-        private var scrollObserver: NSObjectProtocol?
         /// Set by "Edit Source": the YAML shows, and the cursor can be in it, until the
         /// cursor leaves it.
         private(set) var showsPropertiesSource = false
@@ -3082,17 +3075,6 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             textView.didLayOutViewport = { [weak self, weak textView] in
                 guard let self, let textView else { return }
                 self.placeBlockViews(in: textView)
-            }
-            // Systems that do not say when the viewport is laid out: scrolling lays out more of
-            // the note, whose blocks are placed once it has.
-            if let clipView = textView.enclosingScrollView?.contentView {
-                clipView.postsBoundsChangedNotifications = true
-                scrollObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: clipView, queue: .main) { [weak self, weak textView] _ in
-                    MainActor.assumeIsolated {
-                        guard let self, let textView else { return }
-                        self.schedulePlacement(in: textView)
-                    }
-                }
             }
             textView.didBecomeMeasurable = { [weak self] measurableView in
                 // Not from inside the window change or layout itself.
@@ -3497,8 +3479,9 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         /// Places the views of the concealed blocks TextKit has laid out, over each block's
         /// first line, and takes off screen those of blocks that are not: TextKit lays out the
         /// viewport, so a long note's blocks below it cost nothing until they scroll into
-        /// view. A hidden line is a hundredth of a point tall, so any of a block's lines starts
-        /// where the block does, also for a block that begins above the viewport.
+        /// view, and says when it has, as the view scrolls. A hidden line is a hundredth of a
+        /// point tall, so any of a block's lines starts where the block does, also for a block
+        /// that begins above the viewport.
         func placeBlockViews(in textView: NSTextView) {
             guard let environment, rendersBlocks, let textContainer = textView.textContainer, let textLayoutManager = textView.textLayoutManager,
                   let contentManager = textLayoutManager.textContentManager, columnWidth(of: textView) > 0 else {
@@ -3512,7 +3495,6 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             let width = columnWidth(of: textView)
             let documentStart = contentManager.documentRange.location
             var keysInUse = Set<LivePreviewBlockKey>()
-            var isAwaitingLayout = false
             var entriesToRestyle: [LivePreviewBlockEntry] = []
             textLayoutManager.enumerateTextLayoutFragments(from: viewportRange.location, options: []) { fragment in
                 guard fragment.rangeInElement.location.compare(viewportRange.endLocation) == .orderedAscending else { return false }
@@ -3522,11 +3504,8 @@ struct NativeMarkdownEditor: NSViewRepresentable {
                 guard !keysInUse.contains(entry.key) else { return true }
                 keysInUse.insert(entry.key)
                 // A paragraph a restyle changed has a new fragment, without a frame until
-                // TextKit lays out the viewport again.
-                guard fragment.state == .layoutAvailable else {
-                    isAwaitingLayout = true
-                    return true
-                }
+                // TextKit lays out the viewport again, which places it then.
+                guard fragment.state == .layoutAvailable else { return true }
                 // A height measured at a new width, or by another editor, is reserved in the text first.
                 let reservedHeight = reservedHeight(of: entry, columnWidth: width)
                 if let keptHeight = heightsKeptInText[entry.key], abs(keptHeight - reservedHeight) > 1 { entriesToRestyle.append(entry) }
@@ -3547,14 +3526,6 @@ struct NativeMarkdownEditor: NSViewRepresentable {
                         if let current = self.textState.blockEntries.first(where: { candidate in candidate.key == entry.key }) { self.restyle(current.range, in: textView) }
                     }
                 }
-            }
-            // A restyle replaced fragments TextKit has not laid out again: once it has, the
-            // blocks are placed on them. Bounded, so a note that never settles cannot loop.
-            if isAwaitingLayout, placementPasses < 6 {
-                placementPasses += 1
-                schedulePlacement(in: textView)
-            } else if !isAwaitingLayout {
-                placementPasses = 0
             }
         }
 
@@ -3608,9 +3579,8 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             detachedBlockHosts.removeAll()
         }
 
-        /// Places the blocks once TextKit has laid out what a change affected: on the next
-        /// turn of the run loop, and also at once on systems that say when the viewport is
-        /// laid out (`MarkdownMacTextView.didLayOutViewport`).
+        /// Places the blocks after a change, on the next turn of the run loop; TextKit's
+        /// own layout of the viewport places them too (`MarkdownMacTextView.didLayOutViewport`).
         private func schedulePlacement(in textView: NSTextView) {
             // A block whose source now shows loses its view at once, before its text is drawn.
             if !textState.cachesDescribeOldText {
