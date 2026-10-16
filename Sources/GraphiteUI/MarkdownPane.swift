@@ -1070,12 +1070,9 @@ struct NoteLinksInspector: View {
                     Text("Unlinked mentions")
                 }
             } footer: {
-                Group {
-                    if showsUnlinkedMentions {
-                        Text("Places where this note's name or an alias is written as text. Link turns the words into a link to this note.")
-                    }
+                if showsUnlinkedMentions {
+                    Text("Places where this note's name or an alias is written as text. Link turns the words into a link to this note.")
                 }
-                .formFooterAlignment()
             }
         case .outgoingLinks:
             Section("Outgoing Links") {
