@@ -107,22 +107,14 @@ struct LivePreviewWidgetView: View {
     }
 
     var body: some View {
-        Group {
-            if block.kind == .frontmatter {
-                // The properties' heading row is empty at its end, so the button sits there
-                // and the properties are as wide as in reading view.
-                VStack(alignment: .leading, spacing: 0) { content }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .overlay(alignment: .topTrailing) { sourceButton }
-            } else {
-                // The source button has its own column so it never covers a player's or viewer's controls.
-                HStack(alignment: .top, spacing: 8) {
-                    // The vertical stack keeps dividers inside the content horizontal.
-                    VStack(alignment: .leading, spacing: 0) { content }.frame(maxWidth: .infinity, alignment: .leading)
-                    if block.kind != .horizontalRule { sourceButton }
-                }
-            }
-        }
+        // The vertical stack keeps dividers inside the content horizontal. "Edit Source" is in
+        // the block's menu (a long press, or a secondary click on the Mac) rather than a button
+        // beside every block, so blocks are as wide as in reading view. It is the way to the
+        // source where a tap does something else, as on a base's rows, a plugin's view or a rule.
+        VStack(alignment: .leading, spacing: 0) { content }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contextMenu { Button("Edit Source", systemImage: "chevron.left.forwardslash.chevron.right", action: revealSource) }
+        .accessibilityAction(named: "Edit Source", revealSource)
         // The reserved space follows the view's natural height, not the frame it was given.
         .fixedSize(horizontal: false, vertical: true)
         .padding(.vertical, 4)
@@ -162,14 +154,6 @@ struct LivePreviewWidgetView: View {
         }
     }
 
-    private var sourceButton: some View {
-        Button("Edit Source", systemImage: "chevron.left.forwardslash.chevron.right") { revealSource() }
-            .labelStyle(.iconOnly).font(.caption).foregroundStyle(.secondary).buttonStyle(.borderless)
-            .frame(width: 28, height: 28)
-            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
-            .contentShape(Rectangle().inset(by: -6))
-    }
-
     @ViewBuilder private var content: some View {
         switch block.kind {
         case .frontmatter:
@@ -193,12 +177,12 @@ struct LivePreviewWidgetView: View {
         case .embed(let embed):
             LivePreviewEmbedView(embed: embed, environment: environment, revealSource: revealSource)
         case .baseDefinition(let yaml):
-            // No tap-to-reveal here: taps belong to the base's rows; the Edit Source button reveals it.
+            // No tap-to-reveal here: taps belong to the base's rows; "Edit Source" in its menu reveals it.
             BaseCodeBlockView(yaml: yaml, context: environment.baseContext)
         case .horizontalRule:
             ThemedRule(theme: environment.theme).padding(.vertical, 10)
         case .pluginCodeBlock(let language):
-            // Taps belong to what the plugin drew; the Edit Source button reveals the code.
+            // Taps belong to what the plugin drew; "Edit Source" in its menu reveals the code.
             if let host = environment.pluginCodeBlocks, let notePath = environment.notePath {
                 // No first line: the block moves as the note is edited above it, so where it is
                 // is looked up in the note whenever the plugin is given it.
