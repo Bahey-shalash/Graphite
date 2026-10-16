@@ -42,14 +42,16 @@ public enum PDFStructureInspection {
         if CGPDFDictionaryGetDictionary(catalog, "Perms", &permissions) || CGPDFDictionaryGetDictionary(catalog, "DSS", &securityStore) { return true }
         var form: CGPDFDictionaryRef?
         guard CGPDFDictionaryGetDictionary(catalog, "AcroForm", &form), let form else { return false }
-        // Bit 1 of SigFlags is SignaturesExist.
+        // Bit 2 of SigFlags is AppendOnly, which signing tools set. Bit 1 only says a
+        // signature field exists, which a blank form waiting to be signed has too.
         var signatureFlags: CGPDFInteger = 0
-        if CGPDFDictionaryGetInteger(form, "SigFlags", &signatureFlags), signatureFlags & 1 != 0 { return true }
+        if CGPDFDictionaryGetInteger(form, "SigFlags", &signatureFlags), signatureFlags & 2 != 0 { return true }
         var fields: CGPDFArrayRef?
         guard CGPDFDictionaryGetArray(form, "Fields", &fields), let fields else { return false }
-        var pendingFieldArrays = [fields]
+        // A field's type can be on its parent, which its signed child widgets inherit.
+        var pendingFieldArrays: [(fields: CGPDFArrayRef, parentIsSignatureField: Bool)] = [(fields, false)]
         var inspectedFieldCount = 0
-        while let fieldArray = pendingFieldArrays.popLast() {
+        while let (fieldArray, parentIsSignatureField) = pendingFieldArrays.popLast() {
             for fieldIndex in 0..<CGPDFArrayGetCount(fieldArray) {
                 inspectedFieldCount += 1
                 guard inspectedFieldCount <= maximumInspectedFormFields else { return false }
@@ -57,12 +59,12 @@ public enum PDFStructureInspection {
                 guard CGPDFArrayGetDictionary(fieldArray, fieldIndex, &field), let field else { continue }
                 var fieldType: UnsafePointer<Int8>?
                 var signatureValue: CGPDFObjectRef?
-                if CGPDFDictionaryGetName(field, "FT", &fieldType), let fieldType, String(cString: fieldType) == "Sig",
-                   CGPDFDictionaryGetObject(field, "V", &signatureValue) {
-                    return true
-                }
+                let isSignatureField = CGPDFDictionaryGetName(field, "FT", &fieldType)
+                    ? fieldType.map { typeName in String(cString: typeName) == "Sig" } ?? false
+                    : parentIsSignatureField
+                if isSignatureField, CGPDFDictionaryGetObject(field, "V", &signatureValue) { return true }
                 var childFields: CGPDFArrayRef?
-                if CGPDFDictionaryGetArray(field, "Kids", &childFields), let childFields { pendingFieldArrays.append(childFields) }
+                if CGPDFDictionaryGetArray(field, "Kids", &childFields), let childFields { pendingFieldArrays.append((childFields, isSignatureField)) }
             }
         }
         return false

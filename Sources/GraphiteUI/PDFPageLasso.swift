@@ -81,10 +81,17 @@ extension PDFPageCanvasView: LassoCanvasContent {
 
     /// The pictures' annotations are hidden while the selection's frame carries them, and
     /// shown again after; a picture's annotation is the box around it as turned.
+    /// A picture is known by its annotation's name: two copies of one image pasted at the
+    /// same spot have the same bounds, and selecting one hid both.
     func setLassoPicturesHidden(_ identifiers: Set<String>) {
         guard let page else { return }
         let hiddenBounds = pagePictures().filter { picture in identifiers.contains(picture.name) }.map(\.annotationBounds)
         for annotation in page.annotations where annotation.type == PDFPicture.annotationTypeName {
+            if let name = annotation.persistentName {
+                let isHidden = identifiers.contains(name)
+                if annotation.shouldDisplay == isHidden { annotation.shouldDisplay = !isHidden }
+                continue
+            }
             let isHidden = hiddenBounds.contains { bounds in
                 abs(bounds.minX - annotation.bounds.minX) < 0.5 && abs(bounds.minY - annotation.bounds.minY) < 0.5
                     && abs(bounds.width - annotation.bounds.width) < 0.5 && abs(bounds.height - annotation.bounds.height) < 0.5

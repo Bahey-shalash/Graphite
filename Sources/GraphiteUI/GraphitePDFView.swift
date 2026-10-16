@@ -213,8 +213,9 @@ struct GraphitePDFView: UIViewRepresentable {
     var input: PDFAnnotationInput
     /// Smaller gaps between pages, for the viewer embedded in a note.
     var isEmbedded = false
-    /// The page shown first, once the view has its size.
-    var initialPageIndex: Int?
+    /// The page shown first, once the view has its size. Read when the view is made, not
+    /// in the body that makes it, so a page turned does not update the pane around it.
+    var initialPageIndex: () -> Int? = { nil }
     /// Called when drawing or selecting text begins, so the PDF's side of the split is focused.
     var beginInteraction: (() -> Void)?
     /// Links and quotes offered for selected text; nil where there is no note to link from.
@@ -260,7 +261,7 @@ struct GraphitePDFView: UIViewRepresentable {
         // reload, or after Graphite quit. It is the page at the top edge, which can be the
         // one before the page PDFKit counts as current, across the view's middle.
         let keptPlace = session.keptPlace.flatMap { place in place.pageIndex < session.document.pageCount ? place : nil }
-        view.pendingInitialPage = (keptPlace?.pageIndex ?? initialPageIndex).flatMap(session.document.page(at:))
+        view.pendingInitialPage = (keptPlace?.pageIndex ?? initialPageIndex()).flatMap(session.document.page(at:))
         view.pendingInitialFractionFromTop = keptPlace.map { place in CGFloat(place.fractionFromTop) }
         session.livePlace = { [weak view] in view?.pagePlace }
         // The system find bar (⌘F, or the toolbar's Find), which PDFKit fills with its
@@ -415,11 +416,11 @@ final class GraphitePDFDisplayView: PDFView {
     private func currentPlace() -> (page: PDFPage, fractionFromTop: CGFloat)? {
         let topPoint = CGPoint(x: bounds.midX, y: bounds.minY + 1)
         guard let page = page(for: topPoint, nearest: true) else { return nil }
-        let pageBounds = page.bounds(for: displayBox)
-        guard pageBounds.height > 0 else { return nil }
-        // Page space runs upward from the bottom of the page.
-        let pagePoint = convert(topPoint, to: page)
-        return (page, min(max((pageBounds.maxY - pagePoint.y) / pageBounds.height, -0.2), 1))
+        // Measured on the page as shown, as `show` applies it: in the page's own space, a
+        // page turned 180° gave its bottom for its top, and one turned 90° its width.
+        let pageRect = convert(page.bounds(for: displayBox), from: page)
+        guard pageRect.height > 0 else { return nil }
+        return (page, min(max((topPoint.y - pageRect.minY) / pageRect.height, -0.2), 1))
     }
 
     /// Scrolls so the top edge is the same way down the same page as before.
@@ -1715,7 +1716,7 @@ struct GraphitePDFView: NSViewRepresentable {
     let session: PDFSession
     var input: PDFAnnotationInput
     var isEmbedded = false
-    var initialPageIndex: Int?
+    var initialPageIndex: () -> Int? = { nil }
     /// The Mac viewer has no Pencil canvases; accepted so both platforms share one call.
     var beginInteraction: (() -> Void)?
     var linkActions: PDFLinkActions?
@@ -1735,17 +1736,24 @@ struct GraphitePDFView: NSViewRepresentable {
 
     final class Coordinator {
         var pageObserver: PDFViewPageObserver?
+        weak var session: PDFSession?
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> PDFView {
-        let view = PDFView()
+        let view = GraphiteMacPDFView()
         view.document = session.document
         view.autoScales = true
         view.interpolationQuality = .high
         view.displayMode = .singlePageContinuous
-        if let initialPage = initialPageIndex.flatMap(session.document.page(at:)) { view.go(to: initialPage) }
+        // Back where the PDF was left, as on the iPad: from another tab, or after Graphite
+        // quit. The Mac went to the top of the current page at best, before the view had
+        // a size, which PDFKit can ignore.
+        let keptPlace = session.keptPlace.flatMap { place in place.pageIndex < session.document.pageCount ? place : nil }
+        view.pendingPlace = keptPlace ?? initialPageIndex().map { pageIndex in PDFPagePlace(pageIndex: pageIndex, fractionFromTop: 0) }
+        session.livePlace = { [weak view] in view?.pagePlace }
+        context.coordinator.session = session
         context.coordinator.pageObserver = PDFViewPageObserver(session: session, view: view)
         session.pdfView = view
         return view
@@ -1756,7 +1764,45 @@ struct GraphitePDFView: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ view: PDFView, coordinator: Coordinator) {
+        if let session = coordinator.session, session.pdfView === view || session.pdfView == nil,
+           let place = (view as? GraphiteMacPDFView)?.pagePlace {
+            session.keptPlace = place
+        }
         coordinator.pageObserver?.stop()
+    }
+}
+
+/// The Mac's PDF view, which comes back to a place once it has a size and tells where it is.
+final class GraphiteMacPDFView: PDFView {
+    /// Where to show the PDF once laid out: PDFKit ignores a place asked for before.
+    var pendingPlace: PDFPagePlace?
+
+    /// The page at the top edge and how far down it the edge is, measured on the page as
+    /// shown. Nil before the view has shown its first place.
+    var pagePlace: PDFPagePlace? {
+        guard pendingPlace == nil, bounds.height > 0, let document else { return nil }
+        let topPoint = NSPoint(x: bounds.midX, y: isFlipped ? bounds.minY + 1 : bounds.maxY - 1)
+        guard let page = page(for: topPoint, nearest: true) else { return nil }
+        let pageIndex = document.index(for: page)
+        let pageRect = convert(page.bounds(for: displayBox), from: page)
+        guard pageIndex != NSNotFound, pageRect.height > 0 else { return nil }
+        let distanceFromTop = isFlipped ? topPoint.y - pageRect.minY : pageRect.maxY - topPoint.y
+        return PDFPagePlace(pageIndex: pageIndex, fractionFromTop: Double(min(max(distanceFromTop / pageRect.height, -0.2), 1)))
+    }
+
+    override func layout() {
+        super.layout()
+        guard let place = pendingPlace, bounds.width > 0, bounds.height > 0, let page = document?.page(at: place.pageIndex) else { return }
+        pendingPlace = nil
+        go(to: page)
+        guard place.fractionFromTop > 0 else { return }
+        // The point that far down the page as shown, in the page's own space, which a
+        // destination takes whatever the page's rotation.
+        layoutDocumentView()
+        let pageRect = convert(page.bounds(for: displayBox), from: page)
+        let viewY = isFlipped ? pageRect.minY + CGFloat(place.fractionFromTop) * pageRect.height
+                              : pageRect.maxY - CGFloat(place.fractionFromTop) * pageRect.height
+        go(to: PDFDestination(page: page, at: convert(NSPoint(x: pageRect.minX, y: viewY), to: page)))
     }
 }
 #endif
