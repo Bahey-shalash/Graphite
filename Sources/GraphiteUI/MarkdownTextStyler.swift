@@ -643,6 +643,7 @@ struct MarkdownTextStyler {
         case .inlineMath: textColor
         }
         textStorage.addAttribute(ConcealedReplacement.colorAttributeKey, value: color, range: range)
+        if replacement == .quoteBar { indentWrappedLines(ofQuoteMarkedBy: range, in: textStorage) }
         if replacement == .checkedTask || replacement == .uncheckedTask, let checkboxStyle { textStorage.addAttribute(ConcealedReplacement.checkboxStyleKey, value: checkboxStyle, range: range) }
         guard replacement == .subpathSeparator else { return }
         // The separator is wider than `#`: kerning after it makes room without changing the text.
@@ -650,6 +651,30 @@ struct MarkdownTextStyler {
         let replacementWidth = (ConcealedReplacement.subpathSeparatorText as NSString).size(withAttributes: [.font: font]).width
         let markerWidth = textStorage.attributedSubstring(from: range).size().width
         textStorage.addAttribute(.kern, value: max(0, replacementWidth - markerWidth), range: range)
+    }
+
+    /// A quote's list item marker after its `>`: the item's text, not its marker, is where
+    /// the lines it wraps onto start.
+    private static let quotedListMarker = try? NSRegularExpression(pattern: "(?:[-*+]|[0-9]+[.)])[ \\t]+(?:\\[.\\][ \\t]+)?")
+
+    /// The lines a long quoted line wraps onto start under its text, as in Obsidian, not at
+    /// the margin, where the bars are drawn: the bar covered their first letter.
+    private func indentWrappedLines(ofQuoteMarkedBy markerRange: NSRange, in textStorage: NSTextStorage) {
+        let source = textStorage.mutableString
+        let lineRange = source.lineRange(for: markerRange)
+        var contentStart = NSMaxRange(markerRange)
+        while contentStart < NSMaxRange(lineRange), source.character(at: contentStart) == 0x20 || source.character(at: contentStart) == 0x09 { contentStart += 1 }
+        if let listMarker = Self.quotedListMarker?.firstMatch(in: source as String, options: [.anchored],
+                                                              range: NSRange(location: contentStart, length: NSMaxRange(lineRange) - contentStart)) {
+            contentStart = NSMaxRange(listMarker.range)
+        }
+        let indent = textStorage.attributedSubstring(from: NSRange(location: lineRange.location, length: contentStart - lineRange.location)).size().width
+        guard indent > 0 else { return }
+        // TextKit takes a paragraph's style from its first character.
+        let paragraphStyle = (textStorage.attribute(.paragraphStyle, at: lineRange.location, effectiveRange: nil) as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle
+            ?? NSMutableParagraphStyle()
+        paragraphStyle.headIndent = indent
+        textStorage.addAttribute(.paragraphStyle, value: paragraphStyle, range: lineRange)
     }
 
     /// Measured formulas by font size and LaTeX; nil marks LaTeX that cannot be typeset,

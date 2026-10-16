@@ -65,6 +65,30 @@ final class UiStylingFixTests: XCTestCase {
         XCTAssertEqual(textStorage.attribute(ConcealedReplacement.attributeKey, at: 18, effectiveRange: nil) as? String, ConcealedReplacement.quoteBar.rawValue)
     }
 
+    /// The lines a long quoted line wraps onto start under its text, past the `> ` the bar is
+    /// drawn over and past a list item's marker; they started at the margin, where the bar
+    /// covered their first letter.
+    func testWrappedQuotedLinesStartUnderTheirText() {
+        let text = "> A quoted line long enough to wrap.\n> - A quoted list item.\nPlain line.\n"
+        let source = text as NSString
+        let textStorage = NSTextStorage(string: text)
+        let styler = MarkdownTextStyler(configuration: livePreview, accentColor: .systemBlue, drawsConcealedReplacements: true)
+        styler.applyStyles(to: textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedMarkup: nil, concealedBlocks: [])
+        func headIndent(at location: Int) -> CGFloat {
+            (textStorage.attribute(.paragraphStyle, at: location, effectiveRange: nil) as? NSParagraphStyle)?.headIndent ?? 0
+        }
+        func width(upTo location: Int, onLineAt lineStart: Int) -> CGFloat {
+            textStorage.attributedSubstring(from: NSRange(location: lineStart, length: location - lineStart)).size().width
+        }
+        let quoteText = source.range(of: "A quoted line").location
+        XCTAssertEqual(headIndent(at: 0), width(upTo: quoteText, onLineAt: 0), accuracy: 0.01)
+        let listLine = source.range(of: "> - A").location
+        let listText = source.range(of: "A quoted list").location
+        XCTAssertEqual(headIndent(at: listLine), width(upTo: listText, onLineAt: listLine), accuracy: 0.01)
+        XCTAssertGreaterThan(headIndent(at: listLine), headIndent(at: 0), "The list item's text is past its marker")
+        XCTAssertEqual(headIndent(at: source.range(of: "Plain").location), 0, "A line that is not quoted keeps the margin")
+    }
+
     // MARK: Revealed lines
 
     /// The selection's lines end where the next line starts; the next line's markers must
