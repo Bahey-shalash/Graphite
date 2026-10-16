@@ -6,7 +6,13 @@ import GraphiteCore
 @MainActor
 private final class TestReadAloudSpeech: ReadAloudSpeaking {
     var eventHandler: (@MainActor (ReadAloudSpeechEvent) -> Void)?
-    var voices = [ReadAloudVoice(id: "test-voice", name: "Study", language: "en-US", quality: 3)]
+    var installedVoices = [ReadAloudVoice(id: "test-voice", name: "Study", language: "en-US", quality: 3)]
+    /// How many times the session asked for the installed voices.
+    var voiceListings = 0
+    var voices: [ReadAloudVoice] {
+        get { voiceListings += 1; return installedVoices }
+        set { installedVoices = newValue }
+    }
     var requests: [(text: String, identifier: UUID)] = []
     var canResume = true
     var failure: Error?
@@ -49,6 +55,20 @@ final class ReadAloudSessionTests: XCTestCase {
         let session = ReadAloudSession(speech: speech, preferences: preferences)
         session.chooseVoice("test-voice")
         return (session, speech)
+    }
+
+    /// Listing the system's voices took a tenth of a second at every launch on the Mac; a
+    /// session lists them only once something needs them.
+    func testTheVoicesAreListedOnlyOnceSomethingNeedsThem() throws {
+        let speech = TestReadAloudSpeech()
+        let preferences = try XCTUnwrap(UserDefaults(suiteName: "ReadAloudTests-\(UUID().uuidString)"))
+        let session = ReadAloudSession(speech: speech, preferences: preferences)
+        XCTAssertEqual(speech.voiceListings, 0)
+        XCTAssertEqual(session.voices.map(\.id), ["test-voice"])
+        XCTAssertEqual(session.voices.map(\.id), ["test-voice"])
+        XCTAssertEqual(speech.voiceListings, 1, "Listed once, then kept until asked to list again")
+        session.refreshVoices()
+        XCTAssertEqual(speech.voiceListings, 2)
     }
 
     func testCompletionAdvancesOnePassageAndStaleCallbacksCannotAdvanceReplacement() throws {
