@@ -83,6 +83,13 @@ final class CanvasFileTests: XCTestCase {
         XCTAssertEqual(groupWithBackground.nodes[0].content, .group(label: nil, background: "Art/paper.png", backgroundStyle: .repeat))
     }
 
+    /// Some canvas generators write a preset's number as a JSON number, not a string.
+    func testAColorWrittenAsANumberIsItsPreset() throws {
+        let file = try CanvasFixtures.file(#"{"nodes":[{"id":"a","type":"text","text":"A","x":0,"y":0,"width":10,"height":10,"color":3},{"id":"b","type":"text","text":"B","x":0,"y":0,"width":10,"height":10,"color":7}]}"#)
+        XCTAssertEqual(file.node(named: "a")?.color, .preset(3))
+        XCTAssertNil(file.node(named: "b")?.color)
+    }
+
     func testColorsReadPresetsAndHexadecimalOnly() {
         XCTAssertEqual(CanvasColor(text: "1"), .preset(1))
         XCTAssertEqual(CanvasColor(text: "6"), .preset(6))
@@ -91,6 +98,10 @@ final class CanvasFileTests: XCTestCase {
         for unknown in ["0", "7", "12", "+1", "red", "#12", "#gggggg", "ff0000", ""] {
             XCTAssertNil(CanvasColor(text: unknown), "“\(unknown)” is not a canvas color")
         }
+        // Other canvas tools write an opacity, which a card has no use for.
+        XCTAssertEqual(CanvasColor(text: "#ff000080"), .custom(red: 255, green: 0, blue: 0))
+        XCTAssertEqual(CanvasColor(text: "#0af8"), .custom(red: 0x00, green: 0xAA, blue: 0xFF))
+        XCTAssertNil(CanvasColor(text: "#ff00008g"))
         XCTAssertEqual(CanvasColor.custom(red: 255, green: 136, blue: 0).text, "#ff8800")
         XCTAssertEqual(CanvasColor.preset(3).text, "3")
         XCTAssertEqual(CanvasColor.presets.map(\.name), ["Red", "Orange", "Yellow", "Green", "Cyan", "Purple"])

@@ -77,7 +77,7 @@ extension CommunityPluginHost {
             case ObsidianAppearance.monospaceFontFamilyKey:
                 if let families = value as? String { appearance.monospaceFontFamilies = FontFamilyList(obsidianValue: families) }
             case ObsidianAppearance.baseFontSizeKey:
-                if let size = (value as? NSNumber)?.doubleValue, size.isFinite { appearance.baseFontSize = NoteFontSize.clamped(Int(size.rounded())) }
+                if let size = (value as? NSNumber)?.doubleValue, size.isFinite { appearance.baseFontSize = NoteFontSize.clamped(size) }
             case ObsidianAppearance.baseFontSizeActionKey:
                 if let isOn = value as? Bool { appearance.adjustsFontSizeQuickly = isOn }
             default:

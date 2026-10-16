@@ -5,7 +5,7 @@ import GraphiteCore
 
 /// Finds the language a passage is written in, so it is read with a voice of that language
 /// rather than the device's. Lecture notes are often English on a French or German iPad.
-enum ReadAloudLanguage {
+public enum ReadAloudLanguage {
     /// Enough words to recognize a language without scanning a whole textbook chapter.
     private static let maximumSampleUTF16Count = 4_000
     /// Below this confidence a short or mixed passage keeps the device language.
@@ -24,7 +24,7 @@ enum ReadAloudLanguage {
 
     /// A BCP 47 language with a region: the device's own region when it speaks that language
     /// (en-GB on a British iPad), otherwise the region of the system's voice for the language.
-    static func language(ofText text: String) -> String? {
+    public static func language(ofText text: String) -> String? {
         let recognizer = NLLanguageRecognizer()
         recognizer.processString(text)
         guard let (language, confidence) = recognizer.languageHypotheses(withMaximum: 1).first,

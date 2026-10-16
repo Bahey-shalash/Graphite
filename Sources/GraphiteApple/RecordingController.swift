@@ -123,10 +123,13 @@ public final class RecordingController: NSObject, AVAudioRecorderDelegate {
             // a microphone); waiting for it on the main thread would freeze Graphite.
             let started = try await Task.detached(priority: .userInitiated) { try Self.startedRecorder(at: location) }.value
             guard startAttempt == attempt else {
-                // Cancelled while the hardware was answering.
+                // Cancelled while the hardware was answering. The audio session it set up
+                // for recording is let go, so other apps' audio resumes, unless a newer start
+                // is under way and needs it.
                 started.recorder.stop()
                 started.recorder.deleteRecording()
                 try? FileManager.default.removeItem(at: RecordingRecoveryFolder.manifestLocation(for: location))
+                if startAttempt == nil { deactivateAudioSession() }
                 return
             }
             startAttempt = nil
@@ -139,7 +142,10 @@ public final class RecordingController: NSObject, AVAudioRecorderDelegate {
                 try? FileManager.default.removeItem(at: recordingURL)
                 try? FileManager.default.removeItem(at: RecordingRecoveryFolder.manifestLocation(for: recordingURL))
             }
-            guard startAttempt == attempt else { return }
+            guard startAttempt == attempt else {
+                if startAttempt == nil { deactivateAudioSession() }
+                return
+            }
             startAttempt = nil
             // Nothing was recorded, so other apps' audio resumes.
             deactivateAudioSession()

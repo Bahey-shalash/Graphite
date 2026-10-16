@@ -378,8 +378,13 @@ public final class AppleReadAloudSpeech: NSObject, ReadAloudSpeaking, AVSpeechSy
             guard let rawReason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
                   AVAudioSession.RouteChangeReason(rawValue: rawReason) == .oldDeviceUnavailable else { return }
         }
+        let isInterruption = notification.name == AVAudioSession.interruptionNotification
         Task { @MainActor [weak self] in
-            guard let self, self.activeUtterance != nil else { return }
+            guard let self else { return }
+            // The system deactivates the session when an interruption begins, and often sends
+            // no end; the next reading sets it up again rather than finding it still "owned".
+            if isInterruption { self.ownsActiveAudioSession = false }
+            guard self.activeUtterance != nil else { return }
             self.stop()
             self.eventHandler?(.interrupted)
         }
@@ -394,6 +399,9 @@ public final class ReadAloudSession {
     public private(set) var document: ReadAloudDocument?
     public private(set) var passageIndex = 0
     public private(set) var spokenRange: NSRange?
+    /// Where reading is in the passage: the word spoken, or, paused after a move to another
+    /// sentence, where it will go on. An edit while paused anchored on the passage's start.
+    public var currentOffset: Int { spokenRange?.location ?? utteranceStartOffset }
     /// Words, sentences or nothing highlighted while reading; Words by default.
     public private(set) var highlightMode: ReadAloudHighlightMode
     /// The voice reports no word positions (seen with some voices and settings), so the
@@ -551,7 +559,12 @@ public final class ReadAloudSession {
             finishCurrentPassage()
             return
         }
-        if state == .paused, !needsRestart, speech.resume() { state = .speaking; message = nil; return }
+        if state == .paused, !needsRestart {
+            if speech.resume() { state = .speaking; message = nil; return }
+            // The synthesizer could not go on (it was reset, or another app took the audio):
+            // reading starts again at the word reached, not at the start of the passage.
+            utteranceStartOffset = spokenRange?.location ?? utteranceStartOffset
+        }
         if state == .finished { passageIndex = 0; spokenRange = nil; utteranceStartOffset = 0 }
         speakCurrentPassage()
     }
