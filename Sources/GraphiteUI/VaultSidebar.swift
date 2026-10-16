@@ -987,8 +987,11 @@ private struct RenameSheet: View {
                         if !fileExtension.isEmpty { Text("." + fileExtension).foregroundStyle(.secondary) }
                     }
                 } footer: {
-                    if let problem, !name.isEmpty { Text(problem).foregroundStyle(.red) }
-                    else if !isFolder && DocumentKind(path: path) == .markdown { Text("Links to this note are updated as the vault's settings say.") }
+                    Group {
+                        if let problem, !name.isEmpty { Text(problem).foregroundStyle(.red) }
+                        else if !isFolder && DocumentKind(path: path) == .markdown { Text("Links to this note are updated as the vault's settings say.") }
+                    }
+                    .formFooterAlignment()
                 }
             }
             .formStyle(.grouped)
@@ -1047,8 +1050,11 @@ private struct NewFolderSheet: View {
                 Section {
                     TextField("Folder name", text: $name).focused($isNameFocused).submitLabel(.done).onSubmit(create)
                 } footer: {
-                    if let problem, !name.isEmpty { Text(problem).foregroundStyle(.red) }
-                    else { Text("In “\(directory.rawValue.isEmpty ? workspace.title : directory.rawValue)”") }
+                    Group {
+                        if let problem, !name.isEmpty { Text(problem).foregroundStyle(.red) }
+                        else { Text("In “\(directory.rawValue.isEmpty ? workspace.title : directory.rawValue)”") }
+                    }
+                    .formFooterAlignment()
                 }
             }
             .formStyle(.grouped)

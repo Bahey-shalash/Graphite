@@ -165,9 +165,12 @@ struct VaultManagerView: View {
                 VaultActionLabel(title: "Open Folder as Vault", detail: "Choose an existing folder, such as an Obsidian vault in iCloud Drive.", systemImage: "folder")
             }
         } footer: {
-            if !workspace.vaultLibrary.vaults.isEmpty {
-                Text("Removing a vault from this list forgets it and deletes its File recovery snapshots on this device. The folder and its files stay where they are.")
+            Group {
+                if !workspace.vaultLibrary.vaults.isEmpty {
+                    Text("Removing a vault from this list forgets it and deletes its File recovery snapshots on this device. The folder and its files stay where they are.")
+                }
             }
+            .formFooterAlignment()
         }
         #if os(macOS)
         // Rows of the form, as the vaults above are, rather than bordered buttons.
@@ -268,6 +271,7 @@ private struct NewVaultForm: View {
                         .onSubmit(create)
                 } footer: {
                     Text("A vault is an ordinary folder. Graphite creates an empty folder with this name.")
+                        .formFooterAlignment()
                 }
                 Section {
                     LabeledContent("Location") {
@@ -281,6 +285,7 @@ private struct NewVaultForm: View {
                     Text(Self.canUseGraphiteFolder
                          ? "Graphite's folder appears in the Files app. To sync with your other devices, choose a folder in iCloud Drive. To use the vault in Obsidian on this device too, choose iCloud Drive › Obsidian."
                          : "To use the vault in Obsidian too, choose the folder where you keep your Obsidian vaults.")
+                        .formFooterAlignment()
                 }
             }
             .formStyle(.grouped)

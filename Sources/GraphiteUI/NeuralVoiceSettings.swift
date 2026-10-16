@@ -32,6 +32,7 @@ struct ReadAloudModeSection: View {
             Text("Reading Mode")
         } footer: {
             Text(footer)
+                .formFooterAlignment()
         }
     }
 
@@ -80,6 +81,7 @@ struct NeuralVoicesSection: View {
             Text("High Quality Voices")
         } footer: {
             Text("Voices download from their makers’ Hugging Face pages and run entirely on this device; your notes never leave it. Larger voices take longer to prepare a note.")
+                .formFooterAlignment()
         }
         .onAppear { library.refreshInstalledVoices() }
         .confirmationDialog("Delete \(voicePendingDeletion?.name ?? "Voice")?", isPresented: Binding(
@@ -223,6 +225,7 @@ struct ReadAloudStorageSection: View {
             Text("Storage")
         } footer: {
             Text("Prepared passages are kept so a note reads at once the next time; only changed passages are prepared again. The oldest are removed when they pass \(NeuralVoicesSection.size(ReadAloudAudioCacheEviction.defaultCapacityBytes)). They are never stored in your vault.")
+                .formFooterAlignment()
         }
         .task { await library.refreshCacheSize() }
     }

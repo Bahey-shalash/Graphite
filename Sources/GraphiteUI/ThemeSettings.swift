@@ -37,6 +37,7 @@ struct ThemeSettingsSection: View {
             Text(snippetNames.isEmpty
                  ? "Shared with Obsidian through .obsidian/appearance.json. The theme styles notes and community plugins' panels; buttons, menus and Settings stay Graphite's. CSS snippets in .obsidian/snippets appear here."
                  : "Shared with Obsidian through .obsidian/appearance.json. The theme and snippets style notes and community plugins' panels; buttons, menus and Settings stay Graphite's. Text is kept readable against the theme's page.")
+                .formFooterAlignment()
         }
         .task(id: "\(workspace.directoryVersion)-\(appearance.cssTheme)") { await reload() }
     }
@@ -70,6 +71,7 @@ struct ThemeChoicePage: View {
                 Text("Installed Themes")
             } footer: {
                 Text("A theme styles notes and community plugins' panels, and Style Settings and the theme's own settings plugin can change it. Buttons, menus and Settings keep Graphite's look.")
+                    .formFooterAlignment()
             }
             Section("Community Themes") {
                 if isLoadingDirectory && directory.isEmpty {

@@ -71,6 +71,7 @@ struct AppIconSettingsSection: View {
             Text("App Icon")
         } footer: {
             Text("Choose the sheen of the graphite crystal on your Home Screen. Blue is the default. Your notes and accent color stay the same.")
+                .formFooterAlignment()
         }
         .onAppear { selectedIconName = UIApplication.shared.alternateIconName }
         .onChange(of: scenePhase) { _, phase in

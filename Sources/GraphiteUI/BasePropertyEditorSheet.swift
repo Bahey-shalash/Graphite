@@ -35,6 +35,7 @@ struct BasePropertyEditorSheet: View {
                     Text(request.path.stem)
                 } footer: {
                     Text(footerText)
+                        .formFooterAlignment()
                 }
                 if let failureMessage {
                     Section { Label(failureMessage, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }

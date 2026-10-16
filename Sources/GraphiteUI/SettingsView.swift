@@ -134,6 +134,7 @@ private struct GeneralSettingsPage: View {
                 Text("Vault")
             } footer: {
                 Text("A vault is an ordinary folder. Graphite edits its files in place, so Obsidian and other apps see the same notes. Switch vaults from the vault name at the top of the sidebar.")
+                    .formFooterAlignment()
             }
             if workspace.store != nil {
                 Section {
@@ -149,6 +150,7 @@ private struct GeneralSettingsPage: View {
                     Text("Search")
                 } footer: {
                     Text("The search index is a disposable cache stored outside your vault. Rebuilding it never changes your files.")
+                        .formFooterAlignment()
                 }
             }
             Section("About") {
@@ -157,6 +159,7 @@ private struct GeneralSettingsPage: View {
                     NavigationLink("Voice Credits") {
                         Form { Section { NeuralVoiceCredits(voices: library.manifest.voices) } footer: {
                             Text("Read Aloud’s downloadable voices, by their makers, under these licenses.")
+                                .formFooterAlignment()
                         } }
                         .navigationTitle("Voice Credits")
                     }
@@ -194,6 +197,7 @@ private struct EditorSettingsPage: View {
                 Text("Behavior")
             } footer: {
                 Text("Live Preview hides Markdown syntax except where your cursor is and shows tables, math, properties, and embeds in place. Source mode shows every character.")
+                    .formFooterAlignment()
             }
             Section {
                 Toggle("Readable Line Length", isOn: $preferences.usesReadableLineLength)
@@ -205,6 +209,7 @@ private struct EditorSettingsPage: View {
                 Text("Display")
             } footer: {
                 Text("With strict line breaks off, a single line break starts a new line when reading, as in Obsidian. This option is stored in the vault's .obsidian/app.json.")
+                    .formFooterAlignment()
             }
             // Only the iPad editor continues lists, pairs characters, and indents as you
             // type; the Mac editor has none of these, so they would do nothing there.
@@ -222,6 +227,7 @@ private struct EditorSettingsPage: View {
                     Text("Typing")
                 } footer: {
                     Text("Return continues a list, a task list, or a quote, and Tab indents it. Brackets and quotes are typed in pairs, and *, _, ~, =, ` or $ wrap selected text. Shared with Obsidian in .obsidian/app.json.")
+                        .formFooterAlignment()
                 }
             }
             #endif
@@ -258,6 +264,7 @@ private struct AppearanceSettingsPage: View {
                 Text("Accent Color")
             } footer: {
                 Text("Used for links, checkboxes, selections, and buttons. Until you choose one here, Graphite uses the accent color set for this vault in Obsidian. An accent too light to read on white is darkened in light appearance, and one too dark to read on black is lightened in dark appearance. Purple matches Obsidian's default.")
+                    .formFooterAlignment()
             }
             Section {
                 Toggle("Show Inline Title", isOn: $preferences.showsInlineTitle)
@@ -265,6 +272,7 @@ private struct AppearanceSettingsPage: View {
                 Text("Interface")
             } footer: {
                 Text("Shows the note's file name as a large title above its content, with its extension when Files and Links › Show File Extensions is on.")
+                    .formFooterAlignment()
             }
             if workspace.store != nil {
                 FontSettingsSection(workspace: workspace)
@@ -330,6 +338,7 @@ private struct CorePluginsSettingsPage: View {
                 }
             } footer: {
                 Text("Turning a plugin off hides it in Graphite. It never changes your notes.")
+                    .formFooterAlignment()
             }
         }
         .navigationTitle("Core Plugins")
@@ -390,6 +399,7 @@ private struct ColorsSettingsPage: View {
                 Text("Palette")
             } footer: {
                 Text("Format › Color writes the hex color, as the Colors plugin for Obsidian does (`~={#e93147}text=~`), so notes look the same in both apps. A note written with a name, as in `~={red}text=~`, takes the color of that name here, so renaming or removing a color changes it.\n\nThe same colors are the Favorite Colors of the Pencil tools, for drawings and PDFs. A highlighter has its own, below.")
+                    .formFooterAlignment()
             }
             Section {
                 ForEach($preferences.highlighterPalette) { $color in
@@ -418,6 +428,7 @@ private struct ColorsSettingsPage: View {
                 Text("Highlighter")
             } footer: {
                 Text("The colors the Pencil tools offer while a highlighter is in use, in place of the palette above. On a PDF page, a highlighter stroke covers the text under it: to keep the text readable, lower the highlighter's opacity in its options, or select the text and choose Highlight. Notes do not use these colors.")
+                    .formFooterAlignment()
             }
         }
         .navigationTitle("Colors")
@@ -465,6 +476,7 @@ private struct DrawingsSettingsPage: View {
                 Text("New Drawings")
             } footer: {
                 Text("\(preferences.drawingFormat.summary) Every format opens in other apps, and Graphite can edit the strokes again later. An existing drawing keeps its format; use Export a Copy in the drawing editor for another one.")
+                    .formFooterAlignment()
             }
             Section {
                 Picker("Paper", selection: $preferences.drawingPaperPattern) {
@@ -487,6 +499,7 @@ private struct DrawingsSettingsPage: View {
                 Text("Paper")
             } footer: {
                 Text("Squares, lines or dots to write on, as close together, in the color and as strong as you like. With “Show paper in notes” off, the paper is only a guide while you draw: the note shows the ink on the background chosen above. Each drawing keeps its own paper, which the drawing editor's menu changes.")
+                    .formFooterAlignment()
             }
             Section {
                 Picker("Spacing", selection: $preferences.notebookPaperSpacing) {
@@ -505,6 +518,7 @@ private struct DrawingsSettingsPage: View {
                 Text("Notebook Paper")
             } footer: {
                 Text("For new notebooks and for pages inserted into a PDF. The paper is part of the PDF's pages, as printed paper is, so every PDF reader shows it.")
+                    .formFooterAlignment()
             }
             #if canImport(UIKit)
             Section {
@@ -515,6 +529,7 @@ private struct DrawingsSettingsPage: View {
                 Text("Pencil Tools")
             } footer: {
                 Text("The floating palette is the system's: every tool of Apple Notes, and it can be moved or minimized. The fixed bar is one row above the page: your drawing tools, the eraser and the lasso, three widths, and your colors from Settings › Colors. Tap the tool in use again to make it any ink of Apple Notes, in any width and opacity, or to add another tool. On iPhone the palette is always used.")
+                    .formFooterAlignment()
             }
             Section {
                 Toggle("Hold to Make a Shape", isOn: $preferences.makesShapesOnHold)
@@ -522,6 +537,7 @@ private struct DrawingsSettingsPage: View {
                 Text("Shapes")
             } footer: {
                 Text("Draw a line, a circle, an ellipse, a triangle or a rectangle and keep the Pencil still at the end: the clean shape appears, and takes the stroke's place when you lift. The Shapes button of the tools does the same for every stroke, without holding.")
+                    .formFooterAlignment()
             }
             Section {
                 Toggle("Highlighter Ignores Tilt", isOn: $highlighterIgnoresTilt)
@@ -529,6 +545,7 @@ private struct DrawingsSettingsPage: View {
                 Text("Highlighter")
             } footer: {
                 Text("The highlighter draws the width you chose however Apple Pencil is tilted or turned, so highlights over lines of text match. Each stroke takes that width when you lift the Pencil.")
+                    .formFooterAlignment()
             }
             Section {
                 Toggle("Double-Tap or Squeeze to Draw in Notes", isOn: $preferences.drawsOnPencilDoubleTap)
@@ -536,11 +553,13 @@ private struct DrawingsSettingsPage: View {
                 Text("Apple Pencil")
             } footer: {
                 Text("While you write a note, double-tap Apple Pencil, or squeeze Apple Pencil Pro, to start a drawing where the cursor is or where the Pencil hovers. When the gesture is set to something else in the Apple Pencil settings of iPadOS, Graphite leaves it alone.")
+                    .formFooterAlignment()
             }
             Section {
                 Toggle("Palm Rejection", isOn: $rejectsPalms)
             } footer: {
                 Text("While Apple Pencil writes on a page, a hand resting on it does not scroll, zoom, tap or select.")
+                    .formFooterAlignment()
             }
             #endif
         }
@@ -565,11 +584,13 @@ private struct ReadAloudSettingsPage: View {
                 Toggle("Floating Player", isOn: $usesFloatingPlayer)
             } footer: {
                 Text("A small player in a corner of the window while reading: skip by sentence, section or page, change speed, and jump back after scrolling. Drag it to another corner. When off, the controls are in the toolbar.")
+                    .formFooterAlignment()
             }
             Section {
                 NavigationLink("Pronunciations") { ReadAloudPronunciationEditor(vaultRoot: vaultRoot) }
             } footer: {
                 Text("How technical terms are said: CMOS as \"see moss\", LUT as \"look-up table\", and your own terms for this vault. Downloaded voices read the same respellings.")
+                    .formFooterAlignment()
             }
             if let library = ReadAloudVoices.library {
                 ReadAloudStorageSection(library: library)
@@ -588,6 +609,7 @@ private struct AudioRecorderSettingsPage: View {
                 Toggle("Embed Recordings in the Current Note", isOn: $preferences.embedsRecordingsInNote)
             } footer: {
                 Text("Recordings are saved as ordinary files in the attachment folder of the note you were in, like Obsidian's audio recorder: audio as .m4a, video as .mp4. When this is on, the recording is also embedded at your cursor when you stop.")
+                    .formFooterAlignment()
             }
             Section {
                 Picker("Camera for Video", selection: $preferences.recordingCamera) {
@@ -596,6 +618,7 @@ private struct AudioRecorderSettingsPage: View {
                 }
             } footer: {
                 Text("Video is recorded with sound, at up to 1080p: about 2 GB an hour. It pauses while Graphite is off screen, because apps cannot use the camera there; audio recordings go on.")
+                    .formFooterAlignment()
             }
         }
         .navigationTitle("Audio Recorder")
@@ -616,6 +639,7 @@ private struct FileRecoverySettingsPage: View {
                 Stepper("History length: \(preferences.snapshotHistoryDays) days", value: $preferences.snapshotHistoryDays, in: 1...365)
             } footer: {
                 Text("A copy of a note is kept before a save changes it, at most once per interval, and before the note is deleted. Copies stay on this device, outside the vault, so they never sync.")
+                    .formFooterAlignment()
             }
             Section {
                 Button("View Snapshots", systemImage: "clock.arrow.circlepath") {
@@ -648,12 +672,14 @@ private struct TemplatesSettingsPage: View {
                 SettingsTextField(title: "Template folder location", prompt: "Templates", text: $draft.folder, submit: save)
             } footer: {
                 Text(folderFooter)
+                    .formFooterAlignment()
             }
             Section {
                 SettingsTextField(title: "Date format", prompt: MomentDateFormat.defaultDateFormat, text: $draft.dateFormat, submit: save)
                 SettingsTextField(title: "Time format", prompt: MomentDateFormat.defaultTimeFormat, text: $draft.timeFormat, submit: save)
             } footer: {
                 Text("{{date}} is written as “\(MomentDateFormat.string(from: .now, format: draft.dateFormat.isEmpty ? MomentDateFormat.defaultDateFormat : draft.dateFormat))” and {{time}} as “\(MomentDateFormat.string(from: .now, format: draft.timeFormat.isEmpty ? MomentDateFormat.defaultTimeFormat : draft.timeFormat))”. A variable can take its own format, as in {{date:dddd, MMMM Do}}. Formats use Moment.js tokens, as in Obsidian.")
+                    .formFooterAlignment()
             }
         }
         .navigationTitle("Templates")
@@ -689,6 +715,7 @@ private struct DailyNotesSettingsPage: View {
                 SettingsTextField(title: "Template file location", prompt: "Templates/Daily", text: $draft.template, submit: save)
             } footer: {
                 Text(pathFooter)
+                    .formFooterAlignment()
             }
             Section {
                 Toggle("Open Daily Note on Startup", isOn: Binding(get: { draft.opensOnStartup }, set: { opensOnStartup in
@@ -697,6 +724,7 @@ private struct DailyNotesSettingsPage: View {
                 }))
             } footer: {
                 Text("Today's note opens when the vault opens. Open it any time from the New menu in the sidebar or “Daily notes: Open today's daily note” in the command palette, which also moves to the previous and next daily notes.")
+                    .formFooterAlignment()
             }
         }
         .navigationTitle("Daily Notes")
@@ -761,6 +789,7 @@ private struct FilesAndLinksSettingsPage: View {
                                                               set: { showsFileExtensions in workspace.preferences.showsFileExtensions = showsFileExtensions }))
             } footer: {
                 Text("Shows names such as “Lecture.md” in the sidebar, search, links and the title bar. When off, notes are shown without “.md”.")
+                    .formFooterAlignment()
             }
             if workspace.store == nil {
                 Section { Text("Open a vault to change its files and links settings.").foregroundStyle(.secondary) }
@@ -824,6 +853,7 @@ private struct FilesAndLinksSettingsPage: View {
             }))
         } footer: {
             Text("When a file is renamed or moved, links to it are updated in every note. With automatic updates off, Graphite asks each time.")
+                .formFooterAlignment()
         }
     }
 
@@ -864,6 +894,7 @@ private struct FilesAndLinksSettingsPage: View {
             Text("Files and Links")
         } footer: {
             Text("Shared with Obsidian through this vault's .obsidian/app.json. Drawings, images, recordings, and other attachments you add are saved to this location and embedded where your cursor is.")
+                .formFooterAlignment()
         }
     }
 

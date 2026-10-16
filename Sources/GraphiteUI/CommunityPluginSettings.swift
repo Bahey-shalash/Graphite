@@ -21,6 +21,7 @@ struct CommunityPluginsSettingsPage: View {
                 Toggle("Turn On Community Plugins", isOn: Binding(get: { host.isTurnedOnForVault }, set: { isTurnedOn in Task { await host.setTurnedOnForVault(isTurnedOn) } }))
             } footer: {
                 Text("Community plugins are made by other people, not by Graphite. A plugin runs code that can read and change every file in this vault and reach the internet. Turn on only plugins you trust. They are the same plugins Obsidian uses, and they keep their settings in the vault's .obsidian folder.")
+                    .formFooterAlignment()
             }
             if host.isTurnedOnForVault {
                 installSection
@@ -60,6 +61,7 @@ struct CommunityPluginsSettingsPage: View {
             Text("Install")
         } footer: {
             Text("Plugins come from Obsidian's community directory or a GitHub repository's releases. A plugin copied into .obsidian/plugins by Obsidian or another app appears here too.")
+                .formFooterAlignment()
         }
     }
 
