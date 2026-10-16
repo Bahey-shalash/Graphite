@@ -76,6 +76,14 @@ final class UiEditorMacPropertiesTests: XCTestCase {
         (paragraphStyle(at: location, in: textView)?.maximumLineHeight ?? 0) == 0.01
     }
 
+    private func waitUntil(timeoutSeconds: TimeInterval = 5, _ condition: () -> Bool) async throws {
+        let deadline = Date.now.addingTimeInterval(timeoutSeconds)
+        while !condition() {
+            guard Date.now < deadline else { return XCTFail("Timed out after \(timeoutSeconds) s") }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
     private func moveCursor(to selection: NSRange, in textView: NSTextView, _ coordinator: NativeMarkdownEditor.Coordinator) {
         textView.setSelectedRange(selection)
         coordinator.textViewDidChangeSelection(Notification(name: NSTextView.didChangeSelectionNotification, object: textView))
@@ -142,7 +150,7 @@ final class UiEditorMacPropertiesTests: XCTestCase {
         XCTAssertFalse(isConcealed(5, in: textView))
         moveCursor(to: NSRange(location: Self.propertiesEnd + 2, length: 0), in: textView, coordinator)
         XCTAssertTrue(isConcealed(5, in: textView), "Leaving the YAML conceals it again")
-        XCTAssertNotNil(propertiesView(in: textView), "The view is back")
+        try await waitUntil { self.propertiesView(in: textView)?.superview != nil }
         XCTAssertFalse(coordinator.showsPropertiesSource)
     }
 
@@ -186,7 +194,7 @@ final class UiEditorMacPropertiesTests: XCTestCase {
         coordinator.environment = environment
         coordinator.restyleEverything(in: textView)
         XCTAssertTrue(isConcealed(5, in: textView))
-        XCTAssertNotNil(propertiesView(in: textView)?.superview)
+        try await waitUntil { self.propertiesView(in: textView)?.superview != nil }
     }
 
     func testSelectionsAndEditsAroundTheConcealedYAML() {
