@@ -212,6 +212,7 @@ private struct CanvasTextCardEditor: View {
     var body: some View {
         TextEditor(text: Binding(get: { session.textEdit?.text ?? "" }, set: { text in session.updateTextEdit(text) }))
             .font(.system(size: textSize))
+            .literalTextEntry()
             .scrollContentBackground(.hidden)
             .padding(.horizontal, 11).padding(.vertical, 4)
             .focused($isEditorFocused)

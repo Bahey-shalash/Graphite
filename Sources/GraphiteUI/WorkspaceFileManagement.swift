@@ -33,6 +33,8 @@ final class QueuedMoves {
 private struct EditDuringMove {
     let newPath: VaultPath
     let text: String
+    /// Whether the file starts with a byte order mark, which the edit keeps.
+    let hasByteOrderMark: Bool
     /// The note's file as it was just before the move, which the text was typed over;
     /// nil when it could not be read then.
     let revisionBeforeMove: FileRevision?
@@ -193,7 +195,7 @@ extension WorkspaceModel {
         tabDocuments.values.compactMap(\.markdownSession).compactMap { session in
             guard session.path.isInside(path), session.hasUnsavedChanges,
                   let newPath = try? session.path.replacingPrefix(path, with: destination) else { return nil }
-            return EditDuringMove(newPath: newPath, text: session.text, revisionBeforeMove: revisionsBeforeMove[session.path])
+            return EditDuringMove(newPath: newPath, text: session.text, hasByteOrderMark: session.hasByteOrderMark, revisionBeforeMove: revisionsBeforeMove[session.path])
         }
     }
 
@@ -206,7 +208,7 @@ extension WorkspaceModel {
         var writtenPaths: [VaultPath] = []
         var problems: [String] = []
         for edit in edits {
-            let data = Data(edit.text.utf8)
+            let data = NoteTextEncoding.encode(edit.text, hasByteOrderMark: edit.hasByteOrderMark)
             do {
                 guard let revisionBeforeMove = edit.revisionBeforeMove else { throw GraphiteError.conflict }
                 _ = try await store.save(data, at: edit.newPath, expecting: .revision(revisionBeforeMove))

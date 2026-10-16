@@ -992,6 +992,7 @@ private struct RenameSheet: View {
                 Section {
                     HStack(spacing: 4) {
                         TextField("Name", text: $name, selection: $nameSelection)
+                            .literalTextEntry()
                             .focused($isNameFocused)
                             .submitLabel(.done)
                             .onSubmit(rename)
@@ -1056,7 +1057,7 @@ private struct NewFolderSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Folder name", text: $name).focused($isNameFocused).submitLabel(.done).onSubmit(create)
+                    TextField("Folder name", text: $name).literalTextEntry().focused($isNameFocused).submitLabel(.done).onSubmit(create)
                 } footer: {
                     if let problem, !name.isEmpty { Text(problem).foregroundStyle(.red) }
                     else { Text("In “\(directory.rawValue.isEmpty ? workspace.title : directory.rawValue)”") }

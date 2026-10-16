@@ -122,9 +122,6 @@ struct MarkdownPane: View {
                 pendingReadingSection = (section, source)
             }
         }
-        .onChange(of: session.text) { _, _ in
-            readingStartOffset = nil
-        }
         // Folding or unfolding while this note is read changes what is still to be read.
         .onChange(of: session.foldedKeys) { _, _ in workspace.readAloud.foldsDidChange(in: session.path, hiddenRanges: foldedRanges) }
         .onChange(of: workspace.calloutFolds.expansion(for: session.path.rawValue)) { _, _ in
@@ -142,7 +139,7 @@ struct MarkdownPane: View {
         // The text and the cursor change at every keystroke. Only these small views read
         // them, so typing and moving the cursor do not rebuild the pane and its toolbar.
         .background {
-            AutosaveDriver(session: session)
+            AutosaveDriver(session: session) { readingStartOffset = nil }
             DrawingAtCursorTracker(session: session, workspace: workspace, drawingAtCursor: $drawingAtCursor, imageAtCursor: $imageAtCursor)
         }
         // The Properties view reads the types assigned in `.obsidian/types.json`; they are
@@ -550,13 +547,15 @@ struct MarkdownPane: View {
         let reader = workspace.readAloud
         let navigator = workspace.readAloudNavigator
         let isReading = reader.sourceIdentifier == session.path.rawValue && reader.session.document != nil
-        let textLength = (session.text as NSString).length
+        let session = session
         return ReadAloudEditorHooks(
             isReadingThisNote: isReading || navigator.rangeSelection != .off,
             tapped: { location in
                 if let range = navigator.tapped(atSourceLocation: location) { startReading(range: range, scope: "Chosen start and end") }
             },
             readFromHere: { location in
+                // The length when asked: read in the body, it made the pane depend on the text.
+                let textLength = (session.text as NSString).length
                 startReading(range: NSRange(location: location, length: max(0, textLength - location)), scope: "From here to the end")
             },
             registerVisibleLocation: { provider in
@@ -629,12 +628,16 @@ struct MarkdownPane: View {
 
 }
 
-/// Saves the note once typing pauses.
+/// Saves the note once typing pauses, and says when the text changes. The pane's own body
+/// does not read the text, so a keystroke updates this view rather than the whole pane.
 private struct AutosaveDriver: View {
     let session: MarkdownSession
+    let textDidChange: () -> Void
 
     var body: some View {
-        Color.clear.task(id: session.text) {
+        Color.clear
+            .onChange(of: session.text) { _, _ in textDidChange() }
+            .task(id: session.text) {
             do {
                 try await Task.sleep(for: .milliseconds(900))
                 try await session.save()
@@ -948,25 +951,36 @@ struct NoteLinksInspector: View {
         .onChange(of: showsUnlinkedMentions) { _, showsMentions in
             if showsMentions { Task { await loadUnlinkedMentions() } }
         }
+        // Another note's outline, links and mentions are not shown under this one while
+        // its own are read.
+        .onChange(of: session.path) {
+            outline = []; outgoing = []; tags = []; footnotes = []
+            linkedMentions = []; unlinkedMentions = []
+        }
     }
 
     private func selectAvailablePanel() {
         if !availablePanels.contains(selectedPanel), let firstPanel = availablePanels.first { selectedPanel = firstPanel }
     }
 
+    /// The mentions found are shown only while the note they were found for is: another
+    /// note opened during a slow search kept the old note's list, and Link on one of its
+    /// lines wrote a link to the wrong note.
     private func loadLinkedMentions() async {
-        let names = workspace.mentionNames(of: session.path, text: session.text)
-        let groups = await workspace.linkedMentions(of: session.path, names: names)
-        guard !Task.isCancelled else { return }
+        let path = session.path
+        let names = workspace.mentionNames(of: path, text: session.text)
+        let groups = await workspace.linkedMentions(of: path, names: names)
+        guard !Task.isCancelled, session.path == path else { return }
         linkedMentions = groups
     }
 
     private func loadUnlinkedMentions() async {
         isLoadingUnlinkedMentions = true
         defer { isLoadingUnlinkedMentions = false }
-        let names = workspace.mentionNames(of: session.path, text: session.text)
-        let groups = await workspace.unlinkedMentions(of: session.path, names: names)
-        guard !Task.isCancelled else { return }
+        let path = session.path
+        let names = workspace.mentionNames(of: path, text: session.text)
+        let groups = await workspace.unlinkedMentions(of: path, names: names)
+        guard !Task.isCancelled, session.path == path else { return }
         unlinkedMentions = groups
     }
 

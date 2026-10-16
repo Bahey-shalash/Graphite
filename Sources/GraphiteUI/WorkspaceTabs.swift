@@ -184,14 +184,23 @@ extension WorkspaceModel {
         guard let group = layout.group(containing: tabID) else { return }
         let closingTabs = group.tabs.filter { tab in tab.id != tabID && !tab.isPinned }.map(\.id)
         guard await saveBeforeClosing(closingTabs) else { return }
-        removeTabDocuments(layout.closeOtherTabs(keeping: tabID))
+        // Only the tabs saved: one opened in the group while they were saved stays open.
+        removeTabDocuments(layout.closeOtherTabs(keeping: tabID, onlyClosing: Set(closingTabs)))
     }
 
-    /// Closes one side of the split with its tabs.
+    /// Closes one side of the split with its tabs. A tab opened on that side while the
+    /// others were saved is saved too before the side closes.
     func closeGroup(_ groupID: UUID) async {
-        guard let group = layout.groups.first(where: { group in group.id == groupID }) else { return }
-        guard await saveBeforeClosing(group.tabs.map(\.id)) else { return }
-        removeTabDocuments(layout.closeGroup(groupID))
+        var savedTabs: Set<UUID> = []
+        while let group = layout.groups.first(where: { group in group.id == groupID }) {
+            let unsavedTabs = group.tabs.map(\.id).filter { tabID in !savedTabs.contains(tabID) }
+            if unsavedTabs.isEmpty {
+                removeTabDocuments(layout.closeGroup(groupID))
+                return
+            }
+            guard await saveBeforeClosing(unsavedTabs) else { return }
+            savedTabs.formUnion(unsavedTabs)
+        }
     }
 
     /// Forgets the documents of closed tabs. Each is unloaded first: a note editor kept

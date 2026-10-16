@@ -76,10 +76,12 @@ extension WorkspaceModel {
                         if !session.isEditorAttached { try await session.save() }
                     } else {
                         let snapshot = try await store.read(path, maximumBytes: MarkdownSession.maximumEditableBytes)
-                        guard let text = String(data: snapshot.data, encoding: .utf8) else { throw GraphiteError.invalidFile("It is not UTF-8 text.") }
-                        guard let edit = try PropertyRenaming.edit(renaming: key, to: newName, in: text) else { continue }
-                        let renamedText = (text as NSString).replacingCharacters(in: edit.range, with: edit.replacement)
-                        _ = try await store.save(Data(renamedText.utf8), at: path, expecting: .revision(snapshot.revision))
+                        // Decoded and written back as a note is, keeping a byte order mark the file has.
+                        guard let decoded = NoteTextEncoding.decode(snapshot.data) else { throw GraphiteError.invalidFile("It is not UTF-8 text.") }
+                        guard let edit = try PropertyRenaming.edit(renaming: key, to: newName, in: decoded.text) else { continue }
+                        let renamedText = (decoded.text as NSString).replacingCharacters(in: edit.range, with: edit.replacement)
+                        _ = try await store.save(NoteTextEncoding.encode(renamedText, hasByteOrderMark: decoded.hasByteOrderMark), at: path,
+                                                 expecting: .revision(snapshot.revision))
                     }
                     renamedPaths.append(path)
                 } catch {

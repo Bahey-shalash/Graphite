@@ -141,6 +141,7 @@ extension View {
     func propertyRenameAlert(_ overview: VaultOverviewModel, workspace: WorkspaceModel) -> some View {
         alert("Rename Property", isPresented: Binding(get: { overview.renamedProperty != nil }, set: { isPresented in if !isPresented { overview.renamedProperty = nil } })) {
             TextField("Name", text: Binding(get: { overview.newPropertyName }, set: { name in overview.newPropertyName = name }))
+                .literalTextEntry()
             Button("Cancel", role: .cancel) {}
             Button("Rename") {
                 guard let renamedProperty = overview.renamedProperty else { return }
