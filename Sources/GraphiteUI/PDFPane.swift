@@ -186,8 +186,10 @@ private struct PDFPaneContent: View {
                     .id(session.viewGeneration)
             }
         }
+        #if canImport(UIKit)
+        // The iPad's bars above the page. The Mac has none: an inset with no content takes
+        // all the height on macOS 27 and left the page 0 points tall, a blank PDF.
         .safeAreaInset(edge: .top, spacing: 0) {
-            #if canImport(UIKit)
             VStack(spacing: 0) {
                 let showsControlRow = usesDocumentControlRow && !showsDocumentControlsInTabBar && isFocused && !session.isProtected
                 // The bar stays while a picture is arranged: removing it would move the page
@@ -218,9 +220,7 @@ private struct PDFPaneContent: View {
                                   offersReadAloudPen: readAloud != nil)
                 }
             }
-            #endif
         }
-        #if canImport(UIKit)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if session.isWriting, session.selectedPicture != nil { PDFPictureArrangementBar(session: session) }
         }

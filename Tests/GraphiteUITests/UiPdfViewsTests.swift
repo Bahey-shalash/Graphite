@@ -22,6 +22,24 @@ final class UiPdfViewsTests: XCTestCase {
         try? FileManager.default.removeItem(at: temporaryDirectory)
     }
 
+    // MARK: The PDF pane on the Mac
+
+    /// The pane's bar above the page has content only on the iPad; on the Mac the empty
+    /// inset took all the height, and the page was laid out 0 points tall: a blank PDF.
+    func testThePageTakesThePanesHeightOnTheMac() async throws {
+        let session = try await PDFSession.open(try makePDF(named: "Handout.pdf", pageCount: 2))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 800), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let hostingView = NSHostingView(rootView: PDFPane(session: session, resolveConflict: { _ in }))
+        window.contentView = hostingView
+        hostingView.layoutSubtreeIfNeeded()
+        try await waitUntil { (session.pdfView?.frame.height ?? 0) > 0 }
+        let pdfView = try XCTUnwrap(session.pdfView)
+        XCTAssertGreaterThan(pdfView.frame.height, 700, "The page fills the pane below its title")
+        XCTAssertEqual(pdfView.frame.width, 600, accuracy: 1)
+    }
+
     // MARK: Current page on the Mac
 
     /// The Mac viewer used to leave the session on the first page, so the page menu's
