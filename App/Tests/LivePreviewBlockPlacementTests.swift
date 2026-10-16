@@ -35,6 +35,20 @@ final class LivePreviewBlockPlacementTests: XCTestCase {
         return "---\n" + properties.joined(separator: "\n") + "\n---\n> [!note]\n> Right after the properties.\n\nText after the callout.\n"
     }()
 
+    /// A block's view offers "Edit Source" from a UIKit menu of its own, which SwiftUI
+    /// does not work out again each time the view is drawn.
+    func testABlockViewOffersEditSource() throws {
+        var revealed = false
+        let host = RenderedBlockHost.makeRenderedBlockHost(root: RenderedBlockRoot(view: AnyView(Text("Block")), revealSource: { revealed = true }))
+        let interaction = try XCTUnwrap(host.view.interactions.compactMap { interaction in interaction as? UIContextMenuInteraction }.first)
+        XCTAssertNotNil(interaction.delegate?.contextMenuInteraction(interaction, configurationForMenuAtLocation: .zero))
+        let editSourceMenu = try XCTUnwrap(interaction.delegate as? RenderedBlockEditSourceMenu)
+        let action = try XCTUnwrap(editSourceMenu.makeMenu().children.first as? UIAction)
+        XCTAssertEqual(action.title, "Edit Source")
+        action.performWithSender(nil, target: nil)
+        XCTAssertTrue(revealed)
+    }
+
     /// A jump lays the text above the heading out again while the callouts take their
     /// measured heights; the callout just above the heading was drawn over it.
     func testTheCalloutAboveAHeadingJumpedToDoesNotCoverIt() async throws {

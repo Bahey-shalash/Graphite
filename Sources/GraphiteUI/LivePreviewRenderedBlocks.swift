@@ -12,8 +12,18 @@ typealias RenderedBlockHost = UIHostingController<AnyView>
 /// The text view the rendered blocks' views are placed in.
 typealias RenderedBlockTextView = UIView
 #else
-typealias RenderedBlockHost = NSHostingView<AnyView>
+typealias RenderedBlockHost = RenderedBlockHostingView
 typealias RenderedBlockTextView = NSView
+
+/// A rendered block's hosting view, which answers a secondary click with the block's
+/// "Edit Source" menu: SwiftUI's hosting view does not offer an AppKit view's `menu`.
+final class RenderedBlockHostingView: NSHostingView<AnyView> {
+    var editSourceMenu: NSMenu?
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        editSourceMenu ?? super.menu(for: event)
+    }
+}
 #endif
 
 extension RenderedBlockHost {
@@ -38,22 +48,29 @@ extension RenderedBlockHost {
     }
 
     /// A host whose frame comes from the text's layout, not from its content.
-    /// A block's view takes no part in the window's safe areas: it moves through them on
-    /// every frame of a scroll, and working them out again laid every block on screen out
-    /// again, SwiftUI's whole layout of it, on each frame.
-    static func makeRenderedBlockHost(rootView: AnyView) -> RenderedBlockHost {
+    /// A block's view takes no part in the window's safe areas, which it moves through on
+    /// every frame of a scroll.
+    static func makeRenderedBlockHost(root: RenderedBlockRoot) -> RenderedBlockHost {
         #if canImport(UIKit)
-        let host = UIHostingController(rootView: rootView)
+        let host = UIHostingController(rootView: root.view)
         host.view.backgroundColor = .clear
         host.sizingOptions = []
         host.safeAreaRegions = []
-        return host
         #else
-        let host = NSHostingView(rootView: rootView)
+        let host = RenderedBlockHostingView(rootView: root.view)
         host.sizingOptions = []
         host.safeAreaRegions = []
-        return host
         #endif
+        let menu = RenderedBlockEditSourceMenu(revealSource: root.revealSource)
+        menu.install(on: host.placedView)
+        objc_setAssociatedObject(host, &RenderedBlockEditSourceMenu.associationKey, menu, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        return host
+    }
+
+    /// Shows another state of the block, as after an edit or a change of appearance.
+    func update(root: RenderedBlockRoot) {
+        rootView = root.view
+        (objc_getAssociatedObject(self, &RenderedBlockEditSourceMenu.associationKey) as? RenderedBlockEditSourceMenu)?.revealSource = root.revealSource
     }
 }
 
@@ -242,7 +259,7 @@ final class LivePreviewRenderedBlocks {
     /// `detachViews(except:entries:)`. Nil when TextKit has no viewport to place on yet.
     func placeViews(of concealedEntries: [LivePreviewBlockEntry], in textView: RenderedBlockTextView, textLayoutManager: NSTextLayoutManager,
                     column: RenderedBlockColumn, configuration: EditorConfiguration,
-                    makeRootView: (LivePreviewBlockEntry) -> AnyView) -> RenderedBlockPlacement? {
+                    makeRootView: (LivePreviewBlockEntry) -> RenderedBlockRoot) -> RenderedBlockPlacement? {
         guard let viewportRange = textLayoutManager.textViewportLayoutController.viewportRange,
               let contentManager = textLayoutManager.textContentManager else { return nil }
         var placement = RenderedBlockPlacement()
@@ -290,19 +307,19 @@ final class LivePreviewRenderedBlocks {
 
     /// The view for a block on screen, else the one kept since it was last on screen, else
     /// a new one. The properties keep one view as they are edited.
-    private func host(for entry: LivePreviewBlockEntry, makeRootView: (LivePreviewBlockEntry) -> AnyView) -> RenderedBlockHost {
+    private func host(for entry: LivePreviewBlockEntry, makeRootView: (LivePreviewBlockEntry) -> RenderedBlockRoot) -> RenderedBlockHost {
         if entry.block.kind == .frontmatter {
-            let host = propertiesHost ?? RenderedBlockHost.makeRenderedBlockHost(rootView: makeRootView(entry))
+            let host = propertiesHost ?? RenderedBlockHost.makeRenderedBlockHost(root: makeRootView(entry))
             if propertiesHost == nil {
                 propertiesHost = host
             } else if propertiesHostBlockKey != entry.key {
-                host.rootView = makeRootView(entry)
+                host.update(root: makeRootView(entry))
             }
             propertiesHostBlockKey = entry.key
             return host
         }
         if let host = hosts[entry.key] { return host }
-        let host = detachedHosts.take(entry.key) ?? RenderedBlockHost.makeRenderedBlockHost(rootView: makeRootView(entry))
+        let host = detachedHosts.take(entry.key) ?? RenderedBlockHost.makeRenderedBlockHost(root: makeRootView(entry))
         hosts[entry.key] = host
         return host
     }
@@ -347,7 +364,7 @@ final class LivePreviewRenderedBlocks {
     /// Gives the views the environment and appearance `signature` describes, in place,
     /// keeping their own state (a base's chosen view, a property being typed in); only
     /// those that read the index when nothing else changed. Returns whether it changed.
-    func refreshViews(for signature: LivePreviewWidgetSignature, entries: [LivePreviewBlockEntry], makeRootView: (LivePreviewBlockEntry) -> AnyView) -> Bool {
+    func refreshViews(for signature: LivePreviewWidgetSignature, entries: [LivePreviewBlockEntry], makeRootView: (LivePreviewBlockEntry) -> RenderedBlockRoot) -> Bool {
         guard signature != self.signature else { return false }
         let changesOnlyIndex = self.signature?.appearance == signature.appearance && self.signature?.drawingVersion == signature.drawingVersion
         self.signature = signature
@@ -357,16 +374,16 @@ final class LivePreviewRenderedBlocks {
 
     /// Gives the views on screen, and those kept off screen, new root views. Kept views of
     /// blocks no longer in the note are dropped, so none shows again with an older environment.
-    func refreshViews(entries: [LivePreviewBlockEntry], onlyThoseReadingIndex: Bool = false, makeRootView: (LivePreviewBlockEntry) -> AnyView) {
+    func refreshViews(entries: [LivePreviewBlockEntry], onlyThoseReadingIndex: Bool = false, makeRootView: (LivePreviewBlockEntry) -> RenderedBlockRoot) {
         guard hasViews else { return }
         detachedHosts.removeHosts(notIn: Set(entries.map(\.key)))
         for entry in entries where !onlyThoseReadingIndex || LivePreviewWidgetSignature.readsIndex(entry.block.kind) {
             if entry.block.kind == .frontmatter {
                 guard let propertiesHost else { continue }
-                propertiesHost.rootView = makeRootView(entry)
+                propertiesHost.update(root: makeRootView(entry))
                 propertiesHostBlockKey = entry.key
             } else if let host = hosts[entry.key] ?? detachedHosts.host(for: entry.key) {
-                host.rootView = makeRootView(entry)
+                host.update(root: makeRootView(entry))
             }
         }
     }
@@ -377,7 +394,7 @@ final class LivePreviewRenderedBlocks {
     /// - Parameter colorScheme: Passed where the hosted view does not take the appearance
     ///   from the text view it is in, as on the iPad.
     static func rootView(for entry: LivePreviewBlockEntry, environment: LivePreviewEnvironment, accentHex: String, colorScheme: ColorScheme?,
-                         revealSource: @escaping () -> Void, reportHeight: @escaping (CGFloat) -> Void) -> AnyView {
+                         revealSource: @escaping () -> Void, reportHeight: @escaping (CGFloat) -> Void) -> RenderedBlockRoot {
         let accent = Color.graphiteAccent(hex: accentHex) ?? .accentColor
         let widget = LivePreviewWidgetView(block: entry.block, environment: environment, revealSource: revealSource, reportHeight: reportHeight)
             .environment(\.lassoNoteDestination, environment.lassoNoteDestination)
@@ -385,10 +402,61 @@ final class LivePreviewRenderedBlocks {
             .environment(\.noteTheme, environment.theme)
             .tint(accent)
             .environment(\.accent, accent)
-        guard let colorScheme else { return AnyView(widget) }
-        return AnyView(widget.environment(\.colorScheme, colorScheme))
+        guard let colorScheme else { return RenderedBlockRoot(view: AnyView(widget), revealSource: revealSource) }
+        return RenderedBlockRoot(view: AnyView(widget.environment(\.colorScheme, colorScheme)), revealSource: revealSource)
     }
 }
+
+/// A rendered block's view, and how it shows the block's source, for its "Edit Source" menu.
+struct RenderedBlockRoot {
+    let view: AnyView
+    let revealSource: () -> Void
+}
+
+/// A rendered block's "Edit Source" menu (a long press on the iPad, a secondary click on the
+/// Mac), on the block's view itself. SwiftUI's context menu worked out its menu, symbol image
+/// included, every time the block's view was drawn, which on the iPad was a large part of
+/// every frame of a scroll; this menu is made when it opens.
+@MainActor
+final class RenderedBlockEditSourceMenu: NSObject {
+    nonisolated(unsafe) static var associationKey: UInt8 = 0
+    static let title = "Edit Source"
+    static let symbolName = "chevron.left.forwardslash.chevron.right"
+    var revealSource: () -> Void
+
+    init(revealSource: @escaping () -> Void) {
+        self.revealSource = revealSource
+    }
+
+    #if canImport(UIKit)
+    func install(on view: UIView) {
+        view.addInteraction(UIContextMenuInteraction(delegate: self))
+    }
+    #else
+    func install(on view: NSView) {
+        let menu = NSMenu()
+        let item = NSMenuItem(title: Self.title, action: #selector(editSource), keyEquivalent: "")
+        item.target = self
+        item.image = NSImage(systemSymbolName: Self.symbolName, accessibilityDescription: nil)
+        menu.addItem(item)
+        if let hostingView = view as? RenderedBlockHostingView { hostingView.editSourceMenu = menu } else { view.menu = menu }
+    }
+
+    @objc private func editSource() { revealSource() }
+    #endif
+}
+
+#if canImport(UIKit)
+extension RenderedBlockEditSourceMenu: UIContextMenuInteractionDelegate {
+    func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
+        UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in self?.makeMenu() }
+    }
+
+    func makeMenu() -> UIMenu {
+        UIMenu(children: [UIAction(title: Self.title, image: UIImage(systemName: Self.symbolName)) { [weak self] _ in self?.revealSource() }])
+    }
+}
+#endif
 
 /// What Live Preview's rendered blocks show besides their source, in two parts: the
 /// appearance and settings every block shows, and the index state that only some blocks
@@ -434,9 +502,14 @@ struct LivePreviewWidgetSignature: Equatable {
 /// takes tens of milliseconds. Memory bounds the pool, estimated per view from its block's
 /// kind; the views taken off longest ago go first once the estimate passes the budget.
 struct DetachedWidgetPool<Host> {
-    private var hostsByKey: [LivePreviewBlockKey: (host: Host, estimatedMegabytes: Double)] = [:]
-    /// Oldest first.
-    private var detachmentOrder: [LivePreviewBlockKey] = []
+    private var hostsByKey: [LivePreviewBlockKey: (host: Host, estimatedMegabytes: Double, sequence: Int)] = [:]
+    /// The views kept, in the order they were taken off screen, oldest first. Taking a
+    /// view back leaves its entry here, matched by sequence number, so keeping and taking
+    /// cost the same however many views are kept: removing from the list each time grew
+    /// with the pool, which now holds many more views.
+    private var detachmentOrder: [(key: LivePreviewBlockKey, sequence: Int)] = []
+    private var detachmentOrderStart = 0
+    private var nextSequence = 0
     private var estimatedMegabytesInPool: Double = 0
     let budgetMegabytes: Int
 
@@ -445,7 +518,9 @@ struct DetachedWidgetPool<Host> {
     }
 
     var isEmpty: Bool { hostsByKey.isEmpty }
-    var keys: [LivePreviewBlockKey] { detachmentOrder }
+    var keys: [LivePreviewBlockKey] {
+        detachmentOrder[detachmentOrderStart...].filter { kept in hostsByKey[kept.key]?.sequence == kept.sequence }.map(\.key)
+    }
 
     /// A view's estimated memory, from measured views: a 12-by-4 table about 6 MB,
     /// properties about 4 MB, a callout or math block under 1 MB; an embed can hold a
@@ -480,18 +555,25 @@ struct DetachedWidgetPool<Host> {
     mutating func keep(_ host: Host, for key: LivePreviewBlockKey, estimatedMegabytes: Double) {
         _ = take(key)
         guard estimatedMegabytes <= Double(budgetMegabytes) else { return }
-        hostsByKey[key] = (host, estimatedMegabytes)
-        detachmentOrder.append(key)
+        hostsByKey[key] = (host, estimatedMegabytes, nextSequence)
+        detachmentOrder.append((key, nextSequence))
+        nextSequence += 1
         estimatedMegabytesInPool += estimatedMegabytes
-        while estimatedMegabytesInPool > Double(budgetMegabytes), let oldestKey = detachmentOrder.first {
-            _ = take(oldestKey)
+        while estimatedMegabytesInPool > Double(budgetMegabytes), detachmentOrderStart < detachmentOrder.count {
+            let oldest = detachmentOrder[detachmentOrderStart]
+            detachmentOrderStart += 1
+            if hostsByKey[oldest.key]?.sequence == oldest.sequence { _ = take(oldest.key) }
+        }
+        // The entries passed over are dropped once they are most of the list.
+        if detachmentOrderStart > 64, detachmentOrderStart * 2 > detachmentOrder.count {
+            detachmentOrder.removeFirst(detachmentOrderStart)
+            detachmentOrderStart = 0
         }
     }
 
     /// Takes a kept view out of the pool to show it again.
     mutating func take(_ key: LivePreviewBlockKey) -> Host? {
         guard let kept = hostsByKey.removeValue(forKey: key) else { return nil }
-        detachmentOrder.removeAll { keptKey in keptKey == key }
         estimatedMegabytesInPool -= kept.estimatedMegabytes
         return kept.host
     }
@@ -503,12 +585,13 @@ struct DetachedWidgetPool<Host> {
 
     /// Drops the kept views of blocks no longer in the note.
     mutating func removeHosts(notIn keysInNote: Set<LivePreviewBlockKey>) {
-        for key in detachmentOrder where !keysInNote.contains(key) { _ = take(key) }
+        for key in Array(hostsByKey.keys) where !keysInNote.contains(key) { _ = take(key) }
     }
 
     mutating func removeAll() {
         hostsByKey.removeAll()
         detachmentOrder.removeAll()
+        detachmentOrderStart = 0
         estimatedMegabytesInPool = 0
     }
 }

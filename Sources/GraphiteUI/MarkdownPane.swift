@@ -89,7 +89,8 @@ struct MarkdownPane: View {
                                      readAloudHooks: readAloudHooks) { target, isWiki in
                     follow(target, isWiki: isWiki)
                 }
-                .overlay(alignment: .topLeading) { completionPopup }
+                // The suggestions change at every keystroke; only this overlay reads them.
+                .overlay(alignment: .topLeading) { CompletionPopupOverlay(model: session.completion) }
                 .onAppear { session.completion.suggest(from: workspace, for: session) }
             }
         }
@@ -175,21 +176,6 @@ struct MarkdownPane: View {
     }
 
     /// Link and tag suggestions just below the cursor, or above it near the bottom.
-    @ViewBuilder private var completionPopup: some View {
-        if session.completion.isVisible {
-            GeometryReader { geometry in
-                let caret = session.completion.caretRect
-                let popupHeight = min(CompletionPopup.maximumHeight, CGFloat(session.completion.items.count) * 48 + 8)
-                let fitsBelow = caret.maxY + 6 + popupHeight <= geometry.size.height
-                let popupOriginX = min(max(caret.minX - 12, 8), max(geometry.size.width - CompletionPopup.width - 8, 8))
-                let popupOriginY = fitsBelow ? caret.maxY + 6 : max(caret.minY - popupHeight - 6, 8)
-                CompletionPopup(model: session.completion)
-                    .offset(x: popupOriginX, y: popupOriginY)
-            }
-            .transition(.opacity)
-        }
-    }
-
     @ViewBuilder private var banner: some View {
         if session.hasExternalConflict {
             HStack(spacing: 12) {
@@ -471,8 +457,16 @@ struct MarkdownPane: View {
             Button("Read Document") { startReading() }
             Button("Choose Section…") { showsReadingSections = true }
             if isEditing {
-                Button("Read Selection") { startReading(range: session.selection, scope: "Selected text") }
-                    .disabled(session.selection.length == 0)
+                // These look at the selection when chosen, not while the menu is built: the
+                // toolbar's menus followed the cursor and were all built again at every
+                // keystroke.
+                Button("Read Selection") {
+                    guard session.selection.length > 0 else {
+                        workspace.errorMessage = "Select the text to read first."
+                        return
+                    }
+                    startReading(range: session.selection, scope: "Selected text")
+                }
                 Button("Read From Here") {
                     startReading(range: NSRange(location: session.selection.location, length: max(0, session.text.utf16.count - session.selection.location)), scope: "From cursor to end")
                 }
@@ -480,9 +474,13 @@ struct MarkdownPane: View {
                 Button("Set Reading Start") { readingStartOffset = session.selection.location }
                 if let start = readingStartOffset {
                     Button("Read Through Here") {
+                        guard session.selection.location >= start else {
+                            workspace.errorMessage = "Put the cursor after the reading start first."
+                            return
+                        }
                         let end = session.selection.length > 0 ? NSMaxRange(session.selection) : min(session.selection.location + 1, session.text.utf16.count)
                         startReading(range: NSRange(location: start, length: max(0, end - start)), scope: "Chosen start and end")
-                    }.disabled(session.selection.location < start)
+                    }
                 }
             }
         }
@@ -731,18 +729,31 @@ private struct WordCountDisplay: ViewModifier {
     private static let typingPause = Duration.milliseconds(300)
 
     func body(content: Content) -> some View {
+        // The text is read by the counter behind the note, not here: the subtitle set again
+        // at every keystroke laid out the window's toolbar again and rebuilt its menus.
         countedContent(content)
-            .task(id: isShown ? session.text : nil) {
+            .background { WordCounter(session: session, isShown: isShown, counts: $counts) }
+    }
+
+    /// Counts the note once typing pauses.
+    private struct WordCounter: View {
+        let session: MarkdownSession
+        let isShown: Bool
+        @Binding var counts: NoteTextCounts?
+
+        var body: some View {
+            Color.clear.task(id: isShown ? session.text : nil) {
                 guard isShown else { return }
                 // The first count, when the note opens, does not wait for a pause.
                 if counts != nil {
-                    do { try await Task.sleep(for: Self.typingPause) } catch { return }
+                    do { try await Task.sleep(for: WordCountDisplay.typingPause) } catch { return }
                 }
                 let textToCount = session.text
                 let newCounts = await Task.detached(priority: .utility) { NoteTextCounts(countingBodyOf: textToCount) }.value
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, newCounts != counts else { return }
                 counts = newCounts
             }
+        }
     }
 
     @ViewBuilder private func countedContent(_ content: Content) -> some View {
@@ -1123,6 +1134,27 @@ struct NoteLinksInspector: View {
         case .graph, .map:
             // Drawn in place of the list; see `body`.
             EmptyView()
+        }
+    }
+}
+
+/// Link suggestions over the note, next to the cursor. A view of its own: read in the pane's
+/// body, the suggestions, which change at every keystroke, rebuilt the whole pane.
+private struct CompletionPopupOverlay: View {
+    let model: CompletionModel
+
+    var body: some View {
+        if model.isVisible {
+            GeometryReader { geometry in
+                let caret = model.caretRect
+                let popupHeight = min(CompletionPopup.maximumHeight, CGFloat(model.items.count) * 48 + 8)
+                let fitsBelow = caret.maxY + 6 + popupHeight <= geometry.size.height
+                let popupOriginX = min(max(caret.minX - 12, 8), max(geometry.size.width - CompletionPopup.width - 8, 8))
+                let popupOriginY = fitsBelow ? caret.maxY + 6 : max(caret.minY - popupHeight - 6, 8)
+                CompletionPopup(model: model)
+                    .offset(x: popupOriginX, y: popupOriginY)
+            }
+            .transition(.opacity)
         }
     }
 }

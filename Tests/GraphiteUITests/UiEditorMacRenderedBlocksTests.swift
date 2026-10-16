@@ -135,6 +135,23 @@ final class UiEditorMacRenderedBlocksTests: XCTestCase {
         XCTAssertGreaterThan(starts.second, 6, "After typing in it, the second line still clears the bar")
     }
 
+    /// A block's view offers "Edit Source" on a secondary click from an AppKit menu of its
+    /// own, which SwiftUI does not work out again each time the view is drawn.
+    func testABlockViewOffersEditSourceOnASecondaryClick() throws {
+        var revealed = false
+        let host = RenderedBlockHost.makeRenderedBlockHost(root: RenderedBlockRoot(view: AnyView(Text("Block")), revealSource: { revealed = true }))
+        host.frame = CGRect(x: 0, y: 0, width: 200, height: 40)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        windows.append(window)
+        window.contentView = host
+        let click = try XCTUnwrap(NSEvent.mouseEvent(with: .rightMouseDown, location: CGPoint(x: 20, y: 20), modifierFlags: [], timestamp: 0,
+                                                     windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        let item = try XCTUnwrap(host.menu(for: click)?.items.first { item in item.title == "Edit Source" })
+        _ = item.target?.perform(item.action)
+        XCTAssertTrue(revealed)
+    }
+
     func testATableAwayFromTheCursorIsDrawnOverItsConcealedSource() async throws {
         let (_, textView, _) = try await makeEditor(text: Self.tableNote)
         let tableRange = Self.tableRange

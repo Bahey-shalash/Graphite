@@ -326,7 +326,9 @@ public struct VaultFileOperations: Sendable {
     /// The file a link reaches before anything moves, if exactly one.
     private func resolvedTarget(of link: NoteLink, from source: VaultPath, canonicalRootPath: String?) async throws -> VaultPath? {
         for candidate in WikiLinkResolver.directCandidates(target: link.target, source: source, isWiki: link.isWiki) {
-            if try await store.fileExists(candidate) { return storedSpelling(of: candidate, canonicalRootPath: canonicalRootPath) }
+            // A file: a folder named as the link, beside the note, took the link's place,
+            // and the link to the note being renamed was neither rewritten nor reported.
+            if try await store.regularFileExists(candidate) { return storedSpelling(of: candidate, canonicalRootPath: canonicalRootPath) }
         }
         let matches = try await index.resolve(link.target, from: source, isWiki: link.isWiki)
         return matches.count == 1 ? matches.first : nil

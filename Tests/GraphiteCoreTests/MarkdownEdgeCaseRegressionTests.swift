@@ -100,6 +100,32 @@ final class MarkdownEdgeCaseRegressionTests: XCTestCase {
         XCTAssertNil(NoteFolding.regions(regions, across: NSRange(location: editLocation, length: 0), replacementLength: 1, before: before, after: after))
     }
 
+    /// ⌘B with the cursor in a bold phrase takes the bold off the phrase; over a selection
+    /// holding bold spans, it makes one bold span.
+    func testBoldTogglesThePhraseAroundTheCursorAndJoinsSpans() {
+        let phrase = "Say **hello world** now" as NSString
+        let cursor = phrase.range(of: "world").location + 2
+        let unwrapped = MarkdownEditing.togglingWrap("**", in: phrase, selection: NSRange(location: cursor, length: 0))
+        XCTAssertEqual(phrase.replacingCharacters(in: unwrapped.range, with: unwrapped.replacement), "Say hello world now")
+        let spans = "**a** and **b**" as NSString
+        let joined = MarkdownEditing.togglingWrap("**", in: spans, selection: NSRange(location: 0, length: spans.length))
+        XCTAssertEqual(spans.replacingCharacters(in: joined.range, with: joined.replacement), "**a and b**")
+        let word = "Say **word** now" as NSString
+        let single = MarkdownEditing.togglingWrap("**", in: word, selection: NSRange(location: word.range(of: "word").location + 1, length: 0))
+        XCTAssertEqual(word.replacingCharacters(in: single.range, with: single.replacement), "Say word now")
+    }
+
+    /// A web address pasted over selected text links the text to it, as in Obsidian.
+    func testPastingAnAddressOverSelectedTextMakesALink() {
+        let text = "Read the docs today" as NSString
+        let selection = text.range(of: "docs")
+        XCTAssertEqual(MarkdownEditing.linkingSelection(to: "https://x.y/a", in: text, selection: selection)?.replacement, "[docs](https://x.y/a)")
+        XCTAssertNil(MarkdownEditing.linkingSelection(to: "two words", in: text, selection: selection))
+        XCTAssertNil(MarkdownEditing.linkingSelection(to: "https://x.y", in: text, selection: NSRange(location: 0, length: 0)))
+        XCTAssertEqual(MarkdownEditing.linkingSelection(to: "https://en.wikipedia.org/wiki/A_(b)", in: text, selection: selection)?.replacement,
+                       "[docs](<https://en.wikipedia.org/wiki/A_(b)>)")
+    }
+
     /// A task with digits of another script is no task, as the editor reads it.
     func testReadingTasksNeedASCIIDigits() {
         func isTask(_ line: String) -> Bool {
@@ -107,5 +133,21 @@ final class MarkdownEdgeCaseRegressionTests: XCTestCase {
         }
         XCTAssertFalse(isTask("١. [ ] x"))
         XCTAssertTrue(isTask("1. [ ] y"))
+    }
+}
+
+/// Where links lead, as Obsidian resolves them.
+final class LinkResolutionRegressionTests: XCTestCase {
+    /// `[[/Folder/Note]]` starts at the vault root, and only there: it named a path beside the note.
+    func testALinkStartingWithASlashIsFromTheVaultRootOnly() throws {
+        let source = try VaultPath("A/x.md")
+        XCTAssertEqual(WikiLinkResolver.directCandidates(target: "/Folder/Note", source: source).map(\.rawValue), ["Folder/Note.md", "Folder/Note"])
+    }
+
+    /// A Wikilink is written as the file is named; a Markdown link is percent-encoded.
+    func testOnlyMarkdownLinksArePercentDecoded() throws {
+        let source = try VaultPath("x.md")
+        XCTAssertEqual(WikiLinkResolver.directCandidates(target: "A%20B", source: source, isWiki: true).first?.rawValue, "A%20B.md")
+        XCTAssertEqual(WikiLinkResolver.directCandidates(target: "A%20B.md", source: source, isWiki: false).first?.rawValue, "A B.md")
     }
 }

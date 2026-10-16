@@ -3,6 +3,11 @@ import GraphiteUI
 
 @main
 struct GraphiteApp: App {
+    #if os(macOS)
+    /// Saves what is open before Graphite quits.
+    @NSApplicationDelegateAdaptor(GraphiteApplicationDelegate.self) private var applicationDelegate
+    #endif
+
     init() {
         // Hang and crash reports, and a record of any freeze, in Library/Diagnostics.
         GraphiteDiagnostics.start()

@@ -566,7 +566,12 @@ enum PropertyDateText {
     @MainActor private static var cachedFormatters: [String: DateFormatter] = [:]
 
     @MainActor private static func formatter(pattern: String) -> DateFormatter {
-        if let cachedFormatter = cachedFormatters[pattern] { return cachedFormatter }
+        // A formatter keeps the time zone it was made in; the dates follow the device's
+        // current one, as `combining` does, after a trip across time zones too.
+        if let cachedFormatter = cachedFormatters[pattern] {
+            if cachedFormatter.timeZone != TimeZone.current { cachedFormatter.timeZone = TimeZone.current }
+            return cachedFormatter
+        }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.calendar = Calendar(identifier: .gregorian)

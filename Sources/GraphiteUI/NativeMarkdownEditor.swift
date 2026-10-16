@@ -366,6 +366,14 @@ final class MarkdownTextView: UITextView {
             }
             return
         }
+        // A web address pasted over selected text links the text to it, as in Obsidian.
+        if selectedRange.length > 0, let pastedText = pasteboard.string,
+           let edit = MarkdownEditing.linkingSelection(to: pastedText, in: (text ?? "") as NSString, selection: selectedRange),
+           let start = position(from: beginningOfDocument, offset: edit.range.location), let end = position(from: start, offset: edit.range.length),
+           let replacedRange = textRange(from: start, to: end) {
+            replace(replacedRange, withText: edit.replacement)
+            return
+        }
         // Text plugins may take over (Link or Card makes a card of an address). The pasteboard is
         // read now, while iOS allows it; Graphite pastes what it read if no plugin takes it.
         if let offerPasteToPlugins, pasteboard.hasStrings {
@@ -373,12 +381,16 @@ final class MarkdownTextView: UITextView {
             let htmlData = convertsPastedHTML ? pasteboard.data(forPasteboardType: UTType.html.identifier) : nil
             let html = htmlData.flatMap { data in String(data: data, encoding: .utf8) }
             let pastedRange = selectedRange
+            let textWhenPasted = self.text ?? ""
             Task { [weak self] in
                 let isTakenOver = await offerPasteToPlugins(text, html)
                 guard let self, !isTakenOver else { return }
                 if let htmlData, htmlData.count <= HTMLToMarkdown.maximumConvertedLength {
                     self.insertConvertedHTML(htmlData, plainText: text, at: pastedRange)
                 } else if let text, !text.isEmpty {
+                    // Where the paste was asked for, unless the note changed meanwhile; then
+                    // at the cursor. It went in at the cursor, wherever it had moved.
+                    if self.text == textWhenPasted, NSMaxRange(pastedRange) <= (textWhenPasted as NSString).length { self.selectedRange = pastedRange }
                     self.insertText(text)
                 }
             }
@@ -1785,7 +1797,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
 
         /// The appearance is passed in: a hosted view does not inherit it from the text view.
         /// A tap on a block's view puts the cursor at the block's start, showing its source.
-        private func widgetRootView(for entry: LivePreviewBlockEntry, environment: LivePreviewEnvironment, textView: MarkdownTextView) -> AnyView {
+        private func widgetRootView(for entry: LivePreviewBlockEntry, environment: LivePreviewEnvironment, textView: MarkdownTextView) -> RenderedBlockRoot {
             let key = entry.key
             let isFrontmatter = entry.block.kind == .frontmatter
             return LivePreviewRenderedBlocks.rootView(for: entry, environment: environment, accentHex: configuration.accentHex,
@@ -1853,14 +1865,19 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             guard !previouslyFolded.isEmpty else { return false }
             let lengthChange = textView.textStorage.length - lengthBeforeEdit
             let editLocation = editLocationBeforeEdit
-            var keys = session.foldedKeys
-            var changed = false
-            for region in previouslyFolded where !foldableRegions.contains(where: { candidate in candidate.key == region.key }) {
-                keys.remove(region.key)
-                changed = true
+            // Every fold follows its header to where the edit moved it, whatever key the header
+            // has now: keys count headings of the same text, so a new "## Notes" typed above a
+            // folded one took its key, and the fold jumped to the other heading.
+            var keys = session.foldedKeys.subtracting(previouslyFolded.map(\.key))
+            for region in previouslyFolded {
                 let headerStart = region.headerRange.location + (editLocation < region.headerRange.location ? lengthChange : 0)
-                if let moved = foldableRegions.first(where: { candidate in candidate.headerRange.location == headerStart }) { keys.insert(moved.key) }
+                if let moved = foldableRegions.first(where: { candidate in candidate.headerRange.location == headerStart }) {
+                    keys.insert(moved.key)
+                } else if foldableRegions.contains(where: { candidate in candidate.key == region.key }) {
+                    keys.insert(region.key)
+                }
             }
+            var changed = keys != session.foldedKeys
             // A section that still folds but whose hidden text moved or changed needs restyling too.
             let stillFolded = NoteFolding.foldedRegions(in: foldableRegions, foldedKeys: keys)
             if stillFolded.map(\.hiddenRange) != previouslyFolded.map({ region in
@@ -2423,12 +2440,27 @@ final class MarkdownMacTextView: NSTextView {
         // Text plugins may take over (Link or Card makes a card of an address); the text is
         // pasted as usual when none does.
         let pasteboard = NSPasteboard.general
+        // A web address pasted over selected text links the text to it, as in Obsidian.
+        if selectedRange().length > 0, let pastedText = pasteboard.string(forType: .string),
+           let edit = MarkdownEditing.linkingSelection(to: pastedText, in: string as NSString, selection: selectedRange()) {
+            if shouldChangeText(in: edit.range, replacementString: edit.replacement) {
+                replaceCharacters(in: edit.range, with: edit.replacement)
+                didChangeText()
+                setSelectedRange(edit.selectionAfter)
+            }
+            return
+        }
         if let offerPasteToPlugins, let text = pasteboard.string(forType: .string) {
             let html = pasteboard.string(forType: .html)
             let pastedRange = selectedRange()
+            let textWhenPasted = string
             Task { @MainActor [weak self] in
                 let isTakenOver = await offerPasteToPlugins(text, html)
                 guard let self, !isTakenOver else { return }
+                // The range was the selection's before the plugins answered: a note changed
+                // meanwhile takes the text at its selection now. A note made shorter raised
+                // an exception, and a longer one received the text at the wrong place.
+                let pastedRange = self.string == textWhenPasted ? pastedRange : self.selectedRange()
                 if self.shouldChangeText(in: pastedRange, replacementString: text) {
                     self.replaceCharacters(in: pastedRange, with: text)
                     self.didChangeText()
@@ -3203,7 +3235,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
 
         /// The hosted view takes the appearance from the text view it is in. A click on a
         /// block's view shows its source; on the properties, "Edit Source" does.
-        private func blockRootView(for entry: LivePreviewBlockEntry, environment: LivePreviewEnvironment, textView: NSTextView) -> AnyView {
+        private func blockRootView(for entry: LivePreviewBlockEntry, environment: LivePreviewEnvironment, textView: NSTextView) -> RenderedBlockRoot {
             let key = entry.key
             let isFrontmatter = entry.block.kind == .frontmatter
             return LivePreviewRenderedBlocks.rootView(for: entry, environment: environment, accentHex: configuration.accentHex, colorScheme: nil, revealSource: { [weak self, weak textView] in
