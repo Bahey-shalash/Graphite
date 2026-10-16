@@ -191,8 +191,19 @@ public struct ThemeModeTokens: Codable, Hashable, Sendable {
     public var highlightRadius: Double?
     public var highlightTextColor: ThemeColor?
     public var inlineTitle = HeadingTokens()
+    /// Syntax colors in code blocks by `CodeTokenKind` raw value, all of them when the theme
+    /// changes any (its palette or its `--code-*` variables), so its colors stay together.
+    public var codeTokenColors: [String: ThemeColor]?
 
     public init() {}
+
+    /// The Prism token class the theme probe reads each `CodeTokenKind`'s color from.
+    public static let codeTokenProbeClasses: [String: String] = [
+        CodeTokenKind.keyword.rawValue: "keyword", CodeTokenKind.typeName.rawValue: "class-name", CodeTokenKind.function.rawValue: "function",
+        CodeTokenKind.string.rawValue: "string", CodeTokenKind.number.rawValue: "number", CodeTokenKind.constant.rawValue: "boolean",
+        CodeTokenKind.comment.rawValue: "comment", CodeTokenKind.preprocessor.rawValue: "important", CodeTokenKind.attribute.rawValue: "tag",
+        CodeTokenKind.property.rawValue: "property", CodeTokenKind.variable.rawValue: "variable",
+    ]
 
     public struct HeadingTokens: Codable, Hashable, Sendable {
         public var color: ThemeColor?
@@ -314,6 +325,12 @@ public enum ThemeProbeReading {
         tokens.codeBackground = anyColor("code.background")
         tokens.codeColor = color("code.color")
         tokens.codeFontFamilies = changed("code.fontFamily").map(fontFamilies)
+        let codeTokenKeys = ThemeModeTokens.codeTokenProbeClasses.mapValues { tokenClass in "codeToken." + tokenClass }
+        if codeTokenKeys.values.contains(where: { key in changed(key) != nil }) {
+            tokens.codeTokenColors = codeTokenKeys.compactMapValues { key in
+                themed[key].flatMap(ThemeColor.init(computedCSS:)).flatMap { color in color.isVisible ? color : nil }
+            }
+        }
         tokens.textFontFamilies = changed("body.fontFamily").map(fontFamilies)
         tokens.blockquoteBorderColor = color("blockquote.borderColor")
         tokens.blockquoteBorderThickness = number("blockquote.borderWidth")
