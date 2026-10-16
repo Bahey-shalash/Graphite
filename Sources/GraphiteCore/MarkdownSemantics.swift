@@ -966,7 +966,9 @@ public enum EmbedLocator {
         if let match = wikiEmbedPattern?.matches(in: line, range: NSRange(location: 0, length: lineLength)).first(where: { match in contains(match.range) }) {
             let content = (line as NSString).substring(with: match.range(at: 1))
             let parts = content.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
-            let target = parts[0].replacingOccurrences(of: "\\", with: "")
+            // Only the `\` of a table's escaped `\|` goes: other backslashes are the name's.
+            var target = parts[0]
+            if parts.count > 1, target.hasSuffix("\\") { target.removeLast() }
             return EmbedReference(target: target, isWiki: true, displaySize: parts.count > 1 ? EmbedDisplaySize.parse(label: parts[1]) : nil,
                                   range: NSRange(location: lineRange.location + match.range.location, length: match.range.length))
         }

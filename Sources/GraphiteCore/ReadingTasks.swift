@@ -78,7 +78,7 @@ public enum ReadingTasks {
 
     /// Group 1 is the quote markers, indentation and list marker before the checkbox, and
     /// group 2 the status character. Any single character is a status, as in Obsidian.
-    static let pattern = try? NSRegularExpression(pattern: "^(\\s*(?:>\\s*)*(?:[-*+]|\\d+[.)])\\s+)\\[([^\\]\\n])\\](?=\\s|$)")
+    static let pattern = try? NSRegularExpression(pattern: "^(\\s*(?:>\\s*)*(?:[-*+]|[0-9]{1,9}[.)])\\s+)\\[([^\\]\\n])\\](?=\\s|$)")
 
     private static let lineFeed = UInt16(UInt8(ascii: "\n"))
     private static let carriageReturn = UInt16(UInt8(ascii: "\r"))

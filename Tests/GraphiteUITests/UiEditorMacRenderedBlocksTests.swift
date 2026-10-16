@@ -94,6 +94,47 @@ final class UiEditorMacRenderedBlocksTests: XCTestCase {
         }
     }
 
+    /// A lecture's citation line, quoted and starting with bold text: in the Mac's editor its
+    /// wrapped line started at the margin, under the quote's bar. Checked with the cursor
+    /// elsewhere, after it passes through the line, and after typing in the line.
+    func testAWrappedQuoteStartingWithBoldTextStartsItsSecondLineUnderItsText() async throws {
+        let text = "Intro\n\n> **Lecture 4, Memory-Centric Computing II** - Dr. Geraldo F. Oliveira · SAFARI Research Group, ETH Zürich, and Huawei Zürich · 2 October 2026\n\nAfter the quote.\n"
+        // The coordinator is the text view's delegate, which the text view holds weakly.
+        let (coordinator, textView, _) = try await makeEditor(text: text)
+        defer { withExtendedLifetime(coordinator) {} }
+        let quoteStart = (text as NSString).range(of: "> **").location
+        func lineStarts() throws -> (first: CGFloat, second: CGFloat) {
+            let textLayoutManager = try XCTUnwrap(textView.textLayoutManager)
+            textLayoutManager.ensureLayout(for: textLayoutManager.documentRange)
+            let contentStorage = try XCTUnwrap(textLayoutManager.textContentManager as? NSTextContentStorage)
+            let location = try XCTUnwrap(contentStorage.location(contentStorage.documentRange.location, offsetBy: quoteStart + 4))
+            let fragment = try XCTUnwrap(textLayoutManager.textLayoutFragment(for: location))
+            XCTAssertGreaterThan(fragment.textLineFragments.count, 1, "The quote wraps")
+            let firstLine = fragment.textLineFragments[0]
+            let secondLine = fragment.textLineFragments[1]
+            let textOffsetInFirstLine = 4 - (contentStorage.offset(from: contentStorage.documentRange.location, to: fragment.rangeInElement.location) - quoteStart)
+            return (firstLine.locationForCharacter(at: textOffsetInFirstLine).x + firstLine.typographicBounds.minX,
+                    secondLine.locationForCharacter(at: secondLine.characterRange.location).x + secondLine.typographicBounds.minX)
+        }
+        var starts = try lineStarts()
+        XCTAssertGreaterThan(starts.second, 6, "The second line clears the bar")
+        XCTAssertEqual(starts.second, starts.first, accuracy: 2, "The second line starts under the first line's text")
+
+        textView.setSelectedRange(NSRange(location: quoteStart + 20, length: 0))
+        try await Task.sleep(for: .milliseconds(50))
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        try await Task.sleep(for: .milliseconds(50))
+        starts = try lineStarts()
+        XCTAssertGreaterThan(starts.second, 6, "After the cursor passed through, the second line still clears the bar")
+
+        textView.setSelectedRange(NSRange(location: quoteStart + 20, length: 0))
+        textView.insertText("x", replacementRange: textView.selectedRange())
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        try await Task.sleep(for: .milliseconds(50))
+        starts = try lineStarts()
+        XCTAssertGreaterThan(starts.second, 6, "After typing in it, the second line still clears the bar")
+    }
+
     func testATableAwayFromTheCursorIsDrawnOverItsConcealedSource() async throws {
         let (_, textView, _) = try await makeEditor(text: Self.tableNote)
         let tableRange = Self.tableRange

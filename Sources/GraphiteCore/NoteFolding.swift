@@ -180,10 +180,10 @@ public enum NoteFolding {
     }
 
     /// A line that starts no region and ends none early: not blank, not a heading, list item,
-    /// code fence or frontmatter fence (`---`).
+    /// code fence or frontmatter fence (`---`, or `...`, which closes frontmatter too).
     private static func isPlainText(_ line: String) -> Bool {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
-        guard let first = trimmed.first, first != "#", first != "`", first != "~", !trimmed.hasPrefix("---") else { return false }
+        guard let first = trimmed.first, first != "#", first != "`", first != "~", !trimmed.hasPrefix("---"), !trimmed.hasPrefix("...") else { return false }
         return !isListItem(line)
     }
 
