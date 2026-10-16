@@ -377,6 +377,23 @@ final class ApplePdfFixTests: XCTestCase {
         }
     }
 
+    // MARK: Bookmarks
+
+    /// A bookmark goes to the corner shown at the top left: on a page turned 180° or 270°,
+    /// the unturned top left is at the bottom, where opening the bookmark went.
+    func testABookmarkPointsAtTheTopOfThePageAsShown() throws {
+        let page = PDFPage()
+        page.setBounds(CGRect(x: 0, y: 0, width: 600, height: 800), for: .mediaBox)
+        page.setBounds(CGRect(x: 0, y: 0, width: 600, height: 800), for: .cropBox)
+        XCTAssertEqual(PDFPageManager.visibleTopLeft(of: page), CGPoint(x: 0, y: 800))
+        page.rotation = 90
+        XCTAssertEqual(PDFPageManager.visibleTopLeft(of: page), CGPoint(x: 0, y: 0))
+        page.rotation = 180
+        XCTAssertEqual(PDFPageManager.visibleTopLeft(of: page), CGPoint(x: 600, y: 0))
+        page.rotation = 270
+        XCTAssertEqual(PDFPageManager.visibleTopLeft(of: page), CGPoint(x: 600, y: 800))
+    }
+
     // MARK: Document structure
 
     func testSignedPDFIsDetectedAndReportedBeforePageChanges() throws {

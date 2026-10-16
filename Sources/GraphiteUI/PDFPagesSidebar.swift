@@ -230,15 +230,26 @@ struct PDFPageSelection {
     }
 }
 
-/// Keeps the page in view in the middle of the list as pages are turned.
+/// Keeps the page in view in the middle of the list as pages are turned, once turning
+/// pauses: scrolling a lazy list to a row walks the whole list, and doing it for every page
+/// of a quick run through the PDF took most of each page turn's time.
 struct PDFCurrentPageFollower: View {
     let session: PDFSession
     let scrollProxy: ScrollViewProxy
+    private static let followDelay = Duration.milliseconds(150)
+    @State private var hasAppeared = false
 
     var body: some View {
         Color.clear
-            .onAppear { scrollToCurrentPage(animated: false) }
-            .onChange(of: session.currentPageIndex) { scrollToCurrentPage(animated: true) }
+            .onAppear {
+                hasAppeared = true
+                scrollToCurrentPage(animated: false)
+            }
+            .task(id: session.currentPageIndex) {
+                guard hasAppeared else { return }
+                do { try await Task.sleep(for: Self.followDelay) } catch { return }
+                scrollToCurrentPage(animated: true)
+            }
     }
 
     private func scrollToCurrentPage(animated: Bool) {

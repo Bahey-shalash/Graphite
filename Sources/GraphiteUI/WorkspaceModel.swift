@@ -448,6 +448,7 @@ final class WorkspaceModel {
         }
         let existingTabIDs = Set(layout.allTabs.map(\.id))
         let previousTabID = layout.activeTab.id
+        let previousFocusedGroupID = layout.focusedGroupID
         let tabID: UUID
         switch placement {
         case .currentTab: tabID = layout.tabForOpeningHere()
@@ -462,6 +463,11 @@ final class WorkspaceModel {
         if !didOpen, !existingTabIDs.contains(tabID), layout.tab(withID: tabID)?.path == nil {
             layout.closeTab(tabID)
             removeTabDocuments([tabID])
+        }
+        // A file that could not be opened on the other side leaves the focus where it was,
+        // rather than on a side that shows nothing new.
+        if !didOpen, placement == .otherGroup, layout.groups.contains(where: { group in group.id == previousFocusedGroupID }) {
+            layout.focus(groupID: previousFocusedGroupID)
         }
         return layout.tabID(showing: path)
     }

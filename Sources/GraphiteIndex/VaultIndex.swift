@@ -381,9 +381,14 @@ public actor VaultIndex {
             if part.contains("/") {
                 // A partial path, such as `[[covers/Book cover.png]]`, names the end of a
                 // path, or the whole path when it starts at the vault root (`[[/Folder/Note]]`).
-                let pathSuffix = foldedKey(fileName.hasPrefix("/") ? String(fileName.dropFirst()) : fileName)
-                paths = try String.fetchAll(database, sql: "SELECT path FROM files WHERE folded_path = ? OR folded_path LIKE ? ESCAPE '\\' ORDER BY path LIMIT 50",
-                                            arguments: [pathSuffix, "%/" + escapedForLike(pathSuffix)])
+                let pathSuffix = foldedKey(fileName.hasPrefix("/") ? String(fileName.drop { character in character == "/" }) : fileName)
+                if fileName.hasPrefix("/") {
+                    // From the root only: as a suffix it also matched `Other/Folder/Note.md`.
+                    paths = try String.fetchAll(database, sql: "SELECT path FROM files WHERE folded_path = ? ORDER BY path LIMIT 50", arguments: [pathSuffix])
+                } else {
+                    paths = try String.fetchAll(database, sql: "SELECT path FROM files WHERE folded_path = ? OR folded_path LIKE ? ESCAPE '\\' ORDER BY path LIMIT 50",
+                                                arguments: [pathSuffix, "%/" + escapedForLike(pathSuffix)])
+                }
             } else if isWiki {
                 paths = try String.fetchAll(database, sql: "SELECT path FROM files WHERE folded_name = ? UNION SELECT path FROM aliases WHERE folded_alias = ? ORDER BY path LIMIT 50",
                                             arguments: [foldedKey(fileName), foldedKey(part)])

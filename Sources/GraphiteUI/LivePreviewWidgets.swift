@@ -113,7 +113,7 @@ struct LivePreviewWidgetView: View {
         // source where a tap does something else, as on a base's rows, a plugin's view or a rule.
         VStack(alignment: .leading, spacing: 0) { content }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .contextMenu { Button("Edit Source", systemImage: "chevron.left.forwardslash.chevron.right", action: revealSource) }
+        // The block's view itself carries the "Edit Source" menu (`RenderedBlockEditSourceMenu`).
         .accessibilityAction(named: "Edit Source", revealSource)
         // The reserved space follows the view's natural height, not the frame it was given.
         .fixedSize(horizontal: false, vertical: true)
@@ -392,8 +392,11 @@ enum LivePreviewText {
         let codeRanges = MarkdownCodeRanges.ranges(in: source)
         for match in wikiEmbedPattern.matches(in: markdown, range: NSRange(location: 0, length: source.length)).reversed()
         where !MarkdownCodeRanges.range(match.range, isInside: codeRanges) {
-            let target = source.substring(with: match.range(at: 1))
+            var target = source.substring(with: match.range(at: 1))
             let label = match.range(at: 2).location == NSNotFound ? nil : source.substring(with: match.range(at: 2))
+            // `![[image.png\|300]]` in a table, as Obsidian requires there: the backslash
+            // escapes the pipe and is no part of the name, as for links below.
+            if label != nil, target.hasSuffix("\\") { target.removeLast() }
             guard let path = await environment.resolve(target, true) else {
                 hasUnresolvedEmbeds = true
                 continue

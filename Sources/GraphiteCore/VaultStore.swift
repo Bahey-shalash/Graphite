@@ -106,6 +106,12 @@ public actor VaultStore {
         FileManager.default.fileExists(atPath: try path.url(in: root).path)
     }
 
+    /// Whether a file, not a folder, is at `path`: what a link names.
+    public func regularFileExists(_ path: VaultPath) throws -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: try path.url(in: root).path, isDirectory: &isDirectory) && !isDirectory.boolValue
+    }
+
     public func settings() throws -> ObsidianSettings {
         let url = try VaultPath(Self.applicationConfigurationPath).url(in: root)
         let settings = FileManager.default.fileExists(atPath: url.path)

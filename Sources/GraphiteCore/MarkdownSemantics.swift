@@ -878,12 +878,21 @@ public enum WikiLinkResolver {
     /// vault root, for each file-name reading. Wikilinks and Markdown links look in the same
     /// places, as in Obsidian, whose "absolute path in vault" Markdown links (which Graphite's
     /// link completion writes too) start at the root. A path starting with `./` or `../`
-    /// is relative to the note only. `isWiki` states the link's kind for the caller; both
-    /// kinds give the same candidates.
+    /// is relative to the note only, and one starting with `/` is from the vault root only.
+    /// A Markdown link's path is percent-decoded; a Wikilink's is not, as in Obsidian.
     public static func directCandidates(target: String, source: VaultPath, isWiki: Bool = true) -> [VaultPath] {
-        let part = pathPart(target).removingPercentEncoding ?? pathPart(target)
+        // A Wikilink is written as the file is named: Obsidian decodes only Markdown links.
+        let writtenPart = pathPart(target)
+        var part = isWiki ? writtenPart : (writtenPart.removingPercentEncoding ?? writtenPart)
         if part.isEmpty { return [source] }
         guard URL(string: part)?.scheme == nil else { return [] }
+        // `[[/Folder/Note]]` starts at the vault root, and only there: joined to the note's
+        // folder, it named a path beside the note.
+        if part.hasPrefix("/") {
+            part = String(part.drop { character in character == "/" })
+            guard !part.isEmpty else { return [] }
+            return fileNameVariants(for: part).compactMap { fileNameVariant in try? VaultPath(fileNameVariant) }
+        }
         let isRelativeToNote = isExplicitlyRelative(part)
         var paths: [VaultPath] = []
         for fileNameVariant in fileNameVariants(for: part) {

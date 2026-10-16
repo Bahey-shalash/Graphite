@@ -188,7 +188,7 @@ public enum PDFPageManager {
             let targetPage = try page(at: pageIndex)
             let outline = PDFOutline()
             outline.label = label
-            outline.destination = PDFDestination(page: targetPage, at: CGPoint(x: targetPage.bounds(for: .cropBox).minX, y: targetPage.bounds(for: .cropBox).maxY))
+            outline.destination = PDFDestination(page: targetPage, at: Self.visibleTopLeft(of: targetPage))
             let root = document.outlineRoot ?? PDFOutline()
             root.insertChild(outline, at: root.numberOfChildren)
             document.outlineRoot = root
@@ -536,6 +536,21 @@ public actor PDFFileService {
         guard let document = PDFDocument(url: baselineURL) else { throw GraphiteError.invalidFile("The PDF snapshot is unavailable.") }
         try PDFPageManager.replay(edits, on: document)
         return try pageRuns.map { pageRun in try PDFPageManager.export(pages: pageRun, from: document) }
+    }
+}
+
+extension PDFPageManager {
+    /// The corner shown at the top left, in the page's own space: a bookmark goes there.
+    /// The unturned top left is the bottom of a page turned 180° or 270°, so opening such a
+    /// bookmark, in Graphite or another reader, went to the page's bottom.
+    static func visibleTopLeft(of page: PDFPage) -> CGPoint {
+        let box = page.bounds(for: .cropBox)
+        switch ((page.rotation % 360) + 360) % 360 {
+        case 90: return CGPoint(x: box.minX, y: box.minY)
+        case 180: return CGPoint(x: box.maxX, y: box.minY)
+        case 270: return CGPoint(x: box.maxX, y: box.maxY)
+        default: return CGPoint(x: box.minX, y: box.maxY)
+        }
     }
 }
 

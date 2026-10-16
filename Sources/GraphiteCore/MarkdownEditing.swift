@@ -440,6 +440,9 @@ public enum MarkdownEditing {
     public static func togglingWrap(_ marker: String, closingMarker: String? = nil, in text: NSString, selection: NSRange) -> MarkdownTextEdit {
         let closing = closingMarker ?? marker
         let openingLength = marker.utf16.count, closingLength = closing.utf16.count
+        // The cursor inside a phrase in this markup, `**hello wo|rld**`, takes the markup off
+        // the phrase: going by the word under the cursor wrapped "world" again.
+        if selection.length == 0, closingMarker == nil, let unwrapped = removingEnclosingMarkup(marker, at: selection.location, in: text) { return unwrapped }
         var range = selection
         if range.length == 0 { range = wordRange(at: range.location, in: text) ?? range }
         let selectedText = text.substring(with: range)
@@ -460,11 +463,45 @@ public enum MarkdownEditing {
                 return MarkdownTextEdit(range: range, replacement: inner, selectionAfter: NSRange(location: range.location, length: inner.utf16.count))
             }
         }
-        let wrapped = marker + selectedText + closing
+        // Spans of this markup inside the selection join the one made: `**a** and **b**`
+        // became `a** and **b`, its outer markers taken for one pair.
+        var wrappedText = selectedText
+        if closing == marker, openingLength >= 2, selectedText.contains(marker) { wrappedText = selectedText.replacingOccurrences(of: marker, with: "") }
+        let wrapped = marker + wrappedText + closing
+        if wrappedText != selectedText {
+            return MarkdownTextEdit(range: range, replacement: wrapped, selectionAfter: NSRange(location: range.location + openingLength, length: wrappedText.utf16.count))
+        }
         let cursorAfter = selection.length == 0 && range.length == 0
             ? NSRange(location: range.location + openingLength, length: 0)
             : NSRange(location: selection.location + openingLength, length: selection.length)
         return MarkdownTextEdit(range: range, replacement: wrapped, selectionAfter: cursorAfter)
+    }
+
+    /// The style a marker writes, for finding a span of it around the cursor.
+    private static func delimitedStyle(of marker: String) -> MarkdownStyle? {
+        switch marker {
+        case "**", "__": .strong
+        case "*", "_": .emphasis
+        case "~~": .strikethrough
+        case "==": .highlight
+        default: nil
+        }
+    }
+
+    /// Removes the markers of the span written with `marker` around `location` on its line.
+    private static func removingEnclosingMarkup(_ marker: String, at location: Int, in text: NSString) -> MarkdownTextEdit? {
+        guard let style = delimitedStyle(of: marker), location <= text.length else { return nil }
+        let markerLength = marker.utf16.count
+        let lineRange = text.lineRange(for: NSRange(location: location, length: 0))
+        let enclosing = MarkdownStyleScanner.spans(in: text, range: lineRange).first { span in
+            guard span.style == style, let whole = span.inlineElementRange, whole.length >= 2 * markerLength,
+                  location > whole.location, location < NSMaxRange(whole) else { return false }
+            return text.substring(with: NSRange(location: whole.location, length: markerLength)) == marker
+        }
+        guard let enclosing, let whole = enclosing.inlineElementRange else { return nil }
+        let content = text.substring(with: NSRange(location: whole.location + markerLength, length: whole.length - 2 * markerLength))
+        let cursor = min(max(location - markerLength, whole.location), whole.location + content.utf16.count)
+        return MarkdownTextEdit(range: whole, replacement: content, selectionAfter: NSRange(location: cursor, length: 0))
     }
 
     /// The UTF-16 unit a marker such as `*`, `**` or `==` repeats, or nil for other markers.
@@ -496,6 +533,9 @@ public enum MarkdownEditing {
             || (isEmphasis && markerLength < 3 && leftRun == 3 && rightRun == 3)
         guard isPresent else { return nil }
         let content = text.substring(with: NSRange(location: contentStart, length: contentEnd - contentStart))
+        // `**a** and **b**`: the outer markers belong to two spans, not one around the rest.
+        if markerLength >= 2, let markerScalar = Unicode.Scalar(markerUnit),
+           content.contains(String(repeating: Character(markerScalar), count: markerLength)) { return nil }
         let selectionAfter = selection.length == 0
             ? NSRange(location: min(max(selection.location, contentStart), contentEnd) - markerLength, length: 0)
             : NSRange(location: contentStart - markerLength, length: contentEnd - contentStart)
@@ -571,6 +611,22 @@ public enum MarkdownEditing {
         // In front of a word, an opening bracket is typed alone.
         if let nextScalar, CharacterSet.alphanumerics.contains(nextScalar) { return nil }
         return MarkdownTextEdit(range: selection, replacement: typed + closing, selectionAfter: NSRange(location: selection.location + 1, length: 0))
+    }
+
+    /// A web address pasted over selected text makes the text a link to it, as Obsidian
+    /// does; nil when the pasted text is not one address or the selection is not one line.
+    public static func linkingSelection(to pastedText: String, in text: NSString, selection: NSRange) -> MarkdownTextEdit? {
+        guard selection.length > 0, NSMaxRange(selection) <= text.length else { return nil }
+        let address = pastedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !address.isEmpty, address.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
+              let scheme = URL(string: address)?.scheme?.lowercased(), ["http", "https", "mailto", "obsidian"].contains(scheme) else { return nil }
+        let selectedText = text.substring(with: selection)
+        // Selected text that is itself an address is replaced as usual.
+        guard selectedText.rangeOfCharacter(from: .newlines) == nil, URL(string: selectedText)?.scheme == nil else { return nil }
+        let label = selectedText.replacingOccurrences(of: "[", with: "\\[").replacingOccurrences(of: "]", with: "\\]")
+        let destination = address.contains("(") || address.contains(")") ? "<\(address)>" : address
+        let replacement = "[\(label)](\(destination))"
+        return MarkdownTextEdit(range: selection, replacement: replacement, selectionAfter: NSRange(location: selection.location + (replacement as NSString).length, length: 0))
     }
 
     /// Backspace between an empty pair, such as `(|)` or `[[|]]`, removes both halves.

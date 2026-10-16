@@ -1,5 +1,6 @@
 #if os(macOS)
 import SwiftUI
+import AppKit
 
 /// The Mac's scenes: one main window, and Settings in a window of its own, opened with ⌘,
 /// from the app menu as on every Mac. Both act on the same workspace, so a setting changed
@@ -8,7 +9,9 @@ public struct GraphiteMacScenes: Scene {
     @State private var workspace: WorkspaceModel
 
     public init() {
-        _workspace = State(initialValue: WorkspaceModel())
+        let workspace = WorkspaceModel()
+        _workspace = State(initialValue: workspace)
+        GraphiteApplicationDelegate.workspaceToSave = workspace
     }
 
     /// For checks outside the app: the scenes of a workspace made elsewhere.
@@ -34,5 +37,43 @@ public struct GraphiteMacScenes: Scene {
     }
 
     static let mainWindowIdentifier = "main"
+}
+
+/// Saves what is open before Graphite quits. A note saves once typing has paused for most
+/// of a second, so ⌘Q right after typing lost the last words: the window's teardown
+/// cancelled the save that was waiting.
+public final class GraphiteApplicationDelegate: NSObject, NSApplicationDelegate {
+    @MainActor static weak var workspaceToSave: WorkspaceModel?
+    /// How long quitting waits for the saves, so a file another app holds cannot keep
+    /// Graphite from quitting.
+    private static let saveDeadline = Duration.seconds(5)
+
+    @MainActor public func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let workspace = Self.workspaceToSave else { return .terminateNow }
+        let reply = TerminationReply(application: sender)
+        Task { @MainActor in
+            try? await workspace.saveOpenDocuments()
+            reply.allowTermination()
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: Self.saveDeadline)
+            reply.allowTermination()
+        }
+        return .terminateLater
+    }
+
+    /// Answers the application once, whichever of the saves and the deadline ends first.
+    @MainActor private final class TerminationReply {
+        private let application: NSApplication
+        private var hasReplied = false
+
+        init(application: NSApplication) { self.application = application }
+
+        func allowTermination() {
+            guard !hasReplied else { return }
+            hasReplied = true
+            application.reply(toApplicationShouldTerminate: true)
+        }
+    }
 }
 #endif
