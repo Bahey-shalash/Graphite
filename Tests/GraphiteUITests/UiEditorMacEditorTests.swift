@@ -74,27 +74,51 @@ final class UiEditorMacEditorTests: XCTestCase {
 
     // MARK: Markup the Mac cannot draw stays visible (F168)
 
-    func testBulletsCheckboxesQuotesAndMathStayVisibleAwayFromTheCursor() {
-        let source = "- [ ] task\nInline $x^2$ math\n- bullet\n> quote\nlast" as NSString
-        let textStorage = NSTextStorage(string: source as String)
-        // The Mac's default styler already leaves this markup visible; a styler that draws
-        // replacements hides it, which is what `showSource` must undo.
-        let styler = MarkdownTextStyler(configuration: EditorConfiguration(), accentColor: .controlAccentColor, drawsConcealedReplacements: true)
-        let revealedMarkup = RevealedMarkup(selection: NSRange(location: source.length, length: 0), in: source)
-        styler.applyStyles(to: textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedMarkup: revealedMarkup, concealedBlocks: [])
-        let markers = ["- ", "[ ]", "- b", ">"].map { marker in source.range(of: marker) }
-        let hiddenBefore = markers.filter { marker in !isVisible(marker, in: textStorage) }
-        XCTAssertFalse(hiddenBefore.isEmpty, "The shared styler hides markup it expects a drawing for")
+    /// The Mac draws bullets, task boxes, quote bars and formulas over their hidden markup,
+    /// as the iPad does, with the same layout fragment.
+    func testBulletsCheckboxesQuotesAndMathAreDrawnOverTheirHiddenMarkup() async throws {
+        let text = "- [ ] task\nInline $x^2$ math\n- bullet\n> quote\nlast"
+        let (_, textView, _) = try await makeEditor(text: text)
+        let source = text as NSString
+        textView.setSelectedRange(NSRange(location: source.length, length: 0))
+        let textStorage = try XCTUnwrap(textView.textStorage)
+        let (coordinator, _, _) = (textView.delegate as? NativeMarkdownEditor.Coordinator, 0, 0)
+        try XCTUnwrap(coordinator).restyleEverything(in: textView)
+        for marker in ["- ", "[ ]", "- b", ">", "$x^2$"] {
+            let range = source.range(of: marker)
+            var replacement: Any?
+            textStorage.enumerateAttribute(ConcealedReplacement.attributeKey, in: range) { value, _, _ in if value != nil { replacement = value } }
+            let isConcealedMarker = !isVisible(NSRange(location: range.location, length: 1), in: textStorage)
+            XCTAssertTrue(replacement != nil || isConcealedMarker, "\(marker) is drawn or hidden")
+        }
+        let textLayoutManager = try XCTUnwrap(textView.textLayoutManager)
+        let documentStart = textLayoutManager.documentRange.location
+        let fragment = try XCTUnwrap(textLayoutManager.textLayoutFragment(for: documentStart))
+        XCTAssertTrue(fragment is ConcealedReplacementLayoutFragment, "The Mac's paragraphs are drawn by the replacements' fragment")
+    }
 
-        UndrawnReplacementStyling.showSource(in: textStorage, range: NSRange(location: 0, length: source.length), baseFont: styler.baseFont)
-        for marker in markers + [source.range(of: "$x^2$")] {
-            XCTAssertTrue(isVisible(marker, in: textStorage), "\(source.substring(with: marker)) is hidden")
-        }
-        var remainingReplacements = 0
-        textStorage.enumerateAttribute(ConcealedReplacement.attributeKey, in: NSRange(location: 0, length: source.length)) { value, _, _ in
-            if value != nil { remainingReplacements += 1 }
-        }
-        XCTAssertEqual(remainingReplacements, 0)
+    /// A click on a drawn task box checks it, through the text view so it can be undone; a
+    /// click on the box of the cursor's line, where `[ ]` shows as written, places the cursor.
+    func testAClickOnADrawnTaskBoxChecksItAndCanBeUndone() async throws {
+        let text = "- [ ] Write the essay\n- [x] Read the paper\nLast line"
+        let (coordinator, textView, _) = try await makeEditor(text: text)
+        let source = text as NSString
+        textView.setSelectedRange(NSRange(location: source.length, length: 0))
+        coordinator.textViewDidChangeSelection(Notification(name: NSTextView.didChangeSelectionNotification, object: textView))
+        XCTAssertTrue(coordinator.toggleTask(atCharacter: source.range(of: "[ ]").location + 1, in: textView))
+        XCTAssertEqual(textView.string, "- [x] Write the essay\n- [x] Read the paper\nLast line")
+        XCTAssertEqual(textView.selectedRange(), NSRange(location: source.length, length: 0), "The cursor stays where it was")
+        coordinator.noteUndoManager.undo()
+        XCTAssertEqual(textView.string, text)
+        // The editor takes in the undone edit on the next turn of the run loop, before a next click could come.
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertTrue(coordinator.toggleTask(atCharacter: source.range(of: "[x] Read").location + 1, in: textView))
+        XCTAssertEqual(textView.string, "- [ ] Write the essay\n- [ ] Read the paper\nLast line")
+        XCTAssertFalse(coordinator.toggleTask(atCharacter: source.range(of: "Last").location, in: textView), "Text is not a box")
+        // On the cursor's line the box shows as `[ ]`; a click there places the cursor.
+        textView.setSelectedRange(NSRange(location: source.range(of: "Write").location, length: 0))
+        coordinator.textViewDidChangeSelection(Notification(name: NSTextView.didChangeSelectionNotification, object: textView))
+        XCTAssertFalse(coordinator.toggleTask(atCharacter: 3, in: textView))
     }
 
     // MARK: Restyling only what changed (F174, F184)
