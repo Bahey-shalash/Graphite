@@ -62,6 +62,8 @@ struct VaultSidebar: View {
     @FocusState private var isSearchFocused: Bool
     @Environment(\.accent) private var accent
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    /// The vault's interface font, which the Mac's file tree draws names in.
+    @Environment(\.noteTypography) private var typography
     @AppStorage(SidebarPanelSettingKey.panel) private var storedPanel = SidebarPanel.files
     @State private var overview = VaultOverviewModel()
     @AppStorage(SidebarPanelSettingKey.tagSortOrder) private var tagSortOrder = VaultListSortOrder.frequencyDescending
@@ -152,7 +154,14 @@ struct VaultSidebar: View {
         }
         .propertyRenameAlert(overview, workspace: workspace)
         .bookmarkAlerts(overview, workspace: workspace)
+        // The Mac's file tree is an outline view, which SwiftUI cannot put its sidebar field
+        // over: there the field is in the toolbar, as Notes' and Mail's, and its results fill
+        // the sidebar.
+        #if os(macOS)
+        .searchable(text: $workspace.searchQuery, placement: .toolbar, prompt: "Search")
+        #else
         .searchable(text: $workspace.searchQuery, placement: .sidebar, prompt: "Search")
+        #endif
         .searchFocused($isSearchFocused)
         .onChange(of: workspace.searchFocusRequest) { isSearchFocused = true }
         .searchSuggestions { searchSuggestions }
@@ -252,6 +261,32 @@ struct VaultSidebar: View {
 
     private var sidebarList: some View {
         Group {
+            #if os(macOS)
+            if showsNativeFileTree {
+                MacFileTree(workspace: workspace, typography: typography, fileToReveal: $fileToReveal) { kind, directory in
+                    creation = CreationRequest(kind: kind, directory: directory)
+                }
+            } else {
+                swiftUIList
+            }
+            #else
+            swiftUIList
+            #endif
+        }
+        // Folders expanded in one vault must not stay expanded, with stale contents, in the next.
+        .id(workspace.currentVaultIdentifier)
+    }
+
+    #if os(macOS)
+    /// The file tree is AppKit's outline view on the Mac (`MacFileTree`); picking several
+    /// files, search results and the other panels stay lists.
+    private var showsNativeFileTree: Bool {
+        workspace.store != nil && workspace.searchQuery.isEmpty && panel == .files && workspace.pickedSidebarFiles == nil && !workspace.rootEntries.isEmpty
+    }
+    #endif
+
+    private var swiftUIList: some View {
+        Group {
             if let pickedFiles = workspace.pickedSidebarFiles, workspace.searchQuery.isEmpty, panel == .files {
                 // Picking several files for plugins' actions, as Obsidian's file explorer does
                 // with several files selected.
@@ -264,8 +299,6 @@ struct VaultSidebar: View {
                 openingList
             }
         }
-        // Folders expanded in one vault must not stay expanded, with stale contents, in the next.
-        .id(workspace.currentVaultIdentifier)
         // The sidebar style beside a document; on a phone, where it draws a card of rows
         // with separators, a plain list in the page's color, as Obsidian mobile's explorer.
         .modifier(SidebarListStyle(isCompactWidth: isCompactWidth))
@@ -632,7 +665,7 @@ private struct VaultEntryRow: View, Equatable {
         .accessibilityLabel(entry.path.name)
         .accessibilityValue(isExpanded.wrappedValue ? "Expanded" : "Collapsed")
         .accessibilityHint("Folder")
-        .contextMenu { folderMenu }
+        .contextMenu { VaultEntryMenu(entry: entry, workspace: workspace, requestCreation: requestCreation) }
         .dropDestination(for: VaultItemTransfer.self) { items, _ in
             let paths = items.compactMap { item in try? VaultPath(item.path) }.filter { path in path != entry.path }
             guard !paths.isEmpty else { return false }
@@ -676,7 +709,7 @@ private struct VaultEntryRow: View, Equatable {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(workspace.preferences.displayName(for: entry.path))
-        .contextMenu { fileMenu }
+        .contextMenu { VaultEntryMenu(entry: entry, workspace: workspace, requestCreation: requestCreation) }
         // A drop on a file lands in the file's folder, as in Obsidian. Without this the
         // list's own destination would take it and move the item to the vault's root.
         .dropDestination(for: VaultItemTransfer.self) { items, _ in
@@ -696,6 +729,23 @@ private struct VaultEntryRow: View, Equatable {
         guard !fileExtension.isEmpty else { return nil }
         if entry.kind == .markdown && !workspace.preferences.showsFileExtensions { return nil }
         return "." + fileExtension
+    }
+
+}
+
+/// The menu of a file or folder of the tree: the iPad's rows show it as their context menu,
+/// the Mac's outline view as an AppKit menu (`NSHostingMenu`).
+struct VaultEntryMenu: View {
+    let entry: VaultEntry
+    @Bindable var workspace: WorkspaceModel
+    let requestCreation: (CreationKind, VaultPath) -> Void
+
+    var body: some View {
+        if entry.isDirectory {
+            folderMenu
+        } else {
+            fileMenu
+        }
     }
 
     @ViewBuilder private var fileMenu: some View {
