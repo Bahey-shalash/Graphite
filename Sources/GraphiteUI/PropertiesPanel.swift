@@ -59,6 +59,15 @@ struct PropertiesPanel: View {
             }
         }
         .padding(.bottom, 18)
+        // Values read as text and dates as a short date, as in Obsidian: the iPad's
+        // defaults. The Mac's put a bordered box around every value and steppers beside
+        // dates, which its compact style keeps; its field style has none.
+        .textFieldStyle(.plain)
+        #if os(macOS)
+        .datePickerStyle(.field)
+        #else
+        .datePickerStyle(.compact)
+        #endif
         .onGeometryChange(for: CGFloat.self) { geometry in geometry.size.width } action: { width in panelWidth = width }
         .onChange(of: properties) { editing.parsedPropertiesChanged() }
     }
