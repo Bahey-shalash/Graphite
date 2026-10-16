@@ -1731,6 +1731,9 @@ private struct ObsidianMarkdownTextContent: View, Equatable {
                 .textual.textSelection(.enabled)
                 .textual.inlineStyle(inlineStyle)
                 .textual.codeBlockStyle(ObsidianCodeBlockStyle(monospaceFont: typography.monospaceSwiftUIFont(size: textSize), theme: theme))
+                // Code is colored as the editor colors it (`CodeSyntaxColors`).
+                .textual.highlighterTheme(CodeSyntaxColors.highlighterTheme(theme: theme))
+                .textual.codeSegmenter(CodeSyntaxColors.readingSegments)
                 .textual.listItemStyle(ObsidianListItemStyle(textSize: textSize, theme: theme))
                 .textual.imageAttachmentLoader(VaultImageLoader(root: root))
                 .textual.headingStyle(ObsidianHeadingStyle(theme: theme, typography: typography, textSize: textSize))

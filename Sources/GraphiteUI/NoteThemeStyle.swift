@@ -32,6 +32,9 @@ struct NoteThemeStyle: Equatable {
     let checkboxBorderColor: PlatformColor?
     let codeBackground: PlatformColor?
     let codeColor: PlatformColor?
+    /// Syntax colors in code blocks, readable on the theme's code background; empty when the
+    /// theme leaves them to Graphite (`CodeSyntaxColors`).
+    let codeTokenColors: [CodeTokenKind: PlatformColor]
     let blockquoteBorderColor: PlatformColor?
     let highlightBackground: PlatformColor?
     let horizontalRuleColor: PlatformColor?
@@ -156,6 +159,16 @@ struct NoteThemeStyle: Equatable {
         checkboxBorderColor = color(\.checkboxBorderColor, .decoration, fallback: Self.systemSecondaryLabel)
         codeBackground = color(\.codeBackground, .decoration, fallback: MarkdownTextStyler.codeBackgroundColor)
         codeColor = color(\.codeColor, on: \.codeBackground, fallback: Self.systemLabel)
+        var codeTokenColors: [CodeTokenKind: PlatformColor] = [:]
+        for kind in CodeTokenKind.allCases {
+            let lightColor = light.codeTokenColors?[kind.rawValue], darkColor = dark.codeTokenColors?[kind.rawValue]
+            // In an appearance the theme leaves alone, Graphite's own syntax color.
+            codeTokenColors[kind] = Self.dynamicColor(light: lightColor, dark: darkColor, role: .text,
+                                                      lightPage: light.codeBlockBackground?.composited(over: lightPage) ?? light.codeBackground?.composited(over: lightPage) ?? lightPage,
+                                                      darkPage: dark.codeBlockBackground?.composited(over: darkPage) ?? dark.codeBackground?.composited(over: darkPage) ?? darkPage,
+                                                      fallback: CodeSyntaxColors.graphiteColor(for: kind))
+        }
+        self.codeTokenColors = codeTokenColors
         blockquoteBorderColor = color(\.blockquoteBorderColor, .decoration, fallback: graphiteAccent)
         // A highlight that could be taken for Read Aloud's blue word highlight is not used.
         let lightHighlight = light.highlightBackground.flatMap { highlight in ThemeContrastGuard.resemblesReadAloudHighlight(highlight) ? nil : highlight }
