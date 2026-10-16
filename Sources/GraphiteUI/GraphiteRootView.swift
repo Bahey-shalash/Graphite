@@ -6,13 +6,13 @@ import GraphiteIndex
 
 public struct GraphiteRootView: View {
     @State private var workspace = WorkspaceModel()
+    /// The Mac shows Settings in its own window (`GraphiteMacScenes`).
     @State private var showsSettings = false
     /// Settings › Read Aloud › Floating Player; off keeps the controls in the toolbar.
     @AppStorage("GraphiteReadAloudFloatingPlayer") private var usesFloatingPlayer = true
     /// `graphite://` links wait until the last vault has reopened.
     @State private var isVaultRestored = false
     @State private var pendingLinks: [URL] = []
-    @State private var showsVaultManager = false
     @State private var opensVaultManagerAfterSettings = false
     @State private var creation: CreationRequest?
     @State private var showsInspector = false
@@ -34,6 +34,9 @@ public struct GraphiteRootView: View {
     @State private var isRestoringVault = true
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    #if os(macOS)
+    @Environment(\.openSettings) private var openSettings
+    #endif
 
     private enum ActivePalette { case quickSwitcher, commandPalette, templatePicker }
 
@@ -51,9 +54,14 @@ public struct GraphiteRootView: View {
         _isRestoringVault = State(initialValue: false)
     }
 
+    /// The root view of a workspace other scenes share, as the Mac's Settings window does.
+    init(reopeningLastVaultIn workspace: WorkspaceModel) {
+        _workspace = State(initialValue: workspace)
+    }
+
     public var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility, preferredCompactColumn: $preferredCompactColumn) {
-            VaultSidebar(workspace: workspace, creation: $creation, showsSettings: $showsSettings, showsVaultManager: $showsVaultManager,
+            VaultSidebar(workspace: workspace, creation: $creation, showsSettings: showsSettingsBinding, showsVaultManager: $workspace.isVaultManagerPresented,
                          showDocument: showDocumentColumn)
                 .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 480)
         } detail: {
@@ -91,14 +99,16 @@ public struct GraphiteRootView: View {
                                                                           save: { Task { await save() } }))
         .overlay { paletteOverlay }
         .animation(GraphiteMotion.animation(.snappy(duration: 0.18)), value: activePalette)
+        #if canImport(UIKit)
         .sheet(isPresented: $showsSettings, onDismiss: {
-            if opensVaultManagerAfterSettings { opensVaultManagerAfterSettings = false; showsVaultManager = true }
+            if opensVaultManagerAfterSettings { opensVaultManagerAfterSettings = false; workspace.isVaultManagerPresented = true }
         }) {
             SettingsView(workspace: workspace) { opensVaultManagerAfterSettings = true }
                 .tint(workspace.preferences.accentColor)
                 .presentationSizing(.page)
         }
-        .sheet(isPresented: $showsVaultManager) {
+        #endif
+        .sheet(isPresented: $workspace.isVaultManagerPresented) {
             NavigationStack { VaultManagerView(workspace: workspace) }
                 .tint(workspace.preferences.accentColor)
                 .frame(minWidth: 420, minHeight: 480)
@@ -129,7 +139,7 @@ public struct GraphiteRootView: View {
             }
         }
         .modifier(FileManagementPresentation(workspace: workspace))
-        .modifier(CommunityPluginPresentation(workspace: workspace) { showsSettings = true })
+        .modifier(CommunityPluginPresentation(workspace: workspace) { showSettings() })
         #if canImport(UIKit)
         .fullScreenCover(isPresented: $workspace.isGraphPresented) {
             VaultGraphScreen(workspace: workspace).tint(workspace.preferences.accentColor)
@@ -418,8 +428,8 @@ public struct GraphiteRootView: View {
 
     private var windowActions: WindowActions {
         WindowActions(showQuickSwitcher: { activePalette = .quickSwitcher },
-                      showSettings: { showsSettings = true },
-                      showVaultManager: { showsVaultManager = true },
+                      showSettings: showSettings,
+                      showVaultManager: { workspace.isVaultManagerPresented = true },
                       toggleLinksInspector: { showsInspector.toggle() },
                       toggleSidebar: {
                           if isCompactWidth {
@@ -433,6 +443,19 @@ public struct GraphiteRootView: View {
                       create: { kind in creation = CreationRequest(kind: kind) },
                       showTemplatePicker: showTemplatePicker,
                       toggleFocusMode: toggleFocusMode)
+    }
+
+    private func showSettings() {
+        #if os(macOS)
+        openSettings()
+        #else
+        showsSettings = true
+        #endif
+    }
+
+    /// The sidebar's Settings button; the Mac's Settings window opens from the app menu instead.
+    private var showsSettingsBinding: Binding<Bool> {
+        Binding(get: { showsSettings }, set: { isShown in if isShown { showSettings() } else { showsSettings = false } })
     }
 
     private var templatePickerAction: TemplatePickerAction? {

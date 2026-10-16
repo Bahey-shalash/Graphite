@@ -34,10 +34,13 @@ public struct GraphiteCommands: Commands {
                 .keyboardShortcut("s", modifiers: .command)
                 .disabled(workspace == nil)
         }
+        #if canImport(UIKit)
+        // The Mac's Settings scene puts "Settings…" and ⌘, in the app menu itself.
         CommandGroup(replacing: .appSettings) {
             Button("Settings…") { actions?.window.showSettings() }
                 .keyboardShortcut(",", modifiers: .command)
         }
+        #endif
         CommandGroup(after: .textEditing) {
             Button("Search in All Files") { workspace?.searchFocusRequest += 1 }
                 .keyboardShortcut("f", modifiers: [.command, .shift])

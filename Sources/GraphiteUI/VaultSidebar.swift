@@ -163,9 +163,12 @@ struct VaultSidebar: View {
             do { try await Task.sleep(for: .milliseconds(180)); await workspace.search() } catch {}
         }
         .toolbar {
+            #if canImport(UIKit)
+            // On the Mac, Settings is in the app menu (⌘,), as in every Mac app.
             ToolbarItem(placement: .navigation) {
                 Button("Settings", systemImage: "gearshape") { showsSettings = true }.tint(.primary)
             }
+            #endif
             if workspace.store != nil {
                 ToolbarItemGroup(placement: .primaryAction) {
                     Menu("New", systemImage: "square.and.pencil") {

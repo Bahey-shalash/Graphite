@@ -4,6 +4,14 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-16.
 
+## The Mac interface, made a Mac app's: 2026-10-16
+
+The owner asked for an interface as pleasant and quick as Apple Notes, after NetNewsWire's. It changes in steps, each checked in Graphite's real window: a scratch app outside the repository hosts the Mac's scenes (`GraphiteMacScenes`) on a sample vault, makes its window the key window, runs a script of steps (menu commands, clicks, ⌘ shortcuts sent through the application) and captures each window.
+
+- Settings is a window of its own, opened with ⌘, from the app menu, laid out like System Settings; the sidebar's Settings button is gone on the Mac. Checked in that window: the window opens at 900 by 588 points with every page's name whole, ⌘W closes it (it did nothing before the fix; a first fix in the menu bar's ⌘W closed the main window, which quits the app, and was replaced), ⌘W in the main window still closes the open tab, and "Manage Vaults…" closes Settings and shows the vault list in the main window. `swift test` for the root view, Settings, commands, focus mode and the file tree passes; the Mac (Release, arm64) and iPad simulator apps build.
+
+Not verified: Settings opened from the app's own menu bar by hand, and a plugin asking for its settings tab while the Settings window is closed.
+
 ## The note's properties above its text on the Mac: 2026-10-16
 
 The Mac's Live Preview showed a note's frontmatter as YAML; the owner asked for the properties as Obsidian shows them. They now appear in the properties view the iPad uses, at the top of the note, over their concealed YAML; editing one rewrites the frontmatter through the session, as on the iPad, and can be undone. The cursor never stays in the hidden YAML: a note opened at its start puts it on the first line of text, and a backspace there does not join the properties' closing line to the text. "Edit Source" shows the YAML, with the cursor on the first property, until the cursor leaves it. Without Live Preview or with the Properties view off, the YAML stays styled text. Finding the frontmatter after an edit reads only the start of the note, not every line.
