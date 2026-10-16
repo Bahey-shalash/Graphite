@@ -913,7 +913,8 @@ struct NoteLinksInspector: View {
                 Picker("Panel", selection: $selectedPanel) {
                     ForEach(availablePanels) { panel in Image(systemName: panel.plugin.systemImage).tag(panel).accessibilityLabel(panel.plugin.title) }
                 }
-                .pickerStyle(.segmented).padding(10)
+                // The Mac otherwise writes the picker's own name, "Panel", before it.
+                .pickerStyle(.segmented).labelsHidden().padding(10)
                 if selectedPanel == .graph {
                     LocalGraphPanel(session: session, workspace: workspace)
                 } else if selectedPanel == .map {
