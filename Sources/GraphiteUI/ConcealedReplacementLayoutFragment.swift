@@ -1,11 +1,28 @@
 #if canImport(UIKit)
 import UIKit
+#else
+import AppKit
+#endif
 import SwiftUI
 import Textual
 
+#if canImport(UIKit)
+private typealias DrawingPath = UIBezierPath
+#else
+private typealias DrawingPath = NSBezierPath
+
+private extension NSBezierPath {
+    convenience init(roundedRect rect: CGRect, cornerRadius: CGFloat) {
+        self.init(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
+    }
+
+    func addLine(to point: CGPoint) { line(to: point) }
+}
+#endif
+
 /// Draws Live Preview's replacements (bullets, task checkboxes, the " > " of
 /// `[[Note#Heading]]`, and inline math) over the invisible markup they stand for. The
-/// note's text is never changed, so saving and undo stay exact.
+/// note's text is never changed, so saving and undo stay exact. Both editors install it.
 final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
     /// Whether the paragraph holds inline math. TextKit makes a new element and fragment
     /// when the paragraph's attributes change, so this is decided once, when it is made.
@@ -26,7 +43,7 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
             var prefixWidth: CGFloat = 0
             attributedString.enumerateAttribute(ConcealedReplacement.headingOrnamentKey, in: wholeString) { value, range, stop in
                 guard let ornament = value as? ThemedHeadingOrnament, let prefix = ornament.prefix else { return }
-                let font = attributedString.attribute(.font, at: range.location, effectiveRange: nil) as? UIFont ?? .preferredFont(forTextStyle: .body)
+                let font = attributedString.attribute(.font, at: range.location, effectiveRange: nil) as? PlatformFont ?? .preferredFont(forTextStyle: .body)
                 prefixWidth = Self.prefixFont(for: font).map { prefixFont in (prefix as NSString).size(withAttributes: [.font: prefixFont]).width + 8 } ?? 0
                 stop.pointee = true
             }
@@ -45,8 +62,31 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
     }
 
     /// A heading's prefix is set smaller than the heading, as themes set level markers.
-    private static func prefixFont(for headingFont: UIFont) -> UIFont? {
-        UIFont.systemFont(ofSize: max(headingFont.pointSize * 0.55, 11), weight: .semibold)
+    private static func prefixFont(for headingFont: PlatformFont) -> PlatformFont? {
+        PlatformFont.systemFont(ofSize: max(headingFont.pointSize * 0.55, 11), weight: .semibold)
+    }
+
+    /// Makes `context` the one UIKit's or AppKit's drawing calls draw into while `drawing` runs.
+    /// TextKit's context is flipped, top to bottom, as the text view is.
+    private static func drawing(in context: CGContext, _ drawing: () -> Void) {
+        #if canImport(UIKit)
+        UIGraphicsPushContext(context)
+        drawing()
+        UIGraphicsPopContext()
+        #else
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
+        drawing()
+        NSGraphicsContext.restoreGraphicsState()
+        #endif
+    }
+
+    private static var secondaryLabelColor: PlatformColor {
+        #if canImport(UIKit)
+        .secondaryLabel
+        #else
+        .secondaryLabelColor
+        #endif
     }
 
     /// Only a formula can reach above or below its line box, for example while its
@@ -71,16 +111,16 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
     }
 
     override func draw(at point: CGPoint, in context: CGContext) {
-        UIGraphicsPushContext(context)
-        drawThemeShapesBehindText(at: point)
-        UIGraphicsPopContext()
+        Self.drawing(in: context) { drawThemeShapesBehindText(at: point) }
         super.draw(at: point, in: context)
-        UIGraphicsPushContext(context)
-        defer { UIGraphicsPopContext() }
+        Self.drawing(in: context) { drawReplacementsOverText(at: point) }
+    }
+
+    private func drawReplacementsOverText(at point: CGPoint) {
         drawHeadingOrnamentsOverText(at: point)
         // A quoted line's bars, found on its first line fragment and drawn on every one, so
         // the lines a long quote wraps onto have bars too. Offsets are from `point.x`.
-        var quoteBars: (offsets: [CGFloat], color: UIColor)?
+        var quoteBars: (offsets: [CGFloat], color: PlatformColor)?
         for lineFragment in textLineFragments {
             let attributedString = lineFragment.attributedString
             let lineOrigin = CGPoint(x: point.x + lineFragment.typographicBounds.minX, y: point.y + lineFragment.typographicBounds.minY)
@@ -90,7 +130,7 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
                 guard let rawValue = value as? String, let replacement = ConcealedReplacement(rawValue: rawValue), replacement != .inlineMath else { return }
                 let startX = lineOrigin.x + lineFragment.locationForCharacter(at: range.location).x
                 let endX = lineOrigin.x + lineFragment.locationForCharacter(at: NSMaxRange(range)).x
-                let color = attributedString.attribute(ConcealedReplacement.colorAttributeKey, at: range.location, effectiveRange: nil) as? UIColor ?? .secondaryLabel
+                let color = attributedString.attribute(ConcealedReplacement.colorAttributeKey, at: range.location, effectiveRange: nil) as? PlatformColor ?? Self.secondaryLabelColor
                 if replacement == .quoteBar {
                     // One bar per `>`, so each level of a nested quote shows.
                     let marker = attributedString.attributedSubstring(from: range).string as NSString
@@ -100,7 +140,7 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
                     quoteBars = (offsets, color)
                     return
                 }
-                let font = attributedString.attribute(.font, at: range.location, effectiveRange: nil) as? UIFont ?? .preferredFont(forTextStyle: .body)
+                let font = attributedString.attribute(.font, at: range.location, effectiveRange: nil) as? PlatformFont ?? .preferredFont(forTextStyle: .body)
                 let box = CGRect(x: startX, y: baseline - font.ascender, width: max(endX - startX, 1), height: font.ascender - font.descender)
                 if let checkboxStyle = attributedString.attribute(ConcealedReplacement.checkboxStyleKey, at: range.location, effectiveRange: nil) as? ThemedCheckboxStyle {
                     Self.drawCheckbox(isChecked: replacement == .checkedTask, style: checkboxStyle, in: box, font: font)
@@ -112,7 +152,7 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
                 // The whole line's height, so the bars of consecutive quoted lines join.
                 quoteBars.color.withAlphaComponent(0.6).setFill()
                 for offset in quoteBars.offsets {
-                    UIBezierPath(rect: CGRect(x: point.x + offset + 1, y: lineOrigin.y, width: 2.5, height: lineFragment.typographicBounds.height)).fill()
+                    DrawingPath(rect: CGRect(x: point.x + offset + 1, y: lineOrigin.y, width: 2.5, height: lineFragment.typographicBounds.height)).fill()
                 }
             }
             drawInlineMath(in: lineFragment, lineOrigin: lineOrigin, baseline: baseline)
@@ -145,23 +185,23 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
             let attributedString = lineFragment.attributedString
             let lineOrigin = CGPoint(x: point.x + lineFragment.typographicBounds.minX, y: point.y + lineFragment.typographicBounds.minY)
             let lineHeight = lineFragment.typographicBounds.height
-            if let quoteBackground = Self.firstValue(ConcealedReplacement.quoteBackgroundKey, in: lineFragment) as? UIColor {
+            if let quoteBackground = Self.firstValue(ConcealedReplacement.quoteBackgroundKey, in: lineFragment) as? PlatformColor {
                 quoteBackground.setFill()
-                UIBezierPath(rect: CGRect(x: point.x, y: lineOrigin.y, width: columnWidth, height: lineHeight)).fill()
+                DrawingPath(rect: CGRect(x: point.x, y: lineOrigin.y, width: columnWidth, height: lineHeight)).fill()
             }
             if let ornament = Self.firstValue(ConcealedReplacement.headingOrnamentKey, in: lineFragment) as? ThemedHeadingOrnament, let background = ornament.background {
                 background.setFill()
-                UIBezierPath(roundedRect: CGRect(x: point.x - 4, y: lineOrigin.y, width: columnWidth + 8, height: lineHeight), cornerRadius: 4).fill()
+                DrawingPath(roundedRect: CGRect(x: point.x - 4, y: lineOrigin.y, width: columnWidth + 8, height: lineHeight), cornerRadius: 4).fill()
             }
             attributedString.enumerateAttribute(ConcealedReplacement.roundedBackgroundKey, in: lineFragment.characterRange) { value, range, _ in
                 guard let shape = value as? ThemedTextShape else { return }
                 let startX = lineOrigin.x + lineFragment.locationForCharacter(at: range.location).x
                 let endX = lineOrigin.x + lineFragment.locationForCharacter(at: NSMaxRange(range)).x
-                let font = attributedString.attribute(.font, at: range.location, effectiveRange: nil) as? UIFont ?? .preferredFont(forTextStyle: .body)
+                let font = attributedString.attribute(.font, at: range.location, effectiveRange: nil) as? PlatformFont ?? .preferredFont(forTextStyle: .body)
                 let baseline = lineOrigin.y + lineFragment.glyphOrigin.y
                 // One point either side: a space between two tags still shows between their pills.
                 let box = CGRect(x: startX - 1, y: baseline - font.ascender - 1, width: max(endX - startX, 1) + 2, height: font.ascender - font.descender + 2)
-                let path = UIBezierPath(roundedRect: box, cornerRadius: min(shape.cornerRadius, box.height / 2))
+                let path = DrawingPath(roundedRect: box, cornerRadius: min(shape.cornerRadius, box.height / 2))
                 shape.color.setFill()
                 path.fill()
                 if let borderColor = shape.borderColor, shape.borderWidth > 0 {
@@ -180,14 +220,14 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
         if let underlineColor = ornament.underlineColor {
             underlineColor.setFill()
             let bottom = point.y + lastLine.typographicBounds.maxY
-            UIBezierPath(rect: CGRect(x: point.x, y: bottom - ornament.underlineWidth, width: columnWidth, height: ornament.underlineWidth)).fill()
+            DrawingPath(rect: CGRect(x: point.x, y: bottom - ornament.underlineWidth, width: columnWidth, height: ornament.underlineWidth)).fill()
         }
         if let prefix = ornament.prefix {
             let attributedString = firstLine.attributedString
-            let font = attributedString.attribute(.font, at: max(firstLine.characterRange.location, NSMaxRange(firstLine.characterRange) - 1), effectiveRange: nil) as? UIFont
+            let font = attributedString.attribute(.font, at: max(firstLine.characterRange.location, NSMaxRange(firstLine.characterRange) - 1), effectiveRange: nil) as? PlatformFont
                 ?? .preferredFont(forTextStyle: .body)
             guard let prefixFont = Self.prefixFont(for: font) else { return }
-            let attributes: [NSAttributedString.Key: Any] = [.font: prefixFont, .foregroundColor: ornament.prefixColor ?? UIColor.secondaryLabel]
+            let attributes: [NSAttributedString.Key: Any] = [.font: prefixFont, .foregroundColor: ornament.prefixColor ?? Self.secondaryLabelColor]
             let size = (prefix as NSString).size(withAttributes: attributes)
             let baseline = point.y + firstLine.typographicBounds.minY + firstLine.glyphOrigin.y
             (prefix as NSString).draw(at: CGPoint(x: point.x - size.width - 6, y: baseline - prefixFont.ascender), withAttributes: attributes)
@@ -205,16 +245,16 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
     }
 
     /// A theme's checkbox: its corners, border and colors, with a check mark when done.
-    private static func drawCheckbox(isChecked: Bool, style: ThemedCheckboxStyle, in box: CGRect, font: UIFont) {
+    private static func drawCheckbox(isChecked: Bool, style: ThemedCheckboxStyle, in box: CGRect, font: PlatformFont) {
         let side = font.pointSize * 0.85
         let frame = CGRect(x: box.midX - side / 2, y: box.midY - side / 2, width: side, height: side)
-        let path = UIBezierPath(roundedRect: frame.insetBy(dx: style.borderWidth / 2, dy: style.borderWidth / 2),
+        let path = DrawingPath(roundedRect: frame.insetBy(dx: style.borderWidth / 2, dy: style.borderWidth / 2),
                                 cornerRadius: min(style.radiusScale * font.pointSize, side / 2))
         path.lineWidth = style.borderWidth
         if isChecked {
             style.fill.setFill(); path.fill()
             style.fill.setStroke(); path.stroke()
-            let mark = UIBezierPath()
+            let mark = DrawingPath()
             mark.move(to: CGPoint(x: frame.minX + side * 0.24, y: frame.midY + side * 0.02))
             mark.addLine(to: CGPoint(x: frame.minX + side * 0.43, y: frame.minY + side * 0.72))
             mark.addLine(to: CGPoint(x: frame.minX + side * 0.78, y: frame.minY + side * 0.3))
@@ -226,27 +266,45 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
         }
     }
 
-    private static func draw(_ replacement: ConcealedReplacement, in box: CGRect, font: UIFont, color: UIColor) {
+    private static func draw(_ replacement: ConcealedReplacement, in box: CGRect, font: PlatformFont, color: PlatformColor) {
         switch replacement {
         case .bullet:
             // A dot centered on the lowercase letters, like Obsidian's list bullets.
             let diameter = max(5, font.pointSize * 0.3)
             let centerY = box.minY + font.ascender - font.xHeight / 2
             color.setFill()
-            UIBezierPath(ovalIn: CGRect(x: box.midX - diameter / 2, y: centerY - diameter / 2, width: diameter, height: diameter)).fill()
+            DrawingPath(ovalIn: CGRect(x: box.midX - diameter / 2, y: centerY - diameter / 2, width: diameter, height: diameter)).fill()
         case .subpathSeparator:
             drawCentered(ConcealedReplacement.subpathSeparatorText, in: box, font: font, color: color)
         case .uncheckedTask, .checkedTask:
-            let symbolName = replacement == .checkedTask ? "checkmark.square.fill" : "square"
-            let configuration = UIImage.SymbolConfiguration(pointSize: font.pointSize * 0.95, weight: .regular)
-            guard let symbol = UIImage(systemName: symbolName, withConfiguration: configuration)?.withTintColor(color, renderingMode: .alwaysOriginal) else { return }
-            symbol.draw(at: CGPoint(x: box.midX - symbol.size.width / 2, y: box.midY - symbol.size.height / 2))
+            drawSymbol(named: replacement == .checkedTask ? "checkmark.square.fill" : "square", pointSize: font.pointSize * 0.95, color: color, centeredIn: box)
         case .inlineMath, .quoteBar:
             break
         }
     }
 
-    private static func drawCentered(_ text: String, in box: CGRect, font: UIFont, color: UIColor) {
+    private static func drawSymbol(named symbolName: String, pointSize: CGFloat, color: PlatformColor, centeredIn box: CGRect) {
+        #if canImport(UIKit)
+        let configuration = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .regular)
+        guard let symbol = UIImage(systemName: symbolName, withConfiguration: configuration)?.withTintColor(color, renderingMode: .alwaysOriginal) else { return }
+        symbol.draw(at: CGPoint(x: box.midX - symbol.size.width / 2, y: box.midY - symbol.size.height / 2))
+        #else
+        let configuration = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .regular)
+        guard let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?.withSymbolConfiguration(configuration) else { return }
+        // In one color, its cut-out parts left clear, as UIKit tints it: the check mark of a
+        // filled box shows the page through it.
+        let tintedSymbol = NSImage(size: symbol.size, flipped: false) { bounds in
+            symbol.draw(in: bounds)
+            color.set()
+            bounds.fill(using: .sourceAtop)
+            return true
+        }
+        let frame = CGRect(x: box.midX - symbol.size.width / 2, y: box.midY - symbol.size.height / 2, width: symbol.size.width, height: symbol.size.height)
+        tintedSymbol.draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        #endif
+    }
+
+    private static func drawCentered(_ text: String, in box: CGRect, font: PlatformFont, color: PlatformColor) {
         let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
         let size = (text as NSString).size(withAttributes: attributes)
         (text as NSString).draw(at: CGPoint(x: box.midX - size.width / 2, y: box.midY - size.height / 2), withAttributes: attributes)
@@ -255,13 +313,24 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
     /// Formulas are drawn in the current appearance's text color, rendered when first seen.
     private static func draw(_ layout: InlineMathLayout, atX originX: CGFloat, baseline: CGFloat) {
         guard Thread.isMainThread else { return }
+        #if canImport(UIKit)
         let traits = UITraitCollection.current
         let color = UIColor.label.resolvedColor(with: traits)
         let scale = max(traits.displayScale, 2)
+        #else
+        // The drawing appearance's text color, in RGB so the cache can key it by components.
+        var color = NSColor.black
+        NSAppearance.currentDrawing().performAsCurrentDrawingAppearance { color = NSColor.labelColor.usingColorSpace(.sRGB) ?? .black }
+        let scale = max(MainActor.assumeIsolated { NSScreen.main?.backingScaleFactor ?? 2 }, 2)
+        #endif
         guard let image = MainActor.assumeIsolated({ InlineMathImageCache.image(for: layout, color: color, scale: scale) }) else { return }
         let metrics = layout.metrics
-        UIImage(cgImage: image, scale: scale, orientation: .up)
-            .draw(in: CGRect(x: originX, y: baseline - metrics.ascent, width: CGFloat(image.width) / scale, height: CGFloat(image.height) / scale))
+        let frame = CGRect(x: originX, y: baseline - metrics.ascent, width: CGFloat(image.width) / scale, height: CGFloat(image.height) / scale)
+        #if canImport(UIKit)
+        UIImage(cgImage: image, scale: scale, orientation: .up).draw(in: frame)
+        #else
+        NSImage(cgImage: image, size: frame.size).draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        #endif
     }
 }
 
@@ -278,14 +347,18 @@ enum InlineMathImageCache {
         return cache
     }()
 
-    static func image(for layout: InlineMathLayout, color: UIColor, scale: CGFloat) -> CGImage? {
+    static func image(for layout: InlineMathLayout, color: PlatformColor, scale: CGFloat) -> CGImage? {
         var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
         color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
         let key = "\(layout.fontSize)|\(scale)|\(red),\(green),\(blue),\(alpha)|\(layout.latex)" as NSString
         if let image = imagesByKey.object(forKey: key) { return image }
-        guard let image = InlineMathRendering.image(for: layout.latex, fontSize: layout.fontSize, color: Color(uiColor: color), scale: scale) else { return nil }
+        #if canImport(UIKit)
+        let formulaColor = Color(uiColor: color)
+        #else
+        let formulaColor = Color(nsColor: color)
+        #endif
+        guard let image = InlineMathRendering.image(for: layout.latex, fontSize: layout.fontSize, color: formulaColor, scale: scale) else { return nil }
         imagesByKey.setObject(image, forKey: key, cost: image.bytesPerRow * image.height)
         return image
     }
 }
-#endif
