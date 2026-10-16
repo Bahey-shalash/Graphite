@@ -71,6 +71,7 @@ struct ReadAloudPronunciationEditor: View {
             Text(vaultRoot == nil
                  ? "Open a vault to add pronunciations."
                  : "How this vault's terms are said, for example SIMDRAM as \"sim dee ram\". Kept in the vault's \(ReadAloudPronunciations.vaultFilePath).")
+                .formFooterAlignment()
         }
         Section {
             ForEach(Self.expansions, id: \.key) { term, pronunciation in
@@ -87,6 +88,7 @@ struct ReadAloudPronunciationEditor: View {
             Text("Said in Full")
         } footer: {
             Text("These abbreviations are said as what they stand for. Tap one to say it differently, for example as letters.")
+                .formFooterAlignment()
         }
     }
 
@@ -141,6 +143,7 @@ private struct PronunciationDraftEditor: View {
                         .disabled(draft.say.trimmingCharacters(in: .whitespaces).isEmpty)
                 } footer: {
                     Text("Write it as it sounds: \"sim dee ram\", or letters apart: \"L U T\".")
+                        .formFooterAlignment()
                 }
             }
             .navigationTitle(draft.originalTerm == nil ? "New Pronunciation" : "Pronunciation")

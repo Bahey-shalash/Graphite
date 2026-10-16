@@ -86,6 +86,7 @@ struct FontSettingsSection: View {
             Text("Font")
         } footer: {
             Text("Shared with Obsidian through this vault's .obsidian/appearance.json. Notes also grow and shrink with the system text size. Buttons, menus, alerts and Settings keep the system font, so controls stay familiar and legible.")
+                .formFooterAlignment()
         }
     }
 
@@ -183,11 +184,14 @@ struct FontFamilyPickerPage: View {
                         choose(FontFamilyList())
                     }
                 } footer: {
-                    if isDefaultChosen {
-                        Text("No custom font is applied right now. Choose one below.")
-                    } else if !missingFamilies.isEmpty {
-                        Text("This vault also names \(missingFamilies.formatted(.list(type: .and))), not installed on this device.")
+                    Group {
+                        if isDefaultChosen {
+                            Text("No custom font is applied right now. Choose one below.")
+                        } else if !missingFamilies.isEmpty {
+                            Text("This vault also names \(missingFamilies.formatted(.list(type: .and))), not installed on this device.")
+                        }
                     }
+                    .formFooterAlignment()
                 }
             }
             Section("Installed Fonts") {

@@ -31,6 +31,7 @@ struct ReadAloudVoiceSettings: View {
             .accessibilityIdentifier("readAloudHighlightPicker")
         } footer: {
             Text("A voice that does not report its words highlights the whole passage instead.")
+                .formFooterAlignment()
         }
     }
 
@@ -88,6 +89,7 @@ struct ReadAloudVoiceSettings: View {
                     Text(message).foregroundStyle(.orange)
                 }
             }
+                .formFooterAlignment()
         }
         .onAppear { session.refreshVoices() }
         .onDisappear { stopSample() }

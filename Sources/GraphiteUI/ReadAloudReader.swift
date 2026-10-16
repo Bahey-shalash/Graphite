@@ -81,6 +81,7 @@ struct ReadAloudReader: View {
                         if let notice = reader.sourceHighlightNotice { Text(notice) }
                         ForEach(reader.session.document?.notices ?? [], id: \.self) { notice in Text(notice) }
                     }
+                        .formFooterAlignment()
                 }
                 Section("Transcript") {
                     ForEach(reader.session.document?.passages ?? []) { passage in

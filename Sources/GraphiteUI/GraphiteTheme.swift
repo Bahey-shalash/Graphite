@@ -219,3 +219,19 @@ extension Color {
         return String(format: "#%02x%02x%02x", byte(red), byte(green), byte(blue))
     }
 }
+
+extension View {
+    /// A form section's explanation under its section's leading edge, as System Settings
+    /// sets them. The Mac's grouped forms set footers flush right, the place of a button
+    /// such as "Details…", which made paragraphs ragged on the left.
+    func formFooterAlignment() -> some View {
+        #if os(macOS)
+        frame(maxWidth: .infinity, alignment: .leading)
+            .multilineTextAlignment(.leading)
+            // In line with the section's header, which is inset from the section's edge.
+            .padding(.leading, 10)
+        #else
+        self
+        #endif
+    }
+}

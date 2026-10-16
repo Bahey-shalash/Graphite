@@ -126,6 +126,7 @@ struct ConflictVersionsSheet: View {
             Text("In the Vault Now")
         } footer: {
             Text("“\(fileName)” was changed in two places before the changes could sync, so more than one version exists. Nothing is removed until you decide.")
+                .formFooterAlignment()
         }
         Section("Kept Beside It") {
             ForEach(model.versions) { version in
@@ -141,6 +142,7 @@ struct ConflictVersionsSheet: View {
                 .accessibilityIdentifier("keepCurrentVersion")
         } footer: {
             Text("Open a version to see what it holds, to replace the current version with it, or to keep it as a separate file.")
+                .formFooterAlignment()
         }
     }
 

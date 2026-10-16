@@ -667,8 +667,11 @@ private struct CreateDocumentSheet: View {
                         .submitLabel(.done)
                         .onSubmit(createIfNamed)
                 } footer: {
-                    if let problem = nameProblem, !name.isEmpty { Text(problem).foregroundStyle(.red) }
-                    else { Text("In “\(folderDescription)”") }
+                    Group {
+                        if let problem = nameProblem, !name.isEmpty { Text(problem).foregroundStyle(.red) }
+                        else { Text("In “\(folderDescription)”") }
+                    }
+                    .formFooterAlignment()
                 }
                 if kind == .notebook {
                     Section("Paper") {
