@@ -29,16 +29,29 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
     private let containsInlineMath: Bool
     /// A theme's text before the heading, drawn in the left margin, which the surface must reach.
     private let headingPrefixWidth: CGFloat
+    /// What the paragraph has besides its text, decided once, when it is made: most
+    /// paragraphs have nothing, and drawing them set up two drawing contexts and a surface
+    /// as wide as the column for nothing, on every paragraph scrolled into view.
+    private let drawsBehindText: Bool
+    private let drawsOverText: Bool
+    /// A theme's quote or heading background or underline, which spans the column.
+    private let reachesAcrossColumn: Bool
 
     override init(textElement: NSTextElement, range rangeInElement: NSTextRange?) {
         if let attributedString = (textElement as? NSTextParagraph)?.attributedString {
             var foundInlineMath = false
             let wholeString = NSRange(location: 0, length: attributedString.length)
-            attributedString.enumerateAttribute(ConcealedReplacement.mathAttributeKey, in: wholeString) { layout, _, stop in
-                guard layout != nil else { return }
-                foundInlineMath = true
-                stop.pointee = true
+            var foundBehind = false, foundOver = false, foundAcross = false
+            attributedString.enumerateAttributes(in: wholeString) { attributes, _, _ in
+                if attributes[ConcealedReplacement.mathAttributeKey] != nil { foundInlineMath = true; foundOver = true }
+                if attributes[ConcealedReplacement.attributeKey] != nil { foundOver = true }
+                if attributes[ConcealedReplacement.roundedBackgroundKey] != nil { foundBehind = true }
+                if attributes[ConcealedReplacement.quoteBackgroundKey] != nil { foundBehind = true; foundAcross = true }
+                if attributes[ConcealedReplacement.headingOrnamentKey] != nil { foundBehind = true; foundOver = true; foundAcross = true }
             }
+            drawsBehindText = foundBehind
+            drawsOverText = foundOver
+            reachesAcrossColumn = foundAcross
             containsInlineMath = foundInlineMath
             var prefixWidth: CGFloat = 0
             attributedString.enumerateAttribute(ConcealedReplacement.headingOrnamentKey, in: wholeString) { value, range, stop in
@@ -51,6 +64,9 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
         } else {
             containsInlineMath = false
             headingPrefixWidth = 0
+            drawsBehindText = false
+            drawsOverText = false
+            reachesAcrossColumn = false
         }
         super.init(textElement: textElement, range: rangeInElement)
     }
@@ -58,6 +74,9 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
     required init?(coder: NSCoder) {
         containsInlineMath = false
         headingPrefixWidth = 0
+        drawsBehindText = true
+        drawsOverText = true
+        reachesAcrossColumn = true
         super.init(coder: coder)
     }
 
@@ -98,7 +117,7 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
         var bounds = super.renderingSurfaceBounds.insetBy(dx: -2, dy: containsInlineMath ? -12 : 0)
         // A theme's heading background and underline reach across the column, and its prefix into the margin.
         if headingPrefixWidth > 0 { bounds.origin.x -= headingPrefixWidth; bounds.size.width += headingPrefixWidth }
-        bounds.size.width = max(bounds.width, columnWidth + 4)
+        if reachesAcrossColumn { bounds.size.width = max(bounds.width, columnWidth + 4) }
         return bounds
     }
 
@@ -111,9 +130,9 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
     }
 
     override func draw(at point: CGPoint, in context: CGContext) {
-        Self.drawing(in: context) { drawThemeShapesBehindText(at: point) }
+        if drawsBehindText { Self.drawing(in: context) { drawThemeShapesBehindText(at: point) } }
         super.draw(at: point, in: context)
-        Self.drawing(in: context) { drawReplacementsOverText(at: point) }
+        if drawsOverText { Self.drawing(in: context) { drawReplacementsOverText(at: point) } }
     }
 
     private func drawReplacementsOverText(at point: CGPoint) {

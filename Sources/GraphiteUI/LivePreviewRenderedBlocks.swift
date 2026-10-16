@@ -38,15 +38,20 @@ extension RenderedBlockHost {
     }
 
     /// A host whose frame comes from the text's layout, not from its content.
+    /// A block's view takes no part in the window's safe areas: it moves through them on
+    /// every frame of a scroll, and working them out again laid every block on screen out
+    /// again, SwiftUI's whole layout of it, on each frame.
     static func makeRenderedBlockHost(rootView: AnyView) -> RenderedBlockHost {
         #if canImport(UIKit)
         let host = UIHostingController(rootView: rootView)
         host.view.backgroundColor = .clear
         host.sizingOptions = []
+        host.safeAreaRegions = []
         return host
         #else
         let host = NSHostingView(rootView: rootView)
         host.sizingOptions = []
+        host.safeAreaRegions = []
         return host
         #endif
     }
@@ -310,11 +315,18 @@ final class LivePreviewRenderedBlocks {
         if !entries.contains(where: { entry in entry.block.kind == .frontmatter && keysInUse.contains(entry.key) }) {
             propertiesHost?.removeFromTextView()
         }
-        for (key, host) in hosts where !keysInUse.contains(key) {
+        // Looked up by key: searching every block for each view leaving the screen was slow
+        // for a note of many blocks.
+        let leavingKeys = hosts.keys.filter { key in !keysInUse.contains(key) }
+        guard !leavingKeys.isEmpty else { return }
+        var entriesByKey: [LivePreviewBlockKey: LivePreviewBlockEntry] = [:]
+        for entry in entries where entriesByKey[entry.key] == nil { entriesByKey[entry.key] = entry }
+        for key in leavingKeys {
+            guard let host = hosts[key] else { continue }
             host.removeFromTextView()
             hosts[key] = nil
-            if let entry = entries.first(where: { candidate in candidate.key == key }),
-               let estimatedMegabytes = DetachedWidgetPool<RenderedBlockHost>.estimatedMegabytes(of: entry.block.kind) {
+            if let entry = entriesByKey[key],
+               let estimatedMegabytes = DetachedWidgetPool<RenderedBlockHost>.estimatedMegabytes(of: entry.block) {
                 detachedHosts.keep(host, for: key, estimatedMegabytes: estimatedMegabytes)
             }
         }
@@ -422,10 +434,10 @@ struct LivePreviewWidgetSignature: Equatable {
 /// takes tens of milliseconds. Memory bounds the pool, estimated per view from its block's
 /// kind; the views taken off longest ago go first once the estimate passes the budget.
 struct DetachedWidgetPool<Host> {
-    private var hostsByKey: [LivePreviewBlockKey: (host: Host, estimatedMegabytes: Int)] = [:]
+    private var hostsByKey: [LivePreviewBlockKey: (host: Host, estimatedMegabytes: Double)] = [:]
     /// Oldest first.
     private var detachmentOrder: [LivePreviewBlockKey] = []
-    private var estimatedMegabytesInPool = 0
+    private var estimatedMegabytesInPool: Double = 0
     let budgetMegabytes: Int
 
     init(budgetMegabytes: Int) {
@@ -439,11 +451,22 @@ struct DetachedWidgetPool<Host> {
     /// properties about 4 MB, a callout or math block under 1 MB; an embed can hold a
     /// decoded image. Nil for audio and video, which are never kept: a player kept off
     /// screen could go on playing.
-    static func estimatedMegabytes(of kind: LivePreviewBlock.Kind) -> Int? {
-        switch kind {
-        case .table, .baseDefinition: return 6
+    ///
+    /// Tables, callouts and formulas are estimated from their size: every table counted as
+    /// large as that 12-by-4 one, so a note of small tables kept a few sections' views and
+    /// built every other one again as it scrolled back (measured 2026-10-16: views of
+    /// three-row tables, two-line callouts and short formulas take about 0.2 MB each).
+    static func estimatedMegabytes(of block: LivePreviewBlock) -> Double? {
+        switch block.kind {
+        case .table:
+            let rows = block.markdown.split(separator: "\n").filter { line in line.contains("|") }
+            let columns = rows.first.map { header in header.split(separator: "|", omittingEmptySubsequences: true).count } ?? 1
+            return 0.15 + 0.12 * Double(max(1, rows.count - 1) * max(1, columns))
+        case .baseDefinition: return 6
         case .frontmatter: return 4
-        case .mathBlock, .callout, .horizontalRule: return 1
+        case .mathBlock, .callout:
+            return 0.15 + 0.05 * Double(block.markdown.split(separator: "\n", omittingEmptySubsequences: false).count)
+        case .horizontalRule: return 0.1
         // A copy of what a plugin drew is a web view of its own.
         case .pluginCodeBlock: return 8
         case .embed(let embed):
@@ -454,13 +477,13 @@ struct DetachedWidgetPool<Host> {
     }
 
     /// Keeps a view taken off screen, dropping the oldest kept views past the budget.
-    mutating func keep(_ host: Host, for key: LivePreviewBlockKey, estimatedMegabytes: Int) {
+    mutating func keep(_ host: Host, for key: LivePreviewBlockKey, estimatedMegabytes: Double) {
         _ = take(key)
-        guard estimatedMegabytes <= budgetMegabytes else { return }
+        guard estimatedMegabytes <= Double(budgetMegabytes) else { return }
         hostsByKey[key] = (host, estimatedMegabytes)
         detachmentOrder.append(key)
         estimatedMegabytesInPool += estimatedMegabytes
-        while estimatedMegabytesInPool > budgetMegabytes, let oldestKey = detachmentOrder.first {
+        while estimatedMegabytesInPool > Double(budgetMegabytes), let oldestKey = detachmentOrder.first {
             _ = take(oldestKey)
         }
     }

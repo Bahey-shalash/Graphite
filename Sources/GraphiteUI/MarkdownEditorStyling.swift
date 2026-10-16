@@ -55,7 +55,9 @@ extension NSTextView: MarkdownStyledTextView {
 /// style, from its text view's callbacks, and what follows a restyle (`didRestyle`).
 @MainActor
 final class MarkdownEditorStyling {
-    var configuration: EditorConfiguration
+    var configuration: EditorConfiguration {
+        didSet { if configuration != oldValue { cachedStyler = nil } }
+    }
     /// What Live Preview's rendered blocks read; nil in Source mode.
     var environment: LivePreviewEnvironment?
     /// Whether the selection reveals markup and rendered blocks' sources: always on the
@@ -86,13 +88,19 @@ final class MarkdownEditorStyling {
         renderedBlocks = LivePreviewRenderedBlocks(detachedViewsBudgetMegabytes: detachedViewsBudgetMegabytes)
     }
 
+    /// Made once per configuration: it was made, its accent color parsed, on every use,
+    /// several times for each keystroke and cursor move.
     private var styler: MarkdownTextStyler {
+        if let cachedStyler { return cachedStyler }
         #if canImport(UIKit)
-        MarkdownTextStyler(configuration: configuration, accentColor: UIColor.graphiteAccent(hex: configuration.accentHex) ?? .tintColor)
+        let styler = MarkdownTextStyler(configuration: configuration, accentColor: UIColor.graphiteAccent(hex: configuration.accentHex) ?? .tintColor)
         #else
-        MarkdownTextStyler(configuration: configuration, accentColor: NSColor.graphiteAccent(hex: configuration.accentHex) ?? .controlAccentColor)
+        let styler = MarkdownTextStyler(configuration: configuration, accentColor: NSColor.graphiteAccent(hex: configuration.accentHex) ?? .controlAccentColor)
         #endif
+        cachedStyler = styler
+        return styler
     }
+    private var cachedStyler: MarkdownTextStyler?
 
     /// The attributes of plain text, for what is typed next.
     var baseAttributes: [NSAttributedString.Key: Any] { styler.baseAttributes }
@@ -263,10 +271,29 @@ final class MarkdownEditorStyling {
     /// a folded section hides, and the properties as `propertiesSource` says.
     func concealedEntries(in textView: any MarkdownStyledTextView) -> [LivePreviewBlockEntry] {
         guard rendersBlocks, !textState.cachesDescribeOldText else { return [] }
-        return LivePreviewRenderedBlocks.concealedEntries(textState.blockEntries, in: currentSource(of: textView),
-                                                          selection: revealsMarkupAtSelection ? textView.styledSelection : nil,
-                                                          propertiesSource: propertiesSource, foldedRegions: foldedRegions())
+        let source = currentSource(of: textView)
+        let key = ConcealedEntriesKey(textRevision: textState.revision, sourceLength: source.length,
+                                      selection: revealsMarkupAtSelection ? textView.styledSelection : nil,
+                                      propertiesSource: propertiesSource, foldedRegions: foldedRegions())
+        // Asked for on every frame of a scroll, and by each spelling mark, while none of what
+        // it depends on changes; worked out again only when something does.
+        if let concealedEntriesCache, concealedEntriesCache.key == key { return concealedEntriesCache.entries }
+        let entries = LivePreviewRenderedBlocks.concealedEntries(textState.blockEntries, in: source, selection: key.selection,
+                                                                 propertiesSource: propertiesSource, foldedRegions: key.foldedRegions)
+        concealedEntriesCache = (key, entries)
+        return entries
     }
+
+    /// What the concealed blocks are worked out from.
+    private struct ConcealedEntriesKey: Equatable {
+        let textRevision: Int
+        let sourceLength: Int
+        let selection: NSRange?
+        let propertiesSource: PropertiesSourceVisibility
+        let foldedRegions: [FoldableRegion]
+    }
+
+    private var concealedEntriesCache: (key: ConcealedEntriesKey, entries: [LivePreviewBlockEntry])?
 
     /// - Parameter restyledRange: The lines being restyled, whose blocks' heights are kept
     ///   as the ones the text reserves; nil when the styling leaves the blocks alone.

@@ -109,6 +109,12 @@ final class MarkdownTextView: UITextView {
         isEditingRequested = false
     }
 
+    private struct InlineTitleMeasure: Equatable {
+        let text: NSAttributedString
+        let width: CGFloat
+    }
+    private var measuredInlineTitle: (key: InlineTitleMeasure, height: CGFloat)?
+
     override func layoutSubviews() {
         super.layoutSubviews()
         let horizontalInset = usesReadableLineLength
@@ -117,7 +123,16 @@ final class MarkdownTextView: UITextView {
         var topInset = Self.topInset
         if let inlineTitleLabel {
             let titleWidth = max(bounds.width - 2 * horizontalInset - 2 * textContainer.lineFragmentPadding, 1)
-            let titleHeight = ceil(inlineTitleLabel.sizeThatFits(CGSize(width: titleWidth, height: .greatestFiniteMagnitude)).height)
+            // Measured again only when the title, its font or the width changes, not on every
+            // frame of a scroll.
+            let titleKey = InlineTitleMeasure(text: inlineTitleLabel.attributedText ?? NSAttributedString(string: inlineTitleLabel.text ?? ""), width: titleWidth)
+            let titleHeight: CGFloat
+            if let measuredInlineTitle, measuredInlineTitle.key == titleKey {
+                titleHeight = measuredInlineTitle.height
+            } else {
+                titleHeight = ceil(inlineTitleLabel.sizeThatFits(CGSize(width: titleWidth, height: .greatestFiniteMagnitude)).height)
+                measuredInlineTitle = (titleKey, titleHeight)
+            }
             inlineTitleLabel.frame = CGRect(x: horizontalInset + textContainer.lineFragmentPadding, y: Self.topInset, width: titleWidth, height: titleHeight)
             topInset += titleHeight + Self.inlineTitleSpacing
         }
@@ -776,7 +791,11 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         var pendingJump: Jump?
         private var isPendingJumpScheduled = false
         /// Headings and list items that fold, found with the blocks, and the folds last applied.
-        private var foldableRegions: [FoldableRegion] = []
+        private var foldableRegions: [FoldableRegion] = [] {
+            didSet { foldableRegionsRevision += 1 }
+        }
+        /// Changes with `foldableRegions`, for what is worked out from them on every frame.
+        private var foldableRegionsRevision = 0
         /// The text `foldableRegions` were found in or moved to.
         private var foldableRegionsSource: NSString?
         var appliedFoldedKeys: Set<String> = []
@@ -785,7 +804,23 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         private var lastSelectionLocation = 0
         /// Notes longer than this do not fold, to keep typing fast.
         private static let maximumFoldingLength = 2_000_000
-        private var foldedRegions: [FoldableRegion] { NoteFolding.foldedRegions(in: foldableRegions, foldedKeys: session.foldedKeys) }
+        /// The folded regions, and the headers that show a fold button, worked out again only
+        /// when the regions or the folds change: they were worked out several times on every
+        /// frame of a scroll, each a pass over every foldable region.
+        private var foldedRegions: [FoldableRegion] { foldLayout.folded }
+        private var foldLayout: (folded: [FoldableRegion], regionsByStart: [Int: FoldableRegion]) {
+            if let foldLayoutCache, foldLayoutCache.revision == foldableRegionsRevision, foldLayoutCache.foldedKeys == session.foldedKeys {
+                return (foldLayoutCache.folded, foldLayoutCache.regionsByStart)
+            }
+            let folded = NoteFolding.foldedRegions(in: foldableRegions, foldedKeys: session.foldedKeys)
+            var regionsByStart: [Int: FoldableRegion] = [:]
+            for region in foldableRegions where NoteFolding.regions(hiding: region.headerRange.location, in: folded).isEmpty {
+                if regionsByStart[region.headerRange.location] == nil { regionsByStart[region.headerRange.location] = region }
+            }
+            foldLayoutCache = (foldableRegionsRevision, session.foldedKeys, folded, regionsByStart)
+            return (folded, regionsByStart)
+        }
+        private var foldLayoutCache: (revision: Int, foldedKeys: Set<String>, folded: [FoldableRegion], regionsByStart: [Int: FoldableRegion])?
         /// The text's length, the edit's location, and the folds before the edit under way,
         /// to carry folds across it.
         private var lengthBeforeEdit = 0
@@ -1722,8 +1757,8 @@ struct NativeMarkdownEditor: UIViewRepresentable {
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             guard let textView = scrollView as? MarkdownTextView else { return }
-            positionWidgets(in: textView)
-            positionFoldButtons(in: textView)
+            // The blocks and fold buttons are placed by the layout pass UIKit runs on every
+            // frame of a scroll (`didLayout`); placing them here as well did it twice a frame.
             if session.completion.context != nil { updateCompletion(in: textView) }
         }
 
@@ -1872,11 +1907,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                 removeFoldButtons()
                 return
             }
-            let folded = foldedRegions
-            var regionsByStart: [Int: FoldableRegion] = [:]
-            for region in foldableRegions where NoteFolding.regions(hiding: region.headerRange.location, in: folded).isEmpty {
-                if regionsByStart[region.headerRange.location] == nil { regionsByStart[region.headerRange.location] = region }
-            }
+            let regionsByStart = foldLayout.regionsByStart
             let source = currentSource(of: textView)
             let documentStart = contentStorage.documentRange.location
             var keysInUse = Set<String>()
@@ -1898,12 +1929,16 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                     let firstLineBounds = firstLine.typographicBounds
                     buttons.chevron.frame = CGRect(x: max(2, fragmentOrigin.x + textStartX - size - 4),
                                                    y: fragmentOrigin.y + firstLineBounds.minY + (firstLineBounds.height - size) / 2, width: size, height: size)
-                    buttons.chevron.setImage(UIImage(systemName: isFolded ? "chevron.right" : "chevron.down",
-                                                     withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)), for: .normal)
-                    buttons.chevron.alpha = isFolded ? 1 : 0.4
-                    let foldedText = header.trimmingCharacters(in: .whitespaces).drop { character in character == "#" }
+                    // Set when the fold or the header changes, not on every frame of a scroll.
+                    let chevronImage = isFolded ? Self.foldedChevron : Self.unfoldedChevron
+                    if buttons.chevron.image(for: .normal) !== chevronImage {
+                        buttons.chevron.setImage(chevronImage, for: .normal)
+                        buttons.chevron.alpha = isFolded ? 1 : 0.4
+                    }
+                    let headerText = header.trimmingCharacters(in: .whitespaces).drop { character in character == "#" }
                         .trimmingCharacters(in: .whitespaces)
-                    buttons.chevron.accessibilityLabel = isFolded ? "Unfold \(foldedText)" : "Fold \(foldedText)"
+                    let label = isFolded ? "Unfold \(headerText)" : "Fold \(headerText)"
+                    if buttons.chevron.accessibilityLabel != label { buttons.chevron.accessibilityLabel = label }
                     buttons.ellipsis.isHidden = !isFolded
                     if isFolded {
                         let lastLineBounds = lastLine.typographicBounds
@@ -1919,6 +1954,9 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                 foldButtons[key] = nil
             }
         }
+
+        private static let foldedChevron = UIImage(systemName: "chevron.right", withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold))
+        private static let unfoldedChevron = UIImage(systemName: "chevron.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold))
 
         private func makeFoldButtons(for key: String, in textView: UITextView) -> (chevron: UIButton, ellipsis: UIButton) {
             let toggle = UIAction { [weak self, weak textView] _ in
