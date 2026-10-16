@@ -718,8 +718,17 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         /// The text view's width when it left the screen; a new width reflows the note,
         /// so it returns to its top line rather than to the old pixel offset.
         private var widthWhenHidden: CGFloat?
-        var configuration: EditorConfiguration
-        var environment: LivePreviewEnvironment?
+        /// The text's styling, markup revealed at the selection, and rendered blocks, shared
+        /// with the Mac's editor. Views kept off screen are dropped on a memory warning.
+        let styling: MarkdownEditorStyling
+        var configuration: EditorConfiguration {
+            get { styling.configuration }
+            set { styling.configuration = newValue }
+        }
+        var environment: LivePreviewEnvironment? {
+            get { styling.environment }
+            set { styling.environment = newValue }
+        }
         var follow: (String, Bool) -> Void = { _, _ in }
         var appliedInsertionIdentifier: UUID?
         /// Where the view should go once it is in a window and has a width: laying out a
@@ -771,20 +780,15 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         /// The text, its rendered blocks, and the edits styling has not caught up with. Every
         /// character edit reaches it from the text storage before UIKit reports the new
         /// selection, so nothing styles the new text with ranges found in the old one.
-        private let textState = LivePreviewTextState()
-        private var characterEditObserver: NSObjectProtocol?
+        private var textState: LivePreviewTextState { styling.textState }
         /// The markup the styling shows as written; see `RevealedMarkup`.
-        private var revealedMarkup: RevealedMarkup?
-        /// Scanner state at line starts of this text view's storage, so restyling a line far
-        /// down a long note does not rescan the note from its top. It drops what an edit
-        /// invalidates by observing the storage itself.
-        private let blockContextCheckpoints = MarkdownBlockContextCheckpoints()
+        private var revealedMarkup: RevealedMarkup? { styling.revealedMarkup }
         /// Whether the text view has keyboard focus; markup is revealed only then.
-        private var isEditing = false
+        private var isEditing = false {
+            didSet { styling.revealsMarkupAtSelection = isEditing }
+        }
         private var blockEntries: [LivePreviewBlockEntry] { textState.blockEntries }
-        /// The views drawn over concealed blocks and the heights their lines reserve, shared
-        /// with the Mac's editor. Views kept off screen are dropped on a memory warning.
-        private let renderedBlocks = LivePreviewRenderedBlocks(detachedViewsBudgetMegabytes: 24)
+        private var renderedBlocks: LivePreviewRenderedBlocks { styling.renderedBlocks }
         private var memoryWarningObserver: NSObjectProtocol?
         /// Consecutive layout passes that placed, moved, or could not place a rendered block.
         private var unsettledPlacementPasses = 0
@@ -820,7 +824,13 @@ struct NativeMarkdownEditor: UIViewRepresentable {
 
         init(session: MarkdownSession, configuration: EditorConfiguration) {
             self.session = session
-            self.configuration = configuration
+            // The properties show their YAML while the cursor is in it, as any block's source.
+            styling = MarkdownEditorStyling(configuration: configuration, propertiesSource: .whileTheCursorIsInIt, detachedViewsBudgetMegabytes: 24)
+            super.init()
+            styling.revealsMarkupAtSelection = false
+            styling.foldedRegions = { [weak self] in self?.foldedRegions ?? [] }
+            // The text view's next layout pass places the rendered blocks and fold buttons.
+            styling.didRestyle = { restyledTextView in (restyledTextView as? UIView)?.setNeedsLayout() }
         }
 
         // MARK: Lifetime
@@ -940,10 +950,6 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             pendingJump = .topOfCharacter(savedScrollLocation)
         }
 
-        private var styler: MarkdownTextStyler {
-            MarkdownTextStyler(configuration: configuration, accentColor: UIColor.graphiteAccent(hex: configuration.accentHex) ?? .tintColor)
-        }
-
         // MARK: Apple Pencil
 
         func pencilInteraction(_ interaction: UIPencilInteraction, didReceiveTap tap: UIPencilInteraction.Tap) {
@@ -986,16 +992,10 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             drawOnPencilDoubleTap()
         }
 
-        private var isLivePreview: Bool { configuration.mode == .livePreview && environment != nil }
+        private var isLivePreview: Bool { styling.rendersBlocks }
         /// What decides which blocks are rendered besides the configuration: plugins that
         /// register a code block language later have their blocks found again.
-        var renderedBlockPolicy: [String] {
-            [String(environment != nil), String(environment?.updateProperties != nil), pluginCodeBlockLanguages.sorted().joined(separator: ",")]
-        }
-        /// Languages community plugins draw in Live Preview; none without the plugin runtime.
-        private var pluginCodeBlockLanguages: Set<String> {
-            environment?.pluginCodeBlocks == nil ? [] : environment?.pluginCodeBlockLanguages ?? []
-        }
+        var renderedBlockPolicy: [String] { styling.renderedBlockPolicy }
         var textRevision: Int { textState.history.revision }
 
         // MARK: Character edits
@@ -1009,20 +1009,16 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                 guard let self, let textView else { return }
                 _ = self.applyPendingInsertions(to: textView)
             }
-            characterEditObserver = NotificationCenter.default.addObserver(forName: NSTextStorage.didProcessEditingNotification,
-                                                                           object: textView.textStorage, queue: nil) { [weak self, weak textView] notification in
-                guard let textStorage = notification.object as? NSTextStorage, textStorage.editedMask.contains(.editedCharacters) else { return }
-                let edit = CharacterEdit(editedRange: textStorage.editedRange, changeInLength: textStorage.changeInLength)
-                MainActor.assumeIsolated {
-                    guard let self, let textView else { return }
-                    self.recordCharacterEdit(edit, in: textView)
-                }
+            // UIKit reports `textViewDidChange` after its own edits and Graphite settles its
+            // own; this catches a path that does neither, once UIKit's edit is done.
+            styling.observeCharacterEdits(in: textView) { [weak self, weak textView] in
+                guard let self, let textView else { return }
+                self.textViewDidChange(textView)
             }
         }
 
         func stopObservingCharacterEdits() {
-            if let characterEditObserver { NotificationCenter.default.removeObserver(characterEditObserver) }
-            characterEditObserver = nil
+            styling.stopObservingCharacterEdits()
         }
 
         func observeMemoryWarnings() {
@@ -1037,39 +1033,25 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             memoryWarningObserver = nil
         }
 
-        private func recordCharacterEdit(_ edit: CharacterEdit, in textView: UITextView) {
-            guard textState.recordCharacterEdit(edit, revealedRange: revealedMarkup?.shownLineRange) else { return }
-            // UIKit reports `textViewDidChange` after its own edits and Graphite settles its
-            // own; this catches a path that does neither, once UIKit's edit is done.
-            DispatchQueue.main.async { [weak self, weak textView] in
-                guard let self, let textView, self.textState.cachesDescribeOldText, textView.markedTextRange == nil else { return }
-                self.textViewDidChange(textView)
-            }
-        }
-
-        /// The text as an immutable snapshot: the one the blocks were found in while it is
-        /// current, a fresh copy otherwise. Reading `UITextView.text` copies the whole note;
-        /// the text storage's `string` bridges to its live backing store, which changes with
-        /// the next edit, so the copy is made explicitly.
+        /// The text as an immutable snapshot: reading `UITextView.text` copies the whole note.
         private func currentSource(of textView: UITextView) -> NSString {
-            if !textState.cachesDescribeOldText, textState.source.length == textView.textStorage.length { return textState.source }
-            return NSString(string: textView.textStorage.string)
+            styling.currentSource(of: textView)
         }
 
         /// Whether blocks, folds, and the revealed markup describe the text on screen, so
         /// they can be styled or acted on.
         private func canStyle(_ textView: UITextView) -> Bool {
-            !textState.cachesDescribeOldText && textView.markedTextRange == nil
+            styling.canStyle(textView)
         }
 
         // MARK: Styling
 
         func rebuildBlocks(in textView: UITextView, forcesBlockScan: Bool = false) {
-            let source = currentSource(of: textView)
             let edit = textState.editSinceBlockScan
-            textState.update(source: source, findsBlocks: isLivePreview, forcesBlockScan: forcesBlockScan,
-                             pluginCodeBlockLanguages: pluginCodeBlockLanguages, isRendered: isRendered)
-            renderedBlocks.forgetHeights(ofBlocksNotIn: blockEntries)
+            styling.updateTextState(of: textView, forcesBlockScan: forcesBlockScan)
+            // The snapshot the blocks were found in, which the next edit names as the text
+            // before it: the folds move with that edit only if they were found in the same one.
+            let source = textState.source
             // Folding reads every line; typing in plain text only moves the regions, which keeps
             // a keystroke in a long note within a frame.
             if source.length > Self.maximumFoldingLength {
@@ -1082,35 +1064,18 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                 foldableRegions = NoteFolding.regions(in: source as String)
             }
             foldableRegionsSource = source
-            revealedMarkup = markupRevealedBySelection(in: textView)
-        }
-
-        /// Frontmatter stays as text when the Properties view is off.
-        private func isRendered(_ block: LivePreviewBlock) -> Bool {
-            block.kind != .frontmatter || environment?.updateProperties != nil
+            styling.revealMarkupAtSelection(of: textView)
         }
 
         func restyleEverything(in textView: UITextView) {
             appliedFoldedKeys = session.foldedKeys
-            // The pending edit is styled with the rest, so its blocks must describe the text.
+            // The pending edit is styled with the rest, so its blocks and folds must describe the text.
             if textState.cachesDescribeOldText { rebuildBlocks(in: textView) }
-            textState.discardUnstyledEdit()
-            styler.applyStyles(to: textView.textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true,
-                               revealedMarkup: revealedMarkup,
-                               concealedBlocks: concealedBlocks(in: textView, styledRange: NSRange(location: 0, length: textView.textStorage.length)),
-                               foldedRegions: foldedRegions,
-                               blockContextCheckpoints: blockContextCheckpoints)
-            textView.typingAttributes = styler.baseAttributes
-            textView.setNeedsLayout()
+            styling.restyleEverything(in: textView)
         }
 
         private func restyle(_ range: NSRange, in textView: UITextView) {
-            let selectedRange = textView.selectedRange
-            styler.applyStyles(to: textView.textStorage, editedRange: range, restyleEverything: false,
-                               revealedMarkup: revealedMarkup, concealedBlocks: concealedBlocks(in: textView, styledRange: range), foldedRegions: foldedRegions,
-                               blockContextCheckpoints: blockContextCheckpoints)
-            textView.selectedRange = selectedRange
-            textView.typingAttributes = styler.baseAttributes
+            styling.restyle(range, in: textView)
         }
 
         /// Brings blocks and styling up to date after character edits. The blocks follow the
@@ -1122,53 +1087,18 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             // A fold that moved to an edited line, or whose hidden text changed, restyles the
             // whole note rather than leaving the old section's lines hidden.
             if carryFoldsAcrossEdit(in: textView) {
-                revealedMarkup = markupRevealedBySelection(in: textView)
                 restyleEverything(in: textView)
-                restyleBlocksAwaitingRestyle(in: textView)
+                styling.restyleBlocksAwaitingRestyle(in: textView)
                 return
             }
-            guard textState.hasUnstyledEdit else { return }
-            revealedMarkup = markupRevealedBySelection(in: textView)
-            guard let plan = textState.takeRestylePlan(revealedRange: revealedMarkup?.shownLineRange) else { return }
-            switch plan {
-            case .everything:
-                restyleEverything(in: textView)
-            case .ranges(let ranges):
-                for range in ranges { restyle(range, in: textView) }
-                textView.setNeedsLayout()
-            }
-            restyleBlocksAwaitingRestyle(in: textView)
+            styling.restyleUnstyledEdit(in: textView)
         }
 
         /// The blocks whose source is concealed under their views, in note order: every block
         /// the cursor is not in, all of them while the note is only read, and none that a
         /// folded section hides.
         private func concealedEntries(in textView: UITextView) -> [LivePreviewBlockEntry] {
-            guard isLivePreview, !textState.cachesDescribeOldText else { return [] }
-            return LivePreviewRenderedBlocks.concealedEntries(blockEntries, in: currentSource(of: textView), selection: isEditing ? textView.selectedRange : nil,
-                                                              propertiesSource: .whileTheCursorIsInIt, foldedRegions: foldedRegions)
-        }
-
-        /// - Parameter styledRange: The text being styled, whose blocks' heights are kept as
-        ///   the ones the text reserves; nil when the styled blocks are not known in advance.
-        private func concealedBlocks(in textView: UITextView, styledRange: NSRange?) -> [ConcealedBlock] {
-            let restyledRange = styledRange.map { range in MarkdownTextStyler.linesRestyled(for: range, in: textView.textStorage.mutableString) }
-            return renderedBlocks.concealedBlocks(for: concealedEntries(in: textView), columnWidth: columnWidth(of: textView), configuration: configuration,
-                                                  restyledRange: restyledRange)
-        }
-
-        private func columnWidth(of textView: UITextView) -> CGFloat {
-            (textView as? MarkdownTextView)?.contentColumnWidth ?? textView.bounds.width
-        }
-
-        /// The markup the selection shows as written. Nothing shows while the note is only
-        /// being read: a cursor left at the top must not turn the properties back into YAML.
-        private func markupRevealedBySelection(in textView: UITextView) -> RevealedMarkup? {
-            guard isEditing else { return nil }
-            let source = currentSource(of: textView)
-            let selection = textView.selectedRange
-            guard selection.location <= source.length else { return nil }
-            return RevealedMarkup(selection: selection, in: source)
+            styling.concealedEntries(in: textView)
         }
 
         // MARK: Editing
@@ -1257,11 +1187,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                 textView.selectedRange = selectionAfter
             }
             isApplyingInsertion = false
-            if textState.cachesDescribeOldText {
-                rebuildBlocks(in: textView)
-            } else {
-                revealedMarkup = markupRevealedBySelection(in: textView)
-            }
+            if textState.cachesDescribeOldText { rebuildBlocks(in: textView) }
             restyleEverything(in: textView)
             publish(textView)
             updateCompletion(in: textView)
@@ -1664,8 +1590,6 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         /// markers of the inline elements it reaches and leaves, the markers of the lines
         /// it moves between, and the rendered blocks the cursor enters or leaves.
         private func updateRevealedMarkup(in textView: UITextView) {
-            // During an edit, UIKit reports the new selection before the new text; the edit
-            // restyles the revealed markup once it settles.
             guard isLivePreview, canStyle(textView) else { return }
             // An edit whose styling waited for an IME composition that ended without
             // `textViewDidChange` is styled now, revealed markup included.
@@ -1673,24 +1597,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                 settleTextChange(in: textView)
                 return
             }
-            let previousMarkup = revealedMarkup
-            let newMarkup = markupRevealedBySelection(in: textView)
-            guard previousMarkup != newMarkup else { return }
-            revealedMarkup = newMarkup
-            // A block's source shows or hides with the cursor as a unit.
-            let blocksChangingActivity = LivePreviewBlockActivity.indicesOfBlocksChangingActivity(
-                from: previousMarkup?.selection, to: newMarkup?.selection, blockRanges: blockEntries.map(\.range), in: currentSource(of: textView))
-            for blockIndex in blocksChangingActivity { restyle(blockEntries[blockIndex].range, in: textView) }
-            let selectedRange = textView.selectedRange
-            let restyledRanges = styler.applyRevealedMarkupChange(to: textView.textStorage, from: previousMarkup, to: newMarkup,
-                                                                  concealedBlocks: concealedBlocks(in: textView, styledRange: nil), foldedRegions: foldedRegions,
-                                                                  blockContextCheckpoints: blockContextCheckpoints)
-            guard !blocksChangingActivity.isEmpty || !restyledRanges.isEmpty else { return }
-            // Set only when styling moved it: setting the selection costs UIKit tens of
-            // milliseconds far down a long note.
-            if textView.selectedRange != selectedRange { textView.selectedRange = selectedRange }
-            textView.typingAttributes = styler.baseAttributes
-            textView.setNeedsLayout()
+            styling.restyleRevealedMarkup(in: textView)
         }
 
         private func publish(_ textView: UITextView) {
@@ -1759,16 +1666,8 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                 return
             }
             renderedBlocks.detachViews(except: placement.keysInUse, entries: blockEntries)
-            // A height measured at a new width, or by another editor, is reserved in the text
-            // first; not from inside the layout pass this runs in.
-            if !placement.entriesToRestyle.isEmpty, !textState.hasUnstyledEdit {
-                let keysToRestyle = Set(placement.entriesToRestyle.map(\.key))
-                DispatchQueue.main.async { [weak self, weak textView] in
-                    guard let self, let textView, self.canStyle(textView), !self.textState.hasUnstyledEdit else { return }
-                    for entry in self.blockEntries where keysToRestyle.contains(entry.key) { self.restyle(entry.range, in: textView) }
-                    textView.setNeedsLayout()
-                }
-            }
+            // A height measured at a new width, or by another editor, is reserved in the text first.
+            styling.restyleLater(placement.entriesToRestyle, in: textView)
             // After a jump (the keyboard closing, a scroll to a heading) or a restyle, TextKit
             // can finish laying out the viewport after this pass; try again once it has.
             // A placed view can change the height it reserves, and TextKit then moves the text
@@ -1831,30 +1730,8 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                 self.textViewDidChangeSelection(textView)
             }, reportHeight: { [weak self, weak textView] height in
                 guard let self, let textView else { return }
-                self.updateReservedHeight(height, forBlockWithKey: key, isFrontmatter: isFrontmatter, in: textView)
+                self.styling.reserveMeasuredHeight(height, forBlockWithKey: key, isFrontmatter: isFrontmatter, in: textView)
             })
-        }
-
-        private func updateReservedHeight(_ height: CGFloat, forBlockWithKey key: LivePreviewBlockKey, isFrontmatter: Bool, in textView: MarkdownTextView) {
-            guard renderedBlocks.recordMeasuredHeight(height, forBlockWithKey: key, isFrontmatter: isFrontmatter, columnWidth: textView.contentColumnWidth,
-                                                      configuration: configuration) else { return }
-            // Styling now would disturb an IME composition, and mid-edit the block's range
-            // describes older text; the edit restyles the block once it settles.
-            guard canStyle(textView), !textState.hasUnstyledEdit else {
-                renderedBlocks.awaitRestyle(ofBlockWithKey: key)
-                return
-            }
-            guard let currentEntry = blockEntries.first(where: { candidate in candidate.key == key }) else { return }
-            restyle(currentEntry.range, in: textView)
-            textView.setNeedsLayout()
-        }
-
-        /// Applies heights measured while the text could not be styled.
-        private func restyleBlocksAwaitingRestyle(in textView: UITextView) {
-            let keys = renderedBlocks.takeKeysAwaitingRestyle()
-            guard !keys.isEmpty else { return }
-            for entry in blockEntries where keys.contains(entry.key) { restyle(entry.range, in: textView) }
-            textView.setNeedsLayout()
         }
 
         /// When rendered blocks settle their heights after TextKit laid out the viewport, the
@@ -2760,7 +2637,18 @@ struct NativeMarkdownEditor: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate, NSTextLayoutManagerDelegate, RetainableMarkdownEditor {
         var session: MarkdownSession
-        var configuration: EditorConfiguration
+        /// The text's styling, markup revealed at the selection, and rendered blocks, shared
+        /// with the iPad's editor; the Mac has the memory to keep more views off screen.
+        let styling: MarkdownEditorStyling
+        var configuration: EditorConfiguration {
+            get { styling.configuration }
+            set { styling.configuration = newValue }
+        }
+        /// What Live Preview's rendered blocks read; nil in Source mode.
+        var environment: LivePreviewEnvironment? {
+            get { styling.environment }
+            set { styling.environment = newValue }
+        }
         /// The editor's views, which live as long as it: a hidden note's retention can keep
         /// them beyond their SwiftUI view.
         var scrollView: NSScrollView?
@@ -2784,50 +2672,42 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             case topOfCharacter(Int)
         }
         var pendingJump: Jump?
-        /// The text last styled and the edits styling has not caught up with, so each edit
-        /// restyles only the lines it changed, and the rendered blocks found in it.
-        private let textState = LivePreviewTextState()
-        private var characterEditObserver: NSObjectProtocol?
+        private var textState: LivePreviewTextState { styling.textState }
         /// The markup the styling shows as written in Live Preview; see `RevealedMarkup`.
-        private(set) var revealedMarkup: RevealedMarkup?
-        /// Scanner state at line starts of this editor's text storage; see the iPad coordinator.
-        private let blockContextCheckpoints = MarkdownBlockContextCheckpoints()
+        var revealedMarkup: RevealedMarkup? { styling.revealedMarkup }
+        private var renderedBlocks: LivePreviewRenderedBlocks { styling.renderedBlocks }
         /// The text last given to or taken from the session; see the iPad coordinator.
         var lastSynchronizedText = ""
         /// Pastes and drops whose content is still loading or saving.
         private var pendingInsertionRequests = PendingInsertionRequests()
-        /// What Live Preview's rendered blocks read; nil in Source mode.
-        var environment: LivePreviewEnvironment?
-        /// The views drawn over concealed blocks and the heights their lines reserve, as on
-        /// the iPad; the Mac has the memory to keep more of them off screen.
-        private let renderedBlocks = LivePreviewRenderedBlocks(detachedViewsBudgetMegabytes: 64)
         private var isPlacementScheduled = false
         /// Set by "Edit Source": the YAML shows, and the cursor can be in it, until the
         /// cursor leaves it.
-        private(set) var showsPropertiesSource = false
+        private(set) var showsPropertiesSource: Bool {
+            get { styling.propertiesSource == .afterEditSource(isShown: true) }
+            set { styling.propertiesSource = .afterEditSource(isShown: newValue) }
+        }
         /// Set while Graphite changes the text itself, which may change the YAML.
         private var isApplyingOwnEdit = false
 
         init(session: MarkdownSession, configuration: EditorConfiguration) {
             self.session = session
-            self.configuration = configuration
+            // The properties show their YAML after "Edit Source", as Obsidian keeps them above the note.
+            styling = MarkdownEditorStyling(configuration: configuration, propertiesSource: .afterEditSource(isShown: false), detachedViewsBudgetMegabytes: 64)
+            super.init()
+            styling.didRestyle = { [weak self] restyledTextView in
+                guard let self, let textView = restyledTextView as? NSTextView else { return }
+                self.schedulePlacement(in: textView)
+            }
         }
-
-        private var styler: MarkdownTextStyler { MarkdownTextStyler(configuration: configuration, accentColor: NSColor.graphiteAccent(hex: configuration.accentHex) ?? .controlAccentColor) }
 
         /// Whether Live Preview draws its blocks as views.
-        var rendersBlocks: Bool { configuration.mode == .livePreview && environment != nil }
+        var rendersBlocks: Bool { styling.rendersBlocks }
         /// Whether the frontmatter is rendered as properties, as Obsidian's Live Preview shows
         /// them; without the Properties view it stays styled source.
-        var rendersProperties: Bool { rendersBlocks && environment?.updateProperties != nil }
+        var rendersProperties: Bool { styling.rendersProperties }
         /// What decides which blocks are rendered; a change finds the blocks again.
-        var renderedBlockPolicy: [String] {
-            [String(rendersBlocks), String(rendersProperties), pluginCodeBlockLanguages.sorted().joined(separator: ",")]
-        }
-        /// Languages community plugins draw in Live Preview; none without the plugin runtime.
-        private var pluginCodeBlockLanguages: Set<String> {
-            environment?.pluginCodeBlocks == nil ? [] : environment?.pluginCodeBlockLanguages ?? []
-        }
+        var renderedBlockPolicy: [String] { styling.renderedBlockPolicy }
 
         func undoManager(for view: NSTextView) -> UndoManager? { noteUndoManager }
 
@@ -2933,127 +2813,48 @@ struct NativeMarkdownEditor: NSViewRepresentable {
 
         // MARK: Character edits
 
-        /// Follows every change to the characters, whichever path made it, so the lines it
-        /// changed are restyled and nothing is styled with ranges from the older text.
+        /// Follows every change to the characters, whichever path made it; AppKit reports
+        /// `textDidChange` after its own edits, and a change it does not report is settled
+        /// once it is done.
         func observeCharacterEdits(in textView: NSTextView) {
             session.applyPendingInsertionsBeforeSaving = { [weak self, weak textView] in
                 guard let self, let textView else { return }
                 _ = self.applyPendingInsertions(to: textView)
             }
-            guard let textStorage = textView.textStorage else { return }
-            characterEditObserver = NotificationCenter.default.addObserver(forName: NSTextStorage.didProcessEditingNotification,
-                                                                           object: textStorage, queue: nil) { [weak self, weak textView] notification in
-                guard let textStorage = notification.object as? NSTextStorage, textStorage.editedMask.contains(.editedCharacters) else { return }
-                let edit = CharacterEdit(editedRange: textStorage.editedRange, changeInLength: textStorage.changeInLength)
-                MainActor.assumeIsolated {
-                    guard let self, let textView else { return }
-                    self.recordCharacterEdit(edit, in: textView)
-                }
-            }
-        }
-
-        func stopObservingCharacterEdits() {
-            if let characterEditObserver { NotificationCenter.default.removeObserver(characterEditObserver) }
-            characterEditObserver = nil
-        }
-
-        private func recordCharacterEdit(_ edit: CharacterEdit, in textView: NSTextView) {
-            guard textState.recordCharacterEdit(edit, revealedRange: revealedMarkup?.shownLineRange) else { return }
-            // AppKit reports `textDidChange` after its own edits; this catches a path that
-            // does not, once the edit is done.
-            DispatchQueue.main.async { [weak self, weak textView] in
-                guard let self, let textView, self.textState.cachesDescribeOldText, !textView.hasMarkedText() else { return }
+            styling.observeCharacterEdits(in: textView) { [weak self, weak textView] in
+                guard let self, let textView else { return }
                 self.settleTextChange(in: textView)
                 self.publish(textView)
             }
         }
 
-        /// The text as an immutable snapshot: the one last styled while it is current. The
-        /// text storage's `string` bridges to its live backing store, so the copy is explicit.
+        func stopObservingCharacterEdits() {
+            styling.stopObservingCharacterEdits()
+        }
+
         private func currentSource(of textView: NSTextView) -> NSString {
-            guard let textStorage = textView.textStorage else { return NSString(string: textView.string) }
-            if !textState.cachesDescribeOldText, textState.source.length == textStorage.length { return textState.source }
-            return NSString(string: textStorage.string)
+            styling.currentSource(of: textView)
         }
 
         // MARK: Styling
 
+        /// Finds the blocks again and styles the whole note.
         /// - Parameter forcesBlockScan: Finds the blocks again, after a change in which are rendered.
         func restyleEverything(in textView: NSTextView, forcesBlockScan: Bool = false) {
-            guard let textStorage = textView.textStorage else { return }
-            updateTextState(of: textView, forcesBlockScan: forcesBlockScan)
-            textState.discardUnstyledEdit()
-            revealedMarkup = markupRevealedBySelection(in: textView)
-            styler.applyStyles(to: textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedMarkup: revealedMarkup,
-                               concealedBlocks: concealedBlocks(in: textView, restyledRange: NSRange(location: 0, length: textStorage.length)),
-                               blockContextCheckpoints: blockContextCheckpoints)
-            textView.typingAttributes = styler.baseAttributes
-            schedulePlacement(in: textView)
+            styling.updateTextState(of: textView, forcesBlockScan: forcesBlockScan)
+            styling.restyleEverything(in: textView)
         }
 
         private func restyle(_ range: NSRange, in textView: NSTextView) {
-            guard let textStorage = textView.textStorage, textStorage.length > 0 else { return }
-            let location = min(range.location, textStorage.length)
-            let lineRange = textStorage.mutableString.lineRange(for: NSRange(location: location, length: min(range.length, textStorage.length - location)))
-            styler.applyStyles(to: textStorage, editedRange: lineRange, restyleEverything: false, revealedMarkup: revealedMarkup,
-                               concealedBlocks: concealedBlocks(in: textView, restyledRange: MarkdownTextStyler.linesRestyled(for: lineRange, in: textStorage.mutableString)),
-                               blockContextCheckpoints: blockContextCheckpoints)
-            textView.typingAttributes = styler.baseAttributes
-            schedulePlacement(in: textView)
-        }
-
-        private func updateTextState(of textView: NSTextView, forcesBlockScan: Bool = false) {
-            let rendersProperties = rendersProperties
-            textState.update(source: currentSource(of: textView), findsBlocks: rendersBlocks, forcesBlockScan: forcesBlockScan,
-                             pluginCodeBlockLanguages: pluginCodeBlockLanguages,
-                             isRendered: { block in block.kind != .frontmatter || rendersProperties })
-            renderedBlocks.forgetHeights(ofBlocksNotIn: textState.blockEntries)
+            styling.restyle(range, in: textView)
         }
 
         /// Restyles what the edits since the last styling changed, once no text is marked:
         /// styling would disturb an input method's composition.
         private func settleTextChange(in textView: NSTextView) {
             guard !textView.hasMarkedText(), textState.cachesDescribeOldText || textState.hasUnstyledEdit else { return }
-            updateTextState(of: textView)
-            revealedMarkup = markupRevealedBySelection(in: textView)
-            guard let plan = textState.takeRestylePlan(revealedRange: revealedMarkup?.shownLineRange) else { return }
-            switch plan {
-            case .everything: restyleEverything(in: textView)
-            case .ranges(let ranges): for range in ranges { restyle(range, in: textView) }
-            }
-            restyleBlocksAwaitingRestyle(in: textView)
-        }
-
-        /// The markup the selection shows as written, measured in the text on screen.
-        private func markupRevealedBySelection(in textView: NSTextView) -> RevealedMarkup? {
-            guard let textStorage = textView.textStorage else { return nil }
-            let selection = textView.selectedRange()
-            guard selection.location <= textStorage.length else { return nil }
-            return RevealedMarkup(selection: selection, in: textStorage.mutableString)
-        }
-
-        /// Restyles the markup that starts or stops showing as the selection moves.
-        private func updateRevealedMarkup(in textView: NSTextView) {
-            // Mid-edit, the new selection arrives before the new text; the edit restyles
-            // the revealed markup once it settles.
-            guard configuration.mode == .livePreview, !textView.hasMarkedText(), !textState.cachesDescribeOldText, !textState.hasUnstyledEdit,
-                  let textStorage = textView.textStorage else { return }
-            let previousMarkup = revealedMarkup
-            let newMarkup = markupRevealedBySelection(in: textView)
-            guard newMarkup != previousMarkup else { return }
-            revealedMarkup = newMarkup
-            // A block's source shows or hides with the cursor as a unit; the properties follow
-            // "Edit Source" instead.
-            let blockEntries = textState.blockEntries
-            let blocksChangingActivity = rendersBlocks ? LivePreviewBlockActivity.indicesOfBlocksChangingActivity(
-                from: previousMarkup?.selection, to: newMarkup?.selection, blockRanges: blockEntries.map(\.range), in: currentSource(of: textView)) : []
-            for blockIndex in blocksChangingActivity where blockEntries[blockIndex].block.kind != .frontmatter {
-                restyle(blockEntries[blockIndex].range, in: textView)
-            }
-            let restyledRanges = styler.applyRevealedMarkupChange(to: textStorage, from: previousMarkup, to: newMarkup, concealedBlocks: concealedBlocks(in: textView, restyledRange: nil),
-                                                                  blockContextCheckpoints: blockContextCheckpoints)
-            guard !restyledRanges.isEmpty else { return }
-            textView.typingAttributes = styler.baseAttributes
+            styling.updateTextState(of: textView)
+            styling.restyleUnstyledEdit(in: textView)
         }
 
         func textDidChange(_ notification: Notification) {
@@ -3069,7 +2870,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             guard let textView = notification.object as? NSTextView else { return }
             session.selection = textView.selectedRange()
             concealPropertiesSourceIfLeft(in: textView)
-            updateRevealedMarkup(in: textView)
+            styling.restyleRevealedMarkup(in: textView)
         }
 
         func textView(_ textView: NSTextView, willChangeSelectionFromCharacterRange oldSelectedCharRange: NSRange,
@@ -3187,22 +2988,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         /// properties unless "Edit Source" shows their YAML, as Obsidian keeps them above the
         /// note, and every other block while the selection is outside it, as on the iPad.
         private func concealedEntries(in textView: NSTextView) -> [LivePreviewBlockEntry] {
-            guard rendersBlocks, !textState.cachesDescribeOldText else { return [] }
-            return LivePreviewRenderedBlocks.concealedEntries(textState.blockEntries, in: currentSource(of: textView), selection: textView.selectedRange(),
-                                                              propertiesSource: .afterEditSource(isShown: showsPropertiesSource))
-        }
-
-        /// - Parameter restyledRange: The lines being restyled, whose blocks' heights are
-        ///   kept as the ones the text reserves; nil when the styling leaves the blocks alone.
-        private func concealedBlocks(in textView: NSTextView, restyledRange: NSRange?) -> [ConcealedBlock] {
-            renderedBlocks.concealedBlocks(for: concealedEntries(in: textView), columnWidth: columnWidth(of: textView), configuration: configuration,
-                                           restyledRange: restyledRange)
-        }
-
-        /// The width of the text column, which the blocks' views take.
-        private func columnWidth(of textView: NSTextView) -> CGFloat {
-            guard let textContainer = textView.textContainer else { return 0 }
-            return textContainer.size.width - 2 * textContainer.lineFragmentPadding
+            styling.concealedEntries(in: textView)
         }
 
         /// A selection that starts in the concealed YAML starts after it instead, so the
@@ -3275,14 +3061,14 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         /// blocks below it cost nothing until they scroll into view, and says when it has.
         func placeBlockViews(in textView: NSTextView) {
             guard let environment, rendersBlocks, let textContainer = textView.textContainer, let textLayoutManager = textView.textLayoutManager,
-                  columnWidth(of: textView) > 0 else {
+                  textView.renderedBlockColumnWidth > 0 else {
                 renderedBlocks.removeAllViews()
                 return
             }
             // Mid-edit, the blocks describe the text before it; the views stay until it settles.
             guard !textState.cachesDescribeOldText, !textView.hasMarkedText() else { return }
             let column = RenderedBlockColumn(minX: textView.textContainerOrigin.x + textContainer.lineFragmentPadding,
-                                             textContainerTop: textView.textContainerOrigin.y, width: columnWidth(of: textView))
+                                             textContainerTop: textView.textContainerOrigin.y, width: textView.renderedBlockColumnWidth)
             // A paragraph a restyle changed waits for TextKit's next layout of the viewport,
             // which places it then.
             guard let placement = renderedBlocks.placeViews(of: concealedEntries(in: textView), in: textView, textLayoutManager: textLayoutManager,
@@ -3290,14 +3076,8 @@ struct NativeMarkdownEditor: NSViewRepresentable {
                 blockRootView(for: entry, environment: environment, textView: textView)
             }) else { return }
             renderedBlocks.detachViews(except: placement.keysInUse, entries: textState.blockEntries)
-            // A height measured at a new width, or by another editor, is reserved in the text
-            // first; not during TextKit's layout, which this pass can be part of.
-            guard !placement.entriesToRestyle.isEmpty, !textState.hasUnstyledEdit else { return }
-            let keysToRestyle = Set(placement.entriesToRestyle.map(\.key))
-            DispatchQueue.main.async { [weak self, weak textView] in
-                guard let self, let textView, !self.textState.cachesDescribeOldText, !textView.hasMarkedText() else { return }
-                for entry in self.textState.blockEntries where keysToRestyle.contains(entry.key) { self.restyle(entry.range, in: textView) }
-            }
+            // A height measured at a new width, or by another editor, is reserved in the text first.
+            styling.restyleLater(placement.entriesToRestyle, in: textView)
         }
 
         func removeAllBlockViews() {
@@ -3334,30 +3114,8 @@ struct NativeMarkdownEditor: NSViewRepresentable {
                 }
             }, reportHeight: { [weak self, weak textView] height in
                 guard let self, let textView else { return }
-                self.updateReservedHeight(height, forBlockWithKey: key, isFrontmatter: isFrontmatter, in: textView)
+                self.styling.reserveMeasuredHeight(height, forBlockWithKey: key, isFrontmatter: isFrontmatter, in: textView)
             })
-        }
-
-        /// Reserves the height a block's view measured, restyling the block's last line only
-        /// when it differs from what the text reserves.
-        private func updateReservedHeight(_ height: CGFloat, forBlockWithKey key: LivePreviewBlockKey, isFrontmatter: Bool, in textView: NSTextView) {
-            guard renderedBlocks.recordMeasuredHeight(height, forBlockWithKey: key, isFrontmatter: isFrontmatter, columnWidth: columnWidth(of: textView),
-                                                      configuration: configuration) else { return }
-            // Styling now would disturb an input method's composition, and mid-edit the block's
-            // range describes older text; the edit restyles the block once it settles.
-            guard !textView.hasMarkedText(), !textState.cachesDescribeOldText, !textState.hasUnstyledEdit else {
-                renderedBlocks.awaitRestyle(ofBlockWithKey: key)
-                return
-            }
-            guard let entry = textState.blockEntries.first(where: { candidate in candidate.key == key }) else { return }
-            restyle(entry.range, in: textView)
-        }
-
-        /// Applies heights measured while the text could not be styled.
-        private func restyleBlocksAwaitingRestyle(in textView: NSTextView) {
-            let keys = renderedBlocks.takeKeysAwaitingRestyle()
-            guard !keys.isEmpty else { return }
-            for entry in textState.blockEntries where keys.contains(entry.key) { restyle(entry.range, in: textView) }
         }
 
         // MARK: Drawn replacements and tasks
