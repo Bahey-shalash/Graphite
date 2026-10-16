@@ -233,6 +233,19 @@ struct MarkdownTextStyler {
                                      underlineWidth: CGFloat(min(max(ornament.underlineWidth ?? 1, 0.5), 6)), prefix: ornament.prefix, prefixColor: ornament.prefixColor)
     }
 
+    /// The lines `applyStyles` restyles for an edited range, before it extends them to the
+    /// concealed blocks and folded sections they touch: the range's lines and one line on
+    /// each side. A setext heading's text line and its underline style each other; when an
+    /// edit makes one of them plain text, the other produces no span, so it is reset only
+    /// by being in the restyled lines.
+    static func linesRestyled(for range: NSRange, in source: NSString) -> NSRange {
+        let clampedLocation = min(max(range.location, 0), source.length)
+        var lines = source.lineRange(for: NSRange(location: clampedLocation, length: min(max(range.length, 0), source.length - clampedLocation)))
+        if lines.location > 0 { lines = NSUnionRange(lines, source.lineRange(for: NSRange(location: lines.location - 1, length: 0))) }
+        if NSMaxRange(lines) < source.length { lines = NSUnionRange(lines, source.lineRange(for: NSRange(location: NSMaxRange(lines), length: 0))) }
+        return lines
+    }
+
     /// Restyles whole lines touched by `range`, or the whole document. In Live Preview,
     /// `revealedMarkup` says which markup stays visible around the selection (nil while the
     /// note is only being read, so no markup shows), and `concealedBlocks` are drawn as
@@ -252,21 +265,7 @@ struct MarkdownTextStyler {
         // applied past the end of the storage raise an exception.
         let concealedBlocks = Self.blocks(concealedBlocks, fitting: source)
         let foldedRegions = Self.regions(foldedRegions, fitting: source)
-        let clampedLocation = min(max(range.location, 0), source.length)
-        var targetRange = restyleEverything
-            ? NSRange(location: 0, length: source.length)
-            : source.lineRange(for: NSRange(location: clampedLocation, length: min(max(range.length, 0), source.length - clampedLocation)))
-        // A setext heading's text line and its underline style each other. When an edit makes
-        // one of them plain text, the other produces no span, so it is reset only by being in
-        // the restyled lines: one line on each side is restyled too.
-        if !restyleEverything {
-            if targetRange.location > 0 {
-                targetRange = NSUnionRange(targetRange, source.lineRange(for: NSRange(location: targetRange.location - 1, length: 0)))
-            }
-            if NSMaxRange(targetRange) < source.length {
-                targetRange = NSUnionRange(targetRange, source.lineRange(for: NSRange(location: NSMaxRange(targetRange), length: 0)))
-            }
-        }
+        var targetRange = restyleEverything ? NSRange(location: 0, length: source.length) : Self.linesRestyled(for: range, in: source)
         // A block is styled as a unit, so extend to any concealed block the range touches.
         for block in concealedBlocks where NSIntersectionRange(block.range, targetRange).length > 0 || NSLocationInRange(targetRange.location, block.range) {
             targetRange = NSUnionRange(targetRange, block.range)
