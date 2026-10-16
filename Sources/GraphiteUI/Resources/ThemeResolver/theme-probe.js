@@ -9,7 +9,7 @@
         'question', 'help', 'faq', 'warning', 'caution', 'attention', 'failure', 'fail', 'missing', 'danger', 'error', 'bug', 'example',
         'quote', 'cite'];
     // Prism's token classes, one for each kind of code Graphite colors (`CodeTokenKind`).
-    const codeTokenClasses = ['keyword', 'class-name', 'function', 'string', 'number', 'boolean', 'comment', 'important', 'tag', 'property', 'variable'];
+    const codeTokenClasses = ['keyword', 'class-name', 'function', 'string', 'number', 'boolean', 'comment', 'important', 'tag', 'property', 'variable', 'operator'];
 
     function element(tag, className, parent, text) {
         const created = document.createElement(tag);

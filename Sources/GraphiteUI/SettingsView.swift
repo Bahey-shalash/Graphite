@@ -212,11 +212,15 @@ private struct EditorSettingsPage: View {
                     .formFooterAlignment()
             }
             Section {
+                Picker("Code Theme", selection: $preferences.codeColorTheme) {
+                    ForEach(CodeColorTheme.allCases) { codeTheme in Text(codeTheme.title).tag(codeTheme) }
+                }
+                CodeThemePreview(codeTheme: preferences.codeColorTheme, noteTheme: workspace.noteTheme)
                 Toggle("Format Code Blocks", isOn: $preferences.formatsCodeBlocks)
             } header: {
                 Text("Code")
             } footer: {
-                Text("When you leave a code block you edited, its indentation and spacing are tidied for its language. Undo puts it back.")
+                Text("Each code theme has a light and a dark version that follow the appearance; Obsidian's follows the vault's theme. When you leave a code block you edited, its indentation and spacing are tidied for its language. Undo puts it back.")
                     .formFooterAlignment()
             }
             // Only the iPad editor continues lists, pairs characters, and indents as you

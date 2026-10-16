@@ -204,4 +204,5 @@
 :where(.markdown-rendered code .token.important, .markdown-rendered code .token.variable) { color: var(--code-important); }
 :where(.markdown-rendered code .token.tag) { color: var(--code-tag); }
 :where(.markdown-rendered code .token.property) { color: var(--code-property); }
+:where(.markdown-rendered code .token.operator) { color: var(--code-operator); }
 :where(.markdown-rendered pre code) { background-color: transparent; }

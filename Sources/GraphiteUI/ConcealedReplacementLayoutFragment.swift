@@ -99,7 +99,19 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
         // A theme's heading background and underline reach across the column, and its prefix into the margin.
         if headingPrefixWidth > 0 { bounds.origin.x -= headingPrefixWidth; bounds.size.width += headingPrefixWidth }
         bounds.size.width = max(bounds.width, columnWidth + 4)
+        // A code block's box fills the whole line, from the column's left edge, the space
+        // between its lines included.
+        if codeBlockDecoration != nil {
+            bounds = bounds.union(CGRect(x: -indentationFromColumn, y: 0, width: columnWidth + indentationFromColumn, height: layoutFragmentFrame.height + 1))
+        }
         return bounds
+    }
+
+    /// How far this fragment starts right of the text column's left edge: TextKit places a
+    /// paragraph's fragment at its head indent, as for the inset lines of a code block.
+    private var indentationFromColumn: CGFloat {
+        let padding = textLayoutManager?.textContainer?.lineFragmentPadding ?? 0
+        return max(0, layoutFragmentFrame.minX - padding)
     }
 
     /// The text column's width from this fragment's left edge. A fragment is only as wide as
@@ -181,6 +193,7 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
     /// Rounded backgrounds behind tag pills and highlights, quote boxes, and heading
     /// backgrounds, under the text.
     private func drawThemeShapesBehindText(at point: CGPoint) {
+        if let codeBlockDecoration { drawCodeBlock(codeBlockDecoration, at: point) }
         for lineFragment in textLineFragments {
             let attributedString = lineFragment.attributedString
             let lineOrigin = CGPoint(x: point.x + lineFragment.typographicBounds.minX, y: point.y + lineFragment.typographicBounds.minY)
@@ -211,6 +224,53 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
                 }
             }
         }
+    }
+
+    // MARK: Code blocks
+
+    /// The paragraph's code block decoration, when it is a line of a fenced code block. Each
+    /// line of a block is a paragraph, so the paragraph's first character says.
+    private var codeBlockDecoration: CodeBlockLineDecoration? {
+        guard let paragraph = (textElement as? NSTextParagraph)?.attributedString, paragraph.length > 0 else { return nil }
+        return paragraph.attribute(ConcealedReplacement.codeBlockKey, at: 0, effectiveRange: nil) as? CodeBlockLineDecoration
+    }
+
+    /// This line's slice of its block's box, its indentation guides, and on the first line
+    /// the language at the right.
+    private func drawCodeBlock(_ decoration: CodeBlockLineDecoration, at point: CGPoint) {
+        let height = layoutFragmentFrame.height
+        // Each slice reaches half a point into the next, so no seam shows between lines.
+        let box = CGRect(x: point.x - indentationFromColumn, y: point.y, width: columnWidth + indentationFromColumn, height: height + (decoration.isLastLine ? 0 : 0.5))
+        decoration.background.setFill()
+        Self.path(box, cornerRadius: decoration.cornerRadius, roundsTop: decoration.isFirstLine, roundsBottom: decoration.isLastLine).fill()
+        if let firstLine = textLineFragments.first, !decoration.guideOffsets.isEmpty {
+            decoration.guideColor.setFill()
+            let lineOriginX = point.x + firstLine.typographicBounds.minX
+            for offset in decoration.guideOffsets where offset < firstLine.attributedString.length {
+                let guideX = (lineOriginX + firstLine.locationForCharacter(at: offset).x + 1).rounded()
+                DrawingPath(rect: CGRect(x: guideX, y: point.y, width: 1, height: height + 0.5)).fill()
+            }
+        }
+        if let label = decoration.languageLabel {
+            let attributes: [NSAttributedString.Key: Any] = [.font: decoration.labelFont, .foregroundColor: decoration.labelColor]
+            let size = (label as NSString).size(withAttributes: attributes)
+            let origin = CGPoint(x: point.x + columnWidth - decoration.horizontalPadding - size.width, y: point.y + max(0, height - size.height) * 0.6)
+            (label as NSString).draw(at: origin, withAttributes: attributes)
+        }
+    }
+
+    /// `rect` with its top corners, its bottom corners, both or neither rounded.
+    private static func path(_ rect: CGRect, cornerRadius: CGFloat, roundsTop: Bool, roundsBottom: Bool) -> DrawingPath {
+        let topRadius = roundsTop ? min(cornerRadius, rect.height / 2, rect.width / 2) : 0
+        let bottomRadius = roundsBottom ? min(cornerRadius, rect.height / 2, rect.width / 2) : 0
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY + topRadius))
+        path.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.minY), tangent2End: CGPoint(x: rect.minX + topRadius, y: rect.minY), radius: topRadius)
+        path.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.minY), tangent2End: CGPoint(x: rect.maxX, y: rect.minY + topRadius), radius: topRadius)
+        path.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.maxY), tangent2End: CGPoint(x: rect.maxX - bottomRadius, y: rect.maxY), radius: bottomRadius)
+        path.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.maxY), tangent2End: CGPoint(x: rect.minX, y: rect.maxY - bottomRadius), radius: bottomRadius)
+        path.closeSubpath()
+        return DrawingPath(cgPath: path)
     }
 
     /// A heading's underline across the column under its last line, and its prefix in the margin.

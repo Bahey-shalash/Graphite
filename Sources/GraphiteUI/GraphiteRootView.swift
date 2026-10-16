@@ -96,6 +96,8 @@ public struct GraphiteRootView: View {
         .environment(\.noteTypography, workspace.noteTypography)
         // Notes take the vault's Obsidian theme (Settings › Appearance › Use the Vault's Obsidian Theme).
         .environment(\.noteTheme, workspace.noteTheme)
+        // Code blocks take the code theme chosen in Settings › Editor.
+        .environment(\.codeColorTheme, workspace.preferences.codeColorTheme)
         // The menu bar's commands and their shortcuts act on this window (`GraphiteCommands`).
         .focusedSceneValue(\.workspaceMenuActions, WorkspaceMenuActions(workspace: workspace, window: windowActions,
                                                                           showCommandPalette: { activePalette = .commandPalette },

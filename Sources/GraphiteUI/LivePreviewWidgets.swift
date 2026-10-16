@@ -43,6 +43,8 @@ struct LivePreviewEnvironment {
     var typography = NoteTypography.standard
     /// The vault's Obsidian theme, which rendered blocks draw in; nil for Graphite's look.
     var theme: NoteThemeStyle?
+    /// The colors of code blocks inside rendered blocks, such as a callout's.
+    var codeColorTheme = CodeColorTheme.obsidian
     let colorsEnabled: Bool
     let paletteHexByName: [String: String]
     let drawingVersion: Int

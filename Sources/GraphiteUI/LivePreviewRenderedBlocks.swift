@@ -360,6 +360,7 @@ final class LivePreviewRenderedBlocks {
             .environment(\.lassoNoteDestination, environment.lassoNoteDestination)
             .environment(\.noteTypography, environment.typography)
             .environment(\.noteTheme, environment.theme)
+            .environment(\.codeColorTheme, environment.codeColorTheme)
             .tint(accent)
             .environment(\.accent, accent)
         guard let colorScheme else { return AnyView(widget) }
