@@ -56,16 +56,32 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             #if canImport(UIKit)
             .navigationBarTitleDisplayMode(.inline)
+            #else
+            // Wide enough for "Community Plugins" and the plugins' names. The list is always
+            // shown, as System Settings' is.
+            .toolbar(removing: .sidebarToggle)
+            .navigationSplitViewColumnWidth(min: 210, ideal: 230, max: 300)
             #endif
         } detail: {
             NavigationStack {
                 page
                     .formStyle(.grouped)
+                    #if canImport(UIKit)
                     .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+                    #endif
             }
         }
         #if os(macOS)
-        .frame(minWidth: 760, minHeight: 560)
+        // A window of its own on the Mac, which the person can make larger.
+        .frame(minWidth: 760, idealWidth: 860, minHeight: 560, idealHeight: 680)
+        // ⌘W closes it, as any window. The menu bar's ⌘W is "Close Tab", for the main
+        // window's tabs; the window's own shortcut is found before the menu bar's.
+        .background {
+            Button("Close Settings") { NSApp.keyWindow?.performClose(nil) }
+                .keyboardShortcut("w", modifiers: .command)
+                .opacity(0)
+                .accessibilityHidden(true)
+        }
         #endif
         // The root view's alert cannot appear over this sheet, and a setting that failed to
         // save must say so while its page is still open.

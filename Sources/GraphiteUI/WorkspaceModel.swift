@@ -143,6 +143,8 @@ final class WorkspaceModel {
     @ObservationIgnored var placedNotesCache: (indexVersion: Int, propertyNames: [String], notes: [PlacedNote])?
     /// Whether the map view is on screen.
     var isMapPresented = false
+    /// Whether the vault list is on screen. Settings asks for it too, from its own window on the Mac.
+    var isVaultManagerPresented = false
     /// An unfinished recording offered back, one at a time.
     var recordingRecoveryOffer: RecoverableRecording?
     /// Files that iCloud or another file provider keeps other versions of, among those
