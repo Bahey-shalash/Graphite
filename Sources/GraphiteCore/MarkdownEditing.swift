@@ -168,6 +168,9 @@ public enum MarkdownEditing {
             let remaining = listLine.isListItem ? listLine.quotePrefix : ""
             return MarkdownTextEdit(range: lineContentRange, replacement: remaining, selectionAfter: NSRange(location: lineStart + remaining.utf16.count, length: 0))
         }
+        // Past nine digits a number is no list marker, so the list ends there instead of
+        // going on with an item that would not be one.
+        if let number = listLine.orderedNumber, number >= 999_999_999 { return nil }
         var nextMarker = listLine.marker
         if let number = listLine.orderedNumber, let delimiter = listLine.marker.last { nextMarker = String(number + 1) + String(delimiter) }
         let lineBreak = lineBreakForNewLine(lineStart: lineStart, lineEnd: lineEnd, contentsEnd: contentsEnd, in: text)
@@ -218,28 +221,12 @@ public enum MarkdownEditing {
     }
 
     /// Where the note's frontmatter ends, just past its closing line, or nil when the note
-    /// has none. A `---` first line without a closing line is a thematic break.
+    /// has none. A `---` first line without a closing line is a thematic break. Read as
+    /// the rest of the app reads it: trimming each line here let an indented `  ---` in a
+    /// block scalar close it, and took `--- ` with spaces after it for an opening line.
     private static func frontmatterEnd(in text: NSString) -> Int? {
-        var location = 0
-        var isFirstLine = true
-        while location < text.length {
-            var lineEnd = 0, contentsEnd = 0
-            text.getLineStart(nil, end: &lineEnd, contentsEnd: &contentsEnd, for: NSRange(location: location, length: 0))
-            defer { location = lineEnd; isFirstLine = false }
-            // Only a line starting with `-` or `.` can open or close frontmatter.
-            guard let firstCharacter = firstNonWhitespaceUnit(from: location, to: contentsEnd, in: text),
-                  firstCharacter == unichar(UInt8(ascii: "-")) || firstCharacter == unichar(UInt8(ascii: ".")) else {
-                if isFirstLine { return nil }
-                continue
-            }
-            let trimmedLine = text.substring(with: NSRange(location: location, length: contentsEnd - location)).trimmingCharacters(in: .whitespaces)
-            if isFirstLine {
-                guard trimmedLine == "---" else { return nil }
-            } else if trimmedLine == "---" || trimmedLine == "..." {
-                return lineEnd
-            }
-        }
-        return nil
+        let length = FrontmatterLocator.length(in: text)
+        return length > 0 ? length : nil
     }
 
     private static func firstNonWhitespaceUnit(from start: Int, to end: Int, in text: NSString) -> unichar? {
@@ -519,7 +506,7 @@ public enum MarkdownEditing {
     /// The word around `location`: letters, digits, and joining marks.
     static func wordRange(at location: Int, in text: NSString) -> NSRange? {
         func isWordCharacter(_ index: Int) -> Bool {
-            guard index >= 0, index < text.length, let scalar = Unicode.Scalar(text.character(at: index)) else { return false }
+            guard let scalar = scalar(containingUnitAt: index, in: text) else { return false }
             return CharacterSet.alphanumerics.contains(scalar) || scalar == "_" || scalar == "'"
         }
         guard isWordCharacter(location - 1) || isWordCharacter(location) else { return nil }
@@ -529,6 +516,23 @@ public enum MarkdownEditing {
         // A cursor between words, or at a word's edge next to punctuation, has no word.
         guard end > start, start < location || end > location else { return nil }
         return NSRange(location: start, length: end - start)
+    }
+
+    /// The character the UTF-16 unit at `index` belongs to, both halves of a surrogate pair
+    /// giving the whole character: a letter such as 𠮷 or 𝐀 is two units, and each alone
+    /// read as no letter, so a word containing one was cut short.
+    static func scalar(containingUnitAt index: Int, in text: NSString) -> Unicode.Scalar? {
+        guard index >= 0, index < text.length else { return nil }
+        let unit = text.character(at: index)
+        if UTF16.isLeadSurrogate(unit) {
+            guard index + 1 < text.length, UTF16.isTrailSurrogate(text.character(at: index + 1)) else { return nil }
+            return Unicode.Scalar(0x10000 + (UInt32(unit) - 0xD800) << 10 + (UInt32(text.character(at: index + 1)) - 0xDC00))
+        }
+        if UTF16.isTrailSurrogate(unit) {
+            guard index > 0, UTF16.isLeadSurrogate(text.character(at: index - 1)) else { return nil }
+            return scalar(containingUnitAt: index - 1, in: text)
+        }
+        return Unicode.Scalar(unit)
     }
 
     // MARK: Pairs
@@ -557,7 +561,8 @@ public enum MarkdownEditing {
             return MarkdownTextEdit(range: NSRange(location: selection.location, length: 0), replacement: "", selectionAfter: NSRange(location: selection.location + 1, length: 0))
         }
         guard let closing = bracketPairs[typed] else { return nil }
-        let previousScalar = previous.unicodeScalars.first, nextScalar = next.unicodeScalars.first
+        let previousScalar = scalar(containingUnitAt: selection.location - 1, in: text)
+        let nextScalar = selection.length == 0 ? scalar(containingUnitAt: selection.location, in: text) : nil
         // Quotes and backticks pair only at the start of a word, so "it's" stays as typed and
         // three backticks make a code fence.
         if typed == "\"" || typed == "`" {

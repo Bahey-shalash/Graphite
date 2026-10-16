@@ -617,10 +617,11 @@ struct MarkdownTextStyler {
     private static func replacement(for span: MarkdownStyleSpan, in source: NSString) -> ConcealedReplacement? {
         switch span.style {
         case .listMarker: ["-", "*", "+"].contains(source.substring(with: span.range)) ? .bullet : nil
+        // Any status but a space is done, as Obsidian draws `[>]`, `[-]` or `[!]` checked.
         case .taskMarker:
             switch source.substring(with: span.range) {
             case "[ ]": .uncheckedTask
-            case "[x]", "[X]": .checkedTask
+            case let marker where (marker as NSString).length == 3: .checkedTask
             default: nil
             }
         case .subpathSeparator: .subpathSeparator
@@ -653,9 +654,34 @@ struct MarkdownTextStyler {
         textStorage.addAttribute(.kern, value: max(0, replacementWidth - markerWidth), range: range)
     }
 
-    /// A quote's list item marker after its `>`: the item's text, not its marker, is where
-    /// the lines it wraps onto start.
-    private static let quotedListMarker = try? NSRegularExpression(pattern: "(?:[-*+]|[0-9]+[.)])[ \\t]+(?:\\[.\\][ \\t]+)?")
+    /// The length of a quoted list item's marker at `location`: `- `, `1. ` or `1) `, and
+    /// a task's `[ ] ` after it; 0 when there is none. Read in place: a pattern needed the
+    /// whole note as a string, copied for every quoted line styled.
+    private static func quotedListMarkerLength(at location: Int, before end: Int, in source: NSString) -> Int {
+        func isSpace(_ index: Int) -> Bool { index < end && (source.character(at: index) == 0x20 || source.character(at: index) == 0x09) }
+        func spacesEnd(from index: Int) -> Int {
+            var spaceEnd = index
+            while isSpace(spaceEnd) { spaceEnd += 1 }
+            return spaceEnd
+        }
+        guard location < end else { return 0 }
+        var markerEnd = location
+        let first = source.character(at: location)
+        if first == 0x2D || first == 0x2A || first == 0x2B {
+            markerEnd += 1
+        } else {
+            while markerEnd < end, (0x30...0x39).contains(source.character(at: markerEnd)) { markerEnd += 1 }
+            guard markerEnd > location, markerEnd < end, source.character(at: markerEnd) == 0x2E || source.character(at: markerEnd) == 0x29 else { return 0 }
+            markerEnd += 1
+        }
+        guard isSpace(markerEnd) else { return 0 }
+        markerEnd = spacesEnd(from: markerEnd)
+        // A task's checkbox: `[`, one character, `]`, then a space.
+        if markerEnd + 3 < end, source.character(at: markerEnd) == 0x5B, source.character(at: markerEnd + 2) == 0x5D, isSpace(markerEnd + 3) {
+            markerEnd = spacesEnd(from: markerEnd + 3)
+        }
+        return markerEnd - location
+    }
 
     /// The lines a long quoted line wraps onto start under its text, as in Obsidian, not at
     /// the margin, where the bars are drawn: the bar covered their first letter.
@@ -664,10 +690,7 @@ struct MarkdownTextStyler {
         let lineRange = source.lineRange(for: markerRange)
         var contentStart = NSMaxRange(markerRange)
         while contentStart < NSMaxRange(lineRange), source.character(at: contentStart) == 0x20 || source.character(at: contentStart) == 0x09 { contentStart += 1 }
-        if let listMarker = Self.quotedListMarker?.firstMatch(in: source as String, options: [.anchored],
-                                                              range: NSRange(location: contentStart, length: NSMaxRange(lineRange) - contentStart)) {
-            contentStart = NSMaxRange(listMarker.range)
-        }
+        contentStart += Self.quotedListMarkerLength(at: contentStart, before: NSMaxRange(lineRange), in: source)
         let indent = textStorage.attributedSubstring(from: NSRange(location: lineRange.location, length: contentStart - lineRange.location)).size().width
         guard indent > 0 else { return }
         // TextKit takes a paragraph's style from its first character.

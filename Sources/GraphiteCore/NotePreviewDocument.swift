@@ -29,7 +29,9 @@ public enum NotePreviewDocument {
     /// space, so `## Learning C#` keeps its `#`.
     private static let headingPattern = try? NSRegularExpression(pattern: "^ {0,3}(#{1,6})[ \\t]+(.+?)(?:[ \\t]+#+)?[ \\t]*$")
     private static let calloutHeaderPattern = try? NSRegularExpression(pattern: "^>[ \\t]?\\[!([A-Za-z0-9_-]+)\\]([+-]?)[ \\t]*(.*)$")
-    private static let standaloneEmbedPattern = try? NSRegularExpression(pattern: "^[ \\t]*(!\\[\\[[^\\]\\n]+\\]\\]|!\\[[^\\]\\n]*\\]\\([^)\\n]+\\))[ \\t]*$")
+    /// An embed alone on its line. Its destination may hold one balanced `(…)`, as
+    /// `EmbedLocator` reads it, so `![](photo (1).png)` is an image block too.
+    private static let standaloneEmbedPattern = try? NSRegularExpression(pattern: "^[ \\t]*(!\\[\\[[^\\]\\n]+\\]\\]|!\\[[^\\]\\n]*\\]\\((?:<[^<>\\n]*>[^)\\n]*|[^()\\n]+(?:\\([^()\\n]*\\)[^()\\n]*)?)\\))[ \\t]*$")
 
     /// Callouts nested deeper than this stay quoted Markdown. Each level is split by a
     /// recursive call that walks the rest of the callout again, so without a limit a

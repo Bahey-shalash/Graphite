@@ -264,6 +264,8 @@ final class LivePreviewTextState {
     private(set) var editSinceBlockScan: (edit: CharacterEdit, sourceBeforeEdit: NSString)?
     /// Whether `blockEntries` came from a scan, so they can be moved instead of found again.
     private var hasFoundBlocks = false
+    /// Changes whenever the text or the blocks are taken in, for what is worked out from them.
+    private(set) var revision = 0
 
     /// Whether an edit is waiting to be restyled.
     var hasUnstyledEdit: Bool { unstyledEdit != nil }
@@ -302,6 +304,7 @@ final class LivePreviewTextState {
             cachesDescribeOldText = false
             editSinceBlockScan = nil
             hasFoundBlocks = findsBlocks
+            revision += 1
         }
         guard findsBlocks else {
             blockEntries = []
@@ -617,17 +620,16 @@ enum LivePreviewBlockActivity {
 /// draws them, so a tap on text that merely looks like one, such as a task in a code
 /// sample, places the cursor instead of changing the note or leaving it.
 enum LivePreviewTapTargets {
-    private static let drawnCheckboxTexts: Set<String> = ["[ ]", "[x]", "[X]"]
-
     /// The `[ ]` or `[x]` of a drawn checkbox at `characterIndex`, quoted tasks included.
+    /// Every task status is drawn as a checkbox, `[>]` and `[!]` as done ones.
     static func taskCheckboxRange(at characterIndex: Int, in source: NSString) -> NSRange? {
         guard characterIndex <= source.length else { return nil }
         let lineRange = source.lineRange(for: NSRange(location: characterIndex, length: 0))
         // A quick look first: the style scan starts from the top of the note.
         let line = source.substring(with: lineRange)
-        guard drawnCheckboxTexts.contains(where: { checkboxText in line.contains(checkboxText) }) else { return nil }
+        guard line.contains("]") else { return nil }
         let marker = MarkdownStyleScanner.spans(in: source, range: lineRange).first { span in
-            span.style == .taskMarker && drawnCheckboxTexts.contains(source.substring(with: span.range))
+            span.style == .taskMarker && span.range.length == 3
         }
         guard let marker, characterIndex >= marker.range.location, characterIndex <= NSMaxRange(marker.range) else { return nil }
         return marker.range
