@@ -8,6 +8,8 @@
     const calloutTypes = ['note', 'abstract', 'summary', 'tldr', 'info', 'todo', 'tip', 'hint', 'important', 'success', 'check', 'done',
         'question', 'help', 'faq', 'warning', 'caution', 'attention', 'failure', 'fail', 'missing', 'danger', 'error', 'bug', 'example',
         'quote', 'cite'];
+    // Prism's token classes, one for each kind of code Graphite colors (`CodeTokenKind`).
+    const codeTokenClasses = ['keyword', 'class-name', 'function', 'string', 'number', 'boolean', 'comment', 'important', 'tag', 'property', 'variable'];
 
     function element(tag, className, parent, text) {
         const created = document.createElement(tag);
@@ -51,7 +53,9 @@
         const bullets = element('ul', null, sizer);
         element('li', null, bullets, 'Item').id = 'probe-li';
         const marker = element('span', null, sizer, 'marker'); marker.id = 'probe-checkmark'; marker.style.color = 'var(--checkbox-marker-color, transparent)';
-        const pre = element('pre', null, sizer); pre.id = 'probe-pre'; element('code', null, pre, 'let x = 1');
+        const pre = element('pre', null, sizer); pre.id = 'probe-pre';
+        const preCode = element('code', 'language-js is-loaded', pre, 'let x = 1');
+        for (const tokenClass of codeTokenClasses) element('span', 'token ' + tokenClass, preCode, tokenClass).id = 'probe-token-' + tokenClass;
         const list = element('ul', 'contains-task-list', sizer);
         const doneItem = element('li', 'task-list-item is-checked', list); doneItem.setAttribute('data-task', 'x');
         const checked = element('input', 'task-list-item-checkbox', doneItem); checked.type = 'checkbox'; checked.checked = true; checked.setAttribute('checked', ''); checked.id = 'probe-checked';
@@ -154,6 +158,7 @@
         values['pre.borderRadius'] = radiusInPixels('probe-pre', 'TopLeft');
         values['pre.borderWidth'] = pre.borderTopStyle === 'none' ? '0px' : pre.borderTopWidth;
         values['pre.borderColor'] = pre.borderTopColor;
+        for (const tokenClass of codeTokenClasses) values['codeToken.' + tokenClass] = style('probe-token-' + tokenClass).color;
         const mark = style('probe-mark');
         values['mark.borderRadius'] = radiusInPixels('probe-mark', 'TopLeft');
         values['mark.color'] = mark.color;

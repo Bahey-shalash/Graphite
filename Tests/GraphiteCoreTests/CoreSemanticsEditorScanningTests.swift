@@ -132,7 +132,7 @@ final class CoreSemanticsEditorScanningTests: XCTestCase {
             while lineStart < source.length {
                 let lineRange = source.lineRange(for: NSRange(location: lineStart, length: 0))
                 XCTAssertEqual(MarkdownStyleScanner.blockContext(atLineContaining: lineStart, in: source), expected.context, "\(source) at \(lineStart)")
-                expected = MarkdownStyleScanner.nextState(after: source.substring(with: lineRange), expected)
+                expected = MarkdownStyleScanner.nextState(after: source.substring(with: lineRange), endingAt: NSMaxRange(lineRange), expected)
                 lineStart = NSMaxRange(lineRange)
             }
         }
@@ -151,7 +151,7 @@ final class CoreSemanticsEditorScanningTests: XCTestCase {
             while lineStart < source.length {
                 let lineRange = source.lineRange(for: NSRange(location: lineStart, length: 0))
                 XCTAssertEqual(MarkdownStyleScanner.blockContext(atLineContaining: lineStart, in: source), expected.context, "padding \(padding) at \(lineStart)")
-                expected = MarkdownStyleScanner.nextState(after: source.substring(with: lineRange), expected)
+                expected = MarkdownStyleScanner.nextState(after: source.substring(with: lineRange), endingAt: NSMaxRange(lineRange), expected)
                 lineStart = NSMaxRange(lineRange)
             }
         }

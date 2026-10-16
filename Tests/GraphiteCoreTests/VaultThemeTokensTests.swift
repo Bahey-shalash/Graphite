@@ -58,4 +58,16 @@ final class VaultThemeTokensTests: XCTestCase {
         XCTAssertEqual(ObsidianCalloutTypes.canonicalType("Warning"), "warning")
         XCTAssertEqual(ObsidianCalloutTypes.canonicalType("my-own"), "note")
     }
+
+    func testSyntaxColorsAreTakenTogetherWhenTheThemeChangesAny() {
+        var defaults: ThemeProbeReading.Values = ["body.fontSize": "16px"]
+        for (kind, tokenClass) in ThemeModeTokens.codeTokenProbeClasses { defaults["codeToken." + tokenClass] = kind == "comment" ? "rgb(171, 171, 171)" : "rgb(213, 57, 132)" }
+        XCTAssertNil(ThemeProbeReading.tokens(themed: defaults, defaults: defaults).codeTokenColors, "A theme that keeps Obsidian's syntax colors leaves Graphite's.")
+        var themed = defaults
+        themed["codeToken.keyword"] = "rgb(255, 0, 0)"
+        let colors = ThemeProbeReading.tokens(themed: themed, defaults: defaults).codeTokenColors
+        XCTAssertEqual(colors?[CodeTokenKind.keyword.rawValue], ThemeColor(computedCSS: "rgb(255, 0, 0)"))
+        XCTAssertEqual(colors?[CodeTokenKind.comment.rawValue], ThemeColor(computedCSS: "rgb(171, 171, 171)"), "The theme's other syntax colors come with it.")
+        XCTAssertEqual(colors?.count, CodeTokenKind.allCases.count)
+    }
 }
