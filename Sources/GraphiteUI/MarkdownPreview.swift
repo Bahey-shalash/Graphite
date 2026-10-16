@@ -2444,6 +2444,11 @@ struct CalloutView<Body: View>: View {
     }
     /// The title as written in the note, which the fold key is made of.
     var foldKeyTitle: String
+
+    /// Whether Markdown has a wikilink, a Markdown link or a web address, which a tap follows.
+    static func containsLink(_ markdown: String) -> Bool {
+        markdown.contains("[[") || markdown.contains("](") || markdown.contains("://")
+    }
     /// Graphite's 8 points, or the theme's corner radius.
     private var calloutRadius: CGFloat { theme?.calloutRadius.map { radius in NoteThemeStyle.scaled(radius, textSize: textSize) } ?? 8 }
 
@@ -2466,7 +2471,10 @@ struct CalloutView<Body: View>: View {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: appearance.systemImage).foregroundStyle(appearance.titleColor)
-                    // A link in the title takes the tap before the fold button does.
+                    // A link in the title takes the tap before the fold button does. Textual
+                    // covers the whole text with its link tap, which took every tap on the
+                    // title, so a folded callout opened only from its icon or chevron: a
+                    // title without a link leaves the tap to the fold button.
                     StructuredText(title, parser: ObsidianMarkdownParser(baseURL: root, textSize: textSize, sourceTokens: sourceTokens))
                         .id(textSize)
                         .id(sourceTokens)
@@ -2475,6 +2483,7 @@ struct CalloutView<Body: View>: View {
                         .textual.inlineStyle(InlineStyle.default.link(.foregroundColor(accent)))
                         .textual.imageAttachmentLoader(VaultImageLoader(root: root))
                         .environment(\.openURL, ObsidianMarkdownText.linkAction(root: root, navigate: navigate, scrollToHeading: scrollToHeading))
+                        .allowsHitTesting(Self.containsLink(title))
                     if folding != .notFoldable {
                         Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(appearance.titleColor)
                             .rotationEffect(.degrees(isExpanded ? 90 : 0))

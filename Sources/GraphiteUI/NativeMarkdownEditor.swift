@@ -61,8 +61,40 @@ final class MarkdownTextView: UITextView {
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let hitView = super.hitTest(point, with: event)
-        if hitView != nil, event?.type == .touches { lastTouchUptime = ProcessInfo.processInfo.systemUptime }
+        // Only a touch on the text itself lets the note start editing. A touch on a rendered
+        // block (the properties, a callout) belongs to the block; counting it let SwiftUI's
+        // focus system hand the note the keyboard a moment later, its cursor in the YAML.
+        if let hitView, event?.type == .touches, !isOverlay(hitView) { lastTouchUptime = ProcessInfo.processInfo.systemUptime }
         return hitView
+    }
+
+    /// Over a rendered block or a fold button, only scrolling and zooming are the text
+    /// view's: its taps, loupe, selection and drag would take the touch from the block's
+    /// own controls. A folded callout's title did not open, and a drag starting on the
+    /// properties could end as a tap at the note's start.
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        if gestureRecognizer !== panGestureRecognizer, !(gestureRecognizer is UIPinchGestureRecognizer),
+           let touchedView = super.hitTest(gestureRecognizer.location(in: self), with: nil), isOverlay(touchedView) {
+            return false
+        }
+        return super.gestureRecognizerShouldBegin(gestureRecognizer)
+    }
+
+    /// Whether `view` is in a rendered block's view or is a fold button, placed over the text,
+    /// rather than one of the views UIKit draws the text with.
+    private func isOverlay(_ view: UIView) -> Bool {
+        var placedView = view
+        while let superview = placedView.superview, superview !== self { placedView = superview }
+        guard placedView.superview === self else { return false }
+        if placedView is UIControl { return true }
+        // A hosting controller's view: SwiftUI puts responders of its own between the view
+        // and its controller, and the chain reaches a view again after the controller.
+        var responder = placedView.next
+        while let currentResponder = responder, !(currentResponder is UIView) {
+            if currentResponder is UIViewController { return true }
+            responder = currentResponder.next
+        }
+        return false
     }
 
     override var canBecomeFirstResponder: Bool {

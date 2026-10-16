@@ -26,6 +26,17 @@ extension RenderedBlockHost {
         #endif
     }
 
+    /// Takes the view out of the text view. On the iPad, whatever inside it has the keyboard
+    /// gives it up first: UIKit hands the first responder of a removed view to the view
+    /// around it, so the note began editing, its cursor at its start and the properties
+    /// showing their YAML, after a drag that started on a property scrolled them away.
+    func removeFromTextView() {
+        #if canImport(UIKit)
+        view.endEditing(true)
+        #endif
+        placedView.removeFromSuperview()
+    }
+
     /// A host whose frame comes from the text's layout, not from its content.
     static func makeRenderedBlockHost(rootView: AnyView) -> RenderedBlockHost {
         #if canImport(UIKit)
@@ -297,10 +308,10 @@ final class LivePreviewRenderedBlocks {
     /// with each edit, so it is not taken away for a frame and put back.
     func detachViews(except keysInUse: Set<LivePreviewBlockKey>, entries: [LivePreviewBlockEntry]) {
         if !entries.contains(where: { entry in entry.block.kind == .frontmatter && keysInUse.contains(entry.key) }) {
-            propertiesHost?.placedView.removeFromSuperview()
+            propertiesHost?.removeFromTextView()
         }
         for (key, host) in hosts where !keysInUse.contains(key) {
-            host.placedView.removeFromSuperview()
+            host.removeFromTextView()
             hosts[key] = nil
             if let entry = entries.first(where: { candidate in candidate.key == key }),
                let estimatedMegabytes = DetachedWidgetPool<RenderedBlockHost>.estimatedMegabytes(of: entry.block.kind) {
@@ -310,8 +321,8 @@ final class LivePreviewRenderedBlocks {
     }
 
     func removeAllViews() {
-        propertiesHost?.placedView.removeFromSuperview()
-        for host in hosts.values { host.placedView.removeFromSuperview() }
+        propertiesHost?.removeFromTextView()
+        for host in hosts.values { host.removeFromTextView() }
         hosts.removeAll()
         detachedHosts.removeAll()
     }
