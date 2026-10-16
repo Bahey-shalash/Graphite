@@ -360,7 +360,6 @@ struct BaseViewEditorSheet: View {
             Text("Properties")
         } footer: {
             Text("Shown in this order: table columns, card fields, list items.")
-                .formFooterAlignment()
         }
     }
 
@@ -430,7 +429,6 @@ struct BaseViewEditorSheet: View {
             Text("Filters for This View")
         } footer: {
             Text("A file is shown when all of these are true, together with the filters that apply to every view.")
-                .formFooterAlignment()
         }
     }
 
@@ -474,7 +472,6 @@ struct BaseViewEditorSheet: View {
             Text("Map")
         } footer: {
             Text("Coordinates are a property holding “latitude, longitude” or a two-item list. Icons use Lucide names, colors CSS colors.")
-                .formFooterAlignment()
         }
     }
 }

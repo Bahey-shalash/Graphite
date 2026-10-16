@@ -1001,11 +1001,8 @@ private struct RenameSheet: View {
                         if !fileExtension.isEmpty { Text("." + fileExtension).foregroundStyle(.secondary) }
                     }
                 } footer: {
-                    Group {
-                        if let problem, !name.isEmpty { Text(problem).foregroundStyle(.red) }
-                        else if !isFolder && DocumentKind(path: path) == .markdown { Text("Links to this note are updated as the vault's settings say.") }
-                    }
-                    .formFooterAlignment()
+                    if let problem, !name.isEmpty { Text(problem).foregroundStyle(.red) }
+                    else if !isFolder && DocumentKind(path: path) == .markdown { Text("Links to this note are updated as the vault's settings say.") }
                 }
             }
             .formStyle(.grouped)
@@ -1064,11 +1061,8 @@ private struct NewFolderSheet: View {
                 Section {
                     TextField("Folder name", text: $name).focused($isNameFocused).submitLabel(.done).onSubmit(create)
                 } footer: {
-                    Group {
-                        if let problem, !name.isEmpty { Text(problem).foregroundStyle(.red) }
-                        else { Text("In “\(directory.rawValue.isEmpty ? workspace.title : directory.rawValue)”") }
-                    }
-                    .formFooterAlignment()
+                    if let problem, !name.isEmpty { Text(problem).foregroundStyle(.red) }
+                    else { Text("In “\(directory.rawValue.isEmpty ? workspace.title : directory.rawValue)”") }
                 }
             }
             .formStyle(.grouped)

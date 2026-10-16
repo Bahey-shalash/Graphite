@@ -183,10 +183,7 @@ struct VaultTagsList: View {
                 Text("No tags in this vault yet. Write #tag in a note, or add it to the note's tags property.").foregroundStyle(.secondary)
             }
         } footer: {
-            Group {
-                if !workspace.hasCompletedIndexScan { Text("Still reading the vault; more tags may appear.") }
-            }
-            .formFooterAlignment()
+            if !workspace.hasCompletedIndexScan { Text("Still reading the vault; more tags may appear.") }
         }
     }
 }
@@ -256,10 +253,7 @@ struct VaultPropertiesList: View {
                 Text("No properties in this vault yet. Add them to a note from its Properties.").foregroundStyle(.secondary)
             }
         } footer: {
-            Group {
-                if !workspace.hasCompletedIndexScan { Text("Still reading the vault; more properties may appear.") }
-            }
-            .formFooterAlignment()
+            if !workspace.hasCompletedIndexScan { Text("Still reading the vault; more properties may appear.") }
         }
     }
 
