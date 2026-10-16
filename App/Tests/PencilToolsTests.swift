@@ -343,10 +343,15 @@ final class PencilToolsTests: XCTestCase {
 
         /// A stroke as a tilted, turning Pencil draws it: every point's tip different.
         func tiltedStroke(ink: PKInk, atY lineY: CGFloat) -> PKStroke {
-            let controlPoints = (0...10).map { step in
-                PKStrokePoint(location: CGPoint(x: 100 + 30 * CGFloat(step), y: lineY), timeOffset: TimeInterval(step) * 0.02,
-                              size: CGSize(width: 12 + 3 * CGFloat(step), height: 6 + CGFloat(step)), opacity: 1, force: 0.5 + 0.1 * CGFloat(step),
-                              azimuth: 0.2 * CGFloat(step), altitude: 0.6)
+            // Typed step by step: as one expression, an optimized build gave up type-checking it.
+            let controlPoints = (0...10).map { (step: Int) -> PKStrokePoint in
+                let progress = CGFloat(step)
+                let location = CGPoint(x: 100 + 30 * progress, y: lineY)
+                let size = CGSize(width: 12 + 3 * progress, height: 6 + progress)
+                let force: CGFloat = 0.5 + 0.1 * progress
+                let azimuth: CGFloat = 0.2 * progress
+                return PKStrokePoint(location: location, timeOffset: TimeInterval(step) * 0.02, size: size, opacity: 1, force: force,
+                                     azimuth: azimuth, altitude: 0.6)
             }
             return PKStroke(ink: ink, path: PKStrokePath(controlPoints: controlPoints, creationDate: Date()))
         }

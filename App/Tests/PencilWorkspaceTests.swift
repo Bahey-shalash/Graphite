@@ -187,10 +187,14 @@ final class PencilWorkspaceTests: XCTestCase {
         let pdfView = try XCTUnwrap(session.pdfView as? GraphitePDFDisplayView)
 
         func stroke(_ inkType: PKInk.InkType, color: UIColor, width: CGFloat, atY lineY: CGFloat) -> PKStroke {
-            let points = (0...24).map { pointIndex in
-                PKStrokePoint(location: CGPoint(x: 60 + CGFloat(pointIndex) * 12, y: lineY + 6 * sin(CGFloat(pointIndex) * 0.5)),
-                              timeOffset: Double(pointIndex) / 60, size: CGSize(width: width, height: width), opacity: inkType == .marker ? 1.4 : 1,
-                              force: 0.4 + 0.05 * CGFloat(pointIndex % 8), azimuth: .pi / 2, altitude: .pi / 3)
+            // Typed step by step: as one expression, an optimized build gave up type-checking it.
+            let points = (0...24).map { (pointIndex: Int) -> PKStrokePoint in
+                let progress = CGFloat(pointIndex)
+                let location = CGPoint(x: 60 + progress * 12, y: lineY + 6 * sin(progress * 0.5))
+                let opacity: CGFloat = inkType == .marker ? 1.4 : 1
+                let force: CGFloat = 0.4 + 0.05 * CGFloat(pointIndex % 8)
+                return PKStrokePoint(location: location, timeOffset: Double(pointIndex) / 60, size: CGSize(width: width, height: width), opacity: opacity,
+                                     force: force, azimuth: .pi / 2, altitude: .pi / 3)
             }
             return PKStroke(ink: PKInk(inkType, color: color), path: PKStrokePath(controlPoints: points, creationDate: Date()))
         }
