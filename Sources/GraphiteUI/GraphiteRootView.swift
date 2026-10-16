@@ -61,7 +61,10 @@ public struct GraphiteRootView: View {
 
     public var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility, preferredCompactColumn: $preferredCompactColumn) {
-            VaultSidebar(workspace: workspace, creation: $creation, showsSettings: showsSettingsBinding, showsVaultManager: $workspace.isVaultManagerPresented,
+            // The binding of a stored state, which SwiftUI sees as the same each time: a binding
+            // made anew for each update made the iPad's sidebar update again without end, and
+            // the app never drew its first frame. The Mac's sidebar has no Settings button.
+            VaultSidebar(workspace: workspace, creation: $creation, showsSettings: $showsSettings, showsVaultManager: $workspace.isVaultManagerPresented,
                          showDocument: showDocumentColumn)
                 .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 480)
         } detail: {
@@ -453,11 +456,6 @@ public struct GraphiteRootView: View {
         #else
         showsSettings = true
         #endif
-    }
-
-    /// The sidebar's Settings button; the Mac's Settings window opens from the app menu instead.
-    private var showsSettingsBinding: Binding<Bool> {
-        Binding(get: { showsSettings }, set: { isShown in if isShown { showSettings() } else { showsSettings = false } })
     }
 
     private var templatePickerAction: TemplatePickerAction? {
