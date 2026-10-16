@@ -294,11 +294,9 @@ final class LivePreviewTextState {
     /// Takes in the current text. Blocks move with an edit that cannot change them, and
     /// are found again otherwise. `findsBlocks` is false outside Live Preview;
     /// `forcesBlockScan` is for a change in which blocks are rendered. Fenced blocks in
-    /// `pluginCodeBlockLanguages` are drawn by community plugins. `findsOnlyFrontmatter`
-    /// is for an editor that renders only the properties: finding them again then reads
-    /// the start of the note rather than all of it.
-    func update(source newSource: NSString, findsBlocks: Bool, findsOnlyFrontmatter: Bool = false, forcesBlockScan: Bool = false,
-                pluginCodeBlockLanguages: Set<String> = [], isRendered: (LivePreviewBlock) -> Bool) {
+    /// `pluginCodeBlockLanguages` are drawn by community plugins.
+    func update(source newSource: NSString, findsBlocks: Bool, forcesBlockScan: Bool = false, pluginCodeBlockLanguages: Set<String> = [],
+                isRendered: (LivePreviewBlock) -> Bool) {
         defer {
             source = newSource
             cachesDescribeOldText = false
@@ -315,10 +313,7 @@ final class LivePreviewTextState {
             blockEntries = movedEntries
             return
         }
-        let foundBlocks = findsOnlyFrontmatter
-            ? LivePreviewBlockScanner.frontmatterBlock(in: newSource).map { frontmatter in [frontmatter] } ?? []
-            : LivePreviewBlockScanner.blocks(in: newSource, pluginCodeBlockLanguages: pluginCodeBlockLanguages)
-        let blocks = foundBlocks.filter(isRendered)
+        let blocks = LivePreviewBlockScanner.blocks(in: newSource, pluginCodeBlockLanguages: pluginCodeBlockLanguages).filter(isRendered)
         blockEntries = zip(blocks, LivePreviewBlockKey.keys(for: blocks)).map { block, key in
             LivePreviewBlockEntry(block: block, range: block.range, key: key)
         }

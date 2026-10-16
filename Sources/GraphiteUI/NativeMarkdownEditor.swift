@@ -1211,23 +1211,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         }
 
         private func estimatedHeight(of block: LivePreviewBlock, columnWidth: CGFloat) -> CGFloat {
-            switch block.kind {
-            case .frontmatter: return 44 + 34 * CGFloat(block.markdown.components(separatedBy: "\n").count - 2)
-            case .table: return 40 * CGFloat(block.markdown.components(separatedBy: "\n").count - 1) + 16
-            case .mathBlock: return 72
-            case .horizontalRule: return 28
-            case .callout: return 56 + 30 * CGFloat(block.markdown.components(separatedBy: "\n").count - 1)
-            case .baseDefinition: return EmbeddedBaseView.defaultHeight
-            case .pluginCodeBlock: return 120
-            case .embed(let embed):
-                let fileExtension = (WikiLinkResolver.pathPart(embed.target) as NSString).pathExtension.lowercased()
-                if MediaFileKind.videoExtensions.contains(fileExtension) { return columnWidth * 9 / 16 + 8 }
-                if MediaFileKind.audioExtensions.contains(fileExtension) { return 96 }
-                if fileExtension == "pdf" { return 570 }
-                if fileExtension == "base" { return EmbeddedBaseView.defaultHeight }
-                if DocumentKind(fileExtension: fileExtension) == .image { return 280 }
-                return 60
-            }
+            LivePreviewBlockHeightEstimate.height(of: block, columnWidth: columnWidth)
         }
 
         /// The markup the selection shows as written. Nothing shows while the note is only
@@ -2511,6 +2495,18 @@ final class MarkdownMacTextView: NSTextView {
     /// Called when the text column moves or changes width, which the views placed over the
     /// text follow; set by the coordinator.
     var didMoveTextColumn: (() -> Void)?
+    /// Called once TextKit has laid out the viewport, where the rendered blocks are placed;
+    /// set by the coordinator. Systems before macOS 27 do not report it.
+    var didLayOutViewport: (() -> Void)?
+
+    override func textViewportLayoutControllerDidLayout(_ textViewportLayoutController: NSTextViewportLayoutController) {
+        // AppKit implements it from macOS 27; on an earlier system the view's own
+        // implementation, if any, is private, and only this one answers.
+        if Self.textViewImplementsViewportDidLayout { super.textViewportLayoutControllerDidLayout(textViewportLayoutController) }
+        didLayOutViewport?()
+    }
+
+    private static let textViewImplementsViewportDidLayout = NSTextView.instancesRespond(to: #selector(NSTextView.textViewportLayoutControllerDidLayout(_:)))
 
     private var canInsertAttachments: Bool { insertAttachment != nil || insertLinkToVaultFile != nil }
 
@@ -2808,8 +2804,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
     var readAloudRange: NSRange?
     var followsReading = false
     var suspendReadingFollow: (() -> Void)?
-    /// What Live Preview's rendered blocks read. Of them the Mac renders the note's
-    /// properties, as Obsidian shows them above the note; other blocks stay styled source.
+    /// What Live Preview's rendered blocks read.
     let environment: LivePreviewEnvironment?
 
     /// The Mac has no keyboard toolbar: of `actions`, it uses pasting, dropping, following
@@ -2914,16 +2909,17 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             await coordinator?.actions.pluginContextMenuItems?() ?? []
         }
         (textView as? MarkdownMacTextView)?.offerPasteToPlugins = coordinator.actions.pluginPaste
-        let previouslyRendersProperties = coordinator.rendersProperties
+        let previousBlockPolicy = coordinator.renderedBlockPolicy
         let hasNewConfiguration = coordinator.configuration != configuration
         coordinator.configuration = configuration
         coordinator.environment = environment
-        // Turning the Properties view on or off changes what is concealed, as the configuration can.
-        if hasNewConfiguration || coordinator.rendersProperties != previouslyRendersProperties {
-            coordinator.restyleEverything(in: textView)
+        // Turning the Properties view on or off, or a plugin starting to draw code blocks,
+        // changes which blocks are rendered, as the configuration can.
+        if hasNewConfiguration || coordinator.renderedBlockPolicy != previousBlockPolicy {
+            coordinator.restyleEverything(in: textView, forcesBlockScan: coordinator.renderedBlockPolicy != previousBlockPolicy)
             coordinator.keepSelectionOutOfConcealedProperties(in: textView)
         }
-        coordinator.refreshPropertiesPanel(in: textView)
+        coordinator.refreshBlockViews(in: textView)
         let hasAppliedInsertion = coordinator.applyPendingInsertions(to: textView)
         if !hasAppliedInsertion, !textView.hasMarkedText(), session.text != coordinator.lastSynchronizedText {
             // The file changed on disk, or properties were edited from a panel.
@@ -2946,8 +2942,8 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         coordinator.viewWasDismantled(with: container)
     }
 
-    /// On the Mac, Live Preview conceals markup away from the selection as on the iPad. Of
-    /// its rendered blocks, the Mac renders the properties; the others stay styled source.
+    /// On the Mac, Live Preview conceals markup away from the selection and draws its blocks
+    /// as views over their concealed source, as on the iPad.
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate, RetainableMarkdownEditor {
         var session: MarkdownSession
@@ -2976,7 +2972,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         }
         var pendingJump: Jump?
         /// The text last styled and the edits styling has not caught up with, so each edit
-        /// restyles only the lines it changed. The only block the Mac finds is the frontmatter.
+        /// restyles only the lines it changed, and the rendered blocks found in it.
         private let textState = LivePreviewTextState()
         private var characterEditObserver: NSObjectProtocol?
         /// The markup the styling shows as written in Live Preview; see `RevealedMarkup`.
@@ -2987,21 +2983,34 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         var lastSynchronizedText = ""
         /// Pastes and drops whose content is still loading or saving.
         private var pendingInsertionRequests = PendingInsertionRequests()
-        /// What the rendered properties read; nil in Source mode.
+        /// What Live Preview's rendered blocks read; nil in Source mode.
         var environment: LivePreviewEnvironment?
-        /// The note's properties, drawn over their concealed YAML at the top of the note.
+        /// The views drawn over concealed blocks, by block: those on screen, and those taken
+        /// off screen, kept so a block that scrolls back into view, or that the cursor
+        /// leaves, shows again without being built again.
+        private var blockHosts: [LivePreviewBlockKey: NSHostingView<AnyView>] = [:]
+        private var detachedBlockHosts = DetachedWidgetPool<NSHostingView<AnyView>>(budgetMegabytes: 64)
+        /// The note's properties, drawn over their concealed YAML at the top of the note, and
+        /// the frontmatter they were built for.
         private var propertiesHost: NSHostingView<AnyView>?
-        /// The frontmatter, environment, and appearance the properties view was built with.
         private var propertiesHostBlockKey: LivePreviewBlockKey?
-        private var propertiesHostSignature: LivePreviewWidgetSignature?
-        /// The height the properties view last reported, kept across edits to the
-        /// properties: each gives the frontmatter a new key, and its height rarely changes.
+        /// The environment and appearance the views were last given.
+        private var blockHostSignature: LivePreviewWidgetSignature?
+        /// The heights the views reported, by block; and the properties view's last one.
+        private var reportedBlockHeights: [LivePreviewBlockKey: CGFloat] = [:]
         private var reportedPropertiesHeight: CGFloat?
-        /// The height the concealed YAML reserves in the text now, which the view is given.
-        private var propertiesHeightInText: CGFloat?
-        /// Heights the properties views of every Mac editor measured, so a note opened again
-        /// reserves its properties' height at once instead of correcting an estimate.
-        private static var sharedMeasuredHeights = MeasuredBlockHeightCache(capacity: 500)
+        private var estimatedBlockHeights: [LivePreviewBlockKey: CGFloat] = [:]
+        /// The heights the concealed blocks reserve in the text now, which their views are given.
+        private var heightsKeptInText: [LivePreviewBlockKey: CGFloat] = [:]
+        /// Blocks whose measured height changed while the text could not be styled.
+        private var blockKeysAwaitingRestyle: Set<LivePreviewBlockKey> = []
+        /// Heights the views of every Mac editor measured, so a note opened again reserves its
+        /// blocks' heights at once instead of correcting estimates with visible jumps.
+        private static var sharedMeasuredHeights = MeasuredBlockHeightCache(capacity: 2_000)
+        private var isPlacementScheduled = false
+        /// Placement passes in a row that found blocks TextKit had not laid out yet.
+        private var placementPasses = 0
+        private var scrollObserver: NSObjectProtocol?
         /// Set by "Edit Source": the YAML shows, and the cursor can be in it, until the
         /// cursor leaves it.
         private(set) var showsPropertiesSource = false
@@ -3015,9 +3024,19 @@ struct NativeMarkdownEditor: NSViewRepresentable {
 
         private var styler: MarkdownTextStyler { MarkdownTextStyler(configuration: configuration, accentColor: NSColor.graphiteAccent(hex: configuration.accentHex) ?? .controlAccentColor) }
 
+        /// Whether Live Preview draws its blocks as views.
+        var rendersBlocks: Bool { configuration.mode == .livePreview && environment != nil }
         /// Whether the frontmatter is rendered as properties, as Obsidian's Live Preview shows
         /// them; without the Properties view it stays styled source.
-        var rendersProperties: Bool { configuration.mode == .livePreview && environment?.updateProperties != nil }
+        var rendersProperties: Bool { rendersBlocks && environment?.updateProperties != nil }
+        /// What decides which blocks are rendered; a change finds the blocks again.
+        var renderedBlockPolicy: [String] {
+            [String(rendersBlocks), String(rendersProperties), pluginCodeBlockLanguages.sorted().joined(separator: ",")]
+        }
+        /// Languages community plugins draw in Live Preview; none without the plugin runtime.
+        private var pluginCodeBlockLanguages: Set<String> {
+            environment?.pluginCodeBlocks == nil ? [] : environment?.pluginCodeBlockLanguages ?? []
+        }
 
         func undoManager(for view: NSTextView) -> UndoManager? { noteUndoManager }
 
@@ -3098,7 +3117,22 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             textView.didBecomeFirstResponder = { [weak self] in self?.actions.beginEditing?() }
             textView.didMoveTextColumn = { [weak self, weak textView] in
                 guard let self, let textView else { return }
-                self.placePropertiesPanel(in: textView)
+                self.schedulePlacement(in: textView)
+            }
+            textView.didLayOutViewport = { [weak self, weak textView] in
+                guard let self, let textView else { return }
+                self.placeBlockViews(in: textView)
+            }
+            // Systems that do not say when the viewport is laid out: scrolling lays out more of
+            // the note, whose blocks are placed once it has.
+            if let clipView = textView.enclosingScrollView?.contentView {
+                clipView.postsBoundsChangedNotifications = true
+                scrollObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: clipView, queue: .main) { [weak self, weak textView] _ in
+                    MainActor.assumeIsolated {
+                        guard let self, let textView else { return }
+                        self.schedulePlacement(in: textView)
+                    }
+                }
             }
             textView.didBecomeMeasurable = { [weak self] measurableView in
                 // Not from inside the window change or layout itself.
@@ -3157,16 +3191,18 @@ struct NativeMarkdownEditor: NSViewRepresentable {
 
         // MARK: Styling
 
-        func restyleEverything(in textView: NSTextView) {
+        /// - Parameter forcesBlockScan: Finds the blocks again, after a change in which are rendered.
+        func restyleEverything(in textView: NSTextView, forcesBlockScan: Bool = false) {
             guard let textStorage = textView.textStorage else { return }
-            updateTextState(of: textView)
+            updateTextState(of: textView, forcesBlockScan: forcesBlockScan)
             textState.discardUnstyledEdit()
             revealedMarkup = markupRevealedBySelection(in: textView)
             styler.applyStyles(to: textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedMarkup: revealedMarkup,
-                               concealedBlocks: concealedBlocks(in: textView, restyledFrom: 0), blockContextCheckpoints: blockContextCheckpoints)
+                               concealedBlocks: concealedBlocks(in: textView, restyledRange: NSRange(location: 0, length: textStorage.length)),
+                               blockContextCheckpoints: blockContextCheckpoints)
             UndrawnReplacementStyling.showSource(in: textStorage, range: NSRange(location: 0, length: textStorage.length), baseFont: styler.baseFont, typography: styler.configuration.typography)
             textView.typingAttributes = styler.baseAttributes
-            placePropertiesPanel(in: textView)
+            schedulePlacement(in: textView)
         }
 
         private func restyle(_ range: NSRange, in textView: NSTextView) {
@@ -3174,15 +3210,19 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             let location = min(range.location, textStorage.length)
             let lineRange = textStorage.mutableString.lineRange(for: NSRange(location: location, length: min(range.length, textStorage.length - location)))
             styler.applyStyles(to: textStorage, editedRange: lineRange, restyleEverything: false, revealedMarkup: revealedMarkup,
-                               concealedBlocks: concealedBlocks(in: textView, restyledFrom: lineRange.location), blockContextCheckpoints: blockContextCheckpoints)
+                               concealedBlocks: concealedBlocks(in: textView, restyledRange: linesRestyled(for: lineRange, in: textStorage.mutableString)),
+                               blockContextCheckpoints: blockContextCheckpoints)
             UndrawnReplacementStyling.showSource(in: textStorage, range: lineRange, baseFont: styler.baseFont, typography: styler.configuration.typography)
             textView.typingAttributes = styler.baseAttributes
-            placePropertiesPanel(in: textView)
+            schedulePlacement(in: textView)
         }
 
-        private func updateTextState(of textView: NSTextView) {
-            textState.update(source: currentSource(of: textView), findsBlocks: rendersProperties, findsOnlyFrontmatter: true,
-                             isRendered: { block in block.kind == .frontmatter })
+        private func updateTextState(of textView: NSTextView, forcesBlockScan: Bool = false) {
+            let rendersProperties = rendersProperties
+            textState.update(source: currentSource(of: textView), findsBlocks: rendersBlocks, forcesBlockScan: forcesBlockScan,
+                             pluginCodeBlockLanguages: pluginCodeBlockLanguages,
+                             isRendered: { block in block.kind != .frontmatter || rendersProperties })
+            forgetHeightsOfRemovedBlocks()
         }
 
         /// Restyles what the edits since the last styling changed, once no text is marked:
@@ -3196,6 +3236,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             case .everything: restyleEverything(in: textView)
             case .ranges(let ranges): for range in ranges { restyle(range, in: textView) }
             }
+            restyleBlocksAwaitingRestyle(in: textView)
         }
 
         /// The markup the selection shows as written, measured in the text on screen.
@@ -3216,7 +3257,15 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             let newMarkup = markupRevealedBySelection(in: textView)
             guard newMarkup != previousMarkup else { return }
             revealedMarkup = newMarkup
-            let restyledRanges = styler.applyRevealedMarkupChange(to: textStorage, from: previousMarkup, to: newMarkup, concealedBlocks: concealedBlocks(in: textView, restyledFrom: nil),
+            // A block's source shows or hides with the cursor as a unit; the properties follow
+            // "Edit Source" instead.
+            let blockEntries = textState.blockEntries
+            let blocksChangingActivity = rendersBlocks ? LivePreviewBlockActivity.indicesOfBlocksChangingActivity(
+                from: previousMarkup?.selection, to: newMarkup?.selection, blockRanges: blockEntries.map(\.range), in: currentSource(of: textView)) : []
+            for blockIndex in blocksChangingActivity where blockEntries[blockIndex].block.kind != .frontmatter {
+                restyle(blockEntries[blockIndex].range, in: textView)
+            }
+            let restyledRanges = styler.applyRevealedMarkupChange(to: textStorage, from: previousMarkup, to: newMarkup, concealedBlocks: concealedBlocks(in: textView, restyledRange: nil),
                                                                   blockContextCheckpoints: blockContextCheckpoints)
             guard !restyledRanges.isEmpty else { return }
             for restyledRange in restyledRanges { UndrawnReplacementStyling.showSource(in: textStorage, range: restyledRange, baseFont: styler.baseFont, typography: styler.configuration.typography) }
@@ -3243,6 +3292,13 @@ struct NativeMarkdownEditor: NSViewRepresentable {
                       toCharacterRange newSelectedCharRange: NSRange) -> NSRange {
             guard let entry = concealedPropertiesEntry(in: textView) else { return newSelectedCharRange }
             return Self.selection(newSelectedCharRange, keptBelowConcealedPropertiesEndingAt: NSMaxRange(entry.range))
+        }
+
+        /// The spelling checker marks nothing in a block's concealed source: its marks were
+        /// drawn at the hidden lines' height, a red speck above the block's view.
+        func textView(_ textView: NSTextView, shouldSetSpellingState value: Int, range affectedCharRange: NSRange) -> Int {
+            guard value != 0, concealedEntries(in: textView).contains(where: { entry in NSIntersectionRange(entry.range, affectedCharRange).length > 0 }) else { return value }
+            return 0
         }
 
         /// An edit that starts in the concealed YAML and reaches its end, as a backspace at
@@ -3329,7 +3385,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             if NSMaxRange(selection) <= textStorage.length { textView.setSelectedRange(selection) }
         }
 
-        // MARK: Properties
+        // MARK: Rendered blocks
 
         /// The frontmatter, while the properties are rendered and it describes the text on screen.
         private var propertiesEntry: LivePreviewBlockEntry? {
@@ -3343,20 +3399,43 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             return entry
         }
 
-        /// - Parameter styledLocation: Where the restyled lines start; nil when the styling
-        ///   leaves the YAML alone. The line before the restyled ones is restyled too, so the
-        ///   YAML is from a line right after it on.
-        private func concealedBlocks(in textView: NSTextView, restyledFrom styledLocation: Int?) -> [ConcealedBlock] {
-            guard let entry = concealedPropertiesEntry(in: textView) else {
-                if styledLocation != nil { propertiesHeightInText = nil }
-                return []
+        /// The blocks whose source is concealed under their views, in note order: the
+        /// properties unless "Edit Source" shows their YAML, as Obsidian keeps them above the
+        /// note, and every other block while the selection is outside it, as on the iPad.
+        private func concealedEntries(in textView: NSTextView) -> [LivePreviewBlockEntry] {
+            guard rendersBlocks, !textState.cachesDescribeOldText else { return [] }
+            let source = currentSource(of: textView)
+            let selection = textView.selectedRange()
+            return textState.blockEntries.filter { entry in
+                // A block that runs past the text is stale; styling it would raise.
+                guard NSMaxRange(entry.range) <= source.length else { return false }
+                if entry.block.kind == .frontmatter { return entry.range.location == 0 && !showsPropertiesSource }
+                return !LivePreviewBlockActivity.isActive(blockRange: entry.range, selection: selection, in: source)
             }
-            let height = reservedPropertiesHeight(of: entry, in: textView)
-            if let styledLocation, styledLocation <= NSMaxRange(entry.range) { propertiesHeightInText = height }
-            return [ConcealedBlock(range: entry.range, reservedHeight: height)]
         }
 
-        /// The width of the text column, which the properties view takes.
+        /// - Parameter restyledRange: The lines being restyled, whose blocks' heights are
+        ///   recorded in `heightsKeptInText`; nil when the styling leaves the blocks alone.
+        private func concealedBlocks(in textView: NSTextView, restyledRange: NSRange?) -> [ConcealedBlock] {
+            let width = columnWidth(of: textView)
+            return concealedEntries(in: textView).map { entry in
+                let height = reservedHeight(of: entry, columnWidth: width)
+                if let restyledRange, NSIntersectionRange(entry.range, restyledRange).length > 0 || NSLocationInRange(restyledRange.location, entry.range) {
+                    heightsKeptInText[entry.key] = height
+                }
+                return ConcealedBlock(range: entry.range, reservedHeight: height)
+            }
+        }
+
+        /// The lines `applyStyles` restyles for `range`: its lines and the line on each side.
+        private func linesRestyled(for range: NSRange, in source: NSString) -> NSRange {
+            var lines = source.lineRange(for: range)
+            if lines.location > 0 { lines = NSUnionRange(lines, source.lineRange(for: NSRange(location: lines.location - 1, length: 0))) }
+            if NSMaxRange(lines) < source.length { lines = NSUnionRange(lines, source.lineRange(for: NSRange(location: NSMaxRange(lines), length: 0))) }
+            return lines
+        }
+
+        /// The width of the text column, which the blocks' views take.
         private func columnWidth(of textView: NSTextView) -> CGFloat {
             guard let textContainer = textView.textContainer else { return 0 }
             return textContainer.size.width - 2 * textContainer.lineFragmentPadding
@@ -3367,14 +3446,20 @@ struct NativeMarkdownEditor: NSViewRepresentable {
                                          typography: configuration.typography, themeFingerprint: configuration.theme?.tokens.fingerprint ?? "")
         }
 
-        /// The height the YAML's lines reserve: the one measured for these properties at this
-        /// width, else the one this editor's view last reported, else the iPad's estimate.
-        private func reservedPropertiesHeight(of entry: LivePreviewBlockEntry, in textView: NSTextView) -> CGFloat {
-            if let key = measuredHeightKey(for: entry, columnWidth: columnWidth(of: textView)), let measuredHeight = Self.sharedMeasuredHeights.height(for: key) {
+        /// The height a block's lines reserve: the one its view last reported in this editor,
+        /// else one measured at this width by any editor, else, for the properties, the height
+        /// their view last had (each edit gives them a new key, and their height rarely
+        /// changes), else an estimate. The view corrects the last two when it reports.
+        private func reservedHeight(of entry: LivePreviewBlockEntry, columnWidth: CGFloat) -> CGFloat {
+            if let reportedHeight = reportedBlockHeights[entry.key] { return reportedHeight }
+            if let key = measuredHeightKey(for: entry, columnWidth: columnWidth), let measuredHeight = Self.sharedMeasuredHeights.height(for: key) {
                 return measuredHeight
             }
-            if let reportedPropertiesHeight { return reportedPropertiesHeight }
-            return 44 + 34 * CGFloat(entry.block.markdown.components(separatedBy: "\n").count - 2)
+            if entry.block.kind == .frontmatter, let reportedPropertiesHeight { return reportedPropertiesHeight }
+            if let estimatedHeight = estimatedBlockHeights[entry.key] { return estimatedHeight }
+            let estimatedHeight = LivePreviewBlockHeightEstimate.height(of: entry.block, columnWidth: columnWidth)
+            estimatedBlockHeights[entry.key] = estimatedHeight
+            return estimatedHeight
         }
 
         /// A selection that starts in the concealed YAML starts after it instead, so the
@@ -3421,63 +3506,186 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             textView.scrollRangeToVisible(NSRange(location: 0, length: 0))
         }
 
-        /// Gives the properties view the current environment and appearance, keeping its own
-        /// state, such as a property being typed in.
-        func refreshPropertiesPanel(in textView: NSTextView) {
-            let signature = LivePreviewWidgetSignature(environment: environment, accentHex: configuration.accentHex, notePath: session.path.rawValue)
-            guard signature != propertiesHostSignature else { return }
-            propertiesHostSignature = signature
-            propertiesHostBlockKey = nil
-            placePropertiesPanel(in: textView)
+        /// Shows a block's source with the cursor at its start, after a click on its view;
+        /// the cursor in the block keeps its source shown until it leaves.
+        func revealSource(ofBlockWithKey key: LivePreviewBlockKey, in textView: NSTextView) {
+            guard !textView.hasMarkedText(), !textState.cachesDescribeOldText,
+                  let entry = textState.blockEntries.first(where: { candidate in candidate.key == key }) else { return }
+            if entry.block.kind == .frontmatter { return showPropertiesSource(in: textView) }
+            textView.window?.makeFirstResponder(textView)
+            textView.setSelectedRange(NSRange(location: entry.range.location, length: 0))
         }
 
-        /// Puts the properties view over the concealed YAML, at the top of the text column;
-        /// it leaves when nothing is concealed. A hidden YAML line's height is a hundredth of
-        /// a point, so the view starts where the note's text does.
-        func placePropertiesPanel(in textView: NSTextView) {
-            guard let environment, let entry = concealedPropertiesEntry(in: textView), let textContainer = textView.textContainer,
-                  columnWidth(of: textView) > 0 else {
-                propertiesHost?.removeFromSuperview()
+        /// Gives the blocks' views the current environment and appearance in place, keeping
+        /// their own state (a base's chosen view, a property being typed in); only those that
+        /// read the index when nothing else changed. Kept views of blocks no longer in the
+        /// note are dropped, so none shows again with an older environment.
+        func refreshBlockViews(in textView: NSTextView) {
+            let signature = LivePreviewWidgetSignature(environment: environment, accentHex: configuration.accentHex, notePath: session.path.rawValue)
+            guard signature != blockHostSignature else { return }
+            let changesOnlyIndex = blockHostSignature?.appearance == signature.appearance && blockHostSignature?.drawingVersion == signature.drawingVersion
+            blockHostSignature = signature
+            guard let environment else { return }
+            detachedBlockHosts.removeHosts(notIn: Set(textState.blockEntries.map(\.key)))
+            for entry in textState.blockEntries where !changesOnlyIndex || LivePreviewWidgetSignature.readsIndex(entry.block.kind) {
+                if entry.block.kind == .frontmatter {
+                    propertiesHostBlockKey = nil
+                } else if let host = blockHosts[entry.key] ?? detachedBlockHosts.host(for: entry.key) {
+                    host.rootView = blockRootView(for: entry, environment: environment, textView: textView)
+                }
+            }
+            placeBlockViews(in: textView)
+        }
+
+        /// Places the views of the concealed blocks TextKit has laid out, over each block's
+        /// first line, and takes off screen those of blocks that are not: TextKit lays out the
+        /// viewport, so a long note's blocks below it cost nothing until they scroll into
+        /// view. A hidden line is a hundredth of a point tall, so any of a block's lines starts
+        /// where the block does, also for a block that begins above the viewport.
+        func placeBlockViews(in textView: NSTextView) {
+            guard let environment, rendersBlocks, let textContainer = textView.textContainer, let textLayoutManager = textView.textLayoutManager,
+                  let contentManager = textLayoutManager.textContentManager, columnWidth(of: textView) > 0 else {
+                removeAllBlockViews()
                 return
             }
-            let rootView = propertiesHostBlockKey == entry.key ? nil : propertiesRootView(for: entry, environment: environment, textView: textView)
-            let host: NSHostingView<AnyView>
-            if let propertiesHost {
-                host = propertiesHost
-                if let rootView { host.rootView = rootView }
-            } else {
-                host = NSHostingView(rootView: rootView ?? propertiesRootView(for: entry, environment: environment, textView: textView))
-                // The frame is set here, from the text's layout, not from the view's content.
-                host.sizingOptions = []
-                propertiesHost = host
+            // Mid-edit, the blocks describe the text before it; the views stay until it settles.
+            guard !textState.cachesDescribeOldText, !textView.hasMarkedText(),
+                  let viewportRange = textLayoutManager.textViewportLayoutController.viewportRange else { return }
+            let concealed = concealedEntries(in: textView)
+            let width = columnWidth(of: textView)
+            let documentStart = contentManager.documentRange.location
+            var keysInUse = Set<LivePreviewBlockKey>()
+            var isAwaitingLayout = false
+            var entriesToRestyle: [LivePreviewBlockEntry] = []
+            textLayoutManager.enumerateTextLayoutFragments(from: viewportRange.location, options: []) { fragment in
+                guard fragment.rangeInElement.location.compare(viewportRange.endLocation) == .orderedAscending else { return false }
+                let fragmentStart = contentManager.offset(from: documentStart, to: fragment.rangeInElement.location)
+                guard let index = LivePreviewBlockLookup.index(ofElementContaining: fragmentStart, in: concealed, range: { entry in entry.range }) else { return true }
+                let entry = concealed[index]
+                guard !keysInUse.contains(entry.key) else { return true }
+                keysInUse.insert(entry.key)
+                // A paragraph a restyle changed has a new fragment, without a frame until
+                // TextKit lays out the viewport again.
+                guard fragment.state == .layoutAvailable else {
+                    isAwaitingLayout = true
+                    return true
+                }
+                // A height measured at a new width, or by another editor, is reserved in the text first.
+                let reservedHeight = reservedHeight(of: entry, columnWidth: width)
+                if let keptHeight = heightsKeptInText[entry.key], abs(keptHeight - reservedHeight) > 1 { entriesToRestyle.append(entry) }
+                let frame = CGRect(x: textView.textContainerOrigin.x + textContainer.lineFragmentPadding,
+                                   y: fragment.layoutFragmentFrame.minY + textView.textContainerOrigin.y,
+                                   width: width, height: heightsKeptInText[entry.key] ?? reservedHeight)
+                let host = blockHost(for: entry, environment: environment, textView: textView)
+                if host.frame != frame { host.frame = frame }
+                if host.superview !== textView { textView.addSubview(host) }
+                return true
             }
-            propertiesHostBlockKey = entry.key
-            // A height measured at a new width, or by another editor, is reserved in the text first.
-            let reservedHeight = reservedPropertiesHeight(of: entry, in: textView)
-            if let propertiesHeightInText, abs(propertiesHeightInText - reservedHeight) > 1, !textView.hasMarkedText(), !textState.hasUnstyledEdit {
-                restyle(entry.range, in: textView)
-                return
+            detachBlockViews(except: keysInUse, keepsProperties: propertiesHostBlockKey.map(keysInUse.contains) ?? false)
+            if !entriesToRestyle.isEmpty, !textState.hasUnstyledEdit {
+                // Not during TextKit's layout, which this pass can be part of.
+                DispatchQueue.main.async { [weak self, weak textView] in
+                    guard let self, let textView, !self.textState.cachesDescribeOldText, !textView.hasMarkedText() else { return }
+                    for entry in entriesToRestyle {
+                        if let current = self.textState.blockEntries.first(where: { candidate in candidate.key == entry.key }) { self.restyle(current.range, in: textView) }
+                    }
+                }
             }
-            let frame = CGRect(x: textView.textContainerOrigin.x + textContainer.lineFragmentPadding, y: textView.textContainerOrigin.y,
-                               width: columnWidth(of: textView), height: propertiesHeightInText ?? reservedHeight)
-            if host.frame != frame { host.frame = frame }
-            if host.superview !== textView { textView.addSubview(host) }
+            // A restyle replaced fragments TextKit has not laid out again: once it has, the
+            // blocks are placed on them. Bounded, so a note that never settles cannot loop.
+            if isAwaitingLayout, placementPasses < 6 {
+                placementPasses += 1
+                schedulePlacement(in: textView)
+            } else if !isAwaitingLayout {
+                placementPasses = 0
+            }
+        }
+
+        /// The view for a block on screen, else the one kept since it was last on screen,
+        /// else a new one. The properties keep one view as they are edited, so a field being
+        /// typed in keeps its state when their key changes.
+        private func blockHost(for entry: LivePreviewBlockEntry, environment: LivePreviewEnvironment, textView: NSTextView) -> NSHostingView<AnyView> {
+            if entry.block.kind == .frontmatter {
+                let host = propertiesHost ?? makeBlockHost(rootView: blockRootView(for: entry, environment: environment, textView: textView))
+                if propertiesHost == nil {
+                    propertiesHost = host
+                } else if propertiesHostBlockKey != entry.key {
+                    host.rootView = blockRootView(for: entry, environment: environment, textView: textView)
+                }
+                propertiesHostBlockKey = entry.key
+                return host
+            }
+            if let host = blockHosts[entry.key] { return host }
+            let host = detachedBlockHosts.take(entry.key) ?? makeBlockHost(rootView: blockRootView(for: entry, environment: environment, textView: textView))
+            blockHosts[entry.key] = host
+            return host
+        }
+
+        private func makeBlockHost(rootView: AnyView) -> NSHostingView<AnyView> {
+            let host = NSHostingView(rootView: rootView)
+            // The frame is set here, from the text's layout, not from the view's content.
+            host.sizingOptions = []
+            return host
+        }
+
+        /// Takes off screen the views of blocks not placed, keeping those that can scroll back
+        /// into view or that the cursor can leave, within the pool's memory budget. The
+        /// properties' view stays while properties are concealed, though their key changes
+        /// with each edit, so it is not taken away for a frame and put back.
+        private func detachBlockViews(except keysInUse: Set<LivePreviewBlockKey>, keepsProperties: Bool) {
+            if !keepsProperties { propertiesHost?.removeFromSuperview() }
+            for (key, host) in blockHosts where !keysInUse.contains(key) {
+                host.removeFromSuperview()
+                blockHosts[key] = nil
+                if let entry = textState.blockEntries.first(where: { candidate in candidate.key == key }),
+                   let estimatedMegabytes = DetachedWidgetPool<NSHostingView<AnyView>>.estimatedMegabytes(of: entry.block.kind) {
+                    detachedBlockHosts.keep(host, for: key, estimatedMegabytes: estimatedMegabytes)
+                }
+            }
+        }
+
+        func removeAllBlockViews() {
+            propertiesHost?.removeFromSuperview()
+            for host in blockHosts.values { host.removeFromSuperview() }
+            blockHosts.removeAll()
+            detachedBlockHosts.removeAll()
+        }
+
+        /// Places the blocks once TextKit has laid out what a change affected: on the next
+        /// turn of the run loop, and also at once on systems that say when the viewport is
+        /// laid out (`MarkdownMacTextView.didLayOutViewport`).
+        private func schedulePlacement(in textView: NSTextView) {
+            // A block whose source now shows loses its view at once, before its text is drawn.
+            if !textState.cachesDescribeOldText {
+                let concealed = concealedEntries(in: textView)
+                detachBlockViews(except: Set(concealed.map(\.key)), keepsProperties: concealed.contains { entry in entry.block.kind == .frontmatter })
+            }
+            guard !isPlacementScheduled else { return }
+            isPlacementScheduled = true
+            DispatchQueue.main.async { [weak self, weak textView] in
+                guard let self else { return }
+                self.isPlacementScheduled = false
+                guard let textView else { return }
+                self.placeBlockViews(in: textView)
+            }
         }
 
         /// The hosted view takes the appearance from the text view it is in; the vault's
-        /// fonts, theme and accent are passed in, as on the iPad. Its actions find the
-        /// frontmatter when they run, since the view is kept while the note changes.
-        private func propertiesRootView(for entry: LivePreviewBlockEntry, environment: LivePreviewEnvironment, textView: NSTextView) -> AnyView {
+        /// fonts, theme and accent are passed in, as on the iPad. A view is kept while its
+        /// block moves with edits elsewhere, so its actions find the block by key when they run.
+        private func blockRootView(for entry: LivePreviewBlockEntry, environment: LivePreviewEnvironment, textView: NSTextView) -> AnyView {
             let accent = Color.graphiteAccent(hex: configuration.accentHex) ?? .accentColor
+            let key = entry.key
+            let isFrontmatter = entry.block.kind == .frontmatter
             let widget = LivePreviewWidgetView(block: entry.block, environment: environment, revealSource: { [weak self, weak textView] in
-                // Not from inside the button's own action, which the view's removal would end.
+                // Not from inside the view's own action, which the view's removal would end.
                 DispatchQueue.main.async { [weak self, weak textView] in
                     guard let self, let textView else { return }
-                    self.showPropertiesSource(in: textView)
+                    if isFrontmatter { self.showPropertiesSource(in: textView) } else { self.revealSource(ofBlockWithKey: key, in: textView) }
                 }
             }, reportHeight: { [weak self, weak textView] height in
                 guard let self, let textView else { return }
-                self.updatePropertiesHeight(height, in: textView)
+                self.updateReservedHeight(height, forBlockWithKey: key, isFrontmatter: isFrontmatter, in: textView)
             })
             return AnyView(widget
                 .environment(\.lassoNoteDestination, environment.lassoNoteDestination)
@@ -3487,18 +3695,48 @@ struct NativeMarkdownEditor: NSViewRepresentable {
                 .environment(\.accent, accent))
         }
 
-        /// Reserves the height the properties view measured, restyling the YAML's last line
-        /// only when it differs from what the text reserves.
-        private func updatePropertiesHeight(_ height: CGFloat, in textView: NSTextView) {
-            guard height > 1, let entry = concealedPropertiesEntry(in: textView) else { return }
+        /// Reserves the height a block's view measured, restyling the block's last line only
+        /// when it differs from what the text reserves.
+        private func updateReservedHeight(_ height: CGFloat, forBlockWithKey key: LivePreviewBlockKey, isFrontmatter: Bool, in textView: NSTextView) {
+            guard height > 1 else { return }
             // Measured at the width the view was laid out at, which can lag the column's.
-            if let key = measuredHeightKey(for: entry, columnWidth: propertiesHost?.frame.width ?? columnWidth(of: textView)) {
-                Self.sharedMeasuredHeights.record(height, for: key)
+            let measuredWidth = (isFrontmatter ? propertiesHost : blockHosts[key])?.frame.width ?? columnWidth(of: textView)
+            if let entry = textState.blockEntries.first(where: { candidate in candidate.key == key }),
+               let sharedKey = measuredHeightKey(for: entry, columnWidth: measuredWidth) {
+                Self.sharedMeasuredHeights.record(height, for: sharedKey)
             }
-            reportedPropertiesHeight = height
-            // Mid-edit, the edit restyles the properties once it settles.
-            guard abs((propertiesHeightInText ?? 0) - height) > 1, !textView.hasMarkedText(), !textState.hasUnstyledEdit else { return }
+            if isFrontmatter { reportedPropertiesHeight = height }
+            let styledHeight = heightsKeptInText[key] ?? reportedBlockHeights[key]
+            reportedBlockHeights[key] = height
+            if let styledHeight, abs(styledHeight - height) <= 1 { return }
+            // Styling now would disturb an input method's composition, and mid-edit the block's
+            // range describes older text; the edit restyles the block once it settles.
+            guard !textView.hasMarkedText(), !textState.cachesDescribeOldText, !textState.hasUnstyledEdit else {
+                blockKeysAwaitingRestyle.insert(key)
+                return
+            }
+            guard let entry = textState.blockEntries.first(where: { candidate in candidate.key == key }) else { return }
             restyle(entry.range, in: textView)
+        }
+
+        /// Applies heights measured while the text could not be styled.
+        private func restyleBlocksAwaitingRestyle(in textView: NSTextView) {
+            guard !blockKeysAwaitingRestyle.isEmpty else { return }
+            let keys = blockKeysAwaitingRestyle
+            blockKeysAwaitingRestyle.removeAll()
+            for entry in textState.blockEntries where keys.contains(entry.key) { restyle(entry.range, in: textView) }
+        }
+
+        /// Heights are kept by content, so every edited version of a measured block leaves one
+        /// behind; they are forgotten once they clearly outnumber the blocks in the note.
+        private func forgetHeightsOfRemovedBlocks() {
+            let blockCount = textState.blockEntries.count
+            guard reportedBlockHeights.count + estimatedBlockHeights.count > 4 * blockCount + 64 else { return }
+            let keysInNote = Set(textState.blockEntries.map(\.key))
+            reportedBlockHeights = reportedBlockHeights.filter { key, _ in keysInNote.contains(key) }
+            estimatedBlockHeights = estimatedBlockHeights.filter { key, _ in keysInNote.contains(key) }
+            heightsKeptInText = heightsKeptInText.filter { key, _ in keysInNote.contains(key) }
+            blockKeysAwaitingRestyle.formIntersection(keysInNote)
         }
 
         // MARK: Links
@@ -3699,6 +3937,30 @@ struct DetachedWidgetPool<Host> {
         hostsByKey.removeAll()
         detachmentOrder.removeAll()
         estimatedMegabytesInPool = 0
+    }
+}
+
+/// The height a rendered block's view is given before it has measured itself, from what its
+/// source says of its size. Both editors use it; the view's own height replaces it.
+enum LivePreviewBlockHeightEstimate {
+    static func height(of block: LivePreviewBlock, columnWidth: CGFloat) -> CGFloat {
+        switch block.kind {
+        case .frontmatter: return 44 + 34 * CGFloat(block.markdown.components(separatedBy: "\n").count - 2)
+        case .table: return 40 * CGFloat(block.markdown.components(separatedBy: "\n").count - 1) + 16
+        case .mathBlock: return 72
+        case .horizontalRule: return 28
+        case .callout: return 56 + 30 * CGFloat(block.markdown.components(separatedBy: "\n").count - 1)
+        case .baseDefinition: return EmbeddedBaseView.defaultHeight
+        case .pluginCodeBlock: return 120
+        case .embed(let embed):
+            let fileExtension = (WikiLinkResolver.pathPart(embed.target) as NSString).pathExtension.lowercased()
+            if MediaFileKind.videoExtensions.contains(fileExtension) { return columnWidth * 9 / 16 + 8 }
+            if MediaFileKind.audioExtensions.contains(fileExtension) { return 96 }
+            if fileExtension == "pdf" { return 570 }
+            if fileExtension == "base" { return EmbeddedBaseView.defaultHeight }
+            if DocumentKind(fileExtension: fileExtension) == .image { return 280 }
+            return 60
+        }
     }
 }
 
