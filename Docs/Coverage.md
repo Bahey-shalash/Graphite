@@ -2,7 +2,61 @@
 
 What Graphite does today, how each part is verified, and what is still missing. `OBJECTIVE.md` describes the complete product; this file tracks progress toward it. Update it with every change that adds, removes, or re-verifies behavior.
 
-Last updated: 2026-10-16.
+Last updated: 2026-10-17.
+
+## Bug fixes and speed-ups after the shared editor, measured on the Mac and the iPad simulator: 2026-10-17
+
+Eight commits, 853021b to 89c1b0d, fix about 70 bugs and edge cases. Each fix is listed in its commit message. They cover typed text, saving and closing, Markdown reading, Bases' JavaScript arithmetic, Read Aloud, recording, plugins, canvas, themes, PDFs (places, pages, bookmarks, signatures, the lasso) and links and folds. They also make the Live Preview editor, the PDF pane and the map do less work. The last commit fixes a memory leak on the Mac: a closed note's rendered blocks stayed in memory, with the note's text and session, for as long as the app ran. A block's view left inside the text view stayed registered with AppKit's notification center. The editor now takes its block views out before it goes.
+
+Measured with `PerformanceBenchmarkTests` (`GRAPHITE_BENCHMARKS=1`, optimized builds) on the development Mac and on the iPad simulator in Release:
+- **Before:** the shared editor as merged, with the benchmarks of 7b3e434.
+- **After:** 50fce43, before the leak fix.
+
+The Mac figures are the means of two runs (three for the note scenarios); the iPad figures are from one run. Times are milliseconds of processor time unless marked otherwise; "main thread" is the main thread's own processor time.
+
+Gains of 30% or more, Mac:
+
+| Scenario | Measure | Before | After | Change |
+|---|---|---|---|---|
+| Embedded PDF while other files change | processor time | 120.6 | 36.5 | −70% |
+| Embedded PDF, idle | frame median (ms) | 4.06 | 2.21 | −46% |
+| Long PDF with pages sidebar, scrolling | main thread | 1,891 | 945 | −50% |
+| Map updates | memory growth (MB) | 5.7 | 2.8 | −51% |
+| Typing in a long note | main thread | 508 | 288 | −43% |
+| Typing in a long note | processor time | 639 | 417 | −35% |
+| Typing in a long note | frame median (ms) | 10.0 | 6.4 | −36% |
+| Scrolling a long note back up | main thread | 2,239 | 1,496 | −33% |
+| Scrolling a long note back up | frames over 16 ms | 73 | 31 | −58% |
+| Scrolling a long note down and up | frames over 16 ms | 136 | 94 | −31% |
+
+Gains of 30% or more, iPad simulator:
+
+| Scenario | Measure | Before | After | Change |
+|---|---|---|---|---|
+| Embedded PDF while other files change | processor time | 174.8 | 70.3 | −60% |
+| Opening a long PDF | processor time | 552 | 333 | −40% |
+| Memory kept after closing a PDF | MB | 43.1 | 22.1 | −49% |
+| Typing in a long note | main thread | 550 | 348 | −37% |
+| Long PDF with pages sidebar, scrolling | frame median / 95th percentile (ms) | 11.9 / 12.9 | 7.8 / 8.6 | −34% / −33% |
+| Scrolling a long note down | memory growth (MB) | 91.7 | 53.7 | −41% |
+| Scrolling a long note back up | memory growth (MB) | 61.9 | 22.7 | −63% |
+| Memory kept after closing a note | MB | 2.2 | −19.0 | all returned |
+
+Got worse:
+- **Mac, memory kept after closing a note:** 22 → 50 MB. This was measured while the benchmark still held the editor and before the leak fix, and it was not measured again after the fix.
+- **Mac:** opening a note grows memory 2.8 → 5.5 MB. Scrolling a long note grows it 231 → 277 MB, because the kept-views pool keeps more views within its budget. Opening a PDF takes 14% more processor time.
+- **iPad simulator:**
+  - Opening a note takes 27% more processor time (822 → 1,046 ms across all threads; the main thread is up 3%).
+  - Memory grows more while typing (24.7 → 38.6 MB), while scrolling a PDF (63 → 87 MB) and while the map updates (16 → 19 MB).
+  - The frame median scrolling a long note down is 8.4 → 13.9 ms, though its 95th percentile went down 7%. This is from one run.
+
+Checked: `swift test` on macOS, 627 UI tests with the new `UiEditorReleaseTests` (5 skipped), all passing. The leak was traced with `leaks --atExit` before the fix.
+
+Not verified:
+- A physical iPad: all iPad figures are from the simulator.
+- The hosted iPad tests on main as merged.
+- Whether the iPad has the same leak: its memory kept after closing a note went down, but the test is Mac only.
+- PDFKit's own background text recognition while scrolling a PDF: it is outside Graphite's code.
 
 ## Code blocks formatted when the cursor leaves them: 2026-10-16
 
