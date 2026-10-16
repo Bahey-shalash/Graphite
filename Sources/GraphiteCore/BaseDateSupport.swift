@@ -6,7 +6,7 @@ import Foundation
 /// times. Text that JavaScript's `Date` rejects, such as `12:75` or `2025-01-01Z`, is not a date.
 public enum BaseDateParsing {
     private static let datePattern = try? NSRegularExpression(pattern:
-        "^(\\d{4})-(\\d{1,2})-(\\d{1,2})(?:[T ](\\d{1,2}):(\\d{2})(?::(\\d{2})(?:\\.(\\d+))?)?)?\\s*(Z|[+-]\\d{2}:?\\d{2})?$")
+        "^(\\d{4})-(\\d{1,2})-(\\d{1,2})(?:[T ](\\d{1,2}):(\\d{2})(?::(\\d{2})(?:\\.(\\d+))?)?)?\\s*(Z|[+-]\\d{2}(?::?\\d{2})?)?$")
 
     public static func date(from text: String, calendar: Calendar) -> BaseDate? {
         let trimmedText = text.trimmingCharacters(in: .whitespaces)
@@ -57,7 +57,8 @@ public enum BaseDateParsing {
         if text == "Z" { return 0 }
         let sign = text.hasPrefix("-") ? -1 : 1
         let digits = text.dropFirst().replacingOccurrences(of: ":", with: "")
-        guard digits.count == 4, let hours = Int(digits.prefix(2)), let minutes = Int(digits.suffix(2)),
+        // `+05` is hours alone, as the date detection (`BaseFileRecord`) accepts it.
+        guard digits.count == 4 || digits.count == 2, let hours = Int(digits.prefix(2)), let minutes = digits.count == 4 ? Int(digits.suffix(2)) : 0,
               (0...23).contains(hours), (0...59).contains(minutes) else { return nil }
         return sign * (hours * 3600 + minutes * 60)
     }
