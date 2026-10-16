@@ -35,6 +35,46 @@ enum BaseTestRecords {
 }
 
 final class BaseEvaluatorTests: XCTestCase {
+    // MARK: JavaScript's numbers and text
+
+    /// `toFixed` rounds a tie up, as JavaScript does; printf rounded it to the even digit.
+    func testToFixedRoundsHalvesAsJavaScriptDoes() throws {
+        XCTAssertEqual(BaseEvaluator.javaScriptFixed(2.5, fractionDigits: 0), "3")
+        XCTAssertEqual(BaseEvaluator.javaScriptFixed(0.125, fractionDigits: 2), "0.13")
+        XCTAssertEqual(BaseEvaluator.javaScriptFixed(1.005, fractionDigits: 2), "1.00", "1.005 is stored just below it")
+        XCTAssertEqual(BaseEvaluator.javaScriptFixed(-2.5, fractionDigits: 0), "-3")
+        XCTAssertEqual(BaseEvaluator.javaScriptFixed(9.999, fractionDigits: 2), "10.00")
+        XCTAssertEqual(BaseEvaluator.javaScriptFixed(3, fractionDigits: 2), "3.00")
+        XCTAssertEqual(BaseEvaluator.javaScriptFixed(.nan, fractionDigits: 2), "NaN")
+        XCTAssertEqual(BaseEvaluator.javaScriptFixed(-.infinity, fractionDigits: 2), "-Infinity")
+        XCTAssertEqual(try evaluate("(2.5).toFixed(0)"), .string("3"))
+    }
+
+    /// Text is counted and cut in UTF-16 units, as in JavaScript and Obsidian.
+    func testTextLengthAndSliceCountUTF16Units() throws {
+        XCTAssertEqual(try evaluate("\"👍🏽\".length"), .number(4))
+        XCTAssertEqual(try evaluate("\"a👍b\".slice(1, 3)"), .string("👍"))
+        XCTAssertEqual(try evaluate("\"a👍b\".slice(3)"), .string("b"))
+    }
+
+    /// Arithmetic reads text as JavaScript's `Number()`: "inf" is NaN there, not infinity.
+    func testArithmeticReadsTextAsJavaScriptDoes() throws {
+        XCTAssertEqual(BaseEvaluator.javaScriptNumber("12"), 12)
+        XCTAssertEqual(BaseEvaluator.javaScriptNumber("0x10"), 16)
+        XCTAssertEqual(BaseEvaluator.javaScriptNumber("-Infinity"), -.infinity)
+        XCTAssertTrue(BaseEvaluator.javaScriptNumber("inf")?.isNaN == true, "\"inf\" gave Infinity")
+        XCTAssertTrue(BaseEvaluator.javaScriptNumber("infinity")?.isNaN == true)
+    }
+
+    /// A date with an hours-only offset, which the date detection accepts, is a date.
+    func testADateWithAnHoursOnlyOffsetIsADate() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        let hoursOnly = try XCTUnwrap(BaseDateParsing.date(from: "2024-01-05T10:00+05", calendar: calendar))
+        let withMinutes = try XCTUnwrap(BaseDateParsing.date(from: "2024-01-05T10:00+05:00", calendar: calendar))
+        XCTAssertEqual(hoursOnly, withMinutes)
+    }
+
     func testFolderMembershipKeepsVaultPathCaseAndFolderBoundaries() throws {
         XCTAssertEqual(try evaluate("file.inFolder(\"library\")"), .boolean(false))
         XCTAssertEqual(try evaluate("file.inFolder(\"Library\")"), .boolean(true))
