@@ -21,6 +21,12 @@ public struct LivePreviewBlock: Equatable, Sendable {
     public let range: NSRange
     /// The Markdown to render for tables, math blocks, and callouts.
     public let markdown: String
+
+    /// The same block, found in text that starts `distance` characters later, as when
+    /// some lines are scanned on their own.
+    public func offset(by distance: Int) -> LivePreviewBlock {
+        LivePreviewBlock(kind: kind, range: NSRange(location: range.location + distance, length: range.length), markdown: markdown)
+    }
 }
 
 public enum LivePreviewBlockScanner {

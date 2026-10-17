@@ -384,10 +384,10 @@ public struct GraphiteRootView: View {
                     Button("New Note", systemImage: "square.and.pencil") { creation = CreationRequest(kind: .note) }
                     Spacer()
                     Button { showsTabSwitcher = true } label: {
-                        TabCountLabel(count: workspace.layout.allTabs.count)
+                        TabCountLabel(count: workspace.openTabCount)
                     }
                     .accessibilityLabel("Tabs")
-                    .accessibilityValue(workspace.layout.allTabs.count == 1 ? "1 open" : "\(workspace.layout.allTabs.count) open")
+                    .accessibilityValue(workspace.openTabCount == 1 ? "1 open" : "\(workspace.openTabCount) open")
                     Spacer()
                     Button("Command Palette", systemImage: "command") { activePalette = .commandPalette }
                 }

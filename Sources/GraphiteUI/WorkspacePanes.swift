@@ -487,6 +487,12 @@ private struct TabDocumentView: View {
                     }
                     .buttonStyle(.bordered)
                 }
+            } else if document.isOpening, let shownPath = document.loadedPath {
+                // Back and Forward move the tab to its next file before reading it. The file
+                // shown until now stays until the next one is ready, as when a file is opened,
+                // rather than the pane going blank while the note is read and laid out. What
+                // is typed in it meanwhile is saved before the swap.
+                loadedContent(shownPath)
             } else {
                 // Loading; the overlay shows progress once it takes long enough to notice.
                 Color.clear
@@ -677,13 +683,15 @@ private struct EmptyTabView: View {
                         action("Close", shortcut: "⌘W") { Task { await workspace.closeTab(tabID) } }
                     }
                 }
-                if !recentFiles.isEmpty {
+                // Looked up once per update: each looks for every recent file on disk.
+                let shownRecentFiles = recentFiles
+                if !shownRecentFiles.isEmpty {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Recent files")
                             .font(.footnote.weight(.semibold))
                             .foregroundStyle(.secondary)
                             .padding(.bottom, 6)
-                        ForEach(recentFiles, id: \.self) { path in
+                        ForEach(shownRecentFiles, id: \.self) { path in
                             Button {
                                 focusThen { Task { await workspace.open(path) } }
                             } label: {

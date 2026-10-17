@@ -86,7 +86,7 @@ extension WorkspaceModel {
         "GraphiteTabLayout." + vaultIdentifier.uuidString
     }
 
-    var activeDocument: TabDocument { document(for: layout.activeTab.id) }
+    var activeDocument: TabDocument { document(for: activeTabID ?? layout.activeTab.id) }
 
     /// What opening a file on the other side is called: that side is on the left while
     /// the right side is focused.

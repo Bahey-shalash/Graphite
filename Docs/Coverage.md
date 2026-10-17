@@ -4,6 +4,34 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-17.
 
+## Smoother scrolling, typing and tab switching: 2026-10-17
+
+Live Preview does less work while scrolling and typing, and switching tabs updates less of the window:
+- Typing in a list item no longer scans the whole note for blocks on every keystroke, and typing in a callout's body finds only that callout again (see Architecture, typing cost).
+- Each save, about a second after typing stops, no longer redraws the callouts that hold only text; only bases, embeds and the callouts holding one read the index.
+- Textual compiles its two math patterns once per thread instead of for every text it parses (`Vendor/textual/GRAPHITE-PATCHES.md`, 15), about a third of parsing a rendered block's Markdown.
+- The window's root view and the sidebar are no longer updated for every change of the tab layout, such as each frame of a drag of the split's divider: the focused tab and the tab count are kept apart from the layout.
+- Back and Forward keep showing the tab's file until the next one is ready, instead of an empty pane.
+- The empty tab looks its recent files up on disk once per update instead of twice.
+
+Measured with `PerformanceBenchmarkTests` (optimized builds, three runs each), main c605500 against these changes. The benchmark now also types in a list item and in a callout with the note focused; their "before" was measured on the Mac before the typing changes, with the new scenarios added.
+
+| Scenario | Measure | Before | After | Change |
+|---|---|---|---|---|
+| Mac, scrolling a long note down and up | main thread (ms) | 3,502 | 3,294 | −6% |
+| Mac, scrolling a long note down and up | frames over 16 ms | 77 | 63 | −18% |
+| Mac, typing in a list item | frame median (ms) | 10.1 | 7.6 | −25% |
+| Mac, typing in a callout | frame median (ms) | 10.4 | 8.0 | −23% |
+| iPad simulator, scrolling a long note down and up | main thread (ms) | 4,445 | 3,902 | −12% |
+| iPad simulator, scrolling down | 95th percentile / worst frame (ms) | 37.7 / 126 | 32.6 / 48 | −14% / −62% |
+| iPad simulator, typing in a paragraph | main thread (ms) | 363 | 324 | −11% |
+
+Where scrolling's time goes (Time Profiler, Mac): almost all of it is SwiftUI building each rendered block the first time it comes into view (about 13 ms for a small table, 5 for a callout, 3 for a formula) and again, at about half that, when a kept block's view comes back, since a view taken out of the window is drawn again from nothing. Keeping those views hidden in the text view, or in a container beside it, made scrolling slower: a hosting view follows its position in the window and is laid out again on every step of a scroll. Laying a table out at its scroll container's width in its first pass saved about 4% and was left out. Building the blocks just below the screen while the note is idle is the remaining way to take this work out of scrolling; it is not done.
+
+Checked: `swift test` on macOS (633 UI tests with 5 opt-in benchmarks skipped, 982 Core, 140 Index, 249 Apple), with new tests for typing in list items and callouts (`UiEditorEditTrackingTests`: the blocks equal a new scan's, and the edits that can change blocks scan again), for callouts that read the index (`UiEditorRenderedBlockReuseTests`), and for the focused note's views across a divider drag (`UiWorkspaceAreaHandoffTests`, which fails without the change); the iPad benchmark in the simulator.
+
+Not verified: a physical iPad or iPhone; the hosted iPad test suite; Back and Forward in the running app (a package test with a window that is never shown could not tell the empty pane from the note, so it was not kept).
+
 ## Builds without warnings on the Mac, the iPhone and the iPad: 2026-10-17
 
 The Mac, iPhone and iPad builds, and the package's test targets, compile without Graphite warnings. The C++ warnings in the MLX package come from outside Graphite and remain. The macOS 27 AVFoundation deprecations noted below are gone. A video part is written through its inputs' receivers (`inputReceiver(for:)`, `appendImmediately`, `start()`) from macOS 26 and iOS 26 on. `expectsMediaDataInRealTime` is still set, on purpose: without it, a receiver held video back while no sound arrived and took 36 of 180 frames, and with it all 180 (macOS 27, measured). From macOS 27 and iOS 27 the camera preview reaches its layer through a render synchronizer's receiver, and Read Aloud's player connects and starts with the calls that report errors. Older iOS versions keep the previous calls. The rest were Swift 6 isolation fixes (constants read by shapes, Reduce Motion, the pinch policy, the sidebar's row equality), unused results, and `UITraitCollection(traitsFrom:)` replaced by `modifyingTraits`.

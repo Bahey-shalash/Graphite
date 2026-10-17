@@ -85,14 +85,29 @@ extension PatternTokenizer.Pattern {
     .init(regex: /:([a-zA-Z0-9_+-]+):/, tokenType: .emoji)
   }
 
-  static var mathBlock: Self {
-    .init(regex: /(?s)\$\$(.+?)\$\$/, tokenType: .mathBlock)
-  }
+  // Graphite patch: the math patterns are made once per thread. A regular expression literal
+  // is parsed and compiled again for each new value, and the parser asked for them for every
+  // text it parsed, which was a third of parsing a rendered block's Markdown. A `Regex` is not
+  // `Sendable`, and Markdown is also parsed off the main thread, so each thread has its own.
+  static var mathBlock: Self { CompiledMathPatterns.forCurrentThread.mathBlock }
 
-  static var mathInline: Self {
-    // Graphite patch: Obsidian's rules. No space just inside either `$`, and no digit after
-    // the closing one, so prices such as "$5 and $10" stay text.
-    .init(regex: /\$(?![\s$])((?:\\\$|[^$\n])*?(?:\\\$|[^\s$\\]))\$(?![\d$])/, tokenType: .mathInline)
+  static var mathInline: Self { CompiledMathPatterns.forCurrentThread.mathInline }
+}
+
+private final class CompiledMathPatterns {
+  private static let threadDictionaryKey = "Textual.CompiledMathPatterns"
+
+  let mathBlock = PatternTokenizer.Pattern(regex: /(?s)\$\$(.+?)\$\$/, tokenType: .mathBlock)
+  // Graphite patch: Obsidian's rules. No space just inside either `$`, and no digit after
+  // the closing one, so prices such as "$5 and $10" stay text.
+  let mathInline = PatternTokenizer.Pattern(regex: /\$(?![\s$])((?:\\\$|[^$\n])*?(?:\\\$|[^\s$\\]))\$(?![\d$])/, tokenType: .mathInline)
+
+  static var forCurrentThread: CompiledMathPatterns {
+    let threadDictionary = Thread.current.threadDictionary
+    if let patterns = threadDictionary[threadDictionaryKey] as? CompiledMathPatterns { return patterns }
+    let patterns = CompiledMathPatterns()
+    threadDictionary[threadDictionaryKey] = patterns
+    return patterns
   }
 }
 

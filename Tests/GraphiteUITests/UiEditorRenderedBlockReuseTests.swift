@@ -82,12 +82,15 @@ final class UiEditorRenderedBlockReuseTests: XCTestCase {
                        LivePreviewWidgetSignature(environment: nil, accentHex: "#0ea5e9", notePath: "Other.md"))
     }
 
-    /// Bases and embeds read the index, and a callout can contain either; tables, math,
-    /// properties, and rules do not.
-    func testOnlyBasesEmbedsAndCalloutsReadTheIndex() {
-        let readingKinds = blocks.map { block in LivePreviewWidgetSignature.readsIndex(block.kind) }
+    /// Bases and embeds read the index, and so does a callout that contains either; tables,
+    /// math, properties, rules, and callouts of text do not, so a save leaves them alone.
+    func testOnlyBasesEmbedsAndCalloutsHoldingThemReadTheIndex() {
+        let readingKinds = blocks.map { block in LivePreviewWidgetSignature.readsIndex(block) }
         XCTAssertEqual(blocks.count, 8)
-        XCTAssertEqual(readingKinds, [false, false, false, true, true, true, true, false])
+        XCTAssertEqual(readingKinds, [false, false, false, true, true, false, true, false])
+        let calloutsHoldingEmbeds = LivePreviewBlockScanner.blocks(in: "> [!note] Figure\n> ![[Diagram.png]]\n\n> [!tip] Query\n> ```base\n> views: []\n> ```\n")
+        XCTAssertEqual(calloutsHoldingEmbeds.map(\.kind), [.callout, .callout])
+        XCTAssertEqual(calloutsHoldingEmbeds.map { block in LivePreviewWidgetSignature.readsIndex(block) }, [true, true])
     }
 
     // MARK: Views kept off screen (P8)
