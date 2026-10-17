@@ -147,8 +147,8 @@ final class ThemedTextShape: NSObject {
     }
 }
 
-/// One line of a fenced code block as the editors draw it: a slice of one rounded box across
-/// the text column, as in Obsidian, rounded at the top on the opening fence's line and at
+/// One line of a fenced code block as the editors draw it: a slice of one bordered, rounded
+/// box across the text column, rounded at the top on the opening fence's line and at
 /// the bottom on the closing one's, with the language at the top right while the fence is
 /// hidden, and a thin line at each level of indentation.
 final class CodeBlockLineDecoration: NSObject {
@@ -165,12 +165,14 @@ final class CodeBlockLineDecoration: NSObject {
     /// Characters of the line, counted from its start, at which an indentation guide is drawn.
     let guideOffsets: [Int]
     let guideColor: PlatformColor
+    /// The box's one-point border, drawn around the whole block a slice at a time.
+    let border: PlatformColor
 
     init(background: PlatformColor, cornerRadius: CGFloat, isFirstLine: Bool, isLastLine: Bool, languageLabel: String?, labelColor: PlatformColor,
-         labelFont: PlatformFont, horizontalPadding: CGFloat, guideOffsets: [Int], guideColor: PlatformColor) {
+         labelFont: PlatformFont, horizontalPadding: CGFloat, guideOffsets: [Int], guideColor: PlatformColor, border: PlatformColor) {
         self.background = background; self.cornerRadius = cornerRadius; self.isFirstLine = isFirstLine; self.isLastLine = isLastLine
         self.languageLabel = languageLabel; self.labelColor = labelColor; self.labelFont = labelFont; self.horizontalPadding = horizontalPadding
-        self.guideOffsets = guideOffsets; self.guideColor = guideColor
+        self.guideOffsets = guideOffsets; self.guideColor = guideColor; self.border = border
     }
 
     /// Equal decorations let a restyle leave the text as a whole-note styling leaves it.
@@ -178,7 +180,7 @@ final class CodeBlockLineDecoration: NSObject {
         guard let other = object as? CodeBlockLineDecoration else { return false }
         return background == other.background && cornerRadius == other.cornerRadius && isFirstLine == other.isFirstLine && isLastLine == other.isLastLine
             && languageLabel == other.languageLabel && labelColor == other.labelColor && labelFont == other.labelFont
-            && horizontalPadding == other.horizontalPadding && guideOffsets == other.guideOffsets && guideColor == other.guideColor
+            && horizontalPadding == other.horizontalPadding && guideOffsets == other.guideOffsets && guideColor == other.guideColor && border == other.border
     }
 
     override var hash: Int {
@@ -482,7 +484,7 @@ struct MarkdownTextStyler {
     private func drawCodeBlocksAsBoxes(in spans: [MarkdownStyleSpan], to textStorage: NSTextStorage, source: NSString, revealedMarkup: RevealedMarkup?,
                                        fonts: MarkdownStyleFonts, blockContextCheckpoints: MarkdownBlockContextCheckpoints?) {
         let codeFont = fonts.codeFont
-        let padding = (codeFont.pointSize).rounded()
+        let padding: CGFloat = 14
         let palette = codePalette
         let background = palette.background
         let cornerRadius = CodeSyntaxColors.blockCornerRadius(theme: theme)
@@ -506,8 +508,11 @@ struct MarkdownTextStyler {
             return style
         }
         let lineStyle = paragraphStyle(fixedHeight: nil)
-        let openingPaddingStyle = paragraphStyle(fixedHeight: (codeFont.pointSize * 1.45).rounded())
-        let closingPaddingStyle = paragraphStyle(fixedHeight: (codeFont.pointSize * 0.8).rounded())
+        // A hidden fence leaves a short line that pads the box; above the code, room for the language.
+        let edgePadding: CGFloat = 9
+        let labeledOpeningStyle = paragraphStyle(fixedHeight: (labelFont.ascender - labelFont.descender + edgePadding).rounded())
+        let openingPaddingStyle = paragraphStyle(fixedHeight: edgePadding)
+        let closingPaddingStyle = paragraphStyle(fixedHeight: edgePadding)
         /// The block whose fences show, found once, when a fence is styled.
         var codeBlockShowingFences: FencedCodeBlock??
         for span in spans {
@@ -534,7 +539,7 @@ struct MarkdownTextStyler {
                     textStorage.addAttribute(.foregroundColor, value: palette.quietText, range: span.range)
                 } else {
                     conceal(span.range, in: textStorage)
-                    style = isOpening ? openingPaddingStyle : closingPaddingStyle
+                    style = !isOpening ? closingPaddingStyle : block.language.isEmpty ? openingPaddingStyle : labeledOpeningStyle
                 }
             }
             textStorage.removeAttribute(.backgroundColor, range: lineRange)
@@ -543,7 +548,7 @@ struct MarkdownTextStyler {
             let decoration = CodeBlockLineDecoration(background: background, cornerRadius: cornerRadius, isFirstLine: isOpening, isLastLine: isFence && !isOpening,
                                                      languageLabel: label, labelColor: labelColor, labelFont: labelFont, horizontalPadding: padding,
                                                      guideOffsets: isFence ? [] : Self.indentationGuideOffsets(of: lineRange, in: source, indentationWidth: indentationWidth),
-                                                     guideColor: guideColor)
+                                                     guideColor: guideColor, border: palette.border)
             textStorage.addAttribute(ConcealedReplacement.codeBlockKey, value: decoration, range: lineRange)
         }
     }

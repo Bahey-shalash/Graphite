@@ -74,10 +74,23 @@ enum CodeSyntaxColors {
     /// system color given another opacity is drawn for the wrong appearance outside text.
     private static let indentationGuideColor = PlatformColor.primaryText(opacity: 0.14, increasedContrastOpacity: 0.3)
 
-    /// The corner radius of a code block: the theme's, else 6 points.
+    /// The corner radius of a code block: the theme's, else 4 points.
     static func blockCornerRadius(theme: NoteThemeStyle?) -> CGFloat {
-        theme?.codeBlockRadius.map { radius in CGFloat(min(radius, 24)) } ?? 6
+        theme?.codeBlockRadius.map { radius in CGFloat(min(radius, 24)) } ?? 4
     }
+
+    /// The box's border: the vault theme's, when it gives one, else a light gray a step
+    /// darker than the box (lighter in dark appearance).
+    private static func blockBorder(theme: NoteThemeStyle?) -> PlatformColor {
+        if let width = theme?.codeBlockBorderWidth, width > 0, let color = theme?.codeBlockBorderColor { return color }
+        return graphiteBlockBorder
+    }
+
+    private static let graphiteBlockBorder = PlatformColor.appearanceDependent(AppearanceVariants(
+        light: PlatformColor.sRGB(red: 210 / 255, green: 210 / 255, blue: 215 / 255, alpha: 1),
+        lightIncreasedContrast: PlatformColor.sRGB(red: 160 / 255, green: 160 / 255, blue: 166 / 255, alpha: 1),
+        dark: PlatformColor.sRGB(red: 66 / 255, green: 66 / 255, blue: 69 / 255, alpha: 1),
+        darkIncreasedContrast: PlatformColor.sRGB(red: 110 / 255, green: 110 / 255, blue: 115 / 255, alpha: 1)))
 
     // MARK: Palettes
 
@@ -89,7 +102,7 @@ enum CodeSyntaxColors {
         let palette = codeTheme.palette() ?? CodePalette(
             colors: Dictionary(uniqueKeysWithValues: CodeTokenKind.allCases.map { kind in (kind, color(for: kind, theme: noteTheme)) }),
             text: noteTheme?.codeColor ?? MarkdownTextStyler.primaryTextColor, background: blockBackground(theme: noteTheme),
-            quietText: labelColor(theme: noteTheme), guide: indentationGuideColor)
+            quietText: labelColor(theme: noteTheme), guide: indentationGuideColor, border: blockBorder(theme: noteTheme))
         palettesByKey[key] = palette
         return palette
     }

@@ -2117,7 +2117,7 @@ extension Color {
 // MARK: Obsidian-like styles
 
 /// Code blocks as the editor draws them (`CodeBlockLineDecoration`), in the vault's
-/// monospace font: one box without a border, as in Obsidian, the language at its top right,
+/// monospace font: one box with a one-point border, the language at its top right,
 /// and the code inset from its edges. The default style's `.monospaced()` would leave a
 /// chosen text font in place for code.
 struct ObsidianCodeBlockStyle: StructuredText.CodeBlockStyle {
@@ -2138,29 +2138,26 @@ struct ObsidianCodeBlockStyle: StructuredText.CodeBlockStyle {
                 .textual.lineSpacing(.fontScaled(0.39))
                 .textual.fontScale(0.882)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, language.isEmpty ? 12 : 26)
-                .padding(.bottom, 12)
-                .padding(.horizontal, 15)
+                .padding(.top, language.isEmpty ? 9 : 23)
+                .padding(.bottom, 9)
+                .padding(.horizontal, 14)
         }
         .foregroundStyle(Color(palette.text))
         .background(Color(palette.background))
         .overlay(alignment: .topTrailing) {
             if !language.isEmpty {
                 Text(language)
-                    .font(.footnote)
+                    .font(.caption)
                     .foregroundStyle(Color(palette.quietText))
-                    .padding(.top, 7)
-                    .padding(.trailing, 15)
+                    .padding(.top, 5)
+                    .padding(.trailing, 14)
                     .accessibilityLabel("\(language) code")
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        .overlay {
-            // A theme's border, when it gives one; Graphite's box has none.
-            if let borderWidth = theme?.codeBlockBorderWidth, borderWidth > 0, let borderColor = theme?.codeBlockBorderColor {
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).stroke(Color(borderColor), lineWidth: CGFloat(min(borderWidth, 6)))
-            }
-        }
+        // One point, or the vault theme's border width.
+        .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .strokeBorder(Color(palette.border), lineWidth: theme?.codeBlockBorderWidth.map { width in CGFloat(min(max(width, 1), 6)) } ?? 1))
         .textual.blockSpacing(.fontScaled(top: 0.88, bottom: 0))
     }
 }

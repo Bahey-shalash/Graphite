@@ -243,6 +243,10 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
         let box = CGRect(x: point.x - indentationFromColumn, y: point.y, width: columnWidth + indentationFromColumn, height: height + (decoration.isLastLine ? 0 : 0.5))
         decoration.background.setFill()
         Self.path(box, cornerRadius: decoration.cornerRadius, roundsTop: decoration.isFirstLine, roundsBottom: decoration.isLastLine).fill()
+        decoration.border.setStroke()
+        let border = Self.borderPath(box.insetBy(dx: 0.5, dy: 0), cornerRadius: decoration.cornerRadius, isFirstLine: decoration.isFirstLine, isLastLine: decoration.isLastLine)
+        border.lineWidth = 1
+        border.stroke()
         if let firstLine = textLineFragments.first, !decoration.guideOffsets.isEmpty {
             decoration.guideColor.setFill()
             let lineOriginX = point.x + firstLine.typographicBounds.minX
@@ -257,6 +261,34 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
             let origin = CGPoint(x: point.x + columnWidth - decoration.horizontalPadding - size.width, y: point.y + max(0, height - size.height) * 0.6)
             (label as NSString).draw(at: origin, withAttributes: attributes)
         }
+    }
+
+    /// This slice's part of the box's border: its two sides, and the top with its rounded
+    /// corners on the first line, the bottom with its corners on the last. The line is drawn
+    /// half a point inside the box, so it stays crisp and within the slice.
+    private static func borderPath(_ rect: CGRect, cornerRadius: CGFloat, isFirstLine: Bool, isLastLine: Bool) -> DrawingPath {
+        let radius = min(cornerRadius, rect.height / 2, rect.width / 2)
+        let top = isFirstLine ? rect.minY + 0.5 : rect.minY
+        let bottom = isLastLine ? rect.maxY - 0.5 : rect.maxY
+        let path = CGMutablePath()
+        // Down the left side, along the bottom on the last line, and up the right side.
+        if isFirstLine {
+            path.move(to: CGPoint(x: rect.maxX, y: top + radius))
+            path.addArc(tangent1End: CGPoint(x: rect.maxX, y: top), tangent2End: CGPoint(x: rect.maxX - radius, y: top), radius: radius)
+            path.addArc(tangent1End: CGPoint(x: rect.minX, y: top), tangent2End: CGPoint(x: rect.minX, y: top + radius), radius: radius)
+        } else {
+            path.move(to: CGPoint(x: rect.minX, y: top))
+        }
+        if isLastLine {
+            path.addArc(tangent1End: CGPoint(x: rect.minX, y: bottom), tangent2End: CGPoint(x: rect.minX + radius, y: bottom), radius: radius)
+            path.addArc(tangent1End: CGPoint(x: rect.maxX, y: bottom), tangent2End: CGPoint(x: rect.maxX, y: bottom - radius), radius: radius)
+            path.addLine(to: CGPoint(x: rect.maxX, y: isFirstLine ? top + radius : top))
+        } else {
+            path.addLine(to: CGPoint(x: rect.minX, y: bottom))
+            path.move(to: CGPoint(x: rect.maxX, y: bottom))
+            path.addLine(to: CGPoint(x: rect.maxX, y: isFirstLine ? top + radius : top))
+        }
+        return DrawingPath(cgPath: path)
     }
 
     /// `rect` with its top corners, its bottom corners, both or neither rounded.
