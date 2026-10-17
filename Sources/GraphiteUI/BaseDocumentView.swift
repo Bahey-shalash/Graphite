@@ -48,7 +48,7 @@ public struct BaseDocumentView: View {
 /// `![[Books.base#Reading]]`. `this` is the embedding note. It has a fixed height and
 /// scrolls on its own.
 public struct EmbeddedBaseView: View {
-    public static let defaultHeight: CGFloat = 420
+    public nonisolated static let defaultHeight: CGFloat = 420
     private let source: BaseSource
     private let embeddingNote: VaultPath
     private let preferredViewName: String?

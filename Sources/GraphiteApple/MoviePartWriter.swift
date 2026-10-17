@@ -36,10 +36,19 @@ final class MoviePartWriter {
         case failed(Error?)
     }
 
+    /// Where one track's samples go: the input's receiver from macOS 26 and iOS 26 on, the
+    /// input itself before.
+    fileprivate struct Track {
+        /// Appends a sample if the encoder is ready for more, and says whether it was;
+        /// throws when the writer failed.
+        let appendIfReady: (CMSampleBuffer) throws -> Bool
+        let finish: () -> Void
+    }
+
     let location: URL
     private let writer: AVAssetWriter
-    private let videoInput: AVAssetWriterInput
-    private let audioInput: AVAssetWriterInput
+    private let videoTrack: Track
+    private let audioTrack: Track
     private let startTime: CMTime
     /// Subtracted from incoming times, so the file has no gap where recording was paused.
     private var timeOffset = CMTime.zero
@@ -69,7 +78,7 @@ final class MoviePartWriter {
         self.location = location
         writer = try AVAssetWriter(outputURL: location, fileType: .mp4)
         writer.movieFragmentInterval = Self.fragmentInterval
-        videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: [
+        let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: [
             AVVideoCodecKey: AVVideoCodecType.h264,
             AVVideoWidthKey: width,
             AVVideoHeightKey: height,
@@ -83,16 +92,31 @@ final class MoviePartWriter {
                 AVVideoAllowFrameReorderingKey: false,
             ],
         ])
-        videoInput.expectsMediaDataInRealTime = true
-        audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: Self.audioSettings)
-        audioInput.expectsMediaDataInRealTime = true
+        let audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: Self.audioSettings)
+        for input in [videoInput, audioInput] { (input as any RealTimeExpecting).expectsMediaDataInRealTime = true }
         guard writer.canAdd(videoInput), writer.canAdd(audioInput) else {
             throw GraphiteError.unavailable("This device cannot write H.264 video with AAC sound.")
         }
-        writer.add(videoInput); writer.add(audioInput)
         startTime = firstVideoFrame.presentationTimeStamp
         videoEndTime = startTime; audioEndTime = startTime
-        guard writer.startWriting() else { throw writer.error ?? GraphiteError.unavailable("The video file could not be created.") }
+        if #available(iOS 26, *) {
+            videoTrack = Track(receiver: writer.inputReceiver(for: videoInput))
+            audioTrack = Track(receiver: writer.inputReceiver(for: audioInput))
+            try writer.start()
+        } else {
+            writer.add(videoInput); writer.add(audioInput)
+            videoTrack = Track(appendIfReady: { [writer] sampleBuffer in
+                guard videoInput.isReadyForMoreMediaData else { return false }
+                guard videoInput.append(sampleBuffer) else { throw writer.error ?? GraphiteError.unavailable("The video file could not be written.") }
+                return true
+            }, finish: videoInput.markAsFinished)
+            audioTrack = Track(appendIfReady: { [writer] sampleBuffer in
+                guard audioInput.isReadyForMoreMediaData else { return false }
+                guard audioInput.append(sampleBuffer) else { throw writer.error ?? GraphiteError.unavailable("The video file could not be written.") }
+                return true
+            }, finish: audioInput.markAsFinished)
+            guard writer.startWriting() else { throw writer.error ?? GraphiteError.unavailable("The video file could not be created.") }
+        }
         writer.startSession(atSourceTime: startTime)
         if case .failed(let error) = append(firstVideoFrame, kind: .video) {
             writer.cancelWriting()
@@ -140,17 +164,20 @@ final class MoviePartWriter {
                 return .dropped
             }
         }
-        let input = kind == .video ? videoInput : audioInput
+        let track = kind == .video ? videoTrack : audioTrack
         var waitedSeconds = 0.0
-        while !input.isReadyForMoreMediaData {
-            guard waitedSeconds < Self.maximumReadinessWaitSeconds, writer.status == .writing else {
-                droppedSampleCount += 1
-                return writer.status == .writing ? .dropped : .failed(writer.error)
+        do {
+            while try !track.appendIfReady(retimedBuffer) {
+                guard waitedSeconds < Self.maximumReadinessWaitSeconds, writer.status == .writing else {
+                    droppedSampleCount += 1
+                    return writer.status == .writing ? .dropped : .failed(writer.error)
+                }
+                Thread.sleep(forTimeInterval: Self.readinessPollSeconds)
+                waitedSeconds += Self.readinessPollSeconds
             }
-            Thread.sleep(forTimeInterval: Self.readinessPollSeconds)
-            waitedSeconds += Self.readinessPollSeconds
+        } catch {
+            return .failed(writer.error ?? error)
         }
-        guard input.append(retimedBuffer) else { return .failed(writer.error) }
         let duration = sampleBuffer.duration
         let endTime = duration.isNumeric ? time + duration : time
         switch kind {
@@ -164,7 +191,7 @@ final class MoviePartWriter {
     /// nothing to close; its file keeps its fragments.
     func finish(completion: @escaping @Sendable () -> Void) {
         guard writer.status == .writing else { completion(); return }
-        videoInput.markAsFinished(); audioInput.markAsFinished()
+        videoTrack.finish(); audioTrack.finish()
         writer.finishWriting(completionHandler: completion)
     }
 
@@ -182,6 +209,28 @@ final class MoviePartWriter {
         return false
     }
 }
+
+@available(iOS 26, *)
+private extension MoviePartWriter.Track {
+    init(receiver: AVAssetWriterInput.SampleBufferReceiver) {
+        self.init(appendIfReady: { sampleBuffer in
+            // A buffer from the camera is complete when it arrives and nothing changes it
+            // afterwards, which is what handing it over unchecked requires.
+            nonisolated(unsafe) let handedOverBuffer = sampleBuffer
+            return try receiver.appendImmediately(CMReadySampleBuffer(unsafeBuffer: handedOverBuffer))
+        }, finish: receiver.finish)
+    }
+}
+
+/// `expectsMediaDataInRealTime` is deprecated in favor of the input receiver's
+/// `appendImmediately`, but a receiver whose input does not expect real-time data still holds
+/// a track back to interleave it with the others: with no sound arriving, a receiver took
+/// 36 of 180 frames (macOS 27, measured 2026-10-17), and with the flag set all 180. Going
+/// through this protocol keeps the one deliberate use from warning on every build.
+private protocol RealTimeExpecting: AnyObject {
+    var expectsMediaDataInRealTime: Bool { get set }
+}
+extension AVAssetWriterInput: RealTimeExpecting {}
 
 /// The parts of one video recording, made into the single MP4 that is saved into the vault.
 enum RecordedMovie {

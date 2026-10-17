@@ -580,7 +580,7 @@ private struct FileTreeRow {
 /// inside it, so the selection tag, insets, separator and background are set here, outside
 /// it, and so is the drag: inside it, either one kept a click on the Mac from selecting a file.
 private struct FileTreeRows: View, Equatable {
-    @Bindable var workspace: WorkspaceModel
+    let workspace: WorkspaceModel
     let requestCreation: (CreationKind, VaultPath) -> Void
     @State private var contents = FileTreeContents()
     @Environment(\.accent) private var accent

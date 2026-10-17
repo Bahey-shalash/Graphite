@@ -7,12 +7,12 @@ import GraphiteCore
 final class RecordingRecoveryTests: XCTestCase {
     private var folder: URL!
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
         folder = FileManager.default.temporaryDirectory.appendingPathComponent("Recordings-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         try? FileManager.default.removeItem(at: folder)
     }
 

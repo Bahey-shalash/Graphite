@@ -41,7 +41,7 @@ enum QuickFontSizePinchPolicy {
     /// Fingers and the trackpad; not Apple Pencil.
     static let allowedTouchTypes: [NSNumber] = [UITouch.TouchType.direct, .indirectPointer].map { touchType in NSNumber(value: touchType.rawValue) }
 
-    static func acceptsTouch(ofType touchType: UITouch.TouchType, in touchedView: UIView?, under hostView: UIView?, recognizer: UIGestureRecognizer) -> Bool {
+    @MainActor static func acceptsTouch(ofType touchType: UITouch.TouchType, in touchedView: UIView?, under hostView: UIView?, recognizer: UIGestureRecognizer) -> Bool {
         guard touchType != .pencil else { return false }
         var view = touchedView
         while let currentView = view, currentView !== hostView {
