@@ -36,15 +36,20 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
     private let drawsOverText: Bool
     /// A theme's quote or heading background or underline, which spans the column.
     private let reachesAcrossColumn: Bool
+    /// A quoted paragraph, whose bars reach into the spacing above and below it.
+    private let containsQuoteBar: Bool
 
     override init(textElement: NSTextElement, range rangeInElement: NSTextRange?) {
         if let attributedString = (textElement as? NSTextParagraph)?.attributedString {
             var foundInlineMath = false
             let wholeString = NSRange(location: 0, length: attributedString.length)
-            var foundBehind = false, foundOver = false, foundAcross = false
+            var foundBehind = false, foundOver = false, foundAcross = false, foundQuoteBar = false
             attributedString.enumerateAttributes(in: wholeString) { attributes, _, _ in
                 if attributes[ConcealedReplacement.mathAttributeKey] != nil { foundInlineMath = true; foundOver = true }
-                if attributes[ConcealedReplacement.attributeKey] != nil { foundOver = true }
+                if let replacement = attributes[ConcealedReplacement.attributeKey] as? String {
+                    foundOver = true
+                    if replacement == ConcealedReplacement.quoteBar.rawValue { foundQuoteBar = true }
+                }
                 if attributes[ConcealedReplacement.roundedBackgroundKey] != nil { foundBehind = true }
                 if attributes[ConcealedReplacement.quoteBackgroundKey] != nil { foundBehind = true; foundAcross = true }
                 if attributes[ConcealedReplacement.headingOrnamentKey] != nil { foundBehind = true; foundOver = true; foundAcross = true }
@@ -52,6 +57,7 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
             drawsBehindText = foundBehind
             drawsOverText = foundOver
             reachesAcrossColumn = foundAcross
+            containsQuoteBar = foundQuoteBar
             containsInlineMath = foundInlineMath
             var prefixWidth: CGFloat = 0
             attributedString.enumerateAttribute(ConcealedReplacement.headingOrnamentKey, in: wholeString) { value, range, stop in
@@ -67,6 +73,7 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
             drawsBehindText = false
             drawsOverText = false
             reachesAcrossColumn = false
+            containsQuoteBar = false
         }
         super.init(textElement: textElement, range: rangeInElement)
     }
@@ -77,6 +84,7 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
         drawsBehindText = true
         drawsOverText = true
         reachesAcrossColumn = true
+        containsQuoteBar = true
         super.init(coder: coder)
     }
 
@@ -118,6 +126,12 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
         // A theme's heading background and underline reach across the column, and its prefix into the margin.
         if headingPrefixWidth > 0 { bounds.origin.x -= headingPrefixWidth; bounds.size.width += headingPrefixWidth }
         if reachesAcrossColumn { bounds.size.width = max(bounds.width, columnWidth + 4) }
+        // A quote's bars run through the spacing above and below its lines.
+        if containsQuoteBar {
+            let bottom = max(bounds.maxY, layoutFragmentFrame.height)
+            bounds.origin.y = min(bounds.minY, 0)
+            bounds.size.height = bottom - bounds.minY
+        }
         return bounds
     }
 
@@ -137,8 +151,8 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
 
     private func drawReplacementsOverText(at point: CGPoint) {
         drawHeadingOrnamentsOverText(at: point)
-        // A quoted line's bars, found on its first line fragment and drawn on every one, so
-        // the lines a long quote wraps onto have bars too. Offsets are from `point.x`.
+        // A quoted line's bars, found on its first line fragment and drawn down all of them,
+        // so the lines a long quote wraps onto have bars too. Offsets are from `point.x`.
         var quoteBars: (offsets: [CGFloat], color: PlatformColor)?
         for lineFragment in textLineFragments {
             let attributedString = lineFragment.attributedString
@@ -167,15 +181,50 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
                 }
                 Self.draw(replacement, in: box, font: font, color: color)
             }
-            if let quoteBars {
-                // The whole line's height, so the bars of consecutive quoted lines join.
-                quoteBars.color.withAlphaComponent(0.6).setFill()
-                for offset in quoteBars.offsets {
-                    DrawingPath(rect: CGRect(x: point.x + offset + 1, y: lineOrigin.y, width: 2.5, height: lineFragment.typographicBounds.height)).fill()
-                }
-            }
             drawInlineMath(in: lineFragment, lineOrigin: lineOrigin, baseline: baseline)
         }
+        if let quoteBars, let firstLine = textLineFragments.first, let lastLine = textLineFragments.last {
+            drawQuoteBars(at: quoteBars.offsets, color: quoteBars.color, from: point, firstLine: firstLine, lastLine: lastLine)
+        }
+    }
+
+    /// One bar per level, unbroken down the lines the paragraph wraps onto: drawn line by
+    /// line, the line spacing left a gap at every wrap. A bar reaches into the spacing above
+    /// and below the paragraph when the line there is quoted to its level too, so the bars
+    /// of consecutive quoted lines join, as Obsidian's border does.
+    private func drawQuoteBars(at offsets: [CGFloat], color: PlatformColor, from point: CGPoint, firstLine: NSTextLineFragment, lastLine: NSTextLineFragment) {
+        let (depthAbove, depthBelow) = quoteDepthsOfNeighboringLines()
+        color.withAlphaComponent(0.6).setFill()
+        for (level, offset) in offsets.enumerated() {
+            let top = level < depthAbove ? 0 : firstLine.typographicBounds.minY
+            let bottom = level < depthBelow ? layoutFragmentFrame.height : lastLine.typographicBounds.maxY
+            DrawingPath(rect: CGRect(x: point.x + offset + 1, y: point.y + top, width: 2.5, height: max(bottom - top, 0))).fill()
+        }
+    }
+
+    /// How many `>` start the lines just above and just below this paragraph, read from the
+    /// note's text, which a moving cursor does not change.
+    private func quoteDepthsOfNeighboringLines() -> (above: Int, below: Int) {
+        guard let contentStorage = textLayoutManager?.textContentManager as? NSTextContentStorage,
+              let source = contentStorage.textStorage?.mutableString else { return (0, 0) }
+        let documentStart = contentStorage.documentRange.location
+        let start = contentStorage.offset(from: documentStart, to: rangeInElement.location)
+        let end = contentStorage.offset(from: documentStart, to: rangeInElement.endLocation)
+        guard start != NSNotFound, end != NSNotFound, start <= end, end <= source.length else { return (0, 0) }
+        let above = start > 0 ? Self.quoteDepth(ofLineAt: start - 1, in: source) : 0
+        let below = end < source.length ? Self.quoteDepth(ofLineAt: end, in: source) : 0
+        return (above, below)
+    }
+
+    private static func quoteDepth(ofLineAt location: Int, in source: NSString) -> Int {
+        let lineRange = source.lineRange(for: NSRange(location: location, length: 0))
+        var index = lineRange.location, depth = 0
+        while index < NSMaxRange(lineRange) {
+            let character = source.character(at: index)
+            if character == 0x3E { depth += 1 } else if character != 0x20, character != 0x09 { break }
+            index += 1
+        }
+        return depth
     }
 
     /// Draws each formula whose last source character is on this line. The styler reserves
