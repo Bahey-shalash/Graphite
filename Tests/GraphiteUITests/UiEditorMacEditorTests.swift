@@ -109,6 +109,49 @@ final class UiEditorMacEditorTests: XCTestCase {
         XCTAssertTrue(fragment is ConcealedReplacementLayoutFragment, "The Mac's paragraphs are drawn by the replacements' fragment")
     }
 
+    /// A quote's bar runs unbroken down a quoted line that wraps and on into the next quoted
+    /// line, as in Obsidian: it was drawn line by line, with a gap at every wrap and between
+    /// quoted lines (the owner's lecture citation).
+    func testAQuotesBarHasNoGapsWhereItsLinesWrapOrFollowEachOther() async throws {
+        let text = "> **Lecture 4, Memory-Centric Computing II** - Dr. Geraldo F. Oliveira · SAFARI Research Group, ETH Zürich, and Huawei Zürich · 2 October 2026\n> A second quoted line\nlast"
+        let (_, textView, _) = try await makeEditor(text: text)
+        let textContainer = try XCTUnwrap(textView.textContainer)
+        textContainer.widthTracksTextView = false
+        textContainer.size = NSSize(width: 320, height: CGFloat.greatestFiniteMagnitude)
+        let textLayoutManager = try XCTUnwrap(textView.textLayoutManager)
+        textLayoutManager.ensureLayout(for: textLayoutManager.documentRange)
+        var quoteFragments: [NSTextLayoutFragment] = []
+        textLayoutManager.enumerateTextLayoutFragments(from: textLayoutManager.documentRange.location, options: [.ensuresLayout]) { fragment in
+            quoteFragments.append(fragment)
+            return quoteFragments.count < 2
+        }
+        XCTAssertEqual(quoteFragments.count, 2)
+        XCTAssertGreaterThan(quoteFragments[0].textLineFragments.count, 1, "The first quoted line wraps")
+        let bounds = quoteFragments.map(\.layoutFragmentFrame).reduce(CGRect.null) { $0.union($1) }
+        let width = Int(ceil(bounds.maxX)) + 4, height = Int(ceil(bounds.maxY)) + 4
+        let context = try XCTUnwrap(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        // Flipped, as a text view draws.
+        context.translateBy(x: 0, y: CGFloat(height))
+        context.scaleBy(x: 1, y: -1)
+        for fragment in quoteFragments { fragment.draw(at: fragment.layoutFragmentFrame.origin, in: context) }
+        let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+        func alpha(x: Int, y: Int) -> UInt8 { pixels[y * width * 4 + x * 4 + 3] }
+        let first = quoteFragments[0], last = quoteFragments[1]
+        let top = Int(ceil(first.layoutFragmentFrame.minY + first.textLineFragments[0].typographicBounds.minY)) + 1
+        let bottom = Int(floor(last.layoutFragmentFrame.minY + last.textLineFragments.last!.typographicBounds.maxY)) - 1
+        // The bar's column: the widest run of drawn pixels in the first line's left margin.
+        let barX = try XCTUnwrap((0..<12).first { x in alpha(x: x, y: top + 2) > 0 }, "A bar is drawn on the first line") + 1
+        let gaps = (top...bottom).filter { y in alpha(x: barX, y: y) == 0 }
+        XCTAssertEqual(gaps, [], "Rows between \(top) and \(bottom) without the bar")
+        // The surface TextKit draws a fragment on reaches the spacing the bar runs through.
+        let surface = first.renderingSurfaceBounds
+        XCTAssertLessThanOrEqual(surface.minY, 0)
+        XCTAssertGreaterThanOrEqual(surface.maxY, first.layoutFragmentFrame.height)
+        // The last quoted line's bar stops at its text: the line below is not quoted.
+        let belowLast = Int(ceil(last.layoutFragmentFrame.minY + last.textLineFragments.last!.typographicBounds.maxY)) + 1
+        XCTAssertEqual(alpha(x: barX, y: belowLast), 0, "No bar below the quote")
+    }
+
     /// A click on a drawn task box checks it, through the text view so it can be undone; a
     /// click on the box of the cursor's line, where `[ ]` shows as written, places the cursor.
     func testAClickOnADrawnTaskBoxChecksItAndCanBeUndone() async throws {
