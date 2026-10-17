@@ -44,6 +44,8 @@ final class WorkspaceModel {
             // focus moves within a note, the divider is dragged, or a background tab changes.
             if selection != layout.activeTab.path { selection = layout.activeTab.path }
             if history != layout.activeTab.history { history = layout.activeTab.history }
+            if activeTabID != layout.activeTab.id { activeTabID = layout.activeTab.id }
+            if openTabCount != layout.allTabs.count { openTabCount = layout.allTabs.count }
             // Histories are not saved, so moving through them writes nothing.
             if layout.saved != oldValue.saved { saveTabLayout() }
         }
@@ -88,6 +90,13 @@ final class WorkspaceModel {
 
     /// The file of the focused tab. Kept in step with `layout`.
     private(set) var selection: VaultPath?
+    /// The focused tab, kept in step with `layout`; nil until the layout first changes. The
+    /// focused document is found through it, so the views that show it, the window's root
+    /// view among them, are not updated for every change of the layout, such as each frame
+    /// of a drag of the split's divider.
+    private(set) var activeTabID: UUID?
+    /// How many tabs are open, kept in step with `layout`, for the tabs button.
+    private(set) var openTabCount = 1
     /// The focused tab's note or PDF, once loaded.
     var markdownSession: MarkdownSession? { activeDocument.loadedPath == selection ? activeDocument.markdownSession : nil }
     var pdfSession: PDFSession? { activeDocument.loadedPath == selection ? activeDocument.pdfSession : nil }

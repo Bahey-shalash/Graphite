@@ -677,6 +677,37 @@ extension UiWorkspaceAreaHandoffTests {
         XCTAssertEqual(workspace.selection, try VaultPath("A.md"))
     }
 
+    /// The window's root view shows the focused note's inspector and More menu. Reading
+    /// the focused note read the whole layout, so each frame of a drag of the split's
+    /// divider updated the root view, the sidebar with it.
+    func testDraggingTheDividerLeavesViewsOfTheFocusedNoteAlone() async throws {
+        let vault = try makeVault(files: ["A.md": "first", "B.md": "second"])
+        let workspace = try await indexedWorkspace(vault)
+        let firstTabIDResult = await workspace.open(try VaultPath("A.md"))
+        let firstTabID = try XCTUnwrap(firstTabIDResult)
+        _ = await workspace.open(try VaultPath("B.md"), placement: .otherGroup)
+        let focusedNotePath = try XCTUnwrap(workspace.markdownSession?.path)
+        XCTAssertEqual(workspace.openTabCount, 2)
+
+        let focusedNoteObserversChanged = OSAllocatedUnfairLock(initialState: false)
+        withObservationTracking {
+            _ = workspace.markdownSession
+            _ = workspace.pdfSession
+            _ = workspace.canvasSession
+            _ = workspace.openTabCount
+        } onChange: {
+            focusedNoteObserversChanged.withLock { changed in changed = true }
+        }
+        workspace.layout.splitFraction = 0.3
+        workspace.layout.splitFraction = 0.35
+        XCTAssertFalse(focusedNoteObserversChanged.withLock { changed in changed })
+        XCTAssertEqual(workspace.markdownSession?.path, focusedNotePath)
+
+        workspace.activateTab(firstTabID)
+        XCTAssertTrue(focusedNoteObserversChanged.withLock { changed in changed }, "Focusing the other side shows its note.")
+        XCTAssertEqual(workspace.markdownSession?.path, try VaultPath("A.md"))
+    }
+
     /// Search in all files from the palette or ⇧⌘F only asked for focus; with the sidebar
     /// hidden, nothing appeared.
     func testShowingSearchRevealsAHiddenSidebar() {

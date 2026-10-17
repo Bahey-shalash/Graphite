@@ -377,7 +377,7 @@ final class LivePreviewRenderedBlocks {
     func refreshViews(entries: [LivePreviewBlockEntry], onlyThoseReadingIndex: Bool = false, makeRootView: (LivePreviewBlockEntry) -> RenderedBlockRoot) {
         guard hasViews else { return }
         detachedHosts.removeHosts(notIn: Set(entries.map(\.key)))
-        for entry in entries where !onlyThoseReadingIndex || LivePreviewWidgetSignature.readsIndex(entry.block.kind) {
+        for entry in entries where !onlyThoseReadingIndex || LivePreviewWidgetSignature.readsIndex(entry.block) {
             if entry.block.kind == .frontmatter {
                 guard let propertiesHost else { continue }
                 propertiesHost.update(root: makeRootView(entry))
@@ -488,10 +488,13 @@ struct LivePreviewWidgetSignature: Equatable {
     }
 
     /// Whether a block's view reads the index: a base runs its query again, an embed not
-    /// found yet looks for its file again, and a callout can contain either.
-    static func readsIndex(_ kind: LivePreviewBlock.Kind) -> Bool {
-        switch kind {
-        case .embed, .baseDefinition, .callout: true
+    /// found yet looks for its file again, and a callout can contain either. The index
+    /// changes with every save, so a callout of text only was drawn again each time typing
+    /// paused.
+    static func readsIndex(_ block: LivePreviewBlock) -> Bool {
+        switch block.kind {
+        case .embed, .baseDefinition: true
+        case .callout: block.markdown.contains("![") || block.markdown.contains("base")
         case .frontmatter, .table, .mathBlock, .horizontalRule, .pluginCodeBlock: false
         }
     }

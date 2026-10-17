@@ -70,4 +70,8 @@ A table style decides the width to offer. Upstream's `Overflow` scroll container
 
 `Sources/Textual/CodeSegmenter.swift` (new), `Internal/Highlighter/HighlightedTextFragment.swift`: public `StructuredText.CodeSegment` and `textual.codeSegmenter(_:)`, a closure that splits a code block's text into segments with token types, or returns nil for a language it does not know. When it answers, the block is highlighted with those segments synchronously, kept while the block's text, language, highlighter theme and text environment stay the same; otherwise Textual's own Prism tokenizer runs, asynchronously, as upstream. Graphite's tokenizer is pure Swift and covers languages Prism's bundle lacks (C++, VHDL, Verilog, assembly, MATLAB, LaTeX, …), and colors code the same way as Graphite's editor. Upstream tokenized every block asynchronously in JavaScriptCore, so a block first showed uncolored.
 
+## 15. Math patterns compiled once per thread
+
+`Sources/Textual/Internal/MarkdownParser/PatternTokenizer.swift`: `Pattern.mathBlock` and `Pattern.mathInline` return patterns made once per thread (`CompiledMathPatterns`), with the same regular expressions. Upstream made a new value for every access, and a Swift regular expression literal is parsed and compiled again for each new value; the math syntax extension asks for both for every text it parses, which was about a third of the time spent parsing a rendered block's Markdown (Time Profiler, Live Preview scrolling, 2026-10-17). A `Regex` is not `Sendable` and Markdown is also parsed off the main thread, so each thread keeps its own copy in its thread dictionary.
+
 Remove this vendored copy and return to the upstream package once an upstream release contains equivalents of these changes.

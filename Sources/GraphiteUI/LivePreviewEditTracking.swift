@@ -310,11 +310,14 @@ final class LivePreviewTextState {
             blockEntries = []
             return
         }
-        if hasFoundBlocks, !forcesBlockScan, let editSinceBlockScan,
-           let movedEntries = LivePreviewBlockShifting.entries(blockEntries, across: editSinceBlockScan.edit.narrowed(before: editSinceBlockScan.sourceBeforeEdit, after: newSource),
-                                                               sourceBeforeEdit: editSinceBlockScan.sourceBeforeEdit, source: newSource) {
-            blockEntries = movedEntries
-            return
+        if hasFoundBlocks, !forcesBlockScan, let editSinceBlockScan {
+            let edit = editSinceBlockScan.edit.narrowed(before: editSinceBlockScan.sourceBeforeEdit, after: newSource)
+            if let movedEntries = LivePreviewBlockShifting.entries(blockEntries, across: edit, sourceBeforeEdit: editSinceBlockScan.sourceBeforeEdit, source: newSource)
+                ?? LivePreviewBlockShifting.entriesFindingEditedCalloutAgain(blockEntries, across: edit, sourceBeforeEdit: editSinceBlockScan.sourceBeforeEdit,
+                                                                            source: newSource, isRendered: isRendered) {
+                blockEntries = movedEntries
+                return
+            }
         }
         let blocks = LivePreviewBlockScanner.blocks(in: newSource, pluginCodeBlockLanguages: pluginCodeBlockLanguages).filter(isRendered)
         blockEntries = zip(blocks, LivePreviewBlockKey.keys(for: blocks)).map { block, key in
@@ -458,15 +461,86 @@ enum LivePreviewBlockShifting {
         }
     }
 
+    /// The entries after an edit inside one line of a callout's body, with the callout
+    /// found again in its own lines only; nil when the note must be scanned again.
+    ///
+    /// Typing in a callout scanned the whole note on every keystroke, which in a long note
+    /// cost more than the rest of the keystroke. A body line that starts with `>` before
+    /// and after the edit, and holds no `` ` ``, `~` or `$` that could open code or math,
+    /// keeps the callout's lines and cannot change the blocks around it. The callout found
+    /// again in its lines must cover all of them, or the note is scanned.
+    static func entriesFindingEditedCalloutAgain(_ entries: [LivePreviewBlockEntry], across edit: CharacterEdit, sourceBeforeEdit: NSString, source: NSString,
+                                                 isRendered: (LivePreviewBlock) -> Bool) -> [LivePreviewBlockEntry]? {
+        let replacedRange = edit.replacedRange
+        guard sourceBeforeEdit.length + edit.changeInLength == source.length,
+              NSMaxRange(replacedRange) <= sourceBeforeEdit.length, NSMaxRange(edit.editedRange) <= source.length,
+              !containsLineBreak(sourceBeforeEdit, in: replacedRange), !containsLineBreak(source, in: edit.editedRange) else { return nil }
+        let lineBeforeEdit = sourceBeforeEdit.lineRange(for: replacedRange)
+        let lineAfterEdit = source.lineRange(for: edit.editedRange)
+        let touchedIndices = entries.indices.filter { index in NSIntersectionRange(entries[index].range, lineBeforeEdit).length > 0 }
+        guard touchedIndices.count == 1, let calloutIndex = touchedIndices.first, entries[calloutIndex].block.kind == .callout else { return nil }
+        let calloutRange = entries[calloutIndex].range
+        // A body line: the header's `[!type]` decides whether the lines are a callout at all.
+        guard lineBeforeEdit.location > calloutRange.location, NSMaxRange(lineBeforeEdit) <= NSMaxRange(calloutRange),
+              isCalloutBodyLine(sourceBeforeEdit, lineRange: lineBeforeEdit), isCalloutBodyLine(source, lineRange: lineAfterEdit) else { return nil }
+        let newCalloutRange = NSRange(location: calloutRange.location, length: calloutRange.length + edit.changeInLength)
+        guard NSMaxRange(newCalloutRange) <= source.length else { return nil }
+        let calloutLines = source.substring(with: newCalloutRange) as NSString
+        let foundBlocks = LivePreviewBlockScanner.blocks(in: calloutLines)
+        guard foundBlocks.count == 1, let foundCallout = foundBlocks.first, foundCallout.kind == .callout,
+              foundCallout.range == NSRange(location: 0, length: calloutLines.length) else { return nil }
+        let callout = foundCallout.offset(by: newCalloutRange.location)
+        guard isRendered(callout) else { return nil }
+        var blocks = entries.map(\.block)
+        blocks[calloutIndex] = callout
+        // Keys count blocks of the same source, so they are made again for every block; a
+        // block whose source is unchanged keeps its key.
+        let keys = LivePreviewBlockKey.keys(for: blocks)
+        return entries.indices.map { index in
+            if index == calloutIndex { return LivePreviewBlockEntry(block: callout, range: newCalloutRange, key: keys[index]) }
+            let entry = entries[index]
+            let range = entry.range.location > calloutRange.location ? entry.range.shifted(by: edit.changeInLength) : entry.range
+            return LivePreviewBlockEntry(block: entry.block, range: range, key: keys[index])
+        }
+    }
+
     private static func containsLineBreak(_ text: NSString, in range: NSRange) -> Bool {
         text.rangeOfCharacter(from: .newlines, options: [], range: range).location != NSNotFound
     }
 
-    /// A line that is not blank and does not start with block syntax.
+    /// Characters on a callout's line that could open or close code or math.
+    private static let codeAndMathCharacters = CharacterSet(charactersIn: "`~$")
+
+    private static func isCalloutBodyLine(_ text: NSString, lineRange: NSRange) -> Bool {
+        lineRange.length > 0 && text.character(at: lineRange.location) == UInt16(UInt8(ascii: ">"))
+            && text.rangeOfCharacter(from: codeAndMathCharacters, options: [], range: lineRange).location == NSNotFound
+    }
+
+    /// Characters on a list item that could make it a table's row, or open code or math.
+    private static let listItemBlockCharacters = CharacterSet(charactersIn: "`~$|")
+
+    /// A line that is not blank and does not start with block syntax. A list item (`- `,
+    /// `* `) is ordinary when its text is: its marker alone cannot make a block, and only
+    /// a line of nothing but dashes, stars or underscores is a rule.
     private static func isOrdinaryLine(_ text: NSString, lineRange: NSRange) -> Bool {
         let firstCharacter = text.rangeOfCharacter(from: CharacterSet.whitespacesAndNewlines.inverted, options: [], range: lineRange)
         guard firstCharacter.location != NSNotFound else { return false }
-        return text.rangeOfCharacter(from: blockSyntaxStarts, options: .anchored, range: NSRange(location: firstCharacter.location, length: NSMaxRange(lineRange) - firstCharacter.location)).location == NSNotFound
+        let content = NSRange(location: firstCharacter.location, length: NSMaxRange(lineRange) - firstCharacter.location)
+        if let itemText = listItemText(text, content: content) {
+            return text.rangeOfCharacter(from: listItemBlockCharacters, options: [], range: lineRange).location == NSNotFound
+                && isOrdinaryLine(text, lineRange: itemText)
+        }
+        return text.rangeOfCharacter(from: blockSyntaxStarts, options: .anchored, range: content).location == NSNotFound
+    }
+
+    /// The text after a bullet list item's marker and its spaces, when `content` is one.
+    private static func listItemText(_ text: NSString, content: NSRange) -> NSRange? {
+        guard content.length >= 2 else { return nil }
+        let marker = text.character(at: content.location)
+        let space = text.character(at: content.location + 1)
+        guard marker == UInt16(UInt8(ascii: "-")) || marker == UInt16(UInt8(ascii: "*")),
+              space == UInt16(UInt8(ascii: " ")) || space == UInt16(UInt8(ascii: "\t")) else { return nil }
+        return NSRange(location: content.location + 2, length: content.length - 2)
     }
 }
 

@@ -12,10 +12,11 @@ import UIKit
 import AppKit
 #endif
 
-/// Time, processor and memory use of opening, scrolling and typing in a long note, of
-/// opening and scrolling a long PDF with its pages sidebar, of an embedded PDF while other
-/// files change, and of the map's updates. The same file runs on the Mac (`swift test`) and
-/// in the hosted iPad tests, so both platforms are measured the same way.
+/// Time, processor and memory use of opening, scrolling and typing in a long note (in a
+/// paragraph, a list item and a callout), of opening and scrolling a long PDF with its pages
+/// sidebar, of an embedded PDF while other files change, and of the map's updates. The same
+/// file runs on the Mac (`swift test`) and in the hosted iPad tests, so both platforms are
+/// measured the same way.
 ///
 /// The benchmarks run only when asked for, as they take minutes:
 /// `GRAPHITE_BENCHMARKS=1 swift test -c release -Xswiftc -enable-testing --filter PerformanceBenchmarkTests`
@@ -119,6 +120,23 @@ final class PerformanceBenchmarkTests: XCTestCase {
                 await typing.measureFrame { self.type(String(character), in: editor) }
             }
             typing.finish()
+            // Typing at the end of a list item and in a callout's body, with the keyboard focus a
+            // person typing gives the note, so the callout shows its source as it is edited.
+            focus(editor)
+            let listLine = (text(of: editor) as NSString).range(of: "- Keep the stage effort near four")
+            select(NSRange(location: NSMaxRange(listLine), length: 0), in: editor)
+            let listTyping = BenchmarkMeasurement(scenario: "note-typing-list", run: run)
+            for character in " and check the load" {
+                await listTyping.measureFrame { self.type(String(character), in: editor) }
+            }
+            listTyping.finish()
+            let quoteLine = (text(of: editor) as NSString).range(of: "> A fanout of four gives a delay close to the optimum, whatever the technology.")
+            select(NSRange(location: NSMaxRange(quoteLine), length: 0), in: editor)
+            let quoteTyping = BenchmarkMeasurement(scenario: "note-typing-callout", run: run)
+            for character in " Check it again" {
+                await quoteTyping.measureFrame { self.type(String(character), in: editor) }
+            }
+            quoteTyping.finish()
             try? await workspace.document(for: tab).saveAllChanges()
             close(window)
             try await reportMemoryKept(scenario: "note-memory-kept-after-close", run: run, since: footprintBeforeOpening)
@@ -366,6 +384,7 @@ final class PerformanceBenchmarkTests: XCTestCase {
 
     private func text(of editor: MarkdownTextView) -> String { editor.text }
     private func select(_ range: NSRange, in editor: MarkdownTextView) { editor.selectedRange = range }
+    private func focus(_ editor: MarkdownTextView) { editor.beginEditing() }
     private func type(_ text: String, in editor: MarkdownTextView) { editor.insertText(text); editor.layoutIfNeeded() }
 
     /// SwiftUI's hosted views, which Live Preview places in the text view for its blocks.
@@ -420,6 +439,7 @@ final class PerformanceBenchmarkTests: XCTestCase {
 
     private func text(of editor: MarkdownMacTextView) -> String { editor.string }
     private func select(_ range: NSRange, in editor: MarkdownMacTextView) { editor.setSelectedRange(range) }
+    private func focus(_ editor: MarkdownMacTextView) { editor.window?.makeFirstResponder(editor) }
 
     private func type(_ text: String, in editor: MarkdownMacTextView) {
         editor.insertText(text, replacementRange: editor.selectedRange())
