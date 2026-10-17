@@ -133,6 +133,7 @@ final class MarkdownEditorStyling {
             guard let textStorage = notification.object as? NSTextStorage, textStorage.editedMask.contains(.editedCharacters) else { return }
             let edit = CharacterEdit(editedRange: textStorage.editedRange, changeInLength: textStorage.changeInLength)
             MainActor.assumeIsolated {
+                self?.renderedBlocks.moveBlockEditedInItsView(through: edit)
                 guard let self, let textView,
                       self.textState.recordCharacterEdit(edit, revealedRange: self.revealedMarkup?.shownLineRange) else { return }
                 DispatchQueue.main.async { [weak self, weak textView] in

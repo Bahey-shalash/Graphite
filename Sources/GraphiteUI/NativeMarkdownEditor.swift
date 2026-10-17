@@ -5,6 +5,9 @@ import GraphiteCore
 #if canImport(UIKit)
 import UIKit
 
+/// The target of an undo action the iPad's editor registers itself; see `replaceCharacters`.
+final class UndoActionToken {}
+
 /// A TextKit 2 text view that keeps a readable column centered on wide screens and
 /// hosts Live Preview's rendered blocks.
 final class MarkdownTextView: UITextView {
@@ -561,12 +564,15 @@ struct NativeMarkdownEditor: UIViewRepresentable {
     var followsReading = false
     var suspendReadingFollow: (() -> Void)?
     var readAloudHooks: ReadAloudEditorHooks?
+    /// The Color, Format, Paragraph and Insert submenus of the edit menu; see `EditorContextMenuContent`.
+    var contextMenu: EditorContextMenuActions?
 
     init(session: MarkdownSession, configuration: EditorConfiguration, environment: LivePreviewEnvironment? = nil,
          headingScrollRequest: HeadingScrollRequest?, actions: EditorActions = EditorActions(),
          retention: MarkdownEditorRetention? = nil, retentionOwner: TabDocument? = nil, readAloudRange: NSRange? = nil,
          followsReading: Bool = false, suspendReadingFollow: (() -> Void)? = nil, readAloudHooks: ReadAloudEditorHooks? = nil,
-         follow: @escaping (String, Bool) -> Void) {
+         contextMenu: EditorContextMenuActions? = nil, follow: @escaping (String, Bool) -> Void) {
+        self.contextMenu = contextMenu
         self.session = session
         self.configuration = configuration
         self.environment = environment
@@ -706,6 +712,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         textView.followsReading = followsReading
         coordinator.suspendReadingFollow = suspendReadingFollow
         coordinator.installReadAloudHooks(readAloudHooks, in: textView)
+        coordinator.contextMenu = contextMenu
         let previousBlockPolicy = coordinator.renderedBlockPolicy
         coordinator.environment = environment
         coordinator.follow = follow
@@ -1315,6 +1322,40 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             if textView.isFirstResponder { textView.reloadInputViews() }
         }
 
+        /// Replaces characters as one change that can be undone. Through the text view while
+        /// it has the keyboard; otherwise in its text storage, with the undo registered here:
+        /// `replace(_:withText:)` on a text view without the keyboard ran the system's smart
+        /// dashes over the whole note though they are off for it (iOS 27), so writing one cell
+        /// of a table turned every `---` of its delimiter row, and of the frontmatter, into `—`.
+        func replaceCharacters(in range: NSRange, with replacement: String, in textView: UITextView) {
+            guard NSMaxRange(range) <= textView.textStorage.length else { return }
+            if textView.isFirstResponder,
+               let start = textView.position(from: textView.beginningOfDocument, offset: range.location),
+               let end = textView.position(from: start, offset: range.length),
+               let textRange = textView.textRange(from: start, to: end) {
+                textView.replace(textRange, withText: replacement)
+                return
+            }
+            let replacedText = (textView.textStorage.string as NSString).substring(with: range)
+            let restoredRange = NSRange(location: range.location, length: (replacement as NSString).length)
+            // The undo manager does not keep its target alive, and can outlive this editor; the
+            // handler keeps its own token, and does nothing once the editor is gone.
+            let undoToken = UndoActionToken()
+            textView.undoManager?.registerUndo(withTarget: undoToken) { [weak self, weak textView, undoToken] _ in
+                withExtendedLifetime(undoToken) {}
+                guard let self, let textView else { return }
+                // Undoing registers the redo in turn.
+                self.isPerformingEdit = true
+                self.replaceCharacters(in: restoredRange, with: replacedText, in: textView)
+                self.isPerformingEdit = false
+                self.textViewDidChange(textView)
+            }
+            let attributes = textView.textStorage.length > 0
+                ? textView.textStorage.attributes(at: min(range.location, textView.textStorage.length - 1), effectiveRange: nil)
+                : textView.typingAttributes
+            textView.textStorage.replaceCharacters(in: range, with: NSAttributedString(string: replacement, attributes: attributes))
+        }
+
         /// Puts a new text in place by replacing only what differs, through the text view,
         /// so the change joins the undo history instead of clearing it, and the cursor
         /// stays on the same character.
@@ -1325,16 +1366,13 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                 lastSynchronizedText = newText
                 return
             }
-            guard let start = textView.position(from: textView.beginningOfDocument, offset: replacedRange.location),
-                  let end = textView.position(from: start, offset: replacedRange.length),
-                  let textRange = textView.textRange(from: start, to: end) else { return }
             let edit = CharacterEdit(editedRange: replacementRange, changeInLength: newSource.length - oldSource.length)
             let selection = TextRangeMapping.insertionTarget(textView.selectedRange, through: edit)
             // Text another app changed, adopted as Graphite comes back to the screen, must not
             // move the note under the reader, as an insertion does not (`apply(_:to:)`).
             let contentOffset = textView.contentOffset
             isPerformingEdit = true
-            textView.replace(textRange, withText: newSource.substring(with: replacementRange))
+            replaceCharacters(in: replacedRange, with: newSource.substring(with: replacementRange), in: textView)
             isPerformingEdit = false
             if NSMaxRange(selection) <= textView.textStorage.length { textView.selectedRange = selection }
             if let textLayoutManager = textView.textLayoutManager {
@@ -1370,12 +1408,9 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         func perform(_ edit: MarkdownTextEdit, in textView: UITextView) {
             let length = textView.textStorage.length
             guard NSMaxRange(edit.range) <= length else { return }
-            if edit.range.length > 0 || !edit.replacement.isEmpty,
-               let start = textView.position(from: textView.beginningOfDocument, offset: edit.range.location),
-               let end = textView.position(from: start, offset: edit.range.length),
-               let textRange = textView.textRange(from: start, to: end) {
+            if edit.range.length > 0 || !edit.replacement.isEmpty {
                 isPerformingEdit = true
-                textView.replace(textRange, withText: edit.replacement)
+                replaceCharacters(in: edit.range, with: edit.replacement, in: textView)
                 isPerformingEdit = false
             }
             if NSMaxRange(edit.selectionAfter) <= textView.textStorage.length { textView.selectedRange = edit.selectionAfter }
@@ -1603,9 +1638,14 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: placement)
         }
 
-        /// The system's edit menu, with community plugins' items for the cursor after it.
+        /// The Color, Format, Paragraph and Insert submenus; set by the editor.
+        var contextMenu: EditorContextMenuActions?
+
+        /// The system's edit menu, with Graphite's submenus and community plugins' items for
+        /// the cursor after it.
         func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
             var extraItems: [UIMenuElement] = []
+            if let contextMenu { extraItems += EditorContextMenuContent.menuElements(actions: contextMenu, editorActions: actions) }
             if let readAloudHooks {
                 extraItems.append(UIAction(title: "Read from Here", image: UIImage(systemName: "speaker.wave.2")) { _ in
                     readAloudHooks.readFromHere(range.location)
@@ -1824,7 +1864,34 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             }, reportHeight: { [weak self, weak textView] height in
                 guard let self, let textView else { return }
                 self.styling.reserveMeasuredHeight(height, forBlockWithKey: key, isFrontmatter: isFrontmatter, in: textView)
-            })
+            }, sourceEditing: RenderedBlockSourceEditing(replaceSource: { [weak self, weak textView] editor, transform in
+                guard let self, let textView else { return }
+                self.replaceSource(ofBlockWithKey: key, editedBy: editor, using: transform, in: textView)
+            }, setIsEditingInView: { [weak self] isEditing, editor in
+                guard let self else { return }
+                if !isEditing { return self.renderedBlocks.endEditingInView(owner: editor) }
+                guard let entry = self.blockEntries.first(where: { candidate in candidate.key == key }) else { return }
+                self.renderedBlocks.beginEditingInView(blockWithKey: key, at: entry.range.location, owner: editor)
+            }))
+        }
+
+        /// Replaces a rendered block's source with what its view made of it, as a table's cell
+        /// editor does, through the text view so it can be undone. Mid-edit or during an input
+        /// method's composition, the change waits a turn.
+        func replaceSource(ofBlockWithKey key: LivePreviewBlockKey, editedBy editor: ObjectIdentifier, using transform: @escaping (String) -> String?,
+                           in textView: UITextView, attemptsLeft: Int = 3) {
+            guard canStyle(textView), textView.markedTextRange == nil else {
+                guard attemptsLeft > 0 else { return }
+                DispatchQueue.main.async { [weak self, weak textView] in
+                    guard let self, let textView else { return }
+                    self.replaceSource(ofBlockWithKey: key, editedBy: editor, using: transform, in: textView, attemptsLeft: attemptsLeft - 1)
+                }
+                return
+            }
+            let source = currentSource(of: textView)
+            guard let blockRange = renderedBlocks.rangeOfBlock(withKey: key, editedBy: editor, in: blockEntries, source: source),
+                  let replacement = transform(source.substring(with: blockRange)) else { return }
+            replaceText(with: source.replacingCharacters(in: blockRange, with: replacement), in: textView)
         }
 
         /// When rendered blocks settle their heights after TextKit laid out the viewport, the
@@ -2090,11 +2157,9 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             let stateRange = NSRange(location: checkboxRange.location + 1, length: 1)
             guard NSMaxRange(stateRange) <= source.length else { return }
             let isChecked = source.substring(with: stateRange) != " "
-            guard let start = textView.position(from: textView.beginningOfDocument, offset: stateRange.location),
-                  let end = textView.position(from: start, offset: 1), let stateTextRange = textView.textRange(from: start, to: end) else { return }
             let selectedRange = textView.selectedRange
             isPerformingEdit = true
-            textView.replace(stateTextRange, withText: isChecked ? " " : "x")
+            replaceCharacters(in: stateRange, with: isChecked ? " " : "x", in: textView)
             isPerformingEdit = false
             textView.selectedRange = selectedRange
             if textState.cachesDescribeOldText || session.text != textView.text { textViewDidChange(textView) }
@@ -2416,16 +2481,22 @@ final class MarkdownMacTextView: NSTextView {
     /// Offers a paste to community plugins that listen; true when one took it over.
     var offerPasteToPlugins: ((_ text: String?, _ html: String?) async -> Bool)?
 
+    /// The Color, Format, Paragraph and Insert submenus, built when the menu opens; set by the
+    /// pane's update, nil outside Source and Live Preview editing.
+    var contextMenuEntries: (() -> [EditorContextMenuEntry])?
+
     override func rightMouseDown(with event: NSEvent) {
+        // As in Obsidian, the menu is for where it was opened: a click outside the selection
+        // moves the cursor there first, so a menu item acts on the word clicked.
+        if pluginContextMenuItems != nil || contextMenuEntries != nil {
+            let characterIndex = characterIndexForInsertion(at: convert(event.locationInWindow, from: nil))
+            if !NSLocationInRange(characterIndex, selectedRange()) || selectedRange().length == 0 {
+                setSelectedRange(NSRange(location: characterIndex, length: 0))
+            }
+        }
         guard let pluginContextMenuItems else {
             super.rightMouseDown(with: event)
             return
-        }
-        // As in Obsidian, the menu is for where it was opened: a click outside the selection
-        // moves the cursor there first, so a plugin's item acts on the word clicked.
-        let characterIndex = characterIndexForInsertion(at: convert(event.locationInWindow, from: nil))
-        if !NSLocationInRange(characterIndex, selectedRange()) || selectedRange().length == 0 {
-            setSelectedRange(NSRange(location: characterIndex, length: 0))
         }
         Task { @MainActor [weak self] in
             let items = await pluginContextMenuItems()
@@ -2441,7 +2512,12 @@ final class MarkdownMacTextView: NSTextView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        let menu = super.menu(for: event)
+        var menu = super.menu(for: event)
+        if let contextMenuEntries {
+            let editorMenu = menu ?? NSMenu()
+            editorMenu.insertEditorContextMenuEntries(contextMenuEntries())
+            menu = editorMenu
+        }
         guard !pendingPluginMenuItems.isEmpty else { return menu }
         let pluginsMenu = menu ?? NSMenu()
         pluginsMenu.addItem(.separator())
@@ -2621,6 +2697,8 @@ struct NativeMarkdownEditor: NSViewRepresentable {
     var suspendReadingFollow: (() -> Void)?
     /// What Live Preview's rendered blocks read.
     let environment: LivePreviewEnvironment?
+    /// The Color, Format, Paragraph and Insert submenus of the context menu; see `EditorContextMenuContent`.
+    var contextMenu: EditorContextMenuActions?
 
     /// The Mac has no keyboard toolbar: of `actions`, it uses pasting, dropping, following
     /// links elsewhere, and focusing the note's side.
@@ -2628,7 +2706,9 @@ struct NativeMarkdownEditor: NSViewRepresentable {
          headingScrollRequest: HeadingScrollRequest?, actions: EditorActions = EditorActions(),
          retention: MarkdownEditorRetention? = nil, retentionOwner: TabDocument? = nil, readAloudRange: NSRange? = nil,
          followsReading: Bool = false, suspendReadingFollow: (() -> Void)? = nil,
-         readAloudHooks: ReadAloudEditorHooks? = nil, follow: @escaping (String, Bool) -> Void) {
+         readAloudHooks: ReadAloudEditorHooks? = nil, contextMenu: EditorContextMenuActions? = nil,
+         follow: @escaping (String, Bool) -> Void) {
+        self.contextMenu = contextMenu
         self.session = session
         self.configuration = configuration
         self.headingScrollRequest = headingScrollRequest
@@ -2724,6 +2804,10 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             await coordinator?.actions.pluginContextMenuItems?() ?? []
         }
         (textView as? MarkdownMacTextView)?.offerPasteToPlugins = coordinator.actions.pluginPaste
+        let editorActions = actions
+        (textView as? MarkdownMacTextView)?.contextMenuEntries = contextMenu.map { menuActions in
+            { EditorContextMenuContent.entries(actions: menuActions, editorActions: editorActions) }
+        }
         let previousBlockPolicy = coordinator.renderedBlockPolicy
         let hasNewConfiguration = coordinator.configuration != configuration
         coordinator.configuration = configuration
@@ -3290,7 +3374,34 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             }, reportHeight: { [weak self, weak textView] height in
                 guard let self, let textView else { return }
                 self.styling.reserveMeasuredHeight(height, forBlockWithKey: key, isFrontmatter: isFrontmatter, in: textView)
-            })
+            }, sourceEditing: RenderedBlockSourceEditing(replaceSource: { [weak self, weak textView] editor, transform in
+                guard let self, let textView else { return }
+                self.replaceSource(ofBlockWithKey: key, editedBy: editor, using: transform, in: textView)
+            }, setIsEditingInView: { [weak self] isEditing, editor in
+                guard let self else { return }
+                if !isEditing { return self.renderedBlocks.endEditingInView(owner: editor) }
+                guard let entry = self.textState.blockEntries.first(where: { candidate in candidate.key == key }) else { return }
+                self.renderedBlocks.beginEditingInView(blockWithKey: key, at: entry.range.location, owner: editor)
+            }))
+        }
+
+        /// Replaces a rendered block's source with what its view made of it, as a table's cell
+        /// editor does, through the text view so it can be undone. Mid-edit or during an input
+        /// method's composition, the change waits a turn.
+        func replaceSource(ofBlockWithKey key: LivePreviewBlockKey, editedBy editor: ObjectIdentifier, using transform: @escaping (String) -> String?,
+                           in textView: NSTextView, attemptsLeft: Int = 3) {
+            guard !textView.hasMarkedText(), !textState.cachesDescribeOldText else {
+                guard attemptsLeft > 0 else { return }
+                DispatchQueue.main.async { [weak self, weak textView] in
+                    guard let self, let textView else { return }
+                    self.replaceSource(ofBlockWithKey: key, editedBy: editor, using: transform, in: textView, attemptsLeft: attemptsLeft - 1)
+                }
+                return
+            }
+            let source = currentSource(of: textView)
+            guard let blockRange = renderedBlocks.rangeOfBlock(withKey: key, editedBy: editor, in: textState.blockEntries, source: source),
+                  let replacement = transform(source.substring(with: blockRange)) else { return }
+            replaceText(with: source.replacingCharacters(in: blockRange, with: replacement), in: textView)
         }
 
         // MARK: Drawn replacements and tasks

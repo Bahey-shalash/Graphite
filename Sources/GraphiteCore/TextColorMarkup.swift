@@ -98,6 +98,85 @@ public enum TextColorMarkup {
                                          contentRange: NSRange(location: contentStart, length: max(0, end - contentStart)), hexColor: hexColor, depth: depth))
     }
 
+    // MARK: Removing color
+
+    /// The edit that removes color markup (`~={#hex}` and `=~`) while keeping the colored
+    /// text, or nil when the selection or cursor is not in colored text. Which colors go:
+    /// - A cursor (an empty selection) removes the innermost color it is in.
+    /// - A selection removes the colors written wholly inside it. With none, it removes the
+    ///   colors a marker of which it cuts through, and with none of those, the innermost color
+    ///   around it. A selection never reaches colors that merely surround it beyond that one.
+    /// An unclosed color loses its opening marker only. Markers in code and math stay, as
+    /// they are text there. The edit covers the first marker through the last one, and its
+    /// selection is the original one moved past the removed markers.
+    public static func removingColor(in text: NSString, selection unclampedSelection: NSRange, paletteHexByName: [String: String] = [:]) -> MarkdownTextEdit? {
+        let location = min(max(unclampedSelection.location, 0), text.length)
+        let selection = NSRange(location: location, length: min(max(unclampedSelection.length, 0), text.length - location))
+        let allSections = sections(in: text, paletteHexByName: paletteHexByName)
+        let removedSections: [TextColorSection]
+        if selection.length == 0 {
+            removedSections = innermost(of: allSections.filter { section in isCursor(selection.location, inside: section) })
+        } else {
+            removedSections = sectionsRemoved(by: selection, from: allSections)
+        }
+        var markerRanges: [NSRange] = []
+        for section in removedSections {
+            markerRanges.append(section.openingMarkerRange)
+            if let closingMarkerRange = section.closingMarkerRange { markerRanges.append(closingMarkerRange) }
+        }
+        markerRanges.sort { firstRange, secondRange in firstRange.location < secondRange.location }
+        guard let firstMarkerRange = markerRanges.first, let lastMarkerRange = markerRanges.last else { return nil }
+        let editRange = NSRange(location: firstMarkerRange.location, length: NSMaxRange(lastMarkerRange) - firstMarkerRange.location)
+        var replacement = ""
+        var copiedLocation = editRange.location
+        for markerRange in markerRanges {
+            replacement += text.substring(with: NSRange(location: copiedLocation, length: markerRange.location - copiedLocation))
+            copiedLocation = NSMaxRange(markerRange)
+        }
+        /// Where a position of the text lands once the markers are gone; inside a marker it
+        /// lands where the marker was.
+        func positionAfterRemoval(_ position: Int) -> Int {
+            position - markerRanges.reduce(0) { removedLength, markerRange in removedLength + min(max(position - markerRange.location, 0), markerRange.length) }
+        }
+        let selectionStart = positionAfterRemoval(selection.location)
+        let selectionEnd = positionAfterRemoval(NSMaxRange(selection))
+        return MarkdownTextEdit(range: editRange, replacement: replacement,
+                                selectionAfter: NSRange(location: selectionStart, length: max(0, selectionEnd - selectionStart)))
+    }
+
+    /// The text a section spans, from its opening marker through its closing marker, or
+    /// through its content when it is not closed.
+    private static func extent(of section: TextColorSection) -> NSRange {
+        let end = section.closingMarkerRange.map { closingRange in NSMaxRange(closingRange) } ?? NSMaxRange(section.contentRange)
+        return NSRange(location: section.openingMarkerRange.location, length: end - section.openingMarkerRange.location)
+    }
+
+    /// Whether a cursor is in a section: after the start of its opening marker, and before
+    /// the end of its closing marker or, when not closed, at or before the end of its text.
+    private static func isCursor(_ cursor: Int, inside section: TextColorSection) -> Bool {
+        let sectionExtent = extent(of: section)
+        guard cursor > sectionExtent.location else { return false }
+        return section.closingMarkerRange == nil ? cursor <= NSMaxRange(sectionExtent) : cursor < NSMaxRange(sectionExtent)
+    }
+
+    private static func sectionsRemoved(by selection: NSRange, from sections: [TextColorSection]) -> [TextColorSection] {
+        let wholeSections = sections.filter { section in NSEqualRanges(NSIntersectionRange(extent(of: section), selection), extent(of: section)) }
+        if !wholeSections.isEmpty { return wholeSections }
+        let touchedSections = sections.filter { section in NSIntersectionRange(extent(of: section), selection).length > 0 }
+        func surrounds(_ section: TextColorSection) -> Bool {
+            section.contentRange.location <= selection.location && NSMaxRange(selection) <= NSMaxRange(section.contentRange)
+        }
+        let cutSections = touchedSections.filter { section in !surrounds(section) }
+        if !cutSections.isEmpty { return cutSections }
+        return innermost(of: touchedSections)
+    }
+
+    /// The deepest of the sections, as a list: empty when there are none.
+    private static func innermost(of sections: [TextColorSection]) -> [TextColorSection] {
+        guard let deepestSection = sections.max(by: { firstSection, secondSection in firstSection.depth < secondSection.depth }) else { return [] }
+        return [deepestSection]
+    }
+
     private static let headingLinePattern = try? NSRegularExpression(pattern: "^\\s{0,3}#{1,6}(?:\\s|$)")
     private static let listItemLinePattern = try? NSRegularExpression(pattern: "^\\s*(?:[-*+]|\\d+[.)])\\s")
     private static let tableRowLinePattern = try? NSRegularExpression(pattern: "^\\s*\\|")

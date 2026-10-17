@@ -16,12 +16,12 @@ typealias RenderedBlockHost = RenderedBlockHostingView
 typealias RenderedBlockTextView = NSView
 
 /// A rendered block's hosting view, which answers a secondary click with the block's
-/// "Edit Source" menu: SwiftUI's hosting view does not offer an AppKit view's `menu`.
+/// menu: SwiftUI's hosting view does not offer an AppKit view's `menu`.
 final class RenderedBlockHostingView: NSHostingView<AnyView> {
-    var editSourceMenu: NSMenu?
+    weak var blockMenu: RenderedBlockEditSourceMenu?
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        editSourceMenu ?? super.menu(for: event)
+        blockMenu?.makeMenu(at: convert(event.locationInWindow, from: nil), isFlipped: isFlipped, height: bounds.height) ?? super.menu(for: event)
     }
 }
 #endif
@@ -43,6 +43,12 @@ extension RenderedBlockHost {
     func removeFromTextView() {
         #if canImport(UIKit)
         view.endEditing(true)
+        #else
+        // As on the iPad: a field inside the view, such as a table cell's editor, ends its
+        // editing (writing what was typed) before the view goes.
+        if let window = placedView.window, let responder = window.firstResponder as? NSView, responder.isDescendant(of: placedView) {
+            window.makeFirstResponder(nil)
+        }
         #endif
         placedView.removeFromSuperview()
     }
@@ -51,17 +57,18 @@ extension RenderedBlockHost {
     /// A block's view takes no part in the window's safe areas, which it moves through on
     /// every frame of a scroll.
     static func makeRenderedBlockHost(root: RenderedBlockRoot) -> RenderedBlockHost {
+        let menu = RenderedBlockEditSourceMenu(revealSource: root.revealSource)
+        let rootView = AnyView(root.view.environment(\.renderedBlockMenuContext, menu.context))
         #if canImport(UIKit)
-        let host = UIHostingController(rootView: root.view)
+        let host = UIHostingController(rootView: rootView)
         host.view.backgroundColor = .clear
         host.sizingOptions = []
         host.safeAreaRegions = []
         #else
-        let host = RenderedBlockHostingView(rootView: root.view)
+        let host = RenderedBlockHostingView(rootView: rootView)
         host.sizingOptions = []
         host.safeAreaRegions = []
         #endif
-        let menu = RenderedBlockEditSourceMenu(revealSource: root.revealSource)
         menu.install(on: host.placedView)
         objc_setAssociatedObject(host, &RenderedBlockEditSourceMenu.associationKey, menu, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         return host
@@ -69,8 +76,13 @@ extension RenderedBlockHost {
 
     /// Shows another state of the block, as after an edit or a change of appearance.
     func update(root: RenderedBlockRoot) {
-        rootView = root.view
-        (objc_getAssociatedObject(self, &RenderedBlockEditSourceMenu.associationKey) as? RenderedBlockEditSourceMenu)?.revealSource = root.revealSource
+        guard let menu = objc_getAssociatedObject(self, &RenderedBlockEditSourceMenu.associationKey) as? RenderedBlockEditSourceMenu else {
+            rootView = root.view
+            return
+        }
+        // The same context as before, so what the view put in it stays.
+        rootView = AnyView(root.view.environment(\.renderedBlockMenuContext, menu.context))
+        menu.revealSource = root.revealSource
     }
 }
 
@@ -141,6 +153,13 @@ final class LivePreviewRenderedBlocks {
     private var propertiesHostBlockKey: LivePreviewBlockKey?
     /// The environment and appearance the views were last given.
     private var signature: LivePreviewWidgetSignature?
+    /// A table whose own view is editing it: its key, where it starts in the note (moved
+    /// through every edit before it), and the editor editing it. Each edit gives the table a
+    /// new key, and its view, its measured height and the cell being typed in pass to the
+    /// table found at the same place, as the properties keep their view.
+    private(set) var blockEditedInItsView: (key: LivePreviewBlockKey, location: Int, owner: ObjectIdentifier)?
+    /// Views that passed to a new key and have not yet been given that block's root view.
+    private var keysAwaitingRootView: Set<LivePreviewBlockKey> = []
 
     init(detachedViewsBudgetMegabytes: Int) {
         detachedHosts = DetachedWidgetPool(budgetMegabytes: detachedViewsBudgetMegabytes)
@@ -186,6 +205,7 @@ final class LivePreviewRenderedBlocks {
     /// their view last had (each edit gives them a new key, and their height rarely
     /// changes), else an estimate. The view corrects the last two when it reports.
     func reservedHeight(of entry: LivePreviewBlockEntry, columnWidth: CGFloat, configuration: EditorConfiguration) -> CGFloat {
+        adoptBlockEditedInItsView(entry)
         if let reportedHeight = reportedHeights[entry.key] { return reportedHeight }
         if let key = Self.measuredHeightKey(for: entry.key, columnWidth: columnWidth, configuration: configuration),
            let measuredHeight = Self.measuredHeights.height(for: key) {
@@ -246,6 +266,89 @@ final class LivePreviewRenderedBlocks {
         estimatedHeights = estimatedHeights.filter { key, _ in keysInNote.contains(key) }
         heightsKeptInText = heightsKeptInText.filter { key, _ in keysInNote.contains(key) }
         keysAwaitingRestyle.formIntersection(keysInNote)
+    }
+
+    // MARK: Editing in a block's view
+
+    /// Keeps a table's view across the edits its view makes, until its editor, `owner`, ends.
+    func beginEditingInView(blockWithKey key: LivePreviewBlockKey, at location: Int, owner: ObjectIdentifier) {
+        editingInViewGeneration += 1
+        blockEditedInItsView = (key, location, owner)
+    }
+
+    /// Stops keeping the view a moment later: the edit written as editing ended gives the
+    /// block a new key only once the note is styled again, and its view must pass to it.
+    /// Only the editor that began keeps the view: one table's editor ending as a tap moves
+    /// editing to another table must not let the other table's view go. Editing begun again
+    /// meanwhile keeps it.
+    func endEditingInView(owner: ObjectIdentifier) {
+        guard blockEditedInItsView?.owner == owner else { return }
+        let generation = editingInViewGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.editingInViewReleaseDelay) { [weak self] in
+            guard let self, self.editingInViewGeneration == generation, self.blockEditedInItsView?.owner == owner else { return }
+            self.blockEditedInItsView = nil
+        }
+    }
+
+    /// Moves the edited table's start through a character edit: an edit before it shifts it,
+    /// one at or after its start (the table's own cells) leaves it. An edit over its start
+    /// leaves it where that edit begins.
+    func moveBlockEditedInItsView(through edit: CharacterEdit) {
+        guard let edited = blockEditedInItsView else { return }
+        let replacedRange = edit.replacedRange
+        guard replacedRange.location < edited.location else { return }
+        let location = NSMaxRange(replacedRange) <= edited.location ? edited.location + edit.changeInLength : replacedRange.location
+        blockEditedInItsView = (edited.key, location, edited.owner)
+    }
+
+    private var editingInViewGeneration = 0
+    private static let editingInViewReleaseDelay: TimeInterval = 0.5
+
+    /// The table `owner` is editing, among `entries`: the table at its place first, since an
+    /// edit gives it a new key and an identical table can then have the key it had; else by
+    /// its key.
+    func entryEditedInItsView(by owner: ObjectIdentifier, in entries: [LivePreviewBlockEntry]) -> LivePreviewBlockEntry? {
+        guard let edited = blockEditedInItsView, edited.owner == owner else { return nil }
+        return entries.first { entry in entry.range.location == edited.location && entry.block.kind == .table }
+            ?? entries.first { entry in entry.key == edited.key }
+    }
+
+    /// The source range of the block a view edits: while `editor` edits it, the table at the
+    /// place kept for it (an identical table can have the key an edit replaced), found again
+    /// in `source` when the blocks no longer list it, as when they are let go for Source mode
+    /// and the editor writes its last draft; otherwise the block with `key`. Nil when neither
+    /// is in the note.
+    func rangeOfBlock(withKey key: LivePreviewBlockKey, editedBy editor: ObjectIdentifier, in entries: [LivePreviewBlockEntry], source: NSString) -> NSRange? {
+        let range: NSRange?
+        if let location = locationEditedInItsView(by: editor) {
+            range = entryEditedInItsView(by: editor, in: entries)?.range
+                ?? LivePreviewBlockScanner.blocks(in: source).first { block in block.kind == .table && block.range.location == location }?.range
+        } else {
+            range = entries.first { entry in entry.key == key }?.range
+        }
+        guard let range, NSMaxRange(range) <= source.length else { return nil }
+        return range
+    }
+
+    /// Where the table `owner` is editing starts, while it keeps its view.
+    func locationEditedInItsView(by owner: ObjectIdentifier) -> Int? {
+        guard let edited = blockEditedInItsView, edited.owner == owner else { return nil }
+        return edited.location
+    }
+
+    /// Gives the table at the edited block's place the view and heights its last key had:
+    /// the edit came from that view, which must not be built again (it would lose the cell
+    /// being typed in) or jump to an estimated height.
+    private func adoptBlockEditedInItsView(_ entry: LivePreviewBlockEntry) {
+        guard let edited = blockEditedInItsView, edited.key != entry.key, edited.location == entry.range.location,
+              entry.block.kind == .table else { return }
+        blockEditedInItsView = (entry.key, edited.location, edited.owner)
+        if let height = reportedHeights.removeValue(forKey: edited.key) { reportedHeights[entry.key] = height }
+        if let height = heightsKeptInText[edited.key] { heightsKeptInText[entry.key] = height }
+        if let host = hosts.removeValue(forKey: edited.key) ?? detachedHosts.take(edited.key) {
+            hosts[entry.key] = host
+            keysAwaitingRootView.insert(entry.key)
+        }
     }
 
     // MARK: Placement
@@ -318,7 +421,11 @@ final class LivePreviewRenderedBlocks {
             propertiesHostBlockKey = entry.key
             return host
         }
-        if let host = hosts[entry.key] { return host }
+        adoptBlockEditedInItsView(entry)
+        if let host = hosts[entry.key] {
+            if keysAwaitingRootView.remove(entry.key) != nil { host.update(root: makeRootView(entry)) }
+            return host
+        }
         let host = detachedHosts.take(entry.key) ?? RenderedBlockHost.makeRenderedBlockHost(root: makeRootView(entry))
         hosts[entry.key] = host
         return host
@@ -334,7 +441,8 @@ final class LivePreviewRenderedBlocks {
         }
         // Looked up by key: searching every block for each view leaving the screen was slow
         // for a note of many blocks.
-        let leavingKeys = hosts.keys.filter { key in !keysInUse.contains(key) }
+        // The view editing its block stays while that edit gives the block a new key.
+        let leavingKeys = hosts.keys.filter { key in !keysInUse.contains(key) && key != blockEditedInItsView?.key }
         guard !leavingKeys.isEmpty else { return }
         var entriesByKey: [LivePreviewBlockKey: LivePreviewBlockEntry] = [:]
         for entry in entries where entriesByKey[entry.key] == nil { entriesByKey[entry.key] = entry }
@@ -351,7 +459,11 @@ final class LivePreviewRenderedBlocks {
 
     func removeAllViews() {
         propertiesHost?.removeFromTextView()
+        // Removing a table's view ends its cell editor, which writes its draft into the note
+        // first, finding the table at the place still kept for it.
         for host in hosts.values { host.removeFromTextView() }
+        blockEditedInItsView = nil
+        keysAwaitingRootView.removeAll()
         hosts.removeAll()
         detachedHosts.removeAll()
     }
@@ -393,10 +505,14 @@ final class LivePreviewRenderedBlocks {
     /// block moves with edits elsewhere, so its actions find the block by key when they run.
     /// - Parameter colorScheme: Passed where the hosted view does not take the appearance
     ///   from the text view it is in, as on the iPad.
+    /// - Parameter sourceEditing: How a table's view edits its cells in the note; nil leaves
+    ///   the table to be edited as source.
     static func rootView(for entry: LivePreviewBlockEntry, environment: LivePreviewEnvironment, accentHex: String, colorScheme: ColorScheme?,
-                         revealSource: @escaping () -> Void, reportHeight: @escaping (CGFloat) -> Void) -> RenderedBlockRoot {
+                         revealSource: @escaping () -> Void, reportHeight: @escaping (CGFloat) -> Void,
+                         sourceEditing: RenderedBlockSourceEditing? = nil) -> RenderedBlockRoot {
         let accent = Color.graphiteAccent(hex: accentHex) ?? .accentColor
-        let widget = LivePreviewWidgetView(block: entry.block, environment: environment, revealSource: revealSource, reportHeight: reportHeight)
+        let widget = LivePreviewWidgetView(block: entry.block, environment: environment, revealSource: revealSource, reportHeight: reportHeight,
+                                           sourceEditing: entry.block.kind == .table ? sourceEditing : nil)
             .environment(\.lassoNoteDestination, environment.lassoNoteDestination)
             .environment(\.noteTypography, environment.typography)
             .environment(\.noteTheme, environment.theme)
@@ -413,8 +529,31 @@ struct RenderedBlockRoot {
     let revealSource: () -> Void
 }
 
-/// A rendered block's "Edit Source" menu (a long press on the iPad, a secondary click on the
-/// Mac), on the block's view itself. SwiftUI's context menu worked out its menu, symbol image
+/// An item a rendered block's view adds to its menu, above "Edit Source".
+struct RenderedBlockMenuItem {
+    let title: String
+    var symbolName: String? = nil
+    var isEnabled = true
+    /// Shown as a submenu when not empty.
+    var children: [RenderedBlockMenuItem] = []
+    var action: (() -> Void)? = nil
+}
+
+/// What a block's view adds to its menu, for the point the menu opens at, in the view's
+/// coordinates. Each block view's menu keeps one and gives it to the view through the
+/// environment, so the view fills it in once and it stays across new root views.
+@MainActor
+final class RenderedBlockMenuContext {
+    var itemsAtPoint: ((CGPoint) -> [RenderedBlockMenuItem])?
+}
+
+extension EnvironmentValues {
+    @Entry var renderedBlockMenuContext: RenderedBlockMenuContext? = nil
+}
+
+/// A rendered block's menu (a long press on the iPad, a secondary click on the Mac), on the
+/// block's view itself: what the view adds for the point, such as a table's row and column
+/// commands, then "Edit Source". SwiftUI's context menu worked out its menu, symbol image
 /// included, every time the block's view was drawn, which on the iPad was a large part of
 /// every frame of a scroll; this menu is made when it opens.
 @MainActor
@@ -423,6 +562,7 @@ final class RenderedBlockEditSourceMenu: NSObject {
     static let title = "Edit Source"
     static let symbolName = "chevron.left.forwardslash.chevron.right"
     var revealSource: () -> Void
+    let context = RenderedBlockMenuContext()
 
     init(revealSource: @escaping () -> Void) {
         self.revealSource = revealSource
@@ -434,26 +574,79 @@ final class RenderedBlockEditSourceMenu: NSObject {
     }
     #else
     func install(on view: NSView) {
-        let menu = NSMenu()
-        let item = NSMenuItem(title: Self.title, action: #selector(editSource), keyEquivalent: "")
-        item.target = self
-        item.image = NSImage(systemSymbolName: Self.symbolName, accessibilityDescription: nil)
-        menu.addItem(item)
-        if let hostingView = view as? RenderedBlockHostingView { hostingView.editSourceMenu = menu } else { view.menu = menu }
+        if let hostingView = view as? RenderedBlockHostingView {
+            hostingView.blockMenu = self
+        } else {
+            view.menu = makeMenu(at: nil)
+        }
     }
 
-    @objc private func editSource() { revealSource() }
+    /// - Parameter point: Where the menu opens, in the view; nil for the menu without the
+    ///   view's own items. AppKit measures from the bottom of a view that is not flipped.
+    func makeMenu(at point: CGPoint?, isFlipped: Bool = true, height: CGFloat = 0) -> NSMenu {
+        let menu = NSMenu()
+        // Items say themselves whether they can be chosen (a header row cannot be deleted).
+        menu.autoenablesItems = false
+        if let point, let itemsAtPoint = context.itemsAtPoint {
+            let topDownPoint = isFlipped ? point : CGPoint(x: point.x, y: height - point.y)
+            let items = itemsAtPoint(topDownPoint)
+            for item in items { menu.addItem(menuItem(for: item)) }
+            if !items.isEmpty { menu.addItem(.separator()) }
+        }
+        menu.addItem(menuItem(for: RenderedBlockMenuItem(title: Self.title, symbolName: Self.symbolName, action: { [weak self] in self?.revealSource() })))
+        return menu
+    }
+
+    private func menuItem(for item: RenderedBlockMenuItem) -> NSMenuItem {
+        let nativeItem = NSMenuItem(title: item.title, action: nil, keyEquivalent: "")
+        if item.children.isEmpty, let action = item.action {
+            // The item's target is weak; the item keeps it as its represented object.
+            let target = RenderedBlockMenuAction(action)
+            nativeItem.target = target
+            nativeItem.action = #selector(RenderedBlockMenuAction.performAction)
+            nativeItem.representedObject = target
+        }
+        nativeItem.isEnabled = item.isEnabled
+        if let symbolName = item.symbolName { nativeItem.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) }
+        if !item.children.isEmpty {
+            let submenu = NSMenu(title: item.title)
+            submenu.autoenablesItems = false
+            for child in item.children { submenu.addItem(menuItem(for: child)) }
+            nativeItem.submenu = submenu
+        }
+        return nativeItem
+    }
+
     #endif
 }
+
+#if canImport(AppKit) && !canImport(UIKit)
+/// A menu item's action, kept by the item: AppKit menu items take a selector, not a closure.
+private final class RenderedBlockMenuAction: NSObject {
+    let action: () -> Void
+    init(_ action: @escaping () -> Void) { self.action = action }
+    @objc func performAction() { action() }
+}
+#endif
 
 #if canImport(UIKit)
 extension RenderedBlockEditSourceMenu: UIContextMenuInteractionDelegate {
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
-        UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in self?.makeMenu() }
+        UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in self?.makeMenu(at: location) }
     }
 
-    func makeMenu() -> UIMenu {
-        UIMenu(children: [UIAction(title: Self.title, image: UIImage(systemName: Self.symbolName)) { [weak self] _ in self?.revealSource() }])
+    func makeMenu(at point: CGPoint? = nil) -> UIMenu {
+        let viewItems = point.flatMap { point in context.itemsAtPoint?(point) } ?? []
+        let editSource = UIAction(title: Self.title, image: UIImage(systemName: Self.symbolName)) { [weak self] _ in self?.revealSource() }
+        guard !viewItems.isEmpty else { return UIMenu(children: [editSource]) }
+        return UIMenu(children: [UIMenu(options: .displayInline, children: viewItems.map(Self.menuElement(for:))), editSource])
+    }
+
+    private static func menuElement(for item: RenderedBlockMenuItem) -> UIMenuElement {
+        let image = item.symbolName.flatMap { symbolName in UIImage(systemName: symbolName) }
+        if !item.children.isEmpty { return UIMenu(title: item.title, image: image, children: item.children.map(menuElement(for:))) }
+        let action = item.action
+        return UIAction(title: item.title, image: image, attributes: item.isEnabled ? [] : .disabled) { _ in action?() }
     }
 }
 #endif

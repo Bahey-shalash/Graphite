@@ -91,7 +91,7 @@ Status: **Missing**, **Partial**, or **Done**. "Desktop only" items are left out
 | Folding headings and lists | Done | Chevrons, Fold All, Unfold All, remembered per note on the device; list items fold only while editing, not in reading view |
 | Move lines up and down | Done | Toolbar, command palette, ⌥⌘↑ ⌥⌘↓ |
 | Paste images, paste HTML as Markdown, drag and drop files | Done | Drops not yet tried on a device |
-| Table editing | Partial | Display only; add or move rows and columns needs the source |
+| Table editing | Done | Cells edited in place in Live Preview (tap, Return, Tab, Shift-Tab, Escape, arrows); the table's menu adds, moves and deletes rows and columns and sets alignment. No drag handles to reorder by dragging and no sorting by a column; Tab and the Mac's keys not yet tried by hand |
 | Link, tag and property autocompletion | Partial | Links and tags done; property names and values not yet |
 | Block references (`^id`) | Done | Links scroll to the block, embeds show only it |
 | Find and replace in a note | Done | The system find bar (⌘F or the toolbar); replace from its menu |

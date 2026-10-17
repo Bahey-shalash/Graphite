@@ -2247,7 +2247,9 @@ struct ObsidianTableStyle: StructuredText.TableStyle {
     func makeBody(configuration: Configuration) -> some View {
         let borderStyle = theme?.tableBorderColor.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.secondary.opacity(0.35))
         let headerStyle = theme?.tableHeaderBackground.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.secondary.opacity(0.12))
-        Overflow { overflowState in
+        // Without a scroll view while the table fits the column: a scroll view around every
+        // table cost layout and scrolling work, and took swipes meant for the note.
+        Overflow(scrollsOnlyWhenWider: true) { overflowState in
             configuration.label
                 .fixedSize(horizontal: false, vertical: true)
                 .textual.tableCellSpacing(horizontal: 1, vertical: 1)
@@ -2261,6 +2263,8 @@ struct ObsidianTableStyle: StructuredText.TableStyle {
                 .textual.tableOverlay { layout in
                     FilledRectangles(rectangles: Self.hairlines(in: layout), style: borderStyle)
                 }
+                // Live Preview's cell editor, aligned with the cells (none in reading view).
+                .modifier(LivePreviewTableEditingOverlay())
                 .padding(1)
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(borderStyle, lineWidth: 1))
                 .offeredScrollContainerWidth(overflowState.containerWidth)

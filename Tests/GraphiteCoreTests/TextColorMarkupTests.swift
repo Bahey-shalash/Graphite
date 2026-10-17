@@ -75,4 +75,73 @@ final class TextColorMarkupTests: XCTestCase {
         XCTAssertEqual(colored("| ~={#ff0000}a | b |\n| c | d |").map(\.0), ["a"], "A table cell is its own block.")
         XCTAssertEqual(colored("| ~={#ff0000}a \\| still a=~ | b |").map(\.0), ["a \\| still a"], "An escaped pipe is not a cell border.")
     }
+
+    // MARK: Removing color
+
+    /// The note after the removal, and the selection it leaves; nil when nothing is removed.
+    private func removingColor(from source: String, selection: NSRange, palette: [String: String] = [:]) -> (text: String, selection: NSRange)? {
+        guard let edit = TextColorMarkup.removingColor(in: source as NSString, selection: selection, paletteHexByName: palette) else { return nil }
+        return ((source as NSString).replacingCharacters(in: edit.range, with: edit.replacement), edit.selectionAfter)
+    }
+
+    func testRemovingColorAtTheCursorKeepsTheText() {
+        let removal = removingColor(from: "A ~={#e93147}red word=~ end", selection: NSRange(location: 19, length: 0))
+        XCTAssertEqual(removal?.text, "A red word end")
+        XCTAssertEqual(removal?.selection, NSRange(location: 8, length: 0), "The cursor stays between the same letters.")
+    }
+
+    func testRemovingColorFromASelectionInsideTheColoredText() {
+        let removal = removingColor(from: "A ~={#e93147}red word=~ end", selection: NSRange(location: 13, length: 3))
+        XCTAssertEqual(removal?.text, "A red word end")
+        XCTAssertEqual(removal?.selection, NSRange(location: 2, length: 3))
+    }
+
+    func testRemovingColorNeedsTheCursorInsideColoredText() {
+        XCTAssertNil(removingColor(from: "plain text", selection: NSRange(location: 3, length: 0)))
+        XCTAssertNil(removingColor(from: "~={#e93147}x=~", selection: NSRange(location: 0, length: 0)), "Before the opening marker is outside.")
+        XCTAssertNil(removingColor(from: "~={#e93147}x=~", selection: NSRange(location: 14, length: 0)), "After the closing marker is outside.")
+        XCTAssertNotNil(removingColor(from: "~={#e93147}x=~", selection: NSRange(location: 12, length: 0)), "After the colored text is inside.")
+    }
+
+    func testRemovingColorAtTheCursorTakesTheInnermostColor() {
+        let source = "~={#086ddd}blue ~={#e0ac00}yellow=~ blue=~"
+        XCTAssertEqual(removingColor(from: source, selection: NSRange(location: 30, length: 0))?.text, "~={#086ddd}blue yellow blue=~")
+        XCTAssertEqual(removingColor(from: source, selection: NSRange(location: 30, length: 0))?.selection, NSRange(location: 19, length: 0))
+        XCTAssertEqual(removingColor(from: source, selection: NSRange(location: 12, length: 0))?.text, "blue ~={#e0ac00}yellow=~ blue")
+    }
+
+    func testRemovingColorFromASelectionOfSeveralColoredRuns() {
+        let removal = removingColor(from: "a ~={#e93147}b=~ c ~={#086ddd}d=~ e", selection: NSRange(location: 2, length: 31))
+        XCTAssertEqual(removal?.text, "a b c d e")
+        XCTAssertEqual(removal?.selection, NSRange(location: 2, length: 5), "The selection still covers the same words.")
+    }
+
+    func testSelectingAWholeInnerColorLeavesTheOuterColor() {
+        let removal = removingColor(from: "~={#086ddd}blue ~={#e0ac00}yellow=~ blue=~", selection: NSRange(location: 16, length: 19))
+        XCTAssertEqual(removal?.text, "~={#086ddd}blue yellow blue=~")
+        XCTAssertEqual(removal?.selection, NSRange(location: 16, length: 6))
+    }
+
+    func testSelectionCuttingThroughAClosingMarkerRemovesThatColor() {
+        XCTAssertEqual(removingColor(from: "a ~={#e93147}bc=~ d", selection: NSRange(location: 14, length: 5))?.text, "a bc d")
+    }
+
+    func testRemovingAnUnclosedColorRemovesItsOpeningMarkerOnly() {
+        let removal = removingColor(from: "~={#ff0000}open line\nstill red\n\nplain", selection: NSRange(location: 15, length: 0))
+        XCTAssertEqual(removal?.text, "open line\nstill red\n\nplain")
+        XCTAssertEqual(removal?.selection, NSRange(location: 4, length: 0))
+    }
+
+    func testRemovingColorKnowsPaletteNamesAndSkipsCode() {
+        XCTAssertEqual(removingColor(from: "~={red}named=~", selection: NSRange(location: 9, length: 0), palette: ["red": "#e93147"])?.text, "named")
+        XCTAssertNil(removingColor(from: "~={red}named=~", selection: NSRange(location: 9, length: 0)), "An unknown name is plain text.")
+        XCTAssertNil(removingColor(from: "`~={#ff0000}x=~`", selection: NSRange(location: 5, length: 0)), "Markers in code are text.")
+    }
+
+    func testRemovingColorEditsOnlyFromTheFirstMarkerToTheLast() {
+        let edit = TextColorMarkup.removingColor(in: "intro\n\n~={#ff0000}x=~\n\noutro" as NSString, selection: NSRange(location: 18, length: 0))
+        XCTAssertEqual(edit?.range, NSRange(location: 7, length: 14))
+        XCTAssertEqual(edit?.replacement, "x")
+        XCTAssertEqual(edit?.selectionAfter, NSRange(location: 7, length: 0), "A cursor before the letter stays before it.")
+    }
 }
