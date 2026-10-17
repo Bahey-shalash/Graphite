@@ -98,6 +98,8 @@ struct CodePalette {
     let quietText: PlatformColor
     /// The thin lines that show each level of indentation.
     let guide: PlatformColor
+    /// The box's one-point border.
+    let border: PlatformColor
 
     func color(for kind: CodeTokenKind) -> PlatformColor { colors[kind] ?? text }
 }
@@ -146,7 +148,11 @@ extension CodeColorTheme {
         let guide = PlatformColor.appearanceDependent(AppearanceVariants(
             light: faint(variants.light.text, opacity: 0.18), lightIncreasedContrast: faint(variants.light.text, opacity: 0.35),
             dark: faint(variants.dark.text, opacity: 0.18), darkIncreasedContrast: faint(variants.dark.text, opacity: 0.35)))
-        return CodePalette(colors: colors, text: color(light: variants.light.text, dark: variants.dark.text, kind: nil), background: background, quietText: comment, guide: guide)
+        let border = PlatformColor.appearanceDependent(AppearanceVariants(
+            light: faint(variants.light.text, opacity: 0.16), lightIncreasedContrast: faint(variants.light.text, opacity: 0.4),
+            dark: faint(variants.dark.text, opacity: 0.16), darkIncreasedContrast: faint(variants.dark.text, opacity: 0.4)))
+        return CodePalette(colors: colors, text: color(light: variants.light.text, dark: variants.dark.text, kind: nil), background: background, quietText: comment,
+                           guide: guide, border: border)
     }
 }
 
