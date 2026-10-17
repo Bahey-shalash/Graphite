@@ -115,6 +115,18 @@ extension TextualNamespace where Base: View {
     }
   }
 
+  /// Graphite: an overlay aligned with table cell bounds, like ``tableOverlay(content:)``,
+  /// that receives touches and clicks, for controls placed over cells such as a cell editor.
+  public func interactiveTableOverlay(
+    @ViewBuilder content: @escaping (_ layout: StructuredText.TableLayout) -> some View
+  ) -> some View {
+    base.overlayPreferenceValue(StructuredText.TableCell.BoundsKey.self) { values in
+      GeometryReader { geometry in
+        content(.init(values, geometry: geometry))
+      }
+    }
+  }
+
   /// Sets the spacing used between list items in ``StructuredText``.
   public func listItemSpacing(
     _ listItemSpacing: FontScaled<StructuredText.BlockSpacing>

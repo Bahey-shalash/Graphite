@@ -86,7 +86,7 @@ struct MarkdownPane: View {
                                      readAloudRange: workspace.readAloud.highlight(in: session.path),
                                      followsReading: workspace.readAloud.shouldFollow(session.path),
                                      suspendReadingFollow: { workspace.readAloud.suspendFollowing(in: session.path.rawValue) },
-                                     readAloudHooks: readAloudHooks) { target, isWiki in
+                                     readAloudHooks: readAloudHooks, contextMenu: editorContextMenuActions) { target, isWiki in
                     follow(target, isWiki: isWiki)
                 }
                 // The suggestions change at every keystroke; only this overlay reads them.
@@ -301,6 +301,38 @@ struct MarkdownPane: View {
         session.apply(edit)
     }
 
+    /// Wraps the selection in Obsidian's Colors syntax, or a placeholder when nothing is
+    /// selected, so the markup shows. The toolbar's Color menu and the editor's context
+    /// menu write it alike.
+    private func insertColor(hex: String, placeholder: String) {
+        session.insert("~={\(hex)}\(Self.selectedText(in: session, placeholder: placeholder))=~")
+    }
+
+    /// What the editor's context menu (right-click on the Mac, the edit menu on the iPad)
+    /// does through this pane: the toolbar's own paths, so undo and the selection afterwards
+    /// behave the same.
+    private var editorContextMenuActions: EditorContextMenuActions {
+        var openTemplatePicker: (() -> Void)?
+        if let showTemplatePicker {
+            openTemplatePicker = { [workspace, tabID] in
+                workspace.activateTab(tabID)
+                showTemplatePicker.show()
+            }
+        }
+        return EditorContextMenuActions(
+            run: { command in run(command) },
+            noteState: { [session] in (session.text as NSString, session.selection) },
+            apply: { [session] edit in session.apply(edit) },
+            insertBlock: { [session] block in
+                // After the selected text, which a block inserted over it would replace.
+                session.insertBlock(block, at: NSRange(location: NSMaxRange(session.selection), length: 0))
+            },
+            colors: preferences.isEnabled(.colors) ? preferences.colorPalette : nil,
+            insertColor: { hex, placeholder in insertColor(hex: hex, placeholder: placeholder) },
+            linkToNote: { showsLinkPicker = true },
+            template: openTemplatePicker)
+    }
+
     /// What Live Preview's rendered blocks need; nil in Source mode.
     private var livePreviewEnvironment: LivePreviewEnvironment? {
         guard viewMode == .livePreview, let root = workspace.folderAccess?.root else { return nil }
@@ -407,7 +439,7 @@ struct MarkdownPane: View {
         if preferences.isEnabled(.colors) {
             Menu("Color", systemImage: "paintpalette") {
                 ForEach(preferences.colorPalette) { color in
-                    Button(color.name) { session.insert("~={\(color.hex)}\(Self.selectedText(in: session, placeholder: color.name))=~") }
+                    Button(color.name) { insertColor(hex: color.hex, placeholder: color.name) }
                 }
             }
         }
@@ -415,9 +447,9 @@ struct MarkdownPane: View {
         Button("Bulleted List", systemImage: "list.bullet") { run(.bulletList) }
         Button("Numbered List", systemImage: "list.number") { run(.numberedList) }
         Button("Task", systemImage: "checklist") { run(.task) }
-        Button("Table", systemImage: "tablecells") { session.insertBlock("| Column | Column |\n| --- | --- |\n|  |  |") }
-        Button("Math Block", systemImage: "function") { session.insertBlock("$$\n\n$$") }
-        Button("Callout", systemImage: "text.bubble") { session.insertBlock("> [!note]\n> ") }
+        Button("Table", systemImage: "tablecells") { session.insertBlock(EditorContextMenuContent.tableBlock) }
+        Button("Math Block", systemImage: "function") { session.insertBlock(EditorContextMenuContent.mathBlock) }
+        Button("Callout", systemImage: "text.bubble") { session.insertBlock(EditorContextMenuContent.calloutBlock) }
     }
 
     @ViewBuilder private var insertMenuItems: some View {

@@ -87,8 +87,12 @@ struct LivePreviewWidgetView: View {
     let environment: LivePreviewEnvironment
     let revealSource: () -> Void
     let reportHeight: (CGFloat) -> Void
+    /// How a table's view edits its cells; nil for other blocks.
+    var sourceEditing: RenderedBlockSourceEditing? = nil
     @State private var parsedSource = LivePreviewParsedSource()
     @State private var readingSnapshot: LivePreviewReadingSnapshot?
+    @State private var tableEditor = LivePreviewTableEditor()
+    @Environment(\.renderedBlockMenuContext) private var menuContext
 
     private var readingRange: NSRange? {
         guard let context = environment.readingContext, let range = context.controller.highlight(in: context.path) else { return nil }
@@ -128,6 +132,8 @@ struct LivePreviewWidgetView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // The block's menu gives points in this space, the hosting view's own.
+        .coordinateSpace(.named(LivePreviewTableEditor.blockCoordinateSpaceName))
         .environment(\.readingActiveSourceRange, readingRange)
         .environment(\.readingFollowsSource, environment.readingContext.map { context in context.controller.shouldFollow(context.path) } ?? false)
         .textual.readingHighlight(readingRange, coordinateSpace: ReadingCoordinateSpace.name)
@@ -165,9 +171,20 @@ struct LivePreviewWidgetView: View {
                     .font(.callout).foregroundStyle(.orange).onTapGesture(perform: revealSource)
             }
         case .table:
-            RenderedMarkdownBlock(markdown: block.markdown, environment: environment, sourceTokens: readingSnapshot?.tokens)
-                .contentShape(Rectangle())
-                .onTapGesture(perform: revealSource)
+            if let sourceEditing {
+                // A tap edits the cell under it, in place; "Edit Source" in the menu shows the
+                // Markdown, and the menu also adds, moves and removes rows and columns.
+                let _ = tableEditor.update(source: block.markdown, textSize: environment.textSize, sourceEditing: sourceEditing)
+                RenderedMarkdownBlock(markdown: block.markdown, environment: environment, sourceTokens: readingSnapshot?.tokens)
+                    .environment(\.livePreviewTableEditor, tableEditor)
+                    .onAppear {
+                        menuContext?.itemsAtPoint = { [weak tableEditor] point in tableEditor?.menuItems(at: point) ?? [] }
+                    }
+            } else {
+                RenderedMarkdownBlock(markdown: block.markdown, environment: environment, sourceTokens: readingSnapshot?.tokens)
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: revealSource)
+            }
         case .mathBlock:
             // Centered, as Obsidian shows display math.
             RenderedMarkdownBlock(markdown: block.markdown, environment: environment, sourceTokens: readingSnapshot?.tokens)
