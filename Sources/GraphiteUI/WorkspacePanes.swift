@@ -242,6 +242,7 @@ private struct TabBar: View {
         } isTargeted: { isTargeted in isDropTargeted = isTargeted }
     }
 
+    @discardableResult
     private func moveDroppedTabs(_ items: [TabTransfer], to position: Int) -> Bool {
         guard let item = items.first, layout.tab(withID: item.tabID) != nil else { return false }
         workspace.moveTab(item.tabID, toGroup: group.id, at: position)

@@ -4,6 +4,14 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-17.
 
+## Builds without warnings on the Mac, the iPhone and the iPad: 2026-10-17
+
+The Mac, iPhone and iPad builds, and the package's test targets, compile without Graphite warnings. The C++ warnings in the MLX package come from outside Graphite and remain. The macOS 27 AVFoundation deprecations noted below are gone. A video part is written through its inputs' receivers (`inputReceiver(for:)`, `appendImmediately`, `start()`) from macOS 26 and iOS 26 on. `expectsMediaDataInRealTime` is still set, on purpose: without it, a receiver held video back while no sound arrived and took 36 of 180 frames, and with it all 180 (macOS 27, measured). From macOS 27 and iOS 27 the camera preview reaches its layer through a render synchronizer's receiver, and Read Aloud's player connects and starts with the calls that report errors. Older iOS versions keep the previous calls. The rest were Swift 6 isolation fixes (constants read by shapes, Reduce Motion, the pinch policy, the sidebar's row equality), unused results, and `UITraitCollection(traitsFrom:)` replaced by `modifyingTraits`.
+
+Checked: Xcode builds of the Graphite scheme for macOS and for the iOS simulator (both architectures), the whole `swift test` on macOS (627 UI tests with 5 opt-in benchmarks skipped, 982 Core, 140 Index, 249 Apple) and a new `testASecondRecordingShowsItsCameraInTheSamePreview`. Without the release of the old synchronizer, that test ends with "The DisplayLayer cannot be added to a Synchronizer when it has already been added to a Synchronizer". A separate run on the Mac showed the preview layer displays frames marked "display immediately" while the synchronizer's clock is stopped. Another showed that the throwing `connectNode`/`playAudio` play and resume.
+
+Not verified: the camera preview and a video recording on a device; Read Aloud's High Quality playback in the app; the iOS test suites (the iOS changes were only built).
+
 ## Bug fixes and speed-ups after the shared editor, measured on the Mac and the iPad simulator: 2026-10-17
 
 Eight commits, 853021b to 89c1b0d, fix about 70 bugs and edge cases. Each fix is listed in its commit message. They cover typed text, saving and closing, Markdown reading, Bases' JavaScript arithmetic, Read Aloud, recording, plugins, canvas, themes, PDFs (places, pages, bookmarks, signatures, the lasso) and links and folds. They also make the Live Preview editor, the PDF pane and the map do less work. The last commit fixes a memory leak on the Mac: a closed note's rendered blocks stayed in memory, with the note's text and session, for as long as the app ran. A block's view left inside the text view stayed registered with AppKit's notification center. The editor now takes its block views out before it goes.

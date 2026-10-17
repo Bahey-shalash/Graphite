@@ -131,6 +131,27 @@ final class VideoRecordingTests: XCTestCase {
         XCTAssertTrue(MovieInspection.colors(movie.lastFrameColor, match: SyntheticCaptureSource.frontCameraColor), "\(movie.lastFrameColor)")
     }
 
+    /// From macOS 27 and iOS 27 a recording shows its camera through a render synchronizer,
+    /// and adding a renderer that another synchronizer still holds ends the app.
+    func testASecondRecordingShowsItsCameraInTheSamePreview() async throws {
+        let source = SyntheticCaptureSource()
+        let controller = makeController(source: source)
+        let previewLayer = AVSampleBufferDisplayLayer()
+        controller.showPreview(in: previewLayer.sampleBufferRenderer)
+        for name in ["First with preview.mp4", "Second with preview.mp4"] {
+            let destination = attachmentsFolder.appendingPathComponent(name)
+            await start(controller, destination: destination)
+            await source.deliver(seconds: 1)
+            // Shown again in the renderer it already shows in, as when its view is redrawn.
+            controller.showPreview(in: previewLayer.sampleBufferRenderer)
+            await source.deliver(seconds: 1)
+            controller.stop()
+            try await waitUntil { controller.state == .idle }
+            let movie = try await MovieInspection.of(destination)
+            XCTAssertEqual(movie.durationSeconds, 2, accuracy: 0.1)
+        }
+    }
+
     func testACameraTheDeviceLacksLeavesTheRecordingOnItsCamera() async throws {
         let source = SyntheticCaptureSource(cameras: [.back])
         let controller = makeController(source: source)

@@ -182,7 +182,7 @@ enum PencilToolPalette {
         } else {
             recoloredTool = PKInkingTool(toolInUse.inkType, color: colorAtToolOpacity, width: toolInUse.width)
         }
-        var selection: any SelectedToolSetting = toolPicker
+        let selection: any SelectedToolSetting = toolPicker
         selection.selectedTool = recoloredTool
     }
 }
@@ -217,9 +217,10 @@ private final class PaletteToolChoiceObserver: NSObject, PKToolPickerObserver {
 
 /// `PKToolPicker.selectedTool` is deprecated in favor of tool items, but setting it is the
 /// only way PencilKit offers to change the color of the item in use; setting
-/// `selectedToolItem` only selects. Going through this protocol keeps the one deliberate
-/// use from warning on every build.
-private protocol SelectedToolSetting: AnyObject {
+/// `selectedToolItem` only selects. Before iOS 26, which has no tool items, reading it is
+/// also the only way to learn the tool in use. Going through this protocol keeps these
+/// deliberate uses from warning on every build.
+protocol SelectedToolSetting: AnyObject {
     var selectedTool: any PKTool { get set }
 }
 extension PKToolPicker: SelectedToolSetting {}

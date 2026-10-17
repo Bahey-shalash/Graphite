@@ -135,7 +135,7 @@ import GraphiteCore
 @MainActor
 enum LassoColors {
     static func line(for traitCollection: UITraitCollection) -> UIColor {
-        let pageTraits = UITraitCollection(traitsFrom: [traitCollection, UITraitCollection(userInterfaceStyle: .light)])
+        let pageTraits = traitCollection.modifyingTraits { traits in traits.userInterfaceStyle = .light }
         let accent = PlatformColor.graphiteAccent(hex: GraphitePreferences.storedAccentHex()) ?? .systemBlue
         return accent.resolvedColor(with: pageTraits)
     }

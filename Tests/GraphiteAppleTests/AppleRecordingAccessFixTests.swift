@@ -249,7 +249,7 @@ final class AppleRecordingAccessRecordingTests: XCTestCase {
 
 /// The test supplies the expectation before handing the recorder to a worker. Counters
 /// are mutex-protected; the semaphore provides a deterministic hardware delay.
-private final class PausingResumeRecorder: AVAudioRecorder {
+private final class PausingResumeRecorder: AVAudioRecorder, @unchecked Sendable {
     var resumeStarted: XCTestExpectation?
     let resumeMayFinish = DispatchSemaphore(value: 0)
     let resumeCount = Mutex(0)

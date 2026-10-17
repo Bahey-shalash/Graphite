@@ -113,7 +113,7 @@ class HistoryCanvasView: PKCanvasView {
 
     private static func selectedTool(of toolPicker: PKToolPicker) -> PKTool? {
         if #available(iOS 26.0, *) { return toolPicker.selectedToolItem.tool }
-        return toolPicker.selectedTool
+        return (toolPicker as any SelectedToolSetting).selectedTool
     }
 
     /// Gives the canvas its tool: the fixed tool bar's when there is one, else the floating
@@ -794,6 +794,7 @@ final class PencilToolPickerHostView: UIView {
     /// The host never types; without this it would use the input view of a canvas around it.
     override var inputView: UIView? { nil }
 
+    @discardableResult
     override func resignFirstResponder() -> Bool {
         let didResign = super.resignFirstResponder()
         // The next first responder is known only after this call returns.

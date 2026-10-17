@@ -13,7 +13,7 @@ struct LaserPointerGlyph: View {
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
     /// The side of the square the glyph is drawn in, matching a 17-point symbol.
-    static let side: CGFloat = 22
+    nonisolated static let side: CGFloat = 22
     /// SF Symbols' stroke at 17 points, regular and semibold.
     static let regularStrokeWidth: CGFloat = 1.5
     static let semiboldStrokeWidth: CGFloat = 2

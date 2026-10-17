@@ -30,8 +30,10 @@ final class RenderedPassagePlayer {
         if connectedFormat != format {
             engine.disconnectNodeOutput(player)
             engine.disconnectNodeOutput(timePitch)
-            engine.connect(player, to: timePitch, format: format)
-            engine.connect(timePitch, to: engine.mainMixerNode, format: format)
+            // Set again only when both connections hold, so a failed one is retried next time.
+            connectedFormat = nil
+            try connect(player, to: timePitch, format: format)
+            try connect(timePitch, to: engine.mainMixerNode, format: format)
             connectedFormat = format
         }
         timePitch.rate = Float(min(1.5, max(0.5, rate)))
@@ -50,7 +52,7 @@ final class RenderedPassagePlayer {
             }
         }
         if !engine.isRunning { try engine.start() }
-        player.play()
+        try startPlayer()
         isPaused = false
     }
 
@@ -71,7 +73,7 @@ final class RenderedPassagePlayer {
 
     func resume() throws {
         if !engine.isRunning { try engine.start() }
-        player.play()
+        try startPlayer()
         isPaused = false
     }
 
@@ -85,5 +87,24 @@ final class RenderedPassagePlayer {
     func shutDown() {
         stop()
         engine.stop()
+    }
+
+    // From macOS 27 and iOS 27 connecting and starting report failures as errors; before,
+    // they could only raise an exception.
+
+    private func connect(_ node: AVAudioNode, to destination: AVAudioNode, format: AVAudioFormat) throws {
+        if #available(iOS 27, *) {
+            try engine.connectNode(node, to: destination, format: format)
+        } else {
+            engine.connect(node, to: destination, format: format)
+        }
+    }
+
+    private func startPlayer() throws {
+        if #available(iOS 27, *) {
+            try player.playAudio()
+        } else {
+            player.play()
+        }
     }
 }
