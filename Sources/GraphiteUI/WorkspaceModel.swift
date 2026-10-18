@@ -36,6 +36,9 @@ final class WorkspaceModel {
     /// Files and folders with a move or rename under way; a second request for one is
     /// ignored (the title bar can report the same rename twice).
     var pathsBeingMoved: Set<VaultPath> = []
+    /// How each move that waited for the person's "Update links?" answer ended, by the moved
+    /// path, until whoever waited for it (a plugin's rename) takes it.
+    @ObservationIgnored var answeredMoveOutcomes: [VaultPath: FileMoveOutcome] = [:]
     /// The open tabs and the split, remembered per vault.
     var layout = TabLayout() {
         didSet {
@@ -316,7 +319,7 @@ final class WorkspaceModel {
         embeddedBaseModelCache = EmbeddedBaseModelCache()
         // `expandedFolders` is replaced below, once the new vault is current: clearing it
         // here would save an empty list for the vault being left.
-        pendingMove = nil; pendingDeletion = nil; fileSheet = nil
+        pendingMove = nil; answeredMoveOutcomes = [:]; pendingDeletion = nil; fileSheet = nil
         resetConflictVersions()
         searchQuery = ""; searchResults = []; searchContinuation = nil
         rootEntries = entries

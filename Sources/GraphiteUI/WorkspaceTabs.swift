@@ -223,7 +223,7 @@ extension WorkspaceModel {
         await open(path, placement: .newTab)
     }
 
-    private func saveBeforeClosing(_ tabIDs: [UUID]) async -> Bool {
+    func saveBeforeClosing(_ tabIDs: [UUID]) async -> Bool {
         // A tab on screen stays editable while the others save, so all are checked again.
         repeat {
             for tabID in tabIDs {
