@@ -486,9 +486,7 @@ actor ReadingViewBuilder {
     }
 
     private func resolve(_ target: String, isWiki: Bool, note: VaultPath, root: URL, index: VaultIndex) async -> VaultPath? {
-        for candidate in WikiLinkResolver.directCandidates(target: target, source: note, isWiki: isWiki) {
-            if let location = try? candidate.url(in: root), FileManager.default.fileExists(atPath: location.path) { return candidate }
-        }
+        if let file = WikiLinkResolver.existingDirectFile(target: target, source: note, isWiki: isWiki, in: root) { return file }
         guard let resolved = try? await index.resolve(target, from: note, isWiki: isWiki), resolved.count == 1 else { return nil }
         return resolved.first
     }
