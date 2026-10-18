@@ -42,11 +42,16 @@ public final class NeuralReadAloudSpeech: ReadAloudSpeaking {
             guard let self, self.routesToQuick else { return }
             self.eventHandler?(event)
         }
+        player.engineConfigurationDidChange = { [weak self] in self?.audioOutputDidChange(.engineConfigurationChanged) }
         #if os(iOS)
         NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] notification in
             let rawType = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
             let rawOptions = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
             MainActor.assumeIsolated { self?.audioInterrupted(rawType: rawType, rawOptions: rawOptions) }
+        }
+        NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] notification in
+            let rawReason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+            MainActor.assumeIsolated { self?.audioRouteChanged(rawReason: rawReason) }
         }
         #endif
     }
@@ -56,7 +61,9 @@ public final class NeuralReadAloudSpeech: ReadAloudSpeaking {
     public var voices: [ReadAloudVoice] { quick.voices }
     public func systemDefaultVoiceIdentifier(language: String) -> String? { quick.systemDefaultVoiceIdentifier(language: language) }
     public func systemVoice(language: String) -> ReadAloudVoice? { quick.systemVoice(language: language) }
-    public var assistiveSpeechSettingsMayApply: Bool { quick.assistiveSpeechSettingsMayApply }
+    /// Rendered audio plays at Graphite's own speed, so the system's Speaking Rate does not apply
+    /// while a downloaded voice reads; it applies to the system voice that reads in Quick mode.
+    public var assistiveSpeechSettingsMayApply: Bool { !readsWithDownloadedVoice && quick.assistiveSpeechSettingsMayApply }
     public var personalVoiceStatus: ReadAloudPersonalVoiceStatus { quick.personalVoiceStatus }
     public func requestPersonalVoiceAccess() async -> ReadAloudPersonalVoiceStatus { await quick.requestPersonalVoiceAccess() }
 
@@ -242,6 +249,16 @@ public final class NeuralReadAloudSpeech: ReadAloudSpeaking {
         player.setRate(rate)
     }
 
+    /// The output the sound goes to changed. Rendered audio that lost its output pauses the
+    /// reading, as the system voice does: the passage stops and the session is told it was
+    /// interrupted, so it waits for the person to resume rather than playing out loud or stalling.
+    func audioOutputDidChange(_ change: ReadAloudAudioOutputChange) {
+        let isPlayingRenderedAudio = activeRequest != nil && !routesToQuick
+        guard ReadAloudAudioLossPolicy.pausesReading(after: change, isPlayingRenderedAudio: isPlayingRenderedAudio) else { return }
+        stop()
+        eventHandler?(.interrupted)
+    }
+
     public func releaseAudio() {
         quick.releaseAudio()
         player.shutDown()
@@ -270,6 +287,15 @@ public final class NeuralReadAloudSpeech: ReadAloudSpeaking {
     }
 
     #if os(iOS)
+    private func audioRouteChanged(rawReason: UInt?) {
+        guard let rawReason, let reason = AVAudioSession.RouteChangeReason(rawValue: rawReason) else { return }
+        switch reason {
+        case .oldDeviceUnavailable: audioOutputDidChange(.previousOutputUnavailable)
+        case .newDeviceAvailable: audioOutputDidChange(.newOutputAvailable)
+        default: break
+        }
+    }
+
     private func audioInterrupted(rawType: UInt?, rawOptions: UInt) {
         guard !routesToQuick, let rawType, let type = AVAudioSession.InterruptionType(rawValue: rawType) else { return }
         switch type {
