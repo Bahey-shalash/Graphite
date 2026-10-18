@@ -73,6 +73,27 @@ final class NotePreviewDocumentTests: XCTestCase {
         XCTAssertEqual(withDefinition.map(\.block), [.markdown("See [the site][1].\n\n[1]: https://example.com\n")])
     }
 
+    func testRunsNestedPastTheSafeDepthStayWholeInsteadOfBeingParsedIntoSections() {
+        let nestedQuotes = String(repeating: "> ", count: 64) + "deep"
+        let nestedLists = String(repeating: "- ", count: 55) + "deep"
+        for nestedLine in [nestedQuotes, nestedLists] {
+            let body = "Before the nested line\n\(nestedLine)\n\nAfter it\n"
+            // swift-markdown overflows the 512 KB stack of a Swift concurrency thread at this depth.
+            let divided: [NotePreviewBlock] = onConcurrencySizedStack {
+                NotePreviewDocument.dividedIntoSections(NotePreviewDocument.locatedBlocks(from: body)).map(\.block)
+            }
+            XCTAssertEqual(divided, [.markdown(body)])
+        }
+    }
+
+    func testRunsWithinTheSafeDepthStillDivideWhenOtherRunsAreNestedTooDeeply() {
+        let shallowBody = "First paragraph\n\n> quoted\n> > nested\n\n- one\n  - two\n"
+        let divided: [NotePreviewBlock] = onConcurrencySizedStack {
+            NotePreviewDocument.dividedIntoSections(NotePreviewDocument.locatedBlocks(from: shallowBody)).map(\.block)
+        }
+        XCTAssertEqual(divided, [.markdown("First paragraph"), .markdown("> quoted\n> > nested"), .markdown("- one\n  - two")])
+    }
+
     func testOutlineSkipsCode() {
         let outline = NotePreviewDocument.outline(of: "# One\n```\n# Code\n```\n## Two  \n")
         XCTAssertEqual(outline.map(\.text), ["One", "Two"])
@@ -165,6 +186,21 @@ final class NotePreviewDocumentTests: XCTestCase {
         // A callout's body is located in the same body.
         XCTAssertEqual(blocks[5].body.first?.startOffset, offset(of: "Body"))
     }
+
+    /// Runs `work` on a thread with the 512 KB stack that Swift concurrency threads have,
+    /// which is where reading view builds its sections.
+    private func onConcurrencySizedStack<Value: Sendable>(_ work: @escaping @Sendable () -> Value) -> Value {
+        let resultBox = StackThreadResultBox<Value>()
+        let finished = DispatchSemaphore(value: 0)
+        let thread = Thread {
+            resultBox.value = work()
+            finished.signal()
+        }
+        thread.stackSize = 512 * 1_024
+        thread.start()
+        finished.wait()
+        return resultBox.value!
+    }
 }
 
 final class MarkdownCodeRangeTests: XCTestCase {
@@ -224,4 +260,10 @@ final class HTMLToMarkdownTests: XCTestCase {
         XCTAssertEqual(HTMLToMarkdown.markdown(from: "<b>unclosed <i>tags"), "**unclosed *tags")
         XCTAssertEqual(HTMLToMarkdown.markdown(from: "a < b and c > d"), "a < b and c > d")
     }
+}
+
+/// Written once by the worker thread before it signals the semaphore, and read only after
+/// the wait, so the semaphore orders the two accesses.
+private final class StackThreadResultBox<Value>: @unchecked Sendable {
+    var value: Value?
 }
