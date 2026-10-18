@@ -653,13 +653,7 @@ final class WorkspaceModel {
     /// The vault file an embed or link target refers to, if exactly one does.
     func resolveLink(_ target: String, from source: VaultPath, isWiki: Bool = true) async -> VaultPath? {
         guard let folderAccess else { return nil }
-        for candidate in WikiLinkResolver.directCandidates(target: target, source: source, isWiki: isWiki) {
-            guard let location = try? candidate.url(in: folderAccess.root) else { continue }
-            // A folder is not a link target: `[[Projects]]` beside a Projects folder names
-            // the note Projects.md, as in Obsidian, which creates it when it is missing.
-            var isDirectory: ObjCBool = false
-            if FileManager.default.fileExists(atPath: location.path, isDirectory: &isDirectory), !isDirectory.boolValue { return storedPath(for: candidate) }
-        }
+        if let file = WikiLinkResolver.existingDirectFile(target: target, source: source, isWiki: isWiki, in: folderAccess.root) { return storedPath(for: file) }
         let matches = (try? await index?.resolve(target, from: source, isWiki: isWiki)) ?? []
         return matches.count == 1 ? matches.first : nil
     }
