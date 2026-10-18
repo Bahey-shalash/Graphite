@@ -684,7 +684,7 @@ Each entry is the verifier's own trace. "Reported" in the severity line is the a
 #### BUG-VOICE-V01 A pronunciation file that fails to read or parse is replaced by the one entry added in Settings
 - **Verdict:** Confirmed
 - **Severity:** High
-- **Reach:** iPad, iPhone and Mac. Fallback path: the vault's `.graphite/pronunciations.json` is unreadable or unparseable when Settings opens. Causes include a hand edit with a stray trailing comma, a file over 256 KiB, or a read error such as a cloud file that is not downloaded. When it happens, the loss is total and has no undo.
+- **Reach:** iPad, iPhone and Mac. Fallback path: the vault's `.graphite/pronunciations.json` is unreadable or unparseable when Settings opens. Causes include a hand edit that leaves invalid JSON (for example a file cut off before its closing brace; Apple's JSON parser accepts a trailing comma, so that case loads fully), a file over 256 KiB, or a read error such as a cloud file that is not downloaded. When it happens, the loss is total and has no undo.
 - **Trigger:** A user hand-edits the pronunciation file and leaves a syntax error, then opens Settings › Read Aloud › Pronunciations. The vault section is empty, so they add one term.
 - **Path:**
   1. `load` turns every failure into an empty list. `Data(contentsOf:)` failing gives `entries = []` ([ReadAloudPronunciationEditor.swift:96](../../Sources/GraphiteUI/ReadAloudPronunciationEditor.swift#L96)). `vaultEntries` returns `[]` for a file over the size limit or for JSON that does not parse ([ReadAloudPronunciations.swift:63-64](../../Sources/GraphiteCore/ReadAloudPronunciations.swift#L63-L64)).
