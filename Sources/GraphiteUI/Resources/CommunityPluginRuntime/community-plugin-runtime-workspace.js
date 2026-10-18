@@ -748,7 +748,7 @@
 
         /// The focused document changed: a note (with the text the editor holds), another
         /// file, or nothing.
-        setActiveDocument(description) {
+        setActiveDocument(description, options) {
             const path = description && description.path ? normalizePath(description.path) : null;
             let file = path ? this.app.vault.getFileByPath(path) : null;
             // A note Graphite has open exists, even when the report of its creation has not
@@ -764,7 +764,7 @@
                 view.file = file;
                 view.mode = description.mode;
                 view.currentMode = { type: description.mode === 'reading' ? 'preview' : 'source' };
-                if (description.editorSnapshot) this.updateEditorSnapshot(description.editorSnapshot);
+                if (description.editorSnapshot) this.updateEditorSnapshot(description.editorSnapshot, options);
                 else if (!view.editor || view.editor.path !== path) view.editor = null;
                 this.activeLeaf = this.markdownLeaf;
                 this.activeEditor = view.editor ? { editor: view.editor, file } : null;
@@ -779,10 +779,15 @@
             }
         }
 
-        updateEditorSnapshot(snapshot) {
+        /// An editor stands for one note for life: a command still waiting on note A keeps an
+        /// editor that sends its changes with A's path and snapshot, whichever note is open
+        /// by then. Only a refresh of the same note reuses the editor, unless the caller
+        /// asks for a new one (`command.run` does, so each command has its own).
+        updateEditorSnapshot(snapshot, options) {
             const view = this.markdownLeaf.view;
             if (!(view instanceof MarkdownView) || !view.file || normalizePath(snapshot.path) !== view.file.path) return null;
-            if (view.editor) view.editor.adoptSnapshot(snapshot);
+            const canRefreshEditor = view.editor && view.editor.path === snapshot.path && !(options && options.givesEditorToNewCommand);
+            if (canRefreshEditor) view.editor.adoptSnapshot(snapshot);
             else view.editor = new SnapshotEditor(snapshot);
             this.activeEditor = { editor: view.editor, file: view.file };
             return view.editor;

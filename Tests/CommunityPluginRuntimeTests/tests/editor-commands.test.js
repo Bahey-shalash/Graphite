@@ -194,3 +194,32 @@ test('a refused change brings the note as it is now, so the plugin\'s next chang
         harness.close();
     }
 });
+
+test('a command that edits after the person switched notes changes the note it started on', async () => {
+    const harness = await startRuntime({ files: { 'First.md': 'first note', 'Second.md': 'second note text' } });
+    try {
+        await installAndLoadPlugin(harness, { manifest, mainSource: editingPlugin(`
+        this.addCommand({ id: 'append-later', name: 'Append later', editorCallback: async (editor) => {
+            await new Promise((resolve) => { this.finishWaiting = resolve; });
+            editor.replaceRange('!', editor.offsetToPos(editor.getValue().length));
+        } });`) });
+        const sentEdits = [];
+        const transport = harness.runtime.hostBridge.transport;
+        harness.runtime.hostBridge.transport = (message) => {
+            if (message.operation === 'editor.apply') sentEdits.push(plain(message));
+            return transport(message);
+        };
+        await runCommand(harness, 'editing:append-later', 'First.md', 0);
+        const firstSnapshotIdentifier = harness.host.editorSessions.get('First.md').snapshotIdentifier;
+        await harness.send({ operation: 'workspace.activeDocument', activeDocument: { path: 'Second.md', mode: 'livePreview', editorSnapshot: harness.host.openNote('Second.md', 0) } });
+        harness.app.plugins.getPlugin('editing').finishWaiting();
+        await settle();
+        assert.equal(sentEdits.length, 1);
+        assert.equal(sentEdits[0].path, 'First.md', 'the change names the note the command started on');
+        assert.equal(sentEdits[0].snapshotIdentifier, firstSnapshotIdentifier, 'the change carries that note\'s snapshot');
+        assert.equal(harness.host.editorSessions.get('Second.md').text, 'second note text', 'the note now on screen is untouched');
+        assert.equal(harness.host.editorSessions.get('Second.md').appliedChanges.length, 0);
+    } finally {
+        harness.close();
+    }
+});
