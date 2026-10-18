@@ -131,6 +131,12 @@ public enum RecordingRecoveryFolder {
             creationDates[location] = values.creationDate
         }
         let namesWithMedia = Set(byteCounts.keys.map(\.lastPathComponent))
+        // An M4A beside a CAF of the same name was converted from it (a save that failed leaves it
+        // there): the two are one recording, and the CAF is the one offered.
+        let convertedCopies = byteCounts.keys.filter { location in
+            location.pathExtension.lowercased() == "m4a" && namesWithMedia.contains(location.deletingPathExtension().lastPathComponent + ".caf")
+        }
+        for copy in convertedCopies { byteCounts[copy] = nil }
         var laterParts: [String: [(partNumber: Int, location: URL)]] = [:]
         var firstParts: [URL] = []
         for location in byteCounts.keys {
