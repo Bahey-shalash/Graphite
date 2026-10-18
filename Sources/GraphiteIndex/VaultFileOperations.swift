@@ -351,15 +351,14 @@ public struct VaultFileOperations: Sendable {
     /// How many files will have this name once the moves are done.
     ///
     /// The renamed files are excluded from the index's count by their exact paths and
-    /// added back under their new names, so the result does not depend on whether the
-    /// index folds the case of letters beyond ASCII.
+    /// added back under their new names, both compared by the folded name the index and
+    /// the Wikilink resolver use.
     private func nameCount(of name: String, renamedFiles: [VaultPath: VaultPath], cache: inout [String: Int]) async throws -> Int {
-        let key = WikiLinkResolver.comparisonKey(name)
-        if let cached = cache[key] { return cached }
-        let foldedKey = key.lowercased()
+        let foldedKey = WikiLinkResolver.caseFoldedKey(name)
+        if let cached = cache[foldedKey] { return cached }
         var count = try await index.fileCount(named: name, excluding: Array(renamedFiles.keys))
-        for newPath in renamedFiles.values where WikiLinkResolver.comparisonKey(newPath.name).lowercased() == foldedKey { count += 1 }
-        cache[key] = count
+        for newPath in renamedFiles.values where WikiLinkResolver.caseFoldedKey(newPath.name) == foldedKey { count += 1 }
+        cache[foldedKey] = count
         return count
     }
 }
@@ -385,12 +384,13 @@ extension VaultIndex {
     }
 
     /// Number of indexed files with this file name, not counting `excludedPaths`. Names
-    /// compare as `fileCount(named:)` and the Wikilink resolver compare them.
+    /// compare as `fileCount(named:)` and the Wikilink resolver compare them: ignoring the
+    /// case of every letter, not only ASCII.
     func fileCount(named fileName: String, excluding excludedPaths: [VaultPath]) throws -> Int {
         let exclusion = excludedPaths.isEmpty ? "" : " AND path NOT IN (" + Array(repeating: "?", count: excludedPaths.count).joined(separator: ",") + ")"
         return try databaseQueue.read { database in
-            try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM files WHERE name_key = ? COLLATE NOCASE" + exclusion,
-                             arguments: StatementArguments([WikiLinkResolver.comparisonKey(fileName)] + excludedPaths.map(\.rawValue))) ?? 0
+            try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM files WHERE folded_name = ?" + exclusion,
+                             arguments: StatementArguments([Self.foldedKey(fileName)] + excludedPaths.map(\.rawValue))) ?? 0
         }
     }
 }
