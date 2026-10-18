@@ -194,6 +194,8 @@ The full tool set, favorite colors, the shape tool, the lasso and drawing on ima
 
 Recognition, handwriting-to-text, math conversion, synchronized audio replay, tape, and reusable elements remain candidates for discussion. Generative AI features are not part of this plan.
 
+Importing Goodnotes and Notability notebooks, element by element so they open as if written in Graphite, was requested on 2026-10-18 and is not started; [the checklist](Goodnotes-Notability-import-todo.md) holds the request, the Graphite features it needs first (text boxes, pictures above the ink, editable shapes, and others), and the phases.
+
 Completion evidence: agreed feature scope, device interaction checks, undo behavior, save/reopen checks, and portable output checks for every implemented tool. The fourth increment has the undo, save/reopen and output checks in the simulator; its device interaction checks are outstanding.
 
 ## Then: daily Obsidian workflows
