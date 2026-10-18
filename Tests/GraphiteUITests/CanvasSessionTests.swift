@@ -293,6 +293,24 @@ final class CanvasSessionTests: XCTestCase {
         XCTAssertEqual(session.file.edges[0].label, "leads to")
     }
 
+    func testUndoWhileTypingInATextCardUndoesTheTypingFirstAndRedoBringsItBack() async throws {
+        let session = try await openSession()
+        session.viewport = CanvasViewport(scale: 1, origin: CGPoint(x: -100, y: -100))
+        session.snapsToObjects = false
+        drag(session, from: try viewCenter(of: "1000000000000001", in: session), by: CGSize(width: 33, height: 208))
+        let movedFrame = try XCTUnwrap(session.file.node(withIdentifier: "1000000000000001")?.frame)
+        session.beginEditingText(of: "1000000000000002")
+        session.updateTextEdit("Second, typed since the last pause")
+
+        session.undoAvailability.undo()
+
+        XCTAssertEqual(session.file.node(withIdentifier: "1000000000000002")?.content, .text("Second"), "Undo takes back the typing first.")
+        XCTAssertEqual(session.file.node(withIdentifier: "1000000000000001")?.frame, movedFrame, "The step before the typing is still applied.")
+        session.undoAvailability.redo()
+        XCTAssertEqual(session.file.node(withIdentifier: "1000000000000002")?.content, .text("Second, typed since the last pause"), "Redo brings the typed text back.")
+        XCTAssertEqual(session.file.node(withIdentifier: "1000000000000001")?.frame, movedFrame)
+    }
+
     func testCommandsOnTheSelectionEachMakeOneStep() async throws {
         let session = try await openSession()
         session.viewport = CanvasViewport(scale: 1, origin: CGPoint(x: -100, y: -100))

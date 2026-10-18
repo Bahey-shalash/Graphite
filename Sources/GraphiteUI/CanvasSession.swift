@@ -91,8 +91,8 @@ final class CanvasSession {
         }
     }
     /// The canvas's own undo history. Each step keeps only the bytes it changed.
-    @ObservationIgnored let undoManager: UndoManager = {
-        let undoManager = UndoManager()
+    @ObservationIgnored let undoManager: CanvasUndoManager = {
+        let undoManager = CanvasUndoManager()
         undoManager.levelsOfUndo = CanvasSession.maximumUndoSteps
         // Each edit is one step, whatever else happens in the same turn of the run loop.
         undoManager.groupsByEvent = false
@@ -160,6 +160,7 @@ final class CanvasSession {
         file = try CanvasFile(data: snapshot.data)
         savedData = snapshot.data
         revision = snapshot.revision
+        undoManager.beforeHistoryStep = { [weak self] in self?.commitTextEdit() }
         undoAvailability.follow(undoManager)
     }
 
@@ -502,5 +503,22 @@ final class CanvasSession {
         }
         // Assigned only when it changes: the card views read it.
         if newDetailedNodes != detailedNodes { detailedNodes = newDetailedNodes }
+    }
+}
+
+/// The undo manager of one canvas. Every way into its history, whether the toolbar, a
+/// shortcut or a gesture, first lets the canvas write the text being typed as its own step,
+/// so Undo takes the typing back first and Redo brings it back.
+final class CanvasUndoManager: UndoManager {
+    var beforeHistoryStep: (() -> Void)?
+
+    override func undo() {
+        beforeHistoryStep?()
+        super.undo()
+    }
+
+    override func redo() {
+        beforeHistoryStep?()
+        super.redo()
     }
 }
