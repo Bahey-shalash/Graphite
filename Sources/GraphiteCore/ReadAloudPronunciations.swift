@@ -153,15 +153,35 @@ public struct ReadAloudPronunciations: Equatable, Sendable {
         return result.sorted { first, second in first.term.localizedStandardCompare(second.term) == .orderedAscending }
     }
 
-    /// The JSON a vault file holds for these entries, sorted, readable in any text editor.
-    public static func vaultFileData(for entries: [(term: String, say: String)]) throws -> Data {
-        var object: [String: String] = [:]
+    /// The JSON a vault file holds for these entries, sorted, readable in any text editor. An entry
+    /// with hand-written `ipa` is written in the object form, the others as a plain respelling.
+    public static func vaultFileData(for entries: [VaultEntry]) throws -> Data {
+        var object: [String: Any] = [:]
         for entry in entries {
             let term = entry.term.trimmingCharacters(in: .whitespaces)
-            let say = entry.say.trimmingCharacters(in: .whitespaces)
-            if !term.isEmpty, !say.isEmpty { object[term] = say }
+            let say = entry.pronunciation.say.trimmingCharacters(in: .whitespaces)
+            guard !term.isEmpty, !say.isEmpty else { continue }
+            if let ipa = entry.pronunciation.ipa {
+                object[term] = ["say": say, "ipa": ipa]
+            } else {
+                object[term] = say
+            }
         }
         return try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+    }
+
+    /// `entries` after the person saves `term` said as `say`, in place of `originalTerm` (nil for
+    /// a new term). Every other entry is returned as it was. The edited entry keeps its `ipa` while
+    /// its term stays the same; a renamed term starts without the old term's `ipa`.
+    public static func updatingVaultEntries(
+        _ entries: [VaultEntry], replacing originalTerm: String?, with term: String, say: String
+    ) -> [VaultEntry] {
+        let newTerm = term.trimmingCharacters(in: .whitespaces)
+        let replacedTerm = originalTerm ?? newTerm
+        let keptPhoneticNotation = entries.first { entry in entry.term == newTerm && entry.term == replacedTerm }?.pronunciation.ipa
+        var updated = entries.filter { entry in entry.term != replacedTerm && entry.term != newTerm }
+        updated.append(VaultEntry(term: newTerm, pronunciation: Pronunciation(say: say.trimmingCharacters(in: .whitespaces), ipa: keptPhoneticNotation)))
+        return updated
     }
 
     // MARK: Words

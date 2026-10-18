@@ -7,7 +7,7 @@ import GraphiteApple
 /// built-in terms said in full ("look-up table" for LUT), which the person can change here.
 struct ReadAloudPronunciationEditor: View {
     let vaultRoot: URL?
-    @State private var entries: [(term: String, say: String)] = []
+    @State private var entries: [ReadAloudPronunciations.VaultEntry] = []
     @State private var editing: PronunciationDraft?
     @State private var errorMessage: String?
     /// Why the vault's file is shown read-only, or nil when the whole file was read (or does not exist yet).
@@ -36,9 +36,7 @@ struct ReadAloudPronunciationEditor: View {
         // Pushed inside Settings' own navigation: a sheet over the Settings sheet closed it.
         .navigationDestination(item: $editing) { draft in
             PronunciationDraftEditor(draft: draft, play: play) { saved in
-                var updated = entries.filter { entry in entry.term != (draft.originalTerm ?? saved.term) && entry.term != saved.term }
-                updated.append((saved.term, saved.say))
-                save(updated)
+                save(ReadAloudPronunciations.updatingVaultEntries(entries, replacing: draft.originalTerm, with: saved.term, say: saved.say))
             }
         }
         .alert("Pronunciations Not Saved", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
@@ -52,9 +50,9 @@ struct ReadAloudPronunciationEditor: View {
         Section {
             ForEach(entries, id: \.term) { entry in
                 Button {
-                    editing = PronunciationDraft(originalTerm: entry.term, term: entry.term, say: entry.say)
+                    editing = PronunciationDraft(originalTerm: entry.term, term: entry.term, say: entry.pronunciation.say)
                 } label: {
-                    LabeledContent(entry.term) { Text(entry.say) }
+                    LabeledContent(entry.term) { Text(entry.pronunciation.say) }
                 }
                 .foregroundStyle(.primary)
                 .accessibilityHint("Edits how this term is said")
@@ -79,10 +77,10 @@ struct ReadAloudPronunciationEditor: View {
         Section {
             ForEach(Self.expansions, id: \.key) { term, pronunciation in
                 Button {
-                    let current = entries.first { entry in entry.term == term }?.say ?? pronunciation.say
+                    let current = entries.first { entry in entry.term == term }?.pronunciation.say ?? pronunciation.say
                     editing = PronunciationDraft(originalTerm: entries.contains { entry in entry.term == term } ? term : nil, term: term, say: current)
                 } label: {
-                    LabeledContent(term) { Text(entries.first { entry in entry.term == term }?.say ?? pronunciation.say) }
+                    LabeledContent(term) { Text(entries.first { entry in entry.term == term }?.pronunciation.say ?? pronunciation.say) }
                 }
                 .foregroundStyle(.primary)
                 .disabled(vaultRoot == nil || readOnlyReason != nil)
@@ -100,7 +98,7 @@ struct ReadAloudPronunciationEditor: View {
         let reading = ReadAloudPronunciations.readVaultFile(at: fileLocation)
         readOnlyReason = Self.readOnlyReason(for: reading)
         if case .loaded(let loadedEntries, _) = reading {
-            entries = loadedEntries.map { entry in (entry.term, entry.pronunciation.say) }
+            entries = loadedEntries
         } else {
             entries = []
         }
@@ -128,7 +126,7 @@ struct ReadAloudPronunciationEditor: View {
 
     /// Writes the whole file at once, replacing it atomically; a failure keeps the old file. The
     /// file is read again first: it is only replaced when this list holds everything it holds.
-    private func save(_ updated: [(term: String, say: String)]) {
+    private func save(_ updated: [ReadAloudPronunciations.VaultEntry]) {
         guard let fileLocation else { return }
         let reading = ReadAloudPronunciations.readVaultFile(at: fileLocation)
         guard reading.allowsRewriting else {
