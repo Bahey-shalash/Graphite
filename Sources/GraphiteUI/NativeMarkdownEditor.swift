@@ -2342,6 +2342,8 @@ final class MarkdownMacTextView: NSTextView {
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = .width
+        // The find bar of "Search current file" shows above the note, inside the scroll view.
+        textView.usesFindBar = true
         textView.textContainer?.containerSize = CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.widthTracksTextView = true
         scrollView.documentView = textView
@@ -2772,6 +2774,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         textView.updateDragTypeRegistration()
         if let savedScrollLocation = session.savedScrollLocation { coordinator.pendingJump = .topOfCharacter(savedScrollLocation) }
         session.isEditorAttached = true
+        coordinator.reportPlace(of: textView)
         session.undoAvailability.follow(coordinator.noteUndoManager)
         coordinator.restyleEverything(in: textView)
         coordinator.keepSelectionOutOfConcealedProperties(in: textView)
@@ -2833,6 +2836,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
                 coordinator.pendingJump = .heading(anchor: headingScrollRequest.anchor, occurrence: headingScrollRequest.occurrence)
             }
         }
+        coordinator.serveSessionRequests(in: textView)
         coordinator.performPendingJumpIfReady(in: textView)
         if followsReading { (textView as? MarkdownMacTextView)?.followReadingRange() }
     }
@@ -2961,12 +2965,16 @@ struct NativeMarkdownEditor: NSViewRepresentable {
                 if textView.window?.firstResponder === textView { textView.window?.makeFirstResponder(nil) }
                 recordScrollLocation(of: textView)
             }
+            session.recordEditorPlace = nil
             scrollView.removeFromSuperview()
             session.undoAvailability.follow(nil)
         }
 
         func resume(_ scrollView: NSScrollView) {
-            if let textView = scrollView.documentView as? NSTextView { observeCharacterEdits(in: textView) }
+            if let textView = scrollView.documentView as? NSTextView {
+                observeCharacterEdits(in: textView)
+                reportPlace(of: textView)
+            }
             session.isEditorAttached = true
             session.undoAvailability.follow(noteUndoManager)
         }
@@ -3466,6 +3474,43 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             return link
         }
 
+        // MARK: Session requests
+
+        /// Answers what the session asks of the editor on screen, as the iPad editor does.
+        func serveSessionRequests(in textView: NSTextView) {
+            goToReadingPlaceIfSwitched(in: textView)
+            presentFindIfRequested(in: textView)
+        }
+
+        /// After the note switched from reading, shows the line that was at the top of the
+        /// reading view: a kept editor would otherwise stay where it was itself.
+        private func goToReadingPlaceIfSwitched(in textView: NSTextView) {
+            guard textView.window != nil, let location = session.takeEditingStartLocation() else { return }
+            // The note's start is the top of the view.
+            guard location > 0 else {
+                pendingJump = nil
+                textView.scroll(NSPoint(x: 0, y: 0))
+                return
+            }
+            pendingJump = .topOfCharacter(location)
+            performPendingJumpIfReady(in: textView)
+        }
+
+        /// Opens the find bar the command palette asked for, once the editor is on screen.
+        private func presentFindIfRequested(in textView: NSTextView) {
+            guard session.findRequest != nil, textView.window != nil else { return }
+            // After the update: showing the bar during one would re-enter SwiftUI.
+            DispatchQueue.main.async { [weak self, weak textView] in
+                guard let self, let textView, let window = textView.window, let request = self.session.findRequest else { return }
+                self.session.findRequest = nil
+                window.makeFirstResponder(textView)
+                let action: NSTextFinder.Action = request == .findAndReplace ? .showReplaceInterface : .showFindInterface
+                let sender = NSMenuItem()
+                sender.tag = action.rawValue
+                textView.performTextFinderAction(sender)
+            }
+        }
+
         // MARK: Jumps
 
         /// Makes the pending jump once the view is in a window and has a width.
@@ -3500,6 +3545,16 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             textLayoutManager.textViewportLayoutController.layoutViewport()
             guard let fragment = textLayoutManager.textLayoutFragment(for: location) else { return }
             textView.scroll(NSPoint(x: 0, y: max(0, fragment.layoutFragmentFrame.minY + textView.textContainerOrigin.y - 12)))
+        }
+
+        /// Lets the session ask where the editor is, as a tab closes or Graphite leaves the
+        /// screen, while the editor shows the note. A pending jump has not landed yet, and is
+        /// the place.
+        func reportPlace(of textView: NSTextView) {
+            session.recordEditorPlace = { [weak self, weak textView] in
+                guard let self, let textView, textView.window != nil, self.pendingJump == nil else { return }
+                self.recordScrollLocation(of: textView)
+            }
         }
 
         /// Remembers the character at the top of the view in the session.
