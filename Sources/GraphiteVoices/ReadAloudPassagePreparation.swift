@@ -210,13 +210,23 @@ public final class ReadAloudPassagePreparation {
                 finish(text, with: nil)
             }
         }
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled else {
+            await releaseModelOfCancelledWorker()
+            return
+        }
         isPreparing = false
         worker = nil
         for (_, continuations) in waiters { for continuation in continuations { continuation.resume(returning: nil) } }
         waiters = [:]
         // A loaded model holds from a quarter of a gigabyte (Pocket TTS) to over three
         // (Qwen3-TTS 1.7B); it is freed as soon as nothing is left to render.
+        await renderer.releaseResources()
+    }
+
+    /// A worker that was cancelled has stopped rendering, so the model it loaded is freed too,
+    /// unless another worker has been started since: that one uses the model and frees it itself.
+    private func releaseModelOfCancelledWorker() async {
+        guard worker == nil else { return }
         await renderer.releaseResources()
     }
 
