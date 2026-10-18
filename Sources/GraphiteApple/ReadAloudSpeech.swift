@@ -543,7 +543,7 @@ public final class ReadAloudSession {
     }
 
     public func load(_ document: ReadAloudDocument) {
-        stop()
+        resetPlayback()
         if self.document?.passages.map(\.text) != document.passages.map(\.text) { speech.cancelPreparation() }
         self.document = document
         readingLanguage = ReadAloudLanguage.language(of: document) ?? ReadAloudLanguage.deviceLanguage
@@ -579,9 +579,25 @@ public final class ReadAloudSession {
         state = .paused
     }
 
+    /// Stop as the person asks for it: playback ends and the audio session goes back to other apps.
     public func stop() {
-        invalidateSpeech()
+        resetPlayback()
         speech.releaseAudio()
+    }
+
+    /// Gives the audio session back unless reading is going on, for a document that is loaded
+    /// and waits for the person to press Play. The session stays active while one is replaced
+    /// by the next page of a PDF, so that page break is not heard as a gap by other apps.
+    public func releaseAudioUnlessSpeaking() {
+        guard state != .speaking else { return }
+        speech.releaseAudio()
+    }
+
+    /// Ends the current utterance and returns to the start of the passage without touching the
+    /// audio session. Skipping, jumping and loading the next page of a PDF replace what is
+    /// spoken; only `stop()`, `clear()` and the end of the last document release the session.
+    private func resetPlayback() {
+        invalidateSpeech()
         wasSpeakingWhenInterrupted = false
         leadingPauseSeconds = 0
         lacksWordTiming = false
@@ -596,7 +612,7 @@ public final class ReadAloudSession {
     public func move(to index: Int) {
         guard let document, document.passages.indices.contains(index) else { return }
         let wasSpeaking = state == .speaking
-        stop()
+        resetPlayback()
         passageIndex = index
         state = .paused
         needsRestart = true
@@ -653,7 +669,7 @@ public final class ReadAloudSession {
     private func seek(to index: Int, offset: Int) {
         guard let document, document.passages.indices.contains(index) else { return }
         let wasSpeaking = state == .speaking
-        stop()
+        resetPlayback()
         passageIndex = index
         utteranceStartOffset = offset
         state = .paused
