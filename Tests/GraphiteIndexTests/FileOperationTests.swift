@@ -73,6 +73,13 @@ final class FileOperationTests: XCTestCase {
         XCTAssertTrue(try read("Notes/Linker.md").hasPrefix("[[Notes/New name]] [[Notes/New name#Heading|alias]]"))
     }
 
+    func testANameThatDiffersFromAnotherFileOnlyByANonASCIICapitalGetsAPath() async throws {
+        try write("Other/éclair.md", "another note whose name differs only in the case of É")
+        _ = try await index.reconcile(root: vault)
+        _ = try await move("Notes/Old name.md", "Notes/Éclair.md")
+        XCTAssertTrue(try read("Notes/Linker.md").hasPrefix("[[Notes/Éclair]] [[Notes/Éclair#Heading|alias]]"))
+    }
+
     func testANoteChangedAfterPlanningIsLeftAlone() async throws {
         let plan = try await operations.linkUpdates(forMoving: VaultPath("Notes/Old name.md"), to: VaultPath("Notes/New name.md"))
         try write("Other/Deep.md", "edited elsewhere [[Old name]]")
