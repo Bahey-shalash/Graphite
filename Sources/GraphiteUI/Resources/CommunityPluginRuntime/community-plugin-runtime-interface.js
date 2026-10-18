@@ -124,7 +124,7 @@
             this.keymapEventHandlers = [];
         }
         register(modifiers, key, callback) {
-            const handler = { scope: this, modifiers: modifiers ? modifiers.slice().sort().join(',') : null, key: key ? key.toLowerCase() : null, func: callback };
+            const handler = { scope: this, modifiers: modifiers ? Keymap.normalizedModifiers(modifiers) : null, key: key ? key.toLowerCase() : null, func: callback };
             this.keymapEventHandlers.push(handler);
             return handler;
         }
@@ -167,6 +167,11 @@
             if (event.metaKey) modifiers.push('Meta');
             if (event.shiftKey) modifiers.push('Shift');
             return modifiers.sort().join(',');
+        }
+        /// The modifiers a registration lists, in the form `modifiersOf` gives a key event. `Mod` is
+        /// Command on Apple platforms, so a registration with it matches the event's `Meta`.
+        static normalizedModifiers(modifiers) {
+            return modifiers.map((modifier) => (modifier === 'Mod' ? 'Meta' : modifier)).sort().join(',');
         }
         static isModifier(event, modifier) {
             if (modifier === 'Mod') return Boolean(event.metaKey);
