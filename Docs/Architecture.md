@@ -6,7 +6,7 @@ Graphite is a native Apple Pencil-first knowledge and study app that gives an Ob
 
 Graphite is a Swift package with a thin Xcode application target. The intended product includes the full Markdown, notebook, PDF, recording, and knowledge-management requirements. What is implemented and verified today is tracked in `Docs/Coverage.md`, separately from this architecture.
 
-The [SOLID compliance tracker](SOLID.md) assesses the implementation against `RULES.md`. The 2026-09-30 source review found partial compliance: module direction and focused adapters support the standard, while broad workspace responsibilities, direct shared-service access, broad consumer capabilities, and adapter contract gaps remain open. Architecture intent alone does not establish compliance, and this documentation review did not rerun behavioral checks.
+The [SOLID and clean-code standard](solid/README.md) assesses the implementation against `RULES.md` from a line-by-line audit of `b13dec3` (2026-10-18): Core value types, file formats and storage contracts are sound; the coordinating layer (`WorkspaceModel`, no composition root, rules implemented more than once) is not. Its [rule status](solid/rule-status.md) and [finding status](solid/status.md) are the current assessment; architecture intent alone does not establish compliance.
 
 The most valuable property of the architecture is explicit resource ownership. File access, indexing, open documents, thumbnail generation, and recording have separate lifetimes and queues. Opening a document does not depend on initial indexing completing. Typing does not publish changes to a vault-sized observable collection.
 

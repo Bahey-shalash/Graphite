@@ -892,7 +892,7 @@ Not established: how the sharper PDF ink, and writing while zoomed, look and fee
 
 ## SOLID compliance review: 2026-09-30
 
-The [SOLID compliance tracker](SOLID.md) records the current source assessment against `RULES.md`, with evidence for each principle, adapter/test limitations, and prioritized open work. Overall compliance is partial. The review covered module dependencies, storage, workspace/document sessions, Bases providers, conflict-version adapters, video capture, editor retention, and shared Pencil/PDF services. It identified broad workspace dependencies, direct shared-service access, and differences between declared adapter contracts and test/production behavior.
+The [SOLID and clean-code standard](solid/README.md) assesses the implementation against `RULES.md` from a line-by-line audit of `b13dec3` (2026-10-18): Core value types, file formats and storage contracts are sound; the coordinating layer (`WorkspaceModel`, no composition root, rules implemented more than once) is not. Its [rule status](solid/rule-status.md) and [finding status](solid/status.md) are the current assessment; architecture intent alone does not establish compliance.
 
 This was a documentation and source-review update. Existing test assertions were inspected, but no tests, builds, simulator interactions, or device checks ran for it. It adds no implemented behavior or fresh passing-test claim. Earlier verification entries below retain their original scope and dates.
 
