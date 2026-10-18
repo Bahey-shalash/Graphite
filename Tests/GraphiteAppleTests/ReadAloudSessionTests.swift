@@ -285,6 +285,7 @@ final class ReadAloudSessionTests: XCTestCase {
         XCTAssertEqual(session.state, .finished)
         let releasesWhileContinuing = speech.releaseCount
         session.load(try ReadAloudDocument.plainText("Last."))
+        XCTAssertEqual(speech.releaseCount, releasesWhileContinuing, "Loading the next page keeps the audio the finish asked to keep.")
         session.play()
         session.didFinishDocument = { false }
         speech.eventHandler?(.finished(try XCTUnwrap(speech.requests.last?.identifier)))

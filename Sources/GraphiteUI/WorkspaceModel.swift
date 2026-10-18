@@ -188,6 +188,7 @@ final class WorkspaceModel {
         }
         navigator.visiblePageIndex = { [weak self] in self?.pdfSession?.currentPageIndex }
         navigator.vaultRoot = { [weak self] in self?.folderAccess?.root }
+        navigator.vaultIdentifier = { [weak self] in self?.currentVaultIdentifier }
         return navigator
     }()
     /// The open vault's Obsidian community plugins.

@@ -35,6 +35,8 @@ final class ReadAloudNavigator {
     /// The vault's folder. A PDF is read under its file's location, not its place in the
     /// vault, which the history, the queue and remembered places need.
     @ObservationIgnored var vaultRoot: (() -> URL?)?
+    /// The open vault's identifier. A note's remembered place belongs to the note of this vault.
+    @ObservationIgnored var vaultIdentifier: (() -> UUID?)?
     /// Where the first visible line of the note being read starts, from the view showing it.
     @ObservationIgnored var visibleLocation: (() -> Int?)?
     /// The first page shown of the PDF being read.
@@ -173,7 +175,7 @@ final class ReadAloudNavigator {
     /// again. The close button stops and closes the player.
     func stopAndRewind() {
         resumedFromRememberedPlace = false
-        reader.session.stop()
+        reader.stopReading()
         reader.session.move(to: 0)
     }
 
@@ -338,23 +340,37 @@ final class ReadAloudNavigator {
 
     /// Where reading stopped in a note (a source location) or a PDF (a page index).
     func rememberedLocation(for identifier: String) -> Int? {
-        Self.rememberedLocation(for: identifier, preferences: preferences)
+        Self.rememberedLocation(for: placeKey(forIdentifier: identifier), preferences: preferences)
     }
 
     static func rememberedLocation(for identifier: String, preferences: UserDefaults = .standard) -> Int? {
         (preferences.dictionary(forKey: positionsKey) as? [String: Int])?[identifier]
     }
 
+    /// The key a place is kept under. A note is identified by its path in the vault, which other
+    /// vaults share (`README.md`, daily notes), so its key names the open vault too; a PDF is
+    /// identified by its file's location, which is its own. A bare note path among the stored
+    /// places is never read as a note's place: it cannot say which vault it belongs to.
+    static func placeKey(forIdentifier identifier: String, inVault vaultIdentifier: UUID?) -> String {
+        guard let vaultIdentifier, !identifier.hasPrefix("/") else { return identifier }
+        return vaultIdentifier.uuidString + "|" + identifier
+    }
+
+    private func placeKey(forIdentifier identifier: String) -> String {
+        Self.placeKey(forIdentifier: identifier, inVault: vaultIdentifier?())
+    }
+
     func forgetLocation(for identifier: String) {
         var positions = preferences.dictionary(forKey: Self.positionsKey) as? [String: Int] ?? [:]
-        positions[identifier] = nil
+        positions[placeKey(forIdentifier: identifier)] = nil
         preferences.set(positions, forKey: Self.positionsKey)
     }
 
     /// Keeps the place, forgetting the place least recently kept once there are too many.
     /// The places were dropped in alphabetical order, so a note named early in the
     /// alphabet lost its place to every new one.
-    func remember(_ location: Int, for identifier: String) {
+    func remember(_ location: Int, for sourceIdentifier: String) {
+        let identifier = placeKey(forIdentifier: sourceIdentifier)
         var positions = preferences.dictionary(forKey: Self.positionsKey) as? [String: Int] ?? [:]
         positions[identifier] = location
         var order = (preferences.stringArray(forKey: Self.positionsOrderKey) ?? []).filter { keptIdentifier in
