@@ -378,8 +378,10 @@ final class WorkspaceModel {
 
     func reloadVaultSettings() async {
         guard let store else { return }
-        templateSettings = await store.templateSettings()
-        dailyNoteSettings = await store.dailyNoteSettings()
+        do {
+            templateSettings = try await store.templateSettings()
+            dailyNoteSettings = try await store.dailyNoteSettings()
+        } catch { errorMessage = "Graphite could not read the Templates or Daily notes settings in this vault. " + error.localizedDescription }
         await reloadBookmarks()
         await reloadVaultAppearance()
         do {
