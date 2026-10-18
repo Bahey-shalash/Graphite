@@ -744,20 +744,9 @@ enum HeadingLocator {
     /// outline lists body headings outside code, so frontmatter and code are skipped: a
     /// YAML comment such as `# Summary` is not a heading.
     static func lineLocation(ofHeadingWithAnchor anchor: String, occurrence: Int = 0, in source: NSString) -> Int? {
-        var lineStart = FrontmatterLocator.length(in: source)
-        var fenceTracker = CodeFenceTracker()
-        var remainingOccurrences = occurrence
-        while lineStart < source.length {
-            let lineRange = source.lineRange(for: NSRange(location: lineStart, length: 0))
-            let line = source.substring(with: lineRange)
-            let isCodeLine = fenceTracker.isCodeLine(line.trimmingCharacters(in: .whitespacesAndNewlines))
-            if !isCodeLine, let heading = NotePreviewDocument.outline(of: line).first, heading.anchor == anchor {
-                if remainingOccurrences == 0 { return lineRange.location }
-                remainingOccurrences -= 1
-            }
-            lineStart = NSMaxRange(lineRange)
-        }
-        return nil
+        let frontmatterLength = FrontmatterLocator.length(in: source)
+        return NotePreviewDocument.headingLineLocation(ofHeadingWithAnchor: anchor, occurrence: occurrence, in: source.substring(from: frontmatterLength))
+            .map { bodyLocation in frontmatterLength + bodyLocation }
     }
 }
 
