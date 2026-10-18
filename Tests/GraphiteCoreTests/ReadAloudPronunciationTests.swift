@@ -86,7 +86,9 @@ final class ReadAloudPronunciationTests: XCTestCase {
         XCTAssertEqual(merged.pronunciation(of: "SIMDRAM")?.say, "simdram")
         XCTAssertEqual(merged.pronunciation(of: "HBM")?.say, "H B M")
         XCTAssertEqual(ReadAloudPronunciations.standard.merging(vaultFile: Data("not json".utf8)), .standard)
-        let written = try ReadAloudPronunciations.vaultFileData(for: [("LUT", "L U T"), ("", "x")])
+        let written = try ReadAloudPronunciations.vaultFileData(for: [
+            .init(term: "LUT", pronunciation: .init(say: "L U T")), .init(term: "", pronunciation: .init(say: "x"))
+        ])
         XCTAssertEqual(ReadAloudPronunciations.vaultEntries(in: written).map(\.term), ["LUT"])
     }
 }
