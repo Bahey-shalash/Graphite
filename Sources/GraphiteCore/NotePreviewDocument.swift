@@ -790,6 +790,8 @@ extension NotePreviewDocument {
         let lines = markdown.components(separatedBy: "\n")
         guard lines.count > 1, lines.count == located.lineStartOffsets.count,
               referenceDefinitionPattern?.firstMatch(in: markdown, range: NSRange(location: 0, length: (markdown as NSString).length)) == nil else { return [located] }
+        // swift-markdown overflows its stack on a run nested past the limit, so such a run stays whole.
+        guard !MarkdownNesting.exceedsSafeDepth(markdown) else { return [located] }
         var sections: [LocatedBlock] = []
         for child in Document(parsing: markdown).children {
             guard let range = child.range else { return [located] }
