@@ -606,6 +606,15 @@
                 await this.replaceView(new EmptyView(this));
                 return;
             }
+            if (this.kind === 'mirror') {
+                // The mirror leaf stands for the note's tab, which Graphite draws. A plugin view
+                // opened "in the current tab" gets a leaf of its own, and Graphite shows it in
+                // the note's tab after saving the note's work.
+                const tabLeaf = workspace.createPluginLeaf('tab');
+                tabLeaf.replacesCurrentTab = true;
+                await tabLeaf.setViewState(viewState, ephemeralState);
+                return;
+            }
             const viewCreator = workspace.viewCreatorsByType.get(viewState.type);
             if (!viewCreator) {
                 // As in Obsidian, a leaf keeps a view state whose type no plugin has registered
@@ -652,7 +661,7 @@
             const workspace = this.app.workspace;
             workspace.revealedLeaf = this;
             workspace.notifyLeavesChanged();
-            hostBridge.notify('view.reveal', { leafIdentifier: this.id, placement: placementOf(this) });
+            hostBridge.notify('view.reveal', { leafIdentifier: this.id, placement: placementOf(this), ...(this.replacesCurrentTab ? { replacesCurrentTab: true } : {}) });
         }
         async openFile(file, openState) {
             // As in Obsidian, a note opens through setViewState, which plugins patch to show
@@ -908,7 +917,7 @@
             this.revealedLeaf = leaf;
             this.setActiveLeaf(leaf);
             this.notifyLeavesChanged();
-            hostBridge.notify('view.reveal', { leafIdentifier: leaf.id, placement: placementOf(leaf) });
+            hostBridge.notify('view.reveal', { leafIdentifier: leaf.id, placement: placementOf(leaf), ...(leaf.replacesCurrentTab ? { replacesCurrentTab: true } : {}) });
         }
         async openLinkText(linktext, sourcePath, newLeaf) {
             const { path, subpath } = parseLinktext(linktext);

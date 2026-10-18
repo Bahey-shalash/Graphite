@@ -13,6 +13,39 @@ struct PendingMove: Identifiable {
     let queuedMoves = QueuedMoves()
 }
 
+/// What a request to move or rename an item came to.
+enum FileMoveOutcome: Equatable {
+    /// The item is at its new place.
+    case moved
+    case refused(FileMoveRefusal)
+    /// The person is asked whether to update links; the answer completes the move.
+    case awaitingAnswer
+    /// Another move's question is open; this move runs once it is answered.
+    case queued
+}
+
+/// Why a move did not happen.
+enum FileMoveRefusal: Equatable {
+    case noVaultOpen
+    case alreadyMoving
+    case destinationTaken(VaultPath)
+    case vaultStillBeingRead(movedName: String)
+    /// The person dismissed the "Update links?" question without answering it.
+    case cancelled(movedName: String)
+    case failed(message: String)
+
+    var message: String {
+        switch self {
+        case .noVaultOpen: "No vault is open."
+        case .alreadyMoving: "The item is already being moved."
+        case .destinationTaken(let destination): "“\(destination.rawValue)” already exists."
+        case .vaultStillBeingRead(let movedName): "Graphite is still reading the vault, so the links to “\(movedName)” cannot be updated yet. Try again when reading has finished."
+        case .cancelled(let movedName): "“\(movedName)” was not renamed."
+        case .failed(let message): message
+        }
+    }
+}
+
 /// Shared by every copy of a `PendingMove`: the dialog answers with the copy it was
 /// shown with, which may predate the moves queued behind it.
 final class QueuedMoves {
@@ -82,23 +115,28 @@ extension WorkspaceModel {
     }
 
     /// Plans the link updates; asks first unless "Automatically update internal links" is on.
-    func move(_ path: VaultPath, to destination: VaultPath) async {
-        guard let fileOperations, !pathsBeingMoved.contains(path) else { return }
+    @discardableResult
+    func move(_ path: VaultPath, to destination: VaultPath) async -> FileMoveOutcome {
+        guard let fileOperations else { return .refused(.noVaultOpen) }
+        guard !pathsBeingMoved.contains(path) else { return .refused(.alreadyMoving) }
         // A drop of several items asks one question at a time; the rest wait for its answer,
         // and their links are planned only once the earlier moves are done.
         if let pendingMove {
-            if pendingMove.path != path { pendingMove.queuedMoves.append(path, to: destination) }
-            return
+            if pendingMove.path == path { return .awaitingAnswer }
+            pendingMove.queuedMoves.append(path, to: destination)
+            return .queued
         }
         if isTakenByAnotherItem(destination, movingFrom: path) {
-            errorMessage = "“\(destination.rawValue)” already exists."
-            return
+            let refusal = FileMoveRefusal.destinationTaken(destination)
+            errorMessage = refusal.message
+            return .refused(refusal)
         }
         // Notes linking to the item are found through the index. Before its first scan
         // finishes, some would be missed and their links silently left broken.
         guard hasCompletedIndexScan else {
-            errorMessage = "Graphite is still reading the vault, so the links to “\(path.name)” cannot be updated yet. Try again when reading has finished."
-            return
+            let refusal = FileMoveRefusal.vaultStillBeingRead(movedName: path.name)
+            errorMessage = refusal.message
+            return .refused(refusal)
         }
         pathsBeingMoved.insert(path)
         defer { pathsBeingMoved.remove(path) }
@@ -112,12 +150,17 @@ extension WorkspaceModel {
             if let pendingMove {
                 // Another move asked its question while this one was being planned.
                 pendingMove.queuedMoves.append(path, to: destination)
+                return .queued
             } else if plan.changedLinkCount > 0 && !vaultSettings.updatesLinksAutomatically {
                 pendingMove = PendingMove(path: path, destination: destination, plan: plan)
+                return .awaitingAnswer
             } else {
-                await completeMove(path, to: destination, plan: plan, updatesLinks: true)
+                return await completeMove(path, to: destination, plan: plan, updatesLinks: true)
             }
-        } catch { errorMessage = error.localizedDescription }
+        } catch {
+            errorMessage = error.localizedDescription
+            return .refused(.failed(message: error.localizedDescription))
+        }
     }
 
     /// The person's answer to "Update links?". The move is passed in: the dialog clears
@@ -130,13 +173,17 @@ extension WorkspaceModel {
             settings.updatesLinksAutomatically = true
             await updateVaultSettings(settings)
         }
-        await completeMove(pendingMove.path, to: pendingMove.destination, plan: pendingMove.plan, updatesLinks: updatesLinks)
+        answeredMoveOutcomes[pendingMove.path] = await completeMove(pendingMove.path, to: pendingMove.destination, plan: pendingMove.plan, updatesLinks: updatesLinks)
         // A queued move that needs its own question asks it, and the rest queue behind that one.
-        for request in pendingMove.queuedMoves.removeAll() { await move(request.path, to: request.destination) }
+        for request in pendingMove.queuedMoves.removeAll() {
+            let outcome = await move(request.path, to: request.destination)
+            // A move that asks its own question is answered by a later `resolve`.
+            if outcome != .awaitingAnswer && outcome != .queued { answeredMoveOutcomes[request.path] = outcome }
+        }
     }
 
-    private func completeMove(_ path: VaultPath, to destination: VaultPath, plan: LinkUpdatePlan, updatesLinks: Bool) async {
-        guard let fileOperations else { return }
+    private func completeMove(_ path: VaultPath, to destination: VaultPath, plan: LinkUpdatePlan, updatesLinks: Bool) async -> FileMoveOutcome {
+        guard let fileOperations else { return .refused(.noVaultOpen) }
         do {
             // Changes made while the question was open are saved before anything moves.
             try await saveOpenDocuments()
@@ -164,7 +211,11 @@ extension WorkspaceModel {
                 problems.append(Self.describeNotesNotUpdated(report.failures, movedItemName: destination.name))
             }
             if !problems.isEmpty { errorMessage = problems.joined(separator: "\n\n") }
-        } catch { errorMessage = error.localizedDescription }
+            return .moved
+        } catch {
+            errorMessage = error.localizedDescription
+            return .refused(.failed(message: error.localizedDescription))
+        }
     }
 
     /// Whether another file or folder already has `destination`'s name. A change of

@@ -15,11 +15,12 @@ extension CommunityPluginHost {
     }
 
     /// Shows a view where it belongs, as `revealLeaf` asks.
-    func revealView(_ identifier: String) {
+    func revealView(_ identifier: String, replacesCurrentTab: Bool = false) {
         guard let view = pluginView(withIdentifier: identifier) else { return }
         switch view.placement {
         case .sidebar: sidebarViewRequest = CommunityPluginSidebarRequest(viewIdentifier: identifier)
-        case .tab: workspace?.openPluginViewInTab(identifier)
+        case .tab:
+            if replacesCurrentTab { Task { await workspace?.openPluginViewInCurrentTab(identifier) } } else { workspace?.openPluginViewInTab(identifier) }
         case .split: workspace?.openPluginViewBeside(identifier)
         }
     }
@@ -202,6 +203,25 @@ extension WorkspaceModel {
         show(pluginView: identifier, inTab: layout.activeTab.id)
     }
 
+    /// Shows a plugin view in the focused tab in place of what the tab shows, as a view opened
+    /// "in the current tab" replaces it in Obsidian. The tab's work is saved first; when it
+    /// cannot be saved the tab stays as it is. A pinned tab keeps its file, and the view opens
+    /// in a tab beside it.
+    func openPluginViewInCurrentTab(_ identifier: String) async {
+        let replacedTab = layout.activeTab
+        guard replacedTab.path != nil, !replacedTab.isPinned else {
+            openPluginViewInTab(identifier)
+            return
+        }
+        guard await saveBeforeClosing([replacedTab.id]) else { return }
+        // The replaced tab closes only if the person has not moved on to another meanwhile.
+        guard layout.tab(withID: replacedTab.id)?.path == replacedTab.path else { return }
+        let viewTabID = layout.addTab()
+        show(pluginView: identifier, inTab: viewTabID)
+        layout.closeTab(replacedTab.id)
+        removeTabDocuments([replacedTab.id])
+    }
+
     private func show(pluginView identifier: String, inTab tabID: UUID) {
         let document = document(for: tabID)
         document.pluginViewIdentifier = identifier
@@ -224,6 +244,7 @@ extension WorkspaceModel {
 
     /// The plugins' views changed: tabs whose view a plugin closed (or that unloaded) become
     /// empty tabs, and what opens the others again after a restart is brought up to date.
+    /// A view closed because the runtime stops is not forgotten.
     func pluginViewsDidChange() {
         let host = communityPlugins
         for document in tabDocuments.values {
@@ -233,7 +254,8 @@ extension WorkspaceModel {
             } else {
                 host.liveViewPictures[identifier] = nil
                 document.pluginViewIdentifier = nil
-                document.restorablePluginView = nil
+                // Plugins that unload close their views too; those views open again with them.
+                if !host.runtimePhase.isStopping { document.restorablePluginView = nil }
             }
         }
         if host.hasRestoredViews {
@@ -502,7 +524,14 @@ struct CommunityPluginBasesViewContent: View {
     @State private var leafIdentifier: String?
     @State private var didFail = false
 
-    private var resultSignature: [String] { result?.groups.flatMap { group in [group.key?.value?.displayText ?? ""] + group.rows.map(\.path.rawValue) } ?? [] }
+    /// Everything the plugin's view is sent for `result` (`basesMessage`), as comparable
+    /// data: the view is sent the results again when this changes, so formula values and
+    /// columns reach it as well as the rows.
+    static func updateKey(for result: BaseQueryResult?) -> Data {
+        guard let result else { return Data() }
+        // `basesMessage` holds only JSON values (`pluginValue` turns non-finite numbers into null), so the encoding cannot fail.
+        return (try? JSONSerialization.data(withJSONObject: CommunityPluginHost.basesMessage(result), options: [.sortedKeys])) ?? Data()
+    }
 
     var body: some View {
         Group {
@@ -520,7 +549,7 @@ struct CommunityPluginBasesViewContent: View {
             leafIdentifier = await host.openBasesView(type: viewType, viewName: view.name, viewIndex: view.id, source: source, result: result)
             didFail = leafIdentifier == nil
         }
-        .onChange(of: resultSignature) {
+        .onChange(of: Self.updateKey(for: result)) {
             if let leafIdentifier, let result { host.updateBasesView(leafIdentifier, result: result) }
         }
         .onDisappear {
