@@ -44,35 +44,49 @@ public struct GraphiteMacScenes: Scene {
 /// cancelled the save that was waiting.
 public final class GraphiteApplicationDelegate: NSObject, NSApplicationDelegate {
     @MainActor static weak var workspaceToSave: WorkspaceModel?
-    /// How long quitting waits for the saves, so a file another app holds cannot keep
-    /// Graphite from quitting.
+    /// How long quitting waits for the saves. A save still running then keeps running and
+    /// Graphite stays open, so what was typed is not lost to a file another app holds.
     private static let saveDeadline = Duration.seconds(5)
 
     @MainActor public func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let workspace = Self.workspaceToSave else { return .terminateNow }
-        let reply = TerminationReply(application: sender)
+        let reply = TerminationReply(application: sender, workspace: workspace)
         Task { @MainActor in
-            try? await workspace.saveOpenDocuments()
-            reply.allowTermination()
+            do {
+                try await workspace.saveOpenDocuments()
+                reply.finish(with: .succeeded)
+            } catch { reply.finish(with: .failed(error)) }
         }
-        Task { @MainActor in
-            try? await Task.sleep(for: Self.saveDeadline)
-            reply.allowTermination()
+        reply.deadline = Task { @MainActor in
+            do { try await Task.sleep(for: Self.saveDeadline) } catch { return }
+            reply.finish(with: .timedOut)
         }
         return .terminateLater
     }
 
     /// Answers the application once, whichever of the saves and the deadline ends first.
+    /// The application quits only when every save succeeded; otherwise it stays open and
+    /// the workspace shows why.
     @MainActor private final class TerminationReply {
         private let application: NSApplication
+        private let workspace: WorkspaceModel
         private var hasReplied = false
+        var deadline: Task<Void, Never>?
 
-        init(application: NSApplication) { self.application = application }
+        init(application: NSApplication, workspace: WorkspaceModel) {
+            self.application = application
+            self.workspace = workspace
+        }
 
-        func allowTermination() {
+        func finish(with outcome: QuitSaveOutcome) {
             guard !hasReplied else { return }
             hasReplied = true
-            application.reply(toApplicationShouldTerminate: true)
+            deadline?.cancel()
+            let decision = QuitSaveDecision(outcome: outcome)
+            if let blockingReason = decision.blockingReason {
+                workspace.errorMessage = blockingReason.presentedMessage
+            }
+            application.reply(toApplicationShouldTerminate: decision.allowsTermination)
         }
     }
 }
