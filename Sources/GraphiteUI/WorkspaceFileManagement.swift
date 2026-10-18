@@ -29,13 +29,14 @@ final class QueuedMoves {
     }
 }
 
-/// Text typed into an open note while its file was moving, for the note's new place.
+/// Changes made to an open note or canvas while its file was moving, for its new place.
 private struct EditDuringMove {
     let newPath: VaultPath
-    let text: String
-    /// Whether the file starts with a byte order mark, which the edit keeps.
-    let hasByteOrderMark: Bool
-    /// The note's file as it was just before the move, which the text was typed over;
+    /// The whole file as the open document would save it.
+    let data: Data
+    /// The extension of the copy kept beside the moved file when it changed during the move.
+    let copyExtension: String
+    /// The file as it was just before the move, which the changes were made over;
     /// nil when it could not be read then.
     let revisionBeforeMove: FileRevision?
 }
@@ -139,7 +140,7 @@ extension WorkspaceModel {
         do {
             // Changes made while the question was open are saved before anything moves.
             try await saveOpenDocuments()
-            let revisionsBeforeMove = await revisionsOfOpenNotes(inside: path)
+            let revisionsBeforeMove = await revisionsOfOpenDocuments(inside: path)
             let report = try await fileOperations.move(path, to: destination, applying: updatesLinks ? plan : nil)
             // Read before the tabs let go of their sessions, with no suspension in between,
             // so every keystroke made during the move is kept.
@@ -178,8 +179,8 @@ extension WorkspaceModel {
         return !sourceIdentifier.isEqual(destinationIdentifier)
     }
 
-    /// The file revisions of open notes inside `path`, just before it moves.
-    private func revisionsOfOpenNotes(inside path: VaultPath) async -> [VaultPath: FileRevision] {
+    /// The file revisions of open notes and canvases inside `path`, just before it moves.
+    private func revisionsOfOpenDocuments(inside path: VaultPath) async -> [VaultPath: FileRevision] {
         guard let store else { return [:] }
         var revisions: [VaultPath: FileRevision] = [:]
         for session in tabDocuments.values.compactMap(\.markdownSession) where session.path.isInside(path) {
@@ -187,40 +188,53 @@ extension WorkspaceModel {
             // it during the move is kept as a separate copy instead.
             revisions[session.path] = try? await store.read(session.path, maximumBytes: MarkdownSession.maximumEditableBytes).revision
         }
+        for session in tabDocuments.values.compactMap(\.canvasSession) where session.path.isInside(path) {
+            // As for a note: a canvas that cannot be read now is kept as a separate copy.
+            revisions[session.path] = try? await store.read(session.path, maximumBytes: CanvasFile.maximumSourceBytes).revision
+        }
         return revisions
     }
 
-    /// Open notes inside the moved item with text not yet saved, typed while it moved.
+    /// Open notes and canvases inside the moved item with changes not yet saved, made while it moved.
     private func unsavedEdits(inside path: VaultPath, movedTo destination: VaultPath, revisionsBeforeMove: [VaultPath: FileRevision]) -> [EditDuringMove] {
-        tabDocuments.values.compactMap(\.markdownSession).compactMap { session in
+        let noteEdits = tabDocuments.values.compactMap(\.markdownSession).compactMap { session -> EditDuringMove? in
             guard session.path.isInside(path), session.hasUnsavedChanges,
                   let newPath = try? session.path.replacingPrefix(path, with: destination) else { return nil }
-            return EditDuringMove(newPath: newPath, text: session.text, hasByteOrderMark: session.hasByteOrderMark, revisionBeforeMove: revisionsBeforeMove[session.path])
+            return EditDuringMove(newPath: newPath, data: NoteTextEncoding.encode(session.text, hasByteOrderMark: session.hasByteOrderMark),
+                                  copyExtension: "md", revisionBeforeMove: revisionsBeforeMove[session.path])
         }
+        let canvasEdits = tabDocuments.values.compactMap(\.canvasSession).compactMap { session -> EditDuringMove? in
+            guard session.path.isInside(path), let newPath = try? session.path.replacingPrefix(path, with: destination) else { return nil }
+            // Text typed into a card is part of the file only once committed.
+            session.commitTextEdit()
+            guard session.hasUnsavedChanges else { return nil }
+            return EditDuringMove(newPath: newPath, data: session.file.data, copyExtension: "canvas", revisionBeforeMove: revisionsBeforeMove[session.path])
+        }
+        return noteEdits + canvasEdits
     }
 
-    /// Writes text typed during a move into the note at its new place. A note that the
-    /// move itself changed (its own links were rewritten) keeps that version, and the typed
-    /// text is saved beside it as a separate copy, so neither is lost.
-    /// - Returns: The notes written, and a message for each edit saved as a copy or not saved.
+    /// Writes changes made during a move into the note or canvas at its new place. A file
+    /// that the move itself changed (a note's own links were rewritten) keeps that version,
+    /// and the changes are saved beside it as a separate copy, so neither is lost.
+    /// - Returns: The files written, and a message for each edit saved as a copy or not saved.
     private func saveEditsMadeDuringMove(_ edits: [EditDuringMove]) async -> (writtenPaths: [VaultPath], problems: [String]) {
         guard let store else { return ([], []) }
         var writtenPaths: [VaultPath] = []
         var problems: [String] = []
         for edit in edits {
-            let data = NoteTextEncoding.encode(edit.text, hasByteOrderMark: edit.hasByteOrderMark)
+            let data = edit.data
             do {
                 guard let revisionBeforeMove = edit.revisionBeforeMove else { throw GraphiteError.conflict }
                 _ = try await store.save(data, at: edit.newPath, expecting: .revision(revisionBeforeMove))
                 writtenPaths.append(edit.newPath)
             } catch {
                 do {
-                    let copyPath = try await store.uniquePath(directory: edit.newPath.parent, stem: edit.newPath.stem + " Graphite edits", extension: "md")
+                    let copyPath = try await store.uniquePath(directory: edit.newPath.parent, stem: edit.newPath.stem + " Graphite edits", extension: edit.copyExtension)
                     _ = try await store.save(data, at: copyPath, expecting: .absent)
                     writtenPaths.append(copyPath)
-                    problems.append("“\(edit.newPath.name)” changed while it moved, so the text typed meanwhile was saved separately as “\(copyPath.name)”.")
+                    problems.append("“\(edit.newPath.name)” changed while it moved, so the changes made meanwhile were saved separately as “\(copyPath.name)”.")
                 } catch {
-                    problems.append("The text typed into “\(edit.newPath.name)” while it moved could not be saved. " + error.localizedDescription)
+                    problems.append("The changes made to “\(edit.newPath.name)” while it moved could not be saved. " + error.localizedDescription)
                 }
             }
         }
