@@ -628,10 +628,7 @@ final class PDFPageCanvasView: HistoryCanvasView {
     static func tool(_ tool: PKTool, scaledBy scale: CGFloat) -> PKTool {
         guard scale > 0, scale != 1 else { return tool }
         if let inkingTool = tool as? PKInkingTool {
-            if #available(iOS 26.0, *) {
-                return PKInkingTool(inkingTool.inkType, color: inkingTool.color, width: inkingTool.width * scale, azimuth: inkingTool.azimuth)
-            }
-            return PKInkingTool(inkingTool.inkType, color: inkingTool.color, width: inkingTool.width * scale)
+            return PKInkingTool(inkingTool.inkType, color: inkingTool.color, width: inkingTool.width * scale, azimuth: inkingTool.azimuth)
         }
         if let eraserTool = tool as? PKEraserTool {
             return PKEraserTool(eraserTool.eraserType, width: eraserTool.width * scale)

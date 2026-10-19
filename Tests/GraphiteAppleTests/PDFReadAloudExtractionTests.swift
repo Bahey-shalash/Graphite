@@ -12,7 +12,6 @@ final class PDFReadAloudExtractionTests: XCTestCase {
                                      "Our experiment has a second outcome.", "This is the final right column sentence."]
 
     func testMixedColumnsAndSpanningHeadingKeepEveryOriginalWordAndCoordinate() async throws {
-        guard #available(macOS 26, iOS 26, *) else { throw XCTSkip("Document layout recognition requires operating system 26.") }
         let bytes = try Self.fixture()
         let page = try await PDFReadAloudExtraction().page(in: bytes, readingOrder: .layout)
         XCTAssertTrue(page.usesLayout, page.layoutNotice ?? "")
@@ -38,7 +37,6 @@ final class PDFReadAloudExtractionTests: XCTestCase {
     }
 
     func testNativeRangeEndpointsMapIntoThePreparedColumnOrder() async throws {
-        guard #available(macOS 26, iOS 26, *) else { throw XCTSkip("Document layout recognition requires operating system 26.") }
         let page = try await PDFReadAloudExtraction().page(in: Self.fixture(), readingOrder: .layout)
         XCTAssertTrue(page.usesLayout)
         let original = page.originalText as NSString
@@ -76,7 +74,7 @@ final class PDFReadAloudExtractionTests: XCTestCase {
     func testSingleColumnAndTableFallbackRetainAllOriginalText() async throws {
         let extraction = PDFReadAloudExtraction()
         let singleColumn = try await extraction.page(in: Self.fixture(isSingleColumn: true), readingOrder: .layout)
-        if #available(macOS 26, iOS 26, *) { XCTAssertTrue(singleColumn.usesLayout) }
+        XCTAssertTrue(singleColumn.usesLayout)
         XCTAssertEqual(singleColumn.text.split(whereSeparator: \.isWhitespace),
                        singleColumn.originalText.split(whereSeparator: \.isWhitespace))
         let table = try await extraction.page(in: Self.fixture(isTable: true), readingOrder: .layout)

@@ -36,8 +36,7 @@ final class MoviePartWriter {
         case failed(Error?)
     }
 
-    /// Where one track's samples go: the input's receiver from macOS 26 and iOS 26 on, the
-    /// input itself before.
+    /// Where one track's samples go: the receiver of the track's input.
     fileprivate struct Track {
         /// Appends a sample if the encoder is ready for more, and says whether it was;
         /// throws when the writer failed.
@@ -99,24 +98,9 @@ final class MoviePartWriter {
         }
         startTime = firstVideoFrame.presentationTimeStamp
         videoEndTime = startTime; audioEndTime = startTime
-        if #available(iOS 26, *) {
-            videoTrack = Track(receiver: writer.inputReceiver(for: videoInput))
-            audioTrack = Track(receiver: writer.inputReceiver(for: audioInput))
-            try writer.start()
-        } else {
-            writer.add(videoInput); writer.add(audioInput)
-            videoTrack = Track(appendIfReady: { [writer] sampleBuffer in
-                guard videoInput.isReadyForMoreMediaData else { return false }
-                guard videoInput.append(sampleBuffer) else { throw writer.error ?? GraphiteError.unavailable("The video file could not be written.") }
-                return true
-            }, finish: videoInput.markAsFinished)
-            audioTrack = Track(appendIfReady: { [writer] sampleBuffer in
-                guard audioInput.isReadyForMoreMediaData else { return false }
-                guard audioInput.append(sampleBuffer) else { throw writer.error ?? GraphiteError.unavailable("The video file could not be written.") }
-                return true
-            }, finish: audioInput.markAsFinished)
-            guard writer.startWriting() else { throw writer.error ?? GraphiteError.unavailable("The video file could not be created.") }
-        }
+        videoTrack = Track(receiver: writer.inputReceiver(for: videoInput))
+        audioTrack = Track(receiver: writer.inputReceiver(for: audioInput))
+        try writer.start()
         writer.startSession(atSourceTime: startTime)
         if case .failed(let error) = append(firstVideoFrame, kind: .video) {
             writer.cancelWriting()
@@ -210,7 +194,6 @@ final class MoviePartWriter {
     }
 }
 
-@available(iOS 26, *)
 private extension MoviePartWriter.Track {
     init(receiver: AVAssetWriterInput.SampleBufferReceiver) {
         self.init(appendIfReady: { sampleBuffer in

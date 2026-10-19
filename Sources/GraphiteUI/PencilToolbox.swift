@@ -477,20 +477,15 @@ import UIKit
 import PencilKit
 
 extension PencilInk {
-    /// The inks this system draws with; the reed pen came with iOS 26.
-    static var availableInks: [PencilInk] {
-        if #available(iOS 26.0, *) { return allCases }
-        return allCases.filter { ink in ink != .reedPen }
-    }
+    /// The inks this system draws with.
+    static var availableInks: [PencilInk] { allCases }
 
     var inkType: PKInkingTool.InkType {
         switch self {
         case .pen: return .pen
         case .monoline: return .monoline
         case .fountainPen: return .fountainPen
-        case .reedPen:
-            if #available(iOS 26.0, *) { return .reed }
-            return .fountainPen
+        case .reedPen: return .reed
         case .pencil: return .pencil
         case .crayon: return .crayon
         case .watercolor: return .watercolor

@@ -167,9 +167,6 @@ public actor PDFReadAloudExtraction {
         }
         guard text.utf16.count <= ReadAloudDocument.maximumSourceUTF16Count else { throw ReadAloudError.passageTooLarge }
         guard readingOrder == .layout else { return .fileOrder(text) }
-        guard #available(macOS 26, iOS 26, *) else {
-            return .fileOrder(text, notice: "Layout reading requires macOS 26 or iOS 26. This page uses the file’s text order.")
-        }
         do {
             return try await layoutPage(page, originalText: text)
         } catch is CancellationError { throw CancellationError() }
@@ -179,7 +176,6 @@ public actor PDFReadAloudExtraction {
         }
     }
 
-    @available(macOS 26, iOS 26, *)
     private func layoutPage(_ page: PDFPage, originalText: String) async throws -> PDFReadAloudPage {
         guard page.numberOfCharacters == originalText.utf16.count else {
             throw ReadAloudError.sourceMappingUnavailable
@@ -279,7 +275,7 @@ public actor PDFReadAloudExtraction {
         let raster = try render(page, ignoringPageRotation: true)
         let lines: [RecognizedTextObservation]
         let usesLayout: Bool
-        if #available(macOS 26, iOS 26, *), readingOrder == .layout {
+        if readingOrder == .layout {
             var request = RecognizeDocumentsRequest()
             request.barcodeDetectionOptions.enabled = false
             request.textRecognitionOptions.useLanguageCorrection = false

@@ -81,7 +81,7 @@ final class LaserPointerController: NSObject, UIGestureRecognizerDelegate {
         guard let overlay, let window = canvas.window, touchRecognizer.state == .possible || touchRecognizer.state == .failed else { return }
         switch recognizer.state {
         case .began, .changed:
-            if #available(iOS 16.1, *), recognizer.zOffset > 0 { overlay.showDot(at: recognizer.location(in: window), isHovering: true) }
+            if recognizer.zOffset > 0 { overlay.showDot(at: recognizer.location(in: window), isHovering: true) }
         default:
             overlay.hideDot()
         }

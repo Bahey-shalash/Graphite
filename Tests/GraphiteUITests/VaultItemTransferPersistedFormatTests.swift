@@ -12,7 +12,6 @@ final class VaultItemTransferPersistedFormatTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(VaultItemTransfer.self, from: Data(#"{"path":"Inbox.md"}"#.utf8)).path, "Inbox.md")
     }
 
-    @available(iOS 18.2, macOS 15.2, *)
     func testTheSwiftUIDragExportsTheSameBytesUnderTheVaultItemType() async throws {
         let item = VaultItemTransfer(path: "Course/Week 1.md")
         let exported = try await item.exported(as: .graphiteVaultItem)
@@ -20,7 +19,6 @@ final class VaultItemTransferPersistedFormatTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(VaultItemTransfer.self, from: exported).path, item.path)
     }
 
-    @available(iOS 18.2, macOS 15.2, *)
     func testATabAndAPDFPageAreExportedAsJSONUnderTheirOwnTypes() async throws {
         let tabIdentifier = try XCTUnwrap(UUID(uuidString: "11111111-2222-3333-4444-555555555555"))
         let tab = TabTransfer(tabID: tabIdentifier)

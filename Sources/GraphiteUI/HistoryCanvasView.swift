@@ -112,8 +112,7 @@ class HistoryCanvasView: PKCanvasView {
     }
 
     private static func selectedTool(of toolPicker: PKToolPicker) -> PKTool? {
-        if #available(iOS 26.0, *) { return toolPicker.selectedToolItem.tool }
-        return (toolPicker as any SelectedToolSetting).selectedTool
+        toolPicker.selectedToolItem.tool
     }
 
     /// Gives the canvas its tool: the fixed tool bar's when there is one, else the floating
@@ -141,7 +140,7 @@ class HistoryCanvasView: PKCanvasView {
             paletteToolCorrection = correction
             isRulerActive = toolPicker.isRulerActive
             // Observers hear only later changes; start with the tool already selected.
-            if #available(iOS 26.0, *), let selectedTool = toolPicker.selectedToolItem.tool {
+            if let selectedTool = toolPicker.selectedToolItem.tool {
                 tool = toolForDrawing(selectedTool)
             } else {
                 (self as PKToolPickerObserver).toolPickerSelectedToolItemDidChange?(toolPicker)

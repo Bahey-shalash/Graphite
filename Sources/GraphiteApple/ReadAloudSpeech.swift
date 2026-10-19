@@ -528,11 +528,8 @@ public final class ReadAloudSession {
         return automaticVoice?.isCompact ?? true
     }
 
-    /// Where the system keeps its voices: "Read & Speak" since iOS 27, "Spoken Content" before.
-    public static var systemSpeechSettingsName: String {
-        if #available(iOS 27, macOS 27, *) { return "Read & Speak" }
-        return "Spoken Content"
-    }
+    /// Where the system keeps its voices.
+    public static var systemSpeechSettingsName: String { "Read & Speak" }
 
     public static var voiceDownloadPath: String {
         #if os(macOS)

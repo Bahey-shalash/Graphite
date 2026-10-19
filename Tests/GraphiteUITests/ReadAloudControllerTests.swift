@@ -442,7 +442,7 @@ final class ReadAloudControllerTests: XCTestCase {
                             end: PDFReadAloudEndpoint(pageIndex: 0, offset: NSMaxRange(text.range(of: "word.", options: .backwards)), revision: pdf.changeVersion))
         try await waitForPreparation(reader, timeout: .seconds(30))
         XCTAssertNil(reader.errorMessage)
-        if #available(macOS 26, *) { XCTAssertTrue(reader.sourceHighlightNotice?.contains("on-device") == true) }
+        XCTAssertTrue(reader.sourceHighlightNotice?.contains("on-device") == true)
         XCTAssertEqual(reader.session.currentPassage?.text, "repeated word.")
         reader.session.play()
         let originalRequest = try XCTUnwrap(speech.requests.last?.identifier)
