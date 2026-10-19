@@ -186,6 +186,9 @@ final class CommunityPluginHost {
     private(set) var commands: [CommunityPluginCommand] = []
     private(set) var ribbonActions: [CommunityPluginRibbonAction] = []
     var pluginViews: [CommunityPluginView] = []
+    /// Views a plugin asked to show before the list that names them arrived; shown when it does.
+    @ObservationIgnored private var revealsAwaitingTheirView: [(identifier: String, replacesCurrentTab: Bool)] = []
+    private static let maximumRevealsAwaitingTheirView = 16
     var notices: [CommunityPluginNotice] = []
     var pendingMenu: CommunityPluginMenuRequest?
     /// The plugin panel as a sheet over the workspace.
@@ -1034,9 +1037,20 @@ final class CommunityPluginHost {
                                            isLive: view["isLive"] as? Bool == true, filePath: view["filePath"] as? String, state: view["state"] as? String)
             }
             workspace?.pluginViewsDidChange()
+            let awaiting = revealsAwaitingTheirView.filter { reveal in pluginView(withIdentifier: reveal.identifier) != nil }
+            revealsAwaitingTheirView.removeAll { reveal in awaiting.contains { $0.identifier == reveal.identifier } }
+            for reveal in awaiting { revealView(reveal.identifier, replacesCurrentTab: reveal.replacesCurrentTab) }
         case "view.reveal":
             guard let identifier = message["leafIdentifier"] as? String else { return }
-            revealView(identifier, replacesCurrentTab: message["replacesCurrentTab"] as? Bool == true)
+            let replacesCurrentTab = message["replacesCurrentTab"] as? Bool == true
+            // A view is not shown before the list that names it has arrived, and is not dropped either: it
+            // waits for the list.
+            guard pluginView(withIdentifier: identifier) != nil else {
+                revealsAwaitingTheirView.append((identifier, replacesCurrentTab))
+                if revealsAwaitingTheirView.count > Self.maximumRevealsAwaitingTheirView { revealsAwaitingTheirView.removeFirst() }
+                return
+            }
+            revealView(identifier, replacesCurrentTab: replacesCurrentTab)
         case "codeBlocks.changed":
             let languages = Set(message["languages"] as? [String] ?? [])
             codeBlockLanguageOwners = message["owners"] as? [String: String] ?? [:]
