@@ -2,6 +2,7 @@ import XCTest
 import WebKit
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// `CommunityPluginSchemeHandler` serving the plugin web view: the runtime page's address, the
 /// vault files under `graphite-plugins://vault/`, and what is refused. The page fetches the
@@ -147,14 +148,13 @@ final class CommunityPluginSchemeHandlerTests: XCTestCase {
         let handler = CommunityPluginSchemeHandler(vaultRoot: vault)
         let task = RecordingSchemeTask(request: URLRequest(url: try XCTUnwrap(URL(string: address))))
         handler.webView(WKWebView(), start: task)
-        await task.waitUntilFinished()
+        await task.awaitFinish()
         return ServedAnswer(status: task.response?.statusCode ?? 0, headers: task.response?.allHeaderFields as? [String: String] ?? [:], body: task.body)
     }
 
     private func makeVault(files: [String: String]) throws -> URL {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("SchemeHandlerVault-\(UUID().uuidString)").resolvingSymlinksInPath()
+        let vault = try TemporaryVault.make(prefix: "SchemeHandlerVault", for: self).root
         temporaryFolders.append(vault)
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
         for (relativePath, text) in files {
             let location = vault.appendingPathComponent(relativePath)
             try FileManager.default.createDirectory(at: location.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -236,7 +236,7 @@ private final class RecordingSchemeTask: NSObject, WKURLSchemeTask, @unchecked S
     var response: HTTPURLResponse? { lock.withLock { recordedResponse } }
     var body: Data { lock.withLock { recordedBody } }
 
-    func waitUntilFinished() async {
+    func awaitFinish() async {
         await withCheckedContinuation { continuation in
             let isAlreadyFinished = lock.withLock { () -> Bool in
                 if !isFinished { waiter = continuation }

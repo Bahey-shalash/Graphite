@@ -4,19 +4,16 @@ import ImageIO
 import GraphiteCore
 import GraphiteApple
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// Turning, cropping and ordering pictures on PDF pages through the session: each is one
 /// step of the PDF's history, and the saved file shows the result.
 @MainActor
 final class PDFPictureEditingTests: XCTestCase {
-    private let directory = FileManager.default.temporaryDirectory.appendingPathComponent("PDFPictureEditing-\(UUID().uuidString)")
+    private var directory: URL!
 
     override func setUpWithError() throws {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: directory)
+        directory = try TemporaryVault.make(prefix: "PDFPictureEditing", for: self).root
     }
 
     private func openSession(pageRotation: Int = 0) async throws -> (PDFSession, URL) {

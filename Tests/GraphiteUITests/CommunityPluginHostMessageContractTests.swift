@@ -1,6 +1,7 @@
 import XCTest
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 private extension CommunityPluginHost {
     /// Delivers a message as WebKit would hand it over.
@@ -161,7 +162,7 @@ final class CommunityPluginHostMessageContractTests: XCTestCase {
             let answer = await host.deliver(["operation": "menu.show", "items": [["position": 0, "title": "A"] as [String: Any], ["position": 1, "title": "B"] as [String: Any]]]) as? [String: Any]
             return answer?["chosenPosition"] as? Int
         }
-        try await testBed.waitUntil("the menu is waiting for a choice") { host.pendingMenu != nil }
+        try await waitUntil("the menu is waiting for a choice") { host.pendingMenu != nil }
         XCTAssertEqual(host.pendingMenu?.items.map(\.title), ["A", "B"])
         host.pendingMenu?.finish(choosing: 1)
         let chosenPosition = await menuAnswer.value
@@ -271,7 +272,7 @@ final class CommunityPluginHostMessageContractTests: XCTestCase {
         let host = workspace.communityPlugins
 
         try await testBed.runCommand("reach", of: "reaching-plugin", in: workspace)
-        try await testBed.waitUntil("the report arrives") { host.unsupportedFeatures["reaching-plugin"] != nil }
+        try await waitUntil("the report arrives") { host.unsupportedFeatures["reaching-plugin"] != nil }
 
         XCTAssertEqual(host.unsupportedFeatures, ["reaching-plugin": ["Workspace.duplicateLeaf"]], "WebKit loads the plugin from a blob address, which names the plugin too.")
         let errorName = try await testBed.evaluate("return window.reachError;", in: host) as? String

@@ -3,22 +3,16 @@ import GraphiteCore
 import GraphiteIndex
 import GraphiteApple
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// Edits made to an open canvas while the canvas, or a folder holding it, moves.
 @MainActor
 final class WorkspaceModelCanvasEditsDuringMoveTests: XCTestCase {
-    private var temporaryFolders: [URL] = []
     private let cardIdentifier = "1000000000000001"
     private let canvasText = "{\"nodes\":[{\"id\":\"1000000000000001\",\"type\":\"text\",\"text\":\"Original\",\"x\":0,\"y\":0,\"width\":250,\"height\":200}],\"edges\":[]}"
 
-    override func tearDown() async throws {
-        for folder in temporaryFolders { try? FileManager.default.removeItem(at: folder) } // best-effort removal of temporary folders
-        temporaryFolders = []
-    }
-
     private func makeWorkspace(canvasPath: String) async throws -> (WorkspaceModel, URL) {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("CanvasMoveVault-\(UUID().uuidString)").resolvingSymlinksInPath()
-        temporaryFolders.append(vault)
+        let vault = try TemporaryVault.make(prefix: "CanvasMoveVault", for: self).root
         var files = [canvasPath: canvasText, "Sub/Existing.md": ""]
         // Many linking notes make the move long enough to type into the canvas during it.
         for linkerNumber in 1...40 { files["Linker \(linkerNumber).md"] = "[board](\(canvasPath))" }
@@ -27,9 +21,7 @@ final class WorkspaceModelCanvasEditsDuringMoveTests: XCTestCase {
             try FileManager.default.createDirectory(at: location.deletingLastPathComponent(), withIntermediateDirectories: true)
             try Data(contents.utf8).write(to: location)
         }
-        let indexFolder = FileManager.default.temporaryDirectory.appendingPathComponent("CanvasMoveIndex-\(UUID().uuidString)")
-        temporaryFolders.append(indexFolder)
-        try FileManager.default.createDirectory(at: indexFolder, withIntermediateDirectories: true)
+        let indexFolder = try TemporaryVault.make(prefix: "CanvasMoveIndex", for: self).root
         let index = try VaultIndex(databaseURL: indexFolder.appendingPathComponent("index.sqlite"))
         _ = try await index.reconcile(root: vault)
         let workspace = WorkspaceModel()

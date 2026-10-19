@@ -143,7 +143,7 @@ final class PDFInkSafetyTests: XCTestCase {
         palmRejection.state = .began
         palmRejection.state = .changed
         XCTAssertTrue(palmRejection.isUnderWayWithoutTouches)
-        try await waitUntil(seconds: 6) { palmRejection.state == .possible }
+        try await waitUntil(timeoutSeconds: 6) { palmRejection.state == .possible }
         DiagnosticRecords.waitForPendingWrites()
         let newRecords = repairRecords().subtracting(recordsBefore)
         XCTAssertFalse(newRecords.isEmpty, "A record of the repair is kept.")
@@ -236,15 +236,5 @@ final class PDFInkSafetyTests: XCTestCase {
         return true
     }
 
-    private func waitUntil(seconds: Double = 10, _ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(seconds)
-        while !condition() {
-            guard Date() < deadline else {
-                XCTFail("The condition did not become true within \(seconds) seconds")
-                throw CancellationError()
-            }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-    }
 }
 #endif

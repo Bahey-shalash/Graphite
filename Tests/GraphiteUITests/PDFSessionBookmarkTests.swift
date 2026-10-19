@@ -3,6 +3,7 @@ import PDFKit
 import GraphiteCore
 import GraphiteApple
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// A bookmark is a top-level outline item labelled "Page " plus the page's label (or its
 /// number), with its destination at the top-left corner of the page as it is shown.
@@ -11,12 +12,7 @@ final class PDFSessionBookmarkTests: XCTestCase {
     private var directory: URL!
 
     override func setUpWithError() throws {
-        directory = FileManager.default.temporaryDirectory.appendingPathComponent("PDFSessionBookmark-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: directory)
+        directory = try TemporaryVault.make(prefix: "PDFSessionBookmark", for: self).root
     }
 
     /// Four pages of 600 × 800 points turned 0°, 90°, 180° and 270°, with or without roman page labels.

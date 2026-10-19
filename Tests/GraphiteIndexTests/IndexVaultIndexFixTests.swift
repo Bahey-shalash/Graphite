@@ -2,6 +2,7 @@ import XCTest
 import GRDB
 import GraphiteCore
 @testable import GraphiteIndex
+import GraphiteTestSupport
 
 /// Link resolution and backlinks: partial paths, aliases and case differences in any script.
 final class IndexVaultIndexLinkTests: XCTestCase {
@@ -9,12 +10,8 @@ final class IndexVaultIndexLinkTests: XCTestCase {
     private var index: VaultIndex!
 
     override func setUp() async throws {
-        directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        directory = try TemporaryVault.make(prefix: "TemporaryFolder", for: self).root
         index = try VaultIndex(databaseURL: directory.appendingPathComponent("index.sqlite"))
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: directory)
     }
 
     private func note(_ path: String, _ markdown: String?) throws -> IndexedFile {
@@ -176,14 +173,9 @@ final class IndexVaultIndexRenameTests: XCTestCase {
     private var vault: URL!
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("Vault-\(UUID().uuidString)")
+        vault = try TemporaryVault.make(prefix: "Vault", for: self).root
         try FileManager.default.createDirectory(at: vault.appendingPathComponent("Library/covers"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: vault.appendingPathComponent("Other"), withIntermediateDirectories: true)
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: vault)
-        try? FileManager.default.removeItem(at: vault.appendingPathExtension("cache"))
     }
 
     /// Regression: a note linking only by `[[covers/Book]]` was left out of the rename plan,
@@ -215,8 +207,7 @@ final class IndexVaultIndexScanTests: XCTestCase {
     private var index: VaultIndex!
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("Vault-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        vault = try TemporaryVault.make(prefix: "Vault", for: self).root
         index = try VaultIndex(databaseURL: vault.appendingPathExtension("cache").appendingPathComponent("index.sqlite"))
     }
 

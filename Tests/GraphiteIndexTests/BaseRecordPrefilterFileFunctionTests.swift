@@ -1,6 +1,7 @@
 import XCTest
 import GraphiteCore
 @testable import GraphiteIndex
+import GraphiteTestSupport
 
 /// The base pre-filter keeps every row the evaluator keeps when a filter names a file with
 /// `file("Name")`, which the evaluator resolves from each row's own folder.
@@ -9,14 +10,8 @@ final class BaseRecordPrefilterFileFunctionTests: XCTestCase {
     private var index: VaultIndex!
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("PrefilterVault-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        vault = try TemporaryVault.make(prefix: "PrefilterVault", for: self).root
         index = try VaultIndex(databaseURL: vault.appendingPathExtension("cache").appendingPathComponent("index.sqlite"))
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: vault) // Best-effort removal of a temporary folder.
-        try? FileManager.default.removeItem(at: vault.appendingPathExtension("cache")) // Best-effort removal of a temporary folder.
     }
 
     private func write(_ relativePath: String, _ text: String) throws {

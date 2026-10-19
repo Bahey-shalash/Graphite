@@ -1,5 +1,6 @@
 import XCTest
 @testable import GraphiteCore
+import GraphiteTestSupport
 
 /// Obsidian community plugin packages in a vault, and the bridge the plugin runtime's file
 /// operations go through. The bridge follows the same contract as the Node tests' host
@@ -8,12 +9,7 @@ final class CommunityPluginTests: XCTestCase {
     private var vault: URL!
 
     override func setUpWithError() throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("PluginVault-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: vault)
+        vault = try TemporaryVault.make(prefix: "PluginVault", for: self).root
     }
 
     private func write(_ text: String, to relativePath: String) throws {

@@ -3,22 +3,20 @@ import GraphiteCore
 import GraphiteApple
 import GraphiteIndex
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// The keys and values `GraphitePreferences` keeps on the device. Stored values from earlier
 /// builds are read through the same keys, so each key string, raw value and default here is
 /// a promise to the person's saved settings.
 @MainActor
 final class GraphitePreferencesPersistedKeysTests: XCTestCase {
-    private var suiteName = ""
     private var defaults: UserDefaults!
 
     override func setUp() async throws {
-        suiteName = "GraphitePreferencesPersistedKeysTests-\(UUID().uuidString)"
-        defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults = try IsolatedDeviceState.make(prefix: "GraphitePreferencesPersistedKeysTests", for: self).preferences
     }
 
     override func tearDown() async throws {
-        defaults.removePersistentDomain(forName: suiteName)
         defaults = nil
     }
 

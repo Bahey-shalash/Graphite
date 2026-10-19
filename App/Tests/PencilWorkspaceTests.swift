@@ -742,10 +742,5 @@ final class PencilWorkspaceTests: XCTestCase {
         }
     }
 
-    private func waitUntil(file: StaticString = #filePath, line: UInt = #line, _ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(5)
-        while !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(25)) }
-        XCTAssertTrue(condition(), "The hosted writing workspace did not reach the expected state.", file: file, line: line)
-    }
 }
 #endif

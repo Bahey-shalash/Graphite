@@ -2,6 +2,7 @@ import XCTest
 import GRDB
 @testable import GraphiteIndex
 import GraphiteCore
+import GraphiteTestSupport
 
 /// Paging, cancellation, text matching and error reporting of `VaultIndex.search`, the
 /// quick switcher, and tag suggestions.
@@ -10,12 +11,8 @@ final class IndexSearchFixTests: XCTestCase {
     private var index: VaultIndex!
 
     override func setUp() async throws {
-        directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        directory = try TemporaryVault.make(prefix: "TemporaryFolder", for: self).root
         index = try VaultIndex(databaseURL: directory.appendingPathComponent("index.sqlite"))
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: directory)
     }
 
     private func note(_ path: String, _ markdown: String?, modified: Double = 100) throws -> IndexedFile {

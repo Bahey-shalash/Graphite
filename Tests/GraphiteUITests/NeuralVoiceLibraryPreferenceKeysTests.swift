@@ -2,23 +2,21 @@ import XCTest
 import GraphiteCore
 import GraphiteApple
 @testable import GraphiteVoices
+import GraphiteTestSupport
 
 /// What `NeuralVoiceLibrary` keeps on the device: the voice chosen, the quality mode and
 /// whether unprepared passages are read quickly, under these names.
 @MainActor
 final class NeuralVoiceLibraryPreferenceKeysTests: XCTestCase {
-    private var suiteName = ""
     private var preferences: UserDefaults!
     private var folder: URL!
 
     override func setUp() async throws {
-        suiteName = "NeuralVoiceLibraryPreferenceKeysTests-\(UUID().uuidString)"
-        preferences = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        preferences = try IsolatedDeviceState.make(prefix: "NeuralVoiceLibraryPreferenceKeysTests", for: self).preferences
         folder = FileManager.default.temporaryDirectory.appendingPathComponent("NeuralVoiceLibraryPreferenceKeysTests-\(UUID().uuidString)", isDirectory: true)
     }
 
     override func tearDown() async throws {
-        preferences.removePersistentDomain(forName: suiteName)
         preferences = nil
         try? FileManager.default.removeItem(at: folder) // Best-effort removal of a temporary folder.
     }

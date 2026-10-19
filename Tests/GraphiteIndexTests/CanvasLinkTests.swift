@@ -1,6 +1,7 @@
 import XCTest
 @testable import GraphiteIndex
 @testable import GraphiteCore
+import GraphiteTestSupport
 
 /// Canvases in the index and in renames: a note on a canvas lists the canvas among its
 /// backlinks, and moving a note rewrites exactly the file cards and text-card links
@@ -25,7 +26,7 @@ final class CanvasLinkTests: XCTestCase {
         + "\t]\n}"
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("CanvasVault-\(UUID().uuidString)")
+        vault = try TemporaryVault.make(prefix: "CanvasVault", for: self).root
         for folder in ["Courses", "Pictures", "Boards", "Archive"] {
             try FileManager.default.createDirectory(at: vault.appendingPathComponent(folder), withIntermediateDirectories: true)
         }
@@ -39,11 +40,6 @@ final class CanvasLinkTests: XCTestCase {
         index = try VaultIndex(databaseURL: vault.appendingPathExtension("cache").appendingPathComponent("index.sqlite"))
         _ = try await index.reconcile(root: vault)
         operations = VaultFileOperations(store: VaultStore(root: vault), index: index)
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: vault)
-        try? FileManager.default.removeItem(at: vault.appendingPathExtension("cache"))
     }
 
     private func write(_ relativePath: String, _ text: String) throws {

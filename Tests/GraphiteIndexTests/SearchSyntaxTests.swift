@@ -1,13 +1,14 @@
 import XCTest
 @testable import GraphiteIndex
 import GraphiteCore
+import GraphiteTestSupport
 
 final class SearchSyntaxTests: XCTestCase {
     private var directory: URL!
     private var index: VaultIndex!
 
     override func setUp() async throws {
-        directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        directory = try TemporaryVault.make(prefix: "TemporaryFolder", for: self).root
         index = try VaultIndex(databaseURL: directory.appendingPathComponent("index.sqlite"))
         try await index.update([
             IndexedFile(path: try VaultPath("Exams/Midterm.md"), size: 1, modified: Date(timeIntervalSince1970: 100),
@@ -18,10 +19,6 @@ final class SearchSyntaxTests: XCTestCase {
                         markdown: "---\nstatus: draft\nduration: 3\n---\nmeetup personal"),
             IndexedFile(path: try VaultPath("Media/photo.jpg"), size: 1, modified: Date(timeIntervalSince1970: 50), markdown: nil),
         ], generation: "test")
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: directory)
     }
 
     private func paths(_ query: String) async throws -> [String] {
@@ -145,8 +142,7 @@ final class SearchSyntaxTests: XCTestCase {
 
 final class QuickSwitcherTests: XCTestCase {
     func testFuzzyNamesAliasesAndPaths() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "TemporaryFolder", for: self).root
         let index = try VaultIndex(databaseURL: directory.appendingPathComponent("index.sqlite"))
         try await index.update([
             IndexedFile(path: try VaultPath("Courses/Signals/Lecture notes.md"), size: 1, modified: .now, markdown: "---\naliases: [Fourier basics]\n---\nx"),
@@ -169,8 +165,7 @@ final class QuickSwitcherTests: XCTestCase {
 
 final class TagSuggestionTests: XCTestCase {
     func testTagsAreCountedAndFilteredByText() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "TemporaryFolder", for: self).root
         let index = try VaultIndex(databaseURL: directory.appendingPathComponent("index.sqlite"))
         try await index.update([
             IndexedFile(path: try VaultPath("A.md"), size: 1, modified: .now, markdown: "#lecture #inbox/todo"),

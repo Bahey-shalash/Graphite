@@ -1,5 +1,6 @@
 import XCTest
 @testable import GraphiteApple
+import GraphiteTestSupport
 
 /// A voice that says nothing, offering two voices, so a session can be given choices.
 @MainActor
@@ -20,16 +21,13 @@ private final class SilentReadAloudSpeech: ReadAloudSpeaking {
 /// and the speed, under these names.
 @MainActor
 final class ReadAloudSessionPreferenceKeysTests: XCTestCase {
-    private var suiteName = ""
     private var preferences: UserDefaults!
 
     override func setUp() async throws {
-        suiteName = "ReadAloudSessionPreferenceKeysTests-\(UUID().uuidString)"
-        preferences = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        preferences = try IsolatedDeviceState.make(prefix: "ReadAloudSessionPreferenceKeysTests", for: self).preferences
     }
 
     override func tearDown() async throws {
-        preferences.removePersistentDomain(forName: suiteName)
         preferences = nil
     }
 

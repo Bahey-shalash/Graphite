@@ -2,6 +2,7 @@ import XCTest
 import CoreGraphics
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// An open canvas driven the way its gestures drive it, in view coordinates: what each
 /// touch changes on the board, what is saved to the file, and what Undo gives back.
@@ -24,7 +25,7 @@ final class CanvasSessionTests: XCTestCase {
         + "\t]\n}"
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("CanvasSession-\(UUID().uuidString)")
+        vault = try TemporaryVault.make(prefix: "CanvasSession", for: self).root
         canvasPath = try VaultPath("Boards/Board.canvas")
         try FileManager.default.createDirectory(at: vault.appendingPathComponent("Boards"), withIntermediateDirectories: true)
         try Data(board.utf8).write(to: vault.appendingPathComponent(canvasPath.rawValue))
@@ -40,7 +41,7 @@ final class CanvasSessionTests: XCTestCase {
     }
 
     private func openSession(isWriting: Bool = true) async throws -> CanvasSession {
-        let session = try CanvasSession(path: canvasPath, snapshot: try await store.read(canvasPath), store: store) { _ in }
+        let session = try CanvasSession(path: canvasPath, snapshot: try await store.read(canvasPath), store: store, clock: ManualClock()) { _ in }
         session.viewSize = viewSize
         session.isWriting = isWriting
         return session
@@ -410,7 +411,7 @@ final class CanvasSessionTests: XCTestCase {
         let damaged = "{\"nodes\":[{\"id\":\"1\",\"type\":\"text\""
         try Data(damaged.utf8).write(to: vault.appendingPathComponent(canvasPath.rawValue))
         let snapshot = try await store.read(canvasPath)
-        XCTAssertThrowsError(try CanvasSession(path: canvasPath, snapshot: snapshot, store: store) { _ in }) { error in
+        XCTAssertThrowsError(try CanvasSession(path: canvasPath, snapshot: snapshot, store: store, clock: ManualClock()) { _ in }) { error in
             XCTAssertTrue(error.localizedDescription.contains("damaged"), error.localizedDescription)
             XCTAssertTrue(error.localizedDescription.contains("left the file as it is"), error.localizedDescription)
         }

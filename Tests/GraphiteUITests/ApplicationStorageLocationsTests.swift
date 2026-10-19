@@ -4,6 +4,7 @@ import GraphiteApple
 import GraphiteIndex
 import GraphiteVoices
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// Where the app keeps its own files outside the vault. Each location is pinned by its path
 /// below the platform's folder, so moving one means moving the files people already have.
@@ -12,12 +13,7 @@ final class ApplicationStorageLocationsTests: XCTestCase {
     private var temporaryDirectory: URL!
 
     override func setUpWithError() throws {
-        temporaryDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("ApplicationStorageLocationsTests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: temporaryDirectory) // Best-effort removal of a temporary folder.
+        temporaryDirectory = try TemporaryVault.make(prefix: "ApplicationStorageLocationsTests", for: self).root
     }
 
     func testFileRecoveryCopiesAreKeptInApplicationSupportOneFolderPerVault() throws {

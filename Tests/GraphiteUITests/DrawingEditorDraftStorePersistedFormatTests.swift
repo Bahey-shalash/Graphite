@@ -2,6 +2,7 @@ import XCTest
 import GraphiteCore
 import GraphiteApple
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// The files the drawing editor keeps for a drawing still open: where they are, what the
 /// description holds for each target, how large a description may be, and the order the
@@ -15,13 +16,8 @@ final class DrawingEditorDraftStorePersistedFormatTests: XCTestCase {
     private let requestIdentifier = UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")!
 
     override func setUpWithError() throws {
-        temporaryDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("DrawingEditorDraftStorePersistedFormatTests-\(UUID().uuidString)", isDirectory: true)
+        temporaryDirectory = try TemporaryVault.make(prefix: "DrawingEditorDraftStorePersistedFormatTests", for: self).root
         draftDirectory = temporaryDirectory.appendingPathComponent("Drawing Drafts", isDirectory: true)
-        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: temporaryDirectory)
     }
 
     private func draft(_ target: DrawingEditorRequest.Target, title: String = "Drawing") -> DrawingEditorDraft {

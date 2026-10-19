@@ -1,6 +1,7 @@
 import XCTest
 import GraphiteCore
 import GraphiteVoices
+import GraphiteTestSupport
 
 /// The rendered-passage cache's `index.json`: a JSON array whose `lastUsed` dates are the
 /// encoder's default, seconds since 2001-01-01 00:00:00 UTC. Folders written by earlier
@@ -9,12 +10,7 @@ final class ReadAloudAudioCacheIndexPersistedFormatTests: XCTestCase {
     private var folder: URL!
 
     override func setUpWithError() throws {
-        folder = FileManager.default.temporaryDirectory.appendingPathComponent("AudioCacheIndex-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: folder)
+        folder = try TemporaryVault.make(prefix: "AudioCacheIndex", for: self).root
     }
 
     private func key(_ text: String) -> ReadAloudAudioCacheKey {

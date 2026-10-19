@@ -1,20 +1,18 @@
 import XCTest
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// The device settings of the Pencil, kept under these names, and the defaults of those that
 /// can be read from a chosen store.
 @MainActor
 final class PencilPreferenceKeyTests: XCTestCase {
-    private var suiteName = ""
     private var defaults: UserDefaults!
 
     override func setUp() async throws {
-        suiteName = "PencilPreferenceKeyTests-\(UUID().uuidString)"
-        defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults = try IsolatedDeviceState.make(prefix: "PencilPreferenceKeyTests", for: self).preferences
     }
 
     override func tearDown() async throws {
-        defaults.removePersistentDomain(forName: suiteName)
         defaults = nil
     }
 

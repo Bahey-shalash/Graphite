@@ -3,17 +3,12 @@ import GraphiteCore
 import GraphiteIndex
 import GraphiteApple
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// A plugin's `app.fileManager.renameFile`, answered by `CommunityPluginHost` from what the
 /// workspace's move came to.
 @MainActor
 final class CommunityPluginHostRenameFileTests: XCTestCase {
-    private var temporaryFolders: [URL] = []
-
-    override func tearDown() async throws {
-        for folder in temporaryFolders { try? FileManager.default.removeItem(at: folder) }
-        temporaryFolders = []
-    }
 
     func testRenameOntoAnExistingNameIsAnsweredAsAFailureAndMovesNothing() async throws {
         let (workspace, vault) = try await makeWorkspace(files: ["A.md": "first", "B.md": "second"])
@@ -45,7 +40,7 @@ final class CommunityPluginHostRenameFileTests: XCTestCase {
         let answerTask = Task { @MainActor in
             await self.renameAnswer(in: workspace, from: sourceDestinationPaths.source, to: sourceDestinationPaths.destination)
         }
-        await waitUntil { workspace.pendingMove != nil }
+        try await waitUntil { workspace.pendingMove != nil }
         let question = try XCTUnwrap(workspace.pendingMove)
         await workspace.resolve(question, updatesLinks: true)
         let answer = await answerTask.value
@@ -73,17 +68,13 @@ final class CommunityPluginHostRenameFileTests: XCTestCase {
     }
 
     private func makeWorkspace(files: [String: String]) async throws -> (WorkspaceModel, URL) {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("PluginRenameVault-\(UUID().uuidString)").resolvingSymlinksInPath()
-        temporaryFolders.append(vault)
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        let vault = try TemporaryVault.make(prefix: "PluginRenameVault", for: self).root
         for (relativePath, contents) in files {
             let location = vault.appendingPathComponent(relativePath)
             try FileManager.default.createDirectory(at: location.deletingLastPathComponent(), withIntermediateDirectories: true)
             try Data(contents.utf8).write(to: location)
         }
-        let indexFolder = FileManager.default.temporaryDirectory.appendingPathComponent("PluginRenameIndex-\(UUID().uuidString)")
-        temporaryFolders.append(indexFolder)
-        try FileManager.default.createDirectory(at: indexFolder, withIntermediateDirectories: true)
+        let indexFolder = try TemporaryVault.make(prefix: "PluginRenameIndex", for: self).root
         let index = try VaultIndex(databaseURL: indexFolder.appendingPathComponent("index.sqlite"))
         _ = try await index.reconcile(root: vault)
         let workspace = WorkspaceModel()
@@ -96,13 +87,5 @@ final class CommunityPluginHostRenameFileTests: XCTestCase {
 
     private func text(of path: String, in vault: URL) throws -> String {
         try String(contentsOf: vault.appendingPathComponent(path), encoding: .utf8)
-    }
-
-    private func waitUntil(timeoutSeconds: Double = 20, _ condition: () -> Bool) async {
-        let deadline = Date.now.addingTimeInterval(timeoutSeconds)
-        while !condition() {
-            guard Date.now < deadline else { return XCTFail("The condition did not become true in time.") }
-            await Task.yield()
-        }
     }
 }

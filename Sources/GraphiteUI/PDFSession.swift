@@ -229,6 +229,8 @@ final class PDFSession {
     /// reported back as external changes (each one would hash the whole PDF again).
     private let writer: AtomicFileWriter
     private let fileService: PDFFileService
+    /// Times the wait before autosave and how long each save takes; tests move it by hand.
+    private let clock: any ApplicationClock
     /// Called with the file each save wrote: the PDF itself, or a separate copy beside it.
     /// The session's own writes are not reported as external changes, so this is how the
     /// workspace learns of them.
@@ -338,9 +340,10 @@ final class PDFSession {
     /// The PDF is shown without being changed: every edit is refused.
     var isProtected: Bool { isPasswordProtected || (hasDigitalSignatures && !acceptsSignatureInvalidation) }
 
-    private init(location: URL, loaded: LoadedPDF, writer: AtomicFileWriter) {
+    private init(location: URL, loaded: LoadedPDF, writer: AtomicFileWriter, clock: any ApplicationClock) {
         self.location = location
         self.writer = writer
+        self.clock = clock
         fileService = PDFFileService(writer: writer)
         document = loaded.document
         isPasswordProtected = loaded.document.isEncrypted || !loaded.document.allowsCommenting || !loaded.document.allowsDocumentChanges
@@ -355,9 +358,12 @@ final class PDFSession {
     /// - Parameters:
     ///   - password: Unlocks a PDF that opens only with a password.
     ///   - writer: The vault's writer, so saves coordinate with Graphite's file presenter.
-    static func open(_ location: URL, password: String? = nil, writer: AtomicFileWriter = AtomicFileWriter()) async throws -> PDFSession {
+    ///   - clock: Times autosave. It keeps a default, the live clock, only because the workspace and about a
+    ///     hundred tests open sessions through here; it goes when the workspace is given its clock (`FR-47`).
+    static func open(_ location: URL, password: String? = nil, writer: AtomicFileWriter = AtomicFileWriter(),
+                     clock: any ApplicationClock = LiveApplicationClock()) async throws -> PDFSession {
         let loaded = try await PDFLoader().load(location, password: password, writer: writer)
-        return PDFSession(location: location, loaded: loaded, writer: writer)
+        return PDFSession(location: location, loaded: loaded, writer: writer, clock: clock)
     }
 
     // MARK: Edits
@@ -452,11 +458,11 @@ final class PDFSession {
         let nextBaselineLocation = PDFBaselineSnapshot.makeLocation()
         firstMergeableEditIndex = editsToSave.count
         defer { firstMergeableEditIndex = 0 }
-        let saveStart = ContinuousClock.now
+        let saveStart = clock.now
         do {
             let savedRevision = try await fileService.save(url: location, revision: revision, edits: editsToSave,
                                                            baselineURL: currentBaseline.location, savedSnapshotDestination: nextBaselineLocation)
-            lastSaveDuration = saveStart.duration(to: .now)
+            lastSaveDuration = clock.now - saveStart
             revision = savedRevision
             baseline = PDFBaselineSnapshot(location: nextBaselineLocation)
             edits.removeFirst(editsToSave.count)
@@ -489,8 +495,8 @@ final class PDFSession {
     private func scheduleAutosave() {
         autosaveTask?.cancel()
         let delay = Self.autosaveDelay(afterSaveTaking: lastSaveDuration, consecutiveFailures: consecutiveAutosaveFailures)
-        autosaveTask = Task { [weak self] in
-            do { try await Task.sleep(for: delay) } catch { return }
+        autosaveTask = Task { [weak self, clock] in
+            do { try await clock.sleep(for: delay) } catch { return }
             guard let self, !self.hasExternalConflict else { return }
             do {
                 try await self.save()

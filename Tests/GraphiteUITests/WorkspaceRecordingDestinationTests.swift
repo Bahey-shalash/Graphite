@@ -4,6 +4,7 @@ import GraphiteCore
 @testable import GraphiteIndex
 @testable import GraphiteApple
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// A camera and microphone that start without delivering anything: enough for a video
 /// recording to begin, so the workspace's choice of destination can be seen.
@@ -22,17 +23,9 @@ private final class SilentCaptureSource: VideoCaptureSource, @unchecked Sendable
 /// note and the start time, and an embed in that note when it is still open.
 @MainActor
 final class WorkspaceRecordingDestinationTests: XCTestCase {
-    private var temporaryFolders: [URL] = []
-
-    override func tearDown() async throws {
-        for folder in temporaryFolders { try? FileManager.default.removeItem(at: folder) } // Best-effort removal of temporary folders.
-        temporaryFolders = []
-    }
 
     private func makeFolder(_ prefix: String) throws -> URL {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        temporaryFolders.append(folder)
+        let folder = try TemporaryVault.make(prefix: prefix, for: self).root
         return folder.resolvingSymlinksInPath()
     }
 

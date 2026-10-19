@@ -1,6 +1,7 @@
 import XCTest
 import GraphiteCore
 @testable import GraphiteIndex
+import GraphiteTestSupport
 
 /// Scans check enumerated files in chunks, read changed notes in batches under one file
 /// coordination, and parse them outside the actor. The index must come out the same.
@@ -9,8 +10,7 @@ final class IndexVaultIndexScanBatchTests: XCTestCase {
     private var index: VaultIndex!
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("Vault-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        vault = try TemporaryVault.make(prefix: "Vault", for: self).root
         index = try VaultIndex(databaseURL: vault.appendingPathExtension("cache").appendingPathComponent("index.sqlite"))
     }
 

@@ -3,19 +3,16 @@ import PDFKit
 import GraphiteCore
 import GraphiteApple
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// Undo and redo of page changes in a PDF's own history, and that the saved file always
 /// matches the open document afterwards.
 @MainActor
 final class PDFEditHistoryTests: XCTestCase {
-    private let directory = FileManager.default.temporaryDirectory.appendingPathComponent("PDFEditHistory-\(UUID().uuidString)")
+    private var directory: URL!
 
     override func setUpWithError() throws {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: directory)
+        directory = try TemporaryVault.make(prefix: "PDFEditHistory", for: self).root
     }
 
     /// A PDF whose pages are told apart by their widths.

@@ -2,17 +2,13 @@ import XCTest
 import GraphiteCore
 import GraphiteApple
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 final class DrawingEditorDraftStoreTests: XCTestCase {
     private var temporaryDirectory: URL!
 
     override func setUpWithError() throws {
-        temporaryDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("DrawingEditorDraftStoreTests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: temporaryDirectory)
+        temporaryDirectory = try TemporaryVault.make(prefix: "DrawingEditorDraftStoreTests", for: self).root
     }
 
     /// The editor request was made with the original paper; the draft file holds the paper

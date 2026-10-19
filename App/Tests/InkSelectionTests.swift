@@ -339,14 +339,6 @@ final class InkSelectionTests: XCTestCase {
         }
     }
 
-    private func waitUntil(_ condition: () -> Bool) async throws {
-        let deadline = ContinuousClock.now + .seconds(5)
-        while !condition() {
-            if ContinuousClock.now > deadline { break }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        XCTAssertTrue(condition(), "The hosted view did not reach the expected state.")
-    }
 }
 
 // MARK: The lasso's loop, types, pictures, screenshots and the laser pointer

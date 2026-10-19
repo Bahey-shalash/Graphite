@@ -2,53 +2,43 @@ import XCTest
 import GraphiteCore
 import GraphiteIndex
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// Vault folders on disk opened in a `WorkspaceModel`, for the tests of the workspace's
-/// tabs. The workspace keeps what it remembers per vault in the standard preferences, which
-/// it has no way to be given elsewhere, so what the tests leave there is removed at the end.
+/// tabs. The workspaces it makes remember what they remember per vault in preferences and
+/// folders of the bed's own (`IsolatedWorkspaceDevice`), which `tearDown()` removes.
 @MainActor
 final class WorkspaceModelTestBed {
-    private var temporaryDirectories: [URL] = []
-    private var savedGraphitePreferences: [String: Any] = [:]
-    private var vaultIdentifiersBeforeTest: Set<UUID> = []
+    private var temporaryVaults: [TemporaryVault] = []
+    private var device: IsolatedWorkspaceDevice?
 
-    init() {
-        savedGraphitePreferences = UserDefaults.standard.dictionaryRepresentation().filter { key, _ in key.hasPrefix("Graphite") }
-        vaultIdentifiersBeforeTest = Set(VaultLibrary().vaults.map(\.id))
+    /// The device state of the workspaces this bed makes, made when first asked for.
+    func isolatedDevice() throws -> IsolatedWorkspaceDevice {
+        if let device { return device }
+        let newDevice = try IsolatedWorkspaceDevice()
+        device = newDevice
+        return newDevice
     }
 
     func tearDown() {
-        for vault in VaultLibrary().vaults where !vaultIdentifiersBeforeTest.contains(vault.id) {
-            VaultIndex.removeIndex(forVault: vault.id)
-        }
-        for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix("Graphite") {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
-        for (key, storedValue) in savedGraphitePreferences { UserDefaults.standard.set(storedValue, forKey: key) }
-        for directory in temporaryDirectories {
-            if let cacheURL = try? VaultIndex.cacheURL(for: directory) { try? FileManager.default.removeItem(at: cacheURL) }
-            try? FileManager.default.removeItem(at: directory)
-        }
-        temporaryDirectories = []
+        device?.remove()
+        device = nil
+        for temporaryVault in temporaryVaults { temporaryVault.remove() }
+        temporaryVaults = []
     }
 
     /// A vault folder holding `files` (text by path), read through its resolved path as the
     /// workspace reads it.
     func makeVault(files: [String: String]) throws -> URL {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("WorkspaceTabsVault-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
-        temporaryDirectories.append(vault)
-        for (path, contents) in files {
-            let location = vault.appendingPathComponent(path)
-            try FileManager.default.createDirectory(at: location.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try Data(contents.utf8).write(to: location)
-        }
-        return vault.resolvingSymlinksInPath()
+        let temporaryVault = try TemporaryVault(prefix: "WorkspaceTabsVault")
+        temporaryVaults.append(temporaryVault)
+        try temporaryVault.writeFiles(files)
+        return temporaryVault.root
     }
 
     func openedWorkspace(files: [String: String]) async throws -> (workspace: WorkspaceModel, vault: URL) {
         let vault = try makeVault(files: files)
-        let workspace = WorkspaceModel()
+        let workspace = try isolatedDevice().makeWorkspace()
         try await workspace.openFolderAsVault(vault)
         return (workspace, vault)
     }

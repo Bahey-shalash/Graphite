@@ -5,6 +5,7 @@ import GraphiteApple
 import GraphiteCore
 import GraphiteIndex
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// Ticking a task from reading view: the checkboxes the reading view draws, and the one
 /// character of the note's file a tap changes, byte for byte.
@@ -15,8 +16,7 @@ final class UiReadingTaskTests: XCTestCase {
     private static let byteOrderMark = Data([0xEF, 0xBB, 0xBF])
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("ReadingTasks-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        vault = try TemporaryVault.make(prefix: "ReadingTasks", for: self).root
         index = try VaultIndex(databaseURL: vault.appendingPathComponent(".index.sqlite"))
     }
 

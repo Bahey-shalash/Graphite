@@ -2,21 +2,19 @@ import XCTest
 import GraphiteCore
 import GraphiteApple
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// What `ReadAloudController` keeps on the device: how mathematics is said and the reading
 /// order of PDF pages, under these names.
 @MainActor
 final class ReadAloudControllerPreferenceKeysTests: XCTestCase {
-    private var suiteName = ""
     private var preferences: UserDefaults!
 
     override func setUp() async throws {
-        suiteName = "ReadAloudControllerPreferenceKeysTests-\(UUID().uuidString)"
-        preferences = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        preferences = try IsolatedDeviceState.make(prefix: "ReadAloudControllerPreferenceKeysTests", for: self).preferences
     }
 
     override func tearDown() async throws {
-        preferences.removePersistentDomain(forName: suiteName)
         preferences = nil
     }
 

@@ -93,7 +93,7 @@ final class PDFGestureWinsTests: XCTestCase {
         let pdfView = try await zoomedPDFView(of: session, in: window)
         let reader = workspace.readAloud
         reader.readPDF(session, firstPageIndex: 1, lastPageIndex: session.pageCount - 1)
-        try await waitUntil(seconds: 30) { reader.session.state == .speaking && !(pdfView.highlightedSelections ?? []).isEmpty }
+        try await waitUntil(timeoutSeconds: 30) { reader.session.state == .speaking && !(pdfView.highlightedSelections ?? []).isEmpty }
         try await Task.sleep(for: .milliseconds(600))
         let touches = SynthesizedTouches(window: window)
         let middle = visibleMiddle(of: pdfView, in: window)
@@ -558,16 +558,6 @@ final class PDFGestureWinsTests: XCTestCase {
         add(attachment)
     }
 
-    private func waitUntil(seconds: Double = 10, file: StaticString = #filePath, line: UInt = #line, _ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(seconds)
-        while !condition() {
-            guard Date() < deadline else {
-                XCTFail("The condition did not become true within \(seconds) seconds", file: file, line: line)
-                throw CancellationError()
-            }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-    }
 }
 private extension PDFPageCanvasView {
     /// A point of the window in the canvas's drawing, which is in the page's points from its

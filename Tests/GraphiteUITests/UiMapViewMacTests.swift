@@ -7,19 +7,17 @@ import GraphiteApple
 import GraphiteCore
 import GraphiteIndex
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// The Map View core plugin in MapKit's map view: the vault's placed notes, a note's linked
 /// places in the right sidebar, and a marker that opens its note.
 @MainActor
 final class UiMapViewMacTests: XCTestCase {
-    private var temporaryDirectories: [URL] = []
     private var windows: [NSWindow] = []
 
     override func tearDown() async throws {
         for window in windows { window.close() }
         windows = []
-        for directory in temporaryDirectories { try? FileManager.default.removeItem(at: directory) }
-        temporaryDirectories = []
         try await super.tearDown()
     }
 
@@ -50,9 +48,7 @@ final class UiMapViewMacTests: XCTestCase {
     }
 
     private func makeFolder(_ prefix: String) throws -> URL {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        temporaryDirectories.append(folder)
+        let folder = try TemporaryVault.make(prefix: prefix, for: self).root
         return folder
     }
 
@@ -97,17 +93,6 @@ final class UiMapViewMacTests: XCTestCase {
             if let mapView = firstMapView(in: subview) { return mapView }
         }
         return nil
-    }
-
-    private func waitUntil(timeoutSeconds: TimeInterval = 20, _ condition: () -> Bool) async throws {
-        let deadline = Date.now.addingTimeInterval(timeoutSeconds)
-        while !condition() {
-            guard Date.now < deadline else {
-                XCTFail("Timed out after \(timeoutSeconds) s")
-                return
-            }
-            try await Task.sleep(for: .milliseconds(50))
-        }
     }
 }
 #endif

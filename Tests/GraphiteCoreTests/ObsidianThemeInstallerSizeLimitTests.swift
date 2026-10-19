@@ -1,5 +1,6 @@
 import XCTest
 @testable import GraphiteCore
+import GraphiteTestSupport
 
 /// How much `ObsidianThemeInstaller` accepts from the theme directory and a theme's release,
 /// and how large a theme or snippet file in the vault is read. Exactly the cap works, one
@@ -14,12 +15,7 @@ final class ObsidianThemeInstallerSizeLimitTests: XCTestCase {
     private var vault: URL!
 
     override func setUpWithError() throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("ThemeInstallVault-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: vault)
+        vault = try TemporaryVault.make(prefix: "ThemeInstallVault", for: self).root
     }
 
     private func installer(answering answers: [String: Data]) -> ObsidianThemeInstaller {

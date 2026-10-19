@@ -1,6 +1,7 @@
 import XCTest
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// A file a community plugin shows in a view of its own opens in that view, once, in a tab.
 @MainActor
@@ -33,7 +34,7 @@ final class WorkspaceModelPluginFileViewTests: XCTestCase {
         let workspace = try await testBed.workspaceWithRunningPlugins([("sketch-plugin", Self.sketchPluginSource)],
                                                                       files: ["Note.md": "Note.\n", "Drawing.sketch": "lines\n"])
         let host = workspace.communityPlugins
-        try await testBed.waitUntil("the plugin's extension is known") { host.pluginFileExtensions["sketch"] != nil }
+        try await waitUntil("the plugin's extension is known") { host.pluginFileExtensions["sketch"] != nil }
         let sketchPath = try VaultPath("Drawing.sketch")
         XCTAssertTrue(host.mayShowInPluginView(sketchPath))
         XCTAssertFalse(host.mayShowInPluginView(try VaultPath("Note.md")), "Notes stay Graphite's unless a plugin takes them over.")

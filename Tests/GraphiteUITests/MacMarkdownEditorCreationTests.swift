@@ -4,6 +4,7 @@ import SwiftUI
 import XCTest
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// Creating the Mac note editor puts the note's text and its saved selection (clamped to the
 /// text) in the text view before its delegate is set, so creation never records the cursor
@@ -23,8 +24,7 @@ final class MacMarkdownEditorCreationTests: XCTestCase {
     }
 
     private func makeSession(text: String, selection: NSRange) async throws -> MarkdownSession {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("CreationVault-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        let vault = try TemporaryVault.make(prefix: "CreationVault", for: self).root
         vaultDirectory = vault
         try Data(text.utf8).write(to: vault.appendingPathComponent("Note.md"))
         let store = VaultStore(root: vault)

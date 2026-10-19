@@ -1,17 +1,14 @@
 import XCTest
 @testable import GraphiteCore
+import GraphiteTestSupport
 
 /// A settings file Graphite cannot read is an error the person sees, never an empty result.
 final class VaultStoreConfigurationReadingTests: XCTestCase {
     private var vault: URL!
 
     override func setUpWithError() throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("Vault-\(UUID().uuidString)")
+        vault = try TemporaryVault.make(prefix: "Vault", for: self).root
         try FileManager.default.createDirectory(at: vault.appendingPathComponent(".obsidian"), withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try FileManager.default.removeItem(at: vault)
     }
 
     /// One byte over the 1 MiB limit on settings files.

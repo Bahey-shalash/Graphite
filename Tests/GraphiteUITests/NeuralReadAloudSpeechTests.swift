@@ -2,6 +2,7 @@ import XCTest
 import GraphiteCore
 import GraphiteApple
 @testable import GraphiteVoices
+import GraphiteTestSupport
 
 @MainActor
 final class NeuralReadAloudSpeechTests: XCTestCase {
@@ -17,7 +18,7 @@ final class NeuralReadAloudSpeechTests: XCTestCase {
     func testTheSessionKeepsTheSpeedControlWhileHighQualityReadsWithAssistiveSpeechOn() throws {
         let fixture = try InstalledNeuralVoiceFixture(testCase: self)
         fixture.quickSpeech.assistiveSpeechSettingsMayApply = true
-        let preferences = try XCTUnwrap(UserDefaults(suiteName: "NeuralReadAloudSpeechTests-\(UUID().uuidString)"))
+        let preferences = try IsolatedDeviceState.make(prefix: "NeuralReadAloudSpeechTests", for: self).preferences
         let session = ReadAloudSession(speech: fixture.speech, preferences: preferences)
 
         XCTAssertTrue(session.followsSystemVoice)

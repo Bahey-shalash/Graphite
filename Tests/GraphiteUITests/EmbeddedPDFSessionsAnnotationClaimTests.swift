@@ -3,6 +3,7 @@ import PDFKit
 import GraphiteCore
 import GraphiteApple
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// Only one embed annotates a given PDF at a time. Before an embed starts, the other
 /// sessions of that file are saved; if one cannot save, the embed does not start and that
@@ -13,8 +14,7 @@ final class EmbeddedPDFSessionsAnnotationClaimTests: XCTestCase {
     private var directory: URL!
 
     override func setUpWithError() throws {
-        directory = FileManager.default.temporaryDirectory.appendingPathComponent("EmbeddedPDFSessionsClaim-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        directory = try TemporaryVault.make(prefix: "EmbeddedPDFSessionsClaim", for: self).root
     }
 
     override func tearDownWithError() throws {

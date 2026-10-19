@@ -115,7 +115,7 @@ final class SyntheticCaptureSource: VideoCaptureSource, @unchecked Sendable {
     func deliver(seconds: Double) async {
         let frameCount = Int((seconds * Double(Self.framesPerSecond)).rounded())
         for _ in 0..<frameCount { deliverOneFrame() }
-        await waitUntilDelivered()
+        await awaitDelivery()
     }
 
     /// Lets time pass without delivering anything.
@@ -131,7 +131,7 @@ final class SyntheticCaptureSource: VideoCaptureSource, @unchecked Sendable {
     func interrupt(_ reason: CaptureInterruptionReason) async {
         let delivery = lock.withLock { isInterrupted = true; return self.delivery }
         delivery?.queue.async { delivery?.events(.interrupted(reason)) }
-        await waitUntilDelivered()
+        await awaitDelivery()
     }
 
     /// The system gives the camera back. `resuming: false` is a system that leaves
@@ -139,7 +139,7 @@ final class SyntheticCaptureSource: VideoCaptureSource, @unchecked Sendable {
     func endInterruption(resuming: Bool = true) async {
         let delivery = lock.withLock { if resuming { isInterrupted = false }; return self.delivery }
         delivery?.queue.async { delivery?.events(.interruptionEnded) }
-        await waitUntilDelivered()
+        await awaitDelivery()
     }
 
     func failResuming(with problem: (any Error)?) {
@@ -159,7 +159,7 @@ final class SyntheticCaptureSource: VideoCaptureSource, @unchecked Sendable {
         }
     }
 
-    private func waitUntilDelivered() async {
+    private func awaitDelivery() async {
         guard let queue = lock.withLock({ delivery?.queue }) else { return }
         await withCheckedContinuation { continuation in queue.async { continuation.resume() } }
     }

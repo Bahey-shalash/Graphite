@@ -1,6 +1,7 @@
 import XCTest
 import GraphiteCore
 @testable import GraphiteApple
+import GraphiteTestSupport
 
 @MainActor
 private final class ReleaseCountingSpeech: ReadAloudSpeaking {
@@ -22,7 +23,7 @@ private final class ReleaseCountingSpeech: ReadAloudSpeaking {
 final class ReadAloudSessionAudioReleaseTests: XCTestCase {
     private func makeSpeakingSession(markdown: String) throws -> (ReadAloudSession, ReleaseCountingSpeech) {
         let speech = ReleaseCountingSpeech()
-        let preferences = try XCTUnwrap(UserDefaults(suiteName: "ReadAloudSessionAudioReleaseTests-\(UUID().uuidString)"))
+        let preferences = try IsolatedDeviceState.make(prefix: "ReadAloudSessionAudioReleaseTests", for: self).preferences
         let session = ReadAloudSession(speech: speech, preferences: preferences)
         session.chooseVoice("test-voice")
         session.load(try ReadAloudDocument.markdown(markdown))

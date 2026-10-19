@@ -1,12 +1,12 @@
 import XCTest
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// `CommunityPluginHost` running plugins in WebKit, against a vault folder on disk:
 /// how views and loading survive the runtime stopping, starting and reloading.
 @MainActor
 final class CommunityPluginHostRuntimeTests: XCTestCase {
-    private var temporaryFolders: [URL] = []
     private var openedVaultIdentifiers: [UUID] = []
     private var workspace: WorkspaceModel?
 
@@ -61,8 +61,6 @@ final class CommunityPluginHostRuntimeTests: XCTestCase {
             }
         }
         workspace = nil
-        for folder in temporaryFolders { try? FileManager.default.removeItem(at: folder) }
-        temporaryFolders = []
         openedVaultIdentifiers = []
     }
 
@@ -75,7 +73,7 @@ final class CommunityPluginHostRuntimeTests: XCTestCase {
 
         await host.restartPlugins()
 
-        try await waitUntil("the plugin view shows in a tab again", seconds: 5) {
+        try await waitUntil("the plugin view shows in a tab again", timeoutSeconds: 5) {
             workspace.tabDocuments.values.contains { document in document.pluginViewIdentifier != nil }
         }
     }
@@ -89,7 +87,7 @@ final class CommunityPluginHostRuntimeTests: XCTestCase {
 
         await host.restartPlugins()
 
-        try await waitUntil("the sidebar view is listed again", seconds: 5) { host.sidebarViews.contains { view in view.viewType == Self.viewType } }
+        try await waitUntil("the sidebar view is listed again", timeoutSeconds: 5) { host.sidebarViews.contains { view in view.viewType == Self.viewType } }
     }
 
     func testTurningPluginsOffKeepsTheOpenViewsInTheSavedLayout() async throws {
@@ -135,8 +133,8 @@ final class CommunityPluginHostRuntimeTests: XCTestCase {
         host.pluginLoadTimeout = .seconds(1)
 
         let turningOn = Task { @MainActor in await host.setTurnedOnForVault(true) }
-        try await waitUntil("the plugin after the hanging one loads", seconds: 20) { host.loadStates[Self.viewPluginIdentifier] == .loaded }
-        try await waitUntil("saved plugin views are restored", seconds: 5) { host.hasRestoredViews }
+        try await waitUntil("the plugin after the hanging one loads", timeoutSeconds: 20) { host.loadStates[Self.viewPluginIdentifier] == .loaded }
+        try await waitUntil("saved plugin views are restored", timeoutSeconds: 5) { host.hasRestoredViews }
 
         guard case .failed = host.loadStates[Self.hangingPluginIdentifier] else {
             return XCTFail("The plugin that never finished loading is reported as failed, not \(String(describing: host.loadStates[Self.hangingPluginIdentifier])).")
@@ -154,7 +152,7 @@ final class CommunityPluginHostRuntimeTests: XCTestCase {
         await host.setTurnedOnForVault(true)
         await turningOff.value
 
-        try await waitUntil("the plugin loads again", seconds: 20) { host.loadStates[Self.viewPluginIdentifier] == .loaded }
+        try await waitUntil("the plugin loads again", timeoutSeconds: 20) { host.loadStates[Self.viewPluginIdentifier] == .loaded }
         XCTAssertEqual(host.runtimePhase, .running)
     }
 
@@ -165,15 +163,14 @@ final class CommunityPluginHostRuntimeTests: XCTestCase {
         let host = workspace.communityPlugins
         await host.setTurnedOnForVault(true)
         for plugin in plugins {
-            try await waitUntil("\(plugin.identifier) loads", seconds: 30) { host.loadStates[plugin.identifier] == .loaded }
+            try await waitUntil("\(plugin.identifier) loads", timeoutSeconds: 30) { host.loadStates[plugin.identifier] == .loaded }
         }
         return workspace
     }
 
     /// A vault with `plugins` installed and enabled, opened, with community plugins still off.
     private func workspaceWithPlugins(_ plugins: [(identifier: String, source: String)]) async throws -> WorkspaceModel {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("PluginRuntimeVault-\(UUID().uuidString)").resolvingSymlinksInPath()
-        temporaryFolders.append(vault)
+        let vault = try TemporaryVault.make(prefix: "PluginRuntimeVault", for: self).root
         try FileManager.default.createDirectory(at: vault.appendingPathComponent(".obsidian"), withIntermediateDirectories: true)
         try Data("Note.\n".utf8).write(to: vault.appendingPathComponent("Note.md"))
         for plugin in plugins {
@@ -199,11 +196,5 @@ final class CommunityPluginHostRuntimeTests: XCTestCase {
         try await waitUntil("the command is registered") { host.commands.contains { command in command.id == pluginIdentifier + ":" + commandIdentifier } }
         let command = try XCTUnwrap(host.commands.first { command in command.id == pluginIdentifier + ":" + commandIdentifier })
         await host.run(command)
-    }
-
-    private func waitUntil(_ description: String, seconds: Double = 10, _ condition: () -> Bool) async throws {
-        let deadline = Date.now.addingTimeInterval(seconds)
-        while !condition(), Date.now < deadline { await Task.yield() }
-        XCTAssertTrue(condition(), "Timed out waiting until \(description).")
     }
 }

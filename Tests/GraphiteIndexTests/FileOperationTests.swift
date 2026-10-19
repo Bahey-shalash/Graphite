@@ -1,6 +1,7 @@
 import XCTest
 @testable import GraphiteIndex
 import GraphiteCore
+import GraphiteTestSupport
 
 final class FileOperationTests: XCTestCase {
     private var vault: URL!
@@ -9,7 +10,7 @@ final class FileOperationTests: XCTestCase {
     private var operations: VaultFileOperations!
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("Vault-\(UUID().uuidString)")
+        vault = try TemporaryVault.make(prefix: "Vault", for: self).root
         for folder in ["Notes", "Other"] { try FileManager.default.createDirectory(at: vault.appendingPathComponent(folder), withIntermediateDirectories: true) }
         try write("Notes/Old name.md", "# Heading\n![](pic.png) [[Sibling]] [[./Sibling]]")
         try write("Notes/Sibling.md", "sibling")
@@ -21,11 +22,6 @@ final class FileOperationTests: XCTestCase {
         index = try VaultIndex(databaseURL: vault.appendingPathExtension("cache").appendingPathComponent("index.sqlite"))
         _ = try await index.reconcile(root: vault)
         operations = VaultFileOperations(store: store, index: index)
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: vault)
-        try? FileManager.default.removeItem(at: vault.appendingPathExtension("cache"))
     }
 
     private func write(_ relativePath: String, _ text: String) throws {
@@ -114,4 +110,3 @@ final class FileOperationTests: XCTestCase {
         XCTAssertNotNil(FileNameRules.problem(with: ".hidden", isNote: false))
     }
 }
-

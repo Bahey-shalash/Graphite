@@ -322,10 +322,5 @@ final class LivePreviewBlockPlacementTests: XCTestCase {
         add(attachment)
     }
 
-    private func waitUntil(_ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(5)
-        while !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(25)) }
-        XCTAssertTrue(condition(), "The hosted editor did not reach the expected state.")
-    }
 }
 #endif

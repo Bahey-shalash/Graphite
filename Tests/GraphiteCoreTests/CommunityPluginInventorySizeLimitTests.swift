@@ -1,5 +1,6 @@
 import XCTest
 @testable import GraphiteCore
+import GraphiteTestSupport
 
 /// How large the files of an installed plugin can be before Graphite will not read them:
 /// the manifest, `main.js` and `styles.css`. Exactly the cap is read, one byte over is
@@ -11,12 +12,7 @@ final class CommunityPluginInventorySizeLimitTests: XCTestCase {
     private var vault: URL!
 
     override func setUpWithError() throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("PluginSizeVault-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: vault)
+        vault = try TemporaryVault.make(prefix: "PluginSizeVault", for: self).root
     }
 
     private func installPlugin(manifest: Data, mainScript: Data, styles: Data? = nil) throws {

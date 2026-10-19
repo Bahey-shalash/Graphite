@@ -1,5 +1,6 @@
 import XCTest
 @testable import GraphiteCore
+import GraphiteTestSupport
 
 /// How much `CommunityPluginInstaller` accepts from the plugin directory and a plugin's
 /// release: exactly the cap is installed, one byte over is refused with `oversized` before
@@ -16,12 +17,7 @@ final class CommunityPluginInstallerSizeLimitTests: XCTestCase {
     private var vault: URL!
 
     override func setUpWithError() throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("PluginInstallVault-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: vault)
+        vault = try TemporaryVault.make(prefix: "PluginInstallVault", for: self).root
     }
 
     // MARK: Helpers

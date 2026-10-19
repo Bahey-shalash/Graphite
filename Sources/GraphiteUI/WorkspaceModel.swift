@@ -12,7 +12,13 @@ final class WorkspaceModel {
     var folderAccess: FolderAccess?
     /// The open vault's entry in `vaultLibrary`.
     private(set) var currentVaultIdentifier: UUID?
-    let vaultLibrary = VaultLibrary()
+    let vaultLibrary: VaultLibrary
+    /// The preferences the per-vault keys below are written to. The app's are the standard
+    /// ones; a test or a hosted launch gives its own (`WorkspaceDeviceServices`).
+    let deviceDefaults: UserDefaults
+    /// Where the files kept for each vault outside it (indexes, File recovery copies,
+    /// unfinished recordings) live: the system's folders, or temporary ones for tests.
+    let applicationFolders: ApplicationFolders
     var store: VaultStore?
     var index: VaultIndex?
     var rootEntries: [VaultEntry] = []
@@ -20,7 +26,7 @@ final class WorkspaceModel {
     var expandedFolders: Set<VaultPath> = [] {
         didSet {
             guard let currentVaultIdentifier, expandedFolders != oldValue else { return }
-            UserDefaults.standard.set(expandedFolders.map(\.rawValue).sorted(), forKey: Self.expandedFoldersKey(for: currentVaultIdentifier))
+            deviceDefaults.set(expandedFolders.map(\.rawValue).sorted(), forKey: Self.expandedFoldersKey(for: currentVaultIdentifier))
         }
     }
 
@@ -69,7 +75,7 @@ final class WorkspaceModel {
     /// Where each vault's documents were left (`WorkspacePlaces.swift`). Shared by every
     /// workspace of the app; a test gives its workspace one of its own, so places it leaves
     /// stay out of the app's preferences and out of other tests.
-    @ObservationIgnored var documentPlaceStore = DocumentPlaceStore.shared
+    @ObservationIgnored var documentPlaceStore: DocumentPlaceStore
     /// Bases inside the open vault's notes keep their results here while scrolled out of
     /// sight. Replaced when another vault opens, since its models read the old vault.
     @ObservationIgnored private(set) var embeddedBaseModelCache = EmbeddedBaseModelCache()
@@ -83,7 +89,7 @@ final class WorkspaceModel {
     var recentFiles = RecentFiles() {
         didSet {
             guard let currentVaultIdentifier, recentFiles != oldValue else { return }
-            UserDefaults.standard.set(recentFiles.paths.map(\.rawValue), forKey: Self.recentFilesKey(for: currentVaultIdentifier))
+            deviceDefaults.set(recentFiles.paths.map(\.rawValue), forKey: Self.recentFilesKey(for: currentVaultIdentifier))
         }
     }
 
@@ -178,7 +184,7 @@ final class WorkspaceModel {
         get { activeDocument.headingScrollRequest }
         set { activeDocument.headingScrollRequest = newValue }
     }
-    let preferences = GraphitePreferences()
+    let preferences: GraphitePreferences
     let recording = RecordingController()
     let readAloud = ReadAloudVoices.makeController()
     /// Callouts the person expanded or collapsed, which Read Aloud follows.
@@ -195,7 +201,7 @@ final class WorkspaceModel {
         return navigator
     }()
     /// The open vault's Obsidian community plugins.
-    let communityPlugins = CommunityPluginHost()
+    let communityPlugins: CommunityPluginHost
     /// Set by indexing when a scan of the whole vault finishes; tests that fill the index
     /// themselves set it too.
     var hasCompletedIndexScan = false
@@ -211,6 +217,36 @@ final class WorkspaceModel {
     private var externalChangeTask: Task<Void, Never>?
     private var pendingExternalChanges: Set<URL> = []
     let resolver = AttachmentResolver()
+    /// What the delays of the workspace and of the sessions it opens are counted on: the
+    /// settling of external changes and canvas autosave.
+    let clock: any ApplicationClock
+
+    /// A workspace over the device state it is given: the preferences, the vault list, the
+    /// place store and the folders, with its delays counted on `clock`. The app builds them
+    /// once where it creates the workspace.
+    init(deviceServices: WorkspaceDeviceServices, clock: any ApplicationClock) {
+        self.clock = clock
+        deviceDefaults = deviceServices.defaults
+        applicationFolders = deviceServices.applicationFolders
+        preferences = deviceServices.preferences
+        vaultLibrary = deviceServices.vaultLibrary
+        documentPlaceStore = deviceServices.documentPlaceStore
+        communityPlugins = CommunityPluginHost(defaults: deviceServices.defaults)
+        if let applicationSupportFolder = deviceServices.applicationFolders.applicationSupportFolder {
+            recording.recoveryFolderLocation = { try RecordingRecoveryFolder.location(in: applicationSupportFolder) }
+        }
+    }
+
+    /// A workspace on the app's own device state. Callers that do not pass their own are the
+    /// tests written before the workspace could be given one; Phase 2 removes this.
+    convenience init() {
+        self.init(deviceServices: .live(), clock: LiveApplicationClock())
+    }
+
+    /// A workspace for a launch in `launchMode`.
+    convenience init(launchMode: LaunchMode) {
+        self.init(deviceServices: .make(for: launchMode), clock: LiveApplicationClock())
+    }
 
     var title: String { folderAccess?.root.lastPathComponent ?? "Graphite" }
     var currentDirectory: VaultPath { selection?.parent ?? .root }
@@ -249,14 +285,14 @@ final class WorkspaceModel {
         guard vault.id != currentVaultIdentifier else { return }
         vaultLibrary.remove(vault.id)
         // Its File recovery copies would otherwise stay on the device with nothing to show them.
-        if let fileRecovery = try? FileRecoveryStore.forVault(identifier: vault.id) {
+        if let fileRecovery = try? FileRecoveryStore.forVault(identifier: vault.id, in: applicationFolders.applicationSupportFolder) {
             Task.detached(priority: .utility) { try? fileRecovery.removeAllSnapshots() }
         }
-        VaultIndex.removeIndex(forVault: vault.id)
-        CommunityPluginHost.forgetVault(vault.id)
+        VaultIndex.removeIndex(forVault: vault.id, in: applicationFolders.cachesFolder)
+        CommunityPluginHost.forgetVault(vault.id, defaults: deviceDefaults)
         // Opening the folder again makes a new identifier, so nothing would read these again.
         for key in [Self.expandedFoldersKey(for: vault.id), Self.recentFilesKey(for: vault.id), Self.tabLayoutKey(for: vault.id)] {
-            UserDefaults.standard.removeObject(forKey: key)
+            deviceDefaults.removeObject(forKey: key)
         }
         documentPlaceStore.forgetVault(vault.id)
     }
@@ -288,7 +324,7 @@ final class WorkspaceModel {
         let settings = (try? await vaultStore.settings()) ?? ObsidianSettings()
         do {
             entries = try await vaultStore.children(of: .root, sortedBy: settings.fileSortOrder)
-            let cacheURL = try VaultIndex.cacheURL(forVault: vaultIdentifier, legacyRoot: root)
+            let cacheURL = try VaultIndex.cacheURL(forVault: vaultIdentifier, legacyRoot: root, in: applicationFolders.cachesFolder)
             vaultIndex = try await Task.detached(priority: .utility) { try VaultIndex(databaseURL: cacheURL) }.value
             // The open editors stayed usable while the vault was read; what was written in
             // them meanwhile is saved before they close. A failed save keeps this vault open.
@@ -305,7 +341,7 @@ final class WorkspaceModel {
         // saved now, with nothing to wait for between this and the documents closing.
         for document in tabDocuments.values { try? await document.saveAllChanges() }
         monitor?.stop(); stopIndexing(); externalChangeTask?.cancel()
-        pendingExternalChanges.removeAll(); firstPendingExternalChangeInstant = nil
+        pendingExternalChanges.removeAll(); firstPendingExternalChangeTime = nil
         indexingMessage = ""
         readAloud.clear()
         folderAccess = access; store = vaultStore; index = vaultIndex; monitor = vaultMonitor
@@ -333,12 +369,14 @@ final class WorkspaceModel {
         currentVaultIdentifier = vaultLibrary.recordOpening(identifier: vaultIdentifier, root: root, location: refreshedLocation ?? location)
         if let currentVaultIdentifier {
             // Folders renamed or deleted in the meantime simply stay closed.
-            let savedFolders = UserDefaults.standard.stringArray(forKey: Self.expandedFoldersKey(for: currentVaultIdentifier)) ?? []
+            let savedFolders = deviceDefaults.stringArray(forKey: Self.expandedFoldersKey(for: currentVaultIdentifier)) ?? []
             expandedFolders = Set(savedFolders.compactMap { folder in try? VaultPath(folder) })
-            let savedRecentFiles = UserDefaults.standard.stringArray(forKey: Self.recentFilesKey(for: currentVaultIdentifier)) ?? []
+            let savedRecentFiles = deviceDefaults.stringArray(forKey: Self.recentFilesKey(for: currentVaultIdentifier)) ?? []
             recentFiles = RecentFiles(paths: savedRecentFiles.compactMap { path in try? VaultPath(path) })
         }
-        fileRecovery = currentVaultIdentifier.flatMap { identifier in try? FileRecoveryStore.forVault(identifier: identifier) }
+        fileRecovery = currentVaultIdentifier.flatMap { identifier in
+            try? FileRecoveryStore.forVault(identifier: identifier, in: applicationFolders.applicationSupportFolder)
+        }
         pruneRecoverySnapshots()
         await reloadVaultSettings()
         startIndexing()
@@ -1223,17 +1261,19 @@ final class WorkspaceModel {
 
     // MARK: External changes
 
-    private func scheduleExternalRefresh(_ changedLocation: URL?) {
+    /// Records a change another app made at `changedLocation` (nil: somewhere in the vault) and
+    /// refreshes the vault once reports settle (`externalRefreshDeadline`).
+    func scheduleExternalRefresh(_ changedLocation: URL?) {
         if let changedLocation { pendingExternalChanges.insert(changedLocation) }
-        let now = ContinuousClock.now
-        let firstReport = firstPendingExternalChangeInstant ?? now
-        firstPendingExternalChangeInstant = firstReport
+        let now = clock.now
+        let firstReport = firstPendingExternalChangeTime ?? now
+        firstPendingExternalChangeTime = firstReport
         let deadline = Self.externalRefreshDeadline(firstReport: firstReport, latestReport: now)
         externalChangeTask?.cancel()
-        externalChangeTask = Task {
-            do { try await Task.sleep(until: deadline, clock: .continuous) } catch { return }
+        externalChangeTask = Task { [clock] in
+            do { try await clock.sleep(for: deadline - now) } catch { return }
             let changedLocations = pendingExternalChanges
-            pendingExternalChanges.removeAll(); firstPendingExternalChangeInstant = nil
+            pendingExternalChanges.removeAll(); firstPendingExternalChangeTime = nil
             guard let root = folderAccess?.root, let refreshedStore = store else { return }
             let maximumFileCount = Self.maximumIncrementalRefreshCount
             // Resolving thousands of reported paths takes a noticeable time, so it is kept
@@ -1273,12 +1313,12 @@ final class WorkspaceModel {
     private static let externalRefreshDelay = Duration.milliseconds(500)
     /// The longest a reported change waits while more keep coming, as during a long sync.
     private static let maximumExternalRefreshDelay = Duration.seconds(2)
-    /// When the oldest change waiting for the refresh was reported.
-    @ObservationIgnored private var firstPendingExternalChangeInstant: ContinuousClock.Instant?
+    /// When, on `clock`, the oldest change waiting for the refresh was reported.
+    @ObservationIgnored private var firstPendingExternalChangeTime: Duration?
 
     /// When a refresh runs: once reports pause for `externalRefreshDelay`, but no later than
     /// `maximumExternalRefreshDelay` after the first change waiting for it.
-    static func externalRefreshDeadline(firstReport: ContinuousClock.Instant, latestReport: ContinuousClock.Instant) -> ContinuousClock.Instant {
+    static func externalRefreshDeadline(firstReport: Duration, latestReport: Duration) -> Duration {
         min(latestReport + externalRefreshDelay, firstReport + maximumExternalRefreshDelay)
     }
 

@@ -1,5 +1,6 @@
 import XCTest
 @testable import GraphiteCore
+import GraphiteTestSupport
 
 /// Regression tests for vault paths, file storage and the Obsidian settings file.
 final class CoreFilesSettingsFixTests: XCTestCase {
@@ -11,8 +12,7 @@ final class CoreFilesSettingsFixTests: XCTestCase {
     }
 
     private func makeDirectory(_ name: String = "Vault") throws -> URL {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("\(name)-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let directory = try TemporaryVault.make(prefix: name, for: self).root
         temporaryDirectories.append(directory)
         return directory
     }

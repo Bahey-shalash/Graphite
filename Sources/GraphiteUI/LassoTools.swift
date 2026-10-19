@@ -25,9 +25,19 @@ enum LassoShape: String, CaseIterable, Identifiable {
         }
     }
 
+    /// The shape kept in `defaults`; freehand when none, or one this build does not know, is kept.
+    static func stored(in defaults: UserDefaults) -> LassoShape {
+        defaults.string(forKey: preferenceKey).flatMap(LassoShape.init(rawValue:)) ?? .freehand
+    }
+
+    func store(in defaults: UserDefaults) {
+        defaults.set(rawValue, forKey: Self.preferenceKey)
+    }
+
+    /// The shape kept on this device, for the Pencil tools made outside the workspace.
     static var stored: LassoShape {
-        get { UserDefaults.standard.string(forKey: preferenceKey).flatMap(LassoShape.init(rawValue:)) ?? .freehand }
-        set { UserDefaults.standard.set(newValue.rawValue, forKey: preferenceKey) }
+        get { stored(in: .standard) }
+        set { newValue.store(in: .standard) }
     }
 }
 
@@ -52,9 +62,19 @@ enum LaserPointerStyle: String, CaseIterable, Identifiable {
         }
     }
 
+    /// The style kept in `defaults`; the dot when none, or one this build does not know, is kept.
+    static func stored(in defaults: UserDefaults) -> LaserPointerStyle {
+        defaults.string(forKey: preferenceKey).flatMap(LaserPointerStyle.init(rawValue:)) ?? .dot
+    }
+
+    func store(in defaults: UserDefaults) {
+        defaults.set(rawValue, forKey: Self.preferenceKey)
+    }
+
+    /// The style kept on this device, for the Pencil tools made outside the workspace.
     static var stored: LaserPointerStyle {
-        get { UserDefaults.standard.string(forKey: preferenceKey).flatMap(LaserPointerStyle.init(rawValue:)) ?? .dot }
-        set { UserDefaults.standard.set(newValue.rawValue, forKey: preferenceKey) }
+        get { stored(in: .standard) }
+        set { newValue.store(in: .standard) }
     }
 }
 

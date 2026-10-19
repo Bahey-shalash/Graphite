@@ -2,6 +2,7 @@ import XCTest
 import CoreGraphics
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// A canvas file can hold several cards with one `id`. All are shown; a connection names
 /// the first card with that `id`; the later cards with the same `id` can neither start a
@@ -23,19 +24,14 @@ final class CanvasSessionDuplicateIdentifierTests: XCTestCase {
         + "\t]\n}"
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("CanvasSessionDuplicate-\(UUID().uuidString)")
+        vault = try TemporaryVault.make(prefix: "CanvasSessionDuplicate", for: self).root
         canvasPath = try VaultPath("Board.canvas")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
         try Data(board.utf8).write(to: vault.appendingPathComponent(canvasPath.rawValue))
         store = VaultStore(root: vault)
     }
 
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: vault)
-    }
-
     private func openSession() async throws -> CanvasSession {
-        let session = try CanvasSession(path: canvasPath, snapshot: try await store.read(canvasPath), store: store) { _ in }
+        let session = try CanvasSession(path: canvasPath, snapshot: try await store.read(canvasPath), store: store, clock: ManualClock()) { _ in }
         session.viewSize = CGSize(width: 1000, height: 800)
         session.isWriting = true
         session.snapsToGrid = false

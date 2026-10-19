@@ -1,5 +1,6 @@
 import XCTest
 @testable import GraphiteCore
+import GraphiteTestSupport
 
 final class TagsAndPropertiesTests: XCTestCase {
     // MARK: Tags
@@ -95,8 +96,7 @@ final class TagsAndPropertiesTests: XCTestCase {
     // MARK: types.json
 
     func testAssignsAndMovesPropertyTypesKeepingTheRestOfTheFile() async throws {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("Vault-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: vault) }
+        let vault = try TemporaryVault.make(prefix: "Vault", for: self).root
         try FileManager.default.createDirectory(at: vault.appendingPathComponent(".obsidian"), withIntermediateDirectories: true)
         let typesLocation = vault.appendingPathComponent(".obsidian/types.json")
         try Data(#"{"types":{"Rating":"number","tags":"tags"},"other":1}"#.utf8).write(to: typesLocation)

@@ -159,7 +159,7 @@ final class CommunityPluginHostTests: XCTestCase {
         #endif
         try await run("remember", in: workspace)
         await host.restartPlugins()
-        try await waitUntil(seconds: 15) { host.loadStates[Self.pluginIdentifier] == .loaded }
+        try await waitUntil(timeoutSeconds: 15) { host.loadStates[Self.pluginIdentifier] == .loaded }
         XCTAssertFalse(host.webView === webView, "The restart made a new web view.")
         XCTAssertEqual(host.webView?.configuration.websiteDataStore.identifier, vaultIdentifier)
         try await run("recall", in: workspace)
@@ -173,7 +173,7 @@ final class CommunityPluginHostTests: XCTestCase {
         XCTAssertFalse(host.isPanelPresented)
         try await run("measure-interval", in: workspace)
         let dataFile = vault.appendingPathComponent(".obsidian/plugins/\(Self.pluginIdentifier)/data.json")
-        try await waitUntil(seconds: 5) { FileManager.default.fileExists(atPath: dataFile.path) }
+        try await waitUntil(timeoutSeconds: 5) { FileManager.default.fileExists(atPath: dataFile.path) }
         let measurement = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: dataFile)) as? [String: Any])
         XCTAssertEqual(measurement["visibilityState"] as? String, "visible")
         // 20 ticks of 50 ms fit in a second; a page outside the window gets about one.
@@ -202,9 +202,9 @@ final class CommunityPluginHostTests: XCTestCase {
         let session = try XCTUnwrap(workspace.document(for: tab).markdownSession)
         session.viewMode = .reading
         // The block's copy shows in a web view of its own, not the plugins' web view.
-        try await waitUntil(seconds: 15) { self.codeBlockWebViews(in: controller, host: host).count == 1 }
+        try await waitUntil(timeoutSeconds: 15) { self.codeBlockWebViews(in: controller, host: host).count == 1 }
         let blockWebView = try XCTUnwrap(codeBlockWebViews(in: controller, host: host).first)
-        try await waitUntil(seconds: 10) { blockWebView.bounds.height > 10 }
+        try await waitUntil(timeoutSeconds: 10) { blockWebView.bounds.height > 10 }
         var shownHTML = try await codeBlockHTML(blockWebView)
         for _ in 0..<100 where !shownHTML.contains("Count 3") {
             try await Task.sleep(for: .milliseconds(50))
@@ -230,7 +230,7 @@ final class CommunityPluginHostTests: XCTestCase {
 
         // Leaving reading view releases the plugin's block.
         session.viewMode = .source
-        try await waitUntil(seconds: 5) { host.shownCodeBlocks.isEmpty }
+        try await waitUntil(timeoutSeconds: 5) { host.shownCodeBlocks.isEmpty }
     }
 
     func testASectionAPluginChangesIsShownAsThePluginDrewItAndTheRestStaysNative() async throws {
@@ -239,7 +239,7 @@ final class CommunityPluginHostTests: XCTestCase {
         try await waitUntil { host.runsMarkdownPostProcessors }
         let tab = try await openTab("Shout.md", in: workspace)
         workspace.document(for: tab).markdownSession?.viewMode = .reading
-        try await waitUntil(seconds: 15) { self.codeBlockWebViews(in: controller, host: host).count == 1 }
+        try await waitUntil(timeoutSeconds: 15) { self.codeBlockWebViews(in: controller, host: host).count == 1 }
         let sectionWebView = try XCTUnwrap(codeBlockWebViews(in: controller, host: host).first)
         var shownHTML = try await codeBlockHTML(sectionWebView)
         for _ in 0..<100 where !shownHTML.contains("HELLO") {
@@ -294,7 +294,7 @@ final class CommunityPluginHostTests: XCTestCase {
             editor.insertText(character)
             try await Task.sleep(for: .milliseconds(30))
         }
-        try await waitUntil(seconds: 5) { session.completion.items.map(\.title) == ["😄 smile"] }
+        try await waitUntil(timeoutSeconds: 5) { session.completion.items.map(\.title) == ["😄 smile"] }
         let heardText = try await host.webView?.callAsyncJavaScript("return window.lastHeardText", arguments: [:], in: nil, contentWorld: .page) as? String
         XCTAssertEqual(heardText, "Mood :sm\n", "The plugin heard the change as typed.")
         session.completion.accept()
@@ -315,7 +315,7 @@ final class CommunityPluginHostTests: XCTestCase {
         let tabID = workspace.layout.activeTab.id
         let viewIdentifier = try XCTUnwrap(workspace.document(for: tabID).pluginViewIdentifier)
         XCTAssertEqual(host.pluginView(withIdentifier: viewIdentifier)?.placement, .tab)
-        try await waitUntil(seconds: 15) { self.codeBlockWebViews(in: controller, host: host).count == 1 }
+        try await waitUntil(timeoutSeconds: 15) { self.codeBlockWebViews(in: controller, host: host).count == 1 }
         let viewWebView = try XCTUnwrap(codeBlockWebViews(in: controller, host: host).first)
         var shownHTML = ""
         for _ in 0..<100 where !shownHTML.contains("Pressed 0") {
@@ -366,11 +366,11 @@ final class CommunityPluginHostTests: XCTestCase {
         let host = workspace.communityPlugins
         try await waitUntil { Set(host.inventory.plugins.map(\.id)).isSuperset(of: realPlugins) }
         await host.setTurnedOnForVault(true)
-        try await waitUntil(seconds: 20) { host.loadStates["dataview"] == .loaded && host.loadStates["obsidian-tasks-plugin"] == .loaded }
-        try await waitUntil(seconds: 10) { host.codeBlockLanguages.isSuperset(of: ["dataview", "tasks"]) }
+        try await waitUntil(timeoutSeconds: 20) { host.loadStates["dataview"] == .loaded && host.loadStates["obsidian-tasks-plugin"] == .loaded }
+        try await waitUntil(timeoutSeconds: 10) { host.codeBlockLanguages.isSuperset(of: ["dataview", "tasks"]) }
         let tab = try await openTab("Queries.md", in: workspace)
         workspace.document(for: tab).markdownSession?.viewMode = .reading
-        try await waitUntil(seconds: 15) { self.codeBlockWebViews(in: controller, host: host).count >= 2 }
+        try await waitUntil(timeoutSeconds: 15) { self.codeBlockWebViews(in: controller, host: host).count >= 2 }
         var shownHTML = ""
         for _ in 0..<200 {
             var copies: [String] = []
@@ -428,7 +428,7 @@ final class CommunityPluginHostTests: XCTestCase {
         let host = workspace.communityPlugins
         try await waitUntil { host.inventory.plugins.contains { plugin in plugin.id == Self.pluginIdentifier } }
         await host.setTurnedOnForVault(true)
-        try await waitUntil(seconds: 15) { host.loadStates[Self.pluginIdentifier] == .loaded }
+        try await waitUntil(timeoutSeconds: 15) { host.loadStates[Self.pluginIdentifier] == .loaded }
         try await waitUntil { host.commands.contains { command in command.id == Self.pluginIdentifier + ":save-data" } }
         return (workspace, vault, controller)
     }
@@ -477,10 +477,5 @@ final class CommunityPluginHostTests: XCTestCase {
         }
     }
 
-    private func waitUntil(seconds: Double = 5, _ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(seconds)
-        while !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(25)) }
-        XCTAssertTrue(condition(), "The plugin host did not reach the expected state.")
-    }
 }
 #endif

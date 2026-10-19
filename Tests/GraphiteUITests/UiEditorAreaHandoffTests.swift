@@ -4,6 +4,7 @@ import XCTest
 import GraphiteCore
 import GraphiteIndex
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// Changes other groups handed to the editor, reading view, and Live Preview files.
 @MainActor
@@ -11,12 +12,7 @@ final class UiEditorAreaHandoffTests: XCTestCase {
     private var vault: URL!
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("EditorAreaVault-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: vault)
+        vault = try TemporaryVault.make(prefix: "EditorAreaVault", for: self).root
     }
 
     private func write(_ text: String, to path: String) throws {

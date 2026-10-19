@@ -1,5 +1,6 @@
 import XCTest
 @testable import GraphiteCore
+import GraphiteTestSupport
 
 /// A lecture whose save failed leaves its converted `.m4a` beside the recording's `.caf`. The
 /// two are one recording and are offered once.
@@ -8,12 +9,7 @@ final class RecordingRecoveryFolderConvertedCopyTests: XCTestCase {
     private let bytesHoldingAudio = Data(repeating: 1, count: RecordingRecoveryFolder.largestFileWithoutAudio + 1_000)
 
     override func setUpWithError() throws {
-        folder = FileManager.default.temporaryDirectory.appendingPathComponent("RecoveryFolder-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try FileManager.default.removeItem(at: folder)
+        folder = try TemporaryVault.make(prefix: "RecoveryFolder", for: self).root
     }
 
     private func write(_ name: String) throws -> URL {

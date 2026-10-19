@@ -5,17 +5,12 @@ import GraphiteCore
 @testable import GraphiteIndex
 @testable import GraphiteApple
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// The recording control's choices and wording, the camera preview's place and size, and
 /// video recordings in the workspace: where they are saved and how they are recovered.
 @MainActor
 final class RecordingControlsTests: XCTestCase {
-    private var temporaryFolders: [URL] = []
-
-    override func tearDown() async throws {
-        for folder in temporaryFolders { try? FileManager.default.removeItem(at: folder) }
-        temporaryFolders = []
-    }
 
     // MARK: The control
 
@@ -157,9 +152,7 @@ final class RecordingControlsTests: XCTestCase {
     // MARK: Helpers
 
     private func makeFolder(_ prefix: String) throws -> URL {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        temporaryFolders.append(folder)
+        let folder = try TemporaryVault.make(prefix: prefix, for: self).root
         return folder.resolvingSymlinksInPath()
     }
 

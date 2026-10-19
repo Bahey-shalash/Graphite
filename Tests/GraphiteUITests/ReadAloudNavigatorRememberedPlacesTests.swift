@@ -2,6 +2,7 @@ import XCTest
 import GraphiteCore
 import GraphiteApple
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// Where reading stopped in a note is remembered for the note of the vault it was read in.
 @MainActor
@@ -10,7 +11,7 @@ final class ReadAloudNavigatorRememberedPlacesTests: XCTestCase {
     private let secondVaultIdentifier = UUID()
 
     private func makeNavigator(openVault: @escaping () -> UUID?) throws -> ReadAloudNavigator {
-        let preferences = try XCTUnwrap(UserDefaults(suiteName: "ReadAloudNavigatorRememberedPlacesTests-\(UUID().uuidString)"))
+        let preferences = try IsolatedDeviceState.make(prefix: "ReadAloudNavigatorRememberedPlacesTests", for: self).preferences
         let session = ReadAloudSession(speech: PenTestSpeech(), preferences: preferences)
         let navigator = ReadAloudNavigator(reader: ReadAloudController(session: session, preferences: preferences), preferences: preferences)
         navigator.vaultIdentifier = openVault

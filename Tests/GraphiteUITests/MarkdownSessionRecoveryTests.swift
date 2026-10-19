@@ -1,15 +1,14 @@
 import XCTest
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 @MainActor
 final class MarkdownSessionRecoveryTests: XCTestCase {
     /// File recovery copies the text a save or a reload is about to replace, and nothing
     /// when nothing is replaced.
     func testReportsTheSavedTextBeforeASaveOrAReloadReplacesIt() async throws {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("Vault-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: vault) }
+        let vault = try TemporaryVault.make(prefix: "Vault", for: self).root
         let notePath = try VaultPath("Note.md")
         let noteLocation = vault.appendingPathComponent("Note.md")
         try Data("first".utf8).write(to: noteLocation)

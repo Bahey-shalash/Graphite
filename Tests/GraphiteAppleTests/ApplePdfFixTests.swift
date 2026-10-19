@@ -10,6 +10,7 @@ import AppKit
 #endif
 import GraphiteCore
 @testable import GraphiteApple
+import GraphiteTestSupport
 
 /// Regression tests for PDF saving: ink on offset pages, outline and link destinations
 /// through page changes, other applications' markup, and document structure checks.
@@ -17,12 +18,7 @@ final class ApplePdfFixTests: XCTestCase {
     private var directory: URL!
 
     override func setUpWithError() throws {
-        directory = FileManager.default.temporaryDirectory.appendingPathComponent("ApplePdfFix-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: directory)
+        directory = try TemporaryVault.make(prefix: "ApplePdfFix", for: self).root
     }
 
     // MARK: Fixtures

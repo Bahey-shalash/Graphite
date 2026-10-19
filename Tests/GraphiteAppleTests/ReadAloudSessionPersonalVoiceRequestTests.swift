@@ -1,6 +1,7 @@
 import XCTest
 import GraphiteCore
 @testable import GraphiteApple
+import GraphiteTestSupport
 
 @MainActor
 private final class PersonalVoiceCountingSpeech: ReadAloudSpeaking {
@@ -30,9 +31,7 @@ private final class PersonalVoiceCountingSpeech: ReadAloudSpeaking {
 final class ReadAloudSessionPersonalVoiceRequestTests: XCTestCase {
     private func makeSession() throws -> (ReadAloudSession, PersonalVoiceCountingSpeech) {
         let speech = PersonalVoiceCountingSpeech()
-        let suiteName = "ReadAloudSessionPersonalVoiceRequestTests-\(UUID().uuidString)"
-        let preferences = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        addTeardownBlock { preferences.removePersistentDomain(forName: suiteName) }
+        let preferences = try IsolatedDeviceState.make(prefix: "ReadAloudSessionPersonalVoiceRequestTests", for: self).preferences
         return (ReadAloudSession(speech: speech, preferences: preferences), speech)
     }
 

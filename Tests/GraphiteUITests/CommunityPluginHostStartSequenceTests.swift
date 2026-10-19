@@ -1,6 +1,7 @@
 import XCTest
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// What `CommunityPluginHost` does, in which order, when it starts the plugins of a vault:
 /// the page loads, the runtime starts with the vault's files, each enabled plugin loads in
@@ -49,7 +50,7 @@ final class CommunityPluginHostStartSequenceTests: XCTestCase {
         let host = workspace.communityPlugins
         await workspace.open(try VaultPath("Note.md"))
         try await testBed.runCommand("open-side-view", of: "a-recorder", in: workspace)
-        try await testBed.waitUntil("Graphite keeps what opens the sidebar view again") { workspace.restorableSidebarPluginViews.views.contains { view in view.viewType == "recorded-view" } }
+        try await waitUntil("Graphite keeps what opens the sidebar view again") { workspace.restorableSidebarPluginViews.views.contains { view in view.viewType == "recorded-view" } }
 
         await host.restartPlugins()
 

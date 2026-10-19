@@ -1,5 +1,6 @@
 import XCTest
 @testable import GraphiteCore
+import GraphiteTestSupport
 
 /// The web addresses `CommunityPluginInstaller` and `ObsidianThemeInstaller` ask for, in order,
 /// and which release they install: the repository's current manifest names the version, a
@@ -10,8 +11,7 @@ final class CommunityPluginInstallerRequestTests: XCTestCase {
     private var store: VaultStore!
 
     override func setUpWithError() throws {
-        vaultFolder = FileManager.default.temporaryDirectory.appendingPathComponent("InstallerVault-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: vaultFolder, withIntermediateDirectories: true)
+        vaultFolder = try TemporaryVault.make(prefix: "InstallerVault", for: self).root
         store = VaultStore(root: vaultFolder)
         ScriptedGitHubProtocol.script.reset()
     }

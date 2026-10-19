@@ -1,6 +1,7 @@
 import XCTest
 import GraphiteCore
 @testable import GraphiteApple
+import GraphiteTestSupport
 
 @MainActor
 private final class SilentSpeech: ReadAloudSpeaking {
@@ -65,9 +66,7 @@ final class ReadAloudLanguageSamplingTests: XCTestCase {
 
     @MainActor
     func testASessionReadsInTheDocumentsLanguageOrElseTheDeviceLanguage() throws {
-        let suiteName = "ReadAloudLanguageSamplingTests-\(UUID().uuidString)"
-        let preferences = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        addTeardownBlock { preferences.removePersistentDomain(forName: suiteName) }
+        let preferences = try IsolatedDeviceState.make(prefix: "ReadAloudLanguageSamplingTests", for: self).preferences
         let session = ReadAloudSession(speech: SilentSpeech(), preferences: preferences)
 
         session.load(try ReadAloudDocument.markdown(frenchSentence))

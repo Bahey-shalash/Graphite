@@ -1,5 +1,6 @@
 import XCTest
 @testable import GraphiteCore
+import GraphiteTestSupport
 
 /// The failure kinds `CommunityPluginVaultBridge` answers with, which the plugin runtime
 /// compares as text (`conflict`, `missing`, `outsideVault`…), and the vault operations it
@@ -8,14 +9,10 @@ final class CommunityPluginVaultBridgeFailureKindsTests: XCTestCase {
     private var vault: URL!
 
     override func setUpWithError() throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("BridgeKindsVault-\(UUID().uuidString)", isDirectory: true)
+        vault = try TemporaryVault.make(prefix: "BridgeKindsVault", for: self).root
         try FileManager.default.createDirectory(at: vault.appendingPathComponent("Folder"), withIntermediateDirectories: true)
         try Data("text".utf8).write(to: vault.appendingPathComponent("Note.md"))
         try Data("inner".utf8).write(to: vault.appendingPathComponent("Folder/Inner.md"))
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: vault)
     }
 
     private func answer(_ message: [String: Any]) async throws -> [String: Any] {

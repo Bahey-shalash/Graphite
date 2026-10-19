@@ -1,5 +1,6 @@
 import XCTest
 @testable import GraphiteCore
+import GraphiteTestSupport
 
 /// A link names a file, never a folder: `WikiLinkResolver.existingDirectFile` skips a folder
 /// that has the written name.
@@ -7,12 +8,8 @@ final class WikiLinkResolverExistingFileTests: XCTestCase {
     private var vault: URL!
 
     override func setUpWithError() throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("ResolverVault-\(UUID().uuidString)")
+        vault = try TemporaryVault.make(prefix: "ResolverVault", for: self).root
         try FileManager.default.createDirectory(at: vault.appendingPathComponent("Projects"), withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try FileManager.default.removeItem(at: vault)
     }
 
     private func write(_ relativePath: String) throws {

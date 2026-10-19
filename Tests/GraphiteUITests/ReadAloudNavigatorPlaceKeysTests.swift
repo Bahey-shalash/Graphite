@@ -2,22 +2,20 @@ import XCTest
 import GraphiteCore
 import GraphiteApple
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// How the places where Read Aloud stopped are kept on the device: the two keys, the key of
 /// each place, and the 300 places kept.
 @MainActor
 final class ReadAloudNavigatorPlaceKeysTests: XCTestCase {
     private let vaultIdentifier = UUID(uuidString: "7F0A3C54-9B1E-4D7C-8E21-5A6B4C3D2E10")!
-    private var suiteName = ""
     private var preferences: UserDefaults!
 
     override func setUp() async throws {
-        suiteName = "ReadAloudNavigatorPlaceKeysTests-\(UUID().uuidString)"
-        preferences = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        preferences = try IsolatedDeviceState.make(prefix: "ReadAloudNavigatorPlaceKeysTests", for: self).preferences
     }
 
     override func tearDown() async throws {
-        preferences.removePersistentDomain(forName: suiteName)
         preferences = nil
     }
 

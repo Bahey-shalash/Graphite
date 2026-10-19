@@ -1,6 +1,7 @@
 import XCTest
 import PDFKit
 @testable import GraphiteApple
+import GraphiteTestSupport
 
 /// Compaction runs only on a file with a single plain cross-reference table: no `/Prev`
 /// (an incremental update), no `/XRefStm` (a hybrid file) and no `/Encrypt`. In every other
@@ -9,12 +10,7 @@ final class PDFObjectCompactionApplicabilityTests: XCTestCase {
     private var directory: URL!
 
     override func setUpWithError() throws {
-        directory = FileManager.default.temporaryDirectory.appendingPathComponent("PDFObjectCompactionApplicability-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: directory)
+        directory = try TemporaryVault.make(prefix: "PDFObjectCompactionApplicability", for: self).root
     }
 
     /// One page and one object nothing refers to, with the given extra trailer entries.

@@ -4,6 +4,7 @@ import ImageIO
 import UniformTypeIdentifiers
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// A Live Preview embed keeps showing its drawing when its view is made again (scrolled
 /// back into view, or the cursor leaving its line), and a changed file reaches the rendered
@@ -14,12 +15,7 @@ final class UiLivePreviewEmbedContinuityTests: XCTestCase {
     private var vault: URL!
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("EmbedContinuity-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: vault)
+        vault = try TemporaryVault.make(prefix: "EmbedContinuity", for: self).root
     }
 
     private func writeRedPNG(named name: String) throws -> URL {

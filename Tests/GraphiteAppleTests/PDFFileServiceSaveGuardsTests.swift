@@ -3,6 +3,7 @@ import PDFKit
 import CoreGraphics
 import GraphiteCore
 @testable import GraphiteApple
+import GraphiteTestSupport
 
 /// What `PDFFileService.save` refuses to write and when it replaces the file: never a PDF
 /// that is locked or forbids comments or changes, and only the file at the revision it read.
@@ -10,12 +11,7 @@ final class PDFFileServiceSaveGuardsTests: XCTestCase {
     private var directory: URL!
 
     override func setUpWithError() throws {
-        directory = FileManager.default.temporaryDirectory.appendingPathComponent("PDFFileServiceSaveGuards-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: directory)
+        directory = try TemporaryVault.make(prefix: "PDFFileServiceSaveGuards", for: self).root
     }
 
     // MARK: Fixtures

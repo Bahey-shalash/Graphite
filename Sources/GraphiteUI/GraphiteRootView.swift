@@ -5,7 +5,9 @@ import GraphiteApple
 import GraphiteIndex
 
 public struct GraphiteRootView: View {
-    @State private var workspace = WorkspaceModel()
+    @State private var workspace: WorkspaceModel
+    /// False for a hosted-tests launch, which opens no vault of its own (`LaunchMode`).
+    private let restoresLastVault: Bool
     /// The Mac shows Settings in its own window (`GraphiteMacScenes`).
     @State private var showsSettings = false
     /// Settings › Read Aloud › Floating Player; off keeps the controls in the toolbar.
@@ -45,18 +47,26 @@ public struct GraphiteRootView: View {
     /// document's own controls.
     private var isCompactWidth: Bool { horizontalSizeClass == .compact }
 
-    public init() {}
+    /// The root view of a launch in `launchMode`, with the workspace made for it.
+    public init(launchMode: LaunchMode) {
+        _workspace = State(initialValue: WorkspaceModel(launchMode: launchMode))
+        restoresLastVault = launchMode.restoresLastVault
+        _isRestoringVault = State(initialValue: launchMode.restoresLastVault)
+    }
 
     /// For tests: the root view of a workspace already opened on a vault, which it does not
     /// replace with the last vault this device opened.
     init(workspace: WorkspaceModel) {
         _workspace = State(initialValue: workspace)
+        restoresLastVault = true
         _isRestoringVault = State(initialValue: false)
     }
 
     /// The root view of a workspace other scenes share, as the Mac's Settings window does.
-    init(reopeningLastVaultIn workspace: WorkspaceModel) {
+    init(reopeningLastVaultIn workspace: WorkspaceModel, launchMode: LaunchMode) {
         _workspace = State(initialValue: workspace)
+        restoresLastVault = launchMode.restoresLastVault
+        _isRestoringVault = State(initialValue: launchMode.restoresLastVault)
     }
 
     public var body: some View {
@@ -79,6 +89,9 @@ public struct GraphiteRootView: View {
             isWindowTallerThanWide = isTallerThanWide
         }
         .tint(workspace.preferences.accentColor)
+        // The settings the views keep with `@AppStorage` are read from the preferences the
+        // workspace writes to: the standard ones in the app, a private suite in a hosted run.
+        .defaultAppStorage(workspace.deviceDefaults)
         .onChange(of: columnVisibility) { _, requestedVisibility in
             if focusMode.isActive, requestedVisibility != .detailOnly {
                 focusMode.leave(columnVisibility: &columnVisibility, showsInspector: &showsInspector)
@@ -201,7 +214,7 @@ public struct GraphiteRootView: View {
         #endif
         .messageAlert($workspace.errorMessage)
         .task {
-            await workspace.restoreVault()
+            if restoresLastVault { await workspace.restoreVault() }
             isRestoringVault = false
             // Links that arrived while the last vault reopened, as when one launched Graphite.
             isVaultRestored = true
@@ -225,16 +238,7 @@ public struct GraphiteRootView: View {
             if isVaultRestored { Task { await workspace.handle(url) } } else { pendingLinks.append(url) }
         }
         .onChange(of: scenePhase) { previousPhase, phase in
-            // Taken at once as Graphite stops being active, not in the save that follows: by
-            // the time that task runs, iPadOS can have resized the window for its app switcher
-            // snapshots, and an editor laid out again then reports a line further down.
-            if previousPhase == .active { workspace.rememberPlacesOfOpenDocuments() }
-            if phase == .active {
-                Task { await workspace.checkOpenDocumentsForExternalChanges(); await workspace.refreshDirectory(); await workspace.reloadVaultSettings() }
-            } else {
-                // Reading goes on in the background and on the lock screen, like an audiobook.
-                saveBeforeLeavingScreen()
-            }
+            workspace.scenePhaseDidChange(from: previousPhase, to: phase, saveBeforeLeaving: saveBeforeLeavingScreen)
         }
         .alert("Unfinished Recording", isPresented: Binding(get: { workspace.recordingRecoveryOffer != nil }, set: { isPresented in
             if !isPresented { workspace.recordingRecoveryOffer = nil }

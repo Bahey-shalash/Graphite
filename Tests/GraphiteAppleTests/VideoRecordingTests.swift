@@ -2,6 +2,9 @@ import XCTest
 import AVFoundation
 import GraphiteCore
 @testable import GraphiteApple
+#if canImport(GraphiteTestSupport)
+import GraphiteTestSupport
+#endif
 
 /// Video recording driven without a camera: `SyntheticCaptureSource` delivers real frames
 /// and sound, which go through the writer the app uses, and an independent reader checks
@@ -201,7 +204,7 @@ final class VideoRecordingTests: XCTestCase {
         XCTAssertEqual(controller.message, CaptureInterruptionReason.applicationOffScreen.explanation, "The person is told why the video paused.")
         // What was recorded is a complete file at once: the system may end the app now.
         let recoveryURL = try XCTUnwrap(controller.recoveryURL)
-        try await waitUntilClosed(recoveryURL)
+        try await awaitClosedPart(recoveryURL)
         let firstPart = try await MovieInspection.of(recoveryURL)
         XCTAssertEqual(firstPart.durationSeconds, 2, accuracy: 0.1, "Nothing of the two seconds is lost, not even the last fragment.")
         XCTAssertFalse(firstPart.containsFragments)
@@ -503,7 +506,7 @@ final class VideoRecordingTests: XCTestCase {
         await source.deliver(seconds: 2)
         await source.interrupt(.applicationOffScreen)
         try await waitUntil { controller.state == .interrupted }
-        try await waitUntilClosed(try XCTUnwrap(controller.recoveryURL))
+        try await awaitClosedPart(try XCTUnwrap(controller.recoveryURL))
 
         // The next part cannot be created.
         try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: recoveryFolder.path)
@@ -549,21 +552,12 @@ final class VideoRecordingTests: XCTestCase {
     }
 
     /// Waits until a part's writer has closed it: the file then has one index and no fragments.
-    private func waitUntilClosed(_ partLocation: URL, timeoutSeconds: Double = 20) async throws {
-        let deadline = Date.now.addingTimeInterval(timeoutSeconds)
-        while (try? await AVURLAsset(url: partLocation).load(.containsFragments)) != false || MovieInspection.topLevelBoxNames(of: partLocation).last != "moov" {
-            guard Date.now < deadline else { return XCTFail("Timed out waiting for the part to be closed.") }
-            try await Task.sleep(for: .milliseconds(10))
+    private func awaitClosedPart(_ partLocation: URL) async throws {
+        try await waitUntil("the part is closed", timeoutSeconds: 20, pollingIntervalSeconds: 0.01) {
+            (try? await AVURLAsset(url: partLocation).load(.containsFragments)) == false && MovieInspection.topLevelBoxNames(of: partLocation).last == "moov"
         }
     }
 
-    private func waitUntil(_ condition: () -> Bool, timeoutSeconds: Double = 20) async throws {
-        let deadline = Date.now.addingTimeInterval(timeoutSeconds)
-        while !condition() {
-            guard Date.now < deadline else { return XCTFail("Timed out waiting for the recording controller.") }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-    }
 }
 
 /// Free storage a test changes while a recording runs.

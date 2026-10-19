@@ -2,6 +2,7 @@ import XCTest
 import GraphiteCore
 import GraphiteIndex
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// The reading view folds headings and remembers callouts under the keys the editor, Live
 /// Preview and Read Aloud use, whatever the reading view makes of the heading or the title.
@@ -11,8 +12,7 @@ final class ReadingViewBuilderFoldKeyTests: XCTestCase {
     private var index: VaultIndex!
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("FoldKeyVault-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        vault = try TemporaryVault.make(prefix: "FoldKeyVault", for: self).root
         index = try VaultIndex(databaseURL: vault.appendingPathComponent(".index.sqlite"))
     }
 
