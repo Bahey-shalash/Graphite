@@ -380,3 +380,36 @@ extension WorkspaceModel {
         if uniquePaths.count > Self.maximumIncrementalRefreshCount, !isIndexing { startIndexing() } else { refreshIndex(for: uniquePaths) }
     }
 }
+
+extension WorkspaceModel {
+    /// Copies files chosen outside the vault into `directory`, each under a free name, as
+    /// Goodnotes' Import does. The originals stay where they are. A file that fails is
+    /// reported; the others are still copied.
+    func importFiles(from sources: [URL], into directory: VaultPath) async {
+        guard let store, let root = folderAccess?.root else { return }
+        var importedPaths: [VaultPath] = []
+        var failedNames: [String] = []
+        for source in sources {
+            let hasAccess = source.startAccessingSecurityScopedResource()
+            defer { if hasAccess { source.stopAccessingSecurityScopedResource() } }
+            do {
+                try await store.createDirectory(directory)
+                let stem = source.deletingPathExtension().lastPathComponent
+                let path = try await store.uniquePath(directory: directory, stem: stem, extension: source.pathExtension)
+                let destination = try path.url(in: root)
+                let writer = store.writer
+                _ = try await Task.detached { try writer.copy(from: source, to: destination, expecting: .absent) }.value
+                importedPaths.append(path)
+            } catch {
+                failedNames.append(source.lastPathComponent)
+            }
+        }
+        if !importedPaths.isEmpty {
+            refreshIndex(for: importedPaths)
+            await refreshDirectory()
+        }
+        if !failedNames.isEmpty {
+            errorMessage = "Could not import " + failedNames.map { name in "“\(name)”" }.joined(separator: ", ") + "."
+        }
+    }
+}

@@ -243,6 +243,12 @@ enum WorkspaceCommandList {
             PaletteCommand(id: "math", title: "Insert math block", systemImage: "function") { session.insertBlock("$$\n\n$$") },
             PaletteCommand(id: "callout", title: "Insert callout", systemImage: "text.bubble") { session.insertBlock("> [!note]\n> ") },
         ]
+        let document = workspace.activeDocument
+        if document.markdownSession === session {
+            commands.append(PaletteCommand(id: "new-notebook-in-note", title: "Notebooks: Insert new notebook", systemImage: "book.closed") {
+                document.notebookInsertion = NotebookInsertionRequest(session: session)
+            })
+        }
         #if canImport(UIKit)
         if workspace.preferences.isEnabled(.drawings) {
             commands.append(PaletteCommand(id: "draw", title: "Pencil drawings: Insert drawing", systemImage: "pencil.tip.crop.circle.badge.plus") { workspace.beginNewDrawing(in: session) })

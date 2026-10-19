@@ -17,6 +17,10 @@ public struct GraphiteRootView: View {
     @State private var pendingLinks: [URL] = []
     @State private var opensVaultManagerAfterSettings = false
     @State private var creation: CreationRequest?
+    @State private var library = LibraryModel()
+    /// The iPad asks once how the person takes notes, in a launch that opens the person's
+    /// own vault; a launch for tests or measurements does not.
+    private var asksNoteTakingStyle = false
     @State private var showsInspector = false
     @State private var activePalette: ActivePalette?
     @State private var columnVisibility = NavigationSplitViewVisibility.automatic
@@ -52,6 +56,7 @@ public struct GraphiteRootView: View {
         _workspace = State(initialValue: WorkspaceModel(launchMode: launchMode))
         restoresLastVault = launchMode.restoresLastVault
         _isRestoringVault = State(initialValue: launchMode.restoresLastVault)
+        asksNoteTakingStyle = launchMode.restoresLastVault
     }
 
     /// For tests: the root view of a workspace already opened on a vault, which it does not
@@ -67,6 +72,7 @@ public struct GraphiteRootView: View {
         _workspace = State(initialValue: workspace)
         restoresLastVault = launchMode.restoresLastVault
         _isRestoringVault = State(initialValue: launchMode.restoresLastVault)
+        asksNoteTakingStyle = launchMode.restoresLastVault
     }
 
     public var body: some View {
@@ -104,7 +110,10 @@ public struct GraphiteRootView: View {
                 showsInspector = true
             }
         }
+        .modifier(LibraryModeSidebarVisibility(presentation: workspace.preferences.library.presentation, isCompactWidth: isCompactWidth,
+                                               columnVisibility: $columnVisibility))
         .environment(\.accent, workspace.preferences.accentColor)
+        .environment(library)
         // Notes, embeds and content lists draw in the vault's fonts (Settings › Appearance › Font).
         .environment(\.noteTypography, workspace.noteTypography)
         // Notes take the vault's Obsidian theme (Settings › Appearance › Use the Vault's Obsidian Theme).
@@ -141,19 +150,9 @@ public struct GraphiteRootView: View {
             // Narration does not reconfigure an active lecture recording's audio session.
             if state.isActive { workspace.readAloud.stop(); workspace.readAloud.showsReader = false }
         }
-        .sheet(item: $creation) { request in
-            let directory = workspace.newFileDirectory(request.directory)
-            CreateDocumentSheet(kind: request.kind, folderDescription: directory.rawValue.isEmpty ? workspace.title : directory.rawValue) { name, paper, pageCount in
-                Task {
-                    switch request.kind {
-                    case .note: await workspace.createNote(named: name, in: request.directory)
-                    case .notebook: await workspace.createNotebook(named: name, paper: paper, pageCount: pageCount, in: request.directory)
-                    case .base: await workspace.createBase(named: name, in: request.directory)
-                    case .canvas: await workspace.createCanvas(named: name, in: request.directory)
-                    }
-                }
-            }
-        }
+        .modifier(NoteTakingQuestionPresentation(preferences: workspace.preferences.library, vaultIdentifier: workspace.currentVaultIdentifier,
+                                                 isAsking: asksNoteTakingStyle))
+        .sheet(item: $creation) { request in creationSheet(for: request) }
         .modifier(FileManagementPresentation(workspace: workspace))
         .modifier(CommunityPluginPresentation(workspace: workspace) { showSettings() })
         #if canImport(UIKit)
@@ -289,8 +288,13 @@ public struct GraphiteRootView: View {
             }
     }
 
+    /// While the library is the window's home, the title bar names no document.
+    private var isLibraryHomeShown: Bool {
+        library.isShownAsHome && workspace.preferences.library.presentation == .library && !isCompactWidth
+    }
+
     private var titleBinding: Binding<String> {
-        Binding(get: { workspace.selection.map(displayName(for:)) ?? "" }, set: { newTitle in
+        Binding(get: { isLibraryHomeShown ? "" : workspace.selection.map(displayName(for:)) ?? "" }, set: { newTitle in
             guard let path = workspace.selection else { return }
             let fileExtension = (path.name as NSString).pathExtension
             var newName = newTitle.trimmingCharacters(in: .whitespaces)
@@ -429,7 +433,7 @@ public struct GraphiteRootView: View {
                 .frame(maxWidth: .infinity)
         } else {
             WorkspacePanes(workspace: workspace, showsLinksInspector: $showsInspector,
-                           create: { kind in creation = CreationRequest(kind: kind) },
+                           create: { request in creation = request },
                            showQuickSwitcher: { activePalette = .quickSwitcher },
                            acceptsFocusTouches: activePalette == nil, showsTabBar: !focusMode.isActive && !isCompactWidth)
         }
@@ -476,6 +480,38 @@ public struct GraphiteRootView: View {
             try? await Task.sleep(for: .milliseconds(250))
             activePalette = .templatePicker
         }
+    }
+
+    @ViewBuilder private func creationSheet(for request: CreationRequest) -> some View {
+        let directory = workspace.newFileDirectory(request.directory)
+        let folderDescription = directory.rawValue.isEmpty ? workspace.title : directory.rawValue
+        switch request.kind {
+        case .notebook:
+            NewNotebookSheet(folderDescription: folderDescription, initialOptions: workspace.preferences.notebookCreation.initialOptions()) { name, options in
+                workspace.preferences.notebookCreation.remember(options)
+                if request.opensInNewTab { openTabForLibraryCreation() }
+                Task { await workspace.createNotebook(named: name, paper: options.paper, pageCount: options.pageCount, in: request.directory) }
+            }
+        case .note, .base, .canvas:
+            CreateDocumentSheet(kind: request.kind, folderDescription: folderDescription) { name in
+                if request.opensInNewTab { openTabForLibraryCreation() }
+                Task {
+                    switch request.kind {
+                    case .note: await workspace.createNote(named: name, in: request.directory)
+                    case .base: await workspace.createBase(named: name, in: request.directory)
+                    case .canvas: await workspace.createCanvas(named: name, in: request.directory)
+                    case .notebook: break
+                    }
+                }
+            }
+        }
+    }
+
+    /// A file made from the library gets a tab of its own unless the active tab is empty,
+    /// and the library steps back to show it.
+    private func openTabForLibraryCreation() {
+        if workspace.libraryOpeningPlacement == .newTab { workspace.openNewTab() }
+        library.leaveHome()
     }
 
     private func displayName(for path: VaultPath) -> String {
@@ -612,53 +648,15 @@ private final class BackgroundTaskAssertion {
 
 // MARK: Creation
 
-private enum PaperSizePreset: String, CaseIterable, Identifiable {
-    case a4, letter, custom
-    var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .a4: "A4"
-        case .letter: "US Letter"
-        case .custom: "Custom"
-        }
-    }
-    /// Portrait size in PDF points.
-    var portraitSize: CGSize? {
-        switch self {
-        case .a4: CGSize(width: 595.28, height: 841.89)
-        case .letter: CGSize(width: 612, height: 792)
-        case .custom: nil
-        }
-    }
-}
-
-/// The page sizes a new notebook can have (`PDFTemplateGenerator` accepts the same).
-enum CustomPaperSize {
-    /// 1 to 40 inches, in PDF points.
-    static let sideLengthRange: ClosedRange<Double> = 72...2880
-
-    static func problem(with size: CGSize) -> String? {
-        let isValid = [Double(size.width), Double(size.height)].allSatisfy { sideLength in sideLength.isFinite && sideLengthRange.contains(sideLength) }
-        return isValid ? nil : "Width and height must be from 72 to 2,880 points (1 to 40 inches)."
-    }
-}
-
+/// Naming a new note, base or canvas. Notebooks have `NewNotebookSheet`.
 private struct CreateDocumentSheet: View {
     let kind: CreationKind
     /// Where the new file goes, as the sheet describes it.
     let folderDescription: String
-    let create: (String, PaperSpecification, Int) -> Void
+    let create: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @FocusState private var isNameFocused: Bool
-    @State private var paper = PaperTemplate.dotted
-    /// Spacing and colors start as Settings has them.
-    @State private var paperStyle = GraphitePreferences.storedNotebookPaper(template: .dotted)
-    @State private var sizePreset = PaperSizePreset.a4
-    @State private var isLandscape = false
-    @State private var customWidth = 595.28
-    @State private var customHeight = 841.89
-    @State private var pageCount = 1
 
     var body: some View {
         NavigationStack {
@@ -672,50 +670,19 @@ private struct CreateDocumentSheet: View {
                     if let problem = nameProblem, !name.isEmpty { Text(problem).foregroundStyle(.red) }
                     else { Text("In “\(folderDescription)”") }
                 }
-                if kind == .notebook {
-                    Section("Paper") {
-                        Picker("Template", selection: $paper) { ForEach(PaperTemplate.allCases) { template in Text(template.title).tag(template) } }
-                        if paper != .blank {
-                            Picker("Spacing", selection: $paperStyle.spacing) {
-                                ForEach(NotebookPaperSpacing.choices, id: \.self) { spacing in Text(NotebookPaperSpacing.title(of: spacing)).tag(spacing) }
-                            }
-                            Picker("Line Color", selection: $paperStyle.lineColor) {
-                                ForEach(DrawingPaperLineColor.allCases) { lineColor in Text(lineColor.title).tag(lineColor) }
-                            }
-                            Picker("Line Strength", selection: $paperStyle.lineStrength) {
-                                ForEach(DrawingPaperLineStrength.allCases) { strength in Text(strength.title).tag(strength) }
-                            }
-                        }
-                        Picker("Paper Color", selection: Binding(
-                            get: { DrawingBackground.allCases.first { color in color.colorHex == (paperStyle.paperColorHex ?? DrawingBackground.white.colorHex) } ?? .white },
-                            set: { color in paperStyle.paperColorHex = color == .white ? nil : color.colorHex })) {
-                            ForEach(DrawingBackground.allCases.filter { color in color != .transparent }) { color in Text(color.title).tag(color) }
-                        }
-                        Picker("Size", selection: $sizePreset) { ForEach(PaperSizePreset.allCases) { preset in Text(preset.title).tag(preset) } }
-                        if sizePreset == .custom {
-                            TextField("Width in points", value: $customWidth, format: .number)
-                            TextField("Height in points", value: $customHeight, format: .number)
-                            if let sizeProblem { Text(sizeProblem).font(.footnote).foregroundStyle(.red) }
-                        } else {
-                            Toggle("Landscape", isOn: $isLandscape)
-                        }
-                        Stepper("\(pageCount) \(pageCount == 1 ? "page" : "pages")", value: $pageCount, in: 1...1000)
-                    }
-                }
             }
             .formStyle(.grouped)
             .navigationTitle(kind.title)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Create", action: createIfNamed).disabled(nameProblem != nil || sizeProblem != nil)
+                    Button("Create", action: createIfNamed).disabled(nameProblem != nil)
                 }
             }
         }
-        // A note needs only its name: the Mac's sheet takes its form's height rather than
-        // leaving half of it empty; a notebook's paper options make it taller.
+        // The Mac's sheet takes its form's height rather than leaving half of it empty.
         #if os(macOS)
-        .frame(minWidth: 380, minHeight: kind == .notebook ? 320 : 180)
+        .frame(minWidth: 380, minHeight: 180)
         #else
         .frame(minWidth: 360, minHeight: 320)
         #endif
@@ -726,23 +693,10 @@ private struct CreateDocumentSheet: View {
         FileNameRules.problem(with: name.trimmingCharacters(in: .whitespacesAndNewlines), isNote: kind == .note)
     }
 
-    /// Checked here, before the sheet closes, so a size the notebook cannot have keeps what
-    /// the user entered.
-    private var sizeProblem: String? {
-        kind == .notebook ? CustomPaperSize.problem(with: pageSize) : nil
-    }
-
     private func createIfNamed() {
-        guard nameProblem == nil, sizeProblem == nil else { return }
-        var specification = paperStyle.sized(pageSize)
-        specification.template = paper
-        create(name.trimmingCharacters(in: .whitespacesAndNewlines), specification, pageCount)
+        guard nameProblem == nil else { return }
+        create(name.trimmingCharacters(in: .whitespacesAndNewlines))
         dismiss()
-    }
-
-    private var pageSize: CGSize {
-        guard let portraitSize = sizePreset.portraitSize else { return CGSize(width: customWidth, height: customHeight) }
-        return isLandscape ? CGSize(width: portraitSize.height, height: portraitSize.width) : portraitSize
     }
 }
 

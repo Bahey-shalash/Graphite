@@ -104,6 +104,6 @@ final class WorkspaceCommandIdentifiersTests: XCTestCase {
         "daily-today", "daily-previous", "daily-next", "rename", "move", "copy", "delete", "reveal",
         "toggle-reading", "toggle-source", "toggle-right-sidebar", "find-in-note", "replace-in-note", "toggle-fold", "fold-all", "unfold-all",
         "insert-template", "heading-1", "heading-2", "heading-3", "heading-4", "heading-5", "heading-6", "task", "table", "math", "callout",
-        "record", "record-video",
+        "new-notebook-in-note", "record", "record-video",
     ]
 }

@@ -173,6 +173,18 @@ struct MarkdownPane: View {
         }
         #endif
         .sheet(isPresented: $showsLinkPicker) { LinkPicker(workspace: workspace, notePath: session.path) { link in session.insert(link) } }
+        .modifier(notebookInsertion)
+    }
+
+    /// The New Notebook sheet that Insert › New Notebook asks for.
+    private var notebookInsertion: NotebookInsertionPresentation {
+        let attachmentFolder = workspace.attachmentDirectoryDescription(for: session.path, settings: workspace.vaultSettings)
+        return NotebookInsertionPresentation(document: document, notePath: session.path, attachmentFolderDescription: attachmentFolder,
+                                             initialOptions: { [preferences] in preferences.notebookCreation.initialOptions() },
+                                             create: { [workspace, session] name, options, placement, request in
+                                                 workspace.createNotebook(named: name, options: options, placement: placement,
+                                                                          from: session, request: request)
+                                             })
     }
 
     /// Link and tag suggestions just below the cursor, or above it near the bottom.
@@ -241,6 +253,7 @@ struct MarkdownPane: View {
         actions.insertAttachment = { [workspace, session] data, stem, fileExtension, range in
             Task { await workspace.saveAttachment(data, stem: stem, fileExtension: fileExtension, into: session, at: range) }
         }
+        actions.newNotebook = { [document, session] in document.notebookInsertion = NotebookInsertionRequest(session: session) }
         actions.insertLinkToVaultFile = { [workspace, session] path, range in
             Task { await workspace.insertLink(to: path, into: session, at: range) }
         }
@@ -459,6 +472,7 @@ struct MarkdownPane: View {
         if UIImagePickerController.isSourceTypeAvailable(.camera) { Button("Take Photo…", systemImage: "camera") { showsCamera = true } }
         #endif
         Button("Attachment…", systemImage: "doc.badge.plus") { showsAttachmentPicker = true }
+        Button("New Notebook…", systemImage: "book.closed") { document.notebookInsertion = NotebookInsertionRequest(session: session) }
         if let showTemplatePicker {
             Button("Template…", systemImage: "doc.on.doc") {
                 workspace.activateTab(tabID)

@@ -910,7 +910,7 @@ final class WorkspaceModel {
     /// Inserts the embed of an attachment just written into its note. Writing a large file
     /// takes a while, and the note may have closed or changed in another app meanwhile; the
     /// file then stays in the vault, and the person is told no embed was inserted.
-    private func insertEmbed(_ embedText: String, of attachment: VaultPath, into session: MarkdownSession, at range: NSRange?, chosenIn textWhenChosen: String) {
+    func insertEmbed(_ embedText: String, of attachment: VaultPath, into session: MarkdownSession, at range: NSRange?, chosenIn textWhenChosen: String) {
         guard let openSession = openMarkdownSession(at: session.path) else {
             errorMessage = "“\(attachment.rawValue)” was saved, but its note is no longer open, so no embed was inserted."
             return
@@ -1015,7 +1015,7 @@ final class WorkspaceModel {
         return document.markdownSession
     }
 
-    private func embed(for attachment: VaultPath, in note: VaultPath, settings: ObsidianSettings) async -> String {
+    func embed(for attachment: VaultPath, in note: VaultPath, settings: ObsidianSettings) async -> String {
         resolver.embed(attachment: attachment, note: note, settings: settings, isNameUniqueInVault: await isNameUnique(attachment, from: note))
     }
 
@@ -1244,6 +1244,7 @@ final class WorkspaceModel {
         followMoveInFolds(from: oldPath, to: newPath)
         followMoveInPlaces(from: oldPath, to: newPath)
         followMoveInBookmarks(from: oldPath, to: newPath)
+        followMoveInFolderStyles(from: oldPath, to: newPath)
         if let fileRecovery {
             // A renamed note keeps its history; for a folder, each note inside does.
             Task.detached(priority: .utility) { try? fileRecovery.followMove(from: oldPath, to: newPath) }
@@ -1257,6 +1258,7 @@ final class WorkspaceModel {
         recentFiles.remove(inside: removedPath)
         forgetFolds(inside: removedPath)
         forgetPlaces(inside: removedPath)
+        forgetFolderStyles(inside: removedPath)
     }
 
     // MARK: External changes
