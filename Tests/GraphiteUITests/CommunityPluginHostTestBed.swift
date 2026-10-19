@@ -1,6 +1,7 @@
 import XCTest
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// A vault on disk with community plugins installed, opened in a `WorkspaceModel` whose
 /// `CommunityPluginHost` runs them in a real web view: the setting the host's tests share.
@@ -8,9 +9,18 @@ import GraphiteCore
 final class CommunityPluginHostTestBed {
     typealias PluginSource = (identifier: String, source: String)
 
-    private var temporaryFolders: [URL] = []
+    private var temporaryVaults: [TemporaryVault] = []
     private var openedVaultIdentifiers: [UUID] = []
     private var workspace: WorkspaceModel?
+    /// The preferences and folders of the workspaces this bed makes, made when first asked for.
+    private var device: IsolatedWorkspaceDevice?
+
+    private func isolatedDevice() throws -> IsolatedWorkspaceDevice {
+        if let device { return device }
+        let newDevice = try IsolatedWorkspaceDevice()
+        device = newDevice
+        return newDevice
+    }
 
     /// The workspace opened last.
     func currentWorkspace() throws -> WorkspaceModel {
@@ -22,27 +32,25 @@ final class CommunityPluginHostTestBed {
         if let workspace {
             await workspace.communityPlugins.vaultWillClose()
             for vaultIdentifier in openedVaultIdentifiers {
-                UserDefaults.standard.removeObject(forKey: WorkspaceModel.tabLayoutKey(for: vaultIdentifier))
                 workspace.vaultLibrary.remove(vaultIdentifier)
-                CommunityPluginHost.forgetVault(vaultIdentifier)
+                CommunityPluginHost.forgetVault(vaultIdentifier, defaults: workspace.deviceDefaults)
             }
         }
         workspace = nil
-        for folder in temporaryFolders { try? FileManager.default.removeItem(at: folder) }
-        temporaryFolders = []
+        device?.remove()
+        device = nil
+        for temporaryVault in temporaryVaults { temporaryVault.remove() }
+        temporaryVaults = []
         openedVaultIdentifiers = []
     }
 
     /// A vault folder holding `Note.md`, with each of `plugins` installed and enabled.
     func makeVault(plugins: [PluginSource], files: [String: String] = ["Note.md": "Note.\n"]) throws -> URL {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("PluginHostVault-\(UUID().uuidString)").resolvingSymlinksInPath()
-        temporaryFolders.append(vault)
-        try FileManager.default.createDirectory(at: vault.appendingPathComponent(".obsidian"), withIntermediateDirectories: true)
-        for (relativePath, text) in files {
-            let location = vault.appendingPathComponent(relativePath)
-            try FileManager.default.createDirectory(at: location.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try Data(text.utf8).write(to: location)
-        }
+        let temporaryVault = try TemporaryVault(prefix: "PluginHostVault")
+        temporaryVaults.append(temporaryVault)
+        let vault = temporaryVault.root
+        try temporaryVault.createFolder(".obsidian")
+        try temporaryVault.writeFiles(files)
         for plugin in plugins {
             let folder = vault.appendingPathComponent(".obsidian/plugins/\(plugin.identifier)")
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -57,7 +65,7 @@ final class CommunityPluginHostTestBed {
 
     /// Opens `vault` in a workspace; community plugins stay off until the test turns them on.
     func openWorkspace(at vault: URL, expectedPluginCount: Int, in existingWorkspace: WorkspaceModel? = nil) async throws -> WorkspaceModel {
-        let workspace = existingWorkspace ?? WorkspaceModel()
+        let workspace = try existingWorkspace ?? isolatedDevice().makeWorkspace()
         self.workspace = workspace
         try await workspace.openFolderAsVault(vault)
         openedVaultIdentifiers.append(try XCTUnwrap(workspace.currentVaultIdentifier))
@@ -77,7 +85,7 @@ final class CommunityPluginHostTestBed {
         let host = workspace.communityPlugins
         await host.setTurnedOnForVault(true)
         for plugin in plugins {
-            try await waitUntil("\(plugin.identifier) loads", seconds: 30) { host.loadStates[plugin.identifier] == .loaded }
+            try await waitUntil("\(plugin.identifier) loads", timeoutSeconds: 30) { host.loadStates[plugin.identifier] == .loaded }
         }
         return workspace
     }
@@ -95,9 +103,4 @@ final class CommunityPluginHostTestBed {
         return try await webView.callAsyncJavaScript(script, arguments: [:], in: nil, contentWorld: .page)
     }
 
-    func waitUntil(_ description: String, seconds: Double = 10, _ condition: () -> Bool) async throws {
-        let deadline = Date.now.addingTimeInterval(seconds)
-        while !condition(), Date.now < deadline { await Task.yield() }
-        XCTAssertTrue(condition(), "Timed out waiting until \(description).")
-    }
 }

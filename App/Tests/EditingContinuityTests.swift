@@ -853,11 +853,6 @@ final class EditingContinuityTests: XCTestCase {
         }
     }
 
-    private func waitUntil(_ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(5)
-        while !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(25)) }
-        XCTAssertTrue(condition(), "The hosted workspace did not reach the expected state.")
-    }
 }
 
 /// Which views of one note `EditorViews` shows.

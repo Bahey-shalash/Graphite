@@ -1,6 +1,7 @@
 import XCTest
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// What a plugin's messages can change in Graphite: only the seven appearance settings Graphite
 /// shares with Obsidian, and links that leave for the system only when they are web or mail
@@ -13,7 +14,7 @@ final class CommunityPluginHostMessageBoundaryTests: XCTestCase {
     private var openedVaultIdentifier: UUID?
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("PluginMessageVault-\(UUID().uuidString)").resolvingSymlinksInPath()
+        vault = try TemporaryVault.make(prefix: "PluginMessageVault", for: self).root
         try FileManager.default.createDirectory(at: vault.appendingPathComponent(".obsidian"), withIntermediateDirectories: true)
         try Data("Note.\n".utf8).write(to: vault.appendingPathComponent("Note.md"))
         workspace = WorkspaceModel()

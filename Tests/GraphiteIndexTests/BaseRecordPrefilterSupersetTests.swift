@@ -1,6 +1,7 @@
 import XCTest
 import GraphiteCore
 @testable import GraphiteIndex
+import GraphiteTestSupport
 
 /// The base pre-filter never leaves out a record the evaluator would keep: over small
 /// generated vaults and link filters, the rows found through the pre-filter are the rows
@@ -35,8 +36,7 @@ final class BaseRecordPrefilterSupersetTests: XCTestCase {
     ]
 
     private func makeVault(_ files: [String: String]) throws -> (vault: URL, index: VaultIndex) {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("PrefilterSupersetVault-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        let vault = try TemporaryVault.make(prefix: "PrefilterSupersetVault", for: self).root
         temporaryFolders += [vault, vault.appendingPathExtension("cache")]
         for (relativePath, text) in files {
             let location = vault.appendingPathComponent(relativePath)

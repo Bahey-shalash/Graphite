@@ -1,13 +1,13 @@
 import XCTest
 @testable import GraphiteIndex
 import GraphiteCore
+import GraphiteTestSupport
 
 /// Vault path rules as the index sees them during a scan.
 final class CoreFilesSettingsIndexTests: XCTestCase {
     func testBackslashFileNameNeitherFailsTheScanNorStopsPruning() async throws {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("Vault-\(UUID().uuidString)")
+        let vault = try TemporaryVault.make(prefix: "Vault", for: self).root
         let cache = vault.appendingPathExtension("cache")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
         defer {
             try? FileManager.default.removeItem(at: vault)
             try? FileManager.default.removeItem(at: cache)

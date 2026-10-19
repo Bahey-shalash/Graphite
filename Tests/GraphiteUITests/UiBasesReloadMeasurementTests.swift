@@ -2,14 +2,14 @@ import XCTest
 import GraphiteCore
 import GraphiteIndex
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 @MainActor
 final class UiBasesReloadMeasurementTests: XCTestCase {
     func testMeasureRepeatedReloadOfLargeBase() async throws {
         guard ProcessInfo.processInfo.environment["GRAPHITE_MEASURE_BASES"] != nil else { throw XCTSkip("Set GRAPHITE_MEASURE_BASES to measure.") }
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("MeasureVault-\(UUID().uuidString)")
+        let vault = try TemporaryVault.make(prefix: "MeasureVault", for: self).root
         try FileManager.default.createDirectory(at: vault.appendingPathComponent("Books"), withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: vault); try? FileManager.default.removeItem(at: vault.appendingPathExtension("cache")) }
         for noteNumber in 0..<5_000 {
             try Data("---\nstatus: reading\nrating: \(noteNumber % 5)\nauthor: Author \(noteNumber)\n---\nBody \(noteNumber)\n".utf8)
                 .write(to: vault.appendingPathComponent("Books/Book \(noteNumber).md"))

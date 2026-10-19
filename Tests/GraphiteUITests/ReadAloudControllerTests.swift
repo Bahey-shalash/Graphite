@@ -5,6 +5,7 @@ import SwiftUI
 import GraphiteCore
 import GraphiteApple
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 @MainActor
 private final class ControllerTestSpeech: ReadAloudSpeaking {
@@ -21,7 +22,7 @@ private final class ControllerTestSpeech: ReadAloudSpeaking {
 final class ReadAloudControllerTests: XCTestCase {
     private func makeReader(playsWhenPrepared: Bool = false) throws -> (ReadAloudController, ControllerTestSpeech) {
         let speech = ControllerTestSpeech()
-        let preferences = try XCTUnwrap(UserDefaults(suiteName: "ReadAloudControllerTests-\(UUID().uuidString)"))
+        let preferences = try IsolatedDeviceState.make(prefix: "ReadAloudControllerTests", for: self).preferences
         let session = ReadAloudSession(speech: speech, preferences: preferences)
         session.chooseVoice("test")
         let reader = ReadAloudController(session: session, preferences: preferences, playsWhenPrepared: playsWhenPrepared)
@@ -90,9 +91,7 @@ final class ReadAloudControllerTests: XCTestCase {
     }
 
     func testRecognizedWordRangeKeepsSecondOccurrenceAndStopsBeforeNextPage() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ReadAloudScanRange-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "ReadAloudScanRange", for: self).root
         let location = try makePDF(in: directory, pageTexts: ["Next page."])
         let document = try XCTUnwrap(PDFDocument(url: location))
         document.insert(try makeScannedPage(), at: 0)
@@ -134,9 +133,7 @@ final class ReadAloudControllerTests: XCTestCase {
     }
 
     func testMixedPDFPausesForScanReviewCorrectionsKeepWordGeometryAndSourceFile() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ReadAloudScannedPDF-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "ReadAloudScannedPDF", for: self).root
         let location = try makePDF(in: directory, pageTexts: ["Opening page.", "Closing page."])
         let document = try XCTUnwrap(PDFDocument(url: location))
         document.insert(try makeScannedPage(), at: 1)
@@ -267,9 +264,7 @@ final class ReadAloudControllerTests: XCTestCase {
     /// the words that did not change must still find their exact place on the live page.
     /// Before, any difference switched off every highlight on the page.
     func testHighlightsSurviveSmallDifferencesBetweenExportedAndLivePageText() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ReadAloudAlign-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "ReadAloudAlign", for: self).root
         let location = try makePDF(in: directory, pageTexts: ["Static logic keeps its output level."])
         let pageBytes = try XCTUnwrap(PDFDocument(url: location)?.dataRepresentation())
         let snapshot = try await PDFReadAloudExtraction().page(in: pageBytes, readingOrder: .file)
@@ -369,9 +364,7 @@ final class ReadAloudControllerTests: XCTestCase {
     }
 
     func testMathPreferenceIsRememberedAndVoiceSampleUsesProductionPreparation() async throws {
-        let preferenceName = "ReadAloudMathPreference-\(UUID().uuidString)"
-        let preferences = try XCTUnwrap(UserDefaults(suiteName: preferenceName))
-        defer { preferences.removePersistentDomain(forName: preferenceName) }
+        let preferences = try IsolatedDeviceState.make(prefix: "ReadAloudMathPreference", for: self).preferences
         let reader = ReadAloudController(session: ReadAloudSession(speech: ControllerTestSpeech(), preferences: preferences), preferences: preferences)
         reader.chooseMathematicalStyle(.detailed)
         let sample = try await reader.prepareVoiceSample()
@@ -401,9 +394,7 @@ final class ReadAloudControllerTests: XCTestCase {
     }
 
     func testPDFRangeAdvancesLazilyStopsAtEndpointAndPreservesOriginalBytes() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ReadAloudPDF-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "ReadAloudPDF", for: self).root
         let location = try makePDF(in: directory, pageTexts: ["First page.", "Second page.", "Third page."])
         let originalBytes = try Data(contentsOf: location)
         let pdf = try await PDFSession.open(location)
@@ -427,9 +418,7 @@ final class ReadAloudControllerTests: XCTestCase {
     }
 
     func testBlankPDFPageStopsWithExplanationInsteadOfSilentlySkipping() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ReadAloudBlankPDF-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "ReadAloudBlankPDF", for: self).root
         let pdf = try await PDFSession.open(makePDF(in: directory, pageTexts: ["", "Later."]))
         let (reader, speech) = try makeReader()
         reader.readPDF(pdf, firstPageIndex: 0, lastPageIndex: 1)
@@ -440,9 +429,7 @@ final class ReadAloudControllerTests: XCTestCase {
     }
 
     func testPDFLayoutHighlightsOriginalWordsAndOrderChangesRequirePlay() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ReadAloudPDFLayout-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "ReadAloudPDFLayout", for: self).root
         let location = try makePDF(in: directory, pageTexts: ["Before repeated word. After repeated word."])
         let originalBytes = try Data(contentsOf: location)
         let pdf = try await PDFSession.open(location)
@@ -476,9 +463,7 @@ final class ReadAloudControllerTests: XCTestCase {
 
     /// A page turned between two pages read: the text is the same, so reading goes on to it.
     func testPDFPageTurnedBetweenLazyPagesReadsOn() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ReadAloudPDFRevision-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "ReadAloudPDFRevision", for: self).root
         let pdf = try await PDFSession.open(makePDF(in: directory, pageTexts: ["First page.", "Second page."]))
         let (reader, speech) = try makeReader()
         reader.readPDF(pdf, firstPageIndex: 0, lastPageIndex: 1)
@@ -496,9 +481,7 @@ final class ReadAloudControllerTests: XCTestCase {
 
     /// Ink and saves are not changes to what is read: the highlight stays and reading goes on.
     func testInkOnThePageReadKeepsReadingAndItsHighlight() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ReadAloudPDFInk-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "ReadAloudPDFInk", for: self).root
         let pdf = try await PDFSession.open(makePDF(in: directory, pageTexts: ["First page words.", "Second page."]))
         let (reader, speech) = try makeReader()
         reader.readPDF(pdf, firstPageIndex: 0, lastPageIndex: 1)
@@ -543,9 +526,7 @@ final class ReadAloudControllerTests: XCTestCase {
     }
 
     func testPDFSelectionHighlightsExactRepeatedOccurrenceAndPreservesSelectionSearchAndFile() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ReadAloudSelection-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "ReadAloudSelection", for: self).root
         let location = try makePDF(in: directory, pageTexts: ["Echo first. Echo last."])
         let originalBytes = try Data(contentsOf: location)
         let pdf = try await PDFSession.open(location)
@@ -592,9 +573,7 @@ final class ReadAloudControllerTests: XCTestCase {
     }
 
     func testPDFSelectionAcrossPagesRetainsOnlySelectedRanges() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ReadAloudAcrossPages-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "ReadAloudAcrossPages", for: self).root
         let pdf = try await PDFSession.open(makePDF(in: directory, pageTexts: ["Before alpha ignored beta after.", "Outside gamma tail."]))
         let selection = PDFSelection(document: pdf.document)
         for (pageIndex, word) in [(0, "alpha"), (0, "beta"), (1, "gamma")] {
@@ -620,9 +599,7 @@ final class ReadAloudControllerTests: XCTestCase {
     }
 
     func testPDFUnicodeCoordinatesAndHighlightValidation() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ReadAloudUnicodePDF-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "ReadAloudUnicodePDF", for: self).root
         let pdf = try await PDFSession.open(makePDF(in: directory, pageTexts: ["café e\u{301} ﬁ 😀 omega"]))
         let page = try XCTUnwrap(pdf.document.page(at: 0))
         let pageText = try XCTUnwrap(page.string) as NSString
@@ -648,9 +625,7 @@ final class ReadAloudControllerTests: XCTestCase {
     }
 
     func testNativePDFPaneReceivesSpeechHighlightsAndClearsThemOnStop() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ReadAloudHostedPDF-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "ReadAloudHostedPDF", for: self).root
         let pdf = try await PDFSession.open(makePDF(in: directory, pageTexts: ["Follow these words."]))
         let (reader, speech) = try makeReader()
         let hosting = NSHostingView(rootView: PDFPane(session: pdf, readAloud: reader, resolveConflict: { _ in }).frame(width: 640, height: 720))
@@ -683,9 +658,7 @@ final class ReadAloudControllerTests: XCTestCase {
     }
 
     func testMarkedPDFRangeReadsInclusiveWordsAcrossPagesAndStopsAtEnd() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ReadAloudMarkedRange-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "ReadAloudMarkedRange", for: self).root
         let pdf = try await PDFSession.open(makePDF(in: directory, pageTexts: ["Before alpha beta.", "Gamma delta after.", "Do not read."]))
         let firstPage = try XCTUnwrap(pdf.document.page(at: 0))
         let lastPage = try XCTUnwrap(pdf.document.page(at: 1))
@@ -717,9 +690,7 @@ final class ReadAloudControllerTests: XCTestCase {
     }
 
     func testNativePDFFollowingRevealsNextPageAndCanBeSuspendedAndResumed() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ReadAloudPDFFollow-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "ReadAloudPDFFollow", for: self).root
         let pdf = try await PDFSession.open(makePDF(in: directory, pageTexts: ["First page.", "Second page."]))
         let (reader, speech) = try makeReader()
         let view = PDFView(frame: CGRect(x: 0, y: 0, width: 400, height: 400))

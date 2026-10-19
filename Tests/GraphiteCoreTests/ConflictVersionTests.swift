@@ -1,5 +1,6 @@
 import XCTest
 @testable import GraphiteCore
+import GraphiteTestSupport
 
 final class ConflictVersionTests: XCTestCase {
     private let utc = TimeZone(identifier: "UTC") ?? .gmt
@@ -132,9 +133,7 @@ final class ConflictVersionTests: XCTestCase {
     // MARK: Noticing a changed file
 
     func testAStampChangesWhenTheFileIsRewritten() throws {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("Stamp-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: folder) }
+        let folder = try TemporaryVault.make(prefix: "Stamp", for: self).root
         let location = folder.appendingPathComponent("Note.md")
         try Data("first".utf8).write(to: location)
         let stamp = FileChangeStamp.of(location)

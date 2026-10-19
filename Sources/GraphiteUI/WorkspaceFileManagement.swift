@@ -350,7 +350,7 @@ extension WorkspaceModel {
     /// Opens every folder above the current file in the sidebar, showing the file list.
     func revealCurrentFile() {
         guard var folder = selection?.parent else { return }
-        UserDefaults.standard.set(SidebarPanel.files.rawValue, forKey: SidebarPanelSettingKey.panel)
+        deviceDefaults.set(SidebarPanel.files.rawValue, forKey: SidebarPanelSettingKey.panel)
         searchQuery = ""
         while !folder.rawValue.isEmpty {
             expandedFolders.insert(folder)

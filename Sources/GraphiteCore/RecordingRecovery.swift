@@ -49,8 +49,11 @@ public struct RecoverableRecording: Identifiable, Equatable, Sendable {
 public enum RecordingRecoveryFolder {
     public static let mediaExtensions: Set<String> = ["caf", "m4a", "mp4"]
 
-    public static func location() throws -> URL {
-        let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+    /// The folder, made if it is missing, in the Application Support folder, or in
+    /// `applicationSupportFolder` when one is given (the hosted tests give a temporary one).
+    public static func location(in applicationSupportFolder: URL? = nil) throws -> URL {
+        let support = try applicationSupportFolder
+            ?? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         let folder = support.appendingPathComponent("Graphite/Recovery/Recordings", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return folder

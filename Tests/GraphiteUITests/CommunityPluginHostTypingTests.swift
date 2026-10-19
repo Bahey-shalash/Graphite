@@ -1,6 +1,7 @@
 import XCTest
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// `CommunityPluginHost` telling plugins about typing in the focused note: the changes reach
 /// plugins in order, the suggestions of the latest change are the ones shown, and a note too
@@ -51,7 +52,7 @@ final class CommunityPluginHostTypingTests: XCTestCase {
     func testSuggestionsReturnOnlyForTheLatestChangeAndThePluginIsAskedInTheOrderTheChangesWereMade() async throws {
         let workspace = try await testBed.workspaceWithRunningPlugins([("suggesting-plugin", Self.suggestingPluginSource)])
         let host = workspace.communityPlugins
-        try await testBed.waitUntil("the plugin's suggestions are known") { host.hasEditorSuggestions }
+        try await waitUntil("the plugin's suggestions are known") { host.hasEditorSuggestions }
         await workspace.open(try VaultPath("Note.md"))
         let session = try XCTUnwrap(workspace.markdownSession)
 
@@ -78,7 +79,7 @@ final class CommunityPluginHostTypingTests: XCTestCase {
     func testANoteLongerThan512KiUTF16UnitsIsNotSentToPlugins() async throws {
         let workspace = try await testBed.workspaceWithRunningPlugins([("listening-plugin", Self.listeningPluginSource)])
         let host = workspace.communityPlugins
-        try await testBed.waitUntil("the plugin's listener is known") { host.hasEditorChangeListeners }
+        try await waitUntil("the plugin's listener is known") { host.hasEditorChangeListeners }
         await workspace.open(try VaultPath("Note.md"))
         let session = try XCTUnwrap(workspace.markdownSession)
         XCTAssertEqual(CommunityPluginHost.maximumTypingNoteLength, 524_288)

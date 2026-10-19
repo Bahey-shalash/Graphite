@@ -1,6 +1,7 @@
 import XCTest
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// A `bookmarks.json` the workspace cannot read is an error the person sees, and the file
 /// stays as it was: it never shows as "no bookmarks" and is never written over.
@@ -10,15 +11,11 @@ final class WorkspaceBookmarksUnreadableFileTests: XCTestCase {
     private var bookmarksLocation: URL!
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("BookmarksVault-\(UUID().uuidString)", isDirectory: true).resolvingSymlinksInPath()
+        vault = try TemporaryVault.make(prefix: "BookmarksVault", for: self).root
         try FileManager.default.createDirectory(at: vault.appendingPathComponent(".obsidian"), withIntermediateDirectories: true)
         bookmarksLocation = vault.appendingPathComponent(".obsidian/bookmarks.json")
         // One byte over the 1 MiB limit on settings files.
         try Data(repeating: 0x20, count: 1_048_576 + 1).write(to: bookmarksLocation)
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: vault)
     }
 
     private func makeWorkspace() -> WorkspaceModel {

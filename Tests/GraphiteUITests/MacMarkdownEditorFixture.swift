@@ -3,6 +3,7 @@ import AppKit
 import XCTest
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// A Mac note editor in a window, built the way `NativeMarkdownEditor.makeNSView` builds
 /// it, with a note in a temporary vault. Tests keep the fixture and call `tearDown`.
@@ -13,12 +14,13 @@ final class MacMarkdownEditorFixture {
     let textView: MarkdownMacTextView
     let scrollView: NSScrollView
     let window: NSWindow
+    private let temporaryVault: TemporaryVault
     private let vaultDirectory: URL
 
     init(text: String) async throws {
-        vaultDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("Vault-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vaultDirectory, withIntermediateDirectories: true)
-        try Data(text.utf8).write(to: vaultDirectory.appendingPathComponent("Note.md"))
+        temporaryVault = try TemporaryVault(prefix: "Vault")
+        vaultDirectory = temporaryVault.root
+        try temporaryVault.writeFile("Note.md", text: text)
         let store = VaultStore(root: vaultDirectory)
         let notePath = try VaultPath("Note.md")
         session = try MarkdownSession(path: notePath, snapshot: try await store.read(notePath), store: store, didSave: { _ in })
@@ -59,7 +61,7 @@ final class MacMarkdownEditorFixture {
     func tearDown() {
         window.orderOut(nil)
         window.contentView = nil
-        try? FileManager.default.removeItem(at: vaultDirectory) // best-effort removal of a temporary folder
+        temporaryVault.remove()
     }
 }
 #endif

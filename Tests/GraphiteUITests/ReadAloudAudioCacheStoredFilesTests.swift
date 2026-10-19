@@ -3,6 +3,7 @@ import AVFoundation
 import AudioToolbox
 import GraphiteCore
 import GraphiteVoices
+import GraphiteTestSupport
 
 /// What the rendered-passage cache leaves on disk: where its folder is, which files hold a
 /// passage, the details file's field names, and the audio's encoding. Folders written by
@@ -11,12 +12,7 @@ final class ReadAloudAudioCacheStoredFilesTests: XCTestCase {
     private var folder: URL!
 
     override func setUpWithError() throws {
-        folder = FileManager.default.temporaryDirectory.appendingPathComponent("AudioCacheFiles-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: folder) // Best-effort removal of a temporary folder.
+        folder = try TemporaryVault.make(prefix: "AudioCacheFiles", for: self).root
     }
 
     private let key = ReadAloudAudioCacheKey(text: "Hello, world.", voiceIdentifier: "voice-id", voiceRevision: "r1+r2")

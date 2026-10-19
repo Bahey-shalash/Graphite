@@ -1,6 +1,7 @@
 import XCTest
 @testable import GraphiteIndex
 import GraphiteCore
+import GraphiteTestSupport
 
 /// Renames rewrite exactly the links MarkdownSemantics locates, so its ranges must be
 /// exact in notes with Windows line endings and indented continuation lines.
@@ -10,7 +11,7 @@ final class CoreSemanticsRenameTests: XCTestCase {
     private var operations: VaultFileOperations!
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("Vault-\(UUID().uuidString)")
+        vault = try TemporaryVault.make(prefix: "Vault", for: self).root
         try FileManager.default.createDirectory(at: vault.appendingPathComponent("Folder"), withIntermediateDirectories: true)
         try write("Old.md", "old")
         try write("Other.md", "other")
@@ -21,11 +22,6 @@ final class CoreSemanticsRenameTests: XCTestCase {
         index = try VaultIndex(databaseURL: vault.appendingPathExtension("cache").appendingPathComponent("index.sqlite"))
         _ = try await index.reconcile(root: vault)
         operations = VaultFileOperations(store: VaultStore(root: vault), index: index)
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: vault)
-        try? FileManager.default.removeItem(at: vault.appendingPathExtension("cache"))
     }
 
     private func write(_ relativePath: String, _ text: String) throws {

@@ -2,6 +2,7 @@ import XCTest
 import GraphiteCore
 import GraphiteIndex
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// A note embedded in another is shown in full up to 1,048,576 bytes; a larger one is shown
 /// as a link to it, so one huge note cannot freeze the reading view.
@@ -11,8 +12,7 @@ final class ReadingViewBuilderEmbeddedNoteSizeTests: XCTestCase {
     private var index: VaultIndex!
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("EmbeddedSizeVault-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        vault = try TemporaryVault.make(prefix: "EmbeddedSizeVault", for: self).root
         index = try VaultIndex(databaseURL: vault.appendingPathComponent(".index.sqlite"))
     }
 

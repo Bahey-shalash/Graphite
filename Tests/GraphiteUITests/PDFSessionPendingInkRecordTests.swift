@@ -3,6 +3,7 @@ import PDFKit
 import GraphiteCore
 import GraphiteApple
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// Ink a Pencil canvas shows but has not recorded in the PDF yet is recorded first by every
 /// save, copy, export, deletion and page-tree edit, through the writer the view registers.
@@ -12,14 +13,9 @@ final class PDFSessionPendingInkRecordTests: XCTestCase {
     private var location: URL!
 
     override func setUpWithError() throws {
-        directory = FileManager.default.temporaryDirectory.appendingPathComponent("PDFSessionPendingInkRecord-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        directory = try TemporaryVault.make(prefix: "PDFSessionPendingInkRecord", for: self).root
         location = directory.appendingPathComponent("Notebook.pdf")
         try PDFTemplateGenerator.documentData(paper: PaperSpecification(template: .blank), pageCount: 3).write(to: location)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: directory)
     }
 
     private final class WriterCounter {

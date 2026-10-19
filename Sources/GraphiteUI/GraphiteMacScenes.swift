@@ -1,22 +1,26 @@
 #if os(macOS)
 import SwiftUI
 import AppKit
+import GraphiteCore
 
 /// The Mac's scenes: one main window, and Settings in a window of its own, opened with ⌘,
 /// from the app menu as on every Mac. Both act on the same workspace, so a setting changed
 /// there reaches the open vault at once.
 public struct GraphiteMacScenes: Scene {
     @State private var workspace: WorkspaceModel
+    private let launchMode: LaunchMode
 
-    public init() {
-        let workspace = WorkspaceModel()
+    public init(launchMode: LaunchMode) {
+        let workspace = WorkspaceModel(launchMode: launchMode)
         _workspace = State(initialValue: workspace)
+        self.launchMode = launchMode
         GraphiteApplicationDelegate.workspaceToSave = workspace
     }
 
     /// For checks outside the app: the scenes of a workspace made elsewhere.
     init(workspace: WorkspaceModel) {
         _workspace = State(initialValue: workspace)
+        launchMode = .normal
     }
 
     public var body: some Scene {
@@ -25,11 +29,12 @@ public struct GraphiteMacScenes: Scene {
         // them would fail each other's index writes ("database is locked") and delete
         // each other's rows on rescan. A macOS WindowGroup also opens more windows from
         // the window tab bar even though the New Window menu item is replaced.
-        Window("Graphite", id: GraphiteMacScenes.mainWindowIdentifier) { GraphiteRootView(reopeningLastVaultIn: workspace) }
+        Window("Graphite", id: GraphiteMacScenes.mainWindowIdentifier) { GraphiteRootView(reopeningLastVaultIn: workspace, launchMode: launchMode) }
             .defaultSize(width: 1200, height: 820)
             .commands { GraphiteCommands() }
         Settings {
             SettingsView(workspace: workspace) { workspace.isVaultManagerPresented = true }
+                .defaultAppStorage(workspace.deviceDefaults)
                 .tint(workspace.preferences.accentColor)
                 .environment(\.accent, workspace.preferences.accentColor)
                 .preferredColorScheme(workspace.preferences.appearanceMode.colorScheme)

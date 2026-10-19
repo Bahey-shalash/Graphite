@@ -3,6 +3,7 @@ import PDFKit
 import CoreGraphics
 import GraphiteCore
 @testable import GraphiteApple
+import GraphiteTestSupport
 
 /// A save that moves or deletes pages makes PDFKit rewrite the page tree. The written file
 /// must still hold every Graphite key (read here with CoreGraphics, not PDFKit), a backup of
@@ -11,12 +12,7 @@ final class PDFPageTreeRewriteKeepsGraphiteKeysTests: XCTestCase {
     private var directory: URL!
 
     override func setUpWithError() throws {
-        directory = FileManager.default.temporaryDirectory.appendingPathComponent("PDFPageTreeRewrite-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: directory)
+        directory = try TemporaryVault.make(prefix: "PDFPageTreeRewrite", for: self).root
     }
 
     // MARK: Fixture

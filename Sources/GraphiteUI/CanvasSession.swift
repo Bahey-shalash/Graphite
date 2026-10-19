@@ -66,6 +66,8 @@ final class CanvasSession {
 
     let path: VaultPath
     private let store: VaultStore
+    /// Times the wait before autosave; tests move it by hand.
+    private let clock: any ApplicationClock
     private let didSave: @MainActor (VaultPath) -> Void
 
     // MARK: Document
@@ -155,8 +157,8 @@ final class CanvasSession {
         didSet { UserDefaults.standard.set(snapsToObjects, forKey: CanvasPreferenceKey.snapsToObjects) }
     }
 
-    init(path: VaultPath, snapshot: FileSnapshot, store: VaultStore, didSave: @escaping @MainActor (VaultPath) -> Void) throws {
-        self.path = path; self.store = store; self.didSave = didSave
+    init(path: VaultPath, snapshot: FileSnapshot, store: VaultStore, clock: any ApplicationClock, didSave: @escaping @MainActor (VaultPath) -> Void) throws {
+        self.path = path; self.store = store; self.clock = clock; self.didSave = didSave
         file = try CanvasFile(data: snapshot.data)
         savedData = snapshot.data
         revision = snapshot.revision
@@ -299,8 +301,8 @@ final class CanvasSession {
 
     private func scheduleAutosave() {
         autosave?.cancel()
-        autosave = Task { [weak self] in
-            do { try await Task.sleep(for: Self.autosaveDelay) } catch { return }
+        autosave = Task { [weak self, clock] in
+            do { try await clock.sleep(for: Self.autosaveDelay) } catch { return }
             // A failed save shows in the pane's banner; the edits stay open.
             try? await self?.save()
         }

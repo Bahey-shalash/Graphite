@@ -1,6 +1,7 @@
 import XCTest
 import GraphiteCore
 @testable import GraphiteVoices
+import GraphiteTestSupport
 
 /// Answers every download request by never finishing, and tells the test what the request was
 /// and how the downloader described its task.
@@ -43,8 +44,7 @@ final class NeuralVoiceDownloaderTaskDescriptionTests: XCTestCase {
     }
 
     override func setUpWithError() throws {
-        voicesFolder = FileManager.default.temporaryDirectory.appendingPathComponent("NeuralVoiceDownloads-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: voicesFolder, withIntermediateDirectories: true)
+        voicesFolder = try TemporaryVault.make(prefix: "NeuralVoiceDownloads", for: self).root
     }
 
     override func tearDownWithError() throws {

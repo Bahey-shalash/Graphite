@@ -1,6 +1,7 @@
 import XCTest
 import GraphiteCore
 import GraphiteVoices
+import GraphiteTestSupport
 
 /// Where a downloaded voice's files sit and how the app knows a voice is complete: one folder
 /// per voice identifier, a `.partial` staging folder beside it while downloading, and a marker
@@ -10,12 +11,7 @@ final class NeuralVoiceInstallationPersistedFormatTests: XCTestCase {
     private var voicesFolder: URL!
 
     override func setUpWithError() throws {
-        voicesFolder = FileManager.default.temporaryDirectory.appendingPathComponent("NeuralVoiceInstallation-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: voicesFolder, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: voicesFolder) // Best-effort removal of a temporary folder.
+        voicesFolder = try TemporaryVault.make(prefix: "NeuralVoiceInstallation", for: self).root
     }
 
     private func makeVoice(identifier: String = "test-voice") -> NeuralVoiceDescription {

@@ -2,6 +2,7 @@ import XCTest
 import GraphiteCore
 import GraphiteIndex
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// A folder is not the target of a Wikilink or an embed in the reading view: a name that is
 /// also a folder's means the note of that name, wherever it is, as it does in the editor.
@@ -11,8 +12,7 @@ final class ReadingViewBuilderFolderTargetTests: XCTestCase {
     private var index: VaultIndex!
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("FolderTargetVault-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        vault = try TemporaryVault.make(prefix: "FolderTargetVault", for: self).root
         index = try VaultIndex(databaseURL: vault.appendingPathComponent(".index.sqlite"))
     }
 

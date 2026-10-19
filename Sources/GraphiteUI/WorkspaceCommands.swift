@@ -68,7 +68,7 @@ enum WorkspaceCommandList {
             })
             if workspace.markdownSession != nil {
                 commands.append(PaletteCommand(id: "graph-local", title: "Graph view: Open local graph", systemImage: "point.3.filled.connected.trianglepath.dotted") {
-                    UserDefaults.standard.set(NoteLinksInspector.InspectorPanel.graph.rawValue, forKey: "GraphiteInspectorPanel")
+                    workspace.deviceDefaults.set(NoteLinksInspector.InspectorPanel.graph.rawValue, forKey: "GraphiteInspectorPanel")
                     window.showLinksInspector()
                 })
             }
@@ -79,14 +79,14 @@ enum WorkspaceCommandList {
             })
             if workspace.markdownSession != nil {
                 commands.append(PaletteCommand(id: "map-local", title: "Map view: Open local map", systemImage: "mappin.and.ellipse") {
-                    UserDefaults.standard.set(NoteLinksInspector.InspectorPanel.map.rawValue, forKey: "GraphiteInspectorPanel")
+                    workspace.deviceDefaults.set(NoteLinksInspector.InspectorPanel.map.rawValue, forKey: "GraphiteInspectorPanel")
                     window.showLinksInspector()
                 })
             }
         }
         if workspace.preferences.isEnabled(.bookmarks) {
             commands.append(PaletteCommand(id: "bookmarks-show", title: "Bookmarks: Show bookmarks", systemImage: "bookmark") {
-                UserDefaults.standard.set(SidebarPanel.bookmarks.rawValue, forKey: SidebarPanelSettingKey.panel)
+                workspace.deviceDefaults.set(SidebarPanel.bookmarks.rawValue, forKey: SidebarPanelSettingKey.panel)
                 workspace.searchQuery = ""
                 window.showSidebar()
             })

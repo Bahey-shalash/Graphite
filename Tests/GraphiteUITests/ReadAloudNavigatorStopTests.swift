@@ -4,6 +4,7 @@ import PDFKit
 import GraphiteCore
 import GraphiteApple
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 @MainActor
 private final class RecordingSpeech: ReadAloudSpeaking {
@@ -43,12 +44,10 @@ final class ReadAloudNavigatorStopTests: XCTestCase {
     }
 
     func testStopInThePlayerWhileTheNextPDFPageIsPreparingCancelsThatPage() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ReadAloudNavigatorStop-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "ReadAloudNavigatorStop", for: self).root
         let pdf = try await PDFSession.open(try makePDF(in: directory, pageTexts: ["First page.", "Second page."]))
         let speech = RecordingSpeech()
-        let preferences = try XCTUnwrap(UserDefaults(suiteName: "ReadAloudNavigatorStopTests-\(UUID().uuidString)"))
+        let preferences = try IsolatedDeviceState.make(prefix: "ReadAloudNavigatorStopTests", for: self).preferences
         let session = ReadAloudSession(speech: speech, preferences: preferences)
         session.chooseVoice("test")
         let reader = ReadAloudController(session: session, preferences: preferences)
@@ -74,12 +73,10 @@ final class ReadAloudNavigatorStopTests: XCTestCase {
     }
 
     func testStopInThePlayerBetweenPagesStillLetsPlayGoOnThroughTheChosenPages() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ReadAloudNavigatorStop-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "ReadAloudNavigatorStop", for: self).root
         let pdf = try await PDFSession.open(try makePDF(in: directory, pageTexts: ["First page.", "Second page."]))
         let speech = RecordingSpeech()
-        let preferences = try XCTUnwrap(UserDefaults(suiteName: "ReadAloudNavigatorStopTests-\(UUID().uuidString)"))
+        let preferences = try IsolatedDeviceState.make(prefix: "ReadAloudNavigatorStopTests", for: self).preferences
         let session = ReadAloudSession(speech: speech, preferences: preferences)
         session.chooseVoice("test")
         let reader = ReadAloudController(session: session, preferences: preferences)

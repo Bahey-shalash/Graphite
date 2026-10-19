@@ -4,6 +4,7 @@ import SwiftUI
 import XCTest
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// The Mac's Live Preview draws tables, math, callouts and the other rendered blocks as views
 /// over their concealed source, as the iPad does: a block shows its source while the cursor is
@@ -11,7 +12,6 @@ import GraphiteCore
 /// have views.
 @MainActor
 final class UiEditorMacRenderedBlocksTests: XCTestCase {
-    private var vaultDirectories: [URL] = []
     private var windows: [NSWindow] = []
 
     override func tearDown() async throws {
@@ -20,8 +20,6 @@ final class UiEditorMacRenderedBlocksTests: XCTestCase {
             window.contentView = nil
         }
         windows = []
-        for vaultDirectory in vaultDirectories { try? FileManager.default.removeItem(at: vaultDirectory) }
-        vaultDirectories = []
         try await super.tearDown()
     }
 
@@ -33,9 +31,7 @@ final class UiEditorMacRenderedBlocksTests: XCTestCase {
     }
 
     private func makeEditor(text: String, height: CGFloat = 500) async throws -> (NativeMarkdownEditor.Coordinator, MarkdownMacTextView, NSScrollView) {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("Vault-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
-        vaultDirectories.append(vault)
+        let vault = try TemporaryVault.make(prefix: "Vault", for: self).root
         try Data(text.utf8).write(to: vault.appendingPathComponent("Note.md"))
         let store = VaultStore(root: vault)
         let notePath = try VaultPath("Note.md")
@@ -85,18 +81,18 @@ final class UiEditorMacRenderedBlocksTests: XCTestCase {
         coordinator.textDidChange(Notification(name: NSText.didChangeNotification, object: textView))
     }
 
-    private func waitUntil(timeoutSeconds: TimeInterval = 5, _ condition: () -> Bool) async throws {
-        let deadline = Date.now.addingTimeInterval(timeoutSeconds)
-        while !condition() {
-            guard Date.now < deadline else { return XCTFail("Timed out after \(timeoutSeconds) s") }
-            windows.forEach { window in window.contentView?.layoutSubtreeIfNeeded(); window.displayIfNeeded() }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-    }
-
     /// A lecture's citation line, quoted and starting with bold text: in the Mac's editor its
     /// wrapped line started at the margin, under the quote's bar. Checked with the cursor
     /// elsewhere, after it passes through the line, and after typing in the line.
+    /// `waitUntil`, with the windows laid out and drawn before each check, as AppKit does
+    /// between run-loop turns, so that the block views the editor adds have their frames.
+    private func awaitConditionAfterLayout(timeoutSeconds: TimeInterval = 5, _ condition: () -> Bool) async throws {
+        try await waitUntil(timeoutSeconds: timeoutSeconds) {
+            windows.forEach { window in window.contentView?.layoutSubtreeIfNeeded(); window.displayIfNeeded() }
+            return condition()
+        }
+    }
+
     func testAWrappedQuoteStartingWithBoldTextStartsItsSecondLineUnderItsText() async throws {
         let text = "Intro\n\n> **Lecture 4, Memory-Centric Computing II** - Dr. Geraldo F. Oliveira · SAFARI Research Group, ETH Zürich, and Huawei Zürich · 2 October 2026\n\nAfter the quote.\n"
         // The coordinator is the text view's delegate, which the text view holds weakly.
@@ -157,13 +153,13 @@ final class UiEditorMacRenderedBlocksTests: XCTestCase {
         let tableRange = Self.tableRange
         XCTAssertTrue(isConcealed(tableRange.location + 3, in: textView), "The table's source is concealed")
         XCTAssertFalse(isConcealed((Self.tableNote as NSString).range(of: "After").location, in: textView), "The text after it shows")
-        try await waitUntil { self.blockViews(in: textView).count == 1 }
+        try await awaitConditionAfterLayout { self.blockViews(in: textView).count == 1 }
         let tableView = try XCTUnwrap(blockViews(in: textView).first)
         let textContainer = try XCTUnwrap(textView.textContainer)
         XCTAssertEqual(tableView.frame.minX, textView.textContainerOrigin.x + textContainer.lineFragmentPadding)
         XCTAssertGreaterThan(tableView.frame.minY, textView.textContainerOrigin.y + 10, "Below the intro line")
         // Once measured, the table's last line reserves its view's height, so the text after it starts below.
-        try await waitUntil {
+        try await awaitConditionAfterLayout {
             let lastLineStyle = textView.textStorage?.attribute(.paragraphStyle, at: NSMaxRange(tableRange) - 1, effectiveRange: nil) as? NSParagraphStyle
             return lastLineStyle?.paragraphSpacing == tableView.frame.height
         }
@@ -172,14 +168,14 @@ final class UiEditorMacRenderedBlocksTests: XCTestCase {
 
     func testTheCursorInABlockShowsItsSourceAndLeavingDrawsItAgain() async throws {
         let (coordinator, textView, _) = try await makeEditor(text: Self.tableNote)
-        try await waitUntil { self.blockViews(in: textView).count == 1 }
+        try await awaitConditionAfterLayout { self.blockViews(in: textView).count == 1 }
         let tableView = try XCTUnwrap(blockViews(in: textView).first)
         moveCursor(to: NSRange(location: Self.tableRange.location + 4, length: 0), in: textView, coordinator)
         XCTAssertFalse(isConcealed(Self.tableRange.location + 3, in: textView), "The source shows while the cursor is in it")
         XCTAssertTrue(blockViews(in: textView).isEmpty, "The view leaves at once")
         moveCursor(to: NSRange(location: 2, length: 0), in: textView, coordinator)
         XCTAssertTrue(isConcealed(Self.tableRange.location + 3, in: textView))
-        try await waitUntil { self.blockViews(in: textView).count == 1 }
+        try await awaitConditionAfterLayout { self.blockViews(in: textView).count == 1 }
         XCTAssertTrue(blockViews(in: textView).first === tableView, "The view kept off screen comes back, not a new one")
     }
 
@@ -193,7 +189,7 @@ final class UiEditorMacRenderedBlocksTests: XCTestCase {
         XCTAssertFalse(isConcealed(3, in: textView), "With focus, the callout under the cursor shows its source")
         window.makeFirstResponder(nil)
         XCTAssertTrue(isConcealed(3, in: textView), "Focus elsewhere, as in the file list, draws the callout")
-        try await waitUntil { self.blockViews(in: textView).count == 1 }
+        try await awaitConditionAfterLayout { self.blockViews(in: textView).count == 1 }
         window.makeFirstResponder(textView)
         XCTAssertFalse(isConcealed(3, in: textView), "Focus back in the note shows the source at the cursor again")
         XCTAssertTrue(blockViews(in: textView).isEmpty)
@@ -202,7 +198,7 @@ final class UiEditorMacRenderedBlocksTests: XCTestCase {
     /// A click on a block's view puts the cursor at the block's start, showing its source.
     func testRevealingABlocksSourcePutsTheCursorInIt() async throws {
         let (coordinator, textView, _) = try await makeEditor(text: Self.tableNote)
-        try await waitUntil { self.blockViews(in: textView).count == 1 }
+        try await awaitConditionAfterLayout { self.blockViews(in: textView).count == 1 }
         let entryKey = try XCTUnwrap(LivePreviewBlockKey.keys(for: LivePreviewBlockScanner.blocks(in: Self.tableNote as NSString)).first)
         coordinator.revealSource(ofBlockWithKey: entryKey, in: textView)
         XCTAssertEqual(textView.selectedRange(), NSRange(location: Self.tableRange.location, length: 0))
@@ -215,13 +211,13 @@ final class UiEditorMacRenderedBlocksTests: XCTestCase {
         let paragraph = (0..<12).map { lineIndex in "Paragraph line \(lineIndex)." }.joined(separator: "\n")
         let text = (0..<40).map { blockIndex in "\(paragraph)\n\n$$x_{\(blockIndex)} = \(blockIndex)$$\n" }.joined(separator: "\n")
         let (_, textView, scrollView) = try await makeEditor(text: text, height: 500)
-        try await waitUntil { !self.blockViews(in: textView).isEmpty }
+        try await awaitConditionAfterLayout { !self.blockViews(in: textView).isEmpty }
         let viewsAtTop = blockViews(in: textView).count
         XCTAssertLessThan(viewsAtTop, 10, "Of 40 blocks, only those near the top have views")
         let lastBlockLocation = (text as NSString).range(of: "$$x_{39}").location
         textView.scrollRangeToVisible(NSRange(location: lastBlockLocation, length: 0))
         scrollView.reflectScrolledClipView(scrollView.contentView)
-        try await waitUntil {
+        try await awaitConditionAfterLayout {
             self.blockViews(in: textView).contains { view in view.frame.intersects(textView.visibleRect) && view.frame.minY > textView.bounds.height / 2 }
         }
         XCTAssertLessThan(blockViews(in: textView).count, 10, "The blocks scrolled away gave up their place on screen")
@@ -230,25 +226,25 @@ final class UiEditorMacRenderedBlocksTests: XCTestCase {
     /// Typing in a paragraph moves the blocks after it; their views stay, not built again.
     func testTypingElsewhereKeepsTheBlocksViews() async throws {
         let (coordinator, textView, _) = try await makeEditor(text: Self.tableNote)
-        try await waitUntil { self.blockViews(in: textView).count == 1 }
+        try await awaitConditionAfterLayout { self.blockViews(in: textView).count == 1 }
         let tableView = try XCTUnwrap(blockViews(in: textView).first)
         let afterLocation = (Self.tableNote as NSString).range(of: "After").location
         moveCursor(to: NSRange(location: afterLocation, length: 0), in: textView, coordinator)
         type("More ", in: textView, coordinator)
-        try await waitUntil { self.blockViews(in: textView).count == 1 }
+        try await awaitConditionAfterLayout { self.blockViews(in: textView).count == 1 }
         XCTAssertTrue(blockViews(in: textView).first === tableView)
         // A line typed above the table moves its view down.
         let tableTop = tableView.frame.minY
         moveCursor(to: NSRange(location: 0, length: 0), in: textView, coordinator)
         type("New first line\n", in: textView, coordinator)
-        try await waitUntil { (self.blockViews(in: textView).first?.frame.minY ?? 0) > tableTop + 5 }
+        try await awaitConditionAfterLayout { (self.blockViews(in: textView).first?.frame.minY ?? 0) > tableTop + 5 }
         XCTAssertTrue(blockViews(in: textView).first === tableView)
     }
 
     func testCalloutsMathAndRulesAreRenderedAndCodeIsNot() async throws {
         let text = "Intro\n\n> [!note] Title\n> Body\n\n$$a^2$$\n\n---\n\n```swift\nlet x = 1\n```\n\nEnd\n"
         let (_, textView, _) = try await makeEditor(text: text)
-        try await waitUntil { self.blockViews(in: textView).count == 3 }
+        try await awaitConditionAfterLayout { self.blockViews(in: textView).count == 3 }
         let source = text as NSString
         XCTAssertTrue(isConcealed(source.range(of: "> [!note]").location + 2, in: textView))
         XCTAssertTrue(isConcealed(source.range(of: "$$a").location + 1, in: textView))

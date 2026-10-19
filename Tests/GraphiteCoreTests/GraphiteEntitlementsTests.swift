@@ -1,12 +1,11 @@
 import XCTest
+import GraphiteFixtures
 
 /// `App/Graphite.entitlements` and `App/Info.plist`, the files that decide what the sandboxed
 /// Mac app may reach. Any entitlement added or dropped changes what a plugin or a note can
 /// touch, so the full set is written out here and a change has to change this test as well.
 final class GraphiteEntitlementsTests: XCTestCase {
-    private static let applicationFolder = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        .appendingPathComponent("App", isDirectory: true)
+    private static let applicationFolder = FixtureFolders.applicationFolder
 
     private func propertyList(named fileName: String) throws -> [String: Any] {
         let data = try Data(contentsOf: Self.applicationFolder.appendingPathComponent(fileName))

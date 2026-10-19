@@ -10,6 +10,7 @@ import GraphiteCore
 #if canImport(PencilKit) && canImport(AppKit)
 import PencilKit
 import AppKit
+import GraphiteTestSupport
 #endif
 
 final class AppleDrawingFixTests: XCTestCase {
@@ -63,8 +64,7 @@ final class AppleDrawingFixTests: XCTestCase {
     }
 
     private func temporaryDirectory() throws -> URL {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("AppleDrawingFixTests-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let directory = try TemporaryVault.make(prefix: "AppleDrawingFixTests", for: self).root
         addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
         return directory
     }
@@ -851,4 +851,3 @@ final class AppleDrawingFixTests: XCTestCase {
         XCTAssertEqual(PDFEmbedOptions(fragment: "page=2&height=300"), PDFEmbedOptions(startPageNumber: 2, height: 300))
     }
 }
-

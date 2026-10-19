@@ -8,18 +8,14 @@ import GraphiteApple
 
 #if os(macOS)
 import AppKit
+import GraphiteTestSupport
 
 @MainActor
 final class UiPdfViewsTests: XCTestCase {
     private var temporaryDirectory: URL!
 
     override func setUp() async throws {
-        temporaryDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("UiPdfViews-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: temporaryDirectory)
+        temporaryDirectory = try TemporaryVault.make(prefix: "UiPdfViews", for: self).root
     }
 
     // MARK: The PDF pane on the Mac
@@ -386,13 +382,6 @@ final class UiPdfViewsTests: XCTestCase {
         window.contentView = hostingView
         hostingView.layoutSubtreeIfNeeded()
         return window
-    }
-
-    private func waitUntil(_ condition: () -> Bool) async throws {
-        let deadline = ContinuousClock.now + .seconds(3)
-        while !condition(), ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(20))
-        }
     }
 
     /// PDFKit's own drawing of the page, as the renderer drew it before.

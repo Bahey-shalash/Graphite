@@ -1,13 +1,14 @@
 import XCTest
 @testable import GraphiteIndex
 import GraphiteCore
+import GraphiteTestSupport
 
 final class VaultTagsAndPropertiesTests: XCTestCase {
     private var directory: URL!
     private var index: VaultIndex!
 
     override func setUp() async throws {
-        directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        directory = try TemporaryVault.make(prefix: "TemporaryFolder", for: self).root
         index = try VaultIndex(databaseURL: directory.appendingPathComponent("index.sqlite"))
         try await index.update([
             IndexedFile(path: try VaultPath("Algebra.md"), size: 1, modified: .now,
@@ -17,10 +18,6 @@ final class VaultTagsAndPropertiesTests: XCTestCase {
             IndexedFile(path: try VaultPath("Diary.md"), size: 1, modified: .now,
                         markdown: "---\nstatus:\nmood: calm\n---\n#Course and #exam"),
         ], generation: "test")
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: directory)
     }
 
     func testNestedTagCountsCountEachNoteOncePerLevel() async throws {
@@ -49,8 +46,7 @@ final class VaultTagsAndPropertiesTests: XCTestCase {
 
 final class VaultGraphTests: XCTestCase {
     func testGraphResolvesLinksAsEverywhereElse() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "TemporaryFolder", for: self).root
         let index = try VaultIndex(databaseURL: directory.appendingPathComponent("index.sqlite"))
         func file(_ path: String, _ markdown: String?) throws -> IndexedFile {
             IndexedFile(path: try VaultPath(path), size: 1, modified: .now, markdown: markdown)
@@ -80,8 +76,7 @@ final class VaultGraphTests: XCTestCase {
 final class GraphLinkResolverTests: XCTestCase {
     /// The graph resolves links in memory; it must agree with the index everywhere.
     func testResolvesExactlyAsTheIndexDoes() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "TemporaryFolder", for: self).root
         let index = try VaultIndex(databaseURL: directory.appendingPathComponent("index.sqlite"))
         let names = ["Course/Lecture.md", "Course/lecture notes.md", "Archive/Lecture.md", "Homework 2.1.md", "Books/Étude.md", "covers/Book cover.png",
                      "Other/covers/Book cover.png", "Deep/Nested/Plan.MD", "Twin/One.md", "Twin/one.md", "Alias target.md", "Summary.md", "ÄPFEL.md"]

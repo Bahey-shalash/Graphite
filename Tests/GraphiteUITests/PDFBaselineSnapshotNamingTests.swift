@@ -1,6 +1,7 @@
 import XCTest
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// Copies of an open PDF are named `Graphite-OpenPDF-<process>-<UUID>.pdf` in the temporary
 /// folder, so a copy left by an ended process (iOS suspends apps without running their
@@ -10,12 +11,7 @@ final class PDFBaselineSnapshotNamingTests: XCTestCase {
     private var directory: URL!
 
     override func setUpWithError() throws {
-        directory = FileManager.default.temporaryDirectory.appendingPathComponent("PDFBaselineSnapshotNaming-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: directory)
+        directory = try TemporaryVault.make(prefix: "PDFBaselineSnapshotNaming", for: self).root
     }
 
     private func assertNamedLikeABaselineCopy(_ location: URL, file: StaticString = #filePath, line: UInt = #line) {

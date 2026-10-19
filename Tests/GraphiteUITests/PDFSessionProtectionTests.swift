@@ -3,6 +3,7 @@ import PDFKit
 import GraphiteCore
 import GraphiteApple
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// A PDF that is encrypted, forbids comments and changes, or is digitally signed is shown
 /// without being changed: every edit is refused and the file is never written.
@@ -11,12 +12,7 @@ final class PDFSessionProtectionTests: XCTestCase {
     private var directory: URL!
 
     override func setUpWithError() throws {
-        directory = FileManager.default.temporaryDirectory.appendingPathComponent("PDFSessionProtection-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: directory)
+        directory = try TemporaryVault.make(prefix: "PDFSessionProtection", for: self).root
     }
 
     // MARK: Fixtures

@@ -304,7 +304,13 @@ final class CommunityPluginHost {
     @ObservationIgnored var isPanelShownInline = false
     @ObservationIgnored private var appearance = "light"
 
-    init() {
+    /// Where the person's consent to run this vault's plugins is kept.
+    @ObservationIgnored private let consentDefaults: UserDefaults
+
+    /// `defaults` is where consent is kept; the workspace passes its own, and the default
+    /// is for the tests written before it could (Phase 2 removes it).
+    init(defaults: UserDefaults = .standard) {
+        consentDefaults = defaults
         messageReceiver.host = self
     }
 
@@ -318,14 +324,14 @@ final class CommunityPluginHost {
 
     func setTurnedOnForVault(_ isTurnedOn: Bool) async {
         guard let vaultIdentifier, let workspace else { return }
-        UserDefaults.standard.set(isTurnedOn, forKey: Self.consentKey(for: vaultIdentifier))
+        consentDefaults.set(isTurnedOn, forKey: Self.consentKey(for: vaultIdentifier))
         isTurnedOnForVault = isTurnedOn
         if isTurnedOn { await startIfNeeded(workspace) } else { await stopRuntime() }
     }
 
     /// Removes what Graphite kept on the device for a vault that left the vault list.
-    static func forgetVault(_ vaultIdentifier: UUID) {
-        UserDefaults.standard.removeObject(forKey: consentKey(for: vaultIdentifier))
+    static func forgetVault(_ vaultIdentifier: UUID, defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: consentKey(for: vaultIdentifier))
         CommunityPluginSecretStore(vaultIdentifier: vaultIdentifier).removeAllSecrets()
         Task {
             // Removing a store before anything in the app has started WebKit crashes inside
@@ -341,7 +347,7 @@ final class CommunityPluginHost {
     func vaultDidOpen(_ workspace: WorkspaceModel) {
         self.workspace = workspace
         vaultIdentifier = workspace.currentVaultIdentifier
-        isTurnedOnForVault = vaultIdentifier.map { identifier in UserDefaults.standard.bool(forKey: Self.consentKey(for: identifier)) } ?? false
+        isTurnedOnForVault = vaultIdentifier.map { identifier in consentDefaults.bool(forKey: Self.consentKey(for: identifier)) } ?? false
         Task {
             await reloadInventory()
             await startIfNeeded(workspace)

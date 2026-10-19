@@ -1,18 +1,14 @@
 import XCTest
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 @MainActor
 final class UiMarkdownPaneContinuationTests: XCTestCase {
     private var vaultDirectory: URL!
 
     override func setUp() async throws {
-        vaultDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("MarkdownPaneContinuationVault-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vaultDirectory, withIntermediateDirectories: true)
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: vaultDirectory)
+        vaultDirectory = try TemporaryVault.make(prefix: "MarkdownPaneContinuationVault", for: self).root
     }
 
     // MARK: Save a Copy

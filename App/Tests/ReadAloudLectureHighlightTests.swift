@@ -48,9 +48,9 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
         let controller = try host(workspace)
         let editor = try await visibleEditor(in: controller)
         workspace.readAloud.readMarkdown(session.text, path: session.path)
-        try await waitUntil(seconds: 20) { !editor.readAloudHighlights.isEmpty }
+        try await waitUntil(timeoutSeconds: 20) { !editor.readAloudHighlights.isEmpty }
         let firstFrames = editor.readAloudHighlights.map(\.frame)
-        try await waitUntil(seconds: 20) { !editor.readAloudHighlights.isEmpty && editor.readAloudHighlights.map(\.frame) != firstFrames }
+        try await waitUntil(timeoutSeconds: 20) { !editor.readAloudHighlights.isEmpty && editor.readAloudHighlights.map(\.frame) != firstFrames }
         attachScreenshot(named: "Live Preview highlight")
         workspace.readAloud.clear()
         try await waitUntil { editor.readAloudHighlights.isEmpty }
@@ -64,9 +64,9 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
         let before = bluePixels()
         workspace.readAloud.readMarkdown(session.text, path: session.path)
         func highlight() -> CGRect? { highlightBounds(excluding: before) }
-        try await waitUntil(seconds: 20) { highlight() != nil }
+        try await waitUntil(timeoutSeconds: 20) { highlight() != nil }
         let first = try XCTUnwrap(highlight())
-        try await waitUntil(seconds: 20) { highlight().map { bounds in bounds != first } ?? false }
+        try await waitUntil(timeoutSeconds: 20) { highlight().map { bounds in bounds != first } ?? false }
         attachScreenshot(named: "Reading view highlight")
         workspace.readAloud.clear()
         try await waitUntil { self.highlightBounds(excluding: before) == nil }
@@ -94,14 +94,14 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
         func highlighted() -> String? { pdfView.highlightedSelections?.compactMap(\.string).joined(separator: " ") }
         // Word by word, and the respelled acronym ("see moss") lit where "CMOS" is written.
         var seen = Set<String>()
-        try await waitUntil(seconds: 25) {
+        try await waitUntil(timeoutSeconds: 25) {
             if let word = highlighted(), !word.isEmpty { seen.insert(word) }
             return seen.contains("CMOS") && seen.count >= 3
         }
         attachScreenshot(named: "PDF highlight")
         // Word by word on the next page too.
         let secondPage = try XCTUnwrap(pdf.document.page(at: 1))
-        try await waitUntil(seconds: 30) { (pdfView.highlightedSelections ?? []).contains { selection in selection.pages.contains(secondPage) } }
+        try await waitUntil(timeoutSeconds: 30) { (pdfView.highlightedSelections ?? []).contains { selection in selection.pages.contains(secondPage) } }
         attachScreenshot(named: "PDF highlight on the second page")
         workspace.readAloud.clear()
         try await waitUntil { (pdfView.highlightedSelections ?? []).isEmpty }
@@ -114,7 +114,7 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
         let controller = try host(workspace)
         let editor = try await visibleEditor(in: controller)
         workspace.readAloud.readMarkdown(session.text, path: session.path)
-        try await waitUntil(seconds: 20) { !editor.readAloudHighlights.isEmpty }
+        try await waitUntil(timeoutSeconds: 20) { !editor.readAloudHighlights.isEmpty }
         // What a finger does first: the editor's own drag callback pauses following.
         editor.delegate?.scrollViewWillBeginDragging?(editor)
         try await waitUntil { !workspace.readAloud.followsReading }
@@ -138,7 +138,7 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
         let reader = workspace.readAloud
         let navigator = workspace.readAloudNavigator
         reader.readMarkdown(session.text, path: session.path)
-        try await waitUntil(seconds: 20) { reader.session.state == .speaking }
+        try await waitUntil(timeoutSeconds: 20) { reader.session.state == .speaking }
         // Section skip: to the next heading.
         navigator.skipSection(forward: true)
         XCTAssertEqual(reader.session.currentPassage?.kind, .heading)
@@ -182,7 +182,7 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
         self.window = window
         let editor = try await visibleEditor(in: controller)
         workspace.readAloud.readMarkdown(session.text, path: session.path)
-        try await waitUntil(seconds: 20) { !editor.readAloudHighlights.isEmpty }
+        try await waitUntil(timeoutSeconds: 20) { !editor.readAloudHighlights.isEmpty }
         // Put the word being read at the bottom of the screen, under where the player sits.
         workspace.readAloud.followsReading = false
         if let word = editor.readAloudHighlights.first?.frame {
@@ -250,7 +250,7 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
 
         // One tap: reading starts at "output", marked as the start.
         try tap("output")
-        try await waitUntil(seconds: 15) { reader.session.document != nil && reader.sourceIdentifier == pdf.location.path }
+        try await waitUntil(timeoutSeconds: 15) { reader.session.document != nil && reader.sourceIdentifier == pdf.location.path }
         XCTAssertTrue(reader.session.document?.passages.first?.text.hasPrefix("output") ?? false,
                       String(describing: reader.session.document?.passages.first?.text))
         try await waitUntil { markers().count == 1 }
@@ -258,14 +258,14 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
 
         // A second tap: exactly from "output" through "tells", and nothing after it.
         try tap("tells")
-        try await waitUntil(seconds: 15) {
+        try await waitUntil(timeoutSeconds: 15) {
             let text = reader.session.document?.passages.map(\.text).joined(separator: " ") ?? ""
             return text.hasPrefix("output") && text.hasSuffix("tells")
         }
         XCTAssertTrue(navigator.isReadingPenSelection)
         try await waitUntil { markers().count == 2 }
         XCTAssertEqual(markers().filter(\.isStart).count, 1)
-        try await waitUntil(seconds: 10) { navigator.highlightFrameInWindow != nil }
+        try await waitUntil(timeoutSeconds: 10) { navigator.highlightFrameInWindow != nil }
         attachScreenshot(named: "Read Aloud pen: start and end marks, Reading Selection")
 
         // The player keeps clear of the word read while the range plays.
@@ -309,7 +309,7 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
         try await waitUntil { pdf.pdfView != nil }
         workspace.readAloud.readPDF(pdf, firstPageIndex: 0, lastPageIndex: 0)
         let navigator = workspace.readAloudNavigator
-        try await waitUntil(seconds: 20) { navigator.highlightFrameInWindow != nil && navigator.playerFrameInWindow != nil }
+        try await waitUntil(timeoutSeconds: 20) { navigator.highlightFrameInWindow != nil && navigator.playerFrameInWindow != nil }
         var checks = 0
         let deadline = Date().addingTimeInterval(4)
         while Date() < deadline {
@@ -448,13 +448,6 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
         parent.subviews.flatMap { child in (child as? View).map { [$0] } ?? [] + descendants(of: child, matching: type) }
     }
 
-    private func waitUntil(seconds: Double = 5, _ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(seconds)
-        while !condition() {
-            guard Date() < deadline else { XCTFail("Condition not met within \(seconds) seconds."); return }
-            try await Task.sleep(for: .milliseconds(30))
-        }
-    }
 }
 
 /// Scrolls a view down a step per display frame, as a quick finger would, and records the
@@ -623,17 +616,6 @@ final class HighQualityReadAloudTests: XCTestCase {
         return (ReadAloudController(session: session, neuralSpeech: speech, preferences: preferences), speech, renderer, quick)
     }
 
-    private func waitUntil(_ seconds: Double = 10, _ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(seconds)
-        while !condition() {
-            guard Date() < deadline else {
-                XCTFail("The condition did not become true within \(seconds) seconds")
-                throw CancellationError()
-            }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-    }
-
     private func testVoice(_ identifier: String, family: NeuralVoiceModelFamily) -> NeuralVoiceDescription {
         NeuralVoiceDescription(
             id: identifier, name: identifier, modelName: identifier, modelFamily: family, speaker: nil, language: "en",
@@ -675,20 +657,20 @@ final class HighQualityReadAloudTests: XCTestCase {
         let (reader, speech, renderer, quick) = try makeBabblingReader(installsFallback: true)
         reader.session.load(try ReadAloudDocument.markdown("Write VHDL for the FPGA."))
         reader.session.play()
-        try await waitUntil(20) { reader.session.state == .speaking && reader.session.spokenRange != nil }
+        try await waitUntil(timeoutSeconds: 20) { reader.session.state == .speaking && reader.session.spokenRange != nil }
         XCTAssertEqual(renderer.voices, ["babbler", "babbler", "steady-pocket"], "two attempts with the chosen voice, then the fallback")
         XCTAssertEqual(renderer.renders[0], "Write VHDL for the FPGA.", "the autoregressive voice gets acronyms as written")
         XCTAssertEqual(renderer.renders[2], "Write V H D L for the F P G A.", "the fallback reads the passage's respellings")
         XCTAssertTrue(speech.preparation.lastRejection?.contains("times longer") == true, String(describing: speech.preparation.lastRejection))
         XCTAssertTrue(quick.spokenTexts.isEmpty)
-        try await waitUntil(20) { reader.session.state == .finished }
+        try await waitUntil(timeoutSeconds: 20) { reader.session.state == .finished }
     }
 
     func testWithoutAFallbackVoiceTheSystemVoiceReadsWhatTheVoiceGarbled() async throws {
         let (reader, speech, renderer, quick) = try makeBabblingReader(installsFallback: false)
         reader.session.load(try ReadAloudDocument.markdown("Write VHDL for the FPGA."))
         reader.session.play()
-        try await waitUntil(20) { !quick.spokenTexts.isEmpty }
+        try await waitUntil(timeoutSeconds: 20) { !quick.spokenTexts.isEmpty }
         XCTAssertEqual(renderer.voices, ["babbler", "babbler"])
         XCTAssertEqual(quick.spokenTexts, ["Write V H D L for the F P G A."])
         XCTAssertEqual(speech.preparation.systemVoiceTexts, ["Write VHDL for the FPGA."])
@@ -723,13 +705,13 @@ final class HighQualityReadAloudTests: XCTestCase {
         // Reading the same note again renders nothing: every passage comes from the cache.
         reader.session.load(try ReadAloudDocument.markdown(note))
         reader.session.play()
-        try await waitUntil(20) { reader.session.state == .finished }
+        try await waitUntil(timeoutSeconds: 20) { reader.session.state == .finished }
         XCTAssertEqual(renderer.renders.count, reader.session.document?.passages.count)
 
         // Editing one paragraph re-renders that paragraph alone.
         reader.session.load(try ReadAloudDocument.markdown(note.replacingOccurrences(of: "denser but slower", with: "denser and slower")))
         reader.session.play()
-        try await waitUntil(20) { reader.session.state == .finished }
+        try await waitUntil(timeoutSeconds: 20) { reader.session.state == .finished }
         XCTAssertEqual(renderer.renders.count, (reader.session.document?.passages.count ?? 0) + 1)
         XCTAssertTrue(renderer.renders.last?.hasSuffix("is denser and slower.") == true, String(describing: renderer.renders.last))
     }
@@ -750,9 +732,9 @@ final class HighQualityReadAloudTests: XCTestCase {
         let start = pageText.range(of: "charlie"), end = pageText.range(of: "golf")
         reader.readPDFRange(pdf, start: PDFReadAloudEndpoint(pageIndex: 0, offset: start.location, revision: pdf.changeVersion),
                             end: PDFReadAloudEndpoint(pageIndex: 0, offset: NSMaxRange(end), revision: pdf.changeVersion))
-        try await waitUntil(20) { reader.session.document != nil && !reader.isPreparing }
+        try await waitUntil(timeoutSeconds: 20) { reader.session.document != nil && !reader.isPreparing }
         if reader.session.state != .speaking { reader.session.play() }
-        try await waitUntil(30) { reader.session.state == .finished }
+        try await waitUntil(timeoutSeconds: 30) { reader.session.state == .finished }
         let rendered = renderer.renders.joined(separator: " ")
         XCTAssertTrue(rendered.contains("charlie") && rendered.contains("golf"), rendered)
         for outside in ["Alpha", "bravo", "hotel", "juliet"] { XCTAssertFalse(rendered.contains(outside), "\(outside) was prepared: \(rendered)") }

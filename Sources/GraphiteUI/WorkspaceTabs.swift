@@ -418,7 +418,7 @@ extension WorkspaceModel {
 
     func saveTabLayout() {
         guard let layoutVaultIdentifier, let data = try? JSONEncoder().encode(savedLayoutWithPluginViews()) else { return }
-        UserDefaults.standard.set(data, forKey: Self.tabLayoutKey(for: layoutVaultIdentifier))
+        deviceDefaults.set(data, forKey: Self.tabLayoutKey(for: layoutVaultIdentifier))
     }
 
     /// Restores the vault's tabs as they were left; their files load as they are shown.
@@ -429,7 +429,7 @@ extension WorkspaceModel {
             guard let location = try? path.url(in: root) else { return false }
             return FileManager.default.fileExists(atPath: location.path)
         }
-        if let data = UserDefaults.standard.data(forKey: Self.tabLayoutKey(for: currentVaultIdentifier)),
+        if let data = deviceDefaults.data(forKey: Self.tabLayoutKey(for: currentVaultIdentifier)),
            let saved = try? JSONDecoder().decode(SavedTabLayout.self, from: data) {
             layout = TabLayout(saved: saved, fileExists: fileExists)
             takePluginViewsToRestore(from: saved)

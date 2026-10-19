@@ -1,6 +1,7 @@
 import XCTest
 import GraphiteCore
 @testable import GraphiteVoices
+import GraphiteTestSupport
 
 /// A voice that renders a tone and remembers who was asked to say what, with which seed.
 private final class RecordingPassageRenderer: NeuralPassageRendering, @unchecked Sendable {
@@ -53,12 +54,7 @@ final class ReadAloudPassagePreparationRenderAttemptTests: XCTestCase {
     private var folder: URL!
 
     override func setUpWithError() throws {
-        folder = FileManager.default.temporaryDirectory.appendingPathComponent("RenderAttempts-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: folder) // Best-effort removal of a temporary folder.
+        folder = try TemporaryVault.make(prefix: "RenderAttempts", for: self).root
     }
 
     private let voiceText = "Hello there world, spoken."

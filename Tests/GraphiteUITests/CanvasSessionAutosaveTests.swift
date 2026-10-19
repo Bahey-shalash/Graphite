@@ -2,34 +2,32 @@ import XCTest
 import CoreGraphics
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// Canvas autosave fires 900 ms after the last edit or keystroke; each pause in typing
-/// commits one "Edit Text" step. The autosave task sleeps on the real clock, so these tests
-/// pin the delay and drive the save it runs (`save()`) instead of waiting for it.
+/// commits one "Edit Text" step. The session's autosave sleeps on a `ManualClock`, so the
+/// boundary is tested at 899 and 900 ms without waiting, and the other tests drive the save
+/// the autosave runs (`save()`) directly.
 @MainActor
 final class CanvasSessionAutosaveTests: XCTestCase {
     private var vault: URL!
     private var store: VaultStore!
     private var canvasPath: VaultPath!
+    private let clock = ManualClock()
 
     private let board = "{\n\t\"nodes\":[\n"
         + "\t\t{\"id\":\"1000000000000001\",\"type\":\"text\",\"text\":\"First\",\"x\":0,\"y\":0,\"width\":250,\"height\":200}\n"
         + "\t]\n}"
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("CanvasSessionAutosave-\(UUID().uuidString)")
+        vault = try TemporaryVault.make(prefix: "CanvasSessionAutosave", for: self).root
         canvasPath = try VaultPath("Board.canvas")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
         try Data(board.utf8).write(to: vault.appendingPathComponent(canvasPath.rawValue))
         store = VaultStore(root: vault)
     }
 
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: vault)
-    }
-
     private func openSession() async throws -> CanvasSession {
-        let session = try CanvasSession(path: canvasPath, snapshot: try await store.read(canvasPath), store: store) { _ in }
+        let session = try CanvasSession(path: canvasPath, snapshot: try await store.read(canvasPath), store: store, clock: clock) { _ in }
         session.viewSize = CGSize(width: 1000, height: 800)
         session.isWriting = true
         session.undoManager.groupsByEvent = false
@@ -47,6 +45,56 @@ final class CanvasSessionAutosaveTests: XCTestCase {
 
     func testAutosaveWaitsNineHundredMillisecondsAfterTheLastEdit() {
         XCTAssertEqual(CanvasSession.autosaveDelay, .milliseconds(900))
+    }
+
+    func testAnEditIsWrittenOnceAtNineHundredMillisecondsAndNotAtEightHundredNinetyNine() async throws {
+        let session = try await openSession()
+        session.perform([.setText("First, edited", nodeIdentifier: "1000000000000001")], named: "Edit Text")
+        try await clock.awaitPendingSleepers()
+        XCTAssertEqual(clock.pendingSleepDurations, [.milliseconds(900)])
+
+        clock.advance(by: .milliseconds(899))
+        await ManualClock.letResumedTasksRun()
+        XCTAssertEqual(try fileText(), board, "Nothing is written before the delay has passed.")
+        XCTAssertTrue(session.hasUnsavedChanges)
+
+        clock.advance(by: .milliseconds(1))
+        try await waitUntil("the autosave writes the edit") { !session.hasUnsavedChanges }
+        XCTAssertTrue(try fileText().contains("\"text\":\"First, edited\""))
+        XCTAssertEqual(clock.pendingSleepCount, 0, "One edit is one autosave.")
+    }
+
+    func testEachEditRestartsTheNineHundredMillisecondWait() async throws {
+        let session = try await openSession()
+        session.perform([.setText("First, edited", nodeIdentifier: "1000000000000001")], named: "Edit Text")
+        try await clock.awaitPendingSleepers()
+        clock.advance(by: .milliseconds(600))
+        session.perform([.setText("First, edited again", nodeIdentifier: "1000000000000001")], named: "Edit Text")
+        try await clock.awaitPendingSleepers()
+        XCTAssertEqual(clock.pendingSleepDurations, [.milliseconds(900)], "The first wait was replaced, not kept.")
+
+        clock.advance(by: .milliseconds(899))
+        await ManualClock.letResumedTasksRun()
+        XCTAssertEqual(try fileText(), board, "1,499 ms after the first edit is 899 ms after the last.")
+
+        clock.advance(by: .milliseconds(1))
+        try await waitUntil("the autosave writes the last edit") { !session.hasUnsavedChanges }
+        XCTAssertTrue(try fileText().contains("\"text\":\"First, edited again\""))
+    }
+
+    func testTextTypedInACardIsWrittenNineHundredMillisecondsAfterTheLastKeystroke() async throws {
+        let session = try await openSession()
+        session.beginEditingText(of: "1000000000000001")
+        session.updateTextEdit("First, typed")
+        try await clock.awaitPendingSleepers()
+
+        clock.advance(by: .milliseconds(899))
+        await ManualClock.letResumedTasksRun()
+        XCTAssertEqual(try fileText(), board)
+
+        clock.advance(by: .milliseconds(1))
+        try await waitUntil("the autosave writes the typed text") { try fileText().contains("\"text\":\"First, typed\"") }
+        XCTAssertEqual(session.undoAvailability.undoActionName, "Edit Text")
     }
 
     func testTypingWritesNothingToTheFileUntilTheSaveThatAutosaveRuns() async throws {

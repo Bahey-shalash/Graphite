@@ -3,6 +3,7 @@ import PDFKit
 import GraphiteCore
 import GraphiteApple
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// A save replaces the PDF only if it still is the file that was read. When it is not,
 /// nothing is written, the edits stay open, and later saves are refused until the person
@@ -12,8 +13,7 @@ final class PDFSessionSaveRevisionTests: XCTestCase {
     private var directory: URL!
 
     override func setUpWithError() throws {
-        directory = FileManager.default.temporaryDirectory.appendingPathComponent("PDFSessionSaveRevision-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        directory = try TemporaryVault.make(prefix: "PDFSessionSaveRevision", for: self).root
     }
 
     override func tearDownWithError() throws {

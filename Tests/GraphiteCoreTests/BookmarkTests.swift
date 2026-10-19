@@ -1,5 +1,6 @@
 import XCTest
 @testable import GraphiteCore
+import GraphiteTestSupport
 
 final class BookmarkTests: XCTestCase {
     /// As Obsidian writes it, with kinds and keys Graphite does not know.
@@ -91,9 +92,7 @@ final class BookmarkTests: XCTestCase {
     }
 
     func testStoreChangesTheLatestFileAndNeverCreatesAnEmptyOne() async throws {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("Vault-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: vault) }
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        let vault = try TemporaryVault.make(prefix: "Vault", for: self).root
         let store = VaultStore(root: vault)
         let location = vault.appendingPathComponent(".obsidian/bookmarks.json")
 

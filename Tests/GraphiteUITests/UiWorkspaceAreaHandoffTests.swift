@@ -9,19 +9,16 @@ import GraphiteCore
 @testable import GraphiteUI
 #if canImport(AppKit)
 import AppKit
+import GraphiteTestSupport
 #endif
 
 /// PDF session behavior that other groups' fixes asked the workspace area to complete.
 @MainActor
 final class UiWorkspaceAreaPDFHandoffTests: XCTestCase {
-    private let directory = FileManager.default.temporaryDirectory.appendingPathComponent("WorkspaceAreaPDF-\(UUID().uuidString)")
+    private var directory: URL!
 
     override func setUpWithError() throws {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: directory)
+        directory = try TemporaryVault.make(prefix: "WorkspaceAreaPDF", for: self).root
     }
 
     private func makePDF(named filename: String, pageSize: CGSize = CGSize(width: 612, height: 792), pageCount: Int = 1) throws -> URL {
@@ -172,30 +169,22 @@ final class UiWorkspaceAreaPDFHandoffTests: XCTestCase {
 @MainActor
 final class UiWorkspaceAreaHandoffTests: XCTestCase {
     private var temporaryFolders: [URL] = []
-    private var savedGraphitePreferences: [String: Any] = [:]
-    private var vaultIdentifiersBeforeTest: Set<UUID> = []
+    private var device: IsolatedWorkspaceDevice!
 
     override func setUp() async throws {
-        savedGraphitePreferences = UserDefaults.standard.dictionaryRepresentation().filter { key, _ in key.hasPrefix("Graphite") }
-        vaultIdentifiersBeforeTest = Set(VaultLibrary().vaults.map(\.id))
+        // Opening a vault records it, with an index of its own: in preferences and folders of
+        // this test's own.
+        device = try IsolatedWorkspaceDevice.make(for: self)
     }
 
     override func tearDown() async throws {
-        for vault in VaultLibrary().vaults where !vaultIdentifiersBeforeTest.contains(vault.id) {
-            VaultIndex.removeIndex(forVault: vault.id)
-        }
-        for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix("Graphite") {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
-        for (key, storedValue) in savedGraphitePreferences { UserDefaults.standard.set(storedValue, forKey: key) }
         for folder in temporaryFolders { try? FileManager.default.removeItem(at: folder) }
     }
 
     // MARK: Helpers
 
     private func makeFolder(_ prefix: String) throws -> URL {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let folder = try TemporaryVault.make(prefix: prefix, for: self).root
         temporaryFolders.append(folder)
         return folder.resolvingSymlinksInPath()
     }
@@ -216,7 +205,7 @@ final class UiWorkspaceAreaHandoffTests: XCTestCase {
         let indexFolder = try makeFolder("WorkspaceAreaIndex")
         let index = try VaultIndex(databaseURL: indexFolder.appendingPathComponent("index.sqlite"))
         _ = try await index.reconcile(root: vault)
-        let workspace = WorkspaceModel()
+        let workspace = device.makeWorkspace()
         workspace.folderAccess = FolderAccess(root: vault)
         let store = VaultStore(root: vault)
         workspace.store = store
@@ -224,14 +213,6 @@ final class UiWorkspaceAreaHandoffTests: XCTestCase {
         workspace.vaultSettings = try await store.settings()
         workspace.hasCompletedIndexScan = marksScanComplete
         return workspace
-    }
-
-    private func waitUntil(timeoutSeconds: Double = 20, _ condition: () -> Bool) async throws {
-        let deadline = Date.now.addingTimeInterval(timeoutSeconds)
-        while !condition() {
-            guard Date.now < deadline else { return XCTFail("The condition did not become true in time.") }
-            try await Task.sleep(for: .milliseconds(20))
-        }
     }
 
     private func fileText(_ relativePath: String, in vault: URL) -> String? {
@@ -414,7 +395,7 @@ final class UiWorkspaceAreaHandoffTests: XCTestCase {
 
     func testMovedVaultFolderIsOpenedAgainAtItsNewPlace() async throws {
         let vault = try makeVault(files: ["Note.md": "text"])
-        let workspace = WorkspaceModel()
+        let workspace = device.makeWorkspace()
         try await workspace.openFolderAsVault(vault)
         let movedVault = vault.deletingLastPathComponent().appendingPathComponent("Moved-\(UUID().uuidString)", isDirectory: true)
         temporaryFolders.append(movedVault)

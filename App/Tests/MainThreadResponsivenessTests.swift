@@ -98,7 +98,7 @@ final class MainThreadResponsivenessTests: XCTestCase {
         window.rootViewController = controller
         window.makeKeyAndVisible()
         self.window = window
-        try await waitUntil(seconds: 30) {
+        try await waitUntil(timeoutSeconds: 30) {
             self.descendants(of: controller.view, matching: UIScrollView.self).contains { scrollView in scrollView.contentSize.height > 5_000 }
         }
         try await Task.sleep(for: .seconds(1))
@@ -133,7 +133,7 @@ final class MainThreadResponsivenessTests: XCTestCase {
         _ = try host(workspace, size: CGSize(width: 834, height: 1194))
         try await Task.sleep(for: .seconds(3))
         workspace.readAloud.readMarkdown(session.text, path: session.path)
-        try await waitUntil(seconds: 30) { workspace.readAloud.highlight(in: session.path) != nil }
+        try await waitUntil(timeoutSeconds: 30) { workspace.readAloud.highlight(in: session.path) != nil }
         try await Task.sleep(for: .seconds(1))
         var ranges = Set<Int>()
         let measuredSeconds = 6.0
@@ -209,7 +209,7 @@ final class MainThreadResponsivenessTests: XCTestCase {
         let probe = MainThreadProbe()
         probe.start()
         workspace.readAloud.readPDF(pdf, firstPageIndex: 0, lastPageIndex: pdf.pageCount - 1)
-        try await waitUntil(seconds: 20) { workspace.readAloudNavigator.highlightFrameInWindow != nil }
+        try await waitUntil(timeoutSeconds: 20) { workspace.readAloudNavigator.highlightFrameInWindow != nil }
         try await Task.sleep(for: .seconds(5))
         let measurement = probe.stop()
         workspace.readAloud.clear()
@@ -273,16 +273,6 @@ final class MainThreadResponsivenessTests: XCTestCase {
         return controller
     }
 
-    private func waitUntil(seconds: Double = 10, _ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(seconds)
-        while !condition() {
-            guard Date() < deadline else {
-                XCTFail("The condition did not become true within \(seconds) seconds")
-                throw CancellationError()
-            }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-    }
 }
 
 /// The word being read, which a test changes as Read Aloud would.

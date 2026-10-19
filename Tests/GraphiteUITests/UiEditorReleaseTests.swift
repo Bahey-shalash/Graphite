@@ -6,6 +6,7 @@ import GraphiteIndex
 import SwiftUI
 import XCTest
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// A closed note's editor goes away with its rendered blocks' views and its session: a
 /// block's view left in the text view stayed registered with AppKit's notification center,
@@ -13,9 +14,7 @@ import XCTest
 @MainActor
 final class UiEditorReleaseTests: XCTestCase {
     func testAClosedNotesEditorAndItsBlockViewsAreReleased() async throws {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("EditorRelease-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: vault) }
+        let vault = try TemporaryVault.make(prefix: "EditorRelease", for: self).root
         let section = "## Section\n\n> [!note] Callout\n> Text of the callout.\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\nA paragraph of text.\n\n"
         let notePath = try VaultPath("Note.md")
         try Data(String(repeating: section, count: 30).utf8).write(to: vault.appendingPathComponent(notePath.rawValue))

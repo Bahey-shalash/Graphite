@@ -2,6 +2,7 @@ import XCTest
 import WebKit
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// The web view `CommunityPluginHost` runs plugins in, built for real from a vault with one
 /// enabled plugin: its own website data store per vault, and exactly one way for the page to
@@ -52,14 +53,8 @@ final class CommunityPluginHostWebViewConfigurationTests: XCTestCase {
         let host = workspace.communityPlugins
         try await waitUntil("the plugin is listed") { host.inventory.plugins.count == 1 }
         await host.setTurnedOnForVault(true)
-        try await waitUntil("the plugin loads", seconds: 30) { host.loadStates["idle-plugin"] == .loaded }
+        try await waitUntil("the plugin loads", timeoutSeconds: 30) { host.loadStates["idle-plugin"] == .loaded }
         return (host, try XCTUnwrap(host.webView), vaultIdentifier)
-    }
-
-    private func waitUntil(_ description: String, seconds: Double = 10, _ condition: () -> Bool) async throws {
-        let deadline = Date.now.addingTimeInterval(seconds)
-        while !condition(), Date.now < deadline { await Task.yield() }
-        XCTAssertTrue(condition(), "Timed out waiting until \(description).")
     }
 
     func testThePluginPageHasItsOwnPersistentWebsiteDataStoreNamedByTheVault() async throws {

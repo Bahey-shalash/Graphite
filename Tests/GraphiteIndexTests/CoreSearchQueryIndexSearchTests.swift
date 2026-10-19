@@ -1,6 +1,7 @@
 import XCTest
 @testable import GraphiteIndex
 import GraphiteCore
+import GraphiteTestSupport
 
 /// Search through the real index for words, lines, and queries that `SearchTextTokens`,
 /// `SearchQueryParser`, and `SearchMatcher` read differently before.
@@ -9,7 +10,7 @@ final class CoreSearchQueryIndexSearchTests: XCTestCase {
     private var index: VaultIndex!
 
     override func setUp() async throws {
-        directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        directory = try TemporaryVault.make(prefix: "TemporaryFolder", for: self).root
         index = try VaultIndex(databaseURL: directory.appendingPathComponent("index.sqlite"))
         try await index.update([
             IndexedFile(path: try VaultPath("Russian.md"), size: 1, modified: .now, markdown: "Это мой новый дом. Ёлка."),
@@ -18,10 +19,6 @@ final class CoreSearchQueryIndexSearchTests: XCTestCase {
             IndexedFile(path: try VaultPath("Tasks.md"), size: 1, modified: .now, markdown: "- [ ] buy milk\n- [x] finished report #work"),
             IndexedFile(path: try VaultPath("Windows.md"), size: 1, modified: .now, markdown: "alpha line one\r\nbeta line two\r\n\r\nother paragraph"),
         ], generation: "test")
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: directory)
     }
 
     private func paths(_ query: String) async throws -> [String] {

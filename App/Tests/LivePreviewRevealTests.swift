@@ -602,11 +602,6 @@ final class LivePreviewRevealTests: XCTestCase {
         add(attachment)
     }
 
-    private func waitUntil(_ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(5)
-        while !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(25)) }
-        XCTAssertTrue(condition(), "The hosted editor did not reach the expected state.")
-    }
 }
 
 /// A tap recognizer that reports a touch at a chosen point, to ask the editor what it

@@ -4,22 +4,15 @@ import GraphiteCore
 @testable import GraphiteIndex
 @testable import GraphiteApple
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// The name a recording gets when it is saved from the recovery folder and no one knows
 /// where it was meant to go.
 @MainActor
 final class WorkspaceRecordingRecoveryNamingTests: XCTestCase {
-    private var temporaryFolders: [URL] = []
-
-    override func tearDown() async throws {
-        for folder in temporaryFolders { try? FileManager.default.removeItem(at: folder) }
-        temporaryFolders = []
-    }
 
     private func makeFolder(_ prefix: String) throws -> URL {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        temporaryFolders.append(folder)
+        let folder = try TemporaryVault.make(prefix: prefix, for: self).root
         return folder.resolvingSymlinksInPath()
     }
 

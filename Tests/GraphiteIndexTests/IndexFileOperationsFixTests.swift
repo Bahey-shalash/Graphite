@@ -2,6 +2,7 @@ import XCTest
 import GRDB
 import GraphiteCore
 @testable import GraphiteIndex
+import GraphiteTestSupport
 
 /// Regression tests for moves and renames that must not corrupt, skip or misreport
 /// linking notes, and for the base pre-filter's superset guarantee.
@@ -12,16 +13,10 @@ final class IndexFileOperationsFixTests: XCTestCase {
     private var operations: VaultFileOperations!
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("FixVault-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        vault = try TemporaryVault.make(prefix: "FixVault", for: self).root
         store = VaultStore(root: vault)
         index = try VaultIndex(databaseURL: vault.appendingPathExtension("cache").appendingPathComponent("index.sqlite"))
         operations = VaultFileOperations(store: store, index: index)
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: vault)
-        try? FileManager.default.removeItem(at: vault.appendingPathExtension("cache"))
     }
 
     private func write(_ relativePath: String, _ text: String) throws {

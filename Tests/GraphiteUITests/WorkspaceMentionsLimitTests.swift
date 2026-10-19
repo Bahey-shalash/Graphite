@@ -2,6 +2,7 @@ import XCTest
 import GraphiteCore
 import GraphiteIndex
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// The Backlinks panel lists at most 200 notes in each of its two lists of mentions.
 @MainActor
@@ -9,13 +10,7 @@ final class WorkspaceMentionsLimitTests: XCTestCase {
     private var vault: URL!
 
     override func setUpWithError() throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("WorkspaceMentionsLimitTests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: vault) // Best-effort removal of a temporary folder.
-        try? FileManager.default.removeItem(at: vault.appendingPathExtension("cache")) // Best-effort removal of a temporary folder.
+        vault = try TemporaryVault.make(prefix: "WorkspaceMentionsLimitTests", for: self).root
     }
 
     /// A workspace over a vault holding `Target.md` and `noteCount` notes written with `noteText`.

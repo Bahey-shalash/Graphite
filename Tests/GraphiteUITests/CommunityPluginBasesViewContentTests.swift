@@ -2,16 +2,11 @@ import XCTest
 import GraphiteCore
 import GraphiteIndex
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// When a plugin's view of a base is sent the base's results again.
 @MainActor
 final class CommunityPluginBasesViewContentTests: XCTestCase {
-    private var temporaryFolders: [URL] = []
-
-    override func tearDown() async throws {
-        for folder in temporaryFolders { try? FileManager.default.removeItem(at: folder) }
-        temporaryFolders = []
-    }
 
     func testUpdateKeyChangesWhenAFormulaValueChangesAndTheRowsStay() async throws {
         let vault = try makeVault(files: [
@@ -50,9 +45,7 @@ final class CommunityPluginBasesViewContentTests: XCTestCase {
     // MARK: Helpers
 
     private func makeVault(files: [String: String], baseText: String) throws -> URL {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("PluginBasesVault-\(UUID().uuidString)").resolvingSymlinksInPath()
-        temporaryFolders.append(vault)
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        let vault = try TemporaryVault.make(prefix: "PluginBasesVault", for: self).root
         for (relativePath, text) in files {
             let location = vault.appendingPathComponent(relativePath)
             try FileManager.default.createDirectory(at: location.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -64,9 +57,7 @@ final class CommunityPluginBasesViewContentTests: XCTestCase {
 
     /// The base's results as its document model computes them now.
     private func queryResult(in vault: URL) async throws -> BaseQueryResult {
-        let indexFolder = FileManager.default.temporaryDirectory.appendingPathComponent("PluginBasesIndex-\(UUID().uuidString)")
-        temporaryFolders.append(indexFolder)
-        try FileManager.default.createDirectory(at: indexFolder, withIntermediateDirectories: true)
+        let indexFolder = try TemporaryVault.make(prefix: "PluginBasesIndex", for: self).root
         let index = try VaultIndex(databaseURL: indexFolder.appendingPathComponent("index.sqlite"))
         _ = try await index.reconcile(root: vault)
         let basePath = try VaultPath("Tasks.base")

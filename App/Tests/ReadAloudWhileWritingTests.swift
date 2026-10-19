@@ -112,7 +112,7 @@ final class ReadAloudWhileWritingTests: XCTestCase {
         let pdf = try await PDFSession.open(location)
         let reader = ReadAloudController()
         reader.readPDF(pdf, firstPageIndex: 0, lastPageIndex: 0)
-        try await waitUntil(seconds: 30) { !reader.isPreparing }
+        try await waitUntil(timeoutSeconds: 30) { !reader.isPreparing }
         let recognized = try XCTUnwrap(reader.recognizedPDFPage?.text, String(describing: reader.errorMessage))
         XCTAssertTrue(recognized.contains("Memory") && recognized.contains("Refresh"), recognized)
         XCTAssertFalse(recognized.uppercased().contains("BAI"), "The handwriting was read: \(recognized)")
@@ -130,7 +130,7 @@ final class ReadAloudWhileWritingTests: XCTestCase {
         _ = try host(workspace)
         let reader = workspace.readAloud
         reader.readMarkdown(session.text, path: session.path)
-        try await waitUntil(seconds: 15) { reader.session.document != nil && !reader.isPreparing }
+        try await waitUntil(timeoutSeconds: 15) { reader.session.document != nil && !reader.isPreparing }
         let document = try XCTUnwrap(reader.session.document)
         let index = try XCTUnwrap(document.passages.firstIndex { passage in passage.text.hasPrefix("Sentence 5") })
         reader.session.move(to: index)
@@ -140,11 +140,11 @@ final class ReadAloudWhileWritingTests: XCTestCase {
 
         // An edit above: a paragraph added at the top.
         session.text = "An added paragraph at the top.\n\n" + session.text
-        try await waitUntil(seconds: 5) { !reader.isReanchoringNote && reader.session.state == .speaking }
+        try await waitUntil(timeoutSeconds: 5) { !reader.isReanchoringNote && reader.session.state == .speaking }
         XCTAssertNil(reader.errorMessage)
         XCTAssertEqual(reader.session.currentPassage?.text, passageBefore, "Reading went on in the same passage.")
         // The highlight comes back with the next word spoken.
-        try await waitUntil(seconds: 5) { reader.highlight(in: session.path) != nil }
+        try await waitUntil(timeoutSeconds: 5) { reader.highlight(in: session.path) != nil }
         let highlighted = try XCTUnwrap(reader.highlight(in: session.path))
         XCTAssertTrue((session.text as NSString).substring(with: highlighted).count > 0)
         let passageSource = (session.text as NSString).range(of: "Sentence 5 begins here.")
@@ -153,14 +153,14 @@ final class ReadAloudWhileWritingTests: XCTestCase {
 
         // An edit at the other end of the sentence read keeps its start.
         session.text = session.text.replacingOccurrences(of: "part 5 of the memory in some detail.", with: "part 5 of the memory briefly.")
-        try await waitUntil(seconds: 5) { !reader.isReanchoringNote }
+        try await waitUntil(timeoutSeconds: 5) { !reader.isReanchoringNote }
         XCTAssertNil(reader.errorMessage)
         XCTAssertTrue(reader.session.currentPassage?.text.hasPrefix("Sentence 5 begins here.") ?? false,
                       String(describing: reader.session.currentPassage?.text))
 
         // The passage removed altogether: reading pauses and says why.
         session.text = session.text.replacingOccurrences(of: "Sentence 5 begins here. It explains part 5 of the memory briefly.", with: "")
-        try await waitUntil(seconds: 5) { !reader.isReanchoringNote }
+        try await waitUntil(timeoutSeconds: 5) { !reader.isReanchoringNote }
         XCTAssertNotNil(reader.errorMessage)
         XCTAssertNotEqual(reader.session.state, .speaking)
     }
@@ -283,15 +283,5 @@ final class ReadAloudWhileWritingTests: XCTestCase {
         return controller
     }
 
-    private func waitUntil(seconds: Double = 10, _ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(seconds)
-        while !condition() {
-            guard Date() < deadline else {
-                XCTFail("The condition did not become true within \(seconds) seconds")
-                throw CancellationError()
-            }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-    }
 }
 #endif

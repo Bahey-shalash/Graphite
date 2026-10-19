@@ -65,8 +65,11 @@
 				GraphiteAppleTests/VectorDrawingTests.swift,
 				GraphiteAppleTests/VideoRecordingTests.swift,
 				GraphiteAppleTests/VideoRecordingTestSupport.swift,
+				GraphiteTestSupport/FakeConflictVersionStore.swift,
+				GraphiteTestSupport/IsolatedDeviceState.swift,
+				GraphiteTestSupport/TemporaryVault.swift,
+				GraphiteUITests/IsolatedWorkspaceDevice.swift,
 				GraphiteUITests/PerformanceBenchmarkTests.swift,
-				GraphiteUITests/TestConflictVersionStore.swift,
 				GraphiteUITests/WorkspaceConflictVersionsTests.swift,
 			);
 			target = A00000000000000000000030 /* GraphiteIntegrationTests */;

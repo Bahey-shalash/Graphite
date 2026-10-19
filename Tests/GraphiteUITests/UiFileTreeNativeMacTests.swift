@@ -6,20 +6,18 @@ import GraphiteApple
 import GraphiteCore
 import GraphiteIndex
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// The Mac's file tree is AppKit's outline view (`MacFileTree`): a vault's root lists at once
 /// however many files it holds, folders fold as in Obsidian, rows drag into notes and folders,
 /// and each row has the sidebar's menu.
 @MainActor
 final class UiFileTreeNativeMacTests: XCTestCase {
-    private var vaultDirectories: [URL] = []
     private var windows: [NSWindow] = []
 
     override func tearDown() async throws {
         for window in windows { window.close() }
         windows = []
-        for vaultDirectory in vaultDirectories { try? FileManager.default.removeItem(at: vaultDirectory) }
-        vaultDirectories = []
         try await super.tearDown()
     }
 
@@ -142,9 +140,7 @@ final class UiFileTreeNativeMacTests: XCTestCase {
     // MARK: Helpers
 
     private func makeWorkspace(files: [String]) throws -> WorkspaceModel {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("NativeTreeVault-\(UUID().uuidString)", isDirectory: true).resolvingSymlinksInPath()
-        vaultDirectories.append(vault)
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        let vault = try TemporaryVault.make(prefix: "NativeTreeVault", for: self).root
         for file in files {
             let location = vault.appendingPathComponent(file)
             try FileManager.default.createDirectory(at: location.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -178,17 +174,6 @@ final class UiFileTreeNativeMacTests: XCTestCase {
             if let outlineView = firstOutlineView(in: subview) { return outlineView }
         }
         return nil
-    }
-
-    private func waitUntil(timeoutSeconds: TimeInterval = 20, _ condition: () -> Bool) async throws {
-        let deadline = Date.now.addingTimeInterval(timeoutSeconds)
-        while !condition() {
-            guard Date.now < deadline else {
-                XCTFail("Timed out after \(timeoutSeconds) s")
-                return
-            }
-            try await Task.sleep(for: .milliseconds(20))
-        }
     }
 }
 

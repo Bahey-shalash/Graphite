@@ -1,20 +1,15 @@
 import XCTest
 @testable import GraphiteUI
 import GraphiteCore
+import GraphiteTestSupport
 
 /// The state of the fixed Pencil tool bar.
 @MainActor
 final class PencilToolboxTests: XCTestCase {
-    private var suiteName = ""
     private var defaults: UserDefaults!
 
     override func setUp() async throws {
-        suiteName = "PencilToolboxTests-\(UUID().uuidString)"
-        defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-    }
-
-    override func tearDown() async throws {
-        defaults.removePersistentDomain(forName: suiteName)
+        defaults = try IsolatedDeviceState.make(prefix: "PencilToolboxTests", for: self).preferences
     }
 
     func testStartsWithAPenAPencilAndAHighlighterAtMediumWidths() {

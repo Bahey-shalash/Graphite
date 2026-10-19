@@ -1,6 +1,7 @@
 import XCTest
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// Each note's session keeps its own last reading build, so two notes with equal text in one
 /// window never show each other's blocks.
@@ -9,12 +10,7 @@ final class MarkdownSessionReadingBlocksCacheTests: XCTestCase {
     private var vault: URL!
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("ReadingCacheVault-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: vault)
+        vault = try TemporaryVault.make(prefix: "ReadingCacheVault", for: self).root
     }
 
     private func session(named name: String, text: String) async throws -> MarkdownSession {

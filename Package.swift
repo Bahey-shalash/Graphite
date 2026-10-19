@@ -36,10 +36,15 @@ let package = Package(
                 // The theme resolver's default variables and probe script (`ThemeTokenResolver`).
                 resources: [.copy("Resources/CommunityPluginRuntime"), .copy("Resources/ThemeResolver")]),
         .executableTarget(name: "GraphiteBenchmarks", dependencies: ["GraphiteCore", "GraphiteIndex"]),
+        // Fakes and helpers the test targets share (temporary vaults, isolated preferences, the one polling
+        // wait, the conflict-version fake). It imports XCTest, so only test targets depend on it.
+        .target(name: "GraphiteTestSupport", dependencies: ["GraphiteCore", "GraphiteApple"], path: "Tests/GraphiteTestSupport"),
+        // Where the checked-in fixture vaults under `Tests/` are found, for every test target that reads one.
+        .target(name: "GraphiteFixtures", path: "Tests/GraphiteFixtures"),
         // The babbling clip is a real Qwen3-TTS rendering, to test the checks on real audio.
-        .testTarget(name: "GraphiteCoreTests", dependencies: ["GraphiteCore"], resources: [.copy("Resources/QwenBabbling.m4a")]),
-        .testTarget(name: "GraphiteIndexTests", dependencies: ["GraphiteIndex", "GraphiteBenchmarks"]),
-        .testTarget(name: "GraphiteAppleTests", dependencies: ["GraphiteApple"]),
-        .testTarget(name: "GraphiteUITests", dependencies: ["GraphiteUI", .product(name: "Textual", package: "textual")])
+        .testTarget(name: "GraphiteCoreTests", dependencies: ["GraphiteCore", "GraphiteTestSupport", "GraphiteFixtures"], resources: [.copy("Resources/QwenBabbling.m4a")]),
+        .testTarget(name: "GraphiteIndexTests", dependencies: ["GraphiteIndex", "GraphiteBenchmarks", "GraphiteTestSupport", "GraphiteFixtures"]),
+        .testTarget(name: "GraphiteAppleTests", dependencies: ["GraphiteApple", "GraphiteTestSupport"]),
+        .testTarget(name: "GraphiteUITests", dependencies: ["GraphiteUI", "GraphiteTestSupport", .product(name: "Textual", package: "textual")])
     ]
 )

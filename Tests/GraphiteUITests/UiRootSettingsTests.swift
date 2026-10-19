@@ -4,18 +4,15 @@ import ImageIO
 import GraphiteCore
 @testable import GraphiteApple
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 @MainActor
 final class UiRootSettingsTests: XCTestCase {
     /// XCTest makes a new instance for each test, so each test has its own directory.
-    private let temporaryDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("UiRootSettings-\(UUID().uuidString)", isDirectory: true)
+    private var temporaryDirectory: URL!
 
     override func setUpWithError() throws {
-        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: temporaryDirectory)
+        temporaryDirectory = try TemporaryVault.make(prefix: "UiRootSettings", for: self).root
     }
 
     // MARK: Image pane
@@ -208,13 +205,6 @@ final class UiRootSettingsTests: XCTestCase {
     }
 
     // MARK: Vault settings
-
-    private func waitUntil(_ condition: () -> Bool) async throws {
-        for _ in 0..<500 where !condition() {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        XCTAssertTrue(condition(), "Timed out waiting for the settings to be saved.")
-    }
 
     /// Each settings control used to copy the saved settings and write them in its own
     /// task, so a second change made before the first was written started from the old copy.

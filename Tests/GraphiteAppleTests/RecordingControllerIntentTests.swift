@@ -2,6 +2,7 @@ import XCTest
 import AVFoundation
 import GraphiteCore
 @testable import GraphiteApple
+import GraphiteTestSupport
 
 /// What pause, resume, stop and start do in each recording state, and how long a stop waits
 /// for the recorder to report before it saves the recording anyway.
@@ -11,12 +12,7 @@ final class RecordingControllerIntentTests: XCTestCase {
     private let everyState: [RecordingState] = [.idle, .requestingPermission, .recording, .paused, .interrupted, .finalizing, .failed]
 
     override func setUp() async throws {
-        workFolder = FileManager.default.temporaryDirectory.appendingPathComponent("RecordingIntents-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: workFolder, withIntermediateDirectories: true)
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: workFolder) // Best-effort removal of a temporary folder.
+        workFolder = try TemporaryVault.make(prefix: "RecordingIntents", for: self).root
     }
 
     /// A controller in `state` for a recording at a place that holds no audio: only the state machine is exercised.

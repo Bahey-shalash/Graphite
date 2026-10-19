@@ -108,7 +108,7 @@ final class BasesViewsTests: XCTestCase {
             cameraConfiguration: 1, cameraLayout: 1, cameraDistances: 100...10_000_000,
             selectedPath: .constant(nil), pinImage: { _, _ in Self.bluePin }, tileSession: URLSession(configuration: configuration))
         let controller = try host(mapView)
-        try await waitUntil(timeout: 20) { HostedTileStub.recorder.requestedURLs.count >= 4 }
+        try await waitUntil(timeoutSeconds: 20) { HostedTileStub.recorder.requestedURLs.count >= 4 }
         let requestedURLs = HostedTileStub.recorder.requestedURLs
         XCTAssertEqual(Set(requestedURLs.compactMap(\.host)), ["tiles.graphite.test"], "Every tile comes from the address the base names.")
         for tileURL in requestedURLs {
@@ -136,7 +136,7 @@ final class BasesViewsTests: XCTestCase {
                 return sampleColor.red > 0.8 && sampleColor.green < 0.45
             }
         }
-        try await waitUntil(timeout: 20) { showsOnlyStubbedTiles() }
+        try await waitUntil(timeoutSeconds: 20) { showsOnlyStubbedTiles() }
         attachScreenshot(of: controller, named: "Map drawn from stubbed red tiles, with its marker")
         let finishedMapImage = try XCTUnwrap(screenshot(of: controller))
         let marker = try XCTUnwrap(color(in: finishedMapImage, at: CGPoint(x: windowBounds.midX, y: windowBounds.midY)))
@@ -196,12 +196,6 @@ final class BasesViewsTests: XCTestCase {
         controller.view.layoutIfNeeded()
         windows.append(window)
         return controller
-    }
-
-    private func waitUntil(timeout: TimeInterval = 10, _ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(50)) }
-        XCTAssertTrue(condition(), "The hosted base did not reach the expected state.")
     }
 
     private func screenshot(of controller: UIViewController) -> UIImage? {

@@ -2,6 +2,7 @@ import XCTest
 import AVFoundation
 import GraphiteCore
 @testable import GraphiteApple
+import GraphiteTestSupport
 
 /// How a lecture's audio is stored: recorded as mono IMA4 at 44.1 kHz in a CAF file in the
 /// recovery folder, then converted to an AAC M4A when it is saved into the vault. A file
@@ -11,12 +12,7 @@ final class RecordingControllerAudioFormatTests: XCTestCase {
     private var folder: URL!
 
     override func setUp() async throws {
-        folder = FileManager.default.temporaryDirectory.appendingPathComponent("RecordingFormat-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: folder) // Best-effort removal of a temporary folder.
+        folder = try TemporaryVault.make(prefix: "RecordingFormat", for: self).root
     }
 
     /// A CAF written with the recorder's own settings holding `seconds` of a tone (none when 0).

@@ -2,6 +2,7 @@ import XCTest
 import GraphiteCore
 import GraphiteApple
 @testable import GraphiteVoices
+import GraphiteTestSupport
 
 /// The system voice behind High Quality reading, with the answers a test chooses.
 @MainActor
@@ -29,10 +30,7 @@ struct InstalledNeuralVoiceFixture {
     /// With `isInstalled` false the library holds no downloaded voice, so reading is Quick.
     init(isInstalled: Bool = true, renderer: any NeuralPassageRendering = UnusedPassageRenderer(),
          testCase: XCTestCase) throws {
-        folder = FileManager.default.temporaryDirectory.appendingPathComponent("NeuralVoiceFixture-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let folderToRemove = folder
-        testCase.addTeardownBlock { try? FileManager.default.removeItem(at: folderToRemove) }
+        folder = try TemporaryVault.make(prefix: "NeuralVoiceFixture", for: testCase).root
         let description = NeuralVoiceDescription(
             id: "test-voice", name: "Test Voice", modelName: "Test model", modelFamily: .pocketTTS, speaker: nil, language: "en",
             qualityNote: "A test voice.", license: NeuralVoiceLicense(name: "Test", address: URL(string: "https://example.com/license")!),
@@ -44,7 +42,7 @@ struct InstalledNeuralVoiceFixture {
             try FileManager.default.createDirectory(at: installation.stagingFolder(of: description), withIntermediateDirectories: true)
             try installation.finishInstalling(description)
         }
-        let preferences = try XCTUnwrap(UserDefaults(suiteName: "NeuralVoiceFixture-\(UUID().uuidString)"))
+        let preferences = try IsolatedDeviceState.make(prefix: "NeuralVoiceFixture", for: testCase).preferences
         library = NeuralVoiceLibrary(manifest: manifest, installation: installation,
                                      audioCache: ReadAloudAudioCache(folder: folder.appendingPathComponent("Audio", isDirectory: true)),
                                      preferences: preferences, platform: "macOS", physicalMemoryBytes: 8 * 1_024 * 1_024 * 1_024,

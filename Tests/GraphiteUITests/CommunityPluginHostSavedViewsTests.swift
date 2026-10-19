@@ -1,6 +1,7 @@
 import XCTest
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// The plugin views open in tabs and in the sidebar when a vault is left: Graphite keeps what
 /// opens them again in the vault's saved layout and opens them once the plugins have loaded
@@ -44,10 +45,10 @@ final class CommunityPluginHostSavedViewsTests: XCTestCase {
         let workspace = try await testBed.openWorkspace(at: firstVault, expectedPluginCount: 1)
         let host = workspace.communityPlugins
         await host.setTurnedOnForVault(true)
-        try await testBed.waitUntil("the plugin loads", seconds: 30) { host.loadStates["saved-view-plugin"] == .loaded }
+        try await waitUntil("the plugin loads", timeoutSeconds: 30) { host.loadStates["saved-view-plugin"] == .loaded }
         try await testBed.runCommand("open-view", of: "saved-view-plugin", in: workspace)
         try await testBed.runCommand("open-side-view", of: "saved-view-plugin", in: workspace)
-        try await testBed.waitUntil("both views are kept for restoring") {
+        try await waitUntil("both views are kept for restoring") {
             workspace.tabDocuments.values.contains { document in document.restorablePluginView?.viewType == Self.viewType }
                 && workspace.restorableSidebarPluginViews.views.contains { view in view.viewType == Self.viewType }
         }
@@ -57,7 +58,7 @@ final class CommunityPluginHostSavedViewsTests: XCTestCase {
         _ = try await testBed.openWorkspace(at: secondVault, expectedPluginCount: 0, in: workspace)
 
         XCTAssertNotEqual(workspace.currentVaultIdentifier, firstVaultIdentifier)
-        let storedLayout = try XCTUnwrap(UserDefaults.standard.data(forKey: WorkspaceModel.tabLayoutKey(for: firstVaultIdentifier)), "The left vault's layout stays saved.")
+        let storedLayout = try XCTUnwrap(workspace.deviceDefaults.data(forKey: WorkspaceModel.tabLayoutKey(for: firstVaultIdentifier)), "The left vault's layout stays saved.")
         let saved = try JSONDecoder().decode(SavedTabLayout.self, from: storedLayout)
         let savedTabView = saved.groups.flatMap(\.tabs).compactMap(\.pluginView).first
         XCTAssertEqual(savedTabView?.viewType, Self.viewType)
@@ -67,10 +68,10 @@ final class CommunityPluginHostSavedViewsTests: XCTestCase {
         try await workspace.openFolderAsVault(firstVault)
 
         XCTAssertEqual(workspace.currentVaultIdentifier, firstVaultIdentifier)
-        try await testBed.waitUntil("the plugin view shows in a tab again", seconds: 30) {
+        try await waitUntil("the plugin view shows in a tab again", timeoutSeconds: 30) {
             workspace.tabDocuments.values.contains { document in document.pluginViewIdentifier != nil }
         }
-        try await testBed.waitUntil("the sidebar view is listed again", seconds: 30) {
+        try await waitUntil("the sidebar view is listed again", timeoutSeconds: 30) {
             workspace.communityPlugins.sidebarViews.contains { view in view.viewType == Self.viewType }
         }
     }
