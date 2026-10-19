@@ -4,6 +4,14 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-19.
 
+## Reading Goodnotes and Notability files: 2026-10-19
+
+Phase 2 of [the import checklist](Goodnotes-Notability-import-todo.md), on the branch `goodnotes-notability-import`; `Architecture.md` › "Reading Goodnotes and Notability files" describes it. Readers only: nothing converts a notebook into Graphite's files, and nothing in the app calls them yet.
+
+- Automated tests, all passing on macOS (`swift test`, 166 tests): `ZipArchiveTests` (33), `ProtocolBufferMessageTests` (28), `AppleLZ4DecoderTests` (23), `TplImageTests` (13), `GoodnotesNotebookReaderTests` (24), `BinaryPropertyListTests` (14), `KeyedArchiveTests` (9), `NotabilityNoteReaderTests` (9) and `NotabilityNoteReaderMalformedInputTests` (11), all on synthetic files built in the tests: the values each format holds, unknowns reported, and damaged and hostile files (wrong magic numbers, cuts at every byte, sizes and counts up to 2^64 refused before allocating, cyclic and exponentially shared object graphs, seeded byte changes), each ending in a typed error or a listed skipped part.
+- Compared with the reference readers: `GoodnotesNotebookReaderSampleTests` and `NotabilityNoteReaderSampleTests` read the owner's samples (41 Goodnotes notebooks, 9 Notability notes, from the local `samples/import-formats` branch) and every count and unknown category equals `scripts/import-reference-counts.py`'s. They are skipped unless `GRAPHITE_IMPORT_SAMPLES` and `GRAPHITE_IMPORT_REFERENCE_COUNTS` are set, as the samples are personal and not in the repository. Tables in `Goodnotes-format.md` and `Notability-format.md`.
+- Not established: the five Goodnotes samples not on the branch (the four of 2026-10-18 and the Pencil test); memory and time on a notebook of hundreds of pages, and on the iPad (the 41 Goodnotes samples, every page, read in 7.4 seconds in a debug build on the Mac); anything the samples lack (see each format document's unknowns).
+
 ## Library, New menu and New Notebook: 2026-10-19
 
 The first round of [the notebook library checklist](Notebook-library-and-new-file-todo.md), on the branch `notebook-library`; `Architecture.md` › "Library and creating notebooks" describes it.
