@@ -95,15 +95,29 @@ final class WorkspaceModelClosingTabsTests: XCTestCase {
         let rightSession = try XCTUnwrap(workspace.openMarkdownSession(at: try VaultPath("Right.md")))
         rightSession.text = "Right, edited."
 
+        // The close saves Right.md again for as long as it finds more typed in it ("a tab on screen stays editable
+        // while the others save"). Typing into it between turns keeps the first save going while the tab opens, so
+        // the tab is added, loaded and edited during the close however quickly the disk writes. Each save finds the
+        // text typed since it began, because this task's turn is already queued ahead of the save's completion.
+        let typingInRight = Task { @MainActor in
+            while !Task.isCancelled {
+                rightSession.text += "."
+                await Task.yield()
+            }
+        }
         let latePath = try VaultPath("Late.md")
         let closing = Task { @MainActor in await workspace.closeGroup(rightGroupID) }
         await Task.yield()
         let lateTabID = workspace.layout.addTab(inGroup: rightGroupID, showing: latePath)
         await workspace.load(latePath, into: lateTabID, pdfPageIndex: nil, recordsHistory: false)
         try XCTUnwrap(workspace.openMarkdownSession(at: latePath)).text = "Late, edited."
+        XCTAssertEqual(workspace.layout.groups.count, 2, "The side stays open while the text typed in its first tab is saved.")
+        typingInRight.cancel()
+        await typingInRight.value
         await closing.value
 
-        XCTAssertEqual(try testBed.text(of: "Right.md", in: vault), "Right, edited.")
+        XCTAssertEqual(try testBed.text(of: "Right.md", in: vault), rightSession.text, "What was typed last is saved too.")
+        XCTAssertTrue(rightSession.text.hasPrefix("Right, edited."))
         XCTAssertEqual(try testBed.text(of: "Late.md", in: vault), "Late, edited.", "A tab opened on the side while the others were saved is saved too.")
         XCTAssertEqual(workspace.layout.groups.count, 1)
         XCTAssertNil(workspace.layout.tab(withID: lateTabID))
