@@ -132,6 +132,8 @@ jobs:
       - name: xcodebuild test (hosted suite, iPad simulator)
         env:
           DEVELOPMENT_TEAM: ${{ secrets.DEVELOPMENT_TEAM || vars.DEVELOPMENT_TEAM }}
+          # Timing budgets (App/Tests/TimingBudgets.swift) are measured on the owner's iPad by the nightly job, not here.
+          TEST_RUNNER_GRAPHITE_SKIP_TIMING_BUDGETS: "1"
         run: |
           set -o pipefail
           xcodebuild test \
