@@ -18,9 +18,6 @@ public struct GraphiteRootView: View {
     @State private var opensVaultManagerAfterSettings = false
     @State private var creation: CreationRequest?
     @State private var library = LibraryModel()
-    /// The iPad asks once how the person takes notes, in a launch that opens the person's
-    /// own vault; a launch for tests or measurements does not.
-    private var asksNoteTakingStyle = false
     @State private var showsInspector = false
     @State private var activePalette: ActivePalette?
     @State private var columnVisibility = NavigationSplitViewVisibility.automatic
@@ -56,7 +53,6 @@ public struct GraphiteRootView: View {
         _workspace = State(initialValue: WorkspaceModel(launchMode: launchMode))
         restoresLastVault = launchMode.restoresLastVault
         _isRestoringVault = State(initialValue: launchMode.restoresLastVault)
-        asksNoteTakingStyle = launchMode.restoresLastVault
     }
 
     /// For tests: the root view of a workspace already opened on a vault, which it does not
@@ -72,7 +68,6 @@ public struct GraphiteRootView: View {
         _workspace = State(initialValue: workspace)
         restoresLastVault = launchMode.restoresLastVault
         _isRestoringVault = State(initialValue: launchMode.restoresLastVault)
-        asksNoteTakingStyle = launchMode.restoresLastVault
     }
 
     public var body: some View {
@@ -159,8 +154,6 @@ public struct GraphiteRootView: View {
             // Narration does not reconfigure an active lecture recording's audio session.
             if state.isActive { workspace.readAloud?.stop(); workspace.readAloud?.showsReader = false }
         }
-        .modifier(NoteTakingQuestionPresentation(preferences: workspace.preferences.library, vaultIdentifier: workspace.currentVaultIdentifier,
-                                                 isAsking: asksNoteTakingStyle))
         .sheet(item: $creation) { request in creationSheet(for: request) }
         .modifier(FileManagementPresentation(workspace: workspace))
         .modifier(CommunityPluginPresentation(workspace: workspace) { showSettings() })
