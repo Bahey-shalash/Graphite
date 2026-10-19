@@ -501,6 +501,10 @@ def build_gates():
              lambda tree: pattern_hits(tests(tree), r"(?<!StaticString = )(?:#filePath\b|#file\b)")),
         Gate("xct-skip-count", "TR 14, FR-93", "`XCTSkip`, `XCTSkipIf`, `XCTSkipUnless` uses (a skip names a missing platform capability; the count never rises)",
              lambda tree: pattern_hits(tests(tree), r"\bXCTSkip\w*\b")),
+        Gate("audible-output-in-tests", "TR 14, FR-93", "tests that can play to the speakers (`output: .speakers`, `AVSpeechSynthesizer(`, `AVAudioPlayer(`, `AVAudioEngine(`, `AVPlayer(`, `NSSound`; a test run is silent, `AudioOutputRoute`)",
+             lambda tree: pattern_hits(tests(tree), r"output:\s*\.speakers\b|\bAVSpeechSynthesizer\(|\bAVAudioPlayer\(|\bAVAudioEngine\(|\bAVPlayer\(|\bNSSound\b|\bAudioServicesPlay\w*")),
+        Gate("visible-window-in-tests", "TR 14, FR-93", "tests that show a window on the developer's screen (`window.orderFront(`, `makeKeyAndOrderFront(`, `orderFrontRegardless(`; use `showInvisibly()`)",
+             lambda tree: pattern_hits(tests(tree), r"\b\w+\.(?:orderFront|makeKeyAndOrderFront|orderFrontRegardless)\(")),
         Gate("test-round-names", "TR 2, FR-83", "test files named `Fix`, `Regression` or `Handoff` (name the file after the type it pins)",
              lambda tree: round_named_test_file_hits(tests(tree))),
     ]

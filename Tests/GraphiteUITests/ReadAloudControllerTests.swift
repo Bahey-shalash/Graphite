@@ -196,7 +196,7 @@ final class ReadAloudControllerTests: XCTestCase {
         view.autoScales = true
         let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = view
-        window.orderFront(nil)
+        window.showInvisibly()
         defer { window.orderOut(nil); window.contentView = nil }
         view.layoutSubtreeIfNeeded()
         try await Task.sleep(for: .milliseconds(300))
@@ -635,7 +635,7 @@ final class ReadAloudControllerTests: XCTestCase {
         let hosting = NSHostingView(rootView: PDFPane(session: pdf, readAloud: reader, resolveConflict: { _ in }).frame(width: 640, height: 720))
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 640, height: 720), styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = hosting
-        window.orderFront(nil)
+        window.showInvisibly()
         defer { window.orderOut(nil); window.contentView = nil }
         hosting.frame = CGRect(x: 0, y: 0, width: 640, height: 720)
         hosting.layoutSubtreeIfNeeded()
@@ -704,7 +704,7 @@ final class ReadAloudControllerTests: XCTestCase {
         pdf.pdfView = view
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 400, height: 400), styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = view
-        window.orderFront(nil)
+        window.showInvisibly()
         defer { window.orderOut(nil); window.contentView = nil }
         view.layoutDocumentView()
         view.layoutSubtreeIfNeeded()

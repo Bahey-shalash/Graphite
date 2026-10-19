@@ -156,6 +156,9 @@ public extension ReadAloudSpeaking {
 public final class AppleReadAloudSpeech: NSObject, ReadAloudSpeaking, AVSpeechSynthesizerDelegate {
     public var eventHandler: (@MainActor (ReadAloudSpeechEvent) -> Void)?
     private let synthesizer = AVSpeechSynthesizer()
+    /// `.silent` has the synthesizer render the utterance to buffers that are dropped, so the
+    /// callbacks (word ranges, completion) arrive as for speech but nothing is heard.
+    let output: AudioOutputRoute
     private var activeUtterance: AVSpeechUtterance?
     private var requestIdentifier: UUID?
     #if os(iOS)
@@ -164,7 +167,8 @@ public final class AppleReadAloudSpeech: NSObject, ReadAloudSpeaking, AVSpeechSy
     private var ownsActiveAudioSession = false
     #endif
 
-    public override init() {
+    public init(output: AudioOutputRoute = .thisProcess) {
+        self.output = output
         super.init()
         synthesizer.delegate = self
         #if os(iOS)
@@ -249,7 +253,7 @@ public final class AppleReadAloudSpeech: NSObject, ReadAloudSpeaking, AVSpeechSy
             throw GraphiteError.unavailable("The chosen voice is no longer installed. Choose a voice before continuing.")
         }
         stop()
-        activateAudioSession()
+        if output == .speakers { activateAudioSession() }
         // Terms with an IPA transcription carry it as an attribute; a voice that ignores IPA
         // reads the respelling the text already holds ("sim dee" for SIMD).
         let attributedText = NSMutableAttributedString(string: text)
@@ -272,7 +276,10 @@ public final class AppleReadAloudSpeech: NSObject, ReadAloudSpeaking, AVSpeechSy
         utterance.prefersAssistiveTechnologySettings = usesSystemSettings
         activeUtterance = utterance
         self.requestIdentifier = requestIdentifier
-        synthesizer.speak(utterance)
+        switch output {
+        case .speakers: synthesizer.speak(utterance)
+        case .silent: synthesizer.write(utterance) { _ in }
+        }
     }
 
     /// Reading is spoken audio the person asked for, like an audiobook: it plays with the

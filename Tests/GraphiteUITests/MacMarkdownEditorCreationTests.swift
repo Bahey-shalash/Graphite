@@ -49,7 +49,7 @@ final class MacMarkdownEditorCreationTests: XCTestCase {
         window.isReleasedWhenClosed = false
         self.window = window
         window.contentView = NSHostingView(rootView: editor)
-        window.orderFront(nil)
+        window.showInvisibly()
         let deadline = Date.now.addingTimeInterval(20)
         while Date.now < deadline {
             window.contentView?.layoutSubtreeIfNeeded()

@@ -76,7 +76,7 @@ final class UiMapViewMacTests: XCTestCase {
         // Swift owns the window; closing it in tearDown must not release it a second time.
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: view)
-        window.orderFront(nil)
+        window.showInvisibly()
         windows.append(window)
         var mapView: MKMapView?
         try await waitUntil {

@@ -21,7 +21,7 @@ public final class NeuralReadAloudSpeech: ReadAloudSpeaking {
     public let library: NeuralVoiceLibrary
 
     @ObservationIgnored private let quick: any ReadAloudSpeaking
-    @ObservationIgnored private let player = RenderedPassagePlayer()
+    @ObservationIgnored private let player: RenderedPassagePlayer
     @ObservationIgnored private var activeRequest: (identifier: UUID, request: ReadAloudUtteranceRequest, voiceText: ReadAloudVoiceText)?
     /// The rendered passage playing now and the speech offset its word ranges are shifted by.
     @ObservationIgnored private var playingPassage: CachedReadAloudPassage?
@@ -34,8 +34,10 @@ public final class NeuralReadAloudSpeech: ReadAloudSpeaking {
     @ObservationIgnored private var ownsActiveAudioSession = false
     #endif
 
-    public init(quick: any ReadAloudSpeaking, library: NeuralVoiceLibrary, preparation: ReadAloudPassagePreparation) {
+    public init(quick: any ReadAloudSpeaking, library: NeuralVoiceLibrary, preparation: ReadAloudPassagePreparation,
+                output: AudioOutputRoute = .thisProcess) {
         self.quick = quick
+        player = RenderedPassagePlayer(output: output)
         self.library = library
         self.preparation = preparation
         quick.eventHandler = { [weak self] event in
