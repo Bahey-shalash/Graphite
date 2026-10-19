@@ -25,22 +25,38 @@ struct LibraryHomeButton: View {
     }
 }
 
-/// Folds the file tree's sidebar away when the library takes over files, so the window is
-/// either Goodnotes' library and tabs or Obsidian's tree and tabs, as Settings chooses.
+/// Folds the sidebar away when the library takes over files, so the window is either a
+/// library and tabs or Obsidian's tree and tabs, as the switch in each chooses. Search in
+/// all files may still open it, for its results; nothing else does.
 struct LibraryModeSidebarVisibility: ViewModifier {
     let presentation: LibraryPresentation
     let isCompactWidth: Bool
     @Binding var columnVisibility: NavigationSplitViewVisibility
 
     func body(content: Content) -> some View {
-        content.onChange(of: presentation, initial: true) { _, presentation in
+        content.onChange(of: presentation, initial: true) { previousPresentation, presentation in
             guard !isCompactWidth else { return }
             switch presentation {
             case .library: columnVisibility = .detailOnly
-            case .list: columnVisibility = .automatic
+            // Switching to List opens the file tree it switched to; a launch in List keeps
+            // the window's own choice.
+            case .list: columnVisibility = previousPresentation == .library ? .all : .automatic
             }
         }
     }
+}
+
+/// What the library's top row offers of the window once the sidebar is gone: finding a
+/// file, the vaults, and Settings.
+struct LibraryWindowActions {
+    let showSearch: () -> Void
+    let showSettings: () -> Void
+    let showVaults: () -> Void
+}
+
+extension EnvironmentValues {
+    /// Nil outside a window that provides them; the library then offers none of them.
+    @Entry var libraryWindowActions: LibraryWindowActions?
 }
 
 extension WorkspaceModel {
