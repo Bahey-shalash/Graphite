@@ -1,6 +1,6 @@
 # Status
 
-Snapshot: b13dec3 (main, 2026-10-18). Current assessment: `9040705` on main (Phase 1 and the notebook library), with the delta audit of 2026-10-19.
+Snapshot: b13dec3 (main, 2026-10-18). Current assessment: `2dcc5e8` on main (Phase 1, the notebook library and its first fixes), with the delta audit of 2026-10-19.
 
 Every finding and defect with its current state: **Fixed** (the current code no longer has it, with evidence), **Partly fixed**, **Open**, or **Decided by the owner** (kept on purpose, with the decision). A state changes only with evidence from the current code, cited in the row; a wave's own report is a lead, never proof. Update this page after every wave ([progress.md](progress.md)).
 
@@ -8,9 +8,9 @@ Every finding and defect with its current state: **Fixed** (the current code no 
 
 | State | Count |
 | --- | ---: |
-| Open | 505 |
-| Partly fixed | 29 |
-| Fixed | 41 |
+| Open | 500 |
+| Partly fixed | 30 |
+| Fixed | 45 |
 | Duplicate | 2 |
 | No change needed | 1 |
 | **All** | **578** |
@@ -24,8 +24,8 @@ Open items by prefix and severity:
 | LSP | 3 | 23 | 22 | 48 |
 | ISP | 3 | 20 | 18 | 41 |
 | DIP | 2 | 31 | 19 | 52 |
-| CC | 0 | 80 | 106 | 186 |
-| BUG | 1 | 6 | 37 | 44 |
+| CC | 0 | 78 | 106 | 184 |
+| BUG | 0 | 4 | 37 | 41 |
 
 Partly fixed items by prefix and severity:
 
@@ -36,7 +36,7 @@ Partly fixed items by prefix and severity:
 | LSP | 3 | 8 | 0 | 11 |
 | ISP | 0 | 1 | 0 | 1 |
 | DIP | 2 | 2 | 4 | 8 |
-| CC | 2 | 5 | 2 | 9 |
+| CC | 2 | 6 | 2 | 10 |
 | BUG | 0 | 0 | 0 | 0 |
 
 ## All items
@@ -491,7 +491,7 @@ Partly fixed items by prefix and severity:
 | [CC-SHELL-08](areas/shell.md#cc-shell-08-comments-narrate-incidents-and-dates) | SHELL | Low | Open | Present at the snapshot (area document) | Comments narrate incidents and dates |
 | [CC-SHELL-09](areas/shell.md#cc-shell-09-shell-tests-are-named-after-audit-rounds-share-the-processs-defaults-poll-with-sleeps-and-assert-on-text) | SHELL | Medium | Partly fixed | Phase 1 (2026-10-19, uncommitted): the shell tests no longer share the process's defaults or copy a polling loop: `UiWorkspaceModelFixTests`, `UiSidebarPaletteFixTests` and `UiWorkspaceAreaHandoffTests` build each workspace on an `IsolatedWorkspaceDevice` ([UiWorkspaceModelFixTests.swift:15-21](../../Tests/GraphiteUITests/UiWorkspaceModelFixTests.swift#L15-L21), [IsolatedWorkspaceDevice.swift:16-52](../../Tests/GraphiteUITests/IsolatedWorkspaceDevice.swift#L16-L52)) instead of snapshotting `Graphite*` keys, and wait with `waitUntil` ([WaitUntil.swift:13](../../Tests/GraphiteTestSupport/WaitUntil.swift#L13)). Remains: the names (`UiWorkspaceModelFixTests`, `UiSidebarPaletteFixTests`, `UiFileManagementFixTests`, `BugFixRegressionTests`); `UserDefaults.standard` in [UiFileManagementFixTests.swift:251](../../Tests/GraphiteUITests/UiFileManagementFixTests.swift#L251); four fixed sleeps ([UiWorkspaceModelFixTests.swift:283](../../Tests/GraphiteUITests/UiWorkspaceModelFixTests.swift#L283), [UiWorkspaceAreaHandoffTests.swift:631](../../Tests/GraphiteUITests/UiWorkspaceAreaHandoffTests.swift#L631), [UiRootSettingsTests.swift:165](../../Tests/GraphiteUITests/UiRootSettingsTests.swift#L165), [BugFixRegressionTests.swift:87](../../Tests/GraphiteUITests/BugFixRegressionTests.swift#L87)); assertions on `errorMessage` text ([UiWorkspaceModelFixTests.swift:376](../../Tests/GraphiteUITests/UiWorkspaceModelFixTests.swift#L376)). | Shell tests are named after audit rounds, share the process's defaults, poll with sleeps and assert on text |
 | [CC-SHELL-10](areas/shell.md#cc-shell-10-large-multi-concept-files-and-small-hygiene-issues) | SHELL | Low | Open | Present at the snapshot (area document) | Large multi-concept files and small hygiene issues |
-| [CC-SHELL-11](areas/shell.md#cc-shell-11-the-preview-cache-is-bounded-by-count-only-with-no-byte-budget-and-no-release-on-a-vault-switch) | SHELL | Medium | Open | Delta audit 2026-10-19 (`9040705`); introduced in `2e1b6a2` | The preview cache is bounded by count only, with no byte budget and no release on a vault switch |
+| [CC-SHELL-11](areas/shell.md#cc-shell-11-the-preview-cache-is-bounded-by-count-only-with-no-byte-budget-and-no-release-on-a-vault-switch) | SHELL | Medium | Fixed | Fixed in `bf86b5d`: the cache has a 64 MiB byte budget (`cachedPreviewBytes`, `totalCostLimit` with each preview costing its decoded pixels) besides its count limit, and is rebuilt when the vault changes; test `testACachedPreviewCostsItsPixelsBytes`. | The preview cache is bounded by count only, with no byte budget and no release on a vault switch |
 | [CC-SHELL-12](areas/shell.md#cc-shell-12-library-and-new-menu-actions-start-unowned-tasks-and-a-batch-of-moves-continues-into-the-next-vault) | SHELL | Medium | Open | Delta audit 2026-10-19 (`9040705`); introduced in `2e1b6a2` | Library and New-menu actions start unowned tasks, and a batch of moves continues into the next vault |
 | [CC-SHELL-13](areas/shell.md#cc-shell-13-notebook-creation-and-file-import-are-each-implemented-twice-in-the-workspace) | SHELL | Medium | Open | Delta audit 2026-10-19 (`9040705`); introduced in `2e1b6a2` | Notebook creation and file import are each implemented twice in the workspace |
 | [CC-SHELL-14](areas/shell.md#cc-shell-14-a-production-view-modifier-carries-a-flag-that-exists-for-tests-and-reads-uidevicecurrent) | SHELL | Low | Open | Delta audit 2026-10-19 (`9040705`); introduced in `2e1b6a2` | A production view modifier carries a flag that exists for tests, and reads `UIDevice.current` |
@@ -513,7 +513,7 @@ Partly fixed items by prefix and severity:
 | [CC-VAULT-09](areas/vault.md#cc-vault-09-comments-narrate-incidents-instead-of-stating-the-rule) | VAULT | Low | Open | Present at the snapshot (area document) | Comments narrate incidents instead of stating the rule |
 | [CC-VAULT-10](areas/vault.md#cc-vault-10-tests-of-the-area-are-named-after-audit-rounds-and-mix-unrelated-subjects) | VAULT | Low | Open | Present at the snapshot (area document) | Tests of the area are named after audit rounds and mix unrelated subjects |
 | [CC-VAULT-11](areas/vault.md#cc-vault-11-folderstylelistfollowmove-re-implements-vaultpathreplacingprefix-by-character-count-and-drops-a-style-silently) | VAULT | Low | Open | Delta audit 2026-10-19 (`9040705`); introduced in `7f56e00` | `FolderStyleList.followMove` re-implements `VaultPath.replacingPrefix` by character count and drops a style silently |
-| [CC-VAULT-12](areas/vault.md#cc-vault-12-an-unreadable-folder-style-file-is-refused-but-never-moved-aside-and-its-format-has-no-golden-fixture-or-failure-injection-test) | VAULT | Medium | Open | Delta audit 2026-10-19 (`9040705`); introduced in `7f56e00` | An unreadable folder-style file is refused but never moved aside, and its format has no golden fixture or failure-injection test |
+| [CC-VAULT-12](areas/vault.md#cc-vault-12-an-unreadable-folder-style-file-is-refused-but-never-moved-aside-and-its-format-has-no-golden-fixture-or-failure-injection-test) | VAULT | Medium | Partly fixed | Partly fixed in `bf86b5d`: an unreadable folder-style file is moved aside under a free name (`VaultStore.moveFolderStylesAside`) and the library starts a new one. Remains: no checked-in golden fixture of the format and no failing-write test. | An unreadable folder-style file is refused but never moved aside, and its format has no golden fixture or failure-injection test |
 | [CC-VOICE-01](areas/voice.md#cc-voice-01-nineteen-functions-exceed-40-code-lines-two-exceed-140) | VOICE | Medium | Open | Present at the snapshot (area document) | Nineteen functions exceed 40 code lines; two exceed 140 |
 | [CC-VOICE-02](areas/voice.md#cc-voice-02-a-sleep-poll-loop-waits-for-another-objects-preparation) | VOICE | Medium | Open | Present at the snapshot (area document) | A sleep-poll loop waits for another object's preparation |
 | [CC-VOICE-03](areas/voice.md#cc-voice-03-sleeps-order-ui-events-and-tasks-run-without-an-owner) | VOICE | Medium | Open | Present at the snapshot (area document) | Sleeps order UI events, and tasks run without an owner |
@@ -598,9 +598,9 @@ Partly fixed items by prefix and severity:
 | [BUG-SHELL-04](areas/shell.md#bug-shell-04-reveal-current-file-from-the-command-palette-or-a-tabs-menu-neither-shows-a-hidden-sidebar-nor-scrolls-to-the-file) | SHELL | Low | Open | Verified Confirmed in [defects.md](defects.md) | "Reveal current file" from the command palette or a tab's menu neither shows a hidden sidebar nor scrolls to the file |
 | [BUG-SHELL-05](areas/shell.md#bug-shell-05-file-recovery-says-no-snapshots-yet-when-its-list-cannot-be-read-and-spins-forever-when-a-snapshots-text-cannot-be-read) | SHELL | Low | Open | Verified Confirmed in [defects.md](defects.md) | File Recovery says "No Snapshots Yet" when its list cannot be read, and spins forever when a snapshot's text cannot be read |
 | [BUG-SHELL-06](areas/shell.md#bug-shell-06-the-phones-tab-switcher-lists-a-tab-showing-a-community-plugin-view-as-new-tab) | SHELL | Low | Open | Verified Confirmed in [defects.md](defects.md) | The phone's tab switcher lists a tab showing a community plugin view as "New Tab" |
-| [BUG-SHELL-07](areas/shell.md#bug-shell-07-a-damaged-obsidiangraphite-folder-stylesjson-makes-every-folder-of-the-library-show-cant-show-this-folder) | SHELL | High | Open | Delta audit 2026-10-19 (`9040705`); introduced in `2e1b6a2` and `7f56e00`; Verified Confirmed by the lead | A damaged `.obsidian/graphite-folder-styles.json` makes every folder of the library show "Can't Show This Folder" |
-| [BUG-SHELL-08](areas/shell.md#bug-shell-08-a-file-that-changes-while-its-tile-is-on-screen-keeps-its-old-preview) | SHELL | Medium | Open | Delta audit 2026-10-19 (`9040705`); introduced in `2e1b6a2`; Confirmed by trace | A file that changes while its tile is on screen keeps its old preview |
-| [BUG-SHELL-09](areas/shell.md#bug-shell-09-a-tiles-preview-keeps-rendering-after-the-tile-scrolls-away-with-no-limit-on-concurrent-renders) | SHELL | Medium | Open | Delta audit 2026-10-19 (`9040705`); introduced in `2e1b6a2`; Confirmed for the cancellation; the effect on on-screen previews is Plausible and needs a measurement on a large vault | A tile's preview keeps rendering after the tile scrolls away, with no limit on concurrent renders |
+| [BUG-SHELL-07](areas/shell.md#bug-shell-07-a-damaged-obsidiangraphite-folder-stylesjson-makes-every-folder-of-the-library-show-cant-show-this-folder) | SHELL | High | Fixed | Fixed in `bf86b5d`: the styles are read apart from the listing ([LibraryModel.swift](../../Sources/GraphiteUI/LibraryModel.swift) `loadFolderStyles`), and a file not in Graphite's format is moved aside to `graphite-folder-styles.unreadable.json` with a notice (`VaultStore.moveFolderStylesAside`); regression test `testAStyleFileNotInGraphitesFormatIsKeptAsideAndTheFolderStillShows`. | A damaged `.obsidian/graphite-folder-styles.json` makes every folder of the library show "Can't Show This Folder" |
+| [BUG-SHELL-08](areas/shell.md#bug-shell-08-a-file-that-changes-while-its-tile-is-on-screen-keeps-its-old-preview) | SHELL | Medium | Fixed | Fixed in `bf86b5d`: each listing asks again for the preview of every on-screen tile whose file changed (`refreshChangedPreviews`, keyed by `LibraryPreviewCache.Key`); regression test `testAFileChangedWhileItsTileIsShownGetsANewPreview`. | A file that changes while its tile is on screen keeps its old preview |
+| [BUG-SHELL-09](areas/shell.md#bug-shell-09-a-tiles-preview-keeps-rendering-after-the-tile-scrolls-away-with-no-limit-on-concurrent-renders) | SHELL | Medium | Fixed | Fixed in `bf86b5d`: the render is awaited inside the tile's own task, so scrolling away cancels it, and at most `maximumConcurrentRenders` (4) run at once with the rest queued; regression tests `testATileScrolledAwayCancelsItsRender`, `testNoMoreRendersRunAtOnceThanTheLimit`. | A tile's preview keeps rendering after the tile scrolls away, with no limit on concurrent renders |
 | [BUG-SHELL-10](areas/shell.md#bug-shell-10-when-a-vaults-templates-or-daily-notes-settings-cannot-be-read-the-previous-vaults-settings-stay-in-force-and-can-create-a-daily-note-in-the-new-vault) | SHELL | Medium | Open | Delta audit 2026-10-19 (`fff794b`); introduced in `877045a`; Verified Confirmed by the lead | When a vault's Templates or Daily notes settings cannot be read, the previous vault's settings stay in force and can create a daily note in the new vault |
 | [BUG-SHELL-11](areas/shell.md#bug-shell-11-a-plugins-rename-is-answered-not-renamed-when-the-move-takes-longer-than-10-s-after-the-person-answers-although-the-file-moved) | SHELL | Low | Open | Delta audit 2026-10-19 (`fff794b`); introduced in `4489db2`; Confirmed by the auditor's trace | A plugin's rename is answered "not renamed" when the move takes longer than 10 s after the person answers, although the file moved |
 | [BUG-SHELL-12](areas/shell.md#bug-shell-12-graphitereadfilex-opens-the-note-but-reads-nothing-when-x-is-already-open-on-the-other-side-of-the-split) | SHELL | Low | Open | Delta audit 2026-10-19 (`fff794b`); introduced in `d75f41c`; Confirmed by the auditor's trace | `graphite://read?file=X` opens the note but reads nothing when X is already open on the other side of the split |
