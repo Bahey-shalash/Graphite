@@ -21,7 +21,7 @@ import struct
 import sys
 import zipfile
 
-SUPPORTED_SCHEMA_VERSIONS = {24, 25, 26, 35}
+SUPPORTED_SCHEMA_VERSIONS = {24, 25, 26, 27, 35}
 MAXIMUM_ENTRY_BYTES = 512 * 1024 * 1024
 MAXIMUM_DECODED_STROKE_BYTES = 64 * 1024 * 1024
 MAXIMUM_VARINT_BYTES = 10
@@ -55,7 +55,7 @@ BODY_TEXT_BOX = 21
 POSITION_FIELD_BY_BODY = {BODY_STROKE: 7, BODY_PICTURE: 5, BODY_FILL: 3, BODY_RICH_TEXT_BOX: 5,
                           BODY_TEXT_ELEMENT: 13, BODY_STICKY_NOTE: 7, BODY_TEXT_BOX: 7}
 KNOWN_FIELDS_BY_BODY = {
-    BODY_STROKE: {1, 2, 3, 4, 5, 6, 7, 9, 14, 15, 20, 21},
+    BODY_STROKE: {1, 2, 3, 4, 5, 6, 7, 9, 10, 14, 15, 20, 21},
     BODY_PICTURE: {1, 2, 3, 4, 5, 6, 7, 14, 15, 18},
     BODY_FILL: {1, 2, 3, 4, 5, 6, 7, 14, 15, 18},
     BODY_RICH_TEXT_BOX: {1, 2, 3, 4, 5, 6, 7, 9, 10, 14, 15, 18, 19, 20, 21, 27},
@@ -74,7 +74,7 @@ PATH_CODE_START = 0
 PATH_CODE_CURVE = 1
 CENTRE_LINE_START_CODES = {0, 4}
 CENTRE_LINE_CURVE_CODES = {1, 5}
-OUTLINE_COMMANDS = {0: "move", 2: "cubic", 3: "round_cap", 6: "flat_cap"}
+OUTLINE_COMMANDS = {0: "move", 2: "cubic", 3: "arc", 6: "flat_cap"}
 OLDER_OUTLINE_COMMANDS = {2: "move", 4: "cubic"}
 INK_NAMES = {0: "ball pen", 1: "fountain pen, brush pen or tape", 4: "older variable-width ink", 5: "pencil"}
 
@@ -340,6 +340,11 @@ class TplImage:
         return values
 
 
+def pencil_values(numbers):
+    azimuth, altitude, force = numbers
+    return {"azimuth_radians": azimuth, "altitude_radians": altitude, "force": force}
+
+
 # Rich text inside text boxes and sticky notes.
 
 def text_attributes(buffer):
@@ -561,7 +566,7 @@ class GoodnotesNotebook:
         values = image.read()
         stroke = {"id": element_identifier, "type": "stroke", "ink": last(fields, 3, 0),
                   "ink_name": INK_NAMES.get(last(fields, 3, 0)), "color": color(last(fields, 4)),
-                  "is_highlighter": last(fields, 5) == 1, "is_tape": bool(last(fields, 20)),
+                  "is_highlighter": last(fields, 5) == 1, "is_tape": bool(last(fields, 20)), "group": text(last(fields, 10)) or None,
                   "offset": point(last(fields, 6)) if last(fields, 6) else (0.0, 0.0),
                   "shape": self.shape(last(fields, 9)) if last(fields, 9) else None, "path_format": image.format_string}
         if image.format_string == CONSTANT_WIDTH_PATH_FORMAT:
@@ -605,7 +610,6 @@ class GoodnotesNotebook:
         outline_starts = [float32_from_bits(bits) for bits in outline_starts]
         outline_points = [float32_from_bits(bits) for bits in outline_points]
         cap_records = [float32_from_bits(bits) for bits in cap_records]
-        segment_count = len(outline_command_counts)
         centre_line = None
         if not is_older_layout and codes:
             if codes[0] not in CENTRE_LINE_START_CODES or any(code not in CENTRE_LINE_CURVE_CODES for code in codes[1:]):
@@ -617,8 +621,11 @@ class GoodnotesNotebook:
                 {"control": tuple(curves[index * curve_size:index * curve_size + 3]),
                  "end": tuple(curves[index * curve_size + 3:index * curve_size + 6])} for index in range(len(codes) - 1)]}
         commands = OLDER_OUTLINE_COMMANDS if is_older_layout else OUTLINE_COMMANDS
-        cap_record_size = len(cap_records) // (2 * segment_count) if segment_count else 0
-        outline, point_index, start_index, caps_in_segment = [], 0, 0, 0
+        record_commands = sum(1 for code in outline_codes if commands.get(code) in ("arc", "flat_cap"))
+        record_size = len(cap_records) // record_commands if record_commands else 0
+        if record_commands and (record_size < 5 or record_size * record_commands != len(cap_records)):
+            raise FormatError(f"stroke {element_identifier}: {len(cap_records)} cap values for {record_commands} caps")
+        outline, point_index, start_index, record_index = [], 0, 0, 0
         for code in outline_codes:
             command = commands.get(code)
             if command == "move":
@@ -626,24 +633,25 @@ class GoodnotesNotebook:
                     raise FormatError(f"stroke {element_identifier}: outline starts run out")
                 outline.append([("move", outline_starts[2 * start_index], outline_starts[2 * start_index + 1])])
                 start_index += 1
-                caps_in_segment = 0
             elif command == "cubic" and outline:
                 if point_index + 6 > len(outline_points):
                     raise FormatError(f"stroke {element_identifier}: outline points run out")
                 outline[-1].append(("cubic",) + tuple(outline_points[point_index:point_index + 6]))
                 point_index += 6
-            elif command in ("round_cap", "flat_cap") and outline and cap_record_size >= 2:
-                record_start = ((start_index - 1) * 2 + min(caps_in_segment, 1)) * cap_record_size
-                if record_start + 2 > len(cap_records):
-                    raise FormatError(f"stroke {element_identifier}: cap records run out")
-                outline[-1].append((command,) + tuple(cap_records[record_start:record_start + 2]))
-                caps_in_segment += 1
+            elif command in ("arc", "flat_cap") and outline:
+                # Each cap takes the next record. An arc's is centre x, y, radius, start and end angle; the current
+                # point lies on the circle at the start angle. A flat cap's record has seven values, of which the
+                # first two are the point the edge crosses.
+                record = tuple(cap_records[record_index * record_size:(record_index + 1) * record_size])
+                outline[-1].append(("arc",) + record[:5] if command == "arc" else ("flat_cap",) + record[:2])
+                record_index += 1
             else:
                 raise FormatError(f"stroke {element_identifier}: outline code {code} out of place")
         return {"width": None, "tpl_version": version, "centre_line": centre_line, "outline": outline}
 
     def pencil_path(self, element_identifier, values):
-        """Quadratic curves whose points carry x, y and three more numbers, and a 32-bit value first in each curve."""
+        """Quadratic curves whose points carry x, y and the Pencil's azimuth and altitude (radians) and force, and a
+        32-bit value first in each curve."""
         version, width_bits, codes, starts, curves = values[:5]
         for leftover in values[5:]:
             if leftover:
@@ -652,12 +660,12 @@ class GoodnotesNotebook:
         for code in codes:
             if code == PATH_CODE_START and start_index < len(starts):
                 numbers = [float32_from_bits(bits) for bits in starts[start_index]]
-                subpaths.append({"start": tuple(numbers[:2]), "start_extra": tuple(numbers[2:]), "quadratic_curves": []})
+                subpaths.append({"start": tuple(numbers[:2]), "start_pencil": pencil_values(numbers[2:5]), "quadratic_curves": []})
                 start_index += 1
             elif code == PATH_CODE_CURVE and subpaths and curve_index < len(curves):
                 numbers = [float32_from_bits(bits) for bits in curves[curve_index][1:]]
-                subpaths[-1]["quadratic_curves"].append({"control": tuple(numbers[:2]), "control_extra": tuple(numbers[2:5]),
-                                                         "end": tuple(numbers[5:7]), "end_extra": tuple(numbers[7:10]),
+                subpaths[-1]["quadratic_curves"].append({"control": tuple(numbers[:2]), "control_pencil": pencil_values(numbers[2:5]),
+                                                         "end": tuple(numbers[5:7]), "end_pencil": pencil_values(numbers[7:10]),
                                                          "leading_value": curves[curve_index][0]})
                 curve_index += 1
             else:
@@ -673,9 +681,13 @@ class GoodnotesNotebook:
             shape.update(kind="polyline", points=[point(member) for member in message_fields(last(fields, 1)).get(1, [])])
         elif 2 in fields:
             geometry = message_fields(last(fields, 2))
-            shape.update(kind="three_points", points=[point(last(geometry, number)) for number in (1, 2, 3)])
-        elif 3 in fields or 4 in fields:
-            geometry = message_fields(last(fields, 3 if 3 in fields else 4))
+            shape.update(kind="arc_through_three_points", points=[point(last(geometry, number)) for number in (1, 2, 3)])
+        elif 3 in fields:
+            geometry = message_fields(last(fields, 3))
+            shape.update(kind="rectangle", center=point(last(geometry, 1)), size=point(last(geometry, 2)),
+                         angle_radians=float32(last(geometry, 3)) if 3 in geometry else 0.0)
+        elif 4 in fields:
+            geometry = message_fields(last(fields, 4))
             shape.update(kind="ellipse", center=point(last(geometry, 1)), radii=point(last(geometry, 2)),
                          angle_radians=float32(last(geometry, 3)) if 3 in geometry else 0.0)
         return shape
