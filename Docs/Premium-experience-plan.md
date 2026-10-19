@@ -182,6 +182,8 @@ Completion evidence: visual review of the three workspaces at representative wid
 
 ## Next: Pencil quality on hardware
 
+The owner finds writing in Goodnotes smoother than in Graphite (2026-10-19). [Goodnotes-writing-feel.md](Goodnotes-writing-feel.md) records what Goodnotes' files show about its ink (every sample kept, a quadratic B-spline through their midpoints, a ball pen of one width whatever the pressure, pressure-only width for its fountain and brush pens) and experiments to run here first. It also lists the owner's requests of that day: the same pen width on the page at any zoom (for cheat sheets), resizing that scales ink without distorting it, the same writing with the fixed bar as with the floating palette, and no more lag than Goodnotes, which has almost none, as a measured budget (`FR-101`).
+
 Compare the same handwriting exercises in Graphite, Apple Notes, Goodnotes, and Notability on the same physical iPad. Check small letters, curves, dots, stroke endings, pressure and tilt, palm rejection, finger scrolling, pinch zoom, page edges, and the supported double-tap, squeeze, hover, and barrel-roll interactions.
 
 Measure responsiveness while autosaving, recording, switching pages, and reopening large documents. Investigate integration costs before considering a replacement for PencilKit. Verify saved appearance in independent viewers.
@@ -193,6 +195,8 @@ Completion evidence: recorded device and operating-system versions, repeatable e
 The full tool set, favorite colors, the shape tool, the lasso and drawing on images are implemented (fourth increment above). Favorite colors are not offered on the iPhone, where the palette shows no accessory button. Image placement, customizable drawing paper, separate editing/output backgrounds, toolbar layout choice, and the Pencil/Scribble and handwriting-refinement investigations have been brought forward into the immediate priorities above. Still to audit or build beyond those priorities: the pixel eraser and the ruler through the document history on hardware, zoom writing and typed text on drawings and PDF pages (paper choices for notebooks and drawing on an image in the vector formats came with the seventh increment). Each addition needs a storage design that preserves complete visible content in ordinary files.
 
 Recognition, handwriting-to-text, math conversion, synchronized audio replay, tape, and reusable elements remain candidates for discussion. Generative AI features are not part of this plan.
+
+Importing Goodnotes and Notability notebooks, element by element so they open as if written in Graphite, was requested on 2026-10-18. The formats are decoded from the owner's samples, checked against each app's PDF export, and written down ([Goodnotes-format.md](Goodnotes-format.md), [Notability-format.md](Notability-format.md)); no importer exists yet. [The checklist](Goodnotes-Notability-import-todo.md) holds the request, the Graphite features it needs first (text boxes, pictures above the ink, editable shapes, and others), and the phases.
 
 Completion evidence: agreed feature scope, device interaction checks, undo behavior, save/reopen checks, and portable output checks for every implemented tool. The fourth increment has the undo, save/reopen and output checks in the simulator; its device interaction checks are outstanding.
 
