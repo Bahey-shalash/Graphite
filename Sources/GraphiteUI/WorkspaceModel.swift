@@ -1427,7 +1427,10 @@ final class WorkspaceModel {
     /// Reloads notes and PDFs changed by another app, in every tab. A document with
     /// unsaved edits is kept, and its conflict is shown instead.
     /// - Parameter changedPaths: The files known to have changed; nil checks every tab.
-    func checkOpenDocumentsForExternalChanges(limitedTo changedPaths: Set<VaultPath>? = nil) async {
+    /// - Parameter openChangedPDF: Reads a PDF another app changed into a new session; a test gives its own
+    ///   to act at the moment the new version is being read, which the old session stays on screen for.
+    func checkOpenDocumentsForExternalChanges(limitedTo changedPaths: Set<VaultPath>? = nil,
+                                              openChangedPDF: ((URL, String?) async throws -> PDFSession)? = nil) async {
         for document in tabDocuments.values {
             if let changedPaths {
                 guard let loadedPath = document.loadedPath, changedPaths.contains(loadedPath) else { continue }
@@ -1438,7 +1441,7 @@ final class WorkspaceModel {
             do {
                 guard try await pdfSession.hasChangedExternally(), !pdfSession.hasUnsavedChanges, document.pdfSession === pdfSession else { continue }
                 let password = document.loadedPath.flatMap { path in pdfPasswords[path] }
-                let reloadedSession = try await openPDFSession(at: pdfSession.location, password: password)
+                let reloadedSession = try await (openChangedPDF ?? openPDFSession(at:password:))(pdfSession.location, password)
                 // Reading a large PDF takes a while, and the old session stays on screen.
                 // Another file may have opened in the tab by now, and it stays.
                 guard document.pdfSession === pdfSession else { continue }
