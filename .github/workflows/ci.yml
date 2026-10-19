@@ -11,9 +11,9 @@
 #   nightly            the device job: real community plugins, the hosted suite on the iPad, the benchmarks
 #
 # Settings the owner provides in the repository (Settings > Secrets and variables > Actions):
-#   vars.GRAPHITE_MACOS_RUNNER    runner label with the macOS 27 SDK (default `macos-27`; the labels GitHub offers are
-#                                 not known when this file was written, so set it to the label that has Xcode 27)
-#   vars.GRAPHITE_XCODE_VERSION   Xcode to select (default `27.0`)
+#   vars.GRAPHITE_MACOS_RUNNER    runner label (default `xcode-27`: GitHub's macOS 27 image with Xcode 27.0, 27.1 and
+#                                 27.2 and the iOS 27 simulators; there is no `macos-27` label)
+#   vars.GRAPHITE_XCODE_VERSION   Xcode to select (default `27.1`, the build the owner develops with, 27A9275)
 #   secrets.DEVELOPMENT_TEAM or vars.DEVELOPMENT_TEAM    the Apple team identifier passed to xcodebuild
 #   vars.GRAPHITE_IPAD_UDID       the connected iPad's identifier, for the nightly job
 #
@@ -39,12 +39,12 @@ concurrency:
 env:
   # Quiet, reproducible tool behaviour on every runner.
   NO_COLOR: "1"
-  DEVELOPER_DIR_VERSION: ${{ vars.GRAPHITE_XCODE_VERSION || '27.0' }}
+  DEVELOPER_DIR_VERSION: ${{ vars.GRAPHITE_XCODE_VERSION || '27.1' }}
 
 jobs:
   swift-test-macos:
     if: github.event_name != 'schedule'
-    runs-on: ${{ vars.GRAPHITE_MACOS_RUNNER || 'macos-27' }}
+    runs-on: ${{ vars.GRAPHITE_MACOS_RUNNER || 'xcode-27' }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4.2.2
@@ -79,7 +79,7 @@ jobs:
 
   hosted-ipad:
     if: github.event_name != 'schedule'
-    runs-on: ${{ vars.GRAPHITE_MACOS_RUNNER || 'macos-27' }}
+    runs-on: ${{ vars.GRAPHITE_MACOS_RUNNER || 'xcode-27' }}
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4.2.2
@@ -165,7 +165,7 @@ jobs:
 
   registration-check:
     if: github.event_name != 'schedule'
-    runs-on: ${{ vars.GRAPHITE_MACOS_RUNNER || 'macos-27' }}
+    runs-on: ${{ vars.GRAPHITE_MACOS_RUNNER || 'xcode-27' }}
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4.2.2
