@@ -1,6 +1,38 @@
 import SwiftUI
 import GraphiteCore
 
+/// How a cards view fits its width. Obsidian's card size is the width of one card; a width
+/// too narrow for two such cards (a phone, or a base inside a note there) shows two smaller
+/// columns instead of one stretched card, with tighter margins.
+struct BaseCardGridMetrics: Equatable {
+    /// The narrowest card that still shows its cover and a two-line title.
+    static let minimumCardWidth: CGFloat = 140
+    /// Narrower views get the compact margins, gaps and type.
+    static let compactWidthThreshold: CGFloat = 600
+    /// Smaller card sizes are raised to this, which keeps the column count finite.
+    private static let smallestPreferredCardWidth: CGFloat = 40
+
+    let columnCount: Int
+    let isCompact: Bool
+    /// The gap between cards, across and down.
+    let spacing: CGFloat
+    /// The margin around the grid.
+    let padding: CGFloat
+
+    /// - Parameters:
+    ///   - availableWidth: The view's whole width, margins included.
+    ///   - preferredCardWidth: The view's card size.
+    init(availableWidth: CGFloat, preferredCardWidth: CGFloat) {
+        isCompact = availableWidth < Self.compactWidthThreshold
+        spacing = isCompact ? 12 : 16
+        padding = isCompact ? 12 : 16
+        let contentWidth = availableWidth.isFinite ? availableWidth - 2 * padding : 0
+        let cardWidth = preferredCardWidth.isFinite ? max(preferredCardWidth, Self.smallestPreferredCardWidth) : Self.smallestPreferredCardWidth
+        let fittingCount = max(1, Int(((contentWidth + spacing) / (cardWidth + spacing)).rounded(.down)))
+        columnCount = fittingCount < 2 && contentWidth >= 2 * Self.minimumCardWidth + spacing ? 2 : fittingCount
+    }
+}
+
 /// Obsidian's cards view: a grid of cards with an optional cover image.
 struct BaseCardsView: View {
     private static let defaultCardWidth: CGFloat = 220
@@ -9,44 +41,65 @@ struct BaseCardsView: View {
     let actions: BaseViewActions
     @Environment(\.basesScrollVertically) private var scrollsVertically
     @Environment(\.baseRowLimit) private var rowLimit
+    /// The view's width, nil until it is first laid out.
+    @State private var availableWidth: CGFloat?
 
     private var options: BaseCardsOptions { result.view.cards }
     private var cardWidth: CGFloat { options.cardSize.map { size in CGFloat(size) } ?? Self.defaultCardWidth }
+    private var metrics: BaseCardGridMetrics? {
+        availableWidth.map { width in BaseCardGridMetrics(availableWidth: width, preferredCardWidth: cardWidth) }
+    }
 
     var body: some View {
         if scrollsVertically { ScrollView { cards } } else { cards }
     }
 
     private var cards: some View {
-        LazyVStack(alignment: .leading, spacing: 18) {
+        let metrics = metrics
+        return LazyVStack(alignment: .leading, spacing: metrics?.isCompact == true ? 14 : 18) {
             ForEach(result.visibleGroups(rowLimit: rowLimit)) { visibleGroup in
                 if result.view.groupBy != nil { BaseGroupHeader(group: visibleGroup.group, result: result, actions: actions) }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth * 1.5), spacing: 16, alignment: .top)], alignment: .leading, spacing: 16) {
-                    ForEach(visibleGroup.rows) { row in card(for: row) }
+                LazyVGrid(columns: gridColumns(metrics), alignment: .leading, spacing: metrics?.spacing ?? 16) {
+                    ForEach(visibleGroup.rows) { row in card(for: row, isCompact: metrics?.isCompact ?? false) }
                 }
             }
         }
-        .padding(16)
+        .padding(metrics?.padding ?? 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onGeometryChange(for: CGFloat.self) { geometry in geometry.size.width } action: { width in availableWidth = width }
     }
 
-    private func card(for row: BaseResultRow) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if options.imageProperty != nil {
-                Color.clear
-                    .aspectRatio(1 / CGFloat(options.imageAspectRatio ?? 1), contentMode: .fit)
-                    .overlay {
-                        if let reference = row.presentation.coverImage {
-                            BaseCoverImageView(reference: reference, fit: options.imageFit, thumbnails: actions.thumbnails, vaultRoot: actions.vaultRoot,
-                                               contentVersion: actions.contentVersion)
-                        } else {
-                            Rectangle().fill(Color.secondary.opacity(0.08))
-                        }
+    /// Until the width is known, Obsidian's grid of cards at least the card size wide.
+    private func gridColumns(_ metrics: BaseCardGridMetrics?) -> [GridItem] {
+        guard let metrics else { return [GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth * 1.5), spacing: 16, alignment: .top)] }
+        return Array(repeating: GridItem(.flexible(), spacing: metrics.spacing, alignment: .top), count: metrics.columnCount)
+    }
+
+    /// The cover at the view's aspect ratio; a card without one keeps the space, marked
+    /// as an empty photo, so the cards of a row line up.
+    private func cover(for row: BaseResultRow) -> some View {
+        Color.clear
+            .aspectRatio(1 / CGFloat(options.imageAspectRatio ?? 1), contentMode: .fit)
+            .overlay {
+                if let reference = row.presentation.coverImage {
+                    BaseCoverImageView(reference: reference, fit: options.imageFit, thumbnails: actions.thumbnails, vaultRoot: actions.vaultRoot,
+                                       contentVersion: actions.contentVersion)
+                } else {
+                    ZStack {
+                        Rectangle().fill(Color.secondary.opacity(0.08))
+                        Image(systemName: "photo").font(.title2).foregroundStyle(.tertiary).accessibilityHidden(true)
                     }
-                    .clipped()
+                }
             }
-            VStack(alignment: .leading, spacing: 8) {
+            .clipped()
+    }
+
+    private func card(for row: BaseResultRow, isCompact: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if options.imageProperty != nil { cover(for: row) }
+            VStack(alignment: .leading, spacing: isCompact ? 6 : 8) {
                 Text(BaseValue.file(row.path).displayText)
-                    .font(.headline)
+                    .font(isCompact ? .subheadline.weight(.semibold) : .headline)
                     .foregroundStyle(.primary)
                     .lineLimit(2)
                     .accessibilityAddTraits(.isButton)
@@ -57,14 +110,19 @@ struct BaseCardsView: View {
                             Text(column.displayName).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                             BaseCellView(cell: row.cells[position], lineLimit: 3, actions: actions, editRequest: actions.editRequest(row.path, column.property, row.cells[position]),
                                          holdsTags: column.property.holdsTags)
-                                .font(.callout)
+                                .font(isCompact ? .subheadline : .callout)
                         }
                     }
                 }
             }
-            .padding(12)
+            .padding(isCompact ? 10 : 12)
             .frame(maxWidth: .infinity, alignment: .leading)
+            // A grid row lays its cards out at a height measured before their text wraps;
+            // without this the text of the taller card in a row is cut to fit it.
+            .fixedSize(horizontal: false, vertical: true)
         }
+        // Cards in one row share its height, so their edges line up.
+        .frame(maxHeight: .infinity, alignment: .top)
         .background(.background, in: RoundedRectangle(cornerRadius: 12))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(Color.secondary.opacity(0.2)) }
@@ -166,6 +224,10 @@ struct BaseGroupHeader: View {
 
     var body: some View {
         HStack(spacing: 8) {
+            // Obsidian names the property before each group's value: "cuisine French".
+            if let groupDisplayName = result.groupDisplayName {
+                Text(groupDisplayName).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+            }
             switch group.key {
             case .value(let value) where !value.isEmptyValue:
                 BaseValueView(value: value, lineLimit: 1, actions: actions).font(.headline)
