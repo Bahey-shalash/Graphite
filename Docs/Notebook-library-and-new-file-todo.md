@@ -47,7 +47,7 @@ The owner chose the first two; the rest are defaults taken to start building, ea
 
 ## Part 1: the library presentation choice
 
-- [x] A choice per device: a Library | List switch in the library's top row, a "Show as Library" button in the List sidebar's bar, and Settings › General › Notes and Notebooks. In Library mode on the iPad and the Mac there is no sidebar and no sidebar button (owner, 2026-10-19); the library's top row has Settings and Find a File buttons, and Vaults in its options menu.
+- [x] A choice per device: a Library | List switch in the library's top row and beside the List sidebar's panels, and Settings › Appearance › Files. In Library mode on the iPad and the Mac there is no sidebar and no sidebar button (owner, 2026-10-19); the library's top row has Settings and Find a File buttons, and Vaults in its options menu.
 - [x] Library view of one folder at a time, with a back button and the folder's name. Opening a folder tile enters it; a file opens as a tab on the iPad and the Mac, and the house button brings the library back; on the iPhone it opens in place.
 - [x] Sort (the vault's sort order: name, modified, created) and filter (all, notebooks and PDFs, notes, pictures and drawings, canvases and bases).
 - [x] Favorites are Obsidian's bookmarks: Bookmark in an item's menu adds or removes it, and a bookmarked item shows a small star by its date. Not built: a Favorites section of its own in the library (the Bookmarks panel lists them).
@@ -79,7 +79,7 @@ The owner chose the first two; the rest are defaults taken to start building, ea
 
 - [x] One New button in the library and in the iPad and iPhone sidebar, opening `NewItemPicker`: Notebook and Note as large choices, then Canvas, Base, Today's Daily Note (each while its core plugin is on), Import and Folder. The Mac's sidebar keeps its menu (a click makes a note), without Import.
 - [ ] Later entries, each once the feature exists: Scan Documents, Image from Photos, Take Photo, Quick Record.
-- [x] The order follows Part 7: Notebook first unless the person takes notes with a keyboard (or, unanswered, uses the List). ⌘N still makes a note.
+- [x] Notebook first in Library mode, Note first in List mode. ⌘N still makes a note.
 - [x] The new file goes into the folder shown, or the vault's location for new files.
 
 ## Part 5: the New Notebook sheet
@@ -108,8 +108,7 @@ The owner chose the first two; the rest are defaults taken to start building, ea
 
 ## Part 7: choosing how you take notes
 
-- [x] "How do you take notes?" (Apple Pencil, Keyboard, Both) asked once on the iPad when a vault is open, and in Settings › General. It sets the library presentation and the New menu's order. Not done: the Pencil toolbar layout and reading view are not set by it.
-- [x] The iPhone and the Mac do not ask; they keep the List until changed.
+- Removed (owner, 2026-10-19). "How do you take notes?" only picked Library or List and the New menu's order, which the Library | List switch now decides directly; the question and its setting are gone.
 
 ## Verification
 

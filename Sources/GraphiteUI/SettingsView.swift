@@ -136,7 +136,6 @@ private struct GeneralSettingsPage: View {
                 Text("A vault is an ordinary folder. Graphite edits its files in place, so Obsidian and other apps see the same notes. Switch vaults from the vault name at the top of the sidebar.")
                     .formFooterAlignment()
             }
-            NoteTakingSettingsSection(preferences: workspace.preferences.library)
             if workspace.store != nil {
                 Section {
                     LabeledContent("Status") {
@@ -251,9 +250,7 @@ private struct AppearanceSettingsPage: View {
 
     var body: some View {
         Form {
-            #if os(iOS)
-            AppIconSettingsSection()
-            #endif
+            AppIconAndFilesSections(library: preferences.library)
             Section("Theme") {
                 Picker("Base Color Scheme", selection: $preferences.appearanceMode) {
                     ForEach(AppearanceMode.allCases) { mode in Text(mode.title).tag(mode) }
