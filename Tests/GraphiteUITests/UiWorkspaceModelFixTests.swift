@@ -259,8 +259,9 @@ final class UiWorkspaceModelFixTests: XCTestCase {
         XCTAssertEqual(reloadedSession.currentPageIndex, 3)
     }
 
-    /// Edits made to the PDF on screen while its new version loads used to be dropped with
-    /// the old session. They are kept, as a conflict with the other app's version.
+    /// Edits made to the PDF on screen while the other app's new version is read used to be dropped
+    /// with the old session. They are kept, as a conflict with the other app's version. The edit is
+    /// made by the function that reads the new version, so it is made exactly then, however fast the read is.
     func testEditsMadeWhileChangedPDFReloadsAreKept() async throws {
         let vault = try makeVault()
         let location = vault.appendingPathComponent("Lecture.pdf")
@@ -269,27 +270,38 @@ final class UiWorkspaceModelFixTests: XCTestCase {
         await workspace.open(try VaultPath("Lecture.pdf"))
         let originalSession = try XCTUnwrap(workspace.pdfSession)
 
-        // A long PDF, so its reload takes long enough to draw on the old one meanwhile.
-        try writePDF(pageCount: 1_000, to: location)
-        let temporaryDirectory = FileManager.default.temporaryDirectory
-        let snapshotPrefix = "Graphite-OpenPDF-"
-        let snapshotsBeforeReload = Set((try FileManager.default.contentsOfDirectory(atPath: temporaryDirectory.path)).filter { name in name.hasPrefix(snapshotPrefix) })
-        let reload = Task { @MainActor in await workspace.checkOpenDocumentsForExternalChanges() }
-        // The reload's private copy of the new version appears as soon as it starts reading.
-        let deadline = Date.now.addingTimeInterval(20)
-        while Date.now < deadline {
-            let snapshots = Set((try FileManager.default.contentsOfDirectory(atPath: temporaryDirectory.path)).filter { name in name.hasPrefix(snapshotPrefix) })
-            if !snapshots.subtracting(snapshotsBeforeReload).isEmpty { break }
-            try await Task.sleep(for: .milliseconds(1))
+        try writePDF(pageCount: 3, to: location)
+        var didReadNewVersion = false
+        await workspace.checkOpenDocumentsForExternalChanges { changedLocation, password in
+            try originalSession.apply(.rotate(page: 0, clockwise: true))
+            didReadNewVersion = true
+            return try await workspace.openPDFSession(at: changedLocation, password: password)
         }
-        guard workspace.pdfSession === originalSession else {
-            await reload.value
-            throw XCTSkip("The reload finished before an edit could be made during it.")
-        }
+
+        XCTAssertTrue(didReadNewVersion, "The new version was read.")
+        XCTAssertTrue(workspace.pdfSession === originalSession, "The session with the edit stays in its tab.")
+        XCTAssertEqual(originalSession.pageCount, 2)
+        XCTAssertTrue(originalSession.hasUnsavedChanges)
+        XCTAssertTrue(originalSession.hasExternalConflict)
+    }
+
+    /// An edit made before the check finds the file changed is a conflict too, and nothing is reloaded.
+    /// It is made after the check is started and before it runs, so it is always before the check ends.
+    func testEditsMadeWhileTheChangeIsBeingFoundAreKept() async throws {
+        let vault = try makeVault()
+        let location = vault.appendingPathComponent("Lecture.pdf")
+        try writePDF(pageCount: 2, to: location)
+        let workspace = try await openedWorkspace(vault)
+        await workspace.open(try VaultPath("Lecture.pdf"))
+        let originalSession = try XCTUnwrap(workspace.pdfSession)
+
+        try writePDF(pageCount: 3, to: location)
+        let check = Task { @MainActor in await workspace.checkOpenDocumentsForExternalChanges() }
         try originalSession.apply(.rotate(page: 0, clockwise: true))
-        await reload.value
+        await check.value
 
         XCTAssertTrue(workspace.pdfSession === originalSession)
+        XCTAssertEqual(originalSession.pageCount, 2)
         XCTAssertTrue(originalSession.hasUnsavedChanges)
         XCTAssertTrue(originalSession.hasExternalConflict)
     }
