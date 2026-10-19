@@ -10,41 +10,21 @@ final class NotebookLibraryPreferencesTests: XCTestCase {
         try XCTUnwrap(deviceState).preferences
     }
 
-    func testStartsAsTheObsidianListWithNoAnswer() throws {
+    func testStartsAsTheObsidianListOfferingNotesFirst() throws {
         let preferences = NotebookLibraryPreferences(defaults: try makeDefaults())
-        XCTAssertEqual(preferences.presentation, .list)
-        XCTAssertNil(preferences.noteTakingStyle)
-        XCTAssertEqual(preferences.firstCreatedKind, .note)
-    }
-
-    func testAnsweringPencilShowsTheLibraryAndOffersNotebooksFirst() throws {
-        let preferences = NotebookLibraryPreferences(defaults: try makeDefaults())
-        preferences.choose(.pencil)
-        XCTAssertEqual(preferences.presentation, .library)
-        XCTAssertEqual(preferences.firstCreatedKind, .notebook)
-    }
-
-    func testAnsweringKeyboardKeepsTheListAndOffersNotesFirst() throws {
-        let preferences = NotebookLibraryPreferences(defaults: try makeDefaults())
-        preferences.choose(.keyboard)
         XCTAssertEqual(preferences.presentation, .list)
         XCTAssertEqual(preferences.firstCreatedKind, .note)
     }
 
-    func testChoicesSurviveARestart() throws {
-        let defaults = try makeDefaults()
-        let preferences = NotebookLibraryPreferences(defaults: defaults)
-        preferences.choose(.both)
-        preferences.presentation = .list
-        let reopened = NotebookLibraryPreferences(defaults: defaults)
-        XCTAssertEqual(reopened.noteTakingStyle, .both)
-        XCTAssertEqual(reopened.presentation, .list)
-        XCTAssertEqual(reopened.firstCreatedKind, .notebook)
-    }
-
-    func testTheLibraryWithoutAnAnswerOffersNotebooksFirst() throws {
+    func testTheLibraryOffersNotebooksFirst() throws {
         let preferences = NotebookLibraryPreferences(defaults: try makeDefaults())
         preferences.presentation = .library
         XCTAssertEqual(preferences.firstCreatedKind, .notebook)
+    }
+
+    func testThePresentationSurvivesARestart() throws {
+        let defaults = try makeDefaults()
+        NotebookLibraryPreferences(defaults: defaults).presentation = .library
+        XCTAssertEqual(NotebookLibraryPreferences(defaults: defaults).presentation, .library)
     }
 }
