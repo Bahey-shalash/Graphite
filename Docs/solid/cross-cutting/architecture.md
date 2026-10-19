@@ -708,3 +708,35 @@ Other persisted facts: the index database (ARCH-INV-02), the files of ARCH-INV-0
 - Section 8.1, `UserDefaults` row: the grep gives 56 lines (matching the reconnaissance) and 57 `@AppStorage(` lines, not 52 and 50.
 - Section 8.1, import facts: `Textual` is imported by 9 `GraphiteUI` files, not 10.
 - CC-ARCH-06 says 16 uses were sampled with one guarded use; the uses read are 17: 11 on main-queue observers or main run-loop timers, 2 in `ConcealedReplacementLayoutFragment` behind one `Thread.isMainThread` guard ([ConcealedReplacementLayoutFragment.swift:383-394](../../../Sources/GraphiteUI/ConcealedReplacementLayoutFragment.swift#L383-L394)), 1 in a background-task expiration handler, and 3 relying on undocumented threading — the `MPRemoteCommand` handler, the `nonisolated` `Equatable ==`, and a SwiftUI `onPreferenceChange` callback ([MarkdownPreview.swift:871-876](../../../Sources/GraphiteUI/MarkdownPreview.swift#L871-L876)). The fix direction applies to all three.
+
+## 9. Since the snapshot
+
+Delta audit of 2026-10-19 at `fff794b`, against `FR-01` to `FR-108`. Phase 1 (`0c074d9`) added `LaunchMode`, `ApplicationFolders`, `ApplicationClock` and `WorkspaceDeviceServices`. The area findings of the same audit are in section 9 of each area document.
+
+### New findings
+
+#### DIP-ARCH-06 `ApplicationFolders` uses nil to mean "the system's folder", and three callees choose that fallback through default arguments
+- **Severity:** Medium
+- **Rule:** `FR-47`, `FR-46`, `FR-42`, `FR-80`
+- **Evidence:** both folders are `URL?` and `.system` is both nil ([ApplicationFolders.swift:9-21](../../../Sources/GraphiteCore/ApplicationFolders.swift#L9-L21)); new `in: URL? = nil` parameters resolve nil with `FileManager` inside the callee ([FileRecovery.swift:38-44](../../../Sources/GraphiteCore/FileRecovery.swift#L38-L44), [RecordingRecovery.swift:52-56](../../../Sources/GraphiteCore/RecordingRecovery.swift#L52-L56), [VaultIndex.swift:211-212](../../../Sources/GraphiteIndex/VaultIndex.swift#L211-L212)); `RecordingController.recoveryFolderLocation` is a defaulted settable closure the workspace overwrites only when the folder is non-nil ([WorkspaceModel.swift:235-237](../../../Sources/GraphiteUI/WorkspaceModel.swift#L235-L237)); the doc comments name tests and narrate history. Introduced in `0c074d9`.
+- **Why it matters:** a caller that forgets `in:` compiles and writes to the real folders; more `FileManager` use lands in Core.
+- **Fix direction:** resolve both URLs once in the composition root, non-optional; remove the defaults; pass the recovery folder into `RecordingController`'s initializer (with `DIP-LECTURE-06`).
+
+#### OCP-ARCH-04 `LaunchMode` decides per-mode behaviour by equality tests
+- **Severity:** Low
+- **Rule:** `FR-19`, `FR-18`
+- **Evidence:** both properties are `self == .normal` ([LaunchMode.swift:31](../../../Sources/GraphiteCore/LaunchMode.swift#L31), [:34](../../../Sources/GraphiteCore/LaunchMode.swift#L34)); the voice benchmark is still a separate flag ([GraphiteApp.swift:30](../../../App/GraphiteApp.swift#L30)). Introduced in `0c074d9`.
+- **Fix direction:** exhaustive switches; the benchmark becomes a case.
+
+#### CC-ARCH-12 The hosted-test isolation that `LaunchMode` documents covers three of seven app-private stores, cites the wrong invariant, and leaves a preferences file per run
+- **Severity:** Medium
+- **Rule:** `FR-80`, `FR-72`, `FR-90`
+- **Evidence:** the `.hostedTests` doc claims a private preferences suite and temporary Caches and Application Support folders and cites `ARCH-INV-17` ([LaunchMode.swift:11-14](../../../Sources/GraphiteCore/LaunchMode.swift#L11-L14)), but drawing drafts ([DrawingEditorDraftStore.swift:68](../../../Sources/GraphiteUI/DrawingEditorDraftStore.swift#L68)), theme tokens ([ThemeTokenResolver.swift:179](../../../Sources/GraphiteUI/ThemeTokenResolver.swift#L179)), the Read Aloud audio cache ([ReadAloudAudioCache.swift:36](../../../Sources/GraphiteVoices/ReadAloudAudioCache.swift#L36)) and voices ([NeuralVoiceCatalog.swift:27](../../../Sources/GraphiteVoices/NeuralVoiceCatalog.swift#L27)) still use the system folders; `ARCH-INV-17` is "Diagnostics start in `GraphiteApp.init`", which the hosted launch now skips without the invariant saying so; two comments disagree about cleanup ([ApplicationFolders.swift:23-25](../../../Sources/GraphiteCore/ApplicationFolders.swift#L23-L25), [WorkspaceDeviceServices.swift:38-40](../../../Sources/GraphiteUI/WorkspaceDeviceServices.swift#L38-L40)); nothing removes the `GraphiteHostedTests-<UUID>` suite or folder. Introduced in `0c074d9`.
+- **Why it matters:** the comment is false (`FR-80`), hosted runs leave drafts a normal launch in the same container lists, and each run adds a preferences file.
+- **Fix direction:** route every ST-26 store through `ApplicationFolders` or narrow the claim; correct the invariant reference and record the diagnostics exception; remove the suite and folder at the end of the run.
+
+### State changes of earlier findings
+- `SRP-ARCH-01`: **Worse** (four more stored properties on `WorkspaceModel`, see `SRP-SHELL-01`).
+- `SRP-ARCH-05`: **Worse** (one more reset line in the vault switch).
+- `CC-ARCH-03`: **Worse**: the rename poll loops at [CommunityPluginHost.swift:997-1006](../../../Sources/GraphiteUI/CommunityPluginHost.swift#L997-L1006) are new in `4489db2` (`CC-PLUGIN-15`).
+- `CC-ARCH-01`: **Worse**: three more model-side sentence builders (`CC-SHELL-17`).
