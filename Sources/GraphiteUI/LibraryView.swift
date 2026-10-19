@@ -59,12 +59,30 @@ struct LibraryView: View {
         .task(id: vault.reloadKey) {
             await library.reload(source: vault.source, sortOrder: vault.sortOrder)
         }
-        .alert("Folder Look Not Saved", isPresented: Binding(get: { library.failure == .styleNotSaved }, set: { isShown in
+        .alert(noticeTitle, isPresented: Binding(get: { noticeMessage != nil }, set: { isShown in
             if !isShown { library.dismissFailure() }
         })) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("Graphite could not write the folder's color to “.obsidian/graphite-folder-styles.json”. The folder is unchanged.")
+            Text(noticeMessage ?? "")
+        }
+    }
+
+    private var noticeTitle: String {
+        library.failure == .styleNotSaved ? "Folder Look Not Saved" : "Folder Colors Reset"
+    }
+
+    /// What the library tells the person once; a folder it cannot list is shown in place instead.
+    private var noticeMessage: String? {
+        switch library.failure {
+        case .styleNotSaved:
+            "Graphite could not write the folder's color to “.obsidian/graphite-folder-styles.json”. The folder is unchanged."
+        case .folderStylesSetAside(let keptCopyName):
+            "“.obsidian/graphite-folder-styles.json” was not in a form Graphite can read, so it was kept as “\(keptCopyName)” and the folders show plain."
+        case .folderStylesUnreadable:
+            "“.obsidian/graphite-folder-styles.json” is not in a form Graphite can read, so the folders show plain. The file is left as it is."
+        case .folderUnreadable, nil:
+            nil
         }
     }
 

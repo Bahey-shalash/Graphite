@@ -50,9 +50,11 @@ final class NotebookPaperPictures {
         options.choosing(.blank)
     }
 
-    /// Nil when the options make no valid paper; the sheet then shows the problem.
+    /// Nil when the options make no valid paper (the sheet then shows the problem) or when
+    /// newer options replaced these. Runs off the main actor, in the drawing task itself, so
+    /// cancelling that task stops the pictures not yet drawn.
     private nonisolated static func picture(of paper: PaperSpecification, longerSidePixels: Int) async -> CGImage? {
-        let drawing = Task.detached(priority: .userInitiated) { try PaperPreviewRenderer.image(of: paper, longerSidePixels: longerSidePixels) }
-        return try? await drawing.value // A paper the generator refuses has no picture; the sheet says why.
+        guard !Task.isCancelled else { return nil }
+        return try? PaperPreviewRenderer.image(of: paper, longerSidePixels: longerSidePixels) // A refused paper has no picture.
     }
 }
