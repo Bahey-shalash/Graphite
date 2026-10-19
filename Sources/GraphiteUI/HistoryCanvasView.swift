@@ -97,6 +97,24 @@ class HistoryCanvasView: PKCanvasView {
         return EvenHighlighter.invisibleStandIn(for: highlighter)
     }
 
+    /// The tool at `scale` times its width: PencilKit draws a tool as wide on screen at any
+    /// zoom of its canvas, so a canvas that keeps a stroke as wide in its drawing at any zoom
+    /// draws with the chosen width times its zoom. PencilKit gives the pen, the pencil and
+    /// the highlighter no more than their widest width.
+    static func tool(_ tool: PKTool, scaledBy scale: CGFloat) -> PKTool {
+        guard scale > 0, scale != 1 else { return tool }
+        if let inkingTool = tool as? PKInkingTool {
+            if #available(iOS 26.0, *) {
+                return PKInkingTool(inkingTool.inkType, color: inkingTool.color, width: inkingTool.width * scale, azimuth: inkingTool.azimuth)
+            }
+            return PKInkingTool(inkingTool.inkType, color: inkingTool.color, width: inkingTool.width * scale)
+        }
+        if let eraserTool = tool as? PKEraserTool {
+            return PKEraserTool(eraserTool.eraserType, width: eraserTool.width * scale)
+        }
+        return tool
+    }
+
     /// The topmost of the canvas's own views under PencilKit's ink, such as the drawing
     /// editor's paper and pictures; nil when PencilKit's views are the canvas's first.
     var topViewUnderInk: UIView? { nil }
@@ -122,11 +140,21 @@ class HistoryCanvasView: PKCanvasView {
     /// Takes the chosen tool again, after what `toolForDrawing` returns has changed.
     func retakeChosenTool() {
         if let fixedTool {
-            if fixedTool.kind.drawsInk { tool = toolForDrawing(fixedTool.tool) }
+            if fixedTool.kind.drawsInk { drawWith(fixedTool.tool) }
         } else if followsToolPicker, let followedToolPicker, let selectedTool = Self.selectedTool(of: followedToolPicker) {
-            tool = toolForDrawing(selectedTool)
+            drawWith(selectedTool)
         }
     }
+
+    /// Draws with the tool `toolForDrawing` makes of a chosen one.
+    private func drawWith(_ chosenTool: PKTool) {
+        prepareToDraw(with: chosenTool)
+        tool = toolForDrawing(chosenTool)
+    }
+
+    /// Called before the canvas takes a chosen tool, by a canvas whose drawing scale depends
+    /// on the tool (`PDFPageCanvasView`).
+    func prepareToDraw(with chosenTool: PKTool) {}
 
     /// The tool chosen in the fixed bar or the palette, before `toolForDrawing` changes it;
     /// nil when the bar's choice draws no ink, or nothing is followed yet.
@@ -160,7 +188,7 @@ class HistoryCanvasView: PKCanvasView {
             pointsToRead = newFixedTool.kind == .readAloud
             // The lasso, the laser and the Read Aloud pen are Graphite's own; PencilKit's tool
             // stays what it was and draws nothing.
-            if newFixedTool.kind.drawsInk { tool = toolForDrawing(newFixedTool.tool) }
+            if newFixedTool.kind.drawsInk { drawWith(newFixedTool.tool) }
             isRulerActive = newFixedTool.isRulerActive
         } else if !followsToolPicker {
             fixedTool = nil
@@ -173,7 +201,7 @@ class HistoryCanvasView: PKCanvasView {
             isRulerActive = toolPicker.isRulerActive
             // Observers hear only later changes; start with the tool already selected.
             if #available(iOS 26.0, *), let selectedTool = toolPicker.selectedToolItem.tool {
-                tool = toolForDrawing(selectedTool)
+                drawWith(selectedTool)
             } else {
                 (self as PKToolPickerObserver).toolPickerSelectedToolItemDidChange?(toolPicker)
                 retakeChosenTool()
