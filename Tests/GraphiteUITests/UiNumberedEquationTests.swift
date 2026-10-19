@@ -4,6 +4,7 @@ import SwiftUI
 @testable import Textual
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// Equation numbers as drawn: rendered in a window and read back pixel by pixel.
 @MainActor
@@ -73,15 +74,24 @@ final class UiNumberedEquationTests: XCTestCase {
             .background(Color.white)
             .environment(\.colorScheme, .light)
         let hostingView = NSHostingView(rootView: block)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 400), styleMask: [.borderless], backing: .buffered, defer: false)
+        // Two pixels to the point, as the bitmap below is: layout aligns to device pixels, so a display
+        // of one pixel to the point (a CI machine's) would measure a different layout.
+        let window = PinnedBackingScaleWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 400), backingScale: 2)
         window.contentView = hostingView
         defer { window.contentView = nil }
-        // The Markdown renderer parses its text after it first appears.
-        for _ in 0..<10 {
-            hostingView.layoutSubtreeIfNeeded()
+        // The Markdown renderer parses its text after it first appears, and typesets the formula
+        // after that: the block is drawn once its size has stayed the same through several layouts.
+        var size = hostingView.fittingSize
+        var layoutsWithTheSameSize = 0
+        let settleDeadline = ContinuousClock.now + .seconds(20)
+        while layoutsWithTheSameSize < Self.layoutsToSettle, ContinuousClock.now < settleDeadline {
             try await Task.sleep(for: .milliseconds(20))
+            hostingView.layoutSubtreeIfNeeded()
+            let currentSize = hostingView.fittingSize
+            layoutsWithTheSameSize = currentSize == size && currentSize.height > 0 ? layoutsWithTheSameSize + 1 : 0
+            size = currentSize
         }
-        let size = hostingView.fittingSize
+        XCTAssertEqual(layoutsWithTheSameSize, Self.layoutsToSettle, "The block's size did not settle.")
         hostingView.frame = CGRect(origin: .zero, size: size)
         hostingView.layoutSubtreeIfNeeded()
         let bitmap = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * 2), pixelsHigh: Int(size.height * 2), bitsPerSample: 8,
@@ -93,6 +103,9 @@ final class UiNumberedEquationTests: XCTestCase {
         }
         return Rendering(bitmap: bitmap, size: size)
     }
+
+    /// How many layouts 20 ms apart must give the same size before a block counts as drawn.
+    private static let layoutsToSettle = 10
 
     /// Wider than the space between two glyphs of a formula, narrower than MathJax's
     /// 0.8em between a formula and its number.

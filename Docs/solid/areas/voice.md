@@ -1141,3 +1141,89 @@ The row labels "High (4)" and "Medium (22)" in the tally table above are miscoun
 | High | 3 | SRP-VOICE-01, SRP-VOICE-02, LSP-VOICE-01 |
 | Medium | 21 | SRP-VOICE-03, -04, -05; OCP-VOICE-01; LSP-VOICE-02, -03; ISP-VOICE-01, -02, -03; DIP-VOICE-01, -02; CC-VOICE-01, -02, -03, -04, -05, -07, -10, -11, -12, -13 |
 | Low | 12 | OCP-VOICE-02; LSP-VOICE-04, -05, -06; DIP-VOICE-03, -04, -05; CC-VOICE-06, -08, -09, -14, -15 |
+
+## 9. Since the snapshot
+
+Delta audit of 2026-10-19 at `fff794b` (main), against `FR-01` to `FR-108`. Seven commits changed this area's files (342 lines added, 137 removed): the Phase 0 fixes `a31ce63`, `57f6042`, `d76e137`, `bcb72e5` and `b64a64b`, the device services `0c074d9` and the system-27 floor `f65a8dd`. New file: `ReadAloudAudioLossPolicy.swift`. Invariants touched: OB-16, D-28, ST-14.
+
+### New findings
+
+#### BUG-VOICE-11 Pronunciation Settings overwrite terms that reached the vault file after the page opened
+- **Severity:** Medium (verdict: Confirmed, traced by the lead)
+- **Rule:** `FR-60`, `FR-39` (a write checks that the file is still what was read)
+- **Evidence:** traced path, introduced by `a31ce63` on top of `57f6042`:
+  1. `entries` is read once, when the page appears ([ReadAloudPronunciationEditor.swift:35](../../../Sources/GraphiteUI/ReadAloudPronunciationEditor.swift#L35), [:96-104](../../../Sources/GraphiteUI/ReadAloudPronunciationEditor.swift#L96-L104)).
+  2. iCloud brings in a term added on another device.
+  3. The person saves an edit; the new list is built from the stale `entries` ([:39](../../../Sources/GraphiteUI/ReadAloudPronunciationEditor.swift#L39)).
+  4. `save` reads the file again but only checks `allowsRewriting` ([:131-136](../../../Sources/GraphiteUI/ReadAloudPronunciationEditor.swift#L131-L136)), which is true for any complete file ([ReadAloudPronunciations.swift:97-101](../../../Sources/GraphiteCore/ReadAloudPronunciations.swift#L97-L101)).
+  5. The stale list is written atomically ([ReadAloudPronunciationEditor.swift:138-140](../../../Sources/GraphiteUI/ReadAloudPronunciationEditor.swift#L138-L140)); the other device's term is gone. The doc comment ("only replaced when this list holds everything it holds", [:127-128](../../../Sources/GraphiteUI/ReadAloudPronunciationEditor.swift#L127-L128)) is not what the code checks.
+- **Why it matters:** the loss `BUG-VOICE-V01` and `BUG-VOICE-L01` closed, reached by a second path, in normal use with iCloud vaults; breaks OB-16 and D-28.
+- **Fix direction:** apply the single edit with `updatingVaultEntries` to the fresh reading, not to `entries`; write only when the fresh reading allows it.
+
+#### BUG-VOICE-12 Connecting headphones pauses High Quality reading whenever the engine reconfigures, against the stated rule
+- **Severity:** Low (verdict: Plausible: it depends on `AVAudioEngine` stopping on a new output's format, which a device check settles)
+- **Rule:** `FR-30`
+- **Evidence:** a new output maps to "no pause" ([NeuralReadAloudSpeech.swift:290-295](../../../Sources/GraphiteVoices/NeuralReadAloudSpeech.swift#L290-L295), [ReadAloudAudioLossPolicy.swift:22](../../../Sources/GraphiteCore/ReadAloudAudioLossPolicy.swift#L22)); when its sample rate or channel count differs, the engine posts `AVAudioEngineConfigurationChange`, forwarded ([RenderedPassagePlayer.swift:28-29](../../../Sources/GraphiteVoices/RenderedPassagePlayer.swift#L28-L29)) as `.engineConfigurationChanged`, for which the policy returns "pause" ([ReadAloudAudioLossPolicy.swift:21](../../../Sources/GraphiteCore/ReadAloudAudioLossPolicy.swift#L21)) and the adapter stops ([NeuralReadAloudSpeech.swift:255-259](../../../Sources/GraphiteVoices/NeuralReadAloudSpeech.swift#L255-L259)). The policy's doc says a new output "takes over without interrupting", and the system-voice adapter does keep playing ([ReadAloudSpeech.swift:375-379](../../../Sources/GraphiteApple/ReadAloudSpeech.swift#L375-L379)). Introduced in `b64a64b`.
+- **Why it matters:** connecting AirPods mid-lecture stops High Quality reading but not Quick reading.
+- **Fix direction:** when no output was lost, restart the engine at the held frame instead of pausing; or state that any output change pauses and make both adapters match.
+
+#### CC-VOICE-16 The "a lost output pauses, a new output takes over" rule has two owners and two route-change observers
+- **Severity:** Medium
+- **Rule:** `FR-10`, `FR-30`
+- **Evidence:** only the neural adapter uses `ReadAloudAudioLossPolicy` ([NeuralReadAloudSpeech.swift:257](../../../Sources/GraphiteVoices/NeuralReadAloudSpeech.swift#L257)); the Apple adapter keeps an inline `== .oldDeviceUnavailable` ([ReadAloudSpeech.swift:375-379](../../../Sources/GraphiteApple/ReadAloudSpeech.swift#L375-L379)) with its own observer ([:172](../../../Sources/GraphiteApple/ReadAloudSpeech.swift#L172)); the neural adapter adds a second `routeChangeNotification` observer ([NeuralReadAloudSpeech.swift:52-55](../../../Sources/GraphiteVoices/NeuralReadAloudSpeech.swift#L52-L55)); `mediaServicesWereReset` is observed by the Apple adapter only. Introduced in `b64a64b`; makes `CC-VOICE-07` worse.
+- **Why it matters:** the two copies already disagree (`BUG-VOICE-12`).
+- **Fix direction:** one audio-session owner observes route and interruption events and feeds both adapters through `ReadAloudAudioLossPolicy`.
+
+#### CC-VOICE-17 The PDF continuation is three fields kept in step by hand, and `stopReading` and `stop` differ only by an unnamed scope
+- **Severity:** Medium
+- **Rule:** `FR-11`, `FR-33`
+- **Evidence:** `pdfContinuation` ([ReadAloudController.swift:67](../../../Sources/GraphiteUI/ReadAloudController.swift#L67)), `preparingPDFContinuation` ([:69](../../../Sources/GraphiteUI/ReadAloudController.swift#L69)) and `isPreparing` ([:35](../../../Sources/GraphiteUI/ReadAloudController.swift#L35)) carry one flow; `preparingPDFContinuation` is set or cleared by hand at lines 428, 462, 738 and 760 and read only when `isPreparing` is true (line 420); `pauseForChange` clears one but not the other ([:346-350](../../../Sources/GraphiteUI/ReadAloudController.swift#L346-L350)). `stopReading` ([:419-423](../../../Sources/GraphiteUI/ReadAloudController.swift#L419-L423)) differs from `stop` only by keeping the next-page continuation; there are now seven stop-like functions. Introduced in `bcb72e5`.
+- **Why it matters:** every new way out of PDF preparation must remember the third field, and choosing the right Stop means choosing among seven functions.
+- **Fix direction:** one `PDFReadingStep` enum (`idle`, `preparing(continuation)`, `waitingForNextPage(continuation)`) and `stop(scope:)` (the fix of `LSP-VOICE-03`).
+
+#### DIP-VOICE-06 Core now reads the vault file from disk, and the Settings view runs that read on the main actor twice per save
+- **Severity:** Medium
+- **Rule:** `FR-51`, `FR-54`, `FR-07`, `FR-103`
+- **Evidence:** `readVaultFile(at:)` in GraphiteCore calls `Data(contentsOf:)` ([ReadAloudPronunciations.swift:108-119](../../../Sources/GraphiteCore/ReadAloudPronunciations.swift#L108-L119)); the view calls it in `load` ([ReadAloudPronunciationEditor.swift:98](../../../Sources/GraphiteUI/ReadAloudPronunciationEditor.swift#L98)) and `save` ([:131](../../../Sources/GraphiteUI/ReadAloudPronunciationEditor.swift#L131)), then creates the folder and writes ([:139-140](../../../Sources/GraphiteUI/ReadAloudPronunciationEditor.swift#L139-L140)), all on the main actor. Introduced in `a31ce63`.
+- **Why it matters:** a file that is not downloaded yet (the `readFailed` case exists for it) blocks the Settings page.
+- **Fix direction:** Core keeps only `readVaultFile(data:)`; an adapter reads and writes off the main actor, called from `.task`.
+
+#### CC-VOICE-18 New notification observers are never removed, and their `assumeIsolated` lacks the invariant comment
+- **Severity:** Low
+- **Rule:** `FR-66`, `FR-70`
+- **Evidence:** the block-observer tokens are discarded at [RenderedPassagePlayer.swift:27-30](../../../Sources/GraphiteVoices/RenderedPassagePlayer.swift#L27-L30) and [NeuralReadAloudSpeech.swift:52-55](../../../Sources/GraphiteVoices/NeuralReadAloudSpeech.swift#L52-L55). Introduced in `b64a64b`.
+- **Why it matters:** each replaced speech instance (a settings sample, a new window) leaves its blocks registered for the process's life.
+- **Fix direction:** keep the tokens and remove them in `shutDown`; one-line invariant comment for `assumeIsolated` (`queue: .main`).
+
+#### CC-VOICE-19 Remembered-place keys tell a note from a PDF by a leading "/", and the comment contradicts the code
+- **Severity:** Low
+- **Rule:** `FR-28`, `FR-80`
+- **Evidence:** `placeKey` uses `identifier.hasPrefix("/")` and `uuid + "|" + path` ([ReadAloudNavigator.swift:354-357](../../../Sources/GraphiteUI/ReadAloudNavigator.swift#L354-L357)); the comment says a bare note path "is never read as a note's place" ([:350-353](../../../Sources/GraphiteUI/ReadAloudNavigator.swift#L350-L353)), but the guard returns the bare path when no vault is open, as ST-14 records. Introduced in `bcb72e5`.
+- **Why it matters:** a persisted key's format rests on a string convention every caller must respect.
+- **Fix direction:** a typed `ReadAloudPlace` (`note(vault:path:)`, `pdf(URL)`) encoded in one place; fix the comment.
+
+#### CC-VOICE-20 The "file fully read" rule is written twice, and the speech path still turns a failed read into an empty list
+- **Severity:** Low
+- **Rule:** `FR-10`, `FR-59`
+- **Evidence:** `readOnlyReason` re-derives `entries.count != termsInFile` ([ReadAloudPronunciationEditor.swift:121-123](../../../Sources/GraphiteUI/ReadAloudPronunciationEditor.swift#L121-L123)) instead of reading `allowsRewriting`; `vaultEntries(in:)` still returns `[]` for an invalid or unreadable file and keeps a second, tuple-based entry type ([ReadAloudPronunciations.swift:136-139](../../../Sources/GraphiteCore/ReadAloudPronunciations.swift#L136-L139)). Introduced in `a31ce63`.
+- **Why it matters:** if the copies drift, the page shows an editable file that `save` then refuses; Read Aloud ignores a broken vault file silently.
+- **Fix direction:** branch on `allowsRewriting`; `merging(vaultFile:)` takes a `VaultFileReading` and reports `invalid`.
+
+#### CC-VOICE-21 Scaffolding from the removed pre-27 branches stays
+- **Severity:** Low
+- **Rule:** `FR-82`, `FR-80`
+- **Evidence:** `connect(_:to:format:)` and `startPlayer()` wrap one call each under "Connecting and starting report failures as errors." ([RenderedPassagePlayer.swift:107-115](../../../Sources/GraphiteVoices/RenderedPassagePlayer.swift#L107-L115)); `systemSpeechSettingsName` is a computed static returning a literal ([ReadAloudSpeech.swift:531-532](../../../Sources/GraphiteApple/ReadAloudSpeech.swift#L531-L532)). Introduced in `f65a8dd`.
+- **Why it matters:** the indirection existed only to hide `#available`; readers look for a reason that is gone.
+- **Fix direction:** call `connectNode` and `playAudio` directly; make the name a `static let`.
+
+### State changes of earlier findings
+- `LSP-VOICE-01`: Open → **Partly fixed**. Speed comes from `speedRange` ([RenderedPassagePlayer.swift:35-37](../../../Sources/GraphiteVoices/RenderedPassagePlayer.swift#L35-L37)), `assistiveSpeechSettingsMayApply` is false for downloaded voices, and a lost output pauses; `voiceIdentifier`, `usesSystemSettings`, `phoneticRanges`, event timing, media-services reset and the new-output case still differ.
+- `LSP-VOICE-03`: Open → **Partly fixed**. The floating player's Stop cancels preparation through `stopReading`; the scopes are unnamed and more numerous (`CC-VOICE-17`), and `stop` still does not cancel the fold task, so `BUG-VOICE-02` stays open.
+- `ISP-VOICE-03`: Open → **Partly fixed**. Writing goes through `VaultEntry` and keeps `ipa`; reading still decodes `[String: Any]`.
+- `CC-VOICE-08`: Open → **Partly fixed**. The duplicated 1.5 cap is gone (`timePitchRate(forSpeed:)`); the other literals remain.
+- `CC-VOICE-07`: **Worse** (`CC-VOICE-16`).
+
+### Patterns to keep
+- `ReadAloudAudioLossPolicy` is a pure decider in Core with an exhaustive switch over its own enum (`FR-05`, `FR-18`).
+- `VaultFileReading` keeps `noFile`, `readFailed`, `invalid` and a partial `loaded` apart and owns `allowsRewriting` ([ReadAloudPronunciations.swift:76-120](../../../Sources/GraphiteCore/ReadAloudPronunciations.swift#L76-L120)): the shape other vault-file readers should copy (`FR-59`, `FR-61`).
+- `releaseModelOfCancelledWorker` frees the model only when no newer worker owns it ([ReadAloudPassagePreparation.swift:226-231](../../../Sources/GraphiteVoices/ReadAloudPassagePreparation.swift#L226-L231)).

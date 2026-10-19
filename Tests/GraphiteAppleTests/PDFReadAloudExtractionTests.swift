@@ -4,6 +4,9 @@ import CoreText
 import PDFKit
 import GraphiteCore
 @testable import GraphiteApple
+#if canImport(GraphiteTestSupport)
+import GraphiteTestSupport
+#endif
 
 final class PDFReadAloudExtractionTests: XCTestCase {
     private static let leftLines = ["Left column begins with a hypothesis.", "We test the repeated word carefully.",
@@ -12,6 +15,7 @@ final class PDFReadAloudExtractionTests: XCTestCase {
                                      "Our experiment has a second outcome.", "This is the final right column sentence."]
 
     func testMixedColumnsAndSpanningHeadingKeepEveryOriginalWordAndCoordinate() async throws {
+        try await TextRecognitionCapability.requireOnDeviceTextRecognition()
         let bytes = try Self.fixture()
         let page = try await PDFReadAloudExtraction().page(in: bytes, readingOrder: .layout)
         XCTAssertTrue(page.usesLayout, page.layoutNotice ?? "")
@@ -37,6 +41,7 @@ final class PDFReadAloudExtractionTests: XCTestCase {
     }
 
     func testNativeRangeEndpointsMapIntoThePreparedColumnOrder() async throws {
+        try await TextRecognitionCapability.requireOnDeviceTextRecognition()
         let page = try await PDFReadAloudExtraction().page(in: Self.fixture(), readingOrder: .layout)
         XCTAssertTrue(page.usesLayout)
         let original = page.originalText as NSString
@@ -72,6 +77,7 @@ final class PDFReadAloudExtractionTests: XCTestCase {
     }
 
     func testSingleColumnAndTableFallbackRetainAllOriginalText() async throws {
+        try await TextRecognitionCapability.requireOnDeviceTextRecognition()
         let extraction = PDFReadAloudExtraction()
         let singleColumn = try await extraction.page(in: Self.fixture(isSingleColumn: true), readingOrder: .layout)
         XCTAssertTrue(singleColumn.usesLayout)
@@ -99,6 +105,7 @@ final class PDFReadAloudExtractionTests: XCTestCase {
     }
 
     func testBlankInvalidAndCanceledPagesNeverBecomeSuccessfulNarration() async throws {
+        try await TextRecognitionCapability.requireOnDeviceTextRecognition()
         let extraction = PDFReadAloudExtraction()
         for bytes in [Data("not a PDF".utf8), try Self.fixture(isBlank: true)] {
             do {
