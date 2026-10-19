@@ -10,13 +10,46 @@ struct BaseKanbanMoves {
     let move: (VaultPath, BaseCellValue) -> Void
 }
 
+/// How a board fits its width. On a phone, or in a note there, a column takes the width
+/// less a strip of the next one, which shows there is more to the side.
+struct BaseKanbanColumnMetrics {
+    static let regularColumnWidth: CGFloat = 272
+    /// Narrower views get the columns sized to the view, and tighter margins.
+    static let compactWidthThreshold: CGFloat = 600
+    /// How much of the next column a narrow view shows.
+    static let nextColumnPeekWidth: CGFloat = 28
+    /// The narrowest column, below which a card's two-line title and values get cramped.
+    static let minimumColumnWidth: CGFloat = 200
+    /// The widest column on a narrow view; wider cards only spread their text.
+    static let maximumCompactColumnWidth: CGFloat = 360
+
+    let columnWidth: CGFloat
+    /// The gap between columns.
+    let spacing: CGFloat
+    /// The margin before the first column and after the last.
+    let margin: CGFloat
+
+    /// - Parameter availableWidth: The board's visible width; nil before it is laid out.
+    init(availableWidth: CGFloat?) {
+        guard let availableWidth, availableWidth.isFinite, availableWidth > 0, availableWidth < Self.compactWidthThreshold else {
+            columnWidth = Self.regularColumnWidth
+            spacing = 12
+            margin = 16
+            return
+        }
+        spacing = 10
+        margin = 12
+        let fittingWidth = availableWidth - margin - spacing - Self.nextColumnPeekWidth
+        columnWidth = min(Self.maximumCompactColumnWidth, max(Self.minimumColumnWidth, fittingWidth.rounded(.down)))
+    }
+}
+
 /// Obsidian's Kanban layout: one column for each value of the view's `groupBy` property,
 /// with a card for each file. Dragging a card to another column, or choosing the column
 /// from the card's Move To menu, writes the column's value into the note's grouped
 /// property, as Obsidian does. Only a note property can be written that way, so a board
 /// grouped by a formula or a file property shows its cards without moving them.
 struct BaseKanbanView: View {
-    private static let columnWidth: CGFloat = 272
     /// Obsidian's title for the column of files without a value.
     static let emptyColumnTitle = "None"
 
@@ -26,6 +59,8 @@ struct BaseKanbanView: View {
     @Environment(\.basesScrollVertically) private var scrollsVertically
     @Environment(\.baseRowLimit) private var rowLimit
     @State private var targetedGroupID: Int?
+    /// The board's visible width, nil until it is first laid out.
+    @State private var availableWidth: CGFloat?
 
     var body: some View {
         if result.view.groupBy == nil {
@@ -35,18 +70,24 @@ struct BaseKanbanView: View {
                 Text("A board has a column for each value of one property. Choose it under Group By in Edit View.")
             }
         } else {
+            let metrics = BaseKanbanColumnMetrics(availableWidth: availableWidth)
             ScrollView(.horizontal) {
-                LazyHStack(alignment: .top, spacing: 12) {
-                    ForEach(result.visibleGroups(rowLimit: rowLimit)) { visibleGroup in column(visibleGroup) }
+                LazyHStack(alignment: .top, spacing: metrics.spacing) {
+                    ForEach(result.visibleGroups(rowLimit: rowLimit)) { visibleGroup in column(visibleGroup, width: metrics.columnWidth) }
                 }
-                .padding(16)
+                .scrollTargetLayout()
+                .padding(.vertical, metrics.margin)
             }
+            // A swipe comes to rest with a column at the leading margin, never cut in half.
+            .scrollTargetBehavior(.viewAligned)
+            .contentMargins(.horizontal, metrics.margin, for: .scrollContent)
+            .onGeometryChange(for: CGFloat.self) { geometry in geometry.size.width } action: { width in availableWidth = width }
         }
     }
 
     // MARK: Columns
 
-    private func column(_ visibleGroup: BaseVisibleGroup) -> some View {
+    private func column(_ visibleGroup: BaseVisibleGroup, width: CGFloat) -> some View {
         let group = visibleGroup.group
         let isTargeted = targetedGroupID == group.id
         return VStack(alignment: .leading, spacing: 10) {
@@ -58,7 +99,7 @@ struct BaseKanbanView: View {
             }
         }
         .padding(10)
-        .frame(width: Self.columnWidth, alignment: .topLeading)
+        .frame(width: width, alignment: .topLeading)
         .frame(maxHeight: scrollsVertically ? .infinity : nil, alignment: .top)
         .background(Color.secondary.opacity(isTargeted ? 0.2 : 0.08), in: RoundedRectangle(cornerRadius: 12))
         .overlay {

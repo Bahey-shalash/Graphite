@@ -232,7 +232,8 @@ struct BaseContainerView: View {
                 content
             case .embedded(let height):
                 content
-                    .frame(height: growsWithContent ? nil : embeddedHeight(defaultHeight: height))
+                    .modifier(BaseEmbeddedHeight(defaultHeight: growsWithContent ? nil : height,
+                                                 configuredMapHeight: model.selectedView.flatMap { view in view.type == .map ? CGFloat(view.map.embeddedHeight) : nil }))
                     .environment(\.basesScrollVertically, !growsWithContent)
                     .environment(\.baseRowLimit, growsWithContent ? embeddedRowLimit : nil)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -315,12 +316,6 @@ struct BaseContainerView: View {
         let message = model.actionErrorMessage ?? fallbackMessage
         model.actionErrorMessage = nil
         return message
-    }
-
-    /// Embedded maps use the plugin's `mapHeight`, plus room for the toolbar.
-    private func embeddedHeight(defaultHeight: CGFloat) -> CGFloat {
-        guard let view = model.selectedView, view.type == .map else { return defaultHeight }
-        return CGFloat(view.map.embeddedHeight) + 48
     }
 
     @ViewBuilder private var content: some View {
