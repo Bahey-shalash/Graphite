@@ -32,6 +32,17 @@ final class MacMarkdownEditorRememberedPlaceTests: XCTestCase {
         XCTAssertEqual(place.topLocation, characterLocation(ofLine: 150))
     }
 
+    func testPlaceToRememberIsTheSameLineOnADisplayOfOnePixelToThePoint() async throws {
+        let fixture = try await MacMarkdownEditorFixture(text: Self.text, backingScale: 1)
+        self.fixture = fixture
+        fixture.coordinator.resume(fixture.scrollView)
+        for line in [150, 99, 201, 7] {
+            fixture.scrollToTop(ofCharacter: characterLocation(ofLine: line))
+
+            XCTAssertEqual(fixture.session.placeToRemember().topLocation, characterLocation(ofLine: line), "Line \(line)")
+        }
+    }
+
     func testPlaceToRememberFollowsTheEditorBackToTheTopOfTheNote() async throws {
         let fixture = try await MacMarkdownEditorFixture(text: Self.text)
         self.fixture = fixture

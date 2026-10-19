@@ -17,7 +17,8 @@ final class MacMarkdownEditorFixture {
     private let temporaryVault: TemporaryVault
     private let vaultDirectory: URL
 
-    init(text: String) async throws {
+    /// `backingScale` is the window's pixels to the point: 2 on a Retina display, 1 on the virtual display of a CI machine.
+    init(text: String, backingScale: CGFloat = 2) async throws {
         temporaryVault = try TemporaryVault(prefix: "Vault")
         vaultDirectory = temporaryVault.root
         try temporaryVault.writeFile("Note.md", text: text)
@@ -35,7 +36,7 @@ final class MacMarkdownEditorFixture {
         coordinator.connect(textView)
         coordinator.restyleEverything(in: textView)
         coordinator.scrollView = scrollView
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: true)
+        window = PinnedBackingScaleWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backingScale: backingScale)
         window.contentView = scrollView
         scrollView.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
         textView.frame.size.width = 600
