@@ -527,7 +527,7 @@ struct BaseToolbar: View {
                 viewTitle(showsChevron: false).foregroundStyle(.tint)
             }
 
-            Text(countText).font(.subheadline).foregroundStyle(.secondary).monospacedDigit().lineLimit(1)
+            countLabel
             if model.isLoading { ProgressView().controlSize(.small) }
             Spacer(minLength: 8)
             if model.sortOverride != nil {
@@ -582,11 +582,18 @@ struct BaseToolbar: View {
         }
     }
 
-    private var countText: String {
+    /// A narrow toolbar (a base inside a note on iPhone) drops the noun rather than cut it.
+    private var countLabel: some View {
+        ViewThatFits(in: .horizontal) { Text(countText(showsNoun: true)); Text(countText(showsNoun: false)) }
+            .font(.subheadline).foregroundStyle(.secondary).monospacedDigit().lineLimit(1)
+            .accessibilityLabel(countText(showsNoun: true))
+    }
+
+    private func countText(showsNoun: Bool) -> String {
         guard let result = model.result else { return "" }
         let matchingCount = result.matchingCount
-        let noun = matchingCount == 1 ? "result" : "results"
-        if result.displayedCount < matchingCount { return "\(result.displayedCount.formatted()) of \(matchingCount.formatted()) \(noun)" }
-        return "\(matchingCount.formatted()) \(noun)"
+        let noun = showsNoun ? (matchingCount == 1 ? " result" : " results") : ""
+        let shownCount = result.displayedCount < matchingCount ? "\(result.displayedCount.formatted()) of " : ""
+        return shownCount + matchingCount.formatted() + noun
     }
 }
