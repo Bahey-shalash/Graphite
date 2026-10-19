@@ -2,6 +2,23 @@ import XCTest
 @testable import GraphiteCore
 
 final class NotePreviewSummaryTests: XCTestCase {
+    /// The blocks with their text as plain characters, to compare without styles.
+    private func plainBlocks(of note: String, isWholeFile: Bool = true) -> [String] {
+        NotePreviewSummary.summary(ofPrefix: note, isWholeFile: isWholeFile).blocks.map { block in
+            switch block {
+            case .heading(let level, let text): "h\(level) " + String(text.characters)
+            case .paragraph(let text): "p " + String(text.characters)
+            case .listItem(let marker, let depth, let text): String(repeating: "  ", count: depth) + marker + " " + String(text.characters)
+            case .task(let isDone, let depth, let text): String(repeating: "  ", count: depth) + (isDone ? "[x] " : "[ ] ") + String(text.characters)
+            case .quote(let text): "> " + String(text.characters)
+            case .callout(let type, let title): "callout \(type): " + String(title.characters)
+            case .code(let code): "code " + code
+            case .rule: "rule"
+            case .picture: "picture"
+            }
+        }
+    }
+
     func testShowsReadingTextNotSource() {
         let note = """
         ---
@@ -12,31 +29,50 @@ final class NotePreviewSummaryTests: XCTestCase {
         - [ ] Exercise 1
         - [x] Exercise 2
         - Definition
+            - Nested
         1. First
         > [!tip] Remember
+        > Quoted ==line==
+        ---
         """
-        let summary = NotePreviewSummary.summary(ofPrefix: note, isWholeFile: true)
-        XCTAssertEqual(summary.lines, [
-            .heading(level: 1, text: "Complex numbers"),
-            .paragraph("A number with a real and an imaginary part, see notes."),
-            .task(isDone: false, text: "Exercise 1"),
-            .task(isDone: true, text: "Exercise 2"),
-            .listItem("Definition"),
-            .listItem("First"),
-            .paragraph("Remember"),
+        XCTAssertEqual(plainBlocks(of: note), [
+            "h1 Complex numbers",
+            "p A number with a real and an imaginary part, see notes.",
+            "[ ] Exercise 1",
+            "[x] Exercise 2",
+            "• Definition",
+            "  • Nested",
+            "1. First",
+            "callout tip: Remember",
+            "> Quoted line",
+            "rule",
         ])
     }
 
-    func testCodeMathCommentsAndRulesAreLeftOut() {
-        let note = "```swift\nlet x = 1\n```\n$$\nx^2\n$$\n%% hidden %%\n---\nVisible"
-        XCTAssertEqual(NotePreviewSummary.summary(ofPrefix: note, isWholeFile: true).lines, [.paragraph("Visible")])
+    func testEmphasisIsKeptAsStyle() throws {
+        let summary = NotePreviewSummary.summary(ofPrefix: "A **bold** word", isWholeFile: true)
+        guard case .paragraph(let text) = try XCTUnwrap(summary.blocks.first) else { return XCTFail("Expected a paragraph") }
+        let boldRun = try XCTUnwrap(text.runs.first { run in run.inlinePresentationIntent?.contains(.stronglyEmphasized) == true })
+        XCTAssertEqual(String(text[boldRun.range].characters), "bold")
     }
 
-    func testFirstEmbeddedPictureIsFoundAndNotShownAsText() {
-        let note = "Intro\n![[Lecture.pdf#page=3]]\n![[Board photo.jpg|300]]\n![](second.png)"
+    func testLinksKeepTheirLabelButNotTheirTarget() throws {
+        let summary = NotePreviewSummary.summary(ofPrefix: "See [the site](https://example.org)", isWholeFile: true)
+        guard case .paragraph(let text) = try XCTUnwrap(summary.blocks.first) else { return XCTFail("Expected a paragraph") }
+        XCTAssertEqual(String(text.characters), "See the site")
+        XCTAssertTrue(text.runs.allSatisfy { run in run.link == nil })
+    }
+
+    func testCodeBlocksShowTheirFirstLinesAndMathIsLeftOut() {
+        let note = "```swift\nlet x = 1\nlet y = 2\n```\n$$\nx^2\n$$\n%% hidden %%\nVisible"
+        XCTAssertEqual(plainBlocks(of: note), ["code let x = 1\nlet y = 2", "p Visible"])
+    }
+
+    func testFirstEmbeddedPictureIsPlacedWhereItSits() {
+        let note = "Intro\n![[Lecture.pdf#page=3]]\n![[Board photo.jpg|300]]\n![](second.png)\nAfter"
         let summary = NotePreviewSummary.summary(ofPrefix: note, isWholeFile: true)
         XCTAssertEqual(summary.firstPictureTarget, "Board photo.jpg")
-        XCTAssertEqual(summary.lines, [.paragraph("Intro")])
+        XCTAssertEqual(plainBlocks(of: note), ["p Intro", "picture", "p After"])
     }
 
     func testMarkdownPictureLinkIsDecoded() {
@@ -44,21 +80,19 @@ final class NotePreviewSummaryTests: XCTestCase {
     }
 
     func testLineCutAtTheEndOfThePrefixIsDropped() {
-        let summary = NotePreviewSummary.summary(ofPrefix: "Whole line\nHalf a li", isWholeFile: false)
-        XCTAssertEqual(summary.lines, [.paragraph("Whole line")])
+        XCTAssertEqual(plainBlocks(of: "Whole line\nHalf a li", isWholeFile: false), ["p Whole line"])
     }
 
     func testFrontmatterStillOpenAtTheCutHidesEverything() {
-        let summary = NotePreviewSummary.summary(ofPrefix: "---\ntitle: long\naliases:\n  - a\n", isWholeFile: false)
-        XCTAssertEqual(summary.lines, [])
+        XCTAssertEqual(plainBlocks(of: "---\ntitle: long\naliases:\n  - a\n", isWholeFile: false), [])
     }
 
-    func testLineCountIsBounded() {
+    func testBlockCountIsBounded() {
         let note = (1...100).map { number in "Line \(number)" }.joined(separator: "\n")
-        XCTAssertEqual(NotePreviewSummary.summary(ofPrefix: note, isWholeFile: true).lines.count, NotePreviewSummary.maximumLineCount)
+        XCTAssertEqual(NotePreviewSummary.summary(ofPrefix: note, isWholeFile: true).blocks.count, NotePreviewSummary.maximumBlockCount)
     }
 
-    func testEmptyNoteHasNoLines() {
-        XCTAssertEqual(NotePreviewSummary.summary(ofPrefix: "", isWholeFile: true), NotePreviewSummary(lines: [], firstPictureTarget: nil))
+    func testEmptyNoteHasNoBlocks() {
+        XCTAssertEqual(NotePreviewSummary.summary(ofPrefix: "", isWholeFile: true), NotePreviewSummary(blocks: [], firstPictureTarget: nil))
     }
 }
