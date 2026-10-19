@@ -42,6 +42,7 @@
     "xct-skip-count": 35
   },
   "skippedTestsBaselines": {
-    "hosted-ipad": 5
+    "hosted-ipad": 5,
+    "swift-test": 19
   }
 }
