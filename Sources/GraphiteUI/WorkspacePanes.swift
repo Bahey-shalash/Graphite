@@ -252,7 +252,7 @@ private struct TabBar: View {
                 // A tab whose file is still loading has the sessions of the file before it.
                 if let session = document.pdfSession, group.activeTab.path != nil, document.loadedPath == group.activeTab.path {
                     Hairline(axis: .vertical).frame(height: 18)
-                    TabBarPencilTools(session: session, isFocused: isFocused)
+                    TabBarPencilTools(session: session, isFocused: isFocused, offersReadAloudPen: workspace.readAloud != nil)
                         .layoutPriority(1)
                 }
             }
@@ -315,7 +315,7 @@ private struct TabBar: View {
         Button("Close Other Tabs", systemImage: "xmark.square") { Task { await workspace.closeOtherTabs(keeping: tab.id) } }
             .disabled(group.tabs.count == 1)
         Divider()
-        if let path = tab.path { ReadAloudQueueMenuItems(navigator: workspace.readAloudNavigator, path: path) }
+        if let path = tab.path, let navigator = workspace.readAloudNavigator { ReadAloudQueueMenuItems(navigator: navigator, path: path) }
         Button(tab.isPinned ? "Unpin" : "Pin", systemImage: tab.isPinned ? "pin.slash" : "pin") { workspace.togglePin(tab.id) }
         Button(groupIndex == 0 ? "Move to the Right" : "Move to the Left", systemImage: groupIndex == 0 ? "rectangle.righthalf.inset.filled.arrow.right" : "rectangle.lefthalf.inset.filled.arrow.left") {
             workspace.moveTabToOtherGroup(tab.id)
@@ -552,8 +552,7 @@ private struct TabDocumentView: View {
                 .id(ObjectIdentifier(session))
         } else if let session = document.pdfSession {
             PDFPane(session: session, isFocused: isFocused, focus: { workspace.activateTab(tab.id) }, linkActions: pdfLinkActions(for: path),
-                    readAloud: workspace.preferences.isEnabled(.readAloud) ? workspace.readAloud : nil,
-                    readAloudNavigator: workspace.preferences.isEnabled(.readAloud) ? workspace.readAloudNavigator : nil,
+                    readAloud: workspace.readAloud, readAloudNavigator: workspace.readAloudNavigator,
                     isRecording: workspace.recording.state.isActive) { location in
                 Task { await workspace.resolvePDFConflict(opening: location, inTab: tab.id) }
             }

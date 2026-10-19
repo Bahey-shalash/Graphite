@@ -21,8 +21,8 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
     private var savedSpeed = 1.0
 
     override func tearDown() async throws {
-        workspace?.readAloud.clear()
-        workspace?.readAloud.session.setSpeed(savedSpeed)
+        workspace?.activeReadAloud.clear()
+        workspace?.activeReadAloud.session.setSpeed(savedSpeed)
         window?.isHidden = true
         window?.rootViewController = nil
         window = nil
@@ -47,12 +47,12 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
         let (workspace, session) = try await openLecture(viewMode: .livePreview)
         let controller = try host(workspace)
         let editor = try await visibleEditor(in: controller)
-        workspace.readAloud.readMarkdown(session.text, path: session.path)
+        workspace.activeReadAloud.readMarkdown(session.text, path: session.path)
         try await waitUntil(timeoutSeconds: 20) { !editor.readAloudHighlights.isEmpty }
         let firstFrames = editor.readAloudHighlights.map(\.frame)
         try await waitUntil(timeoutSeconds: 20) { !editor.readAloudHighlights.isEmpty && editor.readAloudHighlights.map(\.frame) != firstFrames }
         attachScreenshot(named: "Live Preview highlight")
-        workspace.readAloud.clear()
+        workspace.activeReadAloud.clear()
         try await waitUntil { editor.readAloudHighlights.isEmpty }
     }
 
@@ -62,13 +62,13 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(800))
         // Tags and other light-blue chrome are on screen before reading; only new blue counts.
         let before = bluePixels()
-        workspace.readAloud.readMarkdown(session.text, path: session.path)
+        workspace.activeReadAloud.readMarkdown(session.text, path: session.path)
         func highlight() -> CGRect? { highlightBounds(excluding: before) }
         try await waitUntil(timeoutSeconds: 20) { highlight() != nil }
         let first = try XCTUnwrap(highlight())
         try await waitUntil(timeoutSeconds: 20) { highlight().map { bounds in bounds != first } ?? false }
         attachScreenshot(named: "Reading view highlight")
-        workspace.readAloud.clear()
+        workspace.activeReadAloud.clear()
         try await waitUntil { self.highlightBounds(excluding: before) == nil }
     }
 
@@ -90,7 +90,7 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
         _ = try host(workspace)
         try await waitUntil { pdf.pdfView != nil }
         let pdfView = try XCTUnwrap(pdf.pdfView)
-        workspace.readAloud.readPDF(pdf, firstPageIndex: 0, lastPageIndex: 1)
+        workspace.activeReadAloud.readPDF(pdf, firstPageIndex: 0, lastPageIndex: 1)
         func highlighted() -> String? { pdfView.highlightedSelections?.compactMap(\.string).joined(separator: " ") }
         // Word by word, and the respelled acronym ("see moss") lit where "CMOS" is written.
         var seen = Set<String>()
@@ -103,7 +103,7 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
         let secondPage = try XCTUnwrap(pdf.document.page(at: 1))
         try await waitUntil(timeoutSeconds: 30) { (pdfView.highlightedSelections ?? []).contains { selection in selection.pages.contains(secondPage) } }
         attachScreenshot(named: "PDF highlight on the second page")
-        workspace.readAloud.clear()
+        workspace.activeReadAloud.clear()
         try await waitUntil { (pdfView.highlightedSelections ?? []).isEmpty }
     }
 
@@ -113,18 +113,18 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
         let (workspace, session) = try await openLecture(viewMode: .livePreview)
         let controller = try host(workspace)
         let editor = try await visibleEditor(in: controller)
-        workspace.readAloud.readMarkdown(session.text, path: session.path)
+        workspace.activeReadAloud.readMarkdown(session.text, path: session.path)
         try await waitUntil(timeoutSeconds: 20) { !editor.readAloudHighlights.isEmpty }
         // What a finger does first: the editor's own drag callback pauses following.
         editor.delegate?.scrollViewWillBeginDragging?(editor)
-        try await waitUntil { !workspace.readAloud.followsReading }
+        try await waitUntil { !workspace.activeReadAloud.followsReading }
         let measurement = FrameGapMeasurement(scrollView: editor, step: 45, duration: 3)
         let longestGap = await measurement.run()
         XCTAssertLessThan(longestGap, 0.1, "Longest frame gap while scrolling and reading: \(Int(longestGap * 1_000)) ms.")
         let offsetAfterScroll = editor.contentOffset.y
         try await Task.sleep(for: .milliseconds(1_500))
         XCTAssertEqual(editor.contentOffset.y, offsetAfterScroll, accuracy: 1, "Following must not pull the page back while paused.")
-        XCTAssertEqual(workspace.readAloud.session.state, .speaking)
+        XCTAssertEqual(workspace.activeReadAloud.session.state, .speaking)
     }
 
     // MARK: Player and navigation
@@ -135,8 +135,8 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
         let (workspace, session) = try await openLecture(viewMode: .livePreview)
         let controller = try host(workspace)
         let editor = try await visibleEditor(in: controller)
-        let reader = workspace.readAloud
-        let navigator = workspace.readAloudNavigator
+        let reader = workspace.activeReadAloud
+        let navigator = workspace.activeReadAloudNavigator
         reader.readMarkdown(session.text, path: session.path)
         try await waitUntil(timeoutSeconds: 20) { reader.session.state == .speaking }
         // Section skip: to the next heading.
@@ -171,7 +171,7 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
             NavigationStack {
                 WorkspacePanes(workspace: workspace, showsLinksInspector: .constant(false), create: { _ in }, showQuickSwitcher: {})
             }
-            ReadAloudFloatingPlayer(reader: workspace.readAloud, navigator: workspace.readAloudNavigator)
+            ReadAloudFloatingPlayer(reader: workspace.activeReadAloud, navigator: workspace.activeReadAloudNavigator)
         })
         let controller = UIHostingController(rootView: rootView)
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
@@ -181,10 +181,10 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
         window.makeKeyAndVisible()
         self.window = window
         let editor = try await visibleEditor(in: controller)
-        workspace.readAloud.readMarkdown(session.text, path: session.path)
+        workspace.activeReadAloud.readMarkdown(session.text, path: session.path)
         try await waitUntil(timeoutSeconds: 20) { !editor.readAloudHighlights.isEmpty }
         // Put the word being read at the bottom of the screen, under where the player sits.
-        workspace.readAloud.followsReading = false
+        workspace.activeReadAloud.followsReading = false
         if let word = editor.readAloudHighlights.first?.frame {
             editor.setContentOffset(CGPoint(x: 0, y: max(0, word.maxY - editor.bounds.height + 40)), animated: false)
         }
@@ -192,8 +192,8 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
         let deadline = Date().addingTimeInterval(6)
         while Date() < deadline {
             try await Task.sleep(for: .milliseconds(150))
-            guard let player = workspace.readAloudNavigator.playerFrameInWindow,
-                  let highlight = workspace.readAloudNavigator.highlightFrameInWindow, !player.isEmpty else { continue }
+            guard let player = workspace.activeReadAloudNavigator.playerFrameInWindow,
+                  let highlight = workspace.activeReadAloudNavigator.highlightFrameInWindow, !player.isEmpty else { continue }
             checks += 1
             XCTAssertFalse(player.intersects(highlight), "Player \(player) covers the highlight \(highlight).")
         }
@@ -245,8 +245,8 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
             pageCanvas.readAloudPenTapped?(point)
         }
         func markers() -> [ReadAloudPenMarkerView] { descendants(of: pdfView, matching: ReadAloudPenMarkerView.self) }
-        let reader = workspace.readAloud
-        let navigator = workspace.readAloudNavigator
+        let reader = workspace.activeReadAloud
+        let navigator = workspace.activeReadAloudNavigator
 
         // One tap: reading starts at "output", marked as the start.
         try tap("output")
@@ -307,8 +307,8 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
         window.frame = CGRect(x: 0, y: 0, width: 1210, height: 834)
         window.layoutIfNeeded()
         try await waitUntil { pdf.pdfView != nil }
-        workspace.readAloud.readPDF(pdf, firstPageIndex: 0, lastPageIndex: 0)
-        let navigator = workspace.readAloudNavigator
+        workspace.activeReadAloud.readPDF(pdf, firstPageIndex: 0, lastPageIndex: 0)
+        let navigator = workspace.activeReadAloudNavigator
         try await waitUntil(timeoutSeconds: 20) { navigator.highlightFrameInWindow != nil && navigator.playerFrameInWindow != nil }
         var checks = 0
         let deadline = Date().addingTimeInterval(4)
@@ -330,7 +330,7 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
             NavigationStack {
                 WorkspacePanes(workspace: workspace, showsLinksInspector: .constant(false), create: { _ in }, showQuickSwitcher: {})
             }
-            ReadAloudFloatingPlayer(reader: workspace.readAloud, navigator: workspace.readAloudNavigator)
+            ReadAloudFloatingPlayer(reader: workspace.activeReadAloud, navigator: workspace.activeReadAloudNavigator)
         }))
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
@@ -359,15 +359,17 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
 
     private func makeWorkspace(directory: URL) async throws -> WorkspaceModel {
         let workspace = WorkspaceModel()
+        // Read Aloud is a core plugin that is off by default; these tests read.
+        workspace.setCorePluginEnabled(.readAloud, true)
         workspace.folderAccess = FolderAccess(root: directory)
         workspace.store = VaultStore(root: directory)
         let index = try VaultIndex(databaseURL: directory.appendingPathComponent("index.sqlite"))
         let names = try FileManager.default.contentsOfDirectory(atPath: directory.path).filter { name in name.hasSuffix(".md") || name.hasSuffix(".pdf") }
         try await index.refresh(paths: names.map { name in try VaultPath(name) }, root: directory)
         workspace.index = index
-        savedSpeed = workspace.readAloud.session.speed
+        savedSpeed = workspace.activeReadAloud.session.speed
         // A brisk speed keeps the test short; the highlight path is the same at any speed.
-        workspace.readAloud.session.setSpeed(1.5)
+        workspace.activeReadAloud.session.setSpeed(1.5)
         self.workspace = workspace
         return workspace
     }
@@ -795,3 +797,16 @@ final class HighQualityReadAloudTests: XCTestCase {
     }
 }
 #endif
+
+private extension WorkspaceModel {
+    /// The reader of a workspace whose Read Aloud plugin these tests turned on.
+    var activeReadAloud: ReadAloudController {
+        guard let readAloud else { preconditionFailure("The Read Aloud core plugin was turned on when the workspace was made.") }
+        return readAloud
+    }
+
+    var activeReadAloudNavigator: ReadAloudNavigator {
+        guard let readAloudNavigator else { preconditionFailure("The Read Aloud core plugin was turned on when the workspace was made.") }
+        return readAloudNavigator
+    }
+}
