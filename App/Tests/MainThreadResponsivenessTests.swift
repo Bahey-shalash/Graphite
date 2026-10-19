@@ -52,8 +52,11 @@ final class MainThreadResponsivenessTests: XCTestCase {
         try XCTSkipIf(MainThreadWatchdog.isDebuggerAttached, "Under a debugger the watchdog does not run.")
         MainThreadWatchdog.shared.start()
         let before = records(named: "MainThreadStall")
-        usleep(3_000_000)
-        try await Task.sleep(for: .seconds(1.5))
+        // The main thread stays blocked until the watchdog, which runs on a thread of its own, has
+        // written its record: how soon it does depends on the machine, so no fixed time is used.
+        let stallDeadline = ContinuousClock.now + .seconds(60)
+        while records(named: "MainThreadStall-").subtracting(before).isEmpty, ContinuousClock.now < stallDeadline { usleep(50_000) }
+        try await waitUntil("the record says when the stall ended") { !self.records(named: "MainThreadStallEnded-").subtracting(before).isEmpty }
         DiagnosticRecords.waitForPendingWrites()
         let stallRecords = records(named: "MainThreadStall-").subtracting(before)
         XCTAssertEqual(stallRecords.count, 1, "One record of the stall.")

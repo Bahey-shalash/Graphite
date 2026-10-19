@@ -25,4 +25,14 @@ extension VaultStore {
         }
         return updated
     }
+
+    /// Moves a folder-color file this build cannot read to a free name beside it, such as
+    /// `.obsidian/graphite-folder-styles.unreadable.json`, so it is kept as it is and
+    /// Graphite can start a new one. Returns where it went.
+    public func moveFolderStylesAside() throws -> VaultPath {
+        let path = try VaultPath(FolderStyleList.configurationPath)
+        let keptCopy = try uniquePath(directory: path.parent, stem: FolderStyleList.unreadableCopyStem, extension: "json")
+        try move(path, to: keptCopy)
+        return keptCopy
+    }
 }

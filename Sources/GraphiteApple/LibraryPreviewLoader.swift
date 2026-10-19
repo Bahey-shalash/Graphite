@@ -39,6 +39,8 @@ public struct LibraryPreviewLoader: Sendable {
     public func preview(of path: VaultPath, longerSidePixels: Int) async -> LibraryTilePreview {
         guard let location = try? path.url(in: root) else { return .kindIcon } // A path outside the vault has nothing to draw.
         if !Self.isOnThisDevice(location) { return .notDownloaded }
+        // A tile scrolled away before its turn draws nothing; its result is not used.
+        if Task.isCancelled { return .kindIcon }
         switch DocumentKind(path: path) {
         case .pdf: return Self.firstPage(of: location, longerSidePixels: longerSidePixels).map(LibraryTilePreview.picture) ?? .kindIcon
         case .image: return Self.picture(at: location, longerSidePixels: longerSidePixels).map(LibraryTilePreview.picture) ?? .kindIcon
@@ -52,8 +54,8 @@ public struct LibraryPreviewLoader: Sendable {
         let text = String(decoding: prefix.data, as: UTF8.self)
         let summary = NotePreviewSummary.summary(ofPrefix: text, isWholeFile: prefix.isWholeFile)
         var picture: CGImage?
-        if let target = summary.firstPictureTarget, let picturePath = await resolvePicture(target, path),
-           let pictureLocation = try? picturePath.url(in: root), Self.isOnThisDevice(pictureLocation) { // No picture is a page of text.
+        if let target = summary.firstPictureTarget, !Task.isCancelled, let picturePath = await resolvePicture(target, path),
+           let pictureLocation = try? picturePath.url(in: root), Self.isOnThisDevice(pictureLocation), !Task.isCancelled { // No picture: text only.
             picture = Self.picture(at: pictureLocation, longerSidePixels: longerSidePixels / 2)
         }
         return .note(summary, picture: picture)

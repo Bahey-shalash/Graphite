@@ -766,3 +766,26 @@ The split is the same: one file per concept.
 - **Index:** `FileOperationTests`, `IndexFileOperationsFixTests` (lines 1-150 read in full), `IndexVaultIndexFixTests` (test names).
 - **UI:** `TestConflictVersionStore` (read in full), `UiWorkspaceModelFixTests` (lines 1-50).
 - **Present but only listed by name:** `BookmarkTests`, `VaultListTests`, `TabLayoutTests`, `ConflictVersionTests`, `DocumentPlacesTests`, `LinkGraphTests`, `MentionTests`, `VaultURITests`, `NotePropertiesTests`, `TemplateTests`, `TagsAndPropertiesTests`, `ReadingTaskTests`, `CoreSearchQueryFixTests`, `CoreSearchQueryUnicode61AgreementTests`, `CoreLinksFixTests`, `CoreFrontmatterFixTests`, `IndexTests`, `IndexVaultIndexScanBatchTests`, `CoreLinksFileOperationTests`, `SearchSyntaxTests`, `IndexSearchFixTests`, `CoreSearchQueryIndexSearchTests`, `VaultPlacesTests`, `VaultTagsAndPropertiesTests`, `CanvasLinkTests`.
+
+## 9. Since the snapshot
+
+Delta audit of 2026-10-19. The notebook library (`7f56e00`, `2e1b6a2`, read at `9040705`) added the vault's folder-style file; the other vault changes at `fff794b` are recorded with the shell's in [shell.md](shell.md) section 9.
+
+### New findings
+
+#### CC-VAULT-11 `FolderStyleList.followMove` re-implements `VaultPath.replacingPrefix` by character count and drops a style silently
+- **Severity:** Low
+- **Rule:** `FR-10`, `FR-58`
+- **Evidence:** character counts and `try?` ([FolderStyleList.swift:146-151](../../../Sources/GraphiteCore/FolderStyleList.swift#L146-L151)) instead of [VaultPath.swift:147-152](../../../Sources/GraphiteCore/VaultPath.swift#L147-L152); the comment "A moved path is always valid" is not checked. Introduced in `7f56e00`.
+- **Fix direction:** call `replacingPrefix` and keep the entry if it throws.
+
+#### CC-VAULT-12 An unreadable folder-style file is refused but never moved aside, and its format has no golden fixture or failure-injection test
+- **Severity:** Medium
+- **Rule:** `FR-61`, `FR-95`, `FR-97`
+- **Evidence:** a refused file stays in place, so every later update throws ([FolderStyleList.swift:96-117](../../../Sources/GraphiteCore/FolderStyleList.swift#L96-L117), [VaultStoreFolderStyles.swift:19-20](../../../Sources/GraphiteCore/VaultStoreFolderStyles.swift#L19-L20)); the tests use an inline string, not a fixture ([FolderStyleListTests.swift:6-15](../../../Tests/GraphiteCoreTests/FolderStyleListTests.swift#L6-L15)), and no test injects a failing write; round-trip, unknown-field and refusal cases are tested. Introduced in `7f56e00`. Together with `BUG-SHELL-07` this leaves a damaged file in place and the library unusable.
+- **Fix direction:** rename an unreadable file aside under a versioned name; a `folder-styles-v1.json` fixture and a failing-write test.
+
+### State changes of earlier findings (fff794b)
+- `LSP-VAULT-01`: Open → **Fixed**. Both counts use `WikiLinkResolver.caseFoldedKey` and `folded_name` ([VaultFileOperations.swift:356-364](../../../Sources/GraphiteIndex/VaultFileOperations.swift#L356-L364), [:389-396](../../../Sources/GraphiteIndex/VaultFileOperations.swift#L389-L396)); regression test in `FileOperationTests` (`45a51be`).
+- `CC-VAULT-01`: Open → **Partly fixed** (`877045a`). `configurationData` throws unless the file is missing, and bookmarks, templates and daily notes throw (`VaultStoreConfigurationReadingTests`); malformed JSON still becomes defaults ([Templates.swift:20](../../../Sources/GraphiteCore/Templates.swift#L20), [:58](../../../Sources/GraphiteCore/Templates.swift#L58)) and `propertyTypes` still returns `[:]`.
+- `DIP-VAULT-02`: Open → **Partly fixed**. The workspace passes its caches folder; the nil fallback inside `VaultIndex` and the legacy `cacheURL(for:)` remain ([VaultIndex.swift:201-212](../../../Sources/GraphiteIndex/VaultIndex.swift#L201-L212)).
