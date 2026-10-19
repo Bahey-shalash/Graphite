@@ -1260,6 +1260,31 @@ Not established: on the iPad itself, with Apple Pencil, and on the Mac. In the s
 - `Edge cases/Media/`: images (EXIF rotation, transparency, GIF, HEIC, WebP, CMYK, 16-bit, 8000×6000, fake PNG), audio and video (including corrupt, portrait and HEVC), PDFs (outline, annotations from another app, rotated and mixed page sizes, password `graphite`, corrupt, empty, page labels, scans, 100 pages). `Media gallery.md` embeds them all.
 - `Edge cases/Files/`: encodings (CRLF, CR, BOM, UTF-16, Latin-1, binary), 0-byte and 2 MB notes, odd names, hidden files, non-note files, a folder named like a note, twelve levels of folders, 250 linked notes, and symbolic links inside and outside the vault.
 
+## Read Aloud as a core plugin, off by default: 2026-10-19
+
+Owner decision of 2026-10-19; the design is in `Read-aloud-core-plugin.md`, and what it does is in `Architecture.md` (Read Aloud as a core plugin).
+
+**Covered by package tests.** These are run on macOS with `swift test --filter` (85 tests, 0 failures, including the classes around them). Every Read Aloud reading in them goes through a silent fake voice.
+- `CorePluginSwitchesTests` (9): a fresh device has Read Aloud off and every other plugin on, and the switches are stored and read back.
+- `CorePluginSwitchMigrationTests` (17):
+  - the pure decision;
+  - preference, voice-folder and no-evidence devices;
+  - Read Aloud turned off earlier;
+  - the migration runs once;
+  - a workspace of an existing user and of a new one.
+- `WorkspaceReadAloudCorePluginTests` (9):
+  - no controller is built while Read Aloud is off;
+  - turning it on builds one, without a relaunch;
+  - turning it off during playback stops speech, releases audio, closes the reader and drops the controller;
+  - remembered places are kept;
+  - the Settings plugin pages follow the switch;
+  - the `graphite://read` link refuses while Read Aloud is off.
+- `WorkspaceDeepLinksTests` and `GraphitePreferencesPersistedKeysTests`, which now include the `GraphiteEnabledCorePlugins` key.
+
+**Not run yet.** The full package suite and the hosted iPad suite were held back on 2026-10-19 while Read Aloud tests that speak aloud are being made silent. The four hosted Read Aloud test files turn the plugin on first.
+
+**Not verified.** Whether each menu, button and the floating player actually disappear and come back in the running app on iPad and Mac has been checked only through the model the views read, not by eye.
+
 ## Implemented and covered by automated tests
 
 | Area | Behavior | Evidence |
