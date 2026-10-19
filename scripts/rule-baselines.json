@@ -27,8 +27,8 @@
     "mutable-statics": 0,
     "shared-singletons": 0,
     "task-sleep-in-sources": 47,
-    "task-sleep-in-tests": 213,
-    "temporary-directory-in-tests": 78,
+    "task-sleep-in-tests": 212,
+    "temporary-directory-in-tests": 77,
     "test-round-names": 34,
     "try-force": 2,
     "try-uncommented": 615,
@@ -39,7 +39,7 @@
     "wait-until-copies": 2,
     "workspace-model-parameters": 26,
     "workspace-model-stored": 74,
-    "xct-skip-count": 36
+    "xct-skip-count": 35
   },
   "skippedTestsBaselines": {
     "hosted-ipad": 5,
