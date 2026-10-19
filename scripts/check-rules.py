@@ -19,7 +19,7 @@ Usage:
   python3 scripts/check-rules.py --coverage      check that every SRP/OCP/LSP/ISP/DIP/CC/TR rule is in a Sources cell of
                                                  rewrite-foundations.md section 11 (exit 1 when one is missing)
   python3 scripts/check-rules.py --test-log <file>   only compare the skipped-test count of a `swift test` or `xcodebuild test` log
-                                                 with "skippedTestsBaseline" of the baselines file (exit 1 when it rose)
+                                                 with the entry of "skippedTestsBaselines" named like the log file (swift-test.log, hosted-ipad.log; exit 1 when it rose)
   python3 scripts/check-rules.py --root <path>   check another checkout (default: the repository)
 
 To lower a baseline: remove the hits (python3 scripts/check-rules.py --show <gate> lists them), then run --record and
@@ -596,7 +596,7 @@ def run_checks(arguments):
             if name not in merged or count < merged[name] or arguments.allow_raise:
                 merged[name] = count
         previous = json.load(open(baseline_path, encoding="utf-8")) if os.path.exists(baseline_path) else {}
-        carried = {key: previous[key] for key in previous if key in ("skippedTestsBaseline",)}
+        carried = {key: previous[key] for key in previous if key in ("skippedTestsBaselines",)}
         write_baselines(baseline_path, arguments.root, merged, carried)
         print(f"recorded {len(merged)} baselines in {BASELINE_PATH}")
         for name in sorted(merged):
@@ -646,20 +646,34 @@ def run_checks(arguments):
 
 
 def check_test_log(arguments, baseline_path):
-    """Compare the skipped-test count of an XCTest log ("Executed N tests, with M tests skipped and K failures") with its baseline."""
+    """Compare the skipped-test count of a test log with its baseline. The count is the number of distinct tests with a
+    "Test Case '-[Class test]' skipped" line, which `swift test --parallel --verbose` and `xcodebuild test` both print (a
+    parallel run without --verbose prints none); a log with no such line falls back to the last XCTest summary line
+    ("Executed N tests, with M tests skipped and K failures")."""
     with open(arguments.test_log, encoding="utf-8", errors="replace") as handle:
         text = handle.read()
-    totals = re.findall(r"Executed (\d+) tests?, with (?:(\d+) tests? skipped and )?(\d+) failures?", text)
-    if not totals:
-        print("test log: no XCTest summary line found; nothing compared")
-        return 0
-    executed = int(totals[-1][0])
-    skipped = int(totals[-1][1] or 0)
-    baseline = None
+    results = {}
+    for name, outcome in re.findall(r"Test Case '(-\[[^\]]+\])' (passed|failed|skipped)", text):
+        # A test that is retried or listed twice counts once, with the last outcome.
+        results[name] = outcome
+    if results:
+        executed = len(results)
+        skipped = sum(1 for outcome in results.values() if outcome == "skipped")
+    else:
+        totals = re.findall(r"Executed (\d+) tests?, with (?:(\d+) tests? skipped and )?(\d+) failures?", text)
+        if not totals:
+            print("FAIL test log: no test result line and no XCTest summary line found; the skip count cannot be checked")
+            return 1
+        executed = int(totals[-1][0])
+        skipped = int(totals[-1][1] or 0)
+    # One baseline per job: the packages and the iPad simulator skip different tests. The key is the log's file name.
+    job = os.path.splitext(os.path.basename(arguments.test_log))[0]
+    baselines = {}
     if os.path.exists(baseline_path):
-        baseline = json.load(open(baseline_path, encoding="utf-8")).get("skippedTestsBaseline")
+        baselines = json.load(open(baseline_path, encoding="utf-8")).get("skippedTestsBaselines", {})
+    baseline = baselines.get(job)
     if baseline is None:
-        print(f"test log: {skipped} skipped of {executed}; no skippedTestsBaseline recorded yet. Add \"skippedTestsBaseline\": {skipped} to {BASELINE_PATH} after the first green CI run.")
+        print(f"test log {job}: {skipped} skipped of {executed}; no baseline recorded yet. Add \"{job}\": {skipped} to \"skippedTestsBaselines\" in {BASELINE_PATH} after the first green CI run.")
         return 0
     if skipped > baseline:
         print(f"FAIL test log: {skipped} skipped tests, above the baseline {baseline} (a skip names a missing platform capability, TR 14)")
@@ -755,7 +769,7 @@ def main():
     parser.add_argument("--strict", action="store_true", help="fail when a count is below its baseline too")
     parser.add_argument("--show", metavar="GATE", help="print the hits of one gate")
     parser.add_argument("--coverage", action="store_true", help="check that every source rule appears in a Sources cell of section 11")
-    parser.add_argument("--test-log", metavar="FILE", help="only compare the skipped-test count of a test log with skippedTestsBaseline")
+    parser.add_argument("--test-log", metavar="FILE", help="only compare the skipped-test count of a test log with its entry of skippedTestsBaselines")
     arguments = parser.parse_args()
     if arguments.coverage:
         return run_coverage(arguments)
