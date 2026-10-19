@@ -633,9 +633,9 @@ Phase 0 (2026-10-19) added characterization tests for 161 rows of priorities 1 t
 | C-05 | Pinned | CanvasJSONWriterWholeNumberTests |  |
 | C-07 | Pinned | CanvasConnectionKeyOrderTests; CanvasEditingTests |  |
 | C-12 | Pinned | CanvasSessionDuplicateIdentifierTests |  |
-| C-18 | Partly pinned | CanvasSessionAutosaveTests (in part) | GAP: the 900 ms boundary needs an injected clock (scheduleAutosave sleeps on the real clock). |
+| C-18 | Pinned | CanvasSessionAutosaveTests (on `ManualClock`: written at 900 ms, not at 899 ms) |  |
 | D-20 | Pinned | DocumentKindExtensionTests |  |
-| D-24 | Needs a seam | (defect, BUG-SHELL-02 still open) needs a seam: removeFromVaultList uses UserDefaults.standard and WorkspaceModel builds VaultLibrary itself. |  |
+| D-24 | Pinned (expected failure) | WorkspaceDeviceStateTests | (defect, BUG-SHELL-02 still open) `testRemovingAVaultFromTheListForgetsItsFolds` fails today and is wrapped in `XCTExpectFailure`; the fix removes the wrapper. |
 | D-25 | Pinned | QuitSaveDecisionTests (decision) | FIXED e4feaa1; the reply needs a seam (TerminationReply is private and calls NSApplication.shared). |
 | D-26 | Pinned | WorkspaceModelCanvasEditsDuringMoveTests | FIXED 4660830 |
 | D-27 | Pinned | VaultStoreConfigurationReadingTests; WorkspaceBookmarksUnreadableFileTests | FIXED 877045a |
@@ -657,13 +657,13 @@ Phase 0 (2026-10-19) added characterization tests for 161 rows of priorities 1 t
 | EX-06 | Pinned | reading-block-attributes.test.js; CommunityPluginCodeBlockPageAttributeTests |  |
 | EX-07 | Pinned | AddToNoteActivityTypeTests (UIKit only) |  |
 | EX-08 | Partly pinned | DiagnosticRecordsFileNameTests | GAP: the 80-record cap and never-overwrite need a seam (folder fixed to ~/Library/Diagnostics); the launch call and the MetricKit file name need a seam (a test that read App/GraphiteApp.swift was removed: no source-text assertions, FR-91). |
-| G-03 | Partly pinned | WorkspaceModelGraphNodeOpeningTests (in part) | GAP: the unresolved-node branch needs an open vault, which writes the vault library to UserDefaults.standard (seam). |
+| G-03 | Partly pinned | WorkspaceModelGraphNodeOpeningTests (in part) | GAP: the unresolved-node branch needs an open vault; the workspace can now be given an isolated device (`IsolatedWorkspaceDevice`), so the test is unblocked but not written. |
 | INK-01 | Partly pinned | DrawingEditorRequestCanvasWidthTests (in part) | GAP: "Cancel creates nothing" and "an unchanged drawing writes nothing" are decided inside the SwiftUI DrawingEditor (seam). |
 | INK-02 | Pinned | PencilDrawingChangeTests (UIKit only, run on the iPad simulator) |  |
 | INK-03 | Partly pinned | HistoryCanvasViewHistoryTests (in part; UIKit only) | GAP: the order of the native PencilKit lasso reset cannot be observed. |
 | INK-06 | Pinned | PencilActivityStateTimingTests |  |
 | INK-07 | Partly pinned | StrokeRestHoldThresholdsTests (in part) | GAP: the 0.45 s timer lives in the UIKit StrokeHoldRecognizer; only the constant is pinned. |
-| INK-08 | Partly pinned | InkLassoSelectionThresholdsTests; InkSelectionControllerTests (in part) | GAP: the rectangle-lasso case reads LassoShape.stored from UserDefaults.standard (seam). |
+| INK-08 | Partly pinned | InkLassoSelectionThresholdsTests; InkSelectionControllerTests (in part) | GAP: the rectangle-lasso case in the selection controller still reads `LassoShape.stored` (standard preferences); `LassoShape.stored(in:)` is the seam, the UIKit callers are not converted. |
 | INK-12 | Pinned | InkSelectionControllerTests |  |
 | INK-13 | Pinned | InkSelectionControllerTests |  |
 | INK-14 | Partly pinned | HistoryCanvasViewHistoryTests (in part) | GAP: a dragged held shape using the tool's last footprint runs only from touch callbacks. |
@@ -671,6 +671,7 @@ Phase 0 (2026-10-19) added characterization tests for 161 rows of priorities 1 t
 | INK-16 | Pinned | LassoPasteboardPreferredWidthTests; DrawingCanvasControllerNewPictureWidthTests (UIKit only) |  |
 | INK-17 | Partly pinned | DrawingEditorDraftStorePersistedFormatTests (in part) | GAP: removal only on Insert, Done, Cancel or Discard lives in the view's close() and the root view. |
 | IX-02 | Pinned | VaultIndexMigrationsTests |  |
+| IX-08 | Partly pinned | UiWorkspaceModelFixTests (the deadline rule); WorkspaceExternalRefreshTimingTests (on `ManualClock`: refresh at 500 ms, not at 499 ms; at 2 s under steady reports) | GAP: the 200-path cap and the whole-vault cases are pinned on `ExternalChangeRefresh` (UiWorkspaceModelFixTests); dropping the results for a vault closed meanwhile has no test. |
 | IX-13 | Pinned | WorkspaceMentionsLimitTests |  |
 | IX-14 | Pinned | BaseRecordPrefilterSupersetTests; BaseRecordPrefilterFileFunctionTests | FIXED a6672f6 |
 | M-10 | Pinned | PDFAnnotationKeyRegistryTests |  |
@@ -692,7 +693,7 @@ Phase 0 (2026-10-19) added characterization tests for 161 rows of priorities 1 t
 | N-04 | Pinned | WorkspaceModelOpeningTests; WorkspaceModelPluginFileViewTests; CommunityPluginHostRuntimeTests |  |
 | N-05 | Pinned | WorkspaceModelClosingTabsTests |  |
 | N-06 | Pinned | WorkspaceModelLoadingTabsTests |  |
-| N-10 | Needs a seam | needs a seam: the order (remember places, then save) is inline in GraphiteRootView's onChange(of: scenePhase). |  |
+| N-10 | Pinned | WorkspaceScenePhaseTests (`WorkspaceModel.scenePhaseDidChange(from:to:saveBeforeLeaving:)`) |  |
 | N-11 | Partly pinned | InfoPropertyListDeclarationsTests; GraphiteMacScenesTests; QuitSaveDecisionTests (in part) | GAP: the 5 s deadline and the one-time reply (private TerminationReply) and Settings ⌘W need a seam. |
 | N-12 | Needs a seam | needs a seam: the reading-view scroll restoration lives in @State and .task inside the private MarkdownPreview body. |  |
 | N-13 | Partly pinned | WorkspaceModelRecentFilesTests (in part) | GAP: the +1.5 recency bonus and when Create is offered are inside the private QuickSwitcher.items. |
@@ -714,7 +715,7 @@ Phase 0 (2026-10-19) added characterization tests for 161 rows of priorities 1 t
 | PDF-04 | Partly pinned | PDFObjectCompactionApplicabilityTests; PDFObjectCompactionTests (in part) | GAP: "the compacted output is used only when it opens with the same page count" needs a seam (PDFFileService.write is static, no fake compactor). |
 | PDF-05 | Partly pinned | PDFBaselineSnapshotNamingTests (in part) | GAP: removal at the first copy of a launch is a lazy static that runs once per process. |
 | PDF-06 | Pinned | PDFSessionBookmarkTests; ApplePdfFixTests |  |
-| PDF-07 | Partly pinned | PDFSessionAutosavePolicyTests (in part) | GAP: "a conflict stops autosave" (private scheduleAutosave on the real clock) and the 3 attempts of deletion copies need a seam. |
+| PDF-07 | Partly pinned | PDFSessionAutosavePolicyTests (on `ManualClock`, including a conflict that stops autosave) | GAP: the 3 attempts of deletion copies need a seam. |
 | PDF-08 | Pinned | PDFPageCommandsExportFilenameTests; UiPdfSessionFixTests |  |
 | PDF-09 | Pinned | PDFTemplateGeneratorLimitsTests |  |
 | PDF-10 | Pinned | PageCoordinatesTests; CoreDrawingDataFixTests; VaultTests |  |
@@ -764,7 +765,7 @@ Phase 0 (2026-10-19) added characterization tests for 161 rows of priorities 1 t
 | REC-06 | Pinned | RecordingControllerIntentTests |  |
 | REC-07 | Partly pinned | WorkspaceRecordingDestinationTests (in part) | GAP: the preference-off case needs a seam (preferences on UserDefaults.standard); the file name uses Date.now and is checked by pattern. |
 | SEC-01 | Pinned | GraphiteEntitlementsTests |  |
-| SEC-03 | Pinned | CommunityPluginHostWebViewConfigurationTests | NOTE: "never on the main thread" is not unit-testable; uses UserDefaults.standard consent key (Phase 1 seam). |
+| SEC-03 | Pinned | CommunityPluginHostWebViewConfigurationTests | NOTE: "never on the main thread" is not unit-testable. The consent key is read and written through the workspace's injected preferences. |
 | SEC-04 | Pinned | CommunityPluginSchemeHandlerVaultBoundaryTests |  |
 | SEC-05 | Partly pinned | CommunityPluginMessageReceiverNavigationTests; CommunityPluginHostMessageBoundaryTests; runtime-link-safety.test.js | GAP: the allowed http/https/mailto case opens through the static ExternalLinkOpener (NSWorkspace/UIApplication): needs an injectable opener (Phase 1). |
 | SEC-06 | Partly pinned | CommunityPluginCodeBlockDisplayTests | GAP: makeWebView is private; the built configuration is checked on AppKit only. |
@@ -777,15 +778,15 @@ Phase 0 (2026-10-19) added characterization tests for 161 rows of priorities 1 t
 | ST-03 | Pinned | GraphitePreferencesPersistedKeysTests |  |
 | ST-04 | Pinned | GraphitePreferencesPersistedKeysTests |  |
 | ST-05 | Pinned | GraphitePreferencesPersistedKeysTests | NOTE: pins that only the defaults key is written; that no vault file is written needs a seam. |
-| ST-06 | Needs a seam | needs a seam: command identifiers are literals inside WorkspaceCommandList.commands(for:window:), which needs a WorkspaceModel built on UserDefaults.standard. The recent-commands list is pinned under ST-04. |  |
-| ST-07 | Partly pinned | SidebarPanelSettingKeyTests (in part) | GAP: GraphiteInspectorPanel and GraphiteShowsUnlinkedMentions are private @AppStorage literals; WorkspaceCommands writes the panel key to UserDefaults.standard. |
-| ST-08 | Partly pinned | PencilPreferenceKeyTests (in part) | GAP: LassoShape.stored and LaserPointerStyle.stored read UserDefaults.standard; GraphiteDrawingDrawsWithFinger and the GraphiteDrawsShapes default live in @AppStorage. |
+| ST-06 | Partly pinned | WorkspaceCommandIdentifiersTests (golden lists with no vault and with a note open) | GAP: the `community-plugin:`, `community-plugin-ribbon:` and `community-plugin-view:` prefixes need a running plugin runtime. |
+| ST-07 | Partly pinned | SidebarPanelSettingKeyTests; WorkspaceCommandIdentifiersTests (`GraphiteInspectorPanel`, `sidebarPanel` written to the injected preferences) | GAP: `GraphiteShowsUnlinkedMentions` is a private `@AppStorage` literal in MarkdownPane. |
+| ST-08 | Partly pinned | PencilPreferenceKeyTests; InkLassoTests (`LassoShape` and `LaserPointerStyle` through `stored(in:)`) | GAP: `GraphiteDrawingDrawsWithFinger` and the `GraphiteDrawsShapes` default live in `@AppStorage` and UIKit. |
 | ST-10 | Pinned | PDFAnnotationPreferenceKeyTests | NOTE: the shared-key check with PencilToolPalette is UIKit-only and not run by swift test on macOS. |
-| ST-11 | Partly pinned | GraphSettingKeyTests (in part) | GAP: canvas and graph defaults are read from UserDefaults.standard / private @AppStorage. |
+| ST-11 | Partly pinned | GraphSettingKeyTests (in part) | GAP: the canvas keys are read in CanvasSession from the standard preferences, and the graph defaults are private `@AppStorage` literals. |
 | ST-12 | Partly pinned | ReadAloudSessionPreferenceKeysTests; ReadAloudControllerPreferenceKeysTests; NeuralVoiceLibraryPreferenceKeysTests (in part) | GAP: GraphiteReadAloudPlayerCorner, GraphiteReadAloudTapHintShown, GraphiteReadAloudFloatingPlayer and the suite com.graphite.study.readAloudSample are literals in views. |
 | ST-14 | Pinned | ReadAloudNavigatorPlaceKeysTests |  |
 | ST-15 | Pinned | ReadAloudNavigatorPlaceKeysTests |  |
-| ST-18 | Needs a seam | needs a seam: WorkspaceModel writes GraphiteExpandedFolders.<UUID> and GraphiteRecentFiles.<UUID> to UserDefaults.standard; the key builders are private static. |  |
+| ST-18 | Pinned | WorkspaceDeviceStateTests |  |
 | ST-25 | Pinned | InAppNotificationNamesTests |  |
 | ST-26 | Partly pinned | ApplicationStorageLocationsTests (in part) | GAP: RecordingRecoveryFolder.location() and NeuralVoiceCatalog.voicesFolder() create real folders when called; "Graphite Exports" is inside the iOS-only exportDrawingCopy. |
 | TH-02 | Pinned | ThemeProbeVocabularyTests |  |
