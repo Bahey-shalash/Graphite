@@ -16,7 +16,7 @@ What was checked:
 | Pencil test (2026-10-19) | 1 | Goodnotes on the iPad with an Apple Pencil, iPadOS 27.0.1 | 27 | Ball pen at 0.3, 0.55 and 0.9 mm, fountain pen, brush pen, pencil shading with tilt, highlighter presets, rectangles, ellipses, an arc, fills, two animated GIFs, two stickers, two saved drawings; with Goodnotes' PDF export. How the writing feels is in [Goodnotes-writing-feel.md](Goodnotes-writing-feel.md) |
 | Library selection (2026-10-19) | 35 | Goodnotes on the iPad, versions not recorded | 24, 25, 26 | Chosen from the owner's 691-notebook semester library to cover every schema and every unknown the first reader reported there: older text boxes, older varying-width ink, outline entries, page moves, recordings and their deletion |
 
-The made-for-purpose samples and the library selection are on the `samples/import-formats` branch, under `ImportSamples/Goodnotes/`, each with a README saying what was done. **Still not in any sample:** text box rotation; a link to a page; and the meaning of several fields marked unknown below.
+The made-for-purpose samples and the library selection are kept on the owner's Mac only, in the local `samples/import-formats` branch under `ImportSamples/Goodnotes/`, each with a README saying what was done. They hold personal notebooks, so they are not on GitHub. **Still not in any sample:** text box rotation; a link to a page; and the meaning of several fields marked unknown below.
 
 ## Container
 
