@@ -3,7 +3,6 @@
   "comment": "Counts of what the rules forbid; they only go down. Lower them with `python3 scripts/check-rules.py --record`. See Docs/solid/rewrite-foundations.md section 12.2.",
   "recordedOn": "2026-10-19",
   "recordedAtRevision": "2dcc5e8, clean export",
-  "skippedTestsBaseline": 5,
   "gates": {
     "ambient-time-and-randomness": 64,
     "app-storage-literals": 7,
@@ -41,5 +40,8 @@
     "workspace-model-parameters": 26,
     "workspace-model-stored": 74,
     "xct-skip-count": 35
+  },
+  "skippedTestsBaselines": {
+    "hosted-ipad": 5
   }
 }
