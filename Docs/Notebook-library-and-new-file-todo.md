@@ -47,7 +47,7 @@ The owner chose the first two; the rest are defaults taken to start building, ea
 
 ## Part 1: the library presentation choice
 
-- [x] A choice in Settings (General › Notes and Notebooks) and in the Files panel's options menu: List or Library, per device.
+- [x] A choice per device: a Library | List switch in the library's top row, a "Show as Library" button in the List sidebar's bar, and Settings › General › Notes and Notebooks. In Library mode on the iPad and the Mac there is no sidebar and no sidebar button (owner, 2026-10-19); the library's top row has Settings and Find a File buttons, and Vaults in its options menu.
 - [x] Library view of one folder at a time, with a back button and the folder's name. Opening a folder tile enters it; a file opens as a tab on the iPad and the Mac, and the house button brings the library back; on the iPhone it opens in place.
 - [x] Sort (the vault's sort order: name, modified, created) and filter (all, notebooks and PDFs, notes, pictures and drawings, canvases and bases).
 - [x] Favorites are Obsidian's bookmarks: Bookmark in an item's menu adds or removes it, and a bookmarked item shows a small star by its date. Not built: a Favorites section of its own in the library (the Bookmarks panel lists them).

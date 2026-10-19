@@ -81,8 +81,10 @@ public struct GraphiteRootView: View {
             // made anew for each update made the iPad's sidebar update again without end, and
             // the app never drew its first frame. The Mac's sidebar has no Settings button.
             VaultSidebar(workspace: workspace, creation: $creation, showsSettings: $showsSettings, showsVaultManager: $workspace.isVaultManagerPresented,
-                         showDocument: showDocumentColumn)
+                         showDocument: showDocumentColumn, isWindowCompact: isCompactWidth)
                 .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 480)
+                // The library is the file browser in Library mode: no button opens a sidebar beside it.
+                .toolbar(removing: isLibraryWindow ? .sidebarToggle : nil)
         } detail: {
             detailColumn
                 .overlay {
@@ -114,6 +116,7 @@ public struct GraphiteRootView: View {
                                                columnVisibility: $columnVisibility))
         .environment(\.accent, workspace.preferences.accentColor)
         .environment(library)
+        .environment(\.libraryWindowActions, libraryWindowActions)
         // Notes, embeds and content lists draw in the vault's fonts (Settings › Appearance › Font).
         .environment(\.noteTypography, workspace.noteTypography)
         // Notes take the vault's Obsidian theme (Settings › Appearance › Use the Vault's Obsidian Theme).
@@ -286,6 +289,16 @@ public struct GraphiteRootView: View {
             .inspector(isPresented: Binding(get: { showsInspector && workspace.markdownSession != nil }, set: { isPresented in showsInspector = isPresented })) {
                 if let note = workspace.markdownSession { NoteLinksInspector(session: note, workspace: workspace).inspectorColumnWidth(min: 240, ideal: 280) }
             }
+    }
+
+    /// A window in Library mode wider than a phone: the library replaces the sidebar.
+    private var isLibraryWindow: Bool {
+        workspace.preferences.library.presentation == .library && !isCompactWidth
+    }
+
+    private var libraryWindowActions: LibraryWindowActions {
+        LibraryWindowActions(showSearch: { activePalette = .quickSwitcher }, showSettings: showSettings,
+                             showVaults: { workspace.isVaultManagerPresented = true })
     }
 
     /// While the library is the window's home, the title bar names no document.
