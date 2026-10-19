@@ -57,11 +57,17 @@ jobs:
       - name: Install the Metal toolchain
         run: xcodebuild -downloadComponent MetalToolchain
 
+      # The cache key comes from a shell step, not from `hashFiles`: that function has a hard limit of 120 seconds during
+      # workflow evaluation, and a freshly started runner has failed it ("Waiting on Data Migration").
+      - name: Name the cache by the package files
+        id: package-files
+        run: echo "hash=$(shasum -a 256 Package.swift Package.resolved | shasum -a 256 | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
       - name: Cache SwiftPM build products
         uses: actions/cache@v4.2.3
         with:
           path: .build
-          key: swiftpm-${{ runner.os }}-${{ env.DEVELOPER_DIR_VERSION }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          key: swiftpm-${{ runner.os }}-${{ env.DEVELOPER_DIR_VERSION }}-${{ steps.package-files.outputs.hash }}
           restore-keys: |
             swiftpm-${{ runner.os }}-${{ env.DEVELOPER_DIR_VERSION }}-
 
@@ -111,11 +117,17 @@ jobs:
           echo "udid=$udid" >> "$GITHUB_OUTPUT"
           xcrun simctl bootstatus "$udid" -b
 
+      # The cache key comes from a shell step, not from `hashFiles`: that function has a hard limit of 120 seconds during
+      # workflow evaluation, and a freshly started runner has failed it ("Waiting on Data Migration").
+      - name: Name the cache by the package files
+        id: package-files
+        run: echo "hash=$(shasum -a 256 Package.swift Package.resolved | shasum -a 256 | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
       - name: Cache resolved packages
         uses: actions/cache@v4.2.3
         with:
           path: ${{ runner.temp }}/SourcePackages
-          key: sourcepackages-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          key: sourcepackages-${{ runner.os }}-${{ steps.package-files.outputs.hash }}
 
       - name: xcodebuild test (hosted suite, iPad simulator)
         env:
