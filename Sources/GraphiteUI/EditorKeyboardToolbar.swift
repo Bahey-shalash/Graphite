@@ -33,6 +33,8 @@ struct EditorActions {
     var choosePhoto: (() -> Void)?
     /// Nil where the device has no camera.
     var takePhoto: (() -> Void)?
+    /// Creates a notebook (a PDF) from the note, embedded or linked at the cursor.
+    var newNotebook: (() -> Void)?
     var draw: (() -> Void)?
     /// Starts a drawing when Apple Pencil is double-tapped; nil where the note's side is not
     /// focused or the setting is off.
@@ -259,6 +261,9 @@ final class EditorKeyboardToolbar: UIInputView {
         if let takePhoto = actions.takePhoto { items.append(UIAction(title: "Take Photo", image: UIImage(systemName: "camera")) { _ in takePhoto() }) }
         if let choosePhoto = actions.choosePhoto { items.append(UIAction(title: "Photo Library", image: UIImage(systemName: "photo.on.rectangle")) { _ in choosePhoto() }) }
         if let attach = actions.attach { items.append(UIAction(title: "Choose File", image: UIImage(systemName: "folder")) { _ in attach() }) }
+        if let newNotebook = actions.newNotebook {
+            items.append(UIAction(title: "New Notebook", image: UIImage(systemName: "book.closed")) { _ in newNotebook() })
+        }
         button.menu = UIMenu(title: "Attach", children: items)
         button.showsMenuAsPrimaryAction = true
         stackView.addArrangedSubview(button)

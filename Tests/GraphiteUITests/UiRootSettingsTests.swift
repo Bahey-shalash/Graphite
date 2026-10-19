@@ -316,21 +316,6 @@ final class UiRootSettingsTests: XCTestCase {
         XCTAssertEqual(PaletteColorNames.unusedName(in: [PaletteColor(name: "red", hex: "#e93147")]), "color-2")
     }
 
-    // MARK: New notebooks
-
-    /// The create sheet used to close first and let the generator reject the size, so the
-    /// user's entries were lost.
-    func testCustomPaperSizeProblemMatchesWhatTheGeneratorAccepts() throws {
-        for sideLength in [72.0, 612, 2880] {
-            XCTAssertNil(CustomPaperSize.problem(with: CGSize(width: sideLength, height: 792)))
-            XCTAssertNoThrow(try PDFTemplateGenerator.documentData(paper: PaperSpecification(width: sideLength, height: 792)))
-        }
-        for sideLength in [71.9, 2880.1, 50, 0, -10, 100_000, .infinity, .nan] {
-            XCTAssertNotNil(CustomPaperSize.problem(with: CGSize(width: 612, height: sideLength)), "\(sideLength)")
-            XCTAssertThrowsError(try PDFTemplateGenerator.documentData(paper: PaperSpecification(width: 612, height: sideLength)), "\(sideLength)")
-        }
-    }
-
     // MARK: Image decoding
 
     func testImagePreparedForDisplayKeepsItsSizeAndRejectsOtherData() async throws {

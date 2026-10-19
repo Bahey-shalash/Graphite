@@ -9,6 +9,8 @@ import GraphiteIndex
 struct CreationRequest: Identifiable {
     let kind: CreationKind
     var directory: VaultPath?
+    /// Opens the new file in a tab of its own, as from the library, which stays as the home tab.
+    var opensInNewTab = false
     var id: String { kind.rawValue + "|" + (directory?.rawValue ?? "") }
 }
 
@@ -66,16 +68,25 @@ struct VaultSidebar: View {
     @Environment(\.noteTypography) private var typography
     @AppStorage(SidebarPanelSettingKey.panel) private var storedPanel = SidebarPanel.files
     @State private var overview = VaultOverviewModel()
+    @Environment(LibraryModel.self) private var library: LibraryModel?
     @AppStorage(SidebarPanelSettingKey.tagSortOrder) private var tagSortOrder = VaultListSortOrder.frequencyDescending
     @AppStorage(SidebarPanelSettingKey.showsNestedTags) private var showsNestedTags = true
     @AppStorage(SidebarPanelSettingKey.propertySortOrder) private var propertySortOrder = VaultListSortOrder.frequencyDescending
 
+    /// In Library mode on a wide window the library is the file browser, so the sidebar
+    /// keeps search, bookmarks, tags and properties but not a second file tree.
     private var availablePanels: [SidebarPanel] {
-        SidebarPanel.allCases.filter { panel in panel.plugin.map(workspace.preferences.isEnabled) ?? true }
+        let showsFileTree = workspace.preferences.library.presentation == .list || isCompactWidth
+        return SidebarPanel.allCases.filter { panel in
+            (panel.plugin.map(workspace.preferences.isEnabled) ?? true) && (panel != .files || showsFileTree)
+        }
     }
 
-    /// The chosen panel, or the file list when its plugin was turned off.
-    private var panel: SidebarPanel { availablePanels.contains(storedPanel) ? storedPanel : .files }
+    /// The chosen panel, or the first offered when its plugin was turned off or the library
+    /// replaces the file list.
+    private var panel: SidebarPanel {
+        availablePanels.contains(storedPanel) ? storedPanel : (availablePanels.first ?? .files)
+    }
     /// A community plugin's view chosen in the picker, shown in place of Graphite's panels,
     /// kept by the plugin host so it is saved with the layout and shown again after a restart.
     private var chosenPluginView: String? {
@@ -191,7 +202,10 @@ struct VaultSidebar: View {
                     .tint(.primary)
                     .help("New Note")
                     #else
-                    Menu("New", systemImage: "square.and.pencil") { newDocumentMenuItems }
+                    NewItemButton(firstKind: workspace.preferences.library.firstCreatedKind, isEnabled: workspace.preferences.isEnabled,
+                                  actions: newItemActions) {
+                        Label("New", systemImage: "square.and.pencil")
+                    }
                     .tint(.primary)
                     #endif
                     Menu("\(panel.title) Options", systemImage: "ellipsis") { panelMenu }
@@ -244,8 +258,21 @@ struct VaultSidebar: View {
                 overview.isCreatingBookmarkGroup = true
             }
         case .files:
+            Picker("Show Files As", selection: Binding(get: { workspace.preferences.library.presentation },
+                                                       set: { presentation in workspace.preferences.library.presentation = presentation })) {
+                ForEach(LibraryPresentation.allCases) { presentation in Label(presentation.title, systemImage: presentation.systemImage).tag(presentation) }
+            }
+            .pickerStyle(.inline)
             FileExplorerMenuItems(workspace: workspace) { path in fileToReveal = path }
         }
+    }
+
+    private var newItemActions: NewItemActions {
+        NewItemActions(directory: nil,
+                       create: { kind, directory in creation = CreationRequest(kind: kind, directory: directory) },
+                       openDailyNote: { Task { await workspace.openDailyNote() } },
+                       newFolder: { directory in workspace.fileSheet = .newFolder(in: workspace.newFileDirectory(directory)) },
+                       importFiles: { sources, directory in Task { await workspace.importFiles(from: sources, into: workspace.newFileDirectory(directory)) } })
     }
 
     @ViewBuilder private var newDocumentMenuItems: some View {
@@ -282,11 +309,26 @@ struct VaultSidebar: View {
                 swiftUIList
             }
             #else
-            swiftUIList
+            if let library, showsLibrary {
+                let requestCreation = { (kind: CreationKind, directory: VaultPath?) in creation = CreationRequest(kind: kind, directory: directory) }
+                LibraryView(library: library, vault: workspace.libraryVault,
+                            actions: workspace.libraryActions(openFile: { path in Task { await workspace.open(path) }; showDocument() },
+                                                              requestCreation: requestCreation),
+                            entries: workspace.libraryEntryPresentation { kind, directory in requestCreation(kind, directory) })
+            } else {
+                swiftUIList
+            }
             #endif
         }
         // Folders expanded in one vault must not stay expanded, with stale contents, in the next.
         .id(workspace.currentVaultIdentifier)
+    }
+
+    /// On a phone the sidebar is the whole screen, so the library takes the file list's place;
+    /// a wider window shows it in an empty tab instead.
+    private var showsLibrary: Bool {
+        isCompactWidth && workspace.preferences.library.presentation == .library && workspace.store != nil
+            && workspace.searchQuery.isEmpty && panel == .files && workspace.pickedSidebarFiles == nil
     }
 
     #if os(macOS)

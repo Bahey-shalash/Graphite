@@ -17,6 +17,9 @@ final class TabDocument {
     var headingScrollRequest: HeadingScrollRequest?
     /// The view a `[[Books.base#Gallery]]` link asked the tab's base to show.
     var baseViewRequest: BaseViewRequest?
+    /// A notebook to create from the tab's note, asked for by the note's menus or the
+    /// command palette; the note's pane shows the New Notebook sheet for it.
+    var notebookInsertion: NotebookInsertionRequest?
     var isOpening = false
     /// The community plugin view an empty tab shows (its leaf's identifier), until a file opens in it.
     var pluginViewIdentifier: String?

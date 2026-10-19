@@ -205,6 +205,10 @@ final class GraphitePreferences {
     }
 
     private let defaults: UserDefaults
+    /// The library's own settings, kept apart from the rest.
+    let library: NotebookLibraryPreferences
+    /// The paper and size the next notebook starts with.
+    let notebookCreation: NotebookCreationDefaults
 
     var drawingFormat: DrawingFormat { didSet { defaults.set(drawingFormat.rawValue, forKey: Key.drawingFormat) } }
     var drawingBackground: DrawingBackground { didSet { defaults.set(drawingBackground.rawValue, forKey: Key.drawingBackground) } }
@@ -356,6 +360,8 @@ final class GraphitePreferences {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        library = NotebookLibraryPreferences(defaults: defaults)
+        notebookCreation = NotebookCreationDefaults(defaults: defaults)
         drawingFormat = defaults.string(forKey: Key.drawingFormat).flatMap(DrawingFormat.init(rawValue:)) ?? .png
         drawingBackground = defaults.string(forKey: Key.drawingBackground).flatMap(DrawingBackground.init(rawValue:)) ?? .white
         drawsOnPencilDoubleTap = defaults.object(forKey: Key.drawsOnPencilDoubleTap) as? Bool ?? true
