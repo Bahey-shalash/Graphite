@@ -1,6 +1,6 @@
 # The Goodnotes file format (`.goodnotes`)
 
-Status: Phase 1 of [the import checklist](Goodnotes-Notability-import-todo.md). Recovered from the owner's notebooks, on 2026-10-18 and 2026-10-19, by reading the files only; no part of Goodnotes was run, decompiled or copied. Nothing here is implemented in Graphite yet.
+Status: Phase 1 of [the import checklist](Goodnotes-Notability-import-todo.md). Recovered from the owner's notebooks, on 2026-10-18 and 2026-10-19, by reading the files only; no part of Goodnotes was run, decompiled or copied. Phase 2 added a Swift reader in GraphiteCore (`GoodnotesNotebookReader`, see Swift reader below); nothing converts a notebook into Graphite's files yet (Phase 3).
 
 What was checked:
 
@@ -211,6 +211,59 @@ Placement, checked against the export's text layer: the text starts at the origi
 ### Sticky notes (body field 20)
 
 20 `{1: origin}`; 21 `{2: {1: width, 2: height}}`, 256 × 256 in the sample; 30 paper colour; 31 rich text as in a text box; 32 the author's account id; 33 the author's name, which Goodnotes prints at the bottom of the note; 40, 41 1. The note appears in the export at its origin and size.
+
+## Swift reader
+
+`GoodnotesNotebookReader` (GraphiteCore, `Sources/GraphiteCore/NotebookImport/`) reads what `scripts/goodnotes-reader.py` reads, into plain values for the conversion of Phase 3. It takes the notebook's bytes (memory-mapped by the caller) and inflates a ZIP entry only when it is asked for, so opening a notebook reads `schema.pb` and the event log, and `page(at:)` reads one page's layer: no notebook sits in memory decoded whole. Its parts: a ZIP reader with zlib (`ZipArchive`), a schema-less protobuf wire-format reader (`ProtocolBufferMessage`, no protobuf library or generated code), Apple's LZ4 framing (`AppleLZ4Decoder`), tpl images (`TplImage`), the event log's last-writer-wins registers (`GoodnotesEventLog`), the page layer (`GoodnotesLayerReader`) and the element bodies and path layouts (`GoodnotesElementDecoder`, `GoodnotesStrokePathDecoder`, `GoodnotesOutlineDecoder`). Every size read from the file is checked against the bytes present before anything is allocated (`NotebookImportLimits`, the reference reader's limits: 512 MiB per entry, 64 MiB per compressed payload).
+
+Unknowns are reported as `GoodnotesReadingIssue` cases, one per kind of "unknown" the reference reader prints. Where the reference reader stops with an error, the Swift reader skips only the part it cannot read (an event record, a layer record, an element) and lists it with its typed error; a page is returned as far as it was read. A file that is not a ZIP archive, or a ZIP archive with no `schema.pb`, fails with a typed `GoodnotesReadingError`.
+
+Its counts equal the reference reader's on all 41 notebooks of the `samples/import-formats` branch (the six made for the purpose and the 35 of the library selection; the four notebooks of 2026-10-18 and the Pencil test are not on that branch and were not compared). The test is `GoodnotesNotebookReaderSampleTests`, which compares every count below and the set of unknown categories with `scripts/import-reference-counts.py`, on 2026-10-19. Points are those of each stroke's path: per subpath its start and two per quadratic curve, a varying-width stroke's centre line the same, and none for the older varying-width ink, whose centre line is not decoded. Library notebooks are numbered in the order of their paths. Each number is the Swift reader's and the reference reader's alike.
+
+| Sample | Pages | Strokes | Points | Pictures | Text boxes | Fills | Sticky notes | Outline segments |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Recording with writing | 1 | 2 | 12 | 0 | 0 | 0 | 0 | 0 |
+| Deleted page | 2 | 0 | 0 | 0 | 2 | 0 | 0 | 0 |
+| Inks | 1 | 5 | 157 | 0 | 0 | 0 | 0 | 22 |
+| Turned and cropped pictures | 1 | 0 | 0 | 2 | 0 | 0 | 0 | 0 |
+| Tape, sticky note, link | 1 | 1 | 7 | 0 | 1 | 0 | 1 | 3 |
+| Text boxes | 2 | 0 | 0 | 0 | 2 | 0 | 0 | 0 |
+| Library 1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Library 2 | 3 | 11,299 | 292,324 | 2 | 0 | 3 | 0 | 0 |
+| Library 3 | 33 | 6,035 | 123,976 | 15 | 0 | 2 | 0 | 0 |
+| Library 4 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Library 5 | 8 | 1,208 | 32,684 | 2 | 0 | 0 | 0 | 0 |
+| Library 6 | 4 | 46,103 | 1,228,029 | 11 | 0 | 120 | 0 | 2 |
+| Library 7 | 1 | 1 | 23 | 0 | 0 | 0 | 0 | 0 |
+| Library 8 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Library 9 | 11 | 3,207 | 77,315 | 16 | 0 | 0 | 0 | 0 |
+| Library 10 | 8 | 786 | 19,780 | 11 | 0 | 0 | 0 | 68 |
+| Library 11 | 10 | 1,897 | 41,860 | 5 | 0 | 1 | 0 | 0 |
+| Library 12 | 3 | 954 | 20,589 | 4 | 0 | 0 | 0 | 0 |
+| Library 13 | 7 | 2,055 | 59,315 | 4 | 0 | 5 | 0 | 351 |
+| Library 14 | 9 | 1,809 | 40,904 | 7 | 0 | 1 | 0 | 0 |
+| Library 15 | 12 | 5,599 | 152,221 | 4 | 0 | 4 | 0 | 0 |
+| Library 16 | 35 | 1 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Library 17 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Library 18 | 7 | 950 | 27,400 | 17 | 1 | 0 | 0 | 0 |
+| Library 19 | 29 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Library 20 | 3 | 37 | 715 | 0 | 0 | 0 | 0 | 0 |
+| Library 21 | 39 | 9,839 | 220,956 | 8 | 16 | 10 | 0 | 0 |
+| Library 22 | 3 | 585 | 11,406 | 3 | 0 | 0 | 0 | 0 |
+| Library 23 | 3 | 569 | 9,272 | 3 | 0 | 0 | 0 | 0 |
+| Library 24 | 3 | 991 | 22,218 | 3 | 0 | 1 | 0 | 0 |
+| Library 25 | 26 | 213 | 5,941 | 0 | 0 | 2 | 0 | 0 |
+| Library 26 | 16 | 1,850 | 38,635 | 12 | 0 | 1 | 0 | 0 |
+| Library 27 | 2 | 0 | 0 | 4 | 5 | 0 | 0 | 0 |
+| Library 28 | 4 | 0 | 0 | 1 | 0 | 0 | 0 | 0 |
+| Library 29 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Library 30 | 5 | 1,131 | 28,323 | 6 | 0 | 0 | 0 | 0 |
+| Library 31 | 16 | 1,595 | 33,580 | 12 | 0 | 0 | 0 | 0 |
+| Library 32 | 5 | 1,889 | 56,335 | 3 | 0 | 3 | 0 | 0 |
+| Library 33 | 6 | 1,732 | 39,935 | 4 | 0 | 0 | 0 | 0 |
+| Library 34 | 1 | 129 | 3,011 | 1 | 0 | 0 | 0 | 0 |
+| Library 35 | 13 | 4,024 | 101,759 | 6 | 0 | 12 | 0 | 0 |
+| **All 41** | **341** | **106,496** | **2,688,682** | **166** | **27** | **165** | **1** | **446** |
 
 ## Comparison with Goodnotes' own export
 
