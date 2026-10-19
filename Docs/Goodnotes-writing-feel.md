@@ -75,6 +75,8 @@ What can therefore differ, by reading the code (none of it has been checked on t
 2. **The tool's other properties.** The palette's tool is PencilKit's own object, which may carry properties the bar's does not set (on iOS 26 and later an inking tool also has an azimuth; the bar's is built without one). The scaled tool keeps the azimuth.
 3. **Moments with the palette's raw tool.** Whenever PencilKit gives the canvas the palette's tool without a selection change Graphite hears of, the canvas draws with the width not multiplied by the page's zoom until the next correction: on a page zoomed to a canvas scale of 2, strokes would be half as thick on the page.
 
+Ruled out by reading the code: the drawing policy (Pencil only, or any input with Draw with Finger) is set the same way in both (`GraphitePDFView`, `DrawingEditor`); the page keeps first responder by the same rule (`PDFAnnotationInput.holdsFirstResponder`, which follows focus); and the bar does not redraw while writing, since everything in `PencilToolbox` that changes during a stroke is excluded from observation and the rest changes only when a tool is chosen. What remains is the tool itself: its width, its other properties, and the moments the palette's unscaled tool is on the canvas.
+
 Which of these it is shows at once in a log of the tool the canvas has when each stroke begins (ink, width, azimuth, the canvas's zoom), written with the bar and with the palette at the same zoom and the same chosen width.
 
 ## Experiments, on the iPad
