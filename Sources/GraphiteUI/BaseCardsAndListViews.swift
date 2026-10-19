@@ -137,8 +137,30 @@ struct BaseCardsView: View {
     }
 }
 
+/// How a list view's separator joins the values written inline. It follows each value but
+/// the last, as Obsidian writes "Dune, Frank Herbert". A line may break between values; a
+/// separator ending in a space keeps its other characters with the value before it, and
+/// its space becomes the gap where the line breaks, so no line starts with ", ".
+struct BaseListInlineSeparator {
+    /// What follows a value on its line.
+    let attachedText: String
+    /// Whether a space follows the attached text.
+    let isFollowedBySpace: Bool
+
+    init(separator: String) {
+        let attachedText = separator.replacing(/\s+$/, with: "")
+        self.attachedText = attachedText
+        isFollowedBySpace = attachedText.count < separator.count
+    }
+}
+
 /// Obsidian's list view: one item per file, with its other properties inline or indented.
 struct BaseListView: View {
+    /// The gap a separator's trailing space leaves between inline values.
+    private static let inlineSpaceWidth: CGFloat = 4
+    /// The gap between lines of inline values that wrap.
+    private static let inlineLineSpacing: CGFloat = 2
+
     let result: BaseQueryResult
     let actions: BaseViewActions
 
@@ -158,7 +180,8 @@ struct BaseListView: View {
                 ForEach(Array(visibleGroup.rows.enumerated()), id: \.element.id) { position, row in item(row, number: position + 1) }
             }
         }
-        .padding(.horizontal, 20)
+        // The toolbar's margin, so the list lines up under the view's name.
+        .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .frame(maxWidth: 900, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -186,17 +209,7 @@ struct BaseListView: View {
                         .padding(.leading, 12)
                     }
                 } else {
-                    // The separator follows each value, as Obsidian writes "Dune, Frank Herbert".
-                    HStack(alignment: .firstTextBaseline, spacing: 0) {
-                        primary(row, position: primaryPosition)
-                        ForEach(otherPositions, id: \.self) { position in
-                            Text(options.separator).foregroundStyle(.tertiary)
-                            BaseCellView(cell: row.cells[position], lineLimit: 1, actions: actions,
-                                         editRequest: actions.editRequest(row.path, result.columns[position].property, row.cells[position]),
-                                         holdsTags: result.columns[position].property.holdsTags)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+                    inlineValues(row, primaryPosition: primaryPosition, otherPositions: otherPositions)
                 }
             }
             Spacer(minLength: 0)
@@ -205,6 +218,27 @@ struct BaseListView: View {
         .contentShape(Rectangle())
         .onTapGesture { actions.openPath(row.path) }
         .contextMenu { Button("Open", systemImage: "arrow.up.forward.square") { actions.openPath(row.path) } }
+    }
+
+    /// The file and its values on one line, wrapping onto more lines between values when a
+    /// narrow view (a phone) cannot fit them, instead of cutting each value short.
+    private func inlineValues(_ row: BaseResultRow, primaryPosition: Int?, otherPositions: [Int]) -> some View {
+        let separator = BaseListInlineSeparator(separator: options.separator)
+        return WrappingRowLayout(horizontalSpacing: separator.isFollowedBySpace ? Self.inlineSpaceWidth : 0, verticalSpacing: Self.inlineLineSpacing) {
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                primary(row, position: primaryPosition)
+                if !otherPositions.isEmpty { Text(separator.attachedText).foregroundStyle(.tertiary) }
+            }
+            ForEach(otherPositions, id: \.self) { position in
+                HStack(alignment: .firstTextBaseline, spacing: 0) {
+                    BaseCellView(cell: row.cells[position], lineLimit: 1, actions: actions,
+                                 editRequest: actions.editRequest(row.path, result.columns[position].property, row.cells[position]),
+                                 holdsTags: result.columns[position].property.holdsTags)
+                        .foregroundStyle(.secondary)
+                    if position != otherPositions.last { Text(separator.attachedText).foregroundStyle(.tertiary) }
+                }
+            }
+        }
     }
 
     @ViewBuilder private func primary(_ row: BaseResultRow, position: Int?) -> some View {
