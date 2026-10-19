@@ -1,10 +1,21 @@
 # How writing in Goodnotes feels, from its files
 
-Status: findings, recorded on 2026-10-19. Nothing here is implemented in Graphite.
+Status: findings and requests, recorded on 2026-10-19. Nothing here is implemented in Graphite.
 
-The owner wrote in the Pencil test notebook that Goodnotes' writing "feels much smoother" than Graphite's, and asked to copy how it feels. This document records what Goodnotes' files show about how it turns Apple Pencil input into ink, what files cannot show, and the experiments that would tell what Graphite should change. The format itself is in [Goodnotes-format.md](Goodnotes-format.md).
+The owner finds writing in Goodnotes smoother than in Graphite and wants Graphite to feel the same. This document records what the owner asked for, what Goodnotes' files show about how it turns Apple Pencil input into ink and keeps widths when zooming, what files cannot show, where Graphite differs as far as its code shows, and the experiments that tell what to change. The file format itself is in [Goodnotes-format.md](Goodnotes-format.md).
 
-Source: the owner's Pencil test notebook (Goodnotes on the iPad, iPadOS 27.0.1, schema 27), written with an Apple Pencil, and Goodnotes' PDF export of it. It has ball pen writing at the owner's three favourite sizes, fountain pen and brush pen strokes pressed lightly and hard, pencil writing and shading, and highlighters. The numbers below were measured with `scripts/goodnotes-reader.py` on that file.
+Sources: two notebooks the owner wrote for this on the iPad with an Apple Pencil, each with Goodnotes' PDF export: a Pencil test (iPadOS 27.0.1, schema 27: ball pen at the owner's three favourite sizes, fountain pen and brush pen pressed lightly and hard, pencil writing and shading, highlighters, shapes, pictures, saved drawings) and an A3 page written at two zooms with copies resized. Also the owner's A3 formula sheet from the first samples. The numbers were measured with `scripts/goodnotes-reader.py`.
+
+## What the owner asked for
+
+| What the owner said (2026-10-19) | What it means for Graphite | Where |
+|---|---|---|
+| Writing in Goodnotes "feels much smoother" than in Graphite; copy how it feels | Match Goodnotes' line and width behaviour | [What a stroke is made of](#what-a-stroke-is-made-of), [Graphite now](#graphite-now), experiment 1 |
+| Favourite ball pen sizes 0.9, 0.55 and 0.3 mm; a set of favourite colours and highlighter colours | Tools at these sizes and colours | [Numbers](#numbers) |
+| The same width when zooming is how cheat sheets are written; zooming in and out, ink works nicer in Goodnotes | A pen keeps its width on the page at any zoom, also with narrow inks and in drawings | [Zoom](#zoom-the-same-width-on-the-page), experiment 5 |
+| A shrunk or enlarged copy "is not distorted"; saved drawings resize without losing quality | Resizing a selection scales the ink's width with it; ink stays vector | [Zoom](#zoom-the-same-width-on-the-page) |
+| Writing feels different with the fixed tool bar than with the floating palette | Both must give the canvas the same tool | [Fixed tool bar and floating palette](#fixed-tool-bar-and-floating-palette), experiment 4 |
+| There is almost no latency when writing or drawing in Goodnotes; Graphite should have that | Ink must follow the Pencil as closely as Goodnotes', measured on the same iPad, and kept so by a budget | [Latency](#latency), experiment 2 |
 
 ## What a stroke is made of
 
@@ -79,12 +90,23 @@ Ruled out by reading the code: the drawing policy (Pencil only, or any input wit
 
 Which of these it is shows at once in a log of the tool the canvas has when each stroke begins (ink, width, azimuth, the canvas's zoom), written with the bar and with the palette at the same zoom and the same chosen width.
 
+## Latency
+
+**The goal (owner, 2026-10-19): writing and drawing in Graphite with no more lag than in Goodnotes, which has almost none.** Files cannot show latency, so this is a requirement to measure against, not a finding from Goodnotes' format. The standard already asks for it: `FR-101` in [rewrite-foundations.md](solid/rewrite-foundations.md) requires a "Pencil stroke to ink" budget, measured on the device job; there is none yet. Experiment 2 below measures Goodnotes on the owner's iPad, and that measurement sets the budget.
+
+What in Graphite could add lag, read from the code and not measured:
+
+1. **Work at every pen-up that grows with the page.** When a stroke ends on a PDF page, `GraphitePDFView.canvasViewDrawingDidChange` runs on the main thread and goes over every stroke of the page three times: `PDFPageInkTracker.update` fingerprints every stroke to find the new one, `PencilDrawingChange` fingerprints every stroke of the drawing before and after to record the undo step, and `setInkAnnotationsHidden` reads every annotation of the page. Each pass is cheap per stroke, but a page of the owner's formula sheet has 6,143 strokes, so one lift costs tens of thousands of steps, and a hand writing quickly lifts several times a second. While the main thread is busy the next stroke's first samples wait. This is what `FR-104` forbids ("work is proportional to the change"). The common case is cheap to recognise: a stroke added after all the others (`PencilDrawingChange.appendedStrokeIndex` already names it), where only that stroke needs a fingerprint, an annotation and an undo step.
+2. **The size of the page canvas.** A PDF page's canvas draws at up to three times the page's size (`PDFPageOverlayView.maximumRenderingScale`); an A3 page at 3 is a canvas of 3,572 × 2,526 points. Whether that slows PencilKit's live stroke is not known.
+3. **Other main-thread work while writing**: thumbnails, saving, history. The main-thread watchdog (`P-09`) reports only stalls of two seconds or more; a stall of 30 milliseconds is two frames of lag and goes unseen. Signposts around the pen-up path and the first frame of a stroke would show them.
+4. **Kept as it is:** palm rejection never delays PencilKit's drawing (`require(toFail:)` is never put on PencilKit's drawing recognizer; [rewrite-foundations.md](solid/rewrite-foundations.md), what to keep). Any change for latency keeps that.
+
 ## Experiments, on the iPad
 
 Each is cheap and answers one question before anything bigger is built.
 
 1. **A Goodnotes-like ball pen.** Give a tool monoline ink at 0.85, 1.56 and 2.55 points and write the same lines with it, with Graphite's pen, and in Goodnotes, at the page's own zoom. If monoline feels like Goodnotes' ball pen, the difference was the pen's varying width, and the fix is a default tool. Zoomed in, monoline's 4-point limit makes it thinner on the page (Zoom, above), so a ball pen for cheat sheets also needs that limit worked around, for example by drawing the page canvas at a lower scale while a narrow ink is in use.
-2. **Latency.** Film fast straight strokes in both apps at 240 frames per second, with the same iPad, zoom and ink. Count the frames between the tip and the end of the ink, and look for any change at the lift. If Graphite trails by more, the cause is in drawing, not in the shape of the stroke.
+2. **Latency.** Film fast straight strokes and quick handwriting in both apps at 240 frames per second, with the same iPad, zoom and ink, on an empty page and on a dense one (the formula sheet imported, or a page with a few thousand strokes). Count the frames between the tip and the end of the ink, and look for any change at the lift. Goodnotes' number becomes Graphite's "Pencil stroke to ink" budget (`FR-101`). If Graphite trails only on the dense page, the cause is lead 1 under Latency; if on both, it is in drawing.
 3. **Stabilisation.** Write the same slow wavy line in Goodnotes with stabilisation at 0% and at 100%, export both notebooks, and compare the stored samples with the reference reader. That shows whether, and how much, Goodnotes filters samples before storing them.
 4. **Bar against palette.** Log the canvas's tool at the start of each stroke (above), write with the bar and with the palette at the same zoom and width, and compare.
 5. **Zoom.** On a PDF page and in a drawing, write the same word at 1×, 2× and 3× with the pen and with monoline, export, and measure the widths on the page.
@@ -97,6 +119,8 @@ Each is cheap and answers one question before anything bigger is built.
 | Gap between samples, ball pen writing | median 3.48 units (0.67 mm) over 4,297 gaps, down to 0, no minimum |
 | Curve ends at the halfway point between samples | ball pen: median error 0.000015 units over 3,129 curves; fountain and brush: 98% exact |
 | Ball pen sizes (the owner's) | 0.3, 0.55, 0.9 mm = 1.559, 2.858, 4.677 units = 0.85, 1.56, 2.55 points |
+| The owner's pen colours (Pencil test, page 1) | #000000, #007AFF, #00A9D3, #7EC636, #F65353, #005F75, #BF55FF, #FED030, #0085FF |
+| The owner's highlighter colours (page 2), alpha 0.5, width 24 units (4.6 mm) | #007AFF, #FF2A22, #BDFFB6, #8A94FF, #FF9000, #FFFF00, #00FF00, #00FFFF |
 | Fountain and brush width | floor 0.5 to 1.6 units, cap up to 12.1; 21 of 25 strokes start at their narrowest and widen over ~5 samples |
 | Width against speed | correlation −0.33 to +0.12 within strokes |
 | Pencil per sample | azimuth −π to π, altitude 0.19 to 1.50 radians, force 0 to 4.17 |
