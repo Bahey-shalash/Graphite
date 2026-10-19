@@ -91,6 +91,7 @@ final class ReadAloudControllerTests: XCTestCase {
     }
 
     func testRecognizedWordRangeKeepsSecondOccurrenceAndStopsBeforeNextPage() async throws {
+        try await TextRecognitionCapability.requireOnDeviceTextRecognition()
         let directory = try TemporaryVault.make(prefix: "ReadAloudScanRange", for: self).root
         let location = try makePDF(in: directory, pageTexts: ["Next page."])
         let document = try XCTUnwrap(PDFDocument(url: location))
@@ -133,6 +134,7 @@ final class ReadAloudControllerTests: XCTestCase {
     }
 
     func testMixedPDFPausesForScanReviewCorrectionsKeepWordGeometryAndSourceFile() async throws {
+        try await TextRecognitionCapability.requireOnDeviceTextRecognition()
         let directory = try TemporaryVault.make(prefix: "ReadAloudScannedPDF", for: self).root
         let location = try makePDF(in: directory, pageTexts: ["Opening page.", "Closing page."])
         let document = try XCTUnwrap(PDFDocument(url: location))
@@ -182,6 +184,7 @@ final class ReadAloudControllerTests: XCTestCase {
     }
 
     func testRecognizedWordOverlayFollowsNativeZoomAndClearsWithoutAnnotations() async throws {
+        try await TextRecognitionCapability.requireOnDeviceTextRecognition()
         let document = PDFDocument()
         let page = try makeScannedPage()
         document.insert(page, at: 0)
@@ -429,6 +432,7 @@ final class ReadAloudControllerTests: XCTestCase {
     }
 
     func testPDFLayoutHighlightsOriginalWordsAndOrderChangesRequirePlay() async throws {
+        try await TextRecognitionCapability.requireOnDeviceTextRecognition()
         let directory = try TemporaryVault.make(prefix: "ReadAloudPDFLayout", for: self).root
         let location = try makePDF(in: directory, pageTexts: ["Before repeated word. After repeated word."])
         let originalBytes = try Data(contentsOf: location)
