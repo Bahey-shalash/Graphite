@@ -32,21 +32,8 @@ final class InkWidthAtZoomTests: XCTestCase {
     }
 
     func testABroadPencilOnAZoomedPageLandsAsWideAsChosenAndANarrowPenDrawsSharpAgain() async throws {
-        let location = FileManager.default.temporaryDirectory.appendingPathComponent("WidthAtZoom-\(UUID().uuidString).pdf")
-        try PDFTemplateGenerator.documentData(paper: PaperSpecification(template: .blank)).write(to: location)
-        defer { try? FileManager.default.removeItem(at: location) }
-        let session = try await PDFSession.open(location)
-        let controller = UIHostingController(rootView: NavigationStack { PDFPane(session: session, resolveConflict: { _ in }) })
-        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-        let window = UIWindow(windowScene: scene)
-        window.frame = scene.coordinateSpace.bounds
-        window.rootViewController = controller
-        window.makeKeyAndVisible()
-        controller.view.layoutIfNeeded()
+        let (canvas, pdfView, window) = try await hostedPageCanvas(named: "WidthAtZoom")
         defer { window.isHidden = true; window.rootViewController = nil }
-        try await waitUntil { self.canvases(in: controller.view).contains { !$0.isHidden } }
-        let canvas = try XCTUnwrap(canvases(in: controller.view).first { !$0.isHidden })
-        let pdfView = try XCTUnwrap(session.pdfView as? GraphitePDFDisplayView)
         let toolPicker = PKToolPicker()
         canvas.takeTool(from: toolPicker, fixedTool: selection(.pen, width: 2.8))
         pdfView.autoScales = false
@@ -65,6 +52,44 @@ final class InkWidthAtZoomTests: XCTestCase {
         XCTAssertEqual(canvas.drawingSize.width, try XCTUnwrap(canvas.page).bounds(for: .cropBox).width, accuracy: 0.5)
     }
 
+    /// The palette's tool reaches a zoomed page's canvas as the bar's does, in the turn the
+    /// palette's choice changes, and nothing puts the palette's unscaled tool there later.
+    func testThePalettesToolIsTheBarsToolOnAZoomedPageInTheSameTurn() async throws {
+        let defaults = UserDefaults.standard
+        let preferenceKeys = [PencilToolbarStyle.preferenceKey, PDFAnnotationPreferenceKey.showsToolPicker]
+        let preferencesBefore = preferenceKeys.map { key in defaults.object(forKey: key) }
+        defer {
+            for (key, preference) in zip(preferenceKeys, preferencesBefore) {
+                if let preference { defaults.set(preference, forKey: key) } else { defaults.removeObject(forKey: key) }
+            }
+        }
+        defaults.set(PencilToolbarStyle.floating.rawValue, forKey: PencilToolbarStyle.preferenceKey)
+        defaults.set(true, forKey: PDFAnnotationPreferenceKey.showsToolPicker)
+        let (canvas, pdfView, window) = try await hostedPageCanvas(named: "PaletteAtZoom")
+        defer { window.isHidden = true; window.rootViewController = nil }
+        try await waitUntil { canvas.followsToolPicker }
+        pdfView.autoScales = false
+        pdfView.scaleFactor = 2.2
+        try await waitUntil { canvas.zoomScale == 2.5 }
+        let toolPicker = try XCTUnwrap(pdfView.annotationCoordinator?.toolPicker)
+
+        (toolPicker as any SelectedToolSetting).selectedTool = PKInkingTool(.monoline, color: .black, width: 2)
+        let paletteTool = try XCTUnwrap(canvas.tool as? PKInkingTool)
+        XCTAssertEqual(paletteTool.inkType, .monoline)
+        XCTAssertEqual(paletteTool.width, 2 * 2.5, accuracy: 0.001, "2 points on the page at once, not one turn later")
+        // The next turn of the main queue, where the canvas used to take the scaled tool.
+        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        XCTAssertEqual(try XCTUnwrap(canvas.tool as? PKInkingTool).width, 5, accuracy: 0.001, "Nothing gives the canvas the palette's tool as it is")
+        toolPicker.isRulerActive = true
+        XCTAssertTrue(canvas.isRulerActive, "The palette's ruler still reaches the canvas")
+        toolPicker.isRulerActive = false
+
+        canvas.takeTool(from: toolPicker, fixedTool: selection(.monoline, width: 2))
+        let barTool = try XCTUnwrap(canvas.tool as? PKInkingTool)
+        XCTAssertEqual(barTool.inkType, paletteTool.inkType)
+        XCTAssertEqual(barTool.width, paletteTool.width, accuracy: 0.001)
+    }
+
     func testADrawingZoomedInWritesAsWideInTheDrawingAsAtItsFittedSize() throws {
         let canvas = InfiniteCanvasView(frame: CGRect(x: 0, y: 0, width: 800, height: 1_000))
         canvas.canvasWidth = 400
@@ -77,6 +102,31 @@ final class InkWidthAtZoomTests: XCTestCase {
         canvas.layoutIfNeeded()
         let zoomedTool = try XCTUnwrap(canvas.tool as? PKInkingTool)
         XCTAssertEqual(zoomedTool.width / canvas.zoomScale, 1.56, accuracy: 0.001, "The stroke is 1.56 points of the drawing at any zoom")
+    }
+
+    /// The first page's canvas of a blank PDF shown in a window, with the PDF's view.
+    private func hostedPageCanvas(named name: String) async throws -> (PDFPageCanvasView, GraphitePDFDisplayView, UIWindow) {
+        let location = FileManager.default.temporaryDirectory.appendingPathComponent("\(name)-\(UUID().uuidString).pdf")
+        try PDFTemplateGenerator.documentData(paper: PaperSpecification(template: .blank)).write(to: location)
+        temporaryLocations.append(location)
+        let session = try await PDFSession.open(location)
+        let controller = UIHostingController(rootView: NavigationStack { PDFPane(session: session, resolveConflict: { _ in }) })
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        controller.view.layoutIfNeeded()
+        try await waitUntil { self.canvases(in: controller.view).contains { !$0.isHidden } }
+        let canvas = try XCTUnwrap(canvases(in: controller.view).first { !$0.isHidden })
+        return (canvas, try XCTUnwrap(session.pdfView as? GraphitePDFDisplayView), window)
+    }
+
+    private var temporaryLocations: [URL] = []
+
+    override func tearDown() async throws {
+        for location in temporaryLocations { try? FileManager.default.removeItem(at: location) }
+        temporaryLocations = []
     }
 
     private func canvases(in view: UIView) -> [PDFPageCanvasView] {
