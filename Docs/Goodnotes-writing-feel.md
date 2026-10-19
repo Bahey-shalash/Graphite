@@ -130,10 +130,26 @@ Builds: before = commit 52393d3 (instrumentation only), after = 3c20a95. Both ha
 
 The owner's iPad (read from its preferences, 2026-10-19) writes with the floating palette (`GraphitePencilToolbarStyle` = floating); its bar presets are a pen of 2.8 pt (sizes 0.9, 2.8, 4.8), a pencil of 2.4 and a highlighter of 18.
 
+### First iPad measurements (2026-10-19, before build)
+
+**Latency, from the owner's slow-motion films** (iPhone 13 Pro slo-mo, 240 frames a second rendered at 30 a second; checked against the iPad's clock in the picture: 400 s of film is 50 s of real time, so one frame is 4.17 ms; the iPad Pro's 120 Hz screen shows new ink every second frame, as expected). The distance between the Pencil's tip and the end of the ink was read frame by frame from zoomed crops, about 2 pixels either way; the first and last seconds of an iPhone slow-motion film play at normal speed and were not used.
+
+| App and place | Stroke | Ink behind the tip |
+|---|---|---|
+| Graphite, drawing editor | fast flick, steady part (IMG_6679, 38.8–39.8 s of film) | about 3 frames, **about 12.5 ms** |
+| Graphite, drawing editor | the same flick's start, turning back from a short stroke | first new ink 5 to 6 frames after the tip, about 21–25 ms |
+| Graphite, drawing editor | ordinary writing (IMG_6678, 140.3–141 s) | 1.5 to 2.5 frames, about 6–10 ms |
+| Goodnotes, page | ordinary writing (IMG_6678, 400.5–404 s) | 4 to 5 frames, about 17–21 ms |
+| Goodnotes | fast flicks (IMG_6679, end of the film) | not measurable: in the film's normal-speed end |
+
+Read as: Graphite's live ink (PencilKit's) is not slower than Goodnotes', and is likely faster, but the Goodnotes number comes from slower writing at another distance from the camera, and no PDF page was filmed. The films stay on the owner's Mac (Downloads), not in the repository.
+
+**Device trace**: `xctrace record --template "Time Profiler" --instrument os_signpost --instrument os_log --launch -- com.graphite.study` records the `PencilWriting` log and signposts on the iPad (attaching by name or process number did not find the app). One stroke was recorded, in a drawing: Pencil up to the end of the drawing's change 33.8 ms, of which PencilKit reports the change after 32.9 ms and Graphite's `Drawing change` takes 0.9 ms. The canvas drew with the tool expected for the chosen one (monoline 1.6 at a zoom of 1.571, from the fixed bar).
+
 ### Not yet measured (needs the owner and the iPad)
 
-- **Experiment 2, latency**: the 240 fps films of Goodnotes and Graphite on the empty and the dense page, before and after. No number yet, so no `FR-101` budget is proposed yet.
-- **Pen-up on the iPad**: Time Profiler and the signposts with `xctrace` on the iPad Pro 11-inch (3rd generation), before and after.
+- **Experiment 2, latency**: the four controlled films (five fast straight flicks each, phone held still at one distance, Goodnotes and Graphite on the empty and the dense page), the flicks in the middle of each film. No `FR-101` budget is proposed until they are measured.
+- **Pen-up on the iPad**: 20 short words on the 2,000-stroke PDF page with the before build and with the after build, recorded as above.
 - **Experiment 4 on the iPad**: the stroke-start log with the bar and with the palette. The probe above shows the code path that differed; the log shows whether the palette's widths and azimuth differ too.
 - **Experiment 5 on the iPad**: whether PencilKit draws a monoline wider than 4 points when the tool asks for it (the tool keeps it; the stroke is unknown). Until this is known, the monoline ball pen at 0.85, 1.56 and 2.55 points (experiment 1) is not added: at a page drawn 3 times its size, 2.55 asks for 7.65.
 - **Experiments 3 and 6** are not started, as asked; whether they are needed waits for the latency numbers.
