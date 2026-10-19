@@ -46,6 +46,17 @@ Graphite already offers PencilKit's **monoline** ink, which has one width whatev
 
 **Goodnotes writes at the pen's width on the page, at any zoom.** In the owner's A3 formula sheet, a whole course in small writing on two pages, 69% of the ball pen strokes have exactly one of the pen's sizes (6,925 of them 0.55 mm), and every one of the 4,668 strokes never edited after it was written has a pen size. The other 3,516 strokes, in 42 other widths, were all edited afterwards (their version counter is past 2): they are strokes resized with the lasso, whose widths Goodnotes scaled with them. So zooming in to write small makes the ink look thicker on screen but keeps it as thick on the page as everything else, and the sheet stays even; resizing a selection keeps its proportions.
 
+**A sample made for it confirms this.** The owner wrote on an A3 landscape page (1,190.55 × 841.89 points; one Goodnotes unit is 0.1924 mm on the sheet), all with the ball pen at 0.9 mm, once with the page shown whole ("no zoom") and once at Goodnotes' largest zoom ("allows super detailed writing, very helpful for cheat sheets"), then copied a word and resized it. On the A3 sheet:
+
+| Writing | Ink width | Letter height (median stroke) | Gap between samples (median) |
+|---|---|---|---|
+| Page shown whole | 0.90 mm | 4.4 mm | 1.22 mm |
+| Largest zoom | 0.90 mm | 2.6 mm | 0.61 mm |
+| A word shrunk to 0.456 of its size | 0.41 mm (×0.455) | | |
+| The same word enlarged 5.47 times | 4.91 mm (×5.46) | | |
+
+The ink is 0.9 mm on the paper at both zooms; zooming in only lets the hand make smaller letters with it, and the Pencil's samples land twice as close on the paper, because they are taken on the screen. Resizing scales the ink with the word, to within 0.002 of the same factor, which is why a shrunk or enlarged copy is not distorted. Every stroke of the page that was not resized has exactly the 0.9 mm width.
+
 **Graphite does the same on PDF pages, within limits, and not in drawings:**
 
 - On a PDF page the canvas draws at a zoom of 1 to 3 in steps of a half (`PDFPageOverlayView.renderingScale`), and the tool's width is multiplied by it (`PDFPageCanvasView.toolForDrawing`), so the width on the page stays the same. But PencilKit clamps each ink's width (`PencilInk.widthRange`): monoline at 4 points, pencil at 16, the pen at 25. A 3-point monoline at a zoom of 3 asks for 9 and gets 4, so it lands on the page 1.33 points wide instead of 3: the narrow inks write thinner as the page is zoomed in, which is the opposite of an even cheat sheet. The pen's 25 is only reached by its widest settings.
@@ -88,4 +99,6 @@ Each is cheap and answers one question before anything bigger is built.
 | Width against speed | correlation −0.33 to +0.12 within strokes |
 | Pencil per sample | azimuth −π to π, altitude 0.19 to 1.50 radians, force 0 to 4.17 |
 | Pencil width | 4.68 units for every pencil stroke |
+| A3 sample, ball pen 0.9 mm | 0.90 mm on the sheet with the page shown whole and at the largest zoom; letters 4.4 and 2.6 mm; samples every 1.22 and 0.61 mm |
+| A3 sample, resized copies | ink ×0.455 and ×5.46 for words ×0.456 and ×5.47 |
 | Formula sheet, strokes at a pen size | 7,699 of 11,215 (69%); every stroke never edited (4,668) has a pen size; all 3,516 others were edited later |
