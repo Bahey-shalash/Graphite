@@ -3579,6 +3579,9 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             }
         }
 
+        /// How far, in points, the clip view's alignment to device pixels can move a scroll position.
+        private static let scrollAlignmentAllowance: CGFloat = 1
+
         /// Remembers the character at the top of the view in the session.
         func recordScrollLocation(of textView: NSTextView) {
             let visibleTop = textView.visibleRect.minY
@@ -3586,8 +3589,12 @@ struct NativeMarkdownEditor: NSViewRepresentable {
                 session.savedScrollLocation = nil
                 return
             }
+            // `scrollToTop` puts a line 12 points below the top, but the clip view then aligns its
+            // origin to whole device pixels: up to a point earlier on a display of one pixel to the
+            // point, which would put the probe in the line above. The allowance keeps it in the line.
+            let probeY = visibleTop + 12 + Self.scrollAlignmentAllowance - textView.textContainerOrigin.y
             guard let textLayoutManager = textView.textLayoutManager, let contentManager = textLayoutManager.textContentManager,
-                  let fragment = textLayoutManager.textLayoutFragment(for: CGPoint(x: 0, y: visibleTop + 12 - textView.textContainerOrigin.y)) else { return }
+                  let fragment = textLayoutManager.textLayoutFragment(for: CGPoint(x: 0, y: probeY)) else { return }
             session.savedScrollLocation = contentManager.offset(from: contentManager.documentRange.location, to: fragment.rangeInElement.location)
         }
     }
