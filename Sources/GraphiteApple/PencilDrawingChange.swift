@@ -50,6 +50,25 @@ public struct PencilDrawingChange {
         strokeCountAfter = strokesAfter.count
     }
 
+    /// The change that added the last stroke of `drawingAfter` to `drawingBefore`, recognized
+    /// from two strokes instead of every stroke of the drawing: `drawingAfter` has one stroke
+    /// more, and its stroke before the last is `drawingBefore`'s last. Only a change known to
+    /// add strokes after the others, as a stroke of an inking tool is, may be recognized this
+    /// way (`HistoryCanvasView.changeSinceRecorded(to:)`); nil when the two strokes say otherwise.
+    public init?(appendingLastStrokeOf drawingAfter: PKDrawing, to drawingBefore: PKDrawing) {
+        let strokesBefore = drawingBefore.strokes
+        let strokesAfter = drawingAfter.strokes
+        guard strokesAfter.count == strokesBefore.count + 1, let appendedStroke = strokesAfter.last else { return nil }
+        if let lastStrokeBefore = strokesBefore.last,
+           PDFStrokeFingerprint(stroke: lastStrokeBefore) != PDFStrokeFingerprint(stroke: strokesAfter[strokesBefore.count - 1]) {
+            return nil
+        }
+        removedStrokes = []
+        addedStrokes = [PlacedStroke(index: strokesBefore.count, stroke: appendedStroke, fingerprint: PDFStrokeFingerprint(stroke: appendedStroke))]
+        strokeCountBefore = strokesBefore.count
+        strokeCountAfter = strokesAfter.count
+    }
+
     /// How many strokes the change removed and added together.
     public var changedStrokeCount: Int { removedStrokes.count + addedStrokes.count }
 

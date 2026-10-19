@@ -1345,6 +1345,18 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         }
     }
 
+    /// Hides the annotations just added with these names, while the rest of the group is
+    /// already hidden under the canvas. They were added last, so the page's annotations are
+    /// read from the end and no further than the last of them.
+    private func hideInkAnnotations(named names: Set<String>, on page: PDFPage) {
+        var namesLeft = names
+        for annotation in page.annotations.reversed() {
+            if namesLeft.isEmpty { break }
+            guard let name = annotation.persistentName, namesLeft.remove(name) != nil else { continue }
+            if annotation.shouldDisplay { annotation.shouldDisplay = false }
+        }
+    }
+
     // MARK: Drawing
 
     func canvasViewDidFinishRendering(_ canvasView: PKCanvasView) {
@@ -1367,12 +1379,20 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
             // The shape tool, or a hold at the stroke's end, replaces the stroke just drawn;
             // the history records the shape.
             let drawing = PencilWritingTrace.measure("Shape recognition") { canvas.drawingAfterShapeRecognition(shapeToolIsOn: input.drawsShapes) }
-            let update = PencilWritingTrace.measure("Ink tracker update") {
+            // A drawing the history itself showed was recorded before it was shown.
+            let change = PencilWritingTrace.measure("Drawing change") { canvas.changeSinceRecorded(to: drawing) }
+            // A stroke just drawn after the others converts and hides that stroke alone; any
+            // other change compares the page's strokes and annotations (FR-104).
+            let appendingUpdate = change?.appendedStrokeIndex.flatMap { appendedStrokeIndex in
+                PencilWritingTrace.measure("Ink tracker update") {
+                    canvas.inkTracker.updateAppending(drawing.strokes[appendedStrokeIndex], at: appendedStrokeIndex, pageIndex: pageIndex, coordinates: coordinates)
+                }
+            }
+            let update = appendingUpdate ?? PencilWritingTrace.measure("Ink tracker update") {
                 canvas.inkTracker.update(for: drawing, pageIndex: pageIndex, coordinates: coordinates, defersEditableRecord: true)
             }
             try PencilWritingTrace.measure("Apply ink update") { try session.apply(.updateInk(update)) }
-            // A drawing the history itself showed was recorded before it was shown.
-            if let change = PencilWritingTrace.measure("Drawing change", { PencilDrawingChange(from: canvas.recordedDrawing, to: drawing) }) {
+            if let change {
                 PencilWritingTrace.measure("Register undo step") { session.registerInkChange(change, on: page, overlaySize: canvas.drawingSize) }
                 if let appendedStrokeIndex = change.appendedStrokeIndex {
                     PencilWritingTrace.strokeWasRecorded(drawing.strokes[appendedStrokeIndex], on: canvas)
@@ -1380,7 +1400,13 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
             }
             canvas.recordedDrawing = drawing
             if displayedPages.contains(ObjectIdentifier(page)) {
-                PencilWritingTrace.measure("Hide ink annotations") { setInkAnnotationsHidden(true, on: page, group: canvas.inkTracker.group) }
+                PencilWritingTrace.measure("Hide ink annotations") {
+                    if appendingUpdate != nil {
+                        hideInkAnnotations(named: Set(update.addedStrokes.compactMap(\.name)), on: page)
+                    } else {
+                        setInkAnnotationsHidden(true, on: page, group: canvas.inkTracker.group)
+                    }
+                }
             }
         } catch {
             session.errorMessage = error.localizedDescription

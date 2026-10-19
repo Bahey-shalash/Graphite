@@ -14,7 +14,24 @@ import GraphiteApple
 class HistoryCanvasView: PKCanvasView {
     /// The drawing as of the last change the history knows, to tell what the next change
     /// removed and added.
-    var recordedDrawing = PKDrawing()
+    var recordedDrawing = PKDrawing() {
+        didSet { changeFollowsInkingStroke = false }
+    }
+
+    /// Whether the change since `recordedDrawing` comes from a stroke of an inking tool,
+    /// which only adds a stroke after the others.
+    private var changeFollowsInkingStroke = false
+
+    /// The change from `recordedDrawing` to `drawing`, or nil when they show the same strokes.
+    /// A stroke an inking tool just added after the others is recognized from its neighbour,
+    /// without comparing every stroke of the drawing, so a pen-up costs the same on a full
+    /// page as on an empty one (`FR-104`); any other change compares them all.
+    func changeSinceRecorded(to drawing: PKDrawing) -> PencilDrawingChange? {
+        if changeFollowsInkingStroke, let appendingChange = PencilDrawingChange(appendingLastStrokeOf: drawing, to: recordedDrawing) {
+            return appendingChange
+        }
+        return PencilDrawingChange(from: recordedDrawing, to: drawing)
+    }
 
     private static let discardingUndoManager: UndoManager = {
         let undoManager = UndoManager()
@@ -121,6 +138,7 @@ class HistoryCanvasView: PKCanvasView {
 
     /// PencilKit began a stroke with the canvas's tool (`PKCanvasViewDelegate.canvasViewDidBeginUsingTool`).
     func toolUseDidBegin() {
+        changeFollowsInkingStroke = tool is PKInkingTool
         PencilWritingTrace.strokeDidBegin(on: self)
     }
 
@@ -388,7 +406,7 @@ class HistoryCanvasView: PKCanvasView {
         guard let lastStroke = reportedDrawing.strokes.last, evenHighlighterInk != nil || EvenHighlighter.isInvisible(lastStroke.ink),
               reportedDrawing.strokes.count == recordedDrawing.strokes.count + 1,
               reportedDrawing.strokes.last?.ink.inkType == .marker,
-              let change = PencilDrawingChange(from: recordedDrawing, to: reportedDrawing), let newStrokeIndex = change.appendedStrokeIndex,
+              let change = changeSinceRecorded(to: reportedDrawing), let newStrokeIndex = change.appendedStrokeIndex,
               newStrokeIndex < reportedDrawing.strokes.count,
               let evenStroke = evenHighlighterStroke(reportedDrawing.strokes[newStrokeIndex]) else { return nil }
         var strokes = reportedDrawing.strokes

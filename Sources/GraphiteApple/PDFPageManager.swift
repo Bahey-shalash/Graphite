@@ -273,15 +273,26 @@ public enum PDFPageManager {
         page.annotations.filter { annotation in annotation.value(forAnnotationKey: groupKey) as? String == group }
     }
 
-    private static func applyInkUpdate(_ update: PDFInkUpdate, to page: PDFPage, drawsInkOutlines: Bool) throws {
-        // Read before the removal, which may remove the annotation that carries it.
-        let keptRecordCarrier = update.defersEditableRecord ? annotations(inGroup: update.group, on: page).first : nil
-        let keptRecordValues = (drawing: keptRecordCarrier?.value(forAnnotationKey: drawingKey), strokeNames: keptRecordCarrier?.value(forAnnotationKey: strokeNamesKey))
-        removeInkAnnotations(from: page, group: update.group, removal: update.removal)
+    private static func addInkAnnotations(for update: PDFInkUpdate, to page: PDFPage, drawsInkOutlines: Bool) {
         for stroke in update.addedStrokes {
             guard let annotation = PDFInkAnnotationFactory.annotation(for: stroke, group: update.group, drawsOutline: drawsInkOutlines) else { continue }
             page.addAnnotation(annotation)
         }
+    }
+
+    private static func applyInkUpdate(_ update: PDFInkUpdate, to page: PDFPage, drawsInkOutlines: Bool) throws {
+        // Strokes only added, with the record kept where it is: the group's first annotation
+        // stays first, or, in a group that had none, the first one added carries no record.
+        // Nothing else of the page is read, so a stroke costs the same on a full page (FR-104).
+        if update.defersEditableRecord, update.removal == .strokes([]) {
+            addInkAnnotations(for: update, to: page, drawsInkOutlines: drawsInkOutlines)
+            return
+        }
+        // Read before the removal, which may remove the annotation that carries it.
+        let keptRecordCarrier = update.defersEditableRecord ? annotations(inGroup: update.group, on: page).first : nil
+        let keptRecordValues = (drawing: keptRecordCarrier?.value(forAnnotationKey: drawingKey), strokeNames: keptRecordCarrier?.value(forAnnotationKey: strokeNamesKey))
+        removeInkAnnotations(from: page, group: update.group, removal: update.removal)
+        addInkAnnotations(for: update, to: page, drawsInkOutlines: drawsInkOutlines)
         // Exactly one annotation, the group's first, carries the re-editing record, so a
         // replay of the same edits always leaves the record in the same place.
         let groupAnnotations = annotations(inGroup: update.group, on: page)
