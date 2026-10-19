@@ -2739,6 +2739,7 @@ final class EmbeddedMediaPlayback {
     init(location: URL) {
         self.location = location
         player = AVPlayer(url: location)
+        player.isMuted = AudioOutputRoute.thisProcess == .silent
     }
 
     deinit { player.pause() }

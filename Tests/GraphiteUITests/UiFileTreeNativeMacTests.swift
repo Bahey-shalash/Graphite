@@ -157,7 +157,7 @@ final class UiFileTreeNativeMacTests: XCTestCase {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: NavigationStack { sidebar })
-        window.orderFront(nil)
+        window.showInvisibly()
         windows.append(window)
         var outlineView: NSOutlineView?
         try await waitUntil {

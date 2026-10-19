@@ -33,3 +33,25 @@ public enum LaunchMode: Equatable, Sendable {
     /// Whether hang and crash diagnostics start with the app.
     public var startsDiagnostics: Bool { self == .normal }
 }
+
+/// Where sound goes. A person's launch plays through the speakers; a process that hosts tests
+/// renders and discards, so a test run never speaks, plays a recording or sounds a tone aloud.
+/// Speech, rendered voices and embedded media take this at their initializers, and a test that
+/// builds one passes `.silent` or leaves the default, which is decided from the process.
+public enum AudioOutputRoute: Equatable, Sendable {
+    case speakers
+    /// Audio is produced and timed as for the speakers, and nothing is heard.
+    case silent
+
+    public init(launchMode: LaunchMode) {
+        self = launchMode == .normal ? .speakers : .silent
+    }
+
+    /// The route of this process: silent when the launch hosts tests (its arguments and
+    /// environment) or XCTest is loaded, which a package test run (`swift test`) does without
+    /// setting the host variables. Read once.
+    public static let thisProcess: AudioOutputRoute = {
+        let launchMode = LaunchMode(arguments: ProcessInfo.processInfo.arguments, environment: ProcessInfo.processInfo.environment)
+        return AudioOutputRoute(launchMode: launchMode) == .speakers && NSClassFromString("XCTestCase") == nil ? .speakers : .silent
+    }()
+}

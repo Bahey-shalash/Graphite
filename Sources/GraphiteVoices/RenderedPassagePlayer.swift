@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import GraphiteApple
+import GraphiteCore
 
 /// Plays rendered passages through `AVAudioEngine`. Speed goes through a time-pitch unit, so a
 /// faster reading keeps the voice's pitch, and pausing holds the exact place within a passage.
@@ -16,12 +17,16 @@ final class RenderedPassagePlayer {
     /// Changes with every play or stop; a completion from an earlier segment is ignored.
     private var playbackToken = UUID()
     private(set) var isPaused = false
+    /// Whether nothing the engine plays is heard (`AudioOutputRoute.silent`).
+    var isSilent: Bool { engine.mainMixerNode.outputVolume == 0 }
 
     /// Called when the engine stopped itself because its output changed (headphones unplugged,
     /// a Bluetooth device disconnected, a new sample rate), which ends the playing passage's sound.
     var engineConfigurationDidChange: (@MainActor () -> Void)?
 
-    init() {
+    /// `.silent` plays at zero volume: the engine, the timing and the completions are the real ones.
+    init(output: AudioOutputRoute = .thisProcess) {
+        if output == .silent { engine.mainMixerNode.outputVolume = 0 }
         engine.attach(player)
         engine.attach(timePitch)
         // The player lives as long as the speech does; the observer holds it weakly.

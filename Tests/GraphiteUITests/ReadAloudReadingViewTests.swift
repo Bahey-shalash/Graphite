@@ -125,7 +125,7 @@ final class ReadAloudReadingViewTests: XCTestCase {
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 360, height: 240), styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = hosting
         hosting.frame = CGRect(x: 0, y: 0, width: 360, height: 240)
-        window.orderFront(nil)
+        window.showInvisibly()
         defer { window.contentView = nil; window.orderOut(nil) }
         state.range = (source as NSString).range(of: "First")
         // Waits for the condition itself, which a loaded machine takes longer to reach: the
@@ -209,7 +209,7 @@ final class ReadAloudReadingViewTests: XCTestCase {
         window.contentView = scrollView
         scrollView.frame = CGRect(x: 0, y: 0, width: 360, height: 240)
         textView.frame.size.width = 360
-        window.orderFront(nil)
+        window.showInvisibly()
         defer { window.contentView = nil; window.orderOut(nil) }
         try await settle(scrollView)
         textView.readAloudRange = (source as NSString).range(of: "target")

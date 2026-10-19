@@ -94,7 +94,7 @@ final class UiFileTreeMacTests: XCTestCase {
         // Swift owns the window; closing it in tearDown must not release it a second time.
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: NavigationStack { sidebar })
-        window.orderFront(nil)
+        window.showInvisibly()
         windows.append(window)
         var outlineView: NSOutlineView?
         try await waitUntil {

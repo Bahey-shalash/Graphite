@@ -40,7 +40,7 @@ final class MacMarkdownEditorFixture {
         window.contentView = scrollView
         scrollView.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
         textView.frame.size.width = 600
-        window.orderFront(nil)
+        window.showInvisibly()
         scrollView.layoutSubtreeIfNeeded()
         textView.layoutSubtreeIfNeeded()
     }
