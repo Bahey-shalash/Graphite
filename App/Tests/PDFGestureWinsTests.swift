@@ -103,7 +103,7 @@ final class PDFGestureWinsTests: XCTestCase {
                             secondFinger: (CGPoint(x: middle.x + 30, y: middle.y + 30), CGPoint(x: middle.x + 80, y: middle.y + 80)))
         XCTAssertGreaterThan(pdfView.scaleFactor, beforePinch.scale * 1.2, "The pinch zooms in while reading.")
         XCTAssertFalse(reader.followsReading, "A pinch pauses following, as a scroll does.")
-        let wordsBefore = highlightedText(in: pdfView)
+        let placeBefore = readingPlace(of: reader)
         try await assertStaysStill(pdfView, seconds: 2, name: "after a pinch while reading")
 
         await touches.drag(from: CGPoint(x: middle.x, y: middle.y + 120), to: CGPoint(x: middle.x, y: middle.y - 120))
@@ -112,7 +112,7 @@ final class PDFGestureWinsTests: XCTestCase {
         // Back to Reading.
         try await assertStaysStill(pdfView, seconds: 6, name: "after a drag and a save while reading")
         XCTAssertEqual(reader.session.state, .speaking, "Reading goes on.")
-        XCTAssertNotEqual(highlightedText(in: pdfView), wordsBefore, "Reading moved on to other words meanwhile.")
+        XCTAssertNotEqual(readingPlace(of: reader), placeBefore, "Reading moved on to other words meanwhile.")
         attachScreenshot(of: window, named: "Page kept where the gestures left it while reading")
 
         workspace.activeReadAloudNavigator.backToReading()
@@ -509,8 +509,11 @@ final class PDFGestureWinsTests: XCTestCase {
         return CGPoint(x: frame.midX, y: frame.midY)
     }
 
-    private func highlightedText(in pdfView: PDFView) -> String {
-        (pdfView.highlightedSelections ?? []).compactMap(\.string).joined(separator: " ")
+    /// Where reading is: the passage and the word's offset in it. The word's text would not tell: the paper repeats one
+    /// sentence, so reading comes back to the same word every few seconds (at the pace of a silent reading, exactly as the
+    /// test looks again).
+    private func readingPlace(of reader: ReadAloudController) -> [Int] {
+        [reader.session.passageIndex, reader.session.spokenRange?.location ?? -1]
     }
 
     private func highlightIsOnScreen(in pdfView: PDFView) -> Bool {
