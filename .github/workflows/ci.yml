@@ -1,0 +1,312 @@
+# Continuous integration for Graphite (decision 9 of Docs/solid/rewrite-foundations.md; testing.md section 4.8, T-35).
+#
+# Six jobs. Every push and pull request runs five on GitHub-hosted runners; the sixth runs every night on a self-hosted
+# Mac with an iPad connected.
+#
+#   swift-test-macos   `swift test --parallel` over the four package test targets; the skipped-test count may not rise
+#   hosted-ipad        the hosted suite (target GraphiteIntegrationTests) on an iPad simulator, via xcodebuild
+#   runtime-node       the plugin runtime suite in jsdom (npm ci && npm test)
+#   size-report        scripts/size-report.py (a function, type or file over its threshold needs a review row)
+#   registration-check the rule ratchet (check-rules, check-imports, check-test-registration), SwiftLint, ESLint, Periphery
+#   nightly            the device job: real community plugins, the hosted suite on the iPad, the benchmarks
+#
+# Settings the owner provides in the repository (Settings > Secrets and variables > Actions):
+#   vars.GRAPHITE_MACOS_RUNNER    runner label with the macOS 27 SDK (default `macos-27`; the labels GitHub offers are
+#                                 not known when this file was written, so set it to the label that has Xcode 27)
+#   vars.GRAPHITE_XCODE_VERSION   Xcode to select (default `27.0`)
+#   secrets.DEVELOPMENT_TEAM or vars.DEVELOPMENT_TEAM    the Apple team identifier passed to xcodebuild
+#   vars.GRAPHITE_IPAD_UDID       the connected iPad's identifier, for the nightly job
+#
+# Action versions are pinned to exact release tags. Replace each tag by the commit SHA it points to (for example with
+# `pinact run`) once the workflow has run; a tag can be moved by its owner, a SHA cannot.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
+
+env:
+  # Quiet, reproducible tool behaviour on every runner.
+  NO_COLOR: "1"
+  DEVELOPER_DIR_VERSION: ${{ vars.GRAPHITE_XCODE_VERSION || '27.0' }}
+
+jobs:
+  swift-test-macos:
+    if: github.event_name != 'schedule'
+    runs-on: ${{ vars.GRAPHITE_MACOS_RUNNER || 'macos-27' }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - uses: maxim-lobanov/setup-xcode@v1.6.0
+        with:
+          xcode-version: ${{ env.DEVELOPER_DIR_VERSION }}
+
+      - name: Cache SwiftPM build products
+        uses: actions/cache@v4.2.3
+        with:
+          path: .build
+          key: swiftpm-${{ runner.os }}-${{ env.DEVELOPER_DIR_VERSION }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          restore-keys: |
+            swiftpm-${{ runner.os }}-${{ env.DEVELOPER_DIR_VERSION }}-
+
+      - name: swift test --parallel
+        run: |
+          set -o pipefail
+          swift test --parallel 2>&1 | tee swift-test.log
+
+      - name: Skipped-test count may not rise
+        run: python3 scripts/check-rules.py --test-log swift-test.log
+
+      - name: Keep the log
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: swift-test-log
+          path: swift-test.log
+          retention-days: 14
+
+  hosted-ipad:
+    if: github.event_name != 'schedule'
+    runs-on: ${{ vars.GRAPHITE_MACOS_RUNNER || 'macos-27' }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - uses: maxim-lobanov/setup-xcode@v1.6.0
+        with:
+          xcode-version: ${{ env.DEVELOPER_DIR_VERSION }}
+
+      - name: Choose an iPad simulator
+        id: simulator
+        run: |
+          udid="$(python3 scripts/select-ipad-simulator.py)"
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          xcrun simctl bootstatus "$udid" -b
+
+      - name: Cache resolved packages
+        uses: actions/cache@v4.2.3
+        with:
+          path: ${{ runner.temp }}/SourcePackages
+          key: sourcepackages-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+
+      - name: xcodebuild test (hosted suite, iPad simulator)
+        env:
+          DEVELOPMENT_TEAM: ${{ secrets.DEVELOPMENT_TEAM || vars.DEVELOPMENT_TEAM }}
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project Graphite.xcodeproj \
+            -scheme Graphite \
+            -destination "id=${{ steps.simulator.outputs.udid }}" \
+            -only-testing:GraphiteIntegrationTests \
+            -derivedDataPath "$RUNNER_TEMP/derived" \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages" \
+            -resultBundlePath "$RUNNER_TEMP/hosted-ipad.xcresult" \
+            -skipPackagePluginValidation -skipMacroValidation \
+            DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+            2>&1 | tee hosted-ipad.log
+
+      # xcodebuild rewrites the originHash of Package.resolved; the file in the repository must stay as committed.
+      - name: Restore Package.resolved
+        if: always()
+        run: git checkout -- Package.resolved
+
+      - name: Skipped-test count may not rise
+        run: python3 scripts/check-rules.py --test-log hosted-ipad.log
+
+      - name: Keep the result bundle
+        if: failure()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: hosted-ipad-xcresult
+          path: ${{ runner.temp }}/hosted-ipad.xcresult
+          retention-days: 14
+
+  runtime-node:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: Tests/CommunityPluginRuntimeTests
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: "24.11.0"
+          cache: npm
+          cache-dependency-path: Tests/CommunityPluginRuntimeTests/package-lock.json
+
+      - run: npm ci
+
+      # The real-plugin cases skip when the plugins are not built; the nightly job builds them and fails on any skip.
+      - run: npm test
+
+  size-report:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - run: python3 scripts/size-report.py
+
+  registration-check:
+    if: github.event_name != 'schedule'
+    runs-on: ${{ vars.GRAPHITE_MACOS_RUNNER || 'macos-27' }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - uses: maxim-lobanov/setup-xcode@v1.6.0
+        with:
+          xcode-version: ${{ env.DEVELOPER_DIR_VERSION }}
+
+      - name: Rule ratchet (counts may not rise above scripts/rule-baselines.json)
+        run: python3 scripts/check-rules.py
+
+      - name: Every source rule is covered by a rule of section 11
+        run: python3 scripts/check-rules.py --coverage
+
+      - name: Import rules of section 3.2
+        run: python3 scripts/check-imports.py
+
+      - name: Every test file is registered with a test target
+        run: python3 scripts/check-test-registration.py
+
+      # SwiftLint: the first run writes scripts/swiftlint-baseline.json and uploads it; commit it, and later runs fail on new findings only.
+      - name: Install SwiftLint
+        run: brew install swiftlint
+
+      - name: SwiftLint
+        run: |
+          if [ -f scripts/swiftlint-baseline.json ]; then
+            swiftlint lint --baseline scripts/swiftlint-baseline.json --reporter github-actions-logging
+          else
+            echo "::warning::scripts/swiftlint-baseline.json is missing: recording it from this run. Commit the uploaded artifact."
+            swiftlint lint --write-baseline scripts/swiftlint-baseline.json --quiet || true
+          fi
+
+      # ESLint 9.24 or newer (bulk suppressions): the first run writes scripts/eslint-suppressions.json.
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: "24.11.0"
+
+      - name: Install ESLint
+        run: npm install --no-save --no-package-lock --prefix "$RUNNER_TEMP/eslint" eslint@9.28.0
+
+      - name: ESLint
+        run: |
+          eslint="$RUNNER_TEMP/eslint/node_modules/.bin/eslint"
+          if [ -f scripts/eslint-suppressions.json ]; then
+            "$eslint" --suppressions-location scripts/eslint-suppressions.json --pass-on-unpruned-suppressions
+          else
+            echo "::warning::scripts/eslint-suppressions.json is missing: recording it from this run. Commit the uploaded artifact."
+            "$eslint" --suppress-all --suppressions-location scripts/eslint-suppressions.json || true
+          fi
+
+      # Periphery needs an index build of the app scheme; the first run writes scripts/periphery-baseline.json.
+      - name: Install Periphery
+        run: brew install periphery
+
+      - name: Periphery
+        env:
+          DEVELOPMENT_TEAM: ${{ secrets.DEVELOPMENT_TEAM || vars.DEVELOPMENT_TEAM }}
+        run: |
+          if [ -f scripts/periphery-baseline.json ]; then
+            periphery scan --baseline scripts/periphery-baseline.json --strict -- DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM"
+          else
+            echo "::warning::scripts/periphery-baseline.json is missing: recording it from this run. Commit the uploaded artifact."
+            periphery scan --write-baseline scripts/periphery-baseline.json -- DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" || true
+          fi
+          git checkout -- Package.resolved
+
+      - name: Keep the recorded baselines
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: tool-baselines
+          path: |
+            scripts/swiftlint-baseline.json
+            scripts/eslint-suppressions.json
+            scripts/periphery-baseline.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+  # The device job: a self-hosted runner on the owner's Mac with the iPad connected (label graphite-ipad). Configure the
+  # runner's work folder outside the iCloud-synced Desktop, where code signing fails (a clean clone has no such problem).
+  nightly:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, graphite-ipad]
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: "24.11.0"
+
+      - name: Real community plugins (build them, then every case must run)
+        working-directory: Tests/CommunityPluginRuntimeTests
+        run: |
+          npm ci
+          npm run build-compatibility-plugins
+          set -o pipefail
+          npm test 2>&1 | tee node-test.log
+          skipped="$(grep -E '^ℹ skipped [0-9]+' node-test.log | awk '{print $3}')"
+          if [ "${skipped:-0}" != "0" ]; then
+            echo "::error::$skipped Node test(s) were skipped; the nightly run must build every plugin and run every case."
+            exit 1
+          fi
+
+      - name: Hosted suite and benchmarks on the iPad
+        env:
+          DEVELOPMENT_TEAM: ${{ secrets.DEVELOPMENT_TEAM || vars.DEVELOPMENT_TEAM }}
+          GRAPHITE_BENCHMARKS: "1"
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project Graphite.xcodeproj \
+            -scheme Graphite \
+            -destination "platform=iOS,id=${{ vars.GRAPHITE_IPAD_UDID }}" \
+            -only-testing:GraphiteIntegrationTests \
+            -derivedDataPath "$RUNNER_TEMP/derived" \
+            -resultBundlePath "$RUNNER_TEMP/nightly-ipad.xcresult" \
+            -allowProvisioningUpdates \
+            DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+            2>&1 | tee nightly-ipad.log
+
+      - name: Restore Package.resolved
+        if: always()
+        run: git checkout -- Package.resolved
+
+      - name: Benchmarks on the Mac
+        env:
+          GRAPHITE_BENCHMARKS: "1"
+        run: |
+          set -o pipefail
+          swift test --filter PerformanceBenchmarkTests 2>&1 | tee mac-benchmarks.log
+
+      - name: Keep the numbers and the result bundle
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: nightly-results
+          path: |
+            nightly-ipad.log
+            mac-benchmarks.log
+            ${{ runner.temp }}/nightly-ipad.xcresult
+          if-no-files-found: ignore
+          retention-days: 90

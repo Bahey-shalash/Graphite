@@ -1,0 +1,42 @@
+# Periphery dead-code scan (decision 13; FR-82 "nothing unused ships", CC 26).
+#
+# Periphery runs in Xcode-project mode so that the app target's use of the package's public API counts as use.
+# Existing findings are recorded in scripts/periphery-baseline.json, which the first CI run writes
+# (`periphery scan --write-baseline scripts/periphery-baseline.json`) because Periphery is not installed on the machine
+# that wrote this file; after that `periphery scan --baseline scripts/periphery-baseline.json --strict` fails only on a new
+# unused declaration. SwiftUI and @Observable members that Periphery cannot see used are reviewed one by one and listed
+# in `report_exclude` with a reason in the commit that adds them (the reviewed allow-list of decision 13).
+
+project: Graphite.xcodeproj
+schemes:
+  - Graphite
+
+# The app and the package modules whose code is audited. The Vendor/ packages, the benchmark tool and the tests are not reported.
+targets:
+  - Graphite
+  - GraphiteCore
+  - GraphiteIndex
+  - GraphiteApple
+  - GraphiteVoices
+  - GraphiteUI
+
+# A member that only tests call is dead in production (LSP 15, TR 4): test targets are not scanned, so their uses do not count.
+exclude_tests: true
+
+# SwiftUI previews are not production callers, but they are code the author runs; keep what they use.
+retain_swift_ui_previews: true
+# Selectors, delegate callbacks and overrides that UIKit, AppKit and Objective-C runtime reach by name.
+retain_objc_accessible: true
+retain_objc_annotated: true
+# Persisted formats: Codable properties are read by the decoder, and unknown fields round-trip (FR-61).
+retain_codable_properties: true
+# A protocol requirement's unused parameter is part of the contract that the other conformers use.
+retain_unused_protocol_func_params: true
+external_test_case_classes:
+  - XCTestCase
+
+# Reviewed false positives (SwiftUI `body` helpers and @Observable properties that are only read through the macro).
+# Add a glob with a comment naming the reason; an empty list means no member is excused.
+report_exclude: []
+
+disable_update_check: true

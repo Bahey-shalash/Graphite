@@ -1,0 +1,65 @@
+# Concurrency escapes that scripts/check-rules.py accepts today (gate `concurrency-escapes-unlisted`).
+#
+# CC 28 / FR-70: every `@unchecked Sendable`, `nonisolated(unsafe)` and `MainActor.assumeIsolated` names its invariant
+# at the site, and a site is allowed only where it is listed here. The list is seeded from
+# Docs/solid/cross-cutting/architecture.md part 8.4 (20 `@unchecked Sendable`, 4 `nonisolated(unsafe)`, 41 `assumeIsolated`
+# at the snapshot) and the working tree of the Phase 1 commit. A line is removed when the site is replaced by an explicit
+# hop or an actor; never added to make a check pass. The script reports a line that matches nothing any more: delete it.
+#
+# Format, one entry per line:   <file>  <key> [xN]  # <the invariant>
+#   `@unchecked Sendable`    key = the type that carries the conformance
+#   `nonisolated(unsafe)`    key = the declared name
+#   `assumeIsolated`         key = assumeIsolated, with xN = the number of uses permitted in that file
+
+# --- @unchecked Sendable ---
+Sources/GraphiteApple/CameraCaptureSource.swift        CameraCaptureSource      # session, inputs and rotation touched only on sessionQueue; handlers behind a mutex
+Sources/GraphiteApple/FolderAccess.swift               VaultMonitor             # mutex around the state, immutable callbacks
+Sources/GraphiteApple/MainThreadWatchdog.swift         MetricKitDiagnostics     # no state
+Sources/GraphiteApple/MainThreadWatchdog.swift         MainThreadWatchdog       # lock around the state, set-once fields
+Sources/GraphiteApple/PDFPicture.swift                 PDFPictureDrawingDelegate # no state
+Sources/GraphiteApple/ReadAloudSpeech.swift            SpeechCallbackIdentity   # retains only; never reads the wrapped object off the main actor
+Sources/GraphiteApple/RecordingController.swift        StartedRecorder          # handed once to the main actor
+Sources/GraphiteApple/VideoRecording.swift             VideoRecording           # confined to one serial queue
+Sources/GraphiteApple/VideoRecording.swift             UncheckedRenderer        # handed to the queue and used there only
+Sources/GraphiteIndex/VaultSearch.swift                RegularExpressionCache   # NSCache is thread-safe, values are immutable
+Sources/GraphiteUI/BaseTiledMapView.swift              TileResultHandler        # called once
+Sources/GraphiteUI/CanvasCardViews.swift               CanvasPDFPageImage       # holds an immutable CGImage
+Sources/GraphiteUI/MarkdownPreview.swift               ReadingThumbnail         # holds an immutable CGImage
+Sources/GraphiteUI/MarkdownPreview.swift               ReadingImageCache        # NSCache is thread-safe
+Sources/GraphiteUI/PDFSession.swift                    LoadedPDF                # sole consumer takes it once
+Sources/GraphiteUI/PDFThumbnailRenderer.swift          PDFPageContentSource     # immutable data
+Sources/GraphiteUI/PDFThumbnailRenderer.swift          PDFPageContent           # immutable CGPDFPage
+Sources/GraphiteVoices/NeuralSpeechEngine.swift        LoadedSpeechModel        # only NeuralSpeechEngine holds the box; its actor runs one load or render at a time
+Sources/GraphiteVoices/NeuralVoiceDownloader.swift     NeuralVoiceDownloader    # serial delegate queue
+Sources/GraphiteVoices/ProcessResources.swift          PeakFootprintSampler     # lock around the peak
+
+# --- nonisolated(unsafe) ---
+Sources/GraphiteApple/MoviePartWriter.swift            handedOverBuffer         # a sample buffer nothing else holds
+Sources/GraphiteApple/VideoRecording.swift             handedOverFrame          # a frame nothing else holds
+Sources/GraphiteApple/RecordingController.swift        recordingSettings        # an immutable settings dictionary
+Sources/GraphiteUI/LivePreviewRenderedBlocks.swift     associationKey           # only the address is used
+
+# --- assumeIsolated: main-queue observers, timers and callbacks (architecture.md 8.4); CC-ARCH-06 names the two with no documented thread ---
+Sources/GraphiteUI/CanvasBoardHost.swift               assumeIsolated x1  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
+Sources/GraphiteUI/ConcealedReplacementLayoutFragment.swift assumeIsolated x2  # guarded by Thread.isMainThread (architecture.md 8.4)
+Sources/GraphiteUI/DrawingEditor.swift                 assumeIsolated x1  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
+Sources/GraphiteUI/GraphitePDFView.swift               assumeIsolated x9  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
+Sources/GraphiteUI/GraphiteRootView.swift              assumeIsolated x1  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
+Sources/GraphiteUI/HistoryCanvasView.swift             assumeIsolated x4  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
+Sources/GraphiteUI/InkSelection.swift                  assumeIsolated x1  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
+Sources/GraphiteUI/LaserPointer.swift                  assumeIsolated x1  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
+Sources/GraphiteUI/MarkdownEditorRetention.swift       assumeIsolated x1  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
+Sources/GraphiteUI/MarkdownEditorStyling.swift         assumeIsolated x1  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
+Sources/GraphiteUI/MarkdownPreview.swift               assumeIsolated x2  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
+Sources/GraphiteUI/NativeMarkdownEditor.swift          assumeIsolated x1  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
+Sources/GraphiteUI/PDFPaneHealth.swift                 assumeIsolated x1  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
+Sources/GraphiteUI/PDFPictureControls.swift            assumeIsolated x4  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
+Sources/GraphiteUI/PresentedScreenObserver.swift       assumeIsolated x1  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
+Sources/GraphiteUI/ReadAloudNowPlaying.swift           assumeIsolated x1  # one of the two uses with no documented thread (CC-ARCH-06): replace by an explicit hop
+Sources/GraphiteUI/ReadAloudPen.swift                  assumeIsolated x2  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
+Sources/GraphiteUI/ReadAloudVoices.swift               assumeIsolated x2  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
+Sources/GraphiteUI/SelectionFrameView.swift            assumeIsolated x1  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
+Sources/GraphiteUI/StrokeHold.swift                    assumeIsolated x1  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
+Sources/GraphiteUI/UndoAvailability.swift              assumeIsolated x1  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
+Sources/GraphiteVoices/NeuralReadAloudSpeech.swift     assumeIsolated x3  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
+Sources/GraphiteVoices/RenderedPassagePlayer.swift     assumeIsolated x1  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
