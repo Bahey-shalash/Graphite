@@ -749,9 +749,8 @@ private struct DrawingAtCursorTracker: View {
 /// Obsidian's status-bar word and character count, without frontmatter. The text changes
 /// with every keystroke, so it is counted off the main thread, once typing pauses.
 /// The note's word and character counts, as Obsidian's Word count plugin shows them: under
-/// the window's title where the system has a subtitle (iPadOS and iOS 26, macOS), else in a
-/// capsule over the note's bottom corner. A phone shows only the words, which fit beside
-/// the title's width. Only this modifier reads the text, so typing does not rebuild the pane.
+/// the window's title, as its subtitle. A phone shows only the words, which fit beside the
+/// title's width. Only this modifier reads the text, so typing does not rebuild the pane.
 private struct WordCountDisplay: ViewModifier {
     let session: MarkdownSession
     let isShown: Bool
@@ -789,24 +788,10 @@ private struct WordCountDisplay: ViewModifier {
     }
 
     @ViewBuilder private func countedContent(_ content: Content) -> some View {
-        if #available(iOS 26, macOS 11, *) {
-            // Always the same view, with an empty subtitle when there is nothing to show:
-            // switching between the note with and without a subtitle made SwiftUI build the
-            // note's editor again, losing its cursor and revealed markup.
-            content.navigationSubtitle(Text(isShown ? counts.map(summary(of:)) ?? "" : ""))
-        } else {
-            content.overlay(alignment: .bottomTrailing) {
-                if isShown, let counts {
-                    Text(summary(of: counts))
-                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                        .padding(.horizontal, 10).padding(.vertical, 5)
-                        .background(.regularMaterial, in: Capsule())
-                        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-                        .allowsHitTesting(false)
-                        .padding(12)
-                }
-            }
-        }
+        // Always the same view, with an empty subtitle when there is nothing to show:
+        // switching between the note with and without a subtitle made SwiftUI build the
+        // note's editor again, losing its cursor and revealed markup.
+        content.navigationSubtitle(Text(isShown ? counts.map(summary(of:)) ?? "" : ""))
     }
 
     private func summary(of counts: NoteTextCounts) -> String {

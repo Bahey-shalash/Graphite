@@ -104,22 +104,13 @@ final class RenderedPassagePlayer {
         engine.stop()
     }
 
-    // From macOS 27 and iOS 27 connecting and starting report failures as errors; before,
-    // they could only raise an exception.
+    // Connecting and starting report failures as errors.
 
     private func connect(_ node: AVAudioNode, to destination: AVAudioNode, format: AVAudioFormat) throws {
-        if #available(iOS 27, *) {
-            try engine.connectNode(node, to: destination, format: format)
-        } else {
-            engine.connect(node, to: destination, format: format)
-        }
+        try engine.connectNode(node, to: destination, format: format)
     }
 
     private func startPlayer() throws {
-        if #available(iOS 27, *) {
-            try player.playAudio()
-        } else {
-            player.play()
-        }
+        try player.playAudio()
     }
 }

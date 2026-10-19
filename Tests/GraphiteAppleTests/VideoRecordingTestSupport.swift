@@ -287,7 +287,6 @@ struct MovieInspection {
         inspection.durationSeconds = try await asset.load(.duration).seconds
         inspection.isPlayable = try await asset.load(.isPlayable)
         inspection.containsFragments = try await asset.load(.containsFragments)
-        guard #available(iOS 26, *) else { throw XCTSkip("Reading a movie back needs iOS 26.") }
         let reader = try AVAssetReader(asset: asset)
         var videoSamples: AVAssetReaderOutput.Provider<CMReadySampleBuffer<CMSampleBuffer.DynamicContent>>?
         var audioSamples: AVAssetReaderOutput.Provider<CMReadySampleBuffer<CMSampleBuffer.DynamicContent>>?

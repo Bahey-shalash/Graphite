@@ -10,10 +10,9 @@ public protocol ReadAloudSpeechAligning: Sendable {
     func recognizedWords(in audioFile: URL, language: String) async -> [ReadAloudRecognizedWord]?
 }
 
-/// Apple's on-device speech recognition (SpeechAnalyzer, iOS and macOS 26 and later) run on a
-/// rendered passage. Nothing leaves the device. On earlier systems, or when the language's
-/// recognition model is not installed and cannot be installed, it returns nil and the reader
-/// highlights whole passages.
+/// Apple's on-device speech recognition (SpeechAnalyzer) run on a rendered passage. Nothing
+/// leaves the device. When the language's recognition model is not installed and cannot be
+/// installed, it returns nil and the reader highlights whole passages.
 public struct OnDeviceSpeechAlignment: ReadAloudSpeechAligning {
     public init() {}
 
@@ -26,14 +25,12 @@ public struct OnDeviceSpeechAlignment: ReadAloudSpeechAligning {
 
     /// Why recognition gave no words, for the measuring screen and the logs.
     public enum Failure: Error, CustomStringConvertible {
-        case needsNewerSystem
         case transcriberUnavailable
         case unsupportedLanguage(String)
         case failed(String)
 
         public var description: String {
             switch self {
-            case .needsNewerSystem: "needs iOS or macOS 26"
             case .transcriberUnavailable: "SpeechTranscriber is not available on this device"
             case .unsupportedLanguage(let language): "no recognition model for \(language)"
             case .failed(let message): message
@@ -42,7 +39,6 @@ public struct OnDeviceSpeechAlignment: ReadAloudSpeechAligning {
     }
 
     public func recognize(_ audioFile: URL, language: String) async -> Result<[ReadAloudRecognizedWord], Failure> {
-        guard #available(iOS 26, macOS 26, *) else { return .failure(.needsNewerSystem) }
         do {
             return .success(try await Self.transcribe(audioFile, language: language))
         } catch let failure as Failure {
@@ -52,7 +48,6 @@ public struct OnDeviceSpeechAlignment: ReadAloudSpeechAligning {
         }
     }
 
-    @available(iOS 26, macOS 26, *)
     private static func transcribe(_ audioFile: URL, language: String) async throws -> [ReadAloudRecognizedWord] {
         // "en" alone matched Singapore English on a Mac; a region is added from the device
         // when it speaks the language, otherwise the language's main region.
@@ -73,7 +68,6 @@ public struct OnDeviceSpeechAlignment: ReadAloudSpeechAligning {
         return try await analyze(audioFile, module: transcriber, results: transcriber.results.map(\.text))
     }
 
-    @available(iOS 26, macOS 26, *)
     private static func analyze<Results: AsyncSequence>(_ audioFile: URL, module: any SpeechModule, results: Results) async throws
         -> [ReadAloudRecognizedWord] where Results.Element == AttributedString {
         // The recognition model for a language is a system download shared by every app; it is
