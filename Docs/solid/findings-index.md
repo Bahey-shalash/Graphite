@@ -4,16 +4,18 @@ Snapshot: b13dec3 (main, 2026-10-18).
 
 Every finding and defect heading in the area documents, extracted by script (`#### <P>-<AREA>-<NN> title` and its **Severity** line). Defect severities here are the auditors' own; the verified verdicts and calibrated severities are in [defects.md](defects.md).
 
+Section 9 of each area document adds the 72 findings of the delta audit of 2026-10-19 (code changed between `b13dec3` and `9040705`). The index is rebuilt with `python3 scripts/findings-index.py`; `--check` says whether it is current.
+
 | Prefix | High | Medium | Low | Critical | No severity | Total |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| SRP | 13 | 48 | 14 | 0 | 0 | 75 |
-| OCP | 3 | 30 | 19 | 0 | 0 | 52 |
-| LSP | 8 | 30 | 20 | 0 | 0 | 58 |
-| ISP | 3 | 20 | 17 | 0 | 0 | 40 |
-| DIP | 4 | 27 | 21 | 0 | 0 | 52 |
-| CC | 2 | 70 | 79 | 0 | 0 | 151 |
-| BUG | 0 | 0 | 0 | 0 | 73 | 73 |
-| **All** | 33 | 225 | 170 | 0 | 73 | **501** |
+| SRP | 13 | 50 | 16 | 0 | 0 | 79 |
+| OCP | 3 | 31 | 21 | 0 | 0 | 55 |
+| LSP | 8 | 31 | 22 | 0 | 0 | 61 |
+| ISP | 3 | 21 | 18 | 0 | 0 | 42 |
+| DIP | 4 | 33 | 23 | 0 | 0 | 60 |
+| CC | 2 | 85 | 108 | 0 | 0 | 195 |
+| BUG | 1 | 4 | 3 | 0 | 73 | 81 |
+| **All** | 34 | 255 | 211 | 0 | 73 | **573** |
 
 | ID | Area | Severity | Title |
 | --- | --- | --- | --- |
@@ -37,12 +39,14 @@ Every finding and defect heading in the area documents, extracted by script (`##
 | [SRP-EDITOR-03](areas/editor.md#srp-editor-03-the-ipad-text-view-runs-the-paste-and-drop-import-pipeline) | EDITOR | Medium | The iPad text view runs the paste and drop import pipeline |
 | [SRP-EDITOR-04](areas/editor.md#srp-editor-04-two-delegate-callbacks-each-perform-five-or-six-jobs) | EDITOR | Medium | Two delegate callbacks each perform five or six jobs |
 | [SRP-EDITOR-05](areas/editor.md#srp-editor-05-rendered-block-views-read-files-and-construct-their-own-services) | EDITOR | Low | Rendered-block views read files and construct their own services |
+| [SRP-EDITOR-06](areas/editor.md#srp-editor-06-the-mac-editor-copies-the-ipad-editors-session-request-handling-instead-of-sharing-it) | EDITOR | Medium | The Mac editor copies the iPad editor's session-request handling instead of sharing it |
 | [SRP-INK-01](areas/ink.md#srp-ink-01-historycanvasview-is-one-class-for-nine-jobs-that-every-canvas-inherits) | INK | High | `HistoryCanvasView` is one class for nine jobs that every canvas inherits |
 | [SRP-INK-02](areas/ink.md#srp-ink-02-inkselectioncontroller-mixes-gestures-rendering-stroke-editing-pasteboard-capture-and-menus) | INK | Medium | `InkSelectionController` mixes gestures, rendering, stroke editing, pasteboard, capture and menus |
 | [SRP-INK-03](areas/ink.md#srp-ink-03-drawingcanvascontroller-owns-history-picture-arrangement-paper-and-error-reporting-and-needs-18-manual-projection-calls) | INK | Medium | `DrawingCanvasController` owns history, picture arrangement, paper and error reporting, and needs 18 manual projection calls |
 | [SRP-INK-04](areas/ink.md#srp-ink-04-infinitecanvasview-adds-27-stored-properties-and-8-callbacks-to-the-shared-canvas) | INK | Medium | `InfiniteCanvasView` adds 27 stored properties and 8 callbacks to the shared canvas |
 | [SRP-INK-05](areas/ink.md#srp-ink-05-the-drawing-editor-view-reads-files-and-the-pasteboard-and-maps-errors-to-text) | INK | Medium | The drawing editor view reads files and the pasteboard and maps errors to text |
 | [SRP-INK-06](areas/ink.md#srp-ink-06-files-hold-several-unrelated-concepts) | INK | Low | Files hold several unrelated concepts |
+| [SRP-INK-07](areas/ink.md#srp-ink-07-notebook-paper-values-live-in-the-apple-adapter-module-and-restate-facts-declared-elsewhere) | INK | Low | Notebook paper values live in the Apple adapter module and restate facts declared elsewhere |
 | [SRP-LECTURE-01](areas/lecture.md#srp-lecture-01-pdfannotationcoordinator-owns-13-responsibilities-and-37-stored-properties) | LECTURE | High | `PDFAnnotationCoordinator` owns 13 responsibilities and 37 stored properties |
 | [SRP-LECTURE-02](areas/lecture.md#srp-lecture-02-pdfsession-is-the-pdfs-aggregate-root-save-controller-undo-history-and-view-state-at-once) | LECTURE | High | `PDFSession` is the PDF's aggregate root, save controller, undo history and view state at once |
 | [SRP-LECTURE-03](areas/lecture.md#srp-lecture-03-recordingcontroller-runs-audio-video-publication-and-recovery-in-one-object) | LECTURE | Medium | `RecordingController` runs audio, video, publication and recovery in one object |
@@ -70,6 +74,7 @@ Every finding and defect heading in the area documents, extracted by script (`##
 | [SRP-READING-06](areas/reading.md#srp-reading-06-apply-an-edit-to-a-note-open-or-closed-is-implemented-three-times-with-three-save-rules) | READING | Medium | "Apply an edit to a note, open or closed" is implemented three times with three save rules |
 | [SRP-READING-07](areas/reading.md#srp-reading-07-notelinksinspector-parses-notes-and-queries-the-index-from-its-view-tasks) | READING | Low | `NoteLinksInspector` parses notes and queries the index from its view tasks |
 | [SRP-READING-08](areas/reading.md#srp-reading-08-property-text-parsing-rules-live-in-the-ui-target) | READING | Low | Property text parsing rules live in the UI target |
+| [SRP-READING-09](areas/reading.md#srp-reading-09-the-reading-builder-gathers-callout-titles-in-an-actor-field-as-a-side-effect-of-rendering) | READING | Low | The reading builder gathers callout titles in an actor field as a side effect of rendering |
 | [SRP-RUNTIME-01](areas/runtime.md#srp-runtime-01-pluginsjs-is-one-1324-code-line-closure-with-about-18-responsibilities) | RUNTIME | Medium | `plugins.js` is one 1324-code-line closure with about 18 responsibilities |
 | [SRP-RUNTIME-02](areas/runtime.md#srp-runtime-02-the-global-graphitepluginruntime-namespace-is-a-service-locator-and-a-shared-mutable-registry) | RUNTIME | High | The global `GraphitePluginRuntime` namespace is a service locator and a shared mutable registry |
 | [SRP-RUNTIME-03](areas/runtime.md#srp-runtime-03-readingjs-mixes-a-global-prototype-patch-event-replay-dom-copying-style-reporting-view-placement-and-link-interception) | RUNTIME | Medium | `reading.js` mixes a global prototype patch, event replay, DOM copying, style reporting, view placement and link interception |
@@ -82,6 +87,7 @@ Every finding and defect heading in the area documents, extracted by script (`##
 | [SRP-SHELL-04](areas/shell.md#srp-shell-04-graphiterootview-mixes-window-layout-twelve-presentations-the-deep-link-queue-scene-lifecycle-saving-and-draft-recovery) | SHELL | Medium | `GraphiteRootView` mixes window layout, twelve presentations, the deep-link queue, scene-lifecycle saving and draft recovery |
 | [SRP-SHELL-05](areas/shell.md#srp-shell-05-views-read-the-disk-while-drawing-and-two-model-functions-enumerate-folders-on-the-main-actor) | SHELL | Medium | Views read the disk while drawing, and two model functions enumerate folders on the main actor |
 | [SRP-SHELL-06](areas/shell.md#srp-shell-06-graphitepreferences-serves-nine-feature-areas-with-36-stored-properties-and-its-file-holds-eight-unrelated-concepts) | SHELL | Medium | `GraphitePreferences` serves nine feature areas with 36 stored properties, and its file holds eight unrelated concepts |
+| [SRP-SHELL-07](areas/shell.md#srp-shell-07-the-library-adds-five-workspacemodel-extensions-two-feature-named-calls-in-move-and-delete-and-widens-two-private-members) | SHELL | Medium | The library adds five `WorkspaceModel` extensions, two feature-named calls in move and delete, and widens two private members |
 | [SRP-VAULT-01](areas/vault.md#srp-vault-01-vaultstore-is-one-actor-for-file-io-file-management-naming-policy-and-six-obsidian-settings-files) | VAULT | Medium | `VaultStore` is one actor for file I/O, file management, naming policy and six Obsidian settings files |
 | [SRP-VAULT-02](areas/vault.md#srp-vault-02-vaultindex-owns-schema-cache-placement-scanning-refresh-and-five-query-families) | VAULT | Medium | `VaultIndex` owns schema, cache placement, scanning, refresh and five query families |
 | [SRP-VAULT-03](areas/vault.md#srp-vault-03-the-scans-state-is-a-boolean-an-optional-and-a-dictionary-that-must-change-together) | VAULT | Medium | The scan's state is a boolean, an optional and a dictionary that must change together |
@@ -95,6 +101,7 @@ Every finding and defect heading in the area documents, extracted by script (`##
 | [OCP-ARCH-01](cross-cutting/architecture.md#ocp-arch-01-a-new-document-kind-touches-at-least-16-places-in-14-files-five-of-which-hide-it-behind-default) | ARCH | Medium | A new document kind touches at least 16 places in 14 files, five of which hide it behind `default:` |
 | [OCP-ARCH-02](cross-cutting/architecture.md#ocp-arch-02-commands-are-declared-twice-with-shortcuts-written-once-as-key-equivalents-and-once-as-display-text) | ARCH | Medium | Commands are declared twice, with shortcuts written once as key equivalents and once as display text |
 | [OCP-ARCH-03](cross-cutting/architecture.md#ocp-arch-03-cross-cutting-duties-are-coded-as-calls-from-the-coordinator-to-each-feature) | ARCH | Medium | Cross-cutting duties are coded as calls from the coordinator to each feature |
+| [OCP-ARCH-04](cross-cutting/architecture.md#ocp-arch-04-launchmode-decides-per-mode-behaviour-by-equality-tests) | ARCH | Low | `LaunchMode` decides per-mode behaviour by equality tests |
 | [OCP-BASES-01](areas/bases.md#ocp-bases-01-the-expression-vocabulary-is-spread-across-14-string-switches) | BASES | Medium | The expression vocabulary is spread across 14 string `switch`es |
 | [OCP-BASES-02](areas/bases.md#ocp-bases-02-a-new-view-type-touches-10-places-in-6-files) | BASES | Medium | A new view type touches 10 places in 6 files |
 | [OCP-BASES-03](areas/bases.md#ocp-bases-03-default-over-the-apps-own-enums-hides-new-cases-in-23-places-of-the-evaluator) | BASES | Medium | `default:` over the app's own enums hides new cases in 23 places of the evaluator |
@@ -138,6 +145,8 @@ Every finding and defect heading in the area documents, extracted by script (`##
 | [OCP-SHELL-05](areas/shell.md#ocp-shell-05-what-can-be-created-is-listed-seven-times-each-copy-repeating-the-plugin-gating) | SHELL | Medium | What can be created is listed seven times, each copy repeating the plugin gating |
 | [OCP-SHELL-06](areas/shell.md#ocp-shell-06-forget-a-removed-vault-names-its-per-vault-state-by-hand-so-new-per-vault-state-is-not-forgotten) | SHELL | Medium | "Forget a removed vault" names its per-vault state by hand, so new per-vault state is not forgotten |
 | [OCP-SHELL-07](areas/shell.md#ocp-shell-07-bookmark-kinds-are-compared-as-strings-in-9-places) | SHELL | Low | Bookmark kinds are compared as strings in 9 places |
+| [OCP-SHELL-08](areas/shell.md#ocp-shell-08-new-notebook-in-a-note-is-declared-in-three-places-with-three-titles-and-not-in-the-menu-bar) | SHELL | Medium | "New notebook in a note" is declared in three places with three titles, and not in the menu bar |
+| [OCP-SHELL-09](areas/shell.md#ocp-shell-09-the-library-filter-decides-by-equality-tests-on-documentkind) | SHELL | Low | The library filter decides by equality tests on `DocumentKind` |
 | [OCP-VAULT-01](areas/vault.md#ocp-vault-01-bookmark-kinds-are-a-stringly-typed-vocabulary-repeated-in-18-places) | VAULT | Medium | Bookmark kinds are a stringly-typed vocabulary repeated in 18 places |
 | [OCP-VAULT-02](areas/vault.md#ocp-vault-02-obsidian-settings-files-are-written-by-four-different-json-writers) | VAULT | Medium | Obsidian settings files are written by four different JSON writers |
 | [OCP-VAULT-03](areas/vault.md#ocp-vault-03-adding-a-search-operator-touches-four-parallel-switches-two-of-which-hide-new-cases-behind-default) | VAULT | Low | Adding a search operator touches four parallel switches, two of which hide new cases behind `default:` |
@@ -188,10 +197,13 @@ Every finding and defect heading in the area documents, extracted by script (`##
 | [LSP-RUNTIME-04](areas/runtime.md#lsp-runtime-04-two-functions-decide-a-leafs-placement-and-disagree-for-split-leaves) | RUNTIME | Low | Two functions decide a leaf's placement and disagree for split leaves |
 | [LSP-RUNTIME-05](areas/runtime.md#lsp-runtime-05-objectvalueentries-is-an-object-or-an-array-of-pairs-depending-on-who-built-it) | RUNTIME | Low | `ObjectValue.entries` is an object or an array of pairs depending on who built it |
 | [LSP-RUNTIME-06](areas/runtime.md#lsp-runtime-06-stand-ins-that-report-success-for-work-they-did-not-do) | RUNTIME | Low | Stand-ins that report success for work they did not do |
+| [LSP-RUNTIME-07](areas/runtime.md#lsp-runtime-07-setviewstate-on-the-notes-leaf-returns-without-changing-that-leafs-view) | RUNTIME | Medium | `setViewState` on the note's leaf returns without changing that leaf's view |
 | [LSP-SHELL-01](areas/shell.md#lsp-shell-01-two-implementations-of-read-this-note-aloud-disagree-about-folded-text) | SHELL | Medium | Two implementations of "read this note aloud" disagree about folded text |
 | [LSP-SHELL-02](areas/shell.md#lsp-shell-02-failed-reads-are-shown-as-empty-results) | SHELL | Medium | Failed reads are shown as empty results |
 | [LSP-SHELL-03](areas/shell.md#lsp-shell-03-platform-variants-of-one-function-behave-differently) | SHELL | Low | Platform variants of one function behave differently |
 | [LSP-SHELL-04](areas/shell.md#lsp-shell-04-equality-that-ignores-content-is-used-deliberately-in-four-types) | SHELL | Low | Equality that ignores content is used deliberately in four types |
+| [LSP-SHELL-05](areas/shell.md#lsp-shell-05-a-note-whose-read-fails-shows-as-a-blank-page-and-a-failed-cloud-check-reads-the-file) | SHELL | Low | A note whose read fails shows as a blank page, and a failed cloud check reads the file |
+| [LSP-SHELL-06](areas/shell.md#lsp-shell-06-completemove-reports-moved-when-some-linking-notes-were-not-updated) | SHELL | Low | `completeMove` reports `.moved` when some linking notes were not updated |
 | [LSP-VAULT-01](areas/vault.md#lsp-vault-01-two-implementations-of-how-many-files-share-this-name-disagree-on-non-ascii-capitals) | VAULT | High | Two implementations of "how many files share this name" disagree on non-ASCII capitals |
 | [LSP-VAULT-02](areas/vault.md#lsp-vault-02-the-conflict-version-test-store-succeeds-where-production-fails) | VAULT | Medium | The conflict-version test store succeeds where production fails |
 | [LSP-VAULT-03](areas/vault.md#lsp-vault-03-graphlinkresolver-re-implements-resolvedpaths-kept-equal-only-by-a-test) | VAULT | Medium | `GraphLinkResolver` re-implements `resolvedPaths`, kept equal only by a test |
@@ -218,6 +230,7 @@ Every finding and defect heading in the area documents, extracted by script (`##
 | [ISP-EDITOR-05](areas/editor.md#isp-editor-05-both-text-views-expose-12-to-14-mutable-closure-slots-set-from-outside) | EDITOR | Low | Both text views expose 12 to 14 mutable closure slots set from outside |
 | [ISP-INK-01](areas/ink.md#isp-ink-01-lassocanvascontent-is-a-10-member-protocol-whose-capture-consumer-uses-2) | INK | Medium | `LassoCanvasContent` is a 10-member protocol whose capture consumer uses 2 |
 | [ISP-INK-02](areas/ink.md#isp-ink-02-infinitecanvasview-exposes-ten-settable-callbacks-and-configuration-fields-for-its-one-owner) | INK | Low | `InfiniteCanvasView` exposes ten settable callbacks and configuration fields for its one owner |
+| [ISP-INK-03](areas/ink.md#isp-ink-03-the-drawing-editor-view-drives-the-controllers-picture-operation-runner-directly) | INK | Medium | The drawing editor view drives the controller's picture-operation runner directly |
 | [ISP-LECTURE-01](areas/lecture.md#isp-lecture-01-recording-views-take-the-whole-workspacemodel-to-use-five-members) | LECTURE | Low | Recording views take the whole `WorkspaceModel` to use five members |
 | [ISP-LECTURE-02](areas/lecture.md#isp-lecture-02-pdfpanehealthmonitor-receives-the-whole-coordinator-and-uses-9-of-its-members) | LECTURE | Low | `PDFPaneHealthMonitor` receives the whole coordinator and uses 9 of its members |
 | [ISP-LECTURE-03](areas/lecture.md#isp-lecture-03-diagnostic-payloads-are-untyped-dictionaries) | LECTURE | Low | Diagnostic payloads are untyped dictionaries |
@@ -236,6 +249,7 @@ Every finding and defect heading in the area documents, extracted by script (`##
 | [ISP-SHELL-02](areas/shell.md#isp-shell-02-communitypluginhost-and-workspacemodel-reference-each-other-the-host-reads-about-23-workspace-members) | SHELL | Medium | `CommunityPluginHost` and `WorkspaceModel` reference each other; the host reads about 23 workspace members |
 | [ISP-SHELL-03](areas/shell.md#isp-shell-03-core-workspace-state-is-publicly-settable-and-tests-and-views-assign-it-directly) | SHELL | Medium | Core workspace state is publicly settable, and tests and views assign it directly |
 | [ISP-SHELL-04](areas/shell.md#isp-shell-04-windowactions-carries-10-closures-to-every-command-consumer) | SHELL | Low | `WindowActions` carries 10 closures to every command consumer |
+| [ISP-SHELL-05](areas/shell.md#isp-shell-05-the-librarys-item-menu-hands-the-whole-workspacemodel-to-vaultentrymenu-captured-unowned) | SHELL | Low | The library's item menu hands the whole `WorkspaceModel` to `VaultEntryMenu`, captured `unowned` |
 | [ISP-VAULT-01](areas/vault.md#isp-vault-01-consumers-that-need-four-or-five-file-operations-receive-all-32-vaultstore-methods) | VAULT | Medium | Consumers that need four or five file operations receive all 32 `VaultStore` methods |
 | [ISP-VAULT-02](areas/vault.md#isp-vault-02-conflictversionstore-joins-discovery-and-destruction-in-one-six-member-protocol) | VAULT | Low | `ConflictVersionStore` joins discovery and destruction in one six-member protocol |
 | [ISP-VAULT-03](areas/vault.md#isp-vault-03-untyped-string-any-crosses-the-settings-boundary) | VAULT | Low | Untyped `[String: Any]` crosses the settings boundary |
@@ -247,6 +261,7 @@ Every finding and defect heading in the area documents, extracted by script (`##
 | [DIP-ARCH-03](cross-cutting/architecture.md#dip-arch-03-persisted-device-state-has-no-owner-about-91-key-names-four-naming-schemes-three-access-paths) | ARCH | High | Persisted device state has no owner: about 91 key names, four naming schemes, three access paths |
 | [DIP-ARCH-04](cross-cutting/architecture.md#dip-arch-04-userdefaults-is-used-as-a-message-bus-between-commands-and-views) | ARCH | Medium | `UserDefaults` is used as a message bus between commands and views |
 | [DIP-ARCH-05](cross-cutting/architecture.md#dip-arch-05-plain-value-types-live-in-adapter-modules-so-the-ui-preferences-import-the-index-and-apple-adapters) | ARCH | Low | Plain value types live in adapter modules, so the UI preferences import the index and Apple adapters |
+| [DIP-ARCH-06](cross-cutting/architecture.md#dip-arch-06-applicationfolders-uses-nil-to-mean-the-systems-folder-and-three-callees-choose-that-fallback-through-default-arguments) | ARCH | Medium | `ApplicationFolders` uses nil to mean "the system's folder", and three callees choose that fallback through default arguments |
 | [DIP-BASES-01](areas/bases.md#dip-bases-01-the-ui-model-performs-file-system-io-and-builds-its-own-collaborators) | BASES | Medium | The UI model performs file-system I/O and builds its own collaborators |
 | [DIP-BASES-02](areas/bases.md#dip-bases-02-core-reads-the-device-time-zone-behind-the-evaluation-environments-back) | BASES | Medium | Core reads the device time zone behind the evaluation environment's back |
 | [DIP-BASES-03](areas/bases.md#dip-bases-03-omitting-the-provider-silently-changes-semantics) | BASES | Medium | Omitting the provider silently changes semantics |
@@ -264,14 +279,18 @@ Every finding and defect heading in the area documents, extracted by script (`##
 | [DIP-INK-04](areas/ink.md#dip-ink-04-io-adapters-are-built-inline-and-by-default-arguments) | INK | Low | I/O adapters are built inline and by default arguments |
 | [DIP-INK-05](areas/ink.md#dip-ink-05-wall-clock-and-system-uptime-are-read-in-editing-logic) | INK | Low | Wall clock and system uptime are read in editing logic |
 | [DIP-INK-06](areas/ink.md#dip-ink-06-test-hooks-live-in-production-types) | INK | Low | Test hooks live in production types |
+| [DIP-INK-07](areas/ink.md#dip-ink-07-the-lasso-shape-and-laser-style-have-a-store-taking-read-and-write-that-only-tests-call) | INK | Medium | The lasso shape and laser style have a store-taking read and write that only tests call |
 | [DIP-LECTURE-01](areas/lecture.md#dip-lecture-01-feature-code-reaches-singletons-and-static-mutable-state) | LECTURE | Medium | Feature code reaches singletons and static mutable state |
 | [DIP-LECTURE-02](areas/lecture.md#dip-lecture-02-recording-and-recovery-call-filemanagerdefault-and-application-support-directly) | LECTURE | Medium | Recording and recovery call `FileManager.default` and Application Support directly |
 | [DIP-LECTURE-03](areas/lecture.md#dip-lecture-03-default-arguments-and-inline-constructors-create-io-collaborators) | LECTURE | Medium | Default arguments and inline constructors create I/O collaborators |
 | [DIP-LECTURE-04](areas/lecture.md#dip-lecture-04-logic-reads-clocks-directly) | LECTURE | Low | Logic reads clocks directly |
+| [DIP-LECTURE-05](areas/lecture.md#dip-lecture-05-pdfsessionopen-defaults-its-clock-to-the-live-one-and-no-production-caller-passes-the-workspaces-clock) | LECTURE | Medium | `PDFSession.open` defaults its clock to the live one, and no production caller passes the workspace's clock |
+| [DIP-LECTURE-06](areas/lecture.md#dip-lecture-06-recordingcontrollerrecoveryfolderlocation-is-a-public-settable-closure-so-the-composition-can-rewire-it-after-construction) | LECTURE | Low | `RecordingController.recoveryFolderLocation` is a public settable closure so the composition can rewire it after construction |
 | [DIP-MDCORE-01](areas/mdcore.md#dip-mdcore-01-the-reading-view-token-cache-is-a-process-wide-static-with-no-owner) | MDCORE | Medium | The reading-view token cache is a process-wide static with no owner |
 | [DIP-MDCORE-02](areas/mdcore.md#dip-mdcore-02-domain-code-produces-user-visible-english) | MDCORE | Low | Domain code produces user-visible English |
 | [DIP-MDCORE-03](areas/mdcore.md#dip-mdcore-03-new-block-identifiers-come-from-the-system-random-source) | MDCORE | Low | New block identifiers come from the system random source |
 | [DIP-MDCORE-04](areas/mdcore.md#dip-mdcore-04-editor-styling-and-highlighting-depend-on-the-reading-view-type-for-a-fence-rule) | MDCORE | Low | Editor styling and highlighting depend on the reading-view type for a fence rule |
+| [DIP-MDCORE-05](areas/mdcore.md#dip-mdcore-05-wikilinkresolverexistingdirectfile-puts-a-filemanager-call-in-graphitecore) | MDCORE | Medium | `WikiLinkResolver.existingDirectFile` puts a `FileManager` call in GraphiteCore |
 | [DIP-PLUGIN-01](areas/plugin.md#dip-plugin-01-the-host-constructs-its-io-collaborators-and-reads-userdefaultsstandard) | PLUGIN | Medium | The host constructs its I/O collaborators and reads `UserDefaults.standard` |
 | [DIP-PLUGIN-02](areas/plugin.md#dip-plugin-02-default-arguments-construct-network-sessions-and-the-network-paths-have-no-tests) | PLUGIN | Medium | Default arguments construct network sessions, and the network paths have no tests |
 | [DIP-PLUGIN-03](areas/plugin.md#dip-plugin-03-platform-statics-in-logic-and-display-text-in-core) | PLUGIN | Low | Platform statics in logic, and display text in Core |
@@ -287,6 +306,8 @@ Every finding and defect heading in the area documents, extracted by script (`##
 | [DIP-SHELL-03](areas/shell.md#dip-shell-03-model-code-and-command-code-write-view-owned-storage-keys-two-keys-are-typed-as-string-literals-in-several-files) | SHELL | Medium | Model code and command code write view-owned storage keys; two keys are typed as string literals in several files |
 | [DIP-SHELL-04](areas/shell.md#dip-shell-04-static-mutable-state-and-singletons-in-shell-code) | SHELL | Medium | Static mutable state and singletons in shell code |
 | [DIP-SHELL-05](areas/shell.md#dip-shell-05-logic-reads-the-wall-clock-directly) | SHELL | Low | Logic reads the wall clock directly |
+| [DIP-SHELL-06](areas/shell.md#dip-shell-06-five-new-persisted-keys-are-private-string-literals-in-two-types-with-no-registry-and-no-test-of-their-names) | SHELL | Medium | Five new persisted keys are private string literals in two types, with no registry and no test of their names |
+| [DIP-SHELL-07](areas/shell.md#dip-shell-07-the-launch-mode-is-read-as-a-flag-inside-the-root-view-and-a-test-only-scene-initializer-picks-normal) | SHELL | Low | The launch mode is read as a flag inside the root view, and a test-only scene initializer picks `.normal` |
 | [DIP-VAULT-01](areas/vault.md#dip-vault-01-logic-constructs-its-own-writer-and-reaches-the-file-system-and-clock-directly) | VAULT | Low | Logic constructs its own writer and reaches the file system and clock directly |
 | [DIP-VAULT-02](areas/vault.md#dip-vault-02-the-indexs-cache-folder-is-chosen-inside-the-database-type) | VAULT | Low | The index's cache folder is chosen inside the database type |
 | [DIP-VOICE-01](areas/voice.md#dip-voice-01-a-static-service-locator-holds-the-voice-library-and-the-render-queue) | VOICE | Medium | A static service locator holds the voice library and the render queue |
@@ -294,6 +315,7 @@ Every finding and defect heading in the area documents, extracted by script (`##
 | [DIP-VOICE-03](areas/voice.md#dip-voice-03-a-static-mutable-hook-connects-remote-commands-to-the-listening-queue) | VOICE | Low | A static mutable hook connects remote commands to the listening queue |
 | [DIP-VOICE-04](areas/voice.md#dip-voice-04-the-cache-uses-the-wall-clock-and-the-file-system-directly-and-its-actor-is-untested) | VOICE | Low | The cache uses the wall clock and the file system directly, and its actor is untested |
 | [DIP-VOICE-05](areas/voice.md#dip-voice-05-the-measuring-tool-ships-in-the-production-module-and-the-app-entry-point) | VOICE | Low | The measuring tool ships in the production module and the app entry point |
+| [DIP-VOICE-06](areas/voice.md#dip-voice-06-core-now-reads-the-vault-file-from-disk-and-the-settings-view-runs-that-read-on-the-main-actor-twice-per-save) | VOICE | Medium | Core now reads the vault file from disk, and the Settings view runs that read on the main actor twice per save |
 | [CC-ARCH-01](cross-cutting/architecture.md#cc-arch-01-errors-travel-as-untyped-string-slots-built-from-localizeddescription-through-two-presenters-with-different-rules) | ARCH | Medium | Errors travel as untyped `String?` slots built from `localizedDescription`, through two presenters with different rules |
 | [CC-ARCH-02](cross-cutting/architecture.md#cc-arch-02-try-hides-failures-the-user-should-see-20-of-63-sampled-sites) | ARCH | Medium | `try?` hides failures the user should see: 20 of 63 sampled sites |
 | [CC-ARCH-03](cross-cutting/architecture.md#cc-arch-03-sleep-polling-and-sleep-as-ordering-stand-in-for-completion-signals) | ARCH | Medium | Sleep-polling and sleep-as-ordering stand in for completion signals |
@@ -305,6 +327,7 @@ Every finding and defect heading in the area documents, extracted by script (`##
 | [CC-ARCH-09](cross-cutting/architecture.md#cc-arch-09-the-test-suite-has-no-shared-support-no-ci-and-is-not-hermetic) | ARCH | High | The test suite has no shared support, no CI and is not hermetic |
 | [CC-ARCH-10](cross-cutting/architecture.md#cc-arch-10-link-format-and-link-syntax-rules-are-duplicated-between-core-and-the-workspace) | ARCH | Low | Link-format and link-syntax rules are duplicated between Core and the workspace |
 | [CC-ARCH-11](cross-cutting/architecture.md#cc-arch-11-three-icon-mappings-and-three-file-name-timestamp-formats) | ARCH | Low | Three icon mappings and three file-name timestamp formats |
+| [CC-ARCH-12](cross-cutting/architecture.md#cc-arch-12-the-hosted-test-isolation-that-launchmode-documents-covers-three-of-seven-app-private-stores-cites-the-wrong-invariant-and-leaves-a-preferences-file-per-run) | ARCH | Medium | The hosted-test isolation that `LaunchMode` documents covers three of seven app-private stores, cites the wrong invariant, and leaves a preferences file per run |
 | [CC-BASES-01](areas/bases.md#cc-bases-01-29-functions-exceed-40-code-lines) | BASES | Medium | 29 functions exceed 40 code lines |
 | [CC-BASES-02](areas/bases.md#cc-bases-02-ad-hoc-latest-answer-wins-and-17-owner-less-view-tasks) | BASES | Medium | Ad-hoc "latest answer wins" and 17 owner-less view tasks |
 | [CC-BASES-03](areas/bases.md#cc-bases-03-seven-static-regular-expressions-are-built-with-try) | BASES | Low | Seven static regular expressions are built with `try?` |
@@ -315,6 +338,13 @@ Every finding and defect heading in the area documents, extracted by script (`##
 | [CC-BASES-08](areas/bases.md#cc-bases-08-a-stale-comment-and-comments-narrating-history) | BASES | Low | A stale comment and comments narrating history |
 | [CC-BASES-09](areas/bases.md#cc-bases-09-unnamed-constants-for-sizes-clamps-and-durations) | BASES | Low | Unnamed constants for sizes, clamps and durations |
 | [CC-BASES-10](areas/bases.md#cc-bases-10-tests-are-named-after-audit-rounds-and-file-names-do-not-match-their-classes) | BASES | Low | Tests are named after audit rounds, and file names do not match their classes |
+| [CC-BASES-11](areas/bases.md#cc-bases-11-the-phone-breakpoint-is-declared-four-times-and-decided-by-four-guards-with-two-rules) | BASES | Medium | The phone breakpoint is declared four times and decided by four guards with two rules |
+| [CC-BASES-12](areas/bases.md#cc-bases-12-every-table-cell-runs-the-first-column-pins-per-frame-visual-effect-not-only-the-first-columns) | BASES | Medium | Every table cell runs the first-column pin's per-frame visual effect, not only the first column's |
+| [CC-BASES-13](areas/bases.md#cc-bases-13-the-haslinkfile-branch-repeats-the-arms-of-the-switch-below-it-and-adds-another-default-over-basevalue) | BASES | Low | The `hasLink(file(…))` branch repeats the arms of the switch below it and adds another `default:` over `BaseValue` |
+| [CC-BASES-14](areas/bases.md#cc-bases-14-new-layout-sizes-are-bare-literals-and-the-new-named-constants-carry-no-unit) | BASES | Low | New layout sizes are bare literals, and the new named constants carry no unit |
+| [CC-BASES-15](areas/bases.md#cc-bases-15-the-toolbar-count-is-put-together-in-code-from-english-fragments) | BASES | Low | The toolbar count is put together in code from English fragments |
+| [CC-BASES-16](areas/bases.md#cc-bases-16-the-list-separator-runs-a-regular-expression-for-every-row-on-every-render) | BASES | Low | The list separator runs a regular expression for every row on every render |
+| [CC-BASES-17](areas/bases.md#cc-bases-17-columnwidthsforviewwidth-has-a-default-that-only-a-test-uses) | BASES | Low | `columnWidths(for:viewWidth:)` has a default that only a test uses |
 | [CC-CANVAS-01](areas/canvas.md#cc-canvas-01-drag-state-is-one-enum-plus-four-loose-fields-that-must-be-reset-together) | CANVAS | Medium | Drag state is one enum plus four loose fields that must be reset together |
 | [CC-CANVAS-02](areas/canvas.md#cc-canvas-02-sleep-driven-loops-and-unowned-tasks) | CANVAS | Medium | Sleep-driven loops and unowned tasks |
 | [CC-CANVAS-03](areas/canvas.md#cc-canvas-03-core-types-carry-english-user-text-and-tests-assert-on-it) | CANVAS | Medium | Core types carry English user text, and tests assert on it |
@@ -324,6 +354,8 @@ Every finding and defect heading in the area documents, extracted by script (`##
 | [CC-CANVAS-07](areas/canvas.md#cc-canvas-07-errors-swallowed-without-a-stated-reason) | CANVAS | Low | Errors swallowed without a stated reason |
 | [CC-CANVAS-08](areas/canvas.md#cc-canvas-08-naming-and-persisted-key-inconsistencies) | CANVAS | Low | Naming and persisted-key inconsistencies |
 | [CC-CANVAS-09](areas/canvas.md#cc-canvas-09-whole-collection-work-on-every-frame-or-update) | CANVAS | Low | Whole-collection work on every frame or update |
+| [CC-CANVAS-10](areas/canvas.md#cc-canvas-10-canvasundomanager-hooks-history-through-a-settable-closure-slot-and-lives-in-the-sessions-file) | CANVAS | Low | `CanvasUndoManager` hooks history through a settable closure slot and lives in the session's file |
+| [CC-CANVAS-11](areas/canvas.md#cc-canvas-11-card-scrolling-picks-its-platform-fact-through-a-default-argument-and-its-comment-excludes-the-ipad-trackpad) | CANVAS | Low | Card scrolling picks its platform fact through a default argument, and its comment excludes the iPad trackpad |
 | [CC-EDITOR-01](areas/editor.md#cc-editor-01-thirteen-functions-exceed-40-code-lines) | EDITOR | Medium | Thirteen functions exceed 40 code lines |
 | [CC-EDITOR-02](areas/editor.md#cc-editor-02-ordering-is-expressed-as-main-queue-hops-sleeps-and-unowned-tasks) | EDITOR | Medium | Ordering is expressed as main-queue hops, sleeps and unowned tasks |
 | [CC-EDITOR-03](areas/editor.md#cc-editor-03-re-entrancy-is-guarded-by-seven-booleans-set-around-calls) | EDITOR | Medium | Re-entrancy is guarded by seven Booleans set around calls |
@@ -335,6 +367,10 @@ Every finding and defect heading in the area documents, extracted by script (`##
 | [CC-EDITOR-09](areas/editor.md#cc-editor-09-failures-become-empty-results-or-raw-text) | EDITOR | Low | Failures become empty results or raw text |
 | [CC-EDITOR-10](areas/editor.md#cc-editor-10-one-concept-has-two-names-and-identities-are-built-from-display-text) | EDITOR | Low | One concept has two names, and identities are built from display text |
 | [CC-EDITOR-11](areas/editor.md#cc-editor-11-tests-are-named-after-fix-rounds-and-the-ipad-coordinator-has-no-package-tests) | EDITOR | Low | Tests are named after fix rounds and the iPad coordinator has no package tests |
+| [CC-EDITOR-12](areas/editor.md#cc-editor-12-the-heading-pin-lays-out-the-note-from-its-start-inside-the-layout-pass-for-up-to-10-seconds) | EDITOR | Medium | The heading pin lays out the note from its start inside the layout pass, for up to 10 seconds |
+| [CC-EDITOR-13](areas/editor.md#cc-editor-13-the-mac-editor-consumes-session-requests-inside-updatensview) | EDITOR | Medium | The Mac editor consumes session requests inside `updateNSView` |
+| [CC-EDITOR-14](areas/editor.md#cc-editor-14-headingjumppinholds-is-a-predicate-that-writes-state-and-a-boolean-remembers-the-previous-pass) | EDITOR | Low | `HeadingJumpPin.holds` is a predicate that writes state, and a Boolean remembers the previous pass |
+| [CC-EDITOR-15](areas/editor.md#cc-editor-15-headingjumpsettlingswift-holds-two-unrelated-concepts-and-its-new-lines-use-literal-tolerances) | EDITOR | Low | `HeadingJumpSettling.swift` holds two unrelated concepts, and its new lines use literal tolerances |
 | [CC-INK-01](areas/ink.md#cc-ink-01-the-picture-arrangement-flow-is-two-booleans-and-an-optional-kept-in-two-objects) | INK | Medium | The picture-arrangement flow is two booleans and an optional, kept in two objects |
 | [CC-INK-02](areas/ink.md#cc-ink-02-outcomes-travel-through-shared-mutable-fields) | INK | Medium | Outcomes travel through shared mutable fields |
 | [CC-INK-03](areas/ink.md#cc-ink-03-correctness-rests-on-timing-windows-and-next-turn-hops) | INK | Medium | Correctness rests on timing windows and next-turn hops |
@@ -350,6 +386,9 @@ Every finding and defect heading in the area documents, extracted by script (`##
 | [CC-INK-13](areas/ink.md#cc-ink-13-dead-code) | INK | Low | Dead code |
 | [CC-INK-14](areas/ink.md#cc-ink-14-picture-edits-run-in-unowned-tasks-and-apply-results-to-state-read-before-the-await) | INK | Medium | Picture edits run in unowned tasks and apply results to state read before the await |
 | [CC-INK-15](areas/ink.md#cc-ink-15-the-hosted-tests-that-pin-this-area-share-global-state-and-sleep) | INK | Low | The hosted tests that pin this area share global state and sleep |
+| [CC-INK-16](areas/ink.md#cc-ink-16-the-held-shape-fix-spells-the-canvas-to-drawing-conversion-three-times-and-duplicates-the-stroke-replacement) | INK | Low | The held-shape fix spells the canvas-to-drawing conversion three times and duplicates the stroke replacement |
+| [CC-INK-17](areas/ink.md#cc-ink-17-two-one-line-forwarders-remain-after-the-system-27-floor) | INK | Low | Two one-line forwarders remain after the system-27 floor |
+| [CC-INK-18](areas/ink.md#cc-ink-18-the-paper-gallery-redraws-all-nine-pictures-when-only-the-page-count-changes) | INK | Low | The paper gallery redraws all nine pictures when only the page count changes |
 | [CC-LECTURE-01](areas/lecture.md#cc-lecture-01-comments-narrate-incidents-and-dates-instead-of-stating-the-rule) | LECTURE | Low | Comments narrate incidents and dates instead of stating the rule |
 | [CC-LECTURE-02](areas/lecture.md#cc-lecture-02-nineteen-functions-exceed-40-code-lines-the-largest-in-swiftui-bodies-and-edit-application) | LECTURE | Medium | Nineteen functions exceed 40 code lines, the largest in SwiftUI bodies and edit application |
 | [CC-LECTURE-03](areas/lecture.md#cc-lecture-03-one-behaviour-is-implemented-several-times) | LECTURE | Medium | One behaviour is implemented several times |
@@ -365,6 +404,7 @@ Every finding and defect heading in the area documents, extracted by script (`##
 | [CC-LECTURE-13](areas/lecture.md#cc-lecture-13-the-ink-tracker-is-advanced-before-the-edit-is-known-to-succeed) | LECTURE | Medium | The ink tracker is advanced before the edit is known to succeed |
 | [CC-LECTURE-14](areas/lecture.md#cc-lecture-14-swallowed-errors-hide-leftovers-in-the-recovery-folder) | LECTURE | Low | Swallowed errors hide leftovers in the recovery folder |
 | [CC-LECTURE-15](areas/lecture.md#cc-lecture-15-unsafe-concurrency-escapes-are-spread-across-files-each-with-a-stated-invariant) | LECTURE | Low | Unsafe concurrency escapes are spread across files, each with a stated invariant |
+| [CC-LECTURE-16](areas/lecture.md#cc-lecture-16-moviepartwritertrack-keeps-a-struct-of-escaping-closures-that-only-its-removed-fallback-needed-on-the-per-frame-path) | LECTURE | Low | `MoviePartWriter.Track` keeps a struct of escaping closures that only its removed fallback needed, on the per-frame path |
 | [CC-MDCORE-01](areas/mdcore.md#cc-mdcore-01-constant-regular-expressions-use-three-failure-policies-53-of-them-fail-silently) | MDCORE | Medium | Constant regular expressions use three failure policies; 53 of them fail silently |
 | [CC-MDCORE-02](areas/mdcore.md#cc-mdcore-02-per-keystroke-code-still-tests-overlaps-linearly-while-two-other-files-fixed-the-same-quadratic) | MDCORE | Medium | Per-keystroke code still tests overlaps linearly, while two other files fixed the same quadratic |
 | [CC-MDCORE-03](areas/mdcore.md#cc-mdcore-03-23-functions-exceed-40-code-lines-the-largest-is-176) | MDCORE | Low | 23 functions exceed 40 code lines; the largest is 176 |
@@ -374,6 +414,7 @@ Every finding and defect heading in the area documents, extracted by script (`##
 | [CC-MDCORE-07](areas/mdcore.md#cc-mdcore-07-limits-are-named-in-some-files-and-literal-in-others) | MDCORE | Low | Limits are named in some files and literal in others |
 | [CC-MDCORE-08](areas/mdcore.md#cc-mdcore-08-converted-html-is-always-lf-and-is-inserted-unchanged-into-crlf-notes) | MDCORE | Low | Converted HTML is always LF and is inserted unchanged into CRLF notes |
 | [CC-MDCORE-09](areas/mdcore.md#cc-mdcore-09-parser-bounds-are-decided-per-call-site-instead-of-at-the-parser-boundary) | MDCORE | Medium | Parser bounds are decided per call site instead of at the parser boundary |
+| [CC-MDCORE-10](areas/mdcore.md#cc-mdcore-10-the-setext-rules-comment-claims-one-owner-but-the-editor-styler-composes-the-rule-itself-and-notepreviewdocument-adds-a-forwarder) | MDCORE | Low | The setext rule's comment claims one owner, but the editor styler composes the rule itself, and NotePreviewDocument adds a forwarder |
 | [CC-PLUGIN-01](areas/plugin.md#cc-plugin-01-the-runtime-lifecycle-is-a-set-of-booleans-and-identity-checks-not-a-state-enum) | PLUGIN | High | The runtime lifecycle is a set of booleans and identity checks, not a state enum |
 | [CC-PLUGIN-02](areas/plugin.md#cc-plugin-02-four-sleep-polling-loops-wait-for-other-work) | PLUGIN | Medium | Four sleep-polling loops wait for other work |
 | [CC-PLUGIN-03](areas/plugin.md#cc-plugin-03-three-hand-made-first-outcome-wins-primitives-and-41-unowned-tasks) | PLUGIN | Medium | Three hand-made "first outcome wins" primitives and 41 unowned tasks |
@@ -388,6 +429,10 @@ Every finding and defect heading in the area documents, extracted by script (`##
 | [CC-PLUGIN-12](areas/plugin.md#cc-plugin-12-names-that-break-the-naming-rule-or-describe-the-wrong-role) | PLUGIN | Low | Names that break the naming rule or describe the wrong role |
 | [CC-PLUGIN-13](areas/plugin.md#cc-plugin-13-a-plugins-network-response-is-read-one-byte-at-a-time) | PLUGIN | Low | A plugin's network response is read one byte at a time |
 | [CC-PLUGIN-14](areas/plugin.md#cc-plugin-14-the-theme-token-cache-grows-without-bound) | PLUGIN | Low | The theme token cache grows without bound |
+| [CC-PLUGIN-15](areas/plugin.md#cc-plugin-15-a-plugin-rename-learns-its-outcome-by-polling-a-dictionary-added-to-workspacemodel) | PLUGIN | Medium | A plugin rename learns its outcome by polling a dictionary added to `WorkspaceModel` |
+| [CC-PLUGIN-16](areas/plugin.md#cc-plugin-16-a-plugins-bases-view-json-encodes-the-whole-query-result-on-every-body-evaluation) | PLUGIN | Medium | A plugin's Bases view JSON-encodes the whole query result on every body evaluation |
+| [CC-PLUGIN-17](areas/plugin.md#cc-plugin-17-isruntimerunning-answers-true-while-the-runtime-is-stopping) | PLUGIN | Low | `isRuntimeRunning` answers true while the runtime is stopping |
+| [CC-PLUGIN-18](areas/plugin.md#cc-plugin-18-pluginloadtimeout-is-a-mutable-production-field-that-only-tests-change) | PLUGIN | Low | `pluginLoadTimeout` is a mutable production field that only tests change |
 | [CC-READING-01](areas/reading.md#cc-reading-01-eighteen-functions-exceed-40-code-lines) | READING | Medium | Eighteen functions exceed 40 code lines |
 | [CC-READING-02](areas/reading.md#cc-reading-02-sleeps-are-used-as-layout-ordering) | READING | Medium | Sleeps are used as layout ordering |
 | [CC-READING-03](areas/reading.md#cc-reading-03-body-writes-state) | READING | Low | `body` writes state |
@@ -398,6 +443,7 @@ Every finding and defect heading in the area documents, extracted by script (`##
 | [CC-READING-08](areas/reading.md#cc-reading-08-duplicated-small-rules) | READING | Low | Duplicated small rules |
 | [CC-READING-09](areas/reading.md#cc-reading-09-magic-durations-and-thresholds) | READING | Low | Magic durations and thresholds |
 | [CC-READING-10](areas/reading.md#cc-reading-10-dead-code-and-test-names-after-fix-rounds) | READING | Low | Dead code and test names after fix rounds |
+| [CC-READING-11](areas/reading.md#cc-reading-11-notepreviewsummary-is-another-markdown-reader-with-its-own-fence-task-embed-and-picture-extension-rules) | READING | Medium | `NotePreviewSummary` is another Markdown reader with its own fence, task, embed and picture-extension rules |
 | [CC-RUNTIME-01](areas/runtime.md#cc-runtime-01-eleven-functions-run-over-40-lines-the-longest-is-187) | RUNTIME | Medium | Eleven functions run over 40 lines; the longest is 187 |
 | [CC-RUNTIME-02](areas/runtime.md#cc-runtime-02-the-same-code-is-copied-in-eight-patterns) | RUNTIME | Medium | The same code is copied in eight patterns |
 | [CC-RUNTIME-03](areas/runtime.md#cc-runtime-03-timers-stand-in-for-ordering-and-are-never-cancelled) | RUNTIME | Medium | Timers stand in for ordering and are never cancelled |
@@ -410,6 +456,7 @@ Every finding and defect heading in the area documents, extracted by script (`##
 | [CC-RUNTIME-10](areas/runtime.md#cc-runtime-10-81-own-code-lines-exceed-160-characters) | RUNTIME | Low | 81 own-code lines exceed 160 characters |
 | [CC-RUNTIME-11](areas/runtime.md#cc-runtime-11-every-create-delete-or-rename-re-resolves-every-link-in-the-vault) | RUNTIME | Medium | Every create, delete or rename re-resolves every link in the vault |
 | [CC-RUNTIME-12](areas/runtime.md#cc-runtime-12-the-html-sanitizer-is-a-deny-list) | RUNTIME | Medium | The HTML sanitizer is a deny list |
+| [CC-RUNTIME-13](areas/runtime.md#cc-runtime-13-mod-means-command-is-decided-in-two-functions) | RUNTIME | Low | "`Mod` means Command" is decided in two functions |
 | [CC-SHELL-01](areas/shell.md#cc-shell-01-29-functions-exceed-40-code-lines-the-root-views-body-is-172) | SHELL | Medium | 29 functions exceed 40 code lines; the root view's `body` is 172 |
 | [CC-SHELL-02](areas/shell.md#cc-shell-02-sleeps-act-as-ordering-or-polling-in-five-places) | SHELL | Medium | Sleeps act as ordering or polling in five places |
 | [CC-SHELL-03](areas/shell.md#cc-shell-03-latest-answer-wins-is-implemented-five-different-ways) | SHELL | Low | "Latest answer wins" is implemented five different ways |
@@ -420,6 +467,17 @@ Every finding and defect heading in the area documents, extracted by script (`##
 | [CC-SHELL-08](areas/shell.md#cc-shell-08-comments-narrate-incidents-and-dates) | SHELL | Low | Comments narrate incidents and dates |
 | [CC-SHELL-09](areas/shell.md#cc-shell-09-shell-tests-are-named-after-audit-rounds-share-the-processs-defaults-poll-with-sleeps-and-assert-on-text) | SHELL | Medium | Shell tests are named after audit rounds, share the process's defaults, poll with sleeps and assert on text |
 | [CC-SHELL-10](areas/shell.md#cc-shell-10-large-multi-concept-files-and-small-hygiene-issues) | SHELL | Low | Large multi-concept files and small hygiene issues |
+| [CC-SHELL-11](areas/shell.md#cc-shell-11-the-preview-cache-is-bounded-by-count-only-with-no-byte-budget-and-no-release-on-a-vault-switch) | SHELL | Medium | The preview cache is bounded by count only, with no byte budget and no release on a vault switch |
+| [CC-SHELL-12](areas/shell.md#cc-shell-12-library-and-new-menu-actions-start-unowned-tasks-and-a-batch-of-moves-continues-into-the-next-vault) | SHELL | Medium | Library and New-menu actions start unowned tasks, and a batch of moves continues into the next vault |
+| [CC-SHELL-13](areas/shell.md#cc-shell-13-notebook-creation-and-file-import-are-each-implemented-twice-in-the-workspace) | SHELL | Medium | Notebook creation and file import are each implemented twice in the workspace |
+| [CC-SHELL-14](areas/shell.md#cc-shell-14-a-production-view-modifier-carries-a-flag-that-exists-for-tests-and-reads-uidevicecurrent) | SHELL | Low | A production view modifier carries a flag that exists for tests, and reads `UIDevice.current` |
+| [CC-SHELL-15](areas/shell.md#cc-shell-15-new-views-add-literal-sizes-fixed-point-fonts-and-a-repeated-aspect-ratio) | SHELL | Low | New views add literal sizes, fixed-point fonts and a repeated aspect ratio |
+| [CC-SHELL-16](areas/shell.md#cc-shell-16-a-file-created-from-the-library-opens-its-tab-before-the-file-exists-and-a-failure-leaves-an-empty-tab) | SHELL | Low | A file created from the library opens its tab before the file exists, and a failure leaves an empty tab |
+| [CC-SHELL-17](areas/shell.md#cc-shell-17-the-new-outcome-types-carry-prose-and-localizeddescription-instead-of-facts) | SHELL | Medium | The new outcome types carry prose and `localizedDescription` instead of facts |
+| [CC-SHELL-18](areas/shell.md#cc-shell-18-the-mac-quit-deadline-is-a-hand-written-timeout-race-on-the-system-clock) | SHELL | Low | The Mac quit deadline is a hand-written timeout race on the system clock |
+| [CC-SHELL-19](areas/shell.md#cc-shell-19-moving-a-folder-commits-a-canvass-text-edit-from-inside-a-query-and-the-new-canvas-lines-repeat-untyped-decisions) | SHELL | Low | Moving a folder commits a canvas's text edit from inside a query, and the new canvas lines repeat untyped decisions |
+| [CC-SHELL-20](areas/shell.md#cc-shell-20-scenephasedidchange-starts-an-unowned-task-and-the-background-save-stays-owned-by-the-view) | SHELL | Low | `scenePhaseDidChange` starts an unowned task, and the background save stays owned by the view |
+| [CC-SHELL-21](areas/shell.md#cc-shell-21-five-new-or-changed-lines-exceed-160-characters) | SHELL | Low | Five new or changed lines exceed 160 characters |
 | [CC-VAULT-01](areas/vault.md#cc-vault-01-a-failed-read-of-an-obsidian-settings-file-is-returned-as-nothing-configured) | VAULT | Medium | A failed read of an Obsidian settings file is returned as "nothing configured" |
 | [CC-VAULT-02](areas/vault.md#cc-vault-02-graphiteerror-carries-prose-instead-of-facts-and-one-case-covers-ten-different-failures) | VAULT | Medium | `GraphiteError` carries prose instead of facts, and one case covers ten different failures |
 | [CC-VAULT-03](areas/vault.md#cc-vault-03-the-frontmatter-regular-expression-is-written-four-times) | VAULT | Medium | The frontmatter regular expression is written four times |
@@ -430,6 +488,8 @@ Every finding and defect heading in the area documents, extracted by script (`##
 | [CC-VAULT-08](areas/vault.md#cc-vault-08-some-names-state-a-narrower-or-different-role-than-the-type-has) | VAULT | Low | Some names state a narrower or different role than the type has |
 | [CC-VAULT-09](areas/vault.md#cc-vault-09-comments-narrate-incidents-instead-of-stating-the-rule) | VAULT | Low | Comments narrate incidents instead of stating the rule |
 | [CC-VAULT-10](areas/vault.md#cc-vault-10-tests-of-the-area-are-named-after-audit-rounds-and-mix-unrelated-subjects) | VAULT | Low | Tests of the area are named after audit rounds and mix unrelated subjects |
+| [CC-VAULT-11](areas/vault.md#cc-vault-11-folderstylelistfollowmove-re-implements-vaultpathreplacingprefix-by-character-count-and-drops-a-style-silently) | VAULT | Low | `FolderStyleList.followMove` re-implements `VaultPath.replacingPrefix` by character count and drops a style silently |
+| [CC-VAULT-12](areas/vault.md#cc-vault-12-an-unreadable-folder-style-file-is-refused-but-never-moved-aside-and-its-format-has-no-golden-fixture-or-failure-injection-test) | VAULT | Medium | An unreadable folder-style file is refused but never moved aside, and its format has no golden fixture or failure-injection test |
 | [CC-VOICE-01](areas/voice.md#cc-voice-01-nineteen-functions-exceed-40-code-lines-two-exceed-140) | VOICE | Medium | Nineteen functions exceed 40 code lines; two exceed 140 |
 | [CC-VOICE-02](areas/voice.md#cc-voice-02-a-sleep-poll-loop-waits-for-another-objects-preparation) | VOICE | Medium | A sleep-poll loop waits for another object's preparation |
 | [CC-VOICE-03](areas/voice.md#cc-voice-03-sleeps-order-ui-events-and-tasks-run-without-an-owner) | VOICE | Medium | Sleeps order UI events, and tasks run without an owner |
@@ -445,6 +505,12 @@ Every finding and defect heading in the area documents, extracted by script (`##
 | [CC-VOICE-13](areas/voice.md#cc-voice-13-heavy-per-page-work-runs-on-the-main-actor-while-the-person-writes) | VOICE | Medium | Heavy per-page work runs on the main actor while the person writes |
 | [CC-VOICE-14](areas/voice.md#cc-voice-14-preparation-state-grows-without-bound-and-a-rejected-passage-is-rendered-again-on-every-visit) | VOICE | Low | Preparation state grows without bound, and a rejected passage is rendered again on every visit |
 | [CC-VOICE-15](areas/voice.md#cc-voice-15-some-names-are-generic-or-abbreviated-against-rulesmd) | VOICE | Low | Some names are generic or abbreviated against RULES.md |
+| [CC-VOICE-16](areas/voice.md#cc-voice-16-the-a-lost-output-pauses-a-new-output-takes-over-rule-has-two-owners-and-two-route-change-observers) | VOICE | Medium | The "a lost output pauses, a new output takes over" rule has two owners and two route-change observers |
+| [CC-VOICE-17](areas/voice.md#cc-voice-17-the-pdf-continuation-is-three-fields-kept-in-step-by-hand-and-stopreading-and-stop-differ-only-by-an-unnamed-scope) | VOICE | Medium | The PDF continuation is three fields kept in step by hand, and `stopReading` and `stop` differ only by an unnamed scope |
+| [CC-VOICE-18](areas/voice.md#cc-voice-18-new-notification-observers-are-never-removed-and-their-assumeisolated-lacks-the-invariant-comment) | VOICE | Low | New notification observers are never removed, and their `assumeIsolated` lacks the invariant comment |
+| [CC-VOICE-19](areas/voice.md#cc-voice-19-remembered-place-keys-tell-a-note-from-a-pdf-by-a-leading--and-the-comment-contradicts-the-code) | VOICE | Low | Remembered-place keys tell a note from a PDF by a leading "/", and the comment contradicts the code |
+| [CC-VOICE-20](areas/voice.md#cc-voice-20-the-file-fully-read-rule-is-written-twice-and-the-speech-path-still-turns-a-failed-read-into-an-empty-list) | VOICE | Low | The "file fully read" rule is written twice, and the speech path still turns a failed read into an empty list |
+| [CC-VOICE-21](areas/voice.md#cc-voice-21-scaffolding-from-the-removed-pre-27-branches-stays) | VOICE | Low | Scaffolding from the removed pre-27 branches stays |
 | [BUG-ARCH-01](cross-cutting/architecture.md#bug-arch-01-following-a-link-to-a-missing-flac-ogg-webm-m4v-or-3gp-file-creates-a-note-named-nameflacmd) | ARCH | — | Following a link to a missing `.flac`, `.ogg`, `.webm`, `.m4v` or `.3gp` file creates a note named `name.flac.md` |
 | [BUG-ARCH-02](cross-cutting/architecture.md#bug-arch-02-quitting-the-mac-app-discards-unsaved-edits-when-a-save-fails-or-takes-longer-than-5-seconds) | ARCH | — | Quitting the Mac app discards unsaved edits when a save fails or takes longer than 5 seconds |
 | [BUG-ARCH-03](cross-cutting/architecture.md#bug-arch-03-a-drawing-open-in-the-editor-during-a-vault-switch-is-saved-into-the-newly-opened-vault) | ARCH | — | A drawing open in the editor during a vault switch is saved into the newly opened vault |
@@ -505,6 +571,12 @@ Every finding and defect heading in the area documents, extracted by script (`##
 | [BUG-SHELL-04](areas/shell.md#bug-shell-04-reveal-current-file-from-the-command-palette-or-a-tabs-menu-neither-shows-a-hidden-sidebar-nor-scrolls-to-the-file) | SHELL | — | "Reveal current file" from the command palette or a tab's menu neither shows a hidden sidebar nor scrolls to the file |
 | [BUG-SHELL-05](areas/shell.md#bug-shell-05-file-recovery-says-no-snapshots-yet-when-its-list-cannot-be-read-and-spins-forever-when-a-snapshots-text-cannot-be-read) | SHELL | — | File Recovery says "No Snapshots Yet" when its list cannot be read, and spins forever when a snapshot's text cannot be read |
 | [BUG-SHELL-06](areas/shell.md#bug-shell-06-the-phones-tab-switcher-lists-a-tab-showing-a-community-plugin-view-as-new-tab) | SHELL | — | The phone's tab switcher lists a tab showing a community plugin view as "New Tab" |
+| [BUG-SHELL-07](areas/shell.md#bug-shell-07-a-damaged-obsidiangraphite-folder-stylesjson-makes-every-folder-of-the-library-show-cant-show-this-folder) | SHELL | High | A damaged `.obsidian/graphite-folder-styles.json` makes every folder of the library show "Can't Show This Folder" |
+| [BUG-SHELL-08](areas/shell.md#bug-shell-08-a-file-that-changes-while-its-tile-is-on-screen-keeps-its-old-preview) | SHELL | Medium | A file that changes while its tile is on screen keeps its old preview |
+| [BUG-SHELL-09](areas/shell.md#bug-shell-09-a-tiles-preview-keeps-rendering-after-the-tile-scrolls-away-with-no-limit-on-concurrent-renders) | SHELL | Medium | A tile's preview keeps rendering after the tile scrolls away, with no limit on concurrent renders |
+| [BUG-SHELL-10](areas/shell.md#bug-shell-10-when-a-vaults-templates-or-daily-notes-settings-cannot-be-read-the-previous-vaults-settings-stay-in-force-and-can-create-a-daily-note-in-the-new-vault) | SHELL | Medium | When a vault's Templates or Daily notes settings cannot be read, the previous vault's settings stay in force and can create a daily note in the new vault |
+| [BUG-SHELL-11](areas/shell.md#bug-shell-11-a-plugins-rename-is-answered-not-renamed-when-the-move-takes-longer-than-10-s-after-the-person-answers-although-the-file-moved) | SHELL | Low | A plugin's rename is answered "not renamed" when the move takes longer than 10 s after the person answers, although the file moved |
+| [BUG-SHELL-12](areas/shell.md#bug-shell-12-graphitereadfilex-opens-the-note-but-reads-nothing-when-x-is-already-open-on-the-other-side-of-the-split) | SHELL | Low | `graphite://read?file=X` opens the note but reads nothing when X is already open on the other side of the split |
 | [BUG-VAULT-01](areas/vault.md#bug-vault-01-renaming-a-file-to-a-name-that-another-file-shares-except-for-non-ascii-capitals-rewrites-links-to-an-ambiguous-bare-name) | VAULT | — | Renaming a file to a name that another file shares except for non-ASCII capitals rewrites links to an ambiguous bare name |
 | [BUG-VAULT-02](areas/vault.md#bug-vault-02-a-bookmarksjson-graphite-cannot-read-shows-as-no-bookmarks-with-no-error) | VAULT | — | A `bookmarks.json` Graphite cannot read shows as "no bookmarks", with no error |
 | [BUG-VAULT-03](areas/vault.md#bug-vault-03-content-searches-with-a-regular-expression-that-matches-empty-text-list-every-canvas) | VAULT | — | `content:` searches with a regular expression that matches empty text list every canvas |
@@ -518,3 +590,5 @@ Every finding and defect heading in the area documents, extracted by script (`##
 | [BUG-VOICE-08](areas/voice.md#bug-voice-08-unplugging-headphones-during-high-quality-reading-does-not-pause-it) | VOICE | — | Unplugging headphones during High Quality reading does not pause it |
 | [BUG-VOICE-09](areas/voice.md#bug-voice-09-folding-or-unfolding-while-reading-restarts-the-current-passage-from-its-first-word) | VOICE | — | Folding or unfolding while reading restarts the current passage from its first word |
 | [BUG-VOICE-10](areas/voice.md#bug-voice-10-editing-any-pronunciation-in-settings-strips-hand-written-ipa-from-the-vaults-pronunciation-file) | VOICE | — | Editing any pronunciation in Settings strips hand-written IPA from the vault's pronunciation file |
+| [BUG-VOICE-11](areas/voice.md#bug-voice-11-pronunciation-settings-overwrite-terms-that-reached-the-vault-file-after-the-page-opened) | VOICE | Medium | Pronunciation Settings overwrite terms that reached the vault file after the page opened |
+| [BUG-VOICE-12](areas/voice.md#bug-voice-12-connecting-headphones-pauses-high-quality-reading-whenever-the-engine-reconfigures-against-the-stated-rule) | VOICE | Low | Connecting headphones pauses High Quality reading whenever the engine reconfigures, against the stated rule |

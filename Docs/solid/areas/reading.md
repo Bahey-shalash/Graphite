@@ -628,3 +628,33 @@ No protocol is proposed besides `ReadingFileLookup`, which has two real implemen
 | Tests pinning reading-view fold keys, property rename, mention linking | 0 | Grep `ReadingFolding|foldedKeys|renameProperty|linkMention` over `Tests/**`. |
 
 **Commits per file (reconnaissance):** `MarkdownPane.swift` 36, `MarkdownPreview.swift` 25, `PropertiesPanel.swift` 6, `NoteTypography.swift` 4, `FilePreviewPane.swift` 4, `ReadingTaskCheckbox.swift` 3, `NoteThemeStyle.swift` 3, `DocumentModeToggle.swift` 3, `WorkspaceTagsAndProperties.swift` 2, `WorkspaceMentions.swift` 2, `WorkspaceReadingTasks.swift` 1, `WorkspaceFolds.swift` 1, `NumberedEquationView.swift` 1, `CalloutFoldStore.swift` 1.
+
+## 9. Since the snapshot
+
+Delta audit of 2026-10-19 at `fff794b` (main), against `FR-01` to `FR-108`. Commits `7ad8900` and `93d82a6` changed how the reading view keys folds and resolves links.
+
+### New findings
+
+#### SRP-READING-09 The reading builder gathers callout titles in an actor field as a side effect of rendering
+- **Severity:** Low
+- **Rule:** `FR-12`, `FR-04`
+- **Evidence:** the stored actor property `calloutTitlesByBlock` ([MarkdownPreview.swift:288](../../../Sources/GraphiteUI/MarkdownPreview.swift#L288)) is reset in `build` ([:311](../../../Sources/GraphiteUI/MarkdownPreview.swift#L311)), written by the recursive `render` ([:440-441](../../../Sources/GraphiteUI/MarkdownPreview.swift#L440-L441)) and read afterwards ([:315](../../../Sources/GraphiteUI/MarkdownPreview.swift#L315)); callouts inside transcluded notes are recorded too. Introduced in `7ad8900`.
+- **Why it matters:** `render`'s output is split between its return value and a field; it is correct only because each build makes a fresh builder ([:971](../../../Sources/GraphiteUI/MarkdownPreview.swift#L971)).
+- **Fix direction:** carry the written title on `RenderedBlock.callout` (as `LSP-READING-02` proposes), or return the titles from `render` with the blocks.
+
+### State changes of earlier findings
+- `LSP-READING-01`: Open → **Fixed**. Reading-view fold keys come from `NoteFolding.headingKeysByLineStart(in:)`, matched by line start ([NoteFolding.swift:118-129](../../../Sources/GraphiteCore/NoteFolding.swift#L118-L129), [MarkdownPreview.swift:316-324](../../../Sources/GraphiteUI/MarkdownPreview.swift#L316-L324)); both hand-built key strings are gone. Pinned by `NoteFoldingHeadingKeyTests`.
+- `LSP-READING-02`: Open → **Partly fixed**. The reading view passes the written title as `foldKeyTitle` ([MarkdownPreview.swift:1463](../../../Sources/GraphiteUI/MarkdownPreview.swift#L1463)); `CalloutView` still defaults it to `nil` and falls back to `foldKeyTitle ?? title` ([:2495](../../../Sources/GraphiteUI/MarkdownPreview.swift#L2495)).
+- `LSP-READING-03`: Open → **Partly fixed**. The builder and the workspace share `existingDirectFile`, so both exclude folders; the workspace still applies `storedPath(for:)` and the builder does not, so two resolvers remain.
+
+### Patterns to keep
+- Fold keys come from their owner (`NoteFolding`), matched by source position, never by display text (`FR-10`, `FR-28`).
+
+### Notebook library (9040705)
+
+#### CC-READING-11 `NotePreviewSummary` is another Markdown reader with its own fence, task, embed and picture-extension rules
+- **Severity:** Medium
+- **Rule:** `FR-10`, `FR-24`
+- **Evidence:** fence detection ignores the fence character and length ([NotePreviewSummary.swift:48](../../../Sources/GraphiteCore/NotePreviewSummary.swift#L48)); tasks are five literal markers, missing `* [X]` and `+ [ ]` ([:72](../../../Sources/GraphiteCore/NotePreviewSummary.swift#L72)); `pictureExtensions` repeats `DocumentKind`'s list ([:29](../../../Sources/GraphiteCore/NotePreviewSummary.swift#L29), [VaultPath.swift:167](../../../Sources/GraphiteCore/VaultPath.swift#L167)); its own inline-Markdown stripping ([NotePreviewSummary.swift:102-129](../../../Sources/GraphiteCore/NotePreviewSummary.swift#L102-L129)); frontmatter correctly goes through `FrontmatterLocator`. Introduced in `7f56e00`.
+- **Why it matters:** a note with a four-backtick fence containing three-backtick lines shows its code on the tile; every Markdown rule change now has one more reader to update.
+- **Fix direction:** use the shared recognizers (fence state, task markers), or a parity test over the reading view's test notes; picture extensions from `DocumentKind`.
