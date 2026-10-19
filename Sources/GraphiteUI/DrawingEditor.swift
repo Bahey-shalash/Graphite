@@ -1360,12 +1360,21 @@ private struct DrawingCanvas: UIViewRepresentable {
             (canvasView as? HistoryCanvasView)?.drawingDidFinishRendering()
         }
 
+        func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
+            (canvasView as? HistoryCanvasView)?.toolUseDidBegin()
+        }
+
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
             guard let canvas = canvasView as? InfiniteCanvasView, !canvas.isShowingWithoutRecording else { return }
             // The shape tool, or a hold at the stroke's end, replaces the stroke just drawn.
             let drawing = canvas.drawingAfterShapeRecognition(shapeToolIsOn: drawsShapes)
             // A drawing the history itself showed was recorded before it was shown.
-            if let change = PencilDrawingChange(from: canvas.recordedDrawing, to: drawing) { controller.registerChange(change) }
+            if let change = PencilWritingTrace.measure("Drawing change", { PencilDrawingChange(from: canvas.recordedDrawing, to: drawing) }) {
+                controller.registerChange(change)
+                if let appendedStrokeIndex = change.appendedStrokeIndex {
+                    PencilWritingTrace.strokeWasRecorded(drawing.strokes[appendedStrokeIndex], on: canvas)
+                }
+            }
             canvas.recordedDrawing = drawing
             canvas.updateContentSize()
             controller.hasChanges = true

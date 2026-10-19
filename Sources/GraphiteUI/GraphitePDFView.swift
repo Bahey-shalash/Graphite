@@ -1356,21 +1356,32 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
               canvas.bounds.width > 0, canvas.bounds.height > 0 else { return }
         let pageIndex = session.document.index(for: page)
         guard pageIndex != NSNotFound else { return }
+        PencilWritingTrace.measure("Pen-up recording") { recordDrawingChange(of: canvas, on: page, pageIndex: pageIndex) }
+    }
+
+    private func recordDrawingChange(of canvas: PDFPageCanvasView, on page: PDFPage, pageIndex: Int) {
         do {
             let coordinates = try PageCoordinates(cropBox: page.bounds(for: .cropBox), overlaySize: canvas.drawingSize)
             // Archiving the whole drawing at every pen-up grows with the page's strokes;
             // the session asks for the record before it is needed (see `writeDeferredInkRecords`).
             // The shape tool, or a hold at the stroke's end, replaces the stroke just drawn;
             // the history records the shape.
-            let drawing = canvas.drawingAfterShapeRecognition(shapeToolIsOn: input.drawsShapes)
-            let update = canvas.inkTracker.update(for: drawing, pageIndex: pageIndex, coordinates: coordinates, defersEditableRecord: true)
-            try session.apply(.updateInk(update))
+            let drawing = PencilWritingTrace.measure("Shape recognition") { canvas.drawingAfterShapeRecognition(shapeToolIsOn: input.drawsShapes) }
+            let update = PencilWritingTrace.measure("Ink tracker update") {
+                canvas.inkTracker.update(for: drawing, pageIndex: pageIndex, coordinates: coordinates, defersEditableRecord: true)
+            }
+            try PencilWritingTrace.measure("Apply ink update") { try session.apply(.updateInk(update)) }
             // A drawing the history itself showed was recorded before it was shown.
-            if let change = PencilDrawingChange(from: canvas.recordedDrawing, to: drawing) {
-                session.registerInkChange(change, on: page, overlaySize: canvas.drawingSize)
+            if let change = PencilWritingTrace.measure("Drawing change", { PencilDrawingChange(from: canvas.recordedDrawing, to: drawing) }) {
+                PencilWritingTrace.measure("Register undo step") { session.registerInkChange(change, on: page, overlaySize: canvas.drawingSize) }
+                if let appendedStrokeIndex = change.appendedStrokeIndex {
+                    PencilWritingTrace.strokeWasRecorded(drawing.strokes[appendedStrokeIndex], on: canvas)
+                }
             }
             canvas.recordedDrawing = drawing
-            if displayedPages.contains(ObjectIdentifier(page)) { setInkAnnotationsHidden(true, on: page, group: canvas.inkTracker.group) }
+            if displayedPages.contains(ObjectIdentifier(page)) {
+                PencilWritingTrace.measure("Hide ink annotations") { setInkAnnotationsHidden(true, on: page, group: canvas.inkTracker.group) }
+            }
         } catch {
             session.errorMessage = error.localizedDescription
         }
@@ -1482,6 +1493,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     }
 
     func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
+        (canvasView as? HistoryCanvasView)?.toolUseDidBegin()
         beginInteraction?()
         pdfView?.clearSelection()
         // Drawing ends arranging a picture.

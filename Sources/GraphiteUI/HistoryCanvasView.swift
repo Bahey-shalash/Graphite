@@ -111,6 +111,19 @@ class HistoryCanvasView: PKCanvasView {
         }
     }
 
+    /// The tool chosen in the fixed bar or the palette, before `toolForDrawing` changes it;
+    /// nil when the bar's choice draws no ink, or nothing is followed yet.
+    var chosenTool: PKTool? {
+        if let fixedTool { return fixedTool.kind.drawsInk ? fixedTool.tool : nil }
+        guard followsToolPicker, let followedToolPicker else { return nil }
+        return Self.selectedTool(of: followedToolPicker)
+    }
+
+    /// PencilKit began a stroke with the canvas's tool (`PKCanvasViewDelegate.canvasViewDidBeginUsingTool`).
+    func toolUseDidBegin() {
+        PencilWritingTrace.strokeDidBegin(on: self)
+    }
+
     private static func selectedTool(of toolPicker: PKToolPicker) -> PKTool? {
         if #available(iOS 26.0, *) { return toolPicker.selectedToolItem.tool }
         return (toolPicker as any SelectedToolSetting).selectedTool
