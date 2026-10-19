@@ -101,12 +101,16 @@ def files_matching_pattern(files, pattern):
     return hits
 
 
+# `try?` as a keyword, not the end of a name such as `Entry?` or `Geometry?`.
+OPTIONAL_TRY = re.compile(r"\btry\?")
+
+
 def uncommented_try_hits(files):
     """`try?` on a line without any comment: the rule asks every best-effort `try?` to say why failure is harmless."""
     hits = []
     for file in files:
         for line_number, line in enumerate(file.stripped_text.split("\n"), start=1):
-            if "try?" in line and line_number not in file.comment_lines:
+            if OPTIONAL_TRY.search(line) and line_number not in file.comment_lines:
                 hits.append(Hit(file.relative_path, line_number, file.raw_line(line_number).strip(), None))
     return hits
 
