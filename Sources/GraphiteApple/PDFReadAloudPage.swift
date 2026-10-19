@@ -275,20 +275,27 @@ public actor PDFReadAloudExtraction {
         let raster = try render(page, ignoringPageRotation: true)
         let lines: [RecognizedTextObservation]
         let usesLayout: Bool
-        if readingOrder == .layout {
-            var request = RecognizeDocumentsRequest()
-            request.barcodeDetectionOptions.enabled = false
-            request.textRecognitionOptions.useLanguageCorrection = false
-            let observations = try await request.perform(on: raster.image)
-            lines = observations.first?.document.text.lines ?? []
-            usesLayout = true
-        } else {
-            var request = RecognizeTextRequest()
-            request.recognitionLevel = .accurate
-            request.usesLanguageCorrection = false
-            request.automaticallyDetectsLanguage = true
-            lines = try await request.perform(on: raster.image)
-            usesLayout = false
+        do {
+            if readingOrder == .layout {
+                var request = RecognizeDocumentsRequest()
+                request.barcodeDetectionOptions.enabled = false
+                request.textRecognitionOptions.useLanguageCorrection = false
+                let observations = try await request.perform(on: raster.image)
+                lines = observations.first?.document.text.lines ?? []
+                usesLayout = true
+            } else {
+                var request = RecognizeTextRequest()
+                request.recognitionLevel = .accurate
+                request.usesLanguageCorrection = false
+                request.automaticallyDetectsLanguage = true
+                lines = try await request.perform(on: raster.image)
+                usesLayout = false
+            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            // A failed recognition is not a page without words (FR-59): the person is told it failed.
+            throw ReadAloudError.textRecognitionUnavailable
         }
         try Task.checkCancellation()
         guard !lines.isEmpty else { throw ReadAloudError.noReadableText }

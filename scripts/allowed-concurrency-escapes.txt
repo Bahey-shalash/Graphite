@@ -47,7 +47,6 @@ Sources/GraphiteUI/GraphitePDFView.swift               assumeIsolated x9  # seed
 Sources/GraphiteUI/GraphiteRootView.swift              assumeIsolated x1  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
 Sources/GraphiteUI/HistoryCanvasView.swift             assumeIsolated x4  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
 Sources/GraphiteUI/InkSelection.swift                  assumeIsolated x1  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
-Sources/GraphiteUI/LaserPointer.swift                  assumeIsolated x1  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
 Sources/GraphiteUI/MarkdownEditorRetention.swift       assumeIsolated x1  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
 Sources/GraphiteUI/MarkdownEditorStyling.swift         assumeIsolated x1  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
 Sources/GraphiteUI/MarkdownPreview.swift               assumeIsolated x2  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)

@@ -78,6 +78,8 @@ public struct FolderStyle: Equatable, Sendable {
 /// Entries and keys this build does not understand are kept as they were.
 public struct FolderStyleList: Equatable, Sendable {
     public static let configurationPath = ".obsidian/graphite-folder-styles.json"
+    /// The name a file this build cannot read is kept under, beside `configurationPath`.
+    public static let unreadableCopyStem = "graphite-folder-styles.unreadable"
 
     public private(set) var styles: [VaultPath: FolderStyle]
     /// Folder entries that are not a style this build can read, kept by their key.

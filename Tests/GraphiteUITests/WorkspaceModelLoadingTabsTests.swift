@@ -18,8 +18,9 @@ final class WorkspaceModelLoadingTabsTests: XCTestCase {
         let tabID = workspace.layout.activeTab.id
 
         let firstPath = try VaultPath("First.md"), secondPath = try VaultPath("Second.md")
+        // Both are queued on the main actor before this test suspends, so the second begins before
+        // the first, which waits for the store's read, can continue: however fast the read is.
         let first = Task { @MainActor in await workspace.load(firstPath, into: tabID, pdfPageIndex: nil, recordsHistory: true) }
-        await Task.yield()
         let second = Task { @MainActor in await workspace.load(secondPath, into: tabID, pdfPageIndex: nil, recordsHistory: true) }
         let didLoadFirst = await first.value
         let didLoadSecond = await second.value

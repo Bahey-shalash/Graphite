@@ -20,7 +20,9 @@ extension WorkspaceModel {
             guard let matches, matches.count == 1 else { return nil }
             return matches[0]
         }
-        return LibraryModel.Source(vaultIdentifier: vaultIdentifier, store: store, loader: loader)
+        return LibraryModel.Source(vaultIdentifier: vaultIdentifier, store: store) { path, longerSidePixels in
+            await loader.preview(of: path, longerSidePixels: longerSidePixels)
+        }
     }
 
     func libraryActions(openFile: @escaping (VaultPath) -> Void, requestCreation: @escaping (CreationKind, VaultPath?) -> Void) -> LibraryActions {
