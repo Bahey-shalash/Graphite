@@ -66,7 +66,7 @@ The owner chose the first two; the rest are defaults taken to start building, ea
 - [x] PDF: the first page with its ink annotations, through PDFKit, edged with a hairline as Files does. A chosen cover page is not built.
 - [x] Image: scaled down with ImageIO while decoding.
 - [x] Drawing: PNG drawings are images; SVG drawings show a picture symbol (not drawn yet).
-- [x] Markdown: reading text from the first 4 KB (headings, text without inline Markdown, tasks, list items, the first embedded picture), never the source.
+- [x] Markdown: the first 4 KB drawn as a page of reading view (headings in their sizes, wrapped text with bold, italic and code, nested lists and tasks, quotes, callouts, code blocks, rules, the first picture where it sits), scaled down to the tile; never the source.
 - [ ] Canvas and Base: a kind symbol for now.
 - [x] Other files: a kind symbol (not the system's icon for the type).
 - [x] Under each tile: name and modification date; touch and hold (or a secondary click) opens the file tree's own menu: new tab, other side, rename, move, copy, share, bookmark, delete, ….

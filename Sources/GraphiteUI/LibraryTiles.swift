@@ -70,49 +70,6 @@ struct LibraryFileArtwork: View {
     }
 }
 
-/// A note drawn as a small page of its reading text, as a notebook's first page shows.
-struct LibraryNotePage: View {
-    let summary: NotePreviewSummary
-    let picture: CGImage?
-    let displayScale: CGFloat
-
-    /// The page's size comes from its shape alone; the text is laid on it and cut at its
-    /// edge, so a long note never makes the page taller than its tile.
-    var body: some View {
-        RoundedRectangle(cornerRadius: 4, style: .continuous)
-            .fill(Color.white)
-            .aspectRatio(0.77, contentMode: .fit)
-            .overlay(alignment: .topLeading) {
-                VStack(alignment: .leading, spacing: 3) {
-                    ForEach(Array(summary.lines.enumerated()), id: \.offset) { _, line in lineView(line) }
-                    if let picture {
-                        Image(decorative: picture, scale: displayScale)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .clipShape(RoundedRectangle(cornerRadius: 2))
-                    }
-                }
-                .padding(8)
-                .foregroundStyle(Color.black)
-                .environment(\.colorScheme, .light)
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(.separator, lineWidth: 0.5))
-    }
-
-    @ViewBuilder private func lineView(_ line: NotePreviewSummary.Line) -> some View {
-        switch line {
-        case .heading(let level, let text):
-            Text(text).font(.system(size: level == 1 ? 10 : 8.5, weight: .bold)).lineLimit(2)
-        case .paragraph(let text):
-            Text(text).font(.system(size: 7)).lineLimit(4)
-        case .listItem(let text):
-            Text("• " + text).font(.system(size: 7)).lineLimit(2)
-        case .task(let isDone, let text):
-            Text((isDone ? "☑ " : "☐ ") + text).font(.system(size: 7)).strikethrough(isDone).lineLimit(2)
-        }
-    }
-}
 
 extension FolderColor {
     /// System colors, which adapt to dark mode and increased contrast.
