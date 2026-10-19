@@ -1080,8 +1080,23 @@ final class InfiniteCanvasView: HistoryCanvasView {
         setZoomScale(minimumZoomScale, animated: !GraphiteMotion.isReduced)
     }
 
+    /// The zoom the canvas's tool was last made for.
+    private var toolZoomScale: CGFloat = 1
+
+    /// A stroke is as wide in the drawing, and so in the note, at any zoom, as on paper and
+    /// as on a PDF page (`PDFPageCanvasView`): the canvas draws with the chosen width times
+    /// its zoom, the drawing's own points being the page's.
+    override func toolForDrawing(_ chosenTool: PKTool) -> PKTool {
+        Self.tool(super.toolForDrawing(chosenTool), scaledBy: zoomScale)
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
+        // Zooming lays the canvas out at every step; the tool follows the zoom.
+        if zoomScale != toolZoomScale {
+            toolZoomScale = zoomScale
+            retakeChosenTool()
+        }
         // The paper follows what is on screen; this runs at every scroll step.
         if paperView.frame != bounds { paperView.frame = bounds }
         paperView.drawingRegion = visibleDrawingRegion
