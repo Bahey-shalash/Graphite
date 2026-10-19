@@ -402,6 +402,8 @@ extension PencilToolbar where LeadingControls == EmptyView, TrailingControls == 
 struct TabBarPencilTools: View {
     let session: PDFSession
     let isFocused: Bool
+    /// Whether the Read Aloud core plugin is on, which the Read Aloud pen belongs to.
+    let offersReadAloudPen: Bool
     @AppStorage(PencilToolbarStyle.preferenceKey) private var toolbarStyle = PencilToolbarStyle.floating
     @AppStorage(PDFAnnotationPreferenceKey.showsToolPicker) private var showsToolPicker = true
     @AppStorage(PDFAnnotationPreferenceKey.drawsShapes) private var drawsShapes = false
@@ -412,7 +414,7 @@ struct TabBarPencilTools: View {
         if session.showsFixedPencilTools(style: toolbarStyle, showsTools: showsToolPicker, horizontalSizeClass: horizontalSizeClass, isFocused: isFocused) {
             PencilToolRow(toolbox: PencilToolbox.shared, drawsShapes: $drawsShapes,
                           addImage: { pictureSource = .photoLibrary }, undoAvailability: session.undoAvailability, rowHeight: PencilToolbarMetrics.heightInTabBar,
-                          offersReadAloudPen: true)
+                          offersReadAloudPen: offersReadAloudPen)
                 .modifier(PDFPictureAdding(session: session, source: $pictureSource))
         }
     }

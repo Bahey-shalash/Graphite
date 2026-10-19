@@ -826,7 +826,7 @@ struct VaultEntryMenu: View {
         }
         Button("Open in New Tab", systemImage: "plus.rectangle.on.rectangle") { Task { await workspace.open(entry.path, placement: .newTab) } }
         Button(workspace.openOnOtherSideTitle, systemImage: "rectangle.split.2x1") { Task { await workspace.open(entry.path, placement: .otherGroup) } }
-        ReadAloudQueueMenuItems(navigator: workspace.readAloudNavigator, path: entry.path)
+        if let navigator = workspace.readAloudNavigator { ReadAloudQueueMenuItems(navigator: navigator, path: entry.path) }
         Divider()
         Button("Rename…", systemImage: "pencil") { workspace.fileSheet = .rename(entry.path) }
         Button("Move to…", systemImage: "folder") { workspace.fileSheet = .move(entry.path) }

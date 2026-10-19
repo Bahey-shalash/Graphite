@@ -229,6 +229,8 @@ The responsibilities below describe planned boundaries, not existing components 
 - [ ] Measure time to first speech, seeking delay, memory, battery, and highlight updates on physical iPads. Set budgets after the first measured implementation.
 - [ ] Validate long papers and large vaults without whole-vault scans, uncontrolled cloud-placeholder downloads, or preloading the whole textbook.
 - [ ] Record dependency purpose, license, pinned version, maintenance status, privacy/storage implications, and unsupported platform capabilities.
+- [x] Read Aloud is a core plugin, off by default (owner decision 2026-10-19, `Read-aloud-core-plugin.md`). While it is off, none of its entry points show and its speech stack is not built at launch. Turning it on or off takes effect without a relaunch, and turning it off stops reading. A device that used Read Aloud before keeps it on through a one-time migration. Turning it off deletes no voices, prepared audio, pronunciations or places. Package tests cover the switches, the migration and the workspace; the hosted iPad suite and checks on a device are listed in `Coverage.md`.
+- [x] Owner decisions on that change (2026-10-19): the switch is kept per device, and turning Read Aloud off still offers to delete the downloaded voices, only on confirmation.
 
 ## 10. Verification and release checklist
 

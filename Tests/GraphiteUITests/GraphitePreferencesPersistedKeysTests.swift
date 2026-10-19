@@ -303,12 +303,12 @@ final class GraphitePreferencesPersistedKeysTests: XCTestCase {
 
         preferences.setEnabled(.graph, false)
         preferences.setEnabled(.backlinks, false)
-        preferences.setEnabled(.readAloud, false)
+        preferences.setEnabled(.bases, false)
         preferences.setEnabled(.wordCount, false)
 
-        XCTAssertEqual(defaults.stringArray(forKey: "GraphiteDisabledCorePlugins"), ["backlinks", "graph", "readAloud", "wordCount"])
+        XCTAssertEqual(defaults.stringArray(forKey: "GraphiteDisabledCorePlugins"), ["backlinks", "bases", "graph", "wordCount"])
         let reread = makePreferences()
-        XCTAssertEqual(reread.disabledCorePlugins, [.graph, .backlinks, .readAloud, .wordCount])
+        XCTAssertEqual(reread.corePluginSwitches.turnedOff, [.graph, .backlinks, .bases, .wordCount])
         XCTAssertFalse(reread.isEnabled(.graph))
         XCTAssertTrue(reread.isEnabled(.canvas))
     }
@@ -316,7 +316,17 @@ final class GraphitePreferencesPersistedKeysTests: XCTestCase {
     func testAStoredDisabledPluginNoBuildKnowsIsIgnored() {
         defaults.set(["bases", "aPluginThatWasRemoved"], forKey: "GraphiteDisabledCorePlugins")
 
-        XCTAssertEqual(makePreferences().disabledCorePlugins, [.bases])
+        XCTAssertEqual(makePreferences().corePluginSwitches.turnedOff, [.bases])
+    }
+
+    func testThePluginsTurnedOnAreStoredAsSortedRawValuesUnderTheirOwnKey() {
+        let preferences = makePreferences()
+
+        preferences.setEnabled(.readAloud, true)
+
+        XCTAssertEqual(defaults.stringArray(forKey: "GraphiteEnabledCorePlugins"), ["readAloud"])
+        XCTAssertEqual(makePreferences().corePluginSwitches.turnedOn, [.readAloud])
+        XCTAssertTrue(makePreferences().isEnabled(.readAloud))
     }
 
     func testTheCorePluginRawValuesAreThoseOfEarlierBuilds() {

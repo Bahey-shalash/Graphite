@@ -33,26 +33,30 @@ final class WorkspaceDeepLinksTests: XCTestCase {
     func testReadLinkToAMissingFileDoesNotReadTheNoteThatIsOpen() async throws {
         let vault = try makeVault(files: ["Open.md": "The note that is already open."])
         let workspace = device.makeWorkspace()
+        workspace.setCorePluginEnabled(.readAloud, true)
+        let reader = try XCTUnwrap(workspace.readAloud)
         try await workspace.openFolderAsVault(vault)
         await workspace.open(try VaultPath("Open.md"))
         XCTAssertNotNil(workspace.markdownSession)
-        workspace.readAloud.stop()
+        reader.stop()
 
         await workspace.handle(try XCTUnwrap(URL(string: "graphite://read?file=Missing")))
 
         XCTAssertNotNil(workspace.errorMessage)
-        XCTAssertFalse(workspace.readAloud.isActive)
+        XCTAssertFalse(reader.isActive)
     }
 
     func testReadLinkToAnExistingNoteReadsThatNote() async throws {
         let vault = try makeVault(files: ["Open.md": "The note that is already open.", "Target.md": "The linked note."])
         let workspace = device.makeWorkspace()
+        workspace.setCorePluginEnabled(.readAloud, true)
+        let reader = try XCTUnwrap(workspace.readAloud)
         try await workspace.openFolderAsVault(vault)
         await workspace.open(try VaultPath("Open.md"))
 
         await workspace.handle(try XCTUnwrap(URL(string: "graphite://read?file=Target")))
 
         XCTAssertEqual(workspace.markdownSession?.path.rawValue, "Target.md")
-        XCTAssertEqual(workspace.readAloud.sourceIdentifier, "Target.md")
+        XCTAssertEqual(reader.sourceIdentifier, "Target.md")
     }
 }
