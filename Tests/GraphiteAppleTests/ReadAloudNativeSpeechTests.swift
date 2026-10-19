@@ -9,7 +9,7 @@ import GraphiteCore
 @MainActor
 final class ReadAloudNativeSpeechTests: XCTestCase {
     func testInstalledAppleVoiceDeliversActualWordRangesAndCompletion() async throws {
-        let speech = AppleReadAloudSpeech(output: .silent)
+        let speech = AppleReadAloudSpeech(output: .silent, clock: LiveApplicationClock(), rendersToDroppedBuffers: true)
         guard let voice = ReadAloudVoice.preferred(in: speech.voices, language: "en-US") else {
             throw XCTSkip("Install an English Apple voice to run native speech integration.")
         }
