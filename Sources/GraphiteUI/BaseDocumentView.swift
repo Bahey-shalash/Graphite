@@ -412,7 +412,10 @@ struct BaseContainerView: View {
                 resultView(result)
             }
         } else if model.isLoading || model.definition == nil {
+            // Inside a note, the placeholder's height is not reported as the base's: the
+            // text would shrink around it and grow again by its rows seconds later.
             ProgressView().controlSize(.large)
+                .preference(key: LivePreviewEmbedLoadingKey.self, value: true)
         }
     }
 

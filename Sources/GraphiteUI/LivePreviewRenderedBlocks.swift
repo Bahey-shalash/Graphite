@@ -257,6 +257,15 @@ final class LivePreviewRenderedBlocks {
         return keysAwaitingRestyle
     }
 
+    /// Whether a block with a view on screen that starts before `location` has not reported
+    /// its height in this editor yet, as a base still loading its rows: the text above
+    /// `location` will still change its height. The entries are in note order.
+    func hasPlacedBlockAwaitingHeight(before location: Int, in entries: [LivePreviewBlockEntry]) -> Bool {
+        entries.lazy.prefix { entry in entry.range.location < location }.contains { entry in
+            hosts[entry.key] != nil && reportedHeights[entry.key] == nil
+        }
+    }
+
     /// Heights are kept by content, so every edited version of a measured block leaves one
     /// behind; they are forgotten once they clearly outnumber the blocks in the note.
     func forgetHeights(ofBlocksNotIn entries: [LivePreviewBlockEntry]) {
