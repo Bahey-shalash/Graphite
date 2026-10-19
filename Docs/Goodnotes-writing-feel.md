@@ -1,6 +1,6 @@
 # How writing in Goodnotes feels, from its files
 
-Status: findings and requests, recorded on 2026-10-19. Nothing here is implemented in Graphite.
+Status: findings and requests, recorded on 2026-10-19. On branch `writing-feel-device` (2026-10-19): the pen-up fast path, the width at zoom on PDF pages and in drawings, and the palette's tool are fixed, with the measurements under [Experiments: results](#experiments-results); the iPad measurements still pending are marked there.
 
 The owner finds writing in Goodnotes smoother than in Graphite and wants Graphite to feel the same. This document records what the owner asked for, what Goodnotes' files show about how it turns Apple Pencil input into ink and keeps widths when zooming, what files cannot show, where Graphite differs as far as its code shows, and the experiments that tell what to change. The file format itself is in [Goodnotes-format.md](Goodnotes-format.md).
 
@@ -111,6 +111,32 @@ Each is cheap and answers one question before anything bigger is built.
 4. **Bar against palette.** Log the canvas's tool at the start of each stroke (above), write with the bar and with the palette at the same zoom and width, and compare.
 5. **Zoom.** On a PDF page and in a drawing, write the same word at 1×, 2× and 3× with the pen and with monoline, export, and measure the widths on the page.
 6. **Only if 1 and 2 leave a difference:** draw the live stroke in Graphite itself as Goodnotes stores it, a quadratic B-spline through every coalesced and predicted sample, round-capped, over or instead of PencilKit's live stroke. Graphite already follows every sample of the drawing touch for the even highlighter (`DrawnStrokeFollower`). This is a large change with real costs, since PencilKit's live drawing, lasso and Pencil interactions would have to be matched, and it is the owner's decision, after the measurements.
+
+## Experiments: results
+
+Builds: before = commit 52393d3 (instrumentation only), after = 3c20a95. Both have `PencilWritingTrace` (debug builds, or Release with `-DGRAPHITE_WRITING_TRACE`). The test pages are A4 PDFs made for this: an empty page, and a page of 2,000 editable Graphite pen strokes (40 lines of 50 letter-like strokes, 24 to 43 samples each, the bottom third empty for writing), written by a scratch generator through `PDFPageInkTracker` and `PDFPageManager`, as the app writes ink.
+
+### Measured
+
+| What | Before | After | How |
+|---|---|---|---|
+| Pen-up on the 2,000-stroke page, main-thread time of `canvasViewDrawingDidChange` | median 16.3 ms, p90 17.8 ms | median 2.1 ms, p90 2.5 ms | Hosted probe, iPad Pro 11-inch (M5) simulator on the Mac, Debug, 40 strokes appended after `canvasViewDidBeginUsingTool` with a pen; the method timed with `ContinuousClock` |
+| Widest width PencilKit keeps on the tool (`PKInkingTool`, iOS 27) | pen 25.66, pencil 16, highlighter 60; monoline and fountain pen not held (a monoline of 9 stays 9) | (PencilKit's) | Hosted probe: tools made at 9 to 100 points, read back from the tool and from a canvas |
+| Pencil 7 pt on a PDF page drawn at 3 times its size | 16 / 3 = 5.33 pt on the page | 7 pt: the page draws at 2 times its size (16 / 7 = 2.3, in steps of 0.5) | `InkWidthAtZoomTests` (tool width over canvas zoom) |
+| Highlighter 28 pt, same | 60 / 3 = 20 pt | 28 pt, page at 2 times | same |
+| Pen 2.8 pt (the owner's bar pen), same | 2.8 pt | 2.8 pt, page at 3 times | same |
+| Drawing editor, monoline 1.56 pt at 3 times the fitted zoom (fitted 2 in the test) | 1.56 / 3 = 0.52 pt in the drawing (the tool was the chosen width on screen) | 1.56 pt | `InkWidthAtZoomTests`; before from the code: no width correction, PencilKit drawing a tool as wide on screen at any zoom |
+| Palette's tool on a PDF page drawn at 2.5 times its size, right after choosing a 2-point monoline | 2.0 (0.8 pt on the page) until the next main-queue turn; unscaled for good whenever PencilKit gave the tool again without a selection change (a canvas added as an observer takes it at once) | 5.0 (2 pt on the page) in the same turn | Hosted probe, then `InkWidthAtZoomTests.testThePalettesToolIsTheBarsToolOnAZoomedPageInTheSameTurn` |
+
+The owner's iPad (read from its preferences, 2026-10-19) writes with the floating palette (`GraphitePencilToolbarStyle` = floating); its bar presets are a pen of 2.8 pt (sizes 0.9, 2.8, 4.8), a pencil of 2.4 and a highlighter of 18.
+
+### Not yet measured (needs the owner and the iPad)
+
+- **Experiment 2, latency**: the 240 fps films of Goodnotes and Graphite on the empty and the dense page, before and after. No number yet, so no `FR-101` budget is proposed yet.
+- **Pen-up on the iPad**: Time Profiler and the signposts with `xctrace` on the iPad Pro 11-inch (3rd generation), before and after.
+- **Experiment 4 on the iPad**: the stroke-start log with the bar and with the palette. The probe above shows the code path that differed; the log shows whether the palette's widths and azimuth differ too.
+- **Experiment 5 on the iPad**: whether PencilKit draws a monoline wider than 4 points when the tool asks for it (the tool keeps it; the stroke is unknown). Until this is known, the monoline ball pen at 0.85, 1.56 and 2.55 points (experiment 1) is not added: at a page drawn 3 times its size, 2.55 asks for 7.65.
+- **Experiments 3 and 6** are not started, as asked; whether they are needed waits for the latency numbers.
 
 ## Numbers
 
