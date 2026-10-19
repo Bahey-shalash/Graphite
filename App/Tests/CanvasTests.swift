@@ -170,7 +170,10 @@ final class CanvasTests: XCTestCase {
         XCTAssertEqual(session.file.node(withIdentifier: greenCard.id)?.content, .text("Hello **canvas**"))
         let fileLocation = try XCTUnwrap(vaultDirectory).appendingPathComponent("Board.canvas")
         let expected = boardText.replacingOccurrences(of: "\"type\":\"text\",\"text\":\"\",\"x\":0", with: "\"type\":\"text\",\"text\":\"Hello **canvas**\",\"x\":0")
-        try await waitUntil(timeoutSeconds: 5) { (try? String(contentsOf: fileLocation, encoding: .utf8)) == expected }
+        // Saved now, not by the autosave: that waits 900 ms on the session's clock, which this test does not hold, and its timing
+        // is tested with a manual clock (CanvasSessionAutosaveTests).
+        try await session.save()
+        XCTAssertEqual(try String(contentsOf: fileLocation, encoding: .utf8), expected)
         try await waitUntil { !self.textViews(in: controller).contains { textView in textView.window != nil } }
         try await Task.sleep(for: .milliseconds(400))
         attachScreenshot(named: "Canvas text card rendered after editing")
