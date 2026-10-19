@@ -19,8 +19,8 @@ final class ReadAloudWhileWritingTests: XCTestCase {
     private var savedSpeed = 1.0
 
     override func tearDown() async throws {
-        workspace?.readAloud.clear()
-        workspace?.readAloud.session.setSpeed(savedSpeed)
+        workspace?.activeReadAloud.clear()
+        workspace?.activeReadAloud.session.setSpeed(savedSpeed)
         window?.isHidden = true
         window?.rootViewController = nil
         window = nil
@@ -39,7 +39,7 @@ final class ReadAloudWhileWritingTests: XCTestCase {
     /// without ink, and the highlight keeps moving on.
     func testInkAndSavesWhileReadingAPDFRangeChangeNothingRead() async throws {
         let (workspace, pdf) = try await openPDF()
-        let reader = workspace.readAloud
+        let reader = workspace.activeReadAloud
         let start = PDFReadAloudEndpoint(pageIndex: 0, offset: 0, revision: pdf.readingTextVersion)
         let endText = try XCTUnwrap(pdf.document.page(at: 1)?.string) as NSString
         let end = PDFReadAloudEndpoint(pageIndex: 1, offset: endText.range(of: "time").location + 4, revision: pdf.readingTextVersion)
@@ -128,7 +128,7 @@ final class ReadAloudWhileWritingTests: XCTestCase {
         await workspace.open(try VaultPath("Note.md"))
         let session = try XCTUnwrap(workspace.markdownSession)
         _ = try host(workspace)
-        let reader = workspace.readAloud
+        let reader = workspace.activeReadAloud
         reader.readMarkdown(session.text, path: session.path)
         try await waitUntil(timeoutSeconds: 15) { reader.session.document != nil && !reader.isPreparing }
         let document = try XCTUnwrap(reader.session.document)
@@ -258,14 +258,16 @@ final class ReadAloudWhileWritingTests: XCTestCase {
         let folder = try folder ?? makeDirectory()
         for (name, text) in notes { try Data(text.utf8).write(to: folder.appendingPathComponent(name)) }
         let workspace = WorkspaceModel()
+        // Read Aloud is a core plugin that is off by default; these tests read.
+        workspace.setCorePluginEnabled(.readAloud, true)
         workspace.folderAccess = FolderAccess(root: folder)
         workspace.store = VaultStore(root: folder)
         let index = try VaultIndex(databaseURL: folder.appendingPathComponent("index.sqlite"))
         let names = try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { name in name.hasSuffix(".md") || name.hasSuffix(".pdf") }
         try await index.refresh(paths: names.map { name in try VaultPath(name) }, root: folder)
         workspace.index = index
-        savedSpeed = workspace.readAloud.session.speed
-        workspace.readAloud.session.setSpeed(2)
+        savedSpeed = workspace.activeReadAloud.session.speed
+        workspace.activeReadAloud.session.setSpeed(2)
         self.workspace = workspace
         return workspace
     }
@@ -285,3 +287,16 @@ final class ReadAloudWhileWritingTests: XCTestCase {
 
 }
 #endif
+
+private extension WorkspaceModel {
+    /// The reader of a workspace whose Read Aloud plugin these tests turned on.
+    var activeReadAloud: ReadAloudController {
+        guard let readAloud else { preconditionFailure("The Read Aloud core plugin was turned on when the workspace was made.") }
+        return readAloud
+    }
+
+    var activeReadAloudNavigator: ReadAloudNavigator {
+        guard let readAloudNavigator else { preconditionFailure("The Read Aloud core plugin was turned on when the workspace was made.") }
+        return readAloudNavigator
+    }
+}

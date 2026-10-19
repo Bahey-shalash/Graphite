@@ -62,6 +62,17 @@ enum CorePlugin: String, CaseIterable, Identifiable, Codable {
         }
     }
 
+    /// Whether the plugin is on until the person turns it off. Read Aloud is off until it is
+    /// turned on (owner decision 2026-10-19): its voices, models and audio are heavy, and many
+    /// people never use it.
+    var isEnabledByDefault: Bool {
+        switch self {
+        case .readAloud: false
+        case .backlinks, .outgoingLinks, .outline, .properties, .tags, .wordCount, .colors, .drawings, .audioRecorder,
+             .bases, .templates, .dailyNotes, .footnotes, .fileRecovery, .bookmarks, .graph, .map, .canvas: true
+        }
+    }
+
     var systemImage: String {
         switch self {
         case .backlinks: "arrow.uturn.left"
@@ -155,7 +166,6 @@ final class GraphitePreferences {
         static let drawingFormat = "GraphiteDrawingFormat"
         static let drawingBackground = "GraphiteDrawingBackground"
         static let usesReadableLineLength = "GraphiteUsesReadableLineLength"
-        static let disabledCorePlugins = "GraphiteDisabledCorePlugins"
         static let defaultNoteView = "GraphiteDefaultNoteView"
         static let defaultEditingMode = "GraphiteDefaultEditingMode"
         static let appearanceMode = "GraphiteAppearanceMode"
@@ -214,8 +224,9 @@ final class GraphitePreferences {
     var drawingBackground: DrawingBackground { didSet { defaults.set(drawingBackground.rawValue, forKey: Key.drawingBackground) } }
     /// Limits the editor to a comfortable column width, like Obsidian's option.
     var usesReadableLineLength: Bool { didSet { defaults.set(usesReadableLineLength, forKey: Key.usesReadableLineLength) } }
-    var disabledCorePlugins: Set<CorePlugin> {
-        didSet { defaults.set(disabledCorePlugins.map(\.rawValue).sorted(), forKey: Key.disabledCorePlugins) }
+    /// Which core plugins are on (`GraphiteDisabledCorePlugins` and `GraphiteEnabledCorePlugins`).
+    private(set) var corePluginSwitches: CorePluginSwitches {
+        didSet { corePluginSwitches.store(in: defaults) }
     }
     var defaultNoteView: DefaultNoteView { didSet { defaults.set(defaultNoteView.rawValue, forKey: Key.defaultNoteView) } }
     var defaultEditingMode: EditingMode { didSet { defaults.set(defaultEditingMode.rawValue, forKey: Key.defaultEditingMode) } }
@@ -378,7 +389,7 @@ final class GraphitePreferences {
         makesShapesOnHold = StrokeHoldPreference.isOn(in: defaults)
         pencilToolbarStyle = defaults.string(forKey: Key.pencilToolbarStyle).flatMap(PencilToolbarStyle.init(rawValue:)) ?? .floating
         usesReadableLineLength = defaults.object(forKey: Key.usesReadableLineLength) as? Bool ?? true
-        disabledCorePlugins = Set((defaults.stringArray(forKey: Key.disabledCorePlugins) ?? []).compactMap(CorePlugin.init(rawValue:)))
+        corePluginSwitches = CorePluginSwitches(storedIn: defaults)
         defaultNoteView = defaults.string(forKey: Key.defaultNoteView).flatMap(DefaultNoteView.init(rawValue:)) ?? .editing
         defaultEditingMode = defaults.string(forKey: Key.defaultEditingMode).flatMap(EditingMode.init(rawValue:)) ?? .livePreview
         appearanceMode = defaults.string(forKey: Key.appearanceMode).flatMap(AppearanceMode.init(rawValue:)) ?? .system
@@ -403,7 +414,7 @@ final class GraphitePreferences {
         snapshotHistoryDays = (1...365).contains(storedHistory) ? storedHistory : 7
     }
 
-    func isEnabled(_ plugin: CorePlugin) -> Bool { !disabledCorePlugins.contains(plugin) }
+    func isEnabled(_ plugin: CorePlugin) -> Bool { corePluginSwitches.isEnabled(plugin) }
 
     /// A file's name as lists and the title bar show it: with its extension, or, when
     /// extensions are hidden, without `.md` (other files keep theirs, as in Obsidian).
@@ -411,8 +422,10 @@ final class GraphitePreferences {
         showsFileExtensions || DocumentKind(path: path) != .markdown ? path.name : path.stem
     }
 
+    /// Records the switch only. Settings goes through `WorkspaceModel.setCorePluginEnabled`,
+    /// which also starts or ends what the plugin runs.
     func setEnabled(_ plugin: CorePlugin, _ isEnabled: Bool) {
-        if isEnabled { disabledCorePlugins.remove(plugin) } else { disabledCorePlugins.insert(plugin) }
+        corePluginSwitches.setEnabled(plugin, isEnabled)
     }
 
     /// The view a note opens in, from "Default view for new notes" and the editing mode.
