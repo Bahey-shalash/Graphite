@@ -110,6 +110,7 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
     /// A person scrolls fast through the note while it is read: following pauses, the view
     /// stays where the person put it, and no frame of the scroll waits more than 100 ms.
     func testScrollingByHandWhileReadingStaysSmoothAndIsNotPulledBack() async throws {
+        try TimingBudgets.requireTheOwnersDevice()
         let (workspace, session) = try await openLecture(viewMode: .livePreview)
         let controller = try host(workspace)
         let editor = try await visibleEditor(in: controller)
