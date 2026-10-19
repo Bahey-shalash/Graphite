@@ -12,6 +12,7 @@ struct LibraryVault {
     let listingVersion: Int
     let firstCreatedKind: CreationKind
     let isPluginEnabled: (CorePlugin) -> Bool
+    let presentation: LibraryPresentation
 
     /// Lists again when the vault, its sort order, or its files change.
     var reloadKey: String {
@@ -30,6 +31,7 @@ struct LibraryActions {
     /// Moves vault items into a folder, as a drop on a folder tile asks.
     let moveItems: ([VaultPath], VaultPath) -> Void
     let setSortOrder: (FileSortOrder) -> Void
+    let setPresentation: (LibraryPresentation) -> Void
 }
 
 /// How each item is named and marked, and its menu: the file tree's own.
@@ -47,6 +49,7 @@ struct LibraryView: View {
     let actions: LibraryActions
     let entries: LibraryEntryPresentation
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.libraryWindowActions) private var windowActions
     @State private var isDropTargeted = false
 
     private var tileWidth: CGFloat { horizontalSizeClass == .compact ? 110 : 140 }
@@ -109,6 +112,9 @@ struct LibraryView: View {
                 .lineLimit(1)
                 .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 8)
+            windowButtons
+            LibraryPresentationSwitch(presentation: vault.presentation, choose: actions.setPresentation)
+                .padding(.horizontal, 4)
             viewOptionsMenu
             NewItemButton(firstKind: vault.firstCreatedKind, isEnabled: vault.isPluginEnabled, actions: newItemActions) {
                 Image(systemName: "plus")
@@ -124,6 +130,21 @@ struct LibraryView: View {
         .padding(.vertical, 6)
     }
 
+    /// Settings and the quick switcher, which the sidebar offered before the library
+    /// replaced it; a phone's sidebar still has them.
+    @ViewBuilder private var windowButtons: some View {
+        if let windowActions, horizontalSizeClass != .compact {
+            Button("Settings", systemImage: "gearshape", action: windowActions.showSettings)
+                .labelStyle(.iconOnly)
+                .frame(width: 44, height: 44)
+                .help("Settings")
+            Button("Find a File", systemImage: "magnifyingglass", action: windowActions.showSearch)
+                .labelStyle(.iconOnly)
+                .frame(width: 44, height: 44)
+                .help("Find a file (⌘O)")
+        }
+    }
+
     /// What the grid shows and in which order.
     private var viewOptionsMenu: some View {
         Menu {
@@ -134,6 +155,11 @@ struct LibraryView: View {
                 ForEach(FileSortOrder.allCases) { sortOrder in Text(sortOrder.title).tag(sortOrder) }
             }
             .pickerStyle(.menu)
+            // The sidebar held these; in Library mode there is none.
+            if let windowActions, horizontalSizeClass != .compact {
+                Divider()
+                Button("Vaults…", systemImage: "books.vertical", action: windowActions.showVaults)
+            }
         } label: {
             Image(systemName: library.filter == .all ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
                 .frame(width: 44, height: 44)
@@ -375,5 +401,24 @@ extension DocumentKind {
         case .canvas: "Canvas"
         case .other: "File"
         }
+    }
+}
+
+/// Library or List, side by side as two symbols with the one shown selected, as Files and
+/// the Finder switch between icons and a list.
+struct LibraryPresentationSwitch: View {
+    let presentation: LibraryPresentation
+    let choose: (LibraryPresentation) -> Void
+
+    var body: some View {
+        Picker("Show Files As", selection: Binding(get: { presentation }, set: choose)) {
+            ForEach(LibraryPresentation.allCases) { presentation in
+                Label(presentation.title, systemImage: presentation.systemImage).tag(presentation)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelStyle(.iconOnly)
+        .fixedSize()
+        .help("Show files as a library or as a list")
     }
 }

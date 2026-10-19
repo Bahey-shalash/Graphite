@@ -22,17 +22,21 @@ final class WorkspaceNotebookCreationTests: XCTestCase {
         return (workspace, try XCTUnwrap(workspace.markdownSession))
     }
 
+    /// The embed is written in its shortest form only once the vault's first index scan has
+    /// proved the name unique; before that, the full vault path, which is always valid. The
+    /// test used to race the scan and saw the full path when the machine was busy, so it now
+    /// states the scan as complete, as the other workspace tests that check link forms do.
     func testEmbeddedNotebookGoesWithTheAttachmentsAndIsEmbeddedAtTheCursor() async throws {
         // Attachments in the note's own folder.
         let vault = try makeVault(files: ["Courses/Week 1.md": "Before\nAfter", ".obsidian/app.json": #"{"attachmentFolderPath": "./"}"#])
         let (workspace, session) = try await openedNote("Courses/Week 1.md", in: vault)
+        workspace.hasCompletedIndexScan = true
         let cursor = NSRange(location: ("Before\n" as NSString).length, length: 0)
 
         await workspace.createNotebook(named: "Sketches", options: options, placement: .embeddedInNote, from: session, at: cursor, textWhenChosen: session.text)
 
         XCTAssertNil(workspace.errorMessage)
-        XCTAssertTrue(session.text.contains("![[Sketches.pdf]]"), session.text)
-        XCTAssertTrue(session.text.hasPrefix("Before\n"), session.text)
+        XCTAssertEqual(session.text, "Before\n![[Sketches.pdf]]\nAfter")
         let document = try XCTUnwrap(PDFDocument(url: vault.appendingPathComponent("Courses/Sketches.pdf")))
         XCTAssertEqual(document.pageCount, 3)
         let pageBounds = try XCTUnwrap(document.page(at: 0)).bounds(for: .mediaBox)
