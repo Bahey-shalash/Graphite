@@ -182,7 +182,7 @@ Completion evidence: visual review of the three workspaces at representative wid
 
 ## Next: Pencil quality on hardware
 
-The owner finds writing in Goodnotes smoother than in Graphite (2026-10-19). [Goodnotes-writing-feel.md](Goodnotes-writing-feel.md) records what Goodnotes' files show about its ink (every sample kept, a quadratic B-spline through their midpoints, a ball pen of one width whatever the pressure, pressure-only width for its fountain and brush pens) and four experiments to run here first, starting with a constant-width monoline tool at Goodnotes' ball pen sizes and a latency measurement in both apps.
+The owner finds writing in Goodnotes smoother than in Graphite (2026-10-19). [Goodnotes-writing-feel.md](Goodnotes-writing-feel.md) records what Goodnotes' files show about its ink (every sample kept, a quadratic B-spline through their midpoints, a ball pen of one width whatever the pressure, pressure-only width for its fountain and brush pens) and experiments to run here first. It also lists the owner's requests of that day: the same pen width on the page at any zoom (for cheat sheets), resizing that scales ink without distorting it, the same writing with the fixed bar as with the floating palette, and no more lag than Goodnotes, which has almost none, as a measured budget (`FR-101`).
 
 Compare the same handwriting exercises in Graphite, Apple Notes, Goodnotes, and Notability on the same physical iPad. Check small letters, curves, dots, stroke endings, pressure and tilt, palm rejection, finger scrolling, pinch zoom, page edges, and the supported double-tap, squeeze, hover, and barrel-roll interactions.
 
