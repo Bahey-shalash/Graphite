@@ -7,7 +7,8 @@ import GraphiteApple
 extension WorkspaceModel {
     var libraryVault: LibraryVault {
         LibraryVault(source: librarySource, title: title, sortOrder: vaultSettings.fileSortOrder, listingVersion: directoryVersion,
-                     firstCreatedKind: preferences.library.firstCreatedKind, isPluginEnabled: preferences.isEnabled)
+                     firstCreatedKind: preferences.library.firstCreatedKind, isPluginEnabled: preferences.isEnabled,
+                     presentation: preferences.library.presentation)
     }
 
     private var librarySource: LibraryModel.Source? {
@@ -31,7 +32,8 @@ extension WorkspaceModel {
                        newFolder: { [weak self] folder in self?.fileSheet = .newFolder(in: folder) },
                        importFiles: { [weak self] sources, folder in Task { await self?.importFiles(from: sources, into: folder) } },
                        moveItems: { [weak self] paths, folder in Task { for path in paths { await self?.move(path, into: folder) } } },
-                       setSortOrder: { [weak self] sortOrder in self?.setFileSortOrder(sortOrder) })
+                       setSortOrder: { [weak self] sortOrder in self?.setFileSortOrder(sortOrder) },
+                       setPresentation: { [weak self] presentation in self?.preferences.library.presentation = presentation })
     }
 
     func libraryEntryPresentation(requestCreation: @escaping (CreationKind, VaultPath) -> Void) -> LibraryEntryPresentation {
