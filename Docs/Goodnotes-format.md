@@ -1,19 +1,21 @@
 # The Goodnotes file format (`.goodnotes`)
 
-Status: Phase 1 of [the import checklist](Goodnotes-Notability-import-todo.md). Recovered on 2026-10-18 from four of the owner's notebooks, by reading the files only; no part of Goodnotes was run, decompiled or copied. Nothing here is implemented in Graphite yet.
+Status: Phase 1 of [the import checklist](Goodnotes-Notability-import-todo.md). Recovered from the owner's notebooks, on 2026-10-18 and 2026-10-19, by reading the files only; no part of Goodnotes was run, decompiled or copied. Nothing here is implemented in Graphite yet.
 
-What was checked: a reference reader written for this (`scripts/goodnotes-reader.py`) decoded every record of the four notebooks, 32,390 stroke records, 14 picture records and 42 fill records (27,768 strokes, 9 pictures and 12 fills not erased), with nothing left over in any stroke payload. Pages drawn from what it read matched each notebook's own thumbnail and, by eye, its content: ink position, colour and width, shapes and fills, pictures, template paper and imported PDF pages. That was a visual comparison only. The Goodnotes PDF exports the checklist asks for, and pixel-difference tests, are still to do.
+What was checked:
+
+- A reference reader written for this, `scripts/goodnotes-reader.py`, reads all 45 sample notebooks with no record kind, field or path layout it does not know. The one exception is a single element missing from its page's member list (see Page elements). In total that is 134,264 live strokes, 175 pictures, 177 fills, 27 text boxes (5 newer, 22 older), a sticky note and one other text element.
+- Pages drawn from what it reads were compared with the PDF that Goodnotes exported for the six notebooks made for the purpose (see Comparison with Goodnotes' own export). The four notebooks of 2026-10-18 and the 35 library notebooks have no export; those were compared by eye with the thumbnail each notebook carries.
 
 ## The samples
 
-| Sample | Pages | Paper | Content |
-|---|---|---|---|
-| A | 20 | Black grid template, Goodnotes "Standard" size | 9,724 pen strokes in several colours; lines, dashed lines, ellipses and turned ellipses; 7 fills; 4 pictures; erased and lasso-moved strokes; elements with an order id (field 6) |
-| B | 17 | Black grid template, Standard size | 6,738 pen and 7 highlighter strokes; lines, dashed lines, ellipses; 2 fills; 3 pictures, of them 2 stickers (JPEG 2000); erased and lasso-moved strokes |
-| C | 3 | Two A3 white template pages, landscape, and one page of an imported 19-page PDF | 11,293 pen and 6 highlighter strokes (6,143 on one page); lines, ellipses, a dashed freehand stroke; 3 fills; 2 pictures; erased and lasso-moved strokes |
-| D | 2 | Both pages of an imported A3 PDF | No ink |
+| Set | Notebooks | Made with | Schema | What they cover |
+|---|---|---|---|---|
+| First samples (2026-10-18) | 4 | Goodnotes on the iPad, version not recorded | 24 | Pen, highlighter, lines, ellipses, fills, dashes, pictures, stickers, erasing, lasso moves, copied pages, template paper, imported PDFs |
+| Made for the purpose (2026-10-19) | 6 | Goodnotes 7.1.28 for Mac, with a mouse | 24, 25, 35 | Text boxes in two fonts; fountain pen, brush pen, pencil, ball pen and highlighter over writing; a turned and a cropped picture; tape, a sticky note, a link and a bookmark; a deleted page; a recording with writing; a cover page |
+| Library selection (2026-10-19) | 35 | Goodnotes on the iPad, versions not recorded | 24, 25, 26 | Chosen from the owner's 691-notebook semester library to cover every schema and every unknown the first reader reported there: older text boxes, older varying-width ink, outline entries, page moves, recordings and their deletion |
 
-Every sample is schema 24. **Not in the samples, so not documented here:** typed text boxes, rotated or cropped pictures, fountain, brush and pencil inks with varying width, tape, links, outlines and bookmarks, audio, sticky notes, and other schema versions. Each needs a sample made for it (Phase 1).
+The made-for-purpose samples and the library selection are on the `samples/import-formats` branch, under `ImportSamples/Goodnotes/`, each with a README saying what was done. **Still not in any sample:** pressure, tilt and azimuth from an Apple Pencil (the Mac samples were drawn with a mouse); stickers from Goodnotes' own library apart from two pictures; text box rotation; a link to a page; and the meaning of several fields marked unknown below.
 
 ## Container
 
@@ -25,28 +27,30 @@ document.info.pb          empty in every sample
 index.notes.pb            ink layer id -> "notes/<id>"
 index.attachments.pb      attachment id -> "attachments/<file id>"
 index.search.pb           search record id -> "search/<id>"
-index.events.pb           the notebook's event log: document, attachments, paper, pages and their order, page members
-notes/<layer id>          one file per page with ink: that page's elements
-attachments/<file id>     template PDFs, imported PDFs, pictures (PNG, JPEG, JPEG 2000), with no extension
+index.events.pb           the notebook's event log: document, attachments, paper, pages, outline, recordings
+notes/<layer id>          one file per page with content: that page's elements
+attachments/<file id>     template PDFs, imported PDFs, pictures (PNG, JPEG, JPEG 2000), recordings (MP4 audio), with no extension
 search/<id>               handwriting recognition results (word candidates, boxes, stroke ids): derived, not needed
 thumbnail.jpg             the first page
 ```
 
-Empty files are normal: a page with no ink has an empty `notes/<id>`.
+Empty files are normal: a page with no content has an empty `notes/<id>`. Imported PDFs with no writing on them have only empty notes files; in the library selection these are 5 notebooks, which the first reader showed as having no elements.
 
 ## Encoding
 
 **Protocol Buffers without a schema.** Every `.pb` file and every `notes/` file is a sequence of protobuf messages, each preceded by its length as a varint. Field numbers below are protobuf field numbers; their names are this document's. Floats are 32-bit (wire type 5) unless marked `double`. A field equal to its default (zero, empty) is left out, as in proto3: a colour with no red component has no field 1.
 
-**`schema.pb`** is one message without a length prefix: `{1: 24}`.
+**`schema.pb`** is one message without a length prefix, `{1: version}`: 24, 25, 26 or 35 in the samples. Every record also carries the schema it was written with, so a notebook started in an older Goodnotes mixes record versions (a schema 35 notebook has schema 24 strokes next to schema 35 text boxes). What each version adds, as far as the samples show: 25 the fountain pen, brush pen and pencil layouts; 26 outline entries; 35 the newer text boxes and sticky notes.
 
 **Versioned registers.** Most editable values are wrapped as a last-writer-wins register, `{1: value, 2: clock}`, where the clock is `{1: counter, 2: replica hash}`. Several records may set the same register; the highest counter wins.
 
-**Derived ids.** A page's ink layer id is the page id with 1 added to its last byte, without carry: `…25FF` becomes `…2500`, not `…2600`. Several record kinds use this.
+**Derived ids.** A page's ink layer id is the page id with 1 added to its last byte, without carry: `…25FF` becomes `…2500`, not `…2600`.
 
-**Coordinates.** Origin at the top-left corner of the page, y downwards. One unit is 6/11 of a PDF point (132 units per inch, the first iPad's screen density): an A4 page is 1,091.35 × 1,543.46 units, A3 landscape 2,182.68 × 1,543.46, and the Standard size 834.24 × 1,078.82 (455.04 × 588.45 points).
+**Coordinates.** Origin at the top-left corner of the page, y downwards. One unit is 6/11 of a PDF point (132 units per inch, the first iPad's screen density): an A4 page is 1,091.35 × 1,543.46 units, A3 landscape 2,182.68 × 1,543.46, and the Standard size 834.24 × 1,078.82 (455.04 × 588.45 points). Font sizes and text box sizes are in the same units: a 24-unit font is 13.1 points.
 
-**Stroke payloads** are compressed with Apple's LZ4 framing (Compression framework, `COMPRESSION_LZ4`): blocks of `bv41`, the decoded and encoded sizes as little-endian 32-bit integers, then a raw LZ4 block; `bv4-` for a stored block; `bv4$` ends the stream. The decoded bytes are a [tpl](https://troydhanson.github.io/tpl/) image (Troy Hanson's serialisation library): `tpl`, a flags byte (0: little-endian), the total size as a 32-bit integer, a NUL-terminated format string, then the values. Each `A(…)` array starts with its element count as a 32-bit integer.
+**Compressed payloads** (ink paths, rich text) use Apple's LZ4 framing (Compression framework, `COMPRESSION_LZ4`): blocks of `bv41`, the decoded and encoded sizes as little-endian 32-bit integers, then a raw LZ4 block; `bv4-` for a stored block; `bv4$` ends the stream. Ink paths are then a [tpl](https://troydhanson.github.io/tpl/) image (Troy Hanson's serialisation library): `tpl`, a flags byte (0: little-endian), the total size as a 32-bit integer, a NUL-terminated format string, then the values. Each `A(…)` array starts with its element count as a 32-bit integer. Rich text is protobuf again.
+
+**Times.** Record timestamps are doubles in milliseconds since 1970. Recording times are in flicks, 1/705,600,000 of a second: a recording's duration of 33,304,320,000 flicks is its MP4's 1,040,760 samples at 22,050 Hz, 47.2 seconds.
 
 ## The event log (`index.events.pb`)
 
@@ -56,49 +60,74 @@ Each message is `{1: entity id, <kind>: body}`, with exactly one body field. The
 |---|---|---|
 | 30 | Document created | 1 id; 2 title (register); 9 locale; 10 created (double, milliseconds since 1970); 20 schema. Also 3, 6 (`"P"`), 7 and 19, meaning unknown |
 | 31 | Document renamed | 2 title (register) |
+| 33 | Sharing record | id `Shared-<id>:<id>:<id>`; registers like the document's. Not needed for the import |
 | 34 | Document changed | 2 (register, empty in the samples) |
-| 6 | Attachment | 1 id; 2 file id (the name under `attachments/`); 5 size in bytes; 6 document; 12 `{1: 1, 2: page count}` for a PDF, absent for a picture |
+| 6 | Attachment | 1 id; 2 file id (the name under `attachments/`); 5 size in bytes; 6 document; 12 `{1: 1, 2: page count}` for a PDF, absent for a picture or recording |
 | 2 | Paper (background) | see below |
 | 54 | Page created | 1 document; 2 page id; 3 paper (register of a paper id); 4 position (register of a string) |
 | 3 | Page paper changed | 3 paper (register) |
-| 57 | Page changed | 3 (register, empty in the samples) |
+| 55 | Page moved | 3 new position (register, higher counter than the page's first) |
+| 56 | Page deleted | 3 register; 1 means deleted. The page's records stay in the file |
+| 57 | Page bookmarked | 3 register; 1 means bookmarked ("Add to Favorites"), empty means the bookmark was removed |
+| 63 | Page flag | 3 register, 1 in its one sample; meaning unknown |
+| 62 | Outline entry | 5 title; 6 position among the entries (a fractional index); 3 `{1: point}` on the target page; 2 the target, which matches no record in the samples |
 | 102 | Ink layer created | id = page id + 1 |
-| 106 | Ink layer members | 2 repeated: the page's element ids (registers). Not the drawing order: see Drawing order below |
+| 106 | Ink layer members | 2 repeated: the page's element ids (registers). Not the drawing order, and absent from some notebooks (see Page elements) |
+| 160 | Recording | 2 the audio attachment; 3 document; 4 duration in flicks; 5 `{1: {1: element id, 2: {1: time in flicks from the start, 2: page id}}, …}`, one entry per element written during the recording |
+| 163 | Recording deleted | the recording's id |
 | 10 | Last page viewed | 2 page; 3 `"PagingViewServiceUpdater:<id>"` |
 | 103, 104, 105 | Search index bookkeeping | not needed |
 
 **Paper (kind 2).** A page's paper is a separate record, and many pages share one. Fields: 4 attachment (a PDF); 5 page number in that PDF, from 1; 8 page size `{1: width, 2: height}` in units; 9 template id (empty for an imported PDF); 18 ruling `{1: {1: origin, 2: size} (the writing area), 2: line spacing, 3: unknown, 5: unknown}`; 6, 7 (double 29.33), 12 (register, 29.33), 13 (register, 1), 17 (register, 1 or 2) and 19 are not understood.
 
-The paper is drawn by the attachment, never by Goodnotes from the template id. Template paper is a one-page vector PDF made by svg2pdf (the grid, rules and paper colour), and an imported PDF page is the original PDF. Template ids read `<catalogue UUID>_<size>_<orientation>_<design>`: `a4`, `a3` and `standard` sizes, orientation 1 portrait and 2 landscape, and a design that is a number with a colour (`2 - White`) or a UUID.
+The paper is drawn by the attachment, never by Goodnotes from the template id. Template paper is a one-page vector PDF made by svg2pdf (the grid, rules and paper colour), and an imported PDF page is the original PDF. Template ids read `<catalogue UUID>_<size>_<orientation>_<design>`: `a4`, `a3` and `standard` sizes, orientation 1 portrait and 2 landscape, and a design that is a number with a colour (`2 - White`, `1 - Yellow`) or a UUID. A cover is the first page with a cover template (`…_standard_1_1 - Blue` from another catalogue).
 
-**Pages and their order.** The notebook's pages are the kind 54 records, sorted by position, comparing the position strings byte by byte (fractional indexing: `4!Wfh` < `AxSGV` < `_-KWPko01`). A page of a 19-page PDF that the notebook does not use has no record: there is nothing to skip. No sample has a page deleted after it was made, so how deletion is recorded is not known yet (other readers report tombstone records).
+**Pages and their order.** The notebook's pages are the kind 54 records that are not deleted (kind 56 with value 1), sorted by position, comparing the position strings byte by byte (fractional indexing: `4!Wfh` < `AxSGV` < `_-KWPko01`). A move (kind 55) replaces the position. A page of an imported PDF that the notebook does not use has no record.
 
 ## Page elements (`notes/<layer id>`)
 
 Each element is two messages: a header, then its body.
 
-**Header:** `{1: element id, 2: clock, 3: 1 if deleted, 4: attachment (pictures), 6: order id, 8: replica, 9: counter, 14: 5381, 16: schema}`. An element is drawn when its header is not deleted; erased strokes stay in the file. The page's member list (kind 106) names each element by its order id (field 6) when it has one and by its element id otherwise; in the samples field 6 is set on all elements of three neighbouring pages and on some of a fourth, which suggests copied or pasted elements (not confirmed). In every sample each live element was in the member list exactly once, and each header had a body.
+**Header:** `{1: element id, 2: clock, 3: 1 if deleted, 4: attachment (pictures), 6: order id, 7: a second id (meaning unknown), 8: replica, 9: counter, 10: 1 on the one text element of kind 12, 14: 5381, 16: schema}`. An element is drawn when its header is not deleted; erased strokes stay in the file.
 
-**Body:** one field, 7 for a stroke, 1 for a picture, 9 for a shape's fill.
+The layer file is the authority on which elements a page has. The member list (kind 106) names each element by its order id (header field 6) when it has one and by its element id otherwise. But it is missing from all six made-for-purpose notebooks (and from notebooks with no content), and in one library notebook one element is missing from a member list that exists. In the 2026-10-18 samples, field 6 is set on all elements of three neighbouring pages and on some of a fourth, which suggests copied or pasted elements (not confirmed).
 
-**Drawing order.** Each body has a position, `{1: {1: counter, 2: replica}}`: field 7 of a stroke, 5 of a picture, 3 of a fill. Elements are drawn sorted by counter, then replica. Neither the member list nor the order of records in the file is the drawing order. The evidence: in the 37 pages with at least 50 strokes, consecutive strokes sorted by position are on average 47.5 units apart, as handwriting written in sequence is, against 467 in member-list order, 468 in file order and 466 in a random order. The position does not decide everything: 751 of the 27,789 live elements share both counter and replica with another element on their page, and how Goodnotes orders those is not known (the reference reader keeps them in file order). Within a tie the order only shows where the tied elements overlap in different colours.
+**Body:** one field naming the kind:
+
+| Body | Element |
+|---|---|
+| 7 | Stroke, including shapes, highlighter and tape |
+| 1 | Picture |
+| 9 | A shape's fill |
+| 21 | Text box (schema 35) |
+| 8 | Text box (older, RTF) |
+| 20 | Sticky note |
+| 12 | A text element in RTF with no frame; one sample, empty and bold, purpose unknown |
+
+**Drawing order.** Each body has a position, `{1: {1: counter, 2: replica}}`: field 7 of a stroke, text box and sticky note, 5 of a picture and of an older text box, 3 of a fill, 13 of a kind 12 element. Elements are drawn sorted by counter, then replica. Neither the member list nor the order of records in the file is the drawing order. The evidence: in the 37 first-sample pages with at least 50 strokes, consecutive strokes sorted by position are on average 47.5 units apart, as handwriting written in sequence is, against 467 in member-list order, 468 in file order and 466 in a random order. The position does not decide everything: 751 of 27,789 live elements in the first samples share both counter and replica with another element on their page, and how Goodnotes orders those is not known (the reference reader keeps them in file order).
+
+**Highlighter ink is drawn under all other ink**, whatever the order: in the export of the inks sample, ball-pen writing made before a highlighter stroke shows on top of it.
 
 ### Strokes (body field 7)
 
 | Field | Meaning |
 |---|---|
 | 1 | Element id |
-| 2 | The path: LZ4, then tpl, see below |
+| 2 | The path: LZ4, then tpl, in one of four layouts (below) |
+| 3 | Ink: absent (0) for ball pen and highlighter; 1 for fountain pen, brush pen and tape; 4 for an older varying-width ink; 5 for pencil |
 | 4 | Colour `{1: red, 2: green, 3: blue, 4: alpha}`, 0 to 1 |
-| 5 | 1 for the highlighter (alpha 0.5, width 12 to 36 in the samples) |
+| 5 | 1 for the highlighter (alpha 0.5) |
 | 6 | Offset `{1: x, 2: y}` added to every point: a lasso move |
+| 7 | Position in the drawing order |
 | 9 | Shape, when the stroke was drawn as one (below) |
 | 14 | 1 when erased; the path is then empty |
 | 15 | Version clock (equals the header's field 2) |
-| 7 | Position in the drawing order |
-| 20, 21 | Empty, schema |
+| 20 | `{1: ""}` on tape, empty otherwise |
+| 21 | Schema |
 
-The tpl format string is `vuA(v)A(S(uu))A(S(uuuu))vA(f)`:
+The fountain pen and the brush pen have the same ink number and layout; the samples tell them apart only by width.
+
+**Constant width** (`vuA(v)A(S(uu))A(S(uuuu))vA(f)`; ball pen, highlighter, shapes):
 
 | Value | Meaning |
 |---|---|
@@ -110,7 +139,29 @@ The tpl format string is `vuA(v)A(S(uu))A(S(uuuu))vA(f)`:
 | `v` | 1 in every sample |
 | `A(f)` | The dash pattern (dash, gap), each a 32-bit float in the low half of a double; empty for a solid line |
 
-The path is the stroke's centre line, drawn at the width with round ends. Every stroke in the samples has one width for its whole length (common widths 2.86, 4.68 and 1.56 units). How varying-width inks are stored is still unknown.
+The path is the centre line, drawn at the width with round ends.
+
+**Varying width** (`vA(v)A(u)A(u)A(v)A(v)A(u)A(u)A(u)A(u)A(v)`, schema 25 on; fountain pen, brush pen, tape). It holds both the centre line with a width at each point, and the outline Goodnotes fills:
+
+| Value | Meaning |
+|---|---|
+| `v` | 2 |
+| `A(v)` | Centre line codes: 0 (or 4 on tape) starts, 1 (or 5) is a curve |
+| `A(u)` | Start: x, y, width (tape adds one more value, 0) |
+| `A(u)` | Per curve: control x, y, width; end x, y, width (tape adds three more values, 0, 0, 0.1) |
+| `A(v)` | Outline commands per centre-line segment |
+| `A(v)` | Outline codes: 0 move to the segment's outline start; 2 cubic Bézier (three points from the outline points); 3 round cap; 6 flat cap (tape) |
+| `A(u)` | Outline start, x and y, one per segment |
+| `A(u)` | Empty in every sample |
+| `A(u)` | Outline points, x and y |
+| `A(u)` | Cap records, two per segment (its end, then its start): x, y, then width and direction values (five numbers each, seven on tape) |
+| `A(v)` | 1 per cap record |
+
+Each centre-line segment has its own closed outline: one side as cubics, a cap around the segment's end, the other side back, a cap around its start. A cap is a half circle (or, flat, a straight edge) around the cap record's point to the point opposite the current one; the opposite point is not stored. Filled this way, the fountain and brush strokes match the export (see the comparison below).
+
+**Older varying width** (`vuA(v)A(u)A(u)A(v)A(v)A(u)A(u)A(u)A(u)A(v)`, ink 4, 90 strokes in three library notebooks): the same arrays after a leading width, but the outline codes are 2 for move and 4 for cubic, there are no caps, and the centre line uses codes 0 to 3 whose meaning is not worked out. Drawn from the outline, the strokes look like clean lines and boxes over a circuit diagram; there is no export to compare with.
+
+**Pencil** (`vuA(v)A(S(uuuuu))A(S(uuuuuuuuuuu))A(S(uu))A(v)A(S(uu))A(S(uuuu))A(u)`, schema 25 on, tpl version 1): a width, codes as in the constant-width layout, start points of five numbers (x, y and three more), and curves of eleven: a first 32-bit value that is not a sensible float (perhaps a texture seed), then the control point and the end point, each x, y and three more numbers. The three numbers were 0.524, 1.047 and 0 for every point drawn with the mouse; they are probably Pencil angles and force, not confirmed. The five trailing arrays were empty. Goodnotes draws pencil ink textured and, with that force of 0, very pale; the reference renderer does not imitate the texture.
 
 ### Shapes (stroke field 9)
 
@@ -119,7 +170,7 @@ A stroke that is a shape has an empty path and its geometry here. Its colour, of
 | Field | Geometry |
 |---|---|
 | 1 | Polyline `{1: point, 1: point, …}`: a line has two points |
-| 2 | Three points `{1, 2, 3}`, meaning not confirmed (an arc or a triangle); 3 strokes in the samples, drawn as a polyline in the check |
+| 2 | Three points `{1, 2, 3}`, meaning not confirmed (an arc or a triangle); 3 strokes in the first samples, drawn as a polyline in the check |
 | 3 | Ellipse `{1: centre, 2: radii}` |
 | 4 | Turned ellipse `{1: centre, 2: radii, 3: angle in radians}` |
 | 5 | Line style `{1: dash pattern (two floats), 2: 1}` |
@@ -131,7 +182,48 @@ A fill is its own element, drawn in its place in the order: 1 id; 2 bounding box
 
 ### Pictures (body field 1)
 
-1 id; 2 frame `{1: origin, 2: size}`; 3 the same frame as `{1: centre, 2: size}`; 4 the attachment; 5 position; 6 2 for the JPEG 2000 stickers, absent otherwise; 7 an id not found among the attachments; 14 1 when deleted. The picture file is the original, at its own resolution (up to 1,097 × 1,017 pixels in the samples), drawn stretched to the frame. No sample has a turned or cropped picture.
+1 id; 2 the bounding box of the picture as drawn `{1: origin, 2: size}`; 3 the placement `{1: centre, 2: size before turning, 3: angle in radians}`, clockwise on the page; 4 the attachment; 5 position; 6 2 for the JPEG 2000 stickers in the first samples, 1 on the turned picture, meaning not known; 7 an id not found among the attachments; 14 1 when deleted. The picture file is drawn stretched to the placement's size, turned about its centre. A turned picture's angle in the sample was 0.5087 radians (29.1°) for a drag to "about 30 degrees clockwise".
+
+**Cropping replaces the file.** A cropped picture points to a new PNG of the kept part (201 × 150 pixels from a 400 × 300 original), with no crop rectangle; the original stays among the attachments. An import keeps the cropped bitmap, which is at the original's resolution.
+
+### Text boxes (body field 21, schema 35)
+
+| Field | Meaning |
+|---|---|
+| 20 | `{1: origin, 3: scale}` |
+| 21 | `{3: {1: 32, 2: 600, 3: 32, 4: infinity}}`, probably the minimum and maximum width and height |
+| 32 | Layout and text: `{1: {2: rich text (LZ4), 3: hash}, 2: size, 5: {1: default attributes, 2: paragraph}, 10: insets {1, 2, 3, 4}}` |
+| 30, 31, 33 | Background and border colours, shadow (alpha 0.2, offset 5); not checked against an export |
+| 7, 3 | Position, version clock |
+
+The rich text, once decompressed, is `{1: {1: text, 2: attributes, 3: paragraph}}`. Attributes and defaults share one layout: 3 colour (RGBA, 0 to 1), 4 link (a URL), 30 font name, 40 size in units; −404 in a size or a related field means "not set, use the default". The samples' text boxes each have one attribute run; how several runs mark their ranges is not known yet. Goodnotes calls the fonts "Modern" (Helvetica Neue) and "Classic" (Georgia), as the export's embedded fonts show.
+
+Placement, checked against the export's text layer: the text starts at the origin plus the inset (10 units), in points 216.1 + 5.45 = 221.6 and 296.5 + 5.45 = 302.0 for "Graphite one", exactly where the export puts the word. The box is 140 × 29 units (76.4 points wide), the width of the line of text.
+
+**Links.** A link on a text box is the run attribute 4: `https://example.com/graphite` in the sample.
+
+### Older text boxes (body field 8)
+
+22 in three library notebooks. 2 the box `{1: origin, 2: size}`; 3 the text area, the box inset by 10 on each side; 6 the text as Cocoa RTF (fonts, sizes in half-points, colours, and `HYPERLINK` fields for links); 7 and 9 colours; 10 the inset; 14 1 when deleted; 18 and 19 the shadow. The RTF is the only copy of the text, so an importer needs an RTF reader (Foundation's on Apple platforms).
+
+### Sticky notes (body field 20)
+
+20 `{1: origin}`; 21 `{2: {1: width, 2: height}}`, 256 × 256 in the sample; 30 paper colour; 31 rich text as in a text box; 32 the author's account id; 33 the author's name, which Goodnotes prints at the bottom of the note; 40, 41 1. The note appears in the export at its origin and size.
+
+## Comparison with Goodnotes' own export
+
+Each page of the six made-for-purpose notebooks was drawn from what the reader decoded, at one pixel per unit, and compared with the same page of the export rendered at the same size. The share of pixels differing by more than 60 of 255:
+
+| Sample | Pages | Differing | What differs |
+|---|---|---|---|
+| Inks | 1 | 0.15% | The pencil: Goodnotes draws it textured and pale, the check solid; antialiasing |
+| Turned and cropped pictures | 1 | 0.08% | Picture edges |
+| Recording with writing | 1 | 0.01% | Stroke edges |
+| Deleted page | 2 | 0.07%, 0.09% | The typed text, which the check does not draw |
+| Text boxes | 2 | 0%, 0.21% | The typed text |
+| Tape, sticky note, link | 1 | 0.25% | The typed text; the tape's slightly rounded ends and faint shadow |
+
+The paper, the page count (the deleted page left out), ink positions and widths, the fountain and brush outlines, highlighter under ink, the turned picture's angle and the tape all match. Text was checked separately against the export's text layer, as above.
 
 ## What this means for the import
 
@@ -139,10 +231,16 @@ How each kind of element found in the samples would arrive in Graphite's noteboo
 
 - Paper: the template PDF page is vector content the size of the page, so it can become the page's content as it is. Mapping it onto Graphite's own paper system instead needs the template catalogue, which these files do not contain (only an id and the ruling numbers).
 - Imported PDF pages: the original PDF page from the attachment.
-- Strokes: one PencilKit stroke per Goodnotes stroke, with points sampled along the quadratic curves at a constant width; the offset applied; erased strokes left out.
-- Shapes, dashes and fills: Graphite has no dashed ink, no editable shapes and no filled shapes yet (see the checklist's "Graphite features this needs first").
-- Pictures: separate pictures from the original files. Drawing order mixes pictures and ink freely, and Graphite's pictures always sit under the ink.
-- Highlighter: a PencilKit highlighter stroke, drawn in its place in the order in this check. Whether Goodnotes draws highlighter ink under other ink regardless of order is not known; it needs a sample written for it.
+- Pages: in position order, deleted pages left out, bookmarks as PDF bookmarks.
+- Ball pen and highlighter: one PencilKit stroke per Goodnotes stroke, points sampled along the quadratic curves at a constant width; the offset applied; erased strokes left out. Highlighter strokes go under the other ink.
+- Fountain and brush pen: the centre line with its width at each point gives PencilKit strokes with a size per point; the stored outline is the exact shape for the PDF annotation.
+- Pencil: a PencilKit pencil stroke; the per-point values may be its force and angles once a Pencil sample confirms them.
+- Tape: Graphite has no tape (checklist, "Graphite features this needs first").
+- Shapes, dashes and fills: Graphite has no dashed ink, no editable shapes and no filled shapes yet.
+- Pictures: separate pictures from the files, with their turn. A cropped picture arrives already cropped. Drawing order mixes pictures and ink freely, and Graphite's pictures always sit under the ink.
+- Text boxes and sticky notes: Graphite has no text boxes yet. The text, fonts, sizes, colours and links are all readable; older text boxes need an RTF reader.
+- Recordings: the MP4 audio as an `.m4a`, with the time of each element written during it (elements since deleted included, so the timings must be matched to live elements).
+- Outline entries: titles and order are readable, but their target is not resolved yet.
 
 ## Other readers
 
@@ -153,4 +251,4 @@ These projects read the format too. They are MIT-licensed; their claims below ar
 - [jakubfabrici/notability-goodnotes](https://github.com/jakubfabrici/notability-goodnotes): converts between Goodnotes (schema 24, 25 and 35) and Notability; text boxes with rotation.
 - [RobinSp5/FileConverter](https://github.com/RobinSp5/FileConverter): page order and pictures only, no handwriting.
 
-They are leads for the samples still to make (text boxes, turned pictures, other inks, schema 25 and 35), not a substitute for checking each claim against a real file.
+Nothing in this document was taken from them.

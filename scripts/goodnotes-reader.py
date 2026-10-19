@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Reference reader for Goodnotes notebooks (.goodnotes, schema 24), as described in Docs/Goodnotes-format.md.
+"""Reference reader for Goodnotes notebooks (.goodnotes, schemas 24, 25, 26 and 35), as described in
+Docs/Goodnotes-format.md.
 
 Reads a notebook straight from its ZIP archive, with the standard library only, and prints what it found: the
-title, each page in order with its size, paper and elements, and every record kind or field this reader does not
-know. It exists to check the format description against more notebooks and newer Goodnotes versions, and to give
-the Swift parsers (import checklist, phase 2) expected values to test against. It is not Graphite's importer.
+title, each page in order with its size, paper and elements, bookmarks, outline entries and recordings, and every
+record kind or field this reader does not know. It exists to check the format description against more notebooks
+and newer Goodnotes versions, and to give the Swift parsers (import checklist, phase 2) expected values to test
+against. It is not Graphite's importer.
 
 Every size read from the file is checked before it is used, so a damaged or hostile archive fails with an error
 message instead of exhausting memory.
@@ -19,11 +21,13 @@ import struct
 import sys
 import zipfile
 
-SUPPORTED_SCHEMA_VERSION = 24
+SUPPORTED_SCHEMA_VERSIONS = {24, 25, 26, 35}
 MAXIMUM_ENTRY_BYTES = 512 * 1024 * 1024
 MAXIMUM_DECODED_STROKE_BYTES = 64 * 1024 * 1024
 MAXIMUM_VARINT_BYTES = 10
 GOODNOTES_UNITS_PER_POINT = 11 / 6
+FLICKS_PER_SECOND = 705_600_000
+UNSET_TEXT_ATTRIBUTE = -404.0
 
 EVENT_DOCUMENT_CREATED = 30
 EVENT_DOCUMENT_RENAMED = 31
@@ -31,23 +35,48 @@ EVENT_ATTACHMENT = 6
 EVENT_PAPER = 2
 EVENT_PAGE_CREATED = 54
 EVENT_PAGE_PAPER_CHANGED = 3
+EVENT_PAGE_MOVED = 55
+EVENT_PAGE_DELETED = 56
+EVENT_PAGE_BOOKMARKED = 57
+EVENT_PAGE_FLAG = 63
+EVENT_OUTLINE_ENTRY = 62
 EVENT_LAYER_MEMBERS = 106
-KNOWN_EVENT_KINDS = {2, 3, 6, 10, 30, 31, 34, 54, 57, 102, 103, 104, 105, 106}
+EVENT_RECORDING = 160
+EVENT_RECORDING_DELETED = 163
+KNOWN_EVENT_KINDS = {2, 3, 6, 10, 30, 31, 33, 34, 54, 55, 56, 57, 62, 63, 102, 103, 104, 105, 106, 160, 163}
 
 BODY_PICTURE = 1
 BODY_STROKE = 7
+BODY_RICH_TEXT_BOX = 8
 BODY_FILL = 9
-POSITION_FIELD_BY_BODY = {BODY_STROKE: 7, BODY_PICTURE: 5, BODY_FILL: 3}
+BODY_TEXT_ELEMENT = 12
+BODY_STICKY_NOTE = 20
+BODY_TEXT_BOX = 21
+POSITION_FIELD_BY_BODY = {BODY_STROKE: 7, BODY_PICTURE: 5, BODY_FILL: 3, BODY_RICH_TEXT_BOX: 5,
+                          BODY_TEXT_ELEMENT: 13, BODY_STICKY_NOTE: 7, BODY_TEXT_BOX: 7}
 KNOWN_FIELDS_BY_BODY = {
-    BODY_STROKE: {1, 2, 4, 5, 6, 7, 9, 14, 15, 20, 21},
+    BODY_STROKE: {1, 2, 3, 4, 5, 6, 7, 9, 14, 15, 20, 21},
     BODY_PICTURE: {1, 2, 3, 4, 5, 6, 7, 14, 15, 18},
     BODY_FILL: {1, 2, 3, 4, 5, 6, 7, 14, 15, 18},
+    BODY_RICH_TEXT_BOX: {1, 2, 3, 4, 5, 6, 7, 9, 10, 14, 15, 18, 19, 20, 21, 27},
+    BODY_TEXT_ELEMENT: {1, 2, 3, 13, 15, 25, 26, 27, 28},
+    BODY_STICKY_NOTE: {1, 2, 3, 7, 20, 21, 30, 31, 32, 33, 40, 41},
+    BODY_TEXT_BOX: {1, 2, 3, 7, 9, 20, 21, 22, 30, 31, 32, 33},
 }
-KNOWN_HEADER_FIELDS = {1, 2, 3, 4, 6, 8, 9, 14, 16}
+KNOWN_HEADER_FIELDS = {1, 2, 3, 4, 6, 7, 8, 9, 10, 14, 16}
 KNOWN_SHAPE_FIELDS = {1, 2, 3, 4, 5, 15}
-STROKE_PATH_FORMAT = "vuA(v)A(S(uu))A(S(uuuu))vA(f)"
+
+CONSTANT_WIDTH_PATH_FORMAT = "vuA(v)A(S(uu))A(S(uuuu))vA(f)"
+VARIABLE_WIDTH_PATH_FORMAT = "vA(v)A(u)A(u)A(v)A(v)A(u)A(u)A(u)A(u)A(v)"
+OLDER_VARIABLE_WIDTH_PATH_FORMAT = "vuA(v)A(u)A(u)A(v)A(v)A(u)A(u)A(u)A(u)A(v)"
+PENCIL_PATH_FORMAT = "vuA(v)A(S(uuuuu))A(S(uuuuuuuuuuu))A(S(uu))A(v)A(S(uu))A(S(uuuu))A(u)"
 PATH_CODE_START = 0
 PATH_CODE_CURVE = 1
+CENTRE_LINE_START_CODES = {0, 4}
+CENTRE_LINE_CURVE_CODES = {1, 5}
+OUTLINE_COMMANDS = {0: "move", 2: "cubic", 3: "round_cap", 6: "flat_cap"}
+OLDER_OUTLINE_COMMANDS = {2: "move", 4: "cubic"}
+INK_NAMES = {0: "ball pen", 1: "fountain pen, brush pen or tape", 4: "older variable-width ink", 5: "pencil"}
 
 
 class FormatError(Exception):
@@ -311,6 +340,27 @@ class TplImage:
         return values
 
 
+# Rich text inside text boxes and sticky notes.
+
+def text_attributes(buffer):
+    """Run or default attributes: colour (3), link (4), font (30), size in Goodnotes units (40); -404 means unset."""
+    fields = message_fields(buffer)
+    size = float32(last(fields, 40)) if 40 in fields else None
+    return {"color": color(last(fields, 3)) if 3 in fields else None, "link": text(last(fields, 4)) or None,
+            "font": text(last(fields, 30)) or None,
+            "size_units": None if size is None or size == UNSET_TEXT_ATTRIBUTE else size}
+
+
+def rich_text(container_buffer):
+    """{1: {2: compressed rich text, 3: hash, 4: 1}, 5: {1: default attributes}} -> text, runs and defaults."""
+    container = message_fields(container_buffer)
+    content = message_fields(last(container, 1))
+    defaults = message_fields(last(container, 5))
+    body = message_fields(last(message_fields(decode_apple_lz4(last(content, 2))), 1)) if 2 in content else {}
+    return {"text": text(last(body, 1)), "runs": [text_attributes(run) for run in body.get(2, [])],
+            "defaults": text_attributes(last(defaults, 1)) if 1 in defaults else None}
+
+
 # The notebook.
 
 class GoodnotesNotebook:
@@ -319,9 +369,10 @@ class GoodnotesNotebook:
         self.unknown = {}
         self.title = None
         self.attachments, self.papers, self.pages, self.layer_members = {}, {}, {}, {}
+        self.outline_entries, self.recordings, self.deleted_recordings, self.flagged_pages = [], {}, set(), set()
         schema = message_fields(self.entry("schema.pb"))
         self.schema_version = last(schema, 1)
-        if self.schema_version != SUPPORTED_SCHEMA_VERSION:
+        if self.schema_version not in SUPPORTED_SCHEMA_VERSIONS:
             self.note_unknown("schema version", self.schema_version)
         for record in length_prefixed_messages(self.entry("index.events.pb")):
             self.apply_event(record)
@@ -368,26 +419,61 @@ class GoodnotesNotebook:
                                    "width_points": width / GOODNOTES_UNITS_PER_POINT,
                                    "height_points": height / GOODNOTES_UNITS_PER_POINT,
                                    "template": text(last(fields, 9))}
-        elif kind in (EVENT_PAGE_CREATED, EVENT_PAGE_PAPER_CHANGED):
-            page = self.pages.setdefault(entity, {"id": entity})
-            if 3 in fields:
-                self.update_register(page, "paper", register(last(fields, 3)))
-            if 4 in fields:
-                self.update_register(page, "position", register(last(fields, 4)))
+        elif kind in (EVENT_PAGE_CREATED, EVENT_PAGE_PAPER_CHANGED, EVENT_PAGE_MOVED, EVENT_PAGE_DELETED, EVENT_PAGE_BOOKMARKED):
+            self.apply_page_event(kind, entity, fields)
+        elif kind == EVENT_PAGE_FLAG:
+            self.flagged_pages.add(entity)
+        elif kind == EVENT_OUTLINE_ENTRY:
+            self.outline_entries.append({"title": text(last(fields, 5)), "order_key": text(last(fields, 6)),
+                                         "point": point(last(message_fields(last(fields, 3)), 1)),
+                                         "target": text(last(fields, 2))})
         elif kind == EVENT_LAYER_MEMBERS:
             self.layer_members[entity] = [text(register(member)[0]) for member in fields.get(2, [])]
+        elif kind == EVENT_RECORDING:
+            self.apply_recording(entity, fields)
+        elif kind == EVENT_RECORDING_DELETED:
+            self.deleted_recordings.add(entity)
         elif kind not in KNOWN_EVENT_KINDS:
             self.note_unknown("event kinds", kind)
 
+    def apply_page_event(self, kind, entity, fields):
+        """Created (54) and paper changed (3) carry the paper in 3; moved (55) a new position in 3; created a
+        position in 4; deleted (56) and bookmarked (57) a register whose value 1 means yes."""
+        page = self.pages.setdefault(entity, {"id": entity})
+        if kind in (EVENT_PAGE_CREATED, EVENT_PAGE_PAPER_CHANGED) and 3 in fields:
+            self.update_register(page, "paper", register(last(fields, 3)))
+        if kind == EVENT_PAGE_CREATED and 4 in fields:
+            self.update_register(page, "position", register(last(fields, 4)))
+        if kind == EVENT_PAGE_MOVED and 3 in fields:
+            self.update_register(page, "position", register(last(fields, 3)))
+        if kind == EVENT_PAGE_DELETED:
+            self.update_register(page, "deleted", register(last(fields, 3)))
+        if kind == EVENT_PAGE_BOOKMARKED:
+            self.update_register(page, "bookmarked", register(last(fields, 3)))
+
+    def apply_recording(self, entity, fields):
+        """Audio attachment (2), duration (4) and, per element written during it, its time from the start (5)."""
+        timings = []
+        for timing in message_fields(last(fields, 5)).get(1, []):
+            timing_fields = message_fields(timing)
+            moment = message_fields(last(timing_fields, 2))
+            timings.append({"element": text(last(timing_fields, 1)), "seconds": last(moment, 1, 0) / FLICKS_PER_SECOND,
+                            "page": text(last(moment, 2))})
+        attachment = self.attachments.get(text(last(fields, 2)), {})
+        self.recordings[entity] = {"file": attachment.get("file"), "seconds": last(fields, 4, 0) / FLICKS_PER_SECOND,
+                                   "element_timings": timings}
+
     def ordered_pages(self):
-        pages = [page for page in self.pages.values() if page.get("position", (None,))[0] is not None]
+        pages = [page for page in self.pages.values()
+                 if page.get("position", (None,))[0] is not None and page.get("deleted", (None,))[0] != 1]
         return sorted(pages, key=lambda page: (page["position"][0], page["id"]))
 
     def page_paper(self, page):
         return self.papers.get(text(page["paper"][0])) if "paper" in page else None
 
     def elements(self, page):
-        """The page's elements that are not erased, in drawing order."""
+        """The page's elements that are not erased, in drawing order. The layer file is authoritative: the member
+        list (kind 106) is absent from some notebooks."""
         layer = layer_identifier(page["id"])
         headers, bodies = {}, {}
         for record in length_prefixed_messages(self.entry(f"notes/{layer}")):
@@ -403,14 +489,14 @@ class GoodnotesNotebook:
                 kind, _, body = top[0]
                 fields = message_fields(body)
                 bodies[text(last(fields, 1))] = (kind, fields)
-        members = set(self.layer_members.get(layer, []))
+        members = set(self.layer_members[layer]) if layer in self.layer_members else None
         elements = []
         for element_identifier, (kind, fields) in bodies.items():
             header = headers.get(element_identifier)
             if header is None:
                 self.note_unknown("elements", "body without header")
                 continue
-            if (header["order_id"] or element_identifier) not in members:
+            if members is not None and (header["order_id"] or element_identifier) not in members:
                 self.note_unknown("elements", "element missing from the layer's member list")
             if header["erased"]:
                 continue
@@ -429,21 +515,71 @@ class GoodnotesNotebook:
         if kind == BODY_STROKE:
             return self.stroke(element_identifier, fields)
         if kind == BODY_PICTURE:
-            origin, size = (point(last(message_fields(last(fields, 2)), number)) for number in (1, 2))
-            attachment = self.attachments.get(text(last(fields, 4)), {})
-            return {"id": element_identifier, "type": "picture", "file": attachment.get("file"),
-                    "origin": origin, "size": size, "sticker_flag": last(fields, 6)}
-        return {"id": element_identifier, "type": "fill", "color": color(last(fields, 7)),
-                "shape": self.shape(last(fields, 4)) if 4 in fields else None,
-                "outline_strokes": [text(stroke) for stroke in fields.get(5, [])],
-                "offset": point(last(fields, 6)) if last(fields, 6) else (0.0, 0.0)}
+            return self.picture(element_identifier, fields)
+        if kind == BODY_FILL:
+            return {"id": element_identifier, "type": "fill", "color": color(last(fields, 7)),
+                    "shape": self.shape(last(fields, 4)) if 4 in fields else None,
+                    "outline_strokes": [text(stroke) for stroke in fields.get(5, [])],
+                    "offset": point(last(fields, 6)) if last(fields, 6) else (0.0, 0.0)}
+        if kind == BODY_TEXT_BOX:
+            return self.text_box(element_identifier, fields)
+        if kind == BODY_STICKY_NOTE:
+            placement = message_fields(last(fields, 20))
+            size = message_fields(last(message_fields(last(fields, 21)), 2))
+            return {"id": element_identifier, "type": "sticky_note", "origin": point(last(placement, 1)),
+                    "size": (float32(last(size, 1)), float32(last(size, 2))), "paper_color": color(last(fields, 30)),
+                    "rich_text": rich_text(last(fields, 31)), "author": text(last(fields, 33))}
+        if kind == BODY_RICH_TEXT_BOX:
+            frame, text_frame = (message_fields(last(fields, number)) for number in (2, 3))
+            return {"id": element_identifier, "type": "rtf_text_box",
+                    "frame": (point(last(frame, 1)), point(last(frame, 2))),
+                    "text_frame": (point(last(text_frame, 1)), point(last(text_frame, 2))),
+                    "rtf": text(last(fields, 6))}
+        return {"id": element_identifier, "type": "rtf_text_element", "rtf": text(last(fields, 3))}
+
+    def picture(self, element_identifier, fields):
+        bounds = message_fields(last(fields, 2))
+        placement = message_fields(last(fields, 3))
+        attachment = self.attachments.get(text(last(fields, 4)), {})
+        return {"id": element_identifier, "type": "picture", "file": attachment.get("file"),
+                "bounding_box": (point(last(bounds, 1)), point(last(bounds, 2))),
+                "center": point(last(placement, 1)), "size": point(last(placement, 2)),
+                "rotation_radians": float32(last(placement, 3)), "sticker_flag": last(fields, 6)}
+
+    def text_box(self, element_identifier, fields):
+        placement = message_fields(last(fields, 20))
+        layout = message_fields(last(fields, 32))
+        insets = message_fields(last(layout, 10))
+        return {"id": element_identifier, "type": "text_box", "origin": point(last(placement, 1)),
+                "scale": float32(last(placement, 3)) if 3 in placement else 1.0,
+                "size": point(last(layout, 2)) if 2 in layout else None,
+                "insets": tuple(float32(last(insets, side)) for side in (1, 2, 3, 4)) if 10 in layout else None,
+                "rich_text": rich_text(last(fields, 32))}
 
     def stroke(self, element_identifier, fields):
         image = TplImage(decode_apple_lz4(last(fields, 2)))
-        if image.format_string != STROKE_PATH_FORMAT:
+        values = image.read()
+        stroke = {"id": element_identifier, "type": "stroke", "ink": last(fields, 3, 0),
+                  "ink_name": INK_NAMES.get(last(fields, 3, 0)), "color": color(last(fields, 4)),
+                  "is_highlighter": last(fields, 5) == 1, "is_tape": bool(last(fields, 20)),
+                  "offset": point(last(fields, 6)) if last(fields, 6) else (0.0, 0.0),
+                  "shape": self.shape(last(fields, 9)) if last(fields, 9) else None, "path_format": image.format_string}
+        if image.format_string == CONSTANT_WIDTH_PATH_FORMAT:
+            stroke.update(self.constant_width_path(element_identifier, values))
+        elif image.format_string == VARIABLE_WIDTH_PATH_FORMAT:
+            stroke.update(self.variable_width_path(element_identifier, values, is_older_layout=False))
+        elif image.format_string == OLDER_VARIABLE_WIDTH_PATH_FORMAT:
+            stroke.update(self.variable_width_path(element_identifier, [values[0]] + values[2:], is_older_layout=True))
+            stroke["width"] = float32_from_bits(values[1])
+        elif image.format_string == PENCIL_PATH_FORMAT:
+            stroke.update(self.pencil_path(element_identifier, values))
+        else:
             self.note_unknown("stroke path formats", image.format_string)
             return None
-        version, width_bits, codes, starts, curves, flag, dash = image.read()
+        return stroke
+
+    def constant_width_path(self, element_identifier, values):
+        version, width_bits, codes, starts, curves, flag, dash = values
         if version != 2 or flag != 1:
             self.note_unknown("stroke path header", (version, flag))
         subpaths, start_index, curve_index = [], 0, 0
@@ -458,11 +594,75 @@ class GoodnotesNotebook:
             else:
                 raise FormatError(f"stroke {element_identifier}: path code {code} out of place")
         dash_pattern = [struct.unpack("<2f", struct.pack("<d", value))[0] for value in dash]
-        return {"id": element_identifier, "type": "stroke", "width": float32_from_bits(width_bits),
-                "color": color(last(fields, 4)), "is_highlighter": last(fields, 5) == 1,
-                "offset": point(last(fields, 6)) if last(fields, 6) else (0.0, 0.0),
-                "subpaths": subpaths, "dash_pattern": dash_pattern,
-                "shape": self.shape(last(fields, 9)) if last(fields, 9) else None}
+        return {"width": float32_from_bits(width_bits), "subpaths": subpaths, "dash_pattern": dash_pattern}
+
+    def variable_width_path(self, element_identifier, values, is_older_layout):
+        """A centre line with a width at each point, and the outline Goodnotes fills, one closed shape per segment."""
+        (version, codes, start, curves, outline_command_counts, outline_codes, outline_starts, _,
+         outline_points, cap_records, _) = values
+        start = [float32_from_bits(bits) for bits in start]
+        curves = [float32_from_bits(bits) for bits in curves]
+        outline_starts = [float32_from_bits(bits) for bits in outline_starts]
+        outline_points = [float32_from_bits(bits) for bits in outline_points]
+        cap_records = [float32_from_bits(bits) for bits in cap_records]
+        segment_count = len(outline_command_counts)
+        centre_line = None
+        if not is_older_layout and codes:
+            if codes[0] not in CENTRE_LINE_START_CODES or any(code not in CENTRE_LINE_CURVE_CODES for code in codes[1:]):
+                raise FormatError(f"stroke {element_identifier}: centre line codes {sorted(set(codes))}")
+            curve_size = len(curves) // max(1, len(codes) - 1)
+            if curve_size < 6 or curve_size * (len(codes) - 1) != len(curves):
+                raise FormatError(f"stroke {element_identifier}: centre line curves do not divide evenly")
+            centre_line = {"start": tuple(start[:3]), "quadratic_curves": [
+                {"control": tuple(curves[index * curve_size:index * curve_size + 3]),
+                 "end": tuple(curves[index * curve_size + 3:index * curve_size + 6])} for index in range(len(codes) - 1)]}
+        commands = OLDER_OUTLINE_COMMANDS if is_older_layout else OUTLINE_COMMANDS
+        cap_record_size = len(cap_records) // (2 * segment_count) if segment_count else 0
+        outline, point_index, start_index, caps_in_segment = [], 0, 0, 0
+        for code in outline_codes:
+            command = commands.get(code)
+            if command == "move":
+                if 2 * start_index + 2 > len(outline_starts):
+                    raise FormatError(f"stroke {element_identifier}: outline starts run out")
+                outline.append([("move", outline_starts[2 * start_index], outline_starts[2 * start_index + 1])])
+                start_index += 1
+                caps_in_segment = 0
+            elif command == "cubic" and outline:
+                if point_index + 6 > len(outline_points):
+                    raise FormatError(f"stroke {element_identifier}: outline points run out")
+                outline[-1].append(("cubic",) + tuple(outline_points[point_index:point_index + 6]))
+                point_index += 6
+            elif command in ("round_cap", "flat_cap") and outline and cap_record_size >= 2:
+                record_start = ((start_index - 1) * 2 + min(caps_in_segment, 1)) * cap_record_size
+                if record_start + 2 > len(cap_records):
+                    raise FormatError(f"stroke {element_identifier}: cap records run out")
+                outline[-1].append((command,) + tuple(cap_records[record_start:record_start + 2]))
+                caps_in_segment += 1
+            else:
+                raise FormatError(f"stroke {element_identifier}: outline code {code} out of place")
+        return {"width": None, "tpl_version": version, "centre_line": centre_line, "outline": outline}
+
+    def pencil_path(self, element_identifier, values):
+        """Quadratic curves whose points carry x, y and three more numbers, and a 32-bit value first in each curve."""
+        version, width_bits, codes, starts, curves = values[:5]
+        for leftover in values[5:]:
+            if leftover:
+                self.note_unknown("pencil path", "non-empty trailing array")
+        subpaths, start_index, curve_index = [], 0, 0
+        for code in codes:
+            if code == PATH_CODE_START and start_index < len(starts):
+                numbers = [float32_from_bits(bits) for bits in starts[start_index]]
+                subpaths.append({"start": tuple(numbers[:2]), "start_extra": tuple(numbers[2:]), "quadratic_curves": []})
+                start_index += 1
+            elif code == PATH_CODE_CURVE and subpaths and curve_index < len(curves):
+                numbers = [float32_from_bits(bits) for bits in curves[curve_index][1:]]
+                subpaths[-1]["quadratic_curves"].append({"control": tuple(numbers[:2]), "control_extra": tuple(numbers[2:5]),
+                                                         "end": tuple(numbers[5:7]), "end_extra": tuple(numbers[7:10]),
+                                                         "leading_value": curves[curve_index][0]})
+                curve_index += 1
+            else:
+                raise FormatError(f"stroke {element_identifier}: pencil path code {code} out of place")
+        return {"width": float32_from_bits(width_bits), "tpl_version": version, "subpaths": subpaths}
 
     def shape(self, buffer):
         fields = message_fields(buffer)
@@ -487,11 +687,26 @@ def summary(notebook):
         paper = notebook.page_paper(page) or {}
         counts = {}
         for element in notebook.elements(page):
-            counts[element["type"]] = counts.get(element["type"], 0) + 1
+            kind = element["type"] if element["type"] != "stroke" else f"stroke ({element['ink_name'] or element['ink']})"
+            counts[kind] = counts.get(kind, 0) + 1
         attachment = notebook.attachments.get(paper.get("attachment"), {})
         background = f"PDF page {paper.get('pdf_page')} of {attachment.get('file')}"
+        bookmark = ", bookmarked" if page.get("bookmarked", (None,))[0] == 1 else ""
         lines.append(f"page {page_number}: {paper.get('width_points', 0):.2f} x {paper.get('height_points', 0):.2f} points, "
-                     f"{background}, template {paper.get('template') or 'none'}, elements {counts}")
+                     f"{background}, template {paper.get('template') or 'none'}{bookmark}, elements {counts}")
+    deleted_pages = sum(1 for page in notebook.pages.values() if page.get("deleted", (None,))[0] == 1)
+    if deleted_pages:
+        lines.append(f"deleted pages left out: {deleted_pages}")
+    for entry in sorted(notebook.outline_entries, key=lambda entry: entry["order_key"]):
+        lines.append(f"outline entry: {entry['title']!r}")
+    for identifier, recording in notebook.recordings.items():
+        if identifier in notebook.deleted_recordings:
+            continue
+        times = sorted(timing["seconds"] for timing in recording["element_timings"])
+        span = f", from {times[0]:.1f} s to {times[-1]:.1f} s" if times else ""
+        lines.append(f"recording: {recording['file']}, {recording['seconds']:.1f} s, {len(times)} element timings{span}")
+    if notebook.flagged_pages:
+        lines.append(f"pages with flag 63 (meaning unknown): {len(notebook.flagged_pages)}")
     for where, what in sorted(notebook.unknown.items()):
         lines.append(f"unknown {where}: {sorted(what, key=str)}")
     if not notebook.unknown:
