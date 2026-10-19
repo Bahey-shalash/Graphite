@@ -1201,3 +1201,20 @@ Each entry is the verifier's own trace. "Reported" in the severity line is the a
 | BUG-ARCH-07 | ARCH | Confirmed | Medium |
 | BUG-ARCH-V01 | ARCH | Confirmed | Low |
 | BUG-ARCH-V02 | ARCH | Confirmed | Low |
+
+## Found after the snapshot
+
+The delta audit of 2026-10-19 (code changed between `b13dec3` and `9040705`) found eight defects. Each is written up in section 9 of its area document; the lead traced the three marked "lead".
+
+| ID | Area | Verdict | Severity | Defect |
+| --- | --- | --- | --- | --- |
+| [BUG-SHELL-07](areas/shell.md#the-notebook-library-9040705) | SHELL | Confirmed (lead) | High | A damaged `.obsidian/graphite-folder-styles.json` makes every folder of the library show "Can't Show This Folder" |
+| [BUG-SHELL-08](areas/shell.md#the-notebook-library-9040705) | SHELL | Confirmed | Medium | A file that changes while its tile is on screen keeps its old preview |
+| [BUG-SHELL-09](areas/shell.md#the-notebook-library-9040705) | SHELL | Confirmed (the effect on visible previews is Plausible) | Medium | A tile's preview keeps rendering after the tile scrolls away, with no limit on concurrent renders |
+| [BUG-SHELL-10](areas/shell.md#other-shell-changes-fff794b) | SHELL | Confirmed (lead) | Medium | When a vault's Templates or Daily notes settings cannot be read, the previous vault's settings stay in force and can create a daily note in the new vault |
+| [BUG-SHELL-11](areas/shell.md#other-shell-changes-fff794b) | SHELL | Confirmed | Low | A plugin's rename is answered "not renamed" when the move takes longer than 10 s after the person answers |
+| [BUG-SHELL-12](areas/shell.md#other-shell-changes-fff794b) | SHELL | Confirmed | Low | `graphite://read?file=X` reads nothing when X is already open on the other side of the split |
+| [BUG-VOICE-11](areas/voice.md#9-since-the-snapshot) | VOICE | Confirmed (lead) | Medium | Pronunciation Settings overwrite terms that reached the vault file after the page opened |
+| [BUG-VOICE-12](areas/voice.md#9-since-the-snapshot) | VOICE | Plausible (a device check settles it) | Low | Connecting headphones pauses High Quality reading whenever the engine reconfigures |
+
+Fix before more features land on top: `BUG-SHELL-07` (an optional file disables the library), `BUG-SHELL-10` and `BUG-VOICE-11` (both write into the vault from the wrong data).

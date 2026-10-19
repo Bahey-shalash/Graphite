@@ -664,3 +664,61 @@ RULES.md forbids one protocol per class: only the format descriptors and the two
 | Test files pinning this area | Package: `DrawingGeometryTests`, `CoreDrawingDataFixTests`, `ShapeRecognizerTests`, `HandwritingTidyingTests`, `CrashLoopRegressionTests`, `EvenHighlighterTests`, `VectorDrawingTests`, `VectorPictureTests`, `AppleDrawingFixTests`, `InteroperabilityTests`, `PencilDrawingTests`, `PencilToolboxTests`, `PalmRejectionTests`, `InkLassoTests`, `UiRootSettingsTests` (drafts); hosted: `InkSelectionTests` (19 tests), `PencilToolsTests` (27), `PicturesAndPaperTests` (20), `PalmRejectionTouchTests`, `PDFInkHistoryTests`, `VectorDrawingPicturesTests` | grep over `Tests/**` and `App/Tests/**` |
 
 **Not read for this audit (outside the scope, referenced only):** `PDFDrawingFile.swift` (the PDF format's XMP record, called from [DrawingFileService.swift:51](../../../Sources/GraphiteApple/DrawingFileService.swift#L51) and [DrawingFileService.swift:178](../../../Sources/GraphiteApple/DrawingFileService.swift#L178)), `PDFStrokeFingerprint` (used by `PencilDrawingChange`), `PDFPageLasso.swift` (the PDF page's `LassoCanvasContent`), `ReadAloudPenController`, `PresentedScreenObserver`, `UndoAvailability`, `DrawingPaperRenderer`. Their invariants (PDF XMP keys and record version in PDF) belong to the PDF area's document.
+
+## 9. Since the snapshot
+
+Delta audit of 2026-10-19 at `fff794b` (main), against `FR-01` to `FR-108`. Commits: `c5f326a` (the held shape is the shape the stroke becomes), `b5fa96e` (one picture change at a time), `0c074d9` (injected preferences), `f65a8dd` (the system-27 floor). Invariants touched: INK-08, ST-08.
+
+### New findings
+
+#### ISP-INK-03 The drawing editor view drives the controller's picture-operation runner directly
+- **Severity:** Medium
+- **Rule:** `FR-41`, `FR-40`, `FR-76`
+- **Evidence:** `DrawingCanvasController` exposes `let pictureOperations = ExclusiveOperationRunner()` ([DrawingEditor.swift:456](../../../Sources/GraphiteUI/DrawingEditor.swift#L456)); the view reads `pictureOperations.isRunning` ([:222](../../../Sources/GraphiteUI/DrawingEditor.swift#L222), [:228](../../../Sources/GraphiteUI/DrawingEditor.swift#L228)), calls `.start(...)` ([:391-393](../../../Sources/GraphiteUI/DrawingEditor.swift#L391-L393)) and `.cancel()` ([:351](../../../Sources/GraphiteUI/DrawingEditor.swift#L351)), and decides which operations go through it (Crop and Rotate do; drag, handle rotation, reorder and delete do not, [:229-232](../../../Sources/GraphiteUI/DrawingEditor.swift#L229-L232)). Line 228 is 197 characters. Introduced in `b5fa96e`.
+- **Why it matters:** "one picture change at a time" lives in the view; any other caller of `rotateSelectedPictureRight()` or `cropSelectedPicture(to:)` skips it. The controller reaches 16 stored properties.
+- **Fix direction:** the runner becomes private to the controller; its intents run through it, and it exposes a read-only `isPictureOperationRunning`.
+
+#### DIP-INK-07 The lasso shape and laser style have a store-taking read and write that only tests call
+- **Severity:** Medium
+- **Rule:** `FR-82`, `FR-90`, `FR-80`
+- **Evidence:** `LassoShape.stored(in:)`/`store(in:)` and the same pair on `LaserPointerStyle` ([LassoTools.swift:28-41](../../../Sources/GraphiteUI/LassoTools.swift#L28-L41), [:65-78](../../../Sources/GraphiteUI/LassoTools.swift#L65-L78)) are called only by `InkLassoTests`; every production read and write uses the static `stored`, fixed to `.standard` ([LaserPointer.swift:59](../../../Sources/GraphiteUI/LaserPointer.swift#L59), [InkSelection.swift:277](../../../Sources/GraphiteUI/InkSelection.swift#L277), [PencilToolPalette.swift:113](../../../Sources/GraphiteUI/PencilToolPalette.swift#L113), [:123](../../../Sources/GraphiteUI/PencilToolPalette.swift#L123)); the comment "for the Pencil tools made outside the workspace" implies a workspace path that does not exist. Introduced in `0c074d9`.
+- **Why it matters:** the tests pin a path the app never takes, so `DIP-INK-03` looks addressed while it is fully open.
+- **Fix direction:** pass a `PencilPreferences` value (the fix of `DIP-INK-03`) into the laser, the lasso and the palette; delete the static wrappers.
+
+#### CC-INK-16 The held-shape fix spells the canvas-to-drawing conversion three times and duplicates the stroke replacement
+- **Severity:** Low
+- **Rule:** `FR-10`, `FR-34`, `FR-54`
+- **Evidence:** the scaling is written at [ShapeRecognizer.swift:231-234](../../../Sources/GraphiteCore/ShapeRecognizer.swift#L231-L234), undone at [HistoryCanvasView.swift:489](../../../Sources/GraphiteUI/HistoryCanvasView.swift#L489) and written again at [:536](../../../Sources/GraphiteUI/HistoryCanvasView.swift#L536); the `zoomScale > 0` guard twice; Core now takes a UI zoom scale; the two `PencilShapes.replacingNewStroke` overloads repeat the change check and rebuild ([PencilShapes.swift:11-28](../../../Sources/GraphiteApple/PencilShapes.swift#L11-L28)). Introduced in `c5f326a`.
+- **Why it matters:** a new coordinate rule (an inset, a rotated canvas) needs three edits in two modules.
+- **Fix direction:** one `CanvasDrawingTransform` owned by the canvas; the first overload calls the second with the recognized shape.
+
+#### CC-INK-17 Two one-line forwarders remain after the system-27 floor
+- **Severity:** Low
+- **Rule:** `FR-31`, `FR-82`
+- **Evidence:** `PencilInk.availableInks` is `{ allCases }` with one caller ([PencilToolbox.swift:481](../../../Sources/GraphiteUI/PencilToolbox.swift#L481)); `HistoryCanvasView.selectedTool(of:)` is `toolPicker.selectedToolItem.tool` with one caller ([HistoryCanvasView.swift:114-116](../../../Sources/GraphiteUI/HistoryCanvasView.swift#L114-L116)). Introduced in `f65a8dd`.
+- **Why it matters:** both names suggest a filter or a version split that no longer exists.
+- **Fix direction:** inline both.
+
+### State changes of earlier findings
+- `LSP-INK-03`: Open → **Partly fixed**. A held stroke is recognized once and that shape is committed ([HistoryCanvasView.swift:311-317](../../../Sources/GraphiteUI/HistoryCanvasView.swift#L311-L317)); the hold still judges raw samples at screen scale while the shape tool judges interpolated points at drawing scale ([PencilShapes.swift:31-36](../../../Sources/GraphiteApple/PencilShapes.swift#L31-L36)).
+- `CC-INK-14`: Open → **Partly fixed**. Picture changes run one at a time in an owned task that closing cancels; rotate and crop still apply a frame read before the await ([DrawingEditor.swift:605-650](../../../Sources/GraphiteUI/DrawingEditor.swift#L605-L650)), and a drag during the re-encode is overwritten when the operation lands.
+- `SRP-INK-03`: **Worse**: `DrawingCanvasController` has 16 stored properties.
+- `DIP-INK-03`: unchanged (see `DIP-INK-07`).
+
+### Patterns to keep
+- The hold carries its decision as a value: `ArrivingStroke.awaitsItsShape(RecognizedShape)` passes the decided shape to the lift.
+- Picture operations have one owned, cancellable task with `Task.checkCancellation()` after each detached re-encode ([DrawingEditor.swift:608](../../../Sources/GraphiteUI/DrawingEditor.swift#L608), [:645](../../../Sources/GraphiteUI/DrawingEditor.swift#L645)).
+
+### Notebook library (9040705)
+
+#### SRP-INK-07 Notebook paper values live in the Apple adapter module and restate facts declared elsewhere
+- **Severity:** Low
+- **Rule:** `FR-54`, `FR-24`, `FR-78`
+- **Evidence:** plain value types in `GraphiteApple` ([NewNotebookOptions.swift:6-75](../../../Sources/GraphiteApple/NewNotebookOptions.swift#L6-L75), [NotebookPaperGallery.swift:6-53](../../../Sources/GraphiteApple/NotebookPaperGallery.swift#L6-L53)) because `PaperSpecification` is there; spacings `17.01` and `22.68` points ([NotebookPaperGallery.swift:51-52](../../../Sources/GraphiteApple/NotebookPaperGallery.swift#L51-L52)) instead of derived from millimetres ([NotebookPageSize.swift:10](../../../Sources/GraphiteCore/NotebookPageSize.swift#L10)); the sheet types the allowed ranges into its text ([NewNotebookSheet.swift:117-118](../../../Sources/GraphiteUI/NewNotebookSheet.swift#L117-L118)); the case `.squared` maps to the template `.grid`. Introduced in `7f56e00` and `2e1b6a2`.
+- **Fix direction:** paper values in Core; spacings derived from millimetres; ranges worded from their declarations.
+
+#### CC-INK-18 The paper gallery redraws all nine pictures when only the page count changes
+- **Severity:** Low
+- **Rule:** `FR-104`
+- **Evidence:** `galleryKey` includes `pageCount` ([NotebookPaperPictures.swift:49-51](../../../Sources/GraphiteUI/NotebookPaperPictures.swift#L49-L51)), so each stepper press ([NewNotebookSheet.swift:95](../../../Sources/GraphiteUI/NewNotebookSheet.swift#L95)) renders ten PDFs ([NotebookPaperPictures.swift:22-39](../../../Sources/GraphiteUI/NotebookPaperPictures.swift#L22-L39)) in a detached task that is not cancelled. Introduced in `2e1b6a2`.
+- **Fix direction:** key the pictures by paper only; render in a child task.

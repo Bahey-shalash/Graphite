@@ -623,3 +623,68 @@ Protocols are added only where a second implementation exists or a test needs is
 **Tests read and what they pin (sampled by reading):** `BaseTestRecords` builds records through `BaseFrontmatter.entries` and fixes `now` in the machine's zone ([BaseEvaluatorTests.swift:5-35](../../../Tests/GraphiteCoreTests/BaseEvaluatorTests.swift#L5-L35)); JavaScript number and text semantics ([BaseEvaluatorTests.swift:41-80](../../../Tests/GraphiteCoreTests/BaseEvaluatorTests.swift#L41-L80)); in-memory alias resolution and property backlinks ([CoreBasesDefinitionQueryEngineTests.swift:213-229](../../../Tests/GraphiteCoreTests/CoreBasesDefinitionQueryEngineTests.swift#L213-L229)); prefilter text requirement against stored JSON ([CoreBasesDefinitionQueryEngineTests.swift:198-209](../../../Tests/GraphiteCoreTests/CoreBasesDefinitionQueryEngineTests.swift#L198-L209)); index storage of properties, tags, links and provider answers ([BaseIndexTests.swift:27-68](../../../Tests/GraphiteIndexTests/BaseIndexTests.swift#L27-L68)); prefilter SQL narrowing ([BaseIndexTests.swift:106-120](../../../Tests/GraphiteIndexTests/BaseIndexTests.swift#L106-L120)); the model on a real temporary vault and index ([UiBasesDocumentModelTests.swift:12-45](../../../Tests/GraphiteUITests/UiBasesDocumentModelTests.swift#L12-L45)), older-reload ordering via a 20 ms sleep ([UiBasesDocumentModelTests.swift:180-197](../../../Tests/GraphiteUITests/UiBasesDocumentModelTests.swift#L180-L197)) and root-first link following ([UiBasesDocumentModelTests.swift:201-212](../../../Tests/GraphiteUITests/UiBasesDocumentModelTests.swift#L201-L212)). No test edits `defaultZoom` through an alias (grep `zoom` in `Tests/**`), and no test uses a root-level merge key (grep `<<:` in `Tests/**`; all 7 hits are inside `views`).
 
 **Code lines by module (sum of the reconnaissance table):** Core 13 files, 5,059 code lines; Index 2 files, 321; UI 11 files, 3,299; total 8,679. Correction: section 1 states the Core share as 4,629; the correct figure is 5,059.
+
+## 9. Since the snapshot
+
+Delta audit of 2026-10-19 at `fff794b` (main), against `FR-01` to `FR-108`. Four commits changed this area's files (361 lines added, 101 removed): `a6672f6` (the `hasLink(file("Name"))` prefilter), `827c03b` (two-column cards, toolbar count), `ea07e7f` (phone table, list, Kanban and map) and `6b80826` (embedded-base loading). No file is new. The UI changes add pure layout deciders (`BaseCardGridMetrics`, `BaseListInlineSeparator`, `BaseKanbanColumnMetrics`, `BaseTableLayout`, `BaseEmbeddedHeight`). Invariant touched: B-26 (`BASES-INV-30`).
+
+### New findings
+
+#### CC-BASES-11 The phone breakpoint is declared four times and decided by four guards with two rules
+- **Severity:** Medium
+- **Rule:** `FR-24`, `FR-10`
+- **Evidence:** `compactWidthThreshold: CGFloat = 600` is declared in four types: [BaseCardsAndListViews.swift:11](../../../Sources/GraphiteUI/BaseCardsAndListViews.swift#L11), [BaseKanbanView.swift:18](../../../Sources/GraphiteUI/BaseKanbanView.swift#L18), [BaseTableView.swift:12](../../../Sources/GraphiteUI/BaseTableView.swift#L12), [BaseEmbedding.swift:119](../../../Sources/GraphiteUI/BaseEmbedding.swift#L119). Three guards reject a zero or infinite width ([BaseKanbanView.swift:34](../../../Sources/GraphiteUI/BaseKanbanView.swift#L34), [BaseTableView.swift:21](../../../Sources/GraphiteUI/BaseTableView.swift#L21), [BaseEmbedding.swift:145](../../../Sources/GraphiteUI/BaseEmbedding.swift#L145)); the cards guard only compares ([BaseCardsAndListViews.swift:26](../../../Sources/GraphiteUI/BaseCardsAndListViews.swift#L26)), so a width of 0 is compact for cards and regular for the other three. The same `onGeometryChange(for: CGFloat.self)` width line is written four times ([BaseCardsAndListViews.swift:69](../../../Sources/GraphiteUI/BaseCardsAndListViews.swift#L69), [BaseKanbanView.swift:84](../../../Sources/GraphiteUI/BaseKanbanView.swift#L84), [BaseTableView.swift:134](../../../Sources/GraphiteUI/BaseTableView.swift#L134), [BaseEmbedding.swift:133](../../../Sources/GraphiteUI/BaseEmbedding.swift#L133)). Introduced in `827c03b` and `ea07e7f`.
+- **Why it matters:** one constant drives the whole iPhone layout of Bases. A missed copy leaves an embedded base whose map, table and cards switch to the phone layout at different widths.
+- **Fix direction:** one width class (`BaseLayoutWidth.isCompact(_:)`) holds the threshold and the finite, positive guard; the four metric types take its result, and one width-measuring modifier replaces the four `onGeometryChange` lines.
+
+#### CC-BASES-12 Every table cell runs the first-column pin's per-frame visual effect, not only the first column's
+- **Severity:** Medium
+- **Rule:** `FR-104`, `FR-107`
+- **Evidence:** `pinnedToLeadingEdge` adds two `AnyShapeStyle` backgrounds, a `visualEffect` closure that reads the frame in the scroll view's coordinates, and a `zIndex` ([BaseTableView.swift:345-354](../../../Sources/GraphiteUI/BaseTableView.swift#L345-L354)). It is applied to every header ([:167](../../../Sources/GraphiteUI/BaseTableView.swift#L167)), body ([:265](../../../Sources/GraphiteUI/BaseTableView.swift#L265)) and summary cell ([:329](../../../Sources/GraphiteUI/BaseTableView.swift#L329)) with `position == 0 && pinsFirstColumn` as a value, so a sideways scroll runs the closure for every visible cell on every frame: about 200 calls for 8 columns and 25 rows, of which about 26 produce an offset. Pinning is on for iPad and Mac too whenever the first column is at most 55% of the view ([BaseTableView.swift:27-30](../../../Sources/GraphiteUI/BaseTableView.swift#L27-L30)). No benchmark is recorded. Introduced in `ea07e7f`.
+- **Why it matters:** the table is the Bases view where scrolling cost is most visible, on every platform.
+- **Fix direction:** build each row's first cell outside the `ForEach` over the other columns, so only that view carries the modifier; record horizontal-scroll frame time before and after.
+
+#### CC-BASES-13 The `hasLink(file(…))` branch repeats the arms of the switch below it and adds another `default:` over `BaseValue`
+- **Severity:** Low
+- **Rule:** `FR-24`, `FR-18`
+- **Evidence:** the new branch maps `.string` and non-external `.link` to `.linksTo(.target(…))` ([BaseRecordPrefilter.swift:122-128](../../../Sources/GraphiteCore/BaseRecordPrefilter.swift#L122-L128)); the existing switch writes the same two arms ([:129-134](../../../Sources/GraphiteCore/BaseRecordPrefilter.swift#L129-L134)); both end in `default: return nil`. Introduced in `a6672f6`.
+- **Why it matters:** the prefilter's superset contract depends on these arms matching, and a new link-like `BaseValue` case falls silently into either `default:`.
+- **Fix direction:** one `linkTargetRequirement(for: BaseValue)` with an exhaustive switch, called by both paths.
+
+#### CC-BASES-14 New layout sizes are bare literals, and the new named constants carry no unit
+- **Severity:** Low
+- **Rule:** `FR-78`, `FR-81`
+- **Evidence:** `spacing = isCompact ? 12 : 16` and `padding = isCompact ? 12 : 16` ([BaseCardsAndListViews.swift:27-28](../../../Sources/GraphiteUI/BaseCardsAndListViews.swift#L27-L28)); `14 : 18`, `6 : 8` and `10 : 12` in the cards view (lines 59, 100, 118); Kanban spacing and margins ([BaseKanbanView.swift:36-41](../../../Sources/GraphiteUI/BaseKanbanView.swift#L36-L41)); `minimumCardWidth`, `compactWidthThreshold`, `nextColumnPeekWidth`, `regularColumnWidth`, `mapToolbarHeight`, `minimumCompactMapHeight` without a unit ([BaseKanbanView.swift:16-24](../../../Sources/GraphiteUI/BaseKanbanView.swift#L16-L24), [BaseEmbedding.swift:117-121](../../../Sources/GraphiteUI/BaseEmbedding.swift#L117-L121)). Introduced in `827c03b` and `ea07e7f`; extends `CC-BASES-09`.
+- **Why it matters:** the compact and regular margins of cards and Kanban are one design token written six times, and the views drift apart one tweak at a time.
+- **Fix direction:** one `BaseLayoutMetrics` with regular and compact `spacingPoints`, `marginPoints` and `cardPaddingPoints`, and `…Points` on every size constant.
+
+#### CC-BASES-15 The toolbar count is put together in code from English fragments
+- **Severity:** Low
+- **Rule:** `FR-55`
+- **Evidence:** `countText(showsNoun:)` concatenates `"\(displayed) of "`, the count and `" result"`/`" results"` with the plural chosen by `== 1` ([BaseDocumentView.swift:590-596](../../../Sources/GraphiteUI/BaseDocumentView.swift#L590-L596)); the same string is the accessibility label ([:584-588](../../../Sources/GraphiteUI/BaseDocumentView.swift#L584-L588)). Introduced in `827c03b`.
+- **Why it matters:** no string catalogue entry can reorder "N of M results" or apply another language's plural rules.
+- **Fix direction:** plural-aware catalogue keys for both forms, chosen by `ViewThatFits` as now.
+
+#### CC-BASES-16 The list separator runs a regular expression for every row on every render
+- **Severity:** Low
+- **Rule:** `FR-62`, `FR-69`
+- **Evidence:** `BaseListInlineSeparator.init` calls `separator.replacing(/\s+$/, with: "")` ([BaseCardsAndListViews.swift:151](../../../Sources/GraphiteUI/BaseCardsAndListViews.swift#L151)); a separator is built per row in `inlineValues` ([:226](../../../Sources/GraphiteUI/BaseCardsAndListViews.swift#L226)), which every body evaluation calls ([:212](../../../Sources/GraphiteUI/BaseCardsAndListViews.swift#L212)). The separator is the same for the whole view. Introduced in `ea07e7f`.
+- **Why it matters:** a list of 100 rows matches the same pattern 100 times per render for a value that changes only with the `.base` file.
+- **Fix direction:** build the separator once per result and trim with a suffix scan.
+
+#### CC-BASES-17 `columnWidths(for:viewWidth:)` has a default that only a test uses
+- **Severity:** Low
+- **Rule:** `FR-32`
+- **Evidence:** `viewWidth: CGFloat? = nil` ([BaseTableView.swift:77](../../../Sources/GraphiteUI/BaseTableView.swift#L77)); production always passes the width ([:87](../../../Sources/GraphiteUI/BaseTableView.swift#L87)); only `UiBasesColumnResizeTests.swift:62` uses the default. Introduced in `ea07e7f`.
+- **Why it matters:** the test pins the width rule as it is before layout, which no laid-out table uses.
+- **Fix direction:** remove the default and pass an explicit width in the test.
+
+### State changes of earlier findings
+- `CC-BASES-01`: Open → **Partly fixed**. Three listed functions are now under 40 code lines (`BaseCardsView.card` about 36, `BaseTableView.headerRow` 30, `BaseListView.item` 32), so the count goes from 29 to 26.
+- `CC-BASES-06`, `ISP-BASES-03`, `CC-BASES-02`, `CC-BASES-09`: unchanged.
+
+### Patterns to keep
+- The grouping name has one owner in Core: `BaseQueryEngine` computes `groupDisplayName` once ([BaseQuery.swift:133](../../../Sources/GraphiteCore/BaseQuery.swift#L133)), and the table, cards and list read it.
+- Layout decisions are pure values with value tests, including NaN, infinity and zero (`UiBasesPhoneLayoutTests`, `UiBasesCardGridTests`).
+- The pin keeps a stable view identity: it is applied with a `Bool`, never through `if`/`else`, and moves the cell through `visualEffect` without a layout pass.
+- The embed loading signal belongs to the host: the note declares `LivePreviewEmbedLoadingKey` and the base only reports into it ([BaseDocumentView.swift:418](../../../Sources/GraphiteUI/BaseDocumentView.swift#L418)).
