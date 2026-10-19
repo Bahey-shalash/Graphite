@@ -2,7 +2,15 @@
 
 What Graphite does today, how each part is verified, and what is still missing. `OBJECTIVE.md` describes the complete product; this file tracks progress toward it. Update it with every change that adds, removes, or re-verifies behavior.
 
-Last updated: 2026-10-17.
+Last updated: 2026-10-19.
+
+## Library, New menu and New Notebook: 2026-10-19
+
+The first round of [the notebook library checklist](Notebook-library-and-new-file-todo.md), on the branch `notebook-library`; `Architecture.md` › "Library and creating notebooks" describes it.
+
+- Automated tests, all passing on macOS: `NotebookPageSizeTests` (6), `NotebookPlacementTests` (3), `LibraryListingTests` (3), `NotePreviewSummaryTests` (8), `FolderStyleListTests` (8, with unknown keys, entries and colors kept, a foreign file refused, styles following moves and deletions, no file written for a vault without styles); `NewNotebookOptionsTests` (9, every named size in both orientations makes a valid PDF, the size check agrees with the generator on every side) and `PaperPreviewRendererTests` (5); `CreatableItemTests` (4), `NotebookLibraryPreferencesTests` (5), `LibraryModelTests` (7, with a regression test for previews cancelled when SwiftUI shows a rebuilt grid's tile before removing the old one) and `WorkspaceNotebookCreationTests` (4: embedded at the cursor with the attachments, in a folder with a link, a taken name, text typed meanwhile kept).
+- Checked by hand in the iPad simulator (iPad Pro 11-inch (M5), iOS 27, portrait, a copy of the test vault without videos): "How do you take notes?" on first launch; Apple Pencil gives the library as home with the file tree's sidebar folded away; folders in system colors with engraved symbols from `.obsidian/graphite-folder-styles.json`; a folder of PDFs and notes shows first pages and note text; the New menu offers Notebook first; the New Notebook sheet's picture, size and color menus and paper gallery; Create made `Untitled Notebook.pdf` in the folder shown and opened it in a tab with its paper; choosing a tab leaves the library and the house button brings it back. The library first looked like Goodnotes' library; at the owner's request it was redrawn in the Files app's style.
+- Not established: the iPhone layout, landscape, dark mode, Dynamic Type at the largest sizes, VoiceOver, the Mac, drag and drop, Import, folder colors from the menu, creating a notebook from inside a note in the app (tested in the workspace only), undo of that insertion, and anything with Apple Pencil or on a device.
 
 ## Tables edited in place, scrolling only when wider, and the editor's Color menu: 2026-10-17
 
