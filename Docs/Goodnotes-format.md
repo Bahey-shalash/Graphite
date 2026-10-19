@@ -4,8 +4,8 @@ Status: Phase 1 of [the import checklist](Goodnotes-Notability-import-todo.md). 
 
 What was checked:
 
-- A reference reader written for this, `scripts/goodnotes-reader.py`, reads all 45 sample notebooks with no record kind, field or path layout it does not know. The one exception is a single element missing from its page's member list (see Page elements). In total that is 134,264 live strokes, 175 pictures, 177 fills, 27 text boxes (5 newer, 22 older), a sticky note and one other text element.
-- Pages drawn from what it reads were compared with the PDF that Goodnotes exported for the six notebooks made for the purpose (see Comparison with Goodnotes' own export). The four notebooks of 2026-10-18 and the 35 library notebooks have no export; those were compared by eye with the thumbnail each notebook carries.
+- A reference reader written for this, `scripts/goodnotes-reader.py`, reads all 46 sample notebooks with no record kind, field or path layout it does not know. The one exception is a single element missing from its page's member list (see Page elements). In total that is 134,264 live strokes, 175 pictures, 177 fills, 27 text boxes (5 newer, 22 older), a sticky note and one other text element.
+- Pages drawn from what it reads were compared with the PDF that Goodnotes exported for the six notebooks made for the purpose and for the Pencil test (see Comparison with Goodnotes' own export). The four notebooks of 2026-10-18 and the 35 library notebooks have no export; those were compared by eye with the thumbnail each notebook carries.
 
 ## The samples
 
@@ -13,9 +13,10 @@ What was checked:
 |---|---|---|---|---|
 | First samples (2026-10-18) | 4 | Goodnotes on the iPad, version not recorded | 24 | Pen, highlighter, lines, ellipses, fills, dashes, pictures, stickers, erasing, lasso moves, copied pages, template paper, imported PDFs |
 | Made for the purpose (2026-10-19) | 6 | Goodnotes 7.1.28 for Mac, with a mouse | 24, 25, 35 | Text boxes in two fonts; fountain pen, brush pen, pencil, ball pen and highlighter over writing; a turned and a cropped picture; tape, a sticky note, a link and a bookmark; a deleted page; a recording with writing; a cover page |
+| Pencil test (2026-10-19) | 1 | Goodnotes on the iPad with an Apple Pencil, iPadOS 27.0.1 | 27 | Ball pen at 0.3, 0.55 and 0.9 mm, fountain pen, brush pen, pencil shading with tilt, highlighter presets, rectangles, ellipses, an arc, fills, two animated GIFs, two stickers, two saved drawings; with Goodnotes' PDF export. How the writing feels is in [Goodnotes-writing-feel.md](Goodnotes-writing-feel.md) |
 | Library selection (2026-10-19) | 35 | Goodnotes on the iPad, versions not recorded | 24, 25, 26 | Chosen from the owner's 691-notebook semester library to cover every schema and every unknown the first reader reported there: older text boxes, older varying-width ink, outline entries, page moves, recordings and their deletion |
 
-The made-for-purpose samples and the library selection are on the `samples/import-formats` branch, under `ImportSamples/Goodnotes/`, each with a README saying what was done. **Still not in any sample:** pressure, tilt and azimuth from an Apple Pencil (the Mac samples were drawn with a mouse); stickers from Goodnotes' own library apart from two pictures; text box rotation; a link to a page; and the meaning of several fields marked unknown below.
+The made-for-purpose samples and the library selection are on the `samples/import-formats` branch, under `ImportSamples/Goodnotes/`, each with a README saying what was done. **Still not in any sample:** text box rotation; a link to a page; and the meaning of several fields marked unknown below.
 
 ## Container
 
@@ -40,7 +41,7 @@ Empty files are normal: a page with no content has an empty `notes/<id>`. Import
 
 **Protocol Buffers without a schema.** Every `.pb` file and every `notes/` file is a sequence of protobuf messages, each preceded by its length as a varint. Field numbers below are protobuf field numbers; their names are this document's. Floats are 32-bit (wire type 5) unless marked `double`. A field equal to its default (zero, empty) is left out, as in proto3: a colour with no red component has no field 1.
 
-**`schema.pb`** is one message without a length prefix, `{1: version}`: 24, 25, 26 or 35 in the samples. Every record also carries the schema it was written with, so a notebook started in an older Goodnotes mixes record versions (a schema 35 notebook has schema 24 strokes next to schema 35 text boxes). What each version adds, as far as the samples show: 25 the fountain pen, brush pen and pencil layouts; 26 outline entries; 35 the newer text boxes and sticky notes.
+**`schema.pb`** is one message without a length prefix, `{1: version}`: 24, 25, 26, 27 or 35 in the samples. Every record also carries the schema it was written with, so a notebook started in an older Goodnotes mixes record versions (a schema 35 notebook has schema 24 strokes next to schema 35 text boxes). What each version adds, as far as the samples show: 25 the fountain pen, brush pen and pencil layouts; 26 outline entries; 27 a group on strokes (field 10); 35 the newer text boxes and sticky notes. Schema 27 came from the iPad and 35 from the Mac on the same day, so the number may follow the platform's build rather than time.
 
 **Versioned registers.** Most editable values are wrapped as a last-writer-wins register, `{1: value, 2: clock}`, where the clock is `{1: counter, 2: replica hash}`. Several records may set the same register; the highest counter wins.
 
@@ -106,7 +107,7 @@ The layer file is the authority on which elements a page has. The member list (k
 
 **Drawing order.** Each body has a position, `{1: {1: counter, 2: replica}}`: field 7 of a stroke, text box and sticky note, 5 of a picture and of an older text box, 3 of a fill, 13 of a kind 12 element. Elements are drawn sorted by counter, then replica. Neither the member list nor the order of records in the file is the drawing order. The evidence: in the 37 first-sample pages with at least 50 strokes, consecutive strokes sorted by position are on average 47.5 units apart, as handwriting written in sequence is, against 467 in member-list order, 468 in file order and 466 in a random order. The position does not decide everything: 751 of 27,789 live elements in the first samples share both counter and replica with another element on their page, and how Goodnotes orders those is not known (the reference reader keeps them in file order).
 
-**Highlighter ink is drawn under all other ink**, whatever the order: in the export of the inks sample, ball-pen writing made before a highlighter stroke shows on top of it.
+**Highlighter ink is drawn after all other ink and multiplied into it**, as a real highlighter: black writing under it stays black, and colours under it are tinted. In the Pencil test's export a green highlighter over yellow and pink ink turns them yellow-green and brown, which only multiplying on top gives; drawing highlighters first (an earlier reading of this document, from a sample with black ink only) gives the wrong colours.
 
 ### Strokes (body field 7)
 
@@ -120,6 +121,7 @@ The layer file is the authority on which elements a page has. The member list (k
 | 6 | Offset `{1: x, 2: y}` added to every point: a lasso move |
 | 7 | Position in the drawing order |
 | 9 | Shape, when the stroke was drawn as one (below) |
+| 10 | A group id (a UUID string), the same on every stroke of a saved drawing put on the page (schema 27); its strokes are ordinary vector strokes, so resizing it loses nothing |
 | 14 | 1 when erased; the path is then empty |
 | 15 | Version clock (equals the header's field 2) |
 | 20 | `{1: ""}` on tape, empty otherwise |
@@ -150,18 +152,18 @@ The path is the centre line, drawn at the width with round ends.
 | `A(u)` | Start: x, y, width (tape adds one more value, 0) |
 | `A(u)` | Per curve: control x, y, width; end x, y, width (tape adds three more values, 0, 0, 0.1) |
 | `A(v)` | Outline commands per centre-line segment |
-| `A(v)` | Outline codes: 0 move to the segment's outline start; 2 cubic Bézier (three points from the outline points); 3 round cap; 6 flat cap (tape) |
+| `A(v)` | Outline codes: 0 move to the segment's outline start; 2 cubic Bézier (three points from the outline points); 3 arc (the next cap record); 6 flat cap (tape) |
 | `A(u)` | Outline start, x and y, one per segment |
 | `A(u)` | Empty in every sample |
 | `A(u)` | Outline points, x and y |
-| `A(u)` | Cap records, two per segment (its end, then its start): x, y, then width and direction values (five numbers each, seven on tape) |
+| `A(u)` | Cap records, one per cap command, in order: centre x, y, radius, start angle, end angle (seven numbers on tape) |
 | `A(v)` | 1 per cap record |
 
-Each centre-line segment has its own closed outline: one side as cubics, a cap around the segment's end, the other side back, a cap around its start. A cap is a half circle (or, flat, a straight edge) around the cap record's point to the point opposite the current one; the opposite point is not stored. Filled this way, the fountain and brush strokes match the export (see the comparison below).
+Each centre-line segment has its own closed outline. Most often it is one side as cubics, an arc around the segment's end, the other side back and an arc around its start (1,606 of the Pencil test's 2,723 segments); 908 segments are all cubics, and the rest have the arcs elsewhere or more of them. An arc continues from the current point, which lies on its circle at the start angle (all 3,651 arcs checked), to the end angle, mostly half a turn. A flat cap is a straight edge through the record's point. Filled this way, the fountain and brush strokes match the export (see the comparison below).
 
 **Older varying width** (`vuA(v)A(u)A(u)A(v)A(v)A(u)A(u)A(u)A(u)A(v)`, ink 4, 90 strokes in three library notebooks): the same arrays after a leading width, but the outline codes are 2 for move and 4 for cubic, there are no caps, and the centre line uses codes 0 to 3 whose meaning is not worked out. Drawn from the outline, the strokes look like clean lines and boxes over a circuit diagram; there is no export to compare with.
 
-**Pencil** (`vuA(v)A(S(uuuuu))A(S(uuuuuuuuuuu))A(S(uu))A(v)A(S(uu))A(S(uuuu))A(u)`, schema 25 on, tpl version 1): a width, codes as in the constant-width layout, start points of five numbers (x, y and three more), and curves of eleven: a first 32-bit value that is not a sensible float (perhaps a texture seed), then the control point and the end point, each x, y and three more numbers. The three numbers were 0.524, 1.047 and 0 for every point drawn with the mouse; they are probably Pencil angles and force, not confirmed. The five trailing arrays were empty. Goodnotes draws pencil ink textured and, with that force of 0, very pale; the reference renderer does not imitate the texture.
+**Pencil** (`vuA(v)A(S(uuuuu))A(S(uuuuuuuuuuu))A(S(uu))A(v)A(S(uu))A(S(uuuu))A(u)`, schema 25 on, tpl version 1): a width, codes as in the constant-width layout, start points of five numbers (x, y and three more), and curves of eleven: a first 32-bit value that is not a sensible float (perhaps a texture seed), then the control point and the end point, each x, y and three more numbers. The three numbers are the Apple Pencil's azimuth (radians, −π to π), altitude (radians, 0 to π/2: 0.19 to 0.27 while shading with the pencil on its side) and force (0 to 4.17, the Pencil's maximum), as written with a real Pencil in the Pencil test; the mouse gave 0.524, 1.047 and 0 at every point. The five trailing arrays were empty. Every pencil stroke in the samples has the same width (4.68 units); Goodnotes draws it textured, darker with force and broader as the Pencil tilts, and with the mouse's force of 0 very pale. The reference renderer does not imitate the texture.
 
 ### Shapes (stroke field 9)
 
@@ -170,19 +172,19 @@ A stroke that is a shape has an empty path and its geometry here. Its colour, of
 | Field | Geometry |
 |---|---|
 | 1 | Polyline `{1: point, 1: point, …}`: a line has two points |
-| 2 | Three points `{1, 2, 3}`, meaning not confirmed (an arc or a triangle); 3 strokes in the first samples, drawn as a polyline in the check |
-| 3 | Ellipse `{1: centre, 2: radii}` |
-| 4 | Turned ellipse `{1: centre, 2: radii, 3: angle in radians}` |
+| 2 | An arc of a circle through three points `{1, 2, 3}`, from the first through the second to the third (the export of the Pencil test draws it so) |
+| 3 | Rectangle `{1: centre, 2: width and height}` (the export's square is the stored size plus the line width) |
+| 4 | Ellipse `{1: centre, 2: radii, 3: angle in radians}` (the export's circles have the stored radius to half a unit) |
 | 5 | Line style `{1: dash pattern (two floats), 2: 1}` |
 | 15 | Width |
 
 ### Shape fills (body field 9)
 
-A fill is its own element, drawn in its place in the order: 1 id; 2 bounding box `{1: origin, 2: size}` (NaN when erased); 3 position; 4 geometry, as in a shape (1 polygon, 3 ellipse, 4 turned ellipse); 5 the outline stroke's id, repeated when it belongs to several; 6 offset; 7 colour (alpha 0.1 in every sample); 14 1 when erased.
+A fill is its own element, drawn in its place in the order: 1 id; 2 bounding box `{1: origin, 2: size}` (NaN when erased); 3 position; 4 geometry, as in a shape (1 polygon, 3 rectangle, 4 ellipse); 5 the outline stroke's id, repeated when it belongs to several; 6 offset; 7 colour (alpha 0.1 in every sample); 14 1 when erased.
 
 ### Pictures (body field 1)
 
-1 id; 2 the bounding box of the picture as drawn `{1: origin, 2: size}`; 3 the placement `{1: centre, 2: size before turning, 3: angle in radians}`, clockwise on the page; 4 the attachment; 5 position; 6 2 for the JPEG 2000 stickers in the first samples, 1 on the turned picture, meaning not known; 7 an id not found among the attachments; 14 1 when deleted. The picture file is drawn stretched to the placement's size, turned about its centre. A turned picture's angle in the sample was 0.5087 radians (29.1°) for a drag to "about 30 degrees clockwise".
+1 id; 2 the bounding box of the picture as drawn `{1: origin, 2: size}`; 3 the placement `{1: centre, 2: size before turning, 3: angle in radians}`, clockwise on the page; 4 the attachment; 5 position; 6 the kind of picture as far as seen: 2 a JPEG 2000 sticker, 5 an animated GIF (kept as the original GIF file), 1 on the turned picture, absent on photos and on a PNG sticker; 7 an id not found among the attachments; 14 1 when deleted. The picture file is drawn stretched to the placement's size, turned about its centre. A turned picture's angle in the sample was 0.5087 radians (29.1°) for a drag to "about 30 degrees clockwise".
 
 **Cropping replaces the file.** A cropped picture points to a new PNG of the kept part (201 × 150 pixels from a 400 × 300 original), with no crop rectangle; the original stays among the attachments. An import keeps the cropped bitmap, which is at the original's resolution.
 
@@ -222,8 +224,9 @@ Each page of the six made-for-purpose notebooks was drawn from what the reader d
 | Deleted page | 2 | 0.07%, 0.09% | The typed text, which the check does not draw |
 | Text boxes | 2 | 0%, 0.21% | The typed text |
 | Tape, sticky note, link | 1 | 0.25% | The typed text; the tape's slightly rounded ends and faint shadow |
+| Pencil test | 6 | 0.44%, 2.2%, 0.44%, 0.79%, 0.14%, 0.78% | Page 2 is pencil shading, which the check draws solid; page 4 the GIFs, drawn from their first frame; elsewhere stroke edges |
 
-The paper, the page count (the deleted page left out), ink positions and widths, the fountain and brush outlines, highlighter under ink, the turned picture's angle and the tape all match. Text was checked separately against the export's text layer, as above.
+The Pencil test was compared at 0.6 pixel per unit; the others at 1. The paper, the page count (the deleted page left out), ink positions and widths, the fountain and brush outlines with their arcs, the highlighter multiplied over the other ink, rectangles, ellipses and arcs, the turned picture's angle and the tape all match. Text was checked separately against the export's text layer, as above.
 
 ## What this means for the import
 
@@ -232,12 +235,13 @@ How each kind of element found in the samples would arrive in Graphite's noteboo
 - Paper: the template PDF page is vector content the size of the page, so it can become the page's content as it is. Mapping it onto Graphite's own paper system instead needs the template catalogue, which these files do not contain (only an id and the ruling numbers).
 - Imported PDF pages: the original PDF page from the attachment.
 - Pages: in position order, deleted pages left out, bookmarks as PDF bookmarks.
-- Ball pen and highlighter: one PencilKit stroke per Goodnotes stroke, points sampled along the quadratic curves at a constant width; the offset applied; erased strokes left out. Highlighter strokes go under the other ink.
+- Ball pen and highlighter: one PencilKit stroke per Goodnotes stroke, points sampled along the quadratic curves at a constant width; the offset applied; erased strokes left out. Goodnotes multiplies highlighter ink over the rest; Graphite draws a highlighter normally (see `Architecture.md`), so colours under a highlight will look lighter than in Goodnotes.
 - Fountain and brush pen: the centre line with its width at each point gives PencilKit strokes with a size per point; the stored outline is the exact shape for the PDF annotation.
-- Pencil: a PencilKit pencil stroke; the per-point values may be its force and angles once a Pencil sample confirms them.
+- Pencil: a PencilKit pencil stroke with the stored force, azimuth and altitude at each point.
 - Tape: Graphite has no tape (checklist, "Graphite features this needs first").
 - Shapes, dashes and fills: Graphite has no dashed ink, no editable shapes and no filled shapes yet.
-- Pictures: separate pictures from the files, with their turn. A cropped picture arrives already cropped. Drawing order mixes pictures and ink freely, and Graphite's pictures always sit under the ink.
+- Pictures: separate pictures from the files, with their turn. A cropped picture arrives already cropped. An animated GIF can only be a still picture in a PDF; the import report has to say so.
+- Saved drawings: their strokes, as any others. Drawing order mixes pictures and ink freely, and Graphite's pictures always sit under the ink.
 - Text boxes and sticky notes: Graphite has no text boxes yet. The text, fonts, sizes, colours and links are all readable; older text boxes need an RTF reader.
 - Recordings: the MP4 audio as an `.m4a`, with the time of each element written during it (elements since deleted included, so the timings must be matched to live elements).
 - Outline entries: titles and order are readable, but their target is not resolved yet.
