@@ -42,14 +42,40 @@ Graphite draws with PencilKit (`PencilToolbox.swift`, `HistoryCanvasView.swift`)
 
 Graphite already offers PencilKit's **monoline** ink, which has one width whatever the pressure and tilt, from 0.5 to 4 points. That range holds all three of the owner's Goodnotes ball pen sizes (0.85, 1.56 and 2.55 points).
 
+## Zoom: the same width on the page
+
+**Goodnotes writes at the pen's width on the page, at any zoom.** In the owner's A3 formula sheet, a whole course in small writing on two pages, 69% of the ball pen strokes have exactly one of the pen's sizes (6,925 of them 0.55 mm), and every one of the 4,668 strokes never edited after it was written has a pen size. The other 3,516 strokes, in 42 other widths, were all edited afterwards (their version counter is past 2): they are strokes resized with the lasso, whose widths Goodnotes scaled with them. So zooming in to write small makes the ink look thicker on screen but keeps it as thick on the page as everything else, and the sheet stays even; resizing a selection keeps its proportions.
+
+**Graphite does the same on PDF pages, within limits, and not in drawings:**
+
+- On a PDF page the canvas draws at a zoom of 1 to 3 in steps of a half (`PDFPageOverlayView.renderingScale`), and the tool's width is multiplied by it (`PDFPageCanvasView.toolForDrawing`), so the width on the page stays the same. But PencilKit clamps each ink's width (`PencilInk.widthRange`): monoline at 4 points, pencil at 16, the pen at 25. A 3-point monoline at a zoom of 3 asks for 9 and gets 4, so it lands on the page 1.33 points wide instead of 3: the narrow inks write thinner as the page is zoomed in, which is the opposite of an even cheat sheet. The pen's 25 is only reached by its widest settings.
+- The drawing editor (`InfiniteCanvasView`, zoom up to 4 times its fitted size) does not correct the width. By the note on `PDFPageCanvasView.toolForDrawing`, PencilKit keeps a tool as wide on screen at any zoom, so a drawing written zoomed in comes out finer on the drawing, up to a quarter of the tool's width. This is read from the code and needs confirming on the iPad.
+
+## Fixed tool bar and floating palette
+
+The owner finds that writing feels different with the fixed tool bar than with the floating palette. The two give the canvas its tool in different ways (`HistoryCanvasView.takeTool`):
+
+- **Bar:** Graphite builds the tool from the bar's preset (`InkPreset.inkingTool`: the ink, colour and width, nothing else) and sets it on the canvas itself, through `toolForDrawing`.
+- **Palette:** the canvas observes PencilKit's tool picker, so PencilKit sets the palette's tool on the canvas as it is. One turn of the main queue later `PaletteToolCorrection` replaces it with what `toolForDrawing` makes of it (the width multiplied by the page canvas's zoom, the even highlighter's stand-in). The correction runs only when the palette's selection changes or the zoom step changes.
+
+What can therefore differ, by reading the code (none of it has been checked on the iPad):
+
+1. **The width.** The bar's pen starts at 1.6, 2.8 and 4.8 points; the palette's pen has the system's own widths. The same ink at another width feels different, more so with the pen, whose width also follows pressure.
+2. **The tool's other properties.** The palette's tool is PencilKit's own object, which may carry properties the bar's does not set (on iOS 26 and later an inking tool also has an azimuth; the bar's is built without one). The scaled tool keeps the azimuth.
+3. **Moments with the palette's raw tool.** Whenever PencilKit gives the canvas the palette's tool without a selection change Graphite hears of, the canvas draws with the width not multiplied by the page's zoom until the next correction: on a page zoomed to a canvas scale of 2, strokes would be half as thick on the page.
+
+Which of these it is shows at once in a log of the tool the canvas has when each stroke begins (ink, width, azimuth, the canvas's zoom), written with the bar and with the palette at the same zoom and the same chosen width.
+
 ## Experiments, on the iPad
 
 Each is cheap and answers one question before anything bigger is built.
 
-1. **A Goodnotes-like ball pen.** Give a tool monoline ink at 0.85, 1.56 and 2.55 points and write the same lines with it, with Graphite's pen, and in Goodnotes. If monoline feels like Goodnotes' ball pen, the difference was the pen's varying width, and the fix is a default tool. This needs no code beyond a preset.
+1. **A Goodnotes-like ball pen.** Give a tool monoline ink at 0.85, 1.56 and 2.55 points and write the same lines with it, with Graphite's pen, and in Goodnotes, at the page's own zoom. If monoline feels like Goodnotes' ball pen, the difference was the pen's varying width, and the fix is a default tool. Zoomed in, monoline's 4-point limit makes it thinner on the page (Zoom, above), so a ball pen for cheat sheets also needs that limit worked around, for example by drawing the page canvas at a lower scale while a narrow ink is in use.
 2. **Latency.** Film fast straight strokes in both apps at 240 frames per second, with the same iPad, zoom and ink. Count the frames between the tip and the end of the ink, and look for any change at the lift. If Graphite trails by more, the cause is in drawing, not in the shape of the stroke.
 3. **Stabilisation.** Write the same slow wavy line in Goodnotes with stabilisation at 0% and at 100%, export both notebooks, and compare the stored samples with the reference reader. That shows whether, and how much, Goodnotes filters samples before storing them.
-4. **Only if 1 and 2 leave a difference:** draw the live stroke in Graphite itself as Goodnotes stores it, a quadratic B-spline through every coalesced and predicted sample, round-capped, over or instead of PencilKit's live stroke. Graphite already follows every sample of the drawing touch for the even highlighter (`DrawnStrokeFollower`). This is a large change with real costs, since PencilKit's live drawing, lasso and Pencil interactions would have to be matched, and it is the owner's decision, after the measurements.
+4. **Bar against palette.** Log the canvas's tool at the start of each stroke (above), write with the bar and with the palette at the same zoom and width, and compare.
+5. **Zoom.** On a PDF page and in a drawing, write the same word at 1×, 2× and 3× with the pen and with monoline, export, and measure the widths on the page.
+6. **Only if 1 and 2 leave a difference:** draw the live stroke in Graphite itself as Goodnotes stores it, a quadratic B-spline through every coalesced and predicted sample, round-capped, over or instead of PencilKit's live stroke. Graphite already follows every sample of the drawing touch for the even highlighter (`DrawnStrokeFollower`). This is a large change with real costs, since PencilKit's live drawing, lasso and Pencil interactions would have to be matched, and it is the owner's decision, after the measurements.
 
 ## Numbers
 
@@ -62,3 +88,4 @@ Each is cheap and answers one question before anything bigger is built.
 | Width against speed | correlation −0.33 to +0.12 within strokes |
 | Pencil per sample | azimuth −π to π, altitude 0.19 to 1.50 radians, force 0 to 4.17 |
 | Pencil width | 4.68 units for every pencil stroke |
+| Formula sheet, strokes at a pen size | 7,699 of 11,215 (69%); every stroke never edited (4,668) has a pen size; all 3,516 others were edited later |
