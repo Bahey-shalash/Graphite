@@ -63,13 +63,18 @@ jobs:
         id: package-files
         run: echo "hash=$(shasum -a 256 Package.swift Package.resolved | shasum -a 256 | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
-      - name: Cache SwiftPM build products
+      # Only the downloaded packages are cached, not the build products: the build keeps the absolute path of the Metal
+      # toolchain (a mount whose name changes on every runner), and a restored build asked the next runner to run `metal`
+      # from the previous runner's mount ("unable to spawn process ... CPkUOr ... metal", twice on run 39317490451).
+      - name: Cache SwiftPM packages
         uses: actions/cache@v4.2.3
         with:
-          path: .build
-          key: swiftpm-${{ runner.os }}-${{ env.DEVELOPER_DIR_VERSION }}-${{ steps.package-files.outputs.hash }}
+          path: |
+            .build/checkouts
+            .build/repositories
+          key: swiftpm-packages-${{ runner.os }}-${{ steps.package-files.outputs.hash }}
           restore-keys: |
-            swiftpm-${{ runner.os }}-${{ env.DEVELOPER_DIR_VERSION }}-
+            swiftpm-packages-${{ runner.os }}-
 
       # `--verbose` is what makes a parallel run print each test's result line, "Test Case ... skipped", which the next step counts
       # (a plain `swift test --parallel` prints no skip at all). It goes after the build, because it would also print every
