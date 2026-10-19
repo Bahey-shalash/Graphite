@@ -65,10 +65,18 @@ jobs:
           restore-keys: |
             swiftpm-${{ runner.os }}-${{ env.DEVELOPER_DIR_VERSION }}-
 
+      # `--verbose` is what makes a parallel run print each test's result line, "Test Case ... skipped", which the next step counts
+      # (a plain `swift test --parallel` prints no skip at all). It goes after the build, because it would also print every
+      # compiler command. The log is kept; the step shows what failed.
       - name: swift test --parallel
         run: |
           set -o pipefail
-          swift test --parallel 2>&1 | tee swift-test.log
+          swift build --build-tests 2>&1 | tail -n 30
+          status=0
+          swift test --skip-build --parallel --verbose > swift-test.log 2>&1 || status=$?
+          grep -E "error:|Test Case '.*' failed" swift-test.log | sort -u | tail -n 300 || true
+          tail -n 3 swift-test.log
+          exit $status
 
       - name: Skipped-test count may not rise
         run: python3 scripts/check-rules.py --test-log swift-test.log
