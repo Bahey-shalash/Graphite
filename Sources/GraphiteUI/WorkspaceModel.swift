@@ -186,20 +186,16 @@ final class WorkspaceModel {
     }
     let preferences: GraphitePreferences
     let recording = RecordingController()
-    let readAloud = ReadAloudVoices.makeController()
+    /// The window's reading, while the Read Aloud core plugin is on; nil while it is off, so
+    /// no speech engine, voice library or renderer exists and no Read Aloud control shows.
+    private(set) var readAloud: ReadAloudController?
     /// Callouts the person expanded or collapsed, which Read Aloud follows.
     let calloutFolds = CalloutFoldStore()
-    /// Jumps, section skips, the listening queue and remembered places for Read Aloud.
-    @ObservationIgnored lazy var readAloudNavigator: ReadAloudNavigator = {
-        let navigator = ReadAloudNavigator(reader: readAloud)
-        navigator.startReading = { [weak self] path, resumeLocation in
-            Task { @MainActor in await self?.startReadingAloud(path, resumeLocation: resumeLocation) }
-        }
-        navigator.visiblePageIndex = { [weak self] in self?.pdfSession?.currentPageIndex }
-        navigator.vaultRoot = { [weak self] in self?.folderAccess?.root }
-        navigator.vaultIdentifier = { [weak self] in self?.currentVaultIdentifier }
-        return navigator
-    }()
+    /// Jumps, section skips, the listening queue and remembered places for Read Aloud; nil
+    /// while Read Aloud is off.
+    private(set) var readAloudNavigator: ReadAloudNavigator?
+    /// Builds `readAloud` when the plugin is on at launch or turned on later.
+    @ObservationIgnored private let makeReadAloudController: @MainActor () -> ReadAloudController
     /// The open vault's Obsidian community plugins.
     let communityPlugins: CommunityPluginHost
     /// Set by indexing when a scan of the whole vault finishes; tests that fill the index
@@ -232,9 +228,43 @@ final class WorkspaceModel {
         vaultLibrary = deviceServices.vaultLibrary
         documentPlaceStore = deviceServices.documentPlaceStore
         communityPlugins = CommunityPluginHost(defaults: deviceServices.defaults)
+        makeReadAloudController = deviceServices.makeReadAloudController
         if let applicationSupportFolder = deviceServices.applicationFolders.applicationSupportFolder {
             recording.recoveryFolderLocation = { try RecordingRecoveryFolder.location(in: applicationSupportFolder) }
         }
+        if preferences.isEnabled(.readAloud) { startReadAloud() }
+    }
+
+    /// Turns a core plugin on or off, and starts or ends what it runs, with no relaunch:
+    /// Read Aloud's speech is built when it is turned on, and stopped and dropped when it is
+    /// turned off. Its voices, prepared audio, pronunciations and places are kept.
+    func setCorePluginEnabled(_ plugin: CorePlugin, _ isEnabled: Bool) {
+        preferences.setEnabled(plugin, isEnabled)
+        guard plugin == .readAloud else { return }
+        if isEnabled { startReadAloud() } else { endReadAloud() }
+    }
+
+    private func startReadAloud() {
+        guard readAloud == nil else { return }
+        let reader = makeReadAloudController()
+        reader.vaultRoot = folderAccess?.root
+        let navigator = ReadAloudNavigator(reader: reader)
+        navigator.startReading = { [weak self] path, resumeLocation in
+            Task { @MainActor in await self?.startReadingAloud(path, resumeLocation: resumeLocation) }
+        }
+        navigator.visiblePageIndex = { [weak self] in self?.pdfSession?.currentPageIndex }
+        navigator.vaultRoot = { [weak self] in self?.folderAccess?.root }
+        navigator.vaultIdentifier = { [weak self] in self?.currentVaultIdentifier }
+        readAloud = reader
+        readAloudNavigator = navigator
+    }
+
+    /// Stops reading as Stop does (speech, audio session, rendering ahead, Now Playing), closes
+    /// the reader, and drops the controller and the navigator.
+    private func endReadAloud() {
+        readAloud?.clearAndLeaveNowPlaying()
+        readAloud = nil
+        readAloudNavigator = nil
     }
 
     /// A workspace on the app's own device state. Callers that do not pass their own are the
@@ -343,9 +373,9 @@ final class WorkspaceModel {
         monitor?.stop(); stopIndexing(); externalChangeTask?.cancel()
         pendingExternalChanges.removeAll(); firstPendingExternalChangeTime = nil
         indexingMessage = ""
-        readAloud.clear()
+        readAloud?.clear()
         folderAccess = access; store = vaultStore; index = vaultIndex; monitor = vaultMonitor
-        readAloud.vaultRoot = access.root
+        readAloud?.vaultRoot = access.root
         EmbeddedPDFSessions.shared.useVault(root: root, owner: self, saving: embeddedPDFSaving(writer: vaultStore.writer))
         // Nothing open in the vault being left is saved into the new vault's layout.
         layoutVaultIdentifier = nil
@@ -1149,8 +1179,8 @@ final class WorkspaceModel {
         // A recording that could not be saved is waiting; starting would not record, and the
         // note it will be embedded in must stay the one it was started from.
         guard recording.canStartRecording else { return }
-        readAloud.stop()
-        readAloud.showsReader = false
+        readAloud?.stop()
+        readAloud?.showsReader = false
         do {
             let notePath = markdownSession?.path
             let directory = try await recordingDirectory(note: notePath, store: store)
@@ -1355,7 +1385,7 @@ final class WorkspaceModel {
         // Ink and saves are not changes to what is read; Read Aloud looks at the pages' text.
         session.contentDidChange = { [weak self, weak session] in
             guard let self, let session else { return }
-            readAloud.pdfContentDidChange(session)
+            readAloud?.pdfContentDidChange(session)
         }
         session.didSave = { [weak self] savedLocation in
             guard let self, let savedPath = vaultPath(for: savedLocation) else { return }
@@ -1497,6 +1527,7 @@ enum ExternalChangeRefresh: Equatable {
 extension WorkspaceModel {
     /// Opens a note or PDF from the listening queue and reads it, from where it was left.
     func startReadingAloud(_ path: VaultPath, resumeLocation: Int?) async {
+        guard let readAloud, let readAloudNavigator else { return }
         await open(path)
         if let session = markdownSession, session.path == path {
             let hidden = ReadAloudFolding.hiddenRanges(in: session.text, foldedKeys: session.foldedKeys,

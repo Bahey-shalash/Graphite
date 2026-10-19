@@ -352,7 +352,7 @@ extension WorkspaceModel {
                 // An edit while the note is read: reading goes on at the same sentence.
                 newMarkdown?.textDidChange = { [weak self, weak newMarkdown] in
                     guard let self, let newMarkdown else { return }
-                    readAloud.noteTextDidChange(path: path, text: newMarkdown.text,
+                    readAloud?.noteTextDidChange(path: path, text: newMarkdown.text,
                         hiddenRanges: ReadAloudFolding.hiddenRanges(in: newMarkdown.text, foldedKeys: newMarkdown.foldedKeys,
                                                                     calloutExpansion: calloutFolds.expansion(for: path.rawValue)))
                 }

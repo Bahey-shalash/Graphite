@@ -454,6 +454,14 @@ final class ReadAloudController {
         showsReader = false
     }
 
+    /// Read Aloud was turned off: reading stops and is cleared, and Graphite leaves the lock
+    /// screen and the media controls now, because this controller is dropped next and the
+    /// Now Playing update that follows a change would never run.
+    func clearAndLeaveNowPlaying() {
+        clear()
+        nowPlaying?.clear()
+    }
+
     /// Starts preparing the next PDF page after the last word of this one; true when it did.
     @discardableResult
     func continuePDFIfNeeded() -> Bool {

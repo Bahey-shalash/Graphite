@@ -86,8 +86,10 @@ public struct GraphiteRootView: View {
         } detail: {
             detailColumn
                 .overlay {
-                    if usesFloatingPlayer && workspace.readAloud.isActive && !workspace.recording.state.isActive && workspace.preferences.isEnabled(.readAloud) {
-                        ReadAloudFloatingPlayer(reader: workspace.readAloud, navigator: workspace.readAloudNavigator)
+                    // Both exist only while the Read Aloud core plugin is on.
+                    if usesFloatingPlayer, let reader = workspace.readAloud, let navigator = workspace.readAloudNavigator,
+                       reader.isActive && !workspace.recording.state.isActive {
+                        ReadAloudFloatingPlayer(reader: reader, navigator: navigator)
                     }
                 }
         }
@@ -142,13 +144,17 @@ public struct GraphiteRootView: View {
             TabSwitcher(workspace: workspace)
                 .tint(workspace.preferences.accentColor)
         }
-        .sheet(isPresented: Binding(get: { workspace.readAloud.showsReader }, set: { showsReader in workspace.readAloud.showsReader = showsReader })) {
-            ReadAloudReader(reader: workspace.readAloud)
-                .tint(workspace.preferences.accentColor)
+        // Closes by itself when Read Aloud is turned off: there is no reader to show.
+        .sheet(isPresented: Binding(get: { workspace.readAloud?.showsReader ?? false },
+                                    set: { showsReader in workspace.readAloud?.showsReader = showsReader })) {
+            if let reader = workspace.readAloud {
+                ReadAloudReader(reader: reader)
+                    .tint(workspace.preferences.accentColor)
+            }
         }
         .onChange(of: workspace.recording.state) { _, state in
             // Narration does not reconfigure an active lecture recording's audio session.
-            if state.isActive { workspace.readAloud.stop(); workspace.readAloud.showsReader = false }
+            if state.isActive { workspace.readAloud?.stop(); workspace.readAloud?.showsReader = false }
         }
         .modifier(NoteTakingQuestionPresentation(preferences: workspace.preferences.library, vaultIdentifier: workspace.currentVaultIdentifier,
                                                  isAsking: asksNoteTakingStyle))
@@ -341,9 +347,9 @@ public struct GraphiteRootView: View {
                     .tint(.primary)
             }
         }
-        if workspace.readAloud.isActive && !usesFloatingPlayer, workspace.preferences.isEnabled(.readAloud) {
+        if !usesFloatingPlayer, let reader = workspace.readAloud, reader.isActive {
             ToolbarItemGroup(placement: .primaryAction) {
-                ReadAloudToolbarControls(reader: workspace.readAloud, isDisabled: workspace.recording.state.isActive,
+                ReadAloudToolbarControls(reader: reader, isDisabled: workspace.recording.state.isActive,
                                          accentColor: workspace.preferences.accentColor)
                     .tint(.primary)
             }

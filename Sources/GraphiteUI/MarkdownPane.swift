@@ -71,9 +71,9 @@ struct MarkdownPane: View {
                                 blocksCache: session.readingBlocksCache, savedPosition: session.readingPosition,
                                 takeStartingLocation: { [session] in session.takeReadingStartLocation() },
                                 toggleTask: { [session] note, location in await workspace.toggleReadingTask(at: location, in: note, shownBy: session) },
-                                readingWord: ReadingWordSource { [readAloud = workspace.readAloud, path = session.path] in readAloud.highlight(in: path) },
-                                followsReading: workspace.readAloud.shouldFollow(session.path),
-                                suspendReadingFollow: { workspace.readAloud.suspendFollowing(in: session.path.rawValue) })
+                                readingWord: ReadingWordSource { [readAloud = workspace.readAloud, path = session.path] in readAloud?.highlight(in: path) },
+                                followsReading: workspace.readAloud?.shouldFollow(session.path) ?? false,
+                                suspendReadingFollow: { workspace.readAloud?.suspendFollowing(in: session.path.rawValue) })
                 .environment(\.readingImageActions, ReadingImageActions(providerIdentity: ObjectIdentifier(workspace),
                                                                         viewImage: viewImage, editDrawing: drawingEditor, drawOnImage: imageDrawing))
                 .environment(\.communityPluginCodeBlocks, workspace.communityPlugins.isRuntimeRunning ? workspace.communityPlugins : nil)
@@ -83,9 +83,9 @@ struct MarkdownPane: View {
                 NativeMarkdownEditor(session: session, configuration: editorConfiguration, environment: livePreviewEnvironment,
                                      headingScrollRequest: document.headingScrollRequest, actions: editorActions,
                                      retention: workspace.markdownEditorRetention, retentionOwner: document,
-                                     readAloudRange: workspace.readAloud.highlight(in: session.path),
-                                     followsReading: workspace.readAloud.shouldFollow(session.path),
-                                     suspendReadingFollow: { workspace.readAloud.suspendFollowing(in: session.path.rawValue) },
+                                     readAloudRange: workspace.readAloud?.highlight(in: session.path),
+                                     followsReading: workspace.readAloud?.shouldFollow(session.path) ?? false,
+                                     suspendReadingFollow: { workspace.readAloud?.suspendFollowing(in: session.path.rawValue) },
                                      readAloudHooks: readAloudHooks, contextMenu: editorContextMenuActions) { target, isWiki in
                     follow(target, isWiki: isWiki)
                 }
@@ -124,17 +124,18 @@ struct MarkdownPane: View {
             }
         }
         // Folding or unfolding while this note is read changes what is still to be read.
-        .onChange(of: session.foldedKeys) { _, _ in workspace.readAloud.foldsDidChange(in: session.path, hiddenRanges: foldedRanges) }
+        .onChange(of: session.foldedKeys) { _, _ in workspace.readAloud?.foldsDidChange(in: session.path, hiddenRanges: foldedRanges) }
         .onChange(of: workspace.calloutFolds.expansion(for: session.path.rawValue)) { _, _ in
-            workspace.readAloud.foldsDidChange(in: session.path, hiddenRanges: foldedRanges)
+            workspace.readAloud?.foldsDidChange(in: session.path, hiddenRanges: foldedRanges)
         }
         .environment(\.calloutFoldNote, (workspace.calloutFolds, session.path.rawValue))
-        // In the reading view, "Read from Here" after scrolling starts at the top block shown.
-        .onChange(of: viewMode, initial: true) { _, mode in
-            if mode == .reading {
-                workspace.readAloudNavigator.visibleLocation = { [session] in session.readingPosition.topLocation() }
+        // In the reading view, "Read from Here" after scrolling starts at the top block shown;
+        // also when Read Aloud is turned on while the reading view is shown.
+        .onChange(of: viewMode == .reading && workspace.readAloudNavigator != nil, initial: true) { _, isReadingWithNavigator in
+            if isReadingWithNavigator, let navigator = workspace.readAloudNavigator {
+                navigator.visibleLocation = { [session] in session.readingPosition.topLocation() }
                 // The reading view has no tap to read yet; "Read from Here" is in the player.
-                workspace.readAloudNavigator.supportsTapToRead = false
+                navigator.supportsTapToRead = false
             }
         }
         // The text and the cursor change at every keystroke. Only these small views read
@@ -213,8 +214,9 @@ struct MarkdownPane: View {
                              colorsEnabled: preferences.isEnabled(.colors), paletteHexByName: paletteHexByName,
                              showsProperties: preferences.isEnabled(.properties), declaredPropertyTypes: session.declaredPropertyTypes, inlineTitle: inlineTitle,
                              textSize: noteTextSize, drawingVersion: workspace.drawingVersion, indexVersion: workspace.indexVersion,
-                             mapsReadAloudSourceLocations: workspace.readAloud.sourceIdentifier == session.path.rawValue
-                                && (workspace.readAloud.isPreparing || workspace.readAloud.session.document != nil),
+                             mapsReadAloudSourceLocations: workspace.readAloud.map { reader in
+                                 reader.sourceIdentifier == session.path.rawValue && (reader.isPreparing || reader.session.document != nil)
+                             } ?? false,
                              pluginCodeBlockLanguages: workspace.communityPlugins.codeBlockLanguages,
                              runsPluginPostProcessors: workspace.communityPlugins.runsMarkdownPostProcessors,
                              marksUnresolvedLinks: workspace.noteTheme != nil)
@@ -364,7 +366,7 @@ struct MarkdownPane: View {
             viewImage: viewImage, editDrawing: drawingEditor, drawOnImage: imageDrawing, indexVersion: workspace.indexVersion,
             // Reading view's column, a little wider than Live Preview's, bounds the decode.
             embeddedImageColumnWidth: preferences.usesReadableLineLength ? ReadingConfiguration.readableColumnWidth : nil,
-            readingContext: LivePreviewReadingContext(controller: workspace.readAloud, path: session.path),
+            readingContext: workspace.readAloud.map { reader in LivePreviewReadingContext(controller: reader, path: session.path) },
             lassoNoteDestination: LassoNoteDestination.note(session, in: workspace),
             pluginCodeBlocks: workspace.communityPlugins.isRuntimeRunning ? workspace.communityPlugins : nil,
             pluginCodeBlockLanguages: workspace.communityPlugins.codeBlockLanguages,
@@ -535,7 +537,7 @@ struct MarkdownPane: View {
     }
 
     @ViewBuilder private var moreMenuItems: some View {
-        if preferences.isEnabled(.readAloud) { readAloudMenu }
+        if workspace.readAloud != nil { readAloudMenu }
         Picker("View", selection: $session.viewMode) {
             Label("Reading View", systemImage: "book").tag(NoteViewMode.reading)
             Label("Live Preview", systemImage: "eye").tag(NoteViewMode.livePreview)
@@ -576,20 +578,20 @@ struct MarkdownPane: View {
     }
 
     private func startReading(range: NSRange? = nil, scope: String = "Whole note") {
-        guard !workspace.recording.state.isActive else { return }
-        workspace.readAloud.readMarkdown(session.text, path: session.path, range: range, scope: scope, paletteHexByName: paletteHexByName,
-                                         hiddenRanges: foldedRanges)
+        guard !workspace.recording.state.isActive, let reader = workspace.readAloud, let navigator = workspace.readAloudNavigator else { return }
+        reader.readMarkdown(session.text, path: session.path, range: range, scope: scope, paletteHexByName: paletteHexByName,
+                            hiddenRanges: foldedRanges)
         // The whole note goes on from where it was left; the player offers Start Over.
         if range == nil {
-            workspace.readAloudNavigator.resumeWhenPrepared(at: workspace.readAloudNavigator.rememberedLocation(for: session.path.rawValue))
+            navigator.resumeWhenPrepared(at: navigator.rememberedLocation(for: session.path.rawValue))
         }
     }
 
     /// Read Aloud's ways into the editor: tap to move reading, "Read from Here", the first
     /// visible line for the floating player's "Read from Here", and the highlight's place.
-    private var readAloudHooks: ReadAloudEditorHooks {
-        let reader = workspace.readAloud
-        let navigator = workspace.readAloudNavigator
+    /// Nil while Read Aloud is off, so the editor offers none of them.
+    private var readAloudHooks: ReadAloudEditorHooks? {
+        guard let reader = workspace.readAloud, let navigator = workspace.readAloudNavigator else { return nil }
         let isReading = reader.sourceIdentifier == session.path.rawValue && reader.session.document != nil
         let session = session
         return ReadAloudEditorHooks(

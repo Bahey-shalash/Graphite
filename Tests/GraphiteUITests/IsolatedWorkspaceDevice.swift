@@ -1,5 +1,6 @@
 import XCTest
 import GraphiteCore
+import GraphiteApple
 @testable import GraphiteUI
 #if canImport(GraphiteTestSupport)
 import GraphiteTestSupport
@@ -41,13 +42,21 @@ struct IsolatedWorkspaceDevice {
     }
 
     /// Services over this device, built anew: a vault list and preferences that read what
-    /// is stored now.
-    func makeServices() -> WorkspaceDeviceServices {
-        WorkspaceDeviceServices(defaults: defaults, applicationFolders: applicationFolders)
+    /// is stored now. Read Aloud, when it is on, speaks through a silent fake that makes no
+    /// sound (`PenTestSpeech`), keeps its preferences in this device's suite, and stays off
+    /// the lock screen.
+    func makeServices(makeReadAloudController: (@MainActor () -> ReadAloudController)? = nil) -> WorkspaceDeviceServices {
+        let defaults = defaults
+        return WorkspaceDeviceServices(defaults: defaults, applicationFolders: applicationFolders,
+                                       makeReadAloudController: makeReadAloudController ?? {
+                                           ReadAloudController(session: ReadAloudSession(speech: PenTestSpeech(), preferences: defaults),
+                                                               preferences: defaults)
+                                       })
     }
 
     /// A workspace on this device whose delays run on `clock`.
-    func makeWorkspace(clock: any ApplicationClock = LiveApplicationClock()) -> WorkspaceModel {
-        WorkspaceModel(deviceServices: makeServices(), clock: clock)
+    func makeWorkspace(clock: any ApplicationClock = LiveApplicationClock(),
+                       makeReadAloudController: (@MainActor () -> ReadAloudController)? = nil) -> WorkspaceModel {
+        WorkspaceModel(deviceServices: makeServices(makeReadAloudController: makeReadAloudController), clock: clock)
     }
 }

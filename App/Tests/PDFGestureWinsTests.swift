@@ -41,8 +41,8 @@ final class PDFGestureWinsTests: XCTestCase {
 
     override func tearDown() async throws {
         if let workspace {
-            workspace.readAloud.clear()
-            if let savedReadingSpeed { workspace.readAloud.session.setSpeed(savedReadingSpeed) }
+            workspace.activeReadAloud.clear()
+            if let savedReadingSpeed { workspace.activeReadAloud.session.setSpeed(savedReadingSpeed) }
         }
         workspace = nil
         for window in windows { window.isHidden = true; window.rootViewController = nil }
@@ -91,7 +91,7 @@ final class PDFGestureWinsTests: XCTestCase {
         let (workspace, session) = try await openPaper()
         let window = try host(workspace, size: nil)
         let pdfView = try await zoomedPDFView(of: session, in: window)
-        let reader = workspace.readAloud
+        let reader = workspace.activeReadAloud
         reader.readPDF(session, firstPageIndex: 1, lastPageIndex: session.pageCount - 1)
         try await waitUntil(timeoutSeconds: 30) { reader.session.state == .speaking && !(pdfView.highlightedSelections ?? []).isEmpty }
         try await Task.sleep(for: .milliseconds(600))
@@ -115,7 +115,7 @@ final class PDFGestureWinsTests: XCTestCase {
         XCTAssertNotEqual(highlightedText(in: pdfView), wordsBefore, "Reading moved on to other words meanwhile.")
         attachScreenshot(of: window, named: "Page kept where the gestures left it while reading")
 
-        workspace.readAloudNavigator.backToReading()
+        workspace.activeReadAloudNavigator.backToReading()
         try await waitUntil { self.highlightIsOnScreen(in: pdfView) }
         // Following now brings each word into view once: the page never goes back and forth.
         var offsets: [CGFloat] = [position(of: pdfView).offset.y]
@@ -386,11 +386,13 @@ final class PDFGestureWinsTests: XCTestCase {
         try writePaper(to: folder.appendingPathComponent("Paper.pdf"))
         try Data("# Untitled\n\nNotes beside the paper.\n".utf8).write(to: folder.appendingPathComponent("Untitled.md"))
         let workspace = WorkspaceModel()
+        // Read Aloud is a core plugin that is off by default; these tests read.
+        workspace.setCorePluginEnabled(.readAloud, true)
         workspace.folderAccess = FolderAccess(root: folder)
         workspace.store = VaultStore(root: folder)
         workspace.index = try VaultIndex(databaseURL: folder.appendingPathComponent("index.sqlite"))
-        savedReadingSpeed = workspace.readAloud.session.speed
-        workspace.readAloud.session.setSpeed(1.5)
+        savedReadingSpeed = workspace.activeReadAloud.session.speed
+        workspace.activeReadAloud.session.setSpeed(1.5)
         self.workspace = workspace
         await workspace.open(try VaultPath("Untitled.md"))
         await workspace.open(try VaultPath("Paper.pdf"), placement: .newTab)
@@ -568,3 +570,16 @@ private extension PDFPageCanvasView {
     }
 }
 #endif
+
+private extension WorkspaceModel {
+    /// The reader of a workspace whose Read Aloud plugin these tests turned on.
+    var activeReadAloud: ReadAloudController {
+        guard let readAloud else { preconditionFailure("The Read Aloud core plugin was turned on when the workspace was made.") }
+        return readAloud
+    }
+
+    var activeReadAloudNavigator: ReadAloudNavigator {
+        guard let readAloudNavigator else { preconditionFailure("The Read Aloud core plugin was turned on when the workspace was made.") }
+        return readAloudNavigator
+    }
+}
