@@ -128,6 +128,7 @@ final class MainThreadResponsivenessTests: XCTestCase {
     /// The same note read aloud for real in the workspace's reading view, with the words
     /// highlighted and followed: the main thread stays mostly free.
     func testALongNoteReadAloudInTheReadingViewLeavesTheMainThreadMostlyFree() async throws {
+        try TimingBudgets.requireTheOwnersDevice()
         let source = String(repeating: Self.longNote, count: 3)
         let workspace = try await makeWorkspace(notes: ["Long.md": source])
         await workspace.open(try VaultPath("Long.md"))
