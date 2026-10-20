@@ -21,9 +21,15 @@ enum GoodnotesStrokePlanner {
     }
 
     static func strokes(for stroke: GoodnotesStroke, tally: inout ImportReportTally) -> [ImportedStroke] {
-        if stroke.shape != nil {
-            tally.count(.element(.shape))
-            return []
+        if let shape = stroke.shape {
+            guard let geometry = shape.geometry, let width = shape.width ?? pathWidth(stroke.path) else {
+                tally.count(.element(.shape))
+                return []
+            }
+            tally.count(.shapeAsInk)
+            if stroke.isHighlighter { tally.count(.highlighter) }
+            if case .constantWidth(let path) = stroke.path, !path.dashPattern.isEmpty { tally.count(.dashes) }
+            return [shapeStroke(geometry, width: width, stroke: stroke)]
         }
         if stroke.isTape {
             tally.count(.tape)
@@ -112,6 +118,34 @@ enum GoodnotesStrokePlanner {
                 current = curve.end
             }
             return ImportedStroke(ink: .pencil, color: color, samples: samples, outline: nil)
+        }
+    }
+
+    /// A shape's outline as one stroke of the shape's width, in page points with the stroke's offset.
+    private static func shapeStroke(_ geometry: GoodnotesShape.Geometry, width: Double, stroke: GoodnotesStroke) -> ImportedStroke {
+        let tolerance = flatteningToleranceInPoints / GoodnotesPagePlanner.pointsPerUnit
+        let unitPoints: [CGPoint] = switch geometry {
+        case .polyline(let points): ShapeOutlineSampling.polyline(points, closed: false)
+        case .arcThroughThreePoints(let first, let second, let third): ShapeOutlineSampling.arc(through: first, second, third, tolerance: tolerance)
+        case .rectangle(let center, let size, let angleRadians): ShapeOutlineSampling.rectangle(center: center, size: size, angleRadians: angleRadians)
+        case .ellipse(let center, let radii, let angleRadians):
+            ShapeOutlineSampling.ellipse(center: center, radii: radii, angleRadians: angleRadians, tolerance: tolerance)
+        }
+        let transform = PageTransform(offset: stroke.offset)
+        let samples = unitPoints.map { point in
+            ImportedStrokeSample(location: transform.point(point), width: transform.length(width), force: nil, azimuthRadians: nil, altitudeRadians: nil)
+        }
+        return ImportedStroke(ink: stroke.isHighlighter ? .highlighter : .monoline, color: stroke.color, samples: samples, outline: nil)
+    }
+
+    /// The one width a path stores, for a shape that stores none of its own; nil for a path with a width per point or
+    /// a layout not known.
+    private static func pathWidth(_ path: GoodnotesStrokePath) -> Double? {
+        switch path {
+        case .constantWidth(let path): path.width
+        case .olderVaryingWidth(let path): path.width
+        case .pencil(let path): path.width
+        case .varyingWidth, .unknownLayout: nil
         }
     }
 

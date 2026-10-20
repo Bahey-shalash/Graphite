@@ -162,8 +162,7 @@ struct PDFOutlineEntry: Identifiable, Equatable {
     let hasChildren: Bool
     var id: [Int] { path }
     var depth: Int { path.count - 1 }
-    /// The start of the label Graphite gives the bookmarks it adds, "Page 12".
-    static let bookmarkLabelPrefix = "Page "
+    static let bookmarkLabelPrefix = PDFPageManager.bookmarkLabelPrefix
     /// A top-level entry without children, labeled the way Graphite labels bookmarks, is
     /// shown as a bookmark of its page. The label test keeps a flat table of contents
     /// written by the PDF's author ("Introduction", "Results") from being offered for

@@ -64,7 +64,7 @@ enum NotabilityCurveSampling {
     }
 
     /// Runs of samples on the page, each extended by one sample past the edge where it leaves or enters.
-    private static func pieces(of samples: [ImportedStrokeSample], pageHeightInPoints: Double) -> [[ImportedStrokeSample]] {
+    static func pieces(of samples: [ImportedStrokeSample], pageHeightInPoints: Double) -> [[ImportedStrokeSample]] {
         let isOnPage = samples.map { sample in sample.location.y >= -sample.width && sample.location.y <= pageHeightInPoints + sample.width }
         var pieces: [[ImportedStrokeSample]] = []
         var sampleIndex = 0

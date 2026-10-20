@@ -32,7 +32,10 @@ struct ImportedBackgroundPages {
         }
         switch plan.background {
         case .plainColor(let color):
-            return try plainPage(color: color, size: size, pageIndex: pageIndex)
+            return try generatedPage(PaperSpecification(template: .blank, width: size.width, height: size.height,
+                                                        paperColorHex: Self.hexadecimalText(of: color)), pageIndex: pageIndex)
+        case .ruledPaper(let ruledPaper):
+            return try generatedPage(Self.paper(for: ruledPaper, size: size), pageIndex: pageIndex)
         case .pdfPage(let file, let pageNumber):
             let sourcePage = try page(numbered: pageNumber, of: file)
             if sourcePage.rotation % 360 == 0, Self.isSameSize(sourcePage.bounds(for: .cropBox).size, size),
@@ -47,9 +50,18 @@ struct ImportedBackgroundPages {
         abs(firstSize.width - secondSize.width) <= sizeTolerancePoints && abs(firstSize.height - secondSize.height) <= sizeTolerancePoints
     }
 
-    /// Opaque paper: the color's alpha is not used.
-    private func plainPage(color: NotebookImportColor, size: CGSize, pageIndex: Int) throws -> PDFPage {
-        let paper = PaperSpecification(template: .blank, width: size.width, height: size.height, paperColorHex: Self.hexadecimalText(of: color))
+    /// Ruled or grid paper of Graphite's paper system, with the source's ruling (`PaperRuling`).
+    private static func paper(for ruledPaper: ImportedRuledPaper, size: CGSize) -> PaperSpecification {
+        let ruling = PaperRuling(lineColorHex: hexadecimalText(of: ruledPaper.lineColor), lineWidth: ruledPaper.lineWidth,
+                                 firstRowFromTop: ruledPaper.firstRowFromTop, leftEdge: ruledPaper.leftEdge, rightEdge: ruledPaper.rightEdge,
+                                 gridColumnAnchor: ruledPaper.gridColumnAnchor)
+        return PaperSpecification(template: ruledPaper.gridColumnAnchor == nil ? .ruled : .grid, width: size.width, height: size.height,
+                                  spacing: ruledPaper.spacing, paperColorHex: hexadecimalText(of: ruledPaper.paperColor), ruling: ruling)
+    }
+
+    /// A page Graphite's paper system draws, of exactly the plan's size. Opaque paper: a color's alpha is not used.
+    private func generatedPage(_ paper: PaperSpecification, pageIndex: Int) throws -> PDFPage {
+        let size = CGSize(width: paper.width, height: paper.height)
         let pageData = try PDFTemplateGenerator.pageData(paper: paper, matching: size)
         // The generator brings a size PDF does not allow into the allowed range; such a page is not the plan's.
         guard let page = PDFDocument(data: pageData)?.page(at: 0), Self.isSameSize(page.bounds(for: .cropBox).size, size) else {

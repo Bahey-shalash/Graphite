@@ -192,13 +192,11 @@ final class NotabilityPagePlannerTests: XCTestCase {
         XCTAssertEqual(whitePlan.background, .plainColor(Self.white))
     }
 
-    func testRuledAndGridPapersReportThatTheirRulingIsNotDrawn() throws {
-        for lineStyle in [NotabilityPaperLineStyle.lines(parameters: ["false", "false", "0.5"]), .grid(parameters: ["false", "true", "0.5"]),
-                          .unknown("Dots")] {
-            let note = Self.note(paper: Self.paper(lineStyle: lineStyle))
-            let plan = try XCTUnwrap(Self.plannedPlan(NotabilityPagePlanner.plan(Self.page(number: 1, curves: []), note: note)))
-            XCTAssertEqual(plan.report, [.paperRulingNotDrawn])
-        }
+    func testAnUnknownLineStyleReportsThatItsRulingIsNotDrawn() throws {
+        let note = Self.note(paper: Self.paper(lineStyle: .unknown("Dots")))
+        let plan = try XCTUnwrap(Self.plannedPlan(NotabilityPagePlanner.plan(Self.page(number: 1, curves: []), note: note)))
+        XCTAssertEqual(plan.report, [.paperRulingNotDrawn])
+        XCTAssertEqual(plan.background, .plainColor(Self.white))
     }
 
     func testPaperWithoutLinesOrWithAnAbsentLineStyleReportsNoRuling() throws {
@@ -211,19 +209,17 @@ final class NotabilityPagePlannerTests: XCTestCase {
 
     // MARK: Elements left out
 
-    func testShapesPicturesAndTypedTextOnTheFirstPageAreCounted() throws {
+    func testShapesWithoutAWidthAndTypedTextOnTheFirstPageAreCountedAndPicturesArePlanned() throws {
         let shape = NotabilityShape(kind: .line, drawnBeforeCurveIndex: 0, start: .zero, end: CGPoint(x: 10, y: 10), quadraticControlPoint: nil,
-                                    width: 2, color: Self.inkColor, dashPattern: nil)
+                                    width: nil, color: Self.inkColor, dashPattern: nil)
         let picture = NotabilityPicture(file: .fixture("Images/Image 1.jpg"), origin: .zero, size: CGSize(width: 10, height: 10),
                                         rotationRadiansClockwise: 0, zIndex: 0, cropRectangle: CGRect(x: 0, y: 0, width: 10, height: 10),
                                         isFlippedHorizontally: false, isFlippedVertically: false)
         let note = Self.note(typedText: NotabilityTypedText(text: "Some words", runs: []))
         let page = Self.page(number: 1, curves: [], shapes: [shape, shape], pictures: [picture])
         let plan = try XCTUnwrap(Self.plannedPlan(NotabilityPagePlanner.plan(page, note: note)))
-        XCTAssertEqual(plan.report, [
-            .elementsNotYetConverted(kind: .shape, count: 2), .elementsNotYetConverted(kind: .picture, count: 1),
-            .elementsNotYetConverted(kind: .typedText, count: 1)
-        ])
+        XCTAssertEqual(plan.report, [.elementsNotYetConverted(kind: .shape, count: 2), .elementsNotYetConverted(kind: .typedText, count: 1)])
+        XCTAssertEqual(plan.pictures.count, 1)
     }
 
     func testTypedTextIsNotCountedOnLaterPagesOrWhenEmpty() throws {
