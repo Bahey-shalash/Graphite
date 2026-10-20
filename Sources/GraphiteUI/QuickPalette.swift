@@ -385,6 +385,9 @@ struct TemplatePicker: View {
 
     private var emptyMessage: String {
         if !hasLoaded { return "Reading the Templates folder…" }
+        if let unreadableSettingsMessage = workspace.unreadableSettingsMessage, workspace.templateSettingsReading.settings == nil {
+            return unreadableSettingsMessage
+        }
         if workspace.templateSettings.folderPath == nil { return "Choose a Templates folder in Settings › Templates." }
         return templates.isEmpty ? "The Templates folder “\(workspace.templateSettings.folder)” has no notes." : "No templates match."
     }
