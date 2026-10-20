@@ -64,7 +64,7 @@ final class InfoPropertyListDeclarationsTests: XCTestCase {
         XCTAssertEqual(Set(try infoPropertyList().keys), [
             "CFBundleDisplayName", "CFBundleExecutable", "CFBundleIdentifier", "CFBundleName", "CFBundlePackageType",
             "CFBundleShortVersionString", "CFBundleVersion", "CFBundleURLTypes",
-            "ITSAppUsesNonExemptEncryption", "LSSupportsOpeningDocumentsInPlace",
+            "ITSAppUsesNonExemptEncryption", "LSApplicationCategoryType", "LSSupportsOpeningDocumentsInPlace",
             "NSCameraUsageDescription", "NSMicrophoneUsageDescription", "NSPhotoLibraryAddUsageDescription",
             "UIApplicationSceneManifest", "UIBackgroundModes", "UIFileSharingEnabled", "UILaunchScreen",
             "UISupportedInterfaceOrientations", "UISupportsDocumentBrowser", "UTExportedTypeDeclarations",
@@ -82,6 +82,11 @@ final class InfoPropertyListDeclarationsTests: XCTestCase {
         let project = try String(contentsOf: repositoryRoot.appendingPathComponent("Graphite.xcodeproj/project.pbxproj"), encoding: .utf8)
         XCTAssertEqual(project.components(separatedBy: "MARKETING_VERSION = ").count - 1, 2)
         XCTAssertEqual(project.components(separatedBy: "CURRENT_PROJECT_VERSION = ").count - 1, 2)
+    }
+
+    /// App Store Connect refuses a Mac upload without a category; iOS ignores the key.
+    func testTheMacAppHasAnAppStoreCategory() throws {
+        XCTAssertEqual(try infoPropertyList()["LSApplicationCategoryType"] as? String, "public.app-category.productivity")
     }
 
     /// Without this answer every uploaded build waits in App Store Connect for the export compliance question.

@@ -1,6 +1,6 @@
 # Releasing to TestFlight
 
-The iOS app is listed in App Store Connect as **Graphite Note** (the names "Graphite" and "Graphite Notes" were taken), with bundle identifier `com.graphite.study`, SKU `graphite`, and team `JDP856P5D5`. The App Store name is what TestFlight shows; on the device the app is still called Graphite (`CFBundleDisplayName`). The record lists iOS and macOS; only the iOS build is uploaded so far.
+The iOS app is listed in App Store Connect as **Graphite Note** (the names "Graphite" and "Graphite Notes" were taken), with bundle identifier `com.graphite.study`, SKU `graphite`, and team `JDP856P5D5`. The App Store name is what TestFlight shows; on the device the app is still called Graphite (`CFBundleDisplayName`). The record lists iOS and macOS. Its "iPhone and iPad Apps on Apple Silicon Macs" setting is off (2026-10-20), so a Mac gets the native Mac build, never the iPad one.
 
 ## Uploading a build
 
@@ -8,7 +8,11 @@ The iOS app is listed in App Store Connect as **Graphite Note** (the names "Grap
 scripts/archive-for-testflight.sh /tmp/graphite-testflight
 ```
 
-The script archives the `Graphite` scheme in Release for `generic/platform=iOS` and uploads it with `App/ExportOptions.plist` (method `app-store-connect`, automatic signing). The checkout sits in iCloud's Desktop, where codesign fails, so the folder it is given must be outside it. Xcode must be signed in to the team's Apple account. `--archive-only` stops before the upload. It refuses to start while another build or test run is going, because parallel builds starve the machine.
+```bash
+scripts/archive-for-testflight.sh /tmp/graphite-testflight --macos
+```
+
+The script archives the `Graphite` scheme in Release for `generic/platform=iOS`, or `generic/platform=macOS` with `--macos`, and uploads it with `App/ExportOptions.plist` (method `app-store-connect`, automatic signing). The checkout sits in iCloud's Desktop, where codesign fails, so the folder it is given must be outside it. Xcode must be signed in to the team's Apple account. `--archive-only` stops before the upload. It refuses to start while another build or test run is going, because parallel builds starve the machine.
 
 Each upload needs a higher build number than the last. The script passes the date and time (`20261020.1530`) as `CURRENT_PROJECT_VERSION`, which `Info.plist` reads as `CFBundleVersion`; nothing in the repository changes per upload. The version people see is `MARKETING_VERSION` in the project (1.0). Raise it for a new release.
 
@@ -16,6 +20,7 @@ Xcode's Organizer works too (Product › Archive, then Distribute App › TestFl
 
 ## What the upload declares
 
+- `LSApplicationCategoryType` is Productivity: App Store Connect refuses a Mac build without a category, and iOS ignores it.
 - `ITSAppUsesNonExemptEncryption` is `false` in `App/Info.plist`: Graphite only uses HTTPS and Apple's own cryptography, so builds skip the export compliance question.
 - `App/PrivacyInfo.xcprivacy` declares no tracking and no collected data, and the reasons for the APIs Apple asks about: UserDefaults (`CA92.1`, the app's own settings), file timestamps (`C617.1` and `3B52.1`, files in the container and in the vault the person chose), time since boot (`35F9.1`, measuring elapsed time) and free disk space (`E174.1`, checked before a recording is written). Packages bring their own manifests (GRDB, swift-crypto). Update it when code starts using another API in Apple's required-reason list.
 
