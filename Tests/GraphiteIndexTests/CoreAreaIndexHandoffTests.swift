@@ -275,7 +275,7 @@ final class CoreAreaIndexHandoffTests: XCTestCase {
         } catch let error as SearchError {
             XCTAssertEqual(error, .regularExpressionTooSlow)
         }
-        XCTAssertLessThan(clock.now - startTime, .seconds(10))
+        XCTAssertLessThan(clock.now - startTime, HangGuard.duration)
     }
 
     // MARK: File names in another case (F242)

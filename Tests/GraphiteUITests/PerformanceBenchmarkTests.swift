@@ -211,6 +211,32 @@ final class PerformanceBenchmarkTests: XCTestCase {
         }
     }
 
+    // MARK: A very large canvas board
+
+    /// Finding the cards in view among 20,000 fits in a frame at 120 Hz. This is a claim about the owner's iPad, so it is
+    /// checked here, by the nightly device job; the package suite checks only that the scan grows in proportion to the cards
+    /// (`CanvasGeometryTests`), which holds on a runner too.
+    func testFindingTheVisibleCardsOfAVeryLargeBoardFitsInAFrame() throws {
+        let cardCount = 20_000
+        let cardLines = (0..<cardCount).map { cardIndex in
+            "{\"id\":\"\(String(format: "%016x", cardIndex))\",\"type\":\"text\",\"text\":\"Card \(cardIndex)\",\"x\":\((cardIndex % 100) * 300),\"y\":\((cardIndex / 100) * 200),\"width\":260,\"height\":140}"
+        }
+        let file = try CanvasFile(data: Data(("{\"nodes\":[" + cardLines.joined(separator: ",") + "],\"edges\":[]}").utf8))
+        let visibleFrame = CanvasViewport(scale: 1, origin: CGPoint(x: 9_000, y: 12_000)).visibleBoardFrame(viewSize: CGSize(width: 1200, height: 900))
+        let frameCount = 600
+        var visibleCount = 0
+        let start = ContinuousClock.now
+        for frameIndex in 0..<frameCount {
+            let panned = visibleFrame.offsetBy(dx: CGFloat(frameIndex), dy: 0)
+            visibleCount = file.nodes.reduce(0) { count, node in count + (node.frame.intersects(panned) ? 1 : 0) }
+        }
+        let elapsed = ContinuousClock.now - start
+        let secondsPerFrame = (Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18) / Double(frameCount)
+        XCTAssertEqual(visibleCount, 4 * 5, "Only the cards in view are found: 4 columns by 5 rows here.")
+        print("GRAPHITE-BENCH platform=\(Self.platformName) scenario=canvas-visible-cards cards=\(cardCount) ms_per_frame=\(String(format: "%.3f", secondsPerFrame * 1_000))")
+        XCTAssertLessThan(secondsPerFrame, 0.008, "Well inside one frame at 120 Hz.")
+    }
+
     // MARK: The map
 
     /// Updates of the view around the map that change nothing the map shows.

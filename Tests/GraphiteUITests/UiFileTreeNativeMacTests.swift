@@ -26,16 +26,18 @@ final class UiFileTreeNativeMacTests: XCTestCase {
     /// stayed busy 7 to 10 s after the vault opened.
     func testTwentyFiveThousandRootFilesShowAtOnce() async throws {
         let workspace = try makeWorkspace(files: [])
-        let started = Date.now
         workspace.rootEntries = try (0..<25_000).map { fileIndex in
             VaultEntry(path: try VaultPath(String(format: "Note %05d.md", fileIndex)), isDirectory: false, size: 10, modified: .now)
         }
         let outlineView = try await showSidebar(of: workspace)
         try await waitUntil { outlineView.numberOfRows == 25_000 }
-        let elapsedSeconds = Date.now.timeIntervalSince(started)
+        outlineView.layoutSubtreeIfNeeded()
         XCTAssertTrue(outlineView is FileTreeOutlineView, "The Mac's tree is the native outline view")
-        XCTAssertLessThan(elapsedSeconds, 1.5, "Listing 25,000 rows took \(elapsedSeconds) s")
-        print("Listing 25,000 root files took \(elapsedSeconds) s")
+        // Counted, not timed: the outline view makes a view for each row in sight, a few dozen of a 700-point sidebar, and none
+        // for the other thousands.
+        let rowViewCount = outlineView.subviews.filter { subview in subview is NSTableRowView }.count
+        XCTAssertGreaterThan(rowViewCount, 0)
+        XCTAssertLessThan(rowViewCount, 100, "\(rowViewCount) row views for 25,000 files: only the rows shown have one.")
     }
 
     /// A note's name reads first; its extension follows, muted, where Settings shows extensions.
