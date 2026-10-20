@@ -19,10 +19,10 @@ final class CommunityPluginSecretStoreSizeLimitTests: XCTestCase {
         XCTAssertThrowsError(try store.setSecret(overCapValue, forIdentifier: "k")) { error in
             guard case CommunityPluginSecretError.tooLarge = error else { return XCTFail("\(error)") }
         }
-        XCTAssertEqual(store.secrets(), [:], "A refused secret is not kept.")
+        XCTAssertEqual(try store.secrets(), [:], "A refused secret is not kept.")
 
         let atCapValue = String(repeating: "a", count: valueBytesAtCap)
         try store.setSecret(atCapValue, forIdentifier: "k")
-        XCTAssertEqual(store.secrets()["k"]?.utf8.count, valueBytesAtCap)
+        XCTAssertEqual(try store.secrets()["k"]?.utf8.count, valueBytesAtCap)
     }
 }
