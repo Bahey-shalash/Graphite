@@ -342,8 +342,9 @@ enum SearchSQLCompiler {
             let pattern = RegularExpressionFunction.argument(pattern: term.text, isCaseSensitive: false)
             let function = regularExpressionFunctionName
             // Attachments and unread notes are indexed with an empty body, which is not their
-            // text: a pattern that matches empty text must not find them.
-            let contentCondition = "files.contentIndexed = 1 AND files.rowid IN (SELECT rowid FROM search WHERE \(function)(?, body))"
+            // text, and a canvas has no searchable text (`PreparedFile.searchableText`): a pattern
+            // that matches empty text must not find them, as the matcher gives them no content.
+            let contentCondition = "files.contentIndexed = 1 AND files.basename NOT LIKE '%.canvas' AND files.rowid IN (SELECT rowid FROM search WHERE \(function)(?, body))"
             switch target {
             case .note:
                 return SearchSQLCondition(sql: "\(function)(?, files.basename) OR \(function)(?, files.path) OR (\(contentCondition))",
