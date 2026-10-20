@@ -18,7 +18,8 @@ let package = Package(
   ],
   dependencies: [
     .package(url: "https://github.com/pointfreeco/swift-concurrency-extras", from: "1.3.1"),
-    .package(url: "https://github.com/gonzalezreal/swiftui-math", from: "0.1.0"),
+    // Vendored SwiftUIMath 0.1.0 with Graphite's patches (Vendor/swiftui-math/GRAPHITE-PATCHES.md).
+    .package(path: "../swiftui-math"),
   ],
   targets: [
     .target(
