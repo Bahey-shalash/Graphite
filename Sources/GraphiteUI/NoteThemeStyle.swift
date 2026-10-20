@@ -35,6 +35,8 @@ struct NoteThemeStyle: Equatable {
     /// Syntax colors in code blocks, readable on the theme's code background; empty when the
     /// theme leaves them to Graphite (`CodeSyntaxColors`).
     let codeTokenColors: [CodeTokenKind: PlatformColor]
+    /// Obsidian's code palette with this theme's values, made once here because it depends on nothing else.
+    let obsidianCodePalette: CodePalette
     let blockquoteBorderColor: PlatformColor?
     let highlightBackground: PlatformColor?
     let horizontalRuleColor: PlatformColor?
@@ -221,6 +223,9 @@ struct NoteThemeStyle: Equatable {
         codeBlockRadius = either(\.codeBlockRadius)
         codeBlockBorderColor = color(\.codeBlockBorderColor, .decoration, fallback: .clear)
         codeBlockBorderWidth = either(\.codeBlockBorderWidth)
+        obsidianCodePalette = CodeSyntaxColors.obsidianPalette(
+            themeTokenColors: codeTokenColors, codeColor: codeColor, codeBackground: codeBackground, codeBlockBackground: codeBlockBackground,
+            quietText: textMuted, borderWidth: codeBlockBorderWidth, borderColor: codeBlockBorderColor)
         highlightRadius = either(\.highlightRadius)
         highlightTextColor = color(\.highlightTextColor, on: \.highlightBackground, fallback: Self.systemLabel)
         inlineTitleColor = Self.dynamicColor(light: light.inlineTitle.color, dark: dark.inlineTitle.color, role: .largeText,

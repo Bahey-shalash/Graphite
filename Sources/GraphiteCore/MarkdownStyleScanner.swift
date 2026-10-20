@@ -40,7 +40,8 @@ public struct MarkdownStyleSpan: Equatable, Sendable {
     /// quote marker, a block's `^id`. Live Preview shows an inline element's markup while
     /// the selection touches the element, and a line's markup while the selection is on it.
     public let inlineElementRange: NSRange?
-    /// For a `.codeBlock` line, the fenced block it belongs to, which the editor highlights.
+    /// For a `.codeBlock` line or a code fence (a `.syntaxMarker`), the fenced block it
+    /// belongs to, which the editor highlights and draws in a box.
     public let fencedCodeBlock: FencedCodeBlock?
 
     public init(range: NSRange, style: MarkdownStyle, inlineElementRange: NSRange? = nil, fencedCodeBlock: FencedCodeBlock? = nil) {
@@ -442,12 +443,19 @@ public enum MarkdownStyleScanner {
         case .fencedCode:
             let fenceContent = quoteMarkersAndContent(of: trimmedLine, maximumDepth: state.fenceQuoteDepth).content
             let isClosingFence = state.openFence.map { fence in CodeFence.closes(fence, fenceContent) } ?? false
-            if isClosingFence { return [span(lineContent, .syntaxMarker)] }
+            if isClosingFence {
+                return [MarkdownStyleSpan(range: NSRange(location: lineLocation, length: contentLength), style: .syntaxMarker, fencedCodeBlock: state.fencedCodeBlock)]
+            }
             return [MarkdownStyleSpan(range: NSRange(location: lineLocation, length: contentLength), style: .codeBlock, fencedCodeBlock: state.fencedCodeBlock)]
         case .mathBlock:
             return [span(lineContent, .math)]
         case .normal:
-            if CodeFence.opening(content) != nil { return [span(lineContent, .syntaxMarker)] }
+            if let (fence, info) = CodeFence.opening(content) {
+                let depth = quoteMarkersAndContent(of: trimmedLine, maximumDepth: .max).depth
+                let codeBlock = FencedCodeBlock(language: NotePreviewDocument.codeBlockLanguage(ofFenceInfo: info), codeStart: lineLocation + line.length,
+                                                quoteDepth: depth, fence: fence)
+                return [MarkdownStyleSpan(range: NSRange(location: lineLocation, length: contentLength), style: .syntaxMarker, fencedCodeBlock: codeBlock)]
+            }
             if opensDisplayMathBlock(content) || isSingleLineMathBlock(content) { return [span(lineContent, .math)] }
         }
         var spans: [MarkdownStyleSpan] = []

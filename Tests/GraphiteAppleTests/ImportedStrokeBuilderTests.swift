@@ -1,6 +1,7 @@
 import XCTest
 import CoreGraphics
 import PencilKit
+import PDFKit
 import GraphiteCore
 @testable import GraphiteApple
 #if canImport(UIKit)
@@ -132,15 +133,40 @@ final class ImportedStrokeBuilderTests: XCTestCase {
         XCTAssertEqual(Set(timeOffsets).count, timeOffsets.count, "Strictly increasing.")
     }
 
-    /// Graphite's PDF writing samples a stroke back with `PencilStrokeSampler`, which reads the point size as the
-    /// width. The sizes are not the drawn widths, which is why the import writer gives each annotation the planned shape.
-    func testPencilStrokeSamplerReadsThePointSizeNotTheDrawnWidth() throws {
-        for (ink, plannedWidth) in [(ImportedStroke.Ink.monoline, 1.0), (.pen, 3), (.fountainPen, 5), (.pencil, 4), (.highlighter, 20)] {
+    /// Graphite's PDF ink and vector drawings sample a stroke back with `PencilStrokeSampler`: the monoline, the pen
+    /// and the pencil at the width PencilKit draws, so an imported stroke edited later is written as wide as planned;
+    /// the fountain pen and the highlighter, whose drawn width turns with the nib, at the point size.
+    func testPencilStrokeSamplerReadsTheDrawnWidthWhereItDoesNotTurnWithTheNib() throws {
+        for (ink, plannedWidth) in [(ImportedStroke.Ink.monoline, 1.0), (.pen, 3), (.pencil, 4)] {
             let stroke = try built(straightStroke(ink, width: plannedWidth, from: CGPoint(x: 20, y: 50), to: CGPoint(x: 120, y: 50)))
             let sampledWidths = PencilStrokeSampler.centerLineSamples(of: stroke).map(\.width)
-            let pointSize = PencilInkRenderedWidth.pointSize(forRenderedWidth: plannedWidth, ink: ink)
             XCTAssertFalse(sampledWidths.isEmpty)
-            for sampledWidth in sampledWidths { XCTAssertEqual(sampledWidth, pointSize, accuracy: 0.001, "\(ink)") }
+            for sampledWidth in sampledWidths { XCTAssertEqual(sampledWidth, plannedWidth, accuracy: 0.01, "\(ink)") }
+        }
+        for (ink, plannedWidth) in [(ImportedStroke.Ink.fountainPen, 5.0), (.highlighter, 20)] {
+            let stroke = try built(straightStroke(ink, width: plannedWidth, from: CGPoint(x: 20, y: 50), to: CGPoint(x: 120, y: 50)))
+            let pointSize = PencilInkRenderedWidth.pointSize(forRenderedWidth: plannedWidth, ink: ink)
+            for sampledWidth in PencilStrokeSampler.centerLineSamples(of: stroke).map(\.width) {
+                XCTAssertEqual(sampledWidth, pointSize, accuracy: 0.001, "\(ink)")
+            }
+        }
+    }
+
+    /// A pen or pencil stroke saved as PDF ink, as other readers and the thumbnails show it, is as wide as PencilKit
+    /// drew it on the canvas: a pen point of size 3 is drawn 2 points wide and one of size 8 12 points wide, and the
+    /// saved ink took the size as its width, too thick for fine pens and too thin for broad ones.
+    func testSavedPDFInkIsAsWideAsPencilKitDrawsTheStroke() throws {
+        for (inkType, pointSize) in [(PKInkingTool.InkType.pen, 3.0), (.pen, 8), (.monoline, 4), (.pencil, 4)] {
+            let points = (0...40).map { pointIndex in
+                PKStrokePoint(location: CGPoint(x: 20 + CGFloat(pointIndex) * 5, y: 120), timeOffset: Double(pointIndex) / 60,
+                              size: CGSize(width: pointSize, height: pointSize), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+            }
+            let stroke = PKStroke(ink: PKInk(inkType, color: .black), path: PKStrokePath(controlPoints: points, creationDate: creationDate))
+            let drawnWidth = try renderedHeight(of: stroke)
+            let page = try XCTUnwrap(PDFDocument(data: PDFTemplateGenerator.documentData(paper: PaperSpecification(template: .blank)))?.page(at: 0))
+            let coordinates = try PageCoordinates(cropBox: page.bounds(for: .cropBox), overlaySize: page.bounds(for: .cropBox).size)
+            let savedStroke = try XCTUnwrap(PDFPageInkTracker.portableStroke(for: stroke, name: "stroke", coordinates: coordinates))
+            XCTAssertEqual(savedStroke.width, drawnWidth, accuracy: max(0.3, drawnWidth * 0.06), "\(inkType.rawValue) of point size \(pointSize)")
         }
     }
 

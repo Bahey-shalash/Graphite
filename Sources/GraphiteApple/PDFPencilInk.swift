@@ -88,7 +88,8 @@ struct PDFStrokeFingerprint: Hashable {
 ///
 /// Owned by the page's canvas on the main actor. Conversion is proportional to the
 /// strokes that changed; comparing fingerprints and archiving the drawing are the only
-/// work proportional to the page. Updates can defer the archiving, which then happens
+/// work proportional to the page, and a stroke just drawn after the others skips the
+/// comparison (`updateAppending`). Updates can defer the archiving, which then happens
 /// once in `deferredEditableRecordUpdate(for:pageIndex:)` instead of at every change.
 public struct PDFPageInkTracker {
     public let group: String
@@ -118,6 +119,7 @@ public struct PDFPageInkTracker {
             for (stroke, name) in zip(drawing.strokes, record.strokeNames) {
                 tracker.namesByFingerprint[PDFStrokeFingerprint(stroke: stroke), default: []].append(name)
             }
+            tracker.strokeNamesInDrawingOrder = record.strokeNames
             tracker.knowsAnnotationNames = true
         }
         return (tracker, drawing)
@@ -168,6 +170,24 @@ public struct PDFPageInkTracker {
         let record = defersEditableRecord ? nil : editableRecord(for: drawing)
         return PDFInkUpdate(pageIndex: pageIndex, group: group, removal: removal, addedStrokes: addedStrokes,
                             editableRecord: record, defersEditableRecord: defersEditableRecord)
+    }
+
+    /// The update `update(for:pageIndex:coordinates:defersEditableRecord:)` makes, with the
+    /// record deferred, for a drawing whose one change is `stroke`, added after the
+    /// `strokeIndex` strokes of the drawing last passed to the tracker: only that stroke is
+    /// fingerprinted and converted, none of the others is looked at. Nil when the tracker
+    /// cannot vouch for the others, because its strokes are not yet matched to annotations
+    /// or it last saw another number of them; the caller then makes the full update.
+    public mutating func updateAppending(_ stroke: PKStroke, at strokeIndex: Int, pageIndex: Int, coordinates: PageCoordinates) -> PDFInkUpdate? {
+        guard knowsAnnotationNames, strokeIndex == strokeNamesInDrawingOrder.count else { return nil }
+        let portableStroke = Self.portableStroke(for: stroke, name: UUID().uuidString, coordinates: coordinates)
+        // A stroke with nothing visible has no annotation, as in `update`.
+        let name = portableStroke?.name ?? ""
+        namesByFingerprint[PDFStrokeFingerprint(stroke: stroke), default: []].append(name)
+        strokeNamesInDrawingOrder.append(name)
+        hasDeferredEditableRecord = true
+        return PDFInkUpdate(pageIndex: pageIndex, group: group, removal: .strokes([]), addedStrokes: portableStroke.map { [$0] } ?? [],
+                            editableRecord: nil, defersEditableRecord: true)
     }
 
     /// The update that writes the re-editing record earlier updates deferred, or nil when

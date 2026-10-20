@@ -32,7 +32,6 @@ Sources/GraphiteApple/PDFPicture.swift              PDFPictureAnnotation.fileRea
 Sources/GraphiteCore/CodeSyntaxHighlighting.swift   CodeSyntaxHighlighter.cachedTokens  # Mutex token cache; becomes an instance of the reading renderer (foundations 3.4)
 Sources/GraphiteUI/PencilToolbar.swift              PencilInkSample.cache               # NSCache of ink sample images, bounded by the system
 Sources/GraphiteUI/LivePreviewRenderedBlocks.swift  LivePreviewRenderedBlocks.measuredHeights # bounded cache (capacity 2,000); leaks between tests
-Sources/GraphiteUI/CodeSyntaxColors.swift           CodeSyntaxColors.lastHighlighterTheme # one-entry theme memo
 Sources/GraphiteUI/GraphitePreferences.swift        GraphitePreferences.accentColorsByHex # colour memo; moves with preferences (SRP-SHELL-06)
 Sources/GraphiteUI/MarkdownTextStyler.swift         MarkdownTextStyler.inlineMathMetricsByKey # inline-math metrics memo
 Sources/GraphiteUI/NoteTypography.swift             InstalledFontFamilies.familiesByLowercasedName # installed-font lookup memo

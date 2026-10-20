@@ -20,6 +20,10 @@ public enum CodeTokenKind: String, CaseIterable, Sendable {
     case property
     /// A variable written with a sigil, or a register: `$HOME`, `%rax`, `x0`.
     case variable
+    /// Any other name in code: a variable, a parameter, a field.
+    case identifier
+    /// `=`, `+=`, `<`, `++`, `*`, `->`, `<=`.
+    case `operator`
 }
 
 /// A run of code of one kind. Text between tokens is plain code.
@@ -234,6 +238,9 @@ private struct CodeLineScanner {
     var state: CodeLineState
     let collectsTokens: Bool
     private(set) var tokens: [CodeToken] = []
+    /// The kind a C preprocessor line gives its code after the directive: the whole of
+    /// `#pragma HLS INTERFACE m_axi port=input` reads as one directive.
+    private var directiveLineKind: CodeTokenKind?
 
     init(language: CodeLanguage, units: UnsafeBufferPointer<UInt16>, state: CodeLineState, collectsTokens: Bool) {
         self.language = language
@@ -254,8 +261,9 @@ private struct CodeLineScanner {
         }
     }
 
-    private mutating func emit(_ start: Int, _ end: Int, _ kind: CodeTokenKind) {
+    private mutating func emit(_ start: Int, _ end: Int, _ tokenKind: CodeTokenKind) {
         guard collectsTokens, end > start else { return }
+        let kind = tokenKind == .string || tokenKind == .comment ? tokenKind : directiveLineKind ?? tokenKind
         if let lastToken = tokens.last, lastToken.kind == kind, NSMaxRange(lastToken.range) == start {
             tokens[tokens.count - 1] = CodeToken(range: NSRange(location: lastToken.range.location, length: end - lastToken.range.location), kind: kind)
         } else {
@@ -286,6 +294,8 @@ private struct CodeLineScanner {
     }
 
     private mutating func scanGeneralLine(_ lineStart: Int, _ lineEnd: Int) {
+        directiveLineKind = nil
+        defer { directiveLineKind = nil }
         var index = continueOpenConstruct(lineStart, lineEnd)
         guard index < lineEnd || state != .normal else { return }
         /// The last unit that is not a space before `index`, or 0.
@@ -330,13 +340,16 @@ private struct CodeLineScanner {
                 continue
             }
             if features.contains(.transposeQuote), unit == CodeUnits.singleQuote,
-               previousWasIdentifier || [CodeUnits.closingParenthesis, CodeUnits.closingBracket, CodeUnits.closingBrace, CodeUnits.dot, CodeUnits.singleQuote].contains(previousUnit),
+               previousWasIdentifier
+                   || [CodeUnits.closingParenthesis, CodeUnits.closingBracket, CodeUnits.closingBrace, CodeUnits.dot, CodeUnits.singleQuote]
+                       .contains(previousUnit),
                tokenStart > lineStart, !CodeUnits.isSpace(units[tokenStart - 1]) {
                 // MATLAB's transpose, not a string.
                 index += 1
                 continue
             }
-            if features.contains(.vhdlNumbers) || features.contains(.characterLiteralsOnly) || features.contains(.verilogNumbers), unit == CodeUnits.singleQuote {
+            if features.contains(.vhdlNumbers) || features.contains(.characterLiteralsOnly) || features.contains(.verilogNumbers),
+               unit == CodeUnits.singleQuote {
                 index = scanSingleQuote(at: index, lineEnd: lineEnd, previousUnit: previousUnit, previousWasIdentifier: previousWasIdentifier)
                 continue
             }
@@ -345,7 +358,8 @@ private struct CodeLineScanner {
                 continue
             }
             let isSignedCSSNumber = features.contains(.cssRules) && unit == CodeUnits.minus && index + 1 < lineEnd && CodeUnits.isDigit(units[index + 1])
-            if CodeUnits.isDigit(unit) || isSignedCSSNumber || (unit == CodeUnits.dot && index + 1 < lineEnd && CodeUnits.isDigit(units[index + 1]) && !previousWasIdentifier) {
+            if CodeUnits.isDigit(unit) || isSignedCSSNumber
+                || (unit == CodeUnits.dot && index + 1 < lineEnd && CodeUnits.isDigit(units[index + 1]) && !previousWasIdentifier) {
                 index = scanNumber(from: index, lineEnd: lineEnd)
                 emit(tokenStart, index, .number)
                 continue
@@ -358,9 +372,17 @@ private struct CodeLineScanner {
             }
             // The `=` of MATLAB's `function y = scaled(x)` keeps the declaration waiting for its name.
             if unit != CodeUnits.equals { declaredKind = nil }
+            if features.contains(.identifiersAndOperators), Self.operatorUnits.contains(unit) {
+                while index < lineEnd, Self.operatorUnits.contains(units[index]) { index += 1 }
+                emit(tokenStart, index, .operator)
+                continue
+            }
             index = scanSigil(at: index, lineStart: lineStart, lineEnd: lineEnd, isFirstTokenOfLine: isFirstTokenOfLine)
         }
     }
+
+    /// Characters operators are made of. Comments starting with `/` or `-` are found first.
+    private static let operatorUnits = Set("=+-*/%<>!&|^~?".utf16)
 
     // MARK: Identifiers
 
@@ -459,8 +481,9 @@ private struct CodeLineScanner {
             return end + 1
         }
         if features.contains(.marksFunctionCalls), next.unit == CodeUnits.openingParenthesis {
-            // `Point(1, 2)` and `new Map()` make a value of a type; `MAX(a, b)` is a macro.
-            let isTypeName = features.contains(.capitalizedIdentifiersAreTypes) && CodeUnits.isUppercaseASCIILetter(units[start]) && !isAllCapitals(start, end)
+            // `Point(1, 2)` and `new Map()` make a value of a type; `MAX(a, b)` is a macro. In
+            // C++ and C# a capitalized name is as often a function, `SumArray(input)`.
+            let isTypeName = features.contains(.capitalizedCallsMakeTypes) && CodeUnits.isUppercaseASCIILetter(units[start]) && !isAllCapitals(start, end)
             emit(start, end, isTypeName ? .typeName : .function)
             return end
         }
@@ -480,7 +503,9 @@ private struct CodeLineScanner {
         }
         if features.contains(.underscoreTypeSuffix), end - start > 2, units[end - 2] == CodeUnits.underscore, units[end - 1] == UInt16(UInt8(ascii: "t")) {
             emit(start, end, .typeName)
+            return end
         }
+        if features.contains(.identifiersAndOperators) { emit(start, end, .identifier) }
         return end
     }
 
@@ -558,7 +583,8 @@ private struct CodeLineScanner {
     /// Scans a string from its prefix or opening delimiter. Returns where the scan stopped.
     private mutating func scanString(ruleIndex: Int, tokenStart: Int, openingStart: Int, lineEnd: Int) -> Int {
         let rule = language.strings[ruleIndex]
-        let isRaw = tokenStart < openingStart && units[tokenStart..<openingStart].contains { unit in unit == UInt16(UInt8(ascii: "r")) || unit == UInt16(UInt8(ascii: "R")) }
+        let isRaw = tokenStart < openingStart
+            && units[tokenStart..<openingStart].contains { unit in unit == UInt16(UInt8(ascii: "r")) || unit == UInt16(UInt8(ascii: "R")) }
         let (end, isClosed) = scanStringBody(rule, from: openingStart + rule.opening.count, lineEnd: lineEnd, usesEscapes: rule.usesBackslashEscapes && !isRaw)
         var kind = rule.kind
         if features.contains(.keysBeforeColon), nextVisibleUnit(from: end, lineEnd: lineEnd).unit == CodeUnits.colon { kind = .property }
@@ -594,7 +620,8 @@ private struct CodeLineScanner {
     /// Rust lifetime (`'a`).
     private mutating func scanSingleQuote(at index: Int, lineEnd: Int, previousUnit: UInt16, previousWasIdentifier: Bool) -> Int {
         if features.contains(.verilogNumbers) {
-            let baseIndex = index + 1 < lineEnd && (units[index + 1] == UInt16(UInt8(ascii: "s")) || units[index + 1] == UInt16(UInt8(ascii: "S"))) ? index + 2 : index + 1
+            let baseIndex = index + 1 < lineEnd
+                && (units[index + 1] == UInt16(UInt8(ascii: "s")) || units[index + 1] == UInt16(UInt8(ascii: "S"))) ? index + 2 : index + 1
             if baseIndex < lineEnd, "bBoOdDhH".utf16.contains(units[baseIndex]) || "01xXzZ".utf16.contains(units[baseIndex]) {
                 var end = baseIndex + 1
                 while end < lineEnd, CodeUnits.isHexadecimalDigit(units[end]) || "_xXzZ?".utf16.contains(units[end]) { end += 1 }
@@ -640,26 +667,17 @@ private struct CodeLineScanner {
         if index < lineEnd, units[index] == CodeUnits.minus { index += 1 }
         if index + 1 < lineEnd, units[index] == UInt16(UInt8(ascii: "0")), "xXbBoO".utf16.contains(units[index + 1]) {
             index += 2
-            while index < lineEnd, CodeUnits.isHexadecimalDigit(units[index]) || units[index] == CodeUnits.underscore || units[index] == CodeUnits.singleQuote && features.contains(.digitSeparatorQuotes) { index += 1 }
+            while index < lineEnd, CodeUnits.isHexadecimalDigit(units[index]) || units[index] == CodeUnits.underscore
+                    || units[index] == CodeUnits.singleQuote && features.contains(.digitSeparatorQuotes) {
+                index += 1
+            }
         } else {
             while index < lineEnd, CodeUnits.isDigit(units[index]) || units[index] == CodeUnits.underscore
-                    || (units[index] == CodeUnits.singleQuote && features.contains(.digitSeparatorQuotes) && index + 1 < lineEnd && CodeUnits.isDigit(units[index + 1])) { index += 1 }
-            if features.contains(.verilogNumbers), index < lineEnd, units[index] == CodeUnits.singleQuote {
-                // `8'hFF`: the size, then the base and digits.
-                var end = index + 1
-                if end < lineEnd, units[end] == UInt16(UInt8(ascii: "s")) || units[end] == UInt16(UInt8(ascii: "S")) { end += 1 }
-                if end < lineEnd, "bBoOdDhH".utf16.contains(units[end]) {
-                    end += 1
-                    while end < lineEnd, CodeUnits.isHexadecimalDigit(units[end]) || "_xXzZ?".utf16.contains(units[end]) { end += 1 }
-                    return end
-                }
+                    || (units[index] == CodeUnits.singleQuote && features.contains(.digitSeparatorQuotes) && index + 1 < lineEnd
+                        && CodeUnits.isDigit(units[index + 1])) {
+                index += 1
             }
-            if features.contains(.vhdlNumbers), index < lineEnd, units[index] == CodeUnits.hash {
-                // `16#FF#`: a base, then digits between number signs.
-                var end = index + 1
-                while end < lineEnd, CodeUnits.isHexadecimalDigit(units[end]) || units[end] == CodeUnits.underscore || units[end] == CodeUnits.dot { end += 1 }
-                if end < lineEnd, units[end] == CodeUnits.hash { return end + 1 }
-            }
+            if let end = scanBasedNumberTail(at: index, lineEnd: lineEnd) { return end }
             if index + 1 < lineEnd, units[index] == CodeUnits.dot, CodeUnits.isDigit(units[index + 1]) {
                 index += 1
                 while index < lineEnd, CodeUnits.isDigit(units[index]) || units[index] == CodeUnits.underscore { index += 1 }
@@ -676,6 +694,28 @@ private struct CodeLineScanner {
         // Suffixes and units: `10u`, `1.5f`, `42i64`, `12pt`, `10ns`.
         while index < lineEnd, CodeUnits.isASCIILetter(units[index]) || CodeUnits.isDigit(units[index]) { index += 1 }
         return index
+    }
+
+    /// Where a Verilog (`8'hFF`) or VHDL (`16#FF#`) number with a base ends, when the digits
+    /// scanned up to `index` are followed by its base.
+    private func scanBasedNumberTail(at index: Int, lineEnd: Int) -> Int? {
+        if features.contains(.verilogNumbers), index < lineEnd, units[index] == CodeUnits.singleQuote {
+            // The size, then the base and digits.
+            var end = index + 1
+            if end < lineEnd, units[end] == UInt16(UInt8(ascii: "s")) || units[end] == UInt16(UInt8(ascii: "S")) { end += 1 }
+            if end < lineEnd, "bBoOdDhH".utf16.contains(units[end]) {
+                end += 1
+                while end < lineEnd, CodeUnits.isHexadecimalDigit(units[end]) || "_xXzZ?".utf16.contains(units[end]) { end += 1 }
+                return end
+            }
+        }
+        if features.contains(.vhdlNumbers), index < lineEnd, units[index] == CodeUnits.hash {
+            // A base, then digits between number signs.
+            var end = index + 1
+            while end < lineEnd, CodeUnits.isHexadecimalDigit(units[end]) || units[end] == CodeUnits.underscore || units[end] == CodeUnits.dot { end += 1 }
+            if end < lineEnd, units[end] == CodeUnits.hash { return end + 1 }
+        }
+        return nil
     }
 
     // MARK: Sigils
@@ -700,6 +740,7 @@ private struct CodeLineScanner {
                 let directiveStart = end
                 end = scanIdentifier(from: end, lineEnd: lineEnd)
                 emit(index, end, .preprocessor)
+                directiveLineKind = .preprocessor
                 let directive = word(directiveStart, end)
                 let next = nextVisibleUnit(from: end, lineEnd: lineEnd)
                 if ["include", "import", "include_next"].contains(directive), next.unit == CodeUnits.lessThan {
@@ -711,7 +752,9 @@ private struct CodeLineScanner {
                 }
                 return end
             }
-            if features.contains(.bracketAttributes), nextUnit == CodeUnits.openingBracket || (nextUnit == CodeUnits.exclamation && index + 2 < lineEnd && units[index + 2] == CodeUnits.openingBracket) {
+            if features.contains(.bracketAttributes),
+               nextUnit == CodeUnits.openingBracket
+                || (nextUnit == CodeUnits.exclamation && index + 2 < lineEnd && units[index + 2] == CodeUnits.openingBracket) {
                 var end = index + 1
                 var depth = 0
                 while end < lineEnd {
@@ -747,7 +790,9 @@ private struct CodeLineScanner {
             if features.contains(.atAttributes), isIdentifierStart(nextUnit) {
                 var end = scanIdentifier(from: index + 1, lineEnd: lineEnd)
                 // `@app.route`, `@Foo.Bar`: a dotted name.
-                while end + 1 < lineEnd, units[end] == CodeUnits.dot, isIdentifierStart(units[end + 1]) { end = scanIdentifier(from: end + 1, lineEnd: lineEnd) }
+                while end + 1 < lineEnd, units[end] == CodeUnits.dot, isIdentifierStart(units[end + 1]) {
+                    end = scanIdentifier(from: end + 1, lineEnd: lineEnd)
+                }
                 emit(index, end, features.contains(.cssRules) ? .keyword : .attribute)
                 return end
             }
@@ -868,7 +913,8 @@ private struct CodeLineScanner {
         }
         let keyStart = index
         guard keyStart < lineEnd, ![CodeUnits.hash, CodeUnits.doubleQuote, CodeUnits.singleQuote, CodeUnits.openingBrace, CodeUnits.openingBracket,
-                                    CodeUnits.ampersand, CodeUnits.asterisk, CodeUnits.exclamation, CodeUnits.minus, CodeUnits.question, CodeUnits.greaterThan].contains(units[keyStart]) else { return index }
+                                    CodeUnits.ampersand, CodeUnits.asterisk, CodeUnits.exclamation, CodeUnits.minus, CodeUnits.question,
+                                    CodeUnits.greaterThan].contains(units[keyStart]) else { return index }
         var position = keyStart
         while position < lineEnd {
             let unit = units[position]
@@ -1013,7 +1059,10 @@ private struct CodeLineScanner {
             } else if unit == CodeUnits.lessThan, index + 1 < lineEnd, isIdentifierStart(units[index + 1]) || units[index + 1] == CodeUnits.slash {
                 let nameStart = units[index + 1] == CodeUnits.slash ? index + 2 : index + 1
                 var nameEnd = nameStart
-                while nameEnd < lineEnd, isIdentifierPart(units[nameEnd]) || units[nameEnd] == CodeUnits.colon || units[nameEnd] == CodeUnits.minus || units[nameEnd] == CodeUnits.dot { nameEnd += 1 }
+                while nameEnd < lineEnd, isIdentifierPart(units[nameEnd]) || units[nameEnd] == CodeUnits.colon || units[nameEnd] == CodeUnits.minus
+                    || units[nameEnd] == CodeUnits.dot {
+                nameEnd += 1
+            }
                 emit(nameStart, nameEnd, .keyword)
                 state = .markupTag
                 index = nameEnd

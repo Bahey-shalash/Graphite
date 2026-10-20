@@ -231,7 +231,7 @@ struct MarkdownPane: View {
     private var editorConfiguration: EditorConfiguration {
         EditorConfiguration(mode: viewMode == .source ? .source : .livePreview, usesReadableLineLength: preferences.usesReadableLineLength,
                             textSize: noteTextSize, typography: workspace.noteTypography, theme: workspace.noteTheme, usesSpellChecking: preferences.usesSpellChecking,
-                            formatsCodeBlocks: preferences.formatsCodeBlocks, colorsEnabled: preferences.isEnabled(.colors), paletteHexByName: paletteHexByName,
+                            formatsCodeBlocks: preferences.formatsCodeBlocks, codeColorTheme: preferences.codeColorTheme, colorsEnabled: preferences.isEnabled(.colors), paletteHexByName: paletteHexByName,
                             editingBehavior: EditingBehavior(settings: workspace.vaultSettings), accentHex: preferences.accentHex,
                             inlineTitle: inlineTitle)
     }
@@ -354,8 +354,8 @@ struct MarkdownPane: View {
         let notePath = session.path
         return LivePreviewEnvironment(
             calloutFoldNote: (workspace.calloutFolds, notePath.rawValue),
-            root: root, textSize: noteTextSize, typography: workspace.noteTypography, theme: workspace.noteTheme, colorsEnabled: preferences.isEnabled(.colors), paletteHexByName: paletteHexByName,
-            drawingVersion: workspace.drawingVersion,
+            root: root, textSize: noteTextSize, typography: workspace.noteTypography, theme: workspace.noteTheme, codeColorTheme: preferences.codeColorTheme,
+            colorsEnabled: preferences.isEnabled(.colors), paletteHexByName: paletteHexByName, drawingVersion: workspace.drawingVersion,
             resolve: { [workspace] target, isWiki in await workspace.resolveLink(target, from: notePath, isWiki: isWiki) },
             open: { [workspace] path in Task { await workspace.open(path) } },
             follow: { [workspace] target, isWiki in Task { await workspace.follow(target, from: notePath, isWiki: isWiki) } },

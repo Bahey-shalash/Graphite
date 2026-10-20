@@ -196,6 +196,7 @@ final class MarkdownEditorStyling {
         if textState.cachesDescribeOldText { updateTextState(of: textView) }
         textState.discardUnstyledEdit()
         revealedMarkup = markupRevealedBySelection(in: textView)
+        codeBlockShowingFences = codeBlockTouchedBySelection(in: textView)
         let textStorage = textView.styledTextStorage
         styler.applyStyles(to: textStorage, editedRange: NSRange(location: 0, length: 0), restyleEverything: true, revealedMarkup: revealedMarkup,
                            concealedBlocks: concealedBlocks(in: textView, restyledRange: NSRange(location: 0, length: textStorage.length)),
@@ -229,7 +230,9 @@ final class MarkdownEditorStyling {
         guard let plan = textState.takeRestylePlan(revealedRange: revealedMarkup?.shownLineRange) else { return }
         switch plan {
         case .everything: restyleEverything(in: textView)
-        case .ranges(let ranges): for range in ranges { restyle(range, in: textView) }
+        case .ranges(let ranges):
+            for range in ranges { restyle(range, in: textView) }
+            restyleCodeBlockFencesChangingVisibility(in: textView)
         }
         restyleBlocksAwaitingRestyle(in: textView)
     }
@@ -258,11 +261,40 @@ final class MarkdownEditorStyling {
         let restyledRanges = styler.applyRevealedMarkupChange(to: textView.styledTextStorage, from: previousMarkup, to: newMarkup,
                                                               concealedBlocks: concealedBlocks(in: textView, restyledRange: nil), foldedRegions: foldedRegions(),
                                                               blockContextCheckpoints: blockContextCheckpoints)
+        codeBlockShowingFences = codeBlockTouchedBySelection(in: textView)
         guard !restyledBlockIndices.isEmpty || !restyledRanges.isEmpty else { return false }
         if textView.styledSelection != selection { textView.styledSelection = selection }
         textView.typingAttributes = styler.baseAttributes
         didRestyle(textView)
         return true
+    }
+
+    // MARK: Code block fences
+
+    /// The code block whose fences Live Preview shows, because the selection touches it.
+    /// A selection that moves restyles the fences it reaches and leaves itself
+    /// (`applyRevealedMarkupChange`); an edit that moves it out of a block, such as Return
+    /// at the end of the closing fence, restyles them here.
+    private var codeBlockShowingFences: FencedCodeBlock?
+
+    private func codeBlockTouchedBySelection(in textView: any MarkdownStyledTextView) -> FencedCodeBlock? {
+        guard configuration.mode == .livePreview, let revealedMarkup else { return nil }
+        return styler.fencedCodeBlock(touchedBy: revealedMarkup.selection, in: textView.styledTextStorage, source: currentSource(of: textView),
+                                      blockContextCheckpoints: blockContextCheckpoints)
+    }
+
+    /// Restyles the fence lines of the code block the selection entered and of the one it
+    /// left after an edit.
+    private func restyleCodeBlockFencesChangingVisibility(in textView: any MarkdownStyledTextView) {
+        guard canStyle(textView) else { return }
+        let touchedBlock = codeBlockTouchedBySelection(in: textView)
+        guard touchedBlock?.codeStart != codeBlockShowingFences?.codeStart else { return }
+        let changedBlocks = [codeBlockShowingFences, touchedBlock].compactMap { block in block }
+        codeBlockShowingFences = touchedBlock
+        let source = currentSource(of: textView)
+        for block in changedBlocks {
+            for fenceLine in MarkdownTextStyler.fenceLineRanges(of: block, in: source) { restyle(fenceLine, in: textView) }
+        }
     }
 
     // MARK: Formatting code

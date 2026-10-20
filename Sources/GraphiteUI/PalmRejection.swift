@@ -304,7 +304,10 @@ final class PencilActivityRecognizer: UIGestureRecognizer {
     override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool { false }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
-        for touch in touches { PencilActivity.pencilDidTouch(touch) }
+        for touch in touches {
+            PencilActivity.pencilDidTouch(touch)
+            PencilWritingTrace.pencilDidTouch(touch)
+        }
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
@@ -312,11 +315,17 @@ final class PencilActivityRecognizer: UIGestureRecognizer {
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
-        for touch in touches { PencilActivity.pencilDidLift(touch) }
+        for touch in touches {
+            PencilActivity.pencilDidLift(touch)
+            PencilWritingTrace.pencilDidLift(touch)
+        }
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
-        for touch in touches { PencilActivity.pencilDidLift(touch) }
+        for touch in touches {
+            PencilActivity.pencilDidLift(touch)
+            PencilWritingTrace.pencilDidLift(touch)
+        }
     }
 
     /// The Pencil hovers above the screen with a height; a trackpad's pointer hovers at none.
