@@ -189,8 +189,8 @@ enum CanvasFileCardSize {
 
     static func size(forFileAt location: URL, path: VaultPath) async -> CGSize {
         let fileExtension = path.fileExtension
-        if MediaFileKind.audioExtensions.contains(fileExtension) { return CGSize(width: 400, height: 120) }
-        if MediaFileKind.videoExtensions.contains(fileExtension) { return CanvasSession.NewCardSize.media }
+        if DocumentKind.audioFileExtensions.contains(fileExtension) { return CGSize(width: 400, height: 120) }
+        if DocumentKind.videoFileExtensions.contains(fileExtension) { return CanvasSession.NewCardSize.media }
         switch DocumentKind(path: path) {
         case .image:
             let pixelSize = await Task.detached(priority: .userInitiated) { imagePixelSize(at: location) }.value

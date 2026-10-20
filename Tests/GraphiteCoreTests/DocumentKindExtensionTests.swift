@@ -9,7 +9,7 @@ final class DocumentKindExtensionTests: XCTestCase {
         (.canvas, ["canvas"]),
         (.pdf, ["pdf"]),
         (.image, ["png", "jpg", "jpeg", "heic", "gif", "tiff", "webp", "svg"]),
-        (.media, ["m4a", "mp4", "mov", "mp3", "wav", "aac"]),
+        (.media, ["m4a", "mp3", "wav", "aac", "ogg", "flac", "3gp", "mp4", "mov", "m4v", "webm"]),
     ]
 
     func testEveryKnownExtensionIsClassifiedAsItsKind() {
@@ -29,8 +29,15 @@ final class DocumentKindExtensionTests: XCTestCase {
         }
     }
 
+    func testEveryPlayableExtensionIsMediaAndNoExtensionIsBothAudioAndVideo() {
+        for fileExtension in DocumentKind.audioFileExtensions.union(DocumentKind.videoFileExtensions) {
+            XCTAssertEqual(DocumentKind(fileExtension: fileExtension), .media, fileExtension)
+        }
+        XCTAssertTrue(DocumentKind.audioFileExtensions.isDisjoint(with: DocumentKind.videoFileExtensions))
+    }
+
     func testAnyOtherExtensionIsOtherEvenWhenItIsAnImageOrNoteTypeNeighbour() {
-        for fileExtension in ["", "txt", "json", "bmp", "heif", "tif", "mkv", "flac", "docx", "md ", ".md", "mdx", "pdfx", "excalidraw", "canvas.bak"] {
+        for fileExtension in ["", "txt", "json", "bmp", "heif", "tif", "mkv", "opus", "docx", "md ", ".md", "mdx", "pdfx", "excalidraw", "canvas.bak"] {
             XCTAssertEqual(DocumentKind(fileExtension: fileExtension), .other, "'\(fileExtension)'")
         }
     }

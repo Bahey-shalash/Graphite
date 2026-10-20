@@ -597,8 +597,8 @@ private struct LivePreviewEmbedView: View {
             return
         }
         let fileExtension = path.fileExtension
-        if MediaFileKind.videoExtensions.contains(fileExtension) { resolution = .video(location); return }
-        if MediaFileKind.audioExtensions.contains(fileExtension) { resolution = .audio(location, path.name); return }
+        if DocumentKind.videoFileExtensions.contains(fileExtension) { resolution = .video(location); return }
+        if DocumentKind.audioFileExtensions.contains(fileExtension) { resolution = .audio(location, path.name); return }
         let isDrawingPDF = DocumentKind(path: path) == .pdf ? await ImageFileService().isEditableDrawingPDF(at: location) : false
         if DocumentKind(path: path) == .image || isDrawingPDF {
             // Widget views are discarded off screen and after a drawing is saved; the shared

@@ -175,6 +175,23 @@ final class UiWorkspaceModelFixTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: vault.appendingPathComponent("Diagram.png").path))
     }
 
+    /// BUG-ARCH-01: a missing recording or video is an attachment too, so no media kind becomes a note.
+    func testFollowingMissingMediaLinkCreatesNothing() async throws {
+        let mediaFileNames = ["Lecture.flac", "Lecture.ogg", "Lecture.3gp", "Clip.webm", "Clip.m4v"]
+        let vault = try makeVault(files: ["Source.md": mediaFileNames.map { fileName in "![[\(fileName)]]" }.joined(separator: "\n")])
+        let workspace = try await openedWorkspace(vault)
+        try await waitUntil { workspace.hasCompletedIndexScan }
+        let source = try VaultPath("Source.md")
+
+        for mediaFileName in mediaFileNames {
+            workspace.errorMessage = nil
+            await workspace.follow(mediaFileName, from: source)
+
+            XCTAssertNotNil(workspace.errorMessage, mediaFileName)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: vault.appendingPathComponent(mediaFileName + ".md").path), mediaFileName)
+        }
+    }
+
     /// `[[Projects]]` beside a Projects folder names a note, not the folder.
     func testFollowingLinkNamedLikeFolderCreatesNoteInsteadOfOpeningFolder() async throws {
         let vault = try makeVault(files: ["Source.md": "[[Projects]]", "Projects/Plan.md": "plan"])

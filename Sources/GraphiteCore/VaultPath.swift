@@ -154,19 +154,26 @@ public struct VaultPath: Hashable, Codable, Sendable, Comparable, Identifiable {
 
 public enum DocumentKind: String, Codable, Sendable {
     case markdown, pdf, image, media, base, canvas, other
+
+    /// Lowercase extensions of the files played as sound, and of those played as video.
+    /// Together they are exactly the files of kind `media`.
+    public static let audioFileExtensions: Set<String> = ["m4a", "mp3", "wav", "aac", "ogg", "flac", "3gp"]
+    public static let videoFileExtensions: Set<String> = ["mp4", "mov", "m4v", "webm"]
     public init(path: VaultPath) {
         self.init(fileExtension: path.fileExtension)
     }
 
     public init(fileExtension: String) {
-        switch fileExtension.lowercased() {
+        let lowercasedExtension = fileExtension.lowercased()
+        switch lowercasedExtension {
         case "md", "markdown": self = .markdown
         case "base": self = .base
         case "canvas": self = .canvas
         case "pdf": self = .pdf
         case "png", "jpg", "jpeg", "heic", "gif", "tiff", "webp", "svg": self = .image
-        case "m4a", "mp4", "mov", "mp3", "wav", "aac": self = .media
-        default: self = .other
+        default:
+            let isPlayable = Self.audioFileExtensions.contains(lowercasedExtension) || Self.videoFileExtensions.contains(lowercasedExtension)
+            self = isPlayable ? .media : .other
         }
     }
 }

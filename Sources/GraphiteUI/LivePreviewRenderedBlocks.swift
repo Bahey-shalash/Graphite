@@ -752,7 +752,7 @@ struct DetachedWidgetPool<Host> {
         case .pluginCodeBlock: return 8
         case .embed(let embed):
             let fileExtension = (WikiLinkResolver.pathPart(embed.target) as NSString).pathExtension.lowercased()
-            if MediaFileKind.videoExtensions.contains(fileExtension) || MediaFileKind.audioExtensions.contains(fileExtension) { return nil }
+            if DocumentKind.videoFileExtensions.contains(fileExtension) || DocumentKind.audioFileExtensions.contains(fileExtension) { return nil }
             return 12
         }
     }
@@ -816,8 +816,8 @@ enum LivePreviewBlockHeightEstimate {
         case .pluginCodeBlock: return 120
         case .embed(let embed):
             let fileExtension = (WikiLinkResolver.pathPart(embed.target) as NSString).pathExtension.lowercased()
-            if MediaFileKind.videoExtensions.contains(fileExtension) { return columnWidth * 9 / 16 + 8 }
-            if MediaFileKind.audioExtensions.contains(fileExtension) { return 96 }
+            if DocumentKind.videoFileExtensions.contains(fileExtension) { return columnWidth * 9 / 16 + 8 }
+            if DocumentKind.audioFileExtensions.contains(fileExtension) { return 96 }
             if fileExtension == "pdf" { return 570 }
             if fileExtension == "base" { return EmbeddedBaseView.defaultHeight }
             if DocumentKind(fileExtension: fileExtension) == .image { return 280 }
