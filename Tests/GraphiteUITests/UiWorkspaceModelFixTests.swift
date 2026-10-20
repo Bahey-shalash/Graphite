@@ -141,8 +141,7 @@ final class UiWorkspaceModelFixTests: XCTestCase {
             try await workspace.openFolderAsVault(secondVault)
             XCTFail("A drawing is open, so the vault switch is refused.")
         } catch {
-            let graphiteError = try XCTUnwrap(error as? GraphiteError)
-            guard case .unavailable = graphiteError else { return XCTFail("Refused as unavailable, not \(graphiteError).") }
+            XCTAssertEqual(error as? VaultSwitchRefusal, .drawingIsOpen)
         }
         XCTAssertEqual(workspace.currentVaultIdentifier, firstVaultIdentifier)
         XCTAssertEqual(workspace.folderAccess?.root.lastPathComponent, firstVault.lastPathComponent)

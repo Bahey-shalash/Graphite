@@ -96,10 +96,7 @@ final class MacMarkdownEditorCreationTests: XCTestCase {
         // As `createNote` asks: before the editor exists.
         session.startsEditingWhenShown = true
         let textView = try showEditor(for: session)
-        let deadline = Date.now.addingTimeInterval(5)
-        while Date.now < deadline, textView.window?.firstResponder !== textView {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await waitUntil("the new note takes the keyboard", timeoutSeconds: 5) { textView.window?.firstResponder === textView }
         XCTAssertTrue(textView.window?.firstResponder === textView, "A new note is ready to type, as in Obsidian.")
         XCTAssertFalse(session.startsEditingWhenShown, "The request is served once.")
     }

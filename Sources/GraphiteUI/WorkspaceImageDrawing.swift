@@ -86,7 +86,8 @@ extension WorkspaceModel {
                 case .noEmbed:
                     errorMessage = "The drawing was saved as “\(path.rawValue)”, but the note no longer embeds “\(imagePath.name)”, so nothing in it changed."
                 case .textChanged:
-                    errorMessage = "The drawing was saved as “\(path.rawValue)”, but the note kept changing while it was saved, so it still shows the original image."
+                    errorMessage = "The drawing was saved as “\(path.rawValue)”, but the note kept changing while it was saved, "
+                        + "so it still shows the original image."
                 }
             } else {
                 errorMessage = "The drawing was saved as “\(path.rawValue)”, but its note is not open or was changed in another app, so the note still shows the original image."

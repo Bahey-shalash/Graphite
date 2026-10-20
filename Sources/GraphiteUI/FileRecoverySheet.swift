@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 import GraphiteCore
 
 /// What the File recovery sheet opens on: one note's history, or every note with copies.
@@ -7,6 +8,8 @@ struct FileRecoveryRequest: Identifiable {
     /// Nil lists every note with copies, deleted ones included.
     let path: VaultPath?
 }
+
+private let fileRecoveryLog = Logger(subsystem: "com.graphite.study", category: "FileRecovery")
 
 /// A list or a copy's text that the File recovery sheet reads: still being read, read, or
 /// not readable with the reason. A failed read is never shown as an empty list.
@@ -21,11 +24,16 @@ enum FileRecoveryReading<Value: Sendable>: Sendable {
     }
 
     /// Reads away from the main thread. A vault whose store could not be opened, and any
-    /// error the store throws, is a failure that names the reason.
-    static func load(from fileRecovery: FileRecoveryStore?, _ reading: @escaping @Sendable (FileRecoveryStore) throws -> Value) async -> FileRecoveryReading<Value> {
+    /// error the store throws, is a failure that says so; the error itself goes to the log.
+    static func load(from fileRecovery: FileRecoveryStore?,
+                     _ reading: @escaping @Sendable (FileRecoveryStore) throws -> Value) async -> FileRecoveryReading<Value> {
         guard let fileRecovery else { return .failed("Graphite could not open the folder where this vault's file recovery copies are kept.") }
         return await Task.detached(priority: .userInitiated) {
-            do { return FileRecoveryReading.read(try reading(fileRecovery)) } catch { return FileRecoveryReading.failed(error.localizedDescription) }
+            do { return FileRecoveryReading.read(try reading(fileRecovery)) } catch {
+                fileRecoveryLog.error("A file recovery read failed: \(String(describing: error))")
+                return FileRecoveryReading.failed(
+                    "Graphite could not read the file recovery copies: they may have been removed, or their folder is not available.")
+            }
         }.value
     }
 }
