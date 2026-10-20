@@ -3,9 +3,11 @@ import AppKit
 import SwiftUI
 import GraphiteCore
 @testable import Textual
+import SwiftUIMath
 
 /// Regression tests for the patches Graphite carries in its vendored Textual
-/// (Vendor/textual/GRAPHITE-PATCHES.md). Upstream Textual's own tests are not vendored.
+/// (Vendor/textual/GRAPHITE-PATCHES.md) and SwiftUIMath (Vendor/swiftui-math/GRAPHITE-PATCHES.md).
+/// Upstream's own tests are not vendored.
 @MainActor
 final class AppProjectTextualPatchTests: XCTestCase {
     private static let objectReplacementCharacter: Character = "\u{FFFC}"
@@ -106,6 +108,59 @@ final class AppProjectTextualPatchTests: XCTestCase {
         XCTAssertGreaterThan(naturalSize.width, 0)
         let narrowSize = attachment.sizeThatFits(ProposedViewSize(width: naturalSize.width / 2, height: nil), in: environment)
         XCTAssertEqual(narrowSize, naturalSize)
+    }
+
+    // MARK: SwiftUIMath patch 1, a formula is not broken by its rounded frame
+
+    /// `Math` typesets its formula again at the width of its canvas. A canvas a fraction of
+    /// a point narrower than the formula, as frames rounded to whole pixels are, broke `g_m`
+    /// into `g` over `m`, and the reading view showed only the subscript (Vendor/swiftui-math/
+    /// GRAPHITE-PATCHES.md). Each formula is drawn in a frame of its own height, 0.4 points
+    /// narrower than it: everything must be drawn on one line, around the frame.
+    func testFormulaInAFrameNarrowerByAFractionOfAPointStaysOnOneLine() throws {
+        let fontSize: CGFloat = 22
+        for latex in ["g_m", "r_o", "V_A", "V_{ov}", "k_n"] {
+            let metrics = try XCTUnwrap(InlineMathRendering.metrics(for: latex, fontSize: fontSize))
+            let height = metrics.ascent + metrics.descent
+            let narrowMetrics = try XCTUnwrap(DisplayMathRendering.metrics(for: latex, fontSize: fontSize, fittingWidth: metrics.width - 0.4))
+            XCTAssertEqual(narrowMetrics.width, metrics.width, accuracy: 0.001, latex)
+
+            let margin: CGFloat = 30
+            let renderer = ImageRenderer(content: Math(latex)
+                .mathFont(Math.Font(name: .latinModern, size: fontSize))
+                .mathTypesettingStyle(.text)
+                .frame(width: metrics.width - 0.4, height: height, alignment: .topLeading)
+                .padding(margin)
+                .background(Color.white)
+                .environment(\.colorScheme, .light))
+            renderer.scale = 2
+            let bitmap = NSBitmapImageRep(cgImage: try XCTUnwrap(renderer.cgImage))
+            var inkInsideFrame = 0
+            var inkOutsideFrame = 0
+            for row in 0..<bitmap.pixelsHigh {
+                for column in 0..<bitmap.pixelsWide {
+                    // The image is a whole number of pixels; its partly covered last row and
+                    // column are transparent, not ink.
+                    guard let color = bitmap.colorAt(x: column, y: row)?.usingColorSpace(.deviceRGB),
+                          color.alphaComponent > 0.9, color.brightnessComponent < 0.5 else { continue }
+                    let point = CGPoint(x: CGFloat(column) / 2, y: CGFloat(row) / 2)
+                    // Descenders and subscripts reach below the typographic height; a
+                    // second line would start a whole line lower.
+                    if CGRect(x: margin, y: margin, width: metrics.width, height: height).insetBy(dx: -1, dy: -height / 2).contains(point) {
+                        inkInsideFrame += 1
+                    } else {
+                        inkOutsideFrame += 1
+                    }
+                }
+            }
+            XCTAssertGreaterThan(inkInsideFrame, 20, latex)
+            XCTAssertEqual(inkOutsideFrame, 0, "\(latex) broke onto a second line")
+        }
+        // A formula genuinely wider than its width still breaks into lines.
+        let long = "a+b+c+d+e+f+g+h+i+j+k+l+m+n+o+p"
+        let naturalLong = try XCTUnwrap(DisplayMathRendering.metrics(for: long, fontSize: fontSize))
+        let brokenLong = try XCTUnwrap(DisplayMathRendering.metrics(for: long, fontSize: fontSize, fittingWidth: naturalLong.width / 2))
+        XCTAssertGreaterThan(brokenLong.ascent + brokenLong.descent, 1.5 * (naturalLong.ascent + naturalLong.descent))
     }
 
     /// The view draws display math at its natural width when it overhangs the column by
