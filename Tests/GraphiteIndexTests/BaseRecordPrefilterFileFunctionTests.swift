@@ -37,6 +37,19 @@ final class BaseRecordPrefilterFileFunctionTests: XCTestCase {
         return (prefilteredRows.map(\.path.rawValue).sorted(), allRows.map(\.path.rawValue).sorted())
     }
 
+    /// BUG-BASES-02: a Markdown body link matched another note's alias in `file.hasLink`.
+    func testAMarkdownLinkDoesNotNameANoteByItsAliasAsInBacklinks() async throws {
+        try write("People/Robert.md", "---\naliases: [Bob]\n---\nRobert\n")
+        try write("Notes/A.md", "[see](Bob)")
+        try write("Notes/B.md", "[[Bob]]")
+        _ = try await index.reconcile(root: vault)
+        let backlinkPaths = try await index.backlinks(to: try VaultPath("People/Robert.md")).map(\.rawValue)
+        XCTAssertEqual(backlinkPaths, ["Notes/B.md"], "Aliases are Wikilink names; a Markdown link names files only.")
+        let outcome = try await filteredPaths("'file.hasLink(file(\"People/Robert.md\"))'")
+        XCTAssertEqual(outcome.all, backlinkPaths, "A base resolves a link as backlinks do.")
+        XCTAssertEqual(outcome.prefiltered, outcome.all)
+    }
+
     func testFileFunctionWithABareNameKeepsRowsThatLinkToTheNoteBesideThem() async throws {
         try write("Note.md", "the note at the vault root")
         try write("A/Note.md", "the note beside the linking note")

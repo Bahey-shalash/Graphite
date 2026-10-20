@@ -290,12 +290,24 @@ public struct BaseDefinitionEditor {
     }
 
     /// Sets (or removes, with nil) a view option such as `image`, `coordinates` or `cardSize`.
+    /// Removing an option removes every key the reader takes it from (`zoom` for
+    /// `defaultZoom`), so no other name brings the old value back.
     public mutating func setOption(_ key: String, text: String?, forViewAt viewIndex: Int) throws {
-        try updateView(at: viewIndex) { viewMapping in viewMapping[key] = text.map(Self.textNode) }
+        try updateView(at: viewIndex) { viewMapping in
+            guard let text else { return Self.removeOption(key, from: &viewMapping) }
+            viewMapping[key] = Self.textNode(text)
+        }
     }
 
     public mutating func setOption(_ key: String, number: Double?, forViewAt viewIndex: Int) throws {
-        try updateView(at: viewIndex) { viewMapping in viewMapping[key] = number.map { number in Node(BaseValue.formatted(number)) } }
+        try updateView(at: viewIndex) { viewMapping in
+            guard let number else { return Self.removeOption(key, from: &viewMapping) }
+            viewMapping[key] = Node(BaseValue.formatted(number))
+        }
+    }
+
+    private static func removeOption(_ key: String, from viewMapping: inout Node.Mapping) {
+        for readKey in BaseMapOptions.readKeys(for: key) { viewMapping[readKey] = nil }
     }
 
     // MARK: Helpers
@@ -317,7 +329,8 @@ public struct BaseDefinitionEditor {
     }
 
     /// The file's views, or the default table Obsidian shows when there are none.
-    /// Throws when `views` holds something else, which an edit would overwrite.
+    /// Throws when `views` holds something else, which an edit would overwrite, or comes
+    /// from a merge key, which an explicit `views` would hide.
     private func ensuredViews() throws -> Node.Sequence {
         switch rootMapping["views"] {
         case let viewsNode? where !BaseDefinition.isNullValue(viewsNode):
@@ -327,6 +340,12 @@ public struct BaseDefinitionEditor {
             // default table, which has no entry here to edit.
             guard views.contains(where: { viewNode in viewNode.mapping != nil }) else { throw Self.unreadableViews }
             return views
+        case nil:
+            // Views that `<<: *defaults` supplies live in the anchored mapping, which an
+            // edit here cannot change without changing every other user of the anchor.
+            if let mergedViewsNode = BaseDefinition.applyingMergeKeys(rootMapping)["views"], !BaseDefinition.isNullValue(mergedViewsNode) {
+                throw Self.mergedViews
+            }
         default:
             break
         }
@@ -337,6 +356,7 @@ public struct BaseDefinitionEditor {
     }
 
     private static let unreadableViews = GraphiteError.invalidFile("This base's “views” is not a list of view settings, so Graphite left the file unchanged. Fix “views” in the file first.")
+    private static let mergedViews = GraphiteError.invalidFile("This base takes its “views” from a merge key (<<), so Graphite left the file unchanged. Edit the views in the file instead.")
 
     private mutating func updateView(at viewIndex: Int, _ change: (inout Node.Mapping) -> Void) throws {
         var views = try ensuredViews()

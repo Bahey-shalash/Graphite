@@ -192,6 +192,30 @@ final class CoreBasesEdgeCaseFixTests: XCTestCase {
             """)
     }
 
+    /// BUG-BASES-05: an edit wrote one default table over the views a root merge key supplies.
+    func testEditingViewsThatARootMergeKeySuppliesIsRefused() throws {
+        let yaml = """
+            defaults: &defaults
+              views:
+                - type: cards
+                  name: Gallery
+                - type: table
+                  name: Books
+            <<: *defaults
+
+            """
+        XCTAssertEqual(try BaseDefinition.parse(yaml).views.map(\.name), ["Gallery", "Books"])
+        var limitEditor = try BaseDefinitionEditor(yaml: yaml)
+        XCTAssertThrowsError(try limitEditor.setLimit(3, forViewAt: 0), "An explicit views list would hide the merged views.")
+        var addingEditor = try BaseDefinitionEditor(yaml: yaml)
+        addingEditor.addView(type: .list, name: "List")
+        XCTAssertThrowsError(try addingEditor.yaml())
+        // A merge key that supplies other settings leaves the default table editable.
+        var defaultTableEditor = try BaseDefinitionEditor(yaml: "shared: &shared\n  filters: 'file.ext == \"md\"'\n<<: *shared\n")
+        try defaultTableEditor.setLimit(3, forViewAt: 0)
+        XCTAssertEqual(try BaseDefinition.parse(try defaultTableEditor.yaml()).views.first?.limit, 3)
+    }
+
     func testAnAliasWhoseValueChangesBecomesItsOwnValue() throws {
         let yaml = """
             views:

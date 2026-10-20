@@ -116,6 +116,22 @@ final class BaseDefinitionEditorTests: XCTestCase {
         XCTAssertThrowsError(try editor.setName("x", forViewAt: 9))
     }
 
+    /// BUG-BASES-01: clearing "Default Zoom" left `zoom:` in place, so nothing changed.
+    func testClearingAMapOptionAlsoRemovesTheOtherNameItIsReadFrom() throws {
+        let sourceText = "views:\n  - type: map\n    name: Places\n    zoom: 12\n    height: 520\n"
+        let writtenOptions = try XCTUnwrap(try BaseDefinition.parse(sourceText).views.first).map
+        XCTAssertEqual(writtenOptions.defaultZoom, 12)
+        XCTAssertEqual(writtenOptions.embeddedHeight, 520)
+        var editor = try BaseDefinitionEditor(yaml: sourceText)
+        try editor.setOption("defaultZoom", number: nil, forViewAt: 0)
+        try editor.setOption("mapHeight", number: nil, forViewAt: 0)
+        let yaml = try editor.yaml()
+        XCTAssertNotEqual(yaml, sourceText, "Turning an option off changes the file.")
+        let clearedOptions = try XCTUnwrap(try BaseDefinition.parse(yaml).views.first).map
+        XCTAssertNil(clearedOptions.defaultZoom, yaml)
+        XCTAssertEqual(clearedOptions.embeddedHeight, BaseMapOptions.defaultEmbeddedHeight, yaml)
+    }
+
     func testAddingDuplicatingAndRemovingViews() throws {
         var editor = try BaseDefinitionEditor(yaml: "")
         XCTAssertEqual(editor.viewCount, 0)

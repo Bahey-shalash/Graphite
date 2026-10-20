@@ -58,7 +58,7 @@ final class BaseIndexTests: XCTestCase {
         XCTAssertEqual(provider.backlinks(to: logicPath).map(\.rawValue), ["Courses/EE330/Datapath.md"], "Links in properties count as backlinks in bases.")
         let noteBacklinks = try await index.backlinks(to: logicPath)
         XCTAssertTrue(noteBacklinks.isEmpty, "The note backlinks panel keeps counting body links only.")
-        XCTAssertEqual(provider.resolveLinkTarget("Adders", from: record.path)?.rawValue, "Courses/EE330/Adders.md")
+        XCTAssertEqual(provider.resolveLinkTarget("Adders", from: record.path, isWiki: true)?.rawValue, "Courses/EE330/Adders.md")
         XCTAssertEqual(provider.record(at: logicPath)?.path, logicPath)
         XCTAssertNil(provider.record(at: try VaultPath("Missing.md")))
     }
