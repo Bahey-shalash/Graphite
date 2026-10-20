@@ -1227,3 +1227,12 @@ Delta audit of 2026-10-19 at `fff794b` (main), against `FR-01` to `FR-108`. Seve
 - `ReadAloudAudioLossPolicy` is a pure decider in Core with an exhaustive switch over its own enum (`FR-05`, `FR-18`).
 - `VaultFileReading` keeps `noFile`, `readFailed`, `invalid` and a partial `loaded` apart and owns `allowsRewriting` ([ReadAloudPronunciations.swift:76-120](../../../Sources/GraphiteCore/ReadAloudPronunciations.swift#L76-L120)): the shape other vault-file readers should copy (`FR-59`, `FR-61`).
 - `releaseModelOfCancelledWorker` frees the model only when no newer worker owns it ([ReadAloudPassagePreparation.swift:226-231](../../../Sources/GraphiteVoices/ReadAloudPassagePreparation.swift#L226-L231)).
+
+### Changes merged after 9040705 (5aae924)
+
+#### SRP-VOICE-06 `AppleReadAloudSpeech` contains a second, clock-driven speech implementation and members only tests use
+- **Severity:** Medium
+- **Rule:** `FR-32`, `FR-14`, `FR-01`, `FR-82`
+- **Evidence:** the synthesizer adapter now also holds a simulator: `pacedReading`, `pacingTask`, `isPacedReadingPaused` ([ReadAloudSpeech.swift:175-177](../../../Sources/GraphiteApple/ReadAloudSpeech.swift#L175-L177)), a branch in `speak` ([:275-278](../../../Sources/GraphiteApple/ReadAloudSpeech.swift#L275-L278)), `startPacedReading` and `continuePacedReading` ([:310-339](../../../Sources/GraphiteApple/ReadAloudSpeech.swift#L310-L339)) and two paths each in `pause`, `resume` and `stop` ([:382-415](../../../Sources/GraphiteApple/ReadAloudSpeech.swift#L382-L415)); `rendersToDroppedBuffers` and its `.silent` branch ([:171](../../../Sources/GraphiteApple/ReadAloudSpeech.swift#L171), [:304](../../../Sources/GraphiteApple/ReadAloudSpeech.swift#L304)), `RenderedPassagePlayer.isSilent` and `SilentSpeechPacing.durationSeconds` are read only by tests; the cap `min(request.leadingPauseSeconds, 2)` is an unnamed literal ([:312](../../../Sources/GraphiteApple/ReadAloudSpeech.swift#L312)). Introduced in `96cfabb` and `32787b2`.
+- **Why it matters:** every change to pause, resume or stop must keep two implementations in step inside one class, and no contract suite checks the pacing path against the synthesizer path.
+- **Fix direction:** `SilentReadAloudSpeech: ReadAloudSpeaking` as its own type over `SilentSpeechPacing`, chosen by the composition (`DIP-SHELL-08`); the `ReadAloudSpeaking` contract suite runs on both; test-only members move to test support.

@@ -1204,7 +1204,7 @@ Each entry is the verifier's own trace. "Reported" in the severity line is the a
 
 ## Found after the snapshot
 
-The delta audit of 2026-10-19 (code changed between `b13dec3` and `9040705`) found eight defects. Each is written up in section 9 of its area document; the lead traced the three marked "lead".
+The delta audits of 2026-10-19 (code changed between `b13dec3` and `9040705`) and 2026-10-20 (`9040705` to `5aae924`) found ten defects. Each is written up in section 9 of its area document; the lead traced the three marked "lead".
 
 | ID | Area | Verdict | Severity | Defect |
 | --- | --- | --- | --- | --- |
@@ -1216,5 +1216,7 @@ The delta audit of 2026-10-19 (code changed between `b13dec3` and `9040705`) fou
 | [BUG-SHELL-12](areas/shell.md#other-shell-changes-fff794b) | SHELL | Confirmed | Low | `graphite://read?file=X` reads nothing when X is already open on the other side of the split |
 | [BUG-VOICE-11](areas/voice.md#9-since-the-snapshot) | VOICE | Confirmed (lead) | Medium | Pronunciation Settings overwrite terms that reached the vault file after the page opened |
 | [BUG-VOICE-12](areas/voice.md#9-since-the-snapshot) | VOICE | Plausible (a device check settles it) | Low | Connecting headphones pauses High Quality reading whenever the engine reconfigures |
+| [BUG-IMPORT-01](areas/import.md#bug-import-01-a-goodnotes-notebook-without-its-event-log-opens-as-an-empty-notebook-with-no-issue) | IMPORT | Confirmed (lead) | Medium | A Goodnotes notebook without its event log opens as an empty notebook with no issue (latent: the readers are not wired into the app) |
+| [BUG-IMPORT-02](areas/import.md#bug-import-02-a-negative-stored-page-width-gives-a-notability-pagecount-below-1-breaking-its-at-least-1-contract) | IMPORT | Confirmed (lead) | Low | A negative stored page width gives a Notability `pageCount` below 1 (latent) |
 
 `BUG-SHELL-07`, `-08` and `-09` are fixed with regression tests in `bf86b5d`. Fix before more features land on top: `BUG-SHELL-10` and `BUG-VOICE-11` (both write into the vault from the wrong data).

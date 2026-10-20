@@ -4,18 +4,18 @@ Snapshot: b13dec3 (main, 2026-10-18).
 
 Every finding and defect heading in the area documents, extracted by script (`#### <P>-<AREA>-<NN> title` and its **Severity** line). Defect severities here are the auditors' own; the verified verdicts and calibrated severities are in [defects.md](defects.md).
 
-Section 9 of each area document adds the 72 findings of the delta audit of 2026-10-19 (code changed between `b13dec3` and `9040705`). The index is rebuilt with `python3 scripts/findings-index.py`; `--check` says whether it is current.
+Section 9 of each area document adds the 72 findings of the delta audit of 2026-10-19 (code changed between `b13dec3` and `9040705`) and 13 of the delta audit of 2026-10-20 (`9040705` to `5aae924`); [areas/import.md](areas/import.md) holds the 19 findings of the Goodnotes and Notability readers, an area added after the snapshot. The index is rebuilt with `python3 scripts/findings-index.py`; `--check` says whether it is current.
 
 | Prefix | High | Medium | Low | Critical | No severity | Total |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| SRP | 13 | 50 | 16 | 0 | 0 | 79 |
-| OCP | 3 | 31 | 21 | 0 | 0 | 55 |
-| LSP | 8 | 31 | 22 | 0 | 0 | 61 |
+| SRP | 13 | 52 | 18 | 0 | 0 | 83 |
+| OCP | 3 | 32 | 22 | 0 | 0 | 57 |
+| LSP | 8 | 32 | 22 | 0 | 0 | 62 |
 | ISP | 3 | 21 | 18 | 0 | 0 | 42 |
-| DIP | 4 | 33 | 23 | 0 | 0 | 60 |
-| CC | 2 | 85 | 108 | 0 | 0 | 195 |
-| BUG | 1 | 4 | 3 | 0 | 73 | 81 |
-| **All** | 34 | 255 | 211 | 0 | 73 | **573** |
+| DIP | 4 | 34 | 23 | 0 | 0 | 61 |
+| CC | 2 | 94 | 121 | 0 | 0 | 217 |
+| BUG | 1 | 5 | 4 | 0 | 73 | 83 |
+| **All** | 34 | 270 | 228 | 0 | 73 | **605** |
 
 | ID | Area | Severity | Title |
 | --- | --- | --- | --- |
@@ -40,6 +40,7 @@ Section 9 of each area document adds the 72 findings of the delta audit of 2026-
 | [SRP-EDITOR-04](areas/editor.md#srp-editor-04-two-delegate-callbacks-each-perform-five-or-six-jobs) | EDITOR | Medium | Two delegate callbacks each perform five or six jobs |
 | [SRP-EDITOR-05](areas/editor.md#srp-editor-05-rendered-block-views-read-files-and-construct-their-own-services) | EDITOR | Low | Rendered-block views read files and construct their own services |
 | [SRP-EDITOR-06](areas/editor.md#srp-editor-06-the-mac-editor-copies-the-ipad-editors-session-request-handling-instead-of-sharing-it) | EDITOR | Medium | The Mac editor copies the iPad editor's session-request handling instead of sharing it |
+| [SRP-IMPORT-01](areas/import.md#srp-import-01-the-notability-decoder-also-cuts-the-note-into-export-pages-with-two-rules-for-a-pictures-extent) | IMPORT | Low | The Notability decoder also cuts the note into export pages, with two rules for a picture's extent |
 | [SRP-INK-01](areas/ink.md#srp-ink-01-historycanvasview-is-one-class-for-nine-jobs-that-every-canvas-inherits) | INK | High | `HistoryCanvasView` is one class for nine jobs that every canvas inherits |
 | [SRP-INK-02](areas/ink.md#srp-ink-02-inkselectioncontroller-mixes-gestures-rendering-stroke-editing-pasteboard-capture-and-menus) | INK | Medium | `InkSelectionController` mixes gestures, rendering, stroke editing, pasteboard, capture and menus |
 | [SRP-INK-03](areas/ink.md#srp-ink-03-drawingcanvascontroller-owns-history-picture-arrangement-paper-and-error-reporting-and-needs-18-manual-projection-calls) | INK | Medium | `DrawingCanvasController` owns history, picture arrangement, paper and error reporting, and needs 18 manual projection calls |
@@ -88,6 +89,8 @@ Section 9 of each area document adds the 72 findings of the delta audit of 2026-
 | [SRP-SHELL-05](areas/shell.md#srp-shell-05-views-read-the-disk-while-drawing-and-two-model-functions-enumerate-folders-on-the-main-actor) | SHELL | Medium | Views read the disk while drawing, and two model functions enumerate folders on the main actor |
 | [SRP-SHELL-06](areas/shell.md#srp-shell-06-graphitepreferences-serves-nine-feature-areas-with-36-stored-properties-and-its-file-holds-eight-unrelated-concepts) | SHELL | Medium | `GraphitePreferences` serves nine feature areas with 36 stored properties, and its file holds eight unrelated concepts |
 | [SRP-SHELL-07](areas/shell.md#srp-shell-07-the-library-adds-five-workspacemodel-extensions-two-feature-named-calls-in-move-and-delete-and-widens-two-private-members) | SHELL | Medium | The library adds five `WorkspaceModel` extensions, two feature-named calls in move and delete, and widens two private members |
+| [SRP-SHELL-08](areas/shell.md#srp-shell-08-workspacemodel-takes-on-read-alouds-lifecycle-through-an-equality-test-on-the-plugin-and-read-aloud-is-on-has-two-sources) | SHELL | Medium | `WorkspaceModel` takes on Read Aloud's lifecycle through an equality test on the plugin, and "Read Aloud is on" has two sources |
+| [SRP-SHELL-09](areas/shell.md#srp-shell-09-librarymodel-adds-a-render-scheduler-and-a-file-repair-policy-and-reaches-15-stored-properties) | SHELL | Low | `LibraryModel` adds a render scheduler and a file-repair policy and reaches 15 stored properties |
 | [SRP-VAULT-01](areas/vault.md#srp-vault-01-vaultstore-is-one-actor-for-file-io-file-management-naming-policy-and-six-obsidian-settings-files) | VAULT | Medium | `VaultStore` is one actor for file I/O, file management, naming policy and six Obsidian settings files |
 | [SRP-VAULT-02](areas/vault.md#srp-vault-02-vaultindex-owns-schema-cache-placement-scanning-refresh-and-five-query-families) | VAULT | Medium | `VaultIndex` owns schema, cache placement, scanning, refresh and five query families |
 | [SRP-VAULT-03](areas/vault.md#srp-vault-03-the-scans-state-is-a-boolean-an-optional-and-a-dictionary-that-must-change-together) | VAULT | Medium | The scan's state is a boolean, an optional and a dictionary that must change together |
@@ -98,6 +101,7 @@ Section 9 of each area document adds the 72 findings of the delta audit of 2026-
 | [SRP-VOICE-03](areas/voice.md#srp-voice-03-readaloudsession-mixes-playback-voice-catalogue-highlight-projection-and-preference-storage) | VOICE | Medium | `ReadAloudSession` mixes playback, voice catalogue, highlight projection and preference storage |
 | [SRP-VOICE-04](areas/voice.md#srp-voice-04-readaloudnavigator-combines-queue-persistence-pen-range-taps-and-layout-frames) | VOICE | Medium | `ReadAloudNavigator` combines queue, persistence, pen, range taps and layout frames |
 | [SRP-VOICE-05](areas/voice.md#srp-voice-05-readaloudpassagepreparation-is-scheduler-render-retry-policy-and-status-in-one-observable-object) | VOICE | Medium | `ReadAloudPassagePreparation` is scheduler, render-retry policy and status in one observable object |
+| [SRP-VOICE-06](areas/voice.md#srp-voice-06-applereadaloudspeech-contains-a-second-clock-driven-speech-implementation-and-members-only-tests-use) | VOICE | Medium | `AppleReadAloudSpeech` contains a second, clock-driven speech implementation and members only tests use |
 | [OCP-ARCH-01](cross-cutting/architecture.md#ocp-arch-01-a-new-document-kind-touches-at-least-16-places-in-14-files-five-of-which-hide-it-behind-default) | ARCH | Medium | A new document kind touches at least 16 places in 14 files, five of which hide it behind `default:` |
 | [OCP-ARCH-02](cross-cutting/architecture.md#ocp-arch-02-commands-are-declared-twice-with-shortcuts-written-once-as-key-equivalents-and-once-as-display-text) | ARCH | Medium | Commands are declared twice, with shortcuts written once as key equivalents and once as display text |
 | [OCP-ARCH-03](cross-cutting/architecture.md#ocp-arch-03-cross-cutting-duties-are-coded-as-calls-from-the-coordinator-to-each-feature) | ARCH | Medium | Cross-cutting duties are coded as calls from the coordinator to each feature |
@@ -114,6 +118,8 @@ Section 9 of each area document adds the 72 findings of the delta audit of 2026-
 | [OCP-EDITOR-02](areas/editor.md#ocp-editor-02-a-new-formatting-command-touches-seven-places-with-drifting-titles) | EDITOR | Medium | A new formatting command touches seven places with drifting titles |
 | [OCP-EDITOR-03](areas/editor.md#ocp-editor-03-inserted-block-templates-have-two-owners) | EDITOR | Low | Inserted block templates have two owners |
 | [OCP-EDITOR-04](areas/editor.md#ocp-editor-04-the-readable-column-and-image-type-tables-are-repeated-per-platform-and-per-call) | EDITOR | Low | The readable column and image-type tables are repeated per platform and per call |
+| [OCP-IMPORT-01](areas/import.md#ocp-import-01-goodnotes-elements-of-an-unknown-kind-or-path-layout-are-dropped-reported-once-per-kind-and-without-the-element) | IMPORT | Medium | Goodnotes elements of an unknown kind or path layout are dropped, reported once per kind and without the element |
+| [OCP-IMPORT-02](areas/import.md#ocp-import-02-format-field-numbers-and-keys-are-written-two-or-three-times) | IMPORT | Low | Format field numbers and keys are written two or three times |
 | [OCP-INK-01](areas/ink.md#ocp-ink-01-a-drawing-format-is-dispatched-at-five-places-and-adding-one-touches-all-of-them) | INK | Medium | A drawing format is dispatched at five places, and adding one touches all of them |
 | [OCP-INK-02](areas/ink.md#ocp-ink-02-graphites-canvas-tools-are-three-parallel-booleans-in-five-places) | INK | Medium | Graphite's canvas tools are three parallel booleans in five places |
 | [OCP-INK-03](areas/ink.md#ocp-ink-03-voiceover-actions-are-dispatched-by-menu-titles) | INK | Medium | VoiceOver actions are dispatched by menu titles |
@@ -204,6 +210,7 @@ Section 9 of each area document adds the 72 findings of the delta audit of 2026-
 | [LSP-SHELL-04](areas/shell.md#lsp-shell-04-equality-that-ignores-content-is-used-deliberately-in-four-types) | SHELL | Low | Equality that ignores content is used deliberately in four types |
 | [LSP-SHELL-05](areas/shell.md#lsp-shell-05-a-note-whose-read-fails-shows-as-a-blank-page-and-a-failed-cloud-check-reads-the-file) | SHELL | Low | A note whose read fails shows as a blank page, and a failed cloud check reads the file |
 | [LSP-SHELL-06](areas/shell.md#lsp-shell-06-completemove-reports-moved-when-some-linking-notes-were-not-updated) | SHELL | Low | `completeMove` reports `.moved` when some linking notes were not updated |
+| [LSP-SHELL-07](areas/shell.md#lsp-shell-07-checkopendocumentsforexternalchanges-gains-a-parameter-that-only-a-test-passes) | SHELL | Medium | `checkOpenDocumentsForExternalChanges` gains a parameter that only a test passes |
 | [LSP-VAULT-01](areas/vault.md#lsp-vault-01-two-implementations-of-how-many-files-share-this-name-disagree-on-non-ascii-capitals) | VAULT | High | Two implementations of "how many files share this name" disagree on non-ASCII capitals |
 | [LSP-VAULT-02](areas/vault.md#lsp-vault-02-the-conflict-version-test-store-succeeds-where-production-fails) | VAULT | Medium | The conflict-version test store succeeds where production fails |
 | [LSP-VAULT-03](areas/vault.md#lsp-vault-03-graphlinkresolver-re-implements-resolvedpaths-kept-equal-only-by-a-test) | VAULT | Medium | `GraphLinkResolver` re-implements `resolvedPaths`, kept equal only by a test |
@@ -308,6 +315,7 @@ Section 9 of each area document adds the 72 findings of the delta audit of 2026-
 | [DIP-SHELL-05](areas/shell.md#dip-shell-05-logic-reads-the-wall-clock-directly) | SHELL | Low | Logic reads the wall clock directly |
 | [DIP-SHELL-06](areas/shell.md#dip-shell-06-five-new-persisted-keys-are-private-string-literals-in-two-types-with-no-registry-and-no-test-of-their-names) | SHELL | Medium | Five new persisted keys are private string literals in two types, with no registry and no test of their names |
 | [DIP-SHELL-07](areas/shell.md#dip-shell-07-the-launch-mode-is-read-as-a-flag-inside-the-root-view-and-a-test-only-scene-initializer-picks-normal) | SHELL | Low | The launch mode is read as a flag inside the root view, and a test-only scene initializer picks `.normal` |
+| [DIP-SHELL-08](areas/shell.md#dip-shell-08-test-silence-is-decided-by-checking-the-process-from-inside-production-types-not-by-the-composition-root) | SHELL | Medium | Test silence is decided by checking the process from inside production types, not by the composition root |
 | [DIP-VAULT-01](areas/vault.md#dip-vault-01-logic-constructs-its-own-writer-and-reaches-the-file-system-and-clock-directly) | VAULT | Low | Logic constructs its own writer and reaches the file system and clock directly |
 | [DIP-VAULT-02](areas/vault.md#dip-vault-02-the-indexs-cache-folder-is-chosen-inside-the-database-type) | VAULT | Low | The index's cache folder is chosen inside the database type |
 | [DIP-VOICE-01](areas/voice.md#dip-voice-01-a-static-service-locator-holds-the-voice-library-and-the-render-queue) | VOICE | Medium | A static service locator holds the voice library and the render queue |
@@ -371,6 +379,20 @@ Section 9 of each area document adds the 72 findings of the delta audit of 2026-
 | [CC-EDITOR-13](areas/editor.md#cc-editor-13-the-mac-editor-consumes-session-requests-inside-updatensview) | EDITOR | Medium | The Mac editor consumes session requests inside `updateNSView` |
 | [CC-EDITOR-14](areas/editor.md#cc-editor-14-headingjumppinholds-is-a-predicate-that-writes-state-and-a-boolean-remembers-the-previous-pass) | EDITOR | Low | `HeadingJumpPin.holds` is a predicate that writes state, and a Boolean remembers the previous pass |
 | [CC-EDITOR-15](areas/editor.md#cc-editor-15-headingjumpsettlingswift-holds-two-unrelated-concepts-and-its-new-lines-use-literal-tolerances) | EDITOR | Low | `HeadingJumpSettling.swift` holds two unrelated concepts, and its new lines use literal tolerances |
+| [CC-IMPORT-01](areas/import.md#cc-import-01-a-zip-entry-commits-its-declared-size-up-to-512-mib-before-one-byte-is-inflated-with-no-bound-on-the-compression-ratio) | IMPORT | Medium | A ZIP entry commits its declared size (up to 512 MiB) before one byte is inflated, with no bound on the compression ratio |
+| [CC-IMPORT-02](areas/import.md#cc-import-02-expanding-a-plain-property-list-is-budgeted-at-one-value-per-byte-an-unnamed-budget-that-allows-about-20-gib) | IMPORT | Medium | Expanding a plain property list is budgeted at one value per byte, an unnamed budget that allows about 20 GiB |
+| [CC-IMPORT-03](areas/import.md#cc-import-03-fixed-width-reads-of-packed-arrays-depend-on-every-callers-length-check-and-are-unchecked-memory-reads-in-release-builds) | IMPORT | Medium | Fixed-width reads of packed arrays depend on every caller's length check, and are unchecked memory reads in release builds |
+| [CC-IMPORT-04](areas/import.md#cc-import-04-the-xml-nesting-pre-scan-does-not-hold-the-guarantee-its-comment-states) | IMPORT | Low | The XML nesting pre-scan does not hold the guarantee its comment states |
+| [CC-IMPORT-05](areas/import.md#cc-import-05-little-endian-reads-the-16-byte-uuid-and-the-ordered-last-wins-dictionary-are-each-written-more-than-once) | IMPORT | Low | Little-endian reads, the 16-byte UUID and the ordered last-wins dictionary are each written more than once |
+| [CC-IMPORT-06](areas/import.md#cc-import-06-keyed-archive-accessors-read-a-missing-required-member-as-an-empty-value) | IMPORT | Low | Keyed-archive accessors read a missing required member as an empty value |
+| [CC-IMPORT-07](areas/import.md#cc-import-07-two-declarations-ship-with-no-production-reader) | IMPORT | Low | Two declarations ship with no production reader |
+| [CC-IMPORT-08](areas/import.md#cc-import-08-damage-to-an-auxiliary-part-of-a-notability-note-costs-the-whole-note-ink-included) | IMPORT | Medium | Damage to an auxiliary part of a Notability note costs the whole note, ink included |
+| [CC-IMPORT-09](areas/import.md#cc-import-09-a-goodnotes-picture-paper-or-recording-whose-attachment-is-missing-reads-as-nil-with-no-issue) | IMPORT | Low | A Goodnotes picture, paper or recording whose attachment is missing reads as nil with no issue |
+| [CC-IMPORT-10](areas/import.md#cc-import-10-untrusted-relative-paths-leave-the-readers-as-plain-strings-with-a-folder-path-when-the-name-is-absent) | IMPORT | Medium | Untrusted relative paths leave the readers as plain strings, with a folder path when the name is absent |
+| [CC-IMPORT-11](areas/import.md#cc-import-11-the-issue-list-and-the-error-wrapping-helpers-exist-twice-and-the-helpers-sit-in-files-named-for-other-concepts) | IMPORT | Low | The issue list and the error-wrapping helpers exist twice, and the helpers sit in files named for other concepts |
+| [CC-IMPORT-12](areas/import.md#cc-import-12-real-notebook-tests-are-skipped-on-every-machine-except-the-owners-mac) | IMPORT | Medium | Real-notebook tests are skipped on every machine except the owner's Mac |
+| [CC-IMPORT-13](areas/import.md#cc-import-13-attachment-bytes-are-returned-as-whole-arrays-of-up-to-512-mib) | IMPORT | Low | Attachment bytes are returned as whole arrays of up to 512 MiB |
+| [CC-IMPORT-14](areas/import.md#cc-import-14-centre-differs-from-the-codebases-center-and-an-issue-comment-miscounts-its-cases) | IMPORT | Low | `centre` differs from the codebase's `center`, and an issue comment miscounts its cases |
 | [CC-INK-01](areas/ink.md#cc-ink-01-the-picture-arrangement-flow-is-two-booleans-and-an-optional-kept-in-two-objects) | INK | Medium | The picture-arrangement flow is two booleans and an optional, kept in two objects |
 | [CC-INK-02](areas/ink.md#cc-ink-02-outcomes-travel-through-shared-mutable-fields) | INK | Medium | Outcomes travel through shared mutable fields |
 | [CC-INK-03](areas/ink.md#cc-ink-03-correctness-rests-on-timing-windows-and-next-turn-hops) | INK | Medium | Correctness rests on timing windows and next-turn hops |
@@ -389,6 +411,7 @@ Section 9 of each area document adds the 72 findings of the delta audit of 2026-
 | [CC-INK-16](areas/ink.md#cc-ink-16-the-held-shape-fix-spells-the-canvas-to-drawing-conversion-three-times-and-duplicates-the-stroke-replacement) | INK | Low | The held-shape fix spells the canvas-to-drawing conversion three times and duplicates the stroke replacement |
 | [CC-INK-17](areas/ink.md#cc-ink-17-two-one-line-forwarders-remain-after-the-system-27-floor) | INK | Low | Two one-line forwarders remain after the system-27 floor |
 | [CC-INK-18](areas/ink.md#cc-ink-18-the-paper-gallery-redraws-all-nine-pictures-when-only-the-page-count-changes) | INK | Low | The paper gallery redraws all nine pictures when only the page count changes |
+| [CC-INK-19](areas/ink.md#cc-ink-19-the-laser-pointers-clock-is-a-settable-property-with-a-live-default-that-only-a-test-sets) | INK | Low | The laser pointer's clock is a settable property with a live default that only a test sets |
 | [CC-LECTURE-01](areas/lecture.md#cc-lecture-01-comments-narrate-incidents-and-dates-instead-of-stating-the-rule) | LECTURE | Low | Comments narrate incidents and dates instead of stating the rule |
 | [CC-LECTURE-02](areas/lecture.md#cc-lecture-02-nineteen-functions-exceed-40-code-lines-the-largest-in-swiftui-bodies-and-edit-application) | LECTURE | Medium | Nineteen functions exceed 40 code lines, the largest in SwiftUI bodies and edit application |
 | [CC-LECTURE-03](areas/lecture.md#cc-lecture-03-one-behaviour-is-implemented-several-times) | LECTURE | Medium | One behaviour is implemented several times |
@@ -433,6 +456,7 @@ Section 9 of each area document adds the 72 findings of the delta audit of 2026-
 | [CC-PLUGIN-16](areas/plugin.md#cc-plugin-16-a-plugins-bases-view-json-encodes-the-whole-query-result-on-every-body-evaluation) | PLUGIN | Medium | A plugin's Bases view JSON-encodes the whole query result on every body evaluation |
 | [CC-PLUGIN-17](areas/plugin.md#cc-plugin-17-isruntimerunning-answers-true-while-the-runtime-is-stopping) | PLUGIN | Low | `isRuntimeRunning` answers true while the runtime is stopping |
 | [CC-PLUGIN-18](areas/plugin.md#cc-plugin-18-pluginloadtimeout-is-a-mutable-production-field-that-only-tests-change) | PLUGIN | Low | `pluginLoadTimeout` is a mutable production field that only tests change |
+| [CC-PLUGIN-19](areas/plugin.md#cc-plugin-19-waiting-plugin-view-reveals-outlive-the-runtime-they-belong-to) | PLUGIN | Low | Waiting plugin-view reveals outlive the runtime they belong to |
 | [CC-READING-01](areas/reading.md#cc-reading-01-eighteen-functions-exceed-40-code-lines) | READING | Medium | Eighteen functions exceed 40 code lines |
 | [CC-READING-02](areas/reading.md#cc-reading-02-sleeps-are-used-as-layout-ordering) | READING | Medium | Sleeps are used as layout ordering |
 | [CC-READING-03](areas/reading.md#cc-reading-03-body-writes-state) | READING | Low | `body` writes state |
@@ -478,6 +502,12 @@ Section 9 of each area document adds the 72 findings of the delta audit of 2026-
 | [CC-SHELL-19](areas/shell.md#cc-shell-19-moving-a-folder-commits-a-canvass-text-edit-from-inside-a-query-and-the-new-canvas-lines-repeat-untyped-decisions) | SHELL | Low | Moving a folder commits a canvas's text edit from inside a query, and the new canvas lines repeat untyped decisions |
 | [CC-SHELL-20](areas/shell.md#cc-shell-20-scenephasedidchange-starts-an-unowned-task-and-the-background-save-stays-owned-by-the-view) | SHELL | Low | `scenePhaseDidChange` starts an unowned task, and the background save stays owned by the view |
 | [CC-SHELL-21](areas/shell.md#cc-shell-21-five-new-or-changed-lines-exceed-160-characters) | SHELL | Low | Five new or changed lines exceed 160 characters |
+| [CC-SHELL-22](areas/shell.md#cc-shell-22-the-damaged-style-file-repair-is-decided-in-the-ui-model-with-no-vault-check-under-an-unversioned-name) | SHELL | Medium | The damaged-style-file repair is decided in the UI model, with no vault check, under an unversioned name |
+| [CC-SHELL-23](areas/shell.md#cc-shell-23-the-render-limit-counts-tasks-not-renders-and-renders-now-run-at-user-initiated-priority) | SHELL | Medium | The render limit counts tasks, not renders, and renders now run at user-initiated priority |
+| [CC-SHELL-24](areas/shell.md#cc-shell-24-the-librarys-note-page-restates-reading-views-callout-table-and-the-two-disagree) | SHELL | Medium | The library's note page restates reading view's callout table, and the two disagree |
+| [CC-SHELL-25](areas/shell.md#cc-shell-25-the-librarylist-switch-is-declared-twice-and-the-presentation-gains-a-third-writer) | SHELL | Low | The Library/List switch is declared twice, and the presentation gains a third writer |
+| [CC-SHELL-26](areas/shell.md#cc-shell-26-the-library-notice-title-is-an-ifelse-over-libraryfailure-that-ends-in-a-fallback) | SHELL | Low | The library notice title is an `if`/`else` over `LibraryFailure` that ends in a fallback |
+| [CC-SHELL-27](areas/shell.md#cc-shell-27-the-read-aloud-migration-restates-the-voices-folder-and-the-read-aloud-key-family-and-treats-an-unlistable-folder-as-no-voice) | SHELL | Low | The Read Aloud migration restates the voices folder and the Read Aloud key family, and treats an unlistable folder as "no voice" |
 | [CC-VAULT-01](areas/vault.md#cc-vault-01-a-failed-read-of-an-obsidian-settings-file-is-returned-as-nothing-configured) | VAULT | Medium | A failed read of an Obsidian settings file is returned as "nothing configured" |
 | [CC-VAULT-02](areas/vault.md#cc-vault-02-graphiteerror-carries-prose-instead-of-facts-and-one-case-covers-ten-different-failures) | VAULT | Medium | `GraphiteError` carries prose instead of facts, and one case covers ten different failures |
 | [CC-VAULT-03](areas/vault.md#cc-vault-03-the-frontmatter-regular-expression-is-written-four-times) | VAULT | Medium | The frontmatter regular expression is written four times |
@@ -533,6 +563,8 @@ Section 9 of each area document adds the 72 findings of the delta audit of 2026-
 | [BUG-EDITOR-02](areas/editor.md#bug-editor-02-on-the-mac-search-current-file-and-search--replace-in-current-file-from-the-command-palette-do-nothing) | EDITOR | — | On the Mac, "Search current file" and "Search & replace in current file" from the command palette do nothing |
 | [BUG-EDITOR-03](areas/editor.md#bug-editor-03-on-the-mac-a-note-created-in-graphite-does-not-start-editing-and-its-request-stays-pending) | EDITOR | — | On the Mac, a note created in Graphite does not start editing and its request stays pending |
 | [BUG-EDITOR-04](areas/editor.md#bug-editor-04-on-the-mac-returning-from-reading-view-to-editing-shows-where-the-editor-was-not-the-passage-that-was-being-read) | EDITOR | — | On the Mac, returning from reading view to editing shows where the editor was, not the passage that was being read |
+| [BUG-IMPORT-01](areas/import.md#bug-import-01-a-goodnotes-notebook-without-its-event-log-opens-as-an-empty-notebook-with-no-issue) | IMPORT | Medium | A Goodnotes notebook without its event log opens as an empty notebook with no issue |
+| [BUG-IMPORT-02](areas/import.md#bug-import-02-a-negative-stored-page-width-gives-a-notability-pagecount-below-1-breaking-its-at-least-1-contract) | IMPORT | Low | A negative stored page width gives a Notability `pageCount` below 1, breaking its "at least 1" contract |
 | [BUG-INK-01](areas/ink.md#bug-ink-01-a-recovered-drawing-draft-reopens-with-the-original-background-losing-the-paper-colour-the-user-chose) | INK | — | A recovered drawing draft reopens with the original background, losing the paper colour the user chose |
 | [BUG-INK-02](areas/ink.md#bug-ink-02-the-shape-shown-while-holding-the-pencil-is-not-what-the-stroke-becomes-when-the-canvas-is-zoomed) | INK | — | The shape shown while holding the Pencil is not what the stroke becomes when the canvas is zoomed |
 | [BUG-INK-03](areas/ink.md#bug-ink-03-two-quick-taps-on-rotate-image-right-turn-a-drawings-picture-once-and-leave-two-undo-steps) | INK | — | Two quick taps on "Rotate Image Right" turn a drawing's picture once and leave two undo steps |
