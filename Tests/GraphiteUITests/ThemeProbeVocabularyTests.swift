@@ -45,13 +45,17 @@ final class ThemeProbeVocabularyTests: XCTestCase {
         return try XCTUnwrap(mode["themed"] as? [String: String])
     }
 
-    func testTheProbeMeasuresOneHundredFiftyNineKeysOfWhichTwentySevenAreCalloutsAndElevenArePrismTokens() async throws {
+    func testTheProbeMeasuresOneHundredSixtyKeysOfWhichTwentySevenAreCalloutsAndTwelveArePrismTokens() async throws {
         let keys = Set(try await measuredValues(isDark: false).keys)
-        XCTAssertEqual(keys.count, 159)
+        XCTAssertEqual(keys.count, 160)
         XCTAssertEqual(keys.filter { key in key.hasPrefix("callout.") }.count - 3, 27, "Besides the 27 types: callout.borderRadius, borderWidth and background.")
         XCTAssertEqual(Set(keys.filter { key in key.hasPrefix("codeToken.") }.map { key in String(key.dropFirst("codeToken.".count)) }),
                        Set(ThemeModeTokens.codeTokenProbeClasses.values))
-        XCTAssertEqual(ThemeModeTokens.codeTokenProbeClasses.count, 11)
+        // Every kind of code reads one Prism class; names (`identifier`) read `property`, as
+        // Obsidian colors names with `--code-property`, so 13 kinds read 12 classes.
+        XCTAssertEqual(ThemeModeTokens.codeTokenProbeClasses.count, 13)
+        XCTAssertEqual(Set(ThemeModeTokens.codeTokenProbeClasses.values).count, 12)
+        XCTAssertEqual(ThemeModeTokens.codeTokenProbeClasses[CodeTokenKind.identifier.rawValue], "property")
         let calloutTypeKeys = Set(keys.filter { key in key.hasPrefix("callout.") }.map { key in String(key.dropFirst("callout.".count)) })
             .subtracting(["borderRadius", "borderWidth", "background"])
         XCTAssertEqual(calloutTypeKeys, Set(ObsidianCalloutTypes.variableNamesByType.keys))
