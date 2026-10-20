@@ -970,9 +970,10 @@ final class CommunityPluginHost {
         }
     }
 
-    /// How long a plugin's rename waits for the move to report its end after the person has
-    /// answered "Update links?" (or dismissed it).
-    private static let renameAnswerDeadline = Duration.seconds(10)
+    /// How long a plugin's rename waits while no "Update links?" question names the file and
+    /// no answered move of it runs: the moment before an answer's move starts (the dialog
+    /// closes before its button's action runs), or a question dismissed without an answer.
+    @ObservationIgnored var renameAnswerDeadline = Duration.seconds(10)
 
     /// Obsidian's `fileManager.renameFile`: the move rewrites links as the vault's setting
     /// says, asking first when "Automatically update internal links" is off. The plugin is
@@ -996,14 +997,18 @@ final class CommunityPluginHost {
     }
 
     /// The person may be asked whether to update links, or the move may wait behind another;
-    /// the plugin waits for the answer and for the move it starts.
+    /// the plugin waits for the answer and for the whole move it starts, however long it runs.
+    /// Only time in which the file is neither asked about nor moving counts toward the deadline.
     private func outcomeOfMoveWaitingForAnswer(of source: VaultPath, in workspace: WorkspaceModel) async -> FileMoveOutcome {
-        while workspace.pendingMove?.path == source || workspace.pendingMove?.queuedMoves.requests.contains(where: { request in request.path == source }) == true {
-            try? await Task.sleep(for: .milliseconds(200)) // Cancellation only shortens the pause; the loop condition decides when the wait ends.
-        }
-        let deadline = ContinuousClock.now + Self.renameAnswerDeadline
-        while workspace.answeredMoveOutcomes[source] == nil, ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(100)) // Same: only the condition and the deadline end the wait.
+        var deadline = ContinuousClock.now + renameAnswerDeadline
+        while workspace.answeredMoveOutcomes[source] == nil {
+            let isAskedAbout = workspace.pendingMove?.path == source || workspace.pendingMove?.queuedMoves.requests.contains(where: { request in request.path == source }) == true
+            if isAskedAbout || workspace.pathsMovingAfterAnswer.contains(source) {
+                deadline = ContinuousClock.now + renameAnswerDeadline
+            } else if ContinuousClock.now >= deadline {
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(100)) // Cancellation only shortens the pause; the outcome and the deadline end the wait.
         }
         return workspace.answeredMoveOutcomes.removeValue(forKey: source) ?? .refused(.cancelled(movedName: source.name))
     }

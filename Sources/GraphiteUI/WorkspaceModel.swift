@@ -45,6 +45,9 @@ final class WorkspaceModel {
     /// How each move that waited for the person's "Update links?" answer ended, by the moved
     /// path, until whoever waited for it (a plugin's rename) takes it.
     @ObservationIgnored var answeredMoveOutcomes: [VaultPath: FileMoveOutcome] = [:]
+    /// Moved paths whose "Update links?" answer is being carried out, from the answer until
+    /// `resolve` returns; by then each has an outcome or a question of its own.
+    @ObservationIgnored var pathsMovingAfterAnswer: Set<VaultPath> = []
     /// The open tabs and the split, remembered per vault.
     var layout = TabLayout() {
         didSet {

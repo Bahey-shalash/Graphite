@@ -54,6 +54,36 @@ final class CommunityPluginHostRenameFileTests: XCTestCase {
     // MARK: Helpers
 
     /// What the runtime receives when a plugin renames `source` to `destination`.
+    /// BUG-SHELL-11: the plugin was told "not renamed" when the answered move ran longer than
+    /// the wait for it, although the file moved. The wait now lasts as long as the move.
+    func testRenameAnsweredAfterTheLinkQuestionWaitsForAMoveThatRunsPastTheDeadline() async throws {
+        let (workspace, vault) = try await makeWorkspace(files: ["A.md": "first", "Linker.md": "[a](A.md)"])
+        workspace.communityPlugins.renameAnswerDeadline = .zero
+        let answerTask = Task { @MainActor in await self.renameAnswer(in: workspace, from: "A.md", to: "Renamed.md") }
+        try await waitUntil { workspace.pendingMove != nil }
+        let question = try XCTUnwrap(workspace.pendingMove)
+        // Another writer holds the file, so the move runs well past the deadline. The hold ends
+        // after a second at most; nothing here waits on it but the move.
+        let heldFile = vault.appendingPathComponent("A.md")
+        let release = DispatchSemaphore(value: 0)
+        await withCheckedContinuation { (holding: CheckedContinuation<Void, Never>) in
+            Thread.detachNewThread {
+                var coordinationError: NSError?
+                NSFileCoordinator(filePresenter: nil).coordinate(writingItemAt: heldFile, options: [], error: &coordinationError) { _ in
+                    holding.resume()
+                    _ = release.wait(timeout: .now() + 1)
+                }
+            }
+        }
+
+        await workspace.resolve(question, updatesLinks: true)
+        let answer = await answerTask.value
+
+        XCTAssertNil(answer.failureKind, "The file moved, so the plugin must not be told it was not renamed.")
+        XCTAssertTrue(answer.reportsRenamedFile)
+        XCTAssertEqual(try text(of: "Renamed.md", in: vault), "first")
+    }
+
     private func renameAnswer(in workspace: WorkspaceModel, from source: String, to destination: String) async -> RenameAnswer {
         workspace.communityPlugins.vaultDidOpen(workspace)
         let answer = await workspace.communityPlugins.answer(["operation": "workspace.renameFile", "path": source, "destinationPath": destination])
