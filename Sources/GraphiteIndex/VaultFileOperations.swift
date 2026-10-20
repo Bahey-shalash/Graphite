@@ -92,6 +92,13 @@ public struct VaultFileOperations: Sendable {
         // A moved note's own relative links point somewhere else from its new folder, and
         // so do the links in a moved canvas's text cards.
         for movedPath in moves.keys where Self.holdsLinks(movedPath) { sources.insert(movedPath) }
+        // A canvas Graphite cannot read has no link rows. One whose bytes hold a moved path is a
+        // source too, so the plan lists it as not updated; one that cannot be read now is
+        // read again below, which reports why.
+        for canvasPath in try await index.unreadableCanvases() where !sources.contains(canvasPath) {
+            guard let snapshot = try? await store.read(canvasPath, maximumBytes: Self.maximumRewrittenNoteBytes) else { sources.insert(canvasPath); continue }
+            if moves.keys.contains(where: { movedPath in snapshot.data.range(of: Data(movedPath.rawValue.utf8)) != nil }) { sources.insert(canvasPath) }
+        }
         // Only a file whose own name changes alters how many files share a name: files
         // carried along by a folder move keep theirs.
         let renamedFiles = moves.filter { previousPath, newPath in previousPath.name != newPath.name }
@@ -381,6 +388,14 @@ extension VaultIndex {
     /// Notes with a link, in their text or properties, that reaches `destination`.
     public func linkingNotes(to destination: VaultPath) throws -> [VaultPath] {
         try databaseQueue.read { database in try Self.backlinkSources(to: destination, includesPropertyLinks: true, in: database) }
+    }
+
+    /// Canvases whose links the index does not know, because Graphite cannot read them.
+    func unreadableCanvases() throws -> [VaultPath] {
+        try databaseQueue.read { database in
+            try String.fetchAll(database, sql: "SELECT path FROM files WHERE contentIndexed = ?", arguments: [IndexedContentState.unreadableCanvas.rawValue])
+                .map(VaultPath.init)
+        }
     }
 
     /// Number of indexed files with this file name, not counting `excludedPaths`. Names

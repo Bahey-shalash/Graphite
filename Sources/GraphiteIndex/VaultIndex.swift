@@ -34,6 +34,9 @@ enum IndexedContentState: Int {
     case indexed = 1
     /// Read, but not UTF-8 text.
     case unreadableAsText = 2
+    /// Read as text, but a canvas Graphite cannot read (damaged, or beyond its bounds): its
+    /// links are unknown, so it has no link rows and a move looks for moved paths in its bytes.
+    case unreadableCanvas = 3
 }
 
 public struct IndexingReport: Sendable {
@@ -184,6 +187,11 @@ public actor VaultIndex {
             // note is read again on the next scan.
             try database.execute(sql: "UPDATE files SET size = -1")
         }
+        migrator.registerMigration("unreadable-canvas-state-10") { database in
+            // Canvases Graphite cannot read have their own content state; every canvas is read
+            // again on the next scan to set it.
+            try database.execute(sql: "UPDATE files SET size = -1 WHERE path LIKE '%.canvas'")
+        }
         try migrator.migrate(databaseQueue)
     }
 
@@ -261,6 +269,11 @@ public actor VaultIndex {
         var searchableText: String {
             semantics == nil || DocumentKind(path: file.path) == .canvas ? "" : file.markdown ?? ""
         }
+
+        /// A canvas whose text was read but that Graphite cannot read as a canvas.
+        var isUnreadableCanvas: Bool {
+            semantics == nil && file.markdown != nil && DocumentKind(path: file.path) == .canvas
+        }
     }
 
     /// Whether a scan reads the file's text: notes, and canvases for the links their cards make.
@@ -275,8 +288,11 @@ public actor VaultIndex {
         // Parsing leaves autoreleased objects behind; releasing them per note keeps a
         // batch of large notes from accumulating them until the batch ends.
         try autoreleasepool {
-            let semantics = try file.markdown.map { text in
-                DocumentKind(path: file.path) == .canvas ? CanvasLinks.semantics(ofCanvasText: text) : try MarkdownSemantics.parse(text)
+            let semantics: NoteSemantics?
+            if let text = file.markdown, DocumentKind(path: file.path) == .canvas {
+                semantics = try? CanvasLinks.semantics(ofCanvasText: text) // Unreadable: no links, and `isUnreadableCanvas` records it.
+            } else {
+                semantics = try file.markdown.map { text in try MarkdownSemantics.parse(text) }
             }
             let properties = semantics?.frontmatter.flatMap(BaseFrontmatter.entries(fromYAML:)) ?? []
             let encoder = JSONEncoder()
@@ -321,7 +337,8 @@ public actor VaultIndex {
                 let file = prepared.file
                 let semantics = prepared.semantics
                 let title = semantics?.headings.first ?? file.path.stem
-                let contentState: IndexedContentState = semantics != nil ? .indexed : file.isUnreadableAsText ? .unreadableAsText : .notRead
+                let contentState: IndexedContentState = semantics != nil ? .indexed
+                    : prepared.isUnreadableCanvas ? .unreadableCanvas : file.isUnreadableAsText ? .unreadableAsText : .notRead
                 try fileUpsert.execute(arguments: [file.path.rawValue, file.path.name, title, file.size, file.modified.timeIntervalSince1970, generation, contentState.rawValue,
                                                    (file.created ?? file.modified).timeIntervalSince1970,
                                                    WikiLinkResolver.comparisonKey(file.path.rawValue), WikiLinkResolver.comparisonKey(file.path.name),

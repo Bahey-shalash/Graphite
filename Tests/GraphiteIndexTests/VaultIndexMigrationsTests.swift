@@ -18,7 +18,7 @@ final class VaultIndexMigrationsTests: XCTestCase {
     private static let migrationIdentifiers = [
         "inventory-and-links-1", "bounded-update-lookups-2", "filename-search-and-row-identities-3",
         "vault-path-markdown-link-targets-4", "base-properties-and-creation-dates-5", "unicode-name-keys-6",
-        "search-whole-note-text-7", "case-folded-link-keys-8", "markdown-link-written-targets-9",
+        "search-whole-note-text-7", "case-folded-link-keys-8", "markdown-link-written-targets-9", "unreadable-canvas-state-10",
     ]
 
     private func recordedMigrations(in index: VaultIndex) async throws -> [String] {

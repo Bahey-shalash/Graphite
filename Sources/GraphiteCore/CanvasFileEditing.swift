@@ -135,8 +135,8 @@ extension CanvasFile {
                 var edit = CanvasObjectEdit(object: try nodeValue(identifier), bytes: bytes)
                 edit.setNumber("x", to: frame.minX)
                 edit.setNumber("y", to: frame.minY)
-                edit.setNumber("width", to: max(frame.width, 1))
-                edit.setNumber("height", to: max(frame.height, 1))
+                edit.setNumber("width", to: Self.writableSideLength(frame.width))
+                edit.setNumber("height", to: Self.writableSideLength(frame.height))
                 return edit.splices()
             }
         case .setNodeColor(let color, let nodeIdentifiers):
@@ -229,6 +229,13 @@ extension CanvasFile {
 
     // MARK: New cards and connections
 
+    /// A card's side as written: whole pixels from 1 to `maximumSideLength`, the sides the
+    /// reader shows, so an edit never makes a card Graphite cannot read back.
+    private static func writableSideLength(_ length: CGFloat) -> Double {
+        guard !length.isNaN else { return 1 }
+        return min(max(Double(length), 1), maximumSideLength)
+    }
+
     /// A new card as Obsidian writes one: on one line, its keys in Obsidian's order.
     private static func elementBytes(of node: CanvasNode) throws -> [UInt8] {
         var members: [(key: String, value: [UInt8])] = [("id", CanvasJSONWriter.string(node.identifierInFile))]
@@ -252,7 +259,7 @@ extension CanvasFile {
             throw CanvasFileError.editNotApplied
         }
         members += [("x", CanvasJSONWriter.integer(node.frame.minX)), ("y", CanvasJSONWriter.integer(node.frame.minY)),
-                    ("width", CanvasJSONWriter.integer(max(node.frame.width, 1))), ("height", CanvasJSONWriter.integer(max(node.frame.height, 1)))]
+                    ("width", CanvasJSONWriter.integer(writableSideLength(node.frame.width))), ("height", CanvasJSONWriter.integer(writableSideLength(node.frame.height)))]
         if let color = node.color { members.append(("color", CanvasJSONWriter.string(color.text))) }
         return objectBytes(members + trailingMembers)
     }

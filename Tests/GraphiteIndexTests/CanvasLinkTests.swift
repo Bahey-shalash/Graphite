@@ -92,7 +92,8 @@ final class CanvasLinkTests: XCTestCase {
             .replacingOccurrences(of: "See [[Lecture]] and [the notes](Courses/Lecture.md).", with: "See [[Fourier]] and [the notes](Courses/Week%201/Fourier.md).")
         XCTAssertEqual(try read("Boards/Study.canvas"), expected, "Only the file cards and the links change; the card for the other note, the unknown key and the layout stay.")
         XCTAssertEqual(try read("Boards/Broken.canvas"), "{\"nodes\":[{\"id\":\"x\",\"type\":\"file\",\"file\":\"Courses/Lecture.md\"",
-                       "A damaged canvas names nothing the index knows of, and is left as it was.")
+                       "A damaged canvas is left as it was.")
+        XCTAssertEqual(report.failures[try VaultPath("Boards/Broken.canvas")], .linksNotLocated, "It names the moved note, so the report lists it.")
     }
 
     func testACanvasDamagedSinceItWasReadIsReportedAndLeftAlone() async throws {
@@ -103,6 +104,20 @@ final class CanvasLinkTests: XCTestCase {
         XCTAssertEqual(report.failures[try VaultPath("Boards/Study.canvas")], .linksNotLocated)
         XCTAssertEqual(try read("Boards/Study.canvas"), damaged)
         XCTAssertEqual(try read("Linking.md"), "A link to [[Courses/Renamed]].", "The notes that can be updated still are.")
+    }
+
+    /// BUG-CANVAS-05: a canvas Graphite cannot read was left naming the old path without a report.
+    func testRenamingANoteNamedByACanvasGraphiteCannotReadReportsTheCanvasAndLeavesIt() async throws {
+        // Nested deeper than Graphite reads; Obsidian still opens it.
+        let deepValue = String(repeating: "[", count: 70) + String(repeating: "]", count: 70)
+        let refused = #"{"nodes":[{"id":"n","type":"file","file":"Other.md","x":0,"y":0,"width":10,"height":10,"plugin":"# + deepValue + "}]}"
+        try write("Boards/Deep.canvas", refused)
+        try await index.refresh(paths: [VaultPath("Boards/Deep.canvas")], root: vault)
+        let plan = try await operations.linkUpdates(forMoving: VaultPath("Other.md"), to: VaultPath("Renamed.md"))
+        let report = try await operations.move(VaultPath("Other.md"), to: VaultPath("Renamed.md"), applying: plan)
+        XCTAssertEqual(report.failures[try VaultPath("Boards/Deep.canvas")], .linksNotLocated, "The canvas still names the old path, so the report says so.")
+        XCTAssertEqual(try read("Boards/Deep.canvas"), refused)
+        XCTAssertNil(report.failures[try VaultPath("Boards/Broken.canvas")], "An unreadable canvas that does not name the moved file is not reported.")
     }
 
     func testMovingAFolderRewritesCardsForEveryFileInIt() async throws {
