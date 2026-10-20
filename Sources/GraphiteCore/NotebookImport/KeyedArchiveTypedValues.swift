@@ -134,18 +134,10 @@ extension KeyedArchive {
     /// An `NSUUID` with its 16 bytes in `NS.uuidbytes`.
     public func uuid(_ value: KeyedArchiveValue) throws(KeyedArchiveError) -> UUID {
         guard case .object(let object) = value, object.className == "NSUUID",
-              let uuid = Self.uuid(fromBytes: try data(requiredValue(named: "NS.uuidbytes", in: object.fields))) else {
+              let uuid = UUID(sixteenBytes: try data(requiredValue(named: "NS.uuidbytes", in: object.fields))) else {
             throw .valueNotOfExpectedKind(expected: .uuid, objectIndex: value.objectIndex)
         }
         return uuid
-    }
-
-    /// A UUID from exactly 16 bytes in the order they are stored; nil for any other count.
-    static func uuid(fromBytes bytes: ArraySlice<UInt8>) -> UUID? {
-        guard bytes.count == uuidByteCount else { return nil }
-        var uuidBytes: uuid_t = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
-        withUnsafeMutableBytes(of: &uuidBytes) { destination in destination.copyBytes(from: bytes) }
-        return UUID(uuid: uuidBytes)
     }
 
     /// The references of a property list array an archived object stores under this key. Foundation writes the key for

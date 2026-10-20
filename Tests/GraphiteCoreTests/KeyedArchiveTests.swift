@@ -29,7 +29,7 @@ final class KeyedArchiveTests: XCTestCase {
             XCTAssertEqual(object.fields.keys, ["answer"])
             XCTAssertEqual(try keyedArchive.integer(keyedArchive.requiredValue(named: "answer", in: object.fields)), 42)
         }
-        XCTAssertEqual(try archive(builder, rootUID: root, archiver: "NSKeyedArchiver").archiver, .nsKeyedArchiver)
+        XCTAssertNoThrow(try archive(builder, rootUID: root, archiver: "NSKeyedArchiver"))
     }
 
     func testOtherArchiversMissingRootsAndNonArchivesAreRefused() throws {

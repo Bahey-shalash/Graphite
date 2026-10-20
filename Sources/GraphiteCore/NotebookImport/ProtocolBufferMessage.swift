@@ -174,11 +174,8 @@ struct ProtocolBufferMessage: Sendable {
 
     private static func littleEndianInteger<Integer: FixedWidthInteger>(_ type: Integer.Type, in bytes: ArraySlice<UInt8>,
                                                                        at offset: inout Int) throws(ProtocolBufferError) -> Integer {
-        let byteCount = MemoryLayout<Integer>.size
-        guard bytes.endIndex - offset >= byteCount else { throw ProtocolBufferError.truncated }
-        var number: Integer = 0
-        for byteIndex in 0..<byteCount { number |= Integer(bytes[offset + byteIndex]) << (8 * byteIndex) }
-        offset += byteCount
+        guard let number = LittleEndianInteger.read(type, in: bytes, at: offset) else { throw ProtocolBufferError.truncated }
+        offset += MemoryLayout<Integer>.size
         return number
     }
 }

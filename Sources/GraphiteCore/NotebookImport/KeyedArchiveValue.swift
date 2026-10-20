@@ -34,15 +34,10 @@ public struct KeyedArchiveObject: Equatable, Sendable {
 
 /// Keys and the references they name, of an archived object or of an archived `NSDictionary`; keys keep their file
 /// order, and a key written twice names its later value.
-public struct KeyedArchiveFields: Equatable, Sendable {
-    public private(set) var keys: [String] = []
-    private var referencesByKey: [String: KeyedArchiveReference] = [:]
+public typealias KeyedArchiveFields = KeyOrderedDictionary<KeyedArchiveReference>
 
-    init() {}
+extension KeyOrderedDictionary where Value == KeyedArchiveReference {
+    public func reference(named key: String) -> KeyedArchiveReference? { self[key] }
 
-    public func reference(named key: String) -> KeyedArchiveReference? { referencesByKey[key] }
-
-    mutating func setReference(_ reference: KeyedArchiveReference, named key: String) {
-        if referencesByKey.updateValue(reference, forKey: key) == nil { keys.append(key) }
-    }
+    mutating func setReference(_ reference: KeyedArchiveReference, named key: String) { setValue(reference, named: key) }
 }

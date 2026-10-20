@@ -48,8 +48,8 @@ public struct NotabilityNoteReader: Sendable {
                               typedText: content.typedText, importedPDFPages: content.importedPDFPages, recordings: recordings,
                               playbackEvents: content.playbackEvents)
         ink = content.ink
-        issues = reading.issues.list
-        pageCount = Self.pageCount(ink: content.ink, pictures: content.pictures, geometry: content.pageGeometry)
+        issues = reading.issues.issues
+        pageCount = NotabilityPagePlacement(geometry: content.pageGeometry).pageCount(inkBottomY: content.ink.highestY, pictures: content.pictures)
     }
 
     /// The recordings of `Recordings/library.plist`; none when the note has no library, and none with an issue when the
@@ -88,16 +88,15 @@ public struct NotabilityNoteReader: Sendable {
         let geometry = note.pageGeometry
         guard let pageCount, let pageHeight = geometry.pageHeightInUnits else { throw .pageCountUnknown }
         guard pageNumber >= 1, pageNumber <= pageCount else { throw .pageNumberOutOfRange(pageNumber: pageNumber, pageCount: pageCount) }
-        let curves = ink.curveIndices(onPage: pageNumber, geometry: geometry).map { curveIndex in ink.curve(at: curveIndex) }
+        let placement = NotabilityPagePlacement(geometry: geometry)
+        let curves = ink.curveIndices(onPage: pageNumber, placement: placement).map { curveIndex in ink.curve(at: curveIndex) }
         let shapes = note.shapes.filter { shape in
-            let verticalPositions = [shape.start.y, shape.end.y] + (shape.quadraticControlPoint.map { point in [point.y] } ?? [])
-            return Self.extent(lowest: verticalPositions.min() ?? 0, highest: verticalPositions.max() ?? 0, touches: pageNumber, geometry: geometry)
+            let extent = NotabilityPagePlacement.verticalExtent(of: shape)
+            return placement.isOnPage(pageNumber, lowestY: extent.lowest, highestY: extent.highest)
         }
         let pictures = note.pictures.filter { picture in
-            let center = picture.origin.y + picture.size.height / 2
-            let halfHeight = abs(picture.size.width / 2 * sin(picture.rotationRadiansClockwise))
-                + abs(picture.size.height / 2 * cos(picture.rotationRadiansClockwise))
-            return Self.extent(lowest: center - halfHeight, highest: center + halfHeight, touches: pageNumber, geometry: geometry)
+            let extent = NotabilityPagePlacement.verticalExtent(of: picture)
+            return placement.isOnPage(pageNumber, lowestY: extent.lowest, highestY: extent.highest)
         }
         return NotabilityPage(pageNumber: pageNumber, topInUnits: Double(pageNumber - 1) * pageHeight, curves: curves, shapes: shapes,
                               pictures: pictures)
@@ -113,18 +112,6 @@ public struct NotabilityNoteReader: Sendable {
         guard curveIndex >= 0, curveIndex < ink.curveCount else {
             throw .curveIndexOutOfRange(curveIndex: curveIndex, curveCount: ink.curveCount)
         }
-    }
-
-    private static func extent(lowest: Double, highest: Double, touches pageNumber: Int, geometry: NotabilityPageGeometry) -> Bool {
-        guard let firstPage = geometry.pagePosition(ofVerticalPosition: lowest),
-              let lastPage = geometry.pagePosition(ofVerticalPosition: highest) else { return false }
-        return firstPage <= Double(pageNumber) && Double(pageNumber) <= lastPage
-    }
-
-    private static func pageCount(ink: NotabilityInk, pictures: [NotabilityPicture], geometry: NotabilityPageGeometry) -> Int? {
-        let pictureBottoms = pictures.map { picture in Double(picture.origin.y + picture.size.height) }
-        let lowestContent = ((ink.highestY.map { highestY in [highestY] } ?? []) + pictureBottoms + [0]).max() ?? 0
-        return geometry.pagePosition(ofVerticalPosition: lowestContent).flatMap(NotabilityPageGeometry.pageNumber(fromPagePosition:))
     }
 
     private static func entryBytes(named name: String, in zipArchive: ZipArchive) throws(NotabilityReadingError) -> [UInt8] {

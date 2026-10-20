@@ -33,8 +33,10 @@ enum AppleLZ4Decoder {
             guard isCompressed || magic == storedBlockMagic else { throw AppleLZ4Error.blockKindNotKnown }
             let headerBytes = isCompressed ? 12 : 8
             guard payload.endIndex - offset >= headerBytes else { throw AppleLZ4Error.blockOutsidePayload }
-            let decodedSize = Int(uint32(payload, at: offset + 4))
-            let encodedSize = isCompressed ? Int(uint32(payload, at: offset + 8)) : decodedSize
+            guard let storedDecodedSize = LittleEndianInteger.read(UInt32.self, in: payload, at: offset + 4),
+                  let storedEncodedSize = isCompressed ? LittleEndianInteger.read(UInt32.self, in: payload, at: offset + 8) : storedDecodedSize
+            else { throw AppleLZ4Error.blockOutsidePayload }
+            let decodedSize = Int(storedDecodedSize), encodedSize = Int(storedEncodedSize)
             let blockStart = offset + headerBytes
             guard encodedSize <= payload.endIndex - blockStart else { throw AppleLZ4Error.blockOutsidePayload }
             guard decodedSize <= maximumDecodedBytes - decoded.count else {
@@ -89,9 +91,5 @@ enum AppleLZ4Decoder {
             length += extra
             if extra != 255 { return length }
         }
-    }
-
-    private static func uint32(_ bytes: ArraySlice<UInt8>, at offset: Int) -> UInt32 {
-        (0..<4).reduce(0) { number, byteIndex in number | UInt32(bytes[offset + byteIndex]) << (8 * UInt32(byteIndex)) }
     }
 }

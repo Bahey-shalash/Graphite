@@ -42,9 +42,9 @@ struct NotabilityInk: Sendable {
     let highestY: Double?
 
     init(fields: KeyedArchiveFields, archive: KeyedArchive, issues: inout NotabilityReadingIssues) throws(NotabilityReadingError) {
-        let curveCount = try Self.count(named: "numcurves", in: fields, archive: archive)
-        let pointCount = try Self.count(named: "numpoints", in: fields, archive: archive)
-        let knotCount = try Self.count(named: "numfractionalwidths", in: fields, archive: archive)
+        let curveCount = try Self.count(of: NotabilityInkKey.curveCount, in: fields, archive: archive)
+        let pointCount = try Self.count(of: NotabilityInkKey.pointCount, in: fields, archive: archive)
+        let knotCount = try Self.count(of: NotabilityInkKey.knotCount, in: fields, archive: archive)
         let pointCounts = try Self.packedValues(.curvePointCounts, entryCount: curveCount, in: fields, archive: archive)
         var locations = try Self.curveLocations(pointCounts: pointCounts, curveCount: Int(curveCount), declaredPointCount: pointCount,
                                                 declaredKnotCount: knotCount)
@@ -109,10 +109,10 @@ struct NotabilityInk: Sendable {
         return indicesByUUID
     }
 
-    /// The curves, in drawing order, whose points' vertical extent touches the page: from the page of its lowest y
-    /// to the page of its highest y.
-    func curveIndices(onPage pageNumber: Int, geometry: NotabilityPageGeometry) -> [Int] {
-        guard let pageHeight = geometry.pageHeightInUnits else { return [] }
+    /// The curves, in drawing order, whose points' vertical extent is on the page (`NotabilityPagePlacement`), found
+    /// by a binary search over the curves sorted by their lowest y.
+    func curveIndices(onPage pageNumber: Int, placement: NotabilityPagePlacement) -> [Int] {
+        guard let pageHeight = placement.geometry.pageHeightInUnits else { return [] }
         let page = Double(pageNumber)
         // One page of slack covers the rounding of the floor division that assigns a position to a page.
         let earliestLowestY = (page - 2) * pageHeight - tallestVerticalExtent
@@ -125,17 +125,17 @@ struct NotabilityInk: Sendable {
         var onPage: [Int] = []
         for curveIndex in curveIndicesByLowestY[low...] {
             let location = locations[curveIndex]
-            guard let firstPage = geometry.pagePosition(ofVerticalPosition: location.lowestY), firstPage <= page else { break }
-            if let lastPage = geometry.pagePosition(ofVerticalPosition: location.highestY), lastPage >= page { onPage.append(curveIndex) }
+            guard let firstPage = placement.geometry.pagePosition(ofVerticalPosition: location.lowestY), firstPage <= page else { break }
+            if placement.isOnPage(pageNumber, lowestY: location.lowestY, highestY: location.highestY) { onPage.append(curveIndex) }
         }
         return onPage.sorted()
     }
 
-    private static func count(named key: String, in fields: KeyedArchiveFields, archive: KeyedArchive) throws(NotabilityReadingError) -> Int64 {
+    private static func count(of key: NotabilityInkKey, in fields: KeyedArchiveFields, archive: KeyedArchive) throws(NotabilityReadingError) -> Int64 {
         let count = try NotabilityReadingError.readingSession { () throws(KeyedArchiveError) in
-            try archive.integer(archive.requiredValue(named: key, in: fields))
+            try archive.integer(archive.requiredValue(named: key.rawValue, in: fields))
         }
-        guard count >= 0 else { throw .countNegative(key: key, count: count) }
+        guard count >= 0 else { throw .countNegative(key: key.rawValue, count: count) }
         return count
     }
 
@@ -201,17 +201,6 @@ struct NotabilityInk: Sendable {
             guard verticalPosition.isFinite else { continue }
             location.lowestY = min(location.lowestY, verticalPosition)
             location.highestY = max(location.highestY, verticalPosition)
-        }
-    }
-}
-
-extension NotabilityReadingError {
-    /// A read of a value the note cannot be read without, its archive error wrapped as `session`.
-    static func readingSession<Value>(_ read: () throws(KeyedArchiveError) -> Value) throws(NotabilityReadingError) -> Value {
-        do throws(KeyedArchiveError) {
-            return try read()
-        } catch {
-            throw .session(error)
         }
     }
 }

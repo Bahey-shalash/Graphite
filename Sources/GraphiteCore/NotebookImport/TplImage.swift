@@ -91,11 +91,8 @@ struct TplValueCursor {
     }
 
     private mutating func littleEndian<Integer: FixedWidthInteger>(_ type: Integer.Type) throws(TplImageError) -> Integer {
-        let byteCount = MemoryLayout<Integer>.size
-        guard bytes.endIndex - offset >= byteCount else { throw TplImageError.valueOutsideImage }
-        var number: Integer = 0
-        for byteIndex in 0..<byteCount { number |= Integer(bytes[offset + byteIndex]) << (8 * byteIndex) }
-        offset += byteCount
+        guard let number = LittleEndianInteger.read(type, in: bytes, at: offset) else { throw TplImageError.valueOutsideImage }
+        offset += MemoryLayout<Integer>.size
         return number
     }
 }

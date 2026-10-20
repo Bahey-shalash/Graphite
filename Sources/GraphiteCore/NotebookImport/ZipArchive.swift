@@ -228,13 +228,13 @@ struct LittleEndianBytes {
     var count: Int { buffer.count }
 
     func uint16(at offset: Int) throws(ZipArchiveError) -> UInt16 {
-        try checkRange(offset, byteCount: 2)
-        return UInt16(littleEndian: buffer.loadUnaligned(fromByteOffset: offset, as: UInt16.self))
+        guard let number = LittleEndianInteger.read(UInt16.self, in: buffer, at: offset) else { throw .readOutsideArchive(offset: offset) }
+        return number
     }
 
     func uint32(at offset: Int) throws(ZipArchiveError) -> UInt32 {
-        try checkRange(offset, byteCount: 4)
-        return UInt32(littleEndian: buffer.loadUnaligned(fromByteOffset: offset, as: UInt32.self))
+        guard let number = LittleEndianInteger.read(UInt32.self, in: buffer, at: offset) else { throw .readOutsideArchive(offset: offset) }
+        return number
     }
 
     func slice(_ range: Range<Int>) throws(ZipArchiveError) -> UnsafeRawBufferPointer {

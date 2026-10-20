@@ -93,8 +93,12 @@ struct GoodnotesRecordFields: Sendable {
 
     /// `{1: x, 2: y}`.
     func point(_ fieldNumber: Int) throws(GoodnotesReadingError) -> CGPoint {
-        let point = try fields(fieldNumber)
-        return CGPoint(x: try point.float(1), y: try point.float(2))
+        try fields(fieldNumber).pointValue()
+    }
+
+    /// This record read as `{1: x, 2: y}`.
+    func pointValue() throws(GoodnotesReadingError) -> CGPoint {
+        CGPoint(x: try float(GoodnotesPointField.horizontal), y: try float(GoodnotesPointField.vertical))
     }
 
     /// `{1: width, 2: height}`.
@@ -112,23 +116,26 @@ struct GoodnotesRecordFields: Sendable {
     /// `{1: origin, 2: size}`.
     func rectangle(_ fieldNumber: Int) throws(GoodnotesReadingError) -> CGRect {
         let rectangle = try fields(fieldNumber)
-        return CGRect(origin: try rectangle.point(1), size: try rectangle.size(2))
+        return CGRect(origin: try rectangle.point(GoodnotesRectangleField.origin), size: try rectangle.size(GoodnotesRectangleField.size))
     }
 
     /// `{1: red, 2: green, 3: blue, 4: alpha}`, each 0 to 1.
     func color(_ fieldNumber: Int) throws(GoodnotesReadingError) -> NotebookImportColor {
         let color = try fields(fieldNumber)
-        return NotebookImportColor(red: try color.float(1), green: try color.float(2), blue: try color.float(3), alpha: try color.float(4))
+        return NotebookImportColor(red: try color.float(GoodnotesColorField.red), green: try color.float(GoodnotesColorField.green),
+                                   blue: try color.float(GoodnotesColorField.blue), alpha: try color.float(GoodnotesColorField.alpha))
     }
 
     func clock(_ fieldNumber: Int) throws(GoodnotesReadingError) -> GoodnotesClock {
         let clock = try fields(fieldNumber)
-        return GoodnotesClock(counter: try clock.varint(1) ?? 0, replica: try clock.varint(2) ?? 0)
+        return GoodnotesClock(counter: try clock.varint(GoodnotesClockField.counter) ?? 0,
+                              replica: try clock.varint(GoodnotesClockField.replica) ?? 0)
     }
 
     func register(_ fieldNumber: Int) throws(GoodnotesReadingError) -> GoodnotesRegister {
         let register = try fields(fieldNumber)
-        return GoodnotesRegister(value: register.message.lastValue(1), clock: try register.clock(2))
+        return GoodnotesRegister(value: register.message.lastValue(GoodnotesRegisterField.value.rawValue),
+                                 clock: try register.clock(GoodnotesRegisterField.clock))
     }
 
     /// A payload in Apple's LZ4 framing, decoded; an absent field decodes as an empty payload would, to an error.

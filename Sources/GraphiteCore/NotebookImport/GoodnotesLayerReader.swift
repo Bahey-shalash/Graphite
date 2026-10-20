@@ -5,10 +5,7 @@ import Foundation
 /// one, is only checked against it. Elements whose header marks them deleted are left out, and the rest are sorted
 /// into drawing order.
 struct GoodnotesLayerReader {
-    private static let knownHeaderFieldNumbers: Set<Int> = [1, 2, 3, 4, 6, 7, 8, 9, 10, 14, 16]
-    private static let headerIdentifierField = 1
-    private static let headerDeletedField = 3
-    private static let headerOrderIdentifierField = 6
+    private static let knownHeaderFieldNumbers = GoodnotesElementHeaderField.knownFieldNumbers
 
     private struct Header {
         let isDeleted: Bool
@@ -27,7 +24,7 @@ struct GoodnotesLayerReader {
     func elements(inLayer layerBytes: ArraySlice<UInt8>, issues: inout GoodnotesIssueList) -> [GoodnotesElement] {
         let (records, framingFailure) = ProtocolBufferMessage.lengthPrefixedRecords(in: layerBytes)
         var headers: [String: Header] = [:]
-        var bodies = OrderedBodies()
+        var bodies = KeyOrderedDictionary<Body>()
         for record in records {
             do throws(GoodnotesReadingError) {
                 try read(record, headers: &headers, bodies: &bodies, issues: &issues)
@@ -37,7 +34,7 @@ struct GoodnotesLayerReader {
         }
         if let framingFailure { issues.report(.recordsTruncated(.protocolBuffer(framingFailure))) }
         var placed: [(element: GoodnotesElement, sequence: Int)] = []
-        for (sequence, (identifier, body)) in bodies.inFirstSeenOrder.enumerated() {
+        for (sequence, (identifier, body)) in bodies.entries.enumerated() {
             guard let header = headers[identifier] else {
                 issues.report(.bodyWithoutHeader(elementIdentifier: identifier))
                 continue
@@ -57,16 +54,17 @@ struct GoodnotesLayerReader {
     }
 
     /// A header has field 1 and more fields; a body has one field, whose number is its kind.
-    private func read(_ record: ArraySlice<UInt8>, headers: inout [String: Header], bodies: inout OrderedBodies,
+    private func read(_ record: ArraySlice<UInt8>, headers: inout [String: Header], bodies: inout KeyOrderedDictionary<Body>,
                       issues: inout GoodnotesIssueList) throws(GoodnotesReadingError) {
         let top = try GoodnotesRecordFields(parsing: record)
         guard let firstField = top.message.fields.first else { throw .emptyRecord }
-        if firstField.number == Self.headerIdentifierField && top.message.fields.count > 1 {
+        if firstField.number == GoodnotesElementHeaderField.elementIdentifier.rawValue && top.message.fields.count > 1 {
             for fieldNumber in top.fieldNumbers.subtracting(Self.knownHeaderFieldNumbers).sorted() {
                 issues.report(.elementHeaderFieldNotKnown(fieldNumber))
             }
-            headers[try top.string(Self.headerIdentifierField)] = Header(isDeleted: try top.varint(Self.headerDeletedField) == 1,
-                                                                         orderIdentifier: try top.string(Self.headerOrderIdentifierField))
+            headers[try top.string(GoodnotesElementHeaderField.elementIdentifier)] = Header(
+                isDeleted: try top.varint(GoodnotesElementHeaderField.isDeleted) == 1,
+                orderIdentifier: try top.string(GoodnotesElementHeaderField.orderIdentifier))
             return
         }
         let bodyBytes: ArraySlice<UInt8>
@@ -74,7 +72,8 @@ struct GoodnotesLayerReader {
             throw .protocolBuffer(error)
         }
         let fields = try GoodnotesRecordFields(parsing: bodyBytes)
-        bodies.set(Body(kind: firstField.number, fields: fields), for: try fields.string(1))
+        // A later body of the same element replaces the earlier one but keeps its place.
+        bodies.setValue(Body(kind: firstField.number, fields: fields), named: try fields.string(GoodnotesElementBodyField.elementIdentifier))
     }
 
     /// An element of a kind or path layout this reader does not know is kept, and reported with its identifier.
@@ -91,19 +90,5 @@ struct GoodnotesLayerReader {
         let position = try body.fields.fields(kind.positionFieldNumber).clock(1)
         return GoodnotesElement(identifier: identifier, drawingPosition: GoodnotesDrawingPosition(counter: position.counter, replica: position.replica),
                                 content: content)
-    }
-
-    /// Bodies by element id: a later body of the same id replaces the earlier one but keeps its place.
-    private struct OrderedBodies {
-        private var identifiers: [String] = []
-        private var bodies: [String: Body] = [:]
-
-        mutating func set(_ body: Body, for identifier: String) {
-            if bodies.updateValue(body, forKey: identifier) == nil { identifiers.append(identifier) }
-        }
-
-        var inFirstSeenOrder: [(String, Body)] {
-            identifiers.compactMap { identifier in bodies[identifier].map { body in (identifier, body) } }
-        }
     }
 }

@@ -216,6 +216,22 @@ final class BinaryPropertyListTests: XCTestCase {
         }
     }
 
+    /// CC-IMPORT-04: the nesting scan counted only the exact tags `<array>` and `<dict>`, so `<array >` slipped past it,
+    /// and it counted tags inside comments, so a valid list with such a comment was refused.
+    func testTheXMLNestingScanReadsTagsAsAParserDoes() throws {
+        let commented = "<plist><!-- " + String(repeating: "<array>", count: 100) + " --><array><string><![CDATA[<dict><dict>]]></string>"
+            + "<array/></array></plist>"
+        let value = try PropertyListDocument.plainValue(of: Array(commented.utf8)[...], maximumNestingDepth: 4, maximumValueCount: 1_000)
+        XCTAssertEqual(value, .array([.string("<dict><dict>"), .array([])]))
+        for opening in ["<array >", "<array\n>", "<dict >"] {
+            let closing = opening.hasPrefix("<array") ? "</array>" : "</dict>"
+            let deep = "<plist>" + String(repeating: opening, count: 100) + String(repeating: closing, count: 100) + "</plist>"
+            XCTAssertThrowsError(try PropertyListDocument.plainValue(of: Array(deep.utf8)[...], maximumNestingDepth: 64, maximumValueCount: 1_000)) {
+                error in XCTAssertEqual(error as? PropertyListDocumentError, .nestingTooDeep(limit: 64))
+            }
+        }
+    }
+
     func testXMLDocumentsAreReadAndDeepNestingIsRefusedBeforeParsing() throws {
         let xml = """
         <?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>b</key><array><integer>2</integer><true/></array>\

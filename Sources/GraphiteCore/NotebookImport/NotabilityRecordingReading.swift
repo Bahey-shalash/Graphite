@@ -16,7 +16,7 @@ enum NotabilityRecordingsLibrary {
         }
         guard let libraryDictionary = library.dictionary else { throw .recordingsLibraryLayoutNotRecognised }
         let recordingsByKey: PropertyListDictionary
-        switch libraryDictionary["recordings"] {
+        switch libraryDictionary[NotabilityRecordingsLibraryKey.recordings.rawValue] {
         case nil, .null?: recordingsByKey = PropertyListDictionary()
         case .dictionary(let dictionary)?: recordingsByKey = dictionary
         case .boolean?, .integer?, .real?, .date?, .data?, .string?, .uid?, .array?: throw .recordingsLibraryLayoutNotRecognised
@@ -31,14 +31,15 @@ enum NotabilityRecordingsLibrary {
         var invalidPaths: [String] = []
         for key in sortedKeys {
             guard let recording = recordingsByKey[key]?.dictionary else { throw .recordingsLibraryLayoutNotRecognised }
-            let identifier: Int? = if case .integer(let identifier)? = recording["identifier"] { Int(identifier) } else { nil }
+            let identifier: Int? = if case .integer(let identifier)? = recording[NotabilityRecordingKey.identifier.rawValue] { Int(identifier) } else { nil }
             var file: NotebookArchivePath?
-            if let filePath = recording["filepath"]?.string {
+            if let filePath = recording[NotabilityRecordingKey.filePath.rawValue]?.string {
                 file = NotebookArchivePath(validating: recordingsFolder + "/" + filePath)
                 if file == nil { invalidPaths.append(recordingsFolder + "/" + filePath) }
             }
-            recordings.append(NotabilityRecording(identifier: identifier, file: file, durationSeconds: recording["duration"]?.number,
-                                                  name: recording["name"]?.string))
+            recordings.append(NotabilityRecording(identifier: identifier, file: file,
+                                                  durationSeconds: recording[NotabilityRecordingKey.duration.rawValue]?.number,
+                                                  name: recording[NotabilityRecordingKey.name.rawValue]?.string))
         }
         return (recordings, invalidPaths)
     }
@@ -48,9 +49,9 @@ enum NotabilityRecordingsLibrary {
 extension NotabilitySessionReading {
     mutating func readPlaybackEvents(in eventManager: KeyedArchiveFields, ink: NotabilityInk) throws(NotabilityReadingError) -> [NotabilityPlaybackEvent] {
         let eventCount = try NotabilityReadingError.readingSession { () throws(KeyedArchiveError) -> Int64 in
-            try archive.nonNullValue(named: "NBCPTimeManagerSOANumEventsKey", in: eventManager).map(archive.integer) ?? 0
+            try archive.nonNullValue(named: NotabilityEventManagerKey.eventCount.rawValue, in: eventManager).map(archive.integer) ?? 0
         }
-        guard eventCount >= 0 else { throw .countNegative(key: "NBCPTimeManagerSOANumEventsKey", count: eventCount) }
+        guard eventCount >= 0 else { throw .countNegative(key: NotabilityEventManagerKey.eventCount.rawValue, count: eventCount) }
         let uuids = try eventValues(.eventCurveUUIDs, eventCount: eventCount, in: eventManager)
         let timestamps = try eventValues(.eventTimestamps, eventCount: eventCount, in: eventManager)
         let recordingIdentifiers = try eventValues(.eventRecordingIdentifiers, eventCount: eventCount, in: eventManager)

@@ -11,15 +11,12 @@ public enum PropertyListDocumentError: Error, Hashable, Sendable {
 }
 
 /// A property list file read as plain values, binary or XML. A binary list is read by `BinaryPropertyList`. An XML
-/// list is parsed by Foundation, whose parser recurses once per level, so its tags are scanned first and a list that
-/// nests deeper than the limit is refused before it is parsed. XML lists hold no UIDs, so nothing is lost to the
-/// opaque objects Foundation makes of them.
+/// list is parsed by Foundation, whose parser recurses once per level, so its tags are scanned first (`XMLTag`) and a
+/// list whose arrays and dictionaries nest deeper than the limit is refused before it is parsed. XML lists hold no
+/// UIDs, so nothing is lost to the opaque objects Foundation makes of them.
 public enum PropertyListDocument {
     private static let binaryMagicPrefix = Array("bplist".utf8)
     private static let tagStart = UInt8(ascii: "<")
-    private static let tagEnd = UInt8(ascii: ">")
-    private static let openingTags = [Array("array".utf8), Array("dict".utf8)]
-    private static let closingTags = [Array("/array".utf8), Array("/dict".utf8)]
 
     /// `maximumValueCount` bounds a binary list, whose shared members can expand far past its size; an XML list names
     /// no shared members, so its values are bounded by its bytes.
@@ -47,20 +44,23 @@ public enum PropertyListDocument {
         }
     }
 
-    /// Whether `<array>` and `<dict>` elements nest deeper than `limit`. Property lists hold no attributes, comments
-    /// or character data with a raw `<`, so counting tags is enough; the scan stops as soon as the depth passes the limit.
+    /// Whether `<array>` and `<dict>` elements nest deeper than `limit`, reading tags as an XML parser does: a tag's
+    /// name ends at whitespace, `/` or `>`, so `<array >` and `<array x="1">` count; a self-closing `<array/>` does not
+    /// nest; comments, CDATA sections, declarations and processing instructions are skipped. The scan stops as soon
+    /// as the depth passes the limit; the values Foundation parses are checked against the limit again.
     private static func xmlNesting(in bytes: ArraySlice<UInt8>, exceeds limit: Int) -> Bool {
         var depth = 0
         var position = bytes.startIndex
         while let tagOpening = bytes[position...].firstIndex(of: tagStart) {
-            let tagName = bytes[(tagOpening + 1)...].prefix { byte in byte != tagEnd }
-            if openingTags.contains(where: { name in tagName.elementsEqual(name) }) {
+            guard let tag = XMLTag(in: bytes, openingAt: tagOpening) else { return false }
+            position = tag.end
+            guard tag.isContainer else { continue }
+            if tag.isClosing {
+                depth -= 1
+            } else if !tag.isSelfClosing {
                 depth += 1
                 if depth > limit { return true }
-            } else if closingTags.contains(where: { name in tagName.elementsEqual(name) }) {
-                depth -= 1
             }
-            position = tagOpening + 1 + tagName.count
         }
         return false
     }
