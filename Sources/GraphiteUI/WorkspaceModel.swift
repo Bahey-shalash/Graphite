@@ -152,9 +152,10 @@ final class WorkspaceModel {
     /// The pending write of a font size or font changed here, which waits for a pinch or
     /// the slider to come to rest.
     @ObservationIgnored var pendingAppearanceSave: Task<Void, Never>?
-    /// Obsidian's Templates and Daily notes settings for the open vault.
-    var templateSettings = TemplateSettings()
-    var dailyNoteSettings = DailyNoteSettings()
+    /// Obsidian's Templates and Daily notes settings for the open vault, as read from its files
+    /// (`WorkspaceTemplates.swift`). Each is replaced whenever a vault opens.
+    var templateSettingsReading = VaultSettingsReading.read(TemplateSettings())
+    var dailyNoteSettingsReading = VaultSettingsReading.read(DailyNoteSettings())
     /// Obsidian's bookmarks, from `.obsidian/bookmarks.json`.
     var bookmarks = BookmarkList()
     /// The whole vault's graph, built once per index change.
@@ -470,10 +471,11 @@ final class WorkspaceModel {
 
     func reloadVaultSettings() async {
         guard let store else { return }
-        do {
-            templateSettings = try await store.templateSettings()
-            dailyNoteSettings = try await store.dailyNoteSettings()
-        } catch { errorMessage = "Graphite could not read the Templates or Daily notes settings in this vault. " + error.localizedDescription }
+        // Each file is read on its own, and a file that cannot be read replaces what the last
+        // vault's file said: its settings are never used in this vault.
+        templateSettingsReading = await Self.settingsReading { try await store.templateSettings() }
+        dailyNoteSettingsReading = await Self.settingsReading { try await store.dailyNoteSettings() }
+        if let unreadableSettingsMessage { errorMessage = unreadableSettingsMessage }
         await reloadBookmarks()
         await reloadVaultAppearance()
         do {

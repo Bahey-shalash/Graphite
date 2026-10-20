@@ -29,6 +29,17 @@ In reading view, some inline formulas showed only their subscript: `$g_m$` as a 
 - `AppProjectTextualPatchTests.testFormulaInAFrameNarrowerByAFractionOfAPointStaysOnOneLine` (macOS, rendered and read pixel by pixel): `g_m`, `r_o`, `V_A`, `V_{ov}` and `k_n`, each drawn in a frame 0.4 points narrower than itself, stay on one line, and a formula twice as wide as its width still breaks. It fails without the patch (`g_m` measured 13.5 points wide on two lines).
 - The Mac never showed the fault: rendering the reported callouts, and the formulas at 24 fractional offsets, drew them whole before the fix as well, so the iPad is the place to confirm it.
 
+## The four Medium defects of the SOLID audit fixed: 2026-10-20
+
+On the branch `fix-four-medium-defects`, one commit per defect, each with its regression test written first and seen failing on the old code ([status.md](solid/status.md)).
+
+- **BUG-MDCORE-05** (`9a96593`): a display formula's alignment environments are rewritten to 16 levels; deeper ones are left as written, and each environment's end is found in one scan. `ParserNestingLimitsTests`: 16 and 17 levels, 5,000 levels on a 512 KB stack (the old code ran about 7 minutes and died with signal 10), linear scaling.
+- **BUG-PLUGIN-05** (`1a0f5d0`): when the keychain does not give back a vault's plugin secrets, a plugin's save is refused and the stored item is left as it was; the runtime starts without them and shows a notice. `CommunityPluginSecretStoreTests` writes an undecodable item into the real keychain. Not established: a failing keychain status itself (for example a denied Mac keychain prompt), which the store cannot be made to return in a test.
+- **BUG-SHELL-10** (`a2b32ab`): a vault whose Templates or Daily notes settings file cannot be read no longer keeps the previous vault's settings; Settings shows Obsidian's defaults and the template and daily note actions are refused with the reason. `WorkspaceTemplatesVaultSwitchTests` (two vaults; the old code created `Journal/<today>.md` in the second).
+- **BUG-VOICE-11** (`1b6f5ae`): Settings › Read Aloud › Pronunciations applies each edit to the vault's file as it is when saved, and writes only while the file is still that revision, so a term that arrived from another device is kept. `ReadAloudPronunciationVaultFileTests` and new cases in `ReadAloudPronunciationVaultFileWritingTests`.
+- **Automated tests, all passing on macOS:** the full package suite (`swift test`, from a clean export of `1b6f5ae` with scratchpad build paths): 3,371 tests (GraphiteCore 1,620, GraphiteUI 1,181, GraphiteApple 419, GraphiteIndex 151), 13 skipped, 0 failures. No hosted iPad suite. During both full runs an audio-output assertion (`BuiltInSpeakerDevice`, with an `AudioTap` input) appeared for 1 to 4 seconds as `UiMapViewMacTests` and `UiNumberedEquationTests` ran, and once in the GraphiteApple bundle; not caused by these changes, and not investigated further under the no-sound rule.
+- **Not established:** the four fixes on the iPad or iPhone, and the pronunciation page and the refused template and daily note actions by hand in the running app.
+
 ## Importing Goodnotes and Notability: the import report: 2026-10-20
 
 On the branch `goodnotes-notability-import`: step 9 of [the Phase 3 design](Goodnotes-Notability-import-phase-3-design.md), the import report as plain values. Nothing shows it yet (Phase 4).
