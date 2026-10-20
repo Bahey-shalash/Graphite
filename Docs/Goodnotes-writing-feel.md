@@ -146,6 +146,18 @@ Read as: Graphite's live ink (PencilKit's) is not slower than Goodnotes', and is
 
 **Device trace**: `xctrace record --template "Time Profiler" --instrument os_signpost --instrument os_log --launch -- com.graphite.study` records the `PencilWriting` log and signposts on the iPad (attaching by name or process number did not find the app). One stroke was recorded, in a drawing: Pencil up to the end of the drawing's change 33.8 ms, of which PencilKit reports the change after 32.9 ms and Graphite's `Drawing change` takes 0.9 ms. The canvas drew with the tool expected for the chosen one (monoline 1.6 at a zoom of 1.571, from the fixed bar).
 
+### The width saved in the PDF (2026-10-20, iPad simulator)
+
+A stroke point's size is not the width PencilKit draws it at (found by the import work, `PencilInkRenderedWidth`): the pen and the monoline draw 2 × size − 4 points (nothing below a size of 2), the pencil about 1.7 times the size. Saved PDF ink and vector drawings took the size as the width. Measured on one horizontal stroke, PencilKit's own image against the PDF page drawn with the saved ink, at 8 pixels a point:
+
+| Pen or monoline point size | 3 | 4 | 6 | 8 |
+|---|---|---|---|---|
+| Drawn by PencilKit | 2.00 | 4.00 | 8.00 | 12.00 |
+| Saved in the PDF, before | 3.00 | 4.00 | 6.00 | 8.00 |
+| Saved in the PDF, after | 2.00 | 4.00 | 8.00 | 12.00 |
+
+The pencil saves within 7% after (sizes 1 to 8). The fountain pen and the highlighter draw a width that turns with the nib and still save the size. The device trace above logged the monoline's point size (3.6), which draws 3.2 points; the trace now logs the drawn width too.
+
 ### Not yet measured (needs the owner and the iPad)
 
 - **Experiment 2, latency**: the four controlled films (five fast straight flicks each, phone held still at one distance, Goodnotes and Graphite on the empty and the dense page), the flicks in the middle of each film. No `FR-101` budget is proposed until they are measured.

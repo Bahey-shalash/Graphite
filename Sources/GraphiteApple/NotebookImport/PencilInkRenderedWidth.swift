@@ -1,4 +1,5 @@
 import Foundation
+import PencilKit
 import GraphiteCore
 
 /// How wide PencilKit draws a stroke point of a given size, for each ink an imported stroke uses. A point's
@@ -49,6 +50,26 @@ enum PencilInkRenderedWidth {
         case .pencil: pencilMeasurements
         case .highlighter: markerMeasurements
         }
+    }
+
+    /// The tables of the inks whose drawn width does not turn with the nib. PencilKit's ink types are not frozen, so
+    /// the measured inks are named, by the raw name of their ink type, and every other one has none.
+    private static let measurementsByInkName: [String: [Measurement]] = [
+        PKInkingTool.InkType.pen.rawValue: solidInkMeasurements, PKInkingTool.InkType.monoline.rawValue: solidInkMeasurements,
+        PKInkingTool.InkType.pencil.rawValue: pencilMeasurements
+    ]
+
+    /// The width PencilKit draws a point of `pointSize` in this ink, interpolated as `pointSize(forRenderedWidth:ink:)`
+    /// is, or nil for an ink whose drawn width turns with its nib (fountain pen, highlighter) or was not measured
+    /// (crayon, watercolor, reed pen): for those the point size is the best width there is. Below a size of 2 the pen
+    /// and the monoline draw nothing.
+    static func renderedWidth(forPointSize pointSize: Double, inkType: PKInkingTool.InkType) -> Double? {
+        guard let table = measurementsByInkName[inkType.rawValue], let narrowest = table.first, table.count > 1,
+              pointSize.isFinite, pointSize > 0 else { return nil }
+        if pointSize <= narrowest.pointSize { return narrowest.renderedWidth * pointSize / narrowest.pointSize }
+        let upperIndex = max(table.firstIndex { measurement in measurement.pointSize >= pointSize } ?? table.count - 1, 1)
+        let lower = table[upperIndex - 1], upper = table[upperIndex]
+        return lower.renderedWidth + (pointSize - lower.pointSize) * (upper.renderedWidth - lower.renderedWidth) / (upper.pointSize - lower.pointSize)
     }
 
     /// The point size PencilKit draws `renderedWidth` points wide in this ink: interpolated between the two nearest

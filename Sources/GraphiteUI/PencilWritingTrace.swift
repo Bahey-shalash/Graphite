@@ -2,6 +2,7 @@
 import UIKit
 import PencilKit
 import os
+import GraphiteApple
 
 /// Measures Pencil writing: signposts for the Pencil's touches and for the work done at each
 /// pen-up, and a log line with the tool each stroke begins with and the width it lands with.
@@ -71,22 +72,24 @@ enum PencilWritingTrace {
         #endif
     }
 
-    /// A stroke was recorded: its width in the drawing's points, which on a PDF page are the
-    /// page's points.
+    /// A stroke was recorded: its point size and the width PencilKit draws it, both in the
+    /// drawing's points, which on a PDF page are the page's points.
     @inline(__always)
     static func strokeWasRecorded(_ stroke: PKStroke, on canvas: HistoryCanvasView) {
         #if DEBUG || GRAPHITE_WRITING_TRACE
         let transform = stroke.transform
         let transformScale = abs(transform.a * transform.d - transform.b * transform.c).squareRoot()
-        let widths = stroke.path.map { strokePoint in strokePoint.size.width * transformScale }.sorted()
-        guard !widths.isEmpty else { return }
-        let medianWidth = widths[widths.count / 2]
+        let pointSizes = stroke.path.map { strokePoint in strokePoint.size.width * transformScale }.sorted()
+        let drawnWidths = PencilStrokeSampler.visibleSegments(of: stroke).joined().map(\.width).sorted()
+        guard !pointSizes.isEmpty, !drawnWidths.isEmpty else { return }
+        let medianPointSize = pointSizes[pointSizes.count / 2]
+        let medianDrawnWidth = drawnWidths[drawnWidths.count / 2]
         let inkName = stroke.ink.inkType.rawValue
         let zoomScale = canvas.zoomScale
         logger.log("""
             Stroke recorded at zoom \(zoomScale, format: .fixed(precision: 3)): \(inkName, privacy: .public), \
-            width in the drawing \(medianWidth, format: .fixed(precision: 3)) pt (median of \(widths.count) points, \
-            narrowest \(widths[0], format: .fixed(precision: 3)), widest \(widths[widths.count - 1], format: .fixed(precision: 3)))
+            drawn width in the drawing \(medianDrawnWidth, format: .fixed(precision: 3)) pt, \
+            point size \(medianPointSize, format: .fixed(precision: 3)) pt (medians of \(pointSizes.count) points)
             """)
         #endif
     }
