@@ -15,6 +15,7 @@
 		A00000000000000000000063 /* AppIconCharcoal.icon in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000053 /* AppIconCharcoal.icon */; };
 		A00000000000000000000064 /* AppIconBlueGraphite.icon in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000054 /* AppIconBlueGraphite.icon */; };
 		A00000000000000000000065 /* IconPreviews.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000055 /* IconPreviews.xcassets */; };
+		A00000000000000000000066 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000056 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -37,6 +38,7 @@
 		A00000000000000000000053 /* AppIconCharcoal.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.icon; path = AppIconCharcoal.icon; sourceTree = "<group>"; };
 		A00000000000000000000054 /* AppIconBlueGraphite.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.icon; path = AppIconBlueGraphite.icon; sourceTree = "<group>"; };
 		A00000000000000000000055 /* IconPreviews.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = IconPreviews.xcassets; sourceTree = "<group>"; };
+		A00000000000000000000056 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		A00000000000000000000201 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		A00000000000000000000202 /* OBJECTIVE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = OBJECTIVE.md; sourceTree = "<group>"; };
 		A00000000000000000000203 /* RULES.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = RULES.md; sourceTree = "<group>"; };
@@ -164,6 +166,7 @@
 				A00000000000000000000005 /* GraphiteApp.swift */,
 				A00000000000000000000055 /* IconPreviews.xcassets */,
 				A00000000000000000000206 /* Info.plist */,
+				A00000000000000000000056 /* PrivacyInfo.xcprivacy */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -267,6 +270,7 @@
 				A00000000000000000000063 /* AppIconCharcoal.icon in Resources */,
 				A00000000000000000000064 /* AppIconBlueGraphite.icon in Resources */,
 				A00000000000000000000065 /* IconPreviews.xcassets in Resources */,
+				A00000000000000000000066 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -329,6 +333,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = App/Graphite.entitlements;
 				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = JDP856P5D5;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -340,6 +345,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.graphite.study;
 				PRODUCT_NAME = Graphite;
 				SDKROOT = auto;
@@ -356,6 +362,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = App/Graphite.entitlements;
 				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = JDP856P5D5;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -367,6 +374,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.graphite.study;
 				PRODUCT_NAME = Graphite;
 				SDKROOT = auto;
