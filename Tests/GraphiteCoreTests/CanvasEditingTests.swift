@@ -121,6 +121,24 @@ final class CanvasEditingTests: XCTestCase {
         XCTAssertEqual(try edited(#"{"nodes":null,"edges":[]}"#, [.add(nodes: [link], edges: [])]), #"{"nodes":["# + linkText + #"],"edges":[]}"#)
     }
 
+    /// BUG-CANVAS-04: a card resized or grouped beyond 1,000,000 pixels disappeared from the board.
+    func testCardsResizedOrAddedBeyondTheLargestSideGraphiteReadsAreWrittenAtThatSideAndStayOnTheBoard() throws {
+        let text = "{\"nodes\":[{\"id\":\"a\",\"type\":\"text\",\"text\":\"t\",\"x\":0,\"y\":0,\"width\":100,\"height\":50}]}"
+        let resized = try edited(text, [.setFrames(["a": CGRect(x: 0, y: 0, width: 2_000_000, height: 1_000_000.6)])])
+        XCTAssertEqual(resized, "{\"nodes\":[{\"id\":\"a\",\"type\":\"text\",\"text\":\"t\",\"x\":0,\"y\":0,\"width\":1000000,\"height\":1000000}]}")
+        let resizedFile = try CanvasFixtures.file(resized)
+        XCTAssertEqual(resizedFile.unreadableNodeCount, 0, "A resized card stays a card Graphite shows.")
+        XCTAssertEqual(resizedFile.node(withIdentifier: "a")?.frame, CGRect(x: 0, y: 0, width: 1_000_000, height: 1_000_000))
+        let notANumber = try CanvasFixtures.file(try edited(text, [.setFrames(["a": CGRect(x: 0, y: 0, width: CGFloat.nan, height: 50)])]))
+        XCTAssertEqual(notANumber.node(withIdentifier: "a")?.frame.width, 1, "A side that is not a number is written as the smallest side, not as 0.")
+
+        let group = CanvasNode(id: "bbbbbbbbbbbbbbbb", content: .group(label: nil, background: nil, backgroundStyle: .cover),
+                               frame: CGRect(x: -20, y: -20, width: 3_000_000, height: 400))
+        let grouped = try CanvasFixtures.file(try edited(text, [.add(nodes: [group], edges: [])]))
+        XCTAssertEqual(grouped.unreadableNodeCount, 0, "A group around cards far apart stays on the board.")
+        XCTAssertEqual(grouped.node(withIdentifier: "bbbbbbbbbbbbbbbb")?.frame, CGRect(x: -20, y: -20, width: 1_000_000, height: 400))
+    }
+
     func testNewIdentifiersAreSixteenHexadecimalDigitsAndUnused() throws {
         let file = try CanvasFixtures.file(CanvasFixtures.obsidianBoard)
         var seen: Set<String> = []

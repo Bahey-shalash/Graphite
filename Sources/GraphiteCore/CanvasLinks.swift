@@ -69,18 +69,18 @@ extension CanvasFile {
 /// among its backlinks, as in Obsidian, and a rename finds the canvases to update.
 public enum CanvasLinks {
     /// The links of a canvas as the index stores a note's: each file card and group
-    /// background as an embed of its file, and the links written in text cards. A canvas
-    /// that cannot be read has none.
-    public static func semantics(ofCanvasText canvasText: String) -> NoteSemantics {
+    /// background as an embed of its file, and the links written in text cards. Throws the
+    /// reading error for a canvas Graphite cannot read (damaged, or beyond its bounds),
+    /// whose links are unknown.
+    public static func semantics(ofCanvasText canvasText: String) throws -> NoteSemantics {
+        let file = try CanvasFile(data: Data(canvasText.utf8))
         var links: [NoteLink] = []
-        if let file = try? CanvasFile(data: Data(canvasText.utf8)) {
-            for source in file.linkSources {
-                switch source.kind {
-                case .filePath, .groupBackground:
-                    links.append(NoteLink(target: markdownLinkTarget(forFilePath: source.value), label: nil, isEmbed: true, isWiki: false, location: 0, length: 0))
-                case .text:
-                    links += (try? NoteLinkScanner.links(in: source.value)) ?? []
-                }
+        for source in file.linkSources {
+            switch source.kind {
+            case .filePath, .groupBackground:
+                links.append(NoteLink(target: markdownLinkTarget(forFilePath: source.value), label: nil, isEmbed: true, isWiki: false, location: 0, length: 0))
+            case .text:
+                links += (try? NoteLinkScanner.links(in: source.value)) ?? []
             }
         }
         return NoteSemantics(links: links, headings: [], tags: [], aliases: [], body: "", frontmatter: nil)
