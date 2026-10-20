@@ -281,9 +281,9 @@ private struct CanvasFileCardContent: View {
 
     @ViewBuilder private func found(_ vaultPath: VaultPath, at location: URL) -> some View {
         let fileExtension = vaultPath.fileExtension
-        if MediaFileKind.videoExtensions.contains(fileExtension) {
+        if DocumentKind.videoFileExtensions.contains(fileExtension) {
             EmbeddedMediaPlayer(location: location).frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if MediaFileKind.audioExtensions.contains(fileExtension) {
+        } else if DocumentKind.audioFileExtensions.contains(fileExtension) {
             EmbeddedAudioPlayer(location: location, name: vaultPath.name).padding(12).frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             switch DocumentKind(path: vaultPath) {

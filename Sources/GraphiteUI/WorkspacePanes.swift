@@ -574,7 +574,7 @@ private struct TabDocumentView: View {
                 // One player per file: its playback, size and duration are not carried over
                 // when the tab opens another recording or video.
                 Group {
-                    if MediaFileKind.audioExtensions.contains(path.fileExtension) {
+                    if DocumentKind.audioFileExtensions.contains(path.fileExtension) {
                         EmbeddedAudioPlayer(location: location, name: path.name)
                     } else {
                         EmbeddedMediaPlayer(location: location)

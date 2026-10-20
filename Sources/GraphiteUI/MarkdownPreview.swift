@@ -229,11 +229,6 @@ enum ReadingMarkerEscaping {
     }
 }
 
-enum MediaFileKind {
-    static let videoExtensions: Set<String> = ["mp4", "mov", "m4v", "webm"]
-    static let audioExtensions: Set<String> = ["m4a", "mp3", "wav", "aac", "ogg", "flac", "3gp"]
-}
-
 /// A note's reading-view blocks, and whether any Wikilink embed in its text could not be
 /// found, so the note is built again once the index knows more files.
 struct ReadingViewBuild: Sendable {
@@ -473,8 +468,8 @@ actor ReadingViewBuilder {
         }
         let fileExtension = path.fileExtension
         let subpath = embed.target.split(separator: "#", maxSplits: 1).dropFirst().first.map(String.init)
-        if MediaFileKind.videoExtensions.contains(fileExtension) { return .video(id: identifier(), location: location) }
-        if MediaFileKind.audioExtensions.contains(fileExtension) { return .audio(id: identifier(), location: location, name: path.name) }
+        if DocumentKind.videoFileExtensions.contains(fileExtension) { return .video(id: identifier(), location: location) }
+        if DocumentKind.audioFileExtensions.contains(fileExtension) { return .audio(id: identifier(), location: location, name: path.name) }
         switch DocumentKind(path: path) {
         case .base:
             return .baseFile(id: identifier(), path: path, viewName: subpath)

@@ -894,7 +894,7 @@ private struct VaultItemDragPreview: View {
         case .markdown: return "doc.text"
         case .pdf: return "doc.richtext"
         case .image: return "photo"
-        case .media: return entry.path.fileExtension == "mp4" || entry.path.fileExtension == "mov" ? "film" : "waveform"
+        case .media: return DocumentKind.videoFileExtensions.contains(entry.path.fileExtension) ? "film" : "waveform"
         case .base: return "tablecells"
         case .canvas: return "rectangle.3.group"
         case .other: return "doc"
