@@ -4,6 +4,24 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-20.
 
+## The audit's Low defects fixed, each with a regression test: 2026-10-20
+
+On the branch `fix-math-breaking-at-rounded-width`, commits `7fff98b` to `ceb2bec`: 36 of the 37 open Low defects of [the SOLID audit](solid/status.md) are fixed, one commit per area. Every row in `Docs/solid/status.md` names its commit and test.
+
+- **Vault switching** (`67541c1`): a drawing open in its editor holds the vault (a `graphite://open` link is refused until it is inserted or cancelled), a failed last save keeps the vault and its typed text, and the listening queue, the pen's marks, the callout folds and a graph or map query of the vault being left no longer reach the next vault.
+- **Links, files and search** (`0f51892`, `9e7e7ce`): a link to a missing `.flac`, `.ogg`, `.3gp`, `.webm` or `.m4v` file creates no note (`DocumentKind` alone lists the media extensions), and `content:/^$/` no longer lists every canvas. `BUG-ARCH-05` was already fixed by `93d82a6`.
+- **Bases** (`5caa6dc`): turning off Default Zoom works on a map written with `zoom:`, Markdown links match aliases nowhere (as in backlinks), tapping a link cell opens the file the base resolves, and an edit refuses to write over views a root merge key supplies.
+- **Canvas** (`a264185`): a card resized or grouped past 1,000,000 px stays on the board, and renaming a note named by a canvas Graphite cannot read reports that canvas as not updated (new index migration `unreadable-canvas-state-10`, which reads every canvas again once).
+- **Editor and ink** (`723281b`): a note created on the Mac starts editing, and drawing on an image says the note changed, not that it dropped the image, when it only changed meanwhile.
+- **PDFs and lectures** (`7fff98b`): a signed PDF embedded in a note says it is signed, the embed's page field reads any script's digits, and Open Settings on the Mac opens the refused device's privacy pane.
+- **Markdown core and reading view** (`0388349`, `e7fa377`): a fence indented four columns outside a list opens no code block in the editor, reading view or Live Preview, private-use characters show as written in Live Preview, an unlinked mention stays listed when no link was written, and Live Preview labels Wikilinks as reading view does ("Note > Heading").
+- **Plugin runtime** (`1e0b253`): a theme's fonts reach plugin pages and block copies, an older note read no longer replaces a plugin's write in the metadata cache, `app.getTheme()` follows the page, and an image map's area can neither leave nor replace the runtime page.
+- **Shell** (`613c24d`, `b4d1e17`): removing a vault forgets its folds, Reveal current file shows the sidebar and scrolls to the file from the palette and tab menus, File Recovery shows why a list or copy cannot be read, the phone's tab switcher names plugin views, `graphite://read` reads a note open on the other side of the split, and a plugin's rename gets the move's real outcome however long the answered move runs.
+- **Read Aloud** (`2ad2da3`): Stop holds while a fold change is prepared, folding goes on from the word reached, and a voice download keeps its failure reason.
+- **Automated tests, all passing on macOS:** each new test was run before its fix (failing) and after it (passing). The full package suite passed locally (`swift test --parallel`, 3,397 tests) with `UiMapViewMacTests` skipped: that existing class opened the speaker through `systemsoundserverd` at its start in two runs, so it was left out under the no-sound rule. The Node runtime suite passes (136 tests: 118 pass, 18 skipped for unbuilt real plugins). `scripts/check-rules.py` fails only `default-over-own-enum`, as on `e3d97c9`.
+- **Not established:** device checks of Reveal current file with the sidebar hidden (iPad, Mac), of a deep link reaching the app while the full-screen drawing editor is up, and of the Mac editor taking the keyboard for a new note in the app. The plugin rename still polls (`CC-PLUGIN-15`).
+- **Still open:** `BUG-VOICE-12` (connecting headphones pauses High Quality reading). It needs a device check of what `AVAudioEngine` does on a new output, and on the Mac a way to tell a new output from a lost one.
+
 ## Importing Goodnotes and Notability: the import report: 2026-10-20
 
 On the branch `goodnotes-notability-import`: step 9 of [the Phase 3 design](Goodnotes-Notability-import-phase-3-design.md), the import report as plain values. Nothing shows it yet (Phase 4).
