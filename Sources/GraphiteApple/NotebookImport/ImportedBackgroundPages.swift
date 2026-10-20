@@ -91,13 +91,13 @@ struct ImportedBackgroundPages {
             openSourceDocuments.append(reused)
             return reused.document
         }
-        let contents: [UInt8]
+        let contents: Data
         do {
             contents = try sourceFiles.contents(of: file)
         } catch {
             throw NotebookImportWriterError.sourceFileUnreadable(file, underlyingError: error)
         }
-        guard let document = PDFDocument(data: Data(contents)), !document.isLocked else {
+        guard let document = PDFDocument(data: contents), !document.isLocked else {
             throw NotebookImportWriterError.sourceFileNotOpenablePDF(file)
         }
         if openSourceDocuments.count >= Self.maximumOpenSourceDocuments { openSourceDocuments.removeFirst() }

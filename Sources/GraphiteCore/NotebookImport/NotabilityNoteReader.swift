@@ -5,7 +5,7 @@ import Foundation
 /// `Docs/Notability-format.md` and as `scripts/notability-reader.py` reads it. Opening reads `Session.plist` and the
 /// recordings library and checks the packed curve arrays; curves stay in those arrays, slices of `Session.plist`'s
 /// bytes, until `curve(at:)` or `page(number:)` decodes them. Pictures, PDFs and recordings are read on request
-/// with `fileBytes(_:)`. What the note holds that the format description does not account for is listed
+/// with `contents(ofFileAt:)`. What the note holds that the format description does not account for is listed
 /// in `issues`, never guessed at.
 public struct NotabilityNoteReader: Sendable {
     public let note: NotabilityNote
@@ -102,10 +102,22 @@ public struct NotabilityNoteReader: Sendable {
                               pictures: pictures)
     }
 
-    /// The bytes of a file of the note, by its path relative to the note's folder: a picture's `file`, an imported PDF's
-    /// `pdfFile`, a recording's `file`.
-    public func fileBytes(_ path: NotebookArchivePath) throws(NotabilityReadingError) -> [UInt8] {
-        try Self.entryBytes(named: folderName + "/" + path.text, in: zipArchive)
+    /// A file of the note, by its path relative to the note's folder: a picture's `file`, an imported PDF's `pdfFile`, a
+    /// recording's `file`. A stored file is a slice of the archive's bytes, not a copy (`ZipArchive.data(of:)`).
+    public func contents(ofFileAt path: NotebookArchivePath) throws(NotabilityReadingError) -> Data {
+        let name = folderName + "/" + path.text
+        guard let entry = zipArchive.entry(named: name) else { throw .archive(.entryMissing(name: name)) }
+        do throws(ZipArchiveError) { return try zipArchive.data(of: entry) } catch { throw .archive(error) }
+    }
+
+    /// Hands a file of the note to `consume` in pieces (`ZipArchive.copy(_:chunkByteCount:to:)`), for a file too large
+    /// to hold whole, such as a recording.
+    public func copy<DestinationError: Error>(fileAt path: NotebookArchivePath, chunkByteCount: Int = ZipArchive.standardCopyChunkByteCount,
+                                               to consume: (UnsafeRawBufferPointer) throws(DestinationError) -> Void)
+        throws(ZipEntryCopyError<DestinationError>) {
+        let name = folderName + "/" + path.text
+        guard let entry = zipArchive.entry(named: name) else { throw .archive(.entryMissing(name: name)) }
+        try zipArchive.copy(entry, chunkByteCount: chunkByteCount, to: consume)
     }
 
     private func checkCurveIndex(_ curveIndex: Int) throws(NotabilityReadingError) {

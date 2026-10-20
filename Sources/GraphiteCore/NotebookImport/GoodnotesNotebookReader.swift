@@ -66,15 +66,26 @@ public struct GoodnotesNotebookReader: Sendable {
         return GoodnotesPage(descriptor: descriptor, elements: elements, issues: issues.issues)
     }
 
-    /// The bytes of a file of the notebook by its path in the archive, such as an attachment's `file`.
-    public func contents(ofFileAt path: NotebookArchivePath) throws(GoodnotesReadingError) -> [UInt8] {
-        do throws(ZipArchiveError) { return try archive.contents(ofEntryNamed: path.text) } catch { throw .archive(error) }
+    /// A file of the notebook by its path in the archive, such as an attachment's `file`: a slice of the archive's
+    /// bytes when the file is stored, not a copy (`ZipArchive.data(of:)`).
+    public func contents(ofFileAt path: NotebookArchivePath) throws(GoodnotesReadingError) -> Data {
+        guard let entry = archive.entry(named: path.text) else { throw .archive(.entryMissing(name: path.text)) }
+        do throws(ZipArchiveError) { return try archive.data(of: entry) } catch { throw .archive(error) }
     }
 
-    /// The bytes of an attachment's file: a template or imported PDF, a picture or a recording.
-    public func contents(of attachment: GoodnotesAttachment) throws(GoodnotesReadingError) -> [UInt8] {
+    /// An attachment's file: a template or imported PDF, a picture or a recording.
+    public func contents(of attachment: GoodnotesAttachment) throws(GoodnotesReadingError) -> Data {
         guard let file = attachment.file else { throw .attachmentFileNotValid(attachmentIdentifier: attachment.identifier) }
-        do throws(ZipArchiveError) { return try archive.contents(ofEntryNamed: file.text) } catch { throw .archive(error) }
+        return try contents(ofFileAt: file)
+    }
+
+    /// Hands a file of the notebook to `consume` in pieces (`ZipArchive.copy(_:chunkByteCount:to:)`), for a file too
+    /// large to hold whole, such as a recording.
+    public func copy<DestinationError: Error>(fileAt path: NotebookArchivePath, chunkByteCount: Int = ZipArchive.standardCopyChunkByteCount,
+                                               to consume: (UnsafeRawBufferPointer) throws(DestinationError) -> Void)
+        throws(ZipEntryCopyError<DestinationError>) {
+        guard let entry = archive.entry(named: path.text) else { throw .archive(.entryMissing(name: path.text)) }
+        try archive.copy(entry, chunkByteCount: chunkByteCount, to: consume)
     }
 
     /// The schema holds only the version: one that cannot be read is nil, reported as a version not known, and the

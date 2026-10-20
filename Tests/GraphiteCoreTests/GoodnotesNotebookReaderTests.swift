@@ -71,7 +71,7 @@ final class GoodnotesNotebookReaderTests: XCTestCase {
         XCTAssertEqual(template.design, "2 - White")
         XCTAssertEqual(GoodnotesTemplateIdentifier(rawIdentifier: "CATALOGUE_letter_3_x").size, .unknown("letter"))
         XCTAssertNil(GoodnotesTemplateIdentifier(rawIdentifier: "no parts").catalogueIdentifier)
-        XCTAssertEqual(try reader.contents(of: try XCTUnwrap(paper.attachment)), Array("%PDF-1.7 template".utf8))
+        XCTAssertEqual(Array(try reader.contents(of: try XCTUnwrap(paper.attachment))), Array("%PDF-1.7 template".utf8))
     }
 
     func testBookmarksOutlineEntriesAndRecordingsAreRead() throws {

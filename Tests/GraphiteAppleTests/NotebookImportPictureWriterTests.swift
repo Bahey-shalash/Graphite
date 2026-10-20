@@ -15,9 +15,9 @@ final class NotebookImportPictureWriterTests: XCTestCase {
         struct MissingFile: Error { let pathInSource: String }
         let contentsByPath: [String: [UInt8]]
 
-        func contents(of file: ImportedSourceFile) throws -> [UInt8] {
+        func contents(of file: ImportedSourceFile) throws -> Data {
             guard let contents = contentsByPath[file.pathInSource] else { throw MissingFile(pathInSource: file.pathInSource) }
-            return contents
+            return Data(contents)
         }
     }
 

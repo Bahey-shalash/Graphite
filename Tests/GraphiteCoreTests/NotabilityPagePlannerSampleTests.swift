@@ -64,7 +64,7 @@ final class NotabilityPagePlannerSampleTests: XCTestCase {
     }
 
     private static func assertUsable(_ picture: ImportedPicture, reader: NotabilityNoteReader, in samplePath: String) throws {
-        XCTAssertNoThrow(try reader.fileBytes(picture.file.path), "\(samplePath): \(picture.file.pathInSource)")
+        XCTAssertNoThrow(try reader.contents(ofFileAt: picture.file.path), "\(samplePath): \(picture.file.pathInSource)")
         let crop = try XCTUnwrap(picture.cropRectangleInPixels, samplePath)
         let values = [picture.frame.minX, picture.frame.minY, picture.frame.width, picture.frame.height, crop.minX, crop.minY, crop.width, crop.height,
                       picture.rotationRadiansClockwise]

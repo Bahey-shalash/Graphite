@@ -15,9 +15,9 @@ final class NotebookImportWriterTests: XCTestCase {
         struct MissingFile: Error, Equatable { let pathInSource: String }
         let contentsByPath: [String: [UInt8]]
 
-        func contents(of file: ImportedSourceFile) throws -> [UInt8] {
+        func contents(of file: ImportedSourceFile) throws -> Data {
             guard let contents = contentsByPath[file.pathInSource] else { throw MissingFile(pathInSource: file.pathInSource) }
-            return contents
+            return Data(contents)
         }
     }
 
@@ -30,7 +30,7 @@ final class NotebookImportWriterTests: XCTestCase {
             self.files = files
         }
 
-        func contents(of file: ImportedSourceFile) throws -> [UInt8] {
+        func contents(of file: ImportedSourceFile) throws -> Data {
             readCountsByPath.withLock { readCounts in readCounts[file.pathInSource, default: 0] += 1 }
             return try files.contents(of: file)
         }
