@@ -302,6 +302,35 @@ final class ReadAloudControllerTests: XCTestCase {
         XCTAssertEqual(reader.session.state, .speaking)
     }
 
+    /// BUG-VOICE-09: Folding while a passage is read keeps the word reached: reading goes on from it, not from
+    /// the passage's first word.
+    func testUnfoldingWhileReadingGoesOnFromTheWordReached() async throws {
+        let (reader, speech) = try makeReader()
+        let path = try VaultPath("Folds.md")
+        let opening = "Opening line has several words."
+        let note = opening + "\n\n> [!note]- Hidden derivation\n> The long hidden proof.\n\nClosing line."
+        reader.readMarkdown(note, path: path, hiddenRanges: ReadAloudFolding.hiddenRanges(in: note, foldedKeys: [], calloutExpansion: [:]))
+        try await waitForPreparation(reader)
+        reader.session.play()
+        let request = try XCTUnwrap(speech.requests.last)
+        XCTAssertEqual(request.text, opening)
+        let wordReached = (opening as NSString).range(of: "several")
+        speech.eventHandler?(.spoken(request.identifier, wordReached))
+        XCTAssertEqual(reader.session.currentOffset, wordReached.location)
+        let expanded = ReadAloudFolding.hiddenRanges(in: note, foldedKeys: [],
+                                                     calloutExpansion: [ReadAloudFolding.calloutKey(type: "note", title: "Hidden derivation"): true])
+
+        reader.foldsDidChange(in: path, hiddenRanges: expanded)
+        try await waitUntil("the note is prepared again with the unfolded callout", timeoutSeconds: 10) {
+            reader.session.document?.passages.count == 4
+        }
+
+        XCTAssertEqual(reader.session.passageIndex, 0)
+        XCTAssertEqual(reader.session.state, .speaking)
+        XCTAssertEqual(speech.requests.last?.text, "several words.", "Reading goes on from the word reached, not from the passage's first word.")
+        XCTAssertEqual(reader.session.currentOffset, wordReached.location)
+    }
+
     /// In the app, choosing Read Document starts reading as soon as the passage is ready and
     /// keeps the page in view; rebuilding it for another math style waits for Play.
     func testAppReadingStartsWhenPreparedWithoutCoveringThePage() async throws {

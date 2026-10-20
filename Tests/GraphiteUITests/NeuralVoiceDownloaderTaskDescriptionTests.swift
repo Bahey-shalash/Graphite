@@ -120,6 +120,30 @@ final class NeuralVoiceDownloaderTaskDescriptionTests: XCTestCase {
         XCTAssertEqual(reports.all.first?.state, .paused(receivedBytes: 0, totalBytes: 1_000), "The voice is incomplete, so it waits.")
     }
 
+    /// BUG-VOICE-06: A file that fails its checksum keeps the voice's failure reason after URLSession reports
+    /// the task complete; the completion must not replace it with Paused.
+    func testAFileThatFailsItsChecksumKeepsItsFailureReasonAfterItsTaskCompletes() async throws {
+        let voice = makeVoice()
+        let (downloader, installation) = makeDownloader(for: voice)
+        let session = URLSession(configuration: .ephemeral)
+        let task = session.downloadTask(with: URL(string: "https://voices.example.com/unused")!)
+        task.taskDescription = "test-voice\nweights/model.safetensors"
+        let downloadedFile = voicesFolder.appendingPathComponent("downloaded-file")
+        try Data(repeating: 7, count: 1_000).write(to: downloadedFile)
+
+        downloader.urlSession(session, downloadTask: task, didFinishDownloadingTo: downloadedFile)
+        guard case .failed(let reason)? = reports.all.last?.state else { return XCTFail("Expected the checksum failure, got \(reports.all)") }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: installation.stagingFolder(of: voice).appendingPathComponent("weights/model.safetensors").path),
+                       "The file that failed its checksum is discarded.")
+
+        let completed = expectation(description: "The completed task is handled")
+        reports.onReport = { _, _ in completed.fulfill() }
+        downloader.urlSession(session, task: task, didCompleteWithError: nil)
+        await fulfillment(of: [completed], timeout: 30)
+
+        XCTAssertEqual(reports.all.last?.state, .failed(reason), "The failure reason stays shown; it must not turn into Paused.")
+    }
+
     func testResumeDataOfAStoppedFileIsKeptBesideItInTheStagingFolderWithADotResumeSuffix() async throws {
         let voice = makeVoice()
         let (downloader, installation) = makeDownloader(for: voice)
