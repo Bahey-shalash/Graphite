@@ -267,7 +267,11 @@ final class GoodnotesNotebookReaderTests: XCTestCase {
         builder.layers[Self.firstLayer] = [GoodnotesRecord.header("TEXT"), GoodnotesRecord.body(kind: 21, ProtocolBufferWriter.message { textBox in
             textBox.string(1, "TEXT")
             textBox.message(7, GoodnotesRecord.position(counter: 1, replica: 1))
-            textBox.message(20, ProtocolBufferWriter.message { placement in placement.message(1, GoodnotesRecord.point(100, 200)) })
+            textBox.message(20, ProtocolBufferWriter.message { placement in
+                placement.message(1, GoodnotesRecord.point(100, 200))
+                placement.float(2, -0.75)
+                placement.float(3, 2.5)
+            })
             textBox.message(32, Self.richTextContainer(text: "Graphite one", size: 24, extra: { layout in
                 layout.message(2, GoodnotesRecord.point(140, 29))
                 layout.message(10, ProtocolBufferWriter.message { insets in for side in 1...4 { insets.float(side, 10) } })
@@ -276,7 +280,8 @@ final class GoodnotesNotebookReaderTests: XCTestCase {
         let page = try GoodnotesNotebookReader(archiveBytes: builder.archiveBytes(), limits: .standard).page(at: 1)
         guard case .textBox(let textBox)? = page.elements.first?.content else { return XCTFail("expected a text box") }
         XCTAssertEqual(textBox.origin, CGPoint(x: 100, y: 200))
-        XCTAssertEqual(textBox.scale, 1)
+        XCTAssertEqual(textBox.rotationRadians, -0.75)
+        XCTAssertEqual(textBox.scale, 2.5)
         XCTAssertEqual(textBox.size, CGSize(width: 140, height: 29))
         XCTAssertEqual(textBox.insets, [10, 10, 10, 10])
         XCTAssertEqual(textBox.richText.text, "Graphite one")

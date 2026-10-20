@@ -139,7 +139,8 @@ struct GoodnotesElementDecoder {
             let insetFields = try layout.fields(10)
             insets = [try insetFields.float(1), try insetFields.float(2), try insetFields.float(3), try insetFields.float(4)]
         }
-        return GoodnotesTextBox(origin: try placement.point(1), scale: placement.contains(3) ? try placement.float(3) : 1,
+        return GoodnotesTextBox(origin: try placement.point(1), rotationRadians: try placement.float(2),
+                                scale: placement.contains(3) ? try placement.float(3) : 1,
                                 size: layout.contains(2) ? try layout.size(2) : nil, insets: insets, richText: try richText(layout))
     }
 

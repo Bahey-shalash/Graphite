@@ -127,9 +127,13 @@ public struct GoodnotesRichText: Sendable, Equatable {
     public let defaultAttributes: Attributes?
 }
 
+/// A text box is drawn at its stored size and font size, multiplied by `scale`, with its top-left corner at `origin`,
+/// turned clockwise about that corner by `rotationRadians`.
 public struct GoodnotesTextBox: Sendable, Equatable {
     public let origin: CGPoint
+    public let rotationRadians: Double
     public let scale: Double
+    /// Before scaling.
     public let size: CGSize?
     /// The four inset values in field order; which side each one is is not established.
     public let insets: [Double]?
