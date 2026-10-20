@@ -70,13 +70,3 @@ public enum GoodnotesReadingIssue: Hashable, Sendable {
     /// The page's layer entry could not be read from the archive; the page is returned without elements.
     case layerUnreadable(GoodnotesReadingError)
 }
-
-/// Issues in first-reported order, each once.
-struct GoodnotesIssueList {
-    private(set) var issues: [GoodnotesReadingIssue] = []
-    private var reported: Set<GoodnotesReadingIssue> = []
-
-    mutating func report(_ issue: GoodnotesReadingIssue) {
-        if reported.insert(issue).inserted { issues.append(issue) }
-    }
-}

@@ -58,3 +58,14 @@ public enum NotabilityPackedArray: String, Sendable, Hashable, CaseIterable {
         }
     }
 }
+
+extension NotabilityReadingError {
+    /// A read of a value the note cannot be read without, its archive error wrapped as `session`.
+    static func readingSession<Value>(_ read: () throws(KeyedArchiveError) -> Value) throws(NotabilityReadingError) -> Value {
+        do throws(KeyedArchiveError) {
+            return try read()
+        } catch {
+            throw .session(error)
+        }
+    }
+}

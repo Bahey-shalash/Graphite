@@ -13,7 +13,6 @@ public struct KeyedArchive: Sendable {
     /// Notability names the root `$0`; `NSKeyedArchiver` names it `root` by default.
     private static let rootKeys = ["$0", "root"]
 
-    public let archiver: KeyedArchiverName
     private let propertyList: BinaryPropertyList
     /// The property list object index of each member of `$objects`, which UIDs name by position.
     private let archivedObjectIndices: [Int]
@@ -33,10 +32,9 @@ public struct KeyedArchive: Sendable {
               case .string(let archiverName) = try Self.object(at: archiverReference.objectIndex, in: propertyList),
               case .array(let archivedObjectIndices) = try Self.object(at: objectsReference.objectIndex, in: propertyList)
         else { throw .notKeyedArchive }
-        guard let archiver = KeyedArchiverName(rawName: archiverName) else { throw .archiverNotSupported(name: archiverName) }
+        guard KeyedArchiverName(rawName: archiverName) != nil else { throw .archiverNotSupported(name: archiverName) }
         let rootFields = try Self.dictionaryFields(at: topReference.objectIndex, in: propertyList)
         guard let rootReference = Self.rootKeys.lazy.compactMap({ key in rootFields.reference(named: key) }).first else { throw .rootMissing }
-        self.archiver = archiver
         self.propertyList = propertyList
         self.archivedObjectIndices = archivedObjectIndices
         self.rootReference = rootReference

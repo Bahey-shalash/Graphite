@@ -2,8 +2,8 @@ import Foundation
 
 /// Little-endian values packed in a slice of a note's bytes, `entryCount` entries of `entryByteCount` bytes each,
 /// read in place. The length is checked once, when the values are made, so a read at an entry index below
-/// `entryCount` stays inside the slice; every read goes through the slice's subscript, which checks its bounds in
-/// every build, so a wrong index traps instead of reading memory past the note.
+/// `entryCount` stays inside the slice; every read checks its range all the same, so a wrong index stops the program
+/// instead of reading memory past the note.
 struct PackedLittleEndianValues: Sendable {
     let bytes: ArraySlice<UInt8>
     let entryCount: Int
@@ -29,8 +29,10 @@ struct PackedLittleEndianValues: Sendable {
 
     /// The `index`-th 4-byte unsigned integer.
     func uint32(at index: Int) -> UInt32 {
-        let start = bytes.startIndex + 4 * index
-        return (0..<4).reduce(UInt32(0)) { number, byteIndex in number | UInt32(bytes[start + byteIndex]) << (8 * UInt32(byteIndex)) }
+        guard let number = LittleEndianInteger.read(UInt32.self, in: bytes, at: bytes.startIndex + 4 * index) else {
+            preconditionFailure("entry \(index) is past the length checked when the values were made")
+        }
+        return number
     }
 
     /// The `index`-th 4-byte float, widened to `Double` exactly.
@@ -41,10 +43,9 @@ struct PackedLittleEndianValues: Sendable {
     /// The `index`-th 16-byte UUID, its bytes in the order stored.
     func uuid(at index: Int) -> UUID {
         let start = bytes.startIndex + 16 * index
-        var uuidBytes: uuid_t = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
-        withUnsafeMutableBytes(of: &uuidBytes) { destination in
-            for byteIndex in 0..<16 { destination[byteIndex] = bytes[start + byteIndex] }
+        guard let uuid = UUID(sixteenBytes: bytes[start..<(start + 16)]) else {
+            preconditionFailure("entry \(index) is past the length checked when the values were made")
         }
-        return UUID(uuid: uuidBytes)
+        return uuid
     }
 }

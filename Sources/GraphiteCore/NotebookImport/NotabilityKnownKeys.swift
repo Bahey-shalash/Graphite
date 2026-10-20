@@ -2,37 +2,26 @@ import Foundation
 
 /// The keys of each part of a note that the format description accounts for; any other key is reported as
 /// `NotabilityReadingIssue.unknownKey`. They are the reference reader's lists, without its `$cls` (an archived
-/// object's `$class` is never one of its keys here).
+/// object's `$class` is never one of its keys here). Each set is built once from the cases of the part's key enum,
+/// so a key a reader reads is always one of them.
 enum NotabilityKnownKeys {
-    static let session: Set<String> = [
-        "name", "packagePath", "subject", "tags", "creationDate", "isReadOnly", "sessionFormatVersion",
-        "richText", "contentPlaybackEventManager", "NBNoteTakingSessionDocumentPaperLayoutModelKey",
-        "NBNoteTakingSessionIsHighlighterBehindTextKey", "NBNoteTakingSessionHandwritingLanguageKey",
-        "NBNoteTakingSessionMinorVersionNumberKey", "NBNoteTakingSessionLastUsedFontKey",
-        "kNBNoteTakingSessionNoteLinkStoreKey", "NBPaperMinorVersionNumber", "NBPaperMajorVersionNumber",
-        "NBNoteTakingSessionAllowHighlighterConversionKey", "NBNoteTakingSessionBundleVersionNumberKey",
-    ]
-    static let richText: Set<String> = [
-        "formatVersion", "formattedStringTextAlignmentKey", "attributedString", "NBAttributedBackingString",
-        "Handwriting Overlay", "reflowState", "didBecomeReflowable", "pdfFiles", "mediaObjects",
-        "recordingTimestampString", "pageLayoutArray",
-    ]
-    static let picture: Set<String> = [
-        "UUID", "assetsIdKey", "captionFieldText", "captionFontColor", "captionFontColorCrossPlatform",
-        "captionFontName", "captionFontSize", "captionIsUnderlined", "cornerMode", "documentContentOrigin",
-        "documentOrigin", "figure", "handwritingZIndecesKey", "indexable", "isCaptionEnabled", "isFlippedHorizontal",
-        "isFlippedVertical", "locked", "maxDimension", "minDimension", "rotationDegrees", "textWrapMode",
-        "unscaledContentSize", "zIndex",
-    ]
-    static let textAttributes: Set<String> = ["NSStrikethrough", "NSUnderline", "line-spacing", "NSBaselineOffset", "checklist-checked"]
-    static let shape: Set<String> = ["appearance", "startPt", "endPt", "controlPoint1", "rect", "uuid", "options"]
-    static let pageLayout: Set<String> = [
-        "kPageLayoutPDFIsOriginalPageKey", "kPageLayoutPDFPageNumberKey", "kPageLayoutPageIsBookmarkedKey",
-        "kPageLayoutPDFFileNameKey", "kPageLayoutDocumentPageNumberKey", "kPageLayoutPDFFileKey",
-    ]
-    static let ink: Set<String> = [
-        "numcurves", "numpoints", "numfractionalwidths", "curvesnumpoints", "curvespoints", "curveswidth",
-        "curvescolors", "curvesstyles", "curveUUIDs", "options", "curvesfractionalwidths", "curvesforces",
-        "curvesaltitudeangles", "curvesazimuthunitvector", "groupsArrays", "bezierPathsDataDictionary", "shapes",
-    ]
+    static let session = NotabilitySessionKey.knownKeys
+    static let richText = NotabilityRichTextKey.knownKeys
+    static let picture = NotabilityPictureKey.knownKeys
+    static let textAttributes = NotabilityTextAttributeKey.knownKeys
+    static let shape = NotabilityShapeKey.knownKeys
+    static let pageLayout = NotabilityPageLayoutKey.knownKeys
+    /// The ink's own keys and the keys of its packed arrays.
+    static let ink = NotabilityInkKey.knownKeys.union(NotabilityPackedArray.allCases.filter(\.isStoredInInk).map(\.rawValue))
+}
+
+extension NotabilityPackedArray {
+    /// Whether the array is stored in the ink (the curves and their knots) rather than in the playback event manager.
+    var isStoredInInk: Bool {
+        switch self {
+        case .curvePointCounts, .curvePoints, .curveWidths, .curveColors, .curveStyles, .curveUUIDs, .knotWidthFactors, .knotForces,
+             .knotAltitudeAngles, .knotAzimuthUnitVectors: true
+        case .eventCurveUUIDs, .eventTimestamps, .eventRecordingIdentifiers, .eventDurations: false
+        }
+    }
 }

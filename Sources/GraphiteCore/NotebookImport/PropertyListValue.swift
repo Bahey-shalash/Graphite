@@ -40,18 +40,7 @@ public indirect enum PropertyListValue: Equatable, Sendable {
 }
 
 /// A dictionary with string keys, which keeps its keys in file order. A key written twice keeps its later value.
-public struct PropertyListDictionary: Equatable, Sendable {
-    public private(set) var keys: [String] = []
-    private var valuesByKey: [String: PropertyListValue] = [:]
-
-    public init() {}
-
-    public subscript(key: String) -> PropertyListValue? { valuesByKey[key] }
-
-    public mutating func setValue(_ value: PropertyListValue, named key: String) {
-        if valuesByKey.updateValue(value, forKey: key) == nil { keys.append(key) }
-    }
-}
+public typealias PropertyListDictionary = KeyOrderedDictionary<PropertyListValue>
 
 extension BinaryPropertyList {
     /// The object with its containers expanded, at most `maximumNestingDepth` arrays and dictionaries deep. A

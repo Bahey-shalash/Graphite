@@ -65,17 +65,3 @@ public enum NotabilityElementFailure: Error, Hashable, Sendable {
     /// A file path that is absolute, climbs with `..`, or is otherwise not a safe path inside the note.
     case archivePathNotValid(path: String)
 }
-
-/// The issues of one read, each kept once in the order first reported.
-struct NotabilityReadingIssues {
-    private(set) var list: [NotabilityReadingIssue] = []
-    private var reported: Set<NotabilityReadingIssue> = []
-
-    mutating func report(_ issue: NotabilityReadingIssue) {
-        if reported.insert(issue).inserted { list.append(issue) }
-    }
-
-    mutating func reportUnknownKeys(_ keys: [String], in context: NotabilityKeyContext, known knownKeys: Set<String>) {
-        for key in keys where !knownKeys.contains(key) { report(.unknownKey(context, key: key)) }
-    }
-}
