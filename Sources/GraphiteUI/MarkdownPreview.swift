@@ -691,7 +691,29 @@ struct HeadingScrollRequest: Equatable {
             if case .heading(_, _, _, let headingAnchor) = block { return headingAnchor == numberedTarget }
             return false
         }
-        return hasNumberedTarget ? numberedTarget : anchor
+        return hasNumberedTarget ? numberedTarget : Self.readingScrollTarget(forLinkAnchor: anchor, in: blocks)
+    }
+
+    /// The reading-view scroll target a `#` link's anchor goes to: the heading with that
+    /// anchor, or else the heading whose GitHub slug it is, as tables of contents written
+    /// for GitHub link (`[Setup](#2-setup)`). A footnote's anchor stays that footnote.
+    static func readingScrollTarget(forLinkAnchor anchor: String, in blocks: [RenderedBlock]) -> String {
+        var headingTargets: [String] = []
+        for block in blocks {
+            switch block {
+            case .heading(_, _, _, let headingTarget?):
+                if headingTarget == anchor { return anchor }
+                headingTargets.append(headingTarget)
+            case .footnotes(_, let notes):
+                if notes.contains(where: { footnote in RenderedFootnote.anchor(for: footnote.number) == anchor }) { return anchor }
+            default:
+                continue
+            }
+        }
+        // A repeated heading's target is its anchor, a line break and its number.
+        let headingAnchors = headingTargets.map { target in String(target.prefix { character in character != "\n" }) }
+        guard let slugPosition = HeadingSlug.position(ofSlug: anchor, amongHeadingAnchors: headingAnchors) else { return anchor }
+        return headingTargets[slugPosition]
     }
 }
 
@@ -851,7 +873,8 @@ struct MarkdownPreview: View {
                     }
                     let _ = blockActions.update(navigate: navigate, scrollToHeading: { anchor in
                         pendingRestorationOffset = nil
-                        withAnimation(GraphiteMotion.animation()) { scrollProxy.scrollTo(anchor, anchor: .top) }
+                        let target = HeadingScrollRequest.readingScrollTarget(forLinkAnchor: anchor, in: blocks)
+                        withAnimation(GraphiteMotion.animation()) { scrollProxy.scrollTo(target, anchor: .top) }
                     }, openPDF: openPDF, updateProperties: updateProperties, toggleFold: folding?.toggle)
                     ReadingNoteBlocks(blocks: blocks, blocksVersion: blocksVersion, root: root, textSize: configuration.textSize,
                                       foldedKeys: folding?.foldedKeys, declaredPropertyTypes: configuration.declaredPropertyTypes,

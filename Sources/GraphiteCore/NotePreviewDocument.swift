@@ -244,12 +244,22 @@ public enum NotePreviewDocument {
     }
 
     /// Where the line of the `occurrence`th heading (from zero) with `anchor` starts in `body`
-    /// (frontmatter already removed), counting headings as the outline lists them.
+    /// (frontmatter already removed), counting headings as the outline lists them. An anchor
+    /// no heading has may be a heading's GitHub slug, as tables of contents link.
     public static func headingLineLocation(ofHeadingWithAnchor anchor: String, occurrence: Int = 0, in body: String) -> Int? {
         let lines = body.components(separatedBy: "\n")
-        let matchingHeadings = headingLines(in: lines, of: body).filter { heading in heading.anchor == anchor }
-        guard matchingHeadings.indices.contains(occurrence) else { return nil }
-        return lines[..<matchingHeadings[occurrence].lineIndex].reduce(0) { length, line in length + line.utf16.count + 1 }
+        let headings = headingLines(in: lines, of: body)
+        let matchingHeadings = headings.filter { heading in heading.anchor == anchor }
+        let target: HeadingLine
+        if matchingHeadings.indices.contains(occurrence) {
+            target = matchingHeadings[occurrence]
+        } else if matchingHeadings.isEmpty, occurrence == 0,
+                  let slugPosition = HeadingSlug.position(ofSlug: anchor, amongHeadingAnchors: headings.map(\.anchor)) {
+            target = headings[slugPosition]
+        } else {
+            return nil
+        }
+        return lines[..<target.lineIndex].reduce(0) { length, line in length + line.utf16.count + 1 }
     }
 
     private struct HeadingLine {
@@ -299,6 +309,7 @@ public enum NotePreviewDocument {
 
     private static func headingPosition(matching headingAnchor: String, in headings: [HeadingLine]) -> Int? {
         if let exactPosition = headings.firstIndex(where: { heading in heading.anchor == headingAnchor }) { return exactPosition }
+        if let slugPosition = HeadingSlug.position(ofSlug: headingAnchor, amongHeadingAnchors: headings.map(\.anchor)) { return slugPosition }
         // A heading's own text may contain `#` (`C#`), so the path form is tried second.
         let pathAnchors = headingAnchor.components(separatedBy: "#").map(anchor(forHeading:)).filter { pathAnchor in !pathAnchor.isEmpty }
         guard pathAnchors.count > 1 else { return nil }
