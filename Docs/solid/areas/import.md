@@ -164,3 +164,49 @@ Audited at `5aae924`; links are relative to this document.
 ## 5. Blueprint
 
 Before the converter wires the readers in: make allocation bounds ratio- and platform-aware (`CC-IMPORT-01`, `-02`, `-13`), move the packed-array guard into the type (`CC-IMPORT-03`), turn failed or missing parts into issues (`BUG-IMPORT-01`, `CC-IMPORT-06`, `-08`, `-09`, `OCP-IMPORT-01`), validate archive paths once (`CC-IMPORT-10`), and check in small non-personal golden notebooks (`CC-IMPORT-12`). The converter itself should map both formats into one format-neutral imported-page model and write only ordinary files, as OBJECTIVE.md requires.
+
+## 6. State at 0639588
+
+The import session fixed most findings in `471de62`, `6e21dd0` and `c632468`. Each verdict below was checked in the code at `0639588` against every evidence site of the finding, not only the one the fix names.
+
+| Finding | State | Evidence at `0639588` | Test that pins it |
+| --- | --- | --- | --- |
+| `CC-IMPORT-01` | Fixed | `checkReadable` refuses a deflated entry declaring more than compressed × 1,032 + 1,024 bytes before `inflate` allocates ([ZipArchive.swift:152-161](../../../Sources/GraphiteCore/NotebookImport/ZipArchive.swift#L152-L161)); the entry limit is 512 MiB on macOS and 256 MiB elsewhere ([NotebookImportLimits.swift:34-38](../../../Sources/GraphiteCore/NotebookImport/NotebookImportLimits.swift#L34-L38)) | `ZipArchiveTests.testAnEntryDeclaringMoreThanDeflateCanProduceIsRefusedBeforeAllocating` (the per-platform limit has no test) |
+| `CC-IMPORT-02` | Fixed | a named `maximumPlainValueCount` (250,000) bounds expansion as min(bytes, count) ([PropertyListValue.swift:51-55](../../../Sources/GraphiteCore/NotebookImport/PropertyListValue.swift#L51-L55)), passed by both callers | `BinaryPropertyListTests.testAnExpansionStopsAtTheNamedValueCountBeforeTheByteBudget` |
+| `CC-IMPORT-03` | Fixed | the length is checked once in a failable initializer and every read is bounds-checked; no `loadUnaligned` remains ([PackedLittleEndianValues.swift:15-50](../../../Sources/GraphiteCore/NotebookImport/PackedLittleEndianValues.swift#L15-L50)); `LittleEndianBytes` reads throw `readOutsideArchive` | `PackedLittleEndianValuesTests`, `LittleEndianBytesTests` |
+| `CC-IMPORT-04` | Partly fixed | tag names end at whitespace or `/`, and comments and CDATA are skipped ([XMLTag.swift:25-38](../../../Sources/GraphiteCore/NotebookImport/XMLTag.swift#L25-L38)). Remains: a processing instruction ends at its first `>`, and the depth is never held at 0 ([PropertyListDocument.swift:58-59](../../../Sources/GraphiteCore/NotebookImport/PropertyListDocument.swift#L58-L59)), so `<?x a>` and N `</array>` let N + 64 real levels pass the pre-scan, against its comment; the check after parsing still catches them; the 600-level test is missing | `BinaryPropertyListTests.testTheXMLNestingScanReadsTagsAsAParserDoes` |
+| `CC-IMPORT-05` | Fixed | one checked `LittleEndianInteger.read` used by all five readers, one `UUID(sixteenBytes:)`, one `KeyOrderedDictionary` ([LittleEndianInteger.swift](../../../Sources/GraphiteCore/NotebookImport/LittleEndianInteger.swift), [KeyOrderedDictionary.swift](../../../Sources/GraphiteCore/NotebookImport/KeyOrderedDictionary.swift)) | `LittleEndianIntegerTests`, `KeyOrderedDictionaryTests` |
+| `CC-IMPORT-06` | Fixed | absent `NS.string`, `NS.objects` or `NS.keys` throw `keyMissing` ([KeyedArchiveTypedValues.swift:69-74](../../../Sources/GraphiteCore/NotebookImport/KeyedArchiveTypedValues.swift#L69-L74), [:145-146](../../../Sources/GraphiteCore/NotebookImport/KeyedArchiveTypedValues.swift#L145-L146)) | `KeyedArchiveTests.testFoundationObjectsMissingTheirMemberKeyAreDamagedNotEmpty` |
+| `CC-IMPORT-07` | Fixed | the archiver name is validated, not stored; `isEmpty` is gone (new test-only members: `CC-IMPORT-16`) | none (a deletion) |
+| `BUG-IMPORT-01` | Fixed | a missing `index.events.pb` throws `.eventLogMissing` ([GoodnotesNotebookReader.swift:24](../../../Sources/GraphiteCore/NotebookImport/GoodnotesNotebookReader.swift#L24)); "missing reads as empty" is documented for layers only | `GoodnotesNotebookReaderTests.testANotebookWithoutItsEventLogFailsWithATypedErrorInsteadOfReadingAsEmpty` |
+| `BUG-IMPORT-02` | Fixed | only a finite, positive width gives a geometry ([NotabilityPageGeometry.swift:27](../../../Sources/GraphiteCore/NotebookImport/NotabilityPageGeometry.swift#L27)); others are reported as `pageWidthNotUsable` | `NotabilityNoteReaderMalformedInputTests.testAPageWidthThatIsNotFiniteAndPositiveGivesNoPagesAndAnIssue` |
+| `CC-IMPORT-08` | Fixed | recordings, text runs, page-layout entries and playback arrays are skipped with issues and the ink is still read; an unreadable Goodnotes schema gives `schemaVersionNotKnown(nil)` | three `NotabilityNoteReaderMalformedInputTests` cases, `GoodnotesNotebookReaderTests.testAnUnreadableSchemaIsReportedAndTheNotebookStillReads` |
+| `CC-IMPORT-09` | Fixed | missing attachments report `attachmentNotInLog` and a missing paper `paperNotInLog` ([GoodnotesEventLog.swift:197-211](../../../Sources/GraphiteCore/NotebookImport/GoodnotesEventLog.swift#L197-L211)) | `GoodnotesNotebookReaderTests.testAttachmentsAndPapersMissingFromTheLogAreReported` |
+| `CC-IMPORT-10` | Fixed | `NotebookArchivePath` refuses empty, absolute, `.`, `..`, backslash and control characters ([NotebookArchivePath.swift:11-27](../../../Sources/GraphiteCore/NotebookImport/NotebookArchivePath.swift#L11-L27)) and is used for every archive path (the raw Goodnotes identifier stays public: `CC-IMPORT-16`) | `NotebookArchivePathTests`; the climbing-path cases in both reader suites |
+| `CC-IMPORT-11` | Fixed | one generic `NotebookImportIssueList`; the wrappers live with their types | none (structural) |
+| `CC-IMPORT-12` | Open | the sample suites still skip without the owner's variables, and two more such suites were added (`GoodnotesPagePlannerSampleTests`, `NotabilityPagePlannerSampleTests`, in the skip baseline since `d7fab78`); checking in non-personal notebooks waits for the owner's OK | none |
+| `CC-IMPORT-13` | Fixed | a stored entry is a slice of the archive and any entry can be copied in pieces ([ZipArchive.swift:111-148](../../../Sources/GraphiteCore/NotebookImport/ZipArchive.swift#L111-L148), `ZipEntryPieces.swift`); a deflated entry's `data(of:)` still holds two copies (`CC-IMPORT-15`) | `ZipArchiveEntryCopyTests` |
+| `CC-IMPORT-14` | Partly fixed | the identifiers are `center` and the miscounting comment is rewritten; `6e21dd0` wrote "centre" again in four doc comments ([GoodnotesNestedFields.swift:49-63](../../../Sources/GraphiteCore/NotebookImport/GoodnotesNestedFields.swift#L49-L63), [GoodnotesElementFields.swift:73](../../../Sources/GraphiteCore/NotebookImport/GoodnotesElementFields.swift#L73)) | none |
+| `OCP-IMPORT-01` | Fixed | unknown kinds and path layouts are kept (`.unknown(kind:fieldNumbers:)`, `.unknownLayout`) with the element identifier in the issue ([GoodnotesLayerReader.swift:78-91](../../../Sources/GraphiteCore/NotebookImport/GoodnotesLayerReader.swift#L78-L91)); an unknown element sorts last rather than in drawing order | `GoodnotesNotebookReaderTests.testUnknownKindsFieldsAndPathFormatsAreReportedNotGuessed` |
+| `OCP-IMPORT-02` | Fixed | `knownFieldNumbers` derives from per-layout `CaseIterable` enums and the Notability known sets from key enums and `NotabilityPackedArray.allCases`; each literal appears once | `GoodnotesElementKindTests`, `NotabilityKnownKeysTests` |
+| `SRP-IMPORT-01` | Partly fixed | `NotabilityPagePlacement` exists and one turned-box extent serves `pageCount` and `page(number:)`; the decoder still does page arithmetic in `curveIndices(onPage:placement:)` ([NotabilityInk.swift:114-132](../../../Sources/GraphiteCore/NotebookImport/NotabilityInk.swift#L114-L132)) | none; no test of a turned picture at the end of a note |
+
+### New findings at 0639588
+
+#### CC-IMPORT-15 A deflated attachment is held twice while it is read
+- **Severity:** Low
+- **Rule:** `FR-105`
+- **Evidence:** `data(of:)` returns `Data(try contents(of: entry))` for a deflated entry ([ZipArchive.swift:113](../../../Sources/GraphiteCore/NotebookImport/ZipArchive.swift#L113)), holding a whole `[UInt8]` and a `Data` copy at once, up to 2 × 256 MiB on iPhone and iPad; callers in `ImportedPagePictures.swift` and `ImportedBackgroundPages.swift`. Introduced in `c632468`.
+- **Fix direction:** inflate straight into a `Data` buffer, or copy in pieces to the destination as stored entries already do.
+
+#### CC-IMPORT-16 Members that only tests read stay public, one of them the unchecked archive path
+- **Severity:** Low
+- **Rule:** `FR-82`, `FR-32`
+- **Evidence:** `PackedLittleEndianValues.entryCount` and `entryByteCount` ([PackedLittleEndianValues.swift:9-10](../../../Sources/GraphiteCore/NotebookImport/PackedLittleEndianValues.swift#L9-L10)) are read only by its tests; `GoodnotesAttachment.fileIdentifier` ([GoodnotesNotebook.swift:40](../../../Sources/GraphiteCore/NotebookImport/GoodnotesNotebook.swift#L40)) keeps the raw path from the file beside the checked `file`, so a converter can still reach the unchecked value `CC-IMPORT-10` closed. Introduced in `471de62` and `6e21dd0`.
+- **Fix direction:** make them private or remove them; a converter sees only `NotebookArchivePath`.
+
+#### CC-IMPORT-17 The platform entry limit's comment names a source that does not use it
+- **Severity:** Low
+- **Rule:** `FR-80`
+- **Evidence:** [NotebookImportLimits.swift:27-29](../../../Sources/GraphiteCore/NotebookImport/NotebookImportLimits.swift#L27-L29) calls the 256 MiB iPhone and iPad limit "the bounds of the reference readers in `scripts/`", which both use 512 MiB (`scripts/goodnotes-reader.py:25`, `scripts/notability-reader.py:28`). Introduced in `471de62`.
+- **Fix direction:** state the rule the limit keeps (an iPad's memory) and pin each platform's value in a test.

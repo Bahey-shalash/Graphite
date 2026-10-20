@@ -13,9 +13,9 @@ Section 9 of each area document adds the 72 findings of the delta audit of 2026-
 | LSP | 8 | 32 | 22 | 0 | 0 | 62 |
 | ISP | 3 | 21 | 18 | 0 | 0 | 42 |
 | DIP | 4 | 34 | 23 | 0 | 0 | 61 |
-| CC | 2 | 94 | 121 | 0 | 0 | 217 |
+| CC | 2 | 94 | 124 | 0 | 0 | 220 |
 | BUG | 1 | 5 | 4 | 0 | 73 | 83 |
-| **All** | 34 | 270 | 228 | 0 | 73 | **605** |
+| **All** | 34 | 270 | 231 | 0 | 73 | **608** |
 
 | ID | Area | Severity | Title |
 | --- | --- | --- | --- |
@@ -393,6 +393,9 @@ Section 9 of each area document adds the 72 findings of the delta audit of 2026-
 | [CC-IMPORT-12](areas/import.md#cc-import-12-real-notebook-tests-are-skipped-on-every-machine-except-the-owners-mac) | IMPORT | Medium | Real-notebook tests are skipped on every machine except the owner's Mac |
 | [CC-IMPORT-13](areas/import.md#cc-import-13-attachment-bytes-are-returned-as-whole-arrays-of-up-to-512-mib) | IMPORT | Low | Attachment bytes are returned as whole arrays of up to 512 MiB |
 | [CC-IMPORT-14](areas/import.md#cc-import-14-centre-differs-from-the-codebases-center-and-an-issue-comment-miscounts-its-cases) | IMPORT | Low | `centre` differs from the codebase's `center`, and an issue comment miscounts its cases |
+| [CC-IMPORT-15](areas/import.md#cc-import-15-a-deflated-attachment-is-held-twice-while-it-is-read) | IMPORT | Low | A deflated attachment is held twice while it is read |
+| [CC-IMPORT-16](areas/import.md#cc-import-16-members-that-only-tests-read-stay-public-one-of-them-the-unchecked-archive-path) | IMPORT | Low | Members that only tests read stay public, one of them the unchecked archive path |
+| [CC-IMPORT-17](areas/import.md#cc-import-17-the-platform-entry-limits-comment-names-a-source-that-does-not-use-it) | IMPORT | Low | The platform entry limit's comment names a source that does not use it |
 | [CC-INK-01](areas/ink.md#cc-ink-01-the-picture-arrangement-flow-is-two-booleans-and-an-optional-kept-in-two-objects) | INK | Medium | The picture-arrangement flow is two booleans and an optional, kept in two objects |
 | [CC-INK-02](areas/ink.md#cc-ink-02-outcomes-travel-through-shared-mutable-fields) | INK | Medium | Outcomes travel through shared mutable fields |
 | [CC-INK-03](areas/ink.md#cc-ink-03-correctness-rests-on-timing-windows-and-next-turn-hops) | INK | Medium | Correctness rests on timing windows and next-turn hops |
