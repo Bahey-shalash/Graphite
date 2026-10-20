@@ -1,6 +1,6 @@
 # Import Phase 3: conversion to ordinary files (design)
 
-Status: reviewed 2026-10-20, with the owner's decisions below. Steps 1 to 6 are built and tested ("Built so far" below), except Goodnotes links, which sit on text boxes and wait for step 8 with them; nothing calls them from the app yet. Phase 3 of [the import checklist](Goodnotes-Notability-import-todo.md), on top of the Phase 2 readers (`GoodnotesNotebookReader`, `NotabilityNoteReader`).
+Status: reviewed 2026-10-20, with the owner's decisions below. Steps 1 to 7 are built and tested ("Built so far" below), except Goodnotes links, which sit on text boxes and wait for step 8 with them; nothing calls them from the app yet. Phase 3 of [the import checklist](Goodnotes-Notability-import-todo.md), on top of the Phase 2 readers (`GoodnotesNotebookReader`, `NotabilityNoteReader`).
 
 ## Shape
 
@@ -74,6 +74,16 @@ Pages are planned and written one at a time, so the source is never decoded whol
 - **Notability paper (step 5):** ruled and grid paper are drawn by Graphite's paper system. `PaperSpecification` has an optional `PaperRuling`: line colour, line width, where the rows start and end, and the grid's column anchor. Without it, every template draws as before, byte for byte (`PDFTemplateGeneratorGoldenTests`), and older data decodes unchanged. `NotabilityPaperRuling` gives the ruling Notability's export draws ("Paper" in `Notability-format.md`). A line style not described is plain paper, reported.
 - **Bookmarks (step 6):** a bookmarked Goodnotes page, or a Notability page made from a bookmarked PDF page, gets the outline item Graphite adds for a bookmark ("Page 3"), in page order. Goodnotes links are on text boxes, so they come with step 8; until then, the report lists the text box as left out. Outline entries are not read into the plan yet.
 
+## Built so far (step 7, 2026-10-20)
+
+- **Plan (GraphiteCore):** `GoodnotesRecordingPlanner` and `NotabilityRecordingPlanner` give a notebook's recordings as `ImportedRecording` values: the file, a name safe as a file name ("Recording 1", or Notability's own name for it) and the duration.
+  - The report lists recordings whose file the notebook does not name (`recordingFilesMissing`), and how many elements were timed against a recording (`recordingTimingNotKept`, owner decision 3).
+- **Writer (GraphiteApple):** `NotebookImportRecordingWriter` writes one recording as an `.m4a` file, its bytes the source's, unchanged. It refuses a file that does not start with an MPEG-4 `ftyp` box, and it never replaces a file. Where the file goes (the vault's attachment setting, next to the imported PDF) is the caller's choice, in Phase 4.
+- **Large files are not held whole (CC-IMPORT-13):**
+  - A stored file (Notability's recordings, PDFs and pictures) is read as a slice of the memory-mapped notebook, not a copy (`ZipArchive.data(of:)`).
+  - A recording is copied in pieces (`ZipArchive.copy(_:chunkByteCount:to:)`): a stored one straight from the mapped notebook, a deflated one (Goodnotes' recordings) through one 256 KiB buffer. Its size and CRC-32 are checked at the end, before the staged copy is moved into place.
+  - A deflated PDF or picture is still inflated whole, since PDFKit and ImageIO need it whole.
+
 ## Order of work, and what each step needs
 
 | Step | What | Needs from Graphite | Exact or reported |
@@ -84,7 +94,7 @@ Pages are planned and written one at a time, so the source is never decoded whol
 | 4 | Shapes: lines, arcs, rectangles, ellipses, Notability lines and curves, as ink strokes sampled from their geometry | Editable shapes, dashed ink, filled shapes | Shapes arrive as ink. Dashes and fills are reported |
 | 5 | Notability paper (white or black, ruled every width / 17, grid, #A3B7D3, 0.5 and 0.4 points) | `PaperSpecification` with a free line colour and line width: a small addition to the paper system (`PaperRuling`, added) | Exact on the letter samples |
 | 6 | Links, bookmarks, outline: bookmarks become outline items (`PDFEdit.bookmark`). A link on a Goodnotes text box becomes a `/Link` annotation with step 8, as it sits on the text box. Outline entries are reported (their target is not resolved yet) | Nothing new | Exact for bookmarks; links wait for step 8 |
-| 7 | Audio: Notability `.m4a` and Goodnotes MP4 audio copied as `.m4a` where the vault's attachment policy says; no companion note (owner decision 4) | Synchronised replay for stroke timing (not planned) | The audio is exact. Stroke timing is not kept |
+| 7 | Audio: Notability `.m4a` and Goodnotes MP4 audio copied as `.m4a` where the vault's attachment policy says; no companion note (owner decision 4) | Synchronised replay for stroke timing (not planned) | The audio is exact (byte for byte on the samples). Stroke timing is not kept, and the report says so |
 | 8 | Text boxes, sticky notes, older RTF text boxes, Notability typed text | Text boxes on PDF pages | Blocked; listed in the report until then (owner decision 1, and "Text boxes" below) |
 | 9 | The import report value (per page: converted, simplified, skipped, with the reason), for Phase 4 to show | Nothing new | — |
 
