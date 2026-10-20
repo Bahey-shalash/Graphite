@@ -4,6 +4,14 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-20.
 
+## Importing Goodnotes and Notability: the import report: 2026-10-20
+
+On the branch `goodnotes-notability-import`: step 9 of [the Phase 3 design](Goodnotes-Notability-import-phase-3-design.md), the import report as plain values. Nothing shows it yet (Phase 4).
+
+- **Automated tests, all passing on macOS**, run as single classes (`xcrun xctest -XCTest`), no full or hosted suite: every GraphiteCore import class, 287 tests, with the owner's samples configured (none skipped), among them the new `NotebookImportReportTests` (5); the GraphiteApple import classes, 41 tests, whose writer tests now also check what each written page holds (strokes, placed pictures).
+- **Samples:** a temporary check, not committed, built the report of every sample (50): each summary has at most 7 lines, 14 notebooks import with nothing to report, and the one Notability note without known pages is reported as such. Before reading issues were grouped by case, one Goodnotes case gave 10,805 lines.
+- **Not established:** how the report reads to a person; its wording and layout are Phase 4.
+
 ## Importing Goodnotes and Notability: recordings, and large files read without a copy: 2026-10-20
 
 On the branch `goodnotes-notability-import`: step 7 of [the Phase 3 design](Goodnotes-Notability-import-phase-3-design.md), and the audit's CC-IMPORT-13. Nothing in the app calls the import yet.
