@@ -491,6 +491,18 @@ final class CommunityPluginHost {
         }
     }
 
+    /// The vault's plugin secrets the runtime starts with. When the keychain cannot give them
+    /// back, the runtime starts without them and the person is told; a plugin's save is then
+    /// refused by the store rather than replacing them.
+    private func secretsForRuntimeStart() -> [String: String] {
+        guard let secretStore else { return [:] }
+        guard let secrets = try? secretStore.secrets() else { // The store refuses saves while its item cannot be read.
+            showNotice("The keychain did not give back this vault's plugin secrets, so plugins start without them.", pluginIdentifier: nil)
+            return [:]
+        }
+        return secrets
+    }
+
     private func startRuntime(in workspace: WorkspaceModel) async {
         guard let vaultIdentifier = workspace.currentVaultIdentifier else { return }
         let vault: [String: Any] = [
@@ -499,7 +511,7 @@ final class CommunityPluginHost {
             "configurationDirectory": ".obsidian",
             "configuration": await applicationConfiguration(),
             "corePlugins": corePluginDescriptions(workspace),
-            "secrets": secretStore?.secrets() ?? [:],
+            "secrets": secretsForRuntimeStart(),
             "appearanceConfiguration": await appearanceConfiguration(),
         ]
         var device: [String: Any] = ["resourcePathPrefix": CommunityPluginSchemeHandler.resourcePathPrefix, "isPhone": false]
