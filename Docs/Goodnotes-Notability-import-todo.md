@@ -42,7 +42,7 @@ Anything that cannot be kept exactly is named in the import report, never droppe
 
 Element-level import can only be as good as Graphite's own editor: where Graphite has no native equivalent, the import would have to flatten. These have to exist in Graphite before the matching part of the import counts as done (status from `Premium-experience-plan.md` on 2026-10-18):
 
-- [ ] Typed text boxes on PDF pages: listed there as still to build. Both formats use them: Goodnotes text boxes and sticky notes with fonts, sizes, colours and links; Notability's typed body text.
+- [ ] Typed text boxes on PDF pages: a feature of every PDF in Graphite, planned in [PDF-text-boxes-todo.md](PDF-text-boxes-todo.md). Both formats use them: Goodnotes text boxes and sticky notes with fonts, sizes, colours, rotation and links; Notability's typed body text. Until they exist the import leaves typed text out and lists it in the import report (owner decision, 2026-10-20).
 - [ ] Pictures above the ink, and free stacking between pictures, shapes, text and ink: today pictures always sit under the ink. Goodnotes stacks pictures and ink freely (with highlighter ink always under the rest); Notability, like Graphite, always draws pictures under the ink.
 - [ ] Shapes as editable objects after drawing (today a snapped shape becomes a stroke; check whether that is enough to keep it editable as a shape).
 - [ ] Any paper template, page size or paper color found in the samples that Graphite's paper system does not offer yet.

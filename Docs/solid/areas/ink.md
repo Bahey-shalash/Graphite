@@ -722,3 +722,11 @@ Delta audit of 2026-10-19 at `fff794b` (main), against `FR-01` to `FR-108`. Comm
 - **Rule:** `FR-104`
 - **Evidence:** `galleryKey` includes `pageCount` ([NotebookPaperPictures.swift:49-51](../../../Sources/GraphiteUI/NotebookPaperPictures.swift#L49-L51)), so each stepper press ([NewNotebookSheet.swift:95](../../../Sources/GraphiteUI/NewNotebookSheet.swift#L95)) renders ten PDFs ([NotebookPaperPictures.swift:22-39](../../../Sources/GraphiteUI/NotebookPaperPictures.swift#L22-L39)) in a detached task that is not cancelled. Introduced in `2e1b6a2`.
 - **Fix direction:** key the pictures by paper only; render in a child task.
+
+### Changes merged after 9040705 (5aae924)
+
+#### CC-INK-19 The laser pointer's clock is a settable property with a live default that only a test sets
+- **Severity:** Low
+- **Rule:** `FR-32`, `FR-43`, `FR-47`
+- **Evidence:** `var idleClock: any ApplicationClock = LiveApplicationClock()` on a `UIView` ([LaserPointer.swift:216](../../../Sources/GraphiteUI/LaserPointer.swift#L216)), assigned only in `App/Tests/InkSelectionTests.swift:754`. Introduced in `a724bd5`.
+- **Fix direction:** the owner passes the clock to the overlay's initializer.
