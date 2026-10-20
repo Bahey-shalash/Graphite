@@ -4,6 +4,19 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-20.
 
+## Importing Goodnotes and Notability: pictures, shapes, Notability paper and bookmarks: 2026-10-20
+
+On the branch `goodnotes-notability-import`: the audit's remaining Low findings for the import (CC-IMPORT-04, 05, 07 and 11, SRP-IMPORT-01, OCP-IMPORT-02), the paper system's optional ruling, and steps 3 to 6 of [the Phase 3 design](Goodnotes-Notability-import-phase-3-design.md). CC-IMPORT-12 (golden notebooks in the repository) waits for the owner, and CC-IMPORT-13 (attachments copied whole) for step 7. Nothing in the app calls the import yet.
+
+- **Automated tests, all passing on macOS**, run as single classes (`xcrun xctest -XCTest`), no full or hosted suite:
+  - GraphiteCore: all 29 import classes, 266 tests. New this round: `GoodnotesPicturePlannerTests` (5), `NotabilityPicturePlannerTests` (3), `NotabilityPaperAndShapePlannerTests` (9), `ShapeOutlineSamplingTests` (4), `GoodnotesElementKindTests` (4), `NotabilityKnownKeysTests` (4), `KeyOrderedDictionaryTests` (1), `LittleEndianIntegerTests` (2), and new tests in `BinaryPropertyListTests`, `GoodnotesPagePlannerTests` and `KeyedArchiveTests`.
+  - GraphiteApple: `PDFTemplateGeneratorGoldenTests` (1: every template in three colour sets at every New Notebook size and orientation, the same bytes as before the ruling was added), `PaperRulingTests` (4), `NotebookImportPictureWriterTests` (10), `NotebookImportPaperAndBookmarkWriterTests` (4), with `NotebookImportWriterTests` (10) and `ImportedStrokeBuilderTests` (7) still passing.
+- **Samples:** with the owner's samples configured, every reader count still equals the reference reader's. Every Goodnotes page plans with one stroke per ink subpath and one per drawable shape; 149 pictures are planned and the 17 whose files are not in their notebooks are reported. Every Notability page plans, with its 9 pictures; the ruled and grid samples' rows and columns match their exports' (letter paper, Mac).
+- **Not established:**
+  - pictures, shapes and ruled paper in the running app and on the iPad;
+  - Notability paper on A4, landscape or iPad-made notes, and rectangles and ellipses from Notability (no sample has them);
+  - a whole sample written to PDF and compared with its app's export (Phase 5).
+
 ## Importing Goodnotes and Notability: reader hardening, and pages, paper and ink converted: 2026-10-20
 
 On the branch `goodnotes-notability-import`. Two parts:

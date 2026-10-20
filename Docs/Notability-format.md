@@ -82,7 +82,7 @@ Choosing single pages instead of continuous scrolling changed nothing in the not
 | `Legacy:13` | `No Lines` | White (254 of 255 once rendered: the export draws the paper as a tiled 512 × 512 image) |
 | `Legacy:15` | `No Lines` | Black |
 | `Legacy:13` | `Lines:false:false:0.5` | White with horizontal rules every page width / 17 units (33.647 for 572), the first one rule down from the top, from x = 0 to page width − 2 × 15.9375 / s; colour #A3B7D3, 0.5 points wide |
-| `Legacy:13` | `Grid:false:true:0.5` | White with the same horizontal rules across the whole width, and vertical rules at the same spacing with one at the middle of the page; #A3B7D3, 0.4 points wide |
+| `Legacy:13` | `Grid:false:true:0.5` | White with the same horizontal rules from x = 0 to the page's right edge, and vertical rules the page's full height at the same spacing, one of them at the middle of the document's width (x = page width / 2 units: 321.94 points on letter paper); #A3B7D3, 0.4 points wide |
 
 The two booleans and the 0.5 in `lineStyle2` are not understood (the grid is drawn 0.4 points wide). Whether the spacing is always page width / 17 is known only for these two notes.
 
