@@ -8,6 +8,45 @@ struct FileRecoveryRequest: Identifiable {
     let path: VaultPath?
 }
 
+/// A list or a copy's text that the File recovery sheet reads: still being read, read, or
+/// not readable with the reason. A failed read is never shown as an empty list.
+enum FileRecoveryReading<Value: Sendable>: Sendable {
+    case reading
+    case read(Value)
+    case failed(String)
+
+    var value: Value? {
+        if case .read(let value) = self { return value }
+        return nil
+    }
+
+    /// Reads away from the main thread. A vault whose store could not be opened, and any
+    /// error the store throws, is a failure that names the reason.
+    static func load(from fileRecovery: FileRecoveryStore?, _ reading: @escaping @Sendable (FileRecoveryStore) throws -> Value) async -> FileRecoveryReading<Value> {
+        guard let fileRecovery else { return .failed("Graphite could not open the folder where this vault's file recovery copies are kept.") }
+        return await Task.detached(priority: .userInitiated) {
+            do { return FileRecoveryReading.read(try reading(fileRecovery)) } catch { return FileRecoveryReading.failed(error.localizedDescription) }
+        }.value
+    }
+}
+
+/// What the sheet shows when a list or a copy could not be read: the reason and Try Again.
+private struct FileRecoveryReadFailure: View {
+    let title: String
+    let reason: String
+    let tryAgain: () async -> Void
+
+    var body: some View {
+        ContentUnavailableView {
+            Label(title, systemImage: "exclamationmark.triangle")
+        } description: {
+            Text(reason)
+        } actions: {
+            Button("Try Again") { Task { await tryAgain() } }
+        }
+    }
+}
+
 /// Obsidian's File recovery: notes with copies, a note's copies by time, and a copy's text,
 /// which can be restored or copied.
 struct FileRecoverySheet: View {
@@ -15,14 +54,15 @@ struct FileRecoverySheet: View {
     let request: FileRecoveryRequest
     @Environment(\.dismiss) private var dismiss
     @State private var navigationPath: [VaultPath] = []
-    @State private var notes: [FileRecoveryStore.RecoverableNote] = []
+    @State private var notes = FileRecoveryReading<[FileRecoveryStore.RecoverableNote]>.reading
     @State private var query = ""
-    @State private var hasLoaded = false
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
             List {
-                if hasLoaded && notes.isEmpty {
+                if case .failed(let reason) = notes {
+                    FileRecoveryReadFailure(title: "Snapshots Could Not Be Read", reason: reason) { await loadNotes() }
+                } else if notes.value?.isEmpty == true {
                     ContentUnavailableView("No Snapshots Yet", systemImage: "clock.arrow.circlepath",
                                            description: Text("Graphite keeps a copy of a note before a save changes it, at most every \(workspace.preferences.snapshotIntervalMinutes) minutes, and before it is deleted."))
                 }
@@ -56,16 +96,20 @@ struct FileRecoverySheet: View {
         .frame(minWidth: 520, minHeight: 560)
         .task {
             if let path = request.path { navigationPath = [path] }
-            guard let fileRecovery = workspace.fileRecovery else { hasLoaded = true; return }
-            notes = await Task.detached(priority: .userInitiated) { (try? fileRecovery.recoverableNotes()) ?? [] }.value
-            hasLoaded = true
+            await loadNotes()
         }
     }
 
+    private func loadNotes() async {
+        notes = .reading
+        notes = await FileRecoveryReading.load(from: workspace.fileRecovery) { fileRecovery in try fileRecovery.recoverableNotes() }
+    }
+
     private var filteredNotes: [FileRecoveryStore.RecoverableNote] {
+        let readNotes = notes.value ?? []
         let trimmedQuery = query.trimmingCharacters(in: .whitespaces)
-        guard !trimmedQuery.isEmpty else { return notes }
-        return notes.filter { note in FuzzyMatcher.match(trimmedQuery, in: note.path.rawValue) != nil }
+        guard !trimmedQuery.isEmpty else { return readNotes }
+        return readNotes.filter { note in FuzzyMatcher.match(trimmedQuery, in: note.path.rawValue) != nil }
     }
 }
 
@@ -74,16 +118,17 @@ private struct NoteSnapshotList: View {
     @Bindable var workspace: WorkspaceModel
     let path: VaultPath
     let close: () -> Void
-    @State private var snapshots: [FileRecoveryStore.Snapshot] = []
-    @State private var hasLoaded = false
+    @State private var snapshots = FileRecoveryReading<[FileRecoveryStore.Snapshot]>.reading
 
     var body: some View {
         List {
-            if hasLoaded && snapshots.isEmpty {
+            if case .failed(let reason) = snapshots {
+                FileRecoveryReadFailure(title: "This Note's Snapshots Could Not Be Read", reason: reason) { await loadSnapshots() }
+            } else if snapshots.value?.isEmpty == true {
                 ContentUnavailableView("No Snapshots of This Note", systemImage: "clock.arrow.circlepath",
                                        description: Text("A copy is kept before a save changes the note, at most every \(workspace.preferences.snapshotIntervalMinutes) minutes."))
             }
-            ForEach(snapshots) { snapshot in
+            ForEach(snapshots.value ?? []) { snapshot in
                 NavigationLink {
                     SnapshotPreview(workspace: workspace, path: path, snapshot: snapshot, close: close)
                 } label: {
@@ -95,12 +140,13 @@ private struct NoteSnapshotList: View {
             }
         }
         .navigationTitle(workspace.preferences.displayName(for: path))
-        .task {
-            guard let fileRecovery = workspace.fileRecovery else { hasLoaded = true; return }
-            let path = path
-            snapshots = await Task.detached(priority: .userInitiated) { (try? fileRecovery.snapshots(for: path)) ?? [] }.value
-            hasLoaded = true
-        }
+        .task { await loadSnapshots() }
+    }
+
+    private func loadSnapshots() async {
+        let path = path
+        snapshots = .reading
+        snapshots = await FileRecoveryReading.load(from: workspace.fileRecovery) { fileRecovery in try fileRecovery.snapshots(for: path) }
     }
 }
 
@@ -110,8 +156,10 @@ private struct SnapshotPreview: View {
     let path: VaultPath
     let snapshot: FileRecoveryStore.Snapshot
     let close: () -> Void
-    @State private var text: String?
+    @State private var reading = FileRecoveryReading<String>.reading
     @State private var isConfirmingRestore = false
+
+    private var text: String? { reading.value }
 
     var body: some View {
         ScrollView {
@@ -121,7 +169,13 @@ private struct SnapshotPreview: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(20)
         }
-        .overlay { if text == nil { ProgressView() } }
+        .overlay {
+            switch reading {
+            case .reading: ProgressView()
+            case .failed(let reason): FileRecoveryReadFailure(title: "This Snapshot Could Not Be Read", reason: reason) { await loadText() }
+            case .read: EmptyView()
+            }
+        }
         .navigationTitle(snapshot.date.formatted(date: .abbreviated, time: .shortened))
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
@@ -139,11 +193,13 @@ private struct SnapshotPreview: View {
         } message: {
             Text(restoreExplanation)
         }
-        .task {
-            guard let fileRecovery = workspace.fileRecovery else { return }
-            let snapshot = snapshot
-            text = await Task.detached(priority: .userInitiated) { try? fileRecovery.text(of: snapshot) }.value
-        }
+        .task { await loadText() }
+    }
+
+    private func loadText() async {
+        let snapshot = snapshot
+        reading = .reading
+        reading = await FileRecoveryReading.load(from: workspace.fileRecovery) { fileRecovery in try fileRecovery.text(of: snapshot) }
     }
 
     private var restoreQuestion: String {

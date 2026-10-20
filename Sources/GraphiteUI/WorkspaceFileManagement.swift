@@ -2,6 +2,13 @@ import Foundation
 import GraphiteCore
 import GraphiteIndex
 
+/// A request to show a file in the sidebar's file list, drained by the sidebar. Each request
+/// is new, so revealing the same file twice scrolls to it twice.
+struct FileRevealRequest: Equatable {
+    let path: VaultPath
+    let token = UUID()
+}
+
 /// A move that changes links, waiting for the person to choose whether to update them.
 struct PendingMove: Identifiable {
     let id = UUID()
@@ -347,15 +354,20 @@ extension WorkspaceModel {
         } catch { errorMessage = error.localizedDescription }
     }
 
-    /// Opens every folder above the current file in the sidebar, showing the file list.
+    /// Shows the current file in the sidebar's file list, wherever this is asked from: the
+    /// Files panel in place of a search or a plugin's view, every folder above the file open,
+    /// and a request that shows the sidebar and scrolls the list to the file.
     func revealCurrentFile() {
-        guard var folder = selection?.parent else { return }
+        guard let path = selection else { return }
         deviceDefaults.set(SidebarPanel.files.rawValue, forKey: SidebarPanelSettingKey.panel)
         searchQuery = ""
+        communityPlugins.shownSidebarViewIdentifier = nil
+        var folder = path.parent
         while !folder.rawValue.isEmpty {
             expandedFolders.insert(folder)
             folder = folder.parent
         }
+        fileRevealRequest = FileRevealRequest(path: path)
     }
 
     func collapseAllFolders() {

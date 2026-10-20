@@ -114,6 +114,9 @@ final class WorkspaceModel {
     var searchQuery = ""
     /// Increases when a command asks for the sidebar's search field.
     var searchFocusRequest = 0
+    /// A file "Reveal current file" asked the sidebar to show; the root view shows the sidebar,
+    /// and the sidebar scrolls to the file and clears the request.
+    var fileRevealRequest: FileRevealRequest?
     var searchResults: [SearchResult] = []
     /// Where more results start; nil when every result is shown.
     private(set) var searchContinuation: SearchContinuation?
@@ -321,7 +324,7 @@ final class WorkspaceModel {
         VaultIndex.removeIndex(forVault: vault.id, in: applicationFolders.cachesFolder)
         CommunityPluginHost.forgetVault(vault.id, defaults: deviceDefaults)
         // Opening the folder again makes a new identifier, so nothing would read these again.
-        for key in [Self.expandedFoldersKey(for: vault.id), Self.recentFilesKey(for: vault.id), Self.tabLayoutKey(for: vault.id)] {
+        for key in [Self.expandedFoldersKey(for: vault.id), Self.recentFilesKey(for: vault.id), Self.tabLayoutKey(for: vault.id), Self.foldsKey(for: vault.id)] {
             deviceDefaults.removeObject(forKey: key)
         }
         documentPlaceStore.forgetVault(vault.id)

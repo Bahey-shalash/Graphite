@@ -105,6 +105,14 @@ extension WorkspaceModel {
         return document
     }
 
+    /// A tab's name wherever tabs are listed (the tab bar, the phone's tab switcher): its
+    /// file's name, the title of the plugin view it shows, or "New Tab".
+    func title(ofTab tab: WorkspaceTab) -> String {
+        if let path = tab.path { return preferences.displayName(for: path) }
+        if let identifier = document(for: tab.id).pluginViewIdentifier, let view = communityPlugins.pluginView(withIdentifier: identifier) { return view.title }
+        return "New Tab"
+    }
+
     /// The open note with this path, in whichever tab it is.
     func openMarkdownSession(at path: VaultPath) -> MarkdownSession? {
         tabDocuments.values.lazy.compactMap(\.markdownSession).first { session in session.path == path }

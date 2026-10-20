@@ -166,6 +166,13 @@ struct VaultSidebar: View {
             workspace.searchQuery = ""
             chosenPluginView = request.viewIdentifier
         }
+        // "Reveal current file": scrolled to once, then the request is cleared, so a list
+        // that appears later does not jump back to it.
+        .task(id: workspace.fileRevealRequest) {
+            guard let request = workspace.fileRevealRequest else { return }
+            fileToReveal = request.path
+            workspace.fileRevealRequest = nil
+        }
         .propertyRenameAlert(overview, workspace: workspace)
         .bookmarkAlerts(overview, workspace: workspace)
         // The Mac's file tree is an outline view, which SwiftUI cannot put its sidebar field
@@ -281,7 +288,7 @@ struct VaultSidebar: View {
                 overview.isCreatingBookmarkGroup = true
             }
         case .files:
-            FileExplorerMenuItems(workspace: workspace) { path in fileToReveal = path }
+            FileExplorerMenuItems(workspace: workspace)
         }
     }
 
@@ -516,8 +523,6 @@ struct VaultSidebar: View {
 /// whole file list.
 private struct FileExplorerMenuItems: View {
     @Bindable var workspace: WorkspaceModel
-    /// Scrolls the file list to a file once its folders are expanded.
-    let scrollToFile: (VaultPath) -> Void
 
     var body: some View {
         Picker("Sort Order", selection: Binding(get: { workspace.vaultSettings.fileSortOrder }, set: { sortOrder in
@@ -528,14 +533,8 @@ private struct FileExplorerMenuItems: View {
             ForEach(FileSortOrder.allCases) { sortOrder in Text(sortOrder.title).tag(sortOrder) }
         }
         .pickerStyle(.menu)
-        Button("Reveal Current File", systemImage: "scope") {
-            guard let path = workspace.selection else { return }
-            // Search results take the tree's place, so the search is cleared first.
-            workspace.searchQuery = ""
-            workspace.revealCurrentFile()
-            scrollToFile(path)
-        }
-        .disabled(workspace.selection == nil)
+        Button("Reveal Current File", systemImage: "scope") { workspace.revealCurrentFile() }
+            .disabled(workspace.selection == nil)
         Button("Collapse All", systemImage: "arrow.down.right.and.arrow.up.left") { withAnimation(GraphiteMotion.animation(.snappy)) { workspace.collapseAllFolders() } }
             .disabled(workspace.expandedFolders.isEmpty)
         // Plugins' actions on several files at once (`files-menu`).

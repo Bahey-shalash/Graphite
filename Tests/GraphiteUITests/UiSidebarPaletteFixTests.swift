@@ -172,4 +172,31 @@ final class UiSidebarPaletteFixTests: XCTestCase {
         _ = await workspace.open(try VaultPath("Three.pdf"), placement: .newTab)
         XCTAssertTrue(workspace.document(for: firstTabID).pdfSession === firstSession)
     }
+
+    // MARK: Reveal current file
+
+    /// BUG-SHELL-04: the palette's and a tab's "Reveal" opened the folders but neither showed a
+    /// hidden sidebar nor scrolled to the file, and a plugin's sidebar view stayed in front.
+    /// Every entry point now asks the sidebar through one request.
+    func testRevealingTheCurrentFileAsksTheSidebarToShowItInTheFileList() async throws {
+        let vault = try TemporaryVault.make(prefix: "SidebarPaletteVault", files: ["Folder/Inner/Note.md": "text"], for: self).root
+        let workspace = try await openedWorkspace(vault)
+        let notePath = try VaultPath("Folder/Inner/Note.md")
+        await workspace.open(notePath)
+        workspace.searchQuery = "text"
+        workspace.communityPlugins.shownSidebarViewIdentifier = "a plugin's sidebar view"
+
+        workspace.revealCurrentFile()
+
+        let request = try XCTUnwrap(workspace.fileRevealRequest, "The sidebar is asked to show the file.")
+        XCTAssertEqual(request.path, notePath)
+        XCTAssertEqual(workspace.searchQuery, "", "Search results would take the file list's place.")
+        XCTAssertNil(workspace.communityPlugins.shownSidebarViewIdentifier, "The file list takes the plugin view's place.")
+        XCTAssertEqual(workspace.expandedFolders, [try VaultPath("Folder"), try VaultPath("Folder/Inner")])
+        XCTAssertEqual(device.defaults.string(forKey: SidebarPanelSettingKey.panel), SidebarPanel.files.rawValue)
+
+        workspace.revealCurrentFile()
+
+        XCTAssertNotEqual(workspace.fileRevealRequest, request, "Revealing the same file again is a new request, so the list scrolls again.")
+    }
 }

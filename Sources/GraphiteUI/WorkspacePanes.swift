@@ -216,14 +216,14 @@ private struct TabBar: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 2) {
                         ForEach(Array(group.tabs.enumerated()), id: \.element.id) { position, tab in
-                            TabItem(tab: tab, title: title(of: tab), isActive: tab.id == group.activeTabID && !isLibraryHomeShown,
+                            TabItem(tab: tab, title: workspace.title(ofTab: tab), isActive: tab.id == group.activeTabID && !isLibraryHomeShown,
                                     marksFocus: isFocused && showsBothGroups,
                                     activate: { library?.leaveHome(); workspace.activateTab(tab.id) },
                                     close: { Task { await workspace.closeTab(tab.id) } },
                                     maximumWidth: keepsTabsBesidePencilTools ? DocumentToolbarLayout.minimumTabsWidthBesidePencilTools - 2 * Self.tabsInset : 220)
                                 .contextMenu { tabMenu(for: tab) }
                                 .draggable(TabTransfer(tabID: tab.id)) {
-                                    Label(title(of: tab), systemImage: tab.path.map { path in DocumentKind(path: path).systemImage } ?? "doc")
+                                    Label(workspace.title(ofTab: tab), systemImage: tab.path.map { path in DocumentKind(path: path).systemImage } ?? "doc")
                                         .padding(8).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
                                 }
                                 // A tab dropped on another goes before it.
@@ -330,13 +330,6 @@ private struct TabBar: View {
             Button("Rename…", systemImage: "pencil") { workspace.fileSheet = .rename(path) }
             CommunityPluginFileActionsButton(host: workspace.communityPlugins, path: path, source: "tab-header")
         }
-    }
-
-    private func title(of tab: WorkspaceTab) -> String {
-        if let path = tab.path { return workspace.preferences.displayName(for: path) }
-        // A tab showing a plugin's view is named after the view.
-        if let identifier = workspace.document(for: tab.id).pluginViewIdentifier, let view = workspace.communityPlugins.pluginView(withIdentifier: identifier) { return view.title }
-        return "New Tab"
     }
 }
 

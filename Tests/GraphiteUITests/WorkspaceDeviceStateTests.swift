@@ -116,10 +116,8 @@ final class WorkspaceDeviceStateTests: XCTestCase {
 
     // MARK: D-24 and what removing a vault takes away
 
-    /// BUG-SHELL-02: `removeFromVaultList` removes the folds, recent files, tab layout and
-    /// places, but not `GraphiteFolds.<UUID>`, so the folds of a vault that is gone stay in
-    /// the preferences for good. The fix is to add `foldsKey(for:)` to the keys it removes
-    /// (it is private to `WorkspaceFolds.swift`, so it also has to become internal).
+    /// The folds of a removed vault name its notes, and nothing would read them again:
+    /// opening its folder again makes a new identifier (BUG-SHELL-02).
     func testRemovingAVaultFromTheListForgetsItsFolds() async throws {
         let removedVault = try makeVault(files: ["Note.md": "# One\n"])
         let workspace = device.makeWorkspace()
@@ -132,9 +130,7 @@ final class WorkspaceDeviceStateTests: XCTestCase {
 
         workspace.removeFromVaultList(try XCTUnwrap(workspace.vaultLibrary.vault(withIdentifier: removedIdentifier)))
 
-        XCTExpectFailure("BUG-SHELL-02 is open: the removal does not delete the folds. Remove this line with the fix.") {
-            XCTAssertNil(device.defaults.object(forKey: "GraphiteFolds." + removedIdentifier.uuidString))
-        }
+        XCTAssertNil(device.defaults.object(forKey: "GraphiteFolds." + removedIdentifier.uuidString))
     }
 
     func testRemovingAVaultFromTheListForgetsEveryOtherThingKeptForItOnTheDevice() async throws {

@@ -4,7 +4,7 @@ import GraphiteCore
 /// Folded headings and list items, remembered per note on the device as Obsidian keeps
 /// them, never in the note itself.
 extension WorkspaceModel {
-    private static func foldsKey(for vaultIdentifier: UUID) -> String {
+    static func foldsKey(for vaultIdentifier: UUID) -> String {
         "GraphiteFolds." + vaultIdentifier.uuidString
     }
 

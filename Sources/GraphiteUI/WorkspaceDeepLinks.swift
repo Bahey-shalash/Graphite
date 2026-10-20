@@ -74,7 +74,7 @@ extension WorkspaceModel {
 
     /// Opens a note given as `file=`, resolved as a link from the vault's top: a name, a
     /// path, with a heading or block. It is never created, unlike following a link. Returns
-    /// the file now shown in the focused tab, or nil when the link opened nothing.
+    /// the file the link opened, now shown in a tab on either side, or nil when it opened nothing.
     @discardableResult
     private func openLinkedFile(_ file: String) async -> VaultPath? {
         guard let index, let topLevelSource = try? VaultPath("Link.md") else { return nil }
@@ -93,7 +93,8 @@ extension WorkspaceModel {
             }
             let linkedPath = await resolveLink(file, from: topLevelSource)
             await follow(file, from: topLevelSource)
-            if let linkedPath, selection == linkedPath { return linkedPath }
+            // A file already open on the other side is shown there without taking focus.
+            if let linkedPath, layout.tabID(showing: linkedPath) != nil { return linkedPath }
         } catch is CancellationError {
         } catch { errorMessage = error.localizedDescription }
         return nil
