@@ -1,6 +1,6 @@
-#if canImport(UIKit)
 import Foundation
 import GraphiteCore
+#if canImport(UIKit)
 import GraphiteApple
 
 /// Drawing on an image, from a note's embed or from the image itself.
@@ -80,9 +80,13 @@ extension WorkspaceModel {
         _ = try await service.save(content, format: format, to: path.url(in: root), expecting: .absent)
         if let notePath {
             if let session = openMarkdownSession(at: notePath), !session.hasExternalConflict {
-                let replacedCount = await replaceEmbeds(of: imagePath, with: path, in: session)
-                if replacedCount == 0 {
+                switch await replaceEmbeds(of: imagePath, with: path, in: session) {
+                case .replaced:
+                    break
+                case .noEmbed:
                     errorMessage = "The drawing was saved as “\(path.rawValue)”, but the note no longer embeds “\(imagePath.name)”, so nothing in it changed."
+                case .textChanged:
+                    errorMessage = "The drawing was saved as “\(path.rawValue)”, but the note kept changing while it was saved, so it still shows the original image."
                 }
             } else {
                 errorMessage = "The drawing was saved as “\(path.rawValue)”, but its note is not open or was changed in another app, so the note still shows the original image."
@@ -91,13 +95,32 @@ extension WorkspaceModel {
         refreshIndex(for: [path])
         if notePath == nil { await open(path) }
     }
+}
+#endif
 
+/// What pointing a note's embeds of an image at the drawing made on it came to.
+enum EmbedReplacementOutcome: Equatable {
+    case replaced(count: Int)
+    /// The note embeds the image nowhere.
+    case noEmbed
+    /// The note's text changed while its links were resolved, on each attempt.
+    case textChanged
+}
+
+extension WorkspaceModel {
     /// Rewrites every embed of `imagePath` in the note to show `newPath`, keeping how each
-    /// was written, as one undoable edit. Returns how many embeds changed.
-    @discardableResult
-    func replaceEmbeds(of imagePath: VaultPath, with newPath: VaultPath, in session: MarkdownSession) async -> Int {
+    /// was written, as one undoable edit. Links are resolved through the index while the note
+    /// can change; the edit is made only on the text its links were found in, so after a
+    /// change the embeds are looked for once more in the text as it is then.
+    func replaceEmbeds(of imagePath: VaultPath, with newPath: VaultPath, in session: MarkdownSession) async -> EmbedReplacementOutcome {
+        let outcome = await attemptEmbedReplacement(of: imagePath, with: newPath, in: session)
+        guard outcome == .textChanged else { return outcome }
+        return await attemptEmbedReplacement(of: imagePath, with: newPath, in: session)
+    }
+
+    private func attemptEmbedReplacement(of imagePath: VaultPath, with newPath: VaultPath, in session: MarkdownSession) async -> EmbedReplacementOutcome {
         let text = session.text
-        guard let links = try? NoteLinkScanner.links(in: text) else { return 0 }
+        guard let links = try? NoteLinkScanner.links(in: text) else { return .noEmbed }
         let isNewNameUnique = await isNameUnique(newPath, from: session.path)
         var replacements: [(range: NSRange, text: String)] = []
         let source = text as NSString
@@ -110,9 +133,9 @@ extension WorkspaceModel {
                   let replacement = LinkRewriter.replacingPath(inLinkText: source.substring(with: link.range), isWiki: link.isWiki, newPathPart: pathPart) else { continue }
             replacements.append((link.range, replacement))
         }
+        guard !replacements.isEmpty, let firstRange = replacements.first?.range, let lastRange = replacements.last?.range else { return .noEmbed }
         // The text may have changed while links were resolved; the edit is made only on the text read.
-        guard !replacements.isEmpty, session.text == text,
-              let firstRange = replacements.first?.range, let lastRange = replacements.last?.range else { return 0 }
+        guard session.text == text else { return .textChanged }
         let spannedRange = NSRange(location: firstRange.location, length: NSMaxRange(lastRange) - firstRange.location)
         let spannedText = source.substring(with: spannedRange)
         let shiftedReplacements = replacements.map { replacement in
@@ -121,7 +144,6 @@ extension WorkspaceModel {
         let newSpannedText = LinkRewriter.applying(shiftedReplacements, to: spannedText)
         session.apply(MarkdownTextEdit(range: spannedRange, replacement: newSpannedText,
                                        selectionAfter: NSRange(location: spannedRange.location + (newSpannedText as NSString).length, length: 0)))
-        return replacements.count
+        return .replaced(count: replacements.count)
     }
 }
-#endif
