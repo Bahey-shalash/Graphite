@@ -22,6 +22,8 @@ public final class NeuralReadAloudSpeech: ReadAloudSpeaking {
 
     @ObservationIgnored private let quick: any ReadAloudSpeaking
     @ObservationIgnored private let player: RenderedPassagePlayer
+    /// On the silent route the audio session is never activated either.
+    @ObservationIgnored private let output: AudioOutputRoute
     @ObservationIgnored private var activeRequest: (identifier: UUID, request: ReadAloudUtteranceRequest, voiceText: ReadAloudVoiceText)?
     /// The rendered passage playing now and the speech offset its word ranges are shifted by.
     @ObservationIgnored private var playingPassage: CachedReadAloudPassage?
@@ -35,9 +37,10 @@ public final class NeuralReadAloudSpeech: ReadAloudSpeaking {
     #endif
 
     public init(quick: any ReadAloudSpeaking, library: NeuralVoiceLibrary, preparation: ReadAloudPassagePreparation,
-                output: AudioOutputRoute = .thisProcess) {
+                output: AudioOutputRoute = .thisProcess, clock: any ApplicationClock = LiveApplicationClock()) {
         self.quick = quick
-        player = RenderedPassagePlayer(output: output)
+        self.output = output
+        player = RenderedPassagePlayer(output: output, clock: clock)
         self.library = library
         self.preparation = preparation
         quick.eventHandler = { [weak self] event in
@@ -277,7 +280,7 @@ public final class NeuralReadAloudSpeech: ReadAloudSpeaking {
     /// switch on, continues in the background and on the lock screen, and pauses other audio.
     private func activateAudioSession() {
         #if os(iOS)
-        guard !ownsActiveAudioSession else { return }
+        guard output == .speakers, !ownsActiveAudioSession else { return }
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
             try AVAudioSession.sharedInstance().setActive(true)
