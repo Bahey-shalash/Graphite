@@ -56,6 +56,20 @@ final class RecordingControlsTests: XCTestCase {
         XCTAssertFalse(CaptureAccessProblem.noMicrophone.canBeChangedInSettings)
     }
 
+    /// BUG-LECTURE-04: the Mac opened the camera's privacy pane for every refused device.
+    func testOpenSettingsOnTheMacGoesToThePrivacyPaneOfTheRefusedDevice() {
+        let paneBase = "x-apple.systempreferences:com.apple.preference.security?"
+        for problem: CaptureAccessProblem in [.microphoneDenied, .microphoneRestricted] {
+            XCTAssertEqual(RecordingControlModel.macPrivacyPaneLocation(for: problem).absoluteString, paneBase + "Privacy_Microphone", "\(problem)")
+        }
+        for problem: CaptureAccessProblem in [.cameraDenied, .cameraRestricted] {
+            XCTAssertEqual(RecordingControlModel.macPrivacyPaneLocation(for: problem).absoluteString, paneBase + "Privacy_Camera", "\(problem)")
+        }
+        #if !canImport(UIKit)
+        XCTAssertEqual(RecordingControlModel.settingsLocation(for: .microphoneDenied), RecordingControlModel.macPrivacyPaneLocation(for: .microphoneDenied))
+        #endif
+    }
+
     // MARK: The preview
 
     func testThePreviewIsShownOnlyForAVideoThatIsBeingRecorded() {

@@ -62,6 +62,15 @@ struct PDFPasswordRequired: LocalizedError {
     var errorDescription: String? { wasPasswordWrong ? "That password does not open this PDF." : "This PDF is protected by a password." }
 }
 
+/// Why a PDF is shown without being changed. The reasons are worded differently and have
+/// different remedies: only a signature can be given up, from the PDF view.
+enum PDFProtection: Equatable {
+    /// Encrypted, or its permissions forbid comments or changes.
+    case passwordProtected
+    /// Digitally signed, and the person has not accepted invalidating the signature.
+    case digitallySigned
+}
+
 private actor PDFLoader {
     func load(_ location: URL, password: String?, writer: AtomicFileWriter) throws -> LoadedPDF {
         var coordinationError: NSError?
@@ -336,8 +345,14 @@ final class PDFSession {
     /// without changes until the user accepts that.
     let hasDigitalSignatures: Bool
     var acceptsSignatureInvalidation = false
+    /// Why every edit is refused, or nil when the PDF takes edits. A password outranks a
+    /// signature, because accepting the signature's loss does not unlock an encrypted PDF.
+    var protection: PDFProtection? {
+        if isPasswordProtected { return .passwordProtected }
+        return hasDigitalSignatures && !acceptsSignatureInvalidation ? .digitallySigned : nil
+    }
     /// The PDF is shown without being changed: every edit is refused.
-    var isProtected: Bool { isPasswordProtected || (hasDigitalSignatures && !acceptsSignatureInvalidation) }
+    var isProtected: Bool { protection != nil }
 
     private init(location: URL, loaded: LoadedPDF, writer: AtomicFileWriter, clock: any ApplicationClock) {
         self.location = location
@@ -368,8 +383,11 @@ final class PDFSession {
     // MARK: Edits
 
     func apply(_ edit: PDFEdit) throws {
-        if isPasswordProtected { throw GraphiteError.unavailable("This PDF is protected by a password, so Graphite shows it without changing it.") }
-        if isProtected { throw GraphiteError.unavailable("This PDF is digitally signed, so Graphite shows it without changing it.") }
+        switch protection {
+        case .passwordProtected?: throw GraphiteError.unavailable("This PDF is protected by a password, so Graphite shows it without changing it.")
+        case .digitallySigned?: throw GraphiteError.unavailable("This PDF is digitally signed, so Graphite shows it without changing it.")
+        case nil: break
+        }
         // Deferred records name pages by index, which a page-structure change would move.
         if edit.changesPageTree { writePendingInkRecords() }
         let changedPage = edit.changedPageIndex.flatMap(document.page(at:))

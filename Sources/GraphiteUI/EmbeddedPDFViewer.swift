@@ -259,12 +259,27 @@ struct EmbeddedPDFViewer: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 10).padding(.vertical, 6)
                 .background(.red.opacity(0.08))
-        } else if let session, session.isProtected {
-            Label("This PDF is protected by a password, so Graphite shows it without changing it: annotating is off.", systemImage: "lock.fill")
+        } else if let protection = session?.protection {
+            Label(Self.protectionBannerText(for: protection), systemImage: Self.protectionBannerSymbolName(for: protection))
                 .font(.caption).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 10).padding(.vertical, 6)
                 .background(.quaternary.opacity(0.5))
+        }
+    }
+
+    /// A signature, unlike a password, can be given up; the PDF view asks before it is.
+    private static func protectionBannerText(for protection: PDFProtection) -> String {
+        switch protection {
+        case .passwordProtected: "This PDF is protected by a password, so Graphite shows it without changing it: annotating is off."
+        case .digitallySigned: "This PDF is digitally signed, so Graphite shows it without changing it: annotating is off. To edit it anyway, open it in the PDF view."
+        }
+    }
+
+    static func protectionBannerSymbolName(for protection: PDFProtection) -> String {
+        switch protection {
+        case .passwordProtected: "lock.fill"
+        case .digitallySigned: "signature"
         }
     }
 
@@ -369,11 +384,17 @@ struct EmbeddedPDFViewer: View {
 
     private func goToTypedPage() {
         guard let session else { return }
-        guard let pageNumber = Int(pageText.trimmingCharacters(in: .whitespaces)), (1...max(1, session.pageCount)).contains(pageNumber) else {
+        guard let pageIndex = Self.pageIndex(typed: pageText, pageCount: session.pageCount) else {
             pageText = "\(session.currentPageIndex + 1)"
             return
         }
-        session.go(to: pageNumber - 1)
+        session.go(to: pageIndex)
+    }
+
+    /// The zero-based page the page field names. It is read as Go to Page reads it, so the
+    /// number pad of any script's keyboard works here too.
+    static func pageIndex(typed text: String, pageCount: Int) -> Int? {
+        PDFPageJumpField.pageNumber(from: text, pageCount: pageCount).map { pageNumber in pageNumber - 1 }
     }
 
     private func zoom(by factor: CGFloat) {
