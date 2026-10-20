@@ -739,24 +739,24 @@
     // MARK: Links
 
     /// Obsidian follows links from the app, not the page: internal links open the note,
-    /// web links the browser. Without this a link in a plugin's view or block would load
-    /// in place of the runtime's page and end every plugin.
+    /// web links the browser. Without this a link (an anchor or an image map's area) in a
+    /// plugin's view or block would load in place of the runtime's page and end every plugin.
     function followLink(event) {
         if (event.defaultPrevented || event.button > 0) return;
         const target = event.target;
-        const anchor = target && typeof target.closest === 'function' ? target.closest('a') : null;
-        if (!anchor) return;
-        const destination = anchor.getAttribute('data-href') || anchor.getAttribute('href') || '';
+        const link = target && typeof target.closest === 'function' ? target.closest('a, area') : null;
+        if (!link) return;
+        const destination = link.getAttribute('data-href') || link.getAttribute('href') || '';
         event.preventDefault();
         if (destination === '' || destination.startsWith('#') || /^javascript:/i.test(destination)) return;
         if (/^(https?|mailto):/i.test(destination)) {
             hostBridge.notify('workspace.openExternalLink', { address: destination });
             return;
         }
-        if (/^[a-z][a-z0-9+.-]*:/i.test(destination) && !anchor.classList.contains('internal-link')) return;
+        if (/^[a-z][a-z0-9+.-]*:/i.test(destination) && !link.classList.contains('internal-link')) return;
         const app = runtime.app;
         if (!app) return;
-        const sourceElement = anchor.closest('[data-graphite-source-path]');
+        const sourceElement = link.closest('[data-graphite-source-path]');
         const sourcePath = sourceElement ? sourceElement.getAttribute('data-graphite-source-path') : (app.workspace.getActiveFile() ? app.workspace.getActiveFile().path : '');
         let linktext = destination;
         try { linktext = decodeURI(destination); } catch (error) { linktext = destination; }

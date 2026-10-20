@@ -144,7 +144,9 @@ final class CommunityPluginMessageReceiver: NSObject, WKScriptMessageHandlerWith
             if navigationAction.targetFrame?.isMainFrame == false { return .allow }
             return address.host == CommunityPluginSchemeHandler.runtimeHost && address.path == CommunityPluginSchemeHandler.runtimePageAddress?.path ? .allow : .cancel
         }
-        if address.scheme == "about" { return .allow }
+        // Frames may show a blank page (`about:blank`, `about:srcdoc`); the page itself never
+        // does, as that would end every plugin without its content process ending.
+        if address.scheme == "about" { return navigationAction.targetFrame?.isMainFrame == false ? .allow : .cancel }
         if let scheme = address.scheme?.lowercased(), ["http", "https", "mailto"].contains(scheme), navigationAction.navigationType == .linkActivated || navigationAction.targetFrame == nil {
             ExternalLinkOpener.open(address)
         }

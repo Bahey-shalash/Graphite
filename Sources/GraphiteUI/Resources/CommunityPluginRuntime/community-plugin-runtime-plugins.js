@@ -917,9 +917,10 @@
             }
         }
         isDarkMode() { return globalScope.document.body.hasClass('theme-dark'); }
-        /// Obsidian's light or dark choice (`obsidian` dark, `moonstone` light). Graphite's own
-        /// appearance setting decides; the choice is kept here, as `vault.setConfig('theme')`.
-        getTheme() { return this.vault.getConfig('theme') === 'moonstone' ? 'moonstone' : 'obsidian'; }
+        /// Obsidian's light or dark theme (`obsidian` dark, `moonstone` light) as the page shows
+        /// it: Graphite's own appearance setting decides. A plugin's `setTheme` is kept only in
+        /// `vault.getConfig('theme')`.
+        getTheme() { return this.isDarkMode() ? 'obsidian' : 'moonstone'; }
         setTheme(themeName) { this.vault.setConfig('theme', themeName); }
         changeTheme(themeName) { this.setTheme(themeName); }
         updateTheme() {}

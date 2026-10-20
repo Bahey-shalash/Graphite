@@ -137,3 +137,39 @@ test('resolveSubpath finds headings and blocks', async () => {
         harness.close();
     }
 });
+
+// BUG-RUNTIME-06: an older read that answered late replaced the text a plugin had just written.
+test('a note\'s metadata is not replaced by an older read that answers after a plugin\'s write', async () => {
+    const harness = await startRuntime({ files: { 'Note.md': 'Before [[Old]]', 'Old.md': '', 'New.md': '' } });
+    try {
+        await harness.waitForMetadata();
+        // The next read of the note is answered with the text it found, but only once the
+        // test releases it, as a large note's answer can arrive after a later small one.
+        let releaseHeldRead = null;
+        let isHoldingNextRead = true;
+        const answerMessage = harness.host.handle.bind(harness.host);
+        harness.host.handle = async (message) => {
+            const answer = await answerMessage(message);
+            if (message.operation !== 'vault.read' || message.path !== 'Note.md' || !isHoldingNextRead) return answer;
+            isHoldingNextRead = false;
+            await new Promise((resolve) => { releaseHeldRead = resolve; });
+            return answer;
+        };
+        const changes = [];
+        harness.app.metadataCache.on('changed', (file, text, cache) => changes.push(cache.links.map((link) => link.link)));
+        // Graphite reports a change to the note: the cache reads it, and that read is held.
+        await harness.send({ operation: 'vault.changes', changes: [{ path: 'Note.md', stat: null, isReloadNeeded: true }] });
+        await waitUntil(() => releaseHeldRead !== null);
+        // A plugin writes the note; its own read of the written text answers at once.
+        await harness.app.vault.modify(harness.app.vault.getFileByPath('Note.md'), 'After [[New]]');
+        await waitUntil(() => changes.length === 1);
+        releaseHeldRead();
+        // The held read's answer (the old text) arrives last.
+        await waitUntil(() => harness.app.metadataCache.activeReadCount === 0);
+        assert.deepEqual(plain(harness.app.metadataCache.getCache('Note.md').links.map((link) => link.link)), ['New']);
+        assert.deepEqual(plain(changes), [['New']], 'plugins hear of the written text once, and never of the older text');
+        assert.deepEqual(plain(harness.app.metadataCache.resolvedLinks['Note.md']), { 'New.md': 1 });
+    } finally {
+        harness.close();
+    }
+});
