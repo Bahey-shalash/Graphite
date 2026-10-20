@@ -56,7 +56,7 @@ struct TabSwitcher: View {
                     .foregroundStyle(Color.secondary)
                     .frame(width: 24)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title(of: tab))
+                    Text(workspace.title(ofTab: tab))
                         .foregroundStyle(Color.primary)
                         .fontWeight(isShown ? .semibold : .regular)
                         .lineLimit(1)
@@ -97,10 +97,6 @@ struct TabSwitcher: View {
                 .disabled(group.tabs.count == 1)
             Button(tab.isPinned ? "Unpin" : "Pin", systemImage: tab.isPinned ? "pin.slash" : "pin") { workspace.togglePin(tab.id) }
         }
-    }
-
-    private func title(of tab: WorkspaceTab) -> String {
-        tab.path.map { path in workspace.preferences.displayName(for: path) } ?? "New Tab"
     }
 }
 

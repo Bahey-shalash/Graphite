@@ -59,4 +59,27 @@ final class WorkspaceDeepLinksTests: XCTestCase {
         XCTAssertEqual(workspace.markdownSession?.path.rawValue, "Target.md")
         XCTAssertEqual(reader.sourceIdentifier, "Target.md")
     }
+
+    /// BUG-SHELL-12: a note already open on the other side of the split was shown there
+    /// without focus, so the link opened it and read nothing.
+    func testReadLinkToANoteOpenOnTheOtherSideOfTheSplitReadsThatNote() async throws {
+        let vault = try makeVault(files: ["Open.md": "The note that has focus.", "Target.md": "The linked note, open on the other side."])
+        let workspace = device.makeWorkspace()
+        workspace.setCorePluginEnabled(.readAloud, true)
+        let reader = try XCTUnwrap(workspace.readAloud)
+        try await workspace.openFolderAsVault(vault)
+        let openedTabID = await workspace.open(try VaultPath("Open.md"))
+        let focusedTabID = try XCTUnwrap(openedTabID)
+        let otherSideTabID = await workspace.open(try VaultPath("Target.md"), placement: .otherGroup)
+        XCTAssertNotNil(otherSideTabID)
+        workspace.activateTab(focusedTabID)
+        XCTAssertTrue(workspace.layout.isSplit)
+        XCTAssertEqual(workspace.selection?.rawValue, "Open.md", "The linked note is open on the side without focus.")
+
+        await workspace.handle(try XCTUnwrap(URL(string: "graphite://read?file=Target")))
+
+        XCTAssertNil(workspace.errorMessage)
+        XCTAssertEqual(reader.sourceIdentifier, "Target.md")
+        XCTAssertEqual(workspace.markdownSession?.path.rawValue, "Target.md")
+    }
 }

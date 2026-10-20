@@ -41,4 +41,18 @@ final class CommunityPluginHostViewRevealTests: XCTestCase {
 
         XCTAssertNotNil(workspace.tabDocuments.values.first { document in document.pluginViewIdentifier == "leaf-7" })
     }
+
+    /// BUG-SHELL-06: the phone's tab switcher named a tab showing a plugin's view "New Tab"
+    /// while the tab bar named it after the view; both now take the workspace's title.
+    func testATabShowingAViewIsNamedAfterTheViewWhereverTabsAreListed() async throws {
+        let workspace = try await testBed.workspaceWithPlugins([])
+        let host = workspace.communityPlugins
+        _ = await host.answer(Self.viewList(leafIdentifier: "leaf-7"))
+        _ = await host.answer(["operation": "view.reveal", "leafIdentifier": "leaf-7", "placement": "tab"])
+
+        let viewTab = try XCTUnwrap(workspace.layout.allTabs.first { tab in workspace.tabDocuments[tab.id]?.pluginViewIdentifier == "leaf-7" })
+
+        XCTAssertNil(viewTab.path)
+        XCTAssertEqual(workspace.title(ofTab: viewTab), "Counter view")
+    }
 }

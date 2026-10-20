@@ -229,6 +229,8 @@ public struct GraphiteRootView: View {
         .onChange(of: workspace.searchFocusRequest) { showSidebar() }
         // A plugin's sidebar view asked to be shown.
         .onChange(of: workspace.communityPlugins.sidebarViewRequest) { _, request in if request != nil { showSidebar() } }
+        // "Reveal current file", from the palette, a tab's menu or the file list's menu.
+        .onChange(of: workspace.fileRevealRequest) { _, request in if request != nil { showSidebar() } }
         // A file opened from the list, a link or a search shows on a phone at once.
         .onChange(of: workspace.selection) { _, selection in
             if selection != nil { showDocumentColumn() }
