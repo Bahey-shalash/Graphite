@@ -426,22 +426,17 @@ final class BaseDocumentModel {
 
     // MARK: Links
 
-    /// The file a link cell points to, if exactly one. A folder is never a link's
-    /// destination, so `[[Books]]` reaches `Books.md` even beside a `Books` folder.
-    /// - Throws: When the vault or the index cannot be read, so that is not reported
-    ///   as a link with no match.
+    /// The file a link cell points to, if exactly one, resolved by the index as the base
+    /// resolves it (`asFile()`): beside the note first, then from the vault root, then by
+    /// name. The index lists files only, so a folder is never a link's destination and
+    /// `[[Books]]` reaches `Books.md` even beside a `Books` folder.
+    /// - Throws: When the index cannot be read, so that is not reported as a link with
+    ///   no match.
     func resolve(_ link: BaseLink) async throws -> VaultPath? {
         guard !link.isExternal else { return nil }
         let source = link.source ?? contextPath
-        if let rootedPath = try? VaultPath(link.pathPart), !rootedPath.rawValue.isEmpty, try isRegularFile(rootedPath) { return rootedPath }
         let matches = try await index.resolve(link.target, from: source)
         return matches.count == 1 ? matches.first : nil
-    }
-
-    private func isRegularFile(_ path: VaultPath) throws -> Bool {
-        let location = try path.url(in: store.root)
-        var isDirectory: ObjCBool = false
-        return FileManager.default.fileExists(atPath: location.path, isDirectory: &isDirectory) && !isDirectory.boolValue
     }
 
     // MARK: Editing

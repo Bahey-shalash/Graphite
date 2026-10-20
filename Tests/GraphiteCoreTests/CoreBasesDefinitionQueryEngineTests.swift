@@ -220,12 +220,26 @@ final class CoreBasesDefinitionQueryEngineTests: XCTestCase {
             BaseTestRecords.record("Tasks/Unrelated.md", yaml: "owner: \"[[Bob]]\""),
         ]
         let provider = BaseInMemoryRecordProvider(records: records)
-        XCTAssertEqual(provider.resolveLinkTarget("Ann", from: try VaultPath("Tasks/Body.md")), annPath)
-        XCTAssertEqual(provider.resolveLinkTarget("robert", from: .root), try VaultPath("People/Bob.md"))
+        XCTAssertEqual(provider.resolveLinkTarget("Ann", from: try VaultPath("Tasks/Body.md"), isWiki: true), annPath)
+        XCTAssertEqual(provider.resolveLinkTarget("robert", from: .root, isWiki: true), try VaultPath("People/Bob.md"))
         XCTAssertEqual(provider.backlinks(to: annPath), [try VaultPath("Tasks/Body.md"), try VaultPath("Tasks/Property.md")])
 
         let ambiguous = BaseInMemoryRecordProvider(records: records + [BaseTestRecords.record("Other/Ann.md")])
-        XCTAssertNil(ambiguous.resolveLinkTarget("Ann", from: .root), "A name and another note's alias make the link ambiguous, as in the index.")
+        XCTAssertNil(ambiguous.resolveLinkTarget("Ann", from: .root, isWiki: true), "A name and another note's alias make the link ambiguous, as in the index.")
+    }
+
+    /// BUG-BASES-02: the in-memory provider matched aliases for Markdown links too.
+    func testAMarkdownBodyLinkNamesFilesOnlyWhileAWikilinkAlsoNamesAnAlias() throws {
+        let robertPath = try VaultPath("People/Robert.md")
+        let markdownLinker = BaseTestRecords.record("Notes/A.md", links: [BaseRecordLink(target: "Bob", isEmbed: false, isWiki: false)])
+        let wikilinkLinker = BaseTestRecords.record("Notes/B.md", links: [BaseTestRecords.wikiLink("Bob")])
+        let provider = BaseInMemoryRecordProvider(records: [BaseTestRecords.record("People/Robert.md", yaml: "aliases: [Bob]"), markdownLinker, wikilinkLinker])
+        XCTAssertEqual(provider.backlinks(to: robertPath), [wikilinkLinker.path])
+        // Both linking notes share one folder, so the evaluator's per-folder cache must keep the two kinds apart.
+        let evaluator = BaseEvaluator(formulas: [], environment: BaseTestRecords.environment(), thisRecord: nil, provider: provider)
+        let filter = "file.hasLink(file(\"People/Robert.md\"))"
+        XCTAssertEqual(try evaluator.evaluate(sourceText: filter, for: markdownLinker), .boolean(false))
+        XCTAssertEqual(try evaluator.evaluate(sourceText: filter, for: wikilinkLinker), .boolean(true))
     }
 }
 

@@ -312,9 +312,9 @@ private final class CountingRecordProvider: BaseRecordProvider, @unchecked Senda
 
     func record(at path: VaultPath) -> BaseFileRecord? { recordProvider.record(at: path) }
 
-    func resolveLinkTarget(_ target: String, from source: VaultPath) -> VaultPath? {
+    func resolveLinkTarget(_ target: String, from source: VaultPath, isWiki: Bool) -> VaultPath? {
         lock.withLock { resolutions += 1 }
-        return recordProvider.resolveLinkTarget(target, from: source)
+        return recordProvider.resolveLinkTarget(target, from: source, isWiki: isWiki)
     }
 
     func backlinks(to path: VaultPath) -> [VaultPath] { recordProvider.backlinks(to: path) }

@@ -235,8 +235,10 @@ public protocol BaseRecordProvider: Sendable {
     func record(at path: VaultPath) -> BaseFileRecord?
     /// The single file a link target written in `source` refers to, or nil when it
     /// is missing or ambiguous. The answer depends on `source` only through its folder,
-    /// as a link is resolved in Obsidian, and `BaseEvaluator` caches it per folder.
-    func resolveLinkTarget(_ target: String, from source: VaultPath) -> VaultPath?
+    /// as a link is resolved in Obsidian, and `BaseEvaluator` caches it per folder and
+    /// link kind. A Wikilink (`isWiki`) also names a note by one of its aliases; a
+    /// Markdown link names files only.
+    func resolveLinkTarget(_ target: String, from source: VaultPath, isWiki: Bool) -> VaultPath?
     func backlinks(to path: VaultPath) -> [VaultPath]
 }
 
@@ -257,13 +259,14 @@ public struct BaseInMemoryRecordProvider: BaseRecordProvider {
 
     public func record(at path: VaultPath) -> BaseFileRecord? { recordsByPath[path] }
 
-    public func resolveLinkTarget(_ target: String, from source: VaultPath) -> VaultPath? {
-        for candidate in WikiLinkResolver.directCandidates(target: target, source: source, isWiki: true) where recordsByPath[candidate] != nil {
+    public func resolveLinkTarget(_ target: String, from source: VaultPath, isWiki: Bool) -> VaultPath? {
+        for candidate in WikiLinkResolver.directCandidates(target: target, source: source, isWiki: isWiki) where recordsByPath[candidate] != nil {
             return candidate
         }
         let pathPart = WikiLinkResolver.comparisonKey(WikiLinkResolver.pathPart(target))
         guard !pathPart.isEmpty else { return nil }
-        let aliasMatches = pathPart.contains("/") ? [] : aliasesByPath.compactMap { path, aliases in
+        // Aliases are Obsidian's Wikilink names; a Markdown link names a file.
+        let aliasMatches = (!isWiki || pathPart.contains("/")) ? [] : aliasesByPath.compactMap { path, aliases in
             aliases.contains { alias in WikiLinkResolver.comparisonKey(alias).caseInsensitiveCompare(pathPart) == .orderedSame } ? path : nil
         }
         for fileName in WikiLinkResolver.fileNameVariants(for: pathPart) {
@@ -281,9 +284,12 @@ public struct BaseInMemoryRecordProvider: BaseRecordProvider {
         return nil
     }
 
+    /// Body links resolve as written (Wikilink or Markdown); links in properties resolve
+    /// as Wikilinks, as the index's backlinks resolve them.
     public func backlinks(to path: VaultPath) -> [VaultPath] {
         recordsByPath.values.filter { record in
-            (record.links + BaseFrontmatter.links(in: record.properties)).contains { link in resolveLinkTarget(link.target, from: record.path) == path }
+            record.links.contains { link in resolveLinkTarget(link.target, from: record.path, isWiki: link.isWiki) == path }
+                || BaseFrontmatter.links(in: record.properties).contains { link in resolveLinkTarget(link.target, from: record.path, isWiki: true) == path }
         }.map(\.path).sorted()
     }
 

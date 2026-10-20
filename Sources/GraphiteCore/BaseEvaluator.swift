@@ -65,6 +65,7 @@ public final class BaseEvaluator {
     private struct LinkKey: Hashable {
         let target: String
         let sourceFolder: VaultPath?
+        let isWiki: Bool
     }
 
     private struct Scope {
@@ -142,23 +143,24 @@ public final class BaseEvaluator {
         try evaluate(parsed(sourceText).get(), in: Scope(record: nil, variables: ["values": .list(values)]))
     }
 
-    /// The single file a link target resolves to from `source`, if any.
-    public func resolveLink(_ target: String, from source: VaultPath?) -> VaultPath? {
+    /// The single file a link target resolves to from `source`, if any. A Wikilink also
+    /// names a note by its alias; a Markdown link (`isWiki` false) names files only.
+    public func resolveLink(_ target: String, from source: VaultPath?, isWiki: Bool = true) -> VaultPath? {
         let pathPart = WikiLinkResolver.pathPart(target)
         // `[[#Heading]]` names the note it is written in.
         if pathPart.isEmpty { return source }
         // A provider resolves a link from its note's folder only (see
         // `BaseRecordProvider.resolveLinkTarget`), so every row in one folder shares one
         // resolution instead of each row asking the index again.
-        let key = LinkKey(target: target, sourceFolder: source?.parent)
+        let key = LinkKey(target: target, sourceFolder: source?.parent, isWiki: isWiki)
         if let cached = resolvedLinks[key] { return cached }
         var resolvedPath: VaultPath?
         if let source {
-            resolvedPath = provider.resolveLinkTarget(target, from: source)
+            resolvedPath = provider.resolveLinkTarget(target, from: source, isWiki: isWiki)
         } else if let rootedPath = try? VaultPath(pathPart), record(at: rootedPath) != nil {
             resolvedPath = rootedPath
         } else {
-            resolvedPath = provider.resolveLinkTarget(target, from: .root)
+            resolvedPath = provider.resolveLinkTarget(target, from: .root, isWiki: isWiki)
         }
         resolvedLinks[key] = resolvedPath
         return resolvedPath
@@ -426,7 +428,7 @@ public final class BaseEvaluator {
         case "ctime": return record.map { record in .date(BaseDate(date: record.createdDate, hasTime: true)) } ?? .null
         case "mtime": return record.map { record in .date(BaseDate(date: record.modifiedDate, hasTime: true)) } ?? .null
         case "tags": return .list((record?.tags ?? []).map { tag in .string("#" + tag) })
-        case "links": return .list(linkTargets(of: record, includesEmbeds: false).map { target in .link(BaseLink(target: target, source: path)) })
+        case "links": return .list(outgoingLinks(of: record, includesEmbeds: false).map { outgoingLink in .link(BaseLink(target: outgoingLink.target, source: path)) })
         case "embeds": return .list(internalBodyLinks(of: record).filter(\.isEmbed).map { link in .link(BaseLink(target: link.target, source: path)) })
         case "backlinks": return .list(backlinks(to: path).map(BaseValue.file))
         case "properties": return noteObject(of: record)
@@ -435,10 +437,12 @@ public final class BaseEvaluator {
     }
 
     /// Body links, then links written in properties, as Obsidian's `file.links` lists them.
-    private func linkTargets(of record: BaseFileRecord?, includesEmbeds: Bool) -> [String] {
+    /// Body links keep their kind; property links resolve as Wikilinks, as the index's
+    /// backlinks resolve them.
+    private func outgoingLinks(of record: BaseFileRecord?, includesEmbeds: Bool) -> [BaseRecordLink] {
         guard let record else { return [] }
-        let bodyTargets = internalBodyLinks(of: record).filter { link in includesEmbeds || !link.isEmbed }.map(\.target)
-        return bodyTargets + BaseFrontmatter.links(in: record.properties).map(\.target)
+        let bodyLinks = internalBodyLinks(of: record).filter { link in includesEmbeds || !link.isEmbed }
+        return bodyLinks + BaseFrontmatter.links(in: record.properties).map { link in BaseRecordLink(target: link.target, isEmbed: false, isWiki: true) }
     }
 
     /// The index keeps every Markdown link destination, web pages and `mailto:` included;
@@ -457,8 +461,8 @@ public final class BaseEvaluator {
     /// Whether a link target written in `source` points at `destination`. Unresolvable
     /// targets fall back to comparing names, so a link to a note that is missing from
     /// the index still matches by its written name.
-    func link(_ target: String, from source: VaultPath?, pointsTo destination: VaultPath) -> Bool {
-        if let resolvedPath = resolveLink(target, from: source) { return resolvedPath == destination }
+    func link(_ target: String, from source: VaultPath?, isWiki: Bool = true, pointsTo destination: VaultPath) -> Bool {
+        if let resolvedPath = resolveLink(target, from: source, isWiki: isWiki) { return resolvedPath == destination }
         let normalizedTarget = Self.normalizedLinkText(WikiLinkResolver.pathPart(target))
         let destinationWithoutExtension = Self.normalizedLinkText(destination.rawValue)
         if normalizedTarget == destinationWithoutExtension { return true }
@@ -1167,14 +1171,14 @@ public final class BaseEvaluator {
             return .boolean(parentPath == folder || parentPath.hasPrefix(folder + "/"))
         case "hasLink":
             guard let argument = arguments.first, !argument.isNull else { return .boolean(false) }
-            let targets = linkTargets(of: record, includesEmbeds: true)
+            let recordLinks = outgoingLinks(of: record, includesEmbeds: true)
             if let destination = filePath(of: argument, from: path) {
-                return .boolean(targets.contains { target in link(target, from: path, pointsTo: destination) })
+                return .boolean(recordLinks.contains { outgoingLink in link(outgoingLink.target, from: path, isWiki: outgoingLink.isWiki, pointsTo: destination) })
             }
             let writtenTarget: String
             if case .link(let link) = argument { writtenTarget = link.pathPart } else { writtenTarget = BaseLink.parse(argument.displayText)?.pathPart ?? argument.displayText }
             let normalizedTarget = Self.normalizedLinkText(writtenTarget)
-            return .boolean(targets.contains { target in Self.normalizedLinkText(WikiLinkResolver.pathPart(target)) == normalizedTarget })
+            return .boolean(recordLinks.contains { outgoingLink in Self.normalizedLinkText(WikiLinkResolver.pathPart(outgoingLink.target)) == normalizedTarget })
         default:
             return nil
         }
@@ -1187,7 +1191,9 @@ public final class BaseEvaluator {
         case "linksTo":
             guard let linkedPath = resolveLink(link.target, from: link.source), let argument = arguments.first,
                   let destination = filePath(of: argument, from: link.source) else { return .boolean(false) }
-            return .boolean(linkTargets(of: record(at: linkedPath), includesEmbeds: true).contains { target in self.link(target, from: linkedPath, pointsTo: destination) })
+            return .boolean(outgoingLinks(of: record(at: linkedPath), includesEmbeds: true).contains { outgoingLink in
+                self.link(outgoingLink.target, from: linkedPath, isWiki: outgoingLink.isWiki, pointsTo: destination)
+            })
         default:
             // A link otherwise behaves like its text, so `author.contains("Smith")` works.
             return try stringMethod(name, text: link.displayText, arguments: arguments)

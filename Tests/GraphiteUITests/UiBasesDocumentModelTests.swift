@@ -206,6 +206,25 @@ final class UiBasesDocumentModelTests: XCTestCase {
         XCTAssertEqual(rootedDestination?.rawValue, "Books/Dune.md")
     }
 
+    /// BUG-BASES-04: the tap tried the vault root first, the base resolves beside the note first.
+    func testALinkCellOpensTheFileTheBaseResolvesBesideItsNote() async throws {
+        try write("From the vault root", to: "Sub/Note.md")
+        try write("Beside the linking note", to: "Folder/Sub/Note.md")
+        try write("---\nrelated: \"[[Sub/Note.md]]\"\n---\nBody\n", to: "Folder/A.md")
+        try write("formulas:\n  target: related.asFile()\nviews:\n  - type: table\n    name: Table\n    order: [file.name, note.related, formula.target]\n", to: "Links.base")
+        let model = try await loadedModel(basePath: "Links.base")
+        let row = try XCTUnwrap(model.result?.rows.first { row in row.path.rawValue == "Folder/A.md" })
+        let columns = try XCTUnwrap(model.result?.columns)
+        func cellValue(_ property: BasePropertyIdentifier) throws -> BaseValue? {
+            let position = try XCTUnwrap(columns.firstIndex { column in column.property == property })
+            return row.cells[position].value
+        }
+        guard case .link(let link)? = try cellValue(.note("related")) else { return XCTFail("The related cell holds a link.") }
+        XCTAssertEqual(try cellValue(.formula("target")), .file(try VaultPath("Folder/Sub/Note.md")), "The base resolves the link beside its note.")
+        let destination = try await model.resolve(link)
+        XCTAssertEqual(destination?.rawValue, "Folder/Sub/Note.md", "Tapping the link opens the file the base resolved.")
+    }
+
     // MARK: Property editing
 
     func testNestedValuesAreNotOfferedToThePropertyEditor() async throws {

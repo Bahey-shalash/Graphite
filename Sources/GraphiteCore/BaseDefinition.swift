@@ -144,6 +144,13 @@ public struct BaseListOptions: Hashable, Sendable {
 public struct BaseMapOptions: Hashable, Sendable {
     public static let defaultZoom = 4.0
     public static let defaultEmbeddedHeight = 400.0
+    /// Every key an option is read from, the plugin's own name first: some published
+    /// bases write `zoom` and `height`. The reader takes the first that holds a number;
+    /// the editor removes all of them when the option is cleared.
+    static let readKeysByOptionKey: [String: [String]] = ["defaultZoom": ["defaultZoom", "zoom"], "mapHeight": ["mapHeight", "height"]]
+
+    /// The keys `optionKey` is read from; only `optionKey` itself for an option with one name.
+    static func readKeys(for optionKey: String) -> [String] { readKeysByOptionKey[optionKey] ?? [optionKey] }
     /// `coordinates`: a property holding `"lat, lng"` or `[lat, lng]`.
     public var coordinatesProperty: BasePropertyIdentifier?
     /// `markerIcon`: a property holding a Lucide icon name.
@@ -491,9 +498,10 @@ public struct BaseDefinition: Hashable, Sendable {
         // The plugin clamps zoom levels to 0...24 and the embedded height to 100...2000.
         options.minimumZoom = min(max(number("minZoom") ?? 0, 0), 24)
         options.maximumZoom = min(max(number("maxZoom") ?? 18, 0), 24)
-        // `zoom` and `height` are accepted too; some published bases use those names.
-        options.defaultZoom = (number("defaultZoom") ?? number("zoom")).map { zoom in min(max(zoom, options.minimumZoom), options.maximumZoom) }
-        options.embeddedHeight = min(max(number("mapHeight") ?? number("height") ?? BaseMapOptions.defaultEmbeddedHeight, 100), 2_000)
+        // An option written under another accepted name (`zoom`, `height`) counts too.
+        func firstNumber(_ optionKey: String) -> Double? { BaseMapOptions.readKeys(for: optionKey).lazy.compactMap { key in number(key) }.first }
+        options.defaultZoom = firstNumber("defaultZoom").map { zoom in min(max(zoom, options.minimumZoom), options.maximumZoom) }
+        options.embeddedHeight = min(max(firstNumber("mapHeight") ?? BaseMapOptions.defaultEmbeddedHeight, 100), 2_000)
         if let centerNode = mapping["center"] {
             if let sequence = centerNode.sequence {
                 options.center = "[" + sequence.compactMap { node in node.scalar?.string }.joined(separator: ", ") + "]"
