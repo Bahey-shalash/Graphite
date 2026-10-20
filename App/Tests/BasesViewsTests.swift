@@ -96,18 +96,32 @@ final class BasesViewsTests: XCTestCase {
 
     // MARK: Map tiles
 
-    func testTheMapFetchesTilesFromTheBasesTileAddressAndDrawsThem() async throws {
+    /// A map of Paris whose one tile layer is the stubbed address, hosted in a window.
+    private func hostedParisMap(template: BaseMapTileTemplate) throws -> (controller: UIViewController, mapView: MKMapView) {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [HostedTileStub.self]
-        let template = try XCTUnwrap(BaseMapTileTemplate("https://tiles.graphite.test/{z}/{x}/{y}.png"))
         let paris = CLLocationCoordinate2D(latitude: 48.8566, longitude: 2.3522)
-        let mapView = BaseTiledMapView(
+        let tiledMap = BaseTiledMapView(
             tileTemplates: [template],
             annotations: [BaseMapMarkerAnnotation(path: try VaultPath("Places/Paris.md"), coordinate: paris, title: "Paris")],
             cameraTarget: .region(MKCoordinateRegion(center: paris, latitudinalMeters: 40_000, longitudinalMeters: 40_000)),
             cameraConfiguration: 1, cameraLayout: 1, cameraDistances: 100...10_000_000,
             selectedPath: .constant(nil), pinImage: { _, _ in Self.bluePin }, tileSession: URLSession(configuration: configuration))
-        let controller = try host(mapView)
+        let controller = try host(tiledMap)
+        let mapView = try XCTUnwrap(Self.firstMapView(in: controller.view))
+        return (controller, mapView)
+    }
+
+    private static func firstMapView(in view: UIView) -> MKMapView? {
+        if let mapView = view as? MKMapView { return mapView }
+        return view.subviews.lazy.compactMap(firstMapView(in:)).first
+    }
+
+    /// What the map asks for and shows of the base's tile layer, none of it drawn by MapKit's own compositing, which needs
+    /// Apple's map service (`testTheMapDrawsTheFetchedTilesOverItsOwnGrid`).
+    func testTheMapFetchesTilesFromTheBasesTileAddress() async throws {
+        let template = try XCTUnwrap(BaseMapTileTemplate("https://tiles.graphite.test/{z}/{x}/{y}.png"))
+        let (_, mapView) = try hostedParisMap(template: template)
         try await waitUntil(timeoutSeconds: 20) { HostedTileStub.recorder.requestedURLs.count >= 4 }
         let requestedURLs = HostedTileStub.recorder.requestedURLs
         XCTAssertEqual(Set(requestedURLs.compactMap(\.host)), ["tiles.graphite.test"], "Every tile comes from the address the base names.")
@@ -118,8 +132,22 @@ final class BasesViewsTests: XCTestCase {
         }
         let zoomLevels = Set(requestedURLs.compactMap { tileURL in Int(tileURL.path.split(separator: "/").first ?? "") })
         XCTAssertTrue(zoomLevels.contains { zoom in (9...13).contains(zoom) }, "Tiles around Paris at a city's zoom were asked for: \(zoomLevels)")
-        // MapKit draws tiles as they arrive, over its own grid of empty squares; once they
-        // are all drawn the stubbed tiles, and nothing of Apple's map, fill the view.
+        let tileOverlays = mapView.overlays.compactMap { overlay in overlay as? BaseMapTileOverlay }
+        XCTAssertEqual(tileOverlays.map(\.tileTemplate), [template], "The map's one layer is the base's tile address.")
+        XCTAssertEqual(tileOverlays.map(\.canReplaceMapContent), [true], "The first layer replaces Apple's map.")
+        let markers = mapView.annotations.compactMap { annotation in annotation as? BaseMapMarkerAnnotation }
+        XCTAssertEqual(markers.map(\.title), ["Paris"])
+        try await waitUntil { abs(mapView.region.center.latitude - 48.8566) < 0.05 && abs(mapView.region.center.longitude - 2.3522) < 0.05 }
+    }
+
+    /// MapKit draws the tiles as they arrive, over its own grid of empty squares; once they are all drawn the stubbed tiles,
+    /// and nothing of Apple's map, fill the view. MapKit composes only after its own map service has answered or failed, and
+    /// a runner without a dependable connection to Apple's servers leaves it unfinished, so this runs on the owner's iPad.
+    func testTheMapDrawsTheFetchedTilesOverItsOwnGrid() async throws {
+        try MapServices.requireAppleMapService()
+        let template = try XCTUnwrap(BaseMapTileTemplate("https://tiles.graphite.test/{z}/{x}/{y}.png"))
+        let (controller, _) = try hostedParisMap(template: template)
+        try await waitUntil(timeoutSeconds: 20) { HostedTileStub.recorder.requestedURLs.count >= 4 }
         let windowBounds = try XCTUnwrap(controller.view.window?.bounds)
         var samplePoints: [CGPoint] = []
         for row in 1...5 {
