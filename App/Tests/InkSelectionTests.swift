@@ -339,14 +339,6 @@ final class InkSelectionTests: XCTestCase {
         }
     }
 
-    private func waitUntil(_ condition: () -> Bool) async throws {
-        let deadline = ContinuousClock.now + .seconds(5)
-        while !condition() {
-            if ContinuousClock.now > deadline { break }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        XCTAssertTrue(condition(), "The hosted view did not reach the expected state.")
-    }
 }
 
 // MARK: The lasso's loop, types, pictures, screenshots and the laser pointer
@@ -756,7 +748,10 @@ extension InkSelectionTests {
         XCTAssertEqual(LaserPointerOverlayView.coreWidth(forPressure: nil), LaserPointerOverlayView.regularCoreWidth)
         XCTAssertLessThan(LaserPointerOverlayView.coreWidth(forPressure: 0.1), LaserPointerOverlayView.coreWidth(forPressure: 0.9))
 
-        // Lines accumulate: each stays after its lift, and several show together.
+        // Lines accumulate: each stays after its lift, and several show together. The wait before
+        // they fade is the test's to end, not the machine's speed (a screenshot takes seconds on a slow one).
+        let idleClock = HostedControlledClock()
+        overlay.idleClock = idleClock
         overlay.beginTrail(at: CGPoint(x: 200, y: 450), width: LaserPointerOverlayView.coreWidth(forPressure: 0.1))
         for step in 1...20 {
             overlay.extendTrail(to: CGPoint(x: 200 + CGFloat(step) * 12, y: 450 + CGFloat(step % 4) * 10),
@@ -772,24 +767,26 @@ extension InkSelectionTests {
         attachScreenshot(of: canvas, named: "Laser neon lines")
         if UIAccessibility.isReduceMotionEnabled { XCTAssertFalse(overlay.isPulsing) } else { XCTAssertTrue(overlay.isPulsing, "The glow pulses gently.") }
 
-        // They stay for a moment after the last lift, then fade together.
-        try await Task.sleep(for: .seconds(LaserPointerOverlayView.idleDelay * 0.6))
+        // They stay for the idle delay after the last lift, then fade together.
+        try await waitUntil("the overlay waits out the idle delay") { idleClock.requestedDurations == [.seconds(LaserPointerOverlayView.idleDelay)] }
         XCTAssertEqual(overlay.lines.count, 2)
         XCTAssertFalse(overlay.isFading)
+        idleClock.endSleeps()
         try await waitUntil { overlay.isFading }
-        try await Task.sleep(for: .seconds(LaserPointerOverlayView.lineFadeDuration / 3))
-        XCTAssertLessThan(overlay.linesOpacity, 1, "The lines fade together.")
+        try await waitUntil("the lines have started to fade") { overlay.linesOpacity < 1 }
         // A new line during the fade calls it off: every line is back at full strength.
         overlay.beginTrail(at: CGPoint(x: 220, y: 650))
         XCTAssertFalse(overlay.isFading)
         XCTAssertEqual(overlay.linesOpacity, 1)
         XCTAssertEqual(overlay.lines.count, 3)
         overlay.extendTrail(to: CGPoint(x: 400, y: 660))
-        // While a line is drawn, nothing fades, however long.
-        try await Task.sleep(for: .seconds(LaserPointerOverlayView.idleDelay + LaserPointerOverlayView.lineFadeDuration + 0.2))
+        // While a line is drawn, nothing waits to fade, however long it takes.
+        XCTAssertEqual(idleClock.requestedDurations, [], "No wait is under way while a line is drawn.")
         XCTAssertEqual(overlay.lines.count, 3)
         XCTAssertEqual(overlay.linesOpacity, 1)
         overlay.endTrail()
+        try await waitUntil("the overlay waits again") { idleClock.requestedDurations == [.seconds(LaserPointerOverlayView.idleDelay)] }
+        idleClock.endSleeps()
         try await waitUntil { overlay.lines.isEmpty }
         XCTAssertFalse(overlay.isPulsing)
         XCTAssertFalse(overlay.isShowingDot)

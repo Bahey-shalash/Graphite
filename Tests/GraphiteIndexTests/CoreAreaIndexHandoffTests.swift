@@ -1,6 +1,7 @@
 import XCTest
 import GraphiteCore
 @testable import GraphiteIndex
+import GraphiteTestSupport
 
 /// Regressions for changes other groups handed to the index files: the base pre-filter
 /// stays a superset of the evaluator's result, Markdown links resolve in every format
@@ -10,14 +11,8 @@ final class CoreAreaIndexHandoffTests: XCTestCase {
     private var index: VaultIndex!
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("HandoffVault-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        vault = try TemporaryVault.make(prefix: "HandoffVault", for: self).root
         index = try VaultIndex(databaseURL: vault.appendingPathExtension("cache").appendingPathComponent("index.sqlite"))
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: vault)
-        try? FileManager.default.removeItem(at: vault.appendingPathExtension("cache"))
     }
 
     private func write(_ relativePath: String, _ text: String) throws {
@@ -280,7 +275,7 @@ final class CoreAreaIndexHandoffTests: XCTestCase {
         } catch let error as SearchError {
             XCTAssertEqual(error, .regularExpressionTooSlow)
         }
-        XCTAssertLessThan(clock.now - startTime, .seconds(10))
+        XCTAssertLessThan(clock.now - startTime, HangGuard.duration)
     }
 
     // MARK: File names in another case (F242)

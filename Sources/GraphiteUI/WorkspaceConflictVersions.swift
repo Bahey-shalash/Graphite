@@ -100,7 +100,9 @@ extension WorkspaceModel {
     /// current version is what the person sees in the editor.
     func conflictVersionListing(of path: VaultPath) async throws -> ConflictVersionListing {
         guard let root = folderAccess?.root else { throw GraphiteError.unavailable("No vault is open.") }
-        try await saveOpenDocument(at: path)
+        // A note in conflict with another app's edit cannot be saved until that is settled,
+        // and its versions are what settles it, so they are listed all the same.
+        do { try await saveOpenDocument(at: path) } catch GraphiteError.conflict {}
         let location = try path.url(in: root)
         let conflictVersionStore = conflictVersionStore
         let listing = try await Task.detached(priority: .userInitiated) {

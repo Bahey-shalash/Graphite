@@ -3,32 +3,27 @@ import GraphiteCore
 @testable import GraphiteIndex
 @testable import GraphiteApple
 @testable import GraphiteUI
+#if canImport(GraphiteTestSupport)
+import GraphiteTestSupport
+#endif
 
 /// Versions kept by a file provider, in the workspace: which files are asked about and
 /// marked, and what each of the person's three choices does to the files and to the open
-/// documents. Most tests use `TestConflictVersionStore`; the last ones use real
+/// documents. Most tests use `FakeConflictVersionStore`; the last ones use real
 /// `NSFileVersion` objects, which only macOS can make.
 @MainActor
 final class WorkspaceConflictVersionsTests: XCTestCase {
     private var temporaryFolders: [URL] = []
     private let lecture = VaultPath.unchecked("Course/Lecture.md")
-    private var savedGraphitePreferences: [String: Any] = [:]
-    private var vaultIdentifiersBeforeTest: Set<UUID> = []
+    private var device: IsolatedWorkspaceDevice!
 
     override func setUp() async throws {
-        savedGraphitePreferences = UserDefaults.standard.dictionaryRepresentation().filter { key, _ in key.hasPrefix("Graphite") }
-        vaultIdentifiersBeforeTest = Set(VaultLibrary().vaults.map(\.id))
+        // Opening a vault records it, with an index of its own: in preferences and folders of
+        // this test's own.
+        device = try IsolatedWorkspaceDevice.make(for: self)
     }
 
     override func tearDown() async throws {
-        // Opening a vault records it, with an index of its own.
-        for vault in VaultLibrary().vaults where !vaultIdentifiersBeforeTest.contains(vault.id) {
-            VaultIndex.removeIndex(forVault: vault.id)
-        }
-        for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix("Graphite") {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
-        for (key, storedValue) in savedGraphitePreferences { UserDefaults.standard.set(storedValue, forKey: key) }
         for folder in temporaryFolders { try? FileManager.default.removeItem(at: folder) }
         temporaryFolders = []
     }
@@ -67,9 +62,9 @@ final class WorkspaceConflictVersionsTests: XCTestCase {
         try Data("current\n".utf8).write(to: vault.appendingPathComponent("Syllabus.md"))
         try FileManager.default.createDirectory(at: vault.appendingPathComponent("Course"), withIntermediateDirectories: true)
         try Data("inside a folder\n".utf8).write(to: vault.appendingPathComponent("Course/Lecture.md"))
-        let store = try TestConflictVersionStore()
+        let store = try FakeConflictVersionStore()
         try store.addVersion(of: vault.appendingPathComponent("Syllabus.md"), contents: Data("from the iPhone\n".utf8), deviceName: "iPhone", modified: .now)
-        let workspace = WorkspaceModel()
+        let workspace = device.makeWorkspace()
         workspace.conflictVersionStore = store
 
         try await workspace.openFolderAsVault(vault)
@@ -440,7 +435,7 @@ final class WorkspaceConflictVersionsTests: XCTestCase {
 
     /// A workspace on a new vault with `files`, whose index has read it, and the store
     /// that holds the conflict versions a test adds.
-    private func makeWorkspace(files: [String: String]) async throws -> (workspace: WorkspaceModel, store: TestConflictVersionStore, vault: URL) {
+    private func makeWorkspace(files: [String: String]) async throws -> (workspace: WorkspaceModel, store: FakeConflictVersionStore, vault: URL) {
         let vault = try makeFolder("ConflictVersionsVault")
         for (relativePath, contents) in files {
             let location = vault.appendingPathComponent(relativePath)
@@ -449,12 +444,12 @@ final class WorkspaceConflictVersionsTests: XCTestCase {
         }
         let index = try VaultIndex(databaseURL: try makeFolder("ConflictVersionsIndex").appendingPathComponent("index.sqlite"))
         _ = try await index.reconcile(root: vault)
-        let workspace = WorkspaceModel()
+        let workspace = device.makeWorkspace()
         workspace.folderAccess = FolderAccess(root: vault)
         workspace.store = VaultStore(root: vault)
         workspace.index = index
         workspace.hasCompletedIndexScan = true
-        let store = try TestConflictVersionStore()
+        let store = try FakeConflictVersionStore()
         workspace.conflictVersionStore = store
         return (workspace, store, vault)
     }
@@ -473,13 +468,6 @@ final class WorkspaceConflictVersionsTests: XCTestCase {
         return false
     }
 
-    private func waitUntil(timeoutSeconds: Double = 20, _ condition: () -> Bool) async throws {
-        let deadline = Date.now.addingTimeInterval(timeoutSeconds)
-        while !condition() {
-            guard Date.now < deadline else { return XCTFail("The condition did not become true in time.") }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-    }
 }
 
 private extension VaultPath {

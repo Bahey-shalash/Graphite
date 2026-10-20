@@ -22,7 +22,7 @@ extension UTType {
 struct WorkspacePanes: View {
     @Bindable var workspace: WorkspaceModel
     @Binding var showsLinksInspector: Bool
-    let create: (CreationKind) -> Void
+    let create: (CreationRequest) -> Void
     let showQuickSwitcher: () -> Void
     /// False while something covers the panes, such as the quick switcher, so a touch on
     /// it does not focus the side beneath.
@@ -108,10 +108,24 @@ private struct TabGroupPane: View {
     let isFocused: Bool
     let showsBothGroups: Bool
     @Binding var showsLinksInspector: Bool
-    let create: (CreationKind) -> Void
+    let create: (CreationRequest) -> Void
     let showQuickSwitcher: () -> Void
     let showsTabBar: Bool
     @Environment(\.usesDocumentControlRow) private var usesDocumentControlRowSetting
+    @Environment(LibraryModel.self) private var library: LibraryModel?
+    /// The library covers the first side as the window's home in Library mode, on the iPad
+    /// and the Mac; the iPhone shows it in place of the file list instead.
+    private var showsLibraryHome: Bool {
+        workspace.preferences.library.presentation == .library && horizontalSizeClass != .compact
+            && workspace.store != nil && workspace.layout.groups.first?.id == group.id
+    }
+
+    private func openFromLibrary(_ path: VaultPath, library: LibraryModel) {
+        workspace.focusGroup(group.id)
+        let placement = workspace.libraryOpeningPlacement
+        library.leaveHome()
+        Task { await workspace.open(path, placement: placement) }
+    }
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     /// This side's width, which decides whether its tab bar has room for Write, Undo and
     /// Redo.
@@ -131,13 +145,29 @@ private struct TabGroupPane: View {
                        showsDocumentControls: showsDocumentControlsInTabBar, showsPencilTools: showsPencilToolsInTabBar)
                 Hairline()
             }
-            ConflictVersionsBanner(workspace: workspace, path: tab.path)
-            TabDocumentView(workspace: workspace, tab: tab, document: workspace.document(for: tab.id), isFocused: isFocused,
-                            showsLinksInspector: $showsLinksInspector, create: create, showQuickSwitcher: showQuickSwitcher)
-                .id(tab.id)
-                .environment(\.showsDocumentControlsInTabBar, showsDocumentControlsInTabBar)
-                .environment(\.showsPencilToolsInTabBar, showsPencilToolsInTabBar)
+            if let library, showsLibraryHome, library.isShownAsHome {
+                // In place of the document, so its toolbar items and the Pencil palette go
+                // with it; the document's session stays open and shows again at once.
+                LibraryView(library: library, vault: workspace.libraryVault,
+                            actions: workspace.libraryActions(openFile: { path in openFromLibrary(path, library: library) },
+                                                              requestCreation: { kind, directory in
+                                                                  create(CreationRequest(kind: kind, directory: directory, opensInNewTab: true))
+                                                              }),
+                            entries: workspace.libraryEntryPresentation { kind, directory in
+                                create(CreationRequest(kind: kind, directory: directory, opensInNewTab: true))
+                            })
+            } else {
+                ConflictVersionsBanner(workspace: workspace, path: tab.path)
+                TabDocumentView(workspace: workspace, tab: tab, document: workspace.document(for: tab.id), isFocused: isFocused,
+                                showsLinksInspector: $showsLinksInspector, create: create, showQuickSwitcher: showQuickSwitcher)
+                    .id(tab.id)
+                    .environment(\.showsDocumentControlsInTabBar, showsDocumentControlsInTabBar)
+                    .environment(\.showsPencilToolsInTabBar, showsPencilToolsInTabBar)
+            }
         }
+        // Choosing a tab or opening a file on this side steps back from the library.
+        .onChange(of: group.activeTabID) { library?.leaveHome() }
+        .onChange(of: group.activeTab.path) { if group.activeTab.path != nil { library?.leaveHome() } }
         .onGeometryChange(for: CGFloat.self) { geometry in geometry.size.width } action: { newWidth in width = newWidth }
         #if !canImport(UIKit)
         // A click anywhere on this side focuses it, so the toolbar and new files follow.
@@ -160,7 +190,13 @@ private struct TabBar: View {
 
     @State private var isDropTargeted = false
     @Environment(\.accent) private var accent
+    @Environment(LibraryModel.self) private var library: LibraryModel?
     private var layout: TabLayout { workspace.layout }
+    /// The first side's bar leads with the library's home button in Library mode.
+    private var showsLibraryHome: Bool {
+        workspace.preferences.library.presentation == .library && layout.groups.first?.id == group.id
+    }
+    private var isLibraryHomeShown: Bool { showsLibraryHome && library?.isShownAsHome == true }
     private var groupIndex: Int { layout.groups.firstIndex { candidate in candidate.id == group.id } ?? 0 }
     /// The room at each end of the row of tabs.
     private static let tabsInset: CGFloat = 8
@@ -172,13 +208,17 @@ private struct TabBar: View {
 
     var body: some View {
         HStack(spacing: 4) {
+            if let library, showsLibraryHome {
+                LibraryHomeButton(library: library)
+                    .padding(.leading, 6)
+            }
             ScrollViewReader { scrollProxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 2) {
                         ForEach(Array(group.tabs.enumerated()), id: \.element.id) { position, tab in
-                            TabItem(tab: tab, title: title(of: tab), isActive: tab.id == group.activeTabID,
+                            TabItem(tab: tab, title: title(of: tab), isActive: tab.id == group.activeTabID && !isLibraryHomeShown,
                                     marksFocus: isFocused && showsBothGroups,
-                                    activate: { workspace.activateTab(tab.id) },
+                                    activate: { library?.leaveHome(); workspace.activateTab(tab.id) },
                                     close: { Task { await workspace.closeTab(tab.id) } },
                                     maximumWidth: keepsTabsBesidePencilTools ? DocumentToolbarLayout.minimumTabsWidthBesidePencilTools - 2 * Self.tabsInset : 220)
                                 .contextMenu { tabMenu(for: tab) }
@@ -207,22 +247,22 @@ private struct TabBar: View {
                 }
             }
             #if canImport(UIKit)
-            if showsPencilTools {
+            if showsPencilTools && !isLibraryHomeShown {
                 let document = workspace.document(for: group.activeTabID)
                 // A tab whose file is still loading has the sessions of the file before it.
                 if let session = document.pdfSession, group.activeTab.path != nil, document.loadedPath == group.activeTab.path {
                     Hairline(axis: .vertical).frame(height: 18)
-                    TabBarPencilTools(session: session, isFocused: isFocused)
+                    TabBarPencilTools(session: session, isFocused: isFocused, offersReadAloudPen: workspace.readAloud != nil)
                         .layoutPriority(1)
                 }
             }
             #endif
-            if showsDocumentControls {
+            if showsDocumentControls && !isLibraryHomeShown {
                 TabBarDocumentControls(tab: group.activeTab, document: workspace.document(for: group.activeTabID),
                                        defaultEditingMode: workspace.preferences.defaultEditingMode, isFocused: isFocused)
                     .padding(.horizontal, 4)
             }
-            if showsDocumentControls || showsPencilTools {
+            if (showsDocumentControls || showsPencilTools) && !isLibraryHomeShown {
                 Hairline(axis: .vertical).frame(height: 18)
             }
             groupButtons
@@ -242,6 +282,7 @@ private struct TabBar: View {
         } isTargeted: { isTargeted in isDropTargeted = isTargeted }
     }
 
+    @discardableResult
     private func moveDroppedTabs(_ items: [TabTransfer], to position: Int) -> Bool {
         guard let item = items.first, layout.tab(withID: item.tabID) != nil else { return false }
         workspace.moveTab(item.tabID, toGroup: group.id, at: position)
@@ -274,7 +315,7 @@ private struct TabBar: View {
         Button("Close Other Tabs", systemImage: "xmark.square") { Task { await workspace.closeOtherTabs(keeping: tab.id) } }
             .disabled(group.tabs.count == 1)
         Divider()
-        if let path = tab.path { ReadAloudQueueMenuItems(navigator: workspace.readAloudNavigator, path: path) }
+        if let path = tab.path, let navigator = workspace.readAloudNavigator { ReadAloudQueueMenuItems(navigator: navigator, path: path) }
         Button(tab.isPinned ? "Unpin" : "Pin", systemImage: tab.isPinned ? "pin.slash" : "pin") { workspace.togglePin(tab.id) }
         Button(groupIndex == 0 ? "Move to the Right" : "Move to the Left", systemImage: groupIndex == 0 ? "rectangle.righthalf.inset.filled.arrow.right" : "rectangle.lefthalf.inset.filled.arrow.left") {
             workspace.moveTabToOtherGroup(tab.id)
@@ -437,7 +478,7 @@ private struct TabDocumentView: View {
     @Bindable var document: TabDocument
     let isFocused: Bool
     @Binding var showsLinksInspector: Bool
-    let create: (CreationKind) -> Void
+    let create: (CreationRequest) -> Void
     let showQuickSwitcher: () -> Void
 
     /// Drawing on a standalone image saves the drawing beside it; nil where drawings are off
@@ -486,6 +527,12 @@ private struct TabDocumentView: View {
                     }
                     .buttonStyle(.bordered)
                 }
+            } else if document.isOpening, let shownPath = document.loadedPath {
+                // Back and Forward move the tab to its next file before reading it. The file
+                // shown until now stays until the next one is ready, as when a file is opened,
+                // rather than the pane going blank while the note is read and laid out. What
+                // is typed in it meanwhile is saved before the swap.
+                loadedContent(shownPath)
             } else {
                 // Loading; the overlay shows progress once it takes long enough to notice.
                 Color.clear
@@ -505,8 +552,7 @@ private struct TabDocumentView: View {
                 .id(ObjectIdentifier(session))
         } else if let session = document.pdfSession {
             PDFPane(session: session, isFocused: isFocused, focus: { workspace.activateTab(tab.id) }, linkActions: pdfLinkActions(for: path),
-                    readAloud: workspace.preferences.isEnabled(.readAloud) ? workspace.readAloud : nil,
-                    readAloudNavigator: workspace.preferences.isEnabled(.readAloud) ? workspace.readAloudNavigator : nil,
+                    readAloud: workspace.readAloud, readAloudNavigator: workspace.readAloudNavigator,
                     isRecording: workspace.recording.state.isActive) { location in
                 Task { await workspace.resolvePDFConflict(opening: location, inTab: tab.id) }
             }
@@ -644,7 +690,7 @@ private struct PDFPasswordPrompt: View {
 private struct EmptyTabView: View {
     @Bindable var workspace: WorkspaceModel
     let tabID: UUID
-    let create: (CreationKind) -> Void
+    let create: (CreationRequest) -> Void
     let showQuickSwitcher: () -> Void
     @Environment(\.accent) private var accent
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -663,26 +709,28 @@ private struct EmptyTabView: View {
                     Text("No file is open")
                         .font(.title3.weight(.semibold))
                         .padding(.bottom, 4)
-                    action("Create new note", shortcut: "⌘N") { focusThen { create(.note) } }
-                    action("Create new notebook") { focusThen { create(.notebook) } }
+                    action("Create new note", shortcut: "⌘N") { focusThen { create(CreationRequest(kind: .note)) } }
+                    action("Create new notebook") { focusThen { create(CreationRequest(kind: .notebook)) } }
                     if workspace.preferences.isEnabled(.bases) {
-                        action("Create new base") { focusThen { create(.base) } }
+                        action("Create new base") { focusThen { create(CreationRequest(kind: .base)) } }
                     }
                     if workspace.preferences.isEnabled(.canvas) {
-                        action("Create new canvas") { focusThen { create(.canvas) } }
+                        action("Create new canvas") { focusThen { create(CreationRequest(kind: .canvas)) } }
                     }
                     action("Go to file", shortcut: "⌘O") { focusThen(showQuickSwitcher) }
                     if canClose {
                         action("Close", shortcut: "⌘W") { Task { await workspace.closeTab(tabID) } }
                     }
                 }
-                if !recentFiles.isEmpty {
+                // Looked up once per update: each looks for every recent file on disk.
+                let shownRecentFiles = recentFiles
+                if !shownRecentFiles.isEmpty {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Recent files")
                             .font(.footnote.weight(.semibold))
                             .foregroundStyle(.secondary)
                             .padding(.bottom, 6)
-                        ForEach(recentFiles, id: \.self) { path in
+                        ForEach(shownRecentFiles, id: \.self) { path in
                             Button {
                                 focusThen { Task { await workspace.open(path) } }
                             } label: {

@@ -376,6 +376,14 @@ public enum MarkdownStyleScanner {
         return (depth, String(remainder))
     }
 
+    /// The level of the setext heading that `line` is the text of when `nextLine` underlines
+    /// it, or nil. The one rule for setext headings: the editor's styling, the outline,
+    /// heading links, section embeds, the reading view and folding all read it here.
+    static func setextHeadingLevel(ofLine line: String, nextLine: String?) -> Int? {
+        guard let nextLine, let level = setextUnderlineLevel(nextLine), isParagraphText(line) else { return nil }
+        return level
+    }
+
     /// The level of a setext heading `line` underlines (`===` is 1, `---` is 2), or nil.
     static func setextUnderlineLevel(_ line: String) -> Int? {
         guard let firstVisible = line.first(where: { character in character != " " }), firstVisible == "=" || firstVisible == "-",
@@ -620,12 +628,16 @@ public enum MarkdownStyleScanner {
     private enum Patterns {
         static let quotePrefix = compile("^\\s*(?:>\\s?)+")
         static let calloutTitle = compile("\\[![A-Za-z0-9_-]+\\][+-]?")
-        static let horizontalRule = compile("^\\s*(?:(?:-\\s*){3,}|(?:\\*\\s*){3,}|(?:_\\s*){3,})$")
+        /// Up to three spaces before it: indented four, the line is code, as in CommonMark.
+        static let horizontalRule = compile("^ {0,3}(?:(?:-[ \\t]*){3,}|(?:\\*[ \\t]*){3,}|(?:_[ \\t]*){3,})$")
         static let heading = compile("^\\s{0,3}(#{1,6}\\s+)")
-        static let task = compile("^\\s*([-*+]|\\d+[.)])\\s+(\\[[ xX/-]\\])\\s")
-        static let listMarker = compile("^\\s*([-*+]|\\d+[.)])\\s")
+        /// Any one-character status, as Obsidian and the Tasks plugin write them (`[>]`,
+        /// `[!]`, `[?]`), not only `[ ]`, `[x]`, `[/]` and `[-]`. Ordered markers have one to
+        /// nine ASCII digits, as in CommonMark and `MarkdownEditing`.
+        static let task = compile("^\\s*([-*+]|[0-9]{1,9}[.)])\\s+(\\[[^\\]\\n]\\])\\s")
+        static let listMarker = compile("^\\s*([-*+]|[0-9]{1,9}[.)])\\s")
         /// A list marker alone on its line, which `listMarker` (needing a space) misses.
-        static let emptyListItem = compile("^\\s*(?:[-*+]|\\d+[.)])$")
+        static let emptyListItem = compile("^\\s*(?:[-*+]|[0-9]{1,9}[.)])$")
         static let blockIdentifier = compile("(?<=[ \\t])\\^[A-Za-z0-9-]+[ \\t]*$|^\\^[A-Za-z0-9-]+[ \\t]*$")
         /// `$$…$$` inside a line, as Obsidian renders it.
         static let inlineDisplayMath = compile("(?<![\\\\$])\\$\\$(?:[^$\\n\\\\]|\\\\.)+?\\$\\$")
@@ -639,7 +651,8 @@ public enum MarkdownStyleScanner {
         /// The destination may hold one level of balanced parentheses, as Wikipedia URLs do.
         static let markdownLink = compile("(!?)\\[([^\\]\\n]*)\\]\\((?:[^()\\n]|\\([^()\\n]*\\))*\\)")
         static let strong = compile("(?<![*_])(\\*\\*|__)(?!\\s)[^\\n]+?(?<!\\s)\\1(?![*_])")
-        static let emphasis = compile("(?<![*\\w])[*_](?![\\s*_])[^*_\\n]+?(?<![\\s])[*_](?![*\\w])")
+        /// Opened and closed by the same character: `*note_` is not emphasis.
+        static let emphasis = compile("(?<![*\\w])([*_])(?![\\s*_])[^*_\\n]+?(?<![\\s])\\1(?![*\\w])")
         static let strikethrough = compile("~~(?!\\s)[^~\\n]+?(?<!\\s)~~")
         static let highlight = compile("==(?!\\s)[^=\\n]+?(?<!\\s)==")
 

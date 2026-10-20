@@ -7,7 +7,7 @@ import GraphiteIndex
 @testable import GraphiteUI
 
 /// Versions kept by a file provider, in the running app on iPadOS, with versions from
-/// `TestConflictVersionStore`: the banner over the open note, the mark in the sidebar,
+/// `FakeConflictVersionStore`: the banner over the open note, the mark in the sidebar,
 /// the Versions sheet and a version's comparison, and the note reloading after a choice.
 @MainActor
 final class ConflictVersionsTests: XCTestCase {
@@ -93,7 +93,7 @@ final class ConflictVersionsTests: XCTestCase {
         return folder
     }
 
-    private func makeWorkspace(files: [String: String]) async throws -> (WorkspaceModel, TestConflictVersionStore, URL) {
+    private func makeWorkspace(files: [String: String]) async throws -> (WorkspaceModel, FakeConflictVersionStore, URL) {
         let vault = try makeFolder("ConflictVersionsVault")
         for (relativePath, contents) in files {
             let location = vault.appendingPathComponent(relativePath)
@@ -104,7 +104,7 @@ final class ConflictVersionsTests: XCTestCase {
         workspace.folderAccess = FolderAccess(root: vault)
         workspace.store = VaultStore(root: vault)
         workspace.index = try VaultIndex(databaseURL: try makeFolder("ConflictVersionsIndex").appendingPathComponent("index.sqlite"))
-        let store = try TestConflictVersionStore()
+        let store = try FakeConflictVersionStore()
         workspace.conflictVersionStore = store
         return (workspace, store, vault)
     }
@@ -144,10 +144,5 @@ final class ConflictVersionsTests: XCTestCase {
         add(attachment)
     }
 
-    private func waitUntil(timeoutSeconds: Double = 10, _ condition: () throws -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(timeoutSeconds)
-        while try !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(25)) }
-        XCTAssertTrue(try condition(), "The hosted workspace did not reach the expected state.")
-    }
 }
 #endif

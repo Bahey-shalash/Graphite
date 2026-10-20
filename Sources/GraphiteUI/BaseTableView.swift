@@ -1,12 +1,39 @@
 import SwiftUI
 import GraphiteCore
 
+/// How a table fits the width of its view. On a phone, or in a note there, the file name
+/// column's default width is a little over half the view, so another column shows beside
+/// it, and a first column no wider than that stays at the leading edge while the table
+/// scrolls sideways, so every row keeps its name.
+struct BaseTableLayout {
+    static let fileNameColumnWidth: CGFloat = 240
+    static let defaultColumnWidth: CGFloat = 170
+    /// Narrower views get the narrower file name column.
+    static let compactWidthThreshold: CGFloat = 600
+    /// The part of a narrow view the file name column takes by default, and the most of
+    /// any view a pinned first column may cover: a little over half, which fits most
+    /// place and book names on a phone.
+    static let firstColumnShareOfWidth: CGFloat = 0.55
+
+    /// The file name column's width when the view's `columnSize` does not set it.
+    /// - Parameter viewWidth: The table's visible width; nil before it is laid out.
+    static func defaultFileNameColumnWidth(viewWidth: CGFloat?) -> CGFloat {
+        guard let viewWidth, viewWidth.isFinite, viewWidth > 0, viewWidth < compactWidthThreshold else { return fileNameColumnWidth }
+        return max(CGFloat(BaseView.minimumColumnWidth), min(fileNameColumnWidth, (viewWidth * firstColumnShareOfWidth).rounded(.down)))
+    }
+
+    /// Whether the first column stays put while the others scroll under it. A wider one
+    /// would leave the rest of the table too little room.
+    static func pinsFirstColumn(firstColumnWidth: CGFloat, viewWidth: CGFloat?) -> Bool {
+        guard let viewWidth, viewWidth.isFinite, viewWidth > 0 else { return false }
+        return firstColumnWidth <= viewWidth * firstColumnShareOfWidth
+    }
+}
+
 /// Obsidian's table view: columns from `order`, sortable headers whose trailing edge
 /// resizes the column, group sections with their summaries, and a pinned header and
-/// summary row. Wide tables scroll sideways.
+/// summary row. Wide tables scroll sideways under a pinned first column (see `BaseTableLayout`).
 struct BaseTableView: View {
-    private static let fileNameColumnWidth: CGFloat = 240
-    private static let defaultColumnWidth: CGFloat = 170
     private static let horizontalCellPadding: CGFloat = 10
     /// The strip at a header's trailing edge that resizes its column: wide enough for a
     /// finger, narrow enough to leave the header its tap.
@@ -30,8 +57,9 @@ struct BaseTableView: View {
     /// The width the dragged column had when the drag began; nil when no edge is dragged.
     /// Gesture state, so a drag the system cancels ends it too.
     @GestureState private var dragStartWidth: CGFloat?
+    /// The table's visible width, nil until it is first laid out.
+    @State private var viewWidth: CGFloat?
     // Worked out once per result rather than in every cell of every row.
-    private let configuredColumnWidths: [CGFloat]
     private let rowLayout: (height: CGFloat, lineLimit: Int)
 
     init(result: BaseQueryResult, sortKeys: [BaseSortKey], actions: BaseViewActions, sort: @escaping (BasePropertyIdentifier, BaseSortDirection?) -> Void,
@@ -41,20 +69,22 @@ struct BaseTableView: View {
         self.actions = actions
         self.sort = sort
         self.resizeColumn = resizeColumn
-        configuredColumnWidths = Self.columnWidths(for: result)
         rowLayout = Self.rowLayout(forRowHeight: result.view.rowHeight)
     }
 
     /// Each column's width: the one the view's `columnSize` gives it, else its default.
-    static func columnWidths(for result: BaseQueryResult) -> [CGFloat] {
-        result.columns.map { column in
+    /// - Parameter viewWidth: The table's visible width, which narrows the file name column on a phone.
+    static func columnWidths(for result: BaseQueryResult, viewWidth: CGFloat? = nil) -> [CGFloat] {
+        let fileNameColumnWidth = BaseTableLayout.defaultFileNameColumnWidth(viewWidth: viewWidth)
+        return result.columns.map { column in
             result.view.columnWidths[column.property].map { width in CGFloat(width) }
-                ?? (column.property == .file("name") ? fileNameColumnWidth : defaultColumnWidth)
+                ?? (column.property == .file("name") ? fileNameColumnWidth : BaseTableLayout.defaultColumnWidth)
         }
     }
 
     /// The configured widths, with the column being resized at the width under the finger.
     private var columnWidths: [CGFloat] {
+        let configuredColumnWidths = Self.columnWidths(for: result, viewWidth: viewWidth)
         guard let columnResize, let position = result.columns.firstIndex(where: { column in column.property == columnResize.property }) else { return configuredColumnWidths }
         var widths = configuredColumnWidths
         widths[position] = columnResize.width
@@ -77,20 +107,23 @@ struct BaseTableView: View {
     var body: some View {
         let columnWidths = columnWidths
         let totalWidth = columnWidths.reduce(0, +)
+        let pinsFirstColumn = columnWidths.first.map { width in BaseTableLayout.pinsFirstColumn(firstColumnWidth: width, viewWidth: viewWidth) } ?? false
         return ScrollView(scrollsVertically ? [.horizontal, .vertical] : .horizontal) {
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders, .sectionFooters]) {
                 Section {
                     ForEach(result.visibleGroups(rowLimit: rowLimit)) { visibleGroup in
                         if isGrouped {
                             groupHeader(visibleGroup.group, totalWidth: totalWidth)
-                            if !visibleGroup.group.summaries.isEmpty { summaryRow(visibleGroup.group.summaries, isPinned: false, columnWidths: columnWidths) }
+                            if !visibleGroup.group.summaries.isEmpty {
+                                summaryRow(visibleGroup.group.summaries, isPinned: false, columnWidths: columnWidths, pinsFirstColumn: pinsFirstColumn)
+                            }
                         }
-                        ForEach(visibleGroup.rows) { row in rowView(row, columnWidths: columnWidths) }
+                        ForEach(visibleGroup.rows) { row in rowView(row, columnWidths: columnWidths, pinsFirstColumn: pinsFirstColumn) }
                     }
                 } header: {
-                    headerRow(columnWidths: columnWidths)
+                    headerRow(columnWidths: columnWidths, pinsFirstColumn: pinsFirstColumn)
                 } footer: {
-                    if !isGrouped && !result.summaries.isEmpty { summaryRow(result.summaries, isPinned: true, columnWidths: columnWidths) }
+                    if !isGrouped && !result.summaries.isEmpty { summaryRow(result.summaries, isPinned: true, columnWidths: columnWidths, pinsFirstColumn: pinsFirstColumn) }
                 }
             }
             .frame(width: totalWidth, alignment: .leading)
@@ -98,6 +131,7 @@ struct BaseTableView: View {
         }
         // Rows must not show below the pinned summary row, in the safe area under it.
         .clipped()
+        .onGeometryChange(for: CGFloat.self) { geometry in geometry.size.width } action: { width in viewWidth = width }
         // The saved width has arrived with a new result, or the view changed under the drag.
         .onChange(of: result.view.columnWidths) { columnResize = nil }
         // A drag that was cancelled saves nothing, so the column returns to its width.
@@ -106,32 +140,16 @@ struct BaseTableView: View {
         }
     }
 
-    private func headerRow(columnWidths: [CGFloat]) -> some View {
+    private func headerRow(columnWidths: [CGFloat], pinsFirstColumn: Bool) -> some View {
         HStack(spacing: 0) {
             ForEach(Array(result.columns.enumerated()), id: \.element.id) { position, column in
-                let sortPosition = sortKeys.firstIndex { sortKey in sortKey.property == column.property }
                 Button {
                     sort(column.property, nil)
                 } label: {
-                    HStack(spacing: 4) {
-                        Text(column.displayName.isEmpty ? " " : column.displayName)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                        if let sortPosition {
-                            Image(systemName: sortKeys[sortPosition].direction == .ascending ? "arrow.up" : "arrow.down")
-                                .font(.caption2.weight(.bold))
-                                .foregroundStyle(.tint)
-                            if sortKeys.count > 1 {
-                                // With several sort keys, the number shows each key's priority.
-                                Text("\(sortPosition + 1)").font(.caption2.weight(.bold)).foregroundStyle(.tint)
-                            }
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, Self.horizontalCellPadding)
-                    .frame(width: columnWidths[position], height: 36, alignment: .leading)
-                    .contentShape(Rectangle())
+                    headerLabel(for: column)
+                        .padding(.horizontal, Self.horizontalCellPadding)
+                        .frame(width: columnWidths[position], height: 36, alignment: .leading)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .overlay(alignment: .trailing) { Divider() }
@@ -146,10 +164,31 @@ struct BaseTableView: View {
                 .overlay(alignment: .trailing) {
                     if resizeColumn != nil { resizeHandle(for: column, width: columnWidths[position]) }
                 }
+                .pinnedToLeadingEdge(position == 0 && pinsFirstColumn, rowBackground: AnyShapeStyle(.bar))
             }
         }
         .background(.bar)
         .overlay(alignment: .bottom) { Divider() }
+    }
+
+    /// A column's name, with its sort direction and, among several sort keys, its priority.
+    private func headerLabel(for column: BaseColumn) -> some View {
+        let sortPosition = sortKeys.firstIndex { sortKey in sortKey.property == column.property }
+        return HStack(spacing: 4) {
+            Text(column.displayName.isEmpty ? " " : column.displayName)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            if let sortPosition {
+                Image(systemName: sortKeys[sortPosition].direction == .ascending ? "arrow.up" : "arrow.down")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.tint)
+                if sortKeys.count > 1 {
+                    Text("\(sortPosition + 1)").font(.caption2.weight(.bold)).foregroundStyle(.tint)
+                }
+            }
+            Spacer(minLength: 0)
+        }
     }
 
     // MARK: Resizing columns
@@ -204,7 +243,7 @@ struct BaseTableView: View {
         }
     }
 
-    private func rowView(_ row: BaseResultRow, columnWidths: [CGFloat]) -> some View {
+    private func rowView(_ row: BaseResultRow, columnWidths: [CGFloat], pinsFirstColumn: Bool) -> some View {
         HStack(spacing: 0) {
             ForEach(Array(result.columns.enumerated()), id: \.element.id) { position, column in
                 let cell = row.cells[position]
@@ -223,6 +262,7 @@ struct BaseTableView: View {
                 .frame(width: columnWidths[position], height: rowLayout.height, alignment: .leading)
                 .clipped()
                 .overlay(alignment: .trailing) { Divider() }
+                .pinnedToLeadingEdge(position == 0 && pinsFirstColumn, rowBackground: nil)
                 .contextMenu {
                     Button("Open", systemImage: "arrow.up.forward.square") { actions.openPath(row.path) }
                     if let editRequest {
@@ -240,16 +280,16 @@ struct BaseTableView: View {
 
     private func groupHeader(_ group: BaseResultGroup, totalWidth: CGFloat) -> some View {
         HStack(spacing: 8) {
-            if let groupBy = result.view.groupBy {
-                Text(result.columns.first { column in column.property == groupBy.property }?.displayName ?? groupBy.property.defaultDisplayName)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+            // The property's name from the base, as the cards and list views show it.
+            if let groupDisplayName = result.groupDisplayName {
+                Text(groupDisplayName).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             }
             groupKeyView(group.key)
             Text("\(group.rows.count)").font(.caption).foregroundStyle(.secondary)
-            Spacer(minLength: 0)
         }
         .padding(.horizontal, Self.horizontalCellPadding)
+        // The heading stays in sight while the table scrolls sideways.
+        .pinnedToLeadingEdge(true, rowBackground: nil, drawsBackground: false)
         .padding(.top, 14)
         .padding(.bottom, 6)
         .frame(width: totalWidth, alignment: .leading)
@@ -267,8 +307,9 @@ struct BaseTableView: View {
         }
     }
 
-    private func summaryRow(_ summaries: [BasePropertyIdentifier: BaseSummaryCell], isPinned: Bool, columnWidths: [CGFloat]) -> some View {
-        HStack(spacing: 0) {
+    private func summaryRow(_ summaries: [BasePropertyIdentifier: BaseSummaryCell], isPinned: Bool, columnWidths: [CGFloat], pinsFirstColumn: Bool) -> some View {
+        let rowBackground = isPinned ? AnyShapeStyle(.bar) : AnyShapeStyle(Color.secondary.opacity(0.05))
+        return HStack(spacing: 0) {
             ForEach(Array(result.columns.enumerated()), id: \.element.id) { position, column in
                 Group {
                     if let summary = summaries[column.property] {
@@ -285,10 +326,31 @@ struct BaseTableView: View {
                 }
                 .padding(.horizontal, Self.horizontalCellPadding)
                 .frame(width: columnWidths[position], height: 34, alignment: .leading)
+                .pinnedToLeadingEdge(position == 0 && pinsFirstColumn, rowBackground: rowBackground)
             }
         }
-        .background(isPinned ? AnyShapeStyle(.bar) : AnyShapeStyle(Color.secondary.opacity(0.05)))
+        .background(rowBackground)
         .overlay(alignment: .top) { Divider() }
+    }
+}
+
+extension View {
+    /// Keeps a cell of the table's first column at the scroll view's leading edge while the
+    /// table scrolls sideways, drawn above the cells that pass under it. The offset is a
+    /// visual effect, so scrolling moves it without laying out the table again.
+    /// - Parameters:
+    ///   - rowBackground: What the cell's row draws behind its cells; the pinned cell draws
+    ///     it over the page colour, so the cells under it do not show through.
+    ///   - drawsBackground: False for content that has nothing beside it to cover.
+    fileprivate func pinnedToLeadingEdge(_ isPinned: Bool, rowBackground: AnyShapeStyle?, drawsBackground: Bool = true) -> some View {
+        let showsBackground = isPinned && drawsBackground
+        return self
+            .background(showsBackground ? rowBackground ?? AnyShapeStyle(Color.clear) : AnyShapeStyle(Color.clear))
+            .background(showsBackground ? AnyShapeStyle(.background) : AnyShapeStyle(Color.clear))
+            .visualEffect { content, geometry in
+                content.offset(x: isPinned ? max(0, -geometry.frame(in: .scrollView(axis: .horizontal)).minX) : 0)
+            }
+            .zIndex(isPinned ? 1 : 0)
     }
 }
 

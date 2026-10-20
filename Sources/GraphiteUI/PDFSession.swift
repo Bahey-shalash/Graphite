@@ -162,8 +162,7 @@ struct PDFOutlineEntry: Identifiable, Equatable {
     let hasChildren: Bool
     var id: [Int] { path }
     var depth: Int { path.count - 1 }
-    /// The start of the label Graphite gives the bookmarks it adds, "Page 12".
-    static let bookmarkLabelPrefix = "Page "
+    static let bookmarkLabelPrefix = PDFPageManager.bookmarkLabelPrefix
     /// A top-level entry without children, labeled the way Graphite labels bookmarks, is
     /// shown as a bookmark of its page. The label test keeps a flat table of contents
     /// written by the PDF's author ("Introduction", "Results") from being offered for
@@ -229,6 +228,8 @@ final class PDFSession {
     /// reported back as external changes (each one would hash the whole PDF again).
     private let writer: AtomicFileWriter
     private let fileService: PDFFileService
+    /// Times the wait before autosave and how long each save takes; tests move it by hand.
+    private let clock: any ApplicationClock
     /// Called with the file each save wrote: the PDF itself, or a separate copy beside it.
     /// The session's own writes are not reported as external changes, so this is how the
     /// workspace learns of them.
@@ -338,9 +339,10 @@ final class PDFSession {
     /// The PDF is shown without being changed: every edit is refused.
     var isProtected: Bool { isPasswordProtected || (hasDigitalSignatures && !acceptsSignatureInvalidation) }
 
-    private init(location: URL, loaded: LoadedPDF, writer: AtomicFileWriter) {
+    private init(location: URL, loaded: LoadedPDF, writer: AtomicFileWriter, clock: any ApplicationClock) {
         self.location = location
         self.writer = writer
+        self.clock = clock
         fileService = PDFFileService(writer: writer)
         document = loaded.document
         isPasswordProtected = loaded.document.isEncrypted || !loaded.document.allowsCommenting || !loaded.document.allowsDocumentChanges
@@ -355,9 +357,12 @@ final class PDFSession {
     /// - Parameters:
     ///   - password: Unlocks a PDF that opens only with a password.
     ///   - writer: The vault's writer, so saves coordinate with Graphite's file presenter.
-    static func open(_ location: URL, password: String? = nil, writer: AtomicFileWriter = AtomicFileWriter()) async throws -> PDFSession {
+    ///   - clock: Times autosave. It keeps a default, the live clock, only because the workspace and about a
+    ///     hundred tests open sessions through here; it goes when the workspace is given its clock (`FR-47`).
+    static func open(_ location: URL, password: String? = nil, writer: AtomicFileWriter = AtomicFileWriter(),
+                     clock: any ApplicationClock = LiveApplicationClock()) async throws -> PDFSession {
         let loaded = try await PDFLoader().load(location, password: password, writer: writer)
-        return PDFSession(location: location, loaded: loaded, writer: writer)
+        return PDFSession(location: location, loaded: loaded, writer: writer, clock: clock)
     }
 
     // MARK: Edits
@@ -452,11 +457,11 @@ final class PDFSession {
         let nextBaselineLocation = PDFBaselineSnapshot.makeLocation()
         firstMergeableEditIndex = editsToSave.count
         defer { firstMergeableEditIndex = 0 }
-        let saveStart = ContinuousClock.now
+        let saveStart = clock.now
         do {
             let savedRevision = try await fileService.save(url: location, revision: revision, edits: editsToSave,
                                                            baselineURL: currentBaseline.location, savedSnapshotDestination: nextBaselineLocation)
-            lastSaveDuration = saveStart.duration(to: .now)
+            lastSaveDuration = clock.now - saveStart
             revision = savedRevision
             baseline = PDFBaselineSnapshot(location: nextBaselineLocation)
             edits.removeFirst(editsToSave.count)
@@ -489,8 +494,8 @@ final class PDFSession {
     private func scheduleAutosave() {
         autosaveTask?.cancel()
         let delay = Self.autosaveDelay(afterSaveTaking: lastSaveDuration, consecutiveFailures: consecutiveAutosaveFailures)
-        autosaveTask = Task { [weak self] in
-            do { try await Task.sleep(for: delay) } catch { return }
+        autosaveTask = Task { [weak self, clock] in
+            do { try await clock.sleep(for: delay) } catch { return }
             guard let self, !self.hasExternalConflict else { return }
             do {
                 try await self.save()
@@ -546,13 +551,37 @@ final class PDFSession {
         let location = location
         let writer = writer
         let revisionBeforeRead = revision
+        // A file with the size and modification date it had at the last check that found it
+        // unchanged is not read again: an embed checked its whole PDF, hashing every byte,
+        // whenever any file of the vault changed.
+        let stamp = Self.fileStamp(of: location)
+        if let stamp, let unchangedStamp, unchangedStamp.stamp == stamp, unchangedStamp.revision == revisionBeforeRead { return false }
         let currentRevision = try await Task.detached { try Self.readRevision(of: location, writer: writer) }.value
         // A save that ran during the read replaced the file, so the hash may be of the
         // file before it. The next check compares with the revision that save wrote.
         guard !isSaving, revision == revisionBeforeRead else { return false }
         let changed = currentRevision != revision
+        if !changed, let stamp { unchangedStamp = (stamp, revisionBeforeRead) }
         if changed && hasUnsavedChanges { hasExternalConflict = true; errorMessage = GraphiteError.conflict.localizedDescription }
         return changed
+    }
+
+    /// The file's size and modification date, read before a check, and the revision the
+    /// check found the file still at.
+    @ObservationIgnored private var unchangedStamp: (stamp: FileStamp, revision: FileRevision)?
+
+    struct FileStamp: Equatable {
+        let modificationDate: Date
+        let size: Int
+    }
+
+    nonisolated private static func fileStamp(of location: URL) -> FileStamp? {
+        // A URL keeps the values it read; this one is read fresh each time.
+        var freshLocation = location
+        freshLocation.removeAllCachedResourceValues()
+        guard let values = try? freshLocation.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
+              let modificationDate = values.contentModificationDate, let size = values.fileSize else { return nil }
+        return FileStamp(modificationDate: modificationDate, size: size)
     }
 
     /// Hashes the file inside a coordinated read, so a sync provider that is writing it
@@ -583,8 +612,11 @@ final class PDFSession {
     /// Inserts a page of paper the size of the page in view, in the spacing and colors
     /// `paper` gives.
     func insertPaper(_ paper: PaperSpecification, at insertionIndex: Int) async throws {
-        let referenceBounds = document.page(at: min(currentPageIndex, max(0, pageCount - 1)))?.bounds(for: .cropBox) ?? CGRect(x: 0, y: 0, width: 595.28, height: 841.89)
-        let pageSize = referenceBounds.size
+        let referencePage = document.page(at: min(currentPageIndex, max(0, pageCount - 1)))
+        let referenceBounds = referencePage?.bounds(for: .cropBox) ?? CGRect(x: 0, y: 0, width: 595.28, height: 841.89)
+        // The page as shown: a portrait page turned a quarter is shown landscape.
+        let isQuarterTurned = ((referencePage?.rotation ?? 0) / 90) % 2 != 0
+        let pageSize = isQuarterTurned ? CGSize(width: referenceBounds.height, height: referenceBounds.width) : referenceBounds.size
         let paperData = try await Task.detached { try PDFTemplateGenerator.pageData(paper: paper, matching: pageSize) }.value
         let clampedIndex = min(max(0, insertionIndex), pageCount)
         try insertPages(paperData, at: clampedIndex, actionName: "Insert Page")

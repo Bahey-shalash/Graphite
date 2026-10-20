@@ -71,8 +71,13 @@ final class ThemeTokenResolver: NSObject, WKNavigationDelegate {
 
     private func resolveWithinDeadline(_ inputs: ThemeResolverInputs, fingerprint: String) async throws -> VaultThemeTokens {
         let outcome = MeasurementOutcome()
+        // Whichever of the two ends first stops the other: the deadline held the resolver
+        // for its whole 15 seconds after every measurement, and a measurement given up kept
+        // running scripts on a web view that was let go.
+        let tasks = MeasurementTasks()
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<VaultThemeTokens, Error>) in
-            Task { @MainActor in
+            tasks.measurement = Task { @MainActor in
+                defer { tasks.deadline?.cancel() }
                 do {
                     let tokens = try await self.resolve(inputs, fingerprint: fingerprint)
                     if outcome.finish() { continuation.resume(returning: tokens) }
@@ -80,9 +85,10 @@ final class ThemeTokenResolver: NSObject, WKNavigationDelegate {
                     if outcome.finish() { continuation.resume(throwing: error) }
                 }
             }
-            Task { @MainActor in
+            tasks.deadline = Task { @MainActor in
                 try? await Task.sleep(for: Self.measurementDeadline)
                 guard outcome.finish() else { return }
+                tasks.measurement?.cancel()
                 // The page is given up: a load still awaited ends, and the web view goes.
                 self.loadContinuation?.resume(throwing: GraphiteError.unavailable("The theme's page did not load."))
                 self.loadContinuation = nil
@@ -202,4 +208,11 @@ private final class MeasurementOutcome {
         isFinished = true
         return true
     }
+}
+
+/// The measurement and its deadline, so either can stop the other.
+@MainActor
+private final class MeasurementTasks {
+    var measurement: Task<Void, Never>?
+    var deadline: Task<Void, Never>?
 }

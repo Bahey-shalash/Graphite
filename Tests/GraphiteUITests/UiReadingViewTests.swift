@@ -7,6 +7,7 @@ import UniformTypeIdentifiers
 import GraphiteCore
 import GraphiteIndex
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 @MainActor
 final class UiReadingViewTests: XCTestCase {
@@ -14,8 +15,7 @@ final class UiReadingViewTests: XCTestCase {
     private var index: VaultIndex!
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("ReadingVault-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        vault = try TemporaryVault.make(prefix: "ReadingVault", for: self).root
         index = try VaultIndex(databaseURL: vault.appendingPathComponent(".index.sqlite"))
     }
 

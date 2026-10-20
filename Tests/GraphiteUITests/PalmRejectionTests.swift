@@ -1,5 +1,6 @@
 import XCTest
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// Which touches on a page are a hand resting there while Apple Pencil writes.
 final class PalmRejectionTests: XCTestCase {
@@ -102,9 +103,7 @@ final class PalmRejectionTests: XCTestCase {
     }
 
     func testPalmRejectionIsOnUnlessTurnedOffAndIsReadAsItChanges() throws {
-        let suiteName = "PalmRejectionTests-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let defaults = try IsolatedDeviceState.make(prefix: "PalmRejectionTests", for: self).preferences
         XCTAssertTrue(PalmRejectionPreference.isOn(in: defaults))
         defaults.set(false, forKey: PalmRejectionPreference.key)
         XCTAssertFalse(PalmRejectionPreference.isOn(in: defaults))

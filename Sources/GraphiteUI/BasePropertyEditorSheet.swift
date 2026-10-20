@@ -66,8 +66,10 @@ struct BasePropertyEditorSheet: View {
             switch request.kind {
             case .text:
                 TextField("Value", text: $draft.text, axis: .vertical)
+                    .literalTextEntry()
             case .number:
                 TextField("Number", text: $draft.text)
+                    .literalTextEntry()
                 #if canImport(UIKit)
                     .keyboardType(.decimalPad)
                 #endif
@@ -85,6 +87,7 @@ struct BasePropertyEditorSheet: View {
                 }
             case .list:
                 TextField("One value per line", text: $draft.text, axis: .vertical)
+                    .literalTextEntry()
                     .lineLimit(4...12)
             }
         }

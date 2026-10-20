@@ -168,6 +168,9 @@ public enum MarkdownEditing {
             let remaining = listLine.isListItem ? listLine.quotePrefix : ""
             return MarkdownTextEdit(range: lineContentRange, replacement: remaining, selectionAfter: NSRange(location: lineStart + remaining.utf16.count, length: 0))
         }
+        // Past nine digits a number is no list marker, so the list ends there instead of
+        // going on with an item that would not be one.
+        if let number = listLine.orderedNumber, number >= 999_999_999 { return nil }
         var nextMarker = listLine.marker
         if let number = listLine.orderedNumber, let delimiter = listLine.marker.last { nextMarker = String(number + 1) + String(delimiter) }
         let lineBreak = lineBreakForNewLine(lineStart: lineStart, lineEnd: lineEnd, contentsEnd: contentsEnd, in: text)
@@ -196,50 +199,62 @@ public enum MarkdownEditing {
         return ending == "\r\n" || ending == "\r" ? ending : "\n"
     }
 
-    /// Whether the line at `lineStart` is inside fenced code or the note's frontmatter.
+    /// Whether the line at `lineStart` is inside fenced code or the note's frontmatter. A fence
+    /// written in a quote or callout (`> ```) is code as the editor styles it: it runs to its
+    /// closing fence or to the first line outside the quote, whichever comes first.
     private static func isInCodeOrFrontmatter(lineStart: Int, in text: NSString) -> Bool {
         var location = 0
         if let frontmatterEnd = frontmatterEnd(in: text) {
             if lineStart < frontmatterEnd { return true }
             location = frontmatterEnd
         }
-        var fenceTracker = CodeFenceTracker()
+        var openFence: String?
+        var fenceQuoteDepth = 0
+        let quoteMarker = unichar(UInt8(ascii: ">"))
         while location < lineStart {
             var lineEnd = 0, contentsEnd = 0
             text.getLineStart(nil, end: &lineEnd, contentsEnd: &contentsEnd, for: NSRange(location: location, length: 0))
             defer { location = lineEnd }
-            // Only a line starting with a fence character can open or close a fence, so the
-            // others are skipped without making a string of each line.
-            guard let firstCharacter = firstNonWhitespaceUnit(from: location, to: contentsEnd, in: text),
-                  firstCharacter == unichar(UInt8(ascii: "`")) || firstCharacter == unichar(UInt8(ascii: "~")) else { continue }
-            _ = fenceTracker.isCodeLine(text.substring(with: NSRange(location: location, length: contentsEnd - location)).trimmingCharacters(in: .whitespaces))
+            // Only a line starting with a fence character or a quote marker can open or close a
+            // fence, and a line outside the quote ends a quoted one, so the others are skipped
+            // without making a string of each line.
+            guard let firstCharacter = firstNonWhitespaceUnit(from: location, to: contentsEnd, in: text) else {
+                if openFence != nil, fenceQuoteDepth > 0 { openFence = nil }
+                continue
+            }
+            let canTouchFence = firstCharacter == unichar(UInt8(ascii: "`")) || firstCharacter == unichar(UInt8(ascii: "~")) || firstCharacter == quoteMarker
+            guard canTouchFence || (openFence != nil && fenceQuoteDepth > 0) else { continue }
+            let line = text.substring(with: NSRange(location: location, length: contentsEnd - location))
+            if let fence = openFence {
+                let (depth, content) = MarkdownStyleScanner.quoteMarkersAndContent(of: line, maximumDepth: fenceQuoteDepth)
+                if depth >= fenceQuoteDepth {
+                    if CodeFence.closes(fence, content) { openFence = nil }
+                    continue
+                }
+                openFence = nil
+            }
+            let (depth, content) = MarkdownStyleScanner.quoteMarkersAndContent(of: line, maximumDepth: .max)
+            if let (fence, _) = CodeFence.opening(content) {
+                openFence = fence
+                fenceQuoteDepth = depth
+            }
         }
-        return fenceTracker.isInsideFence
+        guard openFence != nil else { return false }
+        guard fenceQuoteDepth > 0 else { return true }
+        // The line itself is outside a quoted fence when it has fewer quote markers than the fence.
+        var lineContentsEnd = 0
+        text.getLineStart(nil, end: nil, contentsEnd: &lineContentsEnd, for: NSRange(location: lineStart, length: 0))
+        let line = text.substring(with: NSRange(location: lineStart, length: lineContentsEnd - lineStart))
+        return MarkdownStyleScanner.quoteMarkersAndContent(of: line, maximumDepth: fenceQuoteDepth).depth >= fenceQuoteDepth
     }
 
     /// Where the note's frontmatter ends, just past its closing line, or nil when the note
-    /// has none. A `---` first line without a closing line is a thematic break.
+    /// has none. A `---` first line without a closing line is a thematic break. Read as
+    /// the rest of the app reads it: trimming each line here let an indented `  ---` in a
+    /// block scalar close it, and took `--- ` with spaces after it for an opening line.
     private static func frontmatterEnd(in text: NSString) -> Int? {
-        var location = 0
-        var isFirstLine = true
-        while location < text.length {
-            var lineEnd = 0, contentsEnd = 0
-            text.getLineStart(nil, end: &lineEnd, contentsEnd: &contentsEnd, for: NSRange(location: location, length: 0))
-            defer { location = lineEnd; isFirstLine = false }
-            // Only a line starting with `-` or `.` can open or close frontmatter.
-            guard let firstCharacter = firstNonWhitespaceUnit(from: location, to: contentsEnd, in: text),
-                  firstCharacter == unichar(UInt8(ascii: "-")) || firstCharacter == unichar(UInt8(ascii: ".")) else {
-                if isFirstLine { return nil }
-                continue
-            }
-            let trimmedLine = text.substring(with: NSRange(location: location, length: contentsEnd - location)).trimmingCharacters(in: .whitespaces)
-            if isFirstLine {
-                guard trimmedLine == "---" else { return nil }
-            } else if trimmedLine == "---" || trimmedLine == "..." {
-                return lineEnd
-            }
-        }
-        return nil
+        let length = FrontmatterLocator.length(in: text)
+        return length > 0 ? length : nil
     }
 
     private static func firstNonWhitespaceUnit(from start: Int, to end: Int, in text: NSString) -> unichar? {
@@ -453,6 +468,9 @@ public enum MarkdownEditing {
     public static func togglingWrap(_ marker: String, closingMarker: String? = nil, in text: NSString, selection: NSRange) -> MarkdownTextEdit {
         let closing = closingMarker ?? marker
         let openingLength = marker.utf16.count, closingLength = closing.utf16.count
+        // The cursor inside a phrase in this markup, `**hello wo|rld**`, takes the markup off
+        // the phrase: going by the word under the cursor wrapped "world" again.
+        if selection.length == 0, closingMarker == nil, let unwrapped = removingEnclosingMarkup(marker, at: selection.location, in: text) { return unwrapped }
         var range = selection
         if range.length == 0 { range = wordRange(at: range.location, in: text) ?? range }
         let selectedText = text.substring(with: range)
@@ -473,11 +491,45 @@ public enum MarkdownEditing {
                 return MarkdownTextEdit(range: range, replacement: inner, selectionAfter: NSRange(location: range.location, length: inner.utf16.count))
             }
         }
-        let wrapped = marker + selectedText + closing
+        // Spans of this markup inside the selection join the one made: `**a** and **b**`
+        // became `a** and **b`, its outer markers taken for one pair.
+        var wrappedText = selectedText
+        if closing == marker, openingLength >= 2, selectedText.contains(marker) { wrappedText = selectedText.replacingOccurrences(of: marker, with: "") }
+        let wrapped = marker + wrappedText + closing
+        if wrappedText != selectedText {
+            return MarkdownTextEdit(range: range, replacement: wrapped, selectionAfter: NSRange(location: range.location + openingLength, length: wrappedText.utf16.count))
+        }
         let cursorAfter = selection.length == 0 && range.length == 0
             ? NSRange(location: range.location + openingLength, length: 0)
             : NSRange(location: selection.location + openingLength, length: selection.length)
         return MarkdownTextEdit(range: range, replacement: wrapped, selectionAfter: cursorAfter)
+    }
+
+    /// The style a marker writes, for finding a span of it around the cursor.
+    private static func delimitedStyle(of marker: String) -> MarkdownStyle? {
+        switch marker {
+        case "**", "__": .strong
+        case "*", "_": .emphasis
+        case "~~": .strikethrough
+        case "==": .highlight
+        default: nil
+        }
+    }
+
+    /// Removes the markers of the span written with `marker` around `location` on its line.
+    private static func removingEnclosingMarkup(_ marker: String, at location: Int, in text: NSString) -> MarkdownTextEdit? {
+        guard let style = delimitedStyle(of: marker), location <= text.length else { return nil }
+        let markerLength = marker.utf16.count
+        let lineRange = text.lineRange(for: NSRange(location: location, length: 0))
+        let enclosing = MarkdownStyleScanner.spans(in: text, range: lineRange).first { span in
+            guard span.style == style, let whole = span.inlineElementRange, whole.length >= 2 * markerLength,
+                  location > whole.location, location < NSMaxRange(whole) else { return false }
+            return text.substring(with: NSRange(location: whole.location, length: markerLength)) == marker
+        }
+        guard let enclosing, let whole = enclosing.inlineElementRange else { return nil }
+        let content = text.substring(with: NSRange(location: whole.location + markerLength, length: whole.length - 2 * markerLength))
+        let cursor = min(max(location - markerLength, whole.location), whole.location + content.utf16.count)
+        return MarkdownTextEdit(range: whole, replacement: content, selectionAfter: NSRange(location: cursor, length: 0))
     }
 
     /// The UTF-16 unit a marker such as `*`, `**` or `==` repeats, or nil for other markers.
@@ -509,6 +561,9 @@ public enum MarkdownEditing {
             || (isEmphasis && markerLength < 3 && leftRun == 3 && rightRun == 3)
         guard isPresent else { return nil }
         let content = text.substring(with: NSRange(location: contentStart, length: contentEnd - contentStart))
+        // `**a** and **b**`: the outer markers belong to two spans, not one around the rest.
+        if markerLength >= 2, let markerScalar = Unicode.Scalar(markerUnit),
+           content.contains(String(repeating: Character(markerScalar), count: markerLength)) { return nil }
         let selectionAfter = selection.length == 0
             ? NSRange(location: min(max(selection.location, contentStart), contentEnd) - markerLength, length: 0)
             : NSRange(location: contentStart - markerLength, length: contentEnd - contentStart)
@@ -519,7 +574,7 @@ public enum MarkdownEditing {
     /// The word around `location`: letters, digits, and joining marks.
     static func wordRange(at location: Int, in text: NSString) -> NSRange? {
         func isWordCharacter(_ index: Int) -> Bool {
-            guard index >= 0, index < text.length, let scalar = Unicode.Scalar(text.character(at: index)) else { return false }
+            guard let scalar = scalar(containingUnitAt: index, in: text) else { return false }
             return CharacterSet.alphanumerics.contains(scalar) || scalar == "_" || scalar == "'"
         }
         guard isWordCharacter(location - 1) || isWordCharacter(location) else { return nil }
@@ -529,6 +584,23 @@ public enum MarkdownEditing {
         // A cursor between words, or at a word's edge next to punctuation, has no word.
         guard end > start, start < location || end > location else { return nil }
         return NSRange(location: start, length: end - start)
+    }
+
+    /// The character the UTF-16 unit at `index` belongs to, both halves of a surrogate pair
+    /// giving the whole character: a letter such as 𠮷 or 𝐀 is two units, and each alone
+    /// read as no letter, so a word containing one was cut short.
+    static func scalar(containingUnitAt index: Int, in text: NSString) -> Unicode.Scalar? {
+        guard index >= 0, index < text.length else { return nil }
+        let unit = text.character(at: index)
+        if UTF16.isLeadSurrogate(unit) {
+            guard index + 1 < text.length, UTF16.isTrailSurrogate(text.character(at: index + 1)) else { return nil }
+            return Unicode.Scalar(0x10000 + (UInt32(unit) - 0xD800) << 10 + (UInt32(text.character(at: index + 1)) - 0xDC00))
+        }
+        if UTF16.isTrailSurrogate(unit) {
+            guard index > 0, UTF16.isLeadSurrogate(text.character(at: index - 1)) else { return nil }
+            return scalar(containingUnitAt: index - 1, in: text)
+        }
+        return Unicode.Scalar(unit)
     }
 
     // MARK: Pairs
@@ -557,7 +629,8 @@ public enum MarkdownEditing {
             return MarkdownTextEdit(range: NSRange(location: selection.location, length: 0), replacement: "", selectionAfter: NSRange(location: selection.location + 1, length: 0))
         }
         guard let closing = bracketPairs[typed] else { return nil }
-        let previousScalar = previous.unicodeScalars.first, nextScalar = next.unicodeScalars.first
+        let previousScalar = scalar(containingUnitAt: selection.location - 1, in: text)
+        let nextScalar = selection.length == 0 ? scalar(containingUnitAt: selection.location, in: text) : nil
         // Quotes and backticks pair only at the start of a word, so "it's" stays as typed and
         // three backticks make a code fence.
         if typed == "\"" || typed == "`" {
@@ -566,6 +639,22 @@ public enum MarkdownEditing {
         // In front of a word, an opening bracket is typed alone.
         if let nextScalar, CharacterSet.alphanumerics.contains(nextScalar) { return nil }
         return MarkdownTextEdit(range: selection, replacement: typed + closing, selectionAfter: NSRange(location: selection.location + 1, length: 0))
+    }
+
+    /// A web address pasted over selected text makes the text a link to it, as Obsidian
+    /// does; nil when the pasted text is not one address or the selection is not one line.
+    public static func linkingSelection(to pastedText: String, in text: NSString, selection: NSRange) -> MarkdownTextEdit? {
+        guard selection.length > 0, NSMaxRange(selection) <= text.length else { return nil }
+        let address = pastedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !address.isEmpty, address.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
+              let scheme = URL(string: address)?.scheme?.lowercased(), ["http", "https", "mailto", "obsidian"].contains(scheme) else { return nil }
+        let selectedText = text.substring(with: selection)
+        // Selected text that is itself an address is replaced as usual.
+        guard selectedText.rangeOfCharacter(from: .newlines) == nil, URL(string: selectedText)?.scheme == nil else { return nil }
+        let label = selectedText.replacingOccurrences(of: "[", with: "\\[").replacingOccurrences(of: "]", with: "\\]")
+        let destination = address.contains("(") || address.contains(")") ? "<\(address)>" : address
+        let replacement = "[\(label)](\(destination))"
+        return MarkdownTextEdit(range: selection, replacement: replacement, selectionAfter: NSRange(location: selection.location + (replacement as NSString).length, length: 0))
     }
 
     /// Backspace between an empty pair, such as `(|)` or `[[|]]`, removes both halves.

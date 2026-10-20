@@ -107,6 +107,18 @@ final class TabLayoutTests: XCTestCase {
         XCTAssertEqual(layout.activeTab.id, kept)
     }
 
+    /// Close Other Tabs saves the tabs first; a tab opened meanwhile is not among them and
+    /// stays open, rather than being closed unsaved.
+    func testClosingOtherTabsClosesOnlyTheTabsSaved() throws {
+        var layout = TabLayout()
+        let kept = try openHere("Kept.md", in: &layout)
+        let saved = layout.addTab(showing: try path("Saved.md"))
+        let openedMeanwhile = layout.addTab(showing: try path("New.md"))
+        let closed = layout.closeOtherTabs(keeping: kept, onlyClosing: [saved])
+        XCTAssertEqual(closed, [saved])
+        XCTAssertTrue(layout.focusedGroup.tabs.contains { tab in tab.id == openedMeanwhile })
+    }
+
     func testClosingAGroupReturnsItsTabs() throws {
         var layout = TabLayout()
         _ = try openHere("Notes.md", in: &layout)

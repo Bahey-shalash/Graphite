@@ -1,6 +1,7 @@
 import XCTest
 import Yams
 @testable import GraphiteCore
+import GraphiteTestSupport
 
 /// Regressions for changes other groups handed to the core files: date fields, YAML
 /// limits and explicit tags in frontmatter, compact nesting, link candidates, empty
@@ -98,7 +99,7 @@ final class CoreAreaHandoffTests: XCTestCase {
         let startTime = Date()
         XCTAssertEqual(try MarkdownSemantics.parse("---\n" + repeatedAliasFrontmatter + "\n---\nbody").aliases, [])
         XCTAssertNil(NoteProperties.parse(repeatedAliasFrontmatter))
-        XCTAssertLessThan(Date().timeIntervalSince(startTime), 5)
+        XCTAssertLessThan(Date().timeIntervalSince(startTime), HangGuard.seconds)
         XCTAssertEqual(NoteProperties.parse("base: &base shared\ncopy: *base\n")?.map(\.value), [.text("shared"), .text("shared")],
                        "A few ordinary aliases still read.")
     }
@@ -210,7 +211,7 @@ final class CoreAreaHandoffTests: XCTestCase {
         }
         let startTime = Date()
         XCTAssertNil(NoteProperties.parse(yaml))
-        XCTAssertLessThan(Date().timeIntervalSince(startTime), 5)
+        XCTAssertLessThan(Date().timeIntervalSince(startTime), HangGuard.seconds)
     }
 
     // MARK: Nested mappings edited from a base (F36)
@@ -251,7 +252,7 @@ final class CoreAreaHandoffTests: XCTestCase {
                 XCTAssertTrue(error.localizedDescription.contains("took too long"), error.localizedDescription)
             }
         }
-        XCTAssertLessThan(clock.now - startTime, .seconds(15))
+        XCTAssertLessThan(clock.now - startTime, HangGuard.duration)
         XCTAssertEqual(try evaluate("/b+/.matches(\"abbc\")"), .boolean(true))
         XCTAssertEqual(try evaluate("\"a-b-c\".replace(/-/g, \"+\")"), .string("a+b+c"))
         XCTAssertEqual(try evaluate("\"a-b\".replace(/-/, \"+\")"), .string("a+b"))

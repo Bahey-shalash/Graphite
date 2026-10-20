@@ -80,7 +80,7 @@ extension WorkspaceModel {
 
     /// Shows a folder, open, in the sidebar's file list.
     func reveal(folder: VaultPath) {
-        UserDefaults.standard.set(SidebarPanel.files.rawValue, forKey: SidebarPanelSettingKey.panel)
+        deviceDefaults.set(SidebarPanel.files.rawValue, forKey: SidebarPanelSettingKey.panel)
         searchQuery = ""
         var folderToOpen = folder
         while !folderToOpen.rawValue.isEmpty {

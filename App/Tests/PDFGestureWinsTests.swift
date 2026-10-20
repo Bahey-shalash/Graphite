@@ -41,8 +41,8 @@ final class PDFGestureWinsTests: XCTestCase {
 
     override func tearDown() async throws {
         if let workspace {
-            workspace.readAloud.clear()
-            if let savedReadingSpeed { workspace.readAloud.session.setSpeed(savedReadingSpeed) }
+            workspace.activeReadAloud.clear()
+            if let savedReadingSpeed { workspace.activeReadAloud.session.setSpeed(savedReadingSpeed) }
         }
         workspace = nil
         for window in windows { window.isHidden = true; window.rootViewController = nil }
@@ -91,9 +91,9 @@ final class PDFGestureWinsTests: XCTestCase {
         let (workspace, session) = try await openPaper()
         let window = try host(workspace, size: nil)
         let pdfView = try await zoomedPDFView(of: session, in: window)
-        let reader = workspace.readAloud
+        let reader = workspace.activeReadAloud
         reader.readPDF(session, firstPageIndex: 1, lastPageIndex: session.pageCount - 1)
-        try await waitUntil(seconds: 30) { reader.session.state == .speaking && !(pdfView.highlightedSelections ?? []).isEmpty }
+        try await waitUntil(timeoutSeconds: 30) { reader.session.state == .speaking && !(pdfView.highlightedSelections ?? []).isEmpty }
         try await Task.sleep(for: .milliseconds(600))
         let touches = SynthesizedTouches(window: window)
         let middle = visibleMiddle(of: pdfView, in: window)
@@ -103,7 +103,7 @@ final class PDFGestureWinsTests: XCTestCase {
                             secondFinger: (CGPoint(x: middle.x + 30, y: middle.y + 30), CGPoint(x: middle.x + 80, y: middle.y + 80)))
         XCTAssertGreaterThan(pdfView.scaleFactor, beforePinch.scale * 1.2, "The pinch zooms in while reading.")
         XCTAssertFalse(reader.followsReading, "A pinch pauses following, as a scroll does.")
-        let wordsBefore = highlightedText(in: pdfView)
+        let placeBefore = readingPlace(of: reader)
         try await assertStaysStill(pdfView, seconds: 2, name: "after a pinch while reading")
 
         await touches.drag(from: CGPoint(x: middle.x, y: middle.y + 120), to: CGPoint(x: middle.x, y: middle.y - 120))
@@ -112,10 +112,10 @@ final class PDFGestureWinsTests: XCTestCase {
         // Back to Reading.
         try await assertStaysStill(pdfView, seconds: 6, name: "after a drag and a save while reading")
         XCTAssertEqual(reader.session.state, .speaking, "Reading goes on.")
-        XCTAssertNotEqual(highlightedText(in: pdfView), wordsBefore, "Reading moved on to other words meanwhile.")
+        XCTAssertNotEqual(readingPlace(of: reader), placeBefore, "Reading moved on to other words meanwhile.")
         attachScreenshot(of: window, named: "Page kept where the gestures left it while reading")
 
-        workspace.readAloudNavigator.backToReading()
+        workspace.activeReadAloudNavigator.backToReading()
         try await waitUntil { self.highlightIsOnScreen(in: pdfView) }
         // Following now brings each word into view once: the page never goes back and forth.
         var offsets: [CGFloat] = [position(of: pdfView).offset.y]
@@ -386,11 +386,13 @@ final class PDFGestureWinsTests: XCTestCase {
         try writePaper(to: folder.appendingPathComponent("Paper.pdf"))
         try Data("# Untitled\n\nNotes beside the paper.\n".utf8).write(to: folder.appendingPathComponent("Untitled.md"))
         let workspace = WorkspaceModel()
+        // Read Aloud is a core plugin that is off by default; these tests read.
+        workspace.setCorePluginEnabled(.readAloud, true)
         workspace.folderAccess = FolderAccess(root: folder)
         workspace.store = VaultStore(root: folder)
         workspace.index = try VaultIndex(databaseURL: folder.appendingPathComponent("index.sqlite"))
-        savedReadingSpeed = workspace.readAloud.session.speed
-        workspace.readAloud.session.setSpeed(1.5)
+        savedReadingSpeed = workspace.activeReadAloud.session.speed
+        workspace.activeReadAloud.session.setSpeed(1.5)
         self.workspace = workspace
         await workspace.open(try VaultPath("Untitled.md"))
         await workspace.open(try VaultPath("Paper.pdf"), placement: .newTab)
@@ -507,8 +509,11 @@ final class PDFGestureWinsTests: XCTestCase {
         return CGPoint(x: frame.midX, y: frame.midY)
     }
 
-    private func highlightedText(in pdfView: PDFView) -> String {
-        (pdfView.highlightedSelections ?? []).compactMap(\.string).joined(separator: " ")
+    /// Where reading is: the passage and the word's offset in it. The word's text would not tell: the paper repeats one
+    /// sentence, so reading comes back to the same word every few seconds (at the pace of a silent reading, exactly as the
+    /// test looks again).
+    private func readingPlace(of reader: ReadAloudController) -> [Int] {
+        [reader.session.passageIndex, reader.session.spokenRange?.location ?? -1]
     }
 
     private func highlightIsOnScreen(in pdfView: PDFView) -> Bool {
@@ -558,16 +563,6 @@ final class PDFGestureWinsTests: XCTestCase {
         add(attachment)
     }
 
-    private func waitUntil(seconds: Double = 10, file: StaticString = #filePath, line: UInt = #line, _ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(seconds)
-        while !condition() {
-            guard Date() < deadline else {
-                XCTFail("The condition did not become true within \(seconds) seconds", file: file, line: line)
-                throw CancellationError()
-            }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-    }
 }
 private extension PDFPageCanvasView {
     /// A point of the window in the canvas's drawing, which is in the page's points from its
@@ -578,3 +573,16 @@ private extension PDFPageCanvasView {
     }
 }
 #endif
+
+private extension WorkspaceModel {
+    /// The reader of a workspace whose Read Aloud plugin these tests turned on.
+    var activeReadAloud: ReadAloudController {
+        guard let readAloud else { preconditionFailure("The Read Aloud core plugin was turned on when the workspace was made.") }
+        return readAloud
+    }
+
+    var activeReadAloudNavigator: ReadAloudNavigator {
+        guard let readAloudNavigator else { preconditionFailure("The Read Aloud core plugin was turned on when the workspace was made.") }
+        return readAloudNavigator
+    }
+}

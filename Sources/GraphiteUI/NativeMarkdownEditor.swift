@@ -5,6 +5,9 @@ import GraphiteCore
 #if canImport(UIKit)
 import UIKit
 
+/// The target of an undo action the iPad's editor registers itself; see `replaceCharacters`.
+final class UndoActionToken {}
+
 /// A TextKit 2 text view that keeps a readable column centered on wide screens and
 /// hosts Live Preview's rendered blocks.
 final class MarkdownTextView: UITextView {
@@ -61,8 +64,40 @@ final class MarkdownTextView: UITextView {
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let hitView = super.hitTest(point, with: event)
-        if hitView != nil, event?.type == .touches { lastTouchUptime = ProcessInfo.processInfo.systemUptime }
+        // Only a touch on the text itself lets the note start editing. A touch on a rendered
+        // block (the properties, a callout) belongs to the block; counting it let SwiftUI's
+        // focus system hand the note the keyboard a moment later, its cursor in the YAML.
+        if let hitView, event?.type == .touches, !isOverlay(hitView) { lastTouchUptime = ProcessInfo.processInfo.systemUptime }
         return hitView
+    }
+
+    /// Over a rendered block or a fold button, only scrolling and zooming are the text
+    /// view's: its taps, loupe, selection and drag would take the touch from the block's
+    /// own controls. A folded callout's title did not open, and a drag starting on the
+    /// properties could end as a tap at the note's start.
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        if gestureRecognizer !== panGestureRecognizer, !(gestureRecognizer is UIPinchGestureRecognizer),
+           let touchedView = super.hitTest(gestureRecognizer.location(in: self), with: nil), isOverlay(touchedView) {
+            return false
+        }
+        return super.gestureRecognizerShouldBegin(gestureRecognizer)
+    }
+
+    /// Whether `view` is in a rendered block's view or is a fold button, placed over the text,
+    /// rather than one of the views UIKit draws the text with.
+    private func isOverlay(_ view: UIView) -> Bool {
+        var placedView = view
+        while let superview = placedView.superview, superview !== self { placedView = superview }
+        guard placedView.superview === self else { return false }
+        if placedView is UIControl { return true }
+        // A hosting controller's view: SwiftUI puts responders of its own between the view
+        // and its controller, and the chain reaches a view again after the controller.
+        var responder = placedView.next
+        while let currentResponder = responder, !(currentResponder is UIView) {
+            if currentResponder is UIViewController { return true }
+            responder = currentResponder.next
+        }
+        return false
     }
 
     override var canBecomeFirstResponder: Bool {
@@ -77,6 +112,12 @@ final class MarkdownTextView: UITextView {
         isEditingRequested = false
     }
 
+    private struct InlineTitleMeasure: Equatable {
+        let text: NSAttributedString
+        let width: CGFloat
+    }
+    private var measuredInlineTitle: (key: InlineTitleMeasure, height: CGFloat)?
+
     override func layoutSubviews() {
         super.layoutSubviews()
         let horizontalInset = usesReadableLineLength
@@ -85,7 +126,16 @@ final class MarkdownTextView: UITextView {
         var topInset = Self.topInset
         if let inlineTitleLabel {
             let titleWidth = max(bounds.width - 2 * horizontalInset - 2 * textContainer.lineFragmentPadding, 1)
-            let titleHeight = ceil(inlineTitleLabel.sizeThatFits(CGSize(width: titleWidth, height: .greatestFiniteMagnitude)).height)
+            // Measured again only when the title, its font or the width changes, not on every
+            // frame of a scroll.
+            let titleKey = InlineTitleMeasure(text: inlineTitleLabel.attributedText ?? NSAttributedString(string: inlineTitleLabel.text ?? ""), width: titleWidth)
+            let titleHeight: CGFloat
+            if let measuredInlineTitle, measuredInlineTitle.key == titleKey {
+                titleHeight = measuredInlineTitle.height
+            } else {
+                titleHeight = ceil(inlineTitleLabel.sizeThatFits(CGSize(width: titleWidth, height: .greatestFiniteMagnitude)).height)
+                measuredInlineTitle = (titleKey, titleHeight)
+            }
             inlineTitleLabel.frame = CGRect(x: horizontalInset + textContainer.lineFragmentPadding, y: Self.topInset, width: titleWidth, height: titleHeight)
             topInset += titleHeight + Self.inlineTitleSpacing
         }
@@ -319,6 +369,14 @@ final class MarkdownTextView: UITextView {
             }
             return
         }
+        // A web address pasted over selected text links the text to it, as in Obsidian.
+        if selectedRange.length > 0, let pastedText = pasteboard.string,
+           let edit = MarkdownEditing.linkingSelection(to: pastedText, in: (text ?? "") as NSString, selection: selectedRange),
+           let start = position(from: beginningOfDocument, offset: edit.range.location), let end = position(from: start, offset: edit.range.length),
+           let replacedRange = textRange(from: start, to: end) {
+            replace(replacedRange, withText: edit.replacement)
+            return
+        }
         // Text plugins may take over (Link or Card makes a card of an address). The pasteboard is
         // read now, while iOS allows it; Graphite pastes what it read if no plugin takes it.
         if let offerPasteToPlugins, pasteboard.hasStrings {
@@ -326,12 +384,16 @@ final class MarkdownTextView: UITextView {
             let htmlData = convertsPastedHTML ? pasteboard.data(forPasteboardType: UTType.html.identifier) : nil
             let html = htmlData.flatMap { data in String(data: data, encoding: .utf8) }
             let pastedRange = selectedRange
+            let textWhenPasted = self.text ?? ""
             Task { [weak self] in
                 let isTakenOver = await offerPasteToPlugins(text, html)
                 guard let self, !isTakenOver else { return }
                 if let htmlData, htmlData.count <= HTMLToMarkdown.maximumConvertedLength {
                     self.insertConvertedHTML(htmlData, plainText: text, at: pastedRange)
                 } else if let text, !text.isEmpty {
+                    // Where the paste was asked for, unless the note changed meanwhile; then
+                    // at the cursor. It went in at the cursor, wherever it had moved.
+                    if self.text == textWhenPasted, NSMaxRange(pastedRange) <= (textWhenPasted as NSString).length { self.selectedRange = pastedRange }
                     self.insertText(text)
                 }
             }
@@ -502,12 +564,15 @@ struct NativeMarkdownEditor: UIViewRepresentable {
     var followsReading = false
     var suspendReadingFollow: (() -> Void)?
     var readAloudHooks: ReadAloudEditorHooks?
+    /// The Color, Format, Paragraph and Insert submenus of the edit menu; see `EditorContextMenuContent`.
+    var contextMenu: EditorContextMenuActions?
 
     init(session: MarkdownSession, configuration: EditorConfiguration, environment: LivePreviewEnvironment? = nil,
          headingScrollRequest: HeadingScrollRequest?, actions: EditorActions = EditorActions(),
          retention: MarkdownEditorRetention? = nil, retentionOwner: TabDocument? = nil, readAloudRange: NSRange? = nil,
          followsReading: Bool = false, suspendReadingFollow: (() -> Void)? = nil, readAloudHooks: ReadAloudEditorHooks? = nil,
-         follow: @escaping (String, Bool) -> Void) {
+         contextMenu: EditorContextMenuActions? = nil, follow: @escaping (String, Bool) -> Void) {
+        self.contextMenu = contextMenu
         self.session = session
         self.configuration = configuration
         self.environment = environment
@@ -647,6 +712,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         textView.followsReading = followsReading
         coordinator.suspendReadingFollow = suspendReadingFollow
         coordinator.installReadAloudHooks(readAloudHooks, in: textView)
+        coordinator.contextMenu = contextMenu
         let previousBlockPolicy = coordinator.renderedBlockPolicy
         coordinator.environment = environment
         coordinator.follow = follow
@@ -744,7 +810,11 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         var pendingJump: Jump?
         private var isPendingJumpScheduled = false
         /// Headings and list items that fold, found with the blocks, and the folds last applied.
-        private var foldableRegions: [FoldableRegion] = []
+        private var foldableRegions: [FoldableRegion] = [] {
+            didSet { foldableRegionsRevision += 1 }
+        }
+        /// Changes with `foldableRegions`, for what is worked out from them on every frame.
+        private var foldableRegionsRevision = 0
         /// The text `foldableRegions` were found in or moved to.
         private var foldableRegionsSource: NSString?
         var appliedFoldedKeys: Set<String> = []
@@ -753,7 +823,23 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         private var lastSelectionLocation = 0
         /// Notes longer than this do not fold, to keep typing fast.
         private static let maximumFoldingLength = 2_000_000
-        private var foldedRegions: [FoldableRegion] { NoteFolding.foldedRegions(in: foldableRegions, foldedKeys: session.foldedKeys) }
+        /// The folded regions, and the headers that show a fold button, worked out again only
+        /// when the regions or the folds change: they were worked out several times on every
+        /// frame of a scroll, each a pass over every foldable region.
+        private var foldedRegions: [FoldableRegion] { foldLayout.folded }
+        private var foldLayout: (folded: [FoldableRegion], regionsByStart: [Int: FoldableRegion]) {
+            if let foldLayoutCache, foldLayoutCache.revision == foldableRegionsRevision, foldLayoutCache.foldedKeys == session.foldedKeys {
+                return (foldLayoutCache.folded, foldLayoutCache.regionsByStart)
+            }
+            let folded = NoteFolding.foldedRegions(in: foldableRegions, foldedKeys: session.foldedKeys)
+            var regionsByStart: [Int: FoldableRegion] = [:]
+            for region in foldableRegions where NoteFolding.regions(hiding: region.headerRange.location, in: folded).isEmpty {
+                if regionsByStart[region.headerRange.location] == nil { regionsByStart[region.headerRange.location] = region }
+            }
+            foldLayoutCache = (foldableRegionsRevision, session.foldedKeys, folded, regionsByStart)
+            return (folded, regionsByStart)
+        }
+        private var foldLayoutCache: (revision: Int, foldedKeys: Set<String>, folded: [FoldableRegion], regionsByStart: [Int: FoldableRegion])?
         /// The text's length, the edit's location, and the folds before the edit under way,
         /// to carry folds across it.
         private var lengthBeforeEdit = 0
@@ -802,8 +888,8 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         private var placedColumnWidth: CGFloat = 0
         private var placementAfterWidthChange: DispatchWorkItem?
         /// A heading the view keeps at its top while rendered blocks above it settle their
-        /// heights, until the deadline or until the person scrolls.
-        private var pinnedHeading: (location: Int, deadline: TimeInterval)?
+        /// heights, until they have or until the person scrolls or starts editing.
+        private var pinnedHeading: HeadingJumpPin?
         /// Pastes and drops whose content is still loading or saving.
         private var pendingInsertionRequests = PendingInsertionRequests()
         /// The text revision the open suggestions were found at, and the revisions of accepted
@@ -1236,6 +1322,40 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             if textView.isFirstResponder { textView.reloadInputViews() }
         }
 
+        /// Replaces characters as one change that can be undone. Through the text view while
+        /// it has the keyboard; otherwise in its text storage, with the undo registered here:
+        /// `replace(_:withText:)` on a text view without the keyboard ran the system's smart
+        /// dashes over the whole note though they are off for it (iOS 27), so writing one cell
+        /// of a table turned every `---` of its delimiter row, and of the frontmatter, into `—`.
+        func replaceCharacters(in range: NSRange, with replacement: String, in textView: UITextView) {
+            guard NSMaxRange(range) <= textView.textStorage.length else { return }
+            if textView.isFirstResponder,
+               let start = textView.position(from: textView.beginningOfDocument, offset: range.location),
+               let end = textView.position(from: start, offset: range.length),
+               let textRange = textView.textRange(from: start, to: end) {
+                textView.replace(textRange, withText: replacement)
+                return
+            }
+            let replacedText = (textView.textStorage.string as NSString).substring(with: range)
+            let restoredRange = NSRange(location: range.location, length: (replacement as NSString).length)
+            // The undo manager does not keep its target alive, and can outlive this editor; the
+            // handler keeps its own token, and does nothing once the editor is gone.
+            let undoToken = UndoActionToken()
+            textView.undoManager?.registerUndo(withTarget: undoToken) { [weak self, weak textView, undoToken] _ in
+                withExtendedLifetime(undoToken) {}
+                guard let self, let textView else { return }
+                // Undoing registers the redo in turn.
+                self.isPerformingEdit = true
+                self.replaceCharacters(in: restoredRange, with: replacedText, in: textView)
+                self.isPerformingEdit = false
+                self.textViewDidChange(textView)
+            }
+            let attributes = textView.textStorage.length > 0
+                ? textView.textStorage.attributes(at: min(range.location, textView.textStorage.length - 1), effectiveRange: nil)
+                : textView.typingAttributes
+            textView.textStorage.replaceCharacters(in: range, with: NSAttributedString(string: replacement, attributes: attributes))
+        }
+
         /// Puts a new text in place by replacing only what differs, through the text view,
         /// so the change joins the undo history instead of clearing it, and the cursor
         /// stays on the same character.
@@ -1246,16 +1366,13 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                 lastSynchronizedText = newText
                 return
             }
-            guard let start = textView.position(from: textView.beginningOfDocument, offset: replacedRange.location),
-                  let end = textView.position(from: start, offset: replacedRange.length),
-                  let textRange = textView.textRange(from: start, to: end) else { return }
             let edit = CharacterEdit(editedRange: replacementRange, changeInLength: newSource.length - oldSource.length)
             let selection = TextRangeMapping.insertionTarget(textView.selectedRange, through: edit)
             // Text another app changed, adopted as Graphite comes back to the screen, must not
             // move the note under the reader, as an insertion does not (`apply(_:to:)`).
             let contentOffset = textView.contentOffset
             isPerformingEdit = true
-            textView.replace(textRange, withText: newSource.substring(with: replacementRange))
+            replaceCharacters(in: replacedRange, with: newSource.substring(with: replacementRange), in: textView)
             isPerformingEdit = false
             if NSMaxRange(selection) <= textView.textStorage.length { textView.selectedRange = selection }
             if let textLayoutManager = textView.textLayoutManager {
@@ -1291,12 +1408,9 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         func perform(_ edit: MarkdownTextEdit, in textView: UITextView) {
             let length = textView.textStorage.length
             guard NSMaxRange(edit.range) <= length else { return }
-            if edit.range.length > 0 || !edit.replacement.isEmpty,
-               let start = textView.position(from: textView.beginningOfDocument, offset: edit.range.location),
-               let end = textView.position(from: start, offset: edit.range.length),
-               let textRange = textView.textRange(from: start, to: end) {
+            if edit.range.length > 0 || !edit.replacement.isEmpty {
                 isPerformingEdit = true
-                textView.replace(textRange, withText: edit.replacement)
+                replaceCharacters(in: edit.range, with: edit.replacement, in: textView)
                 isPerformingEdit = false
             }
             if NSMaxRange(edit.selectionAfter) <= textView.textStorage.length { textView.selectedRange = edit.selectionAfter }
@@ -1470,6 +1584,8 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {
+            // The cursor is kept in sight from now on, not a heading jumped to.
+            pinnedHeading = nil
             actions.beginEditing?()
             isEditing = true
             session.isTyping = true
@@ -1524,9 +1640,14 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: placement)
         }
 
-        /// The system's edit menu, with community plugins' items for the cursor after it.
+        /// The Color, Format, Paragraph and Insert submenus; set by the editor.
+        var contextMenu: EditorContextMenuActions?
+
+        /// The system's edit menu, with Graphite's submenus and community plugins' items for
+        /// the cursor after it.
         func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
             var extraItems: [UIMenuElement] = []
+            if let contextMenu { extraItems += EditorContextMenuContent.menuElements(actions: contextMenu, editorActions: actions) }
             if let readAloudHooks {
                 extraItems.append(UIAction(title: "Read from Here", image: UIImage(systemName: "speaker.wave.2")) { _ in
                     readAloudHooks.readFromHere(range.location)
@@ -1704,8 +1825,8 @@ struct NativeMarkdownEditor: UIViewRepresentable {
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             guard let textView = scrollView as? MarkdownTextView else { return }
-            positionWidgets(in: textView)
-            positionFoldButtons(in: textView)
+            // The blocks and fold buttons are placed by the layout pass UIKit runs on every
+            // frame of a scroll (`didLayout`); placing them here as well did it twice a frame.
             if session.completion.context != nil { updateCompletion(in: textView) }
         }
 
@@ -1732,7 +1853,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
 
         /// The appearance is passed in: a hosted view does not inherit it from the text view.
         /// A tap on a block's view puts the cursor at the block's start, showing its source.
-        private func widgetRootView(for entry: LivePreviewBlockEntry, environment: LivePreviewEnvironment, textView: MarkdownTextView) -> AnyView {
+        private func widgetRootView(for entry: LivePreviewBlockEntry, environment: LivePreviewEnvironment, textView: MarkdownTextView) -> RenderedBlockRoot {
             let key = entry.key
             let isFrontmatter = entry.block.kind == .frontmatter
             return LivePreviewRenderedBlocks.rootView(for: entry, environment: environment, accentHex: configuration.accentHex,
@@ -1745,24 +1866,60 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             }, reportHeight: { [weak self, weak textView] height in
                 guard let self, let textView else { return }
                 self.styling.reserveMeasuredHeight(height, forBlockWithKey: key, isFrontmatter: isFrontmatter, in: textView)
-            })
+            }, sourceEditing: RenderedBlockSourceEditing(replaceSource: { [weak self, weak textView] editor, transform in
+                guard let self, let textView else { return }
+                self.replaceSource(ofBlockWithKey: key, editedBy: editor, using: transform, in: textView)
+            }, setIsEditingInView: { [weak self] isEditing, editor in
+                guard let self else { return }
+                if !isEditing { return self.renderedBlocks.endEditingInView(owner: editor) }
+                guard let entry = self.blockEntries.first(where: { candidate in candidate.key == key }) else { return }
+                self.renderedBlocks.beginEditingInView(blockWithKey: key, at: entry.range.location, owner: editor)
+            }))
+        }
+
+        /// Replaces a rendered block's source with what its view made of it, as a table's cell
+        /// editor does, through the text view so it can be undone. Mid-edit or during an input
+        /// method's composition, the change waits a turn.
+        func replaceSource(ofBlockWithKey key: LivePreviewBlockKey, editedBy editor: ObjectIdentifier, using transform: @escaping (String) -> String?,
+                           in textView: UITextView, attemptsLeft: Int = 3) {
+            guard canStyle(textView), textView.markedTextRange == nil else {
+                guard attemptsLeft > 0 else { return }
+                DispatchQueue.main.async { [weak self, weak textView] in
+                    guard let self, let textView else { return }
+                    self.replaceSource(ofBlockWithKey: key, editedBy: editor, using: transform, in: textView, attemptsLeft: attemptsLeft - 1)
+                }
+                return
+            }
+            let source = currentSource(of: textView)
+            guard let blockRange = renderedBlocks.rangeOfBlock(withKey: key, editedBy: editor, in: blockEntries, source: source),
+                  let replacement = transform(source.substring(with: blockRange)) else { return }
+            replaceText(with: source.replacingCharacters(in: blockRange, with: replacement), in: textView)
         }
 
         /// When rendered blocks settle their heights after TextKit laid out the viewport, the
         /// text below them moves down and the laid-out part can end above the bottom of the
-        /// view: lines there have no rendered blocks or fold chevrons until the next scroll.
-        /// The viewport is laid out once more then.
+        /// view. After a jump, UIKit lays the viewport out for the new offset only after this
+        /// pass, which found the lines laid out for the old one: they start below the top of
+        /// the view, and the blocks above them (a base just under the heading jumped to) were
+        /// never placed. Lines in such a gap have no rendered blocks or fold chevrons until
+        /// the next scroll, so the viewport is laid out once more then.
         func layOutViewportAgainIfShort(in textView: MarkdownTextView) {
             guard !isViewportRelayoutPending, let textLayoutManager = textView.textLayoutManager,
-                  let viewportRange = textLayoutManager.textViewportLayoutController.viewportRange,
-                  viewportRange.endLocation.compare(textLayoutManager.documentRange.endLocation) == .orderedAscending else { return }
+                  let viewportRange = textLayoutManager.textViewportLayoutController.viewportRange else { return }
+            var laidOutTop = CGFloat.greatestFiniteMagnitude
             var laidOutBottom: CGFloat = 0
             textLayoutManager.enumerateTextLayoutFragments(from: viewportRange.location, options: []) { fragment in
+                laidOutTop = min(laidOutTop, fragment.layoutFragmentFrame.minY)
                 laidOutBottom = max(laidOutBottom, fragment.layoutFragmentFrame.maxY)
                 return fragment.rangeInElement.location.compare(viewportRange.endLocation) == .orderedAscending
             }
-            let visibleBottom = textView.contentOffset.y + textView.bounds.height - textView.textContainerInset.top
-            guard laidOutBottom > 0, laidOutBottom < visibleBottom - 1 else { return }
+            let visibleTop = textView.contentOffset.y - textView.textContainerInset.top
+            let documentRange = textLayoutManager.documentRange
+            guard laidOutBottom > 0,
+                  ViewportLayoutCoverage.leavesVisibleTextUncovered(
+                      laidOutTop: laidOutTop, laidOutBottom: laidOutBottom, visibleTop: visibleTop, visibleBottom: visibleTop + textView.bounds.height,
+                      startsAtDocumentStart: viewportRange.location.compare(documentRange.location) != .orderedDescending,
+                      endsAtDocumentEnd: viewportRange.endLocation.compare(documentRange.endLocation) != .orderedAscending) else { return }
             isViewportRelayoutPending = true
             DispatchQueue.main.async { [weak self, weak textView] in
                 guard let self, let textView else { return }
@@ -1800,14 +1957,19 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             guard !previouslyFolded.isEmpty else { return false }
             let lengthChange = textView.textStorage.length - lengthBeforeEdit
             let editLocation = editLocationBeforeEdit
-            var keys = session.foldedKeys
-            var changed = false
-            for region in previouslyFolded where !foldableRegions.contains(where: { candidate in candidate.key == region.key }) {
-                keys.remove(region.key)
-                changed = true
+            // Every fold follows its header to where the edit moved it, whatever key the header
+            // has now: keys count headings of the same text, so a new "## Notes" typed above a
+            // folded one took its key, and the fold jumped to the other heading.
+            var keys = session.foldedKeys.subtracting(previouslyFolded.map(\.key))
+            for region in previouslyFolded {
                 let headerStart = region.headerRange.location + (editLocation < region.headerRange.location ? lengthChange : 0)
-                if let moved = foldableRegions.first(where: { candidate in candidate.headerRange.location == headerStart }) { keys.insert(moved.key) }
+                if let moved = foldableRegions.first(where: { candidate in candidate.headerRange.location == headerStart }) {
+                    keys.insert(moved.key)
+                } else if foldableRegions.contains(where: { candidate in candidate.key == region.key }) {
+                    keys.insert(region.key)
+                }
             }
+            var changed = keys != session.foldedKeys
             // A section that still folds but whose hidden text moved or changed needs restyling too.
             let stillFolded = NoteFolding.foldedRegions(in: foldableRegions, foldedKeys: keys)
             if stillFolded.map(\.hiddenRange) != previouslyFolded.map({ region in
@@ -1854,11 +2016,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                 removeFoldButtons()
                 return
             }
-            let folded = foldedRegions
-            var regionsByStart: [Int: FoldableRegion] = [:]
-            for region in foldableRegions where NoteFolding.regions(hiding: region.headerRange.location, in: folded).isEmpty {
-                if regionsByStart[region.headerRange.location] == nil { regionsByStart[region.headerRange.location] = region }
-            }
+            let regionsByStart = foldLayout.regionsByStart
             let source = currentSource(of: textView)
             let documentStart = contentStorage.documentRange.location
             var keysInUse = Set<String>()
@@ -1880,12 +2038,16 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                     let firstLineBounds = firstLine.typographicBounds
                     buttons.chevron.frame = CGRect(x: max(2, fragmentOrigin.x + textStartX - size - 4),
                                                    y: fragmentOrigin.y + firstLineBounds.minY + (firstLineBounds.height - size) / 2, width: size, height: size)
-                    buttons.chevron.setImage(UIImage(systemName: isFolded ? "chevron.right" : "chevron.down",
-                                                     withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)), for: .normal)
-                    buttons.chevron.alpha = isFolded ? 1 : 0.4
-                    let foldedText = header.trimmingCharacters(in: .whitespaces).drop { character in character == "#" }
+                    // Set when the fold or the header changes, not on every frame of a scroll.
+                    let chevronImage = isFolded ? Self.foldedChevron : Self.unfoldedChevron
+                    if buttons.chevron.image(for: .normal) !== chevronImage {
+                        buttons.chevron.setImage(chevronImage, for: .normal)
+                        buttons.chevron.alpha = isFolded ? 1 : 0.4
+                    }
+                    let headerText = header.trimmingCharacters(in: .whitespaces).drop { character in character == "#" }
                         .trimmingCharacters(in: .whitespaces)
-                    buttons.chevron.accessibilityLabel = isFolded ? "Unfold \(foldedText)" : "Fold \(foldedText)"
+                    let label = isFolded ? "Unfold \(headerText)" : "Fold \(headerText)"
+                    if buttons.chevron.accessibilityLabel != label { buttons.chevron.accessibilityLabel = label }
                     buttons.ellipsis.isHidden = !isFolded
                     if isFolded {
                         let lastLineBounds = lastLine.typographicBounds
@@ -1901,6 +2063,9 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                 foldButtons[key] = nil
             }
         }
+
+        private static let foldedChevron = UIImage(systemName: "chevron.right", withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold))
+        private static let unfoldedChevron = UIImage(systemName: "chevron.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold))
 
         private func makeFoldButtons(for key: String, in textView: UITextView) -> (chevron: UIButton, ellipsis: UIButton) {
             let toggle = UIAction { [weak self, weak textView] _ in
@@ -2003,11 +2168,9 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             let stateRange = NSRange(location: checkboxRange.location + 1, length: 1)
             guard NSMaxRange(stateRange) <= source.length else { return }
             let isChecked = source.substring(with: stateRange) != " "
-            guard let start = textView.position(from: textView.beginningOfDocument, offset: stateRange.location),
-                  let end = textView.position(from: start, offset: 1), let stateTextRange = textView.textRange(from: start, to: end) else { return }
             let selectedRange = textView.selectedRange
             isPerformingEdit = true
-            textView.replace(stateTextRange, withText: isChecked ? " " : "x")
+            replaceCharacters(in: stateRange, with: isChecked ? " " : "x", in: textView)
             isPerformingEdit = false
             textView.selectedRange = selectedRange
             if textState.cachesDescribeOldText || session.text != textView.text { textViewDidChange(textView) }
@@ -2114,25 +2277,36 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         }
 
         /// Corrects the offset while the blocks above a heading that was jumped to take their
-        /// measured heights. A heading near the end of the note stops where the note ends,
-        /// as the jump itself does.
+        /// measured heights, as long as `HeadingJumpPin` holds: while a block above has not
+        /// reported its height (a base loading its rows), and for a moment after the heading
+        /// last moved or such a block reported. A heading near the end of the note stops where the note ends, as the
+        /// jump itself does.
         private func keepPinnedHeadingAtTop(in textView: UITextView) {
-            guard let pinnedHeading else { return }
-            guard ProcessInfo.processInfo.systemUptime < pinnedHeading.deadline else {
-                self.pinnedHeading = nil
-                return
-            }
+            guard var pinnedHeading else { return }
+            let uptime = ProcessInfo.processInfo.systemUptime
+            let isBlockAboveAwaitingHeight = renderedBlocks.hasPlacedBlockAwaitingHeight(before: pinnedHeading.location, in: blockEntries)
+            let holds = pinnedHeading.holds(atUptime: uptime, isBlockAboveAwaitingHeight: isBlockAboveAwaitingHeight)
+            self.pinnedHeading = holds ? pinnedHeading : nil
+            guard holds else { return }
             guard let textLayoutManager = textView.textLayoutManager,
                   let contentStorage = textLayoutManager.textContentManager as? NSTextContentStorage,
                   let location = contentStorage.location(contentStorage.documentRange.location, offsetBy: pinnedHeading.location),
-                  let fragment = textLayoutManager.textLayoutFragment(for: location),
-                  // A heading's fragment that a restyle replaced has no frame until TextKit
-                  // lays it out again; a later pass corrects the offset.
-                  fragment.state == .layoutAvailable else { return }
+                  var fragment = textLayoutManager.textLayoutFragment(for: location) else { return }
+            // A heading's fragment that a restyle replaced has no frame until TextKit lays it
+            // out again, which it does only within the viewport. A block above that grew can
+            // leave the heading above the viewport, where no later pass would, so the text up
+            // to and including the heading is laid out here, as the jump does.
+            if fragment.state != .layoutAvailable {
+                guard let throughHeading = NSTextRange(location: contentStorage.documentRange.location, end: fragment.rangeInElement.endLocation) else { return }
+                textLayoutManager.ensureLayout(for: throughHeading)
+                guard let laidOutFragment = textLayoutManager.textLayoutFragment(for: location), laidOutFragment.state == .layoutAvailable else { return }
+                fragment = laidOutFragment
+            }
             let targetOffset = fragment.layoutFragmentFrame.minY + textView.textContainerInset.top - 12
             let clampedOffset = min(max(-textView.adjustedContentInset.top, targetOffset), maximumContentOffset(of: textView, layoutManager: textLayoutManager))
             if abs(textView.contentOffset.y - clampedOffset) > 1 {
                 textView.setContentOffset(CGPoint(x: textView.contentOffset.x, y: clampedOffset), animated: false)
+                self.pinnedHeading?.recordMove(atUptime: uptime)
             }
         }
 
@@ -2157,7 +2331,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         }
 
         func scrollToTop(of characterLocation: Int, in textView: UITextView) {
-            pinnedHeading = (characterLocation, ProcessInfo.processInfo.systemUptime + 1.5)
+            pinnedHeading = HeadingJumpPin(location: characterLocation, pinnedAtUptime: ProcessInfo.processInfo.systemUptime)
             guard let textLayoutManager = textView.textLayoutManager,
                   let contentStorage = textLayoutManager.textContentManager as? NSTextContentStorage,
                   let location = contentStorage.location(contentStorage.documentRange.location, offsetBy: characterLocation),
@@ -2190,6 +2364,8 @@ final class MarkdownMacTextView: NSTextView {
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = .width
+        // The find bar of "Search current file" shows above the note, inside the scroll view.
+        textView.usesFindBar = true
         textView.textContainer?.containerSize = CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.widthTracksTextView = true
         scrollView.documentView = textView
@@ -2231,6 +2407,9 @@ final class MarkdownMacTextView: NSTextView {
     var toggleTaskOnClick: ((_ characterIndex: Int) -> Bool)?
     /// Called when the view takes keyboard focus; set by the coordinator.
     var didBecomeFirstResponder: (() -> Void)?
+    /// Called when the view gives up keyboard focus, as when the file list takes it; set by
+    /// the coordinator.
+    var didResignFirstResponder: (() -> Void)?
     /// Control-scrolling or pinching the trackpad changes the vault's font size; nil when
     /// quick adjustment is off. Set by the coordinator.
     var quickFontSize: QuickFontSizeAdjustment?
@@ -2268,6 +2447,12 @@ final class MarkdownMacTextView: NSTextView {
         let didBecome = super.becomeFirstResponder()
         if didBecome { didBecomeFirstResponder?() }
         return didBecome
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let didResign = super.resignFirstResponder()
+        if didResign { didResignFirstResponder?() }
+        return didResign
     }
 
     override func viewDidMoveToWindow() {
@@ -2320,16 +2505,22 @@ final class MarkdownMacTextView: NSTextView {
     /// Offers a paste to community plugins that listen; true when one took it over.
     var offerPasteToPlugins: ((_ text: String?, _ html: String?) async -> Bool)?
 
+    /// The Color, Format, Paragraph and Insert submenus, built when the menu opens; set by the
+    /// pane's update, nil outside Source and Live Preview editing.
+    var contextMenuEntries: (() -> [EditorContextMenuEntry])?
+
     override func rightMouseDown(with event: NSEvent) {
+        // As in Obsidian, the menu is for where it was opened: a click outside the selection
+        // moves the cursor there first, so a menu item acts on the word clicked.
+        if pluginContextMenuItems != nil || contextMenuEntries != nil {
+            let characterIndex = characterIndexForInsertion(at: convert(event.locationInWindow, from: nil))
+            if !NSLocationInRange(characterIndex, selectedRange()) || selectedRange().length == 0 {
+                setSelectedRange(NSRange(location: characterIndex, length: 0))
+            }
+        }
         guard let pluginContextMenuItems else {
             super.rightMouseDown(with: event)
             return
-        }
-        // As in Obsidian, the menu is for where it was opened: a click outside the selection
-        // moves the cursor there first, so a plugin's item acts on the word clicked.
-        let characterIndex = characterIndexForInsertion(at: convert(event.locationInWindow, from: nil))
-        if !NSLocationInRange(characterIndex, selectedRange()) || selectedRange().length == 0 {
-            setSelectedRange(NSRange(location: characterIndex, length: 0))
         }
         Task { @MainActor [weak self] in
             let items = await pluginContextMenuItems()
@@ -2345,7 +2536,12 @@ final class MarkdownMacTextView: NSTextView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        let menu = super.menu(for: event)
+        var menu = super.menu(for: event)
+        if let contextMenuEntries {
+            let editorMenu = menu ?? NSMenu()
+            editorMenu.insertEditorContextMenuEntries(contextMenuEntries())
+            menu = editorMenu
+        }
         guard !pendingPluginMenuItems.isEmpty else { return menu }
         let pluginsMenu = menu ?? NSMenu()
         pluginsMenu.addItem(.separator())
@@ -2358,12 +2554,27 @@ final class MarkdownMacTextView: NSTextView {
         // Text plugins may take over (Link or Card makes a card of an address); the text is
         // pasted as usual when none does.
         let pasteboard = NSPasteboard.general
+        // A web address pasted over selected text links the text to it, as in Obsidian.
+        if selectedRange().length > 0, let pastedText = pasteboard.string(forType: .string),
+           let edit = MarkdownEditing.linkingSelection(to: pastedText, in: string as NSString, selection: selectedRange()) {
+            if shouldChangeText(in: edit.range, replacementString: edit.replacement) {
+                replaceCharacters(in: edit.range, with: edit.replacement)
+                didChangeText()
+                setSelectedRange(edit.selectionAfter)
+            }
+            return
+        }
         if let offerPasteToPlugins, let text = pasteboard.string(forType: .string) {
             let html = pasteboard.string(forType: .html)
             let pastedRange = selectedRange()
+            let textWhenPasted = string
             Task { @MainActor [weak self] in
                 let isTakenOver = await offerPasteToPlugins(text, html)
                 guard let self, !isTakenOver else { return }
+                // The range was the selection's before the plugins answered: a note changed
+                // meanwhile takes the text at its selection now. A note made shorter raised
+                // an exception, and a longer one received the text at the wrong place.
+                let pastedRange = self.string == textWhenPasted ? pastedRange : self.selectedRange()
                 if self.shouldChangeText(in: pastedRange, replacementString: text) {
                     self.replaceCharacters(in: pastedRange, with: text)
                     self.didChangeText()
@@ -2510,6 +2721,8 @@ struct NativeMarkdownEditor: NSViewRepresentable {
     var suspendReadingFollow: (() -> Void)?
     /// What Live Preview's rendered blocks read.
     let environment: LivePreviewEnvironment?
+    /// The Color, Format, Paragraph and Insert submenus of the context menu; see `EditorContextMenuContent`.
+    var contextMenu: EditorContextMenuActions?
 
     /// The Mac has no keyboard toolbar: of `actions`, it uses pasting, dropping, following
     /// links elsewhere, and focusing the note's side.
@@ -2517,7 +2730,9 @@ struct NativeMarkdownEditor: NSViewRepresentable {
          headingScrollRequest: HeadingScrollRequest?, actions: EditorActions = EditorActions(),
          retention: MarkdownEditorRetention? = nil, retentionOwner: TabDocument? = nil, readAloudRange: NSRange? = nil,
          followsReading: Bool = false, suspendReadingFollow: (() -> Void)? = nil,
-         readAloudHooks: ReadAloudEditorHooks? = nil, follow: @escaping (String, Bool) -> Void) {
+         readAloudHooks: ReadAloudEditorHooks? = nil, contextMenu: EditorContextMenuActions? = nil,
+         follow: @escaping (String, Bool) -> Void) {
+        self.contextMenu = contextMenu
         self.session = session
         self.configuration = configuration
         self.headingScrollRequest = headingScrollRequest
@@ -2581,6 +2796,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         textView.updateDragTypeRegistration()
         if let savedScrollLocation = session.savedScrollLocation { coordinator.pendingJump = .topOfCharacter(savedScrollLocation) }
         session.isEditorAttached = true
+        coordinator.reportPlace(of: textView)
         session.undoAvailability.follow(coordinator.noteUndoManager)
         coordinator.restyleEverything(in: textView)
         coordinator.keepSelectionOutOfConcealedProperties(in: textView)
@@ -2613,6 +2829,10 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             await coordinator?.actions.pluginContextMenuItems?() ?? []
         }
         (textView as? MarkdownMacTextView)?.offerPasteToPlugins = coordinator.actions.pluginPaste
+        let editorActions = actions
+        (textView as? MarkdownMacTextView)?.contextMenuEntries = contextMenu.map { menuActions in
+            { EditorContextMenuContent.entries(actions: menuActions, editorActions: editorActions) }
+        }
         let previousBlockPolicy = coordinator.renderedBlockPolicy
         let hasNewConfiguration = coordinator.configuration != configuration
         coordinator.configuration = configuration
@@ -2638,6 +2858,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
                 coordinator.pendingJump = .heading(anchor: headingScrollRequest.anchor, occurrence: headingScrollRequest.occurrence)
             }
         }
+        coordinator.serveSessionRequests(in: textView)
         coordinator.performPendingJumpIfReady(in: textView)
         if followsReading { (textView as? MarkdownMacTextView)?.followReadingRange() }
     }
@@ -2709,6 +2930,8 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             // The properties show their YAML after "Edit Source", as Obsidian keeps them above the note.
             styling = MarkdownEditorStyling(configuration: configuration, propertiesSource: .afterEditSource(isShown: false), detachedViewsBudgetMegabytes: 64)
             super.init()
+            // Until the note has keyboard focus; see `followKeyboardFocus`.
+            styling.revealsMarkupAtSelection = false
             styling.didRestyle = { [weak self] restyledTextView in
                 guard let self, let textView = restyledTextView as? NSTextView else { return }
                 self.schedulePlacement(in: textView)
@@ -2764,17 +2987,25 @@ struct NativeMarkdownEditor: NSViewRepresentable {
                 if textView.window?.firstResponder === textView { textView.window?.makeFirstResponder(nil) }
                 recordScrollLocation(of: textView)
             }
+            session.recordEditorPlace = nil
             scrollView.removeFromSuperview()
             session.undoAvailability.follow(nil)
         }
 
         func resume(_ scrollView: NSScrollView) {
-            if let textView = scrollView.documentView as? NSTextView { observeCharacterEdits(in: textView) }
+            if let textView = scrollView.documentView as? NSTextView {
+                observeCharacterEdits(in: textView)
+                reportPlace(of: textView)
+            }
             session.isEditorAttached = true
             session.undoAvailability.follow(noteUndoManager)
         }
 
         func discardRetainedEditor() {
+            // Blocks' views are taken out of the text view first: one still in it when the
+            // text view goes stays registered with AppKit's notification center, and keeps
+            // its environment, the note's session and the workspace's closures with it.
+            styling.renderedBlocks.removeAllViews()
             scrollView?.removeFromSuperview()
             scrollView = nil
         }
@@ -2799,7 +3030,18 @@ struct NativeMarkdownEditor: NSViewRepresentable {
                 guard let self, let textView else { return false }
                 return self.followLink(atCharacter: characterIndex, modifierFlags: modifierFlags, in: textView)
             }
-            textView.didBecomeFirstResponder = { [weak self] in self?.actions.beginEditing?() }
+            // Markup and a block's source show at the cursor only while the note has keyboard
+            // focus, as on the iPad: a note opened from the file list, its cursor at the start,
+            // showed the callout or table there as source until a click in the note.
+            textView.didBecomeFirstResponder = { [weak self, weak textView] in
+                guard let self, let textView else { return }
+                self.actions.beginEditing?()
+                self.followKeyboardFocus(true, in: textView)
+            }
+            textView.didResignFirstResponder = { [weak self, weak textView] in
+                guard let self, let textView else { return }
+                self.followKeyboardFocus(false, in: textView)
+            }
             textView.toggleTaskOnClick = { [weak self, weak textView] characterIndex in
                 guard let self, let textView else { return false }
                 return self.toggleTask(atCharacter: characterIndex, in: textView)
@@ -2878,6 +3120,14 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             // Plugins hear the note change as in Obsidian's editor (`editor-change`). The
             // Mac shows no suggestions list, so suggestions plugins answer go unused.
             _ = actions.pluginEditorDidChange?()
+        }
+
+        /// Shows the markup at the cursor once the note has keyboard focus, and hides it, the
+        /// blocks drawn again, once it has not.
+        private func followKeyboardFocus(_ hasKeyboardFocus: Bool, in textView: NSTextView) {
+            guard styling.revealsMarkupAtSelection != hasKeyboardFocus else { return }
+            styling.revealsMarkupAtSelection = hasKeyboardFocus
+            styling.restyleRevealedMarkup(in: textView)
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
@@ -3142,7 +3392,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
 
         /// The hosted view takes the appearance from the text view it is in. A click on a
         /// block's view shows its source; on the properties, "Edit Source" does.
-        private func blockRootView(for entry: LivePreviewBlockEntry, environment: LivePreviewEnvironment, textView: NSTextView) -> AnyView {
+        private func blockRootView(for entry: LivePreviewBlockEntry, environment: LivePreviewEnvironment, textView: NSTextView) -> RenderedBlockRoot {
             let key = entry.key
             let isFrontmatter = entry.block.kind == .frontmatter
             return LivePreviewRenderedBlocks.rootView(for: entry, environment: environment, accentHex: configuration.accentHex, colorScheme: nil, revealSource: { [weak self, weak textView] in
@@ -3154,7 +3404,34 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             }, reportHeight: { [weak self, weak textView] height in
                 guard let self, let textView else { return }
                 self.styling.reserveMeasuredHeight(height, forBlockWithKey: key, isFrontmatter: isFrontmatter, in: textView)
-            })
+            }, sourceEditing: RenderedBlockSourceEditing(replaceSource: { [weak self, weak textView] editor, transform in
+                guard let self, let textView else { return }
+                self.replaceSource(ofBlockWithKey: key, editedBy: editor, using: transform, in: textView)
+            }, setIsEditingInView: { [weak self] isEditing, editor in
+                guard let self else { return }
+                if !isEditing { return self.renderedBlocks.endEditingInView(owner: editor) }
+                guard let entry = self.textState.blockEntries.first(where: { candidate in candidate.key == key }) else { return }
+                self.renderedBlocks.beginEditingInView(blockWithKey: key, at: entry.range.location, owner: editor)
+            }))
+        }
+
+        /// Replaces a rendered block's source with what its view made of it, as a table's cell
+        /// editor does, through the text view so it can be undone. Mid-edit or during an input
+        /// method's composition, the change waits a turn.
+        func replaceSource(ofBlockWithKey key: LivePreviewBlockKey, editedBy editor: ObjectIdentifier, using transform: @escaping (String) -> String?,
+                           in textView: NSTextView, attemptsLeft: Int = 3) {
+            guard !textView.hasMarkedText(), !textState.cachesDescribeOldText else {
+                guard attemptsLeft > 0 else { return }
+                DispatchQueue.main.async { [weak self, weak textView] in
+                    guard let self, let textView else { return }
+                    self.replaceSource(ofBlockWithKey: key, editedBy: editor, using: transform, in: textView, attemptsLeft: attemptsLeft - 1)
+                }
+                return
+            }
+            let source = currentSource(of: textView)
+            guard let blockRange = renderedBlocks.rangeOfBlock(withKey: key, editedBy: editor, in: textState.blockEntries, source: source),
+                  let replacement = transform(source.substring(with: blockRange)) else { return }
+            replaceText(with: source.replacingCharacters(in: blockRange, with: replacement), in: textView)
         }
 
         // MARK: Drawn replacements and tasks
@@ -3219,6 +3496,43 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             return link
         }
 
+        // MARK: Session requests
+
+        /// Answers what the session asks of the editor on screen, as the iPad editor does.
+        func serveSessionRequests(in textView: NSTextView) {
+            goToReadingPlaceIfSwitched(in: textView)
+            presentFindIfRequested(in: textView)
+        }
+
+        /// After the note switched from reading, shows the line that was at the top of the
+        /// reading view: a kept editor would otherwise stay where it was itself.
+        private func goToReadingPlaceIfSwitched(in textView: NSTextView) {
+            guard textView.window != nil, let location = session.takeEditingStartLocation() else { return }
+            // The note's start is the top of the view.
+            guard location > 0 else {
+                pendingJump = nil
+                textView.scroll(NSPoint(x: 0, y: 0))
+                return
+            }
+            pendingJump = .topOfCharacter(location)
+            performPendingJumpIfReady(in: textView)
+        }
+
+        /// Opens the find bar the command palette asked for, once the editor is on screen.
+        private func presentFindIfRequested(in textView: NSTextView) {
+            guard session.findRequest != nil, textView.window != nil else { return }
+            // After the update: showing the bar during one would re-enter SwiftUI.
+            DispatchQueue.main.async { [weak self, weak textView] in
+                guard let self, let textView, let window = textView.window, let request = self.session.findRequest else { return }
+                self.session.findRequest = nil
+                window.makeFirstResponder(textView)
+                let action: NSTextFinder.Action = request == .findAndReplace ? .showReplaceInterface : .showFindInterface
+                let sender = NSMenuItem()
+                sender.tag = action.rawValue
+                textView.performTextFinderAction(sender)
+            }
+        }
+
         // MARK: Jumps
 
         /// Makes the pending jump once the view is in a window and has a width.
@@ -3255,6 +3569,19 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             textView.scroll(NSPoint(x: 0, y: max(0, fragment.layoutFragmentFrame.minY + textView.textContainerOrigin.y - 12)))
         }
 
+        /// Lets the session ask where the editor is, as a tab closes or Graphite leaves the
+        /// screen, while the editor shows the note. A pending jump has not landed yet, and is
+        /// the place.
+        func reportPlace(of textView: NSTextView) {
+            session.recordEditorPlace = { [weak self, weak textView] in
+                guard let self, let textView, textView.window != nil, self.pendingJump == nil else { return }
+                self.recordScrollLocation(of: textView)
+            }
+        }
+
+        /// How far, in points, the clip view's alignment to device pixels can move a scroll position.
+        private static let scrollAlignmentAllowance: CGFloat = 1
+
         /// Remembers the character at the top of the view in the session.
         func recordScrollLocation(of textView: NSTextView) {
             let visibleTop = textView.visibleRect.minY
@@ -3262,8 +3589,12 @@ struct NativeMarkdownEditor: NSViewRepresentable {
                 session.savedScrollLocation = nil
                 return
             }
+            // `scrollToTop` puts a line 12 points below the top, but the clip view then aligns its
+            // origin to whole device pixels: up to a point earlier on a display of one pixel to the
+            // point, which would put the probe in the line above. The allowance keeps it in the line.
+            let probeY = visibleTop + 12 + Self.scrollAlignmentAllowance - textView.textContainerOrigin.y
             guard let textLayoutManager = textView.textLayoutManager, let contentManager = textLayoutManager.textContentManager,
-                  let fragment = textLayoutManager.textLayoutFragment(for: CGPoint(x: 0, y: visibleTop + 12 - textView.textContainerOrigin.y)) else { return }
+                  let fragment = textLayoutManager.textLayoutFragment(for: CGPoint(x: 0, y: probeY)) else { return }
             session.savedScrollLocation = contentManager.offset(from: contentManager.documentRange.location, to: fragment.rangeInElement.location)
         }
     }

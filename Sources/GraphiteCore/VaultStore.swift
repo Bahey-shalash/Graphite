@@ -106,6 +106,12 @@ public actor VaultStore {
         FileManager.default.fileExists(atPath: try path.url(in: root).path)
     }
 
+    /// Whether a file, not a folder, is at `path`: what a link names.
+    public func regularFileExists(_ path: VaultPath) throws -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: try path.url(in: root).path, isDirectory: &isDirectory) && !isDirectory.boolValue
+    }
+
     public func settings() throws -> ObsidianSettings {
         let url = try VaultPath(Self.applicationConfigurationPath).url(in: root)
         let settings = FileManager.default.fileExists(atPath: url.path)
@@ -168,7 +174,8 @@ public actor VaultStore {
         }
     }
 
-    /// Obsidian's bookmarks (`.obsidian/bookmarks.json`); none when missing.
+    /// Obsidian's bookmarks (`.obsidian/bookmarks.json`); none when missing, an error when
+    /// the file exists and cannot be read.
     public func bookmarks() throws -> BookmarkList {
         try BookmarkList(configurationData: configurationData(at: BookmarkList.configurationPath))
     }
@@ -179,7 +186,7 @@ public actor VaultStore {
     public func updateBookmarks(_ change: (inout BookmarkList) -> Void) throws -> BookmarkList {
         var updated = BookmarkList()
         // A vault without bookmarks gets a file only once there is one to keep.
-        if configurationData(at: BookmarkList.configurationPath) == nil {
+        if try configurationData(at: BookmarkList.configurationPath) == nil {
             change(&updated)
             if updated.items.isEmpty { return updated }
             updated = BookmarkList()
@@ -195,18 +202,20 @@ public actor VaultStore {
         return updated
     }
 
-    /// Obsidian's Templates settings (`.obsidian/templates.json`); defaults when missing.
-    public func templateSettings() -> TemplateSettings {
-        TemplateSettings(configurationData: configurationData(at: TemplateSettings.configurationPath))
+    /// Obsidian's Templates settings (`.obsidian/templates.json`); defaults when missing, an
+    /// error when the file exists and cannot be read.
+    public func templateSettings() throws -> TemplateSettings {
+        try TemplateSettings(configurationData: configurationData(at: TemplateSettings.configurationPath))
     }
 
     public func saveTemplateSettings(_ settings: TemplateSettings) throws {
         try saveConfiguration(at: TemplateSettings.configurationPath) { existingData in try settings.mergedConfigurationData(existingData: existingData) }
     }
 
-    /// Obsidian's Daily notes settings (`.obsidian/daily-notes.json`); defaults when missing.
-    public func dailyNoteSettings() -> DailyNoteSettings {
-        DailyNoteSettings(configurationData: configurationData(at: DailyNoteSettings.configurationPath))
+    /// Obsidian's Daily notes settings (`.obsidian/daily-notes.json`); defaults when missing,
+    /// an error when the file exists and cannot be read.
+    public func dailyNoteSettings() throws -> DailyNoteSettings {
+        try DailyNoteSettings(configurationData: configurationData(at: DailyNoteSettings.configurationPath))
     }
 
     public func saveDailyNoteSettings(_ settings: DailyNoteSettings) throws {
@@ -245,9 +254,12 @@ public actor VaultStore {
     }
 
     /// Internal so other Obsidian settings files in Core (community plugins) read the same way.
-    func configurationData(at relativePath: String) -> Data? {
-        guard let url = try? VaultPath(relativePath).url(in: root), FileManager.default.fileExists(atPath: url.path) else { return nil }
-        return try? writer.read(url, maximumBytes: Self.maximumConfigurationBytes).data
+    /// Nil only when the file does not exist: a file that is too large or cannot be read
+    /// throws, so a settings screen never shows an unreadable file as an empty one.
+    func configurationData(at relativePath: String) throws -> Data? {
+        let url = try VaultPath(relativePath).url(in: root)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return try writer.read(url, maximumBytes: Self.maximumConfigurationBytes).data
     }
 
     /// Rewrites an Obsidian settings file with `merge`, failing instead of overwriting

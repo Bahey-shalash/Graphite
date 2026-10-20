@@ -54,16 +54,58 @@ public struct CommunityPluginManifest: Equatable, Sendable {
     }
 }
 
-/// Compares Obsidian version numbers (`1.4.10` after `1.4.9`), part by part.
+/// Compares Obsidian version numbers (`1.4.10` after `1.4.9`), part by part, as semantic
+/// versions: a leading `v` is ignored, and a pre-release (`1.2.0-beta.3`) comes before
+/// its release, so an update never installs a beta in place of the stable version.
 public enum ObsidianVersionNumber {
     public static func compare(_ firstVersion: String, _ secondVersion: String) -> ComparisonResult {
-        let firstParts = firstVersion.split(separator: ".").map { part in Int(part.prefix { character in character.isNumber }) ?? 0 }
-        let secondParts = secondVersion.split(separator: ".").map { part in Int(part.prefix { character in character.isNumber }) ?? 0 }
-        for partIndex in 0..<max(firstParts.count, secondParts.count) {
-            let firstPart = partIndex < firstParts.count ? firstParts[partIndex] : 0
-            let secondPart = partIndex < secondParts.count ? secondParts[partIndex] : 0
+        let first = Parsed(firstVersion), second = Parsed(secondVersion)
+        for partIndex in 0..<max(first.numbers.count, second.numbers.count) {
+            let firstPart = partIndex < first.numbers.count ? first.numbers[partIndex] : 0
+            let secondPart = partIndex < second.numbers.count ? second.numbers[partIndex] : 0
             if firstPart != secondPart { return firstPart < secondPart ? .orderedAscending : .orderedDescending }
         }
-        return .orderedSame
+        switch (first.preRelease, second.preRelease) {
+        case (nil, nil): return .orderedSame
+        case (nil, _): return .orderedDescending
+        case (_, nil): return .orderedAscending
+        case (let firstLabel?, let secondLabel?): return comparePreReleases(firstLabel, secondLabel)
+        }
+    }
+
+    /// The numbers before any `-` or `+`, and the pre-release label after a `-`.
+    private struct Parsed {
+        let numbers: [Int]
+        let preRelease: String?
+
+        init(_ version: String) {
+            var text = Substring(version.trimmingCharacters(in: .whitespaces))
+            if text.first == "v" || text.first == "V" { text = text.dropFirst() }
+            if let buildStart = text.firstIndex(of: "+") { text = text[..<buildStart] }
+            var core = text
+            var label: String?
+            if let labelStart = text.firstIndex(of: "-") {
+                core = text[..<labelStart]
+                label = String(text[text.index(after: labelStart)...])
+            }
+            numbers = core.split(separator: ".").map { part in Int(part.prefix { character in character.isASCII && character.isNumber }) ?? 0 }
+            preRelease = label
+        }
+    }
+
+    /// Semantic versioning's order for pre-release labels: numeric identifiers by value,
+    /// below alphanumeric ones, and a shorter list of identifiers first when the rest match.
+    private static func comparePreReleases(_ firstLabel: String, _ secondLabel: String) -> ComparisonResult {
+        let firstIdentifiers = firstLabel.split(separator: "."), secondIdentifiers = secondLabel.split(separator: ".")
+        for (firstIdentifier, secondIdentifier) in zip(firstIdentifiers, secondIdentifiers) where firstIdentifier != secondIdentifier {
+            switch (Int(firstIdentifier), Int(secondIdentifier)) {
+            case (let firstNumber?, let secondNumber?): return firstNumber < secondNumber ? .orderedAscending : .orderedDescending
+            case (_?, nil): return .orderedAscending
+            case (nil, _?): return .orderedDescending
+            case (nil, nil): return firstIdentifier < secondIdentifier ? .orderedAscending : .orderedDescending
+            }
+        }
+        if firstIdentifiers.count == secondIdentifiers.count { return .orderedSame }
+        return firstIdentifiers.count < secondIdentifiers.count ? .orderedAscending : .orderedDescending
     }
 }

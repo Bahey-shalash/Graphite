@@ -1,5 +1,6 @@
 import XCTest
 @testable import GraphiteCore
+import GraphiteTestSupport
 
 final class ObsidianAppearanceTests: XCTestCase {
     /// The owner's own `Vault/.obsidian/appearance.json`, as Obsidian 1.x wrote it.
@@ -155,9 +156,7 @@ final class ObsidianAppearanceTests: XCTestCase {
     }
 
     func testTheStoreReadsAndWritesTheVaultsFileAtomically() async throws {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("Vault-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: vault) }
+        let vault = try TemporaryVault.make(prefix: "Vault", for: self).root
         let store = VaultStore(root: vault)
         let initialAppearance = try await store.appearance()
         XCTAssertEqual(initialAppearance, ObsidianAppearance(), "A vault without the file has Obsidian's defaults.")
@@ -214,12 +213,11 @@ final class ObsidianAppearanceTests: XCTestCase {
     }
 
     func testTheStoreListsThemesAndSnippetsAndReadsTheirCSS() async throws {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("Vault-\(UUID().uuidString)")
+        let vault = try TemporaryVault.make(prefix: "Vault", for: self).root
         let themes = vault.appendingPathComponent(".obsidian/themes"), snippets = vault.appendingPathComponent(".obsidian/snippets")
         try FileManager.default.createDirectory(at: themes.appendingPathComponent("Minimal"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: themes.appendingPathComponent("Empty"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: snippets, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: vault) }
         try Data("body { --background-primary: #fff; }".utf8).write(to: themes.appendingPathComponent("Minimal/theme.css"))
         try Data("blockquote { border: 1px solid; }".utf8).write(to: snippets.appendingPathComponent("latex-boxes.css"))
         try Data("not css".utf8).write(to: snippets.appendingPathComponent("notes.txt"))

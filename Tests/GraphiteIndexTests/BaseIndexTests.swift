@@ -1,21 +1,17 @@
 import XCTest
 import GraphiteCore
 @testable import GraphiteIndex
+import GraphiteTestSupport
 
 final class BaseIndexTests: XCTestCase {
     private var vault: URL!
     private var index: VaultIndex!
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("BaseVault-\(UUID().uuidString)")
+        vault = try TemporaryVault.make(prefix: "BaseVault", for: self).root
         try FileManager.default.createDirectory(at: vault.appendingPathComponent("Courses/EE330"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: vault.appendingPathComponent("Places"), withIntermediateDirectories: true)
         index = try VaultIndex(databaseURL: vault.appendingPathExtension("cache").appendingPathComponent("index.sqlite"))
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: vault)
-        try? FileManager.default.removeItem(at: vault.appendingPathExtension("cache"))
     }
 
     private func write(_ text: String, to relativePath: String) throws {

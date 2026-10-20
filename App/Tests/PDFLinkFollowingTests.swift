@@ -98,7 +98,7 @@ final class PDFLinkFollowingTests: XCTestCase {
         let noteTab = try await openTab("Lecture.md", in: workspace, placement: .newTab)
         let controller = try host(workspace)
         let editor = try await editor(in: controller)
-        try await waitUntil(seconds: 10) { self.firstResponder(in: editor) != nil }
+        try await waitUntil(timeoutSeconds: 10) { self.firstResponder(in: editor) != nil }
         touch(editor, at: editor.convert(CGPoint(x: editor.bounds.midX, y: 60), to: nil))
 
         workspace.activateTab(noteTab)
@@ -227,7 +227,7 @@ final class PDFLinkFollowingTests: XCTestCase {
     /// The first accessibility element on screen that satisfies `matches`, once there is one.
     private func element(in controller: UIViewController, matching matches: @escaping (NSObject) -> Bool) async throws -> NSObject {
         var found: NSObject?
-        try await waitUntil(seconds: 10) {
+        try await waitUntil(timeoutSeconds: 10) {
             found = self.accessibilityElements(in: controller.view).first(where: matches)
             return found != nil
         }
@@ -258,11 +258,6 @@ final class PDFLinkFollowingTests: XCTestCase {
         add(attachment)
     }
 
-    private func waitUntil(seconds: TimeInterval = 5, _ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(seconds)
-        while !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(25)) }
-        XCTAssertTrue(condition(), "The hosted workspace did not reach the expected state.")
-    }
 }
 /// An event of a touch, as UIKit passes to hit-testing when a finger comes down.
 private final class TouchEvent: UIEvent {

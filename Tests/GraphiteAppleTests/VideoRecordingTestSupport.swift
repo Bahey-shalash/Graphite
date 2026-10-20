@@ -1,4 +1,5 @@
 import Foundation
+import XCTest
 import AVFoundation
 import CoreMedia
 import CoreVideo
@@ -114,7 +115,7 @@ final class SyntheticCaptureSource: VideoCaptureSource, @unchecked Sendable {
     func deliver(seconds: Double) async {
         let frameCount = Int((seconds * Double(Self.framesPerSecond)).rounded())
         for _ in 0..<frameCount { deliverOneFrame() }
-        await waitUntilDelivered()
+        await awaitDelivery()
     }
 
     /// Lets time pass without delivering anything.
@@ -130,7 +131,7 @@ final class SyntheticCaptureSource: VideoCaptureSource, @unchecked Sendable {
     func interrupt(_ reason: CaptureInterruptionReason) async {
         let delivery = lock.withLock { isInterrupted = true; return self.delivery }
         delivery?.queue.async { delivery?.events(.interrupted(reason)) }
-        await waitUntilDelivered()
+        await awaitDelivery()
     }
 
     /// The system gives the camera back. `resuming: false` is a system that leaves
@@ -138,7 +139,7 @@ final class SyntheticCaptureSource: VideoCaptureSource, @unchecked Sendable {
     func endInterruption(resuming: Bool = true) async {
         let delivery = lock.withLock { if resuming { isInterrupted = false }; return self.delivery }
         delivery?.queue.async { delivery?.events(.interruptionEnded) }
-        await waitUntilDelivered()
+        await awaitDelivery()
     }
 
     func failResuming(with problem: (any Error)?) {
@@ -158,7 +159,7 @@ final class SyntheticCaptureSource: VideoCaptureSource, @unchecked Sendable {
         }
     }
 
-    private func waitUntilDelivered() async {
+    private func awaitDelivery() async {
         guard let queue = lock.withLock({ delivery?.queue }) else { return }
         await withCheckedContinuation { continuation in queue.async { continuation.resume() } }
     }
@@ -287,14 +288,14 @@ struct MovieInspection {
         inspection.isPlayable = try await asset.load(.isPlayable)
         inspection.containsFragments = try await asset.load(.containsFragments)
         let reader = try AVAssetReader(asset: asset)
-        var videoOutput: AVAssetReaderTrackOutput?
-        var audioOutput: AVAssetReaderTrackOutput?
+        var videoSamples: AVAssetReaderOutput.Provider<CMReadySampleBuffer<CMSampleBuffer.DynamicContent>>?
+        var audioSamples: AVAssetReaderOutput.Provider<CMReadySampleBuffer<CMSampleBuffer.DynamicContent>>?
         if let videoTrack = try await asset.loadTracks(withMediaType: .video).first {
             let size = try await videoTrack.load(.naturalSize)
             inspection.videoWidth = Int(size.width); inspection.videoHeight = Int(size.height)
             inspection.videoCodec = try await codecName(of: videoTrack)
             let output = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
-            reader.add(output); videoOutput = output
+            videoSamples = reader.outputProvider(for: output)
         }
         if let audioTrack = try await asset.loadTracks(withMediaType: .audio).first {
             inspection.audioCodec = try await codecName(of: audioTrack)
@@ -304,15 +305,16 @@ struct MovieInspection {
                 inspection.audioChannelCount = Int(streamDescription.mChannelsPerFrame)
             }
             let output = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: [AVFormatIDKey: kAudioFormatLinearPCM])
-            reader.add(output); audioOutput = output
+            audioSamples = reader.outputProvider(for: output)
         }
-        guard reader.startReading() else { throw reader.error ?? GraphiteError.invalidFile("The reader could not start.") }
+        try reader.start()
         var previousFrameSeconds: Double?
-        while let frame = videoOutput?.copyNextSampleBuffer() {
+        while let frame = try await videoSamples?.next() {
             let frameSeconds = frame.presentationTimeStamp.seconds
             if let previousFrameSeconds { inspection.longestSecondsBetweenFrames = max(inspection.longestSecondsBetweenFrames, frameSeconds - previousFrameSeconds) }
             previousFrameSeconds = frameSeconds
-            if let pixelBuffer = frame.imageBuffer {
+            frame.withUnsafeSampleBuffer { sampleBuffer in
+                guard let pixelBuffer = sampleBuffer.imageBuffer else { return }
                 let width = CVPixelBufferGetWidth(pixelBuffer), height = CVPixelBufferGetHeight(pixelBuffer)
                 if inspection.decodedFrameCount == 0 { inspection.firstFrameColor = color(in: pixelBuffer, column: width / 2, row: height - 8) }
                 inspection.lastFrameColor = color(in: pixelBuffer, column: width / 2, row: height - 8)
@@ -320,7 +322,9 @@ struct MovieInspection {
             }
             inspection.decodedFrameCount += 1
         }
-        while let sound = audioOutput?.copyNextSampleBuffer() { inspection.decodedAudioSampleCount += sound.numSamples }
+        while let sound = try await audioSamples?.next() {
+            inspection.decodedAudioSampleCount += sound.withUnsafeSampleBuffer { sampleBuffer in sampleBuffer.numSamples }
+        }
         guard reader.status == .completed else { throw reader.error ?? GraphiteError.invalidFile("The reader did not reach the end of the file.") }
         return inspection
     }

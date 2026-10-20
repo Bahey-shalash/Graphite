@@ -73,10 +73,13 @@ extension WorkspaceModel {
                 return
             }
             let snapshot = try await store.read(source, maximumBytes: MarkdownSession.maximumEditableBytes)
-            guard let text = String(data: snapshot.data, encoding: .utf8), Self.mentionIsStill(at: range, in: text, matching: match) else { throw Self.mentionChanged }
+            // Read and written as a note is: a byte order mark is neither counted in the
+            // mention's place nor dropped from the file.
+            guard let decoded = NoteTextEncoding.decode(snapshot.data), Self.mentionIsStill(at: range, in: decoded.text, matching: match) else { throw Self.mentionChanged }
+            let text = decoded.text
             let edit = Mentions.linkingEdit(mention: range, in: text, linkTarget: linkTarget, usesWikilinks: settings.usesWikilinks, markdownDestination: destination)
             let updated = (text as NSString).replacingCharacters(in: edit.range, with: edit.replacement)
-            _ = try await store.save(Data(updated.utf8), at: source, expecting: .revision(snapshot.revision))
+            _ = try await store.save(NoteTextEncoding.encode(updated, hasByteOrderMark: decoded.hasByteOrderMark), at: source, expecting: .revision(snapshot.revision))
             refreshIndex(for: [source])
         } catch { errorMessage = error.localizedDescription }
     }
@@ -97,6 +100,6 @@ extension WorkspaceModel {
     private func currentText(of path: VaultPath) async -> String? {
         if let session = openMarkdownSession(at: path) { return session.text }
         guard let store, let snapshot = try? await store.read(path, maximumBytes: MarkdownSession.maximumEditableBytes) else { return nil }
-        return String(data: snapshot.data, encoding: .utf8)
+        return NoteTextEncoding.decode(snapshot.data)?.text
     }
 }

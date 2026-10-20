@@ -127,7 +127,7 @@ final class MarkdownSession {
     private var savedText: String
     /// Foundation's UTF-8 decoding drops a leading byte-order mark, so it is remembered and
     /// written back: saving must not change bytes the person did not edit.
-    private var hasByteOrderMark: Bool
+    private(set) var hasByteOrderMark: Bool
     private var revision: FileRevision
     private var activeSave: Task<Void, Error>?
     var isSaving: Bool { activeSave != nil }
@@ -286,16 +286,8 @@ final class MarkdownSession {
         let source = text as NSString
         var location = request.textRange?.location
         if location == nil, !request.anchor.isEmpty {
-            // The heading's line: the first heading line whose anchor matches, outside code.
-            var tracker = CodeFenceTracker()
-            var lineStart = FrontmatterLocator.length(in: source)
-            while lineStart < source.length, location == nil {
-                let lineRange = source.lineRange(for: NSRange(location: lineStart, length: 0))
-                let line = source.substring(with: lineRange)
-                if !tracker.isCodeLine(line.trimmingCharacters(in: .whitespacesAndNewlines)),
-                   NotePreviewDocument.outline(of: line).first?.anchor == request.anchor { location = lineRange.location }
-                lineStart = NSMaxRange(lineRange)
-            }
+            // The heading's line: the first heading the outline lists with this anchor.
+            location = HeadingLocator.lineLocation(ofHeadingWithAnchor: request.anchor, in: source)
         }
         guard let location else { return }
         let folded = NoteFolding.foldedRegions(in: NoteFolding.regions(in: text), foldedKeys: foldedKeys)

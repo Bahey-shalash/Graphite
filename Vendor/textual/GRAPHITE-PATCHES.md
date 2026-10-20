@@ -70,4 +70,17 @@ A table style decides the width to offer. Upstream's `Overflow` scroll container
 
 `Sources/Textual/CodeSegmenter.swift` (new), `Internal/Highlighter/HighlightedTextFragment.swift`: public `StructuredText.CodeSegment` and `textual.codeSegmenter(_:)`, a closure that splits a code block's text into segments with token types, or returns nil for a language it does not know. When it answers, the block is highlighted with those segments synchronously, kept while the block's text, language, highlighter theme and text environment stay the same; otherwise Textual's own Prism tokenizer runs, asynchronously, as upstream. Graphite's tokenizer is pure Swift and covers languages Prism's bundle lacks (C++, VHDL, Verilog, assembly, MATLAB, LaTeX, …), and colors code the same way as Graphite's editor. Upstream tokenized every block asynchronously in JavaScriptCore, so a block first showed uncolored.
 
+## 15. Math patterns compiled once per thread
+
+`Sources/Textual/Internal/MarkdownParser/PatternTokenizer.swift`: `Pattern.mathBlock` and `Pattern.mathInline` return patterns made once per thread (`CompiledMathPatterns`), with the same regular expressions. Upstream made a new value for every access, and a Swift regular expression literal is parsed and compiled again for each new value; the math syntax extension asks for both for every text it parses, which was about a third of the time spent parsing a rendered block's Markdown (Time Profiler, Live Preview scrolling, 2026-10-17). A `Regex` is not `Sendable` and Markdown is also parsed off the main thread, so each thread keeps its own copy in its thread dictionary.
+
+
+## 16. Tables scroll only when wider than the column
+
+`Sources/Textual/StructuredText/Style/Overflow.swift`: `Overflow(scrollsOnlyWhenWider:content:)` shows its content without a scroll view while the content fits the width it is offered, and moves it into the horizontal scroll view only when it is wider (by more than half a point); content in the scroll view leaves it once the scroll view is wider than the width the content was found wider than, as when the window grows (comparing the content's own widths in the scroll view switched a table in and out without end, since it passes through other widths there as it is laid out again). The space is measured with a layout that takes exactly the width offered: a flexible frame grew to wider content, which then never measured wider and was centered over the column's edges. Graphite's `ObsidianTableStyle` uses it: every table was in a scroll view, which cost layout and scrolling work for tables that never scroll, and took swipes meant for the note. Code block styles keep the plain initializer, since code wraps instead of growing wider and would never be measured wider. The horizontal scroll view also no longer moves vertically (`scrollBounceBehavior(.basedOnSize, axes: .vertical)`): its content's height, rounded to pixels, could exceed its frame by a fraction, and a swipe moved the table up and down.
+
+## 17. Table overlays that take touches
+
+`Sources/Textual/View+Textual.swift`: `textual.interactiveTableOverlay(content:)` is `tableOverlay(content:)` without `allowsHitTesting(false)`. Graphite's Live Preview places a cell editor and its tap target over a table's cells with it, as Obsidian edits a table's cells in place.
+
 Remove this vendored copy and return to the upstream package once an upstream release contains equivalents of these changes.

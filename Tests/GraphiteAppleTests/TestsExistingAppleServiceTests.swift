@@ -4,6 +4,7 @@ import ImageIO
 import CoreGraphics
 import GraphiteCore
 @testable import GraphiteApple
+import GraphiteTestSupport
 
 /// Apple-framework services that earlier tests did not reach: folder monitoring, raster
 /// thumbnails, drawing detection, PDF copies, refused PDF saves, and recording controls.
@@ -11,12 +12,7 @@ final class TestsExistingAppleServiceTests: XCTestCase {
     private var folder: URL!
 
     override func setUpWithError() throws {
-        folder = FileManager.default.temporaryDirectory.appendingPathComponent("AppleServices-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: folder)
+        folder = try TemporaryVault.make(prefix: "AppleServices", for: self).root
     }
 
     private let payload = DrawingPayload(width: 400, height: 200, background: .white, strokes: Data("pencil strokes".utf8))

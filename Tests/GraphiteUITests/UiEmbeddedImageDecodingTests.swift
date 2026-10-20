@@ -4,6 +4,7 @@ import ImageIO
 import UniformTypeIdentifiers
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// Reading view and Live Preview decode an embedded image once, off the main thread, at
 /// the width it is shown at, and draw those pixels without decoding them again.
@@ -12,12 +13,7 @@ final class UiEmbeddedImageDecodingTests: XCTestCase {
     private var directory: URL!
 
     override func setUp() async throws {
-        directory = FileManager.default.temporaryDirectory.appendingPathComponent("EmbeddedImageDecoding-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: directory)
+        directory = try TemporaryVault.make(prefix: "EmbeddedImageDecoding", for: self).root
     }
 
     private func bitmap(width: Int, height: Int, red: CGFloat, green: CGFloat, blue: CGFloat) throws -> CGImage {

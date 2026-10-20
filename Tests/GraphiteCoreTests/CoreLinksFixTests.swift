@@ -1,5 +1,6 @@
 import XCTest
 @testable import GraphiteCore
+import GraphiteFixtures
 
 /// Rewriting Markdown link destinations: the parts CommonMark reads, the style they were
 /// written in, and nested links.
@@ -206,7 +207,7 @@ final class CoreLinksFuzzyMatcherTests: XCTestCase {
     func testTheASCIIPathAgreesWithTheGeneralPath() throws {
         var names = ["Lecture notes", "Balance sheet", "Collection of lectures", "Courses/Course 1/Lecture 3.md", "camelCaseName", "x_y-z.v2",
                      "Line\r\nBreak", "tab\there", "UPPER lower", "a", "", "12 Angry Men", "Drank a lot", "cxats a", "Random delta"]
-        let vault = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("test_vault")
+        let vault = FixtureFolders.namingTestVault
         if let enumerator = FileManager.default.enumerator(atPath: vault.path) {
             for case let path as String in enumerator { names.append(path) }
         }

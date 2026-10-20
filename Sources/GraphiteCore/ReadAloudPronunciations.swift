@@ -58,33 +58,130 @@ public struct ReadAloudPronunciations: Equatable, Sendable {
         return merged
     }
 
-    /// The entries of a vault file, sorted by term, for the Settings editor.
+    /// The most terms of a vault file that speech lookup and the Settings list use.
+    public static let maximumVaultTerms = 2_000
+
+    /// One term of a vault file with how it is said.
+    public struct VaultEntry: Equatable, Sendable {
+        public let term: String
+        public let pronunciation: Pronunciation
+
+        public init(term: String, pronunciation: Pronunciation) {
+            self.term = term
+            self.pronunciation = pronunciation
+        }
+    }
+
+    /// Why a vault file that exists cannot be used.
+    public enum VaultFileProblem: Equatable, Sendable {
+        /// The bytes are not JSON, for example a file cut off before its closing brace.
+        case notJSON
+        /// The JSON is not an object of terms.
+        case notAnObjectOfTerms
+        /// The file is larger than `maximumFileBytes`.
+        case overSizeLimit(byteCount: Int)
+    }
+
+    /// What reading the vault's pronunciation file found. Only `noFile` and a complete `loaded`
+    /// leave the Settings editor knowing everything the file holds, so only they allow writing it.
+    public enum VaultFileReading: Equatable, Sendable {
+        /// There is no file yet; writing creates it.
+        case noFile
+        /// The file exists but its bytes could not be read, for example a cloud file that is not downloaded.
+        case readFailed(errorDomain: String, errorCode: Int)
+        case invalid(VaultFileProblem)
+        /// `entries` are the usable terms (at most `maximumVaultTerms`); `termsInFile` is how many the file holds.
+        case loaded(entries: [VaultEntry], termsInFile: Int)
+
+        /// Writing a list built from this reading replaces the file without losing a term of it.
+        public var allowsRewriting: Bool {
+            switch self {
+            case .noFile: true
+            case .loaded(let entries, let termsInFile): entries.count == termsInFile
+            case .readFailed, .invalid: false
+            }
+        }
+    }
+
+    /// Reads the vault file at `location` and tells apart a missing file, a failed read, a file
+    /// that cannot be used and a (possibly partial) load. A failure is never an empty list.
+    public static func readVaultFile(at location: URL) -> VaultFileReading {
+        let data: Data
+        do {
+            data = try Data(contentsOf: location)
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile {
+            return .noFile
+        } catch {
+            let nsError = error as NSError
+            return .readFailed(errorDomain: nsError.domain, errorCode: nsError.code)
+        }
+        return readVaultFile(data: data)
+    }
+
+    /// The same as `readVaultFile(at:)` for bytes already read.
+    public static func readVaultFile(data: Data) -> VaultFileReading {
+        guard data.count <= maximumFileBytes else { return .invalid(.overSizeLimit(byteCount: data.count)) }
+        let json: Any
+        do {
+            json = try JSONSerialization.jsonObject(with: data)
+        } catch {
+            return .invalid(.notJSON)
+        }
+        guard let object = json as? [String: Any] else { return .invalid(.notAnObjectOfTerms) }
+        return .loaded(entries: usableEntries(of: object), termsInFile: object.count)
+    }
+
+    /// The entries of a vault file, sorted by term, for speech lookup. A file that cannot be used
+    /// adds nothing; use `readVaultFile` where the reason matters.
     public static func vaultEntries(in data: Data) -> [(term: String, pronunciation: Pronunciation)] {
-        guard data.count <= maximumFileBytes,
-              let entries = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
-        var result: [(term: String, pronunciation: Pronunciation)] = []
-        for (term, entry) in entries.prefix(2_000) {
+        guard case .loaded(let entries, _) = readVaultFile(data: data) else { return [] }
+        return entries.map { entry in (entry.term, entry.pronunciation) }
+    }
+
+    private static func usableEntries(of object: [String: Any]) -> [VaultEntry] {
+        var result: [VaultEntry] = []
+        for (term, entry) in object.sorted(by: { first, second in first.key < second.key }).prefix(maximumVaultTerms) {
             let trimmedTerm = term.trimmingCharacters(in: .whitespaces)
             guard !trimmedTerm.isEmpty, trimmedTerm.count <= 64 else { continue }
             if let say = entry as? String, !say.isEmpty, say.count <= 200 {
-                result.append((trimmedTerm, Pronunciation(say: say)))
+                result.append(VaultEntry(term: trimmedTerm, pronunciation: Pronunciation(say: say)))
             } else if let fields = entry as? [String: Any], let say = fields["say"] as? String, !say.isEmpty, say.count <= 200 {
                 let ipa = (fields["ipa"] as? String).flatMap { ipa in ipa.isEmpty || ipa.count > 200 ? nil : ipa }
-                result.append((trimmedTerm, Pronunciation(say: say, ipa: ipa)))
+                result.append(VaultEntry(term: trimmedTerm, pronunciation: Pronunciation(say: say, ipa: ipa)))
             }
         }
         return result.sorted { first, second in first.term.localizedStandardCompare(second.term) == .orderedAscending }
     }
 
-    /// The JSON a vault file holds for these entries, sorted, readable in any text editor.
-    public static func vaultFileData(for entries: [(term: String, say: String)]) throws -> Data {
-        var object: [String: String] = [:]
+    /// The JSON a vault file holds for these entries, sorted, readable in any text editor. An entry
+    /// with hand-written `ipa` is written in the object form, the others as a plain respelling.
+    public static func vaultFileData(for entries: [VaultEntry]) throws -> Data {
+        var object: [String: Any] = [:]
         for entry in entries {
             let term = entry.term.trimmingCharacters(in: .whitespaces)
-            let say = entry.say.trimmingCharacters(in: .whitespaces)
-            if !term.isEmpty, !say.isEmpty { object[term] = say }
+            let say = entry.pronunciation.say.trimmingCharacters(in: .whitespaces)
+            guard !term.isEmpty, !say.isEmpty else { continue }
+            if let ipa = entry.pronunciation.ipa {
+                object[term] = ["say": say, "ipa": ipa]
+            } else {
+                object[term] = say
+            }
         }
         return try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+    }
+
+    /// `entries` after the person saves `term` said as `say`, in place of `originalTerm` (nil for
+    /// a new term). Every other entry is returned as it was. The edited entry keeps its `ipa` while
+    /// its term stays the same; a renamed term starts without the old term's `ipa`.
+    public static func updatingVaultEntries(
+        _ entries: [VaultEntry], replacing originalTerm: String?, with term: String, say: String
+    ) -> [VaultEntry] {
+        let newTerm = term.trimmingCharacters(in: .whitespaces)
+        let replacedTerm = originalTerm ?? newTerm
+        let keptPhoneticNotation = entries.first { entry in entry.term == newTerm && entry.term == replacedTerm }?.pronunciation.ipa
+        var updated = entries.filter { entry in entry.term != replacedTerm && entry.term != newTerm }
+        updated.append(VaultEntry(term: newTerm, pronunciation: Pronunciation(say: say.trimmingCharacters(in: .whitespaces), ipa: keptPhoneticNotation)))
+        return updated
     }
 
     // MARK: Words

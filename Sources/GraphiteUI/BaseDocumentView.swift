@@ -48,7 +48,7 @@ public struct BaseDocumentView: View {
 /// `![[Books.base#Reading]]`. `this` is the embedding note. It has a fixed height and
 /// scrolls on its own.
 public struct EmbeddedBaseView: View {
-    public static let defaultHeight: CGFloat = 420
+    public nonisolated static let defaultHeight: CGFloat = 420
     private let source: BaseSource
     private let embeddingNote: VaultPath
     private let preferredViewName: String?
@@ -232,7 +232,8 @@ struct BaseContainerView: View {
                 content
             case .embedded(let height):
                 content
-                    .frame(height: growsWithContent ? nil : embeddedHeight(defaultHeight: height))
+                    .modifier(BaseEmbeddedHeight(defaultHeight: growsWithContent ? nil : height,
+                                                 configuredMapHeight: model.selectedView.flatMap { view in view.type == .map ? CGFloat(view.map.embeddedHeight) : nil }))
                     .environment(\.basesScrollVertically, !growsWithContent)
                     .environment(\.baseRowLimit, growsWithContent ? embeddedRowLimit : nil)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -315,12 +316,6 @@ struct BaseContainerView: View {
         let message = model.actionErrorMessage ?? fallbackMessage
         model.actionErrorMessage = nil
         return message
-    }
-
-    /// Embedded maps use the plugin's `mapHeight`, plus room for the toolbar.
-    private func embeddedHeight(defaultHeight: CGFloat) -> CGFloat {
-        guard let view = model.selectedView, view.type == .map else { return defaultHeight }
-        return CGFloat(view.map.embeddedHeight) + 48
     }
 
     @ViewBuilder private var content: some View {
@@ -417,7 +412,10 @@ struct BaseContainerView: View {
                 resultView(result)
             }
         } else if model.isLoading || model.definition == nil {
+            // Inside a note, the placeholder's height is not reported as the base's: the
+            // text would shrink around it and grow again by its rows seconds later.
             ProgressView().controlSize(.large)
+                .preference(key: LivePreviewEmbedLoadingKey.self, value: true)
         }
     }
 
@@ -527,7 +525,7 @@ struct BaseToolbar: View {
                 viewTitle(showsChevron: false).foregroundStyle(.tint)
             }
 
-            Text(countText).font(.subheadline).foregroundStyle(.secondary).monospacedDigit().lineLimit(1)
+            countLabel
             if model.isLoading { ProgressView().controlSize(.small) }
             Spacer(minLength: 8)
             if model.sortOverride != nil {
@@ -582,11 +580,18 @@ struct BaseToolbar: View {
         }
     }
 
-    private var countText: String {
+    /// A narrow toolbar (a base inside a note on iPhone) drops the noun rather than cut it.
+    private var countLabel: some View {
+        ViewThatFits(in: .horizontal) { Text(countText(showsNoun: true)); Text(countText(showsNoun: false)) }
+            .font(.subheadline).foregroundStyle(.secondary).monospacedDigit().lineLimit(1)
+            .accessibilityLabel(countText(showsNoun: true))
+    }
+
+    private func countText(showsNoun: Bool) -> String {
         guard let result = model.result else { return "" }
         let matchingCount = result.matchingCount
-        let noun = matchingCount == 1 ? "result" : "results"
-        if result.displayedCount < matchingCount { return "\(result.displayedCount.formatted()) of \(matchingCount.formatted()) \(noun)" }
-        return "\(matchingCount.formatted()) \(noun)"
+        let noun = showsNoun ? (matchingCount == 1 ? " result" : " results") : ""
+        let shownCount = result.displayedCount < matchingCount ? "\(result.displayedCount.formatted()) of " : ""
+        return shownCount + matchingCount.formatted() + noun
     }
 }

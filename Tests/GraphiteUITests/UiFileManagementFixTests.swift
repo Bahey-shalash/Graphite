@@ -3,6 +3,7 @@ import GraphiteCore
 import GraphiteIndex
 import GraphiteApple
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// Moving, copying, and deleting through `WorkspaceModel`, against a real vault folder
 /// and index.
@@ -192,17 +193,15 @@ final class UiFileManagementFixTests: XCTestCase {
     // MARK: Helpers
 
     private func makeWorkspace(files: [String: String]) async throws -> (WorkspaceModel, URL) {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("UiFileManagementVault-\(UUID().uuidString)").resolvingSymlinksInPath()
+        let vault = try TemporaryVault.make(prefix: "UiFileManagementVault", for: self).root
         vaultFolders.append(vault)
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
         for (relativePath, contents) in files {
             let location = vault.appendingPathComponent(relativePath)
             try FileManager.default.createDirectory(at: location.deletingLastPathComponent(), withIntermediateDirectories: true)
             try Data(contents.utf8).write(to: location)
         }
-        let indexFolder = FileManager.default.temporaryDirectory.appendingPathComponent("UiFileManagementIndex-\(UUID().uuidString)")
+        let indexFolder = try TemporaryVault.make(prefix: "UiFileManagementIndex", for: self).root
         vaultFolders.append(indexFolder)
-        try FileManager.default.createDirectory(at: indexFolder, withIntermediateDirectories: true)
         let index = try VaultIndex(databaseURL: indexFolder.appendingPathComponent("index.sqlite"))
         _ = try await index.reconcile(root: vault)
         let workspace = WorkspaceModel()
@@ -244,31 +243,15 @@ final class UiFileManagementFixTests: XCTestCase {
     private func text(of relativePath: String, in vault: URL) throws -> String? {
         String(data: try Data(contentsOf: vault.appendingPathComponent(relativePath)), encoding: .utf8)
     }
-
-    /// Waits for the index refresh that file operations start in the background.
-    private func waitUntil(timeoutSeconds: TimeInterval = 10, _ condition: () async throws -> Bool) async throws {
-        let deadline = Date.now.addingTimeInterval(timeoutSeconds)
-        while Date.now < deadline {
-            if try await condition() { return }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        XCTFail("The condition did not become true within \(timeoutSeconds) seconds.")
-    }
 }
 
 /// The stored vault list and the single-vault bookmark from before it.
 @MainActor
 final class UiFileManagementVaultLibraryTests: XCTestCase {
-    private var suiteName = ""
     private var defaults = UserDefaults.standard
 
     override func setUp() async throws {
-        suiteName = "UiFileManagementVaultLibraryTests-\(UUID().uuidString)"
-        defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-    }
-
-    override func tearDown() async throws {
-        defaults.removePersistentDomain(forName: suiteName)
+        defaults = try IsolatedDeviceState.make(prefix: "UiFileManagementVaultLibraryTests", for: self).preferences
     }
 
     /// One entry this build cannot decode used to empty the whole list, and the next change
@@ -318,9 +301,7 @@ final class UiFileManagementVaultLibraryTests: XCTestCase {
     /// Once the bookmark resolves, the vault joins a list made meanwhile without becoming
     /// the vault reopened at launch.
     func testSingleVaultBookmarkResolvedLaterJoinsTheListBehindExistingVaults() throws {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("UiFileManagementLegacyVault-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: folder) }
+        let folder = try TemporaryVault.make(prefix: "UiFileManagementLegacyVault", for: self).root
         let bookmark: Data
         do { bookmark = try folder.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil) }
         catch { throw XCTSkip("This process cannot create security-scoped bookmarks: \(error.localizedDescription)") }

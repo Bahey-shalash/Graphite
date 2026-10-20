@@ -1,5 +1,6 @@
 import XCTest
 @testable import GraphiteCore
+import GraphiteTestSupport
 
 /// Obsidian community plugin packages in a vault, and the bridge the plugin runtime's file
 /// operations go through. The bridge follows the same contract as the Node tests' host
@@ -8,12 +9,7 @@ final class CommunityPluginTests: XCTestCase {
     private var vault: URL!
 
     override func setUpWithError() throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("PluginVault-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: vault)
+        vault = try TemporaryVault.make(prefix: "PluginVault", for: self).root
     }
 
     private func write(_ text: String, to relativePath: String) throws {
@@ -207,6 +203,28 @@ final class CommunityPluginTests: XCTestCase {
         let versions = Data("{\"1.0.0\": \"0.15.0\", \"2.0.0\": \"1.4.0\", \"3.0.0\": \"9.0.0\", \"2.1.0\": \"1.5.0\"}".utf8)
         XCTAssertEqual(CommunityPluginInstaller.newestCompatibleVersion(versionsData: versions, providedApiVersion: "1.14.4"), "2.1.0")
         XCTAssertNil(CommunityPluginInstaller.newestCompatibleVersion(versionsData: versions, providedApiVersion: "0.1.0"))
+    }
+
+    /// A pre-release comes before its release, and a leading `v` is no part of the number:
+    /// `1.2.0-beta.3` counted as newer than `1.2.0`, and `v2.0.0` as `0.0.0`.
+    func testVersionsCompareAsSemanticVersions() {
+        XCTAssertEqual(ObsidianVersionNumber.compare("1.2.0-beta.3", "1.2.0"), .orderedAscending)
+        XCTAssertEqual(ObsidianVersionNumber.compare("1.2.0", "1.2.0-beta"), .orderedDescending)
+        XCTAssertEqual(ObsidianVersionNumber.compare("1.2.0-beta.2", "1.2.0-beta.10"), .orderedAscending)
+        XCTAssertEqual(ObsidianVersionNumber.compare("1.2.0-alpha", "1.2.0-beta"), .orderedAscending)
+        XCTAssertEqual(ObsidianVersionNumber.compare("1.2.0-beta", "1.2.0-beta.1"), .orderedAscending)
+        XCTAssertEqual(ObsidianVersionNumber.compare("v2.0.0", "1.9.0"), .orderedDescending)
+        XCTAssertEqual(ObsidianVersionNumber.compare("1.3.0+build.5", "1.3.0"), .orderedSame)
+    }
+
+    /// The stable release wins over its beta, and the same file always picks the same one.
+    func testTheNewestStableReleaseIsChosenOverItsBetaAndTiesAreSettled() {
+        let versions = Data("{\"1.3.0-beta.1\": \"1.0.0\", \"1.3.0\": \"1.0.0\", \"1.2.0\": \"1.0.0\"}".utf8)
+        XCTAssertEqual(CommunityPluginInstaller.newestCompatibleVersion(versionsData: versions, providedApiVersion: "1.14.4"), "1.3.0")
+        let equalVersions = Data("{\"1.2\": \"1.0.0\", \"1.2.0\": \"1.0.0\"}".utf8)
+        for _ in 1...20 {
+            XCTAssertEqual(CommunityPluginInstaller.newestCompatibleVersion(versionsData: equalVersions, providedApiVersion: "1.14.4"), "1.2.0")
+        }
     }
 
     func testRepositoriesMustBeOwnerAndName() {

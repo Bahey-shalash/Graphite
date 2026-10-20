@@ -878,12 +878,21 @@ public enum WikiLinkResolver {
     /// vault root, for each file-name reading. Wikilinks and Markdown links look in the same
     /// places, as in Obsidian, whose "absolute path in vault" Markdown links (which Graphite's
     /// link completion writes too) start at the root. A path starting with `./` or `../`
-    /// is relative to the note only. `isWiki` states the link's kind for the caller; both
-    /// kinds give the same candidates.
+    /// is relative to the note only, and one starting with `/` is from the vault root only.
+    /// A Markdown link's path is percent-decoded; a Wikilink's is not, as in Obsidian.
     public static func directCandidates(target: String, source: VaultPath, isWiki: Bool = true) -> [VaultPath] {
-        let part = pathPart(target).removingPercentEncoding ?? pathPart(target)
+        // A Wikilink is written as the file is named: Obsidian decodes only Markdown links.
+        let writtenPart = pathPart(target)
+        var part = isWiki ? writtenPart : (writtenPart.removingPercentEncoding ?? writtenPart)
         if part.isEmpty { return [source] }
         guard URL(string: part)?.scheme == nil else { return [] }
+        // `[[/Folder/Note]]` starts at the vault root, and only there: joined to the note's
+        // folder, it named a path beside the note.
+        if part.hasPrefix("/") {
+            part = String(part.drop { character in character == "/" })
+            guard !part.isEmpty else { return [] }
+            return fileNameVariants(for: part).compactMap { fileNameVariant in try? VaultPath(fileNameVariant) }
+        }
         let isRelativeToNote = isExplicitlyRelative(part)
         var paths: [VaultPath] = []
         for fileNameVariant in fileNameVariants(for: part) {
@@ -891,6 +900,18 @@ public enum WikiLinkResolver {
             if !isRelativeToNote, let fromVaultRoot = try? VaultPath(fileNameVariant) { paths.append(fromVaultRoot) }
         }
         return Array(NSOrderedSet(array: paths).array.compactMap { candidate in candidate as? VaultPath })
+    }
+
+    /// The first of `directCandidates` that is a file in the vault at `root`. A folder is not
+    /// a link target: `[[Projects]]` beside a Projects folder names the note Projects.md, as
+    /// in Obsidian, so a folder never stands in for a file that is missing.
+    public static func existingDirectFile(target: String, source: VaultPath, isWiki: Bool = true, in root: URL) -> VaultPath? {
+        for candidate in directCandidates(target: target, source: source, isWiki: isWiki) {
+            guard let location = try? candidate.url(in: root) else { continue } // A candidate outside the vault names no file.
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: location.path, isDirectory: &isDirectory), !isDirectory.boolValue { return candidate }
+        }
+        return nil
     }
 
     /// Whether a link's path starts with `./` or `../`, which only the note's own folder
@@ -966,7 +987,9 @@ public enum EmbedLocator {
         if let match = wikiEmbedPattern?.matches(in: line, range: NSRange(location: 0, length: lineLength)).first(where: { match in contains(match.range) }) {
             let content = (line as NSString).substring(with: match.range(at: 1))
             let parts = content.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
-            let target = parts[0].replacingOccurrences(of: "\\", with: "")
+            // Only the `\` of a table's escaped `\|` goes: other backslashes are the name's.
+            var target = parts[0]
+            if parts.count > 1, target.hasSuffix("\\") { target.removeLast() }
             return EmbedReference(target: target, isWiki: true, displaySize: parts.count > 1 ? EmbedDisplaySize.parse(label: parts[1]) : nil,
                                   range: NSRange(location: lineRange.location + match.range.location, length: match.range.length))
         }

@@ -10,7 +10,9 @@ extension WorkspaceModel {
     /// says why; the file is not touched.
     func openCanvasSession(at path: VaultPath, store: VaultStore) async throws -> CanvasSession {
         let snapshot = try await store.read(path, maximumBytes: CanvasFile.maximumSourceBytes)
-        let session = try CanvasSession(path: path, snapshot: snapshot, store: store) { [weak self] savedPath in self?.refreshIndex(for: [savedPath]) }
+        let session = try CanvasSession(path: path, snapshot: snapshot, store: store, clock: clock) { [weak self] savedPath in
+            self?.refreshIndex(for: [savedPath])
+        }
         #if canImport(UIKit)
         // As for notes: "Default view for new tabs" decides between reading and editing.
         session.isWriting = preferences.initialNoteViewMode != .reading

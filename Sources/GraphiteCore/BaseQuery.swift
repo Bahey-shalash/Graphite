@@ -94,6 +94,9 @@ public struct BaseResultGroup: Identifiable, Hashable, Sendable {
 public struct BaseQueryResult: Sendable {
     public let view: BaseView
     public let columns: [BaseColumn]
+    /// The grouping property's display name, shown before each group's value; nil when
+    /// the view is not grouped.
+    public let groupDisplayName: String?
     public let groups: [BaseResultGroup]
     /// Summaries over every displayed row.
     public let summaries: [BasePropertyIdentifier: BaseSummaryCell]
@@ -127,15 +130,16 @@ public struct BaseQueryEngine {
         let view = definition.views.isEmpty ? BaseView(id: 0, type: .table, name: "Table") : definition.views[min(max(viewIndex, 0), definition.views.count - 1)]
         let evaluator = BaseEvaluator(formulas: definition.formulas, environment: environment, thisRecord: thisRecord, knownRecords: records, provider: provider)
         let columns = view.visibleProperties.map { property in BaseColumn(property: property, displayName: definition.displayName(for: property)) }
+        let groupDisplayName = view.groupBy.map { groupKey in definition.displayName(for: groupKey.property) }
         guard !definition.hasUnreadableFilters, !view.hasUnreadableFilters else {
-            return BaseQueryResult(view: view, columns: columns, groups: [], summaries: [:], matchingCount: 0,
+            return BaseQueryResult(view: view, columns: columns, groupDisplayName: groupDisplayName, groups: [], summaries: [:], matchingCount: 0,
                                    problems: ["This view's filters could not be fully read. Fix the filters in the base file to see results."], mapCenter: nil)
         }
         var problems: [String] = []
         let filters = [definition.filters, view.filters].compactMap { filter in filter }
         let filterProblems = Self.syntaxProblems(in: filters, evaluator: evaluator)
         guard filterProblems.isEmpty else {
-            return BaseQueryResult(view: view, columns: columns, groups: [], summaries: [:], matchingCount: 0, problems: filterProblems, mapCenter: nil)
+            return BaseQueryResult(view: view, columns: columns, groupDisplayName: groupDisplayName, groups: [], summaries: [:], matchingCount: 0, problems: filterProblems, mapCenter: nil)
         }
 
         var matchingRecords: [BaseFileRecord] = []
@@ -169,7 +173,7 @@ public struct BaseQueryEngine {
             mapCenter = evaluatedCoordinate(centerText, evaluator: evaluator)
             if mapCenter == nil { problems.append("The map center “\(centerText)” is not a latitude and longitude.") }
         }
-        return BaseQueryResult(view: view, columns: columns, groups: groups, summaries: summaries, matchingCount: matchingRecords.count, problems: problems, mapCenter: mapCenter)
+        return BaseQueryResult(view: view, columns: columns, groupDisplayName: groupDisplayName, groups: groups, summaries: summaries, matchingCount: matchingRecords.count, problems: problems, mapCenter: mapCenter)
     }
 
     /// Every filter expression must parse before any row is shown: a typo must not

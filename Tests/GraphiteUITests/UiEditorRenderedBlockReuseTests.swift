@@ -82,12 +82,15 @@ final class UiEditorRenderedBlockReuseTests: XCTestCase {
                        LivePreviewWidgetSignature(environment: nil, accentHex: "#0ea5e9", notePath: "Other.md"))
     }
 
-    /// Bases and embeds read the index, and a callout can contain either; tables, math,
-    /// properties, and rules do not.
-    func testOnlyBasesEmbedsAndCalloutsReadTheIndex() {
-        let readingKinds = blocks.map { block in LivePreviewWidgetSignature.readsIndex(block.kind) }
+    /// Bases and embeds read the index, and so does a callout that contains either; tables,
+    /// math, properties, rules, and callouts of text do not, so a save leaves them alone.
+    func testOnlyBasesEmbedsAndCalloutsHoldingThemReadTheIndex() {
+        let readingKinds = blocks.map { block in LivePreviewWidgetSignature.readsIndex(block) }
         XCTAssertEqual(blocks.count, 8)
-        XCTAssertEqual(readingKinds, [false, false, false, true, true, true, true, false])
+        XCTAssertEqual(readingKinds, [false, false, false, true, true, false, true, false])
+        let calloutsHoldingEmbeds = LivePreviewBlockScanner.blocks(in: "> [!note] Figure\n> ![[Diagram.png]]\n\n> [!tip] Query\n> ```base\n> views: []\n> ```\n")
+        XCTAssertEqual(calloutsHoldingEmbeds.map(\.kind), [.callout, .callout])
+        XCTAssertEqual(calloutsHoldingEmbeds.map { block in LivePreviewWidgetSignature.readsIndex(block) }, [true, true])
     }
 
     // MARK: Views kept off screen (P8)
@@ -128,9 +131,23 @@ final class UiEditorRenderedBlockReuseTests: XCTestCase {
         XCTAssertTrue(pool.isEmpty)
     }
 
+    /// A small table's view is estimated as small, so a note of small tables keeps its views
+    /// as it scrolls; every table was estimated as large as a 12-by-4 one.
+    func testTablesAreEstimatedFromTheirSize() throws {
+        func table(_ markdown: String) throws -> LivePreviewBlock {
+            try XCTUnwrap(LivePreviewBlockScanner.blocks(in: "Intro\n\n\(markdown)\n\nAfter\n" as NSString).first { block in block.kind == .table })
+        }
+        let smallTable = try table("| a | b | c |\n| - | - | - |\n| 1 | 2 | 3 |\n| 4 | 5 | 6 |")
+        let largeTable = try table((["| a | b | c | d |", "| - | - | - | - |"] + (1...12).map { _ in "| 1 | 2 | 3 | 4 |" }).joined(separator: "\n"))
+        let small = try XCTUnwrap(DetachedWidgetPool<String>.estimatedMegabytes(of: smallTable))
+        let large = try XCTUnwrap(DetachedWidgetPool<String>.estimatedMegabytes(of: largeTable))
+        XCTAssertLessThan(small, 2)
+        XCTAssertEqual(large, 6, accuracy: 0.5, "As measured for a 12-by-4 table")
+    }
+
     /// A player kept off screen could go on playing, so audio and video are built again.
     func testPlayersAreNeverKept() {
-        let estimates = blocks.map { block in DetachedWidgetPool<String>.estimatedMegabytes(of: block.kind) }
+        let estimates = blocks.map { block in DetachedWidgetPool<String>.estimatedMegabytes(of: block) }
         XCTAssertNotNil(estimates[3], "image embed")
         XCTAssertNil(estimates[4], "audio embed")
         XCTAssertTrue(estimates.enumerated().allSatisfy { index, estimate in index == 4 || estimate != nil })

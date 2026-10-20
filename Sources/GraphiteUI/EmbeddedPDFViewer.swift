@@ -135,8 +135,12 @@ struct EmbeddedPDFViewer: View {
                 }
             }
         }
-        .onChange(of: session?.currentPageIndex) { _, pageIndex in
-            if !isEditingPageNumber, let pageIndex { pageText = "\(pageIndex + 1)" }
+        // The page field follows the page in view from a view of its own: read in this
+        // body, each page turned rebuilt the whole viewer and its PDF view's update.
+        .background {
+            if let session {
+                PDFPageFieldFollower(session: session, isEditing: isEditingPageNumber) { pageIndex in pageText = "\(pageIndex + 1)" }
+            }
         }
         // A released or replaced document takes its thumbnails with it. A new one is mapped
         // before its first save replaces the file it was read from.
@@ -308,7 +312,7 @@ struct EmbeddedPDFViewer: View {
                 GraphitePDFView(session: session,
                                 input: annotationInput(for: session),
                                 isEmbedded: true,
-                                initialPageIndex: session.currentPageIndex,
+                                initialPageIndex: { session.currentPageIndex },
                                 noteDestination: noteDestination)
                     // A reloaded file is a new session; its view and canvases start fresh.
                     .id(ObjectIdentifier(session))
@@ -337,27 +341,15 @@ struct EmbeddedPDFViewer: View {
                 }
                 .padding(.vertical, 8)
             }
-            .onAppear { session.document.page(at: session.currentPageIndex).map { page in scrollProxy.scrollTo(ObjectIdentifier(page), anchor: .center) } }
-            .onChange(of: session.currentPageIndex) { _, pageIndex in
-                guard let page = session.document.page(at: pageIndex) else { return }
-                withAnimation(GraphiteMotion.animation()) { scrollProxy.scrollTo(ObjectIdentifier(page), anchor: .center) }
-            }
+            .background { PDFCurrentPageFollower(session: session, scrollProxy: scrollProxy) }
         }
     }
 
     private func thumbnailButton(for listPage: PDFThumbnailListPage, in session: PDFSession) -> some View {
-        let isCurrent = listPage.pageIndex == session.currentPageIndex
-        return Button {
+        Button {
             session.go(to: listPage.pageIndex)
         } label: {
-            VStack(spacing: 3) {
-                PDFPageThumbnail(page: listPage.page, version: session.appearanceVersion(of: listPage.page), renderer: thumbnailRenderer, size: Self.thumbnailSize)
-                    .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
-                Text("\(listPage.pageIndex + 1)").font(.caption2.monospacedDigit())
-                    .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-            }
-            .padding(4)
-            .background(isCurrent ? AnyShapeStyle(.tint.opacity(0.14)) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 6))
+            EmbeddedPDFThumbnailLabel(session: session, listPage: listPage, renderer: thumbnailRenderer, size: Self.thumbnailSize)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Page \(listPage.pageIndex + 1)")
@@ -703,3 +695,37 @@ private struct EmbeddedPDFPictureAdding: ViewModifier {
     }
 }
 #endif
+
+/// A page of the embed's thumbnail strip. It reads the page in view and the page's
+/// appearance itself, so a page turned or a stroke redraws the rows on screen, not the viewer.
+private struct EmbeddedPDFThumbnailLabel: View {
+    let session: PDFSession
+    let listPage: PDFThumbnailListPage
+    let renderer: PDFThumbnailRenderer
+    let size: CGSize
+
+    var body: some View {
+        let isCurrent = listPage.pageIndex == session.currentPageIndex
+        VStack(spacing: 3) {
+            PDFPageThumbnail(page: listPage.page, version: session.appearanceVersion(of: listPage.page), renderer: renderer, size: size)
+                .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
+            Text("\(listPage.pageIndex + 1)").font(.caption2.monospacedDigit())
+                .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+        }
+        .padding(4)
+        .background(isCurrent ? AnyShapeStyle(.tint.opacity(0.14)) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 6))
+    }
+}
+
+/// Puts the page in view into the page field, unless the person is typing in it.
+private struct PDFPageFieldFollower: View {
+    let session: PDFSession
+    let isEditing: Bool
+    let showPage: (Int) -> Void
+
+    var body: some View {
+        Color.clear.onChange(of: session.currentPageIndex) { _, pageIndex in
+            if !isEditing { showPage(pageIndex) }
+        }
+    }
+}

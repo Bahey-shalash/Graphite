@@ -35,6 +35,20 @@ final class LivePreviewBlockPlacementTests: XCTestCase {
         return "---\n" + properties.joined(separator: "\n") + "\n---\n> [!note]\n> Right after the properties.\n\nText after the callout.\n"
     }()
 
+    /// A block's view offers "Edit Source" from a UIKit menu of its own, which SwiftUI
+    /// does not work out again each time the view is drawn.
+    func testABlockViewOffersEditSource() throws {
+        var revealed = false
+        let host = RenderedBlockHost.makeRenderedBlockHost(root: RenderedBlockRoot(view: AnyView(Text("Block")), revealSource: { revealed = true }))
+        let interaction = try XCTUnwrap(host.view.interactions.compactMap { interaction in interaction as? UIContextMenuInteraction }.first)
+        XCTAssertNotNil(interaction.delegate?.contextMenuInteraction(interaction, configurationForMenuAtLocation: .zero))
+        let editSourceMenu = try XCTUnwrap(interaction.delegate as? RenderedBlockEditSourceMenu)
+        let action = try XCTUnwrap(editSourceMenu.makeMenu().children.first as? UIAction)
+        XCTAssertEqual(action.title, "Edit Source")
+        action.performWithSender(nil, target: nil)
+        XCTAssertTrue(revealed)
+    }
+
     /// A jump lays the text above the heading out again while the callouts take their
     /// measured heights; the callout just above the heading was drawn over it.
     func testTheCalloutAboveAHeadingJumpedToDoesNotCoverIt() async throws {
@@ -80,6 +94,37 @@ final class LivePreviewBlockPlacementTests: XCTestCase {
         attachScreenshot(named: "Dark with the callout on screen")
         assertBlockViewsDoNotOverlap(in: editor)
         XCTAssertEqual(blockViews(in: editor).count, 2, "The properties and the callout are not both shown.")
+    }
+
+    /// Properties at the top of a note longer than the window.
+    private static let propertiesThenTextNote: String = {
+        let properties = (1...8).map { propertyNumber in "property\(propertyNumber): value \(propertyNumber)" }
+        let paragraphs = (1...80).map { paragraphNumber in "Paragraph \(paragraphNumber) of the note's text." }
+        return "---\n" + properties.joined(separator: "\n") + "\n---\n" + paragraphs.joined(separator: "\n\n") + "\n"
+    }()
+
+    /// A drag that starts on the properties scrolls the note, as one starting on its text
+    /// does, and starts editing neither the note nor a property. (Synthesized touches reach
+    /// UIKit's gesture recognizers but not SwiftUI's controls, so a tap on a block's control,
+    /// such as a folded callout's title, is checked in the simulator instead.)
+    func testADragStartingOnThePropertiesScrollsTheNote() async throws {
+        if let reason = SynthesizedTouches.unavailableReason { throw XCTSkip(reason) }
+        let (_, editor) = try await openNote(Self.propertiesThenTextNote)
+        try await waitForPlacementToSettle(in: editor)
+        let propertiesView = try XCTUnwrap(blockViews(in: editor).first, "The properties are not rendered.")
+        let window = try XCTUnwrap(window)
+        // On a property's value, where a field takes a tap.
+        let start = editor.convert(CGPoint(x: propertiesView.frame.midX + 40, y: propertiesView.frame.minY + propertiesView.frame.height * 0.6), to: window)
+        let offsetBeforeDrag = editor.contentOffset.y
+        await SynthesizedTouches(window: window).drag(from: start, to: CGPoint(x: start.x, y: start.y - 300))
+        try await waitForPlacementToSettle(in: editor)
+        attachScreenshot(named: "After a drag from the properties")
+        XCTAssertGreaterThan(editor.contentOffset.y, offsetBeforeDrag + 150, "The note did not scroll.")
+        XCTAssertFalse(editor.isFirstResponder, "The drag started editing the note.")
+        XCTAssertFalse(descendants(of: propertiesView, matching: UITextField.self).contains { field in field.isFirstResponder }, "The drag started editing a property.")
+        let frontmatterEnd = (editor.text as NSString).range(of: "\n---\n").location
+        let frontmatterStyle = editor.textStorage.attribute(.paragraphStyle, at: frontmatterEnd, effectiveRange: nil) as? NSParagraphStyle
+        XCTAssertEqual(frontmatterStyle?.maximumLineHeight, 0.01, "The YAML is shown in place of the properties.")
     }
 
     /// A drawing between two lines of text, as a note with sketches has them.
@@ -277,10 +322,5 @@ final class LivePreviewBlockPlacementTests: XCTestCase {
         add(attachment)
     }
 
-    private func waitUntil(_ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(5)
-        while !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(25)) }
-        XCTAssertTrue(condition(), "The hosted editor did not reach the expected state.")
-    }
 }
 #endif

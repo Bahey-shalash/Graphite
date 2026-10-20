@@ -44,6 +44,8 @@ struct NotesMapView {
         var parent: NotesMapView
         var shownNotes: [PlacedNote] = []
         var placedFitRequest: Int?
+        /// The highlight and accent the markers were last styled for.
+        var styledAppearance: (highlightedPath: VaultPath?, accent: Color)?
 
         init(parent: NotesMapView) { self.parent = parent }
 
@@ -82,12 +84,15 @@ struct NotesMapView {
             noteView.markerTintColor = isHighlighted ? platformColor(parent.accent) : PlatformMapColor.systemGray
             noteView.displayPriority = isHighlighted ? .required : .defaultHigh
             noteView.clusteringIdentifier = isHighlighted ? nil : NotesMapView.clusteringIdentifier
-            #if canImport(UIKit)
-            noteView.glyphImage = UIImage(systemName: "doc.text")
-            #else
-            noteView.glyphImage = NSImage(systemSymbolName: "doc.text", accessibilityDescription: nil)
-            #endif
+            noteView.glyphImage = Self.noteGlyph
         }
+
+        /// One image for every marker, rather than one made for each marker on each update.
+        #if canImport(UIKit)
+        private static let noteGlyph = UIImage(systemName: "doc.text")
+        #else
+        private static let noteGlyph = NSImage(systemSymbolName: "doc.text", accessibilityDescription: nil)
+        #endif
 
         private func platformColor(_ color: Color) -> PlatformMapColor { PlatformMapColor(color) }
     }
@@ -119,9 +124,15 @@ struct NotesMapView {
             coordinator.placedFitRequest = nil
             coordinator.shownNotes = notes
         }
-        for annotation in mapView.annotations {
-            guard let note = annotation as? PlacedNoteAnnotation, let noteView = mapView.view(for: note) as? MKMarkerAnnotationView else { continue }
-            coordinator.style(noteView, for: note)
+        // The markers shown are styled again only when what they show changes: each update
+        // of the view around the map restyled thousands of them, and changing a marker's
+        // grouping made MapKit group the notes again.
+        if coordinator.styledAppearance?.highlightedPath != highlightedPath || coordinator.styledAppearance?.accent != accent {
+            coordinator.styledAppearance = (highlightedPath, accent)
+            for annotation in mapView.annotations {
+                guard let note = annotation as? PlacedNoteAnnotation, let noteView = mapView.view(for: note) as? MKMarkerAnnotationView else { continue }
+                coordinator.style(noteView, for: note)
+            }
         }
         placeCamera(on: mapView, coordinator: coordinator)
     }

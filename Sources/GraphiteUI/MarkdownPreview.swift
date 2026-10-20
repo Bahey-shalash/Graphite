@@ -242,6 +242,19 @@ struct ReadingViewBuild: Sendable {
     /// Where each of the note's own top-level blocks starts in its text.
     var blockLocations: [ReadingBlockLocation] = []
     var readingSourceTokensByBlock: [String: [ReadAloudSourceToken]] = [:]
+    var foldKeys = ReadingFoldKeys()
+}
+
+/// The keys the reading view folds by, taken from the note as it is written. A heading's
+/// text and a callout's title are rewritten for display (links, highlights, closing
+/// hashes), so keys made from the displayed text would differ from the editor's and Read
+/// Aloud's, and a fold made in one view would not show in the others.
+struct ReadingFoldKeys: Equatable, Sendable {
+    /// The editor's fold key (`NoteFolding`) of each of the note's own headings, by block.
+    var headingKeysByBlock: [String: String] = [:]
+    /// The title of each callout as written in the note, by block; with its type it makes the
+    /// key under which Live Preview and Read Aloud remember the callout's expansion.
+    var calloutTitlesByBlock: [String: String] = [:]
 }
 
 /// Where one of the reading view's top-level blocks starts in the note's text, and for a
@@ -271,6 +284,8 @@ actor ReadingViewBuilder {
     /// Above zero while a callout's body is built. The outline does not list headings in
     /// callouts, so they are not numbered.
     private var calloutDepth = 0
+    /// The written title of each callout built so far, by block (`ReadingFoldKeys`).
+    private var calloutTitlesByBlock: [String: String] = [:]
 
     func build(source: String, note: VaultPath, root: URL, index: VaultIndex, configuration: ReadingConfiguration, allowsTransclusion: Bool = true) async throws -> ReadingViewBuild {
         hostNote = note
@@ -293,9 +308,20 @@ actor ReadingViewBuilder {
         }
         let locatedBlocks = Self.sectioned(NotePreviewDocument.locatedBlocks(from: readableBody.text, pluginCodeBlockLanguages: configuration.pluginCodeBlockLanguages),
                                            for: configuration)
+        calloutTitlesByBlock = [:]
         let renderedBody = try await render(locatedBlocks, note: note, root: root, index: index, configuration: configuration,
                                             allowsTransclusion: allowsTransclusion, taskSource: taskSource)
         // Each located block renders as one block, in order.
+        var foldKeys = ReadingFoldKeys(headingKeysByBlock: [:], calloutTitlesByBlock: calloutTitlesByBlock)
+        // Each heading is found in the note by where its line starts, and takes the key the
+        // editor gives the heading there.
+        var editorHeadingKeysByLineStart: [Int: String]?
+        for (locatedBlock, renderedBlock) in zip(locatedBlocks, renderedBody) {
+            guard case .heading = renderedBlock, let lineStart = taskSource.noteOffset(locatedBlock.startOffset) else { continue }
+            let headingKeys = editorHeadingKeysByLineStart ?? NoteFolding.headingKeysByLineStart(in: source)
+            editorHeadingKeysByLineStart = headingKeys
+            foldKeys.headingKeysByBlock[renderedBlock.id] = headingKeys[lineStart]
+        }
         var blockLocations = rendered.map { block in ReadingBlockLocation(blockIdentifier: block.id, noteOffset: 0, lineNoteOffsets: []) }
         for (locatedBlock, renderedBlock) in zip(locatedBlocks, renderedBody) {
             blockLocations.append(ReadingBlockLocation(blockIdentifier: renderedBlock.id,
@@ -323,7 +349,7 @@ actor ReadingViewBuilder {
             catch { /* Preview remains available when narration cannot map this note. */ }
         }
         return ReadingViewBuild(blocks: rendered, hasUnresolvedEmbeds: hasUnresolvedEmbeds, blockLocations: blockLocations,
-                                readingSourceTokensByBlock: readingSourceTokensByBlock)
+                                readingSourceTokensByBlock: readingSourceTokensByBlock, foldKeys: foldKeys)
     }
 
     private func sourceTokens(_ tokens: [ReadAloudSourceToken], for locatedBlocks: [NotePreviewDocument.LocatedBlock],
@@ -411,7 +437,9 @@ actor ReadingViewBuilder {
                 let renderedBody = try await render(locatedBlock.body, note: note, root: root, index: index, configuration: configuration,
                                                     allowsTransclusion: allowsTransclusion, taskSource: taskSource)
                 calloutDepth -= 1
-                rendered.append(.callout(id: identifier(), type: type, title: renderedTitle, folding: folding, body: renderedBody))
+                let calloutBlock = RenderedBlock.callout(id: identifier(), type: type, title: renderedTitle, folding: folding, body: renderedBody)
+                calloutTitlesByBlock[calloutBlock.id] = title
+                rendered.append(calloutBlock)
             case .embed(let embed):
                 rendered.append(try await renderEmbed(embed, note: note, root: root, index: index, configuration: configuration, allowsTransclusion: allowsTransclusion))
             case .baseDefinition(let yaml):
@@ -486,9 +514,7 @@ actor ReadingViewBuilder {
     }
 
     private func resolve(_ target: String, isWiki: Bool, note: VaultPath, root: URL, index: VaultIndex) async -> VaultPath? {
-        for candidate in WikiLinkResolver.directCandidates(target: target, source: note, isWiki: isWiki) {
-            if let location = try? candidate.url(in: root), FileManager.default.fileExists(atPath: location.path) { return candidate }
-        }
+        if let file = WikiLinkResolver.existingDirectFile(target: target, source: note, isWiki: isWiki, in: root) { return file }
         guard let resolved = try? await index.resolve(target, from: note, isWiki: isWiki), resolved.count == 1 else { return nil }
         return resolved.first
     }
@@ -790,6 +816,7 @@ struct MarkdownPreview: View {
     @State private var offsetBeforeRestoring: CGFloat?
     @State private var blocks: [RenderedBlock] = []
     @State private var readingSourceTokensByBlock: [String: [ReadAloudSourceToken]] = [:]
+    @State private var foldKeys = ReadingFoldKeys()
     /// The word read, where it is drawn and where the view is scrolled, for following the
     /// word; kept out of the view's state, which each would otherwise update at every word.
     @State private var readingFollow = ReadingFollowState()
@@ -888,6 +915,7 @@ struct MarkdownPreview: View {
             }
             .environment(\.baseEmbedContext, baseContext)
             .environment(\.readingSourceTokensByBlock, readingSourceTokensByBlock)
+            .environment(\.readingFoldKeys, foldKeys)
             .environment(\.readingWordCells, wordCells)
             .environment(\.readingFollowsSource, followsReading)
             .environment(\.readingMediaPlayers, mediaPlayers)
@@ -945,7 +973,8 @@ struct MarkdownPreview: View {
                 let hasMissingEmbeds = Self.containsMissingEmbed(build.blocks) || build.hasUnresolvedEmbeds
                 let key = ReadingBuildKey(source: source, path: path, root: root, configuration: configuration, dependsOnIndex: hasMissingEmbeds)
                 let cachedBuild = ReadingBlocksCache.Build(key: key, blocks: build.blocks, hasMissingEmbeds: hasMissingEmbeds,
-                                                          blockLocations: build.blockLocations, readingSourceTokensByBlock: build.readingSourceTokensByBlock)
+                                                          blockLocations: build.blockLocations, readingSourceTokensByBlock: build.readingSourceTokensByBlock,
+                                                          foldKeys: build.foldKeys)
                 show(cachedBuild)
                 blocksCache?.lastBuild = cachedBuild
             } catch is CancellationError {
@@ -1008,14 +1037,9 @@ struct MarkdownPreview: View {
 
     private func revealFoldedReadingSection(containing range: NSRange) {
         guard let folding, !folding.foldedKeys.isEmpty, let locations = savedPosition?.blockLocations else { return }
-        var occurrences: [String: Int] = [:]
         for (blockIndex, block) in blocks.enumerated() {
-            guard case .heading(_, let level, let text, _) = block,
+            guard case .heading(_, let level, _, _) = block, let key = foldKeys.headingKeysByBlock[block.id],
                   let start = locations.first(where: { location in location.blockIdentifier == block.id })?.noteOffset else { continue }
-            let base = "h\(level)|" + String(repeating: "#", count: level) + " " + text
-            let occurrence = occurrences[base, default: 0]
-            occurrences[base] = occurrence + 1
-            let key = base + "|" + String(occurrence)
             guard folding.foldedKeys.contains(key), range.location >= start else { continue }
             let nextHeading = blocks.dropFirst(blockIndex + 1).first { candidate in
                 if case .heading(_, let nextLevel, _, _) = candidate { return nextLevel <= level }
@@ -1029,6 +1053,7 @@ struct MarkdownPreview: View {
     private func show(_ build: ReadingBlocksCache.Build) {
         savedPosition?.blockLocations = build.blockLocations
         readingSourceTokensByBlock = build.readingSourceTokensByBlock
+        foldKeys = build.foldKeys
         wordCells.index(build.readingSourceTokensByBlock)
         wordDidMove(to: readingFollow.range)
         blocks = build.blocks; errorMessage = nil
@@ -1278,6 +1303,7 @@ final class ReadingBlocksCache {
         let hasMissingEmbeds: Bool
         var blockLocations: [ReadingBlockLocation] = []
         var readingSourceTokensByBlock: [String: [ReadAloudSourceToken]] = [:]
+        var foldKeys = ReadingFoldKeys()
     }
 
     var lastBuild: Build?
@@ -1350,6 +1376,7 @@ struct ReadingBlocksView: View {
     // goes over every block of the note. Only the views that show the word, and callouts
     // (`ReadingCallout`), read it.
     @Environment(\.readingSourceTokensByBlock) private var readingSourceTokensByBlock
+    @Environment(\.readingFoldKeys) private var foldKeys
     /// Draws plugins' code blocks; nil where plugins do not draw, which shows them as code.
     @Environment(\.communityPluginCodeBlocks) private var pluginCodeBlocks
 
@@ -1357,18 +1384,14 @@ struct ReadingBlocksView: View {
     private var visibleBlocks: [(block: RenderedBlock, foldKey: String?, hasBody: Bool)] {
         guard let folding else { return blocks.map { block in (block, nil, false) } }
         var result: [(block: RenderedBlock, foldKey: String?, hasBody: Bool)] = []
-        var occurrences: [String: Int] = [:]
         var hidingLevel: Int?
         for (blockIndex, block) in blocks.enumerated() {
             var foldKey: String?
             var level: Int?
-            if case .heading(_, let headingLevel, let text, _) = block {
+            if case .heading(_, let headingLevel, _, _) = block {
                 level = headingLevel
-                // The editor's key: the heading line as written, and which occurrence it is.
-                let base = "h\(headingLevel)|" + String(repeating: "#", count: headingLevel) + " " + text
-                let occurrence = occurrences[base, default: 0]
-                occurrences[base] = occurrence + 1
-                foldKey = base + "|" + String(occurrence)
+                // The editor's key, taken from the note as written (`ReadingFoldKeys`).
+                foldKey = foldKeys.headingKeysByBlock[block.id]
             }
             if let hidden = hidingLevel {
                 if let level, level <= hidden { hidingLevel = nil } else { continue }
@@ -1437,8 +1460,8 @@ struct ReadingBlocksView: View {
                     }
                 if let anchor { heading.id(anchor) } else { heading }
             case .callout(_, let type, let title, let folding, let body):
-                ReadingCallout(type: type, title: title, folding: folding, root: root, textSize: textSize, navigate: navigate,
-                               scrollToHeading: scrollToHeading, sourceTokens: readingSourceTokensByBlock[block.id], blocksInside: body) {
+                ReadingCallout(type: type, title: title, foldKeyTitle: foldKeys.calloutTitlesByBlock[block.id], folding: folding, root: root, textSize: textSize,
+                               navigate: navigate, scrollToHeading: scrollToHeading, sourceTokens: readingSourceTokensByBlock[block.id], blocksInside: body) {
                     ReadingBlocksView(blocks: body, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading, openPDF: openPDF, updateProperties: nil)
                 }
             case .video(_, let location):
@@ -1507,6 +1530,8 @@ struct ReadingBlocksView: View {
 private struct ReadingCallout<Content: View>: View {
     let type: String
     let title: String
+    /// The title as written in the note, which the fold key is made of; nil when not known.
+    let foldKeyTitle: String?
     let folding: CalloutFolding
     let root: URL
     let textSize: Double
@@ -1522,10 +1547,10 @@ private struct ReadingCallout<Content: View>: View {
     /// The word read: the reading view's current word.
     private var readingActiveSourceRange: NSRange? { readingWordCells?.current.range }
 
-    init(type: String, title: String, folding: CalloutFolding, root: URL, textSize: Double, navigate: @escaping (String, Bool) -> Void,
+    init(type: String, title: String, foldKeyTitle: String?, folding: CalloutFolding, root: URL, textSize: Double, navigate: @escaping (String, Bool) -> Void,
          scrollToHeading: @escaping (String) -> Void, sourceTokens: [ReadAloudSourceToken]?, blocksInside: [RenderedBlock],
          @ViewBuilder content: @escaping () -> Content) {
-        self.type = type; self.title = title; self.folding = folding; self.root = root; self.textSize = textSize
+        self.type = type; self.title = title; self.foldKeyTitle = foldKeyTitle; self.folding = folding; self.root = root; self.textSize = textSize
         self.navigate = navigate; self.scrollToHeading = scrollToHeading; self.sourceTokens = sourceTokens
         self.blocksInside = blocksInside; self.content = content
     }
@@ -1533,7 +1558,7 @@ private struct ReadingCallout<Content: View>: View {
     var body: some View {
         CalloutView(type: type, title: title, folding: folding, root: root, textSize: textSize, navigate: navigate,
                     scrollToHeading: scrollToHeading, sourceTokens: sourceTokens,
-                    automaticallyExpandsForReading: containsReadingWord(blocksInside), content: content)
+                    automaticallyExpandsForReading: containsReadingWord(blocksInside), foldKeyTitle: foldKeyTitle, content: content)
     }
 
     private func containsReadingWord(_ blocks: [RenderedBlock]) -> Bool {
@@ -2259,7 +2284,9 @@ struct ObsidianTableStyle: StructuredText.TableStyle {
     func makeBody(configuration: Configuration) -> some View {
         let borderStyle = theme?.tableBorderColor.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.secondary.opacity(0.35))
         let headerStyle = theme?.tableHeaderBackground.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.secondary.opacity(0.12))
-        Overflow { overflowState in
+        // Without a scroll view while the table fits the column: a scroll view around every
+        // table cost layout and scrolling work, and took swipes meant for the note.
+        Overflow(scrollsOnlyWhenWider: true) { overflowState in
             configuration.label
                 .fixedSize(horizontal: false, vertical: true)
                 .textual.tableCellSpacing(horizontal: 1, vertical: 1)
@@ -2273,6 +2300,8 @@ struct ObsidianTableStyle: StructuredText.TableStyle {
                 .textual.tableOverlay { layout in
                     FilledRectangles(rectangles: Self.hairlines(in: layout), style: borderStyle)
                 }
+                // Live Preview's cell editor, aligned with the cells (none in reading view).
+                .modifier(LivePreviewTableEditingOverlay())
                 .padding(1)
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(borderStyle, lineWidth: 1))
                 .offeredScrollContainerWidth(overflowState.containerWidth)
@@ -2459,6 +2488,11 @@ struct CalloutView<Body: View>: View {
     }
     /// The title as written in the note, which the fold key is made of.
     var foldKeyTitle: String
+
+    /// Whether Markdown has a wikilink, a Markdown link or a web address, which a tap follows.
+    static func containsLink(_ markdown: String) -> Bool {
+        markdown.contains("[[") || markdown.contains("](") || markdown.contains("://")
+    }
     /// Graphite's 8 points, or the theme's corner radius.
     private var calloutRadius: CGFloat { theme?.calloutRadius.map { radius in NoteThemeStyle.scaled(radius, textSize: textSize) } ?? 8 }
 
@@ -2481,7 +2515,10 @@ struct CalloutView<Body: View>: View {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: appearance.systemImage).foregroundStyle(appearance.titleColor)
-                    // A link in the title takes the tap before the fold button does.
+                    // A link in the title takes the tap before the fold button does. Textual
+                    // covers the whole text with its link tap, which took every tap on the
+                    // title, so a folded callout opened only from its icon or chevron: a
+                    // title without a link leaves the tap to the fold button.
                     StructuredText(title, parser: ObsidianMarkdownParser(baseURL: root, textSize: textSize, sourceTokens: sourceTokens))
                         .id(textSize)
                         .id(sourceTokens)
@@ -2490,6 +2527,7 @@ struct CalloutView<Body: View>: View {
                         .textual.inlineStyle(InlineStyle.default.link(.foregroundColor(accent)))
                         .textual.imageAttachmentLoader(VaultImageLoader(root: root))
                         .environment(\.openURL, ObsidianMarkdownText.linkAction(root: root, navigate: navigate, scrollToHeading: scrollToHeading))
+                        .allowsHitTesting(Self.containsLink(title))
                     if folding != .notFoldable {
                         Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(appearance.titleColor)
                             .rotationEffect(.degrees(isExpanded ? 90 : 0))
@@ -2713,6 +2751,7 @@ final class EmbeddedMediaPlayback {
     init(location: URL) {
         self.location = location
         player = AVPlayer(url: location)
+        player.isMuted = AudioOutputRoute.thisProcess == .silent
     }
 
     deinit { player.pause() }

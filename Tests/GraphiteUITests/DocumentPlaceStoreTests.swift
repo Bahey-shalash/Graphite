@@ -1,20 +1,15 @@
 import XCTest
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// Where each vault's documents were left, read from the device once and written only on change.
 @MainActor
 final class DocumentPlaceStoreTests: XCTestCase {
-    private var suiteName = ""
     private var defaults: UserDefaults!
 
     override func setUp() async throws {
-        suiteName = "DocumentPlaceStoreTests-\(UUID().uuidString)"
-        defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-    }
-
-    override func tearDown() async throws {
-        defaults.removePersistentDomain(forName: suiteName)
+        defaults = try IsolatedDeviceState.make(prefix: "DocumentPlaceStoreTests", for: self).preferences
     }
 
     private func memory(withNoteAtLine topLocation: Int) throws -> DocumentPlaceMemory {

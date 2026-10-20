@@ -82,7 +82,7 @@ final class ReadingTasksAndEquationsTests: XCTestCase {
         attachScreenshot(named: "After the tick")
         // Saved by the note's autosave.
         let file = try XCTUnwrap(vaultDirectory).appendingPathComponent("Tasks.md")
-        try await waitUntil(seconds: 5) { (try? Data(contentsOf: file)) == Data(tickedNote.utf8) }
+        try await waitUntil(timeoutSeconds: 5) { (try? Data(contentsOf: file)) == Data(tickedNote.utf8) }
     }
 
     func testTickFromReadingViewIsOneUndoStepInTheNotesEditor() async throws {
@@ -293,11 +293,6 @@ final class ReadingTasksAndEquationsTests: XCTestCase {
         }
     }
 
-    private func waitUntil(seconds: TimeInterval = 5, _ condition: () throws -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(seconds)
-        while !(try condition()), Date() < deadline { try await Task.sleep(for: .milliseconds(25)) }
-        XCTAssertTrue(try condition(), "The hosted reading view did not reach the expected state.")
-    }
 }
 
 /// Which pixels of a picture are ink: dark on the light note.

@@ -1,5 +1,6 @@
 import XCTest
 @testable import GraphiteCore
+import GraphiteTestSupport
 
 /// Regression tests for pasted HTML that the converter used to damage.
 final class CoreHtmlColorsHTMLToMarkdownTests: XCTestCase {
@@ -88,19 +89,25 @@ final class CoreHtmlColorsHTMLToMarkdownTests: XCTestCase {
     func testLargeInputConvertsQuickly() {
         let chunk = "<div class=\"row\" style=\"color: red\"><p>Some <b>bold</b> and <a href=\"https://example.org/x\">link</a> text.</p></div>\n"
         let html = String(repeating: chunk, count: 5_000)
-        let start = Date()
         let converted = HTMLToMarkdown.markdown(from: html)
         XCTAssertTrue(converted.hasPrefix("Some **bold** and [link](https://example.org/x) text."))
-        // Compiling the attribute pattern for every tag took several seconds here.
-        XCTAssertLessThan(Date().timeIntervalSince(start), 2.0)
+        // Compiling the attribute pattern for every tag took several seconds here: a cost per tag, which a scaling check does not
+        // see, so the conversion is timed against a plain pass over the same input (about 30 times as long in a debug build; the
+        // slow version about 500 times). A count of pattern compilations replaces this once the shared pattern helper exists (FR-62).
+        ScalingChecks.assertNoSlowerThan(factor: 150, reference: {
+            var tagCount = 0
+            for character in html where character == "<" { tagCount += 1 }
+            XCTAssertGreaterThan(tagCount, 0)
+        }, "HTML to Markdown, 5,000 rows", work: { _ = HTMLToMarkdown.markdown(from: html) })
     }
 
     func testMalformedTagsConvertInLinearTime() {
         let unclosedTags = String(repeating: "<a", count: 200_000)
-        let start = Date()
         XCTAssertEqual(markdown(unclosedTags), unclosedTags)
         // Every `<` scanned to the end of the input: 80 KB of this took four seconds.
-        XCTAssertLessThan(Date().timeIntervalSince(start), 2.0)
+        ScalingChecks.assertScalesLinearly(smallSize: 100_000, largeSize: 400_000, "malformed tags") { count in
+            _ = markdown(String(repeating: "<a", count: count))
+        }
         XCTAssertEqual(markdown("<p title=\"unclosed><b>bold</b> <i>still converted</i></p>"), "<p title=\"unclosed>**bold** *still converted*")
     }
 
@@ -167,11 +174,11 @@ final class CoreHtmlColorsHTMLToMarkdownTests: XCTestCase {
         let lines = markdown(deepQuote).components(separatedBy: "\n")
         XCTAssertEqual(lines.first, String(repeating: "> ", count: 64) + "deep")
         XCTAssertEqual(lines.last, "after", "End tags past the limit close nothing, so the outer quotes still end.")
-        let unclosedLists = String(repeating: "<ul><li>item", count: 20_000)
-        let start = Date()
-        let converted = markdown(unclosedLists)
-        XCTAssertLessThan(Date().timeIntervalSince(start), 2.0)
+        let converted = markdown(String(repeating: "<ul><li>item", count: 20_000))
         XCTAssertLessThan(converted.utf8.count, 20_000 * 80, "Every line's prefix is bounded by the nesting limit.")
+        ScalingChecks.assertScalesLinearly(smallSize: 5_000, largeSize: 20_000, "unclosed lists") { count in
+            _ = markdown(String(repeating: "<ul><li>item", count: count))
+        }
     }
 
     func testCodeAfterANestedListNeedsNoBlankLineAfterIt() {

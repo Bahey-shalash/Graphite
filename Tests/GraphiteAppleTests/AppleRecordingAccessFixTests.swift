@@ -3,6 +3,7 @@ import AVFoundation
 import Synchronization
 import GraphiteCore
 @testable import GraphiteApple
+import GraphiteTestSupport
 
 /// Recording publication and recovery, driven without a microphone: the controller adopts
 /// an AAC file written by AVAudioFile, as if it had just recorded it.
@@ -41,14 +42,6 @@ final class AppleRecordingAccessRecordingTests: XCTestCase {
         try audioFile.write(from: buffer)
         audioFile.close()
         return recordingURL
-    }
-
-    private func waitUntil(_ condition: () -> Bool, timeoutSeconds: Double = 10) async throws {
-        let deadline = Date.now.addingTimeInterval(timeoutSeconds)
-        while !condition() {
-            guard Date.now < deadline else { return XCTFail("Timed out waiting for the recording controller.") }
-            try await Task.sleep(for: .milliseconds(20))
-        }
     }
 
     func testSuccessfulRetryClearsTheEarlierFailureMessage() async throws {
@@ -249,7 +242,7 @@ final class AppleRecordingAccessRecordingTests: XCTestCase {
 
 /// The test supplies the expectation before handing the recorder to a worker. Counters
 /// are mutex-protected; the semaphore provides a deterministic hardware delay.
-private final class PausingResumeRecorder: AVAudioRecorder {
+private final class PausingResumeRecorder: AVAudioRecorder, @unchecked Sendable {
     var resumeStarted: XCTestExpectation?
     let resumeMayFinish = DispatchSemaphore(value: 0)
     let resumeCount = Mutex(0)
@@ -270,12 +263,7 @@ final class AppleRecordingAccessFolderTests: XCTestCase {
     private var parentFolder: URL!
 
     override func setUp() async throws {
-        parentFolder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: parentFolder, withIntermediateDirectories: true)
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: parentFolder)
+        parentFolder = try TemporaryVault.make(prefix: "TemporaryFolder", for: self).root
     }
 
     func testRelativePathCoversTheEnclosingFolderItselfButNotItsSiblings() throws {
@@ -329,12 +317,7 @@ final class AppleRecordingAccessVaultMonitorTests: XCTestCase {
     private var parentFolder: URL!
 
     override func setUp() async throws {
-        parentFolder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: parentFolder, withIntermediateDirectories: true)
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: parentFolder)
+        parentFolder = try TemporaryVault.make(prefix: "TemporaryFolder", for: self).root
     }
 
     func testRenamedVaultFolderIsReportedAndFollowed() throws {

@@ -3,6 +3,7 @@ import SwiftUI
 import GraphiteCore
 import GraphiteIndex
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// Resizing a table column of a base: the width under the finger, and the write into the
 /// view's `columnSize`.
@@ -13,15 +14,9 @@ final class UiBasesColumnResizeTests: XCTestCase {
     private var store: VaultStore!
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("UiBasesColumnResizeVault-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        vault = try TemporaryVault.make(prefix: "UiBasesColumnResizeVault", for: self).root
         index = try VaultIndex(databaseURL: vault.appendingPathExtension("cache").appendingPathComponent("index.sqlite"))
         store = VaultStore(root: vault)
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: vault)
-        try? FileManager.default.removeItem(at: vault.appendingPathExtension("cache"))
     }
 
     private func write(_ text: String, to relativePath: String) throws {

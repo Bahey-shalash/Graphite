@@ -98,7 +98,10 @@ public enum NoteBlocks {
                     guard next.trimmingCharacters(in: .whitespaces).hasPrefix(">") || continuesQuotedText && continuesTextLazily(next) else { break }
                     endIndex += 1
                 }
-            } else if trimmedLine.hasPrefix("|") {
+            } else if trimmedLine.hasPrefix("|")
+                        || (lineIndex + 1 < lines.count && LivePreviewBlockScanner.startsTable(header: trimmedLine, delimiter: lines[lineIndex + 1].content)) {
+                // A table without outer pipes is a table too, so a block identifier goes
+                // after it rather than into its last cell.
                 kind = .table
                 // As in GFM, a text line right under a table is one more row.
                 while endIndex + 1 < lines.count {

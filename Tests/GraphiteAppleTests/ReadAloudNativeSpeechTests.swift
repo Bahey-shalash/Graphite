@@ -3,12 +3,13 @@ import Foundation
 import GraphiteCore
 @testable import GraphiteApple
 
-/// This test intentionally uses the installed voice and real system playback.
-/// It establishes callback delivery, not subjective naturalness or device drift.
+/// This test uses the installed voice and the real synthesizer, rendered to buffers that are
+/// dropped (`AudioOutputRoute.silent`): nothing is heard while the test runs. It establishes
+/// callback delivery, not subjective naturalness or device drift.
 @MainActor
 final class ReadAloudNativeSpeechTests: XCTestCase {
     func testInstalledAppleVoiceDeliversActualWordRangesAndCompletion() async throws {
-        let speech = AppleReadAloudSpeech()
+        let speech = AppleReadAloudSpeech(output: .silent, clock: LiveApplicationClock(), rendersToDroppedBuffers: true)
         guard let voice = ReadAloudVoice.preferred(in: speech.voices, language: "en-US") else {
             throw XCTSkip("Install an English Apple voice to run native speech integration.")
         }

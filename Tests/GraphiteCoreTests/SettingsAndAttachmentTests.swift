@@ -1,5 +1,6 @@
 import XCTest
 @testable import GraphiteCore
+import GraphiteTestSupport
 
 final class SettingsAndAttachmentTests: XCTestCase {
     func testObsidianAttachmentValuesMapBothWays() {
@@ -80,9 +81,8 @@ final class SettingsAndAttachmentTests: XCTestCase {
     }
 
     func testVaultStoreWritesAppJSONAndRereadsIt() async throws {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("Vault-\(UUID().uuidString)")
+        let vault = try TemporaryVault.make(prefix: "Vault", for: self).root
         try FileManager.default.createDirectory(at: vault.appendingPathComponent(".obsidian"), withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: vault) }
         try Data("{\"theme\": \"obsidian\"}".utf8).write(to: vault.appendingPathComponent(".obsidian/app.json"))
         let store = VaultStore(root: vault)
         let settings = ObsidianSettings(attachmentLocation: .specifiedFolder("Attachments"), linkFormat: .absolute, usesWikilinks: true)
@@ -94,9 +94,7 @@ final class SettingsAndAttachmentTests: XCTestCase {
     }
 
     func testVaultStoreCreatesSettingsWhenVaultHasNoObsidianFolder() async throws {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("Vault-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: vault) }
+        let vault = try TemporaryVault.make(prefix: "Vault", for: self).root
         let store = VaultStore(root: vault)
         let noSettings = try await store.settings()
         XCTAssertEqual(noSettings, ObsidianSettings())
