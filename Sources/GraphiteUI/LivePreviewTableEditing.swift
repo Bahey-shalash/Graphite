@@ -36,7 +36,7 @@ extension EnvironmentValues {
 @Observable
 final class LivePreviewTableEditor {
     /// The coordinate space of a rendered block's whole view, which its menu's points are in.
-    static let blockCoordinateSpaceName = "LivePreviewRenderedBlock"
+    nonisolated static let blockCoordinateSpaceName = "LivePreviewRenderedBlock"
     /// How long typing pauses before the cell is written into the note.
     private static let commitDelay: Duration = .milliseconds(400)
 
