@@ -172,6 +172,7 @@ final class GraphitePreferences {
         static let textSize = "GraphiteTextSize"
         static let usesSpellChecking = "GraphiteUsesSpellChecking"
         static let formatsCodeBlocks = "GraphiteFormatsCodeBlocks"
+        static let codeColorTheme = "GraphiteCodeColorTheme"
         static let colorPalette = "GraphiteColorPalette"
         static let highlighterPalette = "GraphiteHighlighterPalette"
         static let embedsRecordingsInNote = "GraphiteEmbedsRecordingsInNote"
@@ -238,6 +239,8 @@ final class GraphitePreferences {
     var usesSpellChecking: Bool { didSet { defaults.set(usesSpellChecking, forKey: Key.usesSpellChecking) } }
     /// Whether a code block is formatted when the cursor leaves it after an edit.
     var formatsCodeBlocks: Bool { didSet { defaults.set(formatsCodeBlocks, forKey: Key.formatsCodeBlocks) } }
+    /// The colors code blocks are drawn in.
+    var codeColorTheme: CodeColorTheme { didSet { defaults.set(codeColorTheme.rawValue, forKey: Key.codeColorTheme) } }
     /// The palette as saved, for code without the preferences object, such as the Pencil
     /// palette's Favorite Colors menu.
     nonisolated static func storedColorPalette(in defaults: UserDefaults = .standard) -> [PaletteColor] {
@@ -397,6 +400,7 @@ final class GraphitePreferences {
         legacyChosenTextSize = (12...28).contains(storedTextSize) ? storedTextSize : nil
         usesSpellChecking = defaults.object(forKey: Key.usesSpellChecking) as? Bool ?? true
         formatsCodeBlocks = defaults.object(forKey: Key.formatsCodeBlocks) as? Bool ?? true
+        codeColorTheme = defaults.string(forKey: Key.codeColorTheme).flatMap(CodeColorTheme.init(rawValue:)) ?? .obsidian
         colorPalette = Self.storedColorPalette(in: defaults)
         highlighterPalette = Self.storedHighlighterPalette(in: defaults)
         embedsRecordingsInNote = defaults.object(forKey: Key.embedsRecordingsInNote) as? Bool ?? true

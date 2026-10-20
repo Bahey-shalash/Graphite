@@ -35,7 +35,7 @@ struct ThemeResolverInputs: Sendable, Equatable {
 @MainActor
 final class ThemeTokenResolver: NSObject, WKNavigationDelegate {
     /// The version of `graphite-default-variables.css` and the probes; part of every fingerprint.
-    nonisolated static let defaultLayerVersion = 5
+    nonisolated static let defaultLayerVersion = 6
 
     private var webView: WKWebView?
     private var loadContinuation: CheckedContinuation<Void, Error>?

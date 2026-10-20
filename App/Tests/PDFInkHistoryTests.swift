@@ -178,6 +178,67 @@ final class PDFInkHistoryTests: XCTestCase {
         XCTAssertNil(PencilDrawingChange(from: after, to: after), "No change, no step.")
     }
 
+    func testAStrokeAddedAfterTheOthersIsRecognizedFromTheStrokeBeforeIt() throws {
+        let strokes = (1...3).map { number in stroke(atHeight: CGFloat(number) * 100) }
+        let before = PKDrawing(strokes: Array(strokes.prefix(2)))
+        let after = PKDrawing(strokes: strokes)
+        let change = try XCTUnwrap(PencilDrawingChange(appendingLastStrokeOf: after, to: before))
+        XCTAssertEqual(change.appendedStrokeIndex, 2)
+        XCTAssertEqual(change.changedStrokeCount, PencilDrawingChange(from: before, to: after)?.changedStrokeCount)
+        XCTAssertEqual(change.reverting(after)?.strokes.map(\.path.creationDate), before.strokes.map(\.path.creationDate))
+        XCTAssertEqual(change.reapplying(to: before)?.strokes.map(\.path.creationDate), after.strokes.map(\.path.creationDate))
+        XCTAssertNotNil(PencilDrawingChange(appendingLastStrokeOf: PKDrawing(strokes: [strokes[0]]), to: PKDrawing()))
+
+        let replacedBeforeTheLast = PKDrawing(strokes: [strokes[0], stroke(atHeight: 500), strokes[2]])
+        XCTAssertNil(PencilDrawingChange(appendingLastStrokeOf: replacedBeforeTheLast, to: before))
+        XCTAssertNil(PencilDrawingChange(appendingLastStrokeOf: before, to: before), "No stroke more, no added stroke.")
+        XCTAssertNil(PencilDrawingChange(appendingLastStrokeOf: after, to: PKDrawing(strokes: [strokes[0]])))
+    }
+
+    /// FR-104: a stroke drawn with an inking tool converts and hides only that stroke. An
+    /// annotation of the page shown on purpose stays shown, which a pass over every
+    /// annotation of the page would have hidden.
+    func testAPencilStrokeTouchesOnlyItsOwnAnnotationAndAnEraseStillFindsTheRightOne() async throws {
+        let session = try await openNotebook(pageCount: 1)
+        _ = try host(AnyView(NavigationStack { PDFPane(session: session, resolveConflict: { _ in }) }))
+        let page = try XCTUnwrap(session.document.page(at: 0))
+        let canvas = try await editingCanvas(for: page, in: session)
+        let strokes = (1...4).map { number in stroke(atHeight: CGFloat(number) * 100) }
+        canvas.drawing = PKDrawing(strokes: Array(strokes.prefix(3)))
+        try await waitUntil { self.inkCount(on: page) == 3 }
+        endEvent(of: session)
+        let firstAnnotation = try XCTUnwrap(page.annotations.first { annotation in annotation.type == "Ink" })
+        XCTAssertFalse(firstAnnotation.shouldDisplay, "The canvas shows the page's ink.")
+        firstAnnotation.shouldDisplay = true
+
+        canvas.tool = PKInkingTool(.pen, color: .black, width: 3)
+        canvas.toolUseDidBegin()
+        canvas.drawing = PKDrawing(strokes: strokes)
+        try await waitUntil { self.inkCount(on: page) == 4 }
+        endEvent(of: session)
+        let addedAnnotation = try XCTUnwrap(page.annotations.last { annotation in annotation.type == "Ink" })
+        XCTAssertFalse(addedAnnotation.shouldDisplay, "The new stroke's annotation is hidden under the canvas.")
+        XCTAssertTrue(firstAnnotation.shouldDisplay, "No other annotation of the page was looked at.")
+        firstAnnotation.shouldDisplay = false
+
+        session.undoAvailability.undo()
+        try await waitUntil { self.inkCount(on: page) == 3 }
+        session.undoAvailability.redo()
+        try await waitUntil { self.inkCount(on: page) == 4 }
+
+        canvas.tool = PKEraserTool(.vector)
+        canvas.toolUseDidBegin()
+        let erased = PKDrawing(strokes: [strokes[0], strokes[2], strokes[3]])
+        canvas.drawing = erased
+        try await waitUntil { self.inkCount(on: page) == 3 }
+        endEvent(of: session)
+        try await session.save()
+        let savedPage = try XCTUnwrap(PDFDocument(url: session.location)?.page(at: 0))
+        let restored = try XCTUnwrap(PDFPageInkTracker.restoring(XCTUnwrap(PDFInkGroups.editableGroup(on: savedPage))))
+        XCTAssertEqual(restored.drawing.strokes.map(\.path.creationDate), erased.strokes.map(\.path.creationDate))
+        XCTAssertEqual(inkCount(on: savedPage), 3)
+    }
+
     func testErasingAStrokeInTheMiddleKeepsItsPlace() throws {
         let strokes = (1...4).map { number in stroke(atHeight: CGFloat(number) * 100) }
         let before = PKDrawing(strokes: strokes)
@@ -217,8 +278,7 @@ final class PDFInkHistoryTests: XCTestCase {
     // MARK: Helpers
 
     private func openNotebook(pageCount: Int) async throws -> PDFSession {
-        let location = FileManager.default.temporaryDirectory.appendingPathComponent("InkHistory-\(UUID().uuidString).pdf")
-        try PDFTemplateGenerator.documentData(paper: PaperSpecification(template: .blank), pageCount: pageCount).write(to: location)
+        let location = try makeHostedBlankNotebook(named: "InkHistory", pageCount: pageCount)
         locations.append(location)
         return try await PDFSession.open(location)
     }

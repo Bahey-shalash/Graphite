@@ -228,6 +228,10 @@ public struct PDFInkUpdate: Sendable, Equatable {
         case .entireGroup:
             return PDFInkUpdate(pageIndex: pageIndex, group: group, removal: .entireGroup, addedStrokes: later.addedStrokes,
                                 editableRecord: mergedRecord, defersEditableRecord: mergedDefersRecord)
+        case .strokes(let laterRemovedNames) where laterRemovedNames.isEmpty:
+            // Strokes only added, as at every pen-up: nothing earlier is looked at.
+            return PDFInkUpdate(pageIndex: pageIndex, group: group, removal: removal, addedStrokes: addedStrokes + later.addedStrokes,
+                                editableRecord: mergedRecord, defersEditableRecord: mergedDefersRecord)
         case .strokes(let laterRemovedNames):
             let namesAddedHere = Set(addedStrokes.compactMap(\.name))
             let mergedRemoval: Removal

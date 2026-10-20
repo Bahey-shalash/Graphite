@@ -38,49 +38,66 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
     private let reachesAcrossColumn: Bool
     /// A quoted paragraph, whose bars reach into the spacing above and below it.
     private let containsQuoteBar: Bool
+    /// The paragraph's slice of a code block's box, when it is a line of a fenced code
+    /// block. Each line of a block is a paragraph, so its first character says.
+    private let codeBlockDecoration: CodeBlockLineDecoration?
+
+    /// What a paragraph needs drawn besides its text, found from its attributes.
+    private struct DrawingNeeds {
+        var containsInlineMath = false
+        var headingPrefixWidth: CGFloat = 0
+        var drawsBehindText = false
+        var drawsOverText = false
+        var reachesAcrossColumn = false
+        var containsQuoteBar = false
+        var codeBlockDecoration: CodeBlockLineDecoration?
+    }
 
     override init(textElement: NSTextElement, range rangeInElement: NSTextRange?) {
-        if let attributedString = (textElement as? NSTextParagraph)?.attributedString {
-            var foundInlineMath = false
-            let wholeString = NSRange(location: 0, length: attributedString.length)
-            var foundBehind = false, foundOver = false, foundAcross = false, foundQuoteBar = false
-            attributedString.enumerateAttributes(in: wholeString) { attributes, _, _ in
-                if attributes[ConcealedReplacement.mathAttributeKey] != nil { foundInlineMath = true; foundOver = true }
-                if let replacement = attributes[ConcealedReplacement.attributeKey] as? String {
-                    foundOver = true
-                    if replacement == ConcealedReplacement.quoteBar.rawValue { foundQuoteBar = true }
-                }
-                if attributes[ConcealedReplacement.roundedBackgroundKey] != nil { foundBehind = true }
-                if attributes[ConcealedReplacement.quoteBackgroundKey] != nil { foundBehind = true; foundAcross = true }
-                if attributes[ConcealedReplacement.headingOrnamentKey] != nil { foundBehind = true; foundOver = true; foundAcross = true }
-            }
-            drawsBehindText = foundBehind
-            drawsOverText = foundOver
-            reachesAcrossColumn = foundAcross
-            containsQuoteBar = foundQuoteBar
-            containsInlineMath = foundInlineMath
-            var prefixWidth: CGFloat = 0
-            attributedString.enumerateAttribute(ConcealedReplacement.headingOrnamentKey, in: wholeString) { value, range, stop in
-                guard let ornament = value as? ThemedHeadingOrnament, let prefix = ornament.prefix else { return }
-                let font = attributedString.attribute(.font, at: range.location, effectiveRange: nil) as? PlatformFont ?? .preferredFont(forTextStyle: .body)
-                prefixWidth = Self.prefixFont(for: font).map { prefixFont in (prefix as NSString).size(withAttributes: [.font: prefixFont]).width + 8 } ?? 0
-                stop.pointee = true
-            }
-            headingPrefixWidth = prefixWidth
-        } else {
-            containsInlineMath = false
-            headingPrefixWidth = 0
-            drawsBehindText = false
-            drawsOverText = false
-            reachesAcrossColumn = false
-            containsQuoteBar = false
-        }
+        let needs = (textElement as? NSTextParagraph).map { paragraph in Self.drawingNeeds(of: paragraph.attributedString) } ?? DrawingNeeds()
+        containsInlineMath = needs.containsInlineMath
+        headingPrefixWidth = needs.headingPrefixWidth
+        codeBlockDecoration = needs.codeBlockDecoration
+        drawsBehindText = needs.drawsBehindText || needs.codeBlockDecoration != nil
+        drawsOverText = needs.drawsOverText
+        reachesAcrossColumn = needs.reachesAcrossColumn
+        containsQuoteBar = needs.containsQuoteBar
         super.init(textElement: textElement, range: rangeInElement)
+    }
+
+    private static func drawingNeeds(of attributedString: NSAttributedString) -> DrawingNeeds {
+        var needs = DrawingNeeds()
+        let wholeString = NSRange(location: 0, length: attributedString.length)
+        attributedString.enumerateAttributes(in: wholeString) { attributes, _, _ in
+            if attributes[ConcealedReplacement.mathAttributeKey] != nil { needs.containsInlineMath = true; needs.drawsOverText = true }
+            if let replacement = attributes[ConcealedReplacement.attributeKey] as? String {
+                needs.drawsOverText = true
+                if replacement == ConcealedReplacement.quoteBar.rawValue { needs.containsQuoteBar = true }
+            }
+            if attributes[ConcealedReplacement.roundedBackgroundKey] != nil { needs.drawsBehindText = true }
+            if attributes[ConcealedReplacement.quoteBackgroundKey] != nil { needs.drawsBehindText = true; needs.reachesAcrossColumn = true }
+            if attributes[ConcealedReplacement.headingOrnamentKey] != nil {
+                needs.drawsBehindText = true
+                needs.drawsOverText = true
+                needs.reachesAcrossColumn = true
+            }
+        }
+        if attributedString.length > 0 {
+            needs.codeBlockDecoration = attributedString.attribute(ConcealedReplacement.codeBlockKey, at: 0, effectiveRange: nil) as? CodeBlockLineDecoration
+        }
+        attributedString.enumerateAttribute(ConcealedReplacement.headingOrnamentKey, in: wholeString) { value, range, stop in
+            guard let ornament = value as? ThemedHeadingOrnament, let prefix = ornament.prefix else { return }
+            let font = attributedString.attribute(.font, at: range.location, effectiveRange: nil) as? PlatformFont ?? .preferredFont(forTextStyle: .body)
+            needs.headingPrefixWidth = prefixFont(for: font).map { prefixFont in (prefix as NSString).size(withAttributes: [.font: prefixFont]).width + 8 } ?? 0
+            stop.pointee = true
+        }
+        return needs
     }
 
     required init?(coder: NSCoder) {
         containsInlineMath = false
         headingPrefixWidth = 0
+        codeBlockDecoration = nil
         drawsBehindText = true
         drawsOverText = true
         reachesAcrossColumn = true
@@ -132,7 +149,19 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
             bounds.origin.y = min(bounds.minY, 0)
             bounds.size.height = bottom - bounds.minY
         }
+        // A code block's box fills the whole line, from the column's left edge, the space
+        // between its lines included.
+        if codeBlockDecoration != nil {
+            bounds = bounds.union(CGRect(x: -indentationFromColumn, y: 0, width: columnWidth + indentationFromColumn, height: layoutFragmentFrame.height + 1))
+        }
         return bounds
+    }
+
+    /// How far this fragment starts right of the text column's left edge: TextKit places a
+    /// paragraph's fragment at its head indent, as for the inset lines of a code block.
+    private var indentationFromColumn: CGFloat {
+        let padding = textLayoutManager?.textContainer?.lineFragmentPadding ?? 0
+        return max(0, layoutFragmentFrame.minX - padding)
     }
 
     /// The text column's width from this fragment's left edge. A fragment is only as wide as
@@ -249,6 +278,10 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
     /// Rounded backgrounds behind tag pills and highlights, quote boxes, and heading
     /// backgrounds, under the text.
     private func drawThemeShapesBehindText(at point: CGPoint) {
+        if let codeBlockDecoration {
+            CodeBlockBoxDrawing.draw(codeBlockDecoration, at: point, columnWidth: columnWidth, indentationFromColumn: indentationFromColumn,
+                                     height: layoutFragmentFrame.height, firstLine: textLineFragments.first)
+        }
         for lineFragment in textLineFragments {
             let attributedString = lineFragment.attributedString
             let lineOrigin = CGPoint(x: point.x + lineFragment.typographicBounds.minX, y: point.y + lineFragment.typographicBounds.minY)
