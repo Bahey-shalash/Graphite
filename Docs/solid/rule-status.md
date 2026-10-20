@@ -2,7 +2,7 @@
 
 Snapshot: b13dec3 (main, 2026-10-18).
 
-This document assesses each of the 108 rules `FR-01` to `FR-108` of [rewrite-foundations.md](rewrite-foundations.md) section 11 against the code of the snapshot. It does not count closed findings. A rule is judged by what the code does today, checked with the mechanical search named in the row where the rule has one, and with the finding IDs of its source principle rules plus a place that already meets it where the rule is structural.
+This document assesses each of the 110 rules `FR-01` to `FR-110` of [rewrite-foundations.md](rewrite-foundations.md) section 11 against the code of the snapshot; group J (`FR-109`, `FR-110`), added on 2026-10-20, is assessed on `fad4496`. It does not count closed findings. A rule is judged by what the code does today, checked with the mechanical search named in the row where the rule has one, and with the finding IDs of its source principle rules plus a place that already meets it where the rule is structural.
 
 **Totals at the snapshot: 0 Supported, 62 Partial, 43 Open, 3 Not reassessed, of 108 rules. Totals on `5aae924` (main, 2026-10-20): 0 Supported, 68 Partial, 38 Open, 2 Not reassessed** (`FR-85`, `FR-86`, `FR-87` and `FR-89` moved from Open to Partial with Phase 1, and `FR-99` and `FR-100` with the first green CI runs; see "Since the snapshot").
 
@@ -39,7 +39,8 @@ No rule is Supported at the snapshot: for every rule at least one checked site b
 | G Size and style | FR-76 to FR-82 (7) | 0 | 6 | 1 | 0 |
 | H Testing | FR-83 to FR-100 (18) | 0 | 8 | 8 | 2 |
 | I Performance and reliability | FR-101 to FR-108 (8) | 0 | 5 | 2 | 1 |
-| **All** | FR-01 to FR-108 (108) | 0 | 62 | 43 | 3 |
+| **All at the snapshot** | FR-01 to FR-108 (108) | 0 | 62 | 43 | 3 |
+| J Features and packages (on `fad4496`) | FR-109 to FR-110 (2) | 0 | 1 | 1 | 0 |
 
 ## A Responsibility
 
@@ -195,6 +196,15 @@ Added with the owner's decisions of 2026-10-18 ([rewrite-foundations.md](rewrite
 | **FR-106** Nothing users see waits for discovery | Partial | OBJECTIVE.md requires it and the area audits record document opening independent of the scan (`IX-*` rows in [invariants.md](invariants.md)); no launch or open budget exists to prove it (`FR-101`). | Launch and open budgets measured on device. |
 | **FR-107** Abstractions are free on hot paths | Not reassessed | No benchmark exists to show the cost or absence of cost of existentials and closures on the editor, Pencil and PDF paths. | Benchmarks of `FR-101`, then a review of each hot path. |
 | **FR-108** Every crash, hang and loss of work is a defect with a test | Partial | MetricKit diagnostics and stall records are written ([MainThreadWatchdog.swift:16-19](../../Sources/GraphiteApple/MainThreadWatchdog.swift#L16-L19), [MainThreadWatchdog.swift:57](../../Sources/GraphiteApple/MainThreadWatchdog.swift#L57)); 20 test files are regression tests named after fix rounds. No path links a diagnostic record to [defects.md](defects.md). | Every diagnostic report is triaged into `defects.md`, and every closed defect has a failing-first regression test. |
+
+## J Features and packages
+
+Added with the owner's direction of 2026-10-20 ([rewrite-foundations.md](rewrite-foundations.md), group J); assessed on `fad4496` (main, 2026-10-20), not on the snapshot.
+
+| Rule | Status | Evidence | Remaining requirement |
+| --- | --- | --- | --- |
+| **FR-109** A feature that is off does not run | Partial | Meets it: Read Aloud builds its controller, voice library, renderer and Now Playing entry only while its core plugin is on, and releases them when it is turned off ([WorkspaceModel.swift:235](../../Sources/GraphiteUI/WorkspaceModel.swift#L235); [Architecture.md](../Architecture.md), "Read Aloud as a core plugin"); the community plugin runtime starts no web view while no plugin is enabled ([CommunityPluginHost.swift:393](../../Sources/GraphiteUI/CommunityPluginHost.swift#L393)). Breaks it: the other core plugins are switched where they are used, 19 sites of `preferences.isEnabled(…)` in `GraphiteUI` (for example [WorkspaceModel.swift:417](../../Sources/GraphiteUI/WorkspaceModel.swift#L417), [WorkspaceModel.swift:862](../../Sources/GraphiteUI/WorkspaceModel.swift#L862)); `WorkspaceModel` builds a `ThemeTokenResolver` for every workspace ([WorkspaceModel.swift:144](../../Sources/GraphiteUI/WorkspaceModel.swift#L144)); search, PDF, notebooks, recording, import and community themes have no switch. | The inventory, per-registration construction, kernel-only composition, `FeatureSwitchTests` and launch and memory increments of Phase 6 step 9. |
+| **FR-110** Code that knows nothing of Graphite is a standalone package | Open | No `Packages/` folder exists. The 80 files of `Sources/GraphiteCore/NotebookImport` type-check alone with Foundation, CoreGraphics and zlib (`swiftc -typecheck`, 2026-10-20) but are part of `GraphiteCore`; `CC-IMPORT-16` records test-only members that are `public`. | Phase 5 step 8: `Packages/NotebookImport` with its own tests and README, the import check over `Packages/`, and a CI job that builds and tests it alone. |
 
 ## Since the snapshot
 
