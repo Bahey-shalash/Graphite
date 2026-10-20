@@ -32,7 +32,31 @@ extension Math {
       )?.bounds.size ?? .zero
     }
 
+    /// Graphite patch: how far, in points, a formula may be wider than the width proposed
+    /// to it and still be typeset on one line. A view's frame is rounded to whole pixels,
+    /// which moves each edge by at most half a pixel, so the canvas that draws a formula
+    /// can be up to one pixel (one point at 1x) narrower than the width it was measured at.
+    static let lineBreakTolerance: CGFloat = 1
+
+    /// Graphite patch: a formula is broken into lines only when it is wider than
+    /// `proposedWidth` by more than `lineBreakTolerance`. `Math` typesets its formula again
+    /// at the width of its canvas; when that frame came out a fraction of a point narrower
+    /// than the formula, `g_m` broke into `g` and `m` on two lines, and only one of them
+    /// showed where the formula belonged.
     func display(
+      for latex: String,
+      font: Font,
+      style: TypesettingStyle,
+      proposedWidth: CGFloat
+    ) -> DisplayNode? {
+      let naturalDisplay = typesetDisplay(for: latex, font: font, style: style, proposedWidth: 0)
+      guard proposedWidth > 0, let naturalDisplay,
+        naturalDisplay.width > proposedWidth + Self.lineBreakTolerance
+      else { return naturalDisplay }
+      return typesetDisplay(for: latex, font: font, style: style, proposedWidth: proposedWidth)
+    }
+
+    private func typesetDisplay(
       for latex: String,
       font: Font,
       style: TypesettingStyle,

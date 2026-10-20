@@ -1,6 +1,6 @@
 # Graphite changes to Textual 0.5.0
 
-Upstream: https://github.com/gonzalezreal/textual at tag 0.5.0 (commit 01b51875a5406eefc95f52a058cb059e7bc94dc4). License: MIT (see LICENSE); third-party notices in LICENSE-3rdparty.csv. Upstream tests, examples and documentation are not vendored.
+Upstream: https://github.com/gonzalezreal/textual at tag 0.5.0 (commit 01b51875a5406eefc95f52a058cb059e7bc94dc4). License: MIT (see LICENSE); third-party notices in LICENSE-3rdparty.csv. Upstream tests, examples and documentation are not vendored. Textual's SwiftUIMath dependency is Graphite's vendored copy (`Vendor/swiftui-math`, with its own `GRAPHITE-PATCHES.md`), not the remote package.
 
 ## 1. Math keeps its natural width
 

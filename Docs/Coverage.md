@@ -22,6 +22,13 @@ On the branch `fix-math-breaking-at-rounded-width`, commits `7fff98b` to `ceb2be
 - **Not established:** device checks of Reveal current file with the sidebar hidden (iPad, Mac), of a deep link reaching the app while the full-screen drawing editor is up, and of the Mac editor taking the keyboard for a new note in the app. The plugin rename still polls (`CC-PLUGIN-15`).
 - **Still open:** `BUG-VOICE-12` (connecting headphones pauses High Quality reading). It needs a device check of what `AVAudioEngine` does on a new output, and on the Mac a way to tell a new output from a lost one.
 
+## Formulas no longer lose their letters in reading view: 2026-10-20
+
+In reading view, some inline formulas showed only their subscript: `$g_m$` as a lone `m`, `$r_o$` as `o`, `$V_A$` as `A`, in one callout of a note and not in the next (reported on the iPad, `Advanced Analog ic/2_SmallSignalAnalysis_I.md`). SwiftUIMath, the typesetter Textual draws formulas with, typesets each formula again at the width of the canvas that draws it. That frame is rounded to whole pixels and could come out a fraction of a point narrower than the formula, which then broke into `g` over `m`, with only one line showing. SwiftUIMath is now vendored in `Vendor/swiftui-math` (0.1.0, the latest release; upstream has no fix), and a formula that fits its width to within a point is never broken into lines (`Vendor/swiftui-math/GRAPHITE-PATCHES.md`, 1). The same typesetter draws Live Preview's formula images and display math, which share the fix.
+
+- `AppProjectTextualPatchTests.testFormulaInAFrameNarrowerByAFractionOfAPointStaysOnOneLine` (macOS, rendered and read pixel by pixel): `g_m`, `r_o`, `V_A`, `V_{ov}` and `k_n`, each drawn in a frame 0.4 points narrower than itself, stay on one line, and a formula twice as wide as its width still breaks. It fails without the patch (`g_m` measured 13.5 points wide on two lines).
+- The Mac never showed the fault: rendering the reported callouts, and the formulas at 24 fractional offsets, drew them whole before the fix as well, so the iPad is the place to confirm it.
+
 ## Importing Goodnotes and Notability: the import report: 2026-10-20
 
 On the branch `goodnotes-notability-import`: step 9 of [the Phase 3 design](Goodnotes-Notability-import-phase-3-design.md), the import report as plain values. Nothing shows it yet (Phase 4).
