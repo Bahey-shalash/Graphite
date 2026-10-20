@@ -899,3 +899,11 @@ Delta audit of 2026-10-19 at `fff794b` (main), against `FR-01` to `FR-108`. Comm
 ### Patterns to keep
 - The runtime's lifecycle is an enum (`RuntimePhase`) with a queued restart, so "a start during a stop" is data.
 - The rename answer comes from an exhaustive switch over `FileMoveOutcome` and `FileMoveRefusal` with no `default:` ([CommunityPluginHost.swift:984-1015](../../../Sources/GraphiteUI/CommunityPluginHost.swift#L984-L1015)).
+
+### Changes merged after 9040705 (5aae924)
+
+#### CC-PLUGIN-19 Waiting plugin-view reveals outlive the runtime they belong to
+- **Severity:** Low
+- **Rule:** `FR-04`
+- **Evidence:** `revealsAwaitingTheirView` ([CommunityPluginHost.swift:190](../../../Sources/GraphiteUI/CommunityPluginHost.swift#L190), [:1049-1050](../../../Sources/GraphiteUI/CommunityPluginHost.swift#L1049-L1050)) is missing from `stopRuntime`'s hand reset of about 25 fields ([:548-585](../../../Sources/GraphiteUI/CommunityPluginHost.swift#L548-L585)); a reveal for a leaf that never lists stays queued (up to 16) across restarts and vault switches. Leaf identifiers carry a per-page timestamp, so a stale entry never matches: the cost is leaked state, not a wrong reveal. Introduced in `a724bd5`.
+- **Fix direction:** keep the queue in the per-runtime value that `stopRuntime` replaces (`SRP-PLUGIN-02`).
