@@ -35,6 +35,9 @@ public final class NeuralVoiceDownloader: NSObject, URLSessionDownloadDelegate, 
     private var receivedBytes: [String: [String: Int64]] = [:]
     private var retryCounts: [String: Int] = [:]
     private var pausedVoices: Set<String> = []
+    /// Why a file of each voice failed, by voice identifier: reported again instead of Paused once
+    /// the voice's other files finish, until the voice is downloaded again or removed.
+    private var failureReasons: [String: String] = [:]
 
     /// `report` receives every state change, on a background queue.
     public init(manifest: NeuralVoiceManifest, installation: NeuralVoiceInstallation,
@@ -77,6 +80,7 @@ public final class NeuralVoiceDownloader: NSObject, URLSessionDownloadDelegate, 
     public func download(_ voice: NeuralVoiceDescription) {
         delegateQueue.addOperation { [self] in
             pausedVoices.remove(voice.id)
+            failureReasons[voice.id] = nil
             let staging = installation.stagingFolder(of: voice)
             try? FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
             excludeFromBackup(installation.voicesFolder)
@@ -136,6 +140,7 @@ public final class NeuralVoiceDownloader: NSObject, URLSessionDownloadDelegate, 
                 for task in tasks where self.target(of: task)?.voice.id == voice.id { task.cancel() }
                 self.delegateQueue.addOperation {
                     self.receivedBytes[voice.id] = nil
+                    self.failureReasons[voice.id] = nil
                     do {
                         try self.installation.remove(voice)
                         self.report(voice.id, .notInstalled)
@@ -160,7 +165,7 @@ public final class NeuralVoiceDownloader: NSObject, URLSessionDownloadDelegate, 
     public func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         guard let target = target(of: downloadTask) else { return }
         if let response = downloadTask.response as? HTTPURLResponse, !(200..<300).contains(response.statusCode) {
-            report(target.voice.id, .failed("The download server answered \(response.statusCode). Try again later."))
+            reportFailure("The download server answered \(response.statusCode). Try again later.", of: target.voice.id)
             return
         }
         // The temporary file disappears when this method returns, so it is moved first and
@@ -171,14 +176,14 @@ public final class NeuralVoiceDownloader: NSObject, URLSessionDownloadDelegate, 
             if FileManager.default.fileExists(atPath: stagedFile.path) { try FileManager.default.removeItem(at: stagedFile) }
             try FileManager.default.moveItem(at: location, to: stagedFile)
         } catch {
-            report(target.voice.id, .failed("The downloaded file could not be saved: \(error.localizedDescription)"))
+            reportFailure("The downloaded file could not be saved: \(error.localizedDescription)", of: target.voice.id)
             return
         }
         try? FileManager.default.removeItem(at: resumeDataFile(for: target.file, of: target.voice))
         guard NeuralVoiceInstallation.verify(stagedFile, against: target.file) else {
             try? FileManager.default.removeItem(at: stagedFile)
             receivedBytes[target.voice.id]?[target.file.localPath] = 0
-            report(target.voice.id, .failed("\(target.file.path) did not match its published checksum, so it was discarded. Download again."))
+            reportFailure("\(target.file.path) did not match its published checksum, so it was discarded. Download again.", of: target.voice.id)
             return
         }
         receivedBytes[target.voice.id, default: [:]][target.file.localPath] = target.file.byteCount
@@ -256,6 +261,11 @@ public final class NeuralVoiceDownloader: NSObject, URLSessionDownloadDelegate, 
         report(voiceIdentifier, .downloading(receivedBytes: totals.received, totalBytes: totals.total))
     }
 
+    private func reportFailure(_ reason: String, of voiceIdentifier: String) {
+        failureReasons[voiceIdentifier] = reason
+        report(voiceIdentifier, .failed(reason))
+    }
+
     private func reportPaused(_ voiceIdentifier: String) {
         guard let totals = totals(of: voiceIdentifier) else { return }
         report(voiceIdentifier, .paused(receivedBytes: totals.received, totalBytes: totals.total))
@@ -278,7 +288,9 @@ public final class NeuralVoiceDownloader: NSObject, URLSessionDownloadDelegate, 
                 && FileManager.default.fileExists(atPath: staging.appendingPathComponent(file.localPath).path)
         }
         guard complete else {
-            if !pausedVoices.contains(voice.id) { reportPaused(voice.id) }
+            if let reason = failureReasons[voice.id] {
+                report(voice.id, .failed(reason))
+            } else if !pausedVoices.contains(voice.id) { reportPaused(voice.id) }
             return
         }
         report(voice.id, .verifying)

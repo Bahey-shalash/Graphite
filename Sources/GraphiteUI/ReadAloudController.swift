@@ -67,7 +67,9 @@ final class ReadAloudController {
     @ObservationIgnored private var pdfContinuation: (() -> Void)?
     /// The way on that is preparing the next PDF page now, which Stop in the player puts back.
     @ObservationIgnored private var preparingPDFContinuation: (() -> Void)?
-    @ObservationIgnored private var foldPreparationIdentifier: UUID?
+    /// The note prepared again after a fold change. A newer fold change, a new reading and
+    /// `clear` cancel it; Stop does not, so the note with its new folds still replaces the old one.
+    @ObservationIgnored private var foldPreparation: Task<Void, Never>?
     /// Footer and header text found on the pages read so far, skipped on the following ones.
     @ObservationIgnored private var pdfRunningText: [String] = []
     /// In the app a chosen passage starts as soon as it is ready, like Play in any audio app;
@@ -126,26 +128,29 @@ final class ReadAloudController {
     func foldsDidChange(in path: VaultPath, hiddenRanges: [NSRange]) {
         guard let request = markdownRequest, request.path == path, request.hiddenRanges != hiddenRanges,
               session.document != nil || isPreparing else { return }
-        let wasSpeaking = session.state == .speaking
-        let position = session.sourceRange?.location
-            ?? session.currentPassage?.spans.map(\.sourceRange.location).min() ?? 0
-        let identifier = UUID()
-        foldPreparationIdentifier = identifier
         let markdownPreparation = markdownPreparation
         let mathematicalStyle = mathematicalStyle
         let vaultRoot = vaultRoot
         markdownRequest?.hiddenRanges = hiddenRanges
-        Task { [weak self] in
+        foldPreparation?.cancel()
+        foldPreparation = Task { [weak self] in
             guard let document = try? await markdownPreparation.prepare(request.sourceText, selectedRange: request.selectedRange,
                                                                         paletteHexByName: request.paletteHexByName,
                                                                         mathematicalStyle: mathematicalStyle, vaultRoot: vaultRoot,
                                                                         hiddenRanges: hiddenRanges),
-                  let self, self.foldPreparationIdentifier == identifier, self.markdownRequest?.path == path else { return }
-            let resumeIndex = document.passages.firstIndex { passage in
-                (passage.spans.map { span in NSMaxRange(span.sourceRange) }.max() ?? 0) > position
-            } ?? max(0, document.passages.count - 1)
+                  let self, !Task.isCancelled, self.markdownRequest?.path == path else { return }
+            // Reading goes on as it is now, not as it was when the fold changed: while the note
+            // was prepared it may have read on, or been paused or stopped, and then stays so.
+            let wasSpeaking = self.session.state == .speaking
+            // The word reached, as a place in the note, whatever the highlight shows: folding
+            // leaves the note's text as it is, so the place is found again in the new passages.
+            let readingLocation = self.session.currentPassage.flatMap { passage in
+                passage.sourceRange(for: NSRange(location: self.session.currentOffset,
+                                                 length: (passage.text as NSString).length - self.session.currentOffset))
+            }?.location ?? self.session.currentPassage?.spans.map(\.sourceRange.location).min() ?? 0
+            let position = ReadAloudReanchoring.position(of: readingLocation, in: document)
             self.session.load(document)
-            self.session.move(to: resumeIndex)
+            self.session.move(to: position.passageIndex, offset: position.offset)
             if wasSpeaking { self.session.play() }
         }
     }
@@ -435,6 +440,7 @@ final class ReadAloudController {
 
     func clear() {
         stop(); session.clear()
+        foldPreparation?.cancel()
         markdownRequest = nil
         pdfRequest = nil
         sourcePDF = nil
@@ -612,6 +618,7 @@ final class ReadAloudController {
     private func begin(title: String, sourceIdentifier: String, scope: String) {
         stop()
         session.clear()
+        foldPreparation?.cancel()
         pdfRunningText = []
         markdownRequest = nil
         pdfRequest = nil
