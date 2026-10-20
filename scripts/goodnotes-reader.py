@@ -556,6 +556,7 @@ class GoodnotesNotebook:
         layout = message_fields(last(fields, 32))
         insets = message_fields(last(layout, 10))
         return {"id": element_identifier, "type": "text_box", "origin": point(last(placement, 1)),
+                "rotation_radians_clockwise_about_origin": float32(last(placement, 2)),
                 "scale": float32(last(placement, 3)) if 3 in placement else 1.0,
                 "size": point(last(layout, 2)) if 2 in layout else None,
                 "insets": tuple(float32(last(insets, side)) for side in (1, 2, 3, 4)) if 10 in layout else None,

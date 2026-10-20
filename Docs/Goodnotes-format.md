@@ -15,8 +15,9 @@ What was checked:
 | Made for the purpose (2026-10-19) | 6 | Goodnotes 7.1.28 for Mac, with a mouse | 24, 25, 35 | Text boxes in two fonts; fountain pen, brush pen, pencil, ball pen and highlighter over writing; a turned and a cropped picture; tape, a sticky note, a link and a bookmark; a deleted page; a recording with writing; a cover page |
 | Pencil test (2026-10-19) | 1 | Goodnotes on the iPad with an Apple Pencil, iPadOS 27.0.1 | 27 | Ball pen at 0.3, 0.55 and 0.9 mm, fountain pen, brush pen, pencil shading with tilt, highlighter presets, rectangles, ellipses, an arc, fills, two animated GIFs, two stickers, two saved drawings; with Goodnotes' PDF export. How the writing feels is in [Goodnotes-writing-feel.md](Goodnotes-writing-feel.md) |
 | Library selection (2026-10-19) | 35 | Goodnotes on the iPad, versions not recorded | 24, 25, 26 | Chosen from the owner's 691-notebook semester library to cover every schema and every unknown the first reader reported there: older text boxes, older varying-width ink, outline entries, page moves, recordings and their deletion |
+| Text-box sample (2026-10-20) | 1 | Goodnotes, version not recorded | 35 | Typed text boxes at several scales and four angles (0, 90 degrees, about ±45 degrees), a drawing in ball pen, dotted A3 landscape paper; with its PDF export |
 
-The made-for-purpose samples and the library selection are kept on the owner's Mac only, in the local `samples/import-formats` branch under `ImportSamples/Goodnotes/`, each with a README saying what was done. They hold personal notebooks, so they are not on GitHub. **Still not in any sample:** text box rotation; a link to a page; and the meaning of several fields marked unknown below.
+The made-for-purpose samples and the library selection are kept on the owner's Mac only, in the local `samples/import-formats` branch under `ImportSamples/Goodnotes/`, each with a README saying what was done; the text-box sample (2026-10-20) is on the owner's Mac, not on that branch. They hold personal notebooks, so they are not on GitHub. **Still not in any sample:** a link to a page; and the meaning of several fields marked unknown below.
 
 ## Container
 
@@ -192,7 +193,7 @@ A fill is its own element, drawn in its place in the order: 1 id; 2 bounding box
 
 | Field | Meaning |
 |---|---|
-| 20 | `{1: origin, 3: scale}` |
+| 20 | Placement: `{1: origin, 2: angle in radians, 3: scale}`. The angle is absent when 0, and the scale when 1 |
 | 21 | `{3: {1: 32, 2: 600, 3: 32, 4: infinity}}`, probably the minimum and maximum width and height |
 | 32 | Layout and text: `{1: {2: rich text (LZ4), 3: hash}, 2: size, 5: {1: default attributes, 2: paragraph}, 10: insets {1, 2, 3, 4}}` |
 | 30, 31, 33 | Background and border colours, shadow (alpha 0.2, offset 5); not checked against an export |
@@ -201,6 +202,8 @@ A fill is its own element, drawn in its place in the order: 1 id; 2 bounding box
 The rich text, once decompressed, is `{1: {1: text, 2: attributes, 3: paragraph}}`. Attributes and defaults share one layout: 3 colour (RGBA, 0 to 1), 4 link (a URL), 30 font name, 40 size in units; −404 in a size or a related field means "not set, use the default". The samples' text boxes each have one attribute run; how several runs mark their ranges is not known yet. Goodnotes calls the fonts "Modern" (Helvetica Neue) and "Classic" (Georgia), as the export's embedded fonts show.
 
 Placement, checked against the export's text layer: the text starts at the origin plus the inset (10 units), in points 216.1 + 5.45 = 221.6 and 296.5 + 5.45 = 302.0 for "Graphite one", exactly where the export puts the word. The box is 140 × 29 units (76.4 points wide), the width of the line of text.
+
+**Scale and rotation.** The text-box sample (2026-10-20) was checked against its export's drawing transforms. It has six text boxes of one 24-unit font and one 62 × 29-unit box, at scales 1, 1, 2.22, 5.20, 5.71 and 11.02, and at angles 0, 0, 0, −0.6785, −π/4 and π/2. The export draws each box with one transform: the page's units to points (6/11, y downwards), moved to the origin, turned by the angle and multiplied by the scale. The origin is the box's top-left corner, and a positive angle turns the box clockwise on the page about that corner. Everything in the box is multiplied by the scale: size, insets and font, so the 11.02 box's text is 24 × 11.02 × 6/11 = 144.3 points. All six transforms equal the stored values to the export's precision (±0.01 point); the 90° box, for example, is `(0, −3.1124, −3.1124, 0, 566.37, 501.03)`. Inside the box the text starts at the inset (10) with its first baseline at 10 + 0.952 × the font size, as in the unturned boxes above.
 
 **Links.** A link on a text box is the run attribute 4: `https://example.com/graphite` in the sample.
 
