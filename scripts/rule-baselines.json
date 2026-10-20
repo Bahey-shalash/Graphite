@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "comment": "Counts of what the rules forbid; they only go down. Lower them with `python3 scripts/check-rules.py --record`. See Docs/solid/rewrite-foundations.md section 12.2.",
   "recordedOn": "2026-10-20",
-  "recordedAtRevision": "merge of main b0a0ae0 into code-block-themes",
+  "recordedAtRevision": "1b6f5ae plus the working tree",
   "gates": {
     "ambient-time-and-randomness": 64,
     "app-storage-literals": 7,
@@ -31,7 +31,7 @@
     "temporary-directory-in-tests": 76,
     "test-round-names": 34,
     "try-force": 2,
-    "try-uncommented": 615,
+    "try-uncommented": 614,
     "untyped-dictionaries": 146,
     "user-defaults-standard-in-sources": 6,
     "user-defaults-standard-in-tests": 82,

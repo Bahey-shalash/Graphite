@@ -6,12 +6,9 @@ import GraphiteApple
 /// ordinary file `.graphite/pronunciations.json` so it travels with the vault, and the
 /// built-in terms said in full ("look-up table" for LUT), which the person can change here.
 struct ReadAloudPronunciationEditor: View {
-    let vaultRoot: URL?
-    @State private var entries: [ReadAloudPronunciations.VaultEntry] = []
+    @State private var vaultFile: ReadAloudPronunciationVaultFile
     @State private var editing: PronunciationDraft?
     @State private var errorMessage: String?
-    /// Why the vault's file is shown read-only, or nil when the whole file was read (or does not exist yet).
-    @State private var readOnlyReason: String?
     @State private var sample = ReadAloudSession(preferences: UserDefaults(suiteName: "com.graphite.study.readAloudSample") ?? .standard)
 
     struct PronunciationDraft: Identifiable, Hashable {
@@ -21,7 +18,14 @@ struct ReadAloudPronunciationEditor: View {
         var say: String
     }
 
-    private var fileLocation: URL? { vaultRoot?.appendingPathComponent(ReadAloudPronunciations.vaultFilePath) }
+    init(vaultRoot: URL?) {
+        _vaultFile = State(initialValue: ReadAloudPronunciationVaultFile(vaultRoot: vaultRoot))
+    }
+
+    private var entries: [ReadAloudPronunciations.VaultEntry] { vaultFile.entries }
+    private var hasVault: Bool { vaultFile.hasVault }
+    /// Why the vault's file is shown read-only, or nil when the whole file was read (or does not exist yet).
+    private var readOnlyReason: String? { Self.readOnlyReason(for: vaultFile.reading) }
 
     private static let expansions = ReadAloudPronunciations.standard.terms
         .filter { _, pronunciation in pronunciation.isExpansion }
@@ -32,11 +36,11 @@ struct ReadAloudPronunciationEditor: View {
             sections
         }
         .navigationTitle("Pronunciations")
-        .onAppear(perform: load)
+        .onAppear { vaultFile.reload() }
         // Pushed inside Settings' own navigation: a sheet over the Settings sheet closed it.
         .navigationDestination(item: $editing) { draft in
             PronunciationDraftEditor(draft: draft, play: play) { saved in
-                save(ReadAloudPronunciations.updatingVaultEntries(entries, replacing: draft.originalTerm, with: saved.term, say: saved.say))
+                save(.saving(term: saved.term, say: saved.say, replacing: draft.originalTerm))
             }
         }
         .alert("Pronunciations Not Saved", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
@@ -58,17 +62,16 @@ struct ReadAloudPronunciationEditor: View {
                 .accessibilityHint("Edits how this term is said")
             }
             .onDelete { offsets in
-                let removed = offsets.map { offset in entries[offset].term }
-                save(entries.filter { entry in !removed.contains(entry.term) })
+                save(.removing(terms: Set(offsets.map { offset in entries[offset].term })))
             }
             Button("Add Pronunciation…", systemImage: "plus") {
                 editing = PronunciationDraft(term: "", say: "")
             }
-            .disabled(vaultRoot == nil || readOnlyReason != nil)
+            .disabled(!hasVault || readOnlyReason != nil)
         } header: {
             Text("This Vault")
         } footer: {
-            Text(vaultRoot == nil
+            Text(!hasVault
                  ? "Open a vault to add pronunciations."
                  : readOnlyReason
                     ?? "How this vault's terms are said, for example SIMDRAM as \"sim dee ram\". Kept in the vault's \(ReadAloudPronunciations.vaultFilePath).")
@@ -83,24 +86,13 @@ struct ReadAloudPronunciationEditor: View {
                     LabeledContent(term) { Text(entries.first { entry in entry.term == term }?.pronunciation.say ?? pronunciation.say) }
                 }
                 .foregroundStyle(.primary)
-                .disabled(vaultRoot == nil || readOnlyReason != nil)
+                .disabled(!hasVault || readOnlyReason != nil)
             }
         } header: {
             Text("Said in Full")
         } footer: {
             Text("These abbreviations are said as what they stand for. Tap one to say it differently, for example as letters.")
                 .formFooterAlignment()
-        }
-    }
-
-    private func load() {
-        guard let fileLocation else { entries = []; readOnlyReason = nil; return }
-        let reading = ReadAloudPronunciations.readVaultFile(at: fileLocation)
-        readOnlyReason = Self.readOnlyReason(for: reading)
-        if case .loaded(let loadedEntries, _) = reading {
-            entries = loadedEntries
-        } else {
-            entries = []
         }
     }
 
@@ -124,21 +116,14 @@ struct ReadAloudPronunciationEditor: View {
         }
     }
 
-    /// Writes the whole file at once, replacing it atomically; a failure keeps the old file. The
-    /// file is read again first: it is only replaced when this list holds everything it holds.
-    private func save(_ updated: [ReadAloudPronunciations.VaultEntry]) {
-        guard let fileLocation else { return }
-        let reading = ReadAloudPronunciations.readVaultFile(at: fileLocation)
-        guard reading.allowsRewriting else {
-            readOnlyReason = Self.readOnlyReason(for: reading)
-            errorMessage = readOnlyReason
-            return
-        }
+    /// Makes one edit to the file as it is now; a failure keeps the file as it was.
+    private func save(_ edit: ReadAloudPronunciations.VaultFileEdit) {
         do {
-            let data = try ReadAloudPronunciations.vaultFileData(for: updated)
-            try FileManager.default.createDirectory(at: fileLocation.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try data.write(to: fileLocation, options: .atomic)
-            load()
+            try vaultFile.save(edit)
+        } catch ReadAloudPronunciationVaultFile.SaveRefusal.fileCannotBeRewritten {
+            errorMessage = readOnlyReason
+        } catch GraphiteError.conflict {
+            errorMessage = "The vault's pronunciation file changed while it was being saved, so it was left as it is. Try again."
         } catch {
             errorMessage = "The vault's pronunciation file could not be written: \(error.localizedDescription)"
         }

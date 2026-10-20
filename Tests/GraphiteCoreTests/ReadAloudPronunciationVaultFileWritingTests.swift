@@ -61,4 +61,28 @@ final class ReadAloudPronunciationVaultFileWritingTests: XCTestCase {
         ])
         XCTAssertEqual(try entries(in: written).map(\.term), ["LUT"])
     }
+
+    // MARK: One edit to the file as it is now
+
+    func testAnEditIsMadeToTheReadingItIsGivenAndKeepsEveryOtherTerm() throws {
+        let currentReading = ReadAloudPronunciations.readVaultFile(data: Data(#"{"LUT": "L U T", "CMOS": "see moss", "FF": "flip-flop"}"#.utf8))
+
+        let saved = try XCTUnwrap(ReadAloudPronunciations.vaultEntries(
+            applying: .saving(term: "SIMDRAM", say: "sim dee ram", replacing: nil), to: currentReading))
+        XCTAssertEqual(saved.map(\.term).sorted(), ["CMOS", "FF", "LUT", "SIMDRAM"])
+        let removed = try XCTUnwrap(ReadAloudPronunciations.vaultEntries(applying: .removing(terms: ["FF"]), to: currentReading))
+        XCTAssertEqual(removed.map(\.term), ["CMOS", "LUT"])
+    }
+
+    func testAnEditToNoFileStartsTheFile() throws {
+        let saved = try XCTUnwrap(ReadAloudPronunciations.vaultEntries(applying: .saving(term: "LUT", say: "L U T", replacing: nil), to: .noFile))
+        XCTAssertEqual(saved.map(\.term), ["LUT"])
+    }
+
+    func testNoEditIsMadeToAReadingThatMayNotBeRewritten() {
+        let edit = ReadAloudPronunciations.VaultFileEdit.saving(term: "LUT", say: "L U T", replacing: nil)
+        XCTAssertNil(ReadAloudPronunciations.vaultEntries(applying: edit, to: .invalid(.notJSON)))
+        XCTAssertNil(ReadAloudPronunciations.vaultEntries(applying: edit, to: .readFailed(errorDomain: NSCocoaErrorDomain, errorCode: 257)))
+        XCTAssertNil(ReadAloudPronunciations.vaultEntries(applying: edit, to: .loaded(entries: [], termsInFile: 1)), "A partly shown file is left whole.")
+    }
 }

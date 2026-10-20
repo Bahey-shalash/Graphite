@@ -184,6 +184,27 @@ public struct ReadAloudPronunciations: Equatable, Sendable {
         return updated
     }
 
+    /// One change the person makes to the vault's terms in Settings.
+    public enum VaultFileEdit: Equatable, Sendable {
+        /// `term` said as `say`, in place of `originalTerm` (nil for a new term).
+        case saving(term: String, say: String, replacing: String?)
+        /// These terms are taken out.
+        case removing(terms: Set<String>)
+    }
+
+    /// The entries to write once `edit` is made to the file as `reading` found it, or nil when
+    /// the file holds something a rewrite would lose. Every entry the edit does not name is kept.
+    public static func vaultEntries(applying edit: VaultFileEdit, to reading: VaultFileReading) -> [VaultEntry]? {
+        guard reading.allowsRewriting else { return nil }
+        let currentEntries: [VaultEntry] = if case .loaded(let entries, _) = reading { entries } else { [] }
+        switch edit {
+        case .saving(let term, let say, let originalTerm):
+            return updatingVaultEntries(currentEntries, replacing: originalTerm, with: term, say: say)
+        case .removing(let terms):
+            return currentEntries.filter { entry in !terms.contains(entry.term) }
+        }
+    }
+
     // MARK: Words
 
     /// What to say for a word as written, or nil to leave it to the voice. Looks up the word,

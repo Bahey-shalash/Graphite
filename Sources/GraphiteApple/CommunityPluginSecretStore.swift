@@ -37,20 +37,30 @@ public struct CommunityPluginSecretStore: Sendable {
         return query
     }
 
-    /// Every secret of the vault, by identifier; none when nothing is stored or the stored
-    /// value cannot be read.
-    public func secrets() -> [String: String] {
+    /// Every secret of the vault, by identifier; none when nothing is stored.
+    /// - Throws: `CommunityPluginSecretError.unreadable` when the keychain does not give the
+    ///   item back or the item is not a list of secrets. A failed read is never "no secrets":
+    ///   a save that started from it would replace every other secret of the vault.
+    public func secrets() throws -> [String: String] {
         var query = baseQuery
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var item: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess, let data = item as? Data,
-              let secrets = try? JSONDecoder().decode([String: String].self, from: data) else { return [:] }
-        return secrets
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        if status == errSecItemNotFound { return [:] }
+        guard status == errSecSuccess, let data = item as? Data else { throw CommunityPluginSecretError.unreadable(status) }
+        do {
+            return try JSONDecoder().decode([String: String].self, from: data)
+        } catch {
+            throw CommunityPluginSecretError.unreadable(nil)
+        }
     }
 
+    /// Keeps `secret` under `identifier`, with every other secret of the vault as it is; an
+    /// empty secret removes it. Refused, with nothing written, when the stored secrets cannot
+    /// be read.
     public func setSecret(_ secret: String, forIdentifier identifier: String) throws {
-        var updated = secrets()
+        var updated = try secrets()
         updated[identifier] = secret.isEmpty ? nil : secret
         let data = try JSONEncoder().encode(updated)
         guard data.count <= Self.maximumStoredBytes else { throw CommunityPluginSecretError.tooLarge }
@@ -71,11 +81,16 @@ public struct CommunityPluginSecretStore: Sendable {
 public enum CommunityPluginSecretError: Error, LocalizedError {
     case tooLarge
     case keychain(OSStatus)
+    /// The stored secrets could not be read: the keychain answered with this status, or (nil)
+    /// gave back an item that is not a list of secrets.
+    case unreadable(OSStatus?)
 
     public var errorDescription: String? {
         switch self {
         case .tooLarge: "The plugin's secrets are too large to keep."
         case .keychain(let status): "The keychain did not keep the plugin's secret (\(status))."
+        case .unreadable(let status):
+            "The keychain did not give back this vault's plugin secrets\(status.map { statusCode in " (\(statusCode))" } ?? ""), so they were left as they are."
         }
     }
 }
