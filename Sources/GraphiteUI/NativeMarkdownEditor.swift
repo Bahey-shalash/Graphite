@@ -888,8 +888,8 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         private var placedColumnWidth: CGFloat = 0
         private var placementAfterWidthChange: DispatchWorkItem?
         /// A heading the view keeps at its top while rendered blocks above it settle their
-        /// heights, until the deadline or until the person scrolls.
-        private var pinnedHeading: (location: Int, deadline: TimeInterval)?
+        /// heights, until they have or until the person scrolls or starts editing.
+        private var pinnedHeading: HeadingJumpPin?
         /// Pastes and drops whose content is still loading or saving.
         private var pendingInsertionRequests = PendingInsertionRequests()
         /// The text revision the open suggestions were found at, and the revisions of accepted
@@ -1584,6 +1584,8 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {
+            // The cursor is kept in sight from now on, not a heading jumped to.
+            pinnedHeading = nil
             actions.beginEditing?()
             isEditing = true
             session.isTyping = true
@@ -1896,19 +1898,28 @@ struct NativeMarkdownEditor: UIViewRepresentable {
 
         /// When rendered blocks settle their heights after TextKit laid out the viewport, the
         /// text below them moves down and the laid-out part can end above the bottom of the
-        /// view: lines there have no rendered blocks or fold chevrons until the next scroll.
-        /// The viewport is laid out once more then.
+        /// view. After a jump, UIKit lays the viewport out for the new offset only after this
+        /// pass, which found the lines laid out for the old one: they start below the top of
+        /// the view, and the blocks above them (a base just under the heading jumped to) were
+        /// never placed. Lines in such a gap have no rendered blocks or fold chevrons until
+        /// the next scroll, so the viewport is laid out once more then.
         func layOutViewportAgainIfShort(in textView: MarkdownTextView) {
             guard !isViewportRelayoutPending, let textLayoutManager = textView.textLayoutManager,
-                  let viewportRange = textLayoutManager.textViewportLayoutController.viewportRange,
-                  viewportRange.endLocation.compare(textLayoutManager.documentRange.endLocation) == .orderedAscending else { return }
+                  let viewportRange = textLayoutManager.textViewportLayoutController.viewportRange else { return }
+            var laidOutTop = CGFloat.greatestFiniteMagnitude
             var laidOutBottom: CGFloat = 0
             textLayoutManager.enumerateTextLayoutFragments(from: viewportRange.location, options: []) { fragment in
+                laidOutTop = min(laidOutTop, fragment.layoutFragmentFrame.minY)
                 laidOutBottom = max(laidOutBottom, fragment.layoutFragmentFrame.maxY)
                 return fragment.rangeInElement.location.compare(viewportRange.endLocation) == .orderedAscending
             }
-            let visibleBottom = textView.contentOffset.y + textView.bounds.height - textView.textContainerInset.top
-            guard laidOutBottom > 0, laidOutBottom < visibleBottom - 1 else { return }
+            let visibleTop = textView.contentOffset.y - textView.textContainerInset.top
+            let documentRange = textLayoutManager.documentRange
+            guard laidOutBottom > 0,
+                  ViewportLayoutCoverage.leavesVisibleTextUncovered(
+                      laidOutTop: laidOutTop, laidOutBottom: laidOutBottom, visibleTop: visibleTop, visibleBottom: visibleTop + textView.bounds.height,
+                      startsAtDocumentStart: viewportRange.location.compare(documentRange.location) != .orderedDescending,
+                      endsAtDocumentEnd: viewportRange.endLocation.compare(documentRange.endLocation) != .orderedAscending) else { return }
             isViewportRelayoutPending = true
             DispatchQueue.main.async { [weak self, weak textView] in
                 guard let self, let textView else { return }
@@ -2266,25 +2277,36 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         }
 
         /// Corrects the offset while the blocks above a heading that was jumped to take their
-        /// measured heights. A heading near the end of the note stops where the note ends,
-        /// as the jump itself does.
+        /// measured heights, as long as `HeadingJumpPin` holds: while a block above has not
+        /// reported its height (a base loading its rows), and for a moment after the heading
+        /// last moved or such a block reported. A heading near the end of the note stops where the note ends, as the
+        /// jump itself does.
         private func keepPinnedHeadingAtTop(in textView: UITextView) {
-            guard let pinnedHeading else { return }
-            guard ProcessInfo.processInfo.systemUptime < pinnedHeading.deadline else {
-                self.pinnedHeading = nil
-                return
-            }
+            guard var pinnedHeading else { return }
+            let uptime = ProcessInfo.processInfo.systemUptime
+            let isBlockAboveAwaitingHeight = renderedBlocks.hasPlacedBlockAwaitingHeight(before: pinnedHeading.location, in: blockEntries)
+            let holds = pinnedHeading.holds(atUptime: uptime, isBlockAboveAwaitingHeight: isBlockAboveAwaitingHeight)
+            self.pinnedHeading = holds ? pinnedHeading : nil
+            guard holds else { return }
             guard let textLayoutManager = textView.textLayoutManager,
                   let contentStorage = textLayoutManager.textContentManager as? NSTextContentStorage,
                   let location = contentStorage.location(contentStorage.documentRange.location, offsetBy: pinnedHeading.location),
-                  let fragment = textLayoutManager.textLayoutFragment(for: location),
-                  // A heading's fragment that a restyle replaced has no frame until TextKit
-                  // lays it out again; a later pass corrects the offset.
-                  fragment.state == .layoutAvailable else { return }
+                  var fragment = textLayoutManager.textLayoutFragment(for: location) else { return }
+            // A heading's fragment that a restyle replaced has no frame until TextKit lays it
+            // out again, which it does only within the viewport. A block above that grew can
+            // leave the heading above the viewport, where no later pass would, so the text up
+            // to and including the heading is laid out here, as the jump does.
+            if fragment.state != .layoutAvailable {
+                guard let throughHeading = NSTextRange(location: contentStorage.documentRange.location, end: fragment.rangeInElement.endLocation) else { return }
+                textLayoutManager.ensureLayout(for: throughHeading)
+                guard let laidOutFragment = textLayoutManager.textLayoutFragment(for: location), laidOutFragment.state == .layoutAvailable else { return }
+                fragment = laidOutFragment
+            }
             let targetOffset = fragment.layoutFragmentFrame.minY + textView.textContainerInset.top - 12
             let clampedOffset = min(max(-textView.adjustedContentInset.top, targetOffset), maximumContentOffset(of: textView, layoutManager: textLayoutManager))
             if abs(textView.contentOffset.y - clampedOffset) > 1 {
                 textView.setContentOffset(CGPoint(x: textView.contentOffset.x, y: clampedOffset), animated: false)
+                self.pinnedHeading?.recordMove(atUptime: uptime)
             }
         }
 
@@ -2309,7 +2331,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         }
 
         func scrollToTop(of characterLocation: Int, in textView: UITextView) {
-            pinnedHeading = (characterLocation, ProcessInfo.processInfo.systemUptime + 1.5)
+            pinnedHeading = HeadingJumpPin(location: characterLocation, pinnedAtUptime: ProcessInfo.processInfo.systemUptime)
             guard let textLayoutManager = textView.textLayoutManager,
                   let contentStorage = textLayoutManager.textContentManager as? NSTextContentStorage,
                   let location = contentStorage.location(contentStorage.documentRange.location, offsetBy: characterLocation),
@@ -2342,6 +2364,8 @@ final class MarkdownMacTextView: NSTextView {
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = .width
+        // The find bar of "Search current file" shows above the note, inside the scroll view.
+        textView.usesFindBar = true
         textView.textContainer?.containerSize = CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.widthTracksTextView = true
         scrollView.documentView = textView
@@ -2772,6 +2796,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         textView.updateDragTypeRegistration()
         if let savedScrollLocation = session.savedScrollLocation { coordinator.pendingJump = .topOfCharacter(savedScrollLocation) }
         session.isEditorAttached = true
+        coordinator.reportPlace(of: textView)
         session.undoAvailability.follow(coordinator.noteUndoManager)
         coordinator.restyleEverything(in: textView)
         coordinator.keepSelectionOutOfConcealedProperties(in: textView)
@@ -2833,6 +2858,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
                 coordinator.pendingJump = .heading(anchor: headingScrollRequest.anchor, occurrence: headingScrollRequest.occurrence)
             }
         }
+        coordinator.serveSessionRequests(in: textView)
         coordinator.performPendingJumpIfReady(in: textView)
         if followsReading { (textView as? MarkdownMacTextView)?.followReadingRange() }
     }
@@ -2961,12 +2987,16 @@ struct NativeMarkdownEditor: NSViewRepresentable {
                 if textView.window?.firstResponder === textView { textView.window?.makeFirstResponder(nil) }
                 recordScrollLocation(of: textView)
             }
+            session.recordEditorPlace = nil
             scrollView.removeFromSuperview()
             session.undoAvailability.follow(nil)
         }
 
         func resume(_ scrollView: NSScrollView) {
-            if let textView = scrollView.documentView as? NSTextView { observeCharacterEdits(in: textView) }
+            if let textView = scrollView.documentView as? NSTextView {
+                observeCharacterEdits(in: textView)
+                reportPlace(of: textView)
+            }
             session.isEditorAttached = true
             session.undoAvailability.follow(noteUndoManager)
         }
@@ -3466,6 +3496,43 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             return link
         }
 
+        // MARK: Session requests
+
+        /// Answers what the session asks of the editor on screen, as the iPad editor does.
+        func serveSessionRequests(in textView: NSTextView) {
+            goToReadingPlaceIfSwitched(in: textView)
+            presentFindIfRequested(in: textView)
+        }
+
+        /// After the note switched from reading, shows the line that was at the top of the
+        /// reading view: a kept editor would otherwise stay where it was itself.
+        private func goToReadingPlaceIfSwitched(in textView: NSTextView) {
+            guard textView.window != nil, let location = session.takeEditingStartLocation() else { return }
+            // The note's start is the top of the view.
+            guard location > 0 else {
+                pendingJump = nil
+                textView.scroll(NSPoint(x: 0, y: 0))
+                return
+            }
+            pendingJump = .topOfCharacter(location)
+            performPendingJumpIfReady(in: textView)
+        }
+
+        /// Opens the find bar the command palette asked for, once the editor is on screen.
+        private func presentFindIfRequested(in textView: NSTextView) {
+            guard session.findRequest != nil, textView.window != nil else { return }
+            // After the update: showing the bar during one would re-enter SwiftUI.
+            DispatchQueue.main.async { [weak self, weak textView] in
+                guard let self, let textView, let window = textView.window, let request = self.session.findRequest else { return }
+                self.session.findRequest = nil
+                window.makeFirstResponder(textView)
+                let action: NSTextFinder.Action = request == .findAndReplace ? .showReplaceInterface : .showFindInterface
+                let sender = NSMenuItem()
+                sender.tag = action.rawValue
+                textView.performTextFinderAction(sender)
+            }
+        }
+
         // MARK: Jumps
 
         /// Makes the pending jump once the view is in a window and has a width.
@@ -3502,6 +3569,19 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             textView.scroll(NSPoint(x: 0, y: max(0, fragment.layoutFragmentFrame.minY + textView.textContainerOrigin.y - 12)))
         }
 
+        /// Lets the session ask where the editor is, as a tab closes or Graphite leaves the
+        /// screen, while the editor shows the note. A pending jump has not landed yet, and is
+        /// the place.
+        func reportPlace(of textView: NSTextView) {
+            session.recordEditorPlace = { [weak self, weak textView] in
+                guard let self, let textView, textView.window != nil, self.pendingJump == nil else { return }
+                self.recordScrollLocation(of: textView)
+            }
+        }
+
+        /// How far, in points, the clip view's alignment to device pixels can move a scroll position.
+        private static let scrollAlignmentAllowance: CGFloat = 1
+
         /// Remembers the character at the top of the view in the session.
         func recordScrollLocation(of textView: NSTextView) {
             let visibleTop = textView.visibleRect.minY
@@ -3509,8 +3589,12 @@ struct NativeMarkdownEditor: NSViewRepresentable {
                 session.savedScrollLocation = nil
                 return
             }
+            // `scrollToTop` puts a line 12 points below the top, but the clip view then aligns its
+            // origin to whole device pixels: up to a point earlier on a display of one pixel to the
+            // point, which would put the probe in the line above. The allowance keeps it in the line.
+            let probeY = visibleTop + 12 + Self.scrollAlignmentAllowance - textView.textContainerOrigin.y
             guard let textLayoutManager = textView.textLayoutManager, let contentManager = textLayoutManager.textContentManager,
-                  let fragment = textLayoutManager.textLayoutFragment(for: CGPoint(x: 0, y: visibleTop + 12 - textView.textContainerOrigin.y)) else { return }
+                  let fragment = textLayoutManager.textLayoutFragment(for: CGPoint(x: 0, y: probeY)) else { return }
             session.savedScrollLocation = contentManager.offset(from: contentManager.documentRange.location, to: fragment.rangeInElement.location)
         }
     }

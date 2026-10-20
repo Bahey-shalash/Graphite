@@ -107,6 +107,17 @@ final class CommunityPluginMenuRequest: Identifiable {
     }
 }
 
+/// Why the runtime gave no answer.
+enum CommunityPluginRuntimeError: Error, LocalizedError, Equatable {
+    case didNotAnswerInTime
+
+    var errorDescription: String? {
+        switch self {
+        case .didNotAnswerInTime: "Community plugins did not answer in time."
+        }
+    }
+}
+
 /// The first of several outcomes of a message: its answer, or giving up. The answer stays
 /// on the main actor, since it holds values that are not `Sendable`.
 @MainActor
@@ -175,6 +186,9 @@ final class CommunityPluginHost {
     private(set) var commands: [CommunityPluginCommand] = []
     private(set) var ribbonActions: [CommunityPluginRibbonAction] = []
     var pluginViews: [CommunityPluginView] = []
+    /// Views a plugin asked to show before the list that names them arrived; shown when it does.
+    @ObservationIgnored private var revealsAwaitingTheirView: [(identifier: String, replacesCurrentTab: Bool)] = []
+    private static let maximumRevealsAwaitingTheirView = 16
     var notices: [CommunityPluginNotice] = []
     var pendingMenu: CommunityPluginMenuRequest?
     /// The plugin panel as a sheet over the workspace.
@@ -191,7 +205,22 @@ final class CommunityPluginHost {
     @ObservationIgnored var hasRestoredViews = false
     /// The plugin whose options another part of the interface should show (`app.setting.openTabById`).
     var requestedSettingsPlugin: String?
-    private(set) var isRuntimeRunning = false
+    /// Where the runtime is between starting and stopping. While `stopping`, the plugins
+    /// unload and close their views by themselves; that is not the person closing them. A
+    /// start asked for meanwhile runs when the stop ends.
+    enum RuntimePhase: Equatable {
+        case stopped
+        case running
+        case stopping(startsAgain: Bool)
+
+        var isStopping: Bool {
+            if case .stopping = self { return true }
+            return false
+        }
+    }
+    private(set) var runtimePhase = RuntimePhase.stopped
+    /// Whether a runtime exists, from its start until its stop has finished.
+    var isRuntimeRunning: Bool { runtimePhase != .stopped }
     /// Code block languages plugins draw (`registerMarkdownCodeBlockProcessor`); the reading
     /// view draws blocks in them through their plugin.
     private(set) var codeBlockLanguages: Set<String> = []
@@ -278,7 +307,13 @@ final class CommunityPluginHost {
     @ObservationIgnored var isPanelShownInline = false
     @ObservationIgnored private var appearance = "light"
 
-    init() {
+    /// Where the person's consent to run this vault's plugins is kept.
+    @ObservationIgnored private let consentDefaults: UserDefaults
+
+    /// `defaults` is where consent is kept; the workspace passes its own, and the default
+    /// is for the tests written before it could (Phase 2 removes it).
+    init(defaults: UserDefaults = .standard) {
+        consentDefaults = defaults
         messageReceiver.host = self
     }
 
@@ -292,14 +327,14 @@ final class CommunityPluginHost {
 
     func setTurnedOnForVault(_ isTurnedOn: Bool) async {
         guard let vaultIdentifier, let workspace else { return }
-        UserDefaults.standard.set(isTurnedOn, forKey: Self.consentKey(for: vaultIdentifier))
+        consentDefaults.set(isTurnedOn, forKey: Self.consentKey(for: vaultIdentifier))
         isTurnedOnForVault = isTurnedOn
         if isTurnedOn { await startIfNeeded(workspace) } else { await stopRuntime() }
     }
 
     /// Removes what Graphite kept on the device for a vault that left the vault list.
-    static func forgetVault(_ vaultIdentifier: UUID) {
-        UserDefaults.standard.removeObject(forKey: consentKey(for: vaultIdentifier))
+    static func forgetVault(_ vaultIdentifier: UUID, defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: consentKey(for: vaultIdentifier))
         CommunityPluginSecretStore(vaultIdentifier: vaultIdentifier).removeAllSecrets()
         Task {
             // Removing a store before anything in the app has started WebKit crashes inside
@@ -315,7 +350,7 @@ final class CommunityPluginHost {
     func vaultDidOpen(_ workspace: WorkspaceModel) {
         self.workspace = workspace
         vaultIdentifier = workspace.currentVaultIdentifier
-        isTurnedOnForVault = vaultIdentifier.map { identifier in UserDefaults.standard.bool(forKey: Self.consentKey(for: identifier)) } ?? false
+        isTurnedOnForVault = vaultIdentifier.map { identifier in consentDefaults.bool(forKey: Self.consentKey(for: identifier)) } ?? false
         Task {
             await reloadInventory()
             await startIfNeeded(workspace)
@@ -324,6 +359,8 @@ final class CommunityPluginHost {
 
     /// The vault is being left: plugins unload first, as when Obsidian closes a vault.
     func vaultWillClose() async {
+        // A start asked for while the runtime stops must not run in the vault being left.
+        isTurnedOnForVault = false
         await stopRuntime()
         inventory = CommunityPluginInventory(plugins: [], unreadableFolders: [])
         enabledList = CommunityPluginList()
@@ -350,11 +387,16 @@ final class CommunityPluginHost {
 
     /// Starts the runtime when plugins are turned on and at least one is enabled.
     private func startIfNeeded(_ workspace: WorkspaceModel) async {
-        guard isTurnedOnForVault, !isRuntimeRunning, let store = workspace.store, let root = workspace.folderAccess?.root,
+        guard isTurnedOnForVault, let store = workspace.store, let root = workspace.folderAccess?.root,
               let vaultIdentifier = workspace.currentVaultIdentifier else { return }
         let enabledPlugins = inventory.plugins.filter { plugin in enabledList.isEnabled(plugin.id) }
         guard !enabledPlugins.isEmpty else { return }
-        isRuntimeRunning = true
+        if runtimePhase.isStopping {
+            runtimePhase = .stopping(startsAgain: true)
+            return
+        }
+        guard runtimePhase == .stopped else { return }
+        runtimePhase = .running
         // The runtime's own presenter: it hears Graphite's saves and other apps' changes,
         // and coordinating the plugins' writes with it keeps them from coming back as changes.
         let vaultMonitor = VaultMonitor(root: root, onChange: { [weak self] changedLocation in
@@ -504,7 +546,11 @@ final class CommunityPluginHost {
     }
 
     private func stopRuntime() async {
-        guard isRuntimeRunning else { return }
+        guard runtimePhase == .running else { return }
+        // Plugins close their views as they unload; the layout keeps those views, so they
+        // open again when the plugins do.
+        runtimePhase = .stopping(startsAgain: false)
+        hasRestoredViews = false
         // Plugins unload in their `onunload`; a plugin that never returns cannot hold up
         // leaving the vault for more than a moment.
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
@@ -553,11 +599,16 @@ final class CommunityPluginHost {
         isPanelPresented = false
         pendingMenu?.finish(choosing: nil)
         pendingMenu = nil
-        isRuntimeRunning = false
+        let startsAgain = runtimePhase == .stopping(startsAgain: true)
+        runtimePhase = .stopped
         for (pluginIdentifier, state) in loadStates where state == .loaded || state == .loading { loadStates[pluginIdentifier] = .notStarted }
+        if startsAgain, let workspace { await startIfNeeded(workspace) }
     }
 
     // MARK: Plugins
+
+    /// How long a plugin's `onload` may take before the plugins after it load without waiting.
+    @ObservationIgnored var pluginLoadTimeout = Duration.seconds(30)
 
     private func load(_ plugin: InstalledCommunityPlugin, isEnabledByPerson: Bool) async {
         guard plugin.compatibility.canLoad else {
@@ -578,7 +629,7 @@ final class CommunityPluginHost {
                 "mainSource": package.mainScript,
                 "styles": package.styles,
                 "isEnabledByPerson": isEnabledByPerson,
-            ])
+            ], timeout: pluginLoadTimeout)
             if answer["isLoaded"] as? Bool == true {
                 loadStates[plugin.id] = .loaded
                 logCommunityPlugin(plugin.id, "loaded", plugin.manifest.version)
@@ -587,6 +638,12 @@ final class CommunityPluginHost {
                 loadStates[plugin.id] = .failed(problem)
                 logCommunityPlugin(plugin.id, "failed to load", problem)
             }
+        } catch CommunityPluginRuntimeError.didNotAnswerInTime {
+            // The plugin's `onload` has not settled; the plugins after it load without waiting.
+            guard isRuntimeRunning else { return }
+            let problem = "It did not finish loading in \(Int(pluginLoadTimeout.components.seconds)) seconds, so Graphite went on without it."
+            loadStates[plugin.id] = .failed(problem)
+            logCommunityPlugin(plugin.id, "failed to load", problem)
         } catch {
             // A runtime stopped meanwhile does not leave failures behind for the next one.
             if isRuntimeRunning {
@@ -607,7 +664,7 @@ final class CommunityPluginHost {
             return
         }
         if isEnabled {
-            if isRuntimeRunning { await load(plugin, isEnabledByPerson: true) } else { await startIfNeeded(workspace) }
+            if runtimePhase == .running { await load(plugin, isEnabledByPerson: true) } else { await startIfNeeded(workspace) }
         } else {
             if isRuntimeRunning { _ = try? await send(["operation": "plugin.unload", "pluginIdentifier": plugin.id]) }
             loadStates[plugin.id] = plugin.compatibility.canLoad ? .notStarted : .notLoadable(Self.describe(plugin.compatibility))
@@ -828,7 +885,7 @@ final class CommunityPluginHost {
             }
             Task {
                 try? await Task.sleep(for: timeout)
-                firstOutcome.finish(with: .failure(GraphiteError.unavailable("Community plugins did not answer in time.")))
+                firstOutcome.finish(with: .failure(CommunityPluginRuntimeError.didNotAnswerInTime))
             }
         }
         guard let outcome = firstOutcome.outcome else { throw GraphiteError.unavailable("Community plugins did not answer.") }
@@ -913,24 +970,50 @@ final class CommunityPluginHost {
         }
     }
 
+    /// How long a plugin's rename waits for the move to report its end after the person has
+    /// answered "Update links?" (or dismissed it).
+    private static let renameAnswerDeadline = Duration.seconds(10)
+
     /// Obsidian's `fileManager.renameFile`: the move rewrites links as the vault's setting
-    /// says, asking first when "Automatically update internal links" is off.
+    /// says, asking first when "Automatically update internal links" is off. The plugin is
+    /// answered from what the move came to, never from the files on disk.
     private func renameFileUpdatingLinks(_ message: [String: Any]) async -> Any {
         guard let workspace, let source = (message["path"] as? String).flatMap({ path in try? VaultPath(path) }),
-              let destination = (message["destinationPath"] as? String).flatMap({ path in try? VaultPath(path) }),
-              let root = workspace.folderAccess?.root else { return Self.failure("invalidPath", "The plugin named no file to rename.") }
-        func hasMoved() -> Bool {
-            (try? destination.url(in: root)).map { location in FileManager.default.fileExists(atPath: location.path) } == true
+              let destination = (message["destinationPath"] as? String).flatMap({ path in try? VaultPath(path) }) else {
+            return Self.failure("invalidPath", "The plugin named no file to rename.")
         }
-        await workspace.move(source, to: destination)
-        // The person may be asked whether to update links, or the move may wait behind
-        // another; the plugin waits for the answer and the move it starts.
+        workspace.answeredMoveOutcomes[source] = nil
+        var outcome = await workspace.move(source, to: destination)
+        if outcome == .awaitingAnswer || outcome == .queued { outcome = await outcomeOfMoveWaitingForAnswer(of: source, in: workspace) }
+        switch outcome {
+        case .moved:
+            return ["stat": NSNull()] as [String: Any]
+        case .refused(let refusal):
+            return Self.failure(Self.failureKind(of: refusal), refusal.message)
+        case .awaitingAnswer, .queued:
+            return Self.failure("cancelled", FileMoveRefusal.cancelled(movedName: source.name).message)
+        }
+    }
+
+    /// The person may be asked whether to update links, or the move may wait behind another;
+    /// the plugin waits for the answer and for the move it starts.
+    private func outcomeOfMoveWaitingForAnswer(of source: VaultPath, in workspace: WorkspaceModel) async -> FileMoveOutcome {
         while workspace.pendingMove?.path == source || workspace.pendingMove?.queuedMoves.requests.contains(where: { request in request.path == source }) == true {
-            try? await Task.sleep(for: .milliseconds(200))
+            try? await Task.sleep(for: .milliseconds(200)) // Cancellation only shortens the pause; the loop condition decides when the wait ends.
         }
-        let deadline = ContinuousClock.now + .seconds(10)
-        while !hasMoved(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(100)) }
-        return hasMoved() ? ["stat": NSNull()] as [String: Any] : Self.failure("cancelled", "“\(source.name)” was not renamed.")
+        let deadline = ContinuousClock.now + Self.renameAnswerDeadline
+        while workspace.answeredMoveOutcomes[source] == nil, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(100)) // Same: only the condition and the deadline end the wait.
+        }
+        return workspace.answeredMoveOutcomes.removeValue(forKey: source) ?? .refused(.cancelled(movedName: source.name))
+    }
+
+    private static func failureKind(of refusal: FileMoveRefusal) -> String {
+        switch refusal {
+        case .destinationTaken: "alreadyExists"
+        case .cancelled: "cancelled"
+        case .noVaultOpen, .alreadyMoving, .vaultStillBeingRead, .failed: "unavailable"
+        }
     }
 
     private func receiveNotification(_ operation: String, _ message: [String: Any]) {
@@ -954,9 +1037,20 @@ final class CommunityPluginHost {
                                            isLive: view["isLive"] as? Bool == true, filePath: view["filePath"] as? String, state: view["state"] as? String)
             }
             workspace?.pluginViewsDidChange()
+            let awaiting = revealsAwaitingTheirView.filter { reveal in pluginView(withIdentifier: reveal.identifier) != nil }
+            revealsAwaitingTheirView.removeAll { reveal in awaiting.contains { $0.identifier == reveal.identifier } }
+            for reveal in awaiting { revealView(reveal.identifier, replacesCurrentTab: reveal.replacesCurrentTab) }
         case "view.reveal":
             guard let identifier = message["leafIdentifier"] as? String else { return }
-            revealView(identifier)
+            let replacesCurrentTab = message["replacesCurrentTab"] as? Bool == true
+            // A view is not shown before the list that names it has arrived, and is not dropped either: it
+            // waits for the list.
+            guard pluginView(withIdentifier: identifier) != nil else {
+                revealsAwaitingTheirView.append((identifier, replacesCurrentTab))
+                if revealsAwaitingTheirView.count > Self.maximumRevealsAwaitingTheirView { revealsAwaitingTheirView.removeFirst() }
+                return
+            }
+            revealView(identifier, replacesCurrentTab: replacesCurrentTab)
         case "codeBlocks.changed":
             let languages = Set(message["languages"] as? [String] ?? [])
             codeBlockLanguageOwners = message["owners"] as? [String: String] ?? [:]
@@ -1071,8 +1165,8 @@ final class CommunityPluginHost {
     /// Hands a link's action to the plugin that registered it (`registerObsidianProtocolHandler`),
     /// starting the plugins first when the vault has them on; false when no plugin took it.
     func openPluginLink(action: String, parameters: [String: String]) async -> Bool {
-        if !isRuntimeRunning, let workspace { await startIfNeeded(workspace) }
-        guard isRuntimeRunning else { return false }
+        if runtimePhase != .running, let workspace { await startIfNeeded(workspace) }
+        guard runtimePhase == .running else { return false }
         let answer = try? await send(["operation": "protocol.open", "action": action, "parameters": parameters], timeout: .seconds(10))
         return answer?["isHandled"] as? Bool == true
     }

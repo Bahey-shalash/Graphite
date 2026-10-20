@@ -1,6 +1,6 @@
 # The Goodnotes file format (`.goodnotes`)
 
-Status: Phase 1 of [the import checklist](Goodnotes-Notability-import-todo.md). Recovered from the owner's notebooks, on 2026-10-18 and 2026-10-19, by reading the files only; no part of Goodnotes was run, decompiled or copied. Nothing here is implemented in Graphite yet.
+Status: Phase 1 of [the import checklist](Goodnotes-Notability-import-todo.md). Recovered from the owner's notebooks, on 2026-10-18 and 2026-10-19, by reading the files only; no part of Goodnotes was run, decompiled or copied. Phase 2 added a Swift reader in GraphiteCore (`GoodnotesNotebookReader`, see Swift reader below); nothing converts a notebook into Graphite's files yet (Phase 3).
 
 What was checked:
 
@@ -15,8 +15,9 @@ What was checked:
 | Made for the purpose (2026-10-19) | 6 | Goodnotes 7.1.28 for Mac, with a mouse | 24, 25, 35 | Text boxes in two fonts; fountain pen, brush pen, pencil, ball pen and highlighter over writing; a turned and a cropped picture; tape, a sticky note, a link and a bookmark; a deleted page; a recording with writing; a cover page |
 | Pencil test (2026-10-19) | 1 | Goodnotes on the iPad with an Apple Pencil, iPadOS 27.0.1 | 27 | Ball pen at 0.3, 0.55 and 0.9 mm, fountain pen, brush pen, pencil shading with tilt, highlighter presets, rectangles, ellipses, an arc, fills, two animated GIFs, two stickers, two saved drawings; with Goodnotes' PDF export. How the writing feels is in [Goodnotes-writing-feel.md](Goodnotes-writing-feel.md) |
 | Library selection (2026-10-19) | 35 | Goodnotes on the iPad, versions not recorded | 24, 25, 26 | Chosen from the owner's 691-notebook semester library to cover every schema and every unknown the first reader reported there: older text boxes, older varying-width ink, outline entries, page moves, recordings and their deletion |
+| Text-box sample (2026-10-20) | 1 | Goodnotes, version not recorded | 35 | Typed text boxes at several scales and four angles (0, 90 degrees, about ±45 degrees), a drawing in ball pen, dotted A3 landscape paper; with its PDF export |
 
-The made-for-purpose samples and the library selection are kept on the owner's Mac only, in the local `samples/import-formats` branch under `ImportSamples/Goodnotes/`, each with a README saying what was done. They hold personal notebooks, so they are not on GitHub. **Still not in any sample:** text box rotation; a link to a page; and the meaning of several fields marked unknown below.
+The made-for-purpose samples and the library selection are kept on the owner's Mac only, in the local `samples/import-formats` branch under `ImportSamples/Goodnotes/`, each with a README saying what was done; the text-box sample (2026-10-20) is on the owner's Mac, not on that branch. They hold personal notebooks, so they are not on GitHub. **Still not in any sample:** a link to a page; and the meaning of several fields marked unknown below.
 
 ## Container
 
@@ -186,13 +187,15 @@ A fill is its own element, drawn in its place in the order: 1 id; 2 bounding box
 
 1 id; 2 the bounding box of the picture as drawn `{1: origin, 2: size}`; 3 the placement `{1: centre, 2: size before turning, 3: angle in radians}`, clockwise on the page; 4 the attachment; 5 position; 6 the kind of picture as far as seen: 2 a JPEG 2000 sticker, 5 an animated GIF (kept as the original GIF file), 1 on the turned picture, absent on photos and on a PNG sticker; 7 an id not found among the attachments; 14 1 when deleted. The picture file is drawn stretched to the placement's size, turned about its centre. A turned picture's angle in the sample was 0.5087 radians (29.1°) for a drag to "about 30 degrees clockwise".
 
+**A picture can name an attachment the notebook does not have.** In three library notebooks, 21 picture records (17 not erased) name attachment identifiers that are neither in the event log nor a file under `attachments/`, so their images are not in the notebook at all. The reference reader gives them no file without saying so; the Swift reader reports `attachmentNotInLog` for each.
+
 **Cropping replaces the file.** A cropped picture points to a new PNG of the kept part (201 × 150 pixels from a 400 × 300 original), with no crop rectangle; the original stays among the attachments. An import keeps the cropped bitmap, which is at the original's resolution.
 
 ### Text boxes (body field 21, schema 35)
 
 | Field | Meaning |
 |---|---|
-| 20 | `{1: origin, 3: scale}` |
+| 20 | Placement: `{1: origin, 2: angle in radians, 3: scale}`. The angle is absent when 0, and the scale when 1 |
 | 21 | `{3: {1: 32, 2: 600, 3: 32, 4: infinity}}`, probably the minimum and maximum width and height |
 | 32 | Layout and text: `{1: {2: rich text (LZ4), 3: hash}, 2: size, 5: {1: default attributes, 2: paragraph}, 10: insets {1, 2, 3, 4}}` |
 | 30, 31, 33 | Background and border colours, shadow (alpha 0.2, offset 5); not checked against an export |
@@ -201,6 +204,8 @@ A fill is its own element, drawn in its place in the order: 1 id; 2 bounding box
 The rich text, once decompressed, is `{1: {1: text, 2: attributes, 3: paragraph}}`. Attributes and defaults share one layout: 3 colour (RGBA, 0 to 1), 4 link (a URL), 30 font name, 40 size in units; −404 in a size or a related field means "not set, use the default". The samples' text boxes each have one attribute run; how several runs mark their ranges is not known yet. Goodnotes calls the fonts "Modern" (Helvetica Neue) and "Classic" (Georgia), as the export's embedded fonts show.
 
 Placement, checked against the export's text layer: the text starts at the origin plus the inset (10 units), in points 216.1 + 5.45 = 221.6 and 296.5 + 5.45 = 302.0 for "Graphite one", exactly where the export puts the word. The box is 140 × 29 units (76.4 points wide), the width of the line of text.
+
+**Scale and rotation.** The text-box sample (2026-10-20) was checked against its export's drawing transforms. It has six text boxes of one 24-unit font and one 62 × 29-unit box, at scales 1, 1, 2.22, 5.20, 5.71 and 11.02, and at angles 0, 0, 0, −0.6785, −π/4 and π/2. The export draws each box with one transform: the page's units to points (6/11, y downwards), moved to the origin, turned by the angle and multiplied by the scale. The origin is the box's top-left corner, and a positive angle turns the box clockwise on the page about that corner. Everything in the box is multiplied by the scale: size, insets and font, so the 11.02 box's text is 24 × 11.02 × 6/11 = 144.3 points. All six transforms equal the stored values to the export's precision (±0.01 point); the 90° box, for example, is `(0, −3.1124, −3.1124, 0, 566.37, 501.03)`. Inside the box the text starts at the inset (10) with its first baseline at 10 + 0.952 × the font size, as in the unturned boxes above.
 
 **Links.** A link on a text box is the run attribute 4: `https://example.com/graphite` in the sample.
 
@@ -211,6 +216,59 @@ Placement, checked against the export's text layer: the text starts at the origi
 ### Sticky notes (body field 20)
 
 20 `{1: origin}`; 21 `{2: {1: width, 2: height}}`, 256 × 256 in the sample; 30 paper colour; 31 rich text as in a text box; 32 the author's account id; 33 the author's name, which Goodnotes prints at the bottom of the note; 40, 41 1. The note appears in the export at its origin and size.
+
+## Swift reader
+
+`GoodnotesNotebookReader` (GraphiteCore, `Sources/GraphiteCore/NotebookImport/`) reads what `scripts/goodnotes-reader.py` reads, into plain values for the conversion of Phase 3. It takes the notebook's bytes (memory-mapped by the caller) and inflates a ZIP entry only when it is asked for, so opening a notebook reads `schema.pb` and the event log, and `page(at:)` reads one page's layer: no notebook sits in memory decoded whole. Its parts: a ZIP reader with zlib (`ZipArchive`), a schema-less protobuf wire-format reader (`ProtocolBufferMessage`, no protobuf library or generated code), Apple's LZ4 framing (`AppleLZ4Decoder`), tpl images (`TplImage`), the event log's last-writer-wins registers (`GoodnotesEventLog`), the page layer (`GoodnotesLayerReader`) and the element bodies and path layouts (`GoodnotesElementDecoder`, `GoodnotesStrokePathDecoder`, `GoodnotesOutlineDecoder`). Every size read from the file is checked against the bytes present before anything is allocated (`NotebookImportLimits`, the reference reader's limits: 512 MiB per entry, 64 MiB per compressed payload).
+
+Unknowns are reported as `GoodnotesReadingIssue` cases, one per kind of "unknown" the reference reader prints. Where the reference reader stops with an error, the Swift reader skips only the part it cannot read (an event record, a layer record, an element) and lists it with its typed error; a page is returned as far as it was read. A file that is not a ZIP archive, or a ZIP archive with no `schema.pb`, fails with a typed `GoodnotesReadingError`.
+
+Its counts equal the reference reader's on all 41 notebooks of the `samples/import-formats` branch (the six made for the purpose and the 35 of the library selection; the four notebooks of 2026-10-18 and the Pencil test are not on that branch and were not compared). The test is `GoodnotesNotebookReaderSampleTests`, which compares every count below and the set of unknown categories with `scripts/import-reference-counts.py`, on 2026-10-19. Points are those of each stroke's path: per subpath its start and two per quadratic curve, a varying-width stroke's centre line the same, and none for the older varying-width ink, whose centre line is not decoded. Library notebooks are numbered in the order of their paths. Each number is the Swift reader's and the reference reader's alike.
+
+| Sample | Pages | Strokes | Points | Pictures | Text boxes | Fills | Sticky notes | Outline segments |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Recording with writing | 1 | 2 | 12 | 0 | 0 | 0 | 0 | 0 |
+| Deleted page | 2 | 0 | 0 | 0 | 2 | 0 | 0 | 0 |
+| Inks | 1 | 5 | 157 | 0 | 0 | 0 | 0 | 22 |
+| Turned and cropped pictures | 1 | 0 | 0 | 2 | 0 | 0 | 0 | 0 |
+| Tape, sticky note, link | 1 | 1 | 7 | 0 | 1 | 0 | 1 | 3 |
+| Text boxes | 2 | 0 | 0 | 0 | 2 | 0 | 0 | 0 |
+| Library 1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Library 2 | 3 | 11,299 | 292,324 | 2 | 0 | 3 | 0 | 0 |
+| Library 3 | 33 | 6,035 | 123,976 | 15 | 0 | 2 | 0 | 0 |
+| Library 4 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Library 5 | 8 | 1,208 | 32,684 | 2 | 0 | 0 | 0 | 0 |
+| Library 6 | 4 | 46,103 | 1,228,029 | 11 | 0 | 120 | 0 | 2 |
+| Library 7 | 1 | 1 | 23 | 0 | 0 | 0 | 0 | 0 |
+| Library 8 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Library 9 | 11 | 3,207 | 77,315 | 16 | 0 | 0 | 0 | 0 |
+| Library 10 | 8 | 786 | 19,780 | 11 | 0 | 0 | 0 | 68 |
+| Library 11 | 10 | 1,897 | 41,860 | 5 | 0 | 1 | 0 | 0 |
+| Library 12 | 3 | 954 | 20,589 | 4 | 0 | 0 | 0 | 0 |
+| Library 13 | 7 | 2,055 | 59,315 | 4 | 0 | 5 | 0 | 351 |
+| Library 14 | 9 | 1,809 | 40,904 | 7 | 0 | 1 | 0 | 0 |
+| Library 15 | 12 | 5,599 | 152,221 | 4 | 0 | 4 | 0 | 0 |
+| Library 16 | 35 | 1 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Library 17 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Library 18 | 7 | 950 | 27,400 | 17 | 1 | 0 | 0 | 0 |
+| Library 19 | 29 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Library 20 | 3 | 37 | 715 | 0 | 0 | 0 | 0 | 0 |
+| Library 21 | 39 | 9,839 | 220,956 | 8 | 16 | 10 | 0 | 0 |
+| Library 22 | 3 | 585 | 11,406 | 3 | 0 | 0 | 0 | 0 |
+| Library 23 | 3 | 569 | 9,272 | 3 | 0 | 0 | 0 | 0 |
+| Library 24 | 3 | 991 | 22,218 | 3 | 0 | 1 | 0 | 0 |
+| Library 25 | 26 | 213 | 5,941 | 0 | 0 | 2 | 0 | 0 |
+| Library 26 | 16 | 1,850 | 38,635 | 12 | 0 | 1 | 0 | 0 |
+| Library 27 | 2 | 0 | 0 | 4 | 5 | 0 | 0 | 0 |
+| Library 28 | 4 | 0 | 0 | 1 | 0 | 0 | 0 | 0 |
+| Library 29 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Library 30 | 5 | 1,131 | 28,323 | 6 | 0 | 0 | 0 | 0 |
+| Library 31 | 16 | 1,595 | 33,580 | 12 | 0 | 0 | 0 | 0 |
+| Library 32 | 5 | 1,889 | 56,335 | 3 | 0 | 3 | 0 | 0 |
+| Library 33 | 6 | 1,732 | 39,935 | 4 | 0 | 0 | 0 | 0 |
+| Library 34 | 1 | 129 | 3,011 | 1 | 0 | 0 | 0 | 0 |
+| Library 35 | 13 | 4,024 | 101,759 | 6 | 0 | 12 | 0 | 0 |
+| **All 41** | **341** | **106,496** | **2,688,682** | **166** | **27** | **165** | **1** | **446** |
 
 ## Comparison with Goodnotes' own export
 

@@ -858,11 +858,7 @@ private struct PDFPageSubtitle: ViewModifier {
     let isShown: Bool
 
     func body(content: Content) -> some View {
-        if #available(iOS 26, macOS 11, *) {
-            content.navigationSubtitle(Text(isShown ? "Page \(session.currentPageIndex + 1) of \(session.pageCount)" : ""))
-        } else {
-            content
-        }
+        content.navigationSubtitle(Text(isShown ? "Page \(session.currentPageIndex + 1) of \(session.pageCount)" : ""))
     }
 }
 

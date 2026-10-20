@@ -131,12 +131,6 @@ final class ReadAloudScanHighlightTests: XCTestCase {
         view.subviews.flatMap { child in [child] + descendants(child) }
     }
 
-    private func waitUntil(_ predicate: () -> Bool) async throws {
-        let deadline = ContinuousClock.now + .seconds(30)
-        while !predicate(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
-        XCTAssertTrue(predicate(), "The hosted reader did not reach the expected state.")
-    }
-
     private func pixelCounts(_ image: UIImage) throws -> (dark: Int, highlight: Int) {
         let image = try XCTUnwrap(image.cgImage)
         var bytes = [UInt8](repeating: 0, count: image.width * image.height * 4)

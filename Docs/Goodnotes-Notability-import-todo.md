@@ -2,7 +2,7 @@
 
 Created: 2026-10-18.
 
-Status: Phase 1 under way. The formats are decoded and written down in [Goodnotes-format.md](Goodnotes-format.md) and [Notability-format.md](Notability-format.md), with reference readers in `scripts/`: on 2026-10-18 from the owner's first samples, on 2026-10-19 from samples made for the purpose in the Mac apps and a selection from the owner's Goodnotes library, compared with each app's own PDF export. Graphite itself still cannot read `.goodnotes` or `.note` files: no importer is written (Phases 2 to 5).
+Status: Phase 1 under way. The formats are decoded and written down in [Goodnotes-format.md](Goodnotes-format.md) and [Notability-format.md](Notability-format.md), with reference readers in `scripts/`: on 2026-10-18 from the owner's first samples, on 2026-10-19 from samples made for the purpose in the Mac apps and a selection from the owner's Goodnotes library, compared with each app's own PDF export. Phase 2 is built and tested: GraphiteCore reads both formats (`GoodnotesNotebookReader`, `NotabilityNoteReader`), and their counts equal the reference readers' on every sample of the `samples/import-formats` branch. Nothing converts an imported notebook into Graphite's files yet, and nothing in the app calls the readers (Phases 3 to 5).
 
 This is a large piece of work: two undocumented, versioned formats, each with handwriting, typed text, images, PDFs and (for Notability) audio.
 
@@ -42,7 +42,7 @@ Anything that cannot be kept exactly is named in the import report, never droppe
 
 Element-level import can only be as good as Graphite's own editor: where Graphite has no native equivalent, the import would have to flatten. These have to exist in Graphite before the matching part of the import counts as done (status from `Premium-experience-plan.md` on 2026-10-18):
 
-- [ ] Typed text boxes on PDF pages: listed there as still to build. Both formats use them: Goodnotes text boxes and sticky notes with fonts, sizes, colours and links; Notability's typed body text.
+- [ ] Typed text boxes on PDF pages: a feature of every PDF in Graphite, planned in [PDF-text-boxes-todo.md](PDF-text-boxes-todo.md). Both formats use them: Goodnotes text boxes and sticky notes with fonts, sizes, colours, rotation and links; Notability's typed body text. Until they exist the import leaves typed text out and lists it in the import report (owner decision, 2026-10-20).
 - [ ] Pictures above the ink, and free stacking between pictures, shapes, text and ink: today pictures always sit under the ink. Goodnotes stacks pictures and ink freely (with highlighter ink always under the rest); Notability, like Graphite, always draws pictures under the ink.
 - [ ] Shapes as editable objects after drawing (today a snapped shape becomes a stroke; check whether that is enough to keep it editable as a shape).
 - [ ] Any paper template, page size or paper color found in the samples that Graphite's paper system does not offer yet.
@@ -59,28 +59,28 @@ Element-level import can only be as good as Graphite's own editor: where Graphit
 
 ## Phase 2: parsers
 
-- [ ] Pure Swift parsers in `GraphiteCore`, no third-party dependencies, streaming page by page so a 500-page notebook never sits in memory at once.
-- [ ] A minimal protobuf wire-format reader for Goodnotes (no generated code from a full protobuf library) and a binary plist reader built on `PropertyListSerialization` plus `NSKeyedArchiver` object-graph resolution for Notability.
-- [ ] Unknown fields and unknown versions are reported, never guessed: a page that cannot be read fully is imported as far as it can be and listed in an import report. Values read as strings (Goodnotes template ids, Notability paper identifiers, shape kinds) are decoded once into enums with an `unknown(raw)` case (`FR-20`). The reference readers in `scripts/` give the expected values for tests: element counts, sizes and decoded geometry per sample page.
-- [ ] Fuzz and malformed-input tests: truncated archives, huge counts, cyclic object graphs. A broken file fails cleanly, never crashes or hangs.
+- [x] Pure Swift parsers in `GraphiteCore`, no third-party dependencies, streaming page by page so a 500-page notebook never sits in memory at once. **Done 2026-10-19** (`Sources/GraphiteCore/NotebookImport/`): both readers take the archive's bytes (memory-mapped by the caller) and inflate a ZIP entry only when asked for. Goodnotes: opening reads the schema and event log, `page(at:)` one page's layer. Notability: the session's packed curve arrays stay as slices of its bytes, and `curve(at:)` and `page(number:)` decode only the curves asked for. Memory and time were not measured: the largest sample has 39 pages (46,103 strokes), and no notebook of hundreds of pages was read; Phase 5 measures on the iPad.
+- [x] A minimal protobuf wire-format reader for Goodnotes (no generated code from a full protobuf library) and a binary plist reader built on `PropertyListSerialization` plus `NSKeyedArchiver` object-graph resolution for Notability. **Done 2026-10-19**, with one change: `PropertyListSerialization` returns a keyed archive's UIDs as opaque `CFKeyedArchiverUID` objects whose number is reachable only through private API, so binary plists are read by Graphite's own bounded `bplist00` reader (`BinaryPropertyList`), and `PropertyListSerialization` reads only the XML `Recordings/library.plist`. Object-graph resolution (`KeyedArchive`) is lazy, one reference at a time, with cycle and depth protection.
+- [x] Unknown fields and unknown versions are reported, never guessed: a page that cannot be read fully is imported as far as it can be and listed in an import report. Values read as strings (Goodnotes template ids, Notability paper identifiers, shape kinds) are decoded once into enums with an `unknown(raw)` case (`FR-20`). The reference readers in `scripts/` give the expected values for tests: element counts, sizes and decoded geometry per sample page. **Done 2026-10-19**: issues per format (`GoodnotesReadingIssue`, `NotabilityReadingIssue`) mirror every "unknown" category of the reference readers; a part the reference reader would stop on (an element, a record, a picture, a shape) is skipped and listed with its typed error, and the rest of its page is returned. Template ids, Notability paper attributes and shape kinds decode into enums with `unknown(raw)`. `GoodnotesNotebookReaderSampleTests` and `NotabilityNoteReaderSampleTests` compare the counts and unknown categories with `scripts/import-reference-counts.py` on the owner's samples, when `GRAPHITE_IMPORT_SAMPLES` and `GRAPHITE_IMPORT_REFERENCE_COUNTS` are set (skipped otherwise, as the samples are personal): equal on all 41 Goodnotes notebooks and 9 Notability notes of the branch (tables in each format document). The four Goodnotes notebooks of 2026-10-18 and the Pencil test are not on the branch and were not compared.
+- [x] Fuzz and malformed-input tests: truncated archives, huge counts, cyclic object graphs. A broken file fails cleanly, never crashes or hangs. **Done 2026-10-19**: `ZipArchiveTests`, `ProtocolBufferMessageTests`, `AppleLZ4DecoderTests`, `TplImageTests`, `GoodnotesNotebookReaderTests`, `BinaryPropertyListTests`, `KeyedArchiveTests`, `NotabilityNoteReaderTests` and `NotabilityNoteReaderMalformedInputTests`, on synthetic files built in the tests: wrong magic numbers, cuts at every byte, declared sizes and counts up to 2^64 refused before any allocation, cyclic and exponentially shared object graphs, and seeded byte changes of valid files. Each ends in a typed error or a listed skipped part.
 
 ## Phase 3: conversion to ordinary files
 
 Every row of the table above, one element at a time:
 
-- [ ] Strokes to PencilKit strokes (for re-editing) and to PDF ink annotations (for every reader), one Graphite stroke per source stroke, with the source's points, pressure, width, color, opacity and tool.
-- [ ] Paper as page content through Graphite's paper system, with the source's exact spacing, margins and colors; custom paper from its original file.
-- [ ] Page sizes and orientation per page.
-- [ ] Images as separate pictures from their original files, with position, size, rotation, crop and stacking.
-- [ ] Text boxes as editable text boxes; shapes as shapes; links, outline and bookmarks.
-- [ ] Notability audio and its timing.
+- [ ] Strokes to PencilKit strokes (for re-editing) and to PDF ink annotations (for every reader), one Graphite stroke per source stroke, with the source's points, pressure, width, color, opacity and tool. **Built and tested 2026-10-20 (design steps 1 and 2)**, not yet in the app: ball pen, fountain and brush pens with Goodnotes' exact outline as the PDF appearance, pencil with force and tilt, highlighter, and Notability pen and highlighter. Shapes arrive as ink along their outline (design step 4), reported. Not converted yet: tape and the older varying-width ink, which are counted in the import report; a whole sample written and compared with its export (Phase 5).
+- [ ] Paper as page content through Graphite's paper system, with the source's exact spacing, margins and colors; custom paper from its original file. **Partly built 2026-10-20:** Goodnotes paper (its template PDF page) and imported PDF pages of both apps are copied as page content; Notability's ruled and grid paper is drawn by the paper system with its own ruling (`PaperRuling`: line colour, width, row extent, grid column anchor), checked on the letter samples only.
+- [ ] Page sizes and orientation per page. **Built and tested 2026-10-20**, not yet in the app: each page is its source's size in points (Goodnotes' paper size, Notability's export page), and a Notability note's continuous document is cut into those pages.
+- [ ] Images as separate pictures from their original files, with position, size, rotation, crop and stacking. **Built and tested 2026-10-20 (design step 3)**, not yet in the app: Graphite pictures with frame, angle, crop and flips, under the ink; a Goodnotes picture drawn over ink is moved under it and reported, and a GIF keeps its first frame.
+- [ ] Text boxes as editable text boxes; shapes as shapes; links, outline and bookmarks. **Bookmarks built 2026-10-20** (design step 6). Shapes arrive as ink until Graphite has editable shapes; text boxes and the Goodnotes links on them wait for text boxes on PDF pages (owner decision 1); outline entries are not converted yet.
+- [ ] Notability audio and its timing. **Audio built and tested 2026-10-20 (design step 7)**, not yet in the app: both apps' recordings are written as `.m4a` files, byte for byte; the timing of writing during a recording is left out for now and reported (owner decision, 2026-10-20).
 - [ ] Folder structure of a Goodnotes or Notability library export kept as folders in the vault.
 
 ## Phase 4: import experience
 
 - [ ] Import from the Files app, the share sheet (Graphite has no share extension yet; this would add one) and drag and drop, one file or a whole folder.
 - [ ] A progress view for large libraries, cancellable, running off the main thread; the vault stays usable during import.
-- [ ] An import report: what was converted, what was simplified, what was skipped and why.
+- [ ] An import report: what was converted, what was simplified, what was skipped and why. **The report's values are built and tested 2026-10-20 (design step 9)**: `NotebookImportReport`, per page and for the notebook, with a summary by kind; showing it is Phase 4.
 
 ## Phase 5: verification
 

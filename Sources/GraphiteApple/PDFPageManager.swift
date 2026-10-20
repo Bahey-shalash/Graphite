@@ -74,6 +74,9 @@ public enum PDFEdit: Sendable {
 }
 
 public enum PDFPageManager {
+    /// The start of the label Graphite gives the bookmarks it adds, "Page 12".
+    public static let bookmarkLabelPrefix = "Page "
+
     public static let drawingKey = PDFAnnotationKey(rawValue: "GraphitePencilDrawingV1")
     public static let groupKey = PDFAnnotationKey(rawValue: "GraphiteInkGroup")
     /// Written with the drawing: the annotation name of each PencilKit stroke, in order.

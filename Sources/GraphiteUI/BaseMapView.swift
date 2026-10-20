@@ -262,11 +262,15 @@ struct BaseMapView: View {
                     .foregroundStyle(.secondary)
                     .buttonStyle(.borderless)
             }
-            ForEach(Array(result.columns.enumerated().filter { _, column in column.property != .file("name") }.prefix(5)), id: \.element.id) { position, column in
-                if !(row.cells[position].value?.isEmptyValue ?? false) {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text(column.displayName).font(.caption).foregroundStyle(.secondary)
-                        BaseCellView(cell: row.cells[position], lineLimit: 2, actions: actions, holdsTags: column.property.holdsTags).font(.callout)
+            // The values line up after the longest name, as in a form, rather than each
+            // starting where its name ends.
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 8, verticalSpacing: 6) {
+                ForEach(Array(result.columns.enumerated().filter { _, column in column.property != .file("name") }.prefix(5)), id: \.element.id) { position, column in
+                    if !(row.cells[position].value?.isEmptyValue ?? false) {
+                        GridRow {
+                            Text(column.displayName).font(.caption).foregroundStyle(.secondary)
+                            BaseCellView(cell: row.cells[position], lineLimit: 2, actions: actions, holdsTags: column.property.holdsTags).font(.callout)
+                        }
                     }
                 }
             }

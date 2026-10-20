@@ -60,7 +60,7 @@ public extension VaultStore {
     func updateCommunityPluginList(_ change: (inout CommunityPluginList) -> Void) throws -> CommunityPluginList {
         var updated = CommunityPluginList()
         // A vault without the file gets one only once a plugin is on.
-        if configurationData(at: CommunityPluginList.configurationPath) == nil {
+        if try configurationData(at: CommunityPluginList.configurationPath) == nil {
             change(&updated)
             if updated.enabledIdentifiers.isEmpty { return updated }
             updated = CommunityPluginList()

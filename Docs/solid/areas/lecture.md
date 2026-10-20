@@ -770,3 +770,33 @@ The view has 28 stored and state properties (counted by reading lines 22-60) and
 | **Total (40)** | **2** | **24** | **14** |
 
 Bugs: 4 (BUG-LECTURE-01 to 04). Invariants: 36 (LECTURE-INV-01 to 36).
+
+## 9. Since the snapshot
+
+Delta audit of 2026-10-19 at `fff794b` (main), against `FR-01` to `FR-108`. Phase 1 (`0c074d9`) put PDF autosave on the injected clock and the recording-recovery folder behind the device's folders; the system-27 floor (`f65a8dd`) removed the movie writer's and preview's older paths. Invariants touched: PDF-07, REC-07.
+
+### New findings
+
+#### DIP-LECTURE-05 `PDFSession.open` defaults its clock to the live one, and no production caller passes the workspace's clock
+- **Severity:** Medium
+- **Rule:** `FR-47`, `FR-50`, `FR-80`
+- **Evidence:** `clock: any ApplicationClock = LiveApplicationClock()` ([PDFSession.swift:363-364](../../../Sources/GraphiteUI/PDFSession.swift#L363-L364)); its doc says the default "goes when the workspace is given its clock" ([:361-362](../../../Sources/GraphiteUI/PDFSession.swift#L361-L362)), and the same commit gives `WorkspaceModel` its `clock`, yet neither production caller passes it (`WorkspaceModel.swift:1352`, `EmbeddedPDFViewer.swift:597`). Introduced in `0c074d9`.
+- **Why it matters:** a workspace on a manual clock still gets real-time PDF autosave (2 to 60 s waits, PDF-07), and the comment is already stale.
+- **Fix direction:** pass the workspace's clock through both callers and remove the default.
+
+#### DIP-LECTURE-06 `RecordingController.recoveryFolderLocation` is a public settable closure so the composition can rewire it after construction
+- **Severity:** Low
+- **Rule:** `FR-32`, `FR-46`, `FR-43`
+- **Evidence:** `public var` with the comment "Public so the app's composition can point it at a temporary folder for hosted tests" ([RecordingController.swift:59-60](../../../Sources/GraphiteApple/RecordingController.swift#L59-L60)); reassigned after `init` by the workspace (`WorkspaceModel.swift:236`) and `App/Tests/VideoRecordingWorkspaceTests.swift:36`. Introduced in `0c074d9`.
+- **Why it matters:** the folder that holds unsaved lectures can change between start and stop, and any module can redirect it.
+- **Fix direction:** inject it through `init` from the composition root; `private let`.
+
+#### CC-LECTURE-16 `MoviePartWriter.Track` keeps a struct of escaping closures that only its removed fallback needed, on the per-frame path
+- **Severity:** Low
+- **Rule:** `FR-107`, `FR-82`
+- **Evidence:** `Track` holds `appendIfReady` and `finish` closures ([MoviePartWriter.swift:39-45](../../../Sources/GraphiteApple/MoviePartWriter.swift#L39-L45)); its only initializer now wraps a `SampleBufferReceiver` ([:197-205](../../../Sources/GraphiteApple/MoviePartWriter.swift#L197-L205)); the closure runs for every sample ([:154](../../../Sources/GraphiteApple/MoviePartWriter.swift#L154)). Introduced in `f65a8dd`.
+- **Why it matters:** every frame pays an indirect call for an abstraction with one implementation.
+- **Fix direction:** store the receiver directly.
+
+### Patterns to keep
+- `PDFSession` times saves and autosave on the injected clock ([PDFSession.swift:461-465](../../../Sources/GraphiteUI/PDFSession.swift#L461-L465), [:498-499](../../../Sources/GraphiteUI/PDFSession.swift#L498-L499)), tested on `ManualClock`.

@@ -37,13 +37,14 @@ extension WorkspaceModel {
         case .daily:
             await openDailyNote()
         case .read(let file):
-            await openLinkedFile(file)
+            let openedPath = await openLinkedFile(file)
             guard preferences.isEnabled(.readAloud) else {
                 errorMessage = "Read Aloud is turned off. Turn it on in Settings › Core Plugins."
                 return
             }
-            guard let session = markdownSession else { return }
-            readAloud.readMarkdown(session.text, path: session.path)
+            // Only the file the link named is read, never the note that happened to be open.
+            guard let openedPath else { return }
+            await startReadingAloud(openedPath, resumeLocation: nil)
         case .plugin(let action, let parameters):
             if !(await communityPlugins.openPluginLink(action: action, parameters: parameters)) {
                 errorMessage = "No community plugin in this vault opens “\(action)” links."
@@ -72,9 +73,11 @@ extension WorkspaceModel {
     }
 
     /// Opens a note given as `file=`, resolved as a link from the vault's top: a name, a
-    /// path, with a heading or block. It is never created, unlike following a link.
-    private func openLinkedFile(_ file: String) async {
-        guard let index, let topLevelSource = try? VaultPath("Link.md") else { return }
+    /// path, with a heading or block. It is never created, unlike following a link. Returns
+    /// the file now shown in the focused tab, or nil when the link opened nothing.
+    @discardableResult
+    private func openLinkedFile(_ file: String) async -> VaultPath? {
+        guard let index, let topLevelSource = try? VaultPath("Link.md") else { return nil }
         do {
             var matches = try await index.resolve(file, from: topLevelSource)
             // A link that starts Graphite may arrive before the vault is read.
@@ -86,11 +89,14 @@ extension WorkspaceModel {
             }
             guard !matches.isEmpty else {
                 errorMessage = "No file in “\(title)” matches “\(WikiLinkResolver.pathPart(file))”."
-                return
+                return nil
             }
+            let linkedPath = await resolveLink(file, from: topLevelSource)
             await follow(file, from: topLevelSource)
+            if let linkedPath, selection == linkedPath { return linkedPath }
         } catch is CancellationError {
         } catch { errorMessage = error.localizedDescription }
+        return nil
     }
 
     /// `open?path=`: a full path, inside the vault that is open or another known vault.

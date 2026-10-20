@@ -66,6 +66,8 @@ final class CanvasSession {
 
     let path: VaultPath
     private let store: VaultStore
+    /// Times the wait before autosave; tests move it by hand.
+    private let clock: any ApplicationClock
     private let didSave: @MainActor (VaultPath) -> Void
 
     // MARK: Document
@@ -91,8 +93,8 @@ final class CanvasSession {
         }
     }
     /// The canvas's own undo history. Each step keeps only the bytes it changed.
-    @ObservationIgnored let undoManager: UndoManager = {
-        let undoManager = UndoManager()
+    @ObservationIgnored let undoManager: CanvasUndoManager = {
+        let undoManager = CanvasUndoManager()
         undoManager.levelsOfUndo = CanvasSession.maximumUndoSteps
         // Each edit is one step, whatever else happens in the same turn of the run loop.
         undoManager.groupsByEvent = false
@@ -155,11 +157,12 @@ final class CanvasSession {
         didSet { UserDefaults.standard.set(snapsToObjects, forKey: CanvasPreferenceKey.snapsToObjects) }
     }
 
-    init(path: VaultPath, snapshot: FileSnapshot, store: VaultStore, didSave: @escaping @MainActor (VaultPath) -> Void) throws {
-        self.path = path; self.store = store; self.didSave = didSave
+    init(path: VaultPath, snapshot: FileSnapshot, store: VaultStore, clock: any ApplicationClock, didSave: @escaping @MainActor (VaultPath) -> Void) throws {
+        self.path = path; self.store = store; self.clock = clock; self.didSave = didSave
         file = try CanvasFile(data: snapshot.data)
         savedData = snapshot.data
         revision = snapshot.revision
+        undoManager.beforeHistoryStep = { [weak self] in self?.commitTextEdit() }
         undoAvailability.follow(undoManager)
     }
 
@@ -298,8 +301,8 @@ final class CanvasSession {
 
     private func scheduleAutosave() {
         autosave?.cancel()
-        autosave = Task { [weak self] in
-            do { try await Task.sleep(for: Self.autosaveDelay) } catch { return }
+        autosave = Task { [weak self, clock] in
+            do { try await clock.sleep(for: Self.autosaveDelay) } catch { return }
             // A failed save shows in the pane's banner; the edits stay open.
             try? await self?.save()
         }
@@ -502,5 +505,22 @@ final class CanvasSession {
         }
         // Assigned only when it changes: the card views read it.
         if newDetailedNodes != detailedNodes { detailedNodes = newDetailedNodes }
+    }
+}
+
+/// The undo manager of one canvas. Every way into its history, whether the toolbar, a
+/// shortcut or a gesture, first lets the canvas write the text being typed as its own step,
+/// so Undo takes the typing back first and Redo brings it back.
+final class CanvasUndoManager: UndoManager {
+    var beforeHistoryStep: (() -> Void)?
+
+    override func undo() {
+        beforeHistoryStep?()
+        super.undo()
+    }
+
+    override func redo() {
+        beforeHistoryStep?()
+        super.redo()
     }
 }

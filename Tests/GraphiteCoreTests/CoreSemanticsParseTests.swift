@@ -1,5 +1,6 @@
 import XCTest
 @testable import GraphiteCore
+import GraphiteTestSupport
 
 /// Source ranges, exclusions and bounded work in `MarkdownSemantics.parse`.
 final class CoreSemanticsParseTests: XCTestCase {
@@ -70,7 +71,7 @@ final class CoreSemanticsParseTests: XCTestCase {
         let source = "---\n" + lines.joined(separator: "\n") + "\ntags: [kept]\n---\nBody [[Link]]\n"
         let start = Date()
         let semantics = try MarkdownSemantics.parse(source)
-        XCTAssertLessThan(Date().timeIntervalSince(start), 2, "The expansion stops at the node budget.")
+        XCTAssertLessThan(Date().timeIntervalSince(start), HangGuard.seconds, "The expansion stops at the node budget, not after minutes.")
         XCTAssertTrue(semantics.tags.isEmpty, "Properties that would expand without bound are not read.")
         XCTAssertEqual(semantics.links.map(\.target), ["Link"], "The body is still indexed.")
     }

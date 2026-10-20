@@ -1208,3 +1208,298 @@ This set is the natural narrow interface for both file trees.
 | Section 3.3 and CC-SHELL-10, types in `VaultSidebar.swift` | "19 more types" / 20 | **22 top-level types** (21 besides `VaultSidebar`) | Counted by reading: `CreationRequest`, `CreationKind`, `VaultItemTransfer`, `VaultSidebar`, `FileExplorerMenuItems`, `SearchOperatorSuggestion`, `SearchResultRow`, `FileTreeContents`, `FileTreeRow`, `FileTreeRows`, `VaultEntryRow`, `VaultEntryMenu`, `VaultItemDragPreview`, `FileTreeRowLabel`, `SidebarListStyle`, `FileTreeMetrics`, `FileSheet`, `FileManagementPresentation`, `RenameSheet`, `RenamedFileName`, `NewFolderSheet`, `MoveSheet` |
 | CC-SHELL-10, types in `WorkspacePanes.swift` | 14 | **13 top-level types** | `TabTransfer`, `WorkspacePanes`, `TabGroupPane`, `TabBar`, `TabItem`, `QuietIconButtonStyle`, `SplitDivider`, `TabDocumentView`, `Pasteboard`, `PDFPasswordPrompt`, `EmptyTabView`, `WindowTouchObserver`, `DelayedProgressView` |
 | Section 3.3, `VaultSidebar` property split | 4 inputs, 9 state or storage, 3 environment | **5 inputs, 8 state or storage, 3 environment** (total 16 unchanged) | Inputs: `workspace`, `creation`, `showsSettings`, `showsVaultManager`, `showDocument` (VaultSidebar.swift:52-58) |
+
+## 9. Since the snapshot
+
+Delta audit of 2026-10-19 against `FR-01` to `FR-108`, in two parts: the notebook library at `9040705` (commits `7f56e00`, `2e1b6a2`, `e9ce084`), and the other shell changes at `fff794b`.
+
+### The notebook library (9040705)
+
+The library keeps the storage contracts: a notebook is an ordinary PDF ([WorkspaceNotebookInsertion.swift:37](../../../Sources/GraphiteUI/WorkspaceNotebookInsertion.swift#L37)), folder colours live in an optional `.obsidian/graphite-folder-styles.json` created only once a style exists ([VaultStoreFolderStyles.swift:12-27](../../../Sources/GraphiteCore/VaultStoreFolderStyles.swift#L12-L27)), and previews live in memory only. `LibraryView` takes values and closures, not the workspace. The findings below are in its error handling, task ownership, memory budget and duplication.
+
+#### BUG-SHELL-07 A damaged `.obsidian/graphite-folder-styles.json` makes every folder of the library show "Can't Show This Folder"
+- **Severity:** High (verdict: Confirmed, traced by the lead)
+- **Rule:** `FR-59`, `FR-61`
+- **Evidence:** traced path, introduced in `2e1b6a2` on top of `7f56e00`:
+  1. The style file is not JSON, or valid JSON of the wrong shape (for example `"folders": []`).
+  2. Every listing reads the styles in the same `do` block as the folder's entries ([LibraryModel.swift:77-78](../../../Sources/GraphiteUI/LibraryModel.swift#L77-L78)); decoding throws ([FolderStyleList.swift:100-114](../../../Sources/GraphiteCore/FolderStyleList.swift#L100-L114)).
+  3. The catch sets `failure = .folderUnreadable`: at the root the path is empty, and in a subfolder `fileExists` is true, so both land there ([LibraryModel.swift:84-92](../../../Sources/GraphiteUI/LibraryModel.swift#L84-L92)).
+  4. The view shows "Can't Show This Folder" with a message that blames the folder ([LibraryView.swift:143-145](../../../Sources/GraphiteUI/LibraryView.swift#L143-L145), [:164-165](../../../Sources/GraphiteUI/LibraryView.swift#L164-L165)); `setStyle` fails the same way. The only remedy is deleting a hidden file by hand.
+- **Why it matters:** an optional cosmetic file takes down the file browser in Library mode, which is the iPad window's home and replaces the iPhone's file list.
+- **Fix direction:** read the styles apart from the listing; an unreadable style file means plain folders plus a typed notice, and the file is moved aside (`CC-VAULT-12`).
+
+#### BUG-SHELL-08 A file that changes while its tile is on screen keeps its old preview
+- **Severity:** Medium (verdict: Confirmed by trace)
+- **Rule:** `FR-13`
+- **Evidence:** a change bumps `directoryVersion` and so `reloadKey` ([LibraryView.swift:17-19](../../../Sources/GraphiteUI/LibraryView.swift#L17-L19)); `listFolder` replaces `items` but leaves `visiblePreviews` and `previewTasks` ([LibraryModel.swift:80-83](../../../Sources/GraphiteUI/LibraryModel.swift#L80-L83)); `VaultEntry.id` is the path, so `onAppear` does not fire again ([LibraryView.swift:156](../../../Sources/GraphiteUI/LibraryView.swift#L156)); only `tileAppeared` starts a versioned preview ([LibraryModel.swift:118-137](../../../Sources/GraphiteUI/LibraryModel.swift#L118-L137)). Introduced in `2e1b6a2`.
+- **Why it matters:** `Docs/Notebook-library-and-new-file-todo.md` marks "Previews follow changes" done; for a visible tile it is false.
+- **Fix direction:** after a listing, restart the previews of visible paths whose cache key changed; key `visiblePreviews` by `LibraryPreviewCache.Key`.
+
+#### BUG-SHELL-09 A tile's preview keeps rendering after the tile scrolls away, with no limit on concurrent renders
+- **Severity:** Medium (verdict: Confirmed for the cancellation; the effect on on-screen previews is Plausible and needs a measurement on a large vault)
+- **Rule:** `FR-66`, `FR-103`, `FR-104`, `FR-80`
+- **Evidence:** each tile starts an owned `Task` that awaits a `Task.detached` render ([LibraryModel.swift:130-131](../../../Sources/GraphiteUI/LibraryModel.swift#L130-L131)); `tileDisappeared` cancels only the outer task ([:145](../../../Sources/GraphiteUI/LibraryModel.swift#L145)), which a detached task does not inherit; the loader never checks for cancellation and renders inside a synchronous `NSFileCoordinator.coordinate` ([LibraryPreviewLoader.swift:39-48](../../../Sources/GraphiteApple/LibraryPreviewLoader.swift#L39-L48), [:70-83](../../../Sources/GraphiteApple/LibraryPreviewLoader.swift#L70-L83)). The doc comment "Stops a tile's preview work" ([LibraryModel.swift:139](../../../Sources/GraphiteUI/LibraryModel.swift#L139)) contradicts the code; the same pattern is at [NotebookPaperPictures.swift:54-56](../../../Sources/GraphiteUI/NotebookPaperPictures.swift#L54-L56). Introduced in `2e1b6a2`.
+- **Why it matters:** a fast scroll over hundreds of PDFs renders every tile it passed, each blocking a cooperative-pool thread, so on-screen previews wait behind invisible work; the plan's "cancelled when scrolled away" does not hold.
+- **Fix direction:** run the load as a child task, check cancellation between read and render, and share a limit of about four renders at once (as P-16 does for thumbnails).
+
+#### CC-SHELL-11 The preview cache is bounded by count only, with no byte budget and no release on a vault switch
+- **Severity:** Medium
+- **Rule:** `FR-72`, `FR-105`
+- **Evidence:** `cachedPreviewCount = 240` and `previewPixels = 540` ([LibraryModel.swift:19-21](../../../Sources/GraphiteUI/LibraryModel.swift#L19-L21)); the `NSCache` has only a `countLimit` ([:187-199](../../../Sources/GraphiteUI/LibraryModel.swift#L187-L199)). An A4 preview is 540 × 764 × 4 bytes, about 1.65 MB, so the cache can hold about 390 MB before the system's own pressure eviction; P-11 bounds PDF thumbnails to `min(32 MiB, memory/200)`. Introduced in `2e1b6a2`.
+- **Why it matters:** browsing PDF folders while recording a lecture leans on the system's last-moment eviction instead of a budget the app keeps.
+- **Fix direction:** a byte budget (`totalCostLimit` with a cost per entry), emptied on a vault switch through the memory-release duty; record it as a P invariant with a test.
+
+#### SRP-SHELL-07 The library adds five `WorkspaceModel` extensions, two feature-named calls in move and delete, and widens two private members
+- **Severity:** Medium
+- **Rule:** `FR-03`, `FR-04`
+- **Evidence:** feature-named calls in the move and delete paths ([WorkspaceModel.swift:1247](../../../Sources/GraphiteUI/WorkspaceModel.swift#L1247), [:1261](../../../Sources/GraphiteUI/WorkspaceModel.swift#L1261)); extension blocks go from 25 to 30 (`WorkspaceLibrary.swift`, `WorkspaceFolderStyles.swift`, `WorkspaceNotebookInsertion.swift`, `LibraryHome.swift`, `WorkspaceFileManagement.swift:384`); `insertEmbed` and `embed(for:in:settings:)` go from private to internal ([WorkspaceModel.swift:913](../../../Sources/GraphiteUI/WorkspaceModel.swift#L913), [:1018](../../../Sources/GraphiteUI/WorkspaceModel.swift#L1018)). No stored property was added. Introduced in `2e1b6a2`.
+- **Why it matters:** the next feature that follows paths edits move and remove again.
+- **Fix direction:** folder styles become a registered `VaultPathMoveObserver`; the library's wiring moves into a factory the library owns, with narrow capabilities.
+
+#### CC-SHELL-12 Library and New-menu actions start unowned tasks, and a batch of moves continues into the next vault
+- **Severity:** Medium
+- **Rule:** `FR-66`
+- **Evidence:** 13 unowned `Task {}` calls, among them [WorkspaceLibrary.swift:28-31](../../../Sources/GraphiteUI/WorkspaceLibrary.swift#L28-L31), [:48](../../../Sources/GraphiteUI/WorkspaceLibrary.swift#L48), [WorkspaceFolderStyles.swift:17](../../../Sources/GraphiteUI/WorkspaceFolderStyles.swift#L17), [LibraryView.swift:79](../../../Sources/GraphiteUI/LibraryView.swift#L79), [:179](../../../Sources/GraphiteUI/LibraryView.swift#L179), [:282](../../../Sources/GraphiteUI/LibraryView.swift#L282), [GraphiteRootView.swift:485-510](../../../Sources/GraphiteUI/GraphiteRootView.swift#L485-L510); `moveItems` loops over `await self?.move(path, into: folder)` ([WorkspaceLibrary.swift:31](../../../Sources/GraphiteUI/WorkspaceLibrary.swift#L31)) and `move` uses whichever store is current ([WorkspaceFileManagement.swift:111-115](../../../Sources/GraphiteUI/WorkspaceFileManagement.swift#L111-L115)). Introduced in `2e1b6a2`.
+- **Why it matters:** switching vault while moves run applies the remaining old-vault paths to the new vault.
+- **Fix direction:** the library model owns a per-vault queue cancelled on a vault switch; views call synchronous intents.
+
+#### OCP-SHELL-08 "New notebook in a note" is declared in three places with three titles, and not in the menu bar
+- **Severity:** Medium
+- **Rule:** `FR-23`, `FR-33`
+- **Evidence:** keyboard toolbar "New Notebook" ([EditorKeyboardToolbar.swift:264-266](../../../Sources/GraphiteUI/EditorKeyboardToolbar.swift#L264-L266), filled at [MarkdownPane.swift:256](../../../Sources/GraphiteUI/MarkdownPane.swift#L256)); More menu "New Notebook…" ([MarkdownPane.swift:475](../../../Sources/GraphiteUI/MarkdownPane.swift#L475)); palette "Notebooks: Insert new notebook" ([WorkspaceCommands.swift:246-251](../../../Sources/GraphiteUI/WorkspaceCommands.swift#L246-L251)). The request is typed out three times, has no plugin gate (the drawing command beside it has one) and is not in `GraphiteCommands`. Introduced in `2e1b6a2`.
+- **Fix direction:** declare it once in the editor command table as one `TabDocument` intent.
+
+#### CC-SHELL-13 Notebook creation and file import are each implemented twice in the workspace
+- **Severity:** Medium
+- **Rule:** `FR-10`
+- **Evidence:** [WorkspaceNotebookInsertion.swift:21-45](../../../Sources/GraphiteUI/WorkspaceNotebookInsertion.swift#L21-L45) repeats [WorkspaceModel.swift:860-871](../../../Sources/GraphiteUI/WorkspaceModel.swift#L860-L871); `importFiles` ([WorkspaceFileManagement.swift:388-414](../../../Sources/GraphiteUI/WorkspaceFileManagement.swift#L388-L414)) repeats `importAttachment` ([WorkspaceModel.swift:874-890](../../../Sources/GraphiteUI/WorkspaceModel.swift#L874-L890)); the new copies drop the error without logging it. Introduced in `2e1b6a2`.
+- **Fix direction:** one `NotebookCreator` and one `FileImporter`, each returning a typed outcome.
+
+#### DIP-SHELL-06 Five new persisted keys are private string literals in two types, with no registry and no test of their names
+- **Severity:** Medium
+- **Rule:** `FR-73`, `FR-95`, `FR-40`
+- **Evidence:** keys at `NotebookLibraryPreferences.swift:75-78` at `9040705` (at `5aae924`, after `GraphiteNoteTakingStyle` was removed in `f57a411`, the remaining key is at [NotebookLibraryPreferences.swift:29](../../../Sources/GraphiteUI/NotebookLibraryPreferences.swift#L29)) and [NotebookCreationDefaults.swift:8-12](../../../Sources/GraphiteUI/NotebookCreationDefaults.swift#L8-L12); the tests round-trip values but pin no key name; `NotebookCreationDefaults` has no test; `presentation` is a settable `var` that persists in `didSet` and is assigned from two views ([VaultSidebar.swift:262](../../../Sources/GraphiteUI/VaultSidebar.swift#L262), `NoteTakingStyleViews.swift:66` (deleted in `f57a411`)). Introduced in `2e1b6a2`.
+- **Why it matters:** renaming a key silently resets people's choices, and no test notices.
+- **Fix direction:** declare the keys in the typed registry with name-pinning tests; `presentation` becomes `private(set)` behind an intent.
+
+#### ISP-SHELL-05 The library's item menu hands the whole `WorkspaceModel` to `VaultEntryMenu`, captured `unowned`
+- **Severity:** Low
+- **Rule:** `FR-02`
+- **Evidence:** [WorkspaceLibrary.swift:41](../../../Sources/GraphiteUI/WorkspaceLibrary.swift#L41) builds `VaultEntryMenu(entry:workspace: self, …)` in a closure captured `[unowned self]`, stored by the view ([LibraryView.swift:36-40](../../../Sources/GraphiteUI/LibraryView.swift#L36-L40)). Introduced in `2e1b6a2`.
+- **Why it matters:** the library's only dependency on the whole workspace; `unowned` traps if a menu outlives the workspace during scene teardown.
+- **Fix direction:** an item-actions value; capture `weak`.
+
+#### CC-SHELL-14 A production view modifier carries a flag that exists for tests, and reads `UIDevice.current`
+- **Severity:** Low
+- **Rule:** `FR-32`, `FR-56`, `FR-52`
+- **Evidence:** `isAsking` is documented "False for root views made in tests" (`NoteTakingStyleViews.swift:82-83` at `9040705`; the file was deleted in `f57a411`, see the state changes below); the modifier reads `UIDevice.current` (`NoteTakingStyleViews.swift:91` (deleted in `f57a411`)). Introduced in `2e1b6a2`.
+- **Fix direction:** the composition root passes one value saying whether to ask (the `LaunchMode` already exists).
+
+#### OCP-SHELL-09 The library filter decides by equality tests on `DocumentKind`
+- **Severity:** Low
+- **Rule:** `FR-19`
+- **Evidence:** `kind == .pdf` and similar tests ([LibraryListing.swift:9-16](../../../Sources/GraphiteCore/LibraryListing.swift#L9-L16)); `.media` matches no filter but "All". Introduced in `7f56e00`.
+- **Fix direction:** a `libraryGroup` on `DocumentKind` from one exhaustive switch.
+
+#### CC-SHELL-15 New views add literal sizes, fixed-point fonts and a repeated aspect ratio
+- **Severity:** Low
+- **Rule:** `FR-78`, `FR-24`
+- **Evidence:** grid literals ([LibraryView.swift:52](../../../Sources/GraphiteUI/LibraryView.swift#L52), [:83](../../../Sources/GraphiteUI/LibraryView.swift#L83), [:155](../../../Sources/GraphiteUI/LibraryView.swift#L155)); the page ratio `0.77` three times ([LibraryTiles.swift:54](../../../Sources/GraphiteUI/LibraryTiles.swift#L54), [:69](../../../Sources/GraphiteUI/LibraryTiles.swift#L69), [:84](../../../Sources/GraphiteUI/LibraryTiles.swift#L84)); fixed 7, 8.5 and 10 pt fonts ([LibraryTiles.swift:106-112](../../../Sources/GraphiteUI/LibraryTiles.swift#L106-L112)); corner radius 14 in four places. Introduced in `2e1b6a2`.
+- **Fix direction:** `LibraryLayout` constants with units now; design tokens in Phase 13.
+
+#### LSP-SHELL-05 A note whose read fails shows as a blank page, and a failed cloud check reads the file
+- **Severity:** Low
+- **Rule:** `FR-59`, `FR-80`
+- **Evidence:** a failed read returns `(Data(), true)` ([LibraryPreviewLoader.swift:101](../../../Sources/GraphiteApple/LibraryPreviewLoader.swift#L101)), drawn as an empty page ([LibraryTiles.swift:46-47](../../../Sources/GraphiteUI/LibraryTiles.swift#L46-L47)), against the comment two lines above; a failed resource-value check counts the file as downloaded, so the coordinated read can fetch a placeholder ([LibraryPreviewLoader.swift:64-66](../../../Sources/GraphiteApple/LibraryPreviewLoader.swift#L64-L66)). Introduced in `7f56e00`.
+- **Fix direction:** return nil (the kind icon); treat an unknown cloud state as not downloaded.
+
+#### CC-SHELL-16 A file created from the library opens its tab before the file exists, and a failure leaves an empty tab
+- **Severity:** Low
+- **Rule:** `FR-12`
+- **Evidence:** the tab opens and the library leaves home before the create task runs ([GraphiteRootView.swift:491-515](../../../Sources/GraphiteUI/GraphiteRootView.swift#L491-L515)); a failed create only sets `errorMessage` ([WorkspaceModel.swift:870](../../../Sources/GraphiteUI/WorkspaceModel.swift#L870)); `case .notebook: break` is dead ([GraphiteRootView.swift:503](../../../Sources/GraphiteUI/GraphiteRootView.swift#L503)). Introduced in `2e1b6a2`.
+- **Fix direction:** open the tab only after the create returns the new path.
+
+#### State changes of earlier findings (library)
+All worse, none fixed:
+- `SRP-SHELL-01`: five more extension blocks (25 → 30), two feature-named calls, two members widened (`SRP-SHELL-07`).
+- `SRP-SHELL-03`, `CC-SHELL-06`: `errorMessage` writers go from 86 to 90, none logging the error; about 60 new literal user strings; `FolderColor.title` builds words from a persisted raw value ([LibraryTiles.swift:146](../../../Sources/GraphiteUI/LibraryTiles.swift#L146), `FR-28`).
+- `SRP-SHELL-04`: the root view gains one `@State`, one flag, the question and creation sheets and a sidebar-visibility rule (shorter overall only because the notebook form moved out).
+- `SRP-SHELL-06`: two more stored properties on `GraphitePreferences` ([GraphitePreferences.swift:209-211](../../../Sources/GraphiteUI/GraphitePreferences.swift#L209-L211)); one-area types, which is the right shape.
+- `OCP-SHELL-05`: `CreatableItem` is an eighth list of creatable kinds ([NewItemPicker.swift:5-66](../../../Sources/GraphiteUI/NewItemPicker.swift#L5-L66)); its `requiredPlugin` field is the right shape.
+- `OCP-SHELL-01`: three more per-kind tables plus `LibraryFilter`, each an exhaustive switch.
+- `ISP-SHELL-03`: views assign `workspace.fileSheet` and `preferences.library.presentation`.
+- `CC-SHELL-05`: two more duplicated pieces (`CC-SHELL-13`).
+- `ISP-EDITOR-02`: `EditorActions` gains a fifteenth optional closure, `newNotebook`.
+- `ISP-SHELL-01`: unchanged (72 stored `WorkspaceModel` declarations by its own count).
+
+#### Patterns to keep (library)
+- `FolderStyleList` keeps what it does not understand (unknown colours, keys and entries), refuses a wrongly shaped file instead of overwriting it, writes with a revision check and creates the file only once a style exists ([FolderStyleList.swift:17-127](../../../Sources/GraphiteCore/FolderStyleList.swift#L17-L127)).
+- `LibraryView` receives `LibraryVault`, `LibraryActions` and `LibraryEntryPresentation` values, and `LibraryModel` is tested without a workspace.
+- `LibraryListing.items`, `NotebookPlacement.insertedText`, `NotebookPageSize` and `NotePreviewSummary` (which reads at most 4 KB) are pure Core functions tested with values.
+- `PaperPreviewRenderer` draws the generator's own PDF, so a paper picture cannot differ from the notebook it makes.
+
+### Other shell changes (fff794b)
+
+Phase 0 and Phase 1 commits changed the workspace, the root view, the Mac scenes and the vault store; new files are `WorkspaceDeviceServices.swift`, `WorkspaceScenePhase.swift`, `QuitSaveDecision.swift`, `ExclusiveOperationRunner.swift`, `LaunchMode.swift`, `ApplicationClock.swift` and `ApplicationFolders.swift`. The polled rename-outcome dictionary is recorded once, as `CC-PLUGIN-15` in [plugin.md](plugin.md) section 9 (alias of this audit's draft `SRP-SHELL-51`).
+
+#### BUG-SHELL-10 When a vault's Templates or Daily notes settings cannot be read, the previous vault's settings stay in force and can create a daily note in the new vault
+- **Severity:** Medium (verdict: Confirmed, traced by the lead)
+- **Rule:** `FR-59`, `FR-12`
+- **Evidence:** traced path, introduced in `877045a`:
+  1. `templateSettings` and `dailyNoteSettings` are workspace fields ([WorkspaceModel.swift:150-151](../../../Sources/GraphiteUI/WorkspaceModel.swift#L150-L151)) that only `reloadVaultSettings` and the two setters assign; `openVault` does not reset them.
+  2. `openVault` calls `reloadVaultSettings()` ([WorkspaceModel.swift:381](../../../Sources/GraphiteUI/WorkspaceModel.swift#L381)).
+  3. In the new vault, `templates.json` or `daily-notes.json` exists but cannot be read (for example over 1 MiB, [VaultStore.swift:70](../../../Sources/GraphiteCore/VaultStore.swift#L70)), so `configurationData` and the settings getter throw ([VaultStore.swift:259-263](../../../Sources/GraphiteCore/VaultStore.swift#L259-L263)).
+  4. The `catch` only sets `errorMessage` ([WorkspaceModel.swift:423-426](../../../Sources/GraphiteUI/WorkspaceModel.swift#L423-L426)); both fields keep the old vault's values, and a failure on the first line skips `daily-notes.json` too.
+  5. `dailyNoteSettings.opensOnStartup` still holds the old vault's value ([WorkspaceModel.swift:387](../../../Sources/GraphiteUI/WorkspaceModel.swift#L387)), so `openDailyNote` creates a note in the new vault, in the old vault's folder with its date format and template.
+- **Why it matters:** a file is written into a vault from another vault's settings, and the settings screens show the other vault's values. Before `877045a` a failed read gave defaults instead.
+- **Fix direction:** one per-vault settings value that `openVault` replaces, with an `unreadable` case per file; startup actions and settings screens act only on read or missing settings. Regression test with two vaults, one with an oversized `daily-notes.json`.
+
+#### BUG-SHELL-11 A plugin's rename is answered "not renamed" when the move takes longer than 10 s after the person answers, although the file moved
+- **Severity:** Low (verdict: Confirmed by the auditor's trace)
+- **Rule:** `FR-29`, `FR-12`, `FR-65`
+- **Evidence:** after "Update Links", a 10 s deadline starts ([CommunityPluginHost.swift:998-1001](../../../Sources/GraphiteUI/CommunityPluginHost.swift#L998-L1001)); `completeMove` saves every document, moves, rewrites links and refreshes before it stores the outcome ([WorkspaceFileManagement.swift:185-214](../../../Sources/GraphiteUI/WorkspaceFileManagement.swift#L185-L214), [:176](../../../Sources/GraphiteUI/WorkspaceFileManagement.swift#L176)); past the deadline the host returns `.refused(.cancelled)` ([CommunityPluginHost.swift:1005](../../../Sources/GraphiteUI/CommunityPluginHost.swift#L1005)), and a dismissal always holds the plugin the full 10 s. Introduced in `4489db2`.
+- **Why it matters:** the plugin acts on a failure that did not happen.
+- **Fix direction:** `move` awaits its final outcome through a continuation that `resolve` and the dismissal complete (the fix of `CC-PLUGIN-15`).
+
+#### BUG-SHELL-12 `graphite://read?file=X` opens the note but reads nothing when X is already open on the other side of the split
+- **Severity:** Low (verdict: Confirmed by the auditor's trace)
+- **Rule:** `FR-12`, `FR-13`
+- **Evidence:** `.read` reads only the path `openLinkedFile` returns ([WorkspaceDeepLinks.swift:39-47](../../../Sources/GraphiteUI/WorkspaceDeepLinks.swift#L39-L47)), which it returns only when `selection == linkedPath` after `follow` ([:93-95](../../../Sources/GraphiteUI/WorkspaceDeepLinks.swift#L93-L95)); `follow` opens with `takesFocus: false` ([WorkspaceModel.swift:714-717](../../../Sources/GraphiteUI/WorkspaceModel.swift#L714-L717)), and an already open file is revealed without moving focus ([:490-491](../../../Sources/GraphiteUI/WorkspaceModel.swift#L490-L491)). Introduced in `d75f41c`.
+- **Why it matters:** a Shortcut that asks Graphite to read a note silently does nothing in a common split layout.
+- **Fix direction:** return the tab and path that `open` reported, or open with `takesFocus: true` for this link.
+
+#### LSP-SHELL-06 `completeMove` reports `.moved` when some linking notes were not updated
+- **Severity:** Low
+- **Rule:** `FR-29`, `FR-12`
+- **Evidence:** link-update failures and edits kept as copies go only to `errorMessage`, and the function returns `.moved` ([WorkspaceFileManagement.swift:207-214](../../../Sources/GraphiteUI/WorkspaceFileManagement.swift#L207-L214)); the plugin is answered success ([CommunityPluginHost.swift:986-987](../../../Sources/GraphiteUI/CommunityPluginHost.swift#L986-L987)). Introduced in `4489db2`.
+- **Fix direction:** `.moved(FileMoveReport)` with the failed notes and kept copies.
+
+#### DIP-SHELL-07 The launch mode is read as a flag inside the root view, and a test-only scene initializer picks `.normal`
+- **Severity:** Low
+- **Rule:** `FR-56`, `FR-32`
+- **Evidence:** `GraphiteRootView` stores `restoresLastVault`, set in three initializers and branched on in `.task` ([GraphiteRootView.swift:10](../../../Sources/GraphiteUI/GraphiteRootView.swift#L10), [:50-70](../../../Sources/GraphiteUI/GraphiteRootView.swift#L50-L70), [:217](../../../Sources/GraphiteUI/GraphiteRootView.swift#L217)); `GraphiteMacScenes.init(workspace:)` sets `.normal` for tests ([GraphiteMacScenes.swift:21-23](../../../Sources/GraphiteUI/GraphiteMacScenes.swift#L21-L23)). Introduced in `0c074d9`.
+- **Fix direction:** the workspace carries a restore policy and the view calls one launch intent; the test initializer moves to test support.
+
+#### CC-SHELL-17 The new outcome types carry prose and `localizedDescription` instead of facts
+- **Severity:** Medium
+- **Rule:** `FR-55`, `FR-63`, `FR-64`, `FR-13`
+- **Evidence:** `FileMoveRefusal.failed(message: String)` holds `localizedDescription` and the enum writes its own sentences ([WorkspaceFileManagement.swift:35-46](../../../Sources/GraphiteUI/WorkspaceFileManagement.swift#L35-L46), `4489db2`); `QuitBlockingReason.saveFailed(errorDescription:)` stores `localizedDescription`, always says "Resolve the conflict" ([QuitSaveDecision.swift:21](../../../Sources/GraphiteUI/QuitSaveDecision.swift#L21), [:42](../../../Sources/GraphiteUI/QuitSaveDecision.swift#L42), `e4feaa1`), and `allowsTermination` is stored though it derives from `blockingReason == nil`; the settings read error builds a sentence ([WorkspaceModel.swift:426](../../../Sources/GraphiteUI/WorkspaceModel.swift#L426), `877045a`).
+- **Why it matters:** the typed error is lost at the first hop, a disk-full error at quit is called a conflict, and each message overwrites the shared `errorMessage`.
+- **Fix direction:** carry the typed error; derive `allowsTermination`; one presenter words every case.
+
+#### CC-SHELL-18 The Mac quit deadline is a hand-written timeout race on the system clock
+- **Severity:** Low
+- **Rule:** `FR-67`, `FR-50`, `FR-40`, `FR-43`
+- **Evidence:** two unowned tasks race, the deadline uses `Task.sleep` on the system clock ([GraphiteMacScenes.swift:59-68](../../../Sources/GraphiteUI/GraphiteMacScenes.swift#L59-L68)) though the workspace has `clock`; a settable `var deadline` and a `hasReplied` flag let the first outcome win ([:79](../../../Sources/GraphiteUI/GraphiteMacScenes.swift#L79)); the delegate assigns `workspace.errorMessage` ([:92](../../../Sources/GraphiteUI/GraphiteMacScenes.swift#L92)). Introduced in `e4feaa1`.
+- **Why it matters:** the 5 s rule cannot be tested without waiting 5 s, and it is another hand-written "first outcome wins" (`CC-ARCH-04`).
+- **Fix direction:** a workspace intent `saveForQuit(deadline:) async -> QuitSaveDecision` racing on `clock` through one `withTimeout` primitive.
+
+#### CC-SHELL-19 Moving a folder commits a canvas's text edit from inside a query, and the new canvas lines repeat untyped decisions
+- **Severity:** Low
+- **Rule:** `FR-08`, `FR-05`, `FR-58`, `FR-24`
+- **Evidence:** `unsavedEdits(...)` calls `session.commitTextEdit()` inside a `compactMap` ([WorkspaceFileManagement.swift:250-262](../../../Sources/GraphiteUI/WorkspaceFileManagement.swift#L250-L262)); the extensions `"md"` and `"canvas"` are literals; the revision loop is duplicated per document kind ([:239-247](../../../Sources/GraphiteUI/WorkspaceFileManagement.swift#L239-L247)). Introduced in `4660830`.
+- **Fix direction:** commit pending edits as a named step first; each session reports its pending data and kind, the extension from the kind's descriptor.
+
+#### CC-SHELL-20 `scenePhaseDidChange` starts an unowned task, and the background save stays owned by the view
+- **Severity:** Low
+- **Rule:** `FR-66`, `FR-09`
+- **Evidence:** the activation `Task {…}` is never stored or cancelled ([WorkspaceScenePhase.swift:15](../../../Sources/GraphiteUI/WorkspaceScenePhase.swift#L15)); the save is a closure from the view ([:9](../../../Sources/GraphiteUI/WorkspaceScenePhase.swift#L9), [:18](../../../Sources/GraphiteUI/WorkspaceScenePhase.swift#L18)). Moved unchanged from the root view in `0c074d9` (`CC-ARCH-05` carried into a new file).
+- **Fix direction:** store the task and cancel it on the next phase change; the workspace owns the save with a background-task capability.
+
+#### CC-SHELL-21 Five new or changed lines exceed 160 characters
+- **Severity:** Low
+- **Rule:** `FR-76`
+- **Evidence:** QuitSaveDecision.swift:21 (203) and :23 (176); WorkspaceFileManagement.swift:42 (179) and :176 (166); WorkspaceModel.swift:698 (161). The `lines-over-160-characters` gate counts them in its baseline.
+- **Fix direction:** wrap them; the gate's baseline goes down with each.
+
+#### State changes of earlier findings (fff794b)
+- `SRP-SHELL-01`: **Worse**: four more stored properties (`deviceDefaults`, `applicationFolders`, `clock`: planned injection; `answeredMoveOutcomes`: feature state).
+- `SRP-SHELL-02`: **Worse**: a new reset line in the vault switch (`answeredMoveOutcomes = [:]`, [WorkspaceModel.swift:358](../../../Sources/GraphiteUI/WorkspaceModel.swift#L358)).
+- `CC-SHELL-06`: **Worse**: three more model-side sentence builders (`CC-SHELL-17`).
+- `BUG-SHELL-02`, `OCP-SHELL-06`, `LSP-SHELL-02`, `DIP-SHELL-03`, `DIP-SHELL-04`, `CC-SHELL-02`: unchanged.
+
+#### Patterns to keep (fff794b)
+- `QuitSaveDecision` is a pure, tested decider: quitting waits for the save and refuses on failure (`FR-05`, `FR-60`).
+- `configurationData` keeps "missing" apart from "unreadable" and has tests ([VaultStore.swift:256-263](../../../Sources/GraphiteCore/VaultStore.swift#L256-L263), `FR-59`).
+- A canvas's edits during a move are saved against the pre-move revision or kept as a copy, never overwritten ([WorkspaceFileManagement.swift:270-292](../../../Sources/GraphiteUI/WorkspaceFileManagement.swift#L270-L292)).
+
+### Changes merged after 9040705 (5aae924)
+
+Delta audit of 2026-10-20 at `5aae924` (main): the library's fixes (`bf86b5d`, `6a6dae3`, `21e33ad`, `f57a411`), Read Aloud as a switchable core plugin (`38581b0`), the test-silence seam (`32787b2`, `96cfabb`) and the race fixes (`a724bd5`, `cd80070`). The Goodnotes and Notability readers of the same range are in [import.md](import.md).
+
+#### DIP-SHELL-08 Test silence is decided by checking the process from inside production types, not by the composition root
+- **Severity:** Medium
+- **Rule:** `FR-56`, `FR-32`, `FR-47`, `FR-54` ("fakes, not flags")
+- **Evidence:** `AudioOutputRoute.thisProcess` parses `LaunchMode` again from `ProcessInfo` and checks `NSClassFromString("XCTestCase")` inside GraphiteCore ([LaunchMode.swift:50-56](../../../Sources/GraphiteCore/LaunchMode.swift#L50-L56)), although the app parses the launch mode once ([GraphiteApp.swift:17](../../../App/GraphiteApp.swift#L17)); `AppleReadAloudSpeech`, `NeuralReadAloudSpeech` and `RenderedPassagePlayer` default their `output:` to it ([ReadAloudSpeech.swift:184](../../../Sources/GraphiteApple/ReadAloudSpeech.swift#L184), which also defaults `clock = LiveApplicationClock()`; [NeuralReadAloudSpeech.swift:38](../../../Sources/GraphiteVoices/NeuralReadAloudSpeech.swift#L38); [RenderedPassagePlayer.swift:28](../../../Sources/GraphiteVoices/RenderedPassagePlayer.swift#L28)); embedded media reads the static directly ([MarkdownPreview.swift:2742](../../../Sources/GraphiteUI/MarkdownPreview.swift#L2742)); the composition seam exists (`makeReadAloudController`), but the live and hosted-tests branches pass the same factory ([WorkspaceDeviceServices.swift:45](../../../Sources/GraphiteUI/WorkspaceDeviceServices.swift#L45), [:64](../../../Sources/GraphiteUI/WorkspaceDeviceServices.swift#L64)). Introduced in `32787b2`, extended in `96cfabb`.
+- **Why it matters:** the owner's rule that tests never play sound holds today, but through four production types in three modules asking "am I under test"; a new audio type or caller gets the check only if it remembers the default. It is the general form of the `CC-SHELL-14` break that was just removed.
+- **Fix direction:** `WorkspaceDeviceServices` maps `LaunchMode` to a route once (`AudioOutputRoute(launchMode:)` exists) and passes it to the speech factory and, through an environment value, to embedded media; package tests pass `.silent` explicitly; delete `thisProcess` and the `= .thisProcess` and `= LiveApplicationClock()` defaults. Keep the no-sound guarantee as a test: a hosted launch's composition has no speaker route.
+
+#### LSP-SHELL-07 `checkOpenDocumentsForExternalChanges` gains a parameter that only a test passes
+- **Severity:** Medium
+- **Rule:** `FR-32`, `FR-47`
+- **Evidence:** `openChangedPDF: ((URL, String?) async throws -> PDFSession)? = nil`, replaced inside the callee by `openPDFSession` ([WorkspaceModel.swift:1430-1444](../../../Sources/GraphiteUI/WorkspaceModel.swift#L1430-L1444)); no production caller passes it, only `UiWorkspaceModelFixTests.swift:275`. Introduced in `cd80070`.
+- **Why it matters:** the application aggregate's API grows for one test, and the test exercises a path production never takes.
+- **Fix direction:** the workspace receives its PDF-opening capability at construction; the test gates that capability.
+
+#### SRP-SHELL-08 `WorkspaceModel` takes on Read Aloud's lifecycle through an equality test on the plugin, and "Read Aloud is on" has two sources
+- **Severity:** Medium
+- **Rule:** `FR-03`, `FR-19`, `FR-17`, `FR-13`, `FR-40`
+- **Evidence:** a new stored `makeReadAloudController`, with `readAloud` and `readAloudNavigator` now mutable ([WorkspaceModel.swift:191-198](../../../Sources/GraphiteUI/WorkspaceModel.swift#L191-L198)); `setCorePluginEnabled` branches on `guard plugin == .readAloud` ([:241-244](../../../Sources/GraphiteUI/WorkspaceModel.swift#L241-L244)); `startReadAloud`/`endReadAloud` wire the navigator's closures inside the aggregate ([:247-268](../../../Sources/GraphiteUI/WorkspaceModel.swift#L247-L268)); "on" is read both as `preferences.isEnabled(.readAloud)` ([WorkspaceDeepLinks.swift:41](../../../Sources/GraphiteUI/WorkspaceDeepLinks.swift#L41), [SettingsView.swift:168](../../../Sources/GraphiteUI/SettingsView.swift#L168)) and as `readAloud != nil` ([MarkdownPane.swift:540](../../../Sources/GraphiteUI/MarkdownPane.swift#L540), [WorkspacePanes.swift:255](../../../Sources/GraphiteUI/WorkspacePanes.swift#L255)), which agree only while every change goes through `setCorePluginEnabled`; `GraphitePreferences.setEnabled` stays callable ([GraphitePreferences.swift:427](../../../Sources/GraphiteUI/GraphitePreferences.swift#L427)). Introduced in `38581b0`.
+- **Why it matters:** the next plugin that runs something adds another `== .x` branch and start/end pair to the aggregate; a direct `setEnabled(.readAloud, …)` leaves switch and controller disagreeing.
+- **Fix direction:** `CorePlugin`'s descriptor carries an optional activation the Read Aloud module registers; a Read Aloud feature owner holds controller and navigator; `setEnabled` reachable only through that intent.
+
+#### SRP-SHELL-09 `LibraryModel` adds a render scheduler and a file-repair policy and reaches 15 stored properties
+- **Severity:** Low
+- **Rule:** `FR-01`, `FR-96`
+- **Evidence:** `waitingPreviews` and `requestedPreviewKeys` take the class to 15 stored properties ([LibraryModel.swift:44-54](../../../Sources/GraphiteUI/LibraryModel.swift#L44-L54)); it holds listing, style repair and a preview scheduler of 5 fields and 9 functions ([:85-242](../../../Sources/GraphiteUI/LibraryModel.swift#L85-L242)). Introduced in `bf86b5d`.
+- **Fix direction:** extract `LibraryPreviewScheduler` and test it without the model.
+
+#### CC-SHELL-22 The damaged-style-file repair is decided in the UI model, with no vault check, under an unversioned name
+- **Severity:** Medium
+- **Rule:** `FR-05`, `FR-61`, `FR-12`
+- **Evidence:** `LibraryModel.loadFolderStyles` decides "not Graphite's format, move aside" and runs the move ([LibraryModel.swift:116-131](../../../Sources/GraphiteUI/LibraryModel.swift#L116-L131)), applying results after its awaits with no check of the vault ([:110](../../../Sources/GraphiteUI/LibraryModel.swift#L110), [:119](../../../Sources/GraphiteUI/LibraryModel.swift#L119)); overlapping listings (`show` from unowned tasks, [LibraryView.swift:100](../../../Sources/GraphiteUI/LibraryView.swift#L100), [:223](../../../Sources/GraphiteUI/LibraryView.swift#L223)) can both read the bad file, the second move throws, and the notice says the file "is left as it is" although it was moved ([LibraryView.swift:85-86](../../../Sources/GraphiteUI/LibraryView.swift#L85-L86)); a listing in flight across a vault switch can apply the old vault's colours or alert; the kept name `graphite-folder-styles.unreadable.json` has no version. Introduced in `bf86b5d`.
+- **Why it matters:** a destructive file decision lives in a view model where overlapping calls race, and the person can be told the wrong thing about their file.
+- **Fix direction:** one store call (`readOrSetAsideFolderStyles()`) returning `contents`, `missing` or `setAside(VaultPath)`, deciding and moving inside the store actor under a versioned name; the model applies it only for the same vault.
+
+#### CC-SHELL-23 The render limit counts tasks, not renders, and renders now run at user-initiated priority
+- **Severity:** Medium
+- **Rule:** `FR-72`, `FR-105`, `FR-69`
+- **Evidence:** `previewTasks` is documented "never more than `maximumConcurrentRenders`" ([LibraryModel.swift:44](../../../Sources/GraphiteUI/LibraryModel.swift#L44)), but `cancelPreview` frees the slot at once ([:226-229](../../../Sources/GraphiteUI/LibraryModel.swift#L226-L229)) while the loader checks cancellation only before its synchronous `firstPage` and `picture` calls ([LibraryPreviewLoader.swift:43-47](../../../Sources/GraphiteApple/LibraryPreviewLoader.swift#L43-L47)), so every started decode runs to completion beside four new ones; renders run at the main-actor task's priority ([LibraryModel.swift:205](../../../Sources/GraphiteUI/LibraryModel.swift#L205)) where they ran at `.utility` before. Introduced in `bf86b5d`.
+- **Why it matters:** a fling over PDFs runs many concurrent decodes at UI priority, against Pencil and typing; the stated bound is not the real one.
+- **Fix direction:** count a cancelled render against the limit until its task returns; start render tasks at `.utility`.
+
+#### CC-SHELL-24 The library's note page restates reading view's callout table, and the two disagree
+- **Severity:** Medium
+- **Rule:** `FR-10`, `FR-21`, `FR-24`
+- **Evidence:** `calloutSymbol` and `calloutColor` ([LibraryNotePage.swift:126-149](../../../Sources/GraphiteUI/LibraryNotePage.swift#L126-L149)) restate reading view's table ([MarkdownPreview.swift:2554-2570](../../../Sources/GraphiteUI/MarkdownPreview.swift#L2554-L2570)), which also resolves aliases through `ObsidianCalloutTypes.canonicalType`; they disagree for `bug`, `danger`/`error`, `success`, unknown types and the `abstract` family, and the tile ignores the vault theme's callout colours. Introduced in `6a6dae3`.
+- **Fix direction:** one callout style descriptor keyed by `ObsidianCalloutTypes`, used by both.
+
+#### CC-SHELL-25 The Library/List switch is declared twice, and the presentation gains a third writer
+- **Severity:** Low
+- **Rule:** `FR-24`, `FR-40`
+- **Evidence:** the same "Show Files As" picker at [LibraryView.swift:414-418](../../../Sources/GraphiteUI/LibraryView.swift#L414-L418) and [LibrarySettingsSection.swift:11-13](../../../Sources/GraphiteUI/LibrarySettingsSection.swift#L11-L13); `presentation` ([NotebookLibraryPreferences.swift:34](../../../Sources/GraphiteUI/NotebookLibraryPreferences.swift#L34)) is assigned in three places. Introduced in `21e33ad` and `f57a411`.
+- **Fix direction:** reuse `LibraryPresentationSwitch`; `presentation` becomes `private(set)` behind an intent.
+
+#### CC-SHELL-26 The library notice title is an `if`/`else` over `LibraryFailure` that ends in a fallback
+- **Severity:** Low
+- **Rule:** `FR-18`
+- **Evidence:** `library.failure == .styleNotSaved ? "Folder Look Not Saved" : "Folder Colors Reset"` ([LibraryView.swift:74-76](../../../Sources/GraphiteUI/LibraryView.swift#L74-L76)) beside an exhaustive switch for the message. Introduced in `bf86b5d`.
+- **Fix direction:** one notice value (title and message) from one exhaustive switch.
+
+#### CC-SHELL-27 The Read Aloud migration restates the voices folder and the Read Aloud key family, and treats an unlistable folder as "no voice"
+- **Severity:** Low
+- **Rule:** `FR-10`, `FR-24`, `FR-51`, `FR-59`
+- **Evidence:** `voicesFolder(in:)` ([CorePluginSwitches.swift:104-109](../../../Sources/GraphiteUI/CorePluginSwitches.swift#L104-L109)) restates `NeuralVoiceCatalog.voicesFolder()`; `readAloudPreferencePrefixes` ([:85-91](../../../Sources/GraphiteUI/CorePluginSwitches.swift#L85-L91)) is a third spelling of keys declared privately elsewhere; `folderHoldsVoice` calls `FileManager` from the UI module and its `try?` makes an unlistable folder mean "no voice" ([:96-100](../../../Sources/GraphiteUI/CorePluginSwitches.swift#L96-L100)). Introduced in `38581b0`.
+- **Why it matters:** a moved voices folder, a renamed key or a listing failure turns Read Aloud off, once and for good, for someone who used it.
+- **Fix direction:** take the folder from `NeuralVoiceCatalog`, the key list from one registry, and report `unreadable` as its own evidence case.
+
+#### State changes of earlier findings (5aae924)
+- `CC-SHELL-14`: Open → **Fixed**. `NoteTakingStyleViews.swift` was deleted in `f57a411` and the root view no longer carries the flag; the rule break moved and grew (`DIP-SHELL-08`).
+- `DIP-SHELL-06`: unchanged, mixed: one key fewer (`GraphiteNoteTakingStyle` removed), four private literals remain, and `presentation` has three writers (`CC-SHELL-25`).
+- `SRP-SHELL-01`: **Worse by one** stored property (`makeReadAloudController`, `SRP-SHELL-08`).
+- `SRP-SHELL-07`, `CC-SHELL-12`, `CC-SHELL-13`, `ISP-SHELL-05`, `CC-SHELL-16`, `BUG-SHELL-10`: unchanged at `5aae924`.
+
+#### Patterns to keep (5aae924)
+- Availability is data: while Read Aloud is off no speech engine exists, and views get `ReadAloudController?` and `offersReadAloudPen` instead of re-checking a preference ([MarkdownPane.swift:590-592](../../../Sources/GraphiteUI/MarkdownPane.swift#L590-L592)).
+- `CorePluginSwitches` is a pure value with pinned keys, and the migration splits a pure decision with an evidence value from the step that writes it ([CorePluginSwitches.swift:69-82](../../../Sources/GraphiteUI/CorePluginSwitches.swift#L69-L82)).
+- The preview cache enforces a named byte budget, each entry costing its decoded pixels ([LibraryModel.swift:22-27](../../../Sources/GraphiteUI/LibraryModel.swift#L22-L27)).

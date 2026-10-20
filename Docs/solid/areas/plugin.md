@@ -851,3 +851,59 @@ No other protocol is needed. The workspace capabilities can be closures or one s
 | Low | 12 | SRP-PLUGIN-05, -06; OCP-PLUGIN-04; LSP-PLUGIN-04; DIP-PLUGIN-03; CC-PLUGIN-08 to -14 |
 | Bugs | 6 | BUG-PLUGIN-01 to -06 (five traced, one partly traced) |
 | Invariants | 37 | PLUGIN-INV-01 to -37 |
+
+## 9. Since the snapshot
+
+Delta audit of 2026-10-19 at `fff794b` (main), against `FR-01` to `FR-108`. Commits: `4489db2` (plugin start, stop, rename and views), `877045a` (unreadable vault settings show an error), `0c074d9` (the consent key on injected preferences). Invariants touched: SEC-03, P-14.
+
+### New findings
+
+#### CC-PLUGIN-15 A plugin rename learns its outcome by polling a dictionary added to `WorkspaceModel`
+- **Severity:** Medium
+- **Rule:** `FR-12`, `FR-65`, `FR-03`, `FR-72`
+- **Evidence:** `@ObservationIgnored var answeredMoveOutcomes: [VaultPath: FileMoveOutcome]` ([WorkspaceModel.swift:47](../../../Sources/GraphiteUI/WorkspaceModel.swift#L47)) is written when the person answers or a queued move finishes ([WorkspaceFileManagement.swift:176](../../../Sources/GraphiteUI/WorkspaceFileManagement.swift#L176), [:181](../../../Sources/GraphiteUI/WorkspaceFileManagement.swift#L181)); the host polls every 200 ms while the move is pending and every 100 ms for up to 10 s for the answer ([CommunityPluginHost.swift:997-1005](../../../Sources/GraphiteUI/CommunityPluginHost.swift#L997-L1005)); entries for moves the person starts stay until the vault closes ([WorkspaceModel.swift:358](../../../Sources/GraphiteUI/WorkspaceModel.swift#L358)). Introduced in `4489db2`.
+- **Why it matters:** the outcome travels through a shared mutable field: a second rename of the same path overwrites it, the plugin waits up to 300 ms longer than needed, and the workspace root gains plugin state reset by hand.
+- **Fix direction:** `move` returns the final `FileMoveOutcome` from an `async` call that resumes on the answer; the dictionary goes.
+
+#### CC-PLUGIN-16 A plugin's Bases view JSON-encodes the whole query result on every body evaluation
+- **Severity:** Medium
+- **Rule:** `FR-69`, `FR-104`, `FR-103`
+- **Evidence:** `.onChange(of: Self.updateKey(for: result))` ([CommunityPluginViews.swift:552](../../../Sources/GraphiteUI/CommunityPluginViews.swift#L552)) builds `basesMessage` for every row and serializes it with sorted keys ([:530-534](../../../Sources/GraphiteUI/CommunityPluginViews.swift#L530-L534)) on each `body`; `updateBasesView` builds the same message again when the key changes ([:127](../../../Sources/GraphiteUI/CommunityPluginViews.swift#L127), [:137](../../../Sources/GraphiteUI/CommunityPluginViews.swift#L137)). Introduced in `4489db2`.
+- **Why it matters:** for a large base, every redraw costs a full build and encode on the main actor even when nothing changed.
+- **Fix direction:** an `Equatable` `BaseQueryResult` or a query revision number; build the message only when it is sent.
+
+#### CC-PLUGIN-17 `isRuntimeRunning` answers true while the runtime is stopping
+- **Severity:** Low
+- **Rule:** `FR-81`, `FR-33`
+- **Evidence:** `var isRuntimeRunning: Bool { runtimePhase != .stopped }` ([CommunityPluginHost.swift:219-220](../../../Sources/GraphiteUI/CommunityPluginHost.swift#L219-L220)) is read on 42 lines, while the new code writes `runtimePhase == .running` where it means running ([:664](../../../Sources/GraphiteUI/CommunityPluginHost.swift#L664), [:1154-1155](../../../Sources/GraphiteUI/CommunityPluginHost.swift#L1154-L1155)). Introduced in `4489db2`.
+- **Fix direction:** rename it `hasRuntime`.
+
+#### CC-PLUGIN-18 `pluginLoadTimeout` is a mutable production field that only tests change
+- **Severity:** Low
+- **Rule:** `FR-32`, `FR-78`
+- **Evidence:** `@ObservationIgnored var pluginLoadTimeout = Duration.seconds(30)` ([CommunityPluginHost.swift:607-608](../../../Sources/GraphiteUI/CommunityPluginHost.swift#L607-L608)), set only by `CommunityPluginHostRuntimeTests.swift:133`. Introduced in `4489db2`.
+- **Fix direction:** a named constant, and a timeout policy injected through the initializer for the test.
+
+### State changes of earlier findings
+- `CC-PLUGIN-01`: Open → **Partly fixed**. `RuntimePhase` with `stopping(startsAgain:)` replaces the flag ([CommunityPluginHost.swift:208-218](../../../Sources/GraphiteUI/CommunityPluginHost.swift#L208-L218)); `isPageLoaded`, `pageLoadFailure` and four `webView === pluginWebView` checks remain.
+- `CC-PLUGIN-02`: Open → **Partly fixed**. The rename result comes from `FileMoveOutcome`; all four loops still sleep-poll.
+- `CC-PLUGIN-09`: Open → **Partly fixed**. `renameAnswerDeadline` and `pluginLoadTimeout` are named; the 200 ms and 100 ms polls and the 2 s stop wait are literals.
+- `LSP-PLUGIN-02`: Open → **Partly fixed** (item 2 of 7): an unreadable `community-plugins.json` now throws ([CommunityPluginList.swift:63](../../../Sources/GraphiteCore/CommunityPluginList.swift#L63)).
+- `LSP-PLUGIN-03`: Open → **Partly fixed**. The timeout is a typed `CommunityPluginRuntimeError.didNotAnswerInTime`; runtime failures still become `GraphiteError.unavailable` and a non-object answer `[:]`; the new error carries an English sentence (`FR-55`, `FR-64`).
+- `CC-PLUGIN-03`: **Worse by one** unowned task ([CommunityPluginViews.swift:23](../../../Sources/GraphiteUI/CommunityPluginViews.swift#L23)).
+- `CC-PLUGIN-11`: **Worse**: `stopRuntime` grows to 55 code lines, `startIfNeeded` to about 64.
+- `SRP-PLUGIN-02`: **Worse**: `hasRestoredViews = false` and `isTurnedOnForVault = false` are each reset in two places.
+- `SRP-PLUGIN-04`: **Worse**: a new `WorkspaceModel` extension method closes and opens tabs for the host ([CommunityPluginViews.swift:210-223](../../../Sources/GraphiteUI/CommunityPluginViews.swift#L210-L223)).
+- `DIP-PLUGIN-01`: unchanged, extended: `CommunityPluginHost(defaults: = .standard)` and `forgetVault(_:defaults: = .standard)` serve only tests, since production always passes the store; their comment states a plan ("Phase 2 removes it") rather than a rule (`FR-80`).
+
+### Patterns to keep
+- The runtime's lifecycle is an enum (`RuntimePhase`) with a queued restart, so "a start during a stop" is data.
+- The rename answer comes from an exhaustive switch over `FileMoveOutcome` and `FileMoveRefusal` with no `default:` ([CommunityPluginHost.swift:984-1015](../../../Sources/GraphiteUI/CommunityPluginHost.swift#L984-L1015)).
+
+### Changes merged after 9040705 (5aae924)
+
+#### CC-PLUGIN-19 Waiting plugin-view reveals outlive the runtime they belong to
+- **Severity:** Low
+- **Rule:** `FR-04`
+- **Evidence:** `revealsAwaitingTheirView` ([CommunityPluginHost.swift:190](../../../Sources/GraphiteUI/CommunityPluginHost.swift#L190), [:1049-1050](../../../Sources/GraphiteUI/CommunityPluginHost.swift#L1049-L1050)) is missing from `stopRuntime`'s hand reset of about 25 fields ([:548-585](../../../Sources/GraphiteUI/CommunityPluginHost.swift#L548-L585)); a reveal for a leaf that never lists stays queued (up to 16) across restarts and vault switches. Leaf identifiers carry a per-page timestamp, so a stale entry never matches: the cost is leaked state, not a wrong reveal. Introduced in `a724bd5`.
+- **Fix direction:** keep the queue in the per-runtime value that `stopRuntime` replaces (`SRP-PLUGIN-02`).

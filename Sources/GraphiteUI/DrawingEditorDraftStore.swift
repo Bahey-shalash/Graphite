@@ -16,7 +16,6 @@ struct DrawingEditorDraft: Codable, Equatable, Sendable {
     let vaultIdentifier: UUID
     let target: Target
     let title: String
-    let background: DrawingBackground
     /// The format the drawing is saved in; the draft itself is always an SVG drawing.
     let format: DrawingFormat
 
@@ -32,7 +31,6 @@ struct DrawingEditorDraft: Codable, Equatable, Sendable {
             target = .drawingOnImage(imagePath: imagePath, notePath: notePath)
         }
         title = request.title
-        background = request.background
         format = request.format
     }
 }
@@ -55,7 +53,7 @@ struct RecoveredDrawingDraft: Sendable {
             requestTarget = .drawingOnImage(imagePath: imagePath, notePath: notePath)
         }
         return DrawingEditorRequest(id: draft.requestIdentifier, target: requestTarget, title: draft.title, initialStrokeData: payload.strokes,
-                                    canvasWidth: payload.width, background: draft.background, format: draft.format, isRecoveredDraft: true,
+                                    canvasWidth: payload.width, background: payload.background, format: draft.format, isRecoveredDraft: true,
                                     backgroundImage: payload.backgroundImage, pictures: payload.pictures, paper: payload.paper)
     }
 }

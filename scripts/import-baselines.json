@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "comment": "Import violations of Docs/solid/rewrite-foundations.md section 3.2 and 3.3 at today's module folders: one count of files per `<module> imports <name>`. They only go down. Lower them with `python3 scripts/check-imports.py --record`.",
+  "recordedOn": "2026-10-19",
+  "recordedAtRevision": "3cb2a81 plus the working tree",
+  "violations": {
+    "GraphiteApple imports Compression": 1,
+    "GraphiteApple imports CoreMedia": 4,
+    "GraphiteApple imports Darwin": 1,
+    "GraphiteApple imports JavaScriptCore": 1,
+    "GraphiteApple imports MachO": 1,
+    "GraphiteApple imports NaturalLanguage": 1,
+    "GraphiteApple imports UniformTypeIdentifiers": 2,
+    "GraphiteUI imports AVKit": 1,
+    "GraphiteUI imports Combine": 1,
+    "GraphiteUI imports CoreText": 1,
+    "GraphiteUI imports CoreTransferable": 1,
+    "GraphiteUI imports ImageIO": 3,
+    "GraphiteUI imports LinkPresentation": 1,
+    "GraphiteUI imports PhotosUI": 3,
+    "GraphiteUI imports QuickLook": 2,
+    "GraphiteUI imports UniformTypeIdentifiers": 13,
+    "GraphiteVoices imports AVFoundation": 4,
+    "GraphiteVoices imports CoreMedia": 1,
+    "GraphiteVoices imports Darwin": 1,
+    "GraphiteVoices imports Speech": 1,
+    "GraphiteVoices imports UIKit": 1,
+    "target-state: GraphiteUI files import GraphiteIndex (features never import the index (3.3 rule 3))": 17,
+    "target-state: GraphiteUI files import MapKit (only GraphiteBases and GraphiteGraphAndMap (3.3 rule 5))": 3,
+    "target-state: GraphiteUI files import Textual (only GraphiteMarkdownRendering and GraphiteMarkdownEditing (3.3 rule 5))": 9,
+    "target-state: GraphiteUI files import WebKit (only GraphitePlugins (3.3 rule 5))": 6
+  }
+}

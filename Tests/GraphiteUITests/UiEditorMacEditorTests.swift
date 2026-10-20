@@ -3,26 +3,22 @@ import AppKit
 import XCTest
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// The Mac editor: styling that shows what it cannot draw, restyling only what changed,
 /// jumps, links, and pasted attachments.
 @MainActor
 final class UiEditorMacEditorTests: XCTestCase {
-    private var vaultDirectories: [URL] = []
     private var windows: [NSWindow] = []
 
     override func tearDown() async throws {
         for window in windows { window.contentView = nil }
         windows = []
-        for vaultDirectory in vaultDirectories { try? FileManager.default.removeItem(at: vaultDirectory) }
-        vaultDirectories = []
         try await super.tearDown()
     }
 
     private func makeSession(text: String) async throws -> MarkdownSession {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("Vault-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
-        vaultDirectories.append(vault)
+        let vault = try TemporaryVault.make(prefix: "Vault", for: self).root
         try Data(text.utf8).write(to: vault.appendingPathComponent("Note.md"))
         let store = VaultStore(root: vault)
         let notePath = try VaultPath("Note.md")
@@ -381,7 +377,7 @@ final class UiEditorMacEditorTests: XCTestCase {
         window.contentView = scrollView
         scrollView.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
         textView.frame.size.width = 600
-        window.orderFront(nil)
+        window.showInvisibly()
         defer { window.orderOut(nil); window.contentView = nil }
         scrollView.layoutSubtreeIfNeeded()
         textView.layoutSubtreeIfNeeded()
@@ -580,9 +576,7 @@ final class UiEditorMacEditorTests: XCTestCase {
         pasteboard.setData(pngData, forType: .png)
         XCTAssertEqual(MacPastedAttachment.attachments(on: pasteboard, now: pasteDate), [])
 
-        let fileDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("Paste-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: fileDirectory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: fileDirectory) }
+        let fileDirectory = try TemporaryVault.make(prefix: "Paste", for: self).root
         let documentURL = fileDirectory.appendingPathComponent("Report.pdf")
         try Data("%PDF".utf8).write(to: documentURL)
         let missingURL = fileDirectory.appendingPathComponent("Missing.pdf")

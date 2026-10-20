@@ -244,3 +244,32 @@ No module imports a module above it and SwiftPM forbids cycles. GraphiteCore imp
 
 
 Method: sleeps and `UserDefaults.standard` are counted on raw test text (including comments); XCTest functions are `func test…(` declarations. No test uses Swift Testing (`@Test`: 0). No CI configuration exists in the repository. 20 test files are named after an audit round or fix (`*FixTests`, `*RegressionTests`). Test Swift: 208 files, 42,696 code lines.
+
+## Since the snapshot
+
+Remeasured on 2026-10-19 with `python3 scripts/solid-metrics.py --root <export>` on clean exports of `b13dec3` and `9040705` (main after Phase 0, Phase 1 and the notebook library). Only rows that changed are listed.
+
+| Measure | b13dec3 | 9040705 |
+| --- | ---: | ---: |
+| `Sources/GraphiteUI` files / code lines | 153 / 46,253 | 174 / 48,607 |
+| `Sources/GraphiteCore` files / code lines | 101 / 23,466 | 111 / 24,028 |
+| `Sources/GraphiteApple` files / code lines | 36 / 7,392 | 40 / 7,587 |
+| `Sources/GraphiteVoices` code lines | 1,682 | 1,703 |
+| `try?` | 628 | 636 |
+| sleeps in production | 51 | 54 |
+| `static var` | 77 | 79 |
+| `MainActor.assumeIsolated` | 41 | 43 |
+| other clock reads | 31 | 28 |
+| `UserDefaults` | 56 | 51 |
+| `NotificationCenter.default` | 53 | 55 |
+| `default:` in a switch | 263 | 266 |
+| `[String: Any]` | 132 | 134 |
+| unstructured `Task { }` and `Task.detached` | 429 | 449 |
+| `DispatchQueue.main` | 38 | 39 |
+| `fatalError` / `preconditionFailure` | 11 | 12 |
+| `#if os(...)` | 76 | 80 |
+| XCTest functions (UI / Core / Apple / Index package targets) | 641 / 1,043 / 272 / 140 | 1,131 / 1,305 / 403 / 151 |
+| test sleeps (UI / Apple / hosted) | 76 / 10 / 173 | 61 / 7 / 152 |
+| `UserDefaults.standard` in UI tests | 26 | 7 |
+
+Reading: Phase 0 and Phase 1 added tests, seams and fixes; they did not reduce the structural counts, and the notebook library (about 3,000 lines) raised the unstructured-task count by 20. The findings behind these counts are in section 9 of each area document.

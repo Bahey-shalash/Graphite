@@ -4,27 +4,22 @@ import GraphiteCore
 import GraphiteApple
 @testable import GraphiteIndex
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// The palettes, the sidebar's rename, and tabs letting go of their documents, run against
 /// real vault folders where a workspace is needed.
 @MainActor
 final class UiSidebarPaletteFixTests: XCTestCase {
     private var temporaryDirectories: [URL] = []
-    private var savedGraphitePreferences: [String: Any] = [:]
+    private var device: IsolatedWorkspaceDevice!
 
     override func setUp() async throws {
-        // The workspace remembers vaults in the standard preferences; the test process's
-        // own preferences are put back as they were afterwards.
-        savedGraphitePreferences = UserDefaults.standard.dictionaryRepresentation().filter { key, _ in key.hasPrefix("Graphite") }
+        // The workspace remembers vaults in preferences and folders of its own.
+        device = try IsolatedWorkspaceDevice.make(for: self)
     }
 
     override func tearDown() async throws {
-        for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix("Graphite") {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
-        for (key, storedValue) in savedGraphitePreferences { UserDefaults.standard.set(storedValue, forKey: key) }
         for directory in temporaryDirectories {
-            if let cacheURL = try? VaultIndex.cacheURL(for: directory) { try? FileManager.default.removeItem(at: cacheURL) }
             try? FileManager.default.removeItem(at: directory)
         }
     }
@@ -32,8 +27,7 @@ final class UiSidebarPaletteFixTests: XCTestCase {
     // MARK: Helpers
 
     private func makeVault(notes: [String: String] = [:], pdfPageCounts: [String: Int] = [:]) throws -> URL {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("SidebarPaletteVault-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        let vault = try TemporaryVault.make(prefix: "SidebarPaletteVault", for: self).root
         temporaryDirectories.append(vault)
         for (path, contents) in notes {
             try Data(contents.utf8).write(to: vault.appendingPathComponent(path))
@@ -59,20 +53,9 @@ final class UiSidebarPaletteFixTests: XCTestCase {
     }
 
     private func openedWorkspace(_ vault: URL) async throws -> WorkspaceModel {
-        let workspace = WorkspaceModel()
+        let workspace = device.makeWorkspace()
         try await workspace.openFolderAsVault(vault)
         return workspace
-    }
-
-    private func waitUntil(timeoutSeconds: Double = 20, _ condition: () -> Bool) async throws {
-        let deadline = Date.now.addingTimeInterval(timeoutSeconds)
-        while !condition() {
-            guard Date.now < deadline else {
-                XCTFail("The condition did not become true in time.")
-                return
-            }
-            try await Task.sleep(for: .milliseconds(1))
-        }
     }
 
     private func fileText(_ path: String, in vault: URL) -> String? {
@@ -190,4 +173,3 @@ final class UiSidebarPaletteFixTests: XCTestCase {
         XCTAssertTrue(workspace.document(for: firstTabID).pdfSession === firstSession)
     }
 }
-

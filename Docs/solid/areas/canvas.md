@@ -547,3 +547,28 @@ Ordering rules: `load` cancels the previous run before replacing the simulator (
 | Unit tests with no test for: `GraphCanvasModel`, `NotesMapView` behaviour (only a benchmark, [PerformanceBenchmarkTests.swift:618](../../../Tests/GraphiteUITests/PerformanceBenchmarkTests.swift#L618)), `CanvasPDFPageRenderer`, card content views | by grep over `Tests/**` and `App/Tests/**` |
 
 Correction to the test-count row above: `CanvasGeometryTests` has 15 test functions (by `grep "func test"`, lines 16–224 of [CanvasGeometryTests.swift](../../../Tests/GraphiteCoreTests/CanvasGeometryTests.swift)), not 14.
+
+## 9. Since the snapshot
+
+Delta audit of 2026-10-19 at `fff794b` (main), against `FR-01` to `FR-108`. Commits: `6cb0377` (canvas Undo while typing), `5fba6cd` (Mac card scrolling), `0c074d9` (autosave on the injected clock). Invariants touched: C-18.
+
+### New findings
+
+#### CC-CANVAS-10 `CanvasUndoManager` hooks history through a settable closure slot and lives in the session's file
+- **Severity:** Low
+- **Rule:** `FR-43`, `FR-77`
+- **Evidence:** `var beforeHistoryStep: (() -> Void)?` on an `UndoManager` subclass ([CanvasSession.swift:514-526](../../../Sources/GraphiteUI/CanvasSession.swift#L514-L526)), assigned after construction ([:165](../../../Sources/GraphiteUI/CanvasSession.swift#L165)), at the end of `CanvasSession.swift`. Introduced in `6cb0377`.
+- **Why it matters:** any holder of the undo manager can reassign or clear the slot; when it is nil, Undo silently brings back `BUG-CANVAS-01`.
+- **Fix direction:** an initializer `let` or a weak owner; its own file.
+
+#### CC-CANVAS-11 Card scrolling picks its platform fact through a default argument, and its comment excludes the iPad trackpad
+- **Severity:** Low
+- **Rule:** `FR-47`, `FR-80`, `FR-76`
+- **Evidence:** `isEnabled(isFocused:isWriting:hasPointerScrolling: Bool = platformHasPointerScrolling)` ([CanvasCardViews.swift:64](../../../Sources/GraphiteUI/CanvasCardViews.swift#L64)), with both production callers on the default ([:113](../../../Sources/GraphiteUI/CanvasCardViews.swift#L113), [:129](../../../Sources/GraphiteUI/CanvasCardViews.swift#L129)); the doc speaks of "a pointer with a scroll wheel or trackpad" but the value is `#if os(macOS)` only ([:51-58](../../../Sources/GraphiteUI/CanvasCardViews.swift#L51-L58)), so an iPad with a trackpad counts as touch. Line 113 is 212 characters. Introduced in `5fba6cd`.
+- **Fix direction:** the board passes the fact once; reword the comment or detect an attached pointer on iPadOS.
+
+### State changes of earlier findings
+- `SRP-CANVAS-01`: **Worse by one**: the session adds `clock` and has 35 stored properties (the dependency itself is the `DIP-CANVAS-04` fix).
+
+### Patterns to keep
+- Canvas autosave sleeps on an injected `ApplicationClock` with no default ([CanvasSession.swift:160-161](../../../Sources/GraphiteUI/CanvasSession.swift#L160-L161)), and the card-scrolling rule is a pure, tested function ([CanvasCardViews.swift:49-67](../../../Sources/GraphiteUI/CanvasCardViews.swift#L49-L67)).

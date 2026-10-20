@@ -116,6 +116,17 @@ public struct BaseRecordPrefilter: Hashable, Sendable {
             case "hasProperty":
                 return .hasAnyProperty([values[0].displayText])
             case "hasLink":
+                // `file("Name")` resolves a written name from each row's own folder, while the
+                // constant above resolved it from the vault root. The root's file is only one
+                // of the files the name can mean, so the index keeps links to any of them.
+                if case .functionCall("file", let fileArguments) = arguments[0], fileArguments.count == 1,
+                   let writtenName = constantValue(fileArguments[0], evaluator: evaluator) {
+                    switch writtenName {
+                    case .string(let text): return .linksTo(.target(BaseLink.parse(text)?.pathPart ?? text))
+                    case .link(let link) where !link.isExternal: return .linksTo(.target(link.pathPart))
+                    default: return nil
+                    }
+                }
                 switch values[0] {
                 case .file(let path): return .linksTo(.path(path))
                 case .link(let link) where !link.isExternal: return .linksTo(.target(link.pathPart))

@@ -66,6 +66,8 @@ enum ReadingSourceAlignment {
 
 extension EnvironmentValues {
     @Entry var readingSourceTokensByBlock: [String: [ReadAloudSourceToken]] = [:]
+    /// The keys the reading view folds headings and remembers callouts by (`ReadingFoldKeys`).
+    @Entry var readingFoldKeys = ReadingFoldKeys()
     @Entry var readingActiveSourceRange: NSRange? = nil
     @Entry var readingFollowsSource = false
     /// The reading view's word read, one cell per text (`ReadingWordCells`); nil elsewhere.

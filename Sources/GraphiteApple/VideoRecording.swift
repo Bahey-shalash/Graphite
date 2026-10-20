@@ -140,40 +140,30 @@ final class VideoRecording: @unchecked Sendable {
         }
     }
 
-    /// Shows frames in a preview renderer, on `queue`. From macOS 27 and iOS 27 the frames go
-    /// through the receiver of a render synchronizer. Its clock stays stopped, as each frame is
-    /// marked to show at once.
+    /// Shows frames in a preview renderer, on `queue`. The frames go through the receiver of a
+    /// render synchronizer. Its clock stays stopped, as each frame is marked to show at once.
     private struct PreviewOutput {
         /// Holds the renderer for as long as the output lives; adding a renderer that one
         /// synchronizer still holds to another ends the app.
-        let synchronizer: AVSampleBufferRenderSynchronizer?
+        let synchronizer: AVSampleBufferRenderSynchronizer
         let show: (CMSampleBuffer) -> Void
     }
 
     private static func makePreviewOutput(showingIn renderer: AVSampleBufferVideoRenderer) -> PreviewOutput {
-        if #available(iOS 27, *) {
-            let synchronizer = AVSampleBufferRenderSynchronizer()
-            let receiver = synchronizer.sampleBufferReceiver(adding: renderer)
-            return PreviewOutput(synchronizer: synchronizer) { frame in
-                // The frame is a copy nothing else holds, so handing it over unchecked is safe.
-                nonisolated(unsafe) let handedOverFrame = frame
-                switch receiver.enqueueImmediately(CMReadySampleBuffer(unsafeBuffer: handedOverFrame)) {
-                case .enqueued, .enqueuedWithDecodeFailures, .cancelledDueToFlush:
-                    break
-                // A receiver that lost its decoder, as after the app was off screen, starts
-                // again with the next frame.
-                case .cancelledDueToFlushRequiredToResume, .cancelledDueToError:
-                    receiver.flush()
-                @unknown default:
-                    receiver.flush()
-                }
-            }
-        } else {
-            return PreviewOutput(synchronizer: nil) { frame in
-                // A renderer that lost its decoder, as after the app was off screen, starts again.
-                if renderer.status == .failed || renderer.requiresFlushToResumeDecoding { renderer.flush() }
-                guard renderer.isReadyForMoreMediaData else { return }
-                renderer.enqueue(frame)
+        let synchronizer = AVSampleBufferRenderSynchronizer()
+        let receiver = synchronizer.sampleBufferReceiver(adding: renderer)
+        return PreviewOutput(synchronizer: synchronizer) { frame in
+            // The frame is a copy nothing else holds, so handing it over unchecked is safe.
+            nonisolated(unsafe) let handedOverFrame = frame
+            switch receiver.enqueueImmediately(CMReadySampleBuffer(unsafeBuffer: handedOverFrame)) {
+            case .enqueued, .enqueuedWithDecodeFailures, .cancelledDueToFlush:
+                break
+            // A receiver that lost its decoder, as after the app was off screen, starts
+            // again with the next frame.
+            case .cancelledDueToFlushRequiredToResume, .cancelledDueToError:
+                receiver.flush()
+            @unknown default:
+                receiver.flush()
             }
         }
     }

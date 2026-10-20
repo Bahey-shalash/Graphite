@@ -4,11 +4,15 @@ import CoreText
 import PDFKit
 import GraphiteCore
 @testable import GraphiteApple
+#if canImport(GraphiteTestSupport)
+import GraphiteTestSupport
+#endif
 
 final class PDFReadAloudScanTests: XCTestCase {
     private static let lines = ["Repeat this word: alpha.", "Repeat this word: beta.", "The measurement is 3.25 meters."]
 
     func testImageOnlyPDFProducesRecognizedWordsWithPageCoordinates() async throws {
+        try await TextRecognitionCapability.requireOnDeviceTextRecognition()
         let bytes = try Self.fixture()
         let nativePage = try XCTUnwrap(PDFDocument(data: bytes)?.page(at: 0))
         XCTAssertTrue((nativePage.string ?? "").isEmpty)
@@ -40,6 +44,7 @@ final class PDFReadAloudScanTests: XCTestCase {
     }
 
     func testBaselineTextRecognizerHasTheSameWordsAndCoordinateContract() async throws {
+        try await TextRecognitionCapability.requireOnDeviceTextRecognition()
         let snapshot = try await PDFReadAloudExtraction().page(in: Self.fixture(), readingOrder: .file)
         XCTAssertFalse(snapshot.usesLayout)
         XCTAssertEqual(snapshot.text, Self.lines.joined(separator: "\n"))
@@ -48,6 +53,7 @@ final class PDFReadAloudScanTests: XCTestCase {
     }
 
     func testCropAndEveryQuarterTurnKeepRecognitionInOriginalPageCoordinates() async throws {
+        try await TextRecognitionCapability.requireOnDeviceTextRecognition()
         let extraction = PDFReadAloudExtraction()
         for rotation in [0, 90, 180, 270] {
             let snapshot = try await extraction.page(in: Self.fixture(rotation: rotation, isCropped: true), readingOrder: .layout)
@@ -62,6 +68,7 @@ final class PDFReadAloudScanTests: XCTestCase {
     }
 
     func testCorrectionsKeepTheOriginalWordRegionAndRebuildLaterOffsets() async throws {
+        try await TextRecognitionCapability.requireOnDeviceTextRecognition()
         let snapshot = try await PDFReadAloudExtraction().page(in: Self.fixture(), readingOrder: .layout)
         let corrected = try snapshot.correctingRecognizedWords([0: "Repeat slowly", 7: "gamma."])
         XCTAssertEqual(corrected.text, "Repeat slowly this word: alpha.\nRepeat this word: gamma.\nThe measurement is 3.25 meters.")

@@ -157,6 +157,14 @@ public enum NotePreviewDocument {
                 lineIndex += 1
                 continue
             }
+            // A setext heading is its text line and its underline, which the block swallows.
+            if let setextLevel = setextHeadingLevel(ofLine: line, nextLine: lineIndex + 1 < lines.count ? lines[lineIndex + 1] : nil) {
+                flushMarkdown()
+                let text = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                append(.heading(level: setextLevel, text: text, anchor: anchor(forHeading: text)), startingAtLine: lineIndex)
+                lineIndex += 2
+                continue
+            }
             if calloutDepth < maximumCalloutNestingDepth, let callout = calloutHeader(in: line) {
                 flushMarkdown()
                 var bodyLines: [String] = []
@@ -235,6 +243,15 @@ public enum NotePreviewDocument {
         headingLines(in: body.components(separatedBy: "\n"), of: body).map { heading in (heading.level, heading.text, heading.anchor) }
     }
 
+    /// Where the line of the `occurrence`th heading (from zero) with `anchor` starts in `body`
+    /// (frontmatter already removed), counting headings as the outline lists them.
+    public static func headingLineLocation(ofHeadingWithAnchor anchor: String, occurrence: Int = 0, in body: String) -> Int? {
+        let lines = body.components(separatedBy: "\n")
+        let matchingHeadings = headingLines(in: lines, of: body).filter { heading in heading.anchor == anchor }
+        guard matchingHeadings.indices.contains(occurrence) else { return nil }
+        return lines[..<matchingHeadings[occurrence].lineIndex].reduce(0) { length, line in length + line.utf16.count + 1 }
+    }
+
     private struct HeadingLine {
         let lineIndex: Int
         let level: Int
@@ -269,8 +286,13 @@ public enum NotePreviewDocument {
                     visibleLine = uncommentedLine as String
                 }
             }
-            guard !fenceTracker.isCodeLine(untrimmedLine: line), let heading = heading(in: visibleLine) else { continue }
-            headings.append(HeadingLine(lineIndex: lineIndex, level: heading.level, text: heading.text, anchor: anchor(forHeading: heading.text)))
+            guard !fenceTracker.isCodeLine(untrimmedLine: line) else { continue }
+            if let heading = heading(in: visibleLine) {
+                headings.append(HeadingLine(lineIndex: lineIndex, level: heading.level, text: heading.text, anchor: anchor(forHeading: heading.text)))
+            } else if let setextLevel = setextHeadingLevel(ofLine: visibleLine, nextLine: lineIndex + 1 < lines.count ? lines[lineIndex + 1] : nil) {
+                let text = visibleLine.trimmingCharacters(in: .whitespacesAndNewlines)
+                headings.append(HeadingLine(lineIndex: lineIndex, level: setextLevel, text: text, anchor: anchor(forHeading: text)))
+            }
         }
         return headings
     }
@@ -290,6 +312,11 @@ public enum NotePreviewDocument {
             searchRange = (position + 1)..<sectionEnd
         }
         return matchedPosition
+    }
+
+    /// The level of the setext heading `line` is the text of, when `nextLine` underlines it.
+    private static func setextHeadingLevel(ofLine line: String, nextLine: String?) -> Int? {
+        MarkdownStyleScanner.setextHeadingLevel(ofLine: line, nextLine: nextLine)
     }
 
     private static func heading(in line: String) -> (level: Int, text: String)? {
@@ -790,6 +817,8 @@ extension NotePreviewDocument {
         let lines = markdown.components(separatedBy: "\n")
         guard lines.count > 1, lines.count == located.lineStartOffsets.count,
               referenceDefinitionPattern?.firstMatch(in: markdown, range: NSRange(location: 0, length: (markdown as NSString).length)) == nil else { return [located] }
+        // swift-markdown overflows its stack on a run nested past the limit, so such a run stays whole.
+        guard !MarkdownNesting.exceedsSafeDepth(markdown) else { return [located] }
         var sections: [LocatedBlock] = []
         for child in Document(parsing: markdown).children {
             guard let range = child.range else { return [located] }

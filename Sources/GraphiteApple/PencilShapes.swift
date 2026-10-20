@@ -16,6 +16,17 @@ public enum PencilShapes {
         return PKDrawing(strokes: strokes)
     }
 
+    /// The drawing with its newest stroke replaced by `shape`, a shape already decided (the
+    /// one shown while the Pencil was held), under the same conditions as above.
+    public static func replacingNewStroke(in drawing: PKDrawing, previousDrawing: PKDrawing, with shape: RecognizedShape) -> PKDrawing? {
+        guard let change = PencilDrawingChange(from: previousDrawing, to: drawing), let newStrokeIndex = change.appendedStrokeIndex else { return nil }
+        var strokes = drawing.strokes
+        guard newStrokeIndex < strokes.count, let footprint = StrokeFootprint(averaging: strokes[newStrokeIndex]) else { return nil }
+        let drawnStroke = strokes[newStrokeIndex]
+        strokes[newStrokeIndex] = shapeStroke(shape, ink: drawnStroke.ink, footprint: footprint, creationDate: drawnStroke.path.creationDate)
+        return PKDrawing(strokes: strokes)
+    }
+
     /// The stroke redrawn as its recognized shape, or nil when it is not a shape.
     public static func shapeStroke(for stroke: PKStroke) -> PKStroke? {
         guard let footprint = StrokeFootprint(averaging: stroke) else { return nil }

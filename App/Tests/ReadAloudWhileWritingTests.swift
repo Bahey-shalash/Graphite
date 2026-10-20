@@ -19,8 +19,8 @@ final class ReadAloudWhileWritingTests: XCTestCase {
     private var savedSpeed = 1.0
 
     override func tearDown() async throws {
-        workspace?.readAloud.clear()
-        workspace?.readAloud.session.setSpeed(savedSpeed)
+        workspace?.activeReadAloud.clear()
+        workspace?.activeReadAloud.session.setSpeed(savedSpeed)
         window?.isHidden = true
         window?.rootViewController = nil
         window = nil
@@ -39,7 +39,7 @@ final class ReadAloudWhileWritingTests: XCTestCase {
     /// without ink, and the highlight keeps moving on.
     func testInkAndSavesWhileReadingAPDFRangeChangeNothingRead() async throws {
         let (workspace, pdf) = try await openPDF()
-        let reader = workspace.readAloud
+        let reader = workspace.activeReadAloud
         let start = PDFReadAloudEndpoint(pageIndex: 0, offset: 0, revision: pdf.readingTextVersion)
         let endText = try XCTUnwrap(pdf.document.page(at: 1)?.string) as NSString
         let end = PDFReadAloudEndpoint(pageIndex: 1, offset: endText.range(of: "time").location + 4, revision: pdf.readingTextVersion)
@@ -112,7 +112,7 @@ final class ReadAloudWhileWritingTests: XCTestCase {
         let pdf = try await PDFSession.open(location)
         let reader = ReadAloudController()
         reader.readPDF(pdf, firstPageIndex: 0, lastPageIndex: 0)
-        try await waitUntil(seconds: 30) { !reader.isPreparing }
+        try await waitUntil(timeoutSeconds: 30) { !reader.isPreparing }
         let recognized = try XCTUnwrap(reader.recognizedPDFPage?.text, String(describing: reader.errorMessage))
         XCTAssertTrue(recognized.contains("Memory") && recognized.contains("Refresh"), recognized)
         XCTAssertFalse(recognized.uppercased().contains("BAI"), "The handwriting was read: \(recognized)")
@@ -128,9 +128,9 @@ final class ReadAloudWhileWritingTests: XCTestCase {
         await workspace.open(try VaultPath("Note.md"))
         let session = try XCTUnwrap(workspace.markdownSession)
         _ = try host(workspace)
-        let reader = workspace.readAloud
+        let reader = workspace.activeReadAloud
         reader.readMarkdown(session.text, path: session.path)
-        try await waitUntil(seconds: 15) { reader.session.document != nil && !reader.isPreparing }
+        try await waitUntil(timeoutSeconds: 15) { reader.session.document != nil && !reader.isPreparing }
         let document = try XCTUnwrap(reader.session.document)
         let index = try XCTUnwrap(document.passages.firstIndex { passage in passage.text.hasPrefix("Sentence 5") })
         reader.session.move(to: index)
@@ -140,11 +140,11 @@ final class ReadAloudWhileWritingTests: XCTestCase {
 
         // An edit above: a paragraph added at the top.
         session.text = "An added paragraph at the top.\n\n" + session.text
-        try await waitUntil(seconds: 5) { !reader.isReanchoringNote && reader.session.state == .speaking }
+        try await waitUntil(timeoutSeconds: 5) { !reader.isReanchoringNote && reader.session.state == .speaking }
         XCTAssertNil(reader.errorMessage)
         XCTAssertEqual(reader.session.currentPassage?.text, passageBefore, "Reading went on in the same passage.")
         // The highlight comes back with the next word spoken.
-        try await waitUntil(seconds: 5) { reader.highlight(in: session.path) != nil }
+        try await waitUntil(timeoutSeconds: 5) { reader.highlight(in: session.path) != nil }
         let highlighted = try XCTUnwrap(reader.highlight(in: session.path))
         XCTAssertTrue((session.text as NSString).substring(with: highlighted).count > 0)
         let passageSource = (session.text as NSString).range(of: "Sentence 5 begins here.")
@@ -153,14 +153,14 @@ final class ReadAloudWhileWritingTests: XCTestCase {
 
         // An edit at the other end of the sentence read keeps its start.
         session.text = session.text.replacingOccurrences(of: "part 5 of the memory in some detail.", with: "part 5 of the memory briefly.")
-        try await waitUntil(seconds: 5) { !reader.isReanchoringNote }
+        try await waitUntil(timeoutSeconds: 5) { !reader.isReanchoringNote }
         XCTAssertNil(reader.errorMessage)
         XCTAssertTrue(reader.session.currentPassage?.text.hasPrefix("Sentence 5 begins here.") ?? false,
                       String(describing: reader.session.currentPassage?.text))
 
         // The passage removed altogether: reading pauses and says why.
         session.text = session.text.replacingOccurrences(of: "Sentence 5 begins here. It explains part 5 of the memory briefly.", with: "")
-        try await waitUntil(seconds: 5) { !reader.isReanchoringNote }
+        try await waitUntil(timeoutSeconds: 5) { !reader.isReanchoringNote }
         XCTAssertNotNil(reader.errorMessage)
         XCTAssertNotEqual(reader.session.state, .speaking)
     }
@@ -258,14 +258,16 @@ final class ReadAloudWhileWritingTests: XCTestCase {
         let folder = try folder ?? makeDirectory()
         for (name, text) in notes { try Data(text.utf8).write(to: folder.appendingPathComponent(name)) }
         let workspace = WorkspaceModel()
+        // Read Aloud is a core plugin that is off by default; these tests read.
+        workspace.setCorePluginEnabled(.readAloud, true)
         workspace.folderAccess = FolderAccess(root: folder)
         workspace.store = VaultStore(root: folder)
         let index = try VaultIndex(databaseURL: folder.appendingPathComponent("index.sqlite"))
         let names = try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { name in name.hasSuffix(".md") || name.hasSuffix(".pdf") }
         try await index.refresh(paths: names.map { name in try VaultPath(name) }, root: folder)
         workspace.index = index
-        savedSpeed = workspace.readAloud.session.speed
-        workspace.readAloud.session.setSpeed(2)
+        savedSpeed = workspace.activeReadAloud.session.speed
+        workspace.activeReadAloud.session.setSpeed(2)
         self.workspace = workspace
         return workspace
     }
@@ -283,15 +285,18 @@ final class ReadAloudWhileWritingTests: XCTestCase {
         return controller
     }
 
-    private func waitUntil(seconds: Double = 10, _ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(seconds)
-        while !condition() {
-            guard Date() < deadline else {
-                XCTFail("The condition did not become true within \(seconds) seconds")
-                throw CancellationError()
-            }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-    }
 }
 #endif
+
+private extension WorkspaceModel {
+    /// The reader of a workspace whose Read Aloud plugin these tests turned on.
+    var activeReadAloud: ReadAloudController {
+        guard let readAloud else { preconditionFailure("The Read Aloud core plugin was turned on when the workspace was made.") }
+        return readAloud
+    }
+
+    var activeReadAloudNavigator: ReadAloudNavigator {
+        guard let readAloudNavigator else { preconditionFailure("The Read Aloud core plugin was turned on when the workspace was made.") }
+        return readAloudNavigator
+    }
+}

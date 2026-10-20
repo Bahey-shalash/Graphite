@@ -103,10 +103,7 @@ class HistoryCanvasView: PKCanvasView {
     static func tool(_ tool: PKTool, scaledBy scale: CGFloat) -> PKTool {
         guard scale > 0, scale != 1 else { return tool }
         if let inkingTool = tool as? PKInkingTool {
-            if #available(iOS 26.0, *) {
-                return PKInkingTool(inkingTool.inkType, color: inkingTool.color, width: inkingTool.width * scale, azimuth: inkingTool.azimuth)
-            }
-            return PKInkingTool(inkingTool.inkType, color: inkingTool.color, width: inkingTool.width * scale)
+            return PKInkingTool(inkingTool.inkType, color: inkingTool.color, width: inkingTool.width * scale, azimuth: inkingTool.azimuth)
         }
         if let eraserTool = tool as? PKEraserTool {
             return PKEraserTool(eraserTool.eraserType, width: eraserTool.width * scale)
@@ -170,8 +167,7 @@ class HistoryCanvasView: PKCanvasView {
     }
 
     private static func selectedTool(of toolPicker: PKToolPicker) -> PKTool? {
-        if #available(iOS 26.0, *) { return toolPicker.selectedToolItem.tool }
-        return (toolPicker as any SelectedToolSetting).selectedTool
+        toolPicker.selectedToolItem.tool
     }
 
     /// Gives the canvas its tool: the fixed tool bar's when there is one, else the floating
@@ -360,9 +356,10 @@ class HistoryCanvasView: PKCanvasView {
     }
 
     /// What is known about the stroke the canvas is about to report.
-    private enum ArrivingStroke {
-        /// It was held at its end while its shape showed over it, and becomes that shape.
-        case awaitsItsShape
+    private enum ArrivingStroke: Equatable {
+        /// It was held at its end while its shape showed over it, and becomes that very shape,
+        /// given in the drawing's coordinates.
+        case awaitsItsShape(RecognizedShape)
         /// The canvas made it itself, as a shape or with Graphite's lasso, and it stays as it is.
         case isMadeByCanvas
     }
@@ -393,7 +390,9 @@ class HistoryCanvasView: PKCanvasView {
         arrivingStrokeExpiry?.cancel()
         arrivingStrokeExpiry = nil
         if expectation == .isMadeByCanvas { return reportedDrawing }
-        let strokeWasHeld = expectation == .awaitsItsShape
+        var shapeShownAtHold: RecognizedShape?
+        if case .awaitsItsShape(let shape) = expectation { shapeShownAtHold = shape }
+        let strokeWasHeld = shapeShownAtHold != nil
         if strokeWasHeld { removeShapePreview() }
         let evenDrawing = drawingWithEvenHighlighterStroke(reportedDrawing)
         let drawnDrawing = evenDrawing ?? reportedDrawing
@@ -402,8 +401,16 @@ class HistoryCanvasView: PKCanvasView {
         if drawnDrawing.strokes.count == recordedDrawing.strokes.count + 1, let newStroke = drawnDrawing.strokes.last {
             rememberFootprint(of: newStroke)
         }
-        guard shapeToolIsOn || strokeWasHeld,
-              let shapedDrawing = PencilShapes.replacingNewStroke(in: drawnDrawing, previousDrawing: recordedDrawing) else {
+        // A held stroke becomes the shape that was shown, not whatever a second recognition makes of it.
+        let shapedDrawingOrNil: PKDrawing?
+        if let shapeShownAtHold {
+            shapedDrawingOrNil = PencilShapes.replacingNewStroke(in: drawnDrawing, previousDrawing: recordedDrawing, with: shapeShownAtHold)
+        } else if shapeToolIsOn {
+            shapedDrawingOrNil = PencilShapes.replacingNewStroke(in: drawnDrawing, previousDrawing: recordedDrawing)
+        } else {
+            shapedDrawingOrNil = nil
+        }
+        guard let shapedDrawing = shapedDrawingOrNil else {
             if let evenDrawing { showReplacingStrokeJustDrawn(evenDrawing) }
             return drawnDrawing
         }
@@ -492,7 +499,8 @@ class HistoryCanvasView: PKCanvasView {
     /// the lift. That stroke needs the tool's footprint: with a tool that has not drawn a
     /// stroke yet, moving on goes back to drawing the stroke.
     private enum HeldShape {
-        case overStroke(shape: RecognizedShape, heldPoint: CGPoint)
+        /// `shape` is in the canvas's coordinates, as shown; `drawingShape` is the same shape in the drawing's.
+        case overStroke(shape: RecognizedShape, drawingShape: RecognizedShape, heldPoint: CGPoint)
         case dragged(shape: RecognizedShape, heldPoint: CGPoint, draggedPoint: CGPoint, ink: PKInk, footprint: StrokeFootprint)
     }
     private var heldShape: HeldShape?
@@ -524,8 +532,10 @@ class HistoryCanvasView: PKCanvasView {
     func strokeTouchDidRest(afterStrokeThrough strokePoints: [CGPoint]) {
         // A shape being dragged stays: the stroke it came from is gone.
         if case .dragged = heldShape { return }
-        guard let inkingTool = tool as? PKInkingTool, let heldPoint = strokePoints.last, let shape = ShapeRecognizer.recognize(strokePoints) else { return }
-        heldShape = .overStroke(shape: shape, heldPoint: heldPoint)
+        guard zoomScale > 0, let inkingTool = tool as? PKInkingTool, let heldPoint = strokePoints.last,
+              let drawingShape = ShapeRecognizer.recognizeHeldStroke(canvasPoints: strokePoints, zoomScale: Double(zoomScale)) else { return }
+        let shape = drawingShape.transformed(scale: Double(zoomScale), rotation: 0, about: .zero)
+        heldShape = .overStroke(shape: shape, drawingShape: drawingShape, heldPoint: heldPoint)
         // The shape shows instead of the highlighter's band, which comes back if the stroke goes on.
         removeEvenStrokeLayer()
         showShapePreview(shape, color: shownColor(of: inkingTool.ink), width: Self.footprint(of: inkingTool)?.size.width ?? inkingTool.width)
@@ -536,7 +546,7 @@ class HistoryCanvasView: PKCanvasView {
     /// The touch drawing a stroke moved to a point in the canvas's own coordinates.
     func strokeTouchDidMove(to point: CGPoint, leftRestingPlace: Bool) {
         switch heldShape {
-        case .overStroke(let shape, let heldPoint):
+        case .overStroke(let shape, _, let heldPoint):
             // A resting hand trembles; the shape follows only once the hand has left.
             guard leftRestingPlace else { return }
             guard let inkingTool = tool as? PKInkingTool, let footprint = Self.footprint(of: inkingTool) else {
@@ -564,9 +574,9 @@ class HistoryCanvasView: PKCanvasView {
             resumeDrawing()
         }
         switch heldShape {
-        case .overStroke:
+        case .overStroke(_, let drawingShape, _):
             // The shape stays until PencilKit reports the stroke, which then becomes it.
-            if wasCancelled { removeShapePreview() } else { expect(.awaitsItsShape) }
+            if wasCancelled { removeShapePreview() } else { expect(.awaitsItsShape(drawingShape)) }
         case .dragged(let shape, let heldPoint, let draggedPoint, let ink, let footprint):
             removeShapePreview()
             guard !wasCancelled, zoomScale > 0 else { return }

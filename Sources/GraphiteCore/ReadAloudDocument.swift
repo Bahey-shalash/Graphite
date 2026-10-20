@@ -712,6 +712,8 @@ public struct ReadAloudDocument: Equatable, Sendable {
 
 public enum ReadAloudError: LocalizedError {
     case emptyRange, noReadableText, passageTooLarge, excessiveNesting, partialEquation, partialFormattedText, sourceMappingUnavailable
+    /// The device's text recognition failed on a page that has no text of its own. It is not a blank page.
+    case textRecognitionUnavailable
 
     public var errorDescription: String? {
         switch self {
@@ -722,6 +724,7 @@ public enum ReadAloudError: LocalizedError {
         case .partialEquation: "Select the complete equation so it can be read accurately."
         case .partialFormattedText: "This selection cuts through escaped or formatted text. Select the complete passage."
         case .sourceMappingUnavailable: "The reader could not safely match this passage to its source. Choose another passage or use the transcript."
+        case .textRecognitionUnavailable: "This device could not recognize the text on this scanned page, so nothing was read. Try again, or choose a page with selectable text."
         }
     }
 }

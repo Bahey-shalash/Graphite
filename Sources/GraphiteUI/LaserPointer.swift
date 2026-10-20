@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import UIKit
 import UIKit.UIGestureRecognizerSubclass
+import GraphiteCore
 
 /// The laser pointer on one canvas: for pointing at a page while presenting or sharing the
 /// screen. A glowing red dot follows the Pencil or finger and is gone when it lifts
@@ -81,7 +82,7 @@ final class LaserPointerController: NSObject, UIGestureRecognizerDelegate {
         guard let overlay, let window = canvas.window, touchRecognizer.state == .possible || touchRecognizer.state == .failed else { return }
         switch recognizer.state {
         case .began, .changed:
-            if #available(iOS 16.1, *), recognizer.zOffset > 0 { overlay.showDot(at: recognizer.location(in: window), isHovering: true) }
+            if recognizer.zOffset > 0 { overlay.showDot(at: recognizer.location(in: window), isHovering: true) }
         default:
             overlay.hideDot()
         }
@@ -210,7 +211,9 @@ final class LaserPointerOverlayView: UIView {
         }
     }
     private(set) var isDrawingLine = false
-    private var idleFadeTimer: Timer?
+    private var idleFadeTask: Task<Void, Never>?
+    /// Times the wait between the last lift and the fade; a test replaces it to end the wait at once.
+    var idleClock: any ApplicationClock = LiveApplicationClock()
     /// True from the start of the fade until the lines are gone or a new line brings them back.
     private(set) var isFading = false
 
@@ -301,15 +304,17 @@ final class LaserPointerOverlayView: UIView {
     func endTrail() {
         guard isDrawingLine else { return }
         isDrawingLine = false
-        idleFadeTimer?.invalidate()
-        idleFadeTimer = Timer.scheduledTimer(withTimeInterval: Self.idleDelay, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated { self?.fadeLines() }
+        idleFadeTask?.cancel()
+        let clock = idleClock
+        idleFadeTask = Task { @MainActor [weak self] in
+            do { try await clock.sleep(for: .seconds(Self.idleDelay)) } catch { return } // Cancelled by a new line: no fade.
+            self?.fadeLines()
         }
     }
 
     private func cancelFade() {
-        idleFadeTimer?.invalidate()
-        idleFadeTimer = nil
+        idleFadeTask?.cancel()
+        idleFadeTask = nil
         guard isFading else { return }
         isFading = false
         // Back to full strength at once, from wherever the fade had got to.
@@ -321,7 +326,7 @@ final class LaserPointerOverlayView: UIView {
     }
 
     private func fadeLines() {
-        idleFadeTimer = nil
+        idleFadeTask = nil
         guard !lines.isEmpty, !isDrawingLine else { return }
         isFading = true
         // A change of opacity only, which Reduce Motion leaves as it is.

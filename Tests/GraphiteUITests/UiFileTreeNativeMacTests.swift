@@ -6,20 +6,18 @@ import GraphiteApple
 import GraphiteCore
 import GraphiteIndex
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// The Mac's file tree is AppKit's outline view (`MacFileTree`): a vault's root lists at once
 /// however many files it holds, folders fold as in Obsidian, rows drag into notes and folders,
 /// and each row has the sidebar's menu.
 @MainActor
 final class UiFileTreeNativeMacTests: XCTestCase {
-    private var vaultDirectories: [URL] = []
     private var windows: [NSWindow] = []
 
     override func tearDown() async throws {
         for window in windows { window.close() }
         windows = []
-        for vaultDirectory in vaultDirectories { try? FileManager.default.removeItem(at: vaultDirectory) }
-        vaultDirectories = []
         try await super.tearDown()
     }
 
@@ -28,16 +26,18 @@ final class UiFileTreeNativeMacTests: XCTestCase {
     /// stayed busy 7 to 10 s after the vault opened.
     func testTwentyFiveThousandRootFilesShowAtOnce() async throws {
         let workspace = try makeWorkspace(files: [])
-        let started = Date.now
         workspace.rootEntries = try (0..<25_000).map { fileIndex in
             VaultEntry(path: try VaultPath(String(format: "Note %05d.md", fileIndex)), isDirectory: false, size: 10, modified: .now)
         }
         let outlineView = try await showSidebar(of: workspace)
         try await waitUntil { outlineView.numberOfRows == 25_000 }
-        let elapsedSeconds = Date.now.timeIntervalSince(started)
+        outlineView.layoutSubtreeIfNeeded()
         XCTAssertTrue(outlineView is FileTreeOutlineView, "The Mac's tree is the native outline view")
-        XCTAssertLessThan(elapsedSeconds, 1.5, "Listing 25,000 rows took \(elapsedSeconds) s")
-        print("Listing 25,000 root files took \(elapsedSeconds) s")
+        // Counted, not timed: the outline view makes a view for each row in sight, a few dozen of a 700-point sidebar, and none
+        // for the other thousands.
+        let rowViewCount = outlineView.subviews.filter { subview in subview is NSTableRowView }.count
+        XCTAssertGreaterThan(rowViewCount, 0)
+        XCTAssertLessThan(rowViewCount, 100, "\(rowViewCount) row views for 25,000 files: only the rows shown have one.")
     }
 
     /// A note's name reads first; its extension follows, muted, where Settings shows extensions.
@@ -142,9 +142,7 @@ final class UiFileTreeNativeMacTests: XCTestCase {
     // MARK: Helpers
 
     private func makeWorkspace(files: [String]) throws -> WorkspaceModel {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("NativeTreeVault-\(UUID().uuidString)", isDirectory: true).resolvingSymlinksInPath()
-        vaultDirectories.append(vault)
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        let vault = try TemporaryVault.make(prefix: "NativeTreeVault", for: self).root
         for file in files {
             let location = vault.appendingPathComponent(file)
             try FileManager.default.createDirectory(at: location.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -161,7 +159,7 @@ final class UiFileTreeNativeMacTests: XCTestCase {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: NavigationStack { sidebar })
-        window.orderFront(nil)
+        window.showInvisibly()
         windows.append(window)
         var outlineView: NSOutlineView?
         try await waitUntil {
@@ -178,17 +176,6 @@ final class UiFileTreeNativeMacTests: XCTestCase {
             if let outlineView = firstOutlineView(in: subview) { return outlineView }
         }
         return nil
-    }
-
-    private func waitUntil(timeoutSeconds: TimeInterval = 20, _ condition: () -> Bool) async throws {
-        let deadline = Date.now.addingTimeInterval(timeoutSeconds)
-        while !condition() {
-            guard Date.now < deadline else {
-                XCTFail("Timed out after \(timeoutSeconds) s")
-                return
-            }
-            try await Task.sleep(for: .milliseconds(20))
-        }
     }
 }
 

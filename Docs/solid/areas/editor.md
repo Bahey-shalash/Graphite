@@ -641,3 +641,55 @@ No new protocol is proposed without two implementations or a test need: `TextVie
 - Timing: UIKit and SwiftUI require "after the current update" hops to avoid re-entrancy; the rule should allow them only through one owned scheduler primitive (CC-EDITOR-02).
 - Getters: private memoization caches written by getters are harmless; the rule should forbid getters that change ownership or observable state, and allow memoization explicitly (CC-EDITOR-08).
 - Stored-property limit: a UIKit delegate adapter can meet "≤ 15 stored properties" once collaborators own their state; the limit is the right pressure here (SRP-EDITOR-01).
+
+## 9. Since the snapshot
+
+Delta audit of 2026-10-19 at `fff794b` (main), against `FR-01` to `FR-108`. The largest change is the heading-jump pin (`6b80826`: `HeadingJumpPin` holds a jumped-to heading at the top while the blocks above it report their heights); `eee3ec7` gave the Mac editor the session requests the iPad editor served. Invariants touched: N-06, ED-11, P-02.
+
+### New findings
+
+#### CC-EDITOR-12 The heading pin lays out the note from its start inside the layout pass, for up to 10 seconds
+- **Severity:** Medium
+- **Rule:** `FR-104`, `FR-69`, `FR-08`
+- **Evidence:** `keepPinnedHeadingAtTop` runs at the end of every placement pass ([NativeMarkdownEditor.swift:1823](../../../Sources/GraphiteUI/NativeMarkdownEditor.swift#L1823)), which `didLayout` calls from `layoutSubviews` ([:670-677](../../../Sources/GraphiteUI/NativeMarkdownEditor.swift#L670-L677)). When the heading's fragment has lost its layout, it calls `ensureLayout` from the document's start through the heading ([:2299-2301](../../../Sources/GraphiteUI/NativeMarkdownEditor.swift#L2299-L2301)) and then `setContentOffset`. The hold lasts until every block above has reported its height plus 1.5 s, capped at `longestHoldSeconds = 10` ([HeadingJumpSettling.swift:13-16](../../../Sources/GraphiteUI/HeadingJumpSettling.swift#L13-L16)); each reported height restyles the block ([NativeMarkdownEditor.swift:1806](../../../Sources/GraphiteUI/NativeMarkdownEditor.swift#L1806)), which replaces fragments and can start the prefix layout again. Introduced in `6b80826`.
+- **Why it matters:** in a long note with several bases above the heading, layout passes during the jump can lay out every line above the heading on the main actor, a cost that grows with the note, in the frames the person watches.
+- **Fix direction:** schedule the corrective layout once per height report from the owner that receives the report, not from `layoutSubviews`; lay out from the first changed block, not the document's start; give the pin a budget under `FR-101`.
+
+#### SRP-EDITOR-06 The Mac editor copies the iPad editor's session-request handling instead of sharing it
+- **Severity:** Medium
+- **Rule:** `FR-06`, `FR-10`
+- **Evidence:** the Mac coordinator gained `goToReadingPlaceIfSwitched`, `presentFindIfRequested` and `reportPlace` ([NativeMarkdownEditor.swift:3509-3534](../../../Sources/GraphiteUI/NativeMarkdownEditor.swift#L3509-L3534), [:3575-3580](../../../Sources/GraphiteUI/NativeMarkdownEditor.swift#L3575-L3580)), which repeat the iPad versions guard for guard ([:1205-1225](../../../Sources/GraphiteUI/NativeMarkdownEditor.swift#L1205-L1225), [:1014-1019](../../../Sources/GraphiteUI/NativeMarkdownEditor.swift#L1014-L1019)): where to start after reading, the hop that takes the request after the update, and the `pendingJump == nil` place rule. Only the scroll and find calls differ. Introduced in `eee3ec7`.
+- **Why it matters:** three more pairs join the twelve of `CC-EDITOR-04`; every change to these rules is made twice, the drift that produced the `LSP-EDITOR-01` defects.
+- **Fix direction:** one shared type for the decisions (the `NoteEditorSessionDuties` of `LSP-EDITOR-01`); only the platform scroll and find calls stay inside `#if os`.
+
+#### CC-EDITOR-13 The Mac editor consumes session requests inside `updateNSView`
+- **Severity:** Medium
+- **Rule:** `FR-08`, `FR-12`
+- **Evidence:** `updateNSView` calls `serveSessionRequests` ([NativeMarkdownEditor.swift:2861](../../../Sources/GraphiteUI/NativeMarkdownEditor.swift#L2861)), which clears `pendingEditingLocation` through `takeEditingStartLocation()` ([MarkdownSession.swift:52-55](../../../Sources/GraphiteUI/MarkdownSession.swift#L52-L55)), scrolls the text view during the update ([NativeMarkdownEditor.swift:3510-3518](../../../Sources/GraphiteUI/NativeMarkdownEditor.swift#L3510-L3518)), and polls the observed `session.findRequest` ([MarkdownSession.swift:107](../../../Sources/GraphiteUI/MarkdownSession.swift#L107)), clearing it one run-loop turn later ([NativeMarkdownEditor.swift:3523-3533](../../../Sources/GraphiteUI/NativeMarkdownEditor.swift#L3523-L3533)). Introduced in `eee3ec7`.
+- **Why it matters:** an update pass writes session state and moves the view; a request is delivered only when an unrelated change triggers an update; clearing the observed field triggers another update.
+- **Fix direction:** the session delivers find and reading-return requests to a registered editor, or as a typed queue drained from one owned hook; nothing is polled in `updateNSView`.
+
+#### CC-EDITOR-14 `HeadingJumpPin.holds` is a predicate that writes state, and a Boolean remembers the previous pass
+- **Severity:** Low
+- **Rule:** `FR-08`, `FR-81`, `FR-11`
+- **Evidence:** `mutating func holds(atUptime:isBlockAboveAwaitingHeight:) -> Bool` updates `lastUnsettledAtUptime` and the private `wasBlockAboveAwaitingHeight` ([HeadingJumpSettling.swift:41-46](../../../Sources/GraphiteUI/HeadingJumpSettling.swift#L41-L46)); the caller writes the mutated copy back ([NativeMarkdownEditor.swift:2285-2290](../../../Sources/GraphiteUI/NativeMarkdownEditor.swift#L2285-L2290)). Introduced in `6b80826`.
+- **Why it matters:** the name reads as an assertion, yet two calls in one pass answer differently from one; the phases (waiting for heights, settling, released) hide in a Boolean and a timestamp.
+- **Fix direction:** a mutating `recordPass(atUptime:isBlockAboveAwaitingHeight:)` and a pure `holds(atUptime:)`, or one intent returning a `Phase` enum (`awaitingHeights`, `settling(since:)`, `released`).
+
+#### CC-EDITOR-15 `HeadingJumpSettling.swift` holds two unrelated concepts, and its new lines use literal tolerances
+- **Severity:** Low
+- **Rule:** `FR-77`, `FR-78`, `FR-76`
+- **Evidence:** `ViewportLayoutCoverage` ([HeadingJumpSettling.swift:54-69](../../../Sources/GraphiteUI/HeadingJumpSettling.swift#L54-L69)) runs on every layout pass ([NativeMarkdownEditor.swift:1906-1932](../../../Sources/GraphiteUI/NativeMarkdownEditor.swift#L1906-L1932)), not only after jumps; its tolerances are `+ 1` and `- 1`, the pin compares with `> 1` and offsets by `- 12` ([NativeMarkdownEditor.swift:2305-2307](../../../Sources/GraphiteUI/NativeMarkdownEditor.swift#L2305-L2307)); the `ensureLayout` guard line is 161 characters. Introduced in `6b80826`.
+- **Why it matters:** the viewport-coverage rule sits in a file named after jump settling, and the unnamed tolerances drift from the coordinator's other 1-point checks.
+- **Fix direction:** move the type to `ViewportLayoutCoverage.swift`; one `layoutTolerancePoints` and a named heading margin; wrap the long line.
+
+### State changes of earlier findings
+- `LSP-EDITOR-01`: Open → **Partly fixed**. The Mac editor now serves `findRequest`, `recordEditorPlace` and `takeEditingStartLocation` ([NativeMarkdownEditor.swift:3502-3534](../../../Sources/GraphiteUI/NativeMarkdownEditor.swift#L3502-L3534)); `startsEditingWhenShown`, `hasPlacedCursor` and `isTyping` are still iPad-only, and the duties were copied rather than shared (`SRP-EDITOR-06`).
+- `CC-EDITOR-04`: **Worse**: three new iPad/Mac pairs (`SRP-EDITOR-06`).
+- `CC-EDITOR-02`: **Worse**: a new `DispatchQueue.main.async` hop for the Mac find request ([NativeMarkdownEditor.swift:3525](../../../Sources/GraphiteUI/NativeMarkdownEditor.swift#L3525)); `layOutViewportAgainIfShort` now also fires when the top of the view is uncovered, so its hop and 0.3 s `asyncAfter` run more often ([:1917-1930](../../../Sources/GraphiteUI/NativeMarkdownEditor.swift#L1917-L1930)).
+- `DIP-EDITOR-03`: **Worse**: two new `ProcessInfo.processInfo.systemUptime` reads in the coordinator ([:2286](../../../Sources/GraphiteUI/NativeMarkdownEditor.swift#L2286), [:2334](../../../Sources/GraphiteUI/NativeMarkdownEditor.swift#L2334)); the pin itself takes uptime as a parameter, as it should.
+
+### Patterns to keep
+- `HeadingJumpPin` is a value type with unit-named limits and uptime passed in, tested without a window (`UiEditorHeadingJumpTests`).
+- The viewport-shortfall decision is a pure function (`ViewportLayoutCoverage.leavesVisibleTextUncovered`) outside TextKit code.
+- Two hand-written heading scans now delegate to `NotePreviewDocument.headingLineLocation`, so links and jumps agree with the outline ([LivePreviewEditTracking.swift:746-750](../../../Sources/GraphiteUI/LivePreviewEditTracking.swift#L746-L750), [MarkdownSession.swift:289-290](../../../Sources/GraphiteUI/MarkdownSession.swift#L289-L290)).

@@ -5,17 +5,12 @@ import GraphiteCore
 @testable import GraphiteIndex
 @testable import GraphiteApple
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// The recording control's choices and wording, the camera preview's place and size, and
 /// video recordings in the workspace: where they are saved and how they are recovered.
 @MainActor
 final class RecordingControlsTests: XCTestCase {
-    private var temporaryFolders: [URL] = []
-
-    override func tearDown() async throws {
-        for folder in temporaryFolders { try? FileManager.default.removeItem(at: folder) }
-        temporaryFolders = []
-    }
 
     // MARK: The control
 
@@ -157,9 +152,7 @@ final class RecordingControlsTests: XCTestCase {
     // MARK: Helpers
 
     private func makeFolder(_ prefix: String) throws -> URL {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        temporaryFolders.append(folder)
+        let folder = try TemporaryVault.make(prefix: prefix, for: self).root
         return folder.resolvingSymlinksInPath()
     }
 
@@ -185,7 +178,6 @@ final class RecordingControlsTests: XCTestCase {
 
     /// A second of H.264 video, as a finished recording part would be.
     private func makeMovie(in folder: URL) throws -> URL {
-        guard #available(iOS 26, *) else { throw XCTSkip("Writing a movie needs iOS 26.") }
         let location = folder.appendingPathComponent("\(UUID().uuidString).mp4")
         let writer = try AVAssetWriter(outputURL: location, fileType: .mp4)
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: [AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: 320, AVVideoHeightKey: 180])

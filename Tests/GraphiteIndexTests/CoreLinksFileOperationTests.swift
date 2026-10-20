@@ -1,6 +1,7 @@
 import XCTest
 @testable import GraphiteIndex
 import GraphiteCore
+import GraphiteTestSupport
 
 /// Moves and renames through the real store, index and link planner, for link forms whose
 /// rewrite used to corrupt the note or leave the link behind.
@@ -11,16 +12,11 @@ final class CoreLinksFileOperationTests: XCTestCase {
     private var operations: VaultFileOperations!
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("CoreLinksVault-\(UUID().uuidString)")
+        vault = try TemporaryVault.make(prefix: "CoreLinksVault", for: self).root
         for folder in ["Notes", "Other", "Attachments"] { try FileManager.default.createDirectory(at: vault.appendingPathComponent(folder), withIntermediateDirectories: true) }
         store = VaultStore(root: vault)
         index = try VaultIndex(databaseURL: vault.appendingPathExtension("cache").appendingPathComponent("index.sqlite"))
         operations = VaultFileOperations(store: store, index: index)
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: vault)
-        try? FileManager.default.removeItem(at: vault.appendingPathExtension("cache"))
     }
 
     private func write(_ files: [String: String]) async throws {

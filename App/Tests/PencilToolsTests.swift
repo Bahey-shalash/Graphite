@@ -1236,11 +1236,6 @@ final class PencilToolsTests: XCTestCase {
         }
     }
 
-    private func waitUntil(_ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(5)
-        while !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(25)) }
-        XCTAssertTrue(condition(), "The hosted workspace did not reach the expected state.")
-    }
 }
 
 /// The workspace with the drawing editor presented over it as `GraphiteRootView` presents it.

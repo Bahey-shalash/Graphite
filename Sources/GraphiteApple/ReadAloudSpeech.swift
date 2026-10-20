@@ -155,18 +155,41 @@ public extension ReadAloudSpeaking {
 @MainActor
 public final class AppleReadAloudSpeech: NSObject, ReadAloudSpeaking, AVSpeechSynthesizerDelegate {
     public var eventHandler: (@MainActor (ReadAloudSpeechEvent) -> Void)?
-    private let synthesizer = AVSpeechSynthesizer()
+    /// Made on first use: a silent reading never makes one, so it cannot reach the audio output.
+    private lazy var synthesizer: AVSpeechSynthesizer = {
+        hasCreatedSynthesizer = true
+        let synthesizer = AVSpeechSynthesizer()
+        synthesizer.delegate = self
+        return synthesizer
+    }()
+    private(set) var hasCreatedSynthesizer = false
+    /// How the utterance is voiced. `.speakers` speaks. `.silent` makes no sound and never reaches the synthesizer or the
+    /// audio session: its events come at the pace of speech from `SilentSpeechPacing`, by the clock. The integration test of the
+    /// synthesizer's own callbacks has it render to buffers that are dropped instead (`rendersToDroppedBuffers`).
+    let output: AudioOutputRoute
+    private let clock: any ApplicationClock
+    private let rendersToDroppedBuffers: Bool
     private var activeUtterance: AVSpeechUtterance?
     private var requestIdentifier: UUID?
+    /// The silent reading under way: its steps, the next one to happen, and the task that waits for it.
+    private var pacedReading: (requestIdentifier: UUID, steps: [SilentSpeechPacing.Step], nextStepIndex: Int)?
+    private var pacingTask: Task<Void, Never>?
+    private var isPacedReadingPaused = false
     #if os(iOS)
     /// Whether this adapter activated the shared audio session for reading, so it only ever
     /// deactivates a session it started (never a lecture recording's).
     private var ownsActiveAudioSession = false
     #endif
 
-    public override init() {
+    public convenience init(output: AudioOutputRoute = .thisProcess, clock: any ApplicationClock = LiveApplicationClock()) {
+        self.init(output: output, clock: clock, rendersToDroppedBuffers: false)
+    }
+
+    init(output: AudioOutputRoute, clock: any ApplicationClock, rendersToDroppedBuffers: Bool) {
+        self.output = output
+        self.clock = clock
+        self.rendersToDroppedBuffers = rendersToDroppedBuffers
         super.init()
-        synthesizer.delegate = self
         #if os(iOS)
         NotificationCenter.default.addObserver(self, selector: #selector(audioInterrupted), name: AVAudioSession.interruptionNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(audioInterrupted), name: AVAudioSession.routeChangeNotification, object: nil)
@@ -249,7 +272,11 @@ public final class AppleReadAloudSpeech: NSObject, ReadAloudSpeaking, AVSpeechSy
             throw GraphiteError.unavailable("The chosen voice is no longer installed. Choose a voice before continuing.")
         }
         stop()
-        activateAudioSession()
+        if output == .silent && !rendersToDroppedBuffers {
+            startPacedReading(request, requestIdentifier: requestIdentifier)
+            return
+        }
+        if output == .speakers { activateAudioSession() }
         // Terms with an IPA transcription carry it as an attribute; a voice that ignores IPA
         // reads the respelling the text already holds ("sim dee" for SIMD).
         let attributedText = NSMutableAttributedString(string: text)
@@ -272,7 +299,44 @@ public final class AppleReadAloudSpeech: NSObject, ReadAloudSpeaking, AVSpeechSy
         utterance.prefersAssistiveTechnologySettings = usesSystemSettings
         activeUtterance = utterance
         self.requestIdentifier = requestIdentifier
-        synthesizer.speak(utterance)
+        switch output {
+        case .speakers: synthesizer.speak(utterance)
+        case .silent: synthesizer.write(utterance) { _ in }
+        }
+    }
+
+    // MARK: Silent reading
+
+    private func startPacedReading(_ request: ReadAloudUtteranceRequest, requestIdentifier: UUID) {
+        let steps = SilentSpeechPacing.schedule(for: request.text, speed: request.speed,
+                                                leadingPauseSeconds: max(0, min(request.leadingPauseSeconds, 2)))
+        pacedReading = (requestIdentifier, steps, 0)
+        isPacedReadingPaused = false
+        continuePacedReading()
+    }
+
+    /// Waits out each remaining step's delay on the clock and reports its event, until the reading
+    /// ends, is paused or is replaced.
+    private func continuePacedReading() {
+        pacingTask?.cancel()
+        guard let reading = pacedReading else { return }
+        pacingTask = Task { @MainActor [weak self, clock] in
+            var stepIndex = reading.nextStepIndex
+            while stepIndex < reading.steps.count {
+                let step = reading.steps[stepIndex]
+                do { try await clock.sleep(for: .seconds(step.delaySeconds)) } catch { return } // Paused or replaced.
+                guard let self, let current = self.pacedReading, current.requestIdentifier == reading.requestIdentifier else { return }
+                stepIndex += 1
+                self.pacedReading?.nextStepIndex = stepIndex
+                switch step.event {
+                case .started: self.eventHandler?(.started(reading.requestIdentifier))
+                case .word(let range): self.eventHandler?(.spoken(reading.requestIdentifier, range))
+                case .finished:
+                    self.pacedReading = nil
+                    self.eventHandler?(.finished(reading.requestIdentifier))
+                }
+            }
+        }
     }
 
     /// Reading is spoken audio the person asked for, like an audiobook: it plays with the
@@ -315,14 +379,39 @@ public final class AppleReadAloudSpeech: NSObject, ReadAloudSpeaking, AVSpeechSy
         return min(fastest, max(AVSpeechUtteranceMinimumSpeechRate, rate))
     }
 
-    public func pause() -> Bool { synthesizer.pauseSpeaking(at: .immediate) }
-    public func resume() -> Bool { synthesizer.continueSpeaking() }
+    public func pause() -> Bool {
+        if let reading = pacedReading {
+            guard !isPacedReadingPaused else { return false }
+            isPacedReadingPaused = true
+            pacingTask?.cancel()
+            eventHandler?(.paused(reading.requestIdentifier))
+            return true
+        }
+        guard hasCreatedSynthesizer else { return false }
+        return synthesizer.pauseSpeaking(at: .immediate)
+    }
+
+    public func resume() -> Bool {
+        if let reading = pacedReading {
+            guard isPacedReadingPaused else { return false }
+            isPacedReadingPaused = false
+            continuePacedReading()
+            eventHandler?(.continued(reading.requestIdentifier))
+            return true
+        }
+        guard hasCreatedSynthesizer else { return false }
+        return synthesizer.continueSpeaking()
+    }
     public func stop() {
         // Invalidate before cancellation: a cancelled utterance must never advance
         // a replacement document, even if its callback arrives after speak().
         activeUtterance = nil
         requestIdentifier = nil
-        synthesizer.stopSpeaking(at: .immediate)
+        pacedReading = nil
+        isPacedReadingPaused = false
+        pacingTask?.cancel()
+        pacingTask = nil
+        if hasCreatedSynthesizer { synthesizer.stopSpeaking(at: .immediate) }
     }
 
     private func receive(_ identity: SpeechCallbackIdentity, event: (UUID) -> ReadAloudSpeechEvent) {
@@ -528,11 +617,8 @@ public final class ReadAloudSession {
         return automaticVoice?.isCompact ?? true
     }
 
-    /// Where the system keeps its voices: "Read & Speak" since iOS 27, "Spoken Content" before.
-    public static var systemSpeechSettingsName: String {
-        if #available(iOS 27, macOS 27, *) { return "Read & Speak" }
-        return "Spoken Content"
-    }
+    /// Where the system keeps its voices.
+    public static var systemSpeechSettingsName: String { "Read & Speak" }
 
     public static var voiceDownloadPath: String {
         #if os(macOS)
@@ -543,7 +629,7 @@ public final class ReadAloudSession {
     }
 
     public func load(_ document: ReadAloudDocument) {
-        stop()
+        resetPlayback()
         if self.document?.passages.map(\.text) != document.passages.map(\.text) { speech.cancelPreparation() }
         self.document = document
         readingLanguage = ReadAloudLanguage.language(of: document) ?? ReadAloudLanguage.deviceLanguage
@@ -579,9 +665,25 @@ public final class ReadAloudSession {
         state = .paused
     }
 
+    /// Stop as the person asks for it: playback ends and the audio session goes back to other apps.
     public func stop() {
-        invalidateSpeech()
+        resetPlayback()
         speech.releaseAudio()
+    }
+
+    /// Gives the audio session back unless reading is going on, for a document that is loaded
+    /// and waits for the person to press Play. The session stays active while one is replaced
+    /// by the next page of a PDF, so that page break is not heard as a gap by other apps.
+    public func releaseAudioUnlessSpeaking() {
+        guard state != .speaking else { return }
+        speech.releaseAudio()
+    }
+
+    /// Ends the current utterance and returns to the start of the passage without touching the
+    /// audio session. Skipping, jumping and loading the next page of a PDF replace what is
+    /// spoken; only `stop()`, `clear()` and the end of the last document release the session.
+    private func resetPlayback() {
+        invalidateSpeech()
         wasSpeakingWhenInterrupted = false
         leadingPauseSeconds = 0
         lacksWordTiming = false
@@ -596,7 +698,7 @@ public final class ReadAloudSession {
     public func move(to index: Int) {
         guard let document, document.passages.indices.contains(index) else { return }
         let wasSpeaking = state == .speaking
-        stop()
+        resetPlayback()
         passageIndex = index
         state = .paused
         needsRestart = true
@@ -653,7 +755,7 @@ public final class ReadAloudSession {
     private func seek(to index: Int, offset: Int) {
         guard let document, document.passages.indices.contains(index) else { return }
         let wasSpeaking = state == .speaking
-        stop()
+        resetPlayback()
         passageIndex = index
         utteranceStartOffset = offset
         state = .paused

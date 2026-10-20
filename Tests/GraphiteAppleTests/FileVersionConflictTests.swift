@@ -2,6 +2,7 @@
 import XCTest
 import Synchronization
 import GraphiteCore
+import GraphiteTestSupport
 @testable import GraphiteApple
 
 /// `FileProviderConflictVersions` against real `NSFileVersion` objects on this Mac's
@@ -11,14 +12,15 @@ import GraphiteCore
 /// file with it, keeping it as a separate file, marking it resolved and removing it
 /// under file coordination) is the code that runs for a provider's conflict versions.
 final class FileVersionConflictTests: XCTestCase {
+    private var temporaryVault: TemporaryVault!
     private var folder: URL!
     private var note: URL!
     private let store = FileProviderConflictVersions(listing: .everyOtherVersion)
     private let writer = AtomicFileWriter()
 
     override func setUpWithError() throws {
-        folder = FileManager.default.temporaryDirectory.appendingPathComponent("FileVersions-\(UUID().uuidString)", isDirectory: true).resolvingSymlinksInPath()
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        temporaryVault = try TemporaryVault(prefix: "FileVersions")
+        folder = temporaryVault.root
         note = folder.appendingPathComponent("Lecture.md")
         try Data("current text\n".utf8).write(to: note)
     }
@@ -26,7 +28,7 @@ final class FileVersionConflictTests: XCTestCase {
     override func tearDownWithError() throws {
         // Versions live in the volume's version store, not in the folder.
         try? NSFileVersion.removeOtherVersionsOfItem(at: note)
-        try? FileManager.default.removeItem(at: folder)
+        temporaryVault.remove()
     }
 
     /// Adds a version of the note holding `text`, as another device's save would be kept.

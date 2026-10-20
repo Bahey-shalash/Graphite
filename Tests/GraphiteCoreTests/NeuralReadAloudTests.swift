@@ -1,11 +1,11 @@
 import XCTest
 import AVFoundation
 @testable import GraphiteCore
+import GraphiteFixtures
 
 final class NeuralVoiceManifestTests: XCTestCase {
     private var shippedManifestFile: URL {
-        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/GraphiteVoices/Resources/NeuralVoices.json")
+        FixtureFolders.shippedNeuralVoiceManifest
     }
 
     private func manifestJSON(voiceIdentifier: String = "voice", path: String = "model.safetensors",

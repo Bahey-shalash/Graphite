@@ -1,6 +1,7 @@
 import XCTest
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 @MainActor
 final class MarkdownSessionConcurrencyTests: XCTestCase {
@@ -8,13 +9,8 @@ final class MarkdownSessionConcurrencyTests: XCTestCase {
     private var noteLocation: URL { vaultDirectory.appendingPathComponent("Note.md") }
 
     override func setUp() async throws {
-        vaultDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("MarkdownConcurrency-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vaultDirectory, withIntermediateDirectories: true)
+        vaultDirectory = try TemporaryVault.make(prefix: "MarkdownConcurrency", for: self).root
         try Data("original".utf8).write(to: noteLocation)
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: vaultDirectory)
     }
 
     private func makeSession() async throws -> MarkdownSession {

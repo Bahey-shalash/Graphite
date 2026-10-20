@@ -3,18 +3,14 @@ import SwiftUI
 import GraphiteCore
 import GraphiteIndex
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 @MainActor
 final class UiMarkdownPaneFixTests: XCTestCase {
     private var vaultDirectory: URL!
 
     override func setUp() async throws {
-        vaultDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("MarkdownPaneVault-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vaultDirectory, withIntermediateDirectories: true)
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: vaultDirectory)
+        vaultDirectory = try TemporaryVault.make(prefix: "MarkdownPaneVault", for: self).root
     }
 
     private func makeSession(named name: String = "Note.md", contents: Data) async throws -> (session: MarkdownSession, store: VaultStore) {
@@ -27,15 +23,6 @@ final class UiMarkdownPaneFixTests: XCTestCase {
 
     private func fileBytes(_ name: String) throws -> [UInt8] {
         Array(try Data(contentsOf: vaultDirectory.appendingPathComponent(name)))
-    }
-
-    /// Waits for work started on the main actor, such as a suggestion fetch, to finish.
-    private func waitUntil(_ condition: () -> Bool, timeoutSeconds: Double = 5) async throws {
-        let deadline = Date().addingTimeInterval(timeoutSeconds)
-        while !condition() {
-            guard Date() < deadline else { return XCTFail("Timed out waiting") }
-            try await Task.sleep(for: .milliseconds(5))
-        }
     }
 
     // MARK: Byte-order mark

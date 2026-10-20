@@ -220,8 +220,9 @@ struct LivePreviewWidgetView: View {
     }
 }
 
-/// Whether an embed in a rendered block is still loading.
-private struct LivePreviewEmbedLoadingKey: PreferenceKey {
+/// Whether an embed in a rendered block is still loading: a file being read, or a base
+/// showing its progress placeholder before its rows (`BaseContainerView`).
+struct LivePreviewEmbedLoadingKey: PreferenceKey {
     static let defaultValue = false
     static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
 }
@@ -542,7 +543,8 @@ private struct LivePreviewEmbedView: View {
                 .buttonStyle(.plain)
             }
         }
-        .preference(key: LivePreviewEmbedLoadingKey.self, value: isLoading)
+        // Combined with what the embed inside says, so a base still loading counts too.
+        .transformPreference(LivePreviewEmbedLoadingKey.self) { isLoadingEmbed in isLoadingEmbed = isLoadingEmbed || isLoading }
         .task(id: resolutionKey) {
             guard resolutionKey != settledResolutionKey else { return }
             await resolve()
