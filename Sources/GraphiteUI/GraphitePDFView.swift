@@ -615,9 +615,14 @@ final class PDFPageCanvasView: HistoryCanvasView {
     /// PencilKit draws a tool as wide on screen at any zoom of its canvas, so a canvas zoomed
     /// to draw sharper would write finer on the page. It draws with the width multiplied by
     /// its zoom instead, and a stroke is as wide on the page at any zoom of the PDF, as on
-    /// paper. Inks with a narrow range (pen, pencil, highlighter) stop at their widest.
+    /// paper. The pen, the pencil and the highlighter stop at their widest width, so the
+    /// canvas is drawn no larger than keeps the chosen width (`prepareToDraw(with:)`).
     override func toolForDrawing(_ chosenTool: PKTool) -> PKTool {
         Self.tool(super.toolForDrawing(chosenTool), scaledBy: zoomScale)
+    }
+
+    override func prepareToDraw(with chosenTool: PKTool) {
+        overlayView?.limitRenderingScale(to: PDFPageOverlayView.largestRenderingScale(keepingWidthOf: chosenTool))
     }
 
     /// Draws with the chosen tool at the canvas's new zoom.
@@ -625,21 +630,12 @@ final class PDFPageCanvasView: HistoryCanvasView {
         retakeChosenTool()
     }
 
-    static func tool(_ tool: PKTool, scaledBy scale: CGFloat) -> PKTool {
-        guard scale > 0, scale != 1 else { return tool }
-        if let inkingTool = tool as? PKInkingTool {
-            return PKInkingTool(inkingTool.inkType, color: inkingTool.color, width: inkingTool.width * scale, azimuth: inkingTool.azimuth)
-        }
-        if let eraserTool = tool as? PKEraserTool {
-            return PKEraserTool(eraserTool.eraserType, width: eraserTool.width * scale)
-        }
-        return tool
-    }
-
     var writingGuides: DrawingPaper { overlayView?.writingGuides ?? .plain }
 
     fileprivate func placeIn(_ overlayView: PDFPageOverlayView) {
         self.overlayView = overlayView
+        // A canvas PDFKit put in a new overlay keeps its tool; the overlay learns its limit.
+        if let chosenTool { prepareToDraw(with: chosenTool) }
     }
 }
 
@@ -655,19 +651,36 @@ final class PDFPageCanvasView: HistoryCanvasView {
 final class PDFPageOverlayView: UIView {
     let canvas: PDFPageCanvasView
     private let guideView = DrawingPaperView()
-    /// How many times the page's size the canvas draws at.
-    private(set) var renderingScale: CGFloat = 1
+    /// How many times the page's size the canvas draws at: the PDF view's zoom, within what
+    /// keeps the chosen tool's width on the page.
+    var renderingScale: CGFloat { min(zoomRenderingScale, toolRenderingScaleLimit) }
+    private var zoomRenderingScale: CGFloat = 1
+    private var toolRenderingScaleLimit = PDFPageOverlayView.maximumRenderingScale
 
     /// The most the canvas is enlarged: PencilKit keeps tiles for the whole canvas, and
     /// past this a page's tiles take more memory than the sharper ink is worth.
     static let maximumRenderingScale: CGFloat = 3
+    /// Rendering scales go in steps, so the canvas is not redrawn for every small change.
+    static let renderingScaleStep: CGFloat = 0.5
 
     /// The scale to draw ink at for a PDF view's zoom: never below the page's own size,
-    /// and in steps, so the canvas is not redrawn for every small change of the zoom.
+    /// and in steps.
     static func renderingScale(forZoom zoom: CGFloat) -> CGFloat {
         guard zoom.isFinite, zoom > 1 else { return 1 }
-        let step: CGFloat = 0.5
-        return min((zoom / step).rounded(.up) * step, maximumRenderingScale)
+        return min((zoom / renderingScaleStep).rounded(.up) * renderingScaleStep, maximumRenderingScale)
+    }
+
+    /// The largest scale, in steps and never below the page's own size, at which the canvas
+    /// can draw the chosen tool's width times the scale. PencilKit gives the pen, the pencil
+    /// and the highlighter no more than their widest width: a broad pencil on a page drawn
+    /// three times its size would land narrower on the page. Inks PencilKit does not hold
+    /// to their widest width, and erasers, allow the largest scale.
+    static func largestRenderingScale(keepingWidthOf chosenTool: PKTool) -> CGFloat {
+        guard let inkingTool = chosenTool as? PKInkingTool, inkingTool.width > 0 else { return maximumRenderingScale }
+        let widestWidth = inkingTool.inkType.validWidthRange.upperBound
+        guard PKInkingTool(inkingTool.inkType, width: widestWidth * 2).width <= widestWidth else { return maximumRenderingScale }
+        let largestScale = (widestWidth / inkingTool.width / renderingScaleStep).rounded(.down) * renderingScaleStep
+        return min(max(largestScale, 1), maximumRenderingScale)
     }
 
     init(canvas: PDFPageCanvasView) {
@@ -693,10 +706,22 @@ final class PDFPageOverlayView: UIView {
         didSet { guideView.alpha = showsWritingGuides ? 1 : 0 }
     }
 
+    /// The scale for the PDF view's zoom (`renderingScale(forZoom:)`).
     func setRenderingScale(_ scale: CGFloat) {
-        guard scale != renderingScale else { return }
-        renderingScale = scale
+        guard scale != zoomRenderingScale else { return }
+        zoomRenderingScale = scale
         setNeedsLayout()
+    }
+
+    /// The largest scale the chosen tool allows (`largestRenderingScale(keepingWidthOf:)`).
+    /// The canvas takes it at once, so the tool it is about to take is made for its zoom.
+    func limitRenderingScale(to limit: CGFloat) {
+        guard limit != toolRenderingScaleLimit else { return }
+        let scaleBefore = renderingScale
+        toolRenderingScaleLimit = limit
+        guard renderingScale != scaleBefore else { return }
+        setNeedsLayout()
+        layoutIfNeeded()
     }
 
     override func layoutSubviews() {
@@ -1342,6 +1367,18 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         }
     }
 
+    /// Hides the annotations just added with these names, while the rest of the group is
+    /// already hidden under the canvas. They were added last, so the page's annotations are
+    /// read from the end and no further than the last of them.
+    private func hideInkAnnotations(named names: Set<String>, on page: PDFPage) {
+        var namesLeft = names
+        for annotation in page.annotations.reversed() {
+            if namesLeft.isEmpty { break }
+            guard let name = annotation.persistentName, namesLeft.remove(name) != nil else { continue }
+            if annotation.shouldDisplay { annotation.shouldDisplay = false }
+        }
+    }
+
     // MARK: Drawing
 
     func canvasViewDidFinishRendering(_ canvasView: PKCanvasView) {
@@ -1353,21 +1390,47 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
               canvas.bounds.width > 0, canvas.bounds.height > 0 else { return }
         let pageIndex = session.document.index(for: page)
         guard pageIndex != NSNotFound else { return }
+        PencilWritingTrace.measure("Pen-up recording") { recordDrawingChange(of: canvas, on: page, pageIndex: pageIndex) }
+    }
+
+    private func recordDrawingChange(of canvas: PDFPageCanvasView, on page: PDFPage, pageIndex: Int) {
         do {
             let coordinates = try PageCoordinates(cropBox: page.bounds(for: .cropBox), overlaySize: canvas.drawingSize)
             // Archiving the whole drawing at every pen-up grows with the page's strokes;
             // the session asks for the record before it is needed (see `writeDeferredInkRecords`).
             // The shape tool, or a hold at the stroke's end, replaces the stroke just drawn;
             // the history records the shape.
-            let drawing = canvas.drawingAfterShapeRecognition(shapeToolIsOn: input.drawsShapes)
-            let update = canvas.inkTracker.update(for: drawing, pageIndex: pageIndex, coordinates: coordinates, defersEditableRecord: true)
-            try session.apply(.updateInk(update))
+            let drawing = PencilWritingTrace.measure("Shape recognition") { canvas.drawingAfterShapeRecognition(shapeToolIsOn: input.drawsShapes) }
             // A drawing the history itself showed was recorded before it was shown.
-            if let change = PencilDrawingChange(from: canvas.recordedDrawing, to: drawing) {
-                session.registerInkChange(change, on: page, overlaySize: canvas.drawingSize)
+            let change = PencilWritingTrace.measure("Drawing change") { canvas.changeSinceRecorded(to: drawing) }
+            // A stroke just drawn after the others converts and hides that stroke alone; any
+            // other change compares the page's strokes and annotations (FR-104).
+            let appendingUpdate = change?.appendedStrokeIndex.flatMap { appendedStrokeIndex in
+                PencilWritingTrace.measure("Ink tracker update") {
+                    canvas.inkTracker.updateAppending(drawing.strokes[appendedStrokeIndex], at: appendedStrokeIndex,
+                                                      pageIndex: pageIndex, coordinates: coordinates)
+                }
+            }
+            let update = appendingUpdate ?? PencilWritingTrace.measure("Ink tracker update") {
+                canvas.inkTracker.update(for: drawing, pageIndex: pageIndex, coordinates: coordinates, defersEditableRecord: true)
+            }
+            try PencilWritingTrace.measure("Apply ink update") { try session.apply(.updateInk(update)) }
+            if let change {
+                PencilWritingTrace.measure("Register undo step") { session.registerInkChange(change, on: page, overlaySize: canvas.drawingSize) }
+                if let appendedStrokeIndex = change.appendedStrokeIndex {
+                    PencilWritingTrace.strokeWasRecorded(drawing.strokes[appendedStrokeIndex], on: canvas)
+                }
             }
             canvas.recordedDrawing = drawing
-            if displayedPages.contains(ObjectIdentifier(page)) { setInkAnnotationsHidden(true, on: page, group: canvas.inkTracker.group) }
+            if displayedPages.contains(ObjectIdentifier(page)) {
+                PencilWritingTrace.measure("Hide ink annotations") {
+                    if appendingUpdate != nil {
+                        hideInkAnnotations(named: Set(update.addedStrokes.compactMap(\.name)), on: page)
+                    } else {
+                        setInkAnnotationsHidden(true, on: page, group: canvas.inkTracker.group)
+                    }
+                }
+            }
         } catch {
             session.errorMessage = error.localizedDescription
         }
@@ -1479,6 +1542,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     }
 
     func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
+        (canvasView as? HistoryCanvasView)?.toolUseDidBegin()
         beginInteraction?()
         pdfView?.clearSelection()
         // Drawing ends arranging a picture.

@@ -1086,8 +1086,23 @@ final class InfiniteCanvasView: HistoryCanvasView {
         setZoomScale(minimumZoomScale, animated: !GraphiteMotion.isReduced)
     }
 
+    /// The zoom the canvas's tool was last made for.
+    private var toolZoomScale: CGFloat = 1
+
+    /// A stroke is as wide in the drawing, and so in the note, at any zoom, as on paper and
+    /// as on a PDF page (`PDFPageCanvasView`): the canvas draws with the chosen width times
+    /// its zoom, the drawing's own points being the page's.
+    override func toolForDrawing(_ chosenTool: PKTool) -> PKTool {
+        Self.tool(super.toolForDrawing(chosenTool), scaledBy: zoomScale)
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
+        // Zooming lays the canvas out at every step; the tool follows the zoom.
+        if zoomScale != toolZoomScale {
+            toolZoomScale = zoomScale
+            retakeChosenTool()
+        }
         // The paper follows what is on screen; this runs at every scroll step.
         if paperView.frame != bounds { paperView.frame = bounds }
         paperView.drawingRegion = visibleDrawingRegion
@@ -1366,12 +1381,21 @@ private struct DrawingCanvas: UIViewRepresentable {
             (canvasView as? HistoryCanvasView)?.drawingDidFinishRendering()
         }
 
+        func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
+            (canvasView as? HistoryCanvasView)?.toolUseDidBegin()
+        }
+
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
             guard let canvas = canvasView as? InfiniteCanvasView, !canvas.isShowingWithoutRecording else { return }
             // The shape tool, or a hold at the stroke's end, replaces the stroke just drawn.
             let drawing = canvas.drawingAfterShapeRecognition(shapeToolIsOn: drawsShapes)
             // A drawing the history itself showed was recorded before it was shown.
-            if let change = PencilDrawingChange(from: canvas.recordedDrawing, to: drawing) { controller.registerChange(change) }
+            if let change = PencilWritingTrace.measure("Drawing change", { canvas.changeSinceRecorded(to: drawing) }) {
+                controller.registerChange(change)
+                if let appendedStrokeIndex = change.appendedStrokeIndex {
+                    PencilWritingTrace.strokeWasRecorded(drawing.strokes[appendedStrokeIndex], on: canvas)
+                }
+            }
             canvas.recordedDrawing = drawing
             canvas.updateContentSize()
             controller.hasChanges = true

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "comment": "Counts of what the rules forbid; they only go down. Lower them with `python3 scripts/check-rules.py --record`. See Docs/solid/rewrite-foundations.md section 12.2.",
   "recordedOn": "2026-10-20",
-  "recordedAtRevision": "266f67c plus the working tree",
+  "recordedAtRevision": "merge of main b0a0ae0 into code-block-themes",
   "gates": {
     "ambient-time-and-randomness": 64,
     "app-storage-literals": 7,
@@ -10,7 +10,7 @@
     "audible-output-in-tests": 0,
     "blocking-sleep-in-tests": 7,
     "concurrency-escapes-unlisted": 0,
-    "concurrency-escapes-without-comment": 43,
+    "concurrency-escapes-without-comment": 42,
     "constant-pattern-try": 93,
     "core-io": 10,
     "default-over-own-enum": 86,
