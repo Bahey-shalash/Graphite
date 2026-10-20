@@ -80,7 +80,7 @@ Every row of the table above, one element at a time:
 
 - [ ] Import from the Files app, the share sheet (Graphite has no share extension yet; this would add one) and drag and drop, one file or a whole folder.
 - [ ] A progress view for large libraries, cancellable, running off the main thread; the vault stays usable during import.
-- [ ] An import report: what was converted, what was simplified, what was skipped and why.
+- [ ] An import report: what was converted, what was simplified, what was skipped and why. **The report's values are built and tested 2026-10-20 (design step 9)**: `NotebookImportReport`, per page and for the notebook, with a summary by kind; showing it is Phase 4.
 
 ## Phase 5: verification
 

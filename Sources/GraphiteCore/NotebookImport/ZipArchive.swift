@@ -107,10 +107,11 @@ public struct ZipArchive: Sendable {
     }
 
     /// The entry's uncompressed bytes, checked as `contents(of:)` checks them. A stored entry is a slice of the
-    /// archive's bytes, not a copy, so its indices start where it lies in the archive; a deflated one is inflated.
+    /// archive's bytes, not a copy, so its indices start where it lies in the archive; a deflated one is inflated in
+    /// pieces into one buffer of its recorded size, so it is held once.
     public func data(of entry: Entry) throws(ZipArchiveError) -> Data {
         try checkReadable(entry)
-        guard entry.compressionMethod == Self.storedMethod else { return Data(try contents(of: entry)) }
+        guard entry.compressionMethod == Self.storedMethod else { return try inflatedData(of: entry) }
         let range = try archiveBytes.withUnsafeBytes { rawBytes in
             Result { () throws(ZipArchiveError) -> Range<Int> in
                 let bytes = LittleEndianBytes(rawBytes)
@@ -145,6 +146,19 @@ public struct ZipArchive: Sendable {
                 try pieces.finish()
             }
         }.get()
+    }
+
+    private func inflatedData(of entry: Entry) throws(ZipArchiveError) -> Data {
+        var data = Data(capacity: entry.uncompressedByteCount)
+        do throws(ZipEntryCopyError<Never>) {
+            try copy(entry) { piece in data.append(contentsOf: piece) }
+        } catch {
+            switch error {
+            case .archive(let archiveError): throw archiveError
+            case .destination(let impossible): switch impossible {}
+            }
+        }
+        return data
     }
 
     /// Refuses an entry before anything of it is read: encrypted, larger than the limit, or claiming more than deflate

@@ -30,7 +30,7 @@ final class GoodnotesPicturePlannerTests: XCTestCase {
     func testAPictureWithoutItsAttachmentOrWithoutAFileIsLeftOutAndCounted() throws {
         let withoutAttachment = Self.element(.picture(GoodnotesPicture(attachment: nil, boundingBox: .zero, center: .zero,
                                                                        size: CGSize(width: 10, height: 10), rotationRadians: 0, kind: nil)), counter: 1)
-        let attachment = GoodnotesAttachment(identifier: "attachment-2", fileIdentifier: "../escape", file: nil, byteCount: nil, pdfPageCount: nil)
+        let attachment = GoodnotesAttachment(identifier: "attachment-2", file: nil, byteCount: nil, pdfPageCount: nil)
         let withoutFile = Self.element(.picture(GoodnotesPicture(attachment: attachment, boundingBox: .zero, center: .zero,
                                                                  size: CGSize(width: 10, height: 10), rotationRadians: 0, kind: nil)), counter: 2)
         let plan = try XCTUnwrap(Self.plannedPlan(GoodnotesPagePlanner.plan(Self.page(elements: [withoutAttachment, withoutFile]), pageNumber: 1)))
@@ -84,7 +84,7 @@ final class GoodnotesPicturePlannerTests: XCTestCase {
     }
 
     private static func page(elements: [GoodnotesElement]) -> GoodnotesPage {
-        let attachment = GoodnotesAttachment(identifier: "attachment-1", fileIdentifier: "FILE-1", file: .fixture("attachments/FILE-1"),
+        let attachment = GoodnotesAttachment(identifier: "attachment-1", file: .fixture("attachments/FILE-1"),
                                              byteCount: nil, pdfPageCount: nil)
         let paper = GoodnotesPaper(identifier: "paper-1", attachment: attachment, pdfPageNumber: 1, sizeInUnits: CGSize(width: 1100, height: 1650),
                                    template: nil)
@@ -98,7 +98,7 @@ final class GoodnotesPicturePlannerTests: XCTestCase {
 
     private static func picture(file: String, center: CGPoint = CGPoint(x: 110, y: 110), size: CGSize = CGSize(width: 55, height: 55),
                                 rotationRadians: Double = 0, kind: GoodnotesPicture.Kind? = nil, counter: UInt64 = 1) -> GoodnotesElement {
-        let attachment = GoodnotesAttachment(identifier: "attachment-\(file)", fileIdentifier: file, file: .fixture(file), byteCount: nil,
+        let attachment = GoodnotesAttachment(identifier: "attachment-\(file)", file: .fixture(file), byteCount: nil,
                                              pdfPageCount: nil)
         return element(.picture(GoodnotesPicture(attachment: attachment, boundingBox: .zero, center: center, size: size,
                                                  rotationRadians: rotationRadians, kind: kind)), counter: counter)

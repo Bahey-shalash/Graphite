@@ -47,8 +47,7 @@ final class ImportedRecordingPlannerTests: XCTestCase {
     }
 
     private static func attachment(_ fileIdentifier: String) -> GoodnotesAttachment {
-        GoodnotesAttachment(identifier: "attachment-" + fileIdentifier, fileIdentifier: fileIdentifier,
-                            file: .fixture("attachments/" + fileIdentifier), byteCount: nil, pdfPageCount: nil)
+        GoodnotesAttachment(identifier: "attachment-" + fileIdentifier, file: .fixture("attachments/" + fileIdentifier), byteCount: nil, pdfPageCount: nil)
     }
 
     private static func note(recordings: [NotabilityRecording], playbackEvents: [NotabilityPlaybackEvent]) -> NotabilityNote {

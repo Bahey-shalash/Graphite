@@ -59,7 +59,7 @@ final class GoodnotesNotebookReaderTests: XCTestCase {
     func testThePaperNamesItsAttachmentSizeAndDecodedTemplate() throws {
         let reader = try GoodnotesNotebookReader(archiveBytes: Self.notebookWithTwoPages().archiveBytes(), limits: .standard)
         let paper = try XCTUnwrap(reader.notebook.pages.first?.paper)
-        XCTAssertEqual(paper.attachment?.fileIdentifier, "TEMPLATEFILE")
+        XCTAssertEqual(paper.attachment?.file?.text, "attachments/TEMPLATEFILE")
         XCTAssertEqual(paper.attachment?.pdfPageCount, 1)
         XCTAssertEqual(paper.pdfPageNumber, 1)
         XCTAssertEqual(paper.sizeInUnits, CGSize(width: 1100, height: 1650))
@@ -98,7 +98,7 @@ final class GoodnotesNotebookReaderTests: XCTestCase {
         XCTAssertEqual(notebook.outlineEntries.first?.pointOnTargetPage, CGPoint(x: 10, y: 20))
         XCTAssertEqual(notebook.recordings.map(\.identifier), ["KEPT"])
         let recording = try XCTUnwrap(notebook.recordings.first)
-        XCTAssertEqual(recording.audio?.fileIdentifier, "AUDIOFILE")
+        XCTAssertEqual(recording.audio?.file?.text, "attachments/AUDIOFILE")
         XCTAssertEqual(recording.durationSeconds, 2, accuracy: 1e-9)
         XCTAssertEqual(recording.elementTimings, [GoodnotesRecording.ElementTiming(elementIdentifier: "STROKE", secondsFromStart: 0.5,
                                                                                    pageIdentifier: Self.firstPage)])
@@ -254,7 +254,7 @@ final class GoodnotesNotebookReaderTests: XCTestCase {
         })]
         let page = try GoodnotesNotebookReader(archiveBytes: builder.archiveBytes(), limits: .standard).page(at: 1)
         guard case .picture(let picture)? = page.elements.first?.content else { return XCTFail("expected a picture") }
-        XCTAssertEqual(picture.attachment?.fileIdentifier, "PICTUREFILE")
+        XCTAssertEqual(picture.attachment?.file?.text, "attachments/PICTUREFILE")
         XCTAssertEqual(picture.boundingBox, CGRect(x: 5, y: 6, width: 70, height: 80))
         XCTAssertEqual(picture.center, CGPoint(x: 40, y: 46))
         XCTAssertEqual(picture.size, CGSize(width: 60, height: 40))

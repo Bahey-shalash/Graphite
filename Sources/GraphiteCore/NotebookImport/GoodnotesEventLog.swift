@@ -87,10 +87,9 @@ struct GoodnotesEventLog {
         case .documentCreated, .documentRenamed:
             title = GoodnotesRegister.latest(title, try fields.register(2))
         case .attachment:
-            let fileIdentifier = try fields.string(2)
-            let file = NotebookArchivePath.file(named: fileIdentifier, inFolder: Self.attachmentFolder)
+            let file = NotebookArchivePath.file(named: try fields.string(2), inFolder: Self.attachmentFolder)
             if file == nil { issues.report(.attachmentPathNotValid(attachmentIdentifier: entity)) }
-            attachments[entity] = GoodnotesAttachment(identifier: entity, fileIdentifier: fileIdentifier, file: file, byteCount: try fields.varint(5),
+            attachments[entity] = GoodnotesAttachment(identifier: entity, file: file, byteCount: try fields.varint(5),
                                                       pdfPageCount: try fields.fields(12).varint(2))
         case .paper:
             papers[entity] = PaperRecord(attachmentIdentifier: try fields.string(4), pdfPageNumber: try fields.varint(5) ?? 1,

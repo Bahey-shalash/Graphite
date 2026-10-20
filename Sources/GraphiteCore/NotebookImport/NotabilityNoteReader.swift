@@ -89,7 +89,7 @@ public struct NotabilityNoteReader: Sendable {
         guard let pageCount, let pageHeight = geometry.pageHeightInUnits else { throw .pageCountUnknown }
         guard pageNumber >= 1, pageNumber <= pageCount else { throw .pageNumberOutOfRange(pageNumber: pageNumber, pageCount: pageCount) }
         let placement = NotabilityPagePlacement(geometry: geometry)
-        let curves = ink.curveIndices(onPage: pageNumber, placement: placement).map { curveIndex in ink.curve(at: curveIndex) }
+        let curves = placement.curveIndices(onPage: pageNumber, of: ink).map { curveIndex in ink.curve(at: curveIndex) }
         let shapes = note.shapes.filter { shape in
             let extent = NotabilityPagePlacement.verticalExtent(of: shape)
             return placement.isOnPage(pageNumber, lowestY: extent.lowest, highestY: extent.highest)

@@ -26,6 +26,27 @@ final class ZipArchiveEntryCopyTests: XCTestCase {
         XCTAssertEqual(Array(try zipArchive.data(of: zipArchive.entries[0])), Self.recordingLikeBytes)
     }
 
+    /// CC-IMPORT-15: a deflated entry's data was inflated into an array and then copied into `Data`, holding it twice; it
+    /// is now inflated in pieces into one buffer, with the same checks.
+    func testADeflatedEntrysDataIsCheckedAsItIsInflatedOnce() throws {
+        for recordedByteCount: UInt32 in [100_000, 400_000] {
+            var archiveBytes = Array(Self.archiveData(contents: Self.recordingLikeBytes, compression: .deflated))
+            Self.writeUncompressedByteCount(recordedByteCount, into: &archiveBytes)
+            let zipArchive = try ZipArchive(archiveBytes: Data(archiveBytes), limits: Self.limits)
+            XCTAssertThrowsError(try zipArchive.data(of: zipArchive.entries[0])) { error in
+                XCTAssertEqual(error as? ZipArchiveError, .entryDataDamaged(name: "data.bin"))
+            }
+        }
+        var archiveBytes = Array(Self.archiveData(contents: Self.recordingLikeBytes, compression: .deflated))
+        let endRecord = archiveBytes.count - 22
+        let directoryOffset = (0..<4).reduce(0) { offset, byteIndex in offset | Int(archiveBytes[endRecord + 16 + byteIndex]) << (8 * byteIndex) }
+        archiveBytes[directoryOffset + 16] ^= 0xFF
+        let zipArchive = try ZipArchive(archiveBytes: Data(archiveBytes), limits: Self.limits)
+        XCTAssertThrowsError(try zipArchive.data(of: zipArchive.entries[0])) { error in
+            XCTAssertEqual(error as? ZipArchiveError, .checksumMismatch(name: "data.bin"))
+        }
+    }
+
     func testAStoredEntryIsCopiedInPiecesOfTheArchiveItself() throws {
         let archiveData = Self.archiveData(contents: Array(Self.recordingLikeBytes.prefix(2_500)), compression: .stored)
         let zipArchive = try ZipArchive(archiveBytes: archiveData, limits: Self.limits)

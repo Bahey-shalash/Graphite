@@ -46,21 +46,21 @@ enum GoodnotesArcField: Int, GoodnotesFieldNumber {
     case end = 3
 }
 
-/// A shape's rectangle, `{1: centre, 2: width and height, 3: angle in radians}`.
+/// A shape's rectangle, `{1: center, 2: width and height, 3: angle in radians}`.
 enum GoodnotesShapeRectangleField: Int, GoodnotesFieldNumber {
     case center = 1
     case size = 2
     case angleRadians = 3
 }
 
-/// A shape's ellipse, `{1: centre, 2: radii, 3: angle in radians}`.
+/// A shape's ellipse, `{1: center, 2: radii, 3: angle in radians}`.
 enum GoodnotesShapeEllipseField: Int, GoodnotesFieldNumber {
     case center = 1
     case radii = 2
     case angleRadians = 3
 }
 
-/// A picture's placement, `{1: centre, 2: size before turning, 3: angle in radians}`.
+/// A picture's placement, `{1: center, 2: size before turning, 3: angle in radians}`.
 enum GoodnotesPicturePlacementField: Int, GoodnotesFieldNumber {
     case center = 1
     case sizeBeforeTurning = 2
