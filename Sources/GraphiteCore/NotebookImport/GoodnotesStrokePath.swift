@@ -4,15 +4,17 @@ import Foundation
 /// A stroke's path in one of the four layouts Goodnotes writes, decoded from its tpl image. Coordinates are page
 /// units before the stroke's offset is added.
 public enum GoodnotesStrokePath: Sendable, Equatable {
-    /// Ball pen, highlighter and shapes: a centre line drawn at one width with round ends.
+    /// Ball pen, highlighter and shapes: a center line drawn at one width with round ends.
     case constantWidth(GoodnotesConstantWidthPath)
-    /// Fountain pen, brush pen and tape (schema 25 on): a centre line with a width at each point, and the outline
+    /// Fountain pen, brush pen and tape (schema 25 on): a center line with a width at each point, and the outline
     /// Goodnotes fills.
     case varyingWidth(GoodnotesVaryingWidthPath)
-    /// Ink 4: a width and the outline; its centre-line codes are not worked out.
+    /// Ink 4: a width and the outline; its center-line codes are not worked out.
     case olderVaryingWidth(GoodnotesOlderVaryingWidthPath)
     /// Pencil (schema 25 on): points that carry the Apple Pencil's azimuth, altitude and force.
     case pencil(GoodnotesPencilPath)
+    /// A tpl layout this reader does not know, named by its format string; the path is not decoded.
+    case unknownLayout(formatString: String)
 }
 
 /// A quadratic Bézier segment from the current point.
@@ -33,7 +35,7 @@ public struct GoodnotesConstantWidthPath: Sendable, Equatable {
     public let dashPattern: [Double]
 }
 
-/// A centre-line point with the stroke's width there.
+/// A center-line point with the stroke's width there.
 public struct GoodnotesWidthPoint: Sendable, Equatable {
     public let point: CGPoint
     public let width: Double
@@ -44,25 +46,25 @@ public struct GoodnotesWidthCurve: Sendable, Equatable {
     public let end: GoodnotesWidthPoint
 }
 
-public struct GoodnotesCentreLine: Sendable, Equatable {
+public struct GoodnotesCenterLine: Sendable, Equatable {
     public let start: GoodnotesWidthPoint
     public let curves: [GoodnotesWidthCurve]
 }
 
-/// One command of a stroke outline. Each centre-line segment has its own closed outline.
+/// One command of a stroke outline. Each center-line segment has its own closed outline.
 public enum GoodnotesOutlineCommand: Sendable, Equatable {
     case move(to: CGPoint)
     case cubic(control1: CGPoint, control2: CGPoint, end: CGPoint)
     /// Continues from the current point, which lies on the circle at the start angle, to the end angle.
-    case arc(centre: CGPoint, radius: Double, startAngleRadians: Double, endAngleRadians: Double)
+    case arc(center: CGPoint, radius: Double, startAngleRadians: Double, endAngleRadians: Double)
     /// Tape's flat end: a straight edge through the point.
     case flatCap(through: CGPoint)
 }
 
 public struct GoodnotesVaryingWidthPath: Sendable, Equatable {
-    /// Nil when the path has no centre-line codes.
-    public let centreLine: GoodnotesCentreLine?
-    /// One closed outline per centre-line segment.
+    /// Nil when the path has no center-line codes.
+    public let centerLine: GoodnotesCenterLine?
+    /// One closed outline per center-line segment.
     public let outline: [[GoodnotesOutlineCommand]]
 }
 

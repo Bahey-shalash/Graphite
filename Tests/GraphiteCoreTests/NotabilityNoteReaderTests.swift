@@ -119,7 +119,7 @@ final class NotabilityNoteReaderTests: XCTestCase {
                             quadraticControlPoint: nil, width: 1, color: NotebookImportColor(red: 0, green: 0, blue: 1, alpha: 0.5), dashPattern: [2, 3]),
         ])
         XCTAssertEqual(note.pictures, [
-            NotabilityPicture(relativePath: "Images/Image 1.png", origin: CGPoint(x: -14.8, y: 20), size: CGSize(width: 200, height: 150),
+            NotabilityPicture(file: .fixture("Images/Image 1.png"), origin: CGPoint(x: -14.8, y: 20), size: CGSize(width: 200, height: 150),
                               rotationRadiansClockwise: 0.443, zIndex: 0, cropRectangle: CGRect(x: 0, y: 0, width: 400, height: 300),
                               isFlippedHorizontally: false, isFlippedVertically: true),
         ])
@@ -132,10 +132,10 @@ final class NotabilityNoteReaderTests: XCTestCase {
                               color: NotebookImportColor(red: 0.9, green: 0.2, blue: 0.1, alpha: 1), isUnderlined: true, isStruckThrough: false,
                               lineSpacing: 1.5, baselineOffset: 2),
         ]))
-        XCTAssertEqual(note.importedPDFPages, [NotabilityImportedPDFPage(documentPageNumber: 1, pdfRelativePath: "PDFs/ABC.pdf", pdfPageNumber: 1,
+        XCTAssertEqual(note.importedPDFPages, [NotabilityImportedPDFPage(documentPageNumber: 1, pdfFile: .fixture("PDFs/ABC.pdf"), pdfPageNumber: 1,
                                                                          isBookmarked: true)])
         XCTAssertEqual(note.recordings.map(\.identifier), [1, 10, 2], "sorted by key as text")
-        XCTAssertEqual(note.recordings.first, NotabilityRecording(identifier: 1, relativePath: "Recordings/Recording 1.m4a", durationSeconds: 18.9,
+        XCTAssertEqual(note.recordings.first, NotabilityRecording(identifier: 1, file: .fixture("Recordings/Recording 1.m4a"), durationSeconds: 18.9,
                                                                   name: "Recording 1"))
         XCTAssertEqual(note.playbackEvents, [
             NotabilityPlaybackEvent(curveIndex: 0, curveUUID: Self.uuid(repeating: 1), recordingIdentifier: 1,
@@ -166,9 +166,9 @@ final class NotabilityNoteReaderTests: XCTestCase {
 
     func testFileBytesAreReadFromTheNoteFolder() throws {
         let reader = try reader(Self.completeNote())
-        XCTAssertEqual(try reader.fileBytes(relativePath: "Images/Image 1.png"), [0x89, 0x50, 0x4E, 0x47])
-        XCTAssertEqual(try reader.fileBytes(relativePath: "PDFs/ABC.pdf"), Array("%PDF-1.7".utf8))
-        XCTAssertThrowsError(try reader.fileBytes(relativePath: "Images/Missing.png")) { error in
+        XCTAssertEqual(try reader.fileBytes(.fixture("Images/Image 1.png")), [0x89, 0x50, 0x4E, 0x47])
+        XCTAssertEqual(try reader.fileBytes(.fixture("PDFs/ABC.pdf")), Array("%PDF-1.7".utf8))
+        XCTAssertThrowsError(try reader.fileBytes(.fixture("Images/Missing.png"))) { error in
             XCTAssertEqual(error as? NotabilityReadingError, .archive(.entryMissing(name: "Synthetic Note/Images/Missing.png")))
         }
     }
@@ -228,7 +228,7 @@ final class NotabilityNoteReaderTests: XCTestCase {
                             SyntheticNotabilityPicture(relativePath: "Images/Second.jpg", className: "VideoMediaObject"),
                             SyntheticNotabilityPicture(size: "{1}")]
         let reader = try reader(builder)
-        XCTAssertEqual(reader.note.pictures.map(\.relativePath), ["Images/Second.jpg"])
+        XCTAssertEqual(reader.note.pictures.map(\.file.text), ["Images/Second.jpg"])
         XCTAssertEqual(reader.issues, [.pictureSkipped(mediaIndex: 0, .valueNotReadable(key: "FigureCropRectKey")),
                                        .mediaClassUnknown(className: "VideoMediaObject"),
                                        .pictureSkipped(mediaIndex: 2, .valueNotReadable(key: "unscaledContentSize"))])

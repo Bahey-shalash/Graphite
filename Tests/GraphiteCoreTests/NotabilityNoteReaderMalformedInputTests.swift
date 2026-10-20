@@ -123,27 +123,76 @@ final class NotabilityNoteReaderMalformedInputTests: XCTestCase {
                        [.shapesSkipped(.propertyList(.binary(.valueCountOverBudget(budget: sharedBytes.count))))])
     }
 
-    func testTextRunsOutsideTheTextAndDamagedLibrariesAreRefused() {
-        var builder = NotabilityNoteBuilder()
-        builder.text = "abc"
-        builder.textRuns = [SyntheticNotabilityTextRun(range: "{2, 5}")]
-        XCTAssertEqual(readingError(builder), .textRunOutsideText(runIndex: 0, utf16Location: 2, utf16Length: 5, textUTF16Length: 3))
-        builder.textRuns = [SyntheticNotabilityTextRun(range: "{2}")]
-        XCTAssertEqual(readingError(builder), .textRunRangeNotReadable(runIndex: 0))
-        builder.textRuns = [SyntheticNotabilityTextRun(range: "{1e300, 1}")]
-        XCTAssertEqual(readingError(builder), .textRunRangeNotReadable(runIndex: 0))
-        builder.textRuns = []
-        builder.recordingsLibraryXML = "<plist><dict>"
-        XCTAssertEqual(readingError(builder), .recordingsLibrary(.xmlNotReadable))
-        builder.recordingsLibraryXML = "<?xml version=\"1.0\"?><plist version=\"1.0\"><dict><key>recordings</key><array/></dict></plist>"
-        XCTAssertEqual(readingError(builder), .recordingsLibraryLayoutNotRecognised)
+    /// BUG-IMPORT-02: a negative stored page width gave a page count below 1.
+    func testAPageWidthThatIsNotFiniteAndPositiveGivesNoPagesAndAnIssue() throws {
+        for storedWidth in [-572.0, 0, Double.infinity, Double.nan] {
+            var builder = noteWithOneCurve()
+            builder.storedPageWidth = storedWidth
+            let reader = try NotabilityNoteReader(archiveBytes: builder.noteArchiveBytes(), limits: limits)
+            XCTAssertNil(reader.pageCount, "width \(storedWidth)")
+            XCTAssertNil(reader.note.pageGeometry.pointsPerUnit, "width \(storedWidth)")
+            XCTAssertTrue(reader.issues.contains { issue in
+                if case .pageWidthNotUsable = issue { true } else { false }
+            }, "width \(storedWidth)")
+            XCTAssertEqual(reader.curveCount, 1)
+        }
     }
 
-    func testPlaybackArraysOfTheWrongLengthAreRefused() {
+    /// CC-IMPORT-08: one damaged text run or recordings library used to fail the whole note, ink included.
+    func testDamagedTextRunsAndLibrariesAreSkippedAndTheInkIsStillRead() throws {
+        var builder = noteWithOneCurve()
+        builder.text = "abc"
+        builder.textRuns = [SyntheticNotabilityTextRun(range: "{2, 5}"), SyntheticNotabilityTextRun(range: "{0, 3}")]
+        var reader = try NotabilityNoteReader(archiveBytes: builder.noteArchiveBytes(), limits: limits)
+        XCTAssertEqual(reader.issues, [.textRunSkipped(runIndex: 0, .textRunOutsideText(runIndex: 0, utf16Location: 2, utf16Length: 5,
+                                                                                          textUTF16Length: 3))])
+        XCTAssertEqual(reader.note.typedText.runs.map(\.utf16Length), [3])
+        XCTAssertEqual(reader.curveCount, 1)
+        builder.textRuns = [SyntheticNotabilityTextRun(range: "{2}")]
+        reader = try NotabilityNoteReader(archiveBytes: builder.noteArchiveBytes(), limits: limits)
+        XCTAssertEqual(reader.issues, [.textRunSkipped(runIndex: 0, .textRunRangeNotReadable(runIndex: 0))])
+        builder.textRuns = []
+        builder.recordingsLibraryXML = "<plist><dict>"
+        reader = try NotabilityNoteReader(archiveBytes: builder.noteArchiveBytes(), limits: limits)
+        XCTAssertEqual(reader.issues, [.recordingsSkipped(.recordingsLibrary(.xmlNotReadable))])
+        XCTAssertEqual(reader.curveCount, 1)
+        builder.recordingsLibraryXML = "<?xml version=\"1.0\"?><plist version=\"1.0\"><dict><key>recordings</key><array/></dict></plist>"
+        reader = try NotabilityNoteReader(archiveBytes: builder.noteArchiveBytes(), limits: limits)
+        XCTAssertEqual(reader.issues, [.recordingsSkipped(.recordingsLibraryLayoutNotRecognised)])
+    }
+
+    /// CC-IMPORT-08: a `pageLayoutArray` entry that is not an object used to fail the whole note.
+    func testAPageLayoutEntryThatIsNotAnObjectIsSkippedAndTheOtherPagesAreRead() throws {
+        var builder = noteWithOneCurve()
+        builder.importedPDFFileNames = ["first.pdf"]
+        builder.pageLayoutStrings = ["not a layout"]
+        let reader = try NotabilityNoteReader(archiveBytes: builder.noteArchiveBytes(), limits: limits)
+        XCTAssertEqual(reader.note.importedPDFPages.map(\.pdfFile?.text), ["PDFs/first.pdf"])
+        XCTAssertEqual(reader.issues.count, 1)
+        guard case .pageLayoutSkipped(layoutIndex: 1, _)? = reader.issues.first else { return XCTFail("expected the second layout skipped") }
+        XCTAssertEqual(reader.curveCount, 1)
+    }
+
+    /// CC-IMPORT-10: a PDF name or recording path that climbs out of the note was passed on as a plain string.
+    func testPathsThatClimbOutOfTheNoteAreReportedAndNotUsed() throws {
+        var builder = noteWithOneCurve()
+        builder.importedPDFFileNames = ["../../escape.pdf"]
+        builder.recordingsLibraryXML = NotabilityNoteBuilder.recordingsLibraryXML([(key: "1", identifier: 1, filePath: "../../escape.m4a", durationSeconds: 1, name: "x")])
+        let reader = try NotabilityNoteReader(archiveBytes: builder.noteArchiveBytes(), limits: limits)
+        XCTAssertEqual(reader.note.importedPDFPages.map(\.pdfFile), [nil])
+        XCTAssertEqual(reader.note.recordings.map(\.file), [nil])
+        XCTAssertEqual(reader.issues, [.archivePathNotValid(path: "PDFs/../../escape.pdf"), .archivePathNotValid(path: "Recordings/../../escape.m4a")])
+    }
+
+    /// CC-IMPORT-08: stroke timing arrays of the wrong length used to fail the whole note.
+    func testPlaybackArraysOfTheWrongLengthAreSkippedAndTheInkIsStillRead() throws {
         var builder = noteWithOneCurve()
         builder.playbackEvents = [SyntheticNotabilityPlaybackEvent(curveUUID: [1, 2, 3], secondsFromRecordingStart: 1, recordingIdentifier: 1,
                                                                    durationSeconds: 1)]
-        XCTAssertEqual(readingError(builder), .packedArrayLengthWrong(.eventCurveUUIDs, byteCount: 3, expectedValueCount: 1))
+        let reader = try NotabilityNoteReader(archiveBytes: builder.noteArchiveBytes(), limits: limits)
+        XCTAssertEqual(reader.issues, [.playbackEventsSkipped(.packedArrayLengthWrong(.eventCurveUUIDs, byteCount: 3, expectedValueCount: 1))])
+        XCTAssertEqual(reader.note.playbackEvents, [])
+        XCTAssertEqual(reader.curveCount, 1)
     }
 
     /// Every truncation of `Session.plist`, and thousands of copies with bytes changed at positions a seeded generator

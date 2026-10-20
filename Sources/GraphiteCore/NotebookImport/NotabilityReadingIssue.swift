@@ -9,6 +9,8 @@ public enum NotabilityReadingIssue: Hashable, Sendable {
     /// The note stores no page width, and its reflow state is not `NBReflowStateReflowable`.
     case reflowStateUnknown(className: String?)
     case curveStyleUnknown(rawStyle: UInt8)
+    /// The stored page width is not a finite, positive number; the note's pages are then not known.
+    case pageWidthNotUsable(widthInUnits: Double)
     case shapeKindUnknown(rawKind: String)
     /// A media object that is not an `ImageMediaObject`; it is still read as a picture when it can be.
     case mediaClassUnknown(className: String)
@@ -23,6 +25,17 @@ public enum NotabilityReadingIssue: Hashable, Sendable {
     /// the byte count is nil when the value is not data.
     case perKnotArrayIgnored(NotabilityPackedArray, byteCount: Int?)
     case textRunColorNotReadable(runIndex: Int)
+    /// A typed-text run that could not be read; the text and the other runs were read.
+    case textRunSkipped(runIndex: Int, NotabilityReadingError)
+    /// An entry of `pageLayoutArray` that could not be read; that imported PDF page is not known, the rest was read.
+    case pageLayoutSkipped(layoutIndex: Int, NotabilityReadingError)
+    /// The stroke timing could not be read; the note was read without it.
+    case playbackEventsSkipped(NotabilityReadingError)
+    /// A path the note names for a file that is absolute, climbs with `..`, or is otherwise not a safe path inside the
+    /// note; the file is not used.
+    case archivePathNotValid(path: String)
+    /// `Recordings/library.plist` could not be read; the note was read without its recordings.
+    case recordingsSkipped(NotabilityReadingError)
 }
 
 /// Where an unknown key was found.
@@ -49,6 +62,8 @@ public enum NotabilityElementFailure: Error, Hashable, Sendable {
     case valueNotReadable(key: String)
     /// The `shapes`, `kinds` and `indices` arrays differ in length.
     case shapeArraysDiffer(shapeCount: Int, kindCount: Int, indexCount: Int)
+    /// A file path that is absolute, climbs with `..`, or is otherwise not a safe path inside the note.
+    case archivePathNotValid(path: String)
 }
 
 /// The issues of one read, each kept once in the order first reported.

@@ -47,7 +47,7 @@ struct GoodnotesLayerReader {
             }
             guard !header.isDeleted else { continue }
             do throws(GoodnotesReadingError) {
-                if let element = try element(identifier, body, issues: &issues) { placed.append((element, sequence)) }
+                placed.append((try element(identifier, body, issues: &issues), sequence))
             } catch {
                 issues.report(.elementSkipped(elementIdentifier: identifier, error))
             }
@@ -77,12 +77,17 @@ struct GoodnotesLayerReader {
         bodies.set(Body(kind: firstField.number, fields: fields), for: try fields.string(1))
     }
 
-    private func element(_ identifier: String, _ body: Body, issues: inout GoodnotesIssueList) throws(GoodnotesReadingError) -> GoodnotesElement? {
+    /// An element of a kind or path layout this reader does not know is kept, and reported with its identifier.
+    private func element(_ identifier: String, _ body: Body, issues: inout GoodnotesIssueList) throws(GoodnotesReadingError) -> GoodnotesElement {
         guard let kind = GoodnotesElementKind(rawValue: body.kind) else {
-            issues.report(.elementKindNotKnown(body.kind))
-            return nil
+            issues.report(.elementKindNotKnown(kind: body.kind, elementIdentifier: identifier))
+            return GoodnotesElement(identifier: identifier, drawingPosition: .unknown,
+                                    content: .unknown(kind: body.kind, fieldNumbers: body.fields.fieldNumbers.sorted()))
         }
-        guard let content = try decoder.content(of: kind, fields: body.fields, issues: &issues) else { return nil }
+        let content = try decoder.content(of: kind, fields: body.fields, issues: &issues)
+        if case .stroke(let stroke) = content, case .unknownLayout(let formatString) = stroke.path {
+            issues.report(.strokePathFormatNotKnown(formatString: formatString, elementIdentifier: identifier))
+        }
         let position = try body.fields.fields(kind.positionFieldNumber).clock(1)
         return GoodnotesElement(identifier: identifier, drawingPosition: GoodnotesDrawingPosition(counter: position.counter, replica: position.replica),
                                 content: content)

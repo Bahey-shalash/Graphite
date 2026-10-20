@@ -104,6 +104,30 @@ final class KeyedArchiveTests: XCTestCase {
         expectError(.keyMissing(key: "absent")) { () throws(KeyedArchiveError) in _ = try keyedArchive.requiredValue(named: "absent", in: fields) }
     }
 
+    /// CC-IMPORT-06: an `NSString` with neither `NS.string` nor `NS.bytes`, and an `NSArray` or `NSDictionary` without
+    /// `NS.objects` or `NS.keys`, read as empty, so a damaged note lost text or pictures silently.
+    func testFoundationObjectsMissingTheirMemberKeyAreDamagedNotEmpty() throws {
+        var builder = KeyedArchiveBuilder()
+        let damagedString = builder.object(className: "NSMutableString", [])
+        let damagedArray = builder.object(className: "NSArray", [])
+        let damagedDictionary = builder.object(className: "NSDictionary", [("NS.objects", .uid(builder.array([])))])
+        let emptyArray = builder.array([])
+        let root = builder.object(className: "Root", [("text", .uid(damagedString)), ("list", .uid(damagedArray)),
+                                                      ("table", .uid(damagedDictionary)), ("empty", .uid(emptyArray))])
+        let keyedArchive = try archive(builder, rootUID: root)
+        let fields = try keyedArchive.fields(of: keyedArchive.rootValue())
+        expectError(.keyMissing(key: "NS.string")) { () throws(KeyedArchiveError) in
+            _ = try keyedArchive.string(keyedArchive.requiredValue(named: "text", in: fields))
+        }
+        expectError(.keyMissing(key: "NS.objects")) { () throws(KeyedArchiveError) in
+            _ = try keyedArchive.members(of: keyedArchive.requiredValue(named: "list", in: fields))
+        }
+        expectError(.keyMissing(key: "NS.keys")) { () throws(KeyedArchiveError) in
+            _ = try keyedArchive.fields(of: keyedArchive.requiredValue(named: "table", in: fields))
+        }
+        XCTAssertEqual(try keyedArchive.members(of: keyedArchive.requiredValue(named: "empty", in: fields)).count, 0)
+    }
+
     func testAChainOfUIDsThatComesBackIsACycle() throws {
         var builder = KeyedArchiveBuilder()
         let looping = builder.archive(.null)

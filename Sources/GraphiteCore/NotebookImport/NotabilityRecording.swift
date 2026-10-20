@@ -4,14 +4,15 @@ import Foundation
 public struct NotabilityRecording: Sendable, Equatable {
     /// The identifier playback events name the recording by.
     public let identifier: Int?
-    /// The audio file relative to the note's folder: `Recordings/<filepath>`.
-    public let relativePath: String
+    /// The audio file relative to the note's folder, `Recordings/<filepath>`; nil when the library names no file or a
+    /// path that is not safe (reported).
+    public let file: NotebookArchivePath?
     public let durationSeconds: Double?
     public let name: String?
 
-    public init(identifier: Int?, relativePath: String, durationSeconds: Double?, name: String?) {
+    public init(identifier: Int?, file: NotebookArchivePath?, durationSeconds: Double?, name: String?) {
         self.identifier = identifier
-        self.relativePath = relativePath
+        self.file = file
         self.durationSeconds = durationSeconds
         self.name = name
     }

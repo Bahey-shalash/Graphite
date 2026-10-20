@@ -71,7 +71,9 @@ final class NotabilityNoteReaderSampleTests: XCTestCase {
         case .mediaClassUnknown: "media classes"
         case .playbackEventWithoutCurve: "playback events"
         case .paperSizeUnknown: "paper sizes"
-        case .pictureSkipped, .shapesSkipped, .shapeSkipped, .perKnotArrayIgnored, .textRunColorNotReadable: nil
+        case .pictureSkipped, .shapesSkipped, .shapeSkipped, .perKnotArrayIgnored, .textRunColorNotReadable, .pageWidthNotUsable, .textRunSkipped,
+             .pageLayoutSkipped, .playbackEventsSkipped, .recordingsSkipped, .archivePathNotValid:
+            nil
         }
     }
 

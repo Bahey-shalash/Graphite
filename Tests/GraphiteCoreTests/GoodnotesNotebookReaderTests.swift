@@ -159,7 +159,7 @@ final class GoodnotesNotebookReaderTests: XCTestCase {
         XCTAssertEqual(stroke.path, .constantWidth(expected))
     }
 
-    func testAVaryingWidthStrokeHasItsCentreLineAndOutlineWithArcsAndFlatCaps() throws {
+    func testAVaryingWidthStrokeHasItsCenterLineAndOutlineWithArcsAndFlatCaps() throws {
         var builder = Self.notebookWithTwoPages()
         builder.layers[Self.firstLayer] = [GoodnotesRecord.header("FOUNTAIN"),
                                            GoodnotesRecord.stroke("FOUNTAIN", path: Self.varyingWidthPath(), position: (1, 1)) { message in
@@ -170,14 +170,14 @@ final class GoodnotesNotebookReaderTests: XCTestCase {
         XCTAssertEqual(stroke.ink, .fountainPenBrushPenOrTape)
         XCTAssertTrue(stroke.isTape)
         guard case .varyingWidth(let path) = stroke.path else { return XCTFail("not a varying-width path") }
-        XCTAssertEqual(path.centreLine, GoodnotesCentreLine(
+        XCTAssertEqual(path.centerLine, GoodnotesCenterLine(
             start: GoodnotesWidthPoint(point: CGPoint(x: 1, y: 1), width: 2),
             curves: [GoodnotesWidthCurve(control: GoodnotesWidthPoint(point: CGPoint(x: 2, y: 2), width: 3),
                                          end: GoodnotesWidthPoint(point: CGPoint(x: 4, y: 4), width: 1))]))
         XCTAssertEqual(path.outline, [[
             .move(to: CGPoint(x: 0, y: 0)),
             .cubic(control1: CGPoint(x: 1, y: 0), control2: CGPoint(x: 2, y: 0), end: CGPoint(x: 3, y: 0)),
-            .arc(centre: CGPoint(x: 3, y: 1), radius: 1, startAngleRadians: -1.5, endAngleRadians: 1.5),
+            .arc(center: CGPoint(x: 3, y: 1), radius: 1, startAngleRadians: -1.5, endAngleRadians: 1.5),
             .cubic(control1: CGPoint(x: 2, y: 2), control2: CGPoint(x: 1, y: 2), end: CGPoint(x: 0, y: 2)),
             .flatCap(through: CGPoint(x: 0, y: 1)),
         ]])
@@ -227,7 +227,7 @@ final class GoodnotesNotebookReaderTests: XCTestCase {
         guard case .stroke(let stroke)? = page.elements.first?.content, case .shapeFill(let fill)? = page.elements.last?.content else {
             return XCTFail("expected a shape stroke and a fill")
         }
-        XCTAssertEqual(stroke.shape, GoodnotesShape(geometry: .ellipse(centre: CGPoint(x: 50, y: 60), radii: CGSize(width: 20, height: 10),
+        XCTAssertEqual(stroke.shape, GoodnotesShape(geometry: .ellipse(center: CGPoint(x: 50, y: 60), radii: CGSize(width: 20, height: 10),
                                                                        angleRadians: 0.5), width: 3))
         XCTAssertEqual(fill.shape?.geometry, .polyline([CGPoint(x: 0, y: 0), CGPoint(x: 10, y: 0), CGPoint(x: 10, y: 10)]))
         XCTAssertEqual(fill.outlineStrokeIdentifiers, ["SHAPE"])
@@ -256,7 +256,7 @@ final class GoodnotesNotebookReaderTests: XCTestCase {
         guard case .picture(let picture)? = page.elements.first?.content else { return XCTFail("expected a picture") }
         XCTAssertEqual(picture.attachment?.fileIdentifier, "PICTUREFILE")
         XCTAssertEqual(picture.boundingBox, CGRect(x: 5, y: 6, width: 70, height: 80))
-        XCTAssertEqual(picture.centre, CGPoint(x: 40, y: 46))
+        XCTAssertEqual(picture.center, CGPoint(x: 40, y: 46))
         XCTAssertEqual(picture.size, CGSize(width: 60, height: 40))
         XCTAssertEqual(picture.rotationRadians, 0.5)
         XCTAssertEqual(picture.kind, .animatedGIF)
@@ -341,9 +341,14 @@ final class GoodnotesNotebookReaderTests: XCTestCase {
             for member in ["NEWKIND", "NEWFORMAT"] { members.message(2, GoodnotesRecord.register(text: member, counter: 1)) }
         }))
         let page = try GoodnotesNotebookReader(archiveBytes: builder.archiveBytes(), limits: .standard).page(at: 1)
-        XCTAssertEqual(page.elements.map(\.identifier), ["NEWFIELD"])
+        // OCP-IMPORT-01: elements of an unknown kind or path layout used to be dropped, reported once per kind.
+        XCTAssertEqual(page.elements.map(\.identifier), ["NEWFORMAT", "NEWFIELD", "NEWKIND"])
+        XCTAssertEqual(page.elements.last?.content, .unknown(kind: 44, fieldNumbers: [1]))
+        XCTAssertEqual(page.elements.last?.drawingPosition, .unknown)
+        guard case .stroke(let unknownLayoutStroke)? = page.elements.first?.content else { return XCTFail("expected the stroke kept") }
+        XCTAssertEqual(unknownLayoutStroke.path, .unknownLayout(formatString: "vA(u)"))
         XCTAssertEqual(page.issues, [
-            .elementKindNotKnown(44), .strokePathFormatNotKnown("vA(u)"),
+            .elementKindNotKnown(kind: 44, elementIdentifier: "NEWKIND"), .strokePathFormatNotKnown(formatString: "vA(u)", elementIdentifier: "NEWFORMAT"),
             .elementMissingFromMemberList(elementIdentifier: "NEWFIELD"), .elementFieldNotKnown(elementKind: 7, fieldNumber: 99),
             .bodyWithoutHeader(elementIdentifier: "ORPHAN"),
         ])
@@ -363,6 +368,58 @@ final class GoodnotesNotebookReaderTests: XCTestCase {
         XCTAssertThrowsError(try GoodnotesNotebookReader(archiveBytes: archive.archiveBytes(), limits: .standard)) { error in
             XCTAssertEqual(error as? GoodnotesReadingError, .notAGoodnotesNotebook)
         }
+    }
+
+    /// CC-IMPORT-10: an attachment's file identifier was used as a path as stored, `../` included.
+    func testAnAttachmentWhoseFileClimbsOutIsReportedAndItsFileIsNotRead() throws {
+        var builder = Self.notebookWithTwoPages()
+        builder.events.append(GoodnotesRecord.event(entity: "ESCAPE", kind: 6, body: ProtocolBufferWriter.message { message in
+            message.string(1, "ESCAPE")
+            message.string(2, "../../escape")
+        }))
+        let reader = try GoodnotesNotebookReader(archiveBytes: builder.archiveBytes(), limits: .standard)
+        XCTAssertEqual(reader.notebook.issues, [.attachmentPathNotValid(attachmentIdentifier: "ESCAPE")])
+        XCTAssertEqual(reader.notebook.pages.first?.paper?.attachment?.file?.text, "attachments/TEMPLATEFILE")
+    }
+
+    /// CC-IMPORT-09: a paper, picture or recording whose attachment is not in the log read as nil with no issue.
+    func testAttachmentsAndPapersMissingFromTheLogAreReported() throws {
+        var builder = Self.notebookWithTwoPages()
+        builder.addPage(Self.deletedPage, position: "c", paper: "NO-SUCH-PAPER")
+        builder.events.append(GoodnotesRecord.event(entity: "RECORDING", kind: 160, body: ProtocolBufferWriter.message { recording in
+            recording.string(2, "NO-SUCH-AUDIO")
+        }))
+        builder.layers[Self.firstLayer] = [GoodnotesRecord.header("PICTURE"), GoodnotesRecord.body(kind: 1, ProtocolBufferWriter.message { picture in
+            picture.string(1, "PICTURE")
+            picture.string(4, "NO-SUCH-PICTURE")
+            picture.message(5, GoodnotesRecord.position(counter: 1, replica: 1))
+        })]
+        let reader = try GoodnotesNotebookReader(archiveBytes: builder.archiveBytes(), limits: .standard)
+        XCTAssertEqual(reader.notebook.issues, [.paperNotInLog(pageIdentifier: Self.deletedPage),
+                                                .attachmentNotInLog(attachmentIdentifier: "NO-SUCH-AUDIO")])
+        XCTAssertEqual(try reader.page(at: 1).issues, [.attachmentNotInLog(attachmentIdentifier: "NO-SUCH-PICTURE")])
+    }
+
+    /// BUG-IMPORT-01: a notebook whose event log is missing read as an empty notebook with no issue.
+    func testANotebookWithoutItsEventLogFailsWithATypedErrorInsteadOfReadingAsEmpty() {
+        var archive = ZipArchiveBuilder()
+        archive.addEntry(named: "schema.pb", contents: ProtocolBufferWriter.message { message in message.varint(1, 24) }.bytes)
+        archive.addEntry(named: "notes/\(Self.firstLayer)", contents: [])
+        XCTAssertThrowsError(try GoodnotesNotebookReader(archiveBytes: archive.archiveBytes(), limits: .standard)) { error in
+            XCTAssertEqual(error as? GoodnotesReadingError, .eventLogMissing)
+        }
+    }
+
+    /// CC-IMPORT-08: an unreadable `schema.pb`, which holds only the version, failed the whole notebook.
+    func testAnUnreadableSchemaIsReportedAndTheNotebookStillReads() throws {
+        let builder = Self.notebookWithTwoPages()
+        var archive = ZipArchiveBuilder()
+        archive.addEntry(named: "schema.pb", contents: [0x0A, 0x05, 0x01])
+        archive.addEntry(named: "index.events.pb", contents: GoodnotesRecord.lengthPrefixed(builder.events))
+        let reader = try GoodnotesNotebookReader(archiveBytes: archive.archiveBytes(), limits: .standard)
+        XCTAssertEqual(reader.notebook.schemaVersion, nil)
+        XCTAssertEqual(reader.notebook.issues, [.schemaVersionNotKnown(nil)])
+        XCTAssertEqual(reader.pageCount, 2)
     }
 
     func testATruncatedEventLogKeepsTheEventsBeforeTheCut() throws {
@@ -523,7 +580,7 @@ final class GoodnotesNotebookReaderTests: XCTestCase {
         }
     }
 
-    /// One centre-line curve and one closed outline: move, cubic, arc, cubic, flat cap.
+    /// One center-line curve and one closed outline: move, cubic, arc, cubic, flat cap.
     private static func varyingWidthPath() -> [UInt8] {
         var image = TplImageWriter(formatString: "vA(v)A(u)A(u)A(v)A(v)A(u)A(u)A(u)A(u)A(v)")
         image.uint16(2)

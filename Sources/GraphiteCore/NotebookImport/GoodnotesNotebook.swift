@@ -36,8 +36,10 @@ public struct GoodnotesPageDescriptor: Sendable, Equatable {
 /// A file in the notebook's `attachments/` folder, as an attachment record names it.
 public struct GoodnotesAttachment: Sendable, Equatable {
     public let identifier: String
-    /// The file's name under `attachments/`.
+    /// The file's name under `attachments/`, as the record stores it.
     public let fileIdentifier: String
+    /// `attachments/<file identifier>`; nil when the identifier is not one safe file name (reported).
+    public let file: NotebookArchivePath?
     public let byteCount: UInt64?
     /// The number of pages when the file is a PDF.
     public let pdfPageCount: UInt64?

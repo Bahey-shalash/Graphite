@@ -10,7 +10,6 @@ public struct GoodnotesNotebookReader: Sendable {
     private static let schemaEntryName = "schema.pb"
     private static let eventLogEntryName = "index.events.pb"
     private static let layerFolder = "notes/"
-    private static let attachmentFolder = "attachments/"
 
     public let notebook: GoodnotesNotebook
     private let archive: ZipArchive
@@ -22,7 +21,8 @@ public struct GoodnotesNotebookReader: Sendable {
         let archive: ZipArchive
         do throws(ZipArchiveError) { archive = try ZipArchive(archiveBytes: archiveBytes, limits: limits) } catch { throw .archive(error) }
         guard archive.entry(named: Self.schemaEntryName) != nil else { throw .notAGoodnotesNotebook }
-        let schemaVersion = try GoodnotesRecordFields(parsing: try Self.contents(of: Self.schemaEntryName, in: archive)[...]).varint(1)
+        guard archive.entry(named: Self.eventLogEntryName) != nil else { throw .eventLogMissing }
+        let schemaVersion = Self.schemaVersion(in: archive)
         var log = GoodnotesEventLog()
         if !(schemaVersion.map(Self.describedSchemaVersions.contains) ?? false) { log.issues.report(.schemaVersionNotKnown(schemaVersion)) }
         let (records, framingFailure) = ProtocolBufferMessage.lengthPrefixedRecords(in: try Self.contents(of: Self.eventLogEntryName, in: archive)[...])
@@ -32,8 +32,9 @@ public struct GoodnotesNotebookReader: Sendable {
         if let framingFailure { log.issues.report(.recordsTruncated(.protocolBuffer(framingFailure))) }
         let ordered = log.orderedPages()
         for issue in ordered.issues { log.issues.report(issue) }
+        let recordings = log.liveRecordings(issues: &log.issues)
         notebook = GoodnotesNotebook(schemaVersion: schemaVersion, title: log.titleText, pages: ordered.pages, deletedPageCount: ordered.deletedPageCount,
-                                     outlineEntries: log.sortedOutlineEntries, recordings: log.liveRecordings, issues: log.issues.issues)
+                                     outlineEntries: log.sortedOutlineEntries, recordings: recordings, issues: log.issues.issues)
         self.archive = archive
         self.limits = limits
         attachments = log.attachments
@@ -65,14 +66,29 @@ public struct GoodnotesNotebookReader: Sendable {
         return GoodnotesPage(descriptor: descriptor, elements: elements, issues: issues.issues)
     }
 
+    /// The bytes of a file of the notebook by its path in the archive, such as an attachment's `file`.
+    public func contents(ofFileAt path: NotebookArchivePath) throws(GoodnotesReadingError) -> [UInt8] {
+        do throws(ZipArchiveError) { return try archive.contents(ofEntryNamed: path.text) } catch { throw .archive(error) }
+    }
+
     /// The bytes of an attachment's file: a template or imported PDF, a picture or a recording.
     public func contents(of attachment: GoodnotesAttachment) throws(GoodnotesReadingError) -> [UInt8] {
-        do throws(ZipArchiveError) { return try archive.contents(ofEntryNamed: Self.attachmentFolder + attachment.fileIdentifier) } catch {
-            throw .archive(error)
+        guard let file = attachment.file else { throw .attachmentFileNotValid(attachmentIdentifier: attachment.identifier) }
+        do throws(ZipArchiveError) { return try archive.contents(ofEntryNamed: file.text) } catch { throw .archive(error) }
+    }
+
+    /// The schema holds only the version: one that cannot be read is nil, reported as a version not known, and the
+    /// rest of the notebook is read.
+    private static func schemaVersion(in archive: ZipArchive) -> UInt64? {
+        do throws(GoodnotesReadingError) {
+            return try GoodnotesRecordFields(parsing: try contents(of: schemaEntryName, in: archive)[...]).varint(1)
+        } catch {
+            return nil
         }
     }
 
-    /// An entry's bytes; a missing entry reads as empty, as a page with no content has an empty or no layer file.
+    /// An entry's bytes; a missing entry reads as empty. Only a page's layer may be missing (a page with no content has
+    /// an empty or no layer file); the schema and the event log are checked to exist before they are read.
     private static func contents(of entryName: String, in archive: ZipArchive) throws(GoodnotesReadingError) -> [UInt8] {
         guard let entry = archive.entry(named: entryName) else { return [] }
         do throws(ZipArchiveError) { return try archive.contents(of: entry) } catch { throw .archive(error) }

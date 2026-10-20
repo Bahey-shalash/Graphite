@@ -59,16 +59,19 @@ extension KeyedArchive {
         }
     }
 
-    /// A string stored as itself, or an `NSString` / `NSMutableString` with `NS.string` or UTF-8 `NS.bytes`.
+    /// A string stored as itself, or an `NSString` / `NSMutableString` with `NS.string` or UTF-8 `NS.bytes`; an object
+    /// with neither is damaged (Foundation always writes one) and fails with `keyMissing`.
     public func string(_ value: KeyedArchiveValue) throws(KeyedArchiveError) -> String {
         switch value {
         case .primitive(.string(let string), _):
             return string
         case .object(let object) where Self.stringClassNames.contains(object.className):
-            if case .primitive(.string(let string), _)? = try self.value(named: "NS.string", in: object.fields), !string.isEmpty {
-                return string
+            let storedString = try self.value(named: "NS.string", in: object.fields)
+            if case .primitive(.string(let string), _)? = storedString, !string.isEmpty { return string }
+            guard let bytesValue = try nonNullValue(named: "NS.bytes", in: object.fields) else {
+                if case .primitive(.string(let string), _)? = storedString { return string }
+                throw .keyMissing(key: "NS.string")
             }
-            guard let bytesValue = try nonNullValue(named: "NS.bytes", in: object.fields) else { return "" }
             guard let string = String(validating: try data(bytesValue), as: UTF8.self) else {
                 throw .valueNotOfExpectedKind(expected: .string, objectIndex: object.objectIndex)
             }
@@ -145,9 +148,10 @@ extension KeyedArchive {
         return UUID(uuid: uuidBytes)
     }
 
-    /// The references of a property list array an archived object stores under this key; none when it is absent.
+    /// The references of a property list array an archived object stores under this key. Foundation writes the key for
+    /// every array, set and dictionary, empty ones included, so its absence is damage and fails with `keyMissing`.
     private func rawMemberReferences(named key: String, in object: KeyedArchiveObject) throws(KeyedArchiveError) -> [KeyedArchiveReference] {
-        guard let reference = object.fields.reference(named: key) else { return [] }
+        guard let reference = object.fields.reference(named: key) else { throw .keyMissing(key: key) }
         let target = try target(ofObjectAt: reference.objectIndex)
         guard case .array(let memberIndices) = target.object else {
             throw .valueNotOfExpectedKind(expected: .array, objectIndex: target.objectIndex)

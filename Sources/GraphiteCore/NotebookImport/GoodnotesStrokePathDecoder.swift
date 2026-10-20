@@ -3,7 +3,7 @@ import Foundation
 
 /// Decodes a stroke's tpl image into its path, for the four layouts Goodnotes writes (`Docs/Goodnotes-format.md`,
 /// Strokes). The values of each layout are read first, then their codes are interpreted; a layout that is not one of
-/// the four is reported and decodes to nil.
+/// the four keeps its format string, for the caller to report.
 enum GoodnotesStrokePathDecoder {
     private static let constantWidthFormat = "vuA(v)A(S(uu))A(S(uuuu))vA(f)"
     private static let varyingWidthFormat = "vA(v)A(u)A(u)A(v)A(v)A(u)A(u)A(u)A(u)A(v)"
@@ -16,13 +16,13 @@ enum GoodnotesStrokePathDecoder {
     private static let pencilStartValues = 5
     private static let pencilCurveValues = 11
 
-    static func path(of image: TplImage, issues: inout GoodnotesIssueList) throws(GoodnotesReadingError) -> GoodnotesStrokePath? {
+    static func path(of image: TplImage, issues: inout GoodnotesIssueList) throws(GoodnotesReadingError) -> GoodnotesStrokePath {
         switch image.formatString {
         case constantWidthFormat:
             return .constantWidth(try constantWidthPath(try readValues(image, layout: .constantWidth), issues: &issues))
         case varyingWidthFormat:
             let values = try readValues(image, layout: .varyingWidth)
-            return .varyingWidth(GoodnotesVaryingWidthPath(centreLine: try GoodnotesOutlineDecoder.centreLine(values),
+            return .varyingWidth(GoodnotesVaryingWidthPath(centerLine: try GoodnotesOutlineDecoder.centerLine(values),
                                                            outline: try GoodnotesOutlineDecoder.outline(values, isOlderLayout: false)))
         case olderVaryingWidthFormat:
             let values = try readValues(image, layout: .olderVaryingWidth)
@@ -31,8 +31,7 @@ enum GoodnotesStrokePathDecoder {
         case pencilFormat:
             return .pencil(try pencilPath(try readValues(image, layout: .pencil), issues: &issues))
         default:
-            issues.report(.strokePathFormatNotKnown(image.formatString))
-            return nil
+            return .unknownLayout(formatString: image.formatString)
         }
     }
 
@@ -84,7 +83,7 @@ enum GoodnotesStrokePathDecoder {
         return values
     }
 
-    /// Centre-line codes, start and curves, then the outline: commands per segment (unused), codes, starts, an
+    /// Center-line codes, start and curves, then the outline: commands per segment (unused), codes, starts, an
     /// array that is empty in every sample, points, cap records and one value per cap record (unused).
     private static func readVaryingWidthArrays(_ cursor: inout TplValueCursor, into values: inout LayoutValues) throws(TplImageError) {
         values.codes = try cursor.uint16Array()

@@ -42,15 +42,14 @@ struct GoodnotesElementDecoder {
     let limits: NotebookImportLimits
     let attachments: [String: GoodnotesAttachment]
 
-    /// Nil when the element is a stroke whose path layout is not known (reported).
     func content(of kind: GoodnotesElementKind, fields: GoodnotesRecordFields,
-                 issues: inout GoodnotesIssueList) throws(GoodnotesReadingError) -> GoodnotesElementContent? {
+                 issues: inout GoodnotesIssueList) throws(GoodnotesReadingError) -> GoodnotesElementContent {
         for fieldNumber in fields.fieldNumbers.subtracting(kind.knownFieldNumbers).sorted() {
             issues.report(.elementFieldNotKnown(elementKind: kind.rawValue, fieldNumber: fieldNumber))
         }
         switch kind {
-        case .stroke: return try stroke(fields, issues: &issues).map(GoodnotesElementContent.stroke)
-        case .picture: return .picture(try picture(fields))
+        case .stroke: return .stroke(try stroke(fields, issues: &issues))
+        case .picture: return .picture(try picture(fields, issues: &issues))
         case .shapeFill: return .shapeFill(try shapeFill(fields, issues: &issues))
         case .textBox: return .textBox(try textBox(fields))
         case .stickyNote: return .stickyNote(try stickyNote(fields))
@@ -60,12 +59,12 @@ struct GoodnotesElementDecoder {
         }
     }
 
-    private func stroke(_ fields: GoodnotesRecordFields, issues: inout GoodnotesIssueList) throws(GoodnotesReadingError) -> GoodnotesStroke? {
+    private func stroke(_ fields: GoodnotesRecordFields, issues: inout GoodnotesIssueList) throws(GoodnotesReadingError) -> GoodnotesStroke {
         let pathBytes = try fields.compressedPayload(2, limits: limits)
         let image: TplImage
         do throws(TplImageError) { image = try TplImage(pathBytes) } catch { throw .tplImage(error) }
         let shape = try fields.hasNonEmptyBytes(9) ? try self.shape(try fields.fields(9), issues: &issues) : nil
-        guard let path = try GoodnotesStrokePathDecoder.path(of: image, issues: &issues) else { return nil }
+        let path = try GoodnotesStrokePathDecoder.path(of: image, issues: &issues)
         return GoodnotesStroke(ink: Self.ink(try fields.varint(3) ?? 0), color: try fields.color(4), isHighlighter: try fields.varint(5) == 1,
                                isTape: try fields.hasNonEmptyBytes(20), groupIdentifier: try fields.nonEmptyString(10),
                                offset: try fields.vector(6), shape: shape, path: path)
@@ -95,17 +94,17 @@ struct GoodnotesElementDecoder {
             geometry = .arcThroughThreePoints(try arc.point(1), try arc.point(2), try arc.point(3))
         } else if fields.contains(3) {
             let rectangle = try fields.fields(3)
-            geometry = .rectangle(centre: try rectangle.point(1), size: try rectangle.size(2), angleRadians: try rectangle.float(3))
+            geometry = .rectangle(center: try rectangle.point(1), size: try rectangle.size(2), angleRadians: try rectangle.float(3))
         } else if fields.contains(4) {
             let ellipse = try fields.fields(4)
-            geometry = .ellipse(centre: try ellipse.point(1), radii: try ellipse.size(2), angleRadians: try ellipse.float(3))
+            geometry = .ellipse(center: try ellipse.point(1), radii: try ellipse.size(2), angleRadians: try ellipse.float(3))
         } else {
             geometry = nil
         }
         return GoodnotesShape(geometry: geometry, width: width)
     }
 
-    private func picture(_ fields: GoodnotesRecordFields) throws(GoodnotesReadingError) -> GoodnotesPicture {
+    private func picture(_ fields: GoodnotesRecordFields, issues: inout GoodnotesIssueList) throws(GoodnotesReadingError) -> GoodnotesPicture {
         let placement = try fields.fields(3)
         let kindCode = try fields.varint(6)
         let kind: GoodnotesPicture.Kind? = switch kindCode {
@@ -114,7 +113,13 @@ struct GoodnotesElementDecoder {
         case 5?: .animatedGIF
         case let code?: .unknown(code)
         }
-        return GoodnotesPicture(attachment: attachments[try fields.string(4)], boundingBox: try fields.rectangle(2), centre: try placement.point(1),
+        let attachmentIdentifier = try fields.string(4)
+        var attachment: GoodnotesAttachment?
+        if !attachmentIdentifier.isEmpty {
+            attachment = attachments[attachmentIdentifier]
+            if attachment == nil { issues.report(.attachmentNotInLog(attachmentIdentifier: attachmentIdentifier)) }
+        }
+        return GoodnotesPicture(attachment: attachment, boundingBox: try fields.rectangle(2), center: try placement.point(1),
                                 size: try placement.size(2), rotationRadians: try placement.float(3), kind: kind)
     }
 

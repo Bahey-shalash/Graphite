@@ -13,11 +13,16 @@ public enum ZipArchiveError: Error, Hashable, Sendable {
     case entryEncrypted(name: String)
     case compressionMethodNotSupported(name: String, method: UInt16)
     case entryTooLarge(name: String, limitBytes: Int)
+    /// The entry declares more bytes than deflate can produce from its compressed size: it is damaged, and is refused
+    /// before anything of the declared size is allocated.
+    case compressionRatioImpossible(name: String)
     /// The entry's local header or data lies outside the archive.
     case entryDataOutsideArchive(name: String)
     /// The deflate stream is damaged, or does not decode to the size the directory records.
     case entryDataDamaged(name: String)
     case checksumMismatch(name: String)
+    /// A read that the directory's own checks should have kept inside the archive went past it.
+    case readOutsideArchive(offset: Int)
 }
 
 /// The entries of a ZIP archive, read from bytes the caller supplies (memory-mapped for a large file), so that only
@@ -45,6 +50,10 @@ public struct ZipArchive: Sendable {
     private static let storedMethod: UInt16 = 0
     private static let deflateMethod: UInt16 = 8
     private static let encryptedFlag: UInt16 = 1
+    /// Deflate expands at most about 1,032 times (a run of one byte coded as length-258 matches), so a larger ratio
+    /// is a damaged or hostile entry; the slack covers the few bytes of a tiny stream's header.
+    private static let maximumDeflateExpansion = 1_032
+    private static let deflateExpansionSlackBytes = 1_024
     /// Raw deflate, with no zlib header or checksum: the window size negated.
     private static let rawDeflateWindowBits: Int32 = -15
 
@@ -81,6 +90,10 @@ public struct ZipArchive: Sendable {
         guard entry.uncompressedByteCount <= limits.maximumEntryBytes else {
             throw ZipArchiveError.entryTooLarge(name: entry.name, limitBytes: limits.maximumEntryBytes)
         }
+        guard entry.compressionMethod != Self.deflateMethod
+            || entry.uncompressedByteCount <= entry.compressedByteCount * Self.maximumDeflateExpansion + Self.deflateExpansionSlackBytes else {
+            throw ZipArchiveError.compressionRatioImpossible(name: entry.name)
+        }
         let contents = try archiveBytes.withUnsafeBytes { rawBytes in
             Result { () throws(ZipArchiveError) in try Self.uncompressedBytes(of: entry, in: LittleEndianBytes(rawBytes)) }
         }.get()
@@ -103,9 +116,9 @@ public struct ZipArchive: Sendable {
 
     private static func readCentralDirectory(_ bytes: LittleEndianBytes) throws(ZipArchiveError) -> [Entry] {
         let endRecord = try endOfCentralDirectoryOffset(bytes)
-        let entryCount = Int(bytes.uint16(at: endRecord + 10))
-        let directoryByteCount = Int(bytes.uint32(at: endRecord + 12))
-        let directoryOffset = Int(bytes.uint32(at: endRecord + 16))
+        let entryCount = Int(try bytes.uint16(at: endRecord + 10))
+        let directoryByteCount = Int(try bytes.uint32(at: endRecord + 12))
+        let directoryOffset = Int(try bytes.uint32(at: endRecord + 16))
         guard entryCount != 0xFFFF, directoryByteCount != 0xFFFF_FFFF, directoryOffset != 0xFFFF_FFFF else {
             throw ZipArchiveError.zip64NotSupported
         }
@@ -128,35 +141,34 @@ public struct ZipArchive: Sendable {
         guard bytes.count >= endOfCentralDirectoryBytes else { throw ZipArchiveError.endOfCentralDirectoryMissing }
         let latestStart = bytes.count - endOfCentralDirectoryBytes
         let earliestStart = max(0, latestStart - maximumCommentBytes)
-        for candidate in stride(from: latestStart, through: earliestStart, by: -1)
-        where bytes.uint32(at: candidate) == endOfCentralDirectorySignature
-            && candidate + endOfCentralDirectoryBytes + Int(bytes.uint16(at: candidate + 20)) == bytes.count {
-            return candidate
+        for candidate in stride(from: latestStart, through: earliestStart, by: -1) {
+            guard try bytes.uint32(at: candidate) == endOfCentralDirectorySignature else { continue }
+            if candidate + endOfCentralDirectoryBytes + Int(try bytes.uint16(at: candidate + 20)) == bytes.count { return candidate }
         }
         throw ZipArchiveError.endOfCentralDirectoryMissing
     }
 
     private static func centralDirectoryEntry(at offset: Int, end: Int, in bytes: LittleEndianBytes) throws(ZipArchiveError) -> (Entry, Int) {
-        guard offset + centralDirectoryEntryBytes <= end, bytes.uint32(at: offset) == centralDirectorySignature else {
+        guard offset + centralDirectoryEntryBytes <= end, try bytes.uint32(at: offset) == centralDirectorySignature else {
             throw ZipArchiveError.centralDirectoryDamaged
         }
-        let flags = bytes.uint16(at: offset + 8)
-        let nameByteCount = Int(bytes.uint16(at: offset + 28))
-        let extraByteCount = Int(bytes.uint16(at: offset + 30))
-        let commentByteCount = Int(bytes.uint16(at: offset + 32))
+        let flags = try bytes.uint16(at: offset + 8)
+        let nameByteCount = Int(try bytes.uint16(at: offset + 28))
+        let extraByteCount = Int(try bytes.uint16(at: offset + 30))
+        let commentByteCount = Int(try bytes.uint16(at: offset + 32))
         let nameStart = offset + centralDirectoryEntryBytes
         let nextOffset = nameStart + nameByteCount + extraByteCount + commentByteCount
         guard nextOffset <= end else { throw ZipArchiveError.centralDirectoryDamaged }
-        let compressedByteCount = bytes.uint32(at: offset + 20), uncompressedByteCount = bytes.uint32(at: offset + 24)
-        let localHeaderOffset = bytes.uint32(at: offset + 42)
+        let compressedByteCount = try bytes.uint32(at: offset + 20), uncompressedByteCount = try bytes.uint32(at: offset + 24)
+        let localHeaderOffset = try bytes.uint32(at: offset + 42)
         guard compressedByteCount != 0xFFFF_FFFF, uncompressedByteCount != 0xFFFF_FFFF, localHeaderOffset != 0xFFFF_FFFF else {
             throw ZipArchiveError.zip64NotSupported
         }
-        let nameBytes = bytes.slice(nameStart..<(nameStart + nameByteCount))
+        let nameBytes = try bytes.slice(nameStart..<(nameStart + nameByteCount))
         let entry = Entry(name: entryName(nameBytes),
-                          compressionMethod: bytes.uint16(at: offset + 10), compressedByteCount: Int(compressedByteCount),
+                          compressionMethod: try bytes.uint16(at: offset + 10), compressedByteCount: Int(compressedByteCount),
                           uncompressedByteCount: Int(uncompressedByteCount), isEncrypted: flags & encryptedFlag != 0,
-                          checksum: bytes.uint32(at: offset + 16), localHeaderOffset: Int(localHeaderOffset))
+                          checksum: try bytes.uint32(at: offset + 16), localHeaderOffset: Int(localHeaderOffset))
         return (entry, nextOffset)
     }
 
@@ -170,12 +182,12 @@ public struct ZipArchive: Sendable {
 
     private static func storedBytes(of entry: Entry, in bytes: LittleEndianBytes) throws(ZipArchiveError) -> UnsafeRawBufferPointer {
         let header = entry.localHeaderOffset
-        guard header + localHeaderBytes <= bytes.count, bytes.uint32(at: header) == localHeaderSignature else {
+        guard header + localHeaderBytes <= bytes.count, try bytes.uint32(at: header) == localHeaderSignature else {
             throw ZipArchiveError.entryDataOutsideArchive(name: entry.name)
         }
-        let dataStart = header + localHeaderBytes + Int(bytes.uint16(at: header + 26)) + Int(bytes.uint16(at: header + 28))
+        let dataStart = header + localHeaderBytes + Int(try bytes.uint16(at: header + 26)) + Int(try bytes.uint16(at: header + 28))
         guard dataStart + entry.compressedByteCount <= bytes.count else { throw ZipArchiveError.entryDataOutsideArchive(name: entry.name) }
-        return bytes.slice(dataStart..<(dataStart + entry.compressedByteCount))
+        return try bytes.slice(dataStart..<(dataStart + entry.compressedByteCount))
     }
 
     /// Inflates into a buffer of exactly the recorded size: a stream that would produce more stops when the buffer is
@@ -206,7 +218,8 @@ public struct ZipArchive: Sendable {
     }
 }
 
-/// Little-endian integers read from a byte buffer at offsets the caller has checked against `count`.
+/// Little-endian integers read from a byte buffer. Every read checks its range and fails as `readOutsideArchive`, so
+/// an offset a caller forgot to check cannot read memory outside the archive.
 struct LittleEndianBytes {
     let buffer: UnsafeRawBufferPointer
 
@@ -214,9 +227,22 @@ struct LittleEndianBytes {
 
     var count: Int { buffer.count }
 
-    func uint16(at offset: Int) -> UInt16 { UInt16(littleEndian: buffer.loadUnaligned(fromByteOffset: offset, as: UInt16.self)) }
+    func uint16(at offset: Int) throws(ZipArchiveError) -> UInt16 {
+        try checkRange(offset, byteCount: 2)
+        return UInt16(littleEndian: buffer.loadUnaligned(fromByteOffset: offset, as: UInt16.self))
+    }
 
-    func uint32(at offset: Int) -> UInt32 { UInt32(littleEndian: buffer.loadUnaligned(fromByteOffset: offset, as: UInt32.self)) }
+    func uint32(at offset: Int) throws(ZipArchiveError) -> UInt32 {
+        try checkRange(offset, byteCount: 4)
+        return UInt32(littleEndian: buffer.loadUnaligned(fromByteOffset: offset, as: UInt32.self))
+    }
 
-    func slice(_ range: Range<Int>) -> UnsafeRawBufferPointer { UnsafeRawBufferPointer(rebasing: buffer[range]) }
+    func slice(_ range: Range<Int>) throws(ZipArchiveError) -> UnsafeRawBufferPointer {
+        try checkRange(range.lowerBound, byteCount: range.count)
+        return UnsafeRawBufferPointer(rebasing: buffer[range])
+    }
+
+    private func checkRange(_ offset: Int, byteCount: Int) throws(ZipArchiveError) {
+        guard offset >= 0, byteCount >= 0, offset <= buffer.count - byteCount else { throw .readOutsideArchive(offset: offset) }
+    }
 }

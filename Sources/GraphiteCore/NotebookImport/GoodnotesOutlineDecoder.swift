@@ -1,34 +1,34 @@
 import CoreGraphics
 import Foundation
 
-/// Interprets the arrays of a varying-width stroke: the centre line with a width at each point, and the outline
-/// Goodnotes fills, one closed shape per centre-line segment.
+/// Interprets the arrays of a varying-width stroke: the center line with a width at each point, and the outline
+/// Goodnotes fills, one closed shape per center-line segment.
 enum GoodnotesOutlineDecoder {
     private enum OutlineCommandKind { case move, cubic, arc, flatCap }
 
-    private static let centreLineStartCodes: Set<UInt16> = [0, 4]
-    private static let centreLineCurveCodes: Set<UInt16> = [1, 5]
+    private static let centerLineStartCodes: Set<UInt16> = [0, 4]
+    private static let centerLineCurveCodes: Set<UInt16> = [1, 5]
     /// Tape adds values after these: one after the start, three after each curve.
-    private static let centreLineStartValues = 3
-    private static let centreLineCurveValues = 6
+    private static let centerLineStartValues = 3
+    private static let centerLineCurveValues = 6
     private static let minimumCapRecordValues = 5
     private static let cubicValues = 6
 
-    /// Nil when the path has no centre-line codes (the older layout's codes are not interpreted).
-    static func centreLine(_ values: GoodnotesStrokePathDecoder.LayoutValues) throws(GoodnotesReadingError) -> GoodnotesCentreLine? {
+    /// Nil when the path has no center-line codes (the older layout's codes are not interpreted).
+    static func centerLine(_ values: GoodnotesStrokePathDecoder.LayoutValues) throws(GoodnotesReadingError) -> GoodnotesCenterLine? {
         guard let firstCode = values.codes.first else { return nil }
-        guard centreLineStartCodes.contains(firstCode), values.codes.dropFirst().allSatisfy(centreLineCurveCodes.contains) else {
-            throw .centreLineCodesNotKnown
+        guard centerLineStartCodes.contains(firstCode), values.codes.dropFirst().allSatisfy(centerLineCurveCodes.contains) else {
+            throw .centerLineCodesNotKnown
         }
         let curveCount = values.codes.count - 1
-        let valuesPerCurve = curveCount == 0 ? centreLineCurveValues : values.curves.count / curveCount
-        guard values.starts.count >= centreLineStartValues, valuesPerCurve >= centreLineCurveValues,
-              valuesPerCurve * curveCount == values.curves.count else { throw .centreLineValuesUneven }
+        let valuesPerCurve = curveCount == 0 ? centerLineCurveValues : values.curves.count / curveCount
+        guard values.starts.count >= centerLineStartValues, valuesPerCurve >= centerLineCurveValues,
+              valuesPerCurve * curveCount == values.curves.count else { throw .centerLineValuesUneven }
         let curves = (0..<curveCount).map { curveIndex in
             GoodnotesWidthCurve(control: widthPoint(values.curves, at: curveIndex * valuesPerCurve),
                                 end: widthPoint(values.curves, at: curveIndex * valuesPerCurve + 3))
         }
-        return GoodnotesCentreLine(start: widthPoint(values.starts, at: 0), curves: curves)
+        return GoodnotesCenterLine(start: widthPoint(values.starts, at: 0), curves: curves)
     }
 
     /// The outline's commands, a new closed outline at each move. Codes are 0 move, 2 cubic, 3 arc and 6 flat cap;
@@ -82,9 +82,9 @@ enum GoodnotesOutlineDecoder {
                end: GoodnotesStrokePathDecoder.point(values, at: offset + 4))
     }
 
-    /// Centre x and y, radius, start and end angle.
+    /// Center x and y, radius, start and end angle.
     private static func arc(_ values: [UInt32], at offset: Int) -> GoodnotesOutlineCommand {
-        .arc(centre: GoodnotesStrokePathDecoder.point(values, at: offset), radius: GoodnotesStrokePathDecoder.float(values[offset + 2]),
+        .arc(center: GoodnotesStrokePathDecoder.point(values, at: offset), radius: GoodnotesStrokePathDecoder.float(values[offset + 2]),
              startAngleRadians: GoodnotesStrokePathDecoder.float(values[offset + 3]),
              endAngleRadians: GoodnotesStrokePathDecoder.float(values[offset + 4]))
     }

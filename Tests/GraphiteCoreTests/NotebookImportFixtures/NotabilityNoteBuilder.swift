@@ -66,6 +66,8 @@ struct NotabilityNoteBuilder {
     var text = ""
     var textRuns: [SyntheticNotabilityTextRun] = []
     var importedPDFFileNames: [String] = []
+    /// Strings put in `pageLayoutArray` after the imported pages, where Notability writes dictionaries.
+    var pageLayoutStrings: [String] = []
     var playbackEvents: [SyntheticNotabilityPlaybackEvent] = []
     var recordingsLibraryXML: String?
     var extraFiles: [(String, [UInt8])] = []
@@ -128,10 +130,11 @@ struct NotabilityNoteBuilder {
                                 ("kPageLayoutPDFFileNameKey", .uid(archive.string(fileName))), ("kPageLayoutPDFPageNumberKey", .integer(1)),
                                 ("kPageLayoutPageIsBookmarkedKey", .boolean(pageIndex == 0))])
         }
+        let layoutStrings = pageLayoutStrings.map { text in archive.string(text) }
         let mediaObjects = mediaObjectsContainThemselves ? Self.arrayContainingItself(in: &archive) : archive.array(media)
         archive.replaceObject(richText, className: "FormattedString", [
             ("attributedString", .uid(attributedString)), ("Handwriting Overlay", .uid(handwriting)), ("reflowState", .uid(reflowState)),
-            ("mediaObjects", .uid(mediaObjects)), ("pageLayoutArray", .uid(archive.array(layouts, className: "NSMutableArray"))),
+            ("mediaObjects", .uid(mediaObjects)), ("pageLayoutArray", .uid(archive.array(layouts + layoutStrings, className: "NSMutableArray"))),
             ("formatVersion", .integer(5)),
         ])
         return richText
