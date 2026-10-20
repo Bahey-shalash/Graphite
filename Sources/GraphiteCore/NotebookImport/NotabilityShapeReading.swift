@@ -44,7 +44,8 @@ extension NotabilitySessionReading {
         guard let shapesBytes, !shapesBytes.isEmpty else { return nil }
         let shapesList: PropertyListValue
         do throws(PropertyListDocumentError) {
-            shapesList = try PropertyListDocument.plainValue(of: shapesBytes, maximumNestingDepth: limits.maximumPropertyListNestingDepth)
+            shapesList = try PropertyListDocument.plainValue(of: shapesBytes, maximumNestingDepth: limits.maximumPropertyListNestingDepth,
+                                                                 maximumValueCount: limits.maximumPlainValueCount)
         } catch {
             throw .propertyList(error)
         }

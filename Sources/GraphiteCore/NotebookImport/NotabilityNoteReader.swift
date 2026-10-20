@@ -5,7 +5,7 @@ import Foundation
 /// `Docs/Notability-format.md` and as `scripts/notability-reader.py` reads it. Opening reads `Session.plist` and the
 /// recordings library and checks the packed curve arrays; curves stay in those arrays, slices of `Session.plist`'s
 /// bytes, until `curve(at:)` or `page(number:)` decodes them. Pictures, PDFs and recordings are read on request
-/// with `fileBytes(relativePath:)`. What the note holds that the format description does not account for is listed
+/// with `fileBytes(_:)`. What the note holds that the format description does not account for is listed
 /// in `issues`, never guessed at.
 public struct NotabilityNoteReader: Sendable {
     public let note: NotabilityNote
@@ -41,9 +41,7 @@ public struct NotabilityNoteReader: Sendable {
         }
         var reading = NotabilitySessionReading(archive: archive, limits: limits)
         let content = try reading.content()
-        let libraryName = folderName + "/Recordings/library.plist"
-        let recordings = zipArchive.entry(named: libraryName) == nil ? [] : try NotabilityRecordingsLibrary.recordings(
-            fromLibraryBytes: Self.entryBytes(named: libraryName, in: zipArchive)[...], limits: limits)
+        let recordings = Self.recordings(inFolder: folderName, of: zipArchive, limits: limits, issues: &reading.issues)
         note = NotabilityNote(name: content.name, sessionFormatVersion: content.sessionFormatVersion,
                               applicationVersion: content.applicationVersion, paper: content.paper, reflowState: content.reflowState,
                               pageGeometry: content.pageGeometry, shapes: content.shapes, pictures: content.pictures,
@@ -52,6 +50,23 @@ public struct NotabilityNoteReader: Sendable {
         ink = content.ink
         issues = reading.issues.list
         pageCount = Self.pageCount(ink: content.ink, pictures: content.pictures, geometry: content.pageGeometry)
+    }
+
+    /// The recordings of `Recordings/library.plist`; none when the note has no library, and none with an issue when the
+    /// library cannot be read, so that a damaged library never costs the note its ink.
+    private static func recordings(inFolder folderName: String, of zipArchive: ZipArchive, limits: NotebookImportLimits,
+                                   issues: inout NotabilityReadingIssues) -> [NotabilityRecording] {
+        let libraryName = folderName + "/Recordings/library.plist"
+        guard zipArchive.entry(named: libraryName) != nil else { return [] }
+        do throws(NotabilityReadingError) {
+            let library = try NotabilityRecordingsLibrary.recordings(fromLibraryBytes: entryBytes(named: libraryName, in: zipArchive)[...],
+                                                                     limits: limits)
+            for path in library.invalidPaths { issues.report(.archivePathNotValid(path: path)) }
+            return library.recordings
+        } catch {
+            issues.report(.recordingsSkipped(error))
+            return []
+        }
     }
 
     public func isHighlighter(curveIndex: Int) throws(NotabilityReadingError) -> Bool {
@@ -79,19 +94,19 @@ public struct NotabilityNoteReader: Sendable {
             return Self.extent(lowest: verticalPositions.min() ?? 0, highest: verticalPositions.max() ?? 0, touches: pageNumber, geometry: geometry)
         }
         let pictures = note.pictures.filter { picture in
-            let centre = picture.origin.y + picture.size.height / 2
+            let center = picture.origin.y + picture.size.height / 2
             let halfHeight = abs(picture.size.width / 2 * sin(picture.rotationRadiansClockwise))
                 + abs(picture.size.height / 2 * cos(picture.rotationRadiansClockwise))
-            return Self.extent(lowest: centre - halfHeight, highest: centre + halfHeight, touches: pageNumber, geometry: geometry)
+            return Self.extent(lowest: center - halfHeight, highest: center + halfHeight, touches: pageNumber, geometry: geometry)
         }
         return NotabilityPage(pageNumber: pageNumber, topInUnits: Double(pageNumber - 1) * pageHeight, curves: curves, shapes: shapes,
                               pictures: pictures)
     }
 
-    /// The bytes of a file of the note, by its path relative to the note's folder: a picture's `relativePath`, an
-    /// imported PDF's `pdfRelativePath`, a recording's `relativePath`.
-    public func fileBytes(relativePath: String) throws(NotabilityReadingError) -> [UInt8] {
-        try Self.entryBytes(named: folderName + "/" + relativePath, in: zipArchive)
+    /// The bytes of a file of the note, by its path relative to the note's folder: a picture's `file`, an imported PDF's
+    /// `pdfFile`, a recording's `file`.
+    public func fileBytes(_ path: NotebookArchivePath) throws(NotabilityReadingError) -> [UInt8] {
+        try Self.entryBytes(named: folderName + "/" + path.text, in: zipArchive)
     }
 
     private func checkCurveIndex(_ curveIndex: Int) throws(NotabilityReadingError) {

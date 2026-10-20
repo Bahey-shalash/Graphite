@@ -56,10 +56,13 @@ public struct PropertyListDictionary: Equatable, Sendable {
 extension BinaryPropertyList {
     /// The object with its containers expanded, at most `maximumNestingDepth` arrays and dictionaries deep. A
     /// container that contains itself fails with `containerCycle`. A member shared by several containers is expanded
-    /// each time, so the expansion stops at as many values as the list has bytes: a tree whose containers are not
-    /// shared never reaches that, since every value but the first is named by a reference of at least one byte.
-    public func plainValue(ofObjectAt objectIndex: Int, maximumNestingDepth: Int) throws(BinaryPropertyListError) -> PropertyListValue {
-        var expansion = PlainValueExpansion(propertyList: self, maximumNestingDepth: maximumNestingDepth, valueBudget: byteCount)
+    /// each time, so the expansion stops at `maximumValueCount` values, or at as many values as the list has bytes when
+    /// that is fewer: a tree whose containers are not shared never reaches the byte count, since every value but the
+    /// first is named by a reference of at least one byte.
+    public func plainValue(ofObjectAt objectIndex: Int, maximumNestingDepth: Int,
+                           maximumValueCount: Int) throws(BinaryPropertyListError) -> PropertyListValue {
+        var expansion = PlainValueExpansion(propertyList: self, maximumNestingDepth: maximumNestingDepth,
+                                            valueBudget: Swift.min(byteCount, maximumValueCount))
         return try expansion.value(ofObjectAt: objectIndex, depth: 0)
     }
 }

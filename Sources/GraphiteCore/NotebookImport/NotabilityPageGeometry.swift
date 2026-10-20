@@ -23,7 +23,8 @@ public struct NotabilityPageGeometry: Sendable, Equatable {
         self.pageWidthInUnits = pageWidthInUnits
         let exportPageSize = Self.exportPageSize(of: paper)
         exportPageSizeInPoints = exportPageSize
-        guard let exportPageSize, let pageWidthInUnits, pageWidthInUnits != 0 else {
+        // Only a finite, positive width cuts the document into pages; any other gives no page count.
+        guard let exportPageSize, let pageWidthInUnits, pageWidthInUnits.isFinite, pageWidthInUnits > 0 else {
             pointsPerUnit = nil
             pageHeightInUnits = nil
             return

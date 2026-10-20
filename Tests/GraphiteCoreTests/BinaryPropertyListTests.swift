@@ -135,7 +135,7 @@ final class BinaryPropertyListTests: XCTestCase {
         for cut in 0..<complete.count {
             do throws(BinaryPropertyListError) {
                 let list = try BinaryPropertyList(bytes: complete[..<cut])
-                _ = try list.plainValue(ofObjectAt: list.topObjectIndex, maximumNestingDepth: 8)
+                _ = try list.plainValue(ofObjectAt: list.topObjectIndex, maximumNestingDepth: 8, maximumValueCount: 1_000_000)
             } catch {
                 refusedCutCount += 1
             }
@@ -147,10 +147,26 @@ final class BinaryPropertyListTests: XCTestCase {
         var writer = BinaryPropertyListWriter()
         let top = writer.add(tree: .dictionary([("kinds", .array([.string("line"), .string("line")])), ("width", .real(2))]))
         let list = try BinaryPropertyList(bytes: writer.bytes(topObjectIndex: top)[...])
-        let value = try list.plainValue(ofObjectAt: top, maximumNestingDepth: 4)
+        let value = try list.plainValue(ofObjectAt: top, maximumNestingDepth: 4, maximumValueCount: 1_000_000)
         XCTAssertEqual(value.dictionary?.keys, ["kinds", "width"])
         XCTAssertEqual(value.dictionary?["kinds"], .array([.string("line"), .string("line")]))
         XCTAssertEqual(value.dictionary?["width"]?.number, 2)
+    }
+
+    /// CC-IMPORT-02: the expansion's only budget was one value per byte of the list, about 20 GiB of values for a 512 MiB
+    /// entry whose members are shared.
+    func testAnExpansionStopsAtTheNamedValueCountBeforeTheByteBudget() throws {
+        var writer = BinaryPropertyListWriter()
+        let member = writer.add(tree: .dictionary([("x", .real(1)), ("y", .real(2))]))
+        let top = writer.add(.array(Array(repeating: member, count: 20)))
+        let list = try BinaryPropertyList(bytes: writer.bytes(topObjectIndex: top)[...])
+        // The budget is the smaller of the named count and the list's bytes.
+        expectError(.valueCountOverBudget(budget: 10)) { () throws(BinaryPropertyListError) in
+            _ = try list.plainValue(ofObjectAt: top, maximumNestingDepth: 8, maximumValueCount: 10)
+        }
+        expectError(.valueCountOverBudget(budget: list.byteCount)) { () throws(BinaryPropertyListError) in
+            _ = try list.plainValue(ofObjectAt: top, maximumNestingDepth: 8, maximumValueCount: 1_000_000)
+        }
     }
 
     func testAnArrayThatContainsItselfIsACycle() throws {
@@ -159,14 +175,14 @@ final class BinaryPropertyListTests: XCTestCase {
         writer.replace(array, with: .array([array]))
         let list = try BinaryPropertyList(bytes: writer.bytes(topObjectIndex: array)[...])
         expectError(.containerCycle(objectIndex: array)) { () throws(BinaryPropertyListError) in
-            _ = try list.plainValue(ofObjectAt: array, maximumNestingDepth: 64)
+            _ = try list.plainValue(ofObjectAt: array, maximumNestingDepth: 64, maximumValueCount: 1_000_000)
         }
         let dictionary = writer.add(.null)
         let key = writer.add(.string("again"))
         writer.replace(dictionary, with: .dictionary(keys: [key], values: [dictionary]))
         let dictionaryList = try BinaryPropertyList(bytes: writer.bytes(topObjectIndex: dictionary)[...])
         expectError(.containerCycle(objectIndex: dictionary)) { () throws(BinaryPropertyListError) in
-            _ = try dictionaryList.plainValue(ofObjectAt: dictionary, maximumNestingDepth: 64)
+            _ = try dictionaryList.plainValue(ofObjectAt: dictionary, maximumNestingDepth: 64, maximumValueCount: 1_000_000)
         }
     }
 
@@ -175,8 +191,8 @@ final class BinaryPropertyListTests: XCTestCase {
         var innermost = writer.add(.integer(1))
         for _ in 0..<10 { innermost = writer.add(.array([innermost])) }
         let list = try BinaryPropertyList(bytes: writer.bytes(topObjectIndex: innermost)[...])
-        XCTAssertNoThrow(try list.plainValue(ofObjectAt: innermost, maximumNestingDepth: 10))
-        expectError(.nestingTooDeep(limit: 9)) { () throws(BinaryPropertyListError) in _ = try list.plainValue(ofObjectAt: innermost, maximumNestingDepth: 9) }
+        XCTAssertNoThrow(try list.plainValue(ofObjectAt: innermost, maximumNestingDepth: 10, maximumValueCount: 1_000_000))
+        expectError(.nestingTooDeep(limit: 9)) { () throws(BinaryPropertyListError) in _ = try list.plainValue(ofObjectAt: innermost, maximumNestingDepth: 9, maximumValueCount: 1_000_000) }
     }
 
     func testSharedMembersThatWouldExpandExponentiallyStopAtTheBudget() throws {
@@ -186,7 +202,7 @@ final class BinaryPropertyListTests: XCTestCase {
         let bytes = writer.bytes(topObjectIndex: level)
         let list = try BinaryPropertyList(bytes: bytes[...])
         expectError(.valueCountOverBudget(budget: bytes.count)) { () throws(BinaryPropertyListError) in
-            _ = try list.plainValue(ofObjectAt: level, maximumNestingDepth: 64)
+            _ = try list.plainValue(ofObjectAt: level, maximumNestingDepth: 64, maximumValueCount: 1_000_000)
         }
     }
 
@@ -196,7 +212,7 @@ final class BinaryPropertyListTests: XCTestCase {
         let dictionary = writer.add(.dictionary(keys: [key], values: [key]))
         let list = try BinaryPropertyList(bytes: writer.bytes(topObjectIndex: dictionary)[...])
         expectError(.dictionaryKeyNotString(objectIndex: key)) { () throws(BinaryPropertyListError) in
-            _ = try list.plainValue(ofObjectAt: dictionary, maximumNestingDepth: 4)
+            _ = try list.plainValue(ofObjectAt: dictionary, maximumNestingDepth: 4, maximumValueCount: 1_000_000)
         }
     }
 
@@ -205,15 +221,15 @@ final class BinaryPropertyListTests: XCTestCase {
         <?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>b</key><array><integer>2</integer><true/></array>\
         <key>a</key><real>1.5</real><key>c</key><data>AQID</data></dict></plist>
         """
-        let value = try PropertyListDocument.plainValue(of: Array(xml.utf8)[...], maximumNestingDepth: 4)
+        let value = try PropertyListDocument.plainValue(of: Array(xml.utf8)[...], maximumNestingDepth: 4, maximumValueCount: 1_000_000)
         XCTAssertEqual(value.dictionary?.keys, ["a", "b", "c"])
         XCTAssertEqual(value.dictionary?["b"], .array([.integer(2), .boolean(true)]))
         XCTAssertEqual(value.dictionary?["c"], .data([1, 2, 3]))
         let deep = "<plist>" + String(repeating: "<array>", count: 100) + String(repeating: "</array>", count: 100) + "</plist>"
-        XCTAssertThrowsError(try PropertyListDocument.plainValue(of: Array(deep.utf8)[...], maximumNestingDepth: 64)) { error in
+        XCTAssertThrowsError(try PropertyListDocument.plainValue(of: Array(deep.utf8)[...], maximumNestingDepth: 64, maximumValueCount: 1_000_000)) { error in
             XCTAssertEqual(error as? PropertyListDocumentError, .nestingTooDeep(limit: 64))
         }
-        XCTAssertThrowsError(try PropertyListDocument.plainValue(of: Array("<plist><dict>".utf8)[...], maximumNestingDepth: 64)) { error in
+        XCTAssertThrowsError(try PropertyListDocument.plainValue(of: Array("<plist><dict>".utf8)[...], maximumNestingDepth: 64, maximumValueCount: 1_000_000)) { error in
             XCTAssertEqual(error as? PropertyListDocumentError, .xmlNotReadable)
         }
     }

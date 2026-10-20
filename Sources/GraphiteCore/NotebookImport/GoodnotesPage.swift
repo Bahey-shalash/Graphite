@@ -12,6 +12,10 @@ public struct GoodnotesPage: Sendable, Equatable {
 /// An element's place in the drawing order: elements are drawn sorted by counter, then replica. Elements that share
 /// both keep the order of the layer file.
 public struct GoodnotesDrawingPosition: Sendable, Hashable, Comparable {
+    /// The place of an element whose kind is not known, so its position field is not known either: after every known
+    /// element, in the layer file's order.
+    public static let unknown = GoodnotesDrawingPosition(counter: .max, replica: .max)
+
     public let counter: UInt64
     public let replica: UInt64
 
@@ -37,6 +41,9 @@ public enum GoodnotesElementContent: Sendable, Equatable {
     case stickyNote(GoodnotesStickyNote)
     /// A text element in RTF with no frame (one sample, empty; its purpose is not known).
     case rtfTextElement(rtf: String)
+    /// A body kind this reader does not know, with the field numbers it holds; kept so a report can count and place
+    /// what was not converted.
+    case unknown(kind: Int, fieldNumbers: [Int])
 }
 
 public struct GoodnotesStroke: Sendable, Equatable {
@@ -73,8 +80,8 @@ public struct GoodnotesShape: Sendable, Equatable {
         case polyline([CGPoint])
         /// An arc of a circle from the first point through the second to the third.
         case arcThroughThreePoints(CGPoint, CGPoint, CGPoint)
-        case rectangle(centre: CGPoint, size: CGSize, angleRadians: Double)
-        case ellipse(centre: CGPoint, radii: CGSize, angleRadians: Double)
+        case rectangle(center: CGPoint, size: CGSize, angleRadians: Double)
+        case ellipse(center: CGPoint, radii: CGSize, angleRadians: Double)
     }
 
     public let geometry: Geometry? // nil when the record has no geometry field
@@ -94,8 +101,8 @@ public struct GoodnotesPicture: Sendable, Equatable {
     public let attachment: GoodnotesAttachment?
     /// The picture as drawn, turned.
     public let boundingBox: CGRect
-    /// The picture file is drawn stretched to `size`, turned about `centre` by `rotationRadians`, clockwise.
-    public let centre: CGPoint
+    /// The picture file is drawn stretched to `size`, turned about `center` by `rotationRadians`, clockwise.
+    public let center: CGPoint
     public let size: CGSize
     public let rotationRadians: Double
     /// Nil for photos and PNG stickers.

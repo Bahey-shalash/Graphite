@@ -2,11 +2,15 @@ import Foundation
 
 /// The recordings of `Recordings/library.plist`, an XML property list keyed by recording identifier.
 enum NotabilityRecordingsLibrary {
+    private static let recordingsFolder = "Recordings"
+
+    /// The recordings, and the file paths the library names that are not safe paths inside the note (left unused).
     static func recordings(fromLibraryBytes libraryBytes: ArraySlice<UInt8>,
-                           limits: NotebookImportLimits) throws(NotabilityReadingError) -> [NotabilityRecording] {
+                           limits: NotebookImportLimits) throws(NotabilityReadingError) -> (recordings: [NotabilityRecording], invalidPaths: [String]) {
         let library: PropertyListValue
         do throws(PropertyListDocumentError) {
-            library = try PropertyListDocument.plainValue(of: libraryBytes, maximumNestingDepth: limits.maximumPropertyListNestingDepth)
+            library = try PropertyListDocument.plainValue(of: libraryBytes, maximumNestingDepth: limits.maximumPropertyListNestingDepth,
+                                                                 maximumValueCount: limits.maximumPlainValueCount)
         } catch {
             throw .recordingsLibrary(error)
         }
@@ -24,13 +28,19 @@ enum NotabilityRecordingsLibrary {
             }
         }
         var recordings: [NotabilityRecording] = []
+        var invalidPaths: [String] = []
         for key in sortedKeys {
             guard let recording = recordingsByKey[key]?.dictionary else { throw .recordingsLibraryLayoutNotRecognised }
             let identifier: Int? = if case .integer(let identifier)? = recording["identifier"] { Int(identifier) } else { nil }
-            recordings.append(NotabilityRecording(identifier: identifier, relativePath: "Recordings/" + (recording["filepath"]?.string ?? ""),
-                                                  durationSeconds: recording["duration"]?.number, name: recording["name"]?.string))
+            var file: NotebookArchivePath?
+            if let filePath = recording["filepath"]?.string {
+                file = NotebookArchivePath(validating: recordingsFolder + "/" + filePath)
+                if file == nil { invalidPaths.append(recordingsFolder + "/" + filePath) }
+            }
+            recordings.append(NotabilityRecording(identifier: identifier, file: file, durationSeconds: recording["duration"]?.number,
+                                                  name: recording["name"]?.string))
         }
-        return recordings
+        return (recordings, invalidPaths)
     }
 }
 
@@ -64,7 +74,7 @@ extension NotabilitySessionReading {
             try archive.nonNullValue(named: array.rawValue, in: eventManager)
         }) != nil else {
             guard eventCount == 0 else { throw .packedArrayLengthWrong(array, byteCount: 0, expectedValueCount: eventCount) }
-            return PackedLittleEndianValues(bytes: [])
+            return .empty
         }
         return try NotabilityInk.packedValues(array, entryCount: eventCount, in: eventManager, archive: archive)
     }

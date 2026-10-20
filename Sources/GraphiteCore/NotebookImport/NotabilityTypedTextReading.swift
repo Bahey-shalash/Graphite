@@ -10,8 +10,14 @@ extension NotabilitySessionReading {
         let textUTF16Length = text.utf16.count
         var runs: [NotabilityTextRun] = []
         for (runIndex, runReference) in try optionalMembers("subRangesKey", in: attributedString).enumerated() {
-            let run = try NotabilityReadingError.readingSession { () throws(KeyedArchiveError) in try archive.fields(of: archive.value(of: runReference)) }
-            runs.append(try readTextRun(run, runIndex: runIndex, textUTF16Length: textUTF16Length))
+            do throws(NotabilityReadingError) {
+                let run = try NotabilityReadingError.readingSession { () throws(KeyedArchiveError) in
+                    try archive.fields(of: archive.value(of: runReference))
+                }
+                runs.append(try readTextRun(run, runIndex: runIndex, textUTF16Length: textUTF16Length))
+            } catch {
+                issues.report(.textRunSkipped(runIndex: runIndex, error))
+            }
         }
         return NotabilityTypedText(text: text, runs: runs)
     }

@@ -36,9 +36,13 @@ extension NotabilitySessionReading {
         guard crop.count == 4, crop[2] > 0 else { throw .valueNotReadable(key: "FigureCropRectKey") }
         guard origin.count >= 2 else { throw .valueNotReadable(key: "documentOrigin") }
         let snapshot = try elementFields("kImageObjectSnapshotKey", in: elementFields("FigureBackgroundObjectKey", in: figure))
+        let pathText = try Self.readingElement { () throws(KeyedArchiveError) in
+            try archive.string(archive.requiredValue(named: "relativePath", in: snapshot))
+        }
+        guard let file = NotebookArchivePath(validating: pathText) else { throw .archivePathNotValid(path: pathText) }
         return try Self.readingElement { () throws(KeyedArchiveError) in
             NotabilityPicture(
-                relativePath: try archive.string(archive.requiredValue(named: "relativePath", in: snapshot)),
+                file: file,
                 origin: CGPoint(x: origin[0], y: origin[1]), size: CGSize(width: size[0], height: size[1]),
                 rotationRadiansClockwise: try archive.number(archive.requiredValue(named: "rotationDegrees", in: media.fields)),
                 zIndex: Int(try archive.integer(archive.requiredValue(named: "zIndex", in: media.fields))),

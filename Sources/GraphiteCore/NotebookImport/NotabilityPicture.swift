@@ -2,15 +2,15 @@ import CoreGraphics
 import Foundation
 
 /// A picture of the note (`ImageMediaObject`). The export draws the whole image at `unitsPerImagePixel` with its top
-/// left at `origin`, clipped to `cropRectangle`, turned about the picture's centre, and under all ink.
+/// left at `origin`, clipped to `cropRectangle`, turned about the picture's center, and under all ink.
 public struct NotabilityPicture: Sendable, Equatable {
     /// The image file, relative to the note's folder, such as `Images/Image 1.jpg`.
-    public let relativePath: String
+    public let file: NotebookArchivePath
     /// The top-left corner of the unturned picture, in document units.
     public let origin: CGPoint
     /// The size on the page of the shown (cropped) part, in document units.
     public let size: CGSize
-    /// Radians, clockwise on the page, about the picture's centre (stored as `rotationDegrees`).
+    /// Radians, clockwise on the page, about the picture's center (stored as `rotationDegrees`).
     public let rotationRadiansClockwise: Double
     /// The order among the pictures, from 0.
     public let zIndex: Int
@@ -19,9 +19,9 @@ public struct NotabilityPicture: Sendable, Equatable {
     public let isFlippedHorizontally: Bool
     public let isFlippedVertically: Bool
 
-    public init(relativePath: String, origin: CGPoint, size: CGSize, rotationRadiansClockwise: Double, zIndex: Int, cropRectangle: CGRect,
+    public init(file: NotebookArchivePath, origin: CGPoint, size: CGSize, rotationRadiansClockwise: Double, zIndex: Int, cropRectangle: CGRect,
                 isFlippedHorizontally: Bool, isFlippedVertically: Bool) {
-        self.relativePath = relativePath
+        self.file = file
         self.origin = origin
         self.size = size
         self.rotationRadiansClockwise = rotationRadiansClockwise

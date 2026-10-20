@@ -12,18 +12,28 @@ public struct NotebookImportLimits: Sendable, Equatable {
     public var maximumArchiveReferenceDepth: Int
     /// The most nested arrays and dictionaries decoded inside one property list value.
     public var maximumPropertyListNestingDepth: Int
+    /// The most values one binary property list may expand to, shared members counted each time they appear.
+    public var maximumPlainValueCount: Int
 
     public init(maximumEntryBytes: Int, maximumDecodedPayloadBytes: Int, maximumArchiveReferenceDepth: Int,
-                maximumPropertyListNestingDepth: Int) {
+                maximumPropertyListNestingDepth: Int, maximumPlainValueCount: Int) {
         self.maximumEntryBytes = maximumEntryBytes
         self.maximumDecodedPayloadBytes = maximumDecodedPayloadBytes
         self.maximumArchiveReferenceDepth = maximumArchiveReferenceDepth
         self.maximumPropertyListNestingDepth = maximumPropertyListNestingDepth
+        self.maximumPlainValueCount = maximumPlainValueCount
     }
 
-    /// The bounds of the reference readers in `scripts/`: 512 MiB per entry, 64 MiB per compressed payload and 64
-    /// levels of nesting.
+    /// The bounds of the reference readers in `scripts/` (512 MiB per entry on the Mac, 256 MiB on the iPhone and iPad,
+    /// where an app has less memory), 64 MiB per compressed payload, 64 levels of nesting, and 250,000 plain values
+    /// (about 8 MiB of values).
     public static let standard = NotebookImportLimits(
-        maximumEntryBytes: 512 * 1_048_576, maximumDecodedPayloadBytes: 64 * 1_048_576,
-        maximumArchiveReferenceDepth: 64, maximumPropertyListNestingDepth: 64)
+        maximumEntryBytes: standardMaximumEntryBytes, maximumDecodedPayloadBytes: 64 * 1_048_576,
+        maximumArchiveReferenceDepth: 64, maximumPropertyListNestingDepth: 64, maximumPlainValueCount: 250_000)
+
+    #if os(macOS)
+    private static let standardMaximumEntryBytes = 512 * 1_048_576
+    #else
+    private static let standardMaximumEntryBytes = 256 * 1_048_576
+    #endif
 }

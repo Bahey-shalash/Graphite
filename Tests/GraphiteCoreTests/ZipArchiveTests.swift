@@ -17,7 +17,8 @@ final class ZipArchiveTests: XCTestCase {
 
     private func readableLimits(maximumEntryBytes: Int = 4_096) -> NotebookImportLimits {
         NotebookImportLimits(maximumEntryBytes: maximumEntryBytes, maximumDecodedPayloadBytes: 4_096,
-                             maximumArchiveReferenceDepth: 8, maximumPropertyListNestingDepth: 8)
+                             maximumArchiveReferenceDepth: 8, maximumPropertyListNestingDepth: 8,
+                             maximumPlainValueCount: 4_096)
     }
 
     /// The offset of the first central directory entry, found through the end record of an archive without a comment.
@@ -267,6 +268,16 @@ final class ZipArchiveTests: XCTestCase {
         var archiveBytes = singleEntryArchive(contents: [UInt8](repeating: 0, count: 100), compression: .deflated)
         write(0xFFFF_FFFE, byteCount: 4, into: &archiveBytes, at: firstDirectoryEntryOffset(of: archiveBytes) + 24)
         try assertReadingThrows(archiveBytes, .entryTooLarge(name: "data.bin", limitBytes: 4_096))
+    }
+
+    /// CC-IMPORT-01: a 100-byte entry declaring 500 MiB was given 500 MiB of memory before its first byte was inflated.
+    func testAnEntryDeclaringMoreThanDeflateCanProduceIsRefusedBeforeAllocating() throws {
+        var archiveBytes = singleEntryArchive(contents: [UInt8](repeating: 0, count: 100), compression: .deflated)
+        write(500 * 1_048_576, byteCount: 4, into: &archiveBytes, at: firstDirectoryEntryOffset(of: archiveBytes) + 24)
+        let zipArchive = try archive(archiveBytes, opens: readableLimits(maximumEntryBytes: 512 * 1_048_576))
+        XCTAssertThrowsError(try zipArchive.contents(ofEntryNamed: "data.bin")) { error in
+            XCTAssertEqual(error as? ZipArchiveError, .compressionRatioImpossible(name: "data.bin"))
+        }
     }
 
     func testADeflateStreamThatExpandsPastItsDeclaredSizeIsDamaged() throws {

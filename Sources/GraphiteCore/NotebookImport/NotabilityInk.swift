@@ -144,11 +144,10 @@ struct NotabilityInk: Sendable {
         let bytes = try NotabilityReadingError.readingSession { () throws(KeyedArchiveError) in
             try archive.data(archive.requiredValue(named: array.rawValue, in: fields))
         }
-        let expectedByteCount = entryCount.multipliedReportingOverflow(by: Int64(array.entryByteCount))
-        guard !expectedByteCount.overflow, Int64(bytes.count) == expectedByteCount.partialValue else {
+        guard let values = PackedLittleEndianValues(bytes: bytes, entryCount: entryCount, entryByteCount: array.entryByteCount) else {
             throw .packedArrayLengthWrong(array, byteCount: bytes.count, expectedValueCount: entryCount)
         }
-        return PackedLittleEndianValues(bytes: bytes)
+        return values
     }
 
     /// Where each curve's points and knots start, checked in the reference reader's order: the point counts add up

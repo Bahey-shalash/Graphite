@@ -21,6 +21,8 @@ struct NotabilitySessionContent: Sendable {
 /// required, as in the reference reader; a picture or shape that cannot be read is skipped and reported.
 struct NotabilitySessionReading {
     static let supportedSessionFormatVersion: Int64 = 9
+    /// Where a note keeps its imported PDFs.
+    static let pdfFolder = "PDFs"
 
     let archive: KeyedArchive
     let limits: NotebookImportLimits
@@ -51,7 +53,13 @@ struct NotabilitySessionReading {
         let pictures = try readPictures(in: richText)
         let typedText = try readTypedText(in: richText)
         let importedPDFPages = try readImportedPDFPages(in: richText)
-        let playbackEvents = try readPlaybackEvents(in: requiredFields("contentPlaybackEventManager", in: session), ink: ink)
+        let playbackEvents: [NotabilityPlaybackEvent]
+        do throws(NotabilityReadingError) {
+            playbackEvents = try readPlaybackEvents(in: requiredFields("contentPlaybackEventManager", in: session), ink: ink)
+        } catch {
+            issues.report(.playbackEventsSkipped(error))
+            playbackEvents = []
+        }
         return NotabilitySessionContent(
             name: try optionalString("name", in: session), sessionFormatVersion: sessionFormatVersion,
             applicationVersion: try optionalString("NBNoteTakingSessionBundleVersionNumberKey", in: session), paper: paper,
@@ -94,26 +102,46 @@ struct NotabilitySessionReading {
         case "NBReflowStateReflowable": reflowState = .reflowable
         default: reflowState = .unknown(className: reflowObject.className)
         }
-        if let storedWidth { return (reflowState, storedWidth) }
-        if case .lockedWidth(let width, _)? = paper.sizingBehaviour { return (reflowState, width) }
-        if reflowState != .reflowable { issues.report(.reflowStateUnknown(className: reflowObject.className)) }
-        return (reflowState, nil)
+        var width = storedWidth
+        if width == nil, case .lockedWidth(let lockedWidth, _)? = paper.sizingBehaviour { width = lockedWidth }
+        guard let width else {
+            if reflowState != .reflowable { issues.report(.reflowStateUnknown(className: reflowObject.className)) }
+            return (reflowState, nil)
+        }
+        guard width.isFinite && width > 0 else {
+            issues.report(.pageWidthNotUsable(widthInUnits: width))
+            return (reflowState, nil)
+        }
+        return (reflowState, width)
     }
 
     private mutating func readImportedPDFPages(in richText: KeyedArchiveFields) throws(NotabilityReadingError) -> [NotabilityImportedPDFPage] {
         var pages: [NotabilityImportedPDFPage] = []
-        for layoutReference in try optionalMembers("pageLayoutArray", in: richText) {
-            let layout = try NotabilityReadingError.readingSession { () throws(KeyedArchiveError) in
-                try archive.fields(of: archive.value(of: layoutReference))
+        for (layoutIndex, layoutReference) in try optionalMembers("pageLayoutArray", in: richText).enumerated() {
+            do throws(NotabilityReadingError) {
+                pages.append(try readImportedPDFPage(layoutReference))
+            } catch {
+                issues.report(.pageLayoutSkipped(layoutIndex: layoutIndex, error))
             }
-            issues.reportUnknownKeys(layout.keys, in: .pageLayout, known: NotabilityKnownKeys.pageLayout)
-            pages.append(NotabilityImportedPDFPage(
-                documentPageNumber: try optionalInteger("kPageLayoutDocumentPageNumberKey", in: layout),
-                pdfRelativePath: "PDFs/" + (try optionalString("kPageLayoutPDFFileNameKey", in: layout) ?? ""),
-                pdfPageNumber: try optionalInteger("kPageLayoutPDFPageNumberKey", in: layout),
-                isBookmarked: try optionalBoolean("kPageLayoutPageIsBookmarkedKey", in: layout) ?? false))
         }
         return pages
+    }
+
+    private mutating func readImportedPDFPage(_ layoutReference: KeyedArchiveReference) throws(NotabilityReadingError) -> NotabilityImportedPDFPage {
+        let layout = try NotabilityReadingError.readingSession { () throws(KeyedArchiveError) in
+            try archive.fields(of: archive.value(of: layoutReference))
+        }
+        issues.reportUnknownKeys(layout.keys, in: .pageLayout, known: NotabilityKnownKeys.pageLayout)
+        var pdfFile: NotebookArchivePath?
+        if let fileName = try optionalString("kPageLayoutPDFFileNameKey", in: layout) {
+            pdfFile = NotebookArchivePath.file(named: fileName, inFolder: Self.pdfFolder)
+            if pdfFile == nil { issues.report(.archivePathNotValid(path: Self.pdfFolder + "/" + fileName)) }
+        }
+        return NotabilityImportedPDFPage(
+            documentPageNumber: try optionalInteger("kPageLayoutDocumentPageNumberKey", in: layout),
+            pdfFile: pdfFile,
+            pdfPageNumber: try optionalInteger("kPageLayoutPDFPageNumberKey", in: layout),
+            isBookmarked: try optionalBoolean("kPageLayoutPageIsBookmarkedKey", in: layout) ?? false)
     }
 }
 

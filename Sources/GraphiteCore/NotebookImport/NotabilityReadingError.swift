@@ -2,7 +2,7 @@ import Foundation
 
 /// Why a Notability note could not be read at all. Problems with one picture or shape are not errors: the element is
 /// skipped and reported as a `NotabilityReadingIssue`.
-public enum NotabilityReadingError: Error, Equatable, Sendable {
+public enum NotabilityReadingError: Error, Hashable, Sendable {
     case archive(ZipArchiveError)
     /// The archive does not hold exactly one top-level folder; the number it holds.
     case topLevelFolderCount(Int)

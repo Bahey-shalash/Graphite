@@ -21,11 +21,15 @@ public enum PropertyListDocument {
     private static let openingTags = [Array("array".utf8), Array("dict".utf8)]
     private static let closingTags = [Array("/array".utf8), Array("/dict".utf8)]
 
-    public static func plainValue(of bytes: ArraySlice<UInt8>, maximumNestingDepth: Int) throws(PropertyListDocumentError) -> PropertyListValue {
+    /// `maximumValueCount` bounds a binary list, whose shared members can expand far past its size; an XML list names
+    /// no shared members, so its values are bounded by its bytes.
+    public static func plainValue(of bytes: ArraySlice<UInt8>, maximumNestingDepth: Int,
+                                  maximumValueCount: Int) throws(PropertyListDocumentError) -> PropertyListValue {
         if bytes.starts(with: binaryMagicPrefix) {
             do throws(BinaryPropertyListError) {
                 let propertyList = try BinaryPropertyList(bytes: bytes)
-                return try propertyList.plainValue(ofObjectAt: propertyList.topObjectIndex, maximumNestingDepth: maximumNestingDepth)
+                return try propertyList.plainValue(ofObjectAt: propertyList.topObjectIndex, maximumNestingDepth: maximumNestingDepth,
+                                                   maximumValueCount: maximumValueCount)
             } catch {
                 throw .binary(error)
             }

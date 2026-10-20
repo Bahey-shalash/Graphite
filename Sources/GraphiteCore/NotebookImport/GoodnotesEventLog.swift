@@ -29,6 +29,8 @@ enum GoodnotesEventKind: Int {
 /// The notebook's event log, applied record by record: each record is `{1: entity id, <kind>: body}`, and editable
 /// values are last-writer-wins registers, so a later record with a higher counter replaces an earlier value.
 struct GoodnotesEventLog {
+    static let attachmentFolder = "attachments"
+
     private struct PaperRecord {
         let attachmentIdentifier: String
         let pdfPageNumber: UInt64
@@ -85,7 +87,10 @@ struct GoodnotesEventLog {
         case .documentCreated, .documentRenamed:
             title = GoodnotesRegister.latest(title, try fields.register(2))
         case .attachment:
-            attachments[entity] = GoodnotesAttachment(identifier: entity, fileIdentifier: try fields.string(2), byteCount: try fields.varint(5),
+            let fileIdentifier = try fields.string(2)
+            let file = NotebookArchivePath.file(named: fileIdentifier, inFolder: Self.attachmentFolder)
+            if file == nil { issues.report(.attachmentPathNotValid(attachmentIdentifier: entity)) }
+            attachments[entity] = GoodnotesAttachment(identifier: entity, fileIdentifier: fileIdentifier, file: file, byteCount: try fields.varint(5),
                                                       pdfPageCount: try fields.fields(12).varint(2))
         case .paper:
             papers[entity] = PaperRecord(attachmentIdentifier: try fields.string(4), pdfPageNumber: try fields.varint(5) ?? 1,
@@ -152,7 +157,7 @@ struct GoodnotesEventLog {
                 issues.report(.pagePositionNotReadable(pageIdentifier: identifier))
                 continue
             }
-            placed.append((positionBytes, descriptor(identifier, page)))
+            placed.append((positionBytes, descriptor(identifier, page, issues: &issues)))
         }
         placed.sort { left, right in
             if left.position != right.position { return left.position.lexicographicallyPrecedes(right.position) }
@@ -177,25 +182,42 @@ struct GoodnotesEventLog {
         }.map(\.element)
     }
 
-    /// Recordings that were not deleted, in the order the log first names them.
-    var liveRecordings: [GoodnotesRecording] {
+    /// Recordings that were not deleted, in the order the log first names them; a recording whose audio attachment is
+    /// not in the log is reported.
+    func liveRecordings(issues: inout GoodnotesIssueList) -> [GoodnotesRecording] {
         recordingOrder.filter { identifier in !deletedRecordings.contains(identifier) }.compactMap { identifier in
             recordings[identifier].map { record in
-                GoodnotesRecording(identifier: identifier, audio: attachments[record.audioAttachmentIdentifier],
+                GoodnotesRecording(identifier: identifier, audio: attachment(record.audioAttachmentIdentifier, issues: &issues),
                                    durationSeconds: record.durationSeconds, elementTimings: record.elementTimings)
             }
         }
     }
 
-    private func descriptor(_ identifier: String, _ page: PageRecord) -> GoodnotesPageDescriptor {
-        GoodnotesPageDescriptor(identifier: identifier, layerIdentifier: Self.layerIdentifier(forPage: identifier),
-                                paper: page.paper?.bytesValue.flatMap { bytes in paper(identifier: String(decoding: bytes, as: UTF8.self)) },
-                                isBookmarked: page.bookmarked?.varintValue == 1, isFlagged: flaggedPages.contains(identifier))
+    /// The attachment a record names; nil and reported when the log has none of that identifier. An empty identifier
+    /// names no attachment.
+    func attachment(_ identifier: String, issues: inout GoodnotesIssueList) -> GoodnotesAttachment? {
+        guard !identifier.isEmpty else { return nil }
+        guard let attachment = attachments[identifier] else {
+            issues.report(.attachmentNotInLog(attachmentIdentifier: identifier))
+            return nil
+        }
+        return attachment
     }
 
-    private func paper(identifier: String) -> GoodnotesPaper? {
+    private func descriptor(_ identifier: String, _ page: PageRecord, issues: inout GoodnotesIssueList) -> GoodnotesPageDescriptor {
+        var paper: GoodnotesPaper?
+        if let paperBytes = page.paper?.bytesValue {
+            paper = self.paper(identifier: String(decoding: paperBytes, as: UTF8.self), issues: &issues)
+            if paper == nil { issues.report(.paperNotInLog(pageIdentifier: identifier)) }
+        }
+        return GoodnotesPageDescriptor(identifier: identifier, layerIdentifier: Self.layerIdentifier(forPage: identifier), paper: paper,
+                                       isBookmarked: page.bookmarked?.varintValue == 1, isFlagged: flaggedPages.contains(identifier))
+    }
+
+    private func paper(identifier: String, issues: inout GoodnotesIssueList) -> GoodnotesPaper? {
         guard let record = papers[identifier] else { return nil }
-        return GoodnotesPaper(identifier: identifier, attachment: attachments[record.attachmentIdentifier], pdfPageNumber: record.pdfPageNumber,
+        return GoodnotesPaper(identifier: identifier, attachment: attachment(record.attachmentIdentifier, issues: &issues),
+                              pdfPageNumber: record.pdfPageNumber,
                               sizeInUnits: record.sizeInUnits,
                               template: record.templateIdentifier.isEmpty ? nil : GoodnotesTemplateIdentifier(rawIdentifier: record.templateIdentifier))
     }
