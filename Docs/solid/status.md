@@ -1,6 +1,6 @@
 # Status
 
-Snapshot: b13dec3 (main, 2026-10-18). Current assessment: `5aae924` on main (Phase 1, the notebook library, the Goodnotes and Notability readers and the CI runner fixes), with the delta audits of 2026-10-19 and 2026-10-20.
+Snapshot: b13dec3 (main, 2026-10-18). Current assessment: `0639588` on main (Phase 1, the notebook library, the Goodnotes and Notability readers with their fixes, and the CI runner fixes), with the delta audits of 2026-10-19 and 2026-10-20.
 
 Every finding and defect with its current state: **Fixed** (the current code no longer has it, with evidence), **Partly fixed**, **Open**, or **Decided by the owner** (kept on purpose, with the decision). A state changes only with evidence from the current code, cited in the row; a wave's own report is a lead, never proof. Update this page after every wave ([progress.md](progress.md)).
 
@@ -8,35 +8,35 @@ Every finding and defect with its current state: **Fixed** (the current code no 
 
 | State | Count |
 | --- | ---: |
-| Open | 531 |
-| Partly fixed | 30 |
-| Fixed | 46 |
+| Open | 516 |
+| Partly fixed | 33 |
+| Fixed | 61 |
 | Duplicate | 2 |
 | No change needed | 1 |
-| **All** | **610** |
+| **All** | **613** |
 
 Open items by prefix and severity:
 
 | Prefix | High | Medium | Low | Total |
 | --- | ---: | ---: | ---: | ---: |
-| SRP | 13 | 52 | 18 | 83 |
-| OCP | 3 | 32 | 22 | 57 |
+| SRP | 13 | 52 | 17 | 82 |
+| OCP | 3 | 31 | 21 | 55 |
 | LSP | 3 | 24 | 22 | 49 |
 | ISP | 3 | 20 | 18 | 41 |
 | DIP | 2 | 32 | 19 | 53 |
-| CC | 0 | 87 | 118 | 205 |
-| BUG | 0 | 5 | 38 | 43 |
+| CC | 0 | 82 | 113 | 195 |
+| BUG | 0 | 4 | 37 | 41 |
 
 Partly fixed items by prefix and severity:
 
 | Prefix | High | Medium | Low | Total |
 | --- | ---: | ---: | ---: | ---: |
-| SRP | 0 | 0 | 0 | 0 |
+| SRP | 0 | 0 | 1 | 1 |
 | OCP | 0 | 0 | 0 | 0 |
 | LSP | 3 | 8 | 0 | 11 |
 | ISP | 0 | 1 | 0 | 1 |
 | DIP | 2 | 2 | 4 | 8 |
-| CC | 2 | 6 | 2 | 10 |
+| CC | 2 | 6 | 4 | 12 |
 | BUG | 0 | 0 | 0 | 0 |
 
 ## All items
@@ -64,7 +64,7 @@ Partly fixed items by prefix and severity:
 | [SRP-EDITOR-04](areas/editor.md#srp-editor-04-two-delegate-callbacks-each-perform-five-or-six-jobs) | EDITOR | Medium | Open | Present at the snapshot (area document) | Two delegate callbacks each perform five or six jobs |
 | [SRP-EDITOR-05](areas/editor.md#srp-editor-05-rendered-block-views-read-files-and-construct-their-own-services) | EDITOR | Low | Open | Present at the snapshot (area document) | Rendered-block views read files and construct their own services |
 | [SRP-EDITOR-06](areas/editor.md#srp-editor-06-the-mac-editor-copies-the-ipad-editors-session-request-handling-instead-of-sharing-it) | EDITOR | Medium | Open | Delta audit 2026-10-19 (`fff794b`); introduced in `eee3ec7` | The Mac editor copies the iPad editor's session-request handling instead of sharing it |
-| [SRP-IMPORT-01](areas/import.md#srp-import-01-the-notability-decoder-also-cuts-the-note-into-export-pages-with-two-rules-for-a-pictures-extent) | IMPORT | Low | Open | Delta audit 2026-10-20 (`5aae924`); introduced in the changes between `9040705` and `5aae924` | The Notability decoder also cuts the note into export pages, with two rules for a picture's extent |
+| [SRP-IMPORT-01](areas/import.md#srp-import-01-the-notability-decoder-also-cuts-the-note-into-export-pages-with-two-rules-for-a-pictures-extent) | IMPORT | Low | Partly fixed | Partly fixed in `6e21dd0`: `NotabilityPagePlacement` serves `pageCount` and `page(number:)` with one extent; `NotabilityInk.curveIndices(onPage:placement:)` still does page arithmetic in the decoder. ([import.md](areas/import.md#6-state-at-0639588)) | The Notability decoder also cuts the note into export pages, with two rules for a picture's extent |
 | [SRP-INK-01](areas/ink.md#srp-ink-01-historycanvasview-is-one-class-for-nine-jobs-that-every-canvas-inherits) | INK | High | Open | Present at the snapshot (area document) | `HistoryCanvasView` is one class for nine jobs that every canvas inherits |
 | [SRP-INK-02](areas/ink.md#srp-ink-02-inkselectioncontroller-mixes-gestures-rendering-stroke-editing-pasteboard-capture-and-menus) | INK | Medium | Open | Present at the snapshot (area document) | `InkSelectionController` mixes gestures, rendering, stroke editing, pasteboard, capture and menus |
 | [SRP-INK-03](areas/ink.md#srp-ink-03-drawingcanvascontroller-owns-history-picture-arrangement-paper-and-error-reporting-and-needs-18-manual-projection-calls) | INK | Medium | Open | Present at the snapshot (area document). Delta audit 2026-10-19: worse — `DrawingCanvasController` has 16 stored properties. | `DrawingCanvasController` owns history, picture arrangement, paper and error reporting, and needs 18 manual projection calls |
@@ -142,8 +142,8 @@ Partly fixed items by prefix and severity:
 | [OCP-EDITOR-02](areas/editor.md#ocp-editor-02-a-new-formatting-command-touches-seven-places-with-drifting-titles) | EDITOR | Medium | Open | Present at the snapshot (area document) | A new formatting command touches seven places with drifting titles |
 | [OCP-EDITOR-03](areas/editor.md#ocp-editor-03-inserted-block-templates-have-two-owners) | EDITOR | Low | Open | Present at the snapshot (area document) | Inserted block templates have two owners |
 | [OCP-EDITOR-04](areas/editor.md#ocp-editor-04-the-readable-column-and-image-type-tables-are-repeated-per-platform-and-per-call) | EDITOR | Low | Open | Present at the snapshot (area document) | The readable column and image-type tables are repeated per platform and per call |
-| [OCP-IMPORT-01](areas/import.md#ocp-import-01-goodnotes-elements-of-an-unknown-kind-or-path-layout-are-dropped-reported-once-per-kind-and-without-the-element) | IMPORT | Medium | Open | Delta audit 2026-10-20 (`5aae924`); introduced in `2118a0d` | Goodnotes elements of an unknown kind or path layout are dropped, reported once per kind and without the element |
-| [OCP-IMPORT-02](areas/import.md#ocp-import-02-format-field-numbers-and-keys-are-written-two-or-three-times) | IMPORT | Low | Open | Delta audit 2026-10-20 (`5aae924`); introduced in the changes between `9040705` and `5aae924` | Format field numbers and keys are written two or three times |
+| [OCP-IMPORT-01](areas/import.md#ocp-import-01-goodnotes-elements-of-an-unknown-kind-or-path-layout-are-dropped-reported-once-per-kind-and-without-the-element) | IMPORT | Medium | Fixed | Fixed in `471de62`; verified in the code at `0639588` with its regression test ([import.md](areas/import.md#6-state-at-0639588)). | Goodnotes elements of an unknown kind or path layout are dropped, reported once per kind and without the element |
+| [OCP-IMPORT-02](areas/import.md#ocp-import-02-format-field-numbers-and-keys-are-written-two-or-three-times) | IMPORT | Low | Fixed | Fixed in `6e21dd0`; verified in the code at `0639588` with its regression test ([import.md](areas/import.md#6-state-at-0639588)). | Format field numbers and keys are written two or three times |
 | [OCP-INK-01](areas/ink.md#ocp-ink-01-a-drawing-format-is-dispatched-at-five-places-and-adding-one-touches-all-of-them) | INK | Medium | Open | Present at the snapshot (area document) | A drawing format is dispatched at five places, and adding one touches all of them |
 | [OCP-INK-02](areas/ink.md#ocp-ink-02-graphites-canvas-tools-are-three-parallel-booleans-in-five-places) | INK | Medium | Open | Present at the snapshot (area document) | Graphite's canvas tools are three parallel booleans in five places |
 | [OCP-INK-03](areas/ink.md#ocp-ink-03-voiceover-actions-are-dispatched-by-menu-titles) | INK | Medium | Open | Present at the snapshot (area document) | VoiceOver actions are dispatched by menu titles |
@@ -403,20 +403,23 @@ Partly fixed items by prefix and severity:
 | [CC-EDITOR-13](areas/editor.md#cc-editor-13-the-mac-editor-consumes-session-requests-inside-updatensview) | EDITOR | Medium | Open | Delta audit 2026-10-19 (`fff794b`); introduced in `eee3ec7` | The Mac editor consumes session requests inside `updateNSView` |
 | [CC-EDITOR-14](areas/editor.md#cc-editor-14-headingjumppinholds-is-a-predicate-that-writes-state-and-a-boolean-remembers-the-previous-pass) | EDITOR | Low | Open | Delta audit 2026-10-19 (`fff794b`); introduced in `6b80826` | `HeadingJumpPin.holds` is a predicate that writes state, and a Boolean remembers the previous pass |
 | [CC-EDITOR-15](areas/editor.md#cc-editor-15-headingjumpsettlingswift-holds-two-unrelated-concepts-and-its-new-lines-use-literal-tolerances) | EDITOR | Low | Open | Delta audit 2026-10-19 (`fff794b`); introduced in `6b80826` | `HeadingJumpSettling.swift` holds two unrelated concepts, and its new lines use literal tolerances |
-| [CC-IMPORT-01](areas/import.md#cc-import-01-a-zip-entry-commits-its-declared-size-up-to-512-mib-before-one-byte-is-inflated-with-no-bound-on-the-compression-ratio) | IMPORT | Medium | Open | Delta audit 2026-10-20 (`5aae924`); introduced in `2118a0d` | A ZIP entry commits its declared size (up to 512 MiB) before one byte is inflated, with no bound on the compression ratio |
-| [CC-IMPORT-02](areas/import.md#cc-import-02-expanding-a-plain-property-list-is-budgeted-at-one-value-per-byte-an-unnamed-budget-that-allows-about-20-gib) | IMPORT | Medium | Open | Delta audit 2026-10-20 (`5aae924`); introduced in `ef17091` | Expanding a plain property list is budgeted at one value per byte, an unnamed budget that allows about 20 GiB |
-| [CC-IMPORT-03](areas/import.md#cc-import-03-fixed-width-reads-of-packed-arrays-depend-on-every-callers-length-check-and-are-unchecked-memory-reads-in-release-builds) | IMPORT | Medium | Open | Delta audit 2026-10-20 (`5aae924`); introduced in `ef17091` and `2118a0d` | Fixed-width reads of packed arrays depend on every caller's length check, and are unchecked memory reads in release builds |
-| [CC-IMPORT-04](areas/import.md#cc-import-04-the-xml-nesting-pre-scan-does-not-hold-the-guarantee-its-comment-states) | IMPORT | Low | Open | Delta audit 2026-10-20 (`5aae924`); introduced in `ef17091` | The XML nesting pre-scan does not hold the guarantee its comment states |
-| [CC-IMPORT-05](areas/import.md#cc-import-05-little-endian-reads-the-16-byte-uuid-and-the-ordered-last-wins-dictionary-are-each-written-more-than-once) | IMPORT | Low | Open | Delta audit 2026-10-20 (`5aae924`); introduced in the changes between `9040705` and `5aae924` | Little-endian reads, the 16-byte UUID and the ordered last-wins dictionary are each written more than once |
-| [CC-IMPORT-06](areas/import.md#cc-import-06-keyed-archive-accessors-read-a-missing-required-member-as-an-empty-value) | IMPORT | Low | Open | Delta audit 2026-10-20 (`5aae924`); introduced in `ef17091` | Keyed-archive accessors read a missing required member as an empty value |
-| [CC-IMPORT-07](areas/import.md#cc-import-07-two-declarations-ship-with-no-production-reader) | IMPORT | Low | Open | Delta audit 2026-10-20 (`5aae924`); introduced in `ef17091` | Two declarations ship with no production reader |
-| [CC-IMPORT-08](areas/import.md#cc-import-08-damage-to-an-auxiliary-part-of-a-notability-note-costs-the-whole-note-ink-included) | IMPORT | Medium | Open | Delta audit 2026-10-20 (`5aae924`); introduced in `ef17091` | Damage to an auxiliary part of a Notability note costs the whole note, ink included |
-| [CC-IMPORT-09](areas/import.md#cc-import-09-a-goodnotes-picture-paper-or-recording-whose-attachment-is-missing-reads-as-nil-with-no-issue) | IMPORT | Low | Open | Delta audit 2026-10-20 (`5aae924`); introduced in `2118a0d` | A Goodnotes picture, paper or recording whose attachment is missing reads as nil with no issue |
-| [CC-IMPORT-10](areas/import.md#cc-import-10-untrusted-relative-paths-leave-the-readers-as-plain-strings-with-a-folder-path-when-the-name-is-absent) | IMPORT | Medium | Open | Delta audit 2026-10-20 (`5aae924`); introduced in `ef17091` and `2118a0d` | Untrusted relative paths leave the readers as plain strings, with a folder path when the name is absent |
-| [CC-IMPORT-11](areas/import.md#cc-import-11-the-issue-list-and-the-error-wrapping-helpers-exist-twice-and-the-helpers-sit-in-files-named-for-other-concepts) | IMPORT | Low | Open | Delta audit 2026-10-20 (`5aae924`); introduced in the changes between `9040705` and `5aae924` | The issue list and the error-wrapping helpers exist twice, and the helpers sit in files named for other concepts |
-| [CC-IMPORT-12](areas/import.md#cc-import-12-real-notebook-tests-are-skipped-on-every-machine-except-the-owners-mac) | IMPORT | Medium | Open | Delta audit 2026-10-20 (`5aae924`); introduced in the changes between `9040705` and `5aae924` | Real-notebook tests are skipped on every machine except the owner's Mac |
-| [CC-IMPORT-13](areas/import.md#cc-import-13-attachment-bytes-are-returned-as-whole-arrays-of-up-to-512-mib) | IMPORT | Low | Open | Delta audit 2026-10-20 (`5aae924`); introduced in the changes between `9040705` and `5aae924` | Attachment bytes are returned as whole arrays of up to 512 MiB |
-| [CC-IMPORT-14](areas/import.md#cc-import-14-centre-differs-from-the-codebases-center-and-an-issue-comment-miscounts-its-cases) | IMPORT | Low | Open | Delta audit 2026-10-20 (`5aae924`); introduced in the changes between `9040705` and `5aae924` | `centre` differs from the codebase's `center`, and an issue comment miscounts its cases |
+| [CC-IMPORT-01](areas/import.md#cc-import-01-a-zip-entry-commits-its-declared-size-up-to-512-mib-before-one-byte-is-inflated-with-no-bound-on-the-compression-ratio) | IMPORT | Medium | Fixed | Fixed in `471de62`; verified in the code at `0639588` with its regression test ([import.md](areas/import.md#6-state-at-0639588)). | A ZIP entry commits its declared size (up to 512 MiB) before one byte is inflated, with no bound on the compression ratio |
+| [CC-IMPORT-02](areas/import.md#cc-import-02-expanding-a-plain-property-list-is-budgeted-at-one-value-per-byte-an-unnamed-budget-that-allows-about-20-gib) | IMPORT | Medium | Fixed | Fixed in `471de62`; verified in the code at `0639588` with its regression test ([import.md](areas/import.md#6-state-at-0639588)). | Expanding a plain property list is budgeted at one value per byte, an unnamed budget that allows about 20 GiB |
+| [CC-IMPORT-03](areas/import.md#cc-import-03-fixed-width-reads-of-packed-arrays-depend-on-every-callers-length-check-and-are-unchecked-memory-reads-in-release-builds) | IMPORT | Medium | Fixed | Fixed in `471de62`; verified in the code at `0639588` with its regression test ([import.md](areas/import.md#6-state-at-0639588)). | Fixed-width reads of packed arrays depend on every caller's length check, and are unchecked memory reads in release builds |
+| [CC-IMPORT-04](areas/import.md#cc-import-04-the-xml-nesting-pre-scan-does-not-hold-the-guarantee-its-comment-states) | IMPORT | Low | Partly fixed | Partly fixed in `6e21dd0`: tag names end at whitespace or `/`, comments and CDATA are skipped. Remains: a processing instruction ends at its first `>` and the depth can go negative, so the pre-scan can still be bypassed (the check after parsing catches it); no 600-level test. ([import.md](areas/import.md#6-state-at-0639588)) | The XML nesting pre-scan does not hold the guarantee its comment states |
+| [CC-IMPORT-05](areas/import.md#cc-import-05-little-endian-reads-the-16-byte-uuid-and-the-ordered-last-wins-dictionary-are-each-written-more-than-once) | IMPORT | Low | Fixed | Fixed in `6e21dd0`; verified in the code at `0639588` with its regression test ([import.md](areas/import.md#6-state-at-0639588)). | Little-endian reads, the 16-byte UUID and the ordered last-wins dictionary are each written more than once |
+| [CC-IMPORT-06](areas/import.md#cc-import-06-keyed-archive-accessors-read-a-missing-required-member-as-an-empty-value) | IMPORT | Low | Fixed | Fixed in `471de62`; verified in the code at `0639588` with its regression test ([import.md](areas/import.md#6-state-at-0639588)). | Keyed-archive accessors read a missing required member as an empty value |
+| [CC-IMPORT-07](areas/import.md#cc-import-07-two-declarations-ship-with-no-production-reader) | IMPORT | Low | Fixed | Fixed in `6e21dd0`; verified in the code at `0639588` with its regression test ([import.md](areas/import.md#6-state-at-0639588)). | Two declarations ship with no production reader |
+| [CC-IMPORT-08](areas/import.md#cc-import-08-damage-to-an-auxiliary-part-of-a-notability-note-costs-the-whole-note-ink-included) | IMPORT | Medium | Fixed | Fixed in `471de62`; verified in the code at `0639588` with its regression test ([import.md](areas/import.md#6-state-at-0639588)). | Damage to an auxiliary part of a Notability note costs the whole note, ink included |
+| [CC-IMPORT-09](areas/import.md#cc-import-09-a-goodnotes-picture-paper-or-recording-whose-attachment-is-missing-reads-as-nil-with-no-issue) | IMPORT | Low | Fixed | Fixed in `471de62`; verified in the code at `0639588` with its regression test ([import.md](areas/import.md#6-state-at-0639588)). | A Goodnotes picture, paper or recording whose attachment is missing reads as nil with no issue |
+| [CC-IMPORT-10](areas/import.md#cc-import-10-untrusted-relative-paths-leave-the-readers-as-plain-strings-with-a-folder-path-when-the-name-is-absent) | IMPORT | Medium | Fixed | Fixed in `471de62`; verified in the code at `0639588` with its regression test ([import.md](areas/import.md#6-state-at-0639588)). | Untrusted relative paths leave the readers as plain strings, with a folder path when the name is absent |
+| [CC-IMPORT-11](areas/import.md#cc-import-11-the-issue-list-and-the-error-wrapping-helpers-exist-twice-and-the-helpers-sit-in-files-named-for-other-concepts) | IMPORT | Low | Fixed | Fixed in `6e21dd0`; verified in the code at `0639588` with its regression test ([import.md](areas/import.md#6-state-at-0639588)). | The issue list and the error-wrapping helpers exist twice, and the helpers sit in files named for other concepts |
+| [CC-IMPORT-12](areas/import.md#cc-import-12-real-notebook-tests-are-skipped-on-every-machine-except-the-owners-mac) | IMPORT | Medium | Open | Delta audit 2026-10-20 (`5aae924`); introduced in the changes between `9040705` and `5aae924` At `0639588` the gap grew: two more sample suites skip on every machine but the owner's; checking in non-personal notebooks waits for the owner's OK. | Real-notebook tests are skipped on every machine except the owner's Mac |
+| [CC-IMPORT-13](areas/import.md#cc-import-13-attachment-bytes-are-returned-as-whole-arrays-of-up-to-512-mib) | IMPORT | Low | Fixed | Fixed in `c632468`; verified in the code at `0639588` with its regression test ([import.md](areas/import.md#6-state-at-0639588)). | Attachment bytes are returned as whole arrays of up to 512 MiB |
+| [CC-IMPORT-14](areas/import.md#cc-import-14-centre-differs-from-the-codebases-center-and-an-issue-comment-miscounts-its-cases) | IMPORT | Low | Partly fixed | Partly fixed in `6e21dd0`: the identifiers are `center` and the comment is rewritten; four doc comments say "centre" again (GoodnotesNestedFields.swift:49-63, GoodnotesElementFields.swift:73). ([import.md](areas/import.md#6-state-at-0639588)) | `centre` differs from the codebase's `center`, and an issue comment miscounts its cases |
+| [CC-IMPORT-15](areas/import.md#cc-import-15-a-deflated-attachment-is-held-twice-while-it-is-read) | IMPORT | Low | Open | Delta audit 2026-10-20 (`0639588`); introduced in `c632468` | A deflated attachment is held twice while it is read |
+| [CC-IMPORT-16](areas/import.md#cc-import-16-members-that-only-tests-read-stay-public-one-of-them-the-unchecked-archive-path) | IMPORT | Low | Open | Delta audit 2026-10-20 (`0639588`); introduced in `471de62` and `6e21dd0` | Members that only tests read stay public, one of them the unchecked archive path |
+| [CC-IMPORT-17](areas/import.md#cc-import-17-the-platform-entry-limits-comment-names-a-source-that-does-not-use-it) | IMPORT | Low | Open | Delta audit 2026-10-20 (`0639588`); introduced in `471de62` | The platform entry limit's comment names a source that does not use it |
 | [CC-INK-01](areas/ink.md#cc-ink-01-the-picture-arrangement-flow-is-two-booleans-and-an-optional-kept-in-two-objects) | INK | Medium | Open | Present at the snapshot (area document) | The picture-arrangement flow is two booleans and an optional, kept in two objects |
 | [CC-INK-02](areas/ink.md#cc-ink-02-outcomes-travel-through-shared-mutable-fields) | INK | Medium | Open | Present at the snapshot (area document) | Outcomes travel through shared mutable fields |
 | [CC-INK-03](areas/ink.md#cc-ink-03-correctness-rests-on-timing-windows-and-next-turn-hops) | INK | Medium | Open | Present at the snapshot (area document) | Correctness rests on timing windows and next-turn hops |
@@ -589,8 +592,8 @@ Partly fixed items by prefix and severity:
 | [BUG-EDITOR-02](areas/editor.md#bug-editor-02-on-the-mac-search-current-file-and-search--replace-in-current-file-from-the-command-palette-do-nothing) | EDITOR | Medium | Fixed | Commit `eee3ec7` with regression test `MacMarkdownEditorFindRequestTests` (Phase 0, 2026-10-19) | On the Mac, "Search current file" and "Search & replace in current file" from the command palette do nothing |
 | [BUG-EDITOR-03](areas/editor.md#bug-editor-03-on-the-mac-a-note-created-in-graphite-does-not-start-editing-and-its-request-stays-pending) | EDITOR | Low | Open | Verified Confirmed in [defects.md](defects.md) | On the Mac, a note created in Graphite does not start editing and its request stays pending |
 | [BUG-EDITOR-04](areas/editor.md#bug-editor-04-on-the-mac-returning-from-reading-view-to-editing-shows-where-the-editor-was-not-the-passage-that-was-being-read) | EDITOR | Medium | Fixed | Commit `eee3ec7` with regression test `MacMarkdownEditorReadingReturnTests` (Phase 0, 2026-10-19) | On the Mac, returning from reading view to editing shows where the editor was, not the passage that was being read |
-| [BUG-IMPORT-01](areas/import.md#bug-import-01-a-goodnotes-notebook-without-its-event-log-opens-as-an-empty-notebook-with-no-issue) | IMPORT | Medium | Open | Delta audit 2026-10-20 (`5aae924`); introduced in `2118a0d`; Confirmed, traced by the lead | A Goodnotes notebook without its event log opens as an empty notebook with no issue |
-| [BUG-IMPORT-02](areas/import.md#bug-import-02-a-negative-stored-page-width-gives-a-notability-pagecount-below-1-breaking-its-at-least-1-contract) | IMPORT | Low | Open | Delta audit 2026-10-20 (`5aae924`); introduced in `ef17091`; Confirmed, traced by the lead | A negative stored page width gives a Notability `pageCount` below 1, breaking its "at least 1" contract |
+| [BUG-IMPORT-01](areas/import.md#bug-import-01-a-goodnotes-notebook-without-its-event-log-opens-as-an-empty-notebook-with-no-issue) | IMPORT | Medium | Fixed | Fixed in `471de62`; verified in the code at `0639588` with its regression test ([import.md](areas/import.md#6-state-at-0639588)). | A Goodnotes notebook without its event log opens as an empty notebook with no issue |
+| [BUG-IMPORT-02](areas/import.md#bug-import-02-a-negative-stored-page-width-gives-a-notability-pagecount-below-1-breaking-its-at-least-1-contract) | IMPORT | Low | Fixed | Fixed in `471de62`; verified in the code at `0639588` with its regression test ([import.md](areas/import.md#6-state-at-0639588)). | A negative stored page width gives a Notability `pageCount` below 1, breaking its "at least 1" contract |
 | [BUG-INK-01](areas/ink.md#bug-ink-01-a-recovered-drawing-draft-reopens-with-the-original-background-losing-the-paper-colour-the-user-chose) | INK | Medium | Fixed | Commit `6e13e52` with regression test `DrawingEditorDraftStoreTests` (Phase 0, 2026-10-19) | A recovered drawing draft reopens with the original background, losing the paper colour the user chose |
 | [BUG-INK-02](areas/ink.md#bug-ink-02-the-shape-shown-while-holding-the-pencil-is-not-what-the-stroke-becomes-when-the-canvas-is-zoomed) | INK | Medium | Fixed | Commit `c5f326a` with regression test `ShapeRecognizerHeldStrokeTests` (Phase 0, 2026-10-19) | The shape shown while holding the Pencil is not what the stroke becomes when the canvas is zoomed |
 | [BUG-INK-03](areas/ink.md#bug-ink-03-two-quick-taps-on-rotate-image-right-turn-a-drawings-picture-once-and-leave-two-undo-steps) | INK | Medium | Fixed | Commit `b5fa96e` with regression test `ExclusiveOperationRunnerTests` (Phase 0, 2026-10-19) | Two quick taps on "Rotate Image Right" turn a drawing's picture once and leave two undo steps |
