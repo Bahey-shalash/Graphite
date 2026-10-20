@@ -89,5 +89,19 @@ final class MacMarkdownEditorCreationTests: XCTestCase {
         let textView = try showEditor(for: session)
         XCTAssertEqual(textView.selectedRange(), NSRange(location: 6, length: (text as NSString).length - 6))
     }
+
+    /// BUG-EDITOR-03: on the Mac, a note created in Graphite did not start editing.
+    func testANoteCreatedToBeTypedInTakesKeyboardFocusOnceShown() async throws {
+        let session = try await makeSession(text: "", selection: NSRange(location: 0, length: 0))
+        // As `createNote` asks: before the editor exists.
+        session.startsEditingWhenShown = true
+        let textView = try showEditor(for: session)
+        let deadline = Date.now.addingTimeInterval(5)
+        while Date.now < deadline, textView.window?.firstResponder !== textView {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(textView.window?.firstResponder === textView, "A new note is ready to type, as in Obsidian.")
+        XCTAssertFalse(session.startsEditingWhenShown, "The request is served once.")
+    }
 }
 #endif

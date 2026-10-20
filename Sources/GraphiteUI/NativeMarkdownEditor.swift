@@ -3062,6 +3062,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
                 DispatchQueue.main.async { [weak self, weak measurableView] in
                     guard let self, let measurableView else { return }
                     self.performPendingJumpIfReady(in: measurableView)
+                    self.startEditingIfRequested(in: measurableView)
                 }
             }
             observeCharacterEdits(in: textView)
@@ -3502,6 +3503,18 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         func serveSessionRequests(in textView: NSTextView) {
             goToReadingPlaceIfSwitched(in: textView)
             presentFindIfRequested(in: textView)
+            startEditingIfRequested(in: textView)
+        }
+
+        /// Puts the cursor in a note just created, as Obsidian does, once the editor is in a window.
+        private func startEditingIfRequested(in textView: NSTextView) {
+            guard session.startsEditingWhenShown, textView.window != nil else { return }
+            // After the update: becoming first responder during one would re-enter SwiftUI.
+            DispatchQueue.main.async { [weak self, weak textView] in
+                guard let self, let textView, let window = textView.window, self.session.startsEditingWhenShown else { return }
+                self.session.startsEditingWhenShown = false
+                window.makeFirstResponder(textView)
+            }
         }
 
         /// After the note switched from reading, shows the line that was at the top of the
