@@ -33,7 +33,7 @@ struct RecordingControl: View {
             Menu {
                 if let message = controller.message { Text(message) }
                 if let accessProblem = controller.accessProblem, accessProblem.canBeChangedInSettings {
-                    Button("Open Settings", systemImage: "gear") { openURL(RecordingControlModel.settingsLocation) }
+                    Button("Open Settings", systemImage: "gear") { openURL(RecordingControlModel.settingsLocation(for: accessProblem)) }
                 }
                 if controller.state == .recording { Button("Pause", systemImage: "pause.fill") { controller.pause() } }
                 if controller.state.canResume { Button("Resume", systemImage: "record.circle") { controller.resume() } }
@@ -103,13 +103,24 @@ struct RecordingControl: View {
 
 /// What the recording control shows, apart from its views.
 enum RecordingControlModel {
-    /// Graphite's page in the system's settings, where camera and microphone access are changed.
-    static var settingsLocation: URL {
+    /// Where the person changes the access a problem names. iOS and iPadOS open Graphite's
+    /// own settings page, which has both switches; macOS opens the refused device's privacy pane.
+    static func settingsLocation(for accessProblem: CaptureAccessProblem) -> URL {
         #if canImport(UIKit)
         URL(string: UIApplication.openSettingsURLString) ?? URL(fileURLWithPath: "/")
         #else
-        URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera") ?? URL(fileURLWithPath: "/")
+        macPrivacyPaneLocation(for: accessProblem)
         #endif
+    }
+
+    /// The System Settings privacy pane of the camera or the microphone on macOS. Missing
+    /// hardware is never offered Settings; its device's pane is named only to keep the switch whole.
+    static func macPrivacyPaneLocation(for accessProblem: CaptureAccessProblem) -> URL {
+        let paneAnchor = switch accessProblem {
+        case .microphoneDenied, .microphoneRestricted, .noMicrophone: "Privacy_Microphone"
+        case .cameraDenied, .cameraRestricted, .noCamera: "Privacy_Camera"
+        }
+        return URL(string: "x-apple.systempreferences:com.apple.preference.security?\(paneAnchor)") ?? URL(fileURLWithPath: "/")
     }
 
     static func title(of camera: CameraPosition) -> String {

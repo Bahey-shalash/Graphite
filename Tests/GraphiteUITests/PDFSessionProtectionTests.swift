@@ -143,6 +143,27 @@ final class PDFSessionProtectionTests: XCTestCase {
         assertEveryEditIsRefused(by: session, "encrypted, signature accepted")
     }
 
+    /// BUG-LECTURE-02: the embed's banner named a password for every protected PDF.
+    func testASignedPDFIsProtectedBecauseOfItsSignatureNotAPassword() async throws {
+        let signedSession = try await PDFSession.open(try makeSignedPDF(named: "Contract.pdf"))
+        XCTAssertFalse(signedSession.document.isEncrypted)
+        XCTAssertEqual(signedSession.protection, .digitallySigned)
+        XCTAssertEqual(EmbeddedPDFViewer.protectionBannerSymbolName(for: .digitallySigned), "signature",
+                       "The embed shows the signature's reason, as the PDF view does.")
+
+        let encryptedLocation = try makePDF(named: "Encrypted.pdf", auxiliaryInfo: [kCGPDFContextOwnerPassword: "owner", kCGPDFContextUserPassword: ""])
+        let encryptedSession = try await PDFSession.open(encryptedLocation)
+        XCTAssertTrue(encryptedSession.document.isEncrypted)
+        XCTAssertFalse(encryptedSession.document.isLocked, "PDFKit opens an empty user password by itself.")
+        XCTAssertEqual(encryptedSession.protection, .passwordProtected)
+        XCTAssertEqual(EmbeddedPDFViewer.protectionBannerSymbolName(for: .passwordProtected), "lock.fill")
+
+        signedSession.acceptsSignatureInvalidation = true
+        XCTAssertNil(signedSession.protection, "Accepting the signature's loss lifts its protection.")
+        encryptedSession.acceptsSignatureInvalidation = true
+        XCTAssertEqual(encryptedSession.protection, .passwordProtected, "A password outranks a signature.")
+    }
+
     func testAnOrdinaryPDFTakesEditsAndIsWritten() async throws {
         let location = try makePDF(named: "Plain.pdf")
         let session = try await PDFSession.open(location)

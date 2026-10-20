@@ -495,6 +495,19 @@ final class UiPdfSessionFixTests: XCTestCase {
         XCTAssertNil(PDFPageJumpField.pageNumber(from: "99999999999999999999999", pageCount: 20))
     }
 
+    /// BUG-LECTURE-03: the embed parsed with `Int(_:)`, which takes ASCII digits only.
+    func testTheEmbeddedPageFieldAcceptsDecimalDigitsOfAnyScript() {
+        XCTAssertEqual(EmbeddedPDFViewer.pageIndex(typed: "٣", pageCount: 20), 2, "Arabic-Indic digits")
+        XCTAssertEqual(EmbeddedPDFViewer.pageIndex(typed: "۵", pageCount: 20), 4, "Persian digits")
+        XCTAssertEqual(EmbeddedPDFViewer.pageIndex(typed: "३", pageCount: 20), 2, "Devanagari digits")
+        XCTAssertEqual(EmbeddedPDFViewer.pageIndex(typed: "１２", pageCount: 20), 11, "Full-width digits")
+        XCTAssertEqual(EmbeddedPDFViewer.pageIndex(typed: " 7 ", pageCount: 20), 6)
+        XCTAssertNil(EmbeddedPDFViewer.pageIndex(typed: "21", pageCount: 20))
+        XCTAssertNil(EmbeddedPDFViewer.pageIndex(typed: "0", pageCount: 20))
+        XCTAssertNil(EmbeddedPDFViewer.pageIndex(typed: "", pageCount: 20))
+        XCTAssertNil(EmbeddedPDFViewer.pageIndex(typed: "+3", pageCount: 20), "Go to Page refuses a sign, so the embed does too.")
+    }
+
     func testExportNamesDescribeTheSelectedPages() {
         XCTAssertEqual(PDFPageCommands.exportFilename(stem: "Notes", pageIndices: [4]), "Notes page 5")
         XCTAssertEqual(PDFPageCommands.exportFilename(stem: "Notes", pageIndices: [0, 1, 2]), "Notes pages 1-3")
