@@ -5,17 +5,12 @@ import GraphiteCore
 @testable import GraphiteIndex
 @testable import GraphiteApple
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// The recording control's choices and wording, the camera preview's place and size, and
 /// video recordings in the workspace: where they are saved and how they are recovered.
 @MainActor
 final class RecordingControlsTests: XCTestCase {
-    private var temporaryFolders: [URL] = []
-
-    override func tearDown() async throws {
-        for folder in temporaryFolders { try? FileManager.default.removeItem(at: folder) }
-        temporaryFolders = []
-    }
 
     // MARK: The control
 
@@ -157,9 +152,7 @@ final class RecordingControlsTests: XCTestCase {
     // MARK: Helpers
 
     private func makeFolder(_ prefix: String) throws -> URL {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        temporaryFolders.append(folder)
+        let folder = try TemporaryVault.make(prefix: prefix, for: self).root
         return folder.resolvingSymlinksInPath()
     }
 
@@ -188,25 +181,24 @@ final class RecordingControlsTests: XCTestCase {
         let location = folder.appendingPathComponent("\(UUID().uuidString).mp4")
         let writer = try AVAssetWriter(outputURL: location, fileType: .mp4)
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: [AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: 320, AVVideoHeightKey: 180])
-        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA, kCVPixelBufferWidthKey as String: 320, kCVPixelBufferHeightKey as String: 180,
-        ])
-        writer.add(input)
-        XCTAssertTrue(writer.startWriting())
+        let receiver = writer.inputReceiver(for: input)
+        try writer.start()
         writer.startSession(atSourceTime: .zero)
         for frameIndex in 0..<30 {
             var pixelBuffer: CVPixelBuffer?
-            guard let pool = adaptor.pixelBufferPool, CVPixelBufferPoolCreatePixelBuffer(nil, pool, &pixelBuffer) == kCVReturnSuccess, let pixelBuffer else {
+            guard CVPixelBufferCreate(nil, 320, 180, kCVPixelFormatType_32BGRA, nil, &pixelBuffer) == kCVReturnSuccess, let pixelBuffer else {
                 throw GraphiteError.unavailable("No pixel buffer.")
             }
             CVPixelBufferLockBaseAddress(pixelBuffer, [])
             // Noise, so the file is as large as a real recording's first second.
             if let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) { arc4random_buf(baseAddress, CVPixelBufferGetDataSize(pixelBuffer)) }
             CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
-            while !input.isReadyForMoreMediaData { Thread.sleep(forTimeInterval: 0.002) }
-            adaptor.append(pixelBuffer, withPresentationTime: CMTime(value: CMTimeValue(frameIndex), timescale: 30))
+            let timing = CMSampleTimingInfo(duration: CMTime(value: 1, timescale: 30), presentationTimeStamp: CMTime(value: CMTimeValue(frameIndex), timescale: 30), decodeTimeStamp: .invalid)
+            // Nothing else holds the frame, so handing it over unchecked is safe.
+            nonisolated(unsafe) let frame = try CMSampleBuffer(imageBuffer: pixelBuffer, formatDescription: CMVideoFormatDescription(imageBuffer: pixelBuffer), sampleTiming: timing)
+            while try !receiver.appendImmediately(CMReadySampleBuffer(unsafeBuffer: frame)) { Thread.sleep(forTimeInterval: 0.002) }
         }
-        input.markAsFinished()
+        receiver.finish()
         let finished = DispatchSemaphore(value: 0)
         writer.finishWriting { finished.signal() }
         finished.wait()

@@ -1,13 +1,12 @@
 import XCTest
 @testable import GraphiteCore
+import GraphiteTestSupport
 
 final class VaultTests: XCTestCase {
     func testPathEscapeAndSymbolicLinkAreRejected() throws {
         XCTAssertThrowsError(try VaultPath("../../secret"))
         XCTAssertThrowsError(try VaultPath("/outside"))
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "TemporaryFolder", for: self).root
         try FileManager.default.createSymbolicLink(at: directory.appendingPathComponent("escape"), withDestinationURL: directory.deletingLastPathComponent())
         XCTAssertThrowsError(try VaultPath("escape/secret").url(in: directory))
     }
@@ -34,9 +33,7 @@ final class VaultTests: XCTestCase {
     }
 
     func testAtomicWriteDetectsSameSizeExternalEditAndDeletion() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "TemporaryFolder", for: self).root
         let location = directory.appendingPathComponent("Lecture µ.md")
         let writer = AtomicFileWriter()
         let revision = try writer.write(Data("first".utf8), to: location, expecting: .absent)
@@ -50,9 +47,7 @@ final class VaultTests: XCTestCase {
     }
 
     func testSuccessfulReplacementPreservesExactBytes() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "TemporaryFolder", for: self).root
         let location = directory.appendingPathComponent("note.md")
         let writer = AtomicFileWriter()
         let original = Data("---\r\naliases: [µ]\r\n---\r\n# Hello  \r\n".utf8)
@@ -67,9 +62,7 @@ final class VaultTests: XCTestCase {
     /// A provider's stored version and a file shared read-only keep their permissions when
     /// copied; the staged copy must still be flushed and published.
     func testCopyOfAReadOnlyFileIsPublished() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "TemporaryFolder", for: self).root
         let source = directory.appendingPathComponent("Handout.pdf")
         let contents = Data("%PDF-1.7 read only".utf8)
         try contents.write(to: source)

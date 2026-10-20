@@ -12,7 +12,13 @@ final class WorkspaceModel {
     var folderAccess: FolderAccess?
     /// The open vault's entry in `vaultLibrary`.
     private(set) var currentVaultIdentifier: UUID?
-    let vaultLibrary = VaultLibrary()
+    let vaultLibrary: VaultLibrary
+    /// The preferences the per-vault keys below are written to. The app's are the standard
+    /// ones; a test or a hosted launch gives its own (`WorkspaceDeviceServices`).
+    let deviceDefaults: UserDefaults
+    /// Where the files kept for each vault outside it (indexes, File recovery copies,
+    /// unfinished recordings) live: the system's folders, or temporary ones for tests.
+    let applicationFolders: ApplicationFolders
     var store: VaultStore?
     var index: VaultIndex?
     var rootEntries: [VaultEntry] = []
@@ -20,7 +26,7 @@ final class WorkspaceModel {
     var expandedFolders: Set<VaultPath> = [] {
         didSet {
             guard let currentVaultIdentifier, expandedFolders != oldValue else { return }
-            UserDefaults.standard.set(expandedFolders.map(\.rawValue).sorted(), forKey: Self.expandedFoldersKey(for: currentVaultIdentifier))
+            deviceDefaults.set(expandedFolders.map(\.rawValue).sorted(), forKey: Self.expandedFoldersKey(for: currentVaultIdentifier))
         }
     }
 
@@ -36,6 +42,9 @@ final class WorkspaceModel {
     /// Files and folders with a move or rename under way; a second request for one is
     /// ignored (the title bar can report the same rename twice).
     var pathsBeingMoved: Set<VaultPath> = []
+    /// How each move that waited for the person's "Update links?" answer ended, by the moved
+    /// path, until whoever waited for it (a plugin's rename) takes it.
+    @ObservationIgnored var answeredMoveOutcomes: [VaultPath: FileMoveOutcome] = [:]
     /// The open tabs and the split, remembered per vault.
     var layout = TabLayout() {
         didSet {
@@ -44,6 +53,8 @@ final class WorkspaceModel {
             // focus moves within a note, the divider is dragged, or a background tab changes.
             if selection != layout.activeTab.path { selection = layout.activeTab.path }
             if history != layout.activeTab.history { history = layout.activeTab.history }
+            if activeTabID != layout.activeTab.id { activeTabID = layout.activeTab.id }
+            if openTabCount != layout.allTabs.count { openTabCount = layout.allTabs.count }
             // Histories are not saved, so moving through them writes nothing.
             if layout.saved != oldValue.saved { saveTabLayout() }
         }
@@ -64,7 +75,7 @@ final class WorkspaceModel {
     /// Where each vault's documents were left (`WorkspacePlaces.swift`). Shared by every
     /// workspace of the app; a test gives its workspace one of its own, so places it leaves
     /// stay out of the app's preferences and out of other tests.
-    @ObservationIgnored var documentPlaceStore = DocumentPlaceStore.shared
+    @ObservationIgnored var documentPlaceStore: DocumentPlaceStore
     /// Bases inside the open vault's notes keep their results here while scrolled out of
     /// sight. Replaced when another vault opens, since its models read the old vault.
     @ObservationIgnored private(set) var embeddedBaseModelCache = EmbeddedBaseModelCache()
@@ -78,7 +89,7 @@ final class WorkspaceModel {
     var recentFiles = RecentFiles() {
         didSet {
             guard let currentVaultIdentifier, recentFiles != oldValue else { return }
-            UserDefaults.standard.set(recentFiles.paths.map(\.rawValue), forKey: Self.recentFilesKey(for: currentVaultIdentifier))
+            deviceDefaults.set(recentFiles.paths.map(\.rawValue), forKey: Self.recentFilesKey(for: currentVaultIdentifier))
         }
     }
 
@@ -88,6 +99,13 @@ final class WorkspaceModel {
 
     /// The file of the focused tab. Kept in step with `layout`.
     private(set) var selection: VaultPath?
+    /// The focused tab, kept in step with `layout`; nil until the layout first changes. The
+    /// focused document is found through it, so the views that show it, the window's root
+    /// view among them, are not updated for every change of the layout, such as each frame
+    /// of a drag of the split's divider.
+    private(set) var activeTabID: UUID?
+    /// How many tabs are open, kept in step with `layout`, for the tabs button.
+    private(set) var openTabCount = 1
     /// The focused tab's note or PDF, once loaded.
     var markdownSession: MarkdownSession? { activeDocument.loadedPath == selection ? activeDocument.markdownSession : nil }
     var pdfSession: PDFSession? { activeDocument.loadedPath == selection ? activeDocument.pdfSession : nil }
@@ -166,22 +184,20 @@ final class WorkspaceModel {
         get { activeDocument.headingScrollRequest }
         set { activeDocument.headingScrollRequest = newValue }
     }
-    let preferences = GraphitePreferences()
+    let preferences: GraphitePreferences
     let recording = RecordingController()
-    let readAloud = ReadAloudVoices.makeController()
+    /// The window's reading, while the Read Aloud core plugin is on; nil while it is off, so
+    /// no speech engine, voice library or renderer exists and no Read Aloud control shows.
+    private(set) var readAloud: ReadAloudController?
     /// Callouts the person expanded or collapsed, which Read Aloud follows.
     let calloutFolds = CalloutFoldStore()
-    /// Jumps, section skips, the listening queue and remembered places for Read Aloud.
-    @ObservationIgnored lazy var readAloudNavigator: ReadAloudNavigator = {
-        let navigator = ReadAloudNavigator(reader: readAloud)
-        navigator.startReading = { [weak self] path, resumeLocation in
-            Task { @MainActor in await self?.startReadingAloud(path, resumeLocation: resumeLocation) }
-        }
-        navigator.visiblePageIndex = { [weak self] in self?.pdfSession?.currentPageIndex }
-        return navigator
-    }()
+    /// Jumps, section skips, the listening queue and remembered places for Read Aloud; nil
+    /// while Read Aloud is off.
+    private(set) var readAloudNavigator: ReadAloudNavigator?
+    /// Builds `readAloud` when the plugin is on at launch or turned on later.
+    @ObservationIgnored private let makeReadAloudController: @MainActor () -> ReadAloudController
     /// The open vault's Obsidian community plugins.
-    let communityPlugins = CommunityPluginHost()
+    let communityPlugins: CommunityPluginHost
     /// Set by indexing when a scan of the whole vault finishes; tests that fill the index
     /// themselves set it too.
     var hasCompletedIndexScan = false
@@ -197,6 +213,70 @@ final class WorkspaceModel {
     private var externalChangeTask: Task<Void, Never>?
     private var pendingExternalChanges: Set<URL> = []
     let resolver = AttachmentResolver()
+    /// What the delays of the workspace and of the sessions it opens are counted on: the
+    /// settling of external changes and canvas autosave.
+    let clock: any ApplicationClock
+
+    /// A workspace over the device state it is given: the preferences, the vault list, the
+    /// place store and the folders, with its delays counted on `clock`. The app builds them
+    /// once where it creates the workspace.
+    init(deviceServices: WorkspaceDeviceServices, clock: any ApplicationClock) {
+        self.clock = clock
+        deviceDefaults = deviceServices.defaults
+        applicationFolders = deviceServices.applicationFolders
+        preferences = deviceServices.preferences
+        vaultLibrary = deviceServices.vaultLibrary
+        documentPlaceStore = deviceServices.documentPlaceStore
+        communityPlugins = CommunityPluginHost(defaults: deviceServices.defaults)
+        makeReadAloudController = deviceServices.makeReadAloudController
+        if let applicationSupportFolder = deviceServices.applicationFolders.applicationSupportFolder {
+            recording.recoveryFolderLocation = { try RecordingRecoveryFolder.location(in: applicationSupportFolder) }
+        }
+        if preferences.isEnabled(.readAloud) { startReadAloud() }
+    }
+
+    /// Turns a core plugin on or off, and starts or ends what it runs, with no relaunch:
+    /// Read Aloud's speech is built when it is turned on, and stopped and dropped when it is
+    /// turned off. Its voices, prepared audio, pronunciations and places are kept.
+    func setCorePluginEnabled(_ plugin: CorePlugin, _ isEnabled: Bool) {
+        preferences.setEnabled(plugin, isEnabled)
+        guard plugin == .readAloud else { return }
+        if isEnabled { startReadAloud() } else { endReadAloud() }
+    }
+
+    private func startReadAloud() {
+        guard readAloud == nil else { return }
+        let reader = makeReadAloudController()
+        reader.vaultRoot = folderAccess?.root
+        let navigator = ReadAloudNavigator(reader: reader)
+        navigator.startReading = { [weak self] path, resumeLocation in
+            Task { @MainActor in await self?.startReadingAloud(path, resumeLocation: resumeLocation) }
+        }
+        navigator.visiblePageIndex = { [weak self] in self?.pdfSession?.currentPageIndex }
+        navigator.vaultRoot = { [weak self] in self?.folderAccess?.root }
+        navigator.vaultIdentifier = { [weak self] in self?.currentVaultIdentifier }
+        readAloud = reader
+        readAloudNavigator = navigator
+    }
+
+    /// Stops reading as Stop does (speech, audio session, rendering ahead, Now Playing), closes
+    /// the reader, and drops the controller and the navigator.
+    private func endReadAloud() {
+        readAloud?.clearAndLeaveNowPlaying()
+        readAloud = nil
+        readAloudNavigator = nil
+    }
+
+    /// A workspace on the app's own device state. Callers that do not pass their own are the
+    /// tests written before the workspace could be given one; Phase 2 removes this.
+    convenience init() {
+        self.init(deviceServices: .live(), clock: LiveApplicationClock())
+    }
+
+    /// A workspace for a launch in `launchMode`.
+    convenience init(launchMode: LaunchMode) {
+        self.init(deviceServices: .make(for: launchMode), clock: LiveApplicationClock())
+    }
 
     var title: String { folderAccess?.root.lastPathComponent ?? "Graphite" }
     var currentDirectory: VaultPath { selection?.parent ?? .root }
@@ -235,14 +315,14 @@ final class WorkspaceModel {
         guard vault.id != currentVaultIdentifier else { return }
         vaultLibrary.remove(vault.id)
         // Its File recovery copies would otherwise stay on the device with nothing to show them.
-        if let fileRecovery = try? FileRecoveryStore.forVault(identifier: vault.id) {
+        if let fileRecovery = try? FileRecoveryStore.forVault(identifier: vault.id, in: applicationFolders.applicationSupportFolder) {
             Task.detached(priority: .utility) { try? fileRecovery.removeAllSnapshots() }
         }
-        VaultIndex.removeIndex(forVault: vault.id)
-        CommunityPluginHost.forgetVault(vault.id)
+        VaultIndex.removeIndex(forVault: vault.id, in: applicationFolders.cachesFolder)
+        CommunityPluginHost.forgetVault(vault.id, defaults: deviceDefaults)
         // Opening the folder again makes a new identifier, so nothing would read these again.
         for key in [Self.expandedFoldersKey(for: vault.id), Self.recentFilesKey(for: vault.id), Self.tabLayoutKey(for: vault.id)] {
-            UserDefaults.standard.removeObject(forKey: key)
+            deviceDefaults.removeObject(forKey: key)
         }
         documentPlaceStore.forgetVault(vault.id)
     }
@@ -274,7 +354,7 @@ final class WorkspaceModel {
         let settings = (try? await vaultStore.settings()) ?? ObsidianSettings()
         do {
             entries = try await vaultStore.children(of: .root, sortedBy: settings.fileSortOrder)
-            let cacheURL = try VaultIndex.cacheURL(forVault: vaultIdentifier, legacyRoot: root)
+            let cacheURL = try VaultIndex.cacheURL(forVault: vaultIdentifier, legacyRoot: root, in: applicationFolders.cachesFolder)
             vaultIndex = try await Task.detached(priority: .utility) { try VaultIndex(databaseURL: cacheURL) }.value
             // The open editors stayed usable while the vault was read; what was written in
             // them meanwhile is saved before they close. A failed save keeps this vault open.
@@ -287,12 +367,15 @@ final class WorkspaceModel {
         }
         // The plugins of the vault being left unload before anything of it closes.
         await communityPlugins.vaultWillClose()
+        // The editors stayed editable through the waits above: what was typed meanwhile is
+        // saved now, with nothing to wait for between this and the documents closing.
+        for document in tabDocuments.values { try? await document.saveAllChanges() }
         monitor?.stop(); stopIndexing(); externalChangeTask?.cancel()
-        pendingExternalChanges.removeAll(); firstPendingExternalChangeInstant = nil
+        pendingExternalChanges.removeAll(); firstPendingExternalChangeTime = nil
         indexingMessage = ""
-        readAloud.clear()
+        readAloud?.clear()
         folderAccess = access; store = vaultStore; index = vaultIndex; monitor = vaultMonitor
-        readAloud.vaultRoot = access.root
+        readAloud?.vaultRoot = access.root
         EmbeddedPDFSessions.shared.useVault(root: root, owner: self, saving: embeddedPDFSaving(writer: vaultStore.writer))
         // Nothing open in the vault being left is saved into the new vault's layout.
         layoutVaultIdentifier = nil
@@ -302,7 +385,7 @@ final class WorkspaceModel {
         embeddedBaseModelCache = EmbeddedBaseModelCache()
         // `expandedFolders` is replaced below, once the new vault is current: clearing it
         // here would save an empty list for the vault being left.
-        pendingMove = nil; pendingDeletion = nil; fileSheet = nil
+        pendingMove = nil; answeredMoveOutcomes = [:]; pendingDeletion = nil; fileSheet = nil
         resetConflictVersions()
         searchQuery = ""; searchResults = []; searchContinuation = nil
         rootEntries = entries
@@ -316,12 +399,14 @@ final class WorkspaceModel {
         currentVaultIdentifier = vaultLibrary.recordOpening(identifier: vaultIdentifier, root: root, location: refreshedLocation ?? location)
         if let currentVaultIdentifier {
             // Folders renamed or deleted in the meantime simply stay closed.
-            let savedFolders = UserDefaults.standard.stringArray(forKey: Self.expandedFoldersKey(for: currentVaultIdentifier)) ?? []
+            let savedFolders = deviceDefaults.stringArray(forKey: Self.expandedFoldersKey(for: currentVaultIdentifier)) ?? []
             expandedFolders = Set(savedFolders.compactMap { folder in try? VaultPath(folder) })
-            let savedRecentFiles = UserDefaults.standard.stringArray(forKey: Self.recentFilesKey(for: currentVaultIdentifier)) ?? []
+            let savedRecentFiles = deviceDefaults.stringArray(forKey: Self.recentFilesKey(for: currentVaultIdentifier)) ?? []
             recentFiles = RecentFiles(paths: savedRecentFiles.compactMap { path in try? VaultPath(path) })
         }
-        fileRecovery = currentVaultIdentifier.flatMap { identifier in try? FileRecoveryStore.forVault(identifier: identifier) }
+        fileRecovery = currentVaultIdentifier.flatMap { identifier in
+            try? FileRecoveryStore.forVault(identifier: identifier, in: applicationFolders.applicationSupportFolder)
+        }
         pruneRecoverySnapshots()
         await reloadVaultSettings()
         startIndexing()
@@ -365,8 +450,10 @@ final class WorkspaceModel {
 
     func reloadVaultSettings() async {
         guard let store else { return }
-        templateSettings = await store.templateSettings()
-        dailyNoteSettings = await store.dailyNoteSettings()
+        do {
+            templateSettings = try await store.templateSettings()
+            dailyNoteSettings = try await store.dailyNoteSettings()
+        } catch { errorMessage = "Graphite could not read the Templates or Daily notes settings in this vault. " + error.localizedDescription }
         await reloadBookmarks()
         await reloadVaultAppearance()
         do {
@@ -444,6 +531,7 @@ final class WorkspaceModel {
         }
         let existingTabIDs = Set(layout.allTabs.map(\.id))
         let previousTabID = layout.activeTab.id
+        let previousFocusedGroupID = layout.focusedGroupID
         let tabID: UUID
         switch placement {
         case .currentTab: tabID = layout.tabForOpeningHere()
@@ -459,12 +547,23 @@ final class WorkspaceModel {
             layout.closeTab(tabID)
             removeTabDocuments([tabID])
         }
+        // A file that could not be opened on the other side leaves the focus where it was,
+        // rather than on a side that shows nothing new.
+        if !didOpen, placement == .otherGroup, layout.groups.contains(where: { group in group.id == previousFocusedGroupID }) {
+            layout.focus(groupID: previousFocusedGroupID)
+        }
         return layout.tabID(showing: path)
     }
 
     /// Saves every open note and PDF, before files move and when the app leaves the screen.
+    /// One that cannot be saved, such as a note changed in another app, does not keep the
+    /// others from saving; the first failure is reported after all were tried.
     func saveOpenDocuments() async throws {
-        for document in tabDocuments.values { try await document.save() }
+        var firstFailure: Error?
+        for document in tabDocuments.values {
+            do { try await document.save() } catch { firstFailure = firstFailure ?? error }
+        }
+        if let firstFailure { throw firstFailure }
     }
 
     func refreshDirectory() async {
@@ -626,13 +725,7 @@ final class WorkspaceModel {
     /// The vault file an embed or link target refers to, if exactly one does.
     func resolveLink(_ target: String, from source: VaultPath, isWiki: Bool = true) async -> VaultPath? {
         guard let folderAccess else { return nil }
-        for candidate in WikiLinkResolver.directCandidates(target: target, source: source, isWiki: isWiki) {
-            guard let location = try? candidate.url(in: folderAccess.root) else { continue }
-            // A folder is not a link target: `[[Projects]]` beside a Projects folder names
-            // the note Projects.md, as in Obsidian, which creates it when it is missing.
-            var isDirectory: ObjCBool = false
-            if FileManager.default.fileExists(atPath: location.path, isDirectory: &isDirectory), !isDirectory.boolValue { return storedPath(for: candidate) }
-        }
+        if let file = WikiLinkResolver.existingDirectFile(target: target, source: source, isWiki: isWiki, in: folderAccess.root) { return storedPath(for: file) }
         let matches = (try? await index?.resolve(target, from: source, isWiki: isWiki)) ?? []
         return matches.count == 1 ? matches.first : nil
     }
@@ -847,7 +940,7 @@ final class WorkspaceModel {
     /// Inserts the embed of an attachment just written into its note. Writing a large file
     /// takes a while, and the note may have closed or changed in another app meanwhile; the
     /// file then stays in the vault, and the person is told no embed was inserted.
-    private func insertEmbed(_ embedText: String, of attachment: VaultPath, into session: MarkdownSession, at range: NSRange?, chosenIn textWhenChosen: String) {
+    func insertEmbed(_ embedText: String, of attachment: VaultPath, into session: MarkdownSession, at range: NSRange?, chosenIn textWhenChosen: String) {
         guard let openSession = openMarkdownSession(at: session.path) else {
             errorMessage = "“\(attachment.rawValue)” was saved, but its note is no longer open, so no embed was inserted."
             return
@@ -952,7 +1045,7 @@ final class WorkspaceModel {
         return document.markdownSession
     }
 
-    private func embed(for attachment: VaultPath, in note: VaultPath, settings: ObsidianSettings) async -> String {
+    func embed(for attachment: VaultPath, in note: VaultPath, settings: ObsidianSettings) async -> String {
         resolver.embed(attachment: attachment, note: note, settings: settings, isNameUniqueInVault: await isNameUnique(attachment, from: note))
     }
 
@@ -1086,8 +1179,8 @@ final class WorkspaceModel {
         // A recording that could not be saved is waiting; starting would not record, and the
         // note it will be embedded in must stay the one it was started from.
         guard recording.canStartRecording else { return }
-        readAloud.stop()
-        readAloud.showsReader = false
+        readAloud?.stop()
+        readAloud?.showsReader = false
         do {
             let notePath = markdownSession?.path
             let directory = try await recordingDirectory(note: notePath, store: store)
@@ -1181,6 +1274,7 @@ final class WorkspaceModel {
         followMoveInFolds(from: oldPath, to: newPath)
         followMoveInPlaces(from: oldPath, to: newPath)
         followMoveInBookmarks(from: oldPath, to: newPath)
+        followMoveInFolderStyles(from: oldPath, to: newPath)
         if let fileRecovery {
             // A renamed note keeps its history; for a folder, each note inside does.
             Task.detached(priority: .utility) { try? fileRecovery.followMove(from: oldPath, to: newPath) }
@@ -1194,21 +1288,24 @@ final class WorkspaceModel {
         recentFiles.remove(inside: removedPath)
         forgetFolds(inside: removedPath)
         forgetPlaces(inside: removedPath)
+        forgetFolderStyles(inside: removedPath)
     }
 
     // MARK: External changes
 
-    private func scheduleExternalRefresh(_ changedLocation: URL?) {
+    /// Records a change another app made at `changedLocation` (nil: somewhere in the vault) and
+    /// refreshes the vault once reports settle (`externalRefreshDeadline`).
+    func scheduleExternalRefresh(_ changedLocation: URL?) {
         if let changedLocation { pendingExternalChanges.insert(changedLocation) }
-        let now = ContinuousClock.now
-        let firstReport = firstPendingExternalChangeInstant ?? now
-        firstPendingExternalChangeInstant = firstReport
+        let now = clock.now
+        let firstReport = firstPendingExternalChangeTime ?? now
+        firstPendingExternalChangeTime = firstReport
         let deadline = Self.externalRefreshDeadline(firstReport: firstReport, latestReport: now)
         externalChangeTask?.cancel()
-        externalChangeTask = Task {
-            do { try await Task.sleep(until: deadline, clock: .continuous) } catch { return }
+        externalChangeTask = Task { [clock] in
+            do { try await clock.sleep(for: deadline - now) } catch { return }
             let changedLocations = pendingExternalChanges
-            pendingExternalChanges.removeAll(); firstPendingExternalChangeInstant = nil
+            pendingExternalChanges.removeAll(); firstPendingExternalChangeTime = nil
             guard let root = folderAccess?.root, let refreshedStore = store else { return }
             let maximumFileCount = Self.maximumIncrementalRefreshCount
             // Resolving thousands of reported paths takes a noticeable time, so it is kept
@@ -1248,12 +1345,12 @@ final class WorkspaceModel {
     private static let externalRefreshDelay = Duration.milliseconds(500)
     /// The longest a reported change waits while more keep coming, as during a long sync.
     private static let maximumExternalRefreshDelay = Duration.seconds(2)
-    /// When the oldest change waiting for the refresh was reported.
-    @ObservationIgnored private var firstPendingExternalChangeInstant: ContinuousClock.Instant?
+    /// When, on `clock`, the oldest change waiting for the refresh was reported.
+    @ObservationIgnored private var firstPendingExternalChangeTime: Duration?
 
     /// When a refresh runs: once reports pause for `externalRefreshDelay`, but no later than
     /// `maximumExternalRefreshDelay` after the first change waiting for it.
-    static func externalRefreshDeadline(firstReport: ContinuousClock.Instant, latestReport: ContinuousClock.Instant) -> ContinuousClock.Instant {
+    static func externalRefreshDeadline(firstReport: Duration, latestReport: Duration) -> Duration {
         min(latestReport + externalRefreshDelay, firstReport + maximumExternalRefreshDelay)
     }
 
@@ -1288,7 +1385,7 @@ final class WorkspaceModel {
         // Ink and saves are not changes to what is read; Read Aloud looks at the pages' text.
         session.contentDidChange = { [weak self, weak session] in
             guard let self, let session else { return }
-            readAloud.pdfContentDidChange(session)
+            readAloud?.pdfContentDidChange(session)
         }
         session.didSave = { [weak self] savedLocation in
             guard let self, let savedPath = vaultPath(for: savedLocation) else { return }
@@ -1330,7 +1427,10 @@ final class WorkspaceModel {
     /// Reloads notes and PDFs changed by another app, in every tab. A document with
     /// unsaved edits is kept, and its conflict is shown instead.
     /// - Parameter changedPaths: The files known to have changed; nil checks every tab.
-    func checkOpenDocumentsForExternalChanges(limitedTo changedPaths: Set<VaultPath>? = nil) async {
+    /// - Parameter openChangedPDF: Reads a PDF another app changed into a new session; a test gives its own
+    ///   to act at the moment the new version is being read, which the old session stays on screen for.
+    func checkOpenDocumentsForExternalChanges(limitedTo changedPaths: Set<VaultPath>? = nil,
+                                              openChangedPDF: ((URL, String?) async throws -> PDFSession)? = nil) async {
         for document in tabDocuments.values {
             if let changedPaths {
                 guard let loadedPath = document.loadedPath, changedPaths.contains(loadedPath) else { continue }
@@ -1341,7 +1441,7 @@ final class WorkspaceModel {
             do {
                 guard try await pdfSession.hasChangedExternally(), !pdfSession.hasUnsavedChanges, document.pdfSession === pdfSession else { continue }
                 let password = document.loadedPath.flatMap { path in pdfPasswords[path] }
-                let reloadedSession = try await openPDFSession(at: pdfSession.location, password: password)
+                let reloadedSession = try await (openChangedPDF ?? openPDFSession(at:password:))(pdfSession.location, password)
                 // Reading a large PDF takes a while, and the old session stays on screen.
                 // Another file may have opened in the tab by now, and it stays.
                 guard document.pdfSession === pdfSession else { continue }
@@ -1430,6 +1530,7 @@ enum ExternalChangeRefresh: Equatable {
 extension WorkspaceModel {
     /// Opens a note or PDF from the listening queue and reads it, from where it was left.
     func startReadingAloud(_ path: VaultPath, resumeLocation: Int?) async {
+        guard let readAloud, let readAloudNavigator else { return }
         await open(path)
         if let session = markdownSession, session.path == path {
             let hidden = ReadAloudFolding.hiddenRanges(in: session.text, foldedKeys: session.foldedKeys,

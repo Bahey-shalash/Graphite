@@ -5,7 +5,9 @@ import GraphiteApple
 import GraphiteIndex
 
 public struct GraphiteRootView: View {
-    @State private var workspace = WorkspaceModel()
+    @State private var workspace: WorkspaceModel
+    /// False for a hosted-tests launch, which opens no vault of its own (`LaunchMode`).
+    private let restoresLastVault: Bool
     /// The Mac shows Settings in its own window (`GraphiteMacScenes`).
     @State private var showsSettings = false
     /// Settings › Read Aloud › Floating Player; off keeps the controls in the toolbar.
@@ -15,6 +17,7 @@ public struct GraphiteRootView: View {
     @State private var pendingLinks: [URL] = []
     @State private var opensVaultManagerAfterSettings = false
     @State private var creation: CreationRequest?
+    @State private var library = LibraryModel()
     @State private var showsInspector = false
     @State private var activePalette: ActivePalette?
     @State private var columnVisibility = NavigationSplitViewVisibility.automatic
@@ -45,18 +48,26 @@ public struct GraphiteRootView: View {
     /// document's own controls.
     private var isCompactWidth: Bool { horizontalSizeClass == .compact }
 
-    public init() {}
+    /// The root view of a launch in `launchMode`, with the workspace made for it.
+    public init(launchMode: LaunchMode) {
+        _workspace = State(initialValue: WorkspaceModel(launchMode: launchMode))
+        restoresLastVault = launchMode.restoresLastVault
+        _isRestoringVault = State(initialValue: launchMode.restoresLastVault)
+    }
 
     /// For tests: the root view of a workspace already opened on a vault, which it does not
     /// replace with the last vault this device opened.
     init(workspace: WorkspaceModel) {
         _workspace = State(initialValue: workspace)
+        restoresLastVault = true
         _isRestoringVault = State(initialValue: false)
     }
 
     /// The root view of a workspace other scenes share, as the Mac's Settings window does.
-    init(reopeningLastVaultIn workspace: WorkspaceModel) {
+    init(reopeningLastVaultIn workspace: WorkspaceModel, launchMode: LaunchMode) {
         _workspace = State(initialValue: workspace)
+        restoresLastVault = launchMode.restoresLastVault
+        _isRestoringVault = State(initialValue: launchMode.restoresLastVault)
     }
 
     public var body: some View {
@@ -65,13 +76,17 @@ public struct GraphiteRootView: View {
             // made anew for each update made the iPad's sidebar update again without end, and
             // the app never drew its first frame. The Mac's sidebar has no Settings button.
             VaultSidebar(workspace: workspace, creation: $creation, showsSettings: $showsSettings, showsVaultManager: $workspace.isVaultManagerPresented,
-                         showDocument: showDocumentColumn)
+                         showDocument: showDocumentColumn, isWindowCompact: isCompactWidth)
                 .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 480)
+                // The library is the file browser in Library mode: no button opens a sidebar beside it.
+                .toolbar(removing: isLibraryWindow ? .sidebarToggle : nil)
         } detail: {
             detailColumn
                 .overlay {
-                    if usesFloatingPlayer && workspace.readAloud.isActive && !workspace.recording.state.isActive && workspace.preferences.isEnabled(.readAloud) {
-                        ReadAloudFloatingPlayer(reader: workspace.readAloud, navigator: workspace.readAloudNavigator)
+                    // Both exist only while the Read Aloud core plugin is on.
+                    if usesFloatingPlayer, let reader = workspace.readAloud, let navigator = workspace.readAloudNavigator,
+                       reader.isActive && !workspace.recording.state.isActive {
+                        ReadAloudFloatingPlayer(reader: reader, navigator: navigator)
                     }
                 }
         }
@@ -79,6 +94,9 @@ public struct GraphiteRootView: View {
             isWindowTallerThanWide = isTallerThanWide
         }
         .tint(workspace.preferences.accentColor)
+        // The settings the views keep with `@AppStorage` are read from the preferences the
+        // workspace writes to: the standard ones in the app, a private suite in a hosted run.
+        .defaultAppStorage(workspace.deviceDefaults)
         .onChange(of: columnVisibility) { _, requestedVisibility in
             if focusMode.isActive, requestedVisibility != .detailOnly {
                 focusMode.leave(columnVisibility: &columnVisibility, showsInspector: &showsInspector)
@@ -91,7 +109,11 @@ public struct GraphiteRootView: View {
                 showsInspector = true
             }
         }
+        .modifier(LibraryModeSidebarVisibility(presentation: workspace.preferences.library.presentation, isCompactWidth: isCompactWidth,
+                                               columnVisibility: $columnVisibility))
         .environment(\.accent, workspace.preferences.accentColor)
+        .environment(library)
+        .environment(\.libraryWindowActions, libraryWindowActions)
         // Notes, embeds and content lists draw in the vault's fonts (Settings › Appearance › Font).
         .environment(\.noteTypography, workspace.noteTypography)
         // Notes take the vault's Obsidian theme (Settings › Appearance › Use the Vault's Obsidian Theme).
@@ -122,27 +144,19 @@ public struct GraphiteRootView: View {
             TabSwitcher(workspace: workspace)
                 .tint(workspace.preferences.accentColor)
         }
-        .sheet(isPresented: Binding(get: { workspace.readAloud.showsReader }, set: { showsReader in workspace.readAloud.showsReader = showsReader })) {
-            ReadAloudReader(reader: workspace.readAloud)
-                .tint(workspace.preferences.accentColor)
+        // Closes by itself when Read Aloud is turned off: there is no reader to show.
+        .sheet(isPresented: Binding(get: { workspace.readAloud?.showsReader ?? false },
+                                    set: { showsReader in workspace.readAloud?.showsReader = showsReader })) {
+            if let reader = workspace.readAloud {
+                ReadAloudReader(reader: reader)
+                    .tint(workspace.preferences.accentColor)
+            }
         }
         .onChange(of: workspace.recording.state) { _, state in
             // Narration does not reconfigure an active lecture recording's audio session.
-            if state.isActive { workspace.readAloud.stop(); workspace.readAloud.showsReader = false }
+            if state.isActive { workspace.readAloud?.stop(); workspace.readAloud?.showsReader = false }
         }
-        .sheet(item: $creation) { request in
-            let directory = workspace.newFileDirectory(request.directory)
-            CreateDocumentSheet(kind: request.kind, folderDescription: directory.rawValue.isEmpty ? workspace.title : directory.rawValue) { name, paper, pageCount in
-                Task {
-                    switch request.kind {
-                    case .note: await workspace.createNote(named: name, in: request.directory)
-                    case .notebook: await workspace.createNotebook(named: name, paper: paper, pageCount: pageCount, in: request.directory)
-                    case .base: await workspace.createBase(named: name, in: request.directory)
-                    case .canvas: await workspace.createCanvas(named: name, in: request.directory)
-                    }
-                }
-            }
-        }
+        .sheet(item: $creation) { request in creationSheet(for: request) }
         .modifier(FileManagementPresentation(workspace: workspace))
         .modifier(CommunityPluginPresentation(workspace: workspace) { showSettings() })
         #if canImport(UIKit)
@@ -203,7 +217,7 @@ public struct GraphiteRootView: View {
         #endif
         .messageAlert($workspace.errorMessage)
         .task {
-            await workspace.restoreVault()
+            if restoresLastVault { await workspace.restoreVault() }
             isRestoringVault = false
             // Links that arrived while the last vault reopened, as when one launched Graphite.
             isVaultRestored = true
@@ -227,16 +241,7 @@ public struct GraphiteRootView: View {
             if isVaultRestored { Task { await workspace.handle(url) } } else { pendingLinks.append(url) }
         }
         .onChange(of: scenePhase) { previousPhase, phase in
-            // Taken at once as Graphite stops being active, not in the save that follows: by
-            // the time that task runs, iPadOS can have resized the window for its app switcher
-            // snapshots, and an editor laid out again then reports a line further down.
-            if previousPhase == .active { workspace.rememberPlacesOfOpenDocuments() }
-            if phase == .active {
-                Task { await workspace.checkOpenDocumentsForExternalChanges(); await workspace.refreshDirectory(); await workspace.reloadVaultSettings() }
-            } else {
-                // Reading goes on in the background and on the lock screen, like an audiobook.
-                saveBeforeLeavingScreen()
-            }
+            workspace.scenePhaseDidChange(from: previousPhase, to: phase, saveBeforeLeaving: saveBeforeLeavingScreen)
         }
         .alert("Unfinished Recording", isPresented: Binding(get: { workspace.recordingRecoveryOffer != nil }, set: { isPresented in
             if !isPresented { workspace.recordingRecoveryOffer = nil }
@@ -287,8 +292,23 @@ public struct GraphiteRootView: View {
             }
     }
 
+    /// A window in Library mode wider than a phone: the library replaces the sidebar.
+    private var isLibraryWindow: Bool {
+        workspace.preferences.library.presentation == .library && !isCompactWidth
+    }
+
+    private var libraryWindowActions: LibraryWindowActions {
+        LibraryWindowActions(showSearch: { activePalette = .quickSwitcher }, showSettings: showSettings,
+                             showVaults: { workspace.isVaultManagerPresented = true })
+    }
+
+    /// While the library is the window's home, the title bar names no document.
+    private var isLibraryHomeShown: Bool {
+        library.isShownAsHome && workspace.preferences.library.presentation == .library && !isCompactWidth
+    }
+
     private var titleBinding: Binding<String> {
-        Binding(get: { workspace.selection.map(displayName(for:)) ?? "" }, set: { newTitle in
+        Binding(get: { isLibraryHomeShown ? "" : workspace.selection.map(displayName(for:)) ?? "" }, set: { newTitle in
             guard let path = workspace.selection else { return }
             let fileExtension = (path.name as NSString).pathExtension
             var newName = newTitle.trimmingCharacters(in: .whitespaces)
@@ -335,9 +355,9 @@ public struct GraphiteRootView: View {
                     .tint(.primary)
             }
         }
-        if workspace.readAloud.isActive && !usesFloatingPlayer, workspace.preferences.isEnabled(.readAloud) {
+        if !usesFloatingPlayer, let reader = workspace.readAloud, reader.isActive {
             ToolbarItemGroup(placement: .primaryAction) {
-                ReadAloudToolbarControls(reader: workspace.readAloud, isDisabled: workspace.recording.state.isActive,
+                ReadAloudToolbarControls(reader: reader, isDisabled: workspace.recording.state.isActive,
                                          accentColor: workspace.preferences.accentColor)
                     .tint(.primary)
             }
@@ -386,10 +406,10 @@ public struct GraphiteRootView: View {
                     Button("New Note", systemImage: "square.and.pencil") { creation = CreationRequest(kind: .note) }
                     Spacer()
                     Button { showsTabSwitcher = true } label: {
-                        TabCountLabel(count: workspace.layout.allTabs.count)
+                        TabCountLabel(count: workspace.openTabCount)
                     }
                     .accessibilityLabel("Tabs")
-                    .accessibilityValue(workspace.layout.allTabs.count == 1 ? "1 open" : "\(workspace.layout.allTabs.count) open")
+                    .accessibilityValue(workspace.openTabCount == 1 ? "1 open" : "\(workspace.openTabCount) open")
                     Spacer()
                     Button("Command Palette", systemImage: "command") { activePalette = .commandPalette }
                 }
@@ -427,7 +447,7 @@ public struct GraphiteRootView: View {
                 .frame(maxWidth: .infinity)
         } else {
             WorkspacePanes(workspace: workspace, showsLinksInspector: $showsInspector,
-                           create: { kind in creation = CreationRequest(kind: kind) },
+                           create: { request in creation = request },
                            showQuickSwitcher: { activePalette = .quickSwitcher },
                            acceptsFocusTouches: activePalette == nil, showsTabBar: !focusMode.isActive && !isCompactWidth)
         }
@@ -474,6 +494,38 @@ public struct GraphiteRootView: View {
             try? await Task.sleep(for: .milliseconds(250))
             activePalette = .templatePicker
         }
+    }
+
+    @ViewBuilder private func creationSheet(for request: CreationRequest) -> some View {
+        let directory = workspace.newFileDirectory(request.directory)
+        let folderDescription = directory.rawValue.isEmpty ? workspace.title : directory.rawValue
+        switch request.kind {
+        case .notebook:
+            NewNotebookSheet(folderDescription: folderDescription, initialOptions: workspace.preferences.notebookCreation.initialOptions()) { name, options in
+                workspace.preferences.notebookCreation.remember(options)
+                if request.opensInNewTab { openTabForLibraryCreation() }
+                Task { await workspace.createNotebook(named: name, paper: options.paper, pageCount: options.pageCount, in: request.directory) }
+            }
+        case .note, .base, .canvas:
+            CreateDocumentSheet(kind: request.kind, folderDescription: folderDescription) { name in
+                if request.opensInNewTab { openTabForLibraryCreation() }
+                Task {
+                    switch request.kind {
+                    case .note: await workspace.createNote(named: name, in: request.directory)
+                    case .base: await workspace.createBase(named: name, in: request.directory)
+                    case .canvas: await workspace.createCanvas(named: name, in: request.directory)
+                    case .notebook: break
+                    }
+                }
+            }
+        }
+    }
+
+    /// A file made from the library gets a tab of its own unless the active tab is empty,
+    /// and the library steps back to show it.
+    private func openTabForLibraryCreation() {
+        if workspace.libraryOpeningPlacement == .newTab { workspace.openNewTab() }
+        library.leaveHome()
     }
 
     private func displayName(for path: VaultPath) -> String {
@@ -610,53 +662,15 @@ private final class BackgroundTaskAssertion {
 
 // MARK: Creation
 
-private enum PaperSizePreset: String, CaseIterable, Identifiable {
-    case a4, letter, custom
-    var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .a4: "A4"
-        case .letter: "US Letter"
-        case .custom: "Custom"
-        }
-    }
-    /// Portrait size in PDF points.
-    var portraitSize: CGSize? {
-        switch self {
-        case .a4: CGSize(width: 595.28, height: 841.89)
-        case .letter: CGSize(width: 612, height: 792)
-        case .custom: nil
-        }
-    }
-}
-
-/// The page sizes a new notebook can have (`PDFTemplateGenerator` accepts the same).
-enum CustomPaperSize {
-    /// 1 to 40 inches, in PDF points.
-    static let sideLengthRange: ClosedRange<Double> = 72...2880
-
-    static func problem(with size: CGSize) -> String? {
-        let isValid = [Double(size.width), Double(size.height)].allSatisfy { sideLength in sideLength.isFinite && sideLengthRange.contains(sideLength) }
-        return isValid ? nil : "Width and height must be from 72 to 2,880 points (1 to 40 inches)."
-    }
-}
-
+/// Naming a new note, base or canvas. Notebooks have `NewNotebookSheet`.
 private struct CreateDocumentSheet: View {
     let kind: CreationKind
     /// Where the new file goes, as the sheet describes it.
     let folderDescription: String
-    let create: (String, PaperSpecification, Int) -> Void
+    let create: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @FocusState private var isNameFocused: Bool
-    @State private var paper = PaperTemplate.dotted
-    /// Spacing and colors start as Settings has them.
-    @State private var paperStyle = GraphitePreferences.storedNotebookPaper(template: .dotted)
-    @State private var sizePreset = PaperSizePreset.a4
-    @State private var isLandscape = false
-    @State private var customWidth = 595.28
-    @State private var customHeight = 841.89
-    @State private var pageCount = 1
 
     var body: some View {
         NavigationStack {
@@ -670,50 +684,19 @@ private struct CreateDocumentSheet: View {
                     if let problem = nameProblem, !name.isEmpty { Text(problem).foregroundStyle(.red) }
                     else { Text("In “\(folderDescription)”") }
                 }
-                if kind == .notebook {
-                    Section("Paper") {
-                        Picker("Template", selection: $paper) { ForEach(PaperTemplate.allCases) { template in Text(template.title).tag(template) } }
-                        if paper != .blank {
-                            Picker("Spacing", selection: $paperStyle.spacing) {
-                                ForEach(NotebookPaperSpacing.choices, id: \.self) { spacing in Text(NotebookPaperSpacing.title(of: spacing)).tag(spacing) }
-                            }
-                            Picker("Line Color", selection: $paperStyle.lineColor) {
-                                ForEach(DrawingPaperLineColor.allCases) { lineColor in Text(lineColor.title).tag(lineColor) }
-                            }
-                            Picker("Line Strength", selection: $paperStyle.lineStrength) {
-                                ForEach(DrawingPaperLineStrength.allCases) { strength in Text(strength.title).tag(strength) }
-                            }
-                        }
-                        Picker("Paper Color", selection: Binding(
-                            get: { DrawingBackground.allCases.first { color in color.colorHex == (paperStyle.paperColorHex ?? DrawingBackground.white.colorHex) } ?? .white },
-                            set: { color in paperStyle.paperColorHex = color == .white ? nil : color.colorHex })) {
-                            ForEach(DrawingBackground.allCases.filter { color in color != .transparent }) { color in Text(color.title).tag(color) }
-                        }
-                        Picker("Size", selection: $sizePreset) { ForEach(PaperSizePreset.allCases) { preset in Text(preset.title).tag(preset) } }
-                        if sizePreset == .custom {
-                            TextField("Width in points", value: $customWidth, format: .number)
-                            TextField("Height in points", value: $customHeight, format: .number)
-                            if let sizeProblem { Text(sizeProblem).font(.footnote).foregroundStyle(.red) }
-                        } else {
-                            Toggle("Landscape", isOn: $isLandscape)
-                        }
-                        Stepper("\(pageCount) \(pageCount == 1 ? "page" : "pages")", value: $pageCount, in: 1...1000)
-                    }
-                }
             }
             .formStyle(.grouped)
             .navigationTitle(kind.title)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Create", action: createIfNamed).disabled(nameProblem != nil || sizeProblem != nil)
+                    Button("Create", action: createIfNamed).disabled(nameProblem != nil)
                 }
             }
         }
-        // A note needs only its name: the Mac's sheet takes its form's height rather than
-        // leaving half of it empty; a notebook's paper options make it taller.
+        // The Mac's sheet takes its form's height rather than leaving half of it empty.
         #if os(macOS)
-        .frame(minWidth: 380, minHeight: kind == .notebook ? 320 : 180)
+        .frame(minWidth: 380, minHeight: 180)
         #else
         .frame(minWidth: 360, minHeight: 320)
         #endif
@@ -724,23 +707,10 @@ private struct CreateDocumentSheet: View {
         FileNameRules.problem(with: name.trimmingCharacters(in: .whitespacesAndNewlines), isNote: kind == .note)
     }
 
-    /// Checked here, before the sheet closes, so a size the notebook cannot have keeps what
-    /// the user entered.
-    private var sizeProblem: String? {
-        kind == .notebook ? CustomPaperSize.problem(with: pageSize) : nil
-    }
-
     private func createIfNamed() {
-        guard nameProblem == nil, sizeProblem == nil else { return }
-        var specification = paperStyle.sized(pageSize)
-        specification.template = paper
-        create(name.trimmingCharacters(in: .whitespacesAndNewlines), specification, pageCount)
+        guard nameProblem == nil else { return }
+        create(name.trimmingCharacters(in: .whitespacesAndNewlines))
         dismiss()
-    }
-
-    private var pageSize: CGSize {
-        guard let portraitSize = sizePreset.portraitSize else { return CGSize(width: customWidth, height: customHeight) }
-        return isLandscape ? CGSize(width: portraitSize.height, height: portraitSize.width) : portraitSize
     }
 }
 

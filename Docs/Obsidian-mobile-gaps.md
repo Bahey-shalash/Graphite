@@ -91,7 +91,7 @@ Status: **Missing**, **Partial**, or **Done**. "Desktop only" items are left out
 | Folding headings and lists | Done | Chevrons, Fold All, Unfold All, remembered per note on the device; list items fold only while editing, not in reading view |
 | Move lines up and down | Done | Toolbar, command palette, ⌥⌘↑ ⌥⌘↓ |
 | Paste images, paste HTML as Markdown, drag and drop files | Done | Drops not yet tried on a device |
-| Table editing | Partial | Display only; add or move rows and columns needs the source |
+| Table editing | Done | Cells edited in place in Live Preview (tap, Return, Tab, Shift-Tab, Escape, arrows); the table's menu adds, moves and deletes rows and columns and sets alignment. No drag handles to reorder by dragging and no sorting by a column; Tab and the Mac's keys not yet tried by hand |
 | Link, tag and property autocompletion | Partial | Links and tags done; property names and values not yet |
 | Block references (`^id`) | Done | Links scroll to the block, embeds show only it |
 | Find and replace in a note | Done | The system find bar (⌘F or the toolbar); replace from its menu |
@@ -104,7 +104,7 @@ Status: **Missing**, **Partial**, or **Done**. "Desktop only" items are left out
 | Unresolved links | Partial | Tapping creates the note; they still look like normal links |
 | Footnotes (`[^1]`, `^[inline]`) | Done | Raised numbers and a list at the end when reading; raised labels in Live Preview (an undefined reference is styled there too); no back links from a footnote to its reference |
 | HTML (`<u>`, `<br>`, `<details>`, `<span style>`) | Missing | Shown as text |
-| Mermaid diagrams | Missing | Shown as code |
+| Mermaid diagrams | Missing | Shown as code; planned as a native Swift version of Obsidian's Pele renderer, see [Native-diagrams-todo.md](Native-diagrams-todo.md) |
 | Code highlighting while editing | Partial | Highlighted in reading view only; no copy button |
 | Comments `%%` in Live Preview | Partial | Hidden in reading view; not dimmed while editing |
 | Equation numbers (`\tag`) | Done | Numbers where `\tag` asks, at the right edge; nothing numbered automatically, as in Obsidian; no `\eqref` |

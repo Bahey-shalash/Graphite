@@ -40,6 +40,7 @@ enum GraphiteChrome {
 
 /// Graphite's motion: slides, folds and animated scrolling, which Apple asks apps to drop
 /// when Reduce Motion is on, or to replace with a fade.
+@MainActor
 enum GraphiteMotion {
     static var isReduced: Bool {
         #if canImport(UIKit)

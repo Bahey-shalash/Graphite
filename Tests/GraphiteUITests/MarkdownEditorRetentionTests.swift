@@ -1,6 +1,7 @@
 import XCTest
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// The policy that decides which hidden note editors, with their undo history, are kept.
 @MainActor
@@ -22,13 +23,8 @@ final class MarkdownEditorRetentionTests: XCTestCase {
     private var store: VaultStore!
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("Retention-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        vault = try TemporaryVault.make(prefix: "Retention", for: self).root
         store = VaultStore(root: vault)
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: vault)
     }
 
     private func openNote(_ name: String) async throws -> (TabDocument, MarkdownSession) {

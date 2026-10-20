@@ -324,7 +324,8 @@ public final class BaseEvaluator {
             default: break
             }
         case .string(let text), .html(let text):
-            if name == "length" { return .number(Double(text.count)) }
+            // In UTF-16 units, as JavaScript counts: "👍🏽".length is 4 in Obsidian.
+            if name == "length" { return .number(Double(text.utf16.count)) }
         case .list(let elements):
             if name == "length" { return .number(Double(elements.count)) }
         case .object(let object):
@@ -362,8 +363,9 @@ public final class BaseEvaluator {
             guard let index = Int(exactly: number) else { return .null }
             return elements.indices.contains(index) ? elements[index] : .null
         case (.string(let text), .number(let number)):
-            guard let index = Int(exactly: number), index >= 0, index < text.count else { return .null }
-            return .string(String(text[text.index(text.startIndex, offsetBy: index)]))
+            let units = Array(text.utf16)
+            guard let index = Int(exactly: number), index >= 0, index < units.count else { return .null }
+            return .string(String(decoding: [units[index]], as: UTF16.self))
         case (.object(let object), .string(let keyText)):
             return object[keyText] ?? .null
         case (_, .string(let keyText)):
@@ -649,13 +651,62 @@ public final class BaseEvaluator {
         return .number(number)
     }
 
+    /// `Number.prototype.toFixed`: the exact value rounded to `fractionDigits`, a tie going
+    /// to the larger magnitude, so `(2.5).toFixed(0)` is "3" and `(0.125).toFixed(2)` is
+    /// "0.13"; printf's rounding sends ties to the even digit. The value's exact decimal
+    /// expansion is rounded, so `(1.005).toFixed(2)`, just under 1.005, stays "1.00".
+    static func javaScriptFixed(_ number: Double, fractionDigits: Int) -> String {
+        if number.isNaN { return "NaN" }
+        if number.isInfinite { return number > 0 ? "Infinity" : "-Infinity" }
+        // The C library prints every digit of the value; Foundation's formatting stops at
+        // about seventeen and pads with zeros, which made 1.005 look like a tie.
+        var buffer = [CChar](repeating: 0, count: 1_200)
+        _ = withVaList([abs(number)]) { arguments in vsnprintf(&buffer, buffer.count, "%.1100f", arguments) }
+        let exact = String(decoding: buffer.prefix { character in character != 0 }.map { character in UInt8(bitPattern: character) }, as: UTF8.self)
+        let parts = exact.split(separator: ".", maxSplits: 1)
+        let wholeDigits = Array(parts[0])
+        let fraction = parts.count > 1 ? Array(parts[1]) : []
+        var digits = wholeDigits + fraction.prefix(fractionDigits) + Array(repeating: Character("0"), count: max(0, fractionDigits - fraction.count))
+        var wholeLength = wholeDigits.count
+        if fractionDigits < fraction.count, fraction[fractionDigits] >= "5" {
+            var position = digits.count - 1
+            while position >= 0 {
+                if digits[position] == "9" {
+                    digits[position] = "0"
+                    position -= 1
+                } else {
+                    digits[position] = Character(String((digits[position].wholeNumberValue ?? 0) + 1))
+                    break
+                }
+            }
+            if position < 0 {
+                digits.insert("1", at: 0)
+                wholeLength += 1
+            }
+        }
+        let sign = number < 0 ? "-" : ""
+        let wholePart = String(digits[..<wholeLength])
+        return fractionDigits == 0 ? sign + wholePart : sign + wholePart + "." + String(digits[wholeLength...])
+    }
+
+    /// Text read as JavaScript's `Number()` reads it, which `Double(_:)` matches but for
+    /// infinity: JavaScript takes only "Infinity", so "inf" and "infinity" are NaN, where
+    /// `Double(_:)` made them infinite.
+    static func javaScriptNumber(_ text: String) -> Double? {
+        let trimmedText = text.trimmingCharacters(in: .whitespaces)
+        guard let number = Double(trimmedText) else { return nil }
+        guard number.isInfinite else { return number }
+        let unsignedText = trimmedText.hasPrefix("+") || trimmedText.hasPrefix("-") ? String(trimmedText.dropFirst()) : trimmedText
+        return unsignedText == "Infinity" ? number : .nan
+    }
+
     /// The number a value stands for in arithmetic: itself, 1 or 0 for true or false,
     /// and, when `acceptsText` is set, the number that text spells.
     private static func arithmeticNumber(_ value: BaseValue, acceptsText: Bool) -> Double? {
         switch value {
         case .number(let number): return number
         case .boolean(let isTrue): return isTrue ? 1 : 0
-        case .string(let text) where acceptsText: return Double(text.trimmingCharacters(in: .whitespaces))
+        case .string(let text) where acceptsText: return javaScriptNumber(text)
         default: return nil
         }
     }
@@ -862,9 +913,10 @@ public final class BaseEvaluator {
             // An empty text allows any count, and repeating it that many times would never end.
             return .string(text.isEmpty ? "" : String(repeating: text, count: repetitions))
         case "slice":
-            let characters = Array(text)
-            let range = try sliceRange(count: characters.count, arguments: arguments)
-            return .string(String(characters[range]))
+            // UTF-16 units, as JavaScript slices, so positions agree with `length` and `indexOf`.
+            let units = Array(text.utf16)
+            let range = try sliceRange(count: units.count, arguments: arguments)
+            return .string(String(decoding: units[range], as: UTF16.self))
         case "replace":
             guard arguments.count == 2 else { throw BaseExpressionError.evaluation("replace() takes a pattern and a replacement.") }
             let foundationText = text as NSString
@@ -967,7 +1019,7 @@ public final class BaseEvaluator {
         case "toFixed":
             var precision = 0
             if case .number(let requestedPrecision) = arguments.first ?? .null { precision = min(max(Int(clampingWholePartOf: requestedPrecision) ?? 0, 0), 20) }
-            return .string(String(format: "%.\(precision)f", locale: Locale(identifier: "en_US_POSIX"), number))
+            return .string(Self.javaScriptFixed(number, fractionDigits: precision))
         case "isEmpty": return .boolean(false)
         default: return nil
         }

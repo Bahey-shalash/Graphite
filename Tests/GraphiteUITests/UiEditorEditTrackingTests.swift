@@ -160,6 +160,74 @@ final class UiEditorEditTrackingTests: XCTestCase {
         XCTAssertEqual(textState.blockEntries.map(\.block.kind), [.horizontalRule])
     }
 
+    /// Types `replacement` over `range` and checks that the blocks are those a new scan
+    /// finds: their kinds, ranges, sources, and keys.
+    private func assertBlocksMatchAScan(afterTyping replacement: String, over range: NSRange, in source: String,
+                                        file: StaticString = #filePath, line: UInt = #line) {
+        let textState = textState(for: source)
+        let (newText, typing) = edit(source, replacing: range, with: replacement)
+        textState.recordCharacterEdit(typing, revealedRange: nil)
+        textState.update(source: newText, findsBlocks: true, isRendered: { _ in true })
+        let scannedBlocks = LivePreviewBlockScanner.blocks(in: newText)
+        XCTAssertEqual(textState.blockEntries.map(\.block.kind), scannedBlocks.map(\.kind), file: file, line: line)
+        XCTAssertEqual(textState.blockEntries.map(\.range), scannedBlocks.map(\.range), file: file, line: line)
+        XCTAssertEqual(textState.blockEntries.map(\.block.markdown), scannedBlocks.map(\.markdown), file: file, line: line)
+        XCTAssertEqual(textState.blockEntries.map(\.key), LivePreviewBlockKey.keys(for: scannedBlocks), file: file, line: line)
+    }
+
+    func testTypingInAListItemMovesBlocksWithoutFindingThemAgain() {
+        let source = "- first item\n- second item\n\n| a |\n| - |\n\nMore"
+        let textState = textState(for: source)
+        let tableKey = textState.blockEntries.first?.key
+        let (newText, typing) = edit(source, replacing: NSRange(location: 7, length: 0), with: "ish")
+        textState.recordCharacterEdit(typing, revealedRange: nil)
+        textState.update(source: newText, findsBlocks: true, isRendered: { _ in true })
+        XCTAssertEqual(textState.blockEntries.map(\.range), LivePreviewBlockScanner.blocks(in: newText).map(\.range))
+        XCTAssertEqual(textState.blockEntries.first?.key, tableKey)
+        assertBlocksMatchAScan(afterTyping: "ish", over: NSRange(location: 7, length: 0), in: source)
+        assertBlocksMatchAScan(afterTyping: "x", over: NSRange(location: 2, length: 0), in: "- [ ] task\n\n$$\nx\n$$\n")
+    }
+
+    /// A list item that becomes a rule, a table row or a formula finds the blocks again.
+    func testListItemsThatCanBecomeBlocksFindTheBlocksAgain() {
+        assertBlocksMatchAScan(afterTyping: " -", over: NSRange(location: 9, length: 0), in: "Text\n\n- -\n")
+        assertBlocksMatchAScan(afterTyping: " | b", over: NSRange(location: 3, length: 0), in: "- a\n--|--\n")
+        assertBlocksMatchAScan(afterTyping: "$$", over: NSRange(location: 6, length: 0), in: "- item\n$$\nx\n$$\n")
+    }
+
+    func testTypingInACalloutFindsOnlyTheCalloutAgain() {
+        let source = "> [!tip] Rule\n> A fanout of four\n\n| a |\n| - |\n\n> [!note] Other\n> body\n"
+        let textState = textState(for: source)
+        let tableKey = textState.blockEntries[1].key
+        let otherCalloutKey = textState.blockEntries[2].key
+        let typingLocation = (source as NSString).range(of: "four").location + 4
+        let (newText, typing) = edit(source, replacing: NSRange(location: typingLocation, length: 0), with: " gives")
+        textState.recordCharacterEdit(typing, revealedRange: nil)
+        textState.update(source: newText, findsBlocks: true, isRendered: { _ in true })
+        XCTAssertEqual(textState.blockEntries.first?.block.markdown, "> [!tip] Rule\n> A fanout of four gives")
+        XCTAssertEqual(textState.blockEntries[1].key, tableKey, "A block the edit did not change keeps its key")
+        XCTAssertEqual(textState.blockEntries[2].key, otherCalloutKey)
+        assertBlocksMatchAScan(afterTyping: " gives", over: NSRange(location: typingLocation, length: 0), in: source)
+        // Deleting in a body line, and typing into a callout of the same source as another.
+        assertBlocksMatchAScan(afterTyping: "", over: NSRange(location: typingLocation - 4, length: 4), in: source)
+        assertBlocksMatchAScan(afterTyping: "y", over: NSRange(location: 14, length: 0), in: "> [!tip] A\n> x\n\n> [!tip] A\n> xy\n")
+    }
+
+    /// Edits that change which lines are the callout, or that could open code or math,
+    /// scan the note again.
+    func testCalloutEditsThatCanChangeBlocksFindTheBlocksAgain() {
+        let source = "> [!note] Title\n> body line\n> second\nafter\n"
+        // The `>` of a body line removed: the callout ends above it.
+        assertBlocksMatchAScan(afterTyping: "", over: NSRange(location: 16, length: 1), in: source)
+        // The header no longer names a type.
+        assertBlocksMatchAScan(afterTyping: "", over: NSRange(location: 3, length: 1), in: source)
+        // A fence or a formula typed in a body line.
+        assertBlocksMatchAScan(afterTyping: "```", over: NSRange(location: 18, length: 0), in: source)
+        assertBlocksMatchAScan(afterTyping: "$$", over: NSRange(location: 18, length: 0), in: source)
+        // A line break typed in the callout.
+        assertBlocksMatchAScan(afterTyping: "\n", over: NSRange(location: 20, length: 0), in: source)
+    }
+
     // MARK: Taps (F185, F172)
 
     func testQuotedTaskCheckboxCanBeTapped() {

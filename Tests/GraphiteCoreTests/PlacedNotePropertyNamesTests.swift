@@ -1,17 +1,13 @@
 import XCTest
 @testable import GraphiteCore
+import GraphiteTestSupport
 
 /// The properties a vault places notes with, as its map plugins are set up.
 final class PlacedNotePropertyNamesTests: XCTestCase {
     private var vault: URL!
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("PlacePropertiesVault-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: vault)
+        vault = try TemporaryVault.make(prefix: "PlacePropertiesVault", for: self).root
     }
 
     private func writeSettings(_ json: String, forPlugin identifier: String) throws {

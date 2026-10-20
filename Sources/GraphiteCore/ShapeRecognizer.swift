@@ -224,6 +224,15 @@ public enum ShapeRecognizer {
     /// An arrowhead's barbs are this fraction of the shaft long.
     static let arrowheadBarbFraction = 0.05...0.6
 
+    /// The shape a stroke held at its end becomes, in the drawing's coordinates. The stroke
+    /// is judged as the person sees it, from the points of the zoomed canvas, so a small
+    /// circle that snaps on screen keeps the shape it showed; the shape is then carried to
+    /// the lift as it is, and is not recognized a second time from the finished stroke.
+    public static func recognizeHeldStroke(canvasPoints: [CGPoint], zoomScale: Double) -> RecognizedShape? {
+        guard zoomScale > 0, let shape = recognize(canvasPoints) else { return nil }
+        return shape.transformed(scale: 1 / zoomScale, rotation: 0, about: .zero)
+    }
+
     public static func recognize(_ strokePoints: [CGPoint]) -> RecognizedShape? {
         let points = removingRepeatedPoints(strokePoints)
         guard points.count >= 5, let first = points.first, let last = points.last else { return nil }

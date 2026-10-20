@@ -2,7 +2,183 @@
 
 What Graphite does today, how each part is verified, and what is still missing. `OBJECTIVE.md` describes the complete product; this file tracks progress toward it. Update it with every change that adds, removes, or re-verifies behavior.
 
-Last updated: 2026-10-16.
+Last updated: 2026-10-20.
+
+## Importing Goodnotes and Notability: the import report: 2026-10-20
+
+On the branch `goodnotes-notability-import`: step 9 of [the Phase 3 design](Goodnotes-Notability-import-phase-3-design.md), the import report as plain values. Nothing shows it yet (Phase 4).
+
+- **Automated tests, all passing on macOS**, run as single classes (`xcrun xctest -XCTest`), no full or hosted suite: every GraphiteCore import class, 287 tests, with the owner's samples configured (none skipped), among them the new `NotebookImportReportTests` (5); the GraphiteApple import classes, 41 tests, whose writer tests now also check what each written page holds (strokes, placed pictures).
+- **Samples:** a temporary check, not committed, built the report of every sample (50): each summary has at most 7 lines, 14 notebooks import with nothing to report, and the one Notability note without known pages is reported as such. Before reading issues were grouped by case, one Goodnotes case gave 10,805 lines.
+- **Not established:** how the report reads to a person; its wording and layout are Phase 4.
+
+## Importing Goodnotes and Notability: recordings, and large files read without a copy: 2026-10-20
+
+On the branch `goodnotes-notability-import`: step 7 of [the Phase 3 design](Goodnotes-Notability-import-phase-3-design.md), and the audit's CC-IMPORT-13. Nothing in the app calls the import yet.
+
+- **Automated tests, all passing on macOS**, run as single classes (`xcrun xctest -XCTest`), no full or hosted suite:
+  - GraphiteCore: every import class, 282 tests, with the owner's samples configured (none skipped). New: `ZipArchiveEntryCopyTests` (8: a stored entry read and copied from the archive's own bytes, a deflated one through one buffer, the checksum checked at the end, a stream past its size stopped there, the destination's error passed on, the limit before any piece) and `ImportedRecordingPlannerTests` (4).
+  - GraphiteApple: `NotebookImportRecordingWriterTests` (5: bytes unchanged, a file that is not MPEG-4 refused, a source failing part way and an existing file leaving the destination as it was), with the other writer tests still passing (41 in all).
+- **Samples:** a temporary check, not committed, wrote both made-for-purpose recordings through the readers and the writer: each `.m4a` is byte-identical to the notebook's file, and Core Audio's `afinfo` reads AAC, 22,050 Hz mono, 47.2 and 18.9 seconds (metadata only, nothing played). Every recording of every sample (4, the longest 486 seconds and 2 MB, deflated) copies with its checksum correct.
+- **Not established:** the recordings in the running app, where they go in the vault (Phase 4), and memory on a long recording on the iPad.
+
+## Importing Goodnotes and Notability: pictures, shapes, Notability paper and bookmarks: 2026-10-20
+
+On the branch `goodnotes-notability-import`: the audit's remaining Low findings for the import (CC-IMPORT-04, 05, 07 and 11, SRP-IMPORT-01, OCP-IMPORT-02), the paper system's optional ruling, and steps 3 to 6 of [the Phase 3 design](Goodnotes-Notability-import-phase-3-design.md). CC-IMPORT-12 (golden notebooks in the repository) waits for the owner, and CC-IMPORT-13 (attachments copied whole) for step 7. Nothing in the app calls the import yet.
+
+- **Automated tests, all passing on macOS**, run as single classes (`xcrun xctest -XCTest`), no full or hosted suite:
+  - GraphiteCore: all 29 import classes, 266 tests. New this round: `GoodnotesPicturePlannerTests` (5), `NotabilityPicturePlannerTests` (3), `NotabilityPaperAndShapePlannerTests` (9), `ShapeOutlineSamplingTests` (4), `GoodnotesElementKindTests` (4), `NotabilityKnownKeysTests` (4), `KeyOrderedDictionaryTests` (1), `LittleEndianIntegerTests` (2), and new tests in `BinaryPropertyListTests`, `GoodnotesPagePlannerTests` and `KeyedArchiveTests`.
+  - GraphiteApple: `PDFTemplateGeneratorGoldenTests` (1: every template in three colour sets at every New Notebook size and orientation, the same bytes as before the ruling was added), `PaperRulingTests` (4), `NotebookImportPictureWriterTests` (10), `NotebookImportPaperAndBookmarkWriterTests` (4), with `NotebookImportWriterTests` (10) and `ImportedStrokeBuilderTests` (7) still passing.
+- **Samples:** with the owner's samples configured, every reader count still equals the reference reader's. Every Goodnotes page plans with one stroke per ink subpath and one per drawable shape; 149 pictures are planned and the 17 whose files are not in their notebooks are reported. Every Notability page plans, with its 9 pictures; the ruled and grid samples' rows and columns match their exports' (letter paper, Mac).
+- **Not established:**
+  - pictures, shapes and ruled paper in the running app and on the iPad;
+  - Notability paper on A4, landscape or iPad-made notes, and rectangles and ellipses from Notability (no sample has them);
+  - a whole sample written to PDF and compared with its app's export (Phase 5).
+
+## Importing Goodnotes and Notability: reader hardening, and pages, paper and ink converted: 2026-10-20
+
+On the branch `goodnotes-notability-import`. Two parts:
+- **Reader hardening:** the audit findings of `Docs/solid/areas/import.md` that come before the converter: BUG-IMPORT-01 and 02, CC-IMPORT-01, 02, 03, 06, 08, 09, 10 and 14, and OCP-IMPORT-01.
+- **Phase 3, steps 1 and 2:** pages, paper and ink, in [the Phase 3 design](Goodnotes-Notability-import-phase-3-design.md); `Architecture.md` › "Reading Goodnotes and Notability files" describes both.
+
+Nothing in the app calls the import yet.
+
+- **Automated tests, all passing on macOS:** 261 run with `swift test --filter`, no full or hosted suite.
+  - GraphiteCore, 244 including both readers' earlier tests. New this round: `BezierFlatteningTests` (18), `GoodnotesPagePlannerTests` (17), `NotabilityPagePlannerTests` (20), `ImportReportTallyTests` (6), `NotebookArchivePathTests` (2), `LittleEndianBytesTests` (1) and `PackedLittleEndianValuesTests` (2), plus regression tests in the readers' existing test files, one per fixed finding.
+  - GraphiteApple: `ImportedStrokeBuilderTests` (7) and `NotebookImportWriterTests` (10). These write PDFs into a temporary vault and read them back with PDFKit: page sizes, backgrounds, one `/Ink` per stroke, the re-editing record, refusal to overwrite, and the drawn width of each ink.
+- **Before the fixes:** for ten of the fixes, a test of the same behaviour, run against the code before them (a `git archive` export of `cab68c7`), fails: both defects, CC-IMPORT-06, 08 (four cases), 09 and 10, and OCP-IMPORT-01. The other fixes change bounds and types and are pinned by their own tests.
+- **Samples:** with the owner's samples configured, every reader count still equals the reference reader's (41 Goodnotes notebooks, 9 Notability notes). Every page plans: 105,113 strokes from 1.8 million samples for Goodnotes, and all 3,036 curves of the first Notability note. The new `attachmentNotInLog` issue found 17 live pictures in three library notebooks whose images are not in the notebook.
+- **Not established:**
+  - a whole sample written to PDF and compared with its app's export;
+  - memory and time on a long notebook or on the iPad;
+  - the UIKit-only ink tests after the writer's change to `PDFPencilInk.swift` and `PencilStrokeSampler.swift`, which now also compile on macOS. They run in the hosted suite on CI.
+
+## Reading Goodnotes and Notability files: 2026-10-19
+
+Phase 2 of [the import checklist](Goodnotes-Notability-import-todo.md), on the branch `goodnotes-notability-import`; `Architecture.md` › "Reading Goodnotes and Notability files" describes it. Readers only: nothing converts a notebook into Graphite's files, and nothing in the app calls them yet.
+
+- Automated tests, all passing on macOS (`swift test`, 166 tests): `ZipArchiveTests` (33), `ProtocolBufferMessageTests` (28), `AppleLZ4DecoderTests` (23), `TplImageTests` (13), `GoodnotesNotebookReaderTests` (24), `BinaryPropertyListTests` (14), `KeyedArchiveTests` (9), `NotabilityNoteReaderTests` (9) and `NotabilityNoteReaderMalformedInputTests` (11), all on synthetic files built in the tests: the values each format holds, unknowns reported, and damaged and hostile files (wrong magic numbers, cuts at every byte, sizes and counts up to 2^64 refused before allocating, cyclic and exponentially shared object graphs, seeded byte changes), each ending in a typed error or a listed skipped part.
+- Compared with the reference readers: `GoodnotesNotebookReaderSampleTests` and `NotabilityNoteReaderSampleTests` read the owner's samples (41 Goodnotes notebooks, 9 Notability notes, from the local `samples/import-formats` branch) and every count and unknown category equals `scripts/import-reference-counts.py`'s. They are skipped unless `GRAPHITE_IMPORT_SAMPLES` and `GRAPHITE_IMPORT_REFERENCE_COUNTS` are set, as the samples are personal and not in the repository. Tables in `Goodnotes-format.md` and `Notability-format.md`.
+- Not established: the five Goodnotes samples not on the branch (the four of 2026-10-18 and the Pencil test); memory and time on a notebook of hundreds of pages, and on the iPad (the 41 Goodnotes samples, every page, read in 7.4 seconds in a debug build on the Mac); anything the samples lack (see each format document's unknowns).
+
+## Library, New menu and New Notebook: 2026-10-19
+
+The first round of [the notebook library checklist](Notebook-library-and-new-file-todo.md), on the branch `notebook-library`; `Architecture.md` › "Library and creating notebooks" describes it.
+
+- Automated tests, all passing on macOS: `NotebookPageSizeTests` (6), `NotebookPlacementTests` (3), `LibraryListingTests` (3), `NotePreviewSummaryTests` (10, with emphasis kept as style, links without their target, nested lists, callouts, code blocks and the picture placed where it sits), `FolderStyleListTests` (8, with unknown keys, entries and colors kept, a foreign file refused, styles following moves and deletions, no file written for a vault without styles); `NewNotebookOptionsTests` (9, every named size in both orientations makes a valid PDF, the size check agrees with the generator on every side) and `PaperPreviewRendererTests` (5); `CreatableItemTests` (4), `NotebookLibraryPreferencesTests` (3), `LibraryModelTests` (12, with regression tests for previews cancelled when SwiftUI shows a rebuilt grid's tile before removing the old one, and for the delta audit's BUG-SHELL-07 (a style file not in Graphite's format hid every folder; now kept aside), BUG-SHELL-08 (a changed file kept its old preview), BUG-SHELL-09 (renders not cancelled and not limited) and CC-SHELL-11 (no byte budget for the preview cache)) and `WorkspaceNotebookCreationTests` (4: embedded at the cursor with the attachments, in a folder with a link, a taken name, text typed meanwhile kept).
+- Checked by hand in the iPad simulator (iPad Pro 11-inch (M5), iOS 27, portrait, a copy of the test vault without videos): the library as home with the file tree's sidebar folded away; folders in system colors with engraved symbols from `.obsidian/graphite-folder-styles.json`; a folder of PDFs and notes shows first pages and note text; the New menu offers Notebook first; the New Notebook sheet's picture, size and color menus and paper gallery; Create made `Untitled Notebook.pdf` in the folder shown and opened it in a tab with its paper; choosing a tab leaves the library and the house button brings it back. The library first looked like Goodnotes' library; at the owner's request it was redrawn in the Files app's style.
+- Not established: the iPhone layout, landscape, dark mode, Dynamic Type at the largest sizes, VoiceOver, the Mac, drag and drop, Import, folder colors from the menu, creating a notebook from inside a note in the app (tested in the workspace only), undo of that insertion, and anything with Apple Pencil or on a device.
+
+## Tables edited in place, scrolling only when wider, and the editor's Color menu: 2026-10-17
+
+Reported by the user, comparing a lecture schedule table in Graphite and Obsidian: in Graphite a tap on a table showed its Markdown, where Obsidian keeps the table drawn and edits its cells; a table swiped sideways also moved slightly up and down; and the editor's right-click menu had no way to color text.
+
+- Live Preview tables are edited in place (see "Editing a table in place" in `Architecture.md`): a tap opens an editor over the cell holding its Markdown; Return goes to the cell below, Tab and Shift-Tab across, Escape closes, a one-line cell's arrows leave it, and Return or Tab past the end adds a row. The table's menu (long press, secondary click) has Row and Column submenus: add, move, delete, and the column's alignment. Each change is one undoable edit of only the characters involved (`MarkdownTableEditing`, Core).
+- A table that fits the column has no scroll view; a wider one scrolls sideways and no longer moves vertically (Textual patch 16).
+- The iPad's editor no longer turns `---` into `—` across the note when an edit arrives from a rendered view, a task's checkbox or the toolbar while it does not have the keyboard: such edits now change its text storage directly (`replaceCharacters(in:with:in:)`). This is likely the cause of the em dash once seen in the frontmatter after a property edit.
+- The editor's context menu (the Mac's right-click menu, the iPad's edit menu) has Obsidian's Add Link, Add External Link, Color (the vault's palette and Remove), Format, Paragraph (lists, task, headings, Body, Quote) and Insert submenus, through the toolbar's own commands; the Mac's Font submenu is gone. Color's Custom… is left out: the Mac's color panel reports every color passed while dragging and never a final choice.
+
+The table model and the context menus were written by agents on the Messages API (Sonnet 5.5, high effort), and the change was reviewed by one (Opus 5.5); everything was read, integrated and checked here. The review found, and this change fixes: one table's editor ending released the hold of the table a tap had moved editing to; with two identical tables, a row added on Return could go into the other one; a table moved by text added above it lost later edits; on the Mac, clicking out of a cell not yet typed in brought the focus back; the Mac's field editor could undo the previous cell's typing in the next cell; a draft could be lost when the views were let go for Source mode; text an input method was composing was written into the note; and the iPad's undo actions targeted the editor without keeping it alive. A cell edit that makes a table wider than the column still closes the cell editor (the draft is written).
+
+Checked:
+- `MarkdownTableTests` (51, Core): parsing with exact UTF-16 ranges (outer pipes or none, indentation, `\r\n` and lone `\r`, escaped pipes, empty and ragged cells, every alignment, header only, not a table); every edit with exact expected text, including a cell past a ragged row's end, `|` and line breaks typed in a cell, replacing a cell with its own editable text leaving the source unchanged, rows added with and without a final line break and with Windows line endings, rows and columns moved at the edges, columns in tables without outer pipes, alignment keeping the delimiter's width, and accented, emoji and CJK text.
+- `TextColorMarkupTests` (21, 9 of them new, Core): removing color at a cursor, over a selection, nested, unclosed, in code.
+- `UiEditorMacTableEditingTests` (5, macOS, the AppKit editor in a window): edits from the table's view change only their cell, escape a typed pipe, add a row, keep the same view though the table's key changes, leave the note's cursor where it was, and undo back to the original text; an edit that changes nothing leaves the note and the undo history alone; of two identical tables, the edited one gets the row added right after a cell edit; a line added above the table while it is edited does not lose the next edit; one editor ending leaves another editor's hold.
+- `UiEditorMacContextMenuTests` (3, macOS): the right-click menu's first items, its Color submenu with the default palette and Remove, no Font submenu, no Color submenu with the Colors feature off, choosing a color and removing one.
+- In the iPad simulator ("Graphite Table Editing iPad", iPad Pro 11-inch (M5), iOS 27.0, a note with the user's schedule table, a table without outer pipes and a wide table), each step checked against the saved file: a tap opens the cell's editor; typing is written into that cell only and the row grows while the editor keeps the keyboard; Return moves down, and `" A⏎ B⏎ C"` typed in one burst lands in three rows; the long-press menu's Row submenu (Move Row Up disabled on the first row) adds a row below; four undos from the toolbar give back the original file byte for byte; selecting a word and choosing Color › red in the edit menu writes `~={#e93147}above=~`; with the sidebar and a split open, the schedule table moves into a scroll view and scrolls sideways, the small table stays without one, the app is idle, and a vertical drag over the table scrolls the note with the table still while held; inside the scrolling table a cell is edited as before, and a tap in the other table moves editing there (typed the instant after the tap, a key was dropped rather than written into the cell left behind; typed a moment later, it lands in the new cell, in the table without outer pipes as `betaQ | 2`).
+- The hosted iPad editor tests (`GraphiteIntegrationTests`: `LivePreviewBlockPlacementTests`, `LivePreviewRevealTests`, `EditingContinuityTests`, `ReadingTasksAndEquationsTests`, same simulator): 42 of 42; `swift test` on macOS: 641 UI tests (5 opt-in benchmarks skipped), 1,043 Core, 140 Index and 249 Apple, no failure; Xcode builds of the app for the iOS simulator; both run again after the review's fixes.
+
+Not verified: Tab, Shift-Tab, Escape and the arrows on a hardware keyboard (the simulator tool pastes a tab instead of pressing it), the Mac's cell editor and menus by hand in the app, the on-screen keyboard's Return, VoiceOver on the cell editor, and a physical iPad.
+
+## Smoother scrolling, typing and tab switching: 2026-10-17
+
+Live Preview does less work while scrolling and typing, and switching tabs updates less of the window:
+- Typing in a list item no longer scans the whole note for blocks on every keystroke, and typing in a callout's body finds only that callout again (see Architecture, typing cost).
+- Each save, about a second after typing stops, no longer redraws the callouts that hold only text; only bases, embeds and the callouts holding one read the index.
+- Textual compiles its two math patterns once per thread instead of for every text it parses (`Vendor/textual/GRAPHITE-PATCHES.md`, 15), about a third of parsing a rendered block's Markdown.
+- The window's root view and the sidebar are no longer updated for every change of the tab layout, such as each frame of a drag of the split's divider: the focused tab and the tab count are kept apart from the layout.
+- Back and Forward keep showing the tab's file until the next one is ready, instead of an empty pane.
+- The empty tab looks its recent files up on disk once per update instead of twice.
+
+Measured with `PerformanceBenchmarkTests` (optimized builds, three runs each), main c605500 against these changes. The benchmark now also types in a list item and in a callout with the note focused; their "before" was measured on the Mac before the typing changes, with the new scenarios added.
+
+| Scenario | Measure | Before | After | Change |
+|---|---|---|---|---|
+| Mac, scrolling a long note down and up | main thread (ms) | 3,502 | 3,294 | −6% |
+| Mac, scrolling a long note down and up | frames over 16 ms | 77 | 63 | −18% |
+| Mac, typing in a list item | frame median (ms) | 10.1 | 7.6 | −25% |
+| Mac, typing in a callout | frame median (ms) | 10.4 | 8.0 | −23% |
+| iPad simulator, scrolling a long note down and up | main thread (ms) | 4,445 | 3,902 | −12% |
+| iPad simulator, scrolling down | 95th percentile / worst frame (ms) | 37.7 / 126 | 32.6 / 48 | −14% / −62% |
+| iPad simulator, typing in a paragraph | main thread (ms) | 363 | 324 | −11% |
+
+Where scrolling's time goes (Time Profiler, Mac): almost all of it is SwiftUI building each rendered block the first time it comes into view (about 13 ms for a small table, 5 for a callout, 3 for a formula) and again, at about half that, when a kept block's view comes back, since a view taken out of the window is drawn again from nothing. Keeping those views hidden in the text view, or in a container beside it, made scrolling slower: a hosting view follows its position in the window and is laid out again on every step of a scroll. Laying a table out at its scroll container's width in its first pass saved about 4% and was left out. Building the blocks just below the screen while the note is idle is the remaining way to take this work out of scrolling; it is not done.
+
+Checked: `swift test` on macOS (633 UI tests with 5 opt-in benchmarks skipped, 982 Core, 140 Index, 249 Apple), with new tests for typing in list items and callouts (`UiEditorEditTrackingTests`: the blocks equal a new scan's, and the edits that can change blocks scan again), for callouts that read the index (`UiEditorRenderedBlockReuseTests`), and for the focused note's views across a divider drag (`UiWorkspaceAreaHandoffTests`, which fails without the change); the iPad benchmark in the simulator.
+
+Not verified: a physical iPad or iPhone; the hosted iPad test suite; Back and Forward in the running app (a package test with a window that is never shown could not tell the empty pane from the note, so it was not kept).
+
+## Builds without warnings on the Mac, the iPhone and the iPad: 2026-10-17
+
+The Mac, iPhone and iPad builds, and the package's test targets, compile without Graphite warnings. The C++ warnings in the MLX package come from outside Graphite and remain. The macOS 27 AVFoundation deprecations noted below are gone. A video part is written through its inputs' receivers (`inputReceiver(for:)`, `appendImmediately`, `start()`) from macOS 26 and iOS 26 on. `expectsMediaDataInRealTime` is still set, on purpose: without it, a receiver held video back while no sound arrived and took 36 of 180 frames, and with it all 180 (macOS 27, measured). From macOS 27 and iOS 27 the camera preview reaches its layer through a render synchronizer's receiver, and Read Aloud's player connects and starts with the calls that report errors. Older iOS versions keep the previous calls. The rest were Swift 6 isolation fixes (constants read by shapes, Reduce Motion, the pinch policy, the sidebar's row equality), unused results, and `UITraitCollection(traitsFrom:)` replaced by `modifyingTraits`.
+
+Checked: Xcode builds of the Graphite scheme for macOS and for the iOS simulator (both architectures), the whole `swift test` on macOS (627 UI tests with 5 opt-in benchmarks skipped, 982 Core, 140 Index, 249 Apple) and a new `testASecondRecordingShowsItsCameraInTheSamePreview`. Without the release of the old synchronizer, that test ends with "The DisplayLayer cannot be added to a Synchronizer when it has already been added to a Synchronizer". A separate run on the Mac showed the preview layer displays frames marked "display immediately" while the synchronizer's clock is stopped. Another showed that the throwing `connectNode`/`playAudio` play and resume.
+
+Not verified: the camera preview and a video recording on a device; Read Aloud's High Quality playback in the app; the iOS test suites (the iOS changes were only built).
+
+## Bug fixes and speed-ups after the shared editor, measured on the Mac and the iPad simulator: 2026-10-17
+
+Eight commits, 853021b to 89c1b0d, fix about 70 bugs and edge cases. Each fix is listed in its commit message. They cover typed text, saving and closing, Markdown reading, Bases' JavaScript arithmetic, Read Aloud, recording, plugins, canvas, themes, PDFs (places, pages, bookmarks, signatures, the lasso) and links and folds. They also make the Live Preview editor, the PDF pane and the map do less work. The last commit fixes a memory leak on the Mac: a closed note's rendered blocks stayed in memory, with the note's text and session, for as long as the app ran. A block's view left inside the text view stayed registered with AppKit's notification center. The editor now takes its block views out before it goes.
+
+Measured with `PerformanceBenchmarkTests` (`GRAPHITE_BENCHMARKS=1`, optimized builds) on the development Mac and on the iPad simulator in Release:
+- **Before:** the shared editor as merged, with the benchmarks of 7b3e434.
+- **After:** 50fce43, before the leak fix.
+
+The Mac figures are the means of two runs (three for the note scenarios); the iPad figures are from one run. Times are milliseconds of processor time unless marked otherwise; "main thread" is the main thread's own processor time.
+
+Gains of 30% or more, Mac:
+
+| Scenario | Measure | Before | After | Change |
+|---|---|---|---|---|
+| Embedded PDF while other files change | processor time | 120.6 | 36.5 | −70% |
+| Embedded PDF, idle | frame median (ms) | 4.06 | 2.21 | −46% |
+| Long PDF with pages sidebar, scrolling | main thread | 1,891 | 945 | −50% |
+| Map updates | memory growth (MB) | 5.7 | 2.8 | −51% |
+| Typing in a long note | main thread | 508 | 288 | −43% |
+| Typing in a long note | processor time | 639 | 417 | −35% |
+| Typing in a long note | frame median (ms) | 10.0 | 6.4 | −36% |
+| Scrolling a long note back up | main thread | 2,239 | 1,496 | −33% |
+| Scrolling a long note back up | frames over 16 ms | 73 | 31 | −58% |
+| Scrolling a long note down and up | frames over 16 ms | 136 | 94 | −31% |
+
+Gains of 30% or more, iPad simulator:
+
+| Scenario | Measure | Before | After | Change |
+|---|---|---|---|---|
+| Embedded PDF while other files change | processor time | 174.8 | 70.3 | −60% |
+| Opening a long PDF | processor time | 552 | 333 | −40% |
+| Memory kept after closing a PDF | MB | 43.1 | 22.1 | −49% |
+| Typing in a long note | main thread | 550 | 348 | −37% |
+| Long PDF with pages sidebar, scrolling | frame median / 95th percentile (ms) | 11.9 / 12.9 | 7.8 / 8.6 | −34% / −33% |
+| Scrolling a long note down | memory growth (MB) | 91.7 | 53.7 | −41% |
+| Scrolling a long note back up | memory growth (MB) | 61.9 | 22.7 | −63% |
+| Memory kept after closing a note | MB | 2.2 | −19.0 | all returned |
+
+Got worse:
+- **Mac, memory kept after closing a note:** 22 → 50 MB. This was measured while the benchmark still held the editor and before the leak fix, and it was not measured again after the fix.
+- **Mac:** opening a note grows memory 2.8 → 5.5 MB. Scrolling a long note grows it 231 → 277 MB, because the kept-views pool keeps more views within its budget. Opening a PDF takes 14% more processor time.
+- **iPad simulator:**
+  - Opening a note takes 27% more processor time (822 → 1,046 ms across all threads; the main thread is up 3%).
+  - Memory grows more while typing (24.7 → 38.6 MB), while scrolling a PDF (63 → 87 MB) and while the map updates (16 → 19 MB).
+  - The frame median scrolling a long note down is 8.4 → 13.9 ms, though its 95th percentile went down 7%. This is from one run.
+
+Checked: `swift test` on macOS, 627 UI tests with the new `UiEditorReleaseTests` (5 skipped), all passing. The leak was traced with `leaks --atExit` before the fix.
+
+Not verified:
+- A physical iPad: all iPad figures are from the simulator.
+- The hosted iPad tests on main as merged.
+- Whether the iPad has the same leak: its memory kept after closing a note went down, but the test is Mac only.
+- PDFKit's own background text recognition while scrolling a PDF: it is outside Graphite's code.
 
 ## Code blocks drawn as Obsidian's boxes, and code themes: 2026-10-17
 
@@ -39,6 +215,18 @@ Colors followed Xcode's default light and dark themes at first (Obsidian's, and 
 Checked: `CodeSyntaxHighlightingTests` (27, Core: each language's tokens, aliases, line states, Windows line endings, a 2,000-line block, the cache), `MarkdownStyleScannerTests.testCodeLinesKnowTheirFencedBlock`, `VaultThemeTokensTests.testSyntaxColorsAreTakenTogetherWhenTheThemeChangesAny`; `UiCodeHighlightingMacTests` (5, macOS: a ```` ```cpp ```` block's colors in the AppKit editor in Live Preview and Source mode, prose and an unknown language left plain, `/*` and `*/` recoloring 30 lines below the edit across a blank line, reading view drawing a C++ block in syntax colors and an unknown language without, reading segments joining to the code); the hosted iPad test `CodeHighlightingTests` (iPad Pro 11-inch (M5) simulator "Graphite Code Highlighting iPad", iOS 27.0: the UIKit editor's colors in Live Preview and Source mode, reading view's syntax-colored pixels in light and dark, with screenshots of all three views in both appearances, looked at), run with the hosted editor classes `EditingContinuityTests`, `LivePreviewRevealTests`, `LivePreviewBlockPlacementTests` and `ReadingTasksAndEquationsTests`, 41 tests, all passing; `swift test` on macOS: 605 UI tests (one skipped), 945 Core, 140 Index and 247 Apple, all passing.
 
 Not verified: by hand in the running app, on the iPad simulator (the simulator panel's device access was not granted during the session) or on the Mac; Increase Contrast and a vault theme's syntax colors on screen; a physical iPad's typing latency in a long code block.
+
+## The Mac shows a block's source only while the note has focus; quotes, "Edit Source", folded callouts and properties on the iPad: 2026-10-16
+
+On the Mac, the markup and a block's source showed at the cursor whether or not the note had keyboard focus, and a note opened from the file list keeps its cursor at its start: a note starting with a callout showed it as `> [!info]` source, with its bars, until a click in the note. The Mac's editor now reveals them only while its text view is the first responder, as the iPad does while the note is edited. `UiEditorMacRenderedBlocksTests.testABlockAtTheCursorShowsItsSourceOnlyWhileTheNoteHasKeyboardFocus`; the Mac editor tests that move the cursor now give the text view focus first. In the Mac app (a review copy on a scratch vault, captured in the background): `10b Unclosed fence.md` and `08 Properties.md` chosen in the file list draw their callouts.
+
+A quoted line that wraps started its next lines at the margin, where the quote's bar is drawn over the first letter ("render", "layout"); it showed on both platforms whenever a callout or quote showed its source. The wrapped lines now start under the text, past the `> ` and a list item's marker (`MarkdownTextStyler`, a hanging indent). `UiStylingFixTests.testWrappedQuotedLinesStartUnderTheirText` fails without the change and passes with it; seen in the iPad simulator on `02 Lists and tasks.md`'s callout source.
+
+The "</>" Edit Source button beside every rendered block is gone, so blocks are as wide as in reading view; "Edit Source" is in each block's menu (a long press on the iPad, a secondary click on the Mac) and among its VoiceOver actions, which also reaches a rule's source. Seen in the iPad simulator: a long press on a callout shows "Edit Source", which shows its source.
+
+On the iPad, a tap on a folded callout's title did nothing, in Live Preview and in reading view: Textual covers a title's text with its own link tap, which took the tap from the fold button. A title without a link now leaves the tap to the fold button (a title with a link still follows the link; its symbol, chevron and the rest of the row fold it). In Live Preview, the text view's own gestures also took touches on a rendered block's view or a fold button before SwiftUI did; over them only its scrolling and zooming begin now, and a touch there no longer counts as touching the note. A drag that started on a property ended with the note editing, its cursor at its start and the properties shown as YAML with the keyboard up: when a block's view scrolled away, UIKit handed the first responder inside it to the text view (seen in an lldb backtrace: `UITextView becomeFirstResponder` from `removeFromSuperview` in `LivePreviewRenderedBlocks.detachViews`). A block's view now makes whatever inside it has the keyboard give it up before it leaves (`RenderedBlockHost.removeFromTextView`). Checked in the iPad simulator ("Graphite Shared Editor iPad", iPad Pro 11-inch (M5), iOS 27.0): the folded callouts of `Lecture_L01_Shannon.md` open on a tap on their title; the property checkbox of `08 Properties.md` toggles (it did not before) and the file changes only on that line; drags starting on `12 Everything at once.md`'s properties scroll the note with no keyboard, where the same drags showed the YAML before. `LivePreviewBlockPlacementTests.testADragStartingOnThePropertiesScrollsTheNote` (hosted) passes, but it passed before the change too: synthesized touches reach UIKit's gesture recognizers but not SwiftUI's controls, so the tap paths are checked by hand only.
+
+Ran: the whole hosted suite (342 tests, one skipped, none failed) and `swift test` on macOS (602 UI tests, one skipped, 916 Core, 140 Index, 247 Apple; no failure). Not verified: a physical iPad and Apple Pencil; a callout title with a link (tap on its text follows the link, not tested); a property's text field being typed in while it scrolls away (it now ends editing); the Mac editor's focus change with a real click in the window (the review copy was driven in the background, which cannot give the text view focus). Seen once and not reproduced in three tries: after toggling the properties checkbox on the iPad, the note's opening `---` was saved as an em dash, which turned the frontmatter into text; `NoteProperties.replacingFrontmatter` keeps `---` for the same edit, and the cause is unknown.
 
 ## PDFs on the Mac, and the sidebar's bars and property values drawn as the Mac draws them: 2026-10-16
 
@@ -781,7 +969,7 @@ Not established: how the sharper PDF ink, and writing while zoomed, look and fee
 
 ## SOLID compliance review: 2026-09-30
 
-The [SOLID compliance tracker](SOLID.md) records the current source assessment against `RULES.md`, with evidence for each principle, adapter/test limitations, and prioritized open work. Overall compliance is partial. The review covered module dependencies, storage, workspace/document sessions, Bases providers, conflict-version adapters, video capture, editor retention, and shared Pencil/PDF services. It identified broad workspace dependencies, direct shared-service access, and differences between declared adapter contracts and test/production behavior.
+The [SOLID and clean-code standard](solid/README.md) assesses the implementation against `RULES.md` from a line-by-line audit of `b13dec3` (2026-10-18): Core value types, file formats and storage contracts are sound; the coordinating layer (`WorkspaceModel`, no composition root, rules implemented more than once) is not. Its [rule status](solid/rule-status.md) and [finding status](solid/status.md) are the current assessment; architecture intent alone does not establish compliance.
 
 This was a documentation and source-review update. Existing test assertions were inspected, but no tests, builds, simulator interactions, or device checks ran for it. It adds no implemented behavior or fresh passing-test claim. Earlier verification entries below retain their original scope and dates.
 
@@ -1140,6 +1328,31 @@ Not established: on the iPad itself, with Apple Pencil, and on the Mac. In the s
 - `Edge cases/Bases/`: 93 notes (books, people, courses, assignments, places in six cities, odd records) and 18 bases, including broken ones. `00 Bases overview.md` gives the expected counts and summary values per base.
 - `Edge cases/Media/`: images (EXIF rotation, transparency, GIF, HEIC, WebP, CMYK, 16-bit, 8000×6000, fake PNG), audio and video (including corrupt, portrait and HEVC), PDFs (outline, annotations from another app, rotated and mixed page sizes, password `graphite`, corrupt, empty, page labels, scans, 100 pages). `Media gallery.md` embeds them all.
 - `Edge cases/Files/`: encodings (CRLF, CR, BOM, UTF-16, Latin-1, binary), 0-byte and 2 MB notes, odd names, hidden files, non-note files, a folder named like a note, twelve levels of folders, 250 linked notes, and symbolic links inside and outside the vault.
+
+## Read Aloud as a core plugin, off by default: 2026-10-19
+
+Owner decision of 2026-10-19; the design is in `Read-aloud-core-plugin.md`, and what it does is in `Architecture.md` (Read Aloud as a core plugin).
+
+**Covered by package tests.** These are run on macOS with `swift test --filter` (85 tests, 0 failures, including the classes around them). Every Read Aloud reading in them goes through a silent fake voice.
+- `CorePluginSwitchesTests` (9): a fresh device has Read Aloud off and every other plugin on, and the switches are stored and read back.
+- `CorePluginSwitchMigrationTests` (17):
+  - the pure decision;
+  - preference, voice-folder and no-evidence devices;
+  - Read Aloud turned off earlier;
+  - the migration runs once;
+  - a workspace of an existing user and of a new one.
+- `WorkspaceReadAloudCorePluginTests` (9):
+  - no controller is built while Read Aloud is off;
+  - turning it on builds one, without a relaunch;
+  - turning it off during playback stops speech, releases audio, closes the reader and drops the controller;
+  - remembered places are kept;
+  - the Settings plugin pages follow the switch;
+  - the `graphite://read` link refuses while Read Aloud is off.
+- `WorkspaceDeepLinksTests` and `GraphitePreferencesPersistedKeysTests`, which now include the `GraphiteEnabledCorePlugins` key.
+
+**Not run yet.** The full package suite and the hosted iPad suite were held back on 2026-10-19 while Read Aloud tests that speak aloud are being made silent. The four hosted Read Aloud test files turn the plugin on first.
+
+**Not verified.** Whether each menu, button and the floating player actually disappear and come back in the running app on iPad and Mac has been checked only through the model the views read, not by eye.
 
 ## Implemented and covered by automated tests
 

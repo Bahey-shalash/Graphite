@@ -71,9 +71,9 @@ struct MarkdownPane: View {
                                 blocksCache: session.readingBlocksCache, savedPosition: session.readingPosition,
                                 takeStartingLocation: { [session] in session.takeReadingStartLocation() },
                                 toggleTask: { [session] note, location in await workspace.toggleReadingTask(at: location, in: note, shownBy: session) },
-                                readingWord: ReadingWordSource { [readAloud = workspace.readAloud, path = session.path] in readAloud.highlight(in: path) },
-                                followsReading: workspace.readAloud.shouldFollow(session.path),
-                                suspendReadingFollow: { workspace.readAloud.suspendFollowing(in: session.path.rawValue) })
+                                readingWord: ReadingWordSource { [readAloud = workspace.readAloud, path = session.path] in readAloud?.highlight(in: path) },
+                                followsReading: workspace.readAloud?.shouldFollow(session.path) ?? false,
+                                suspendReadingFollow: { workspace.readAloud?.suspendFollowing(in: session.path.rawValue) })
                 .environment(\.readingImageActions, ReadingImageActions(providerIdentity: ObjectIdentifier(workspace),
                                                                         viewImage: viewImage, editDrawing: drawingEditor, drawOnImage: imageDrawing))
                 .environment(\.communityPluginCodeBlocks, workspace.communityPlugins.isRuntimeRunning ? workspace.communityPlugins : nil)
@@ -83,13 +83,14 @@ struct MarkdownPane: View {
                 NativeMarkdownEditor(session: session, configuration: editorConfiguration, environment: livePreviewEnvironment,
                                      headingScrollRequest: document.headingScrollRequest, actions: editorActions,
                                      retention: workspace.markdownEditorRetention, retentionOwner: document,
-                                     readAloudRange: workspace.readAloud.highlight(in: session.path),
-                                     followsReading: workspace.readAloud.shouldFollow(session.path),
-                                     suspendReadingFollow: { workspace.readAloud.suspendFollowing(in: session.path.rawValue) },
-                                     readAloudHooks: readAloudHooks) { target, isWiki in
+                                     readAloudRange: workspace.readAloud?.highlight(in: session.path),
+                                     followsReading: workspace.readAloud?.shouldFollow(session.path) ?? false,
+                                     suspendReadingFollow: { workspace.readAloud?.suspendFollowing(in: session.path.rawValue) },
+                                     readAloudHooks: readAloudHooks, contextMenu: editorContextMenuActions) { target, isWiki in
                     follow(target, isWiki: isWiki)
                 }
-                .overlay(alignment: .topLeading) { completionPopup }
+                // The suggestions change at every keystroke; only this overlay reads them.
+                .overlay(alignment: .topLeading) { CompletionPopupOverlay(model: session.completion) }
                 .onAppear { session.completion.suggest(from: workspace, for: session) }
             }
         }
@@ -122,27 +123,25 @@ struct MarkdownPane: View {
                 pendingReadingSection = (section, source)
             }
         }
-        .onChange(of: session.text) { _, _ in
-            readingStartOffset = nil
-        }
         // Folding or unfolding while this note is read changes what is still to be read.
-        .onChange(of: session.foldedKeys) { _, _ in workspace.readAloud.foldsDidChange(in: session.path, hiddenRanges: foldedRanges) }
+        .onChange(of: session.foldedKeys) { _, _ in workspace.readAloud?.foldsDidChange(in: session.path, hiddenRanges: foldedRanges) }
         .onChange(of: workspace.calloutFolds.expansion(for: session.path.rawValue)) { _, _ in
-            workspace.readAloud.foldsDidChange(in: session.path, hiddenRanges: foldedRanges)
+            workspace.readAloud?.foldsDidChange(in: session.path, hiddenRanges: foldedRanges)
         }
         .environment(\.calloutFoldNote, (workspace.calloutFolds, session.path.rawValue))
-        // In the reading view, "Read from Here" after scrolling starts at the top block shown.
-        .onChange(of: viewMode, initial: true) { _, mode in
-            if mode == .reading {
-                workspace.readAloudNavigator.visibleLocation = { [session] in session.readingPosition.topLocation() }
+        // In the reading view, "Read from Here" after scrolling starts at the top block shown;
+        // also when Read Aloud is turned on while the reading view is shown.
+        .onChange(of: viewMode == .reading && workspace.readAloudNavigator != nil, initial: true) { _, isReadingWithNavigator in
+            if isReadingWithNavigator, let navigator = workspace.readAloudNavigator {
+                navigator.visibleLocation = { [session] in session.readingPosition.topLocation() }
                 // The reading view has no tap to read yet; "Read from Here" is in the player.
-                workspace.readAloudNavigator.supportsTapToRead = false
+                navigator.supportsTapToRead = false
             }
         }
         // The text and the cursor change at every keystroke. Only these small views read
         // them, so typing and moving the cursor do not rebuild the pane and its toolbar.
         .background {
-            AutosaveDriver(session: session)
+            AutosaveDriver(session: session) { readingStartOffset = nil }
             DrawingAtCursorTracker(session: session, workspace: workspace, drawingAtCursor: $drawingAtCursor, imageAtCursor: $imageAtCursor)
         }
         // The Properties view reads the types assigned in `.obsidian/types.json`; they are
@@ -175,24 +174,21 @@ struct MarkdownPane: View {
         }
         #endif
         .sheet(isPresented: $showsLinkPicker) { LinkPicker(workspace: workspace, notePath: session.path) { link in session.insert(link) } }
+        .modifier(notebookInsertion)
+    }
+
+    /// The New Notebook sheet that Insert › New Notebook asks for.
+    private var notebookInsertion: NotebookInsertionPresentation {
+        let attachmentFolder = workspace.attachmentDirectoryDescription(for: session.path, settings: workspace.vaultSettings)
+        return NotebookInsertionPresentation(document: document, notePath: session.path, attachmentFolderDescription: attachmentFolder,
+                                             initialOptions: { [preferences] in preferences.notebookCreation.initialOptions() },
+                                             create: { [workspace, session] name, options, placement, request in
+                                                 workspace.createNotebook(named: name, options: options, placement: placement,
+                                                                          from: session, request: request)
+                                             })
     }
 
     /// Link and tag suggestions just below the cursor, or above it near the bottom.
-    @ViewBuilder private var completionPopup: some View {
-        if session.completion.isVisible {
-            GeometryReader { geometry in
-                let caret = session.completion.caretRect
-                let popupHeight = min(CompletionPopup.maximumHeight, CGFloat(session.completion.items.count) * 48 + 8)
-                let fitsBelow = caret.maxY + 6 + popupHeight <= geometry.size.height
-                let popupOriginX = min(max(caret.minX - 12, 8), max(geometry.size.width - CompletionPopup.width - 8, 8))
-                let popupOriginY = fitsBelow ? caret.maxY + 6 : max(caret.minY - popupHeight - 6, 8)
-                CompletionPopup(model: session.completion)
-                    .offset(x: popupOriginX, y: popupOriginY)
-            }
-            .transition(.opacity)
-        }
-    }
-
     @ViewBuilder private var banner: some View {
         if session.hasExternalConflict {
             HStack(spacing: 12) {
@@ -218,8 +214,9 @@ struct MarkdownPane: View {
                              colorsEnabled: preferences.isEnabled(.colors), paletteHexByName: paletteHexByName,
                              showsProperties: preferences.isEnabled(.properties), declaredPropertyTypes: session.declaredPropertyTypes, inlineTitle: inlineTitle,
                              textSize: noteTextSize, drawingVersion: workspace.drawingVersion, indexVersion: workspace.indexVersion,
-                             mapsReadAloudSourceLocations: workspace.readAloud.sourceIdentifier == session.path.rawValue
-                                && (workspace.readAloud.isPreparing || workspace.readAloud.session.document != nil),
+                             mapsReadAloudSourceLocations: workspace.readAloud.map { reader in
+                                 reader.sourceIdentifier == session.path.rawValue && (reader.isPreparing || reader.session.document != nil)
+                             } ?? false,
                              pluginCodeBlockLanguages: workspace.communityPlugins.codeBlockLanguages,
                              runsPluginPostProcessors: workspace.communityPlugins.runsMarkdownPostProcessors,
                              marksUnresolvedLinks: workspace.noteTheme != nil)
@@ -258,6 +255,7 @@ struct MarkdownPane: View {
         actions.insertAttachment = { [workspace, session] data, stem, fileExtension, range in
             Task { await workspace.saveAttachment(data, stem: stem, fileExtension: fileExtension, into: session, at: range) }
         }
+        actions.newNotebook = { [document, session] in document.notebookInsertion = NotebookInsertionRequest(session: session) }
         actions.insertLinkToVaultFile = { [workspace, session] path, range in
             Task { await workspace.insertLink(to: path, into: session, at: range) }
         }
@@ -318,6 +316,38 @@ struct MarkdownPane: View {
         session.apply(edit)
     }
 
+    /// Wraps the selection in Obsidian's Colors syntax, or a placeholder when nothing is
+    /// selected, so the markup shows. The toolbar's Color menu and the editor's context
+    /// menu write it alike.
+    private func insertColor(hex: String, placeholder: String) {
+        session.insert("~={\(hex)}\(Self.selectedText(in: session, placeholder: placeholder))=~")
+    }
+
+    /// What the editor's context menu (right-click on the Mac, the edit menu on the iPad)
+    /// does through this pane: the toolbar's own paths, so undo and the selection afterwards
+    /// behave the same.
+    private var editorContextMenuActions: EditorContextMenuActions {
+        var openTemplatePicker: (() -> Void)?
+        if let showTemplatePicker {
+            openTemplatePicker = { [workspace, tabID] in
+                workspace.activateTab(tabID)
+                showTemplatePicker.show()
+            }
+        }
+        return EditorContextMenuActions(
+            run: { command in run(command) },
+            noteState: { [session] in (session.text as NSString, session.selection) },
+            apply: { [session] edit in session.apply(edit) },
+            insertBlock: { [session] block in
+                // After the selected text, which a block inserted over it would replace.
+                session.insertBlock(block, at: NSRange(location: NSMaxRange(session.selection), length: 0))
+            },
+            colors: preferences.isEnabled(.colors) ? preferences.colorPalette : nil,
+            insertColor: { hex, placeholder in insertColor(hex: hex, placeholder: placeholder) },
+            linkToNote: { showsLinkPicker = true },
+            template: openTemplatePicker)
+    }
+
     /// What Live Preview's rendered blocks need; nil in Source mode.
     private var livePreviewEnvironment: LivePreviewEnvironment? {
         guard viewMode == .livePreview, let root = workspace.folderAccess?.root else { return nil }
@@ -336,7 +366,7 @@ struct MarkdownPane: View {
             viewImage: viewImage, editDrawing: drawingEditor, drawOnImage: imageDrawing, indexVersion: workspace.indexVersion,
             // Reading view's column, a little wider than Live Preview's, bounds the decode.
             embeddedImageColumnWidth: preferences.usesReadableLineLength ? ReadingConfiguration.readableColumnWidth : nil,
-            readingContext: LivePreviewReadingContext(controller: workspace.readAloud, path: session.path),
+            readingContext: workspace.readAloud.map { reader in LivePreviewReadingContext(controller: reader, path: session.path) },
             lassoNoteDestination: LassoNoteDestination.note(session, in: workspace),
             pluginCodeBlocks: workspace.communityPlugins.isRuntimeRunning ? workspace.communityPlugins : nil,
             pluginCodeBlockLanguages: workspace.communityPlugins.codeBlockLanguages,
@@ -424,7 +454,7 @@ struct MarkdownPane: View {
         if preferences.isEnabled(.colors) {
             Menu("Color", systemImage: "paintpalette") {
                 ForEach(preferences.colorPalette) { color in
-                    Button(color.name) { session.insert("~={\(color.hex)}\(Self.selectedText(in: session, placeholder: color.name))=~") }
+                    Button(color.name) { insertColor(hex: color.hex, placeholder: color.name) }
                 }
             }
         }
@@ -432,9 +462,9 @@ struct MarkdownPane: View {
         Button("Bulleted List", systemImage: "list.bullet") { run(.bulletList) }
         Button("Numbered List", systemImage: "list.number") { run(.numberedList) }
         Button("Task", systemImage: "checklist") { run(.task) }
-        Button("Table", systemImage: "tablecells") { session.insertBlock("| Column | Column |\n| --- | --- |\n|  |  |") }
-        Button("Math Block", systemImage: "function") { session.insertBlock("$$\n\n$$") }
-        Button("Callout", systemImage: "text.bubble") { session.insertBlock("> [!note]\n> ") }
+        Button("Table", systemImage: "tablecells") { session.insertBlock(EditorContextMenuContent.tableBlock) }
+        Button("Math Block", systemImage: "function") { session.insertBlock(EditorContextMenuContent.mathBlock) }
+        Button("Callout", systemImage: "text.bubble") { session.insertBlock(EditorContextMenuContent.calloutBlock) }
     }
 
     @ViewBuilder private var insertMenuItems: some View {
@@ -444,6 +474,7 @@ struct MarkdownPane: View {
         if UIImagePickerController.isSourceTypeAvailable(.camera) { Button("Take Photo…", systemImage: "camera") { showsCamera = true } }
         #endif
         Button("Attachment…", systemImage: "doc.badge.plus") { showsAttachmentPicker = true }
+        Button("New Notebook…", systemImage: "book.closed") { document.notebookInsertion = NotebookInsertionRequest(session: session) }
         if let showTemplatePicker {
             Button("Template…", systemImage: "doc.on.doc") {
                 workspace.activateTab(tabID)
@@ -474,8 +505,16 @@ struct MarkdownPane: View {
             Button("Read Document") { startReading() }
             Button("Choose Section…") { showsReadingSections = true }
             if isEditing {
-                Button("Read Selection") { startReading(range: session.selection, scope: "Selected text") }
-                    .disabled(session.selection.length == 0)
+                // These look at the selection when chosen, not while the menu is built: the
+                // toolbar's menus followed the cursor and were all built again at every
+                // keystroke.
+                Button("Read Selection") {
+                    guard session.selection.length > 0 else {
+                        workspace.errorMessage = "Select the text to read first."
+                        return
+                    }
+                    startReading(range: session.selection, scope: "Selected text")
+                }
                 Button("Read From Here") {
                     startReading(range: NSRange(location: session.selection.location, length: max(0, session.text.utf16.count - session.selection.location)), scope: "From cursor to end")
                 }
@@ -483,9 +522,13 @@ struct MarkdownPane: View {
                 Button("Set Reading Start") { readingStartOffset = session.selection.location }
                 if let start = readingStartOffset {
                     Button("Read Through Here") {
+                        guard session.selection.location >= start else {
+                            workspace.errorMessage = "Put the cursor after the reading start first."
+                            return
+                        }
                         let end = session.selection.length > 0 ? NSMaxRange(session.selection) : min(session.selection.location + 1, session.text.utf16.count)
                         startReading(range: NSRange(location: start, length: max(0, end - start)), scope: "Chosen start and end")
-                    }.disabled(session.selection.location < start)
+                    }
                 }
             }
         }
@@ -494,7 +537,7 @@ struct MarkdownPane: View {
     }
 
     @ViewBuilder private var moreMenuItems: some View {
-        if preferences.isEnabled(.readAloud) { readAloudMenu }
+        if workspace.readAloud != nil { readAloudMenu }
         Picker("View", selection: $session.viewMode) {
             Label("Reading View", systemImage: "book").tag(NoteViewMode.reading)
             Label("Live Preview", systemImage: "eye").tag(NoteViewMode.livePreview)
@@ -535,28 +578,30 @@ struct MarkdownPane: View {
     }
 
     private func startReading(range: NSRange? = nil, scope: String = "Whole note") {
-        guard !workspace.recording.state.isActive else { return }
-        workspace.readAloud.readMarkdown(session.text, path: session.path, range: range, scope: scope, paletteHexByName: paletteHexByName,
-                                         hiddenRanges: foldedRanges)
+        guard !workspace.recording.state.isActive, let reader = workspace.readAloud, let navigator = workspace.readAloudNavigator else { return }
+        reader.readMarkdown(session.text, path: session.path, range: range, scope: scope, paletteHexByName: paletteHexByName,
+                            hiddenRanges: foldedRanges)
         // The whole note goes on from where it was left; the player offers Start Over.
         if range == nil {
-            workspace.readAloudNavigator.resumeWhenPrepared(at: workspace.readAloudNavigator.rememberedLocation(for: session.path.rawValue))
+            navigator.resumeWhenPrepared(at: navigator.rememberedLocation(for: session.path.rawValue))
         }
     }
 
     /// Read Aloud's ways into the editor: tap to move reading, "Read from Here", the first
     /// visible line for the floating player's "Read from Here", and the highlight's place.
-    private var readAloudHooks: ReadAloudEditorHooks {
-        let reader = workspace.readAloud
-        let navigator = workspace.readAloudNavigator
+    /// Nil while Read Aloud is off, so the editor offers none of them.
+    private var readAloudHooks: ReadAloudEditorHooks? {
+        guard let reader = workspace.readAloud, let navigator = workspace.readAloudNavigator else { return nil }
         let isReading = reader.sourceIdentifier == session.path.rawValue && reader.session.document != nil
-        let textLength = (session.text as NSString).length
+        let session = session
         return ReadAloudEditorHooks(
             isReadingThisNote: isReading || navigator.rangeSelection != .off,
             tapped: { location in
                 if let range = navigator.tapped(atSourceLocation: location) { startReading(range: range, scope: "Chosen start and end") }
             },
             readFromHere: { location in
+                // The length when asked: read in the body, it made the pane depend on the text.
+                let textLength = (session.text as NSString).length
                 startReading(range: NSRange(location: location, length: max(0, textLength - location)), scope: "From here to the end")
             },
             registerVisibleLocation: { provider in
@@ -629,12 +674,16 @@ struct MarkdownPane: View {
 
 }
 
-/// Saves the note once typing pauses.
+/// Saves the note once typing pauses, and says when the text changes. The pane's own body
+/// does not read the text, so a keystroke updates this view rather than the whole pane.
 private struct AutosaveDriver: View {
     let session: MarkdownSession
+    let textDidChange: () -> Void
 
     var body: some View {
-        Color.clear.task(id: session.text) {
+        Color.clear
+            .onChange(of: session.text) { _, _ in textDidChange() }
+            .task(id: session.text) {
             do {
                 try await Task.sleep(for: .milliseconds(900))
                 try await session.save()
@@ -716,9 +765,8 @@ private struct DrawingAtCursorTracker: View {
 /// Obsidian's status-bar word and character count, without frontmatter. The text changes
 /// with every keystroke, so it is counted off the main thread, once typing pauses.
 /// The note's word and character counts, as Obsidian's Word count plugin shows them: under
-/// the window's title where the system has a subtitle (iPadOS and iOS 26, macOS), else in a
-/// capsule over the note's bottom corner. A phone shows only the words, which fit beside
-/// the title's width. Only this modifier reads the text, so typing does not rebuild the pane.
+/// the window's title, as its subtitle. A phone shows only the words, which fit beside the
+/// title's width. Only this modifier reads the text, so typing does not rebuild the pane.
 private struct WordCountDisplay: ViewModifier {
     let session: MarkdownSession
     let isShown: Bool
@@ -728,39 +776,38 @@ private struct WordCountDisplay: ViewModifier {
     private static let typingPause = Duration.milliseconds(300)
 
     func body(content: Content) -> some View {
+        // The text is read by the counter behind the note, not here: the subtitle set again
+        // at every keystroke laid out the window's toolbar again and rebuilt its menus.
         countedContent(content)
-            .task(id: isShown ? session.text : nil) {
+            .background { WordCounter(session: session, isShown: isShown, counts: $counts) }
+    }
+
+    /// Counts the note once typing pauses.
+    private struct WordCounter: View {
+        let session: MarkdownSession
+        let isShown: Bool
+        @Binding var counts: NoteTextCounts?
+
+        var body: some View {
+            Color.clear.task(id: isShown ? session.text : nil) {
                 guard isShown else { return }
                 // The first count, when the note opens, does not wait for a pause.
                 if counts != nil {
-                    do { try await Task.sleep(for: Self.typingPause) } catch { return }
+                    do { try await Task.sleep(for: WordCountDisplay.typingPause) } catch { return }
                 }
                 let textToCount = session.text
                 let newCounts = await Task.detached(priority: .utility) { NoteTextCounts(countingBodyOf: textToCount) }.value
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, newCounts != counts else { return }
                 counts = newCounts
             }
+        }
     }
 
     @ViewBuilder private func countedContent(_ content: Content) -> some View {
-        if #available(iOS 26, macOS 11, *) {
-            // Always the same view, with an empty subtitle when there is nothing to show:
-            // switching between the note with and without a subtitle made SwiftUI build the
-            // note's editor again, losing its cursor and revealed markup.
-            content.navigationSubtitle(Text(isShown ? counts.map(summary(of:)) ?? "" : ""))
-        } else {
-            content.overlay(alignment: .bottomTrailing) {
-                if isShown, let counts {
-                    Text(summary(of: counts))
-                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                        .padding(.horizontal, 10).padding(.vertical, 5)
-                        .background(.regularMaterial, in: Capsule())
-                        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-                        .allowsHitTesting(false)
-                        .padding(12)
-                }
-            }
-        }
+        // Always the same view, with an empty subtitle when there is nothing to show:
+        // switching between the note with and without a subtitle made SwiftUI build the
+        // note's editor again, losing its cursor and revealed markup.
+        content.navigationSubtitle(Text(isShown ? counts.map(summary(of:)) ?? "" : ""))
     }
 
     private func summary(of counts: NoteTextCounts) -> String {
@@ -948,25 +995,36 @@ struct NoteLinksInspector: View {
         .onChange(of: showsUnlinkedMentions) { _, showsMentions in
             if showsMentions { Task { await loadUnlinkedMentions() } }
         }
+        // Another note's outline, links and mentions are not shown under this one while
+        // its own are read.
+        .onChange(of: session.path) {
+            outline = []; outgoing = []; tags = []; footnotes = []
+            linkedMentions = []; unlinkedMentions = []
+        }
     }
 
     private func selectAvailablePanel() {
         if !availablePanels.contains(selectedPanel), let firstPanel = availablePanels.first { selectedPanel = firstPanel }
     }
 
+    /// The mentions found are shown only while the note they were found for is: another
+    /// note opened during a slow search kept the old note's list, and Link on one of its
+    /// lines wrote a link to the wrong note.
     private func loadLinkedMentions() async {
-        let names = workspace.mentionNames(of: session.path, text: session.text)
-        let groups = await workspace.linkedMentions(of: session.path, names: names)
-        guard !Task.isCancelled else { return }
+        let path = session.path
+        let names = workspace.mentionNames(of: path, text: session.text)
+        let groups = await workspace.linkedMentions(of: path, names: names)
+        guard !Task.isCancelled, session.path == path else { return }
         linkedMentions = groups
     }
 
     private func loadUnlinkedMentions() async {
         isLoadingUnlinkedMentions = true
         defer { isLoadingUnlinkedMentions = false }
-        let names = workspace.mentionNames(of: session.path, text: session.text)
-        let groups = await workspace.unlinkedMentions(of: session.path, names: names)
-        guard !Task.isCancelled else { return }
+        let path = session.path
+        let names = workspace.mentionNames(of: path, text: session.text)
+        let groups = await workspace.unlinkedMentions(of: path, names: names)
+        guard !Task.isCancelled, session.path == path else { return }
         unlinkedMentions = groups
     }
 
@@ -1109,6 +1167,27 @@ struct NoteLinksInspector: View {
         case .graph, .map:
             // Drawn in place of the list; see `body`.
             EmptyView()
+        }
+    }
+}
+
+/// Link suggestions over the note, next to the cursor. A view of its own: read in the pane's
+/// body, the suggestions, which change at every keystroke, rebuilt the whole pane.
+private struct CompletionPopupOverlay: View {
+    let model: CompletionModel
+
+    var body: some View {
+        if model.isVisible {
+            GeometryReader { geometry in
+                let caret = model.caretRect
+                let popupHeight = min(CompletionPopup.maximumHeight, CGFloat(model.items.count) * 48 + 8)
+                let fitsBelow = caret.maxY + 6 + popupHeight <= geometry.size.height
+                let popupOriginX = min(max(caret.minX - 12, 8), max(geometry.size.width - CompletionPopup.width - 8, 8))
+                let popupOriginY = fitsBelow ? caret.maxY + 6 : max(caret.minY - popupHeight - 6, 8)
+                CompletionPopup(model: model)
+                    .offset(x: popupOriginX, y: popupOriginY)
+            }
+            .transition(.opacity)
         }
     }
 }

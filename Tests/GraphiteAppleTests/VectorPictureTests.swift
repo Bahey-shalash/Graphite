@@ -10,6 +10,7 @@ import WebKit
 #endif
 import GraphiteCore
 @testable import GraphiteApple
+import GraphiteTestSupport
 
 /// Pictures in SVG and PDF drawings: the picture of a drawing made on an image and pictures
 /// placed on a drawing. The files are read back by independent readers (Foundation's XML
@@ -448,8 +449,7 @@ final class VectorPictureTests: XCTestCase {
         XCTAssertThrowsError(try VectorDrawingRenderer.previewImage(of: DrawingBackgroundImage(imageData: Data("not a picture".utf8), frame: photo.frame), pixelsPerPoint: 1))
 
         let drawing = VectorDrawing(size: Self.drawingSize, background: .white, pictures: [photo], shapes: [])
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("VectorPictureTests-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let directory = try TemporaryVault.make(prefix: "VectorPictureTests", for: self).root
         addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
         let location = directory.appendingPathComponent("Drawing.svg")
         try SVGDrawingFile.encode(drawing, payload: payload(for: drawing, pictures: [photo], paper: .plain)).write(to: location)
@@ -734,9 +734,7 @@ final class VectorPictureTests: XCTestCase {
     /// The SVG as WebKit (Safari, and Obsidian on iPad) shows it.
     @MainActor
     private func webKitRendering(of fileData: Data) async throws -> Rendering {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("VectorPictureTests-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "VectorPictureTests", for: self).root
         let location = directory.appendingPathComponent("Drawing.svg")
         try fileData.write(to: location)
         let webView = WKWebView(frame: CGRect(origin: .zero, size: Self.drawingSize))

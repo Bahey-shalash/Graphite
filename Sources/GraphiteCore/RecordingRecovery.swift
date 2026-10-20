@@ -49,8 +49,11 @@ public struct RecoverableRecording: Identifiable, Equatable, Sendable {
 public enum RecordingRecoveryFolder {
     public static let mediaExtensions: Set<String> = ["caf", "m4a", "mp4"]
 
-    public static func location() throws -> URL {
-        let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+    /// The folder, made if it is missing, in the Application Support folder, or in
+    /// `applicationSupportFolder` when one is given (the hosted tests give a temporary one).
+    public static func location(in applicationSupportFolder: URL? = nil) throws -> URL {
+        let support = try applicationSupportFolder
+            ?? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         let folder = support.appendingPathComponent("Graphite/Recovery/Recordings", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return folder
@@ -131,6 +134,12 @@ public enum RecordingRecoveryFolder {
             creationDates[location] = values.creationDate
         }
         let namesWithMedia = Set(byteCounts.keys.map(\.lastPathComponent))
+        // An M4A beside a CAF of the same name was converted from it (a save that failed leaves it
+        // there): the two are one recording, and the CAF is the one offered.
+        let convertedCopies = byteCounts.keys.filter { location in
+            location.pathExtension.lowercased() == "m4a" && namesWithMedia.contains(location.deletingPathExtension().lastPathComponent + ".caf")
+        }
+        for copy in convertedCopies { byteCounts[copy] = nil }
         var laterParts: [String: [(partNumber: Int, location: URL)]] = [:]
         var firstParts: [URL] = []
         for location in byteCounts.keys {

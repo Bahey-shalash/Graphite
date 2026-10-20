@@ -1,6 +1,7 @@
 import XCTest
 import GraphiteCore
 @testable import GraphiteIndex
+import GraphiteTestSupport
 
 /// The notes the map view places, read from the index.
 final class VaultPlacesTests: XCTestCase {
@@ -8,14 +9,9 @@ final class VaultPlacesTests: XCTestCase {
     private var index: VaultIndex!
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("PlacesVault-\(UUID().uuidString)")
+        vault = try TemporaryVault.make(prefix: "PlacesVault", for: self).root
         try FileManager.default.createDirectory(at: vault.appendingPathComponent("Travel"), withIntermediateDirectories: true)
         index = try VaultIndex(databaseURL: vault.appendingPathExtension("cache").appendingPathComponent("index.sqlite"))
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: vault)
-        try? FileManager.default.removeItem(at: vault.appendingPathExtension("cache"))
     }
 
     private func write(_ text: String, to relativePath: String) throws {

@@ -3,61 +3,18 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 60;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
-		B38AFB9C7CF94493A4000001 /* ReadAloudScanHighlightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B38AFB9C7CF94493A4000002 /* ReadAloudScanHighlightTests.swift */; };
-		B38AFB9C7CF94493A4000003 /* ReadAloudLectureHighlightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B38AFB9C7CF94493A4000004 /* ReadAloudLectureHighlightTests.swift */; };
-		C4A1D5E0B7F2496A8E000001 /* ReadAloudWhileWritingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4A1D5E0B7F2496A8E000002 /* ReadAloudWhileWritingTests.swift */; };
-		D7B3E1A0C4F2496A8E000001 /* MainThreadResponsivenessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7B3E1A0C4F2496A8E000002 /* MainThreadResponsivenessTests.swift */; };
-		D7B3E1A0C4F2496A8E000005 /* PalmRejectionTouchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7B3E1A0C4F2496A8E000006 /* PalmRejectionTouchTests.swift */; };
-		B0A11CE0000000000000A003 /* PDFGestureWinsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A11CE0000000000000A004 /* PDFGestureWinsTests.swift */; };
-		B0A11CE0000000000000A001 /* SynthesizedTouches.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A11CE0000000000000A002 /* SynthesizedTouches.swift */; };
-		D7B3E1A0C4F2496A8E000003 /* PDFInkSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7B3E1A0C4F2496A8E000004 /* PDFInkSafetyTests.swift */; };
-		B38AFB9C7CF94493A3000001 /* PDFReadAloudScanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B38AFB9C7CF94493A3000002 /* PDFReadAloudScanTests.swift */; };
-		B38AFB9C7CF94493A2000001 /* PDFReadAloudExtractionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B38AFB9C7CF94493A2000002 /* PDFReadAloudExtractionTests.swift */; };
-		B38AFB9C7CF94493A1000001 /* ReadAloudMathematicsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B38AFB9C7CF94493A1000002 /* ReadAloudMathematicsTests.swift */; };
-		A00000000000000000000010 /* App/GraphiteApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000005 /* App/GraphiteApp.swift */; };
+		A00000000000000000000010 /* GraphiteApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000005 /* GraphiteApp.swift */; };
 		A00000000000000000000022 /* GraphiteUI in Frameworks */ = {isa = PBXBuildFile; productRef = A00000000000000000000021 /* GraphiteUI */; };
-		A00000000000000000000043 /* Tests/GraphiteAppleTests/InteroperabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000031 /* Tests/GraphiteAppleTests/InteroperabilityTests.swift */; };
-		A00000000000000000000044 /* Tests/GraphiteAppleTests/PencilDrawingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000032 /* Tests/GraphiteAppleTests/PencilDrawingTests.swift */; };
-		A00000000000000000000060 /* App/Icons/AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000050 /* App/Icons/AppIcon.icon */; };
-		A00000000000000000000061 /* App/Icons/AppIconRed.icon in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000051 /* App/Icons/AppIconRed.icon */; };
-		A00000000000000000000062 /* App/Icons/AppIconBlack.icon in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000052 /* App/Icons/AppIconBlack.icon */; };
-		A00000000000000000000063 /* App/Icons/AppIconCharcoal.icon in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000053 /* App/Icons/AppIconCharcoal.icon */; };
-		A00000000000000000000064 /* App/Icons/AppIconBlueGraphite.icon in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000054 /* App/Icons/AppIconBlueGraphite.icon */; };
-		A00000000000000000000065 /* App/IconPreviews.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000055 /* App/IconPreviews.xcassets */; };
-		A00000000000000000000071 /* App/Tests/AppIconBundleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000070 /* App/Tests/AppIconBundleTests.swift */; };
-		A00000000000000000000076 /* Tests/GraphiteAppleTests/PDFAnnotationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000072 /* Tests/GraphiteAppleTests/PDFAnnotationTests.swift */; };
-		5C0A7E1D0000000000000002 /* Tests/GraphiteAppleTests/PDFObjectCompactionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C0A7E1D0000000000000001 /* Tests/GraphiteAppleTests/PDFObjectCompactionTests.swift */; };
-		A00000000000000000000077 /* Tests/GraphiteAppleTests/PDFPencilInkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000073 /* Tests/GraphiteAppleTests/PDFPencilInkTests.swift */; };
-		A00000000000000000000078 /* Tests/GraphiteAppleTests/VaultLocatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000074 /* Tests/GraphiteAppleTests/VaultLocatorTests.swift */; };
-		A000000000000000000000E3 /* Tests/GraphiteAppleTests/CommunityPluginSecretStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000E2 /* Tests/GraphiteAppleTests/CommunityPluginSecretStoreTests.swift */; };
-		A00000000000000000000079 /* Tests/GraphiteAppleTests/VectorDrawingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000075 /* Tests/GraphiteAppleTests/VectorDrawingTests.swift */; };
-		A00000000000000000000081 /* App/Tests/PencilWorkspaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000080 /* App/Tests/PencilWorkspaceTests.swift */; };
-		A00000000000000000000083 /* App/Tests/EditingContinuityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000082 /* App/Tests/EditingContinuityTests.swift */; };
-		A00000000000000000000085 /* App/Tests/PDFInkHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000084 /* App/Tests/PDFInkHistoryTests.swift */; };
-		A00000000000000000000087 /* App/Tests/PencilToolsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000086 /* App/Tests/PencilToolsTests.swift */; };
-		A0000000000000000000008B /* Tests/GraphiteAppleTests/PDFPictureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000008A /* Tests/GraphiteAppleTests/PDFPictureTests.swift */; };
-		A000000000000000000000F3 /* Tests/GraphiteAppleTests/EvenHighlighterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000F2 /* Tests/GraphiteAppleTests/EvenHighlighterTests.swift */; };
-		A00000000000000000000089 /* App/Tests/PicturesAndPaperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000088 /* App/Tests/PicturesAndPaperTests.swift */; };
-		A000000000000000000000F1 /* App/Tests/VectorDrawingPicturesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000F0 /* App/Tests/VectorDrawingPicturesTests.swift */; };
-		A0000000000000000000008D /* App/Tests/InkSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000008C /* App/Tests/InkSelectionTests.swift */; };
-		A000000000000000000000D1 /* App/Tests/CanvasTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000D0 /* App/Tests/CanvasTests.swift */; };
-		A000000000000000000000C1 /* App/Tests/VideoRecordingWorkspaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000C0 /* App/Tests/VideoRecordingWorkspaceTests.swift */; };
-		A000000000000000000000F9 /* App/Tests/PDFLinkFollowingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000F8 /* App/Tests/PDFLinkFollowingTests.swift */; };
-		A000000000000000000000C3 /* App/Tests/ConflictVersionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000C2 /* App/Tests/ConflictVersionsTests.swift */; };
-		A000000000000000000000C5 /* Tests/GraphiteAppleTests/VideoRecordingTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000C4 /* Tests/GraphiteAppleTests/VideoRecordingTestSupport.swift */; };
-		A000000000000000000000C7 /* Tests/GraphiteAppleTests/VideoRecordingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000C6 /* Tests/GraphiteAppleTests/VideoRecordingTests.swift */; };
-		A000000000000000000000C9 /* Tests/GraphiteUITests/TestConflictVersionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000C8 /* Tests/GraphiteUITests/TestConflictVersionStore.swift */; };
-		A000000000000000000000CB /* Tests/GraphiteUITests/WorkspaceConflictVersionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000CA /* Tests/GraphiteUITests/WorkspaceConflictVersionsTests.swift */; };
-		A00000000000000000000091 /* App/Tests/BasesViewsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000090 /* App/Tests/BasesViewsTests.swift */; };
-		A000000000000000000000A1 /* App/Tests/ReadingTasksAndEquationsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000A0 /* App/Tests/ReadingTasksAndEquationsTests.swift */; };
-		A000000000000000000000B1 /* App/Tests/LivePreviewRevealTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000B0 /* App/Tests/LivePreviewRevealTests.swift */; };
-		A000000000000000000000E9 /* App/Tests/LivePreviewBlockPlacementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000E8 /* App/Tests/LivePreviewBlockPlacementTests.swift */; };
-		A0000000000000000000C0DF /* App/Tests/CodeHighlightingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000C0DE /* App/Tests/CodeHighlightingTests.swift */; };
-		A000000000000000000000E1 /* App/Tests/CommunityPluginHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000000E0 /* App/Tests/CommunityPluginHostTests.swift */; };
+		A00000000000000000000060 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000050 /* AppIcon.icon */; };
+		A00000000000000000000061 /* AppIconRed.icon in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000051 /* AppIconRed.icon */; };
+		A00000000000000000000062 /* AppIconBlack.icon in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000052 /* AppIconBlack.icon */; };
+		A00000000000000000000063 /* AppIconCharcoal.icon in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000053 /* AppIconCharcoal.icon */; };
+		A00000000000000000000064 /* AppIconBlueGraphite.icon in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000054 /* AppIconBlueGraphite.icon */; };
+		A00000000000000000000065 /* IconPreviews.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000055 /* IconPreviews.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -71,59 +28,86 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		B38AFB9C7CF94493A4000002 /* ReadAloudScanHighlightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/ReadAloudScanHighlightTests.swift; sourceTree = "<group>"; };
-		B38AFB9C7CF94493A4000004 /* ReadAloudLectureHighlightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/ReadAloudLectureHighlightTests.swift; sourceTree = "<group>"; };
-		C4A1D5E0B7F2496A8E000002 /* ReadAloudWhileWritingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/ReadAloudWhileWritingTests.swift; sourceTree = "<group>"; };
-		D7B3E1A0C4F2496A8E000002 /* MainThreadResponsivenessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/MainThreadResponsivenessTests.swift; sourceTree = "<group>"; };
-		D7B3E1A0C4F2496A8E000006 /* PalmRejectionTouchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/PalmRejectionTouchTests.swift; sourceTree = "<group>"; };
-		B0A11CE0000000000000A004 /* PDFGestureWinsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/PDFGestureWinsTests.swift; sourceTree = "<group>"; };
-		B0A11CE0000000000000A002 /* SynthesizedTouches.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/SynthesizedTouches.swift; sourceTree = "<group>"; };
-		D7B3E1A0C4F2496A8E000004 /* PDFInkSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/PDFInkSafetyTests.swift; sourceTree = "<group>"; };
-		B38AFB9C7CF94493A3000002 /* PDFReadAloudScanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/PDFReadAloudScanTests.swift; sourceTree = "<group>"; };
-		B38AFB9C7CF94493A2000002 /* PDFReadAloudExtractionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/PDFReadAloudExtractionTests.swift; sourceTree = "<group>"; };
-		B38AFB9C7CF94493A1000002 /* ReadAloudMathematicsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/ReadAloudMathematicsTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000005 /* App/GraphiteApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/GraphiteApp.swift; sourceTree = "<group>"; };
 		A00000000000000000000006 /* Graphite.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Graphite.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		A00000000000000000000031 /* Tests/GraphiteAppleTests/InteroperabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/InteroperabilityTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000032 /* Tests/GraphiteAppleTests/PencilDrawingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/PencilDrawingTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000033 /* GraphiteIntegrationTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GraphiteIntegrationTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		A00000000000000000000050 /* App/Icons/AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.icon; path = App/Icons/AppIcon.icon; sourceTree = "<group>"; };
-		A00000000000000000000051 /* App/Icons/AppIconRed.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.icon; path = App/Icons/AppIconRed.icon; sourceTree = "<group>"; };
-		A00000000000000000000052 /* App/Icons/AppIconBlack.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.icon; path = App/Icons/AppIconBlack.icon; sourceTree = "<group>"; };
-		A00000000000000000000053 /* App/Icons/AppIconCharcoal.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.icon; path = App/Icons/AppIconCharcoal.icon; sourceTree = "<group>"; };
-		A00000000000000000000054 /* App/Icons/AppIconBlueGraphite.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.icon; path = App/Icons/AppIconBlueGraphite.icon; sourceTree = "<group>"; };
-		A00000000000000000000055 /* App/IconPreviews.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = App/IconPreviews.xcassets; sourceTree = "<group>"; };
-		A00000000000000000000070 /* App/Tests/AppIconBundleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/AppIconBundleTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000072 /* Tests/GraphiteAppleTests/PDFAnnotationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/PDFAnnotationTests.swift; sourceTree = "<group>"; };
-		5C0A7E1D0000000000000001 /* Tests/GraphiteAppleTests/PDFObjectCompactionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/PDFObjectCompactionTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000073 /* Tests/GraphiteAppleTests/PDFPencilInkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/PDFPencilInkTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000074 /* Tests/GraphiteAppleTests/VaultLocatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/VaultLocatorTests.swift; sourceTree = "<group>"; };
-		A000000000000000000000E2 /* Tests/GraphiteAppleTests/CommunityPluginSecretStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/CommunityPluginSecretStoreTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000075 /* Tests/GraphiteAppleTests/VectorDrawingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/VectorDrawingTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000080 /* App/Tests/PencilWorkspaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/PencilWorkspaceTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000082 /* App/Tests/EditingContinuityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/EditingContinuityTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000084 /* App/Tests/PDFInkHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/PDFInkHistoryTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000086 /* App/Tests/PencilToolsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/PencilToolsTests.swift; sourceTree = "<group>"; };
-		A0000000000000000000008A /* Tests/GraphiteAppleTests/PDFPictureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/PDFPictureTests.swift; sourceTree = "<group>"; };
-		A000000000000000000000F2 /* Tests/GraphiteAppleTests/EvenHighlighterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/EvenHighlighterTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000088 /* App/Tests/PicturesAndPaperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/PicturesAndPaperTests.swift; sourceTree = "<group>"; };
-		A000000000000000000000F0 /* App/Tests/VectorDrawingPicturesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/VectorDrawingPicturesTests.swift; sourceTree = "<group>"; };
-		A0000000000000000000008C /* App/Tests/InkSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/InkSelectionTests.swift; sourceTree = "<group>"; };
-		A000000000000000000000D0 /* App/Tests/CanvasTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/CanvasTests.swift; sourceTree = "<group>"; };
-		A000000000000000000000C0 /* App/Tests/VideoRecordingWorkspaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/VideoRecordingWorkspaceTests.swift; sourceTree = "<group>"; };
-		A000000000000000000000F8 /* App/Tests/PDFLinkFollowingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/PDFLinkFollowingTests.swift; sourceTree = "<group>"; };
-		A000000000000000000000C2 /* App/Tests/ConflictVersionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/ConflictVersionsTests.swift; sourceTree = "<group>"; };
-		A000000000000000000000C4 /* Tests/GraphiteAppleTests/VideoRecordingTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/VideoRecordingTestSupport.swift; sourceTree = "<group>"; };
-		A000000000000000000000C6 /* Tests/GraphiteAppleTests/VideoRecordingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteAppleTests/VideoRecordingTests.swift; sourceTree = "<group>"; };
-		A000000000000000000000C8 /* Tests/GraphiteUITests/TestConflictVersionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteUITests/TestConflictVersionStore.swift; sourceTree = "<group>"; };
-		A000000000000000000000CA /* Tests/GraphiteUITests/WorkspaceConflictVersionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/GraphiteUITests/WorkspaceConflictVersionsTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000090 /* App/Tests/BasesViewsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/BasesViewsTests.swift; sourceTree = "<group>"; };
-		A000000000000000000000A0 /* App/Tests/ReadingTasksAndEquationsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/ReadingTasksAndEquationsTests.swift; sourceTree = "<group>"; };
-		A000000000000000000000B0 /* App/Tests/LivePreviewRevealTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/LivePreviewRevealTests.swift; sourceTree = "<group>"; };
-		A000000000000000000000E8 /* App/Tests/LivePreviewBlockPlacementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/LivePreviewBlockPlacementTests.swift; sourceTree = "<group>"; };
-		A0000000000000000000C0DE /* App/Tests/CodeHighlightingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/CodeHighlightingTests.swift; sourceTree = "<group>"; };
-		A000000000000000000000E0 /* App/Tests/CommunityPluginHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Tests/CommunityPluginHostTests.swift; sourceTree = "<group>"; };
+		A00000000000000000000005 /* GraphiteApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphiteApp.swift; sourceTree = "<group>"; };
+		A00000000000000000000050 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.icon; path = AppIcon.icon; sourceTree = "<group>"; };
+		A00000000000000000000051 /* AppIconRed.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.icon; path = AppIconRed.icon; sourceTree = "<group>"; };
+		A00000000000000000000052 /* AppIconBlack.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.icon; path = AppIconBlack.icon; sourceTree = "<group>"; };
+		A00000000000000000000053 /* AppIconCharcoal.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.icon; path = AppIconCharcoal.icon; sourceTree = "<group>"; };
+		A00000000000000000000054 /* AppIconBlueGraphite.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.icon; path = AppIconBlueGraphite.icon; sourceTree = "<group>"; };
+		A00000000000000000000055 /* IconPreviews.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = IconPreviews.xcassets; sourceTree = "<group>"; };
+		A00000000000000000000206 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A00000000000000000000207 /* Graphite.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Graphite.entitlements; sourceTree = "<group>"; };
+		A00000000000000000000201 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		A00000000000000000000202 /* OBJECTIVE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = OBJECTIVE.md; sourceTree = "<group>"; };
+		A00000000000000000000203 /* RULES.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = RULES.md; sourceTree = "<group>"; };
+		A00000000000000000000204 /* AGENTS.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = AGENTS.md; sourceTree = "<group>"; };
+		A00000000000000000000205 /* Package.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Package.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		A00000000000000000000223 /* Exceptions for "Tests" folder in "GraphiteIntegrationTests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				GraphiteAppleTests/CommunityPluginSecretStoreTests.swift,
+				GraphiteAppleTests/EvenHighlighterTests.swift,
+				GraphiteAppleTests/InteroperabilityTests.swift,
+				GraphiteAppleTests/PDFAnnotationTests.swift,
+				GraphiteAppleTests/PDFObjectCompactionTests.swift,
+				GraphiteAppleTests/PDFPencilInkTests.swift,
+				GraphiteAppleTests/PDFPictureTests.swift,
+				GraphiteAppleTests/PDFReadAloudExtractionTests.swift,
+				GraphiteAppleTests/PDFReadAloudScanTests.swift,
+				GraphiteAppleTests/PencilDrawingTests.swift,
+				GraphiteAppleTests/ReadAloudMathematicsTests.swift,
+				GraphiteAppleTests/VaultLocatorTests.swift,
+				GraphiteAppleTests/VectorDrawingTests.swift,
+				GraphiteAppleTests/VideoRecordingTests.swift,
+				GraphiteAppleTests/VideoRecordingTestSupport.swift,
+				GraphiteTestSupport/FakeConflictVersionStore.swift,
+				GraphiteTestSupport/IsolatedDeviceState.swift,
+				GraphiteTestSupport/PenTestSpeech.swift,
+				GraphiteTestSupport/TemporaryVault.swift,
+				GraphiteTestSupport/TextRecognitionCapability.swift,
+				GraphiteUITests/IsolatedWorkspaceDevice.swift,
+				GraphiteUITests/PerformanceBenchmarkTests.swift,
+				GraphiteUITests/WorkspaceConflictVersionsTests.swift,
+			);
+			target = A00000000000000000000030 /* GraphiteIntegrationTests */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		A00000000000000000000216 /* Tests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Tests;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000212 /* Sources */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000213 /* Tests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A00000000000000000000223 /* Exceptions for "Tests" folder in "GraphiteIntegrationTests" target */,
+			);
+			path = Tests;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000214 /* Docs */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Docs;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000215 /* Design */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Design;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		A00000000000000000000008 /* Frameworks */ = {
@@ -147,58 +131,43 @@
 		A00000000000000000000002 = {
 			isa = PBXGroup;
 			children = (
-				B38AFB9C7CF94493A4000002 /* ReadAloudScanHighlightTests.swift */,
-				B38AFB9C7CF94493A4000004 /* ReadAloudLectureHighlightTests.swift */,
-				C4A1D5E0B7F2496A8E000002 /* ReadAloudWhileWritingTests.swift */,
-				D7B3E1A0C4F2496A8E000002 /* MainThreadResponsivenessTests.swift */,
-				D7B3E1A0C4F2496A8E000006 /* PalmRejectionTouchTests.swift */,
-				B0A11CE0000000000000A004 /* PDFGestureWinsTests.swift */,
-				B0A11CE0000000000000A002 /* SynthesizedTouches.swift */,
-				D7B3E1A0C4F2496A8E000004 /* PDFInkSafetyTests.swift */,
-				B38AFB9C7CF94493A3000002 /* PDFReadAloudScanTests.swift */,
-				B38AFB9C7CF94493A2000002 /* PDFReadAloudExtractionTests.swift */,
-				B38AFB9C7CF94493A1000002 /* ReadAloudMathematicsTests.swift */,
-				A00000000000000000000080 /* App/Tests/PencilWorkspaceTests.swift */,
-				A00000000000000000000082 /* App/Tests/EditingContinuityTests.swift */,
-				A00000000000000000000084 /* App/Tests/PDFInkHistoryTests.swift */,
-				A00000000000000000000086 /* App/Tests/PencilToolsTests.swift */,
-				A0000000000000000000008A /* Tests/GraphiteAppleTests/PDFPictureTests.swift */,
-				A000000000000000000000F2 /* Tests/GraphiteAppleTests/EvenHighlighterTests.swift */,
-				A00000000000000000000088 /* App/Tests/PicturesAndPaperTests.swift */,
-				A000000000000000000000F0 /* App/Tests/VectorDrawingPicturesTests.swift */,
-				A0000000000000000000008C /* App/Tests/InkSelectionTests.swift */,
-				A000000000000000000000D0 /* App/Tests/CanvasTests.swift */,
-				A00000000000000000000090 /* App/Tests/BasesViewsTests.swift */,
-				A000000000000000000000A0 /* App/Tests/ReadingTasksAndEquationsTests.swift */,
-				A000000000000000000000B0 /* App/Tests/LivePreviewRevealTests.swift */,
-				A000000000000000000000E8 /* App/Tests/LivePreviewBlockPlacementTests.swift */,
-				A0000000000000000000C0DE /* App/Tests/CodeHighlightingTests.swift */,
-				A000000000000000000000E0 /* App/Tests/CommunityPluginHostTests.swift */,
-				A00000000000000000000070 /* App/Tests/AppIconBundleTests.swift */,
-				A000000000000000000000C0 /* App/Tests/VideoRecordingWorkspaceTests.swift */,
-				A000000000000000000000C2 /* App/Tests/ConflictVersionsTests.swift */,
-				A000000000000000000000F8 /* App/Tests/PDFLinkFollowingTests.swift */,
-				A000000000000000000000C4 /* Tests/GraphiteAppleTests/VideoRecordingTestSupport.swift */,
-				A000000000000000000000C6 /* Tests/GraphiteAppleTests/VideoRecordingTests.swift */,
-				A000000000000000000000C8 /* Tests/GraphiteUITests/TestConflictVersionStore.swift */,
-				A000000000000000000000CA /* Tests/GraphiteUITests/WorkspaceConflictVersionsTests.swift */,
-				A00000000000000000000050 /* App/Icons/AppIcon.icon */,
-				A00000000000000000000051 /* App/Icons/AppIconRed.icon */,
-				A00000000000000000000052 /* App/Icons/AppIconBlack.icon */,
-				A00000000000000000000053 /* App/Icons/AppIconCharcoal.icon */,
-				A00000000000000000000054 /* App/Icons/AppIconBlueGraphite.icon */,
-				A00000000000000000000055 /* App/IconPreviews.xcassets */,
-				A00000000000000000000005 /* App/GraphiteApp.swift */,
-				A00000000000000000000031 /* Tests/GraphiteAppleTests/InteroperabilityTests.swift */,
-				A00000000000000000000032 /* Tests/GraphiteAppleTests/PencilDrawingTests.swift */,
-				A00000000000000000000072 /* Tests/GraphiteAppleTests/PDFAnnotationTests.swift */,
-				5C0A7E1D0000000000000001 /* Tests/GraphiteAppleTests/PDFObjectCompactionTests.swift */,
-				A00000000000000000000073 /* Tests/GraphiteAppleTests/PDFPencilInkTests.swift */,
-				A00000000000000000000074 /* Tests/GraphiteAppleTests/VaultLocatorTests.swift */,
-				A000000000000000000000E2 /* Tests/GraphiteAppleTests/CommunityPluginSecretStoreTests.swift */,
-				A00000000000000000000075 /* Tests/GraphiteAppleTests/VectorDrawingTests.swift */,
+				A00000000000000000000201 /* README.md */,
+				A00000000000000000000202 /* OBJECTIVE.md */,
+				A00000000000000000000203 /* RULES.md */,
+				A00000000000000000000204 /* AGENTS.md */,
+				A00000000000000000000205 /* Package.swift */,
+				A00000000000000000000230 /* App */,
+				A00000000000000000000212 /* Sources */,
+				A00000000000000000000213 /* Tests */,
+				A00000000000000000000214 /* Docs */,
+				A00000000000000000000215 /* Design */,
 				A00000000000000000000003 /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		A00000000000000000000230 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000231 /* Icons */,
+				A00000000000000000000216 /* Tests */,
+				A00000000000000000000207 /* Graphite.entitlements */,
+				A00000000000000000000005 /* GraphiteApp.swift */,
+				A00000000000000000000055 /* IconPreviews.xcassets */,
+				A00000000000000000000206 /* Info.plist */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000231 /* Icons */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000050 /* AppIcon.icon */,
+				A00000000000000000000052 /* AppIconBlack.icon */,
+				A00000000000000000000054 /* AppIconBlueGraphite.icon */,
+				A00000000000000000000053 /* AppIconCharcoal.icon */,
+				A00000000000000000000051 /* AppIconRed.icon */,
+			);
+			path = Icons;
 			sourceTree = "<group>";
 		};
 		A00000000000000000000003 /* Products */ = {
@@ -245,6 +214,9 @@
 			dependencies = (
 				A00000000000000000000040 /* PBXTargetDependency */,
 			);
+			fileSystemSynchronizedGroups = (
+				A00000000000000000000216 /* Tests */,
+			);
 			name = GraphiteIntegrationTests;
 			productName = GraphiteIntegrationTests;
 			productReference = A00000000000000000000033 /* GraphiteIntegrationTests.xctest */;
@@ -261,7 +233,6 @@
 				LastUpgradeCheck = 2700;
 			};
 			buildConfigurationList = A00000000000000000000011 /* Build configuration list for PBXProject "Graphite" */;
-			compatibilityVersion = "Xcode 15.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -269,9 +240,11 @@
 				Base,
 			);
 			mainGroup = A00000000000000000000002;
+			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				A00000000000000000000020 /* XCLocalSwiftPackageReference "." */,
 			);
+			preferredProjectObjectVersion = 77;
 			productRefGroup = A00000000000000000000003 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -287,12 +260,12 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A00000000000000000000060 /* App/Icons/AppIcon.icon in Resources */,
-				A00000000000000000000061 /* App/Icons/AppIconRed.icon in Resources */,
-				A00000000000000000000062 /* App/Icons/AppIconBlack.icon in Resources */,
-				A00000000000000000000063 /* App/Icons/AppIconCharcoal.icon in Resources */,
-				A00000000000000000000064 /* App/Icons/AppIconBlueGraphite.icon in Resources */,
-				A00000000000000000000065 /* App/IconPreviews.xcassets in Resources */,
+				A00000000000000000000060 /* AppIcon.icon in Resources */,
+				A00000000000000000000061 /* AppIconRed.icon in Resources */,
+				A00000000000000000000062 /* AppIconBlack.icon in Resources */,
+				A00000000000000000000063 /* AppIconCharcoal.icon in Resources */,
+				A00000000000000000000064 /* AppIconBlueGraphite.icon in Resources */,
+				A00000000000000000000065 /* IconPreviews.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -303,7 +276,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A00000000000000000000010 /* App/GraphiteApp.swift in Sources */,
+				A00000000000000000000010 /* GraphiteApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -311,49 +284,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				B38AFB9C7CF94493A4000001 /* ReadAloudScanHighlightTests.swift in Sources */,
-				B38AFB9C7CF94493A4000003 /* ReadAloudLectureHighlightTests.swift in Sources */,
-				C4A1D5E0B7F2496A8E000001 /* ReadAloudWhileWritingTests.swift in Sources */,
-				D7B3E1A0C4F2496A8E000001 /* MainThreadResponsivenessTests.swift in Sources */,
-				D7B3E1A0C4F2496A8E000005 /* PalmRejectionTouchTests.swift in Sources */,
-				B0A11CE0000000000000A003 /* PDFGestureWinsTests.swift in Sources */,
-				B0A11CE0000000000000A001 /* SynthesizedTouches.swift in Sources */,
-				D7B3E1A0C4F2496A8E000003 /* PDFInkSafetyTests.swift in Sources */,
-				B38AFB9C7CF94493A3000001 /* PDFReadAloudScanTests.swift in Sources */,
-				B38AFB9C7CF94493A2000001 /* PDFReadAloudExtractionTests.swift in Sources */,
-				B38AFB9C7CF94493A1000001 /* ReadAloudMathematicsTests.swift in Sources */,
-				A00000000000000000000043 /* Tests/GraphiteAppleTests/InteroperabilityTests.swift in Sources */,
-				A00000000000000000000044 /* Tests/GraphiteAppleTests/PencilDrawingTests.swift in Sources */,
-				A00000000000000000000081 /* App/Tests/PencilWorkspaceTests.swift in Sources */,
-				A00000000000000000000083 /* App/Tests/EditingContinuityTests.swift in Sources */,
-				A00000000000000000000085 /* App/Tests/PDFInkHistoryTests.swift in Sources */,
-				A00000000000000000000087 /* App/Tests/PencilToolsTests.swift in Sources */,
-				A0000000000000000000008B /* Tests/GraphiteAppleTests/PDFPictureTests.swift in Sources */,
-				A000000000000000000000F3 /* Tests/GraphiteAppleTests/EvenHighlighterTests.swift in Sources */,
-				A00000000000000000000089 /* App/Tests/PicturesAndPaperTests.swift in Sources */,
-				A000000000000000000000F1 /* App/Tests/VectorDrawingPicturesTests.swift in Sources */,
-				A0000000000000000000008D /* App/Tests/InkSelectionTests.swift in Sources */,
-				A000000000000000000000D1 /* App/Tests/CanvasTests.swift in Sources */,
-				A00000000000000000000091 /* App/Tests/BasesViewsTests.swift in Sources */,
-				A000000000000000000000A1 /* App/Tests/ReadingTasksAndEquationsTests.swift in Sources */,
-				A000000000000000000000B1 /* App/Tests/LivePreviewRevealTests.swift in Sources */,
-				A000000000000000000000E9 /* App/Tests/LivePreviewBlockPlacementTests.swift in Sources */,
-				A0000000000000000000C0DF /* App/Tests/CodeHighlightingTests.swift in Sources */,
-				A000000000000000000000E1 /* App/Tests/CommunityPluginHostTests.swift in Sources */,
-				A00000000000000000000071 /* App/Tests/AppIconBundleTests.swift in Sources */,
-				A00000000000000000000076 /* Tests/GraphiteAppleTests/PDFAnnotationTests.swift in Sources */,
-				5C0A7E1D0000000000000002 /* Tests/GraphiteAppleTests/PDFObjectCompactionTests.swift in Sources */,
-				A00000000000000000000077 /* Tests/GraphiteAppleTests/PDFPencilInkTests.swift in Sources */,
-				A00000000000000000000078 /* Tests/GraphiteAppleTests/VaultLocatorTests.swift in Sources */,
-				A000000000000000000000E3 /* Tests/GraphiteAppleTests/CommunityPluginSecretStoreTests.swift in Sources */,
-				A00000000000000000000079 /* Tests/GraphiteAppleTests/VectorDrawingTests.swift in Sources */,
-				A000000000000000000000C1 /* App/Tests/VideoRecordingWorkspaceTests.swift in Sources */,
-				A000000000000000000000C3 /* App/Tests/ConflictVersionsTests.swift in Sources */,
-				A000000000000000000000F9 /* App/Tests/PDFLinkFollowingTests.swift in Sources */,
-				A000000000000000000000C5 /* Tests/GraphiteAppleTests/VideoRecordingTestSupport.swift in Sources */,
-				A000000000000000000000C7 /* Tests/GraphiteAppleTests/VideoRecordingTests.swift in Sources */,
-				A000000000000000000000C9 /* Tests/GraphiteUITests/TestConflictVersionStore.swift in Sources */,
-				A000000000000000000000CB /* Tests/GraphiteUITests/WorkspaceConflictVersionsTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -402,7 +332,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = App/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -429,7 +359,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = App/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -450,7 +380,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.graphite.study.tests;
 				PRODUCT_NAME = GraphiteIntegrationTests;
@@ -467,7 +397,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.graphite.study.tests;
 				PRODUCT_NAME = GraphiteIntegrationTests;

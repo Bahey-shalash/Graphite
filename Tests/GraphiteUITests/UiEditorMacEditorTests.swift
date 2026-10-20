@@ -3,23 +3,22 @@ import AppKit
 import XCTest
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// The Mac editor: styling that shows what it cannot draw, restyling only what changed,
 /// jumps, links, and pasted attachments.
 @MainActor
 final class UiEditorMacEditorTests: XCTestCase {
-    private var vaultDirectories: [URL] = []
+    private var windows: [NSWindow] = []
 
     override func tearDown() async throws {
-        for vaultDirectory in vaultDirectories { try? FileManager.default.removeItem(at: vaultDirectory) }
-        vaultDirectories = []
+        for window in windows { window.contentView = nil }
+        windows = []
         try await super.tearDown()
     }
 
     private func makeSession(text: String) async throws -> MarkdownSession {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("Vault-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
-        vaultDirectories.append(vault)
+        let vault = try TemporaryVault.make(prefix: "Vault", for: self).root
         try Data(text.utf8).write(to: vault.appendingPathComponent("Note.md"))
         let store = VaultStore(root: vault)
         let notePath = try VaultPath("Note.md")
@@ -27,7 +26,10 @@ final class UiEditorMacEditorTests: XCTestCase {
     }
 
     /// A text view connected to a coordinator the way `makeNSView` connects it.
-    private func makeEditor(text: String, mode: EditingMode = .livePreview) async throws -> (NativeMarkdownEditor.Coordinator, MarkdownMacTextView, NSScrollView) {
+    /// - Parameter hasKeyboardFocus: Puts the view in a window with keyboard focus, as after a
+    ///   click in the note: markup shows at the cursor only then.
+    private func makeEditor(text: String, mode: EditingMode = .livePreview, hasKeyboardFocus: Bool = false) async throws
+        -> (NativeMarkdownEditor.Coordinator, MarkdownMacTextView, NSScrollView) {
         let session = try await makeSession(text: text)
         var configuration = EditorConfiguration()
         configuration.mode = mode
@@ -41,6 +43,12 @@ final class UiEditorMacEditorTests: XCTestCase {
         textView.delegate = coordinator
         coordinator.connect(textView)
         coordinator.restyleEverything(in: textView)
+        if hasKeyboardFocus {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: true)
+            windows.append(window)
+            window.contentView = scrollView
+            window.makeFirstResponder(textView)
+        }
         return (coordinator, textView, scrollView)
     }
 
@@ -97,11 +105,54 @@ final class UiEditorMacEditorTests: XCTestCase {
         XCTAssertTrue(fragment is ConcealedReplacementLayoutFragment, "The Mac's paragraphs are drawn by the replacements' fragment")
     }
 
+    /// A quote's bar runs unbroken down a quoted line that wraps and on into the next quoted
+    /// line, as in Obsidian: it was drawn line by line, with a gap at every wrap and between
+    /// quoted lines (the owner's lecture citation).
+    func testAQuotesBarHasNoGapsWhereItsLinesWrapOrFollowEachOther() async throws {
+        let text = "> **Lecture 4, Memory-Centric Computing II** - Dr. Geraldo F. Oliveira · SAFARI Research Group, ETH Zürich, and Huawei Zürich · 2 October 2026\n> A second quoted line\nlast"
+        let (_, textView, _) = try await makeEditor(text: text)
+        let textContainer = try XCTUnwrap(textView.textContainer)
+        textContainer.widthTracksTextView = false
+        textContainer.size = NSSize(width: 320, height: CGFloat.greatestFiniteMagnitude)
+        let textLayoutManager = try XCTUnwrap(textView.textLayoutManager)
+        textLayoutManager.ensureLayout(for: textLayoutManager.documentRange)
+        var quoteFragments: [NSTextLayoutFragment] = []
+        textLayoutManager.enumerateTextLayoutFragments(from: textLayoutManager.documentRange.location, options: [.ensuresLayout]) { fragment in
+            quoteFragments.append(fragment)
+            return quoteFragments.count < 2
+        }
+        XCTAssertEqual(quoteFragments.count, 2)
+        XCTAssertGreaterThan(quoteFragments[0].textLineFragments.count, 1, "The first quoted line wraps")
+        let bounds = quoteFragments.map(\.layoutFragmentFrame).reduce(CGRect.null) { $0.union($1) }
+        let width = Int(ceil(bounds.maxX)) + 4, height = Int(ceil(bounds.maxY)) + 4
+        let context = try XCTUnwrap(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        // Flipped, as a text view draws.
+        context.translateBy(x: 0, y: CGFloat(height))
+        context.scaleBy(x: 1, y: -1)
+        for fragment in quoteFragments { fragment.draw(at: fragment.layoutFragmentFrame.origin, in: context) }
+        let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+        func alpha(x: Int, y: Int) -> UInt8 { pixels[y * width * 4 + x * 4 + 3] }
+        let first = quoteFragments[0], last = quoteFragments[1]
+        let top = Int(ceil(first.layoutFragmentFrame.minY + first.textLineFragments[0].typographicBounds.minY)) + 1
+        let bottom = Int(floor(last.layoutFragmentFrame.minY + last.textLineFragments.last!.typographicBounds.maxY)) - 1
+        // The bar's column: the widest run of drawn pixels in the first line's left margin.
+        let barX = try XCTUnwrap((0..<12).first { x in alpha(x: x, y: top + 2) > 0 }, "A bar is drawn on the first line") + 1
+        let gaps = (top...bottom).filter { y in alpha(x: barX, y: y) == 0 }
+        XCTAssertEqual(gaps, [], "Rows between \(top) and \(bottom) without the bar")
+        // The surface TextKit draws a fragment on reaches the spacing the bar runs through.
+        let surface = first.renderingSurfaceBounds
+        XCTAssertLessThanOrEqual(surface.minY, 0)
+        XCTAssertGreaterThanOrEqual(surface.maxY, first.layoutFragmentFrame.height)
+        // The last quoted line's bar stops at its text: the line below is not quoted.
+        let belowLast = Int(ceil(last.layoutFragmentFrame.minY + last.textLineFragments.last!.typographicBounds.maxY)) + 1
+        XCTAssertEqual(alpha(x: barX, y: belowLast), 0, "No bar below the quote")
+    }
+
     /// A click on a drawn task box checks it, through the text view so it can be undone; a
     /// click on the box of the cursor's line, where `[ ]` shows as written, places the cursor.
     func testAClickOnADrawnTaskBoxChecksItAndCanBeUndone() async throws {
         let text = "- [ ] Write the essay\n- [x] Read the paper\nLast line"
-        let (coordinator, textView, _) = try await makeEditor(text: text)
+        let (coordinator, textView, _) = try await makeEditor(text: text, hasKeyboardFocus: true)
         let source = text as NSString
         textView.setSelectedRange(NSRange(location: source.length, length: 0))
         coordinator.textViewDidChangeSelection(Notification(name: NSTextView.didChangeSelectionNotification, object: textView))
@@ -125,7 +176,7 @@ final class UiEditorMacEditorTests: XCTestCase {
 
     func testTypingAndMovingTheCursorRestyleOnlyTheLinesInvolved() async throws {
         let lines = (0..<200).map { index in "Paragraph \(index) with **bold** text" }
-        let (coordinator, textView, _) = try await makeEditor(text: lines.joined(separator: "\n"))
+        let (coordinator, textView, _) = try await makeEditor(text: lines.joined(separator: "\n"), hasKeyboardFocus: true)
         let textStorage = try XCTUnwrap(textView.textStorage)
         let source = NSString(string: textStorage.string)
         let sentinelKey = NSAttributedString.Key("UiEditorSentinel")
@@ -160,7 +211,7 @@ final class UiEditorMacEditorTests: XCTestCase {
     /// after the old cursor line hides its markup again (P7).
     func testMovingTheCursorRestylesNeitherTheLinesBetweenNorLeavesTheNextLineRevealed() async throws {
         let lines = ["Top line"] + (1..<200).map { index in "# Heading \(index)" }
-        let (coordinator, textView, _) = try await makeEditor(text: lines.joined(separator: "\n"))
+        let (coordinator, textView, _) = try await makeEditor(text: lines.joined(separator: "\n"), hasKeyboardFocus: true)
         let textStorage = try XCTUnwrap(textView.textStorage)
         let source = NSString(string: textStorage.string)
         let sentinelKey = NSAttributedString.Key("UiEditorSentinel")
@@ -229,7 +280,7 @@ final class UiEditorMacEditorTests: XCTestCase {
 
     func testOnlyTheElementUnderTheCursorShowsItsMarkupAsTheCursorMoves() async throws {
         let text = "# Title with **bold**\nPlain **bold** and [[Note|alias]] and ==mark==\n- item with `code`\n"
-        let (coordinator, textView, _) = try await makeEditor(text: text)
+        let (coordinator, textView, _) = try await makeEditor(text: text, hasKeyboardFocus: true)
         let textStorage = try XCTUnwrap(textView.textStorage)
         let source = text as NSString
         let secondLine = source.lineRange(for: NSRange(location: source.range(of: "Plain").location, length: 0))
@@ -263,7 +314,7 @@ final class UiEditorMacEditorTests: XCTestCase {
     /// the cursor.
     func testTypingDeletingAndUndoKeepTheMarkupOfTheElementBeingEdited() async throws {
         let text = "Intro line\nSome **bold** text and [[Note]] here\nLast line with ==mark==\n"
-        let (coordinator, textView, _) = try await makeEditor(text: text)
+        let (coordinator, textView, _) = try await makeEditor(text: text, hasKeyboardFocus: true)
         let textStorage = try XCTUnwrap(textView.textStorage)
         let source = text as NSString
         let bold = source.range(of: "**bold**")
@@ -326,7 +377,7 @@ final class UiEditorMacEditorTests: XCTestCase {
         window.contentView = scrollView
         scrollView.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
         textView.frame.size.width = 600
-        window.orderFront(nil)
+        window.showInvisibly()
         defer { window.orderOut(nil); window.contentView = nil }
         scrollView.layoutSubtreeIfNeeded()
         textView.layoutSubtreeIfNeeded()
@@ -339,7 +390,7 @@ final class UiEditorMacEditorTests: XCTestCase {
 
     func testClickedLinksFollowOnlyWhereTheirMarkupIsConcealed() async throws {
         let text = "Cursor in [[Here]] not [[There]]\nSee [[Target]] now\n`[[Code]]`"
-        let (coordinator, textView, _) = try await makeEditor(text: text)
+        let (coordinator, textView, _) = try await makeEditor(text: text, hasKeyboardFocus: true)
         var followed: [String] = []
         coordinator.follow = { target, _ in followed.append(target) }
         let source = text as NSString
@@ -525,9 +576,7 @@ final class UiEditorMacEditorTests: XCTestCase {
         pasteboard.setData(pngData, forType: .png)
         XCTAssertEqual(MacPastedAttachment.attachments(on: pasteboard, now: pasteDate), [])
 
-        let fileDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("Paste-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: fileDirectory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: fileDirectory) }
+        let fileDirectory = try TemporaryVault.make(prefix: "Paste", for: self).root
         let documentURL = fileDirectory.appendingPathComponent("Report.pdf")
         try Data("%PDF".utf8).write(to: documentURL)
         let missingURL = fileDirectory.appendingPathComponent("Missing.pdf")

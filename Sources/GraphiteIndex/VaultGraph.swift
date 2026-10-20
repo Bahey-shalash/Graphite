@@ -117,10 +117,12 @@ struct GraphLinkResolver {
             if part.contains("/") {
                 // A partial path, such as `[[covers/Book cover.png]]`, names the end of a
                 // path, or the whole path when it starts at the vault root (`[[/Folder/Note]]`).
-                let pathSuffix = VaultIndex.foldedKey(fileName.hasPrefix("/") ? String(fileName.dropFirst()) : fileName)
+                let isFromRoot = fileName.hasPrefix("/")
+                let pathSuffix = VaultIndex.foldedKey(isFromRoot ? String(fileName.drop { character in character == "/" }) : fileName)
                 for path in pathsByFoldedLastComponent[Self.lastComponent(of: pathSuffix)] ?? [] {
                     guard let foldedPath = foldedPathsByPath[path] else { continue }
-                    if foldedPath == pathSuffix || foldedPath.hasSuffix("/" + pathSuffix) { matches.insert(path) }
+                    // A path from the root names that path only, as the index resolves it.
+                    if foldedPath == pathSuffix || (!isFromRoot && foldedPath.hasSuffix("/" + pathSuffix)) { matches.insert(path) }
                 }
             } else {
                 matches.formUnion(pathsByFoldedName[VaultIndex.foldedKey(fileName)] ?? [])

@@ -2,18 +2,14 @@ import XCTest
 import AVFoundation
 import GraphiteCore
 @testable import GraphiteApple
+import GraphiteTestSupport
 
 @MainActor
 final class RecordingRecoveryTests: XCTestCase {
     private var folder: URL!
 
-    override func setUpWithError() throws {
-        folder = FileManager.default.temporaryDirectory.appendingPathComponent("Recordings-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: folder)
+    override func setUp() async throws {
+        folder = try TemporaryVault.make(prefix: "Recordings", for: self).root
     }
 
     /// Writes `seconds` of a tone with the recorder's own settings and returns a copy of the

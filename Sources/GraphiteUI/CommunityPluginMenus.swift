@@ -96,8 +96,8 @@ extension CommunityPluginHost {
     func editorMenuElement() -> UIMenuElement {
         UIDeferredMenuElement.uncached { [weak self] completion in
             guard let self else { return completion([]) }
-            Task { @MainActor in
-                guard let menu = await self.editorMenu() else { return completion([]) }
+            Task { @MainActor [weak self] in
+                guard let self, let menu = await self.editorMenu() else { return completion([]) }
                 let actions: [UIMenuElement] = menu.items.map { item in
                     var attributes: UIMenuElement.Attributes = []
                     if item.isDisabled { attributes.insert(.disabled) }

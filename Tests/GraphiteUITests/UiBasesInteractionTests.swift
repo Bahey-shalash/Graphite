@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 import GraphiteCore
 import GraphiteIndex
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 @MainActor
 final class UiBasesInteractionTests: XCTestCase {
@@ -14,15 +15,9 @@ final class UiBasesInteractionTests: XCTestCase {
     private var store: VaultStore!
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("UiBasesInteractionVault-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        vault = try TemporaryVault.make(prefix: "UiBasesInteractionVault", for: self).root
         index = try VaultIndex(databaseURL: vault.appendingPathExtension("cache").appendingPathComponent("index.sqlite"))
         store = VaultStore(root: vault)
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: vault)
-        try? FileManager.default.removeItem(at: vault.appendingPathExtension("cache"))
     }
 
     private func write(_ text: String, to relativePath: String) throws {

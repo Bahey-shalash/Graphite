@@ -232,10 +232,5 @@ final class VideoRecordingWorkspaceTests: XCTestCase {
         add(attachment)
     }
 
-    private func waitUntil(timeoutSeconds: Double = 10, file: StaticString = #filePath, line: UInt = #line, _ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(timeoutSeconds)
-        while !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(25)) }
-        XCTAssertTrue(condition(), "The hosted workspace did not reach the expected state.", file: file, line: line)
-    }
 }
 #endif

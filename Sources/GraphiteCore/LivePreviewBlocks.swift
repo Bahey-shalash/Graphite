@@ -21,10 +21,18 @@ public struct LivePreviewBlock: Equatable, Sendable {
     public let range: NSRange
     /// The Markdown to render for tables, math blocks, and callouts.
     public let markdown: String
+
+    /// The same block, found in text that starts `distance` characters later, as when
+    /// some lines are scanned on their own.
+    public func offset(by distance: Int) -> LivePreviewBlock {
+        LivePreviewBlock(kind: kind, range: NSRange(location: range.location + distance, length: range.length), markdown: markdown)
+    }
 }
 
 public enum LivePreviewBlockScanner {
-    private static let standaloneEmbedPattern = try? NSRegularExpression(pattern: "^[ \\t]*(!\\[\\[[^\\]\\n]+\\]\\]|!\\[[^\\]\\n]*\\]\\([^)\\n]+\\))[ \\t]*$")
+    /// An embed alone on its line. Its destination may hold one balanced `(…)`, as
+    /// `EmbedLocator` reads it, so `![](photo (1).png)` is an image block too.
+    private static let standaloneEmbedPattern = try? NSRegularExpression(pattern: "^[ \\t]*(!\\[\\[[^\\]\\n]+\\]\\]|!\\[[^\\]\\n]*\\]\\((?:<[^<>\\n]*>[^)\\n]*|[^()\\n]+(?:\\([^()\\n]*\\)[^()\\n]*)?)\\))[ \\t]*$")
     private static let calloutHeaderPattern = try? NSRegularExpression(pattern: "^>[ \\t]?\\[![A-Za-z0-9_-]+\\][+-]?")
     private static let horizontalRulePattern = try? NSRegularExpression(pattern: "^ {0,3}(?:(?:-[ \\t]*){3,}|(?:\\*[ \\t]*){3,}|(?:_[ \\t]*){3,})$")
 
@@ -101,10 +109,16 @@ public enum LivePreviewBlockScanner {
                 lineIndexAfterBlock = lineIndex
                 continue
             }
-            // A table needs a header row and a delimiter row, like GFM.
-            if trimmedContent.hasPrefix("|"), lineIndex + 1 < lines.count, isTableDelimiterRow(lines[lineIndex + 1].content) {
+            // A table needs a header row and a delimiter row, like GFM; its outer pipes may
+            // be left out (`a | b` over `--|--`), as Obsidian and GFM allow.
+            if lineIndex + 1 < lines.count, startsTable(header: trimmedContent, delimiter: lines[lineIndex + 1].content) {
+                let hasOuterPipes = trimmedContent.hasPrefix("|")
                 var lastIndex = lineIndex + 1
-                while lastIndex + 1 < lines.count && lines[lastIndex + 1].content.trimmingCharacters(in: .whitespaces).hasPrefix("|") { lastIndex += 1 }
+                while lastIndex + 1 < lines.count {
+                    let row = lines[lastIndex + 1].content.trimmingCharacters(in: .whitespaces)
+                    guard row.hasPrefix("|") || (!hasOuterPipes && !row.isEmpty && row.contains("|")) else { break }
+                    lastIndex += 1
+                }
                 blocks.append(LivePreviewBlock(kind: .table, range: span(lineIndex, lastIndex), markdown: markdown(lineIndex, lastIndex)))
                 lineIndex = lastIndex + 1
                 lineIndexAfterBlock = lineIndex
@@ -176,7 +190,15 @@ public enum LivePreviewBlockScanner {
         return !embed.isWiki && URL(string: destination)?.scheme != nil
     }
 
-    private static func isTableDelimiterRow(_ line: String) -> Bool {
+    /// A table's first two lines: a header row with a pipe, over a delimiter row. Without
+    /// a leading pipe, the delimiter row needs one too, so text over a `---` rule is no table.
+    static func startsTable(header trimmedHeader: String, delimiter: String) -> Bool {
+        guard isTableDelimiterRow(delimiter) else { return false }
+        if trimmedHeader.hasPrefix("|") { return true }
+        return trimmedHeader.contains("|") && delimiter.contains("|")
+    }
+
+    static func isTableDelimiterRow(_ line: String) -> Bool {
         let trimmedLine = line.trimmingCharacters(in: .whitespaces)
         guard trimmedLine.contains("-") else { return false }
         return trimmedLine.allSatisfy { character in "|-: \t".contains(character) }
@@ -191,14 +213,20 @@ public enum LivePreviewBlockScanner {
             block.kind == .pluginCodeBlock(language: language) && block.markdown == code
         }
         guard matches.count == 1, let block = matches.first else { return nil }
+        /// Lines end as `lines(in:)` ends them: at `\n`, `\r\n`, or a lone `\r`, which a
+        /// note saved by an old Mac app has; counting only `\n` put every block on line 0.
         func lineNumber(at location: Int) -> Int {
             var lines = 0
-            var searchStart = 0
-            while searchStart < location {
-                let found = source.range(of: "\n", options: .literal, range: NSRange(location: searchStart, length: location - searchStart))
-                guard found.location != NSNotFound else { break }
-                lines += 1
-                searchStart = found.location + 1
+            var index = 0
+            while index < location {
+                let unit = source.character(at: index)
+                if unit == 0x0D {
+                    lines += 1
+                    if index + 1 < location, source.character(at: index + 1) == 0x0A { index += 1 }
+                } else if unit == 0x0A {
+                    lines += 1
+                }
+                index += 1
             }
             return lines
         }

@@ -1,7 +1,11 @@
-#if canImport(UIKit)
-import UIKit
+import CoreGraphics
 import PencilKit
 import GraphiteCore
+#if canImport(UIKit)
+import UIKit
+#else
+import AppKit
+#endif
 
 /// Reads PencilKit strokes as geometry that other formats can store.
 public enum PencilStrokeSampler {
@@ -31,19 +35,44 @@ public enum PencilStrokeSampler {
     /// Ink color as it appears on white paper. Dynamic colors resolve in light mode
     /// because exported drawings do not change with the viewer's appearance.
     public static func color(of stroke: PKStroke) -> VectorInkColor {
-        let resolvedColor = stroke.ink.color.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
-        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 1
-        if !resolvedColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha),
-           let standardColorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-           let convertedColor = resolvedColor.cgColor.converted(to: standardColorSpace, intent: .defaultIntent, options: nil),
-           let components = convertedColor.components, components.count == 4 {
-            // A color UIKit cannot express as RGB (a pattern, for example) is converted by
-            // Core Graphics instead of silently becoming black.
-            red = components[0]; green = components[1]; blue = components[2]; alpha = components[3]
-        }
+        let components = lightAppearanceComponents(of: stroke.ink.color)
         let opacities = stroke.path.map(\.opacity)
         let averageOpacity = opacities.isEmpty ? 1 : opacities.reduce(0, +) / CGFloat(opacities.count)
-        return VectorInkColor(clampingRed: Double(red), green: Double(green), blue: Double(blue), alpha: Double(alpha * min(max(averageOpacity, 0), 1)))
+        return VectorInkColor(clampingRed: Double(components.red), green: Double(components.green), blue: Double(components.blue),
+                              alpha: Double(components.alpha * min(max(averageOpacity, 0), 1)))
+    }
+
+    #if canImport(UIKit)
+    private static func lightAppearanceComponents(of color: UIColor) -> (red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat) {
+        let resolvedColor = color.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 1
+        if !resolvedColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha),
+           let components = standardComponents(of: resolvedColor.cgColor) {
+            // A color UIKit cannot express as RGB (a pattern, for example) is converted by
+            // Core Graphics instead of silently becoming black.
+            return components
+        }
+        return (red, green, blue, alpha)
+    }
+    #else
+    /// AppKit resolves a dynamic color in the current drawing appearance, so the light one is made current.
+    private static func lightAppearanceComponents(of color: NSColor) -> (red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat) {
+        var resolvedColor: NSColor?
+        if let lightAppearance = NSAppearance(named: .aqua) {
+            lightAppearance.performAsCurrentDrawingAppearance { resolvedColor = color.usingColorSpace(.extendedSRGB) }
+        }
+        if let rgbColor = resolvedColor ?? color.usingColorSpace(.extendedSRGB) {
+            return (rgbColor.redComponent, rgbColor.greenComponent, rgbColor.blueComponent, rgbColor.alphaComponent)
+        }
+        return standardComponents(of: color.cgColor) ?? (0, 0, 0, 1)
+    }
+    #endif
+
+    private static func standardComponents(of color: CGColor) -> (red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat)? {
+        guard let standardColorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let convertedColor = color.converted(to: standardColorSpace, intent: .defaultIntent, options: nil),
+              let components = convertedColor.components, components.count == 4 else { return nil }
+        return (components[0], components[1], components[2], components[3])
     }
 
     /// Where a stroke the pixel eraser touched is still visible, in drawing coordinates,
@@ -56,7 +85,12 @@ public enum PencilStrokeSampler {
         var transform = stroke.transform
         // Callers fill and test the area with the nonzero rule; a normalized path has no
         // overlaps, so it covers the same region under either rule.
-        let maskPath = mask.usesEvenOddFillRule ? mask.cgPath.normalized(using: .evenOdd) : mask.cgPath
+        #if canImport(UIKit)
+        let usesEvenOddRule = mask.usesEvenOddFillRule
+        #else
+        let usesEvenOddRule = mask.windingRule == .evenOdd
+        #endif
+        let maskPath = usesEvenOddRule ? mask.cgPath.normalized(using: .evenOdd) : mask.cgPath
         return maskPath.copy(using: &transform)
     }
 
@@ -85,4 +119,3 @@ public enum PencilVectorConverter {
         return VectorDrawing(size: size, background: background, shapes: shapes)
     }
 }
-#endif

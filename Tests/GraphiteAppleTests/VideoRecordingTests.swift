@@ -2,6 +2,9 @@ import XCTest
 import AVFoundation
 import GraphiteCore
 @testable import GraphiteApple
+#if canImport(GraphiteTestSupport)
+import GraphiteTestSupport
+#endif
 
 /// Video recording driven without a camera: `SyntheticCaptureSource` delivers real frames
 /// and sound, which go through the writer the app uses, and an independent reader checks
@@ -131,6 +134,27 @@ final class VideoRecordingTests: XCTestCase {
         XCTAssertTrue(MovieInspection.colors(movie.lastFrameColor, match: SyntheticCaptureSource.frontCameraColor), "\(movie.lastFrameColor)")
     }
 
+    /// From macOS 27 and iOS 27 a recording shows its camera through a render synchronizer,
+    /// and adding a renderer that another synchronizer still holds ends the app.
+    func testASecondRecordingShowsItsCameraInTheSamePreview() async throws {
+        let source = SyntheticCaptureSource()
+        let controller = makeController(source: source)
+        let previewLayer = AVSampleBufferDisplayLayer()
+        controller.showPreview(in: previewLayer.sampleBufferRenderer)
+        for name in ["First with preview.mp4", "Second with preview.mp4"] {
+            let destination = attachmentsFolder.appendingPathComponent(name)
+            await start(controller, destination: destination)
+            await source.deliver(seconds: 1)
+            // Shown again in the renderer it already shows in, as when its view is redrawn.
+            controller.showPreview(in: previewLayer.sampleBufferRenderer)
+            await source.deliver(seconds: 1)
+            controller.stop()
+            try await waitUntil { controller.state == .idle }
+            let movie = try await MovieInspection.of(destination)
+            XCTAssertEqual(movie.durationSeconds, 2, accuracy: 0.1)
+        }
+    }
+
     func testACameraTheDeviceLacksLeavesTheRecordingOnItsCamera() async throws {
         let source = SyntheticCaptureSource(cameras: [.back])
         let controller = makeController(source: source)
@@ -180,7 +204,7 @@ final class VideoRecordingTests: XCTestCase {
         XCTAssertEqual(controller.message, CaptureInterruptionReason.applicationOffScreen.explanation, "The person is told why the video paused.")
         // What was recorded is a complete file at once: the system may end the app now.
         let recoveryURL = try XCTUnwrap(controller.recoveryURL)
-        try await waitUntilClosed(recoveryURL)
+        try await awaitClosedPart(recoveryURL)
         let firstPart = try await MovieInspection.of(recoveryURL)
         XCTAssertEqual(firstPart.durationSeconds, 2, accuracy: 0.1, "Nothing of the two seconds is lost, not even the last fragment.")
         XCTAssertFalse(firstPart.containsFragments)
@@ -482,7 +506,7 @@ final class VideoRecordingTests: XCTestCase {
         await source.deliver(seconds: 2)
         await source.interrupt(.applicationOffScreen)
         try await waitUntil { controller.state == .interrupted }
-        try await waitUntilClosed(try XCTUnwrap(controller.recoveryURL))
+        try await awaitClosedPart(try XCTUnwrap(controller.recoveryURL))
 
         // The next part cannot be created.
         try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: recoveryFolder.path)
@@ -528,21 +552,12 @@ final class VideoRecordingTests: XCTestCase {
     }
 
     /// Waits until a part's writer has closed it: the file then has one index and no fragments.
-    private func waitUntilClosed(_ partLocation: URL, timeoutSeconds: Double = 20) async throws {
-        let deadline = Date.now.addingTimeInterval(timeoutSeconds)
-        while (try? await AVURLAsset(url: partLocation).load(.containsFragments)) != false || MovieInspection.topLevelBoxNames(of: partLocation).last != "moov" {
-            guard Date.now < deadline else { return XCTFail("Timed out waiting for the part to be closed.") }
-            try await Task.sleep(for: .milliseconds(10))
+    private func awaitClosedPart(_ partLocation: URL) async throws {
+        try await waitUntil("the part is closed", timeoutSeconds: 20, pollingIntervalSeconds: 0.01) {
+            (try? await AVURLAsset(url: partLocation).load(.containsFragments)) == false && MovieInspection.topLevelBoxNames(of: partLocation).last == "moov"
         }
     }
 
-    private func waitUntil(_ condition: () -> Bool, timeoutSeconds: Double = 20) async throws {
-        let deadline = Date.now.addingTimeInterval(timeoutSeconds)
-        while !condition() {
-            guard Date.now < deadline else { return XCTFail("Timed out waiting for the recording controller.") }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-    }
 }
 
 /// Free storage a test changes while a recording runs.

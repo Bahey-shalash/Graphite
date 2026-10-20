@@ -61,7 +61,7 @@ final class VideoRecording: @unchecked Sendable {
     private var lastFrameSize: FrameSize?
     /// Parts being closed; `finish` waits for them.
     private let closingParts = DispatchGroup()
-    private var previewRenderer: AVSampleBufferVideoRenderer?
+    private var preview: PreviewOutput?
     private let recordedSecondsStorage = Mutex<TimeInterval>(0)
 
     /// How much has been recorded, not counting pauses and interruptions.
@@ -123,13 +123,49 @@ final class VideoRecording: @unchecked Sendable {
         }
         await source.stop()
         await waitForClosingParts()
-        return await onQueue { recording in recording.partLocations }
+        return await onQueue { recording in
+            // The next recording shows its camera in the same renderer.
+            recording.preview = nil
+            return recording.partLocations
+        }
     }
 
     /// Shows the camera's frames in `renderer`, or in nothing.
     func setPreviewRenderer(_ renderer: AVSampleBufferVideoRenderer?) {
         let handedOver = UncheckedRenderer(renderer: renderer)
-        queue.async { self.previewRenderer = handedOver.renderer }
+        queue.async {
+            // The old output lets its renderer go first, as the new one may use the same.
+            self.preview = nil
+            self.preview = handedOver.renderer.map(Self.makePreviewOutput)
+        }
+    }
+
+    /// Shows frames in a preview renderer, on `queue`. The frames go through the receiver of a
+    /// render synchronizer. Its clock stays stopped, as each frame is marked to show at once.
+    private struct PreviewOutput {
+        /// Holds the renderer for as long as the output lives; adding a renderer that one
+        /// synchronizer still holds to another ends the app.
+        let synchronizer: AVSampleBufferRenderSynchronizer
+        let show: (CMSampleBuffer) -> Void
+    }
+
+    private static func makePreviewOutput(showingIn renderer: AVSampleBufferVideoRenderer) -> PreviewOutput {
+        let synchronizer = AVSampleBufferRenderSynchronizer()
+        let receiver = synchronizer.sampleBufferReceiver(adding: renderer)
+        return PreviewOutput(synchronizer: synchronizer) { frame in
+            // The frame is a copy nothing else holds, so handing it over unchecked is safe.
+            nonisolated(unsafe) let handedOverFrame = frame
+            switch receiver.enqueueImmediately(CMReadySampleBuffer(unsafeBuffer: handedOverFrame)) {
+            case .enqueued, .enqueuedWithDecodeFailures, .cancelledDueToFlush:
+                break
+            // A receiver that lost its decoder, as after the app was off screen, starts
+            // again with the next frame.
+            case .cancelledDueToFlushRequiredToResume, .cancelledDueToError:
+                receiver.flush()
+            @unknown default:
+                receiver.flush()
+            }
+        }
     }
 
     /// A renderer handed from the main actor to `queue`, which alone enqueues frames in it.
@@ -224,16 +260,13 @@ final class VideoRecording: @unchecked Sendable {
     }
 
     private func showInPreview(_ sampleBuffer: CMSampleBuffer) {
-        guard let previewRenderer else { return }
-        // A renderer that lost its decoder, as after the app was off screen, starts again.
-        if previewRenderer.status == .failed || previewRenderer.requiresFlushToResumeDecoding { previewRenderer.flush() }
-        guard previewRenderer.isReadyForMoreMediaData, let frame = try? CMSampleBuffer(copying: sampleBuffer) else { return }
-        // The renderer has no clock of its own here: each frame is shown as it arrives.
+        guard let preview, let frame = try? CMSampleBuffer(copying: sampleBuffer) else { return }
+        // The renderer follows no running clock here: each frame is shown as it arrives.
         if let attachments = CMSampleBufferGetSampleAttachmentsArray(frame, createIfNecessary: true), CFArrayGetCount(attachments) > 0 {
             let frameAttachments = unsafeBitCast(CFArrayGetValueAtIndex(attachments, 0), to: CFMutableDictionary.self)
             CFDictionarySetValue(frameAttachments, Unmanaged.passUnretained(kCMSampleAttachmentKey_DisplayImmediately).toOpaque(),
                                  Unmanaged.passUnretained(kCFBooleanTrue).toOpaque())
         }
-        previewRenderer.enqueue(frame)
+        preview.show(frame)
     }
 }

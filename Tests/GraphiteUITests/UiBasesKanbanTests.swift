@@ -2,6 +2,7 @@ import XCTest
 import GraphiteCore
 import GraphiteIndex
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// Obsidian's Kanban layout: the columns a board shows, and moving a card, which writes
 /// the column's value into the note's grouped property.
@@ -12,15 +13,9 @@ final class UiBasesKanbanTests: XCTestCase {
     private var store: VaultStore!
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("UiBasesKanbanVault-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        vault = try TemporaryVault.make(prefix: "UiBasesKanbanVault", for: self).root
         index = try VaultIndex(databaseURL: vault.appendingPathExtension("cache").appendingPathComponent("index.sqlite"))
         store = VaultStore(root: vault)
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: vault)
-        try? FileManager.default.removeItem(at: vault.appendingPathExtension("cache"))
     }
 
     private func write(_ text: String, to relativePath: String) throws {

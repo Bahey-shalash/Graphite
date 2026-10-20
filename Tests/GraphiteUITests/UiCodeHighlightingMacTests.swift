@@ -4,23 +4,18 @@ import SwiftUI
 import XCTest
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// Fenced code is colored by its language on the Mac: in Live Preview and Source mode, as
 /// the editor restyles it, and in reading view.
 @MainActor
 final class UiCodeHighlightingMacTests: XCTestCase {
-    private var vaultDirectories: [URL] = []
-
     override func tearDown() async throws {
-        for vaultDirectory in vaultDirectories { try? FileManager.default.removeItem(at: vaultDirectory) }
-        vaultDirectories = []
         try await super.tearDown()
     }
 
     private func makeEditor(text: String, mode: EditingMode, formatsCodeBlocks: Bool = true, codeColorTheme: CodeColorTheme = .obsidian) async throws -> (NativeMarkdownEditor.Coordinator, MarkdownMacTextView) {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("Vault-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
-        vaultDirectories.append(vault)
+        let vault = try TemporaryVault.make(prefix: "Vault", for: self).root
         try Data(text.utf8).write(to: vault.appendingPathComponent("Note.md"))
         let store = VaultStore(root: vault)
         let notePath = try VaultPath("Note.md")

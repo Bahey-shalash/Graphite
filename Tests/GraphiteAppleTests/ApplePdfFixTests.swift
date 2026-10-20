@@ -10,6 +10,7 @@ import AppKit
 #endif
 import GraphiteCore
 @testable import GraphiteApple
+import GraphiteTestSupport
 
 /// Regression tests for PDF saving: ink on offset pages, outline and link destinations
 /// through page changes, other applications' markup, and document structure checks.
@@ -17,12 +18,7 @@ final class ApplePdfFixTests: XCTestCase {
     private var directory: URL!
 
     override func setUpWithError() throws {
-        directory = FileManager.default.temporaryDirectory.appendingPathComponent("ApplePdfFix-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: directory)
+        directory = try TemporaryVault.make(prefix: "ApplePdfFix", for: self).root
     }
 
     // MARK: Fixtures
@@ -377,6 +373,23 @@ final class ApplePdfFixTests: XCTestCase {
         }
     }
 
+    // MARK: Bookmarks
+
+    /// A bookmark goes to the corner shown at the top left: on a page turned 180° or 270°,
+    /// the unturned top left is at the bottom, where opening the bookmark went.
+    func testABookmarkPointsAtTheTopOfThePageAsShown() throws {
+        let page = PDFPage()
+        page.setBounds(CGRect(x: 0, y: 0, width: 600, height: 800), for: .mediaBox)
+        page.setBounds(CGRect(x: 0, y: 0, width: 600, height: 800), for: .cropBox)
+        XCTAssertEqual(PDFPageManager.visibleTopLeft(of: page), CGPoint(x: 0, y: 800))
+        page.rotation = 90
+        XCTAssertEqual(PDFPageManager.visibleTopLeft(of: page), CGPoint(x: 0, y: 0))
+        page.rotation = 180
+        XCTAssertEqual(PDFPageManager.visibleTopLeft(of: page), CGPoint(x: 600, y: 0))
+        page.rotation = 270
+        XCTAssertEqual(PDFPageManager.visibleTopLeft(of: page), CGPoint(x: 600, y: 800))
+    }
+
     // MARK: Document structure
 
     func testSignedPDFIsDetectedAndReportedBeforePageChanges() throws {
@@ -398,6 +411,21 @@ final class ApplePdfFixTests: XCTestCase {
 
         let unsignedField = try write(PDFAnnotationTests.minimalPDF(catalogExtras: "/AcroForm << /Fields [<< /FT /Sig /T (Empty) >>] >>"), named: "unsigned.pdf")
         XCTAssertFalse(PDFStructureInspection.hasDigitalSignature(in: unsignedField), "An empty signature field is not a signature.")
+
+        // A blank form waiting to be signed sets SigFlags' first bit, SignaturesExist; only
+        // the second, AppendOnly, says it was signed. It was reported as signed.
+        let blankForm = try write(PDFAnnotationTests.minimalPDF(catalogExtras: "/AcroForm << /Fields [<< /FT /Sig /T (Empty) >>] /SigFlags 1 >>"), named: "blank.pdf")
+        XCTAssertFalse(PDFStructureInspection.hasDigitalSignature(in: blankForm), "A blank form is not signed.")
+
+        // A signed widget whose field type is on its parent.
+        let inheritedType = Self.handWrittenPDF(objects: [
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+            "<< /FT /Sig /T (Parent) /Kids [5 0 R] >>",
+            "<< /T (Widget) /Parent 4 0 R /V \(signature) >>",
+        ])
+        XCTAssertTrue(PDFStructureInspection.hasDigitalSignature(in: try write(inheritedType, named: "inherited.pdf")))
         let plainLocation = try write(PDFTemplateGenerator.documentData(paper: PaperSpecification(), pageCount: 1), named: "plain.pdf")
         XCTAssertFalse(PDFStructureInspection.hasDigitalSignature(in: plainLocation))
     }

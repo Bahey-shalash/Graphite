@@ -11,11 +11,11 @@ extension WorkspaceModel {
     private var foldsByPath: [String: [String]] {
         get {
             guard let currentVaultIdentifier else { return [:] }
-            return UserDefaults.standard.dictionary(forKey: Self.foldsKey(for: currentVaultIdentifier)) as? [String: [String]] ?? [:]
+            return deviceDefaults.dictionary(forKey: Self.foldsKey(for: currentVaultIdentifier)) as? [String: [String]] ?? [:]
         }
         set {
             guard let currentVaultIdentifier else { return }
-            UserDefaults.standard.set(newValue, forKey: Self.foldsKey(for: currentVaultIdentifier))
+            deviceDefaults.set(newValue, forKey: Self.foldsKey(for: currentVaultIdentifier))
         }
     }
 

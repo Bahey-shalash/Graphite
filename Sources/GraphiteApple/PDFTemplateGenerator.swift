@@ -20,17 +20,20 @@ public struct PaperSpecification: Sendable, Codable, Equatable {
     public var paperColorHex: String?
     public var lineColor: DrawingPaperLineColor
     public var lineStrength: DrawingPaperLineStrength
+    /// The ruling of paper that is not one of Graphite's own (an imported notebook's); nil draws Graphite's own.
+    public var ruling: PaperRuling?
 
     public static let standardSpacing = 18.0
 
     public init(template: PaperTemplate = .dotted, width: Double = 595.28, height: Double = 841.89, spacing: Double = standardSpacing,
-                paperColorHex: String? = nil, lineColor: DrawingPaperLineColor = .gray, lineStrength: DrawingPaperLineStrength = .standard) {
+                paperColorHex: String? = nil, lineColor: DrawingPaperLineColor = .gray, lineStrength: DrawingPaperLineStrength = .standard,
+                ruling: PaperRuling? = nil) {
         self.template = template; self.width = width; self.height = height; self.spacing = spacing
-        self.paperColorHex = paperColorHex; self.lineColor = lineColor; self.lineStrength = lineStrength
+        self.paperColorHex = paperColorHex; self.lineColor = lineColor; self.lineStrength = lineStrength; self.ruling = ruling
     }
 
     private enum CodingKeys: String, CodingKey {
-        case template, width, height, spacing, paperColorHex, lineColor, lineStrength
+        case template, width, height, spacing, paperColorHex, lineColor, lineStrength, ruling
     }
 
     /// Specifications written before paper colors keep their meaning: white paper, gray lines.
@@ -40,7 +43,8 @@ public struct PaperSpecification: Sendable, Codable, Equatable {
                   height: try container.decode(Double.self, forKey: .height), spacing: try container.decode(Double.self, forKey: .spacing),
                   paperColorHex: try container.decodeIfPresent(String.self, forKey: .paperColorHex),
                   lineColor: try container.decodeIfPresent(DrawingPaperLineColor.self, forKey: .lineColor) ?? .gray,
-                  lineStrength: try container.decodeIfPresent(DrawingPaperLineStrength.self, forKey: .lineStrength) ?? .standard)
+                  lineStrength: try container.decodeIfPresent(DrawingPaperLineStrength.self, forKey: .lineStrength) ?? .standard,
+                  ruling: try container.decodeIfPresent(PaperRuling.self, forKey: .ruling))
     }
 
     /// The same paper in another size, for a page inserted beside an existing one.
@@ -88,6 +92,7 @@ public enum PDFTemplateGenerator {
     }
 
     private static func render(_ paper: PaperSpecification, pageCount: Int) throws -> Data {
+        if let ruling = paper.ruling { try ruling.validate(forPageWidth: paper.width, height: paper.height) }
         let output = NSMutableData()
         var bounds = CGRect(x: 0, y: 0, width: paper.width, height: paper.height)
         guard let consumer = CGDataConsumer(data: output), let context = CGContext(consumer: consumer, mediaBox: &bounds, nil) else {
@@ -101,7 +106,7 @@ public enum PDFTemplateGenerator {
             context.beginPDFPage(nil)
             context.setFillColor(colors.paper); context.fill(bounds)
             context.setStrokeColor(colors.line); context.setFillColor(colors.dot)
-            context.setLineWidth(0.4)
+            context.setLineWidth(paper.ruling?.lineWidth ?? 0.4)
             func line(from start: CGPoint, to end: CGPoint) {
                 context.move(to: start); context.addLine(to: end); context.strokePath()
             }
@@ -113,6 +118,8 @@ public enum PDFTemplateGenerator {
                 strokeIsometricLines(spacing: paper.spacing, in: CGRect(x: margin, y: margin, width: paper.width - 2 * margin, height: paper.height - 2 * margin), context: context)
             case .music:
                 strokeStaves(spacing: paper.spacing, in: CGRect(x: margin, y: margin, width: paper.width - 2 * margin, height: paper.height - 2 * margin), context: context)
+            case .grid where paper.ruling != nil, .ruled where paper.ruling != nil:
+                paper.ruling?.strokeLines(of: paper, in: context)
             case .grid, .engineering:
                 // Lines end at the last crossing line, not at the margin, so no stubs stick
                 // out past the grid at the top and right.
@@ -166,14 +173,17 @@ public enum PDFTemplateGenerator {
     }
 
     /// The colors of a page: gray lines on white keep the exact grays notebooks always had.
-    private struct TemplateColors {
+    struct TemplateColors {
         let paper: CGColor
         let line: CGColor
         let dot: CGColor
 
         init(paper specification: PaperSpecification) {
             paper = specification.paperColorHex.flatMap(Self.color(hex:)) ?? CGColor(gray: 1, alpha: 1)
-            if specification.lineColor == .gray, specification.lineStrength == .standard {
+            if let rulingColor = specification.ruling.flatMap({ ruling in Self.color(hex: ruling.lineColorHex) }) {
+                line = rulingColor
+                dot = rulingColor
+            } else if specification.lineColor == .gray, specification.lineStrength == .standard {
                 line = CGColor(gray: 0.77, alpha: 1)
                 dot = CGColor(gray: 0.67, alpha: 1)
             } else {
@@ -184,7 +194,7 @@ public enum PDFTemplateGenerator {
             }
         }
 
-        private static func color(hex: String) -> CGColor? {
+        static func color(hex: String) -> CGColor? {
             guard hex.count == 7, hex.hasPrefix("#"), let value = UInt32(hex.dropFirst(), radix: 16) else { return nil }
             return CGColor(srgbRed: Double((value >> 16) & 0xFF) / 255, green: Double((value >> 8) & 0xFF) / 255, blue: Double(value & 0xFF) / 255, alpha: 1)
         }

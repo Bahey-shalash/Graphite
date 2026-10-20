@@ -89,8 +89,12 @@ struct LivePreviewWidgetView: View {
     let environment: LivePreviewEnvironment
     let revealSource: () -> Void
     let reportHeight: (CGFloat) -> Void
+    /// How a table's view edits its cells; nil for other blocks.
+    var sourceEditing: RenderedBlockSourceEditing? = nil
     @State private var parsedSource = LivePreviewParsedSource()
     @State private var readingSnapshot: LivePreviewReadingSnapshot?
+    @State private var tableEditor = LivePreviewTableEditor()
+    @Environment(\.renderedBlockMenuContext) private var menuContext
 
     private var readingRange: NSRange? {
         guard let context = environment.readingContext, let range = context.controller.highlight(in: context.path) else { return nil }
@@ -109,22 +113,14 @@ struct LivePreviewWidgetView: View {
     }
 
     var body: some View {
-        Group {
-            if block.kind == .frontmatter {
-                // The properties' heading row is empty at its end, so the button sits there
-                // and the properties are as wide as in reading view.
-                VStack(alignment: .leading, spacing: 0) { content }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .overlay(alignment: .topTrailing) { sourceButton }
-            } else {
-                // The source button has its own column so it never covers a player's or viewer's controls.
-                HStack(alignment: .top, spacing: 8) {
-                    // The vertical stack keeps dividers inside the content horizontal.
-                    VStack(alignment: .leading, spacing: 0) { content }.frame(maxWidth: .infinity, alignment: .leading)
-                    if block.kind != .horizontalRule { sourceButton }
-                }
-            }
-        }
+        // The vertical stack keeps dividers inside the content horizontal. "Edit Source" is in
+        // the block's menu (a long press, or a secondary click on the Mac) rather than a button
+        // beside every block, so blocks are as wide as in reading view. It is the way to the
+        // source where a tap does something else, as on a base's rows, a plugin's view or a rule.
+        VStack(alignment: .leading, spacing: 0) { content }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // The block's view itself carries the "Edit Source" menu (`RenderedBlockEditSourceMenu`).
+        .accessibilityAction(named: "Edit Source", revealSource)
         // The reserved space follows the view's natural height, not the frame it was given.
         .fixedSize(horizontal: false, vertical: true)
         .padding(.vertical, 4)
@@ -138,6 +134,8 @@ struct LivePreviewWidgetView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // The block's menu gives points in this space, the hosting view's own.
+        .coordinateSpace(.named(LivePreviewTableEditor.blockCoordinateSpaceName))
         .environment(\.readingActiveSourceRange, readingRange)
         .environment(\.readingFollowsSource, environment.readingContext.map { context in context.controller.shouldFollow(context.path) } ?? false)
         .textual.readingHighlight(readingRange, coordinateSpace: ReadingCoordinateSpace.name)
@@ -164,14 +162,6 @@ struct LivePreviewWidgetView: View {
         }
     }
 
-    private var sourceButton: some View {
-        Button("Edit Source", systemImage: "chevron.left.forwardslash.chevron.right") { revealSource() }
-            .labelStyle(.iconOnly).font(.caption).foregroundStyle(.secondary).buttonStyle(.borderless)
-            .frame(width: 28, height: 28)
-            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
-            .contentShape(Rectangle().inset(by: -6))
-    }
-
     @ViewBuilder private var content: some View {
         switch block.kind {
         case .frontmatter:
@@ -183,9 +173,20 @@ struct LivePreviewWidgetView: View {
                     .font(.callout).foregroundStyle(.orange).onTapGesture(perform: revealSource)
             }
         case .table:
-            RenderedMarkdownBlock(markdown: block.markdown, environment: environment, sourceTokens: readingSnapshot?.tokens)
-                .contentShape(Rectangle())
-                .onTapGesture(perform: revealSource)
+            if let sourceEditing {
+                // A tap edits the cell under it, in place; "Edit Source" in the menu shows the
+                // Markdown, and the menu also adds, moves and removes rows and columns.
+                let _ = tableEditor.update(source: block.markdown, textSize: environment.textSize, sourceEditing: sourceEditing)
+                RenderedMarkdownBlock(markdown: block.markdown, environment: environment, sourceTokens: readingSnapshot?.tokens)
+                    .environment(\.livePreviewTableEditor, tableEditor)
+                    .onAppear {
+                        menuContext?.itemsAtPoint = { [weak tableEditor] point in tableEditor?.menuItems(at: point) ?? [] }
+                    }
+            } else {
+                RenderedMarkdownBlock(markdown: block.markdown, environment: environment, sourceTokens: readingSnapshot?.tokens)
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: revealSource)
+            }
         case .mathBlock:
             // Centered, as Obsidian shows display math.
             RenderedMarkdownBlock(markdown: block.markdown, environment: environment, sourceTokens: readingSnapshot?.tokens)
@@ -195,12 +196,12 @@ struct LivePreviewWidgetView: View {
         case .embed(let embed):
             LivePreviewEmbedView(embed: embed, environment: environment, revealSource: revealSource)
         case .baseDefinition(let yaml):
-            // No tap-to-reveal here: taps belong to the base's rows; the Edit Source button reveals it.
+            // No tap-to-reveal here: taps belong to the base's rows; "Edit Source" in its menu reveals it.
             BaseCodeBlockView(yaml: yaml, context: environment.baseContext)
         case .horizontalRule:
             ThemedRule(theme: environment.theme).padding(.vertical, 10)
         case .pluginCodeBlock(let language):
-            // Taps belong to what the plugin drew; the Edit Source button reveals the code.
+            // Taps belong to what the plugin drew; "Edit Source" in its menu reveals the code.
             if let host = environment.pluginCodeBlocks, let notePath = environment.notePath {
                 // No first line: the block moves as the note is edited above it, so where it is
                 // is looked up in the note whenever the plugin is given it.
@@ -221,8 +222,9 @@ struct LivePreviewWidgetView: View {
     }
 }
 
-/// Whether an embed in a rendered block is still loading.
-private struct LivePreviewEmbedLoadingKey: PreferenceKey {
+/// Whether an embed in a rendered block is still loading: a file being read, or a base
+/// showing its progress placeholder before its rows (`BaseContainerView`).
+struct LivePreviewEmbedLoadingKey: PreferenceKey {
     static let defaultValue = false
     static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
 }
@@ -410,8 +412,11 @@ enum LivePreviewText {
         let codeRanges = MarkdownCodeRanges.ranges(in: source)
         for match in wikiEmbedPattern.matches(in: markdown, range: NSRange(location: 0, length: source.length)).reversed()
         where !MarkdownCodeRanges.range(match.range, isInside: codeRanges) {
-            let target = source.substring(with: match.range(at: 1))
+            var target = source.substring(with: match.range(at: 1))
             let label = match.range(at: 2).location == NSNotFound ? nil : source.substring(with: match.range(at: 2))
+            // `![[image.png\|300]]` in a table, as Obsidian requires there: the backslash
+            // escapes the pipe and is no part of the name, as for links below.
+            if label != nil, target.hasSuffix("\\") { target.removeLast() }
             guard let path = await environment.resolve(target, true) else {
                 hasUnresolvedEmbeds = true
                 continue
@@ -540,7 +545,8 @@ private struct LivePreviewEmbedView: View {
                 .buttonStyle(.plain)
             }
         }
-        .preference(key: LivePreviewEmbedLoadingKey.self, value: isLoading)
+        // Combined with what the embed inside says, so a base still loading counts too.
+        .transformPreference(LivePreviewEmbedLoadingKey.self) { isLoadingEmbed in isLoadingEmbed = isLoadingEmbed || isLoading }
         .task(id: resolutionKey) {
             guard resolutionKey != settledResolutionKey else { return }
             await resolve()

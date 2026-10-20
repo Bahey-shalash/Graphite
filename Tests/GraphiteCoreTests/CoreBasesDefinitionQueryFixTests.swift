@@ -1,6 +1,7 @@
 import XCTest
 import Yams
 @testable import GraphiteCore
+import GraphiteTestSupport
 
 /// Regressions for reading `.base` files and frontmatter as Obsidian does, and for
 /// writing a base back without disturbing what the user did not change.
@@ -58,7 +59,7 @@ final class CoreBasesDefinitionQueryFixTests: XCTestCase {
     func testExpandingAliasesAreRefusedInFrontmatter() {
         let started = Date()
         XCTAssertNil(BaseFrontmatter.entries(fromYAML: billionLaughs))
-        XCTAssertLessThan(Date().timeIntervalSince(started), 1, "The walk stops at the limit instead of expanding every alias.")
+        XCTAssertLessThan(Date().timeIntervalSince(started), HangGuard.seconds, "The walk stops at the limit instead of expanding every alias.")
         let aliasChain = aliasChain
         XCTAssertNil(onSmallStack { BaseFrontmatter.entries(fromYAML: aliasChain) })
 

@@ -45,6 +45,27 @@ struct CanvasCardAccessibility {
     let sortPriority: Double
 }
 
+/// When a card's content scrolls instead of the board moving.
+enum CanvasCardContentScrolling {
+    /// Whether the device has a pointer with a scroll wheel or trackpad, which scrolls
+    /// without dragging.
+    static var platformHasPointerScrolling: Bool {
+        #if os(macOS)
+        true
+        #else
+        false
+        #endif
+    }
+
+    /// - Parameter isFocused: In Read, whether the card was tapped.
+    /// - Parameter hasPointerScrolling: With a pointer, scrolling never competes with the
+    ///   drag that moves the board, so a card scrolls without being tapped first. By touch,
+    ///   a drag on a card moves the board until the card is tapped in Read.
+    static func isEnabled(isFocused: Bool, isWriting: Bool, hasPointerScrolling: Bool = platformHasPointerScrolling) -> Bool {
+        !isWriting && (isFocused || hasPointerScrolling)
+    }
+}
+
 /// One card with its content: Markdown, a note, an image, a PDF page, a media player,
 /// a web address, or a plain description of a file or an unknown kind of card.
 struct CanvasCardView: View {
@@ -89,7 +110,7 @@ struct CanvasCardView: View {
                 scrollingContent { CanvasMarkdownContent(source: text, sourcePath: environment.canvasPath, environment: environment).padding(.horizontal, 16).padding(.vertical, 12) }
             }
         case .file(let path, let subpath):
-            CanvasFileCardContent(path: path, subpath: subpath, cardSize: node.frame.size, environment: environment, isScrollable: isFocused && !isWriting)
+            CanvasFileCardContent(path: path, subpath: subpath, cardSize: node.frame.size, environment: environment, isScrollable: CanvasCardContentScrolling.isEnabled(isFocused: isFocused, isWriting: isWriting))
         case .link(let address):
             CanvasLinkCardContent(address: address)
         case .group:
@@ -105,7 +126,7 @@ struct CanvasCardView: View {
     /// does in Obsidian; until then a drag on it moves the board.
     private func scrollingContent(@ViewBuilder _ scrolledContent: () -> some View) -> some View {
         ScrollView { scrolledContent().frame(maxWidth: .infinity, alignment: .topLeading) }
-            .scrollDisabled(!isFocused || isWriting)
+            .scrollDisabled(!CanvasCardContentScrolling.isEnabled(isFocused: isFocused, isWriting: isWriting))
     }
 
     /// A file card's name above its top-left corner, as in Obsidian. In Read it opens the file.
@@ -212,6 +233,7 @@ private struct CanvasTextCardEditor: View {
     var body: some View {
         TextEditor(text: Binding(get: { session.textEdit?.text ?? "" }, set: { text in session.updateTextEdit(text) }))
             .font(.system(size: textSize))
+            .literalTextEntry()
             .scrollContentBackground(.hidden)
             .padding(.horizontal, 11).padding(.vertical, 4)
             .focused($isEditorFocused)

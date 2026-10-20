@@ -1,6 +1,7 @@
 import XCTest
 import GraphiteCore
 @testable import GraphiteIndex
+import GraphiteFixtures
 
 /// Runs every base in `Tests/BaseSampleVault` through a real index, the way the app does:
 /// pre-filter in SQL, load bounded records, evaluate off the main actor.
@@ -11,7 +12,7 @@ final class BaseSampleVaultTests: XCTestCase {
     private var store: VaultStore!
 
     private static var sampleVaultLocation: URL {
-        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("BaseSampleVault")
+        FixtureFolders.baseSampleVault
     }
 
     override func setUp() async throws {

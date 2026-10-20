@@ -9,19 +9,16 @@ import GraphiteCore
 @testable import GraphiteUI
 #if canImport(AppKit)
 import AppKit
+import GraphiteTestSupport
 #endif
 
 /// PDF session behavior that other groups' fixes asked the workspace area to complete.
 @MainActor
 final class UiWorkspaceAreaPDFHandoffTests: XCTestCase {
-    private let directory = FileManager.default.temporaryDirectory.appendingPathComponent("WorkspaceAreaPDF-\(UUID().uuidString)")
+    private var directory: URL!
 
     override func setUpWithError() throws {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: directory)
+        directory = try TemporaryVault.make(prefix: "WorkspaceAreaPDF", for: self).root
     }
 
     private func makePDF(named filename: String, pageSize: CGSize = CGSize(width: 612, height: 792), pageCount: Int = 1) throws -> URL {
@@ -44,6 +41,16 @@ final class UiWorkspaceAreaPDFHandoffTests: XCTestCase {
     private func markupCount(onPage pageIndex: Int, ofFileAt location: URL) throws -> Int {
         let page = try XCTUnwrap(PDFDocument(url: location)?.page(at: pageIndex))
         return page.annotations.filter { annotation in PDFMarkupKind(annotationType: annotation.type) != nil }.count
+    }
+
+    /// Next to a portrait page turned a quarter, which shows landscape, the new page is
+    /// landscape like the page in view; it was portrait.
+    func testInsertingPaperBesideATurnedPageMatchesThePageAsShown() async throws {
+        let session = try await PDFSession.open(try makePDF(named: "Turned.pdf", pageSize: CGSize(width: 595, height: 842)))
+        try XCTUnwrap(session.document.page(at: 0)).rotation = 90
+        try await session.insertPaper(PaperSpecification(template: .dotted), at: 1)
+        let insertedBounds = try XCTUnwrap(session.document.page(at: 1)).bounds(for: .cropBox)
+        XCTAssertGreaterThan(insertedBounds.width, insertedBounds.height, "The new page is landscape, as the turned page is shown.")
     }
 
     /// A 300 dpi A4 scan whose pixels became points is larger than the sizes offered for new
@@ -162,30 +169,22 @@ final class UiWorkspaceAreaPDFHandoffTests: XCTestCase {
 @MainActor
 final class UiWorkspaceAreaHandoffTests: XCTestCase {
     private var temporaryFolders: [URL] = []
-    private var savedGraphitePreferences: [String: Any] = [:]
-    private var vaultIdentifiersBeforeTest: Set<UUID> = []
+    private var device: IsolatedWorkspaceDevice!
 
     override func setUp() async throws {
-        savedGraphitePreferences = UserDefaults.standard.dictionaryRepresentation().filter { key, _ in key.hasPrefix("Graphite") }
-        vaultIdentifiersBeforeTest = Set(VaultLibrary().vaults.map(\.id))
+        // Opening a vault records it, with an index of its own: in preferences and folders of
+        // this test's own.
+        device = try IsolatedWorkspaceDevice.make(for: self)
     }
 
     override func tearDown() async throws {
-        for vault in VaultLibrary().vaults where !vaultIdentifiersBeforeTest.contains(vault.id) {
-            VaultIndex.removeIndex(forVault: vault.id)
-        }
-        for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix("Graphite") {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
-        for (key, storedValue) in savedGraphitePreferences { UserDefaults.standard.set(storedValue, forKey: key) }
         for folder in temporaryFolders { try? FileManager.default.removeItem(at: folder) }
     }
 
     // MARK: Helpers
 
     private func makeFolder(_ prefix: String) throws -> URL {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let folder = try TemporaryVault.make(prefix: prefix, for: self).root
         temporaryFolders.append(folder)
         return folder.resolvingSymlinksInPath()
     }
@@ -206,7 +205,7 @@ final class UiWorkspaceAreaHandoffTests: XCTestCase {
         let indexFolder = try makeFolder("WorkspaceAreaIndex")
         let index = try VaultIndex(databaseURL: indexFolder.appendingPathComponent("index.sqlite"))
         _ = try await index.reconcile(root: vault)
-        let workspace = WorkspaceModel()
+        let workspace = device.makeWorkspace()
         workspace.folderAccess = FolderAccess(root: vault)
         let store = VaultStore(root: vault)
         workspace.store = store
@@ -214,14 +213,6 @@ final class UiWorkspaceAreaHandoffTests: XCTestCase {
         workspace.vaultSettings = try await store.settings()
         workspace.hasCompletedIndexScan = marksScanComplete
         return workspace
-    }
-
-    private func waitUntil(timeoutSeconds: Double = 20, _ condition: () -> Bool) async throws {
-        let deadline = Date.now.addingTimeInterval(timeoutSeconds)
-        while !condition() {
-            guard Date.now < deadline else { return XCTFail("The condition did not become true in time.") }
-            try await Task.sleep(for: .milliseconds(20))
-        }
     }
 
     private func fileText(_ relativePath: String, in vault: URL) -> String? {
@@ -404,7 +395,7 @@ final class UiWorkspaceAreaHandoffTests: XCTestCase {
 
     func testMovedVaultFolderIsOpenedAgainAtItsNewPlace() async throws {
         let vault = try makeVault(files: ["Note.md": "text"])
-        let workspace = WorkspaceModel()
+        let workspace = device.makeWorkspace()
         try await workspace.openFolderAsVault(vault)
         let movedVault = vault.deletingLastPathComponent().appendingPathComponent("Moved-\(UUID().uuidString)", isDirectory: true)
         temporaryFolders.append(movedVault)
@@ -665,6 +656,37 @@ extension UiWorkspaceAreaHandoffTests {
         XCTAssertTrue(layoutChanged.withLock { changed in changed }, "The other side's tab still takes focus.")
         XCTAssertEqual(workspace.layout.activeTab.id, firstTabID)
         XCTAssertEqual(workspace.selection, try VaultPath("A.md"))
+    }
+
+    /// The window's root view shows the focused note's inspector and More menu. Reading
+    /// the focused note read the whole layout, so each frame of a drag of the split's
+    /// divider updated the root view, the sidebar with it.
+    func testDraggingTheDividerLeavesViewsOfTheFocusedNoteAlone() async throws {
+        let vault = try makeVault(files: ["A.md": "first", "B.md": "second"])
+        let workspace = try await indexedWorkspace(vault)
+        let firstTabIDResult = await workspace.open(try VaultPath("A.md"))
+        let firstTabID = try XCTUnwrap(firstTabIDResult)
+        _ = await workspace.open(try VaultPath("B.md"), placement: .otherGroup)
+        let focusedNotePath = try XCTUnwrap(workspace.markdownSession?.path)
+        XCTAssertEqual(workspace.openTabCount, 2)
+
+        let focusedNoteObserversChanged = OSAllocatedUnfairLock(initialState: false)
+        withObservationTracking {
+            _ = workspace.markdownSession
+            _ = workspace.pdfSession
+            _ = workspace.canvasSession
+            _ = workspace.openTabCount
+        } onChange: {
+            focusedNoteObserversChanged.withLock { changed in changed = true }
+        }
+        workspace.layout.splitFraction = 0.3
+        workspace.layout.splitFraction = 0.35
+        XCTAssertFalse(focusedNoteObserversChanged.withLock { changed in changed })
+        XCTAssertEqual(workspace.markdownSession?.path, focusedNotePath)
+
+        workspace.activateTab(firstTabID)
+        XCTAssertTrue(focusedNoteObserversChanged.withLock { changed in changed }, "Focusing the other side shows its note.")
+        XCTAssertEqual(workspace.markdownSession?.path, try VaultPath("A.md"))
     }
 
     /// Search in all files from the palette or ⇧⌘F only asked for focus; with the sidebar

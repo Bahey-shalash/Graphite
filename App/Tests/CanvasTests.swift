@@ -139,12 +139,12 @@ final class CanvasTests: XCTestCase {
         XCTAssertEqual(movedFrame.origin, CGPoint(x: 800, y: 120), "Moved by the drag and snapped to the grid")
         let fileLocation = try XCTUnwrap(vaultDirectory).appendingPathComponent("Board.canvas")
         let expected = boardText.replacingOccurrences(of: "\"url\":\"https://obsidian.md/canvas\",\"x\":760,\"y\":0,", with: "\"url\":\"https://obsidian.md/canvas\",\"x\":800,\"y\":120,")
-        try await waitUntil(seconds: 5) { (try? String(contentsOf: fileLocation, encoding: .utf8)) == expected }
+        try await waitUntil(timeoutSeconds: 5) { (try? String(contentsOf: fileLocation, encoding: .utf8)) == expected }
         XCTAssertEqual(try String(contentsOf: fileLocation, encoding: .utf8), expected, "Saved on its own, and only the card's position changed.")
         attachScreenshot(named: "Canvas card selected with its handles after a move")
 
         session.undoAvailability.undo()
-        try await waitUntil(seconds: 5) { (try? String(contentsOf: fileLocation, encoding: .utf8)) == self.boardText }
+        try await waitUntil(timeoutSeconds: 5) { (try? String(contentsOf: fileLocation, encoding: .utf8)) == self.boardText }
         XCTAssertEqual(try String(contentsOf: fileLocation, encoding: .utf8), boardText, "Undo saves the file back byte for byte.")
     }
 
@@ -170,7 +170,10 @@ final class CanvasTests: XCTestCase {
         XCTAssertEqual(session.file.node(withIdentifier: greenCard.id)?.content, .text("Hello **canvas**"))
         let fileLocation = try XCTUnwrap(vaultDirectory).appendingPathComponent("Board.canvas")
         let expected = boardText.replacingOccurrences(of: "\"type\":\"text\",\"text\":\"\",\"x\":0", with: "\"type\":\"text\",\"text\":\"Hello **canvas**\",\"x\":0")
-        try await waitUntil(seconds: 5) { (try? String(contentsOf: fileLocation, encoding: .utf8)) == expected }
+        // Saved now, not by the autosave: that waits 900 ms on the session's clock, which this test does not hold, and its timing
+        // is tested with a manual clock (CanvasSessionAutosaveTests).
+        try await session.save()
+        XCTAssertEqual(try String(contentsOf: fileLocation, encoding: .utf8), expected)
         try await waitUntil { !self.textViews(in: controller).contains { textView in textView.window != nil } }
         try await Task.sleep(for: .milliseconds(400))
         attachScreenshot(named: "Canvas text card rendered after editing")
@@ -419,10 +422,5 @@ final class CanvasTests: XCTestCase {
         }
     }
 
-    private func waitUntil(seconds: Double = 5, _ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(seconds)
-        while !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(25)) }
-        XCTAssertTrue(condition(), "The hosted canvas did not reach the expected state.")
-    }
 }
 #endif

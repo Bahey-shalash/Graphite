@@ -57,6 +57,7 @@ private struct PDFPaneContent: View {
     let resolveConflict: (URL) -> Void
     @State private var commands: PDFPageCommands
     @State private var thumbnailRenderer = PDFThumbnailRenderer()
+    @State private var readAloudMarkerCache = PDFReadAloudMarkerCache()
     @State private var showsPages = false
     @State private var showsPageJump = false
     @State private var showsReloadConfirmation = false
@@ -114,11 +115,16 @@ private struct PDFPaneContent: View {
         }
     }
 
+    /// Found again only when the marks or the pages' text change: finding a mark reads its
+    /// page's text, and every page's when its words moved, which ran on every update.
     private var readAloudMarkers: [PDFReadAloudMarker] {
         guard let readAloudNavigator else { return [] }
         let marks = readAloudNavigator.penMarks(for: session.location.path)
-        return marks.enumerated().compactMap { index, mark in
-            mark.located(in: session.document).map { located in PDFReadAloudMarker(pageIndex: located.pageIndex, bounds: located.bounds, isStart: index == 0) }
+        let session = session
+        return readAloudMarkerCache.markers(for: marks, textVersion: session.readingTextVersion) {
+            marks.enumerated().compactMap { index, mark in
+                mark.located(in: session.document).map { located in PDFReadAloudMarker(pageIndex: located.pageIndex, bounds: located.bounds, isStart: index == 0) }
+            }
         }
     }
 
@@ -169,7 +175,7 @@ private struct PDFPaneContent: View {
                 // A protected PDF is not annotated, so PDFKit's own text selection applies.
                 GraphitePDFView(session: session,
                                 input: annotationInput,
-                                initialPageIndex: session.currentPageIndex > 0 ? session.currentPageIndex : nil, beginInteraction: focus,
+                                initialPageIndex: { session.currentPageIndex > 0 ? session.currentPageIndex : nil }, beginInteraction: focus,
                                 linkActions: linkActions,
                                 beginWritingWithPencil: session.isProtected ? nil : { focus(); session.isWriting = true },
                                 readingHighlights: readAloud?.highlights(in: session) ?? [],
@@ -267,7 +273,7 @@ private struct PDFPaneContent: View {
         }
         // The page shown sits under the title rather than in the toolbar, which leaves the
         // title room; a phone shows it in More, beside Go to Page.
-        .modifier(NavigationSubtitle(text: isFocused && !isCompactWidthOnAnyPlatform ? "Page \(session.currentPageIndex + 1) of \(session.pageCount)" : nil))
+        .modifier(PDFPageSubtitle(session: session, isShown: isFocused && !isCompactWidthOnAnyPlatform))
         .modifier(PDFPageCommandDialogs(commands: commands))
         .confirmationDialog(session.hasExternalConflict ? "Reload the PDF and discard the unsaved edits in this editor?" : "Discard the edits that could not be saved and reload the PDF?",
                             isPresented: $showsReloadConfirmation, titleVisibility: .visible) {
@@ -365,7 +371,7 @@ private struct PDFPaneContent: View {
             }
             if !session.isProtected {
                 if !foldsSecondaryActions {
-                    PDFAddPageMenu(commands: commands, insertionIndexAfter: session.currentPageIndex + 1, insertionIndexBefore: session.currentPageIndex)
+                    CurrentPageAddPageMenu(session: session, commands: commands)
                 }
                 #if canImport(UIKit)
                 if !usesDocumentControlRow {
@@ -434,7 +440,7 @@ private struct PDFPaneContent: View {
                 Button("Find in PDF", systemImage: "magnifyingglass") { presentFindNavigator() }
                 #endif
                 if !session.isProtected {
-                    PDFAddPageMenu(commands: commands, insertionIndexAfter: session.currentPageIndex + 1, insertionIndexBefore: session.currentPageIndex)
+                    CurrentPageAddPageMenu(session: session, commands: commands)
                 }
                 if let renameDocument { Button("Rename…", systemImage: "pencil") { renameDocument.rename() } }
             }
@@ -468,7 +474,7 @@ private struct PDFPaneContent: View {
             }
             Divider()
             #endif
-            PDFPageActionsMenuContent(commands: commands, pageIndices: [session.currentPageIndex], isBookmarked: session.bookmarkedPageIndices.contains(session.currentPageIndex))
+            CurrentPageActionsMenuContent(session: session, commands: commands)
         }
         if !foldsSecondaryActions {
             Section { goToPageButton }
@@ -483,7 +489,7 @@ private struct PDFPaneContent: View {
         } label: {
             Label {
                 Text("Go to Page…")
-                Text("Page \(session.currentPageIndex + 1) of \(session.pageCount)")
+                PDFPageNumberText(session: session)
             } icon: {
                 Image(systemName: "number")
             }
@@ -842,15 +848,44 @@ struct PDFExportDocument: FileDocument {
 /// A line under the window's title, where the system shows one (iPadOS 26 and macOS). Nil
 /// shows an empty subtitle rather than none, so the PDF's view stays the same view when the
 /// pane gains or loses focus; SwiftUI would otherwise build the PDF view again.
-private struct NavigationSubtitle: ViewModifier {
-    let text: String?
+// The pane's views that show or act on the page in view read it themselves: in the pane's
+// own body, each page turned while scrolling rebuilt the whole pane, its toolbar and the
+// PDF view's update.
+
+/// "Page 3 of 40" under the title, as a PDF shows its page there.
+private struct PDFPageSubtitle: ViewModifier {
+    let session: PDFSession
+    let isShown: Bool
 
     func body(content: Content) -> some View {
-        if #available(iOS 26, macOS 11, *) {
-            content.navigationSubtitle(Text(text ?? ""))
-        } else {
-            content
-        }
+        content.navigationSubtitle(Text(isShown ? "Page \(session.currentPageIndex + 1) of \(session.pageCount)" : ""))
+    }
+}
+
+private struct PDFPageNumberText: View {
+    let session: PDFSession
+
+    var body: some View {
+        Text("Page \(session.currentPageIndex + 1) of \(session.pageCount)")
+    }
+}
+
+private struct CurrentPageAddPageMenu: View {
+    let session: PDFSession
+    let commands: PDFPageCommands
+
+    var body: some View {
+        PDFAddPageMenu(commands: commands, insertionIndexAfter: session.currentPageIndex + 1, insertionIndexBefore: session.currentPageIndex)
+    }
+}
+
+private struct CurrentPageActionsMenuContent: View {
+    let session: PDFSession
+    let commands: PDFPageCommands
+
+    var body: some View {
+        PDFPageActionsMenuContent(commands: commands, pageIndices: [session.currentPageIndex],
+                                  isBookmarked: session.bookmarkedPageIndices.contains(session.currentPageIndex))
     }
 }
 
@@ -876,5 +911,19 @@ extension ReadAloudNavigator.PenMark {
                                               context: context, wordOffsetInContext: wordOffsetInContext)
         }
         return nil
+    }
+}
+
+/// The Read Aloud pen's markers as last found, with the marks and the text they were found in.
+@MainActor
+final class PDFReadAloudMarkerCache {
+    private var key: (marks: [ReadAloudNavigator.PenMark], textVersion: Int)?
+    private var markers: [PDFReadAloudMarker] = []
+
+    func markers(for marks: [ReadAloudNavigator.PenMark], textVersion: Int, find: () -> [PDFReadAloudMarker]) -> [PDFReadAloudMarker] {
+        if let key, key.marks == marks, key.textVersion == textVersion { return markers }
+        markers = marks.isEmpty ? [] : find()
+        key = (marks, textVersion)
+        return markers
     }
 }

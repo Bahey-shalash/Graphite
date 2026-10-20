@@ -16,7 +16,6 @@ struct DrawingEditorDraft: Codable, Equatable, Sendable {
     let vaultIdentifier: UUID
     let target: Target
     let title: String
-    let background: DrawingBackground
     /// The format the drawing is saved in; the draft itself is always an SVG drawing.
     let format: DrawingFormat
 
@@ -32,7 +31,6 @@ struct DrawingEditorDraft: Codable, Equatable, Sendable {
             target = .drawingOnImage(imagePath: imagePath, notePath: notePath)
         }
         title = request.title
-        background = request.background
         format = request.format
     }
 }
@@ -55,7 +53,7 @@ struct RecoveredDrawingDraft: Sendable {
             requestTarget = .drawingOnImage(imagePath: imagePath, notePath: notePath)
         }
         return DrawingEditorRequest(id: draft.requestIdentifier, target: requestTarget, title: draft.title, initialStrokeData: payload.strokes,
-                                    canvasWidth: payload.width, background: draft.background, format: draft.format, isRecoveredDraft: true,
+                                    canvasWidth: payload.width, background: payload.background, format: draft.format, isRecoveredDraft: true,
                                     backgroundImage: payload.backgroundImage, pictures: payload.pictures, paper: payload.paper)
     }
 }
@@ -86,13 +84,17 @@ final class DrawingEditorDraftStore {
         let drawingLocation = Self.drawingLocation(for: draft.requestIdentifier, in: directory)
         let descriptionLocation = Self.descriptionLocation(for: draft.requestIdentifier, in: directory)
         enqueue {
+            var hasReplacedDrawing = false
             do {
                 let fileData = try await drawingFile()
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
                 try fileData.write(to: drawingLocation, options: .atomic)
+                hasReplacedDrawing = true
                 try JSONEncoder().encode(draft).write(to: descriptionLocation, options: .atomic)
             } catch {
-                try? FileManager.default.removeItem(at: descriptionLocation)
+                // An earlier draft of this drawing stays recoverable when this one fails to
+                // encode; its description goes only once its drawing file was replaced.
+                if hasReplacedDrawing { try? FileManager.default.removeItem(at: descriptionLocation) }
             }
         }
     }

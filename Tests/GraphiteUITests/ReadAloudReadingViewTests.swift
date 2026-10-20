@@ -6,13 +6,12 @@ import GraphiteCore
 import GraphiteIndex
 import GraphiteApple
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 @MainActor
 final class ReadAloudReadingViewTests: XCTestCase {
     func testRenderedWordsRetainExactOccurrencesAcrossMarkdownTransforms() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ReadAloudReading-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "ReadAloudReading", for: self).root
         let index = try VaultIndex(databaseURL: directory.appendingPathComponent("index.sqlite"))
         let source = "---\r\nprivate: hidden\r\n---\r\n# Repeat\r\nRepeat **repeat** [[Topic|repeat]] and cafe\u{301} &amp; tea.\r\n%% hidden %%After $x^2$ now.\r\n\r\n- [x] Study `word` today.\r\n\r\n```swift\r\nrepeat hidden\r\n```\r\n\r\n> [!note] Repeat\r\n> Repeat **again**.\r\n> > [!tip] Nested\r\n> > More repeat.\r\n\r\n# Repeat\r\nFinish."
         let build = try await ReadingViewBuilder().build(source: source, note: VaultPath("Note.md"), root: directory,
@@ -54,9 +53,7 @@ final class ReadAloudReadingViewTests: XCTestCase {
     /// in a paragraph made its words differ from the voice's ("gate’s"), which switched the
     /// whole paragraph's highlight off. Acronyms said differently must not do that either.
     func testTypographicMarksAndRespelledTermsKeepTheirParagraphMapped() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ReadAloudReading-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "ReadAloudReading", for: self).root
         let index = try VaultIndex(databaseURL: directory.appendingPathComponent("index.sqlite"))
         let source = "# Shannon's expansion\n\nThe gate's \"full\" level -- while the CMOS and SRAM keep GPUs busy, e.g. at https://example.com/a now."
         let build = try await ReadingViewBuilder().build(source: source, note: VaultPath("Note.md"), root: directory,
@@ -116,9 +113,7 @@ final class ReadAloudReadingViewTests: XCTestCase {
     }
 
     func testNativeReadingViewFollowsDistantWordOnlyWhenEnabled() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ReadAloudFollowing-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "ReadAloudFollowing", for: self).root
         let index = try VaultIndex(databaseURL: directory.appendingPathComponent("index.sqlite"))
         let source = "# Start\nFirst word.\n\n" + (0..<40).map { number in
             "# Section \(number)\n\nA paragraph that makes this note longer.\n\n"
@@ -130,7 +125,7 @@ final class ReadAloudReadingViewTests: XCTestCase {
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 360, height: 240), styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = hosting
         hosting.frame = CGRect(x: 0, y: 0, width: 360, height: 240)
-        window.orderFront(nil)
+        window.showInvisibly()
         defer { window.contentView = nil; window.orderOut(nil) }
         state.range = (source as NSString).range(of: "First")
         // Waits for the condition itself, which a loaded machine takes longer to reach: the
@@ -161,9 +156,7 @@ final class ReadAloudReadingViewTests: XCTestCase {
         // reading; an open callout highlights its body.
         for source in samples {
             let speech = ReadingProbeSpeech()
-            let preferenceName = "ReadAloudWidget-\(UUID().uuidString)"
-            let preferences = try XCTUnwrap(UserDefaults(suiteName: preferenceName))
-            defer { preferences.removePersistentDomain(forName: preferenceName) }
+            let preferences = try IsolatedDeviceState.make(prefix: "ReadAloudWidget", for: self).preferences
             let reader = ReadAloudController(session: ReadAloudSession(speech: speech, preferences: preferences))
             reader.session.chooseVoice("reading-probe")
             reader.readMarkdown(source, path: path)
@@ -216,7 +209,7 @@ final class ReadAloudReadingViewTests: XCTestCase {
         window.contentView = scrollView
         scrollView.frame = CGRect(x: 0, y: 0, width: 360, height: 240)
         textView.frame.size.width = 360
-        window.orderFront(nil)
+        window.showInvisibly()
         defer { window.contentView = nil; window.orderOut(nil) }
         try await settle(scrollView)
         textView.readAloudRange = (source as NSString).range(of: "target")

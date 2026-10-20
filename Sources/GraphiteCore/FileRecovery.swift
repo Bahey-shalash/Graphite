@@ -35,9 +35,11 @@ public struct FileRecoveryStore: Sendable {
         self.directory = directory
     }
 
-    /// The store for a vault, in the app's Application Support folder.
-    public static func forVault(identifier: UUID) throws -> FileRecoveryStore {
-        let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+    /// The store for a vault, in the app's Application Support folder, or in
+    /// `applicationSupportFolder` when one is given (the hosted tests give a temporary one).
+    public static func forVault(identifier: UUID, in applicationSupportFolder: URL? = nil) throws -> FileRecoveryStore {
+        let support = try applicationSupportFolder
+            ?? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         return FileRecoveryStore(directory: support.appendingPathComponent("Graphite/File Recovery", isDirectory: true)
             .appendingPathComponent(identifier.uuidString, isDirectory: true))
     }

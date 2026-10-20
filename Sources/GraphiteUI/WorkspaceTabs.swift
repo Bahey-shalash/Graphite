@@ -17,6 +17,9 @@ final class TabDocument {
     var headingScrollRequest: HeadingScrollRequest?
     /// The view a `[[Books.base#Gallery]]` link asked the tab's base to show.
     var baseViewRequest: BaseViewRequest?
+    /// A notebook to create from the tab's note, asked for by the note's menus or the
+    /// command palette; the note's pane shows the New Notebook sheet for it.
+    var notebookInsertion: NotebookInsertionRequest?
     var isOpening = false
     /// The community plugin view an empty tab shows (its leaf's identifier), until a file opens in it.
     var pluginViewIdentifier: String?
@@ -86,7 +89,7 @@ extension WorkspaceModel {
         "GraphiteTabLayout." + vaultIdentifier.uuidString
     }
 
-    var activeDocument: TabDocument { document(for: layout.activeTab.id) }
+    var activeDocument: TabDocument { document(for: activeTabID ?? layout.activeTab.id) }
 
     /// What opening a file on the other side is called: that side is on the left while
     /// the right side is focused.
@@ -184,14 +187,23 @@ extension WorkspaceModel {
         guard let group = layout.group(containing: tabID) else { return }
         let closingTabs = group.tabs.filter { tab in tab.id != tabID && !tab.isPinned }.map(\.id)
         guard await saveBeforeClosing(closingTabs) else { return }
-        removeTabDocuments(layout.closeOtherTabs(keeping: tabID))
+        // Only the tabs saved: one opened in the group while they were saved stays open.
+        removeTabDocuments(layout.closeOtherTabs(keeping: tabID, onlyClosing: Set(closingTabs)))
     }
 
-    /// Closes one side of the split with its tabs.
+    /// Closes one side of the split with its tabs. A tab opened on that side while the
+    /// others were saved is saved too before the side closes.
     func closeGroup(_ groupID: UUID) async {
-        guard let group = layout.groups.first(where: { group in group.id == groupID }) else { return }
-        guard await saveBeforeClosing(group.tabs.map(\.id)) else { return }
-        removeTabDocuments(layout.closeGroup(groupID))
+        var savedTabs: Set<UUID> = []
+        while let group = layout.groups.first(where: { group in group.id == groupID }) {
+            let unsavedTabs = group.tabs.map(\.id).filter { tabID in !savedTabs.contains(tabID) }
+            if unsavedTabs.isEmpty {
+                removeTabDocuments(layout.closeGroup(groupID))
+                return
+            }
+            guard await saveBeforeClosing(unsavedTabs) else { return }
+            savedTabs.formUnion(unsavedTabs)
+        }
     }
 
     /// Forgets the documents of closed tabs. Each is unloaded first: a note editor kept
@@ -214,7 +226,7 @@ extension WorkspaceModel {
         await open(path, placement: .newTab)
     }
 
-    private func saveBeforeClosing(_ tabIDs: [UUID]) async -> Bool {
+    func saveBeforeClosing(_ tabIDs: [UUID]) async -> Bool {
         // A tab on screen stays editable while the others save, so all are checked again.
         repeat {
             for tabID in tabIDs {
@@ -340,7 +352,7 @@ extension WorkspaceModel {
                 // An edit while the note is read: reading goes on at the same sentence.
                 newMarkdown?.textDidChange = { [weak self, weak newMarkdown] in
                     guard let self, let newMarkdown else { return }
-                    readAloud.noteTextDidChange(path: path, text: newMarkdown.text,
+                    readAloud?.noteTextDidChange(path: path, text: newMarkdown.text,
                         hiddenRanges: ReadAloudFolding.hiddenRanges(in: newMarkdown.text, foldedKeys: newMarkdown.foldedKeys,
                                                                     calloutExpansion: calloutFolds.expansion(for: path.rawValue)))
                 }
@@ -409,7 +421,7 @@ extension WorkspaceModel {
 
     func saveTabLayout() {
         guard let layoutVaultIdentifier, let data = try? JSONEncoder().encode(savedLayoutWithPluginViews()) else { return }
-        UserDefaults.standard.set(data, forKey: Self.tabLayoutKey(for: layoutVaultIdentifier))
+        deviceDefaults.set(data, forKey: Self.tabLayoutKey(for: layoutVaultIdentifier))
     }
 
     /// Restores the vault's tabs as they were left; their files load as they are shown.
@@ -420,7 +432,7 @@ extension WorkspaceModel {
             guard let location = try? path.url(in: root) else { return false }
             return FileManager.default.fileExists(atPath: location.path)
         }
-        if let data = UserDefaults.standard.data(forKey: Self.tabLayoutKey(for: currentVaultIdentifier)),
+        if let data = deviceDefaults.data(forKey: Self.tabLayoutKey(for: currentVaultIdentifier)),
            let saved = try? JSONDecoder().decode(SavedTabLayout.self, from: data) {
             layout = TabLayout(saved: saved, fileExists: fileExists)
             takePluginViewsToRestore(from: saved)

@@ -2,6 +2,7 @@ import XCTest
 import AVFoundation
 import GraphiteCore
 @testable import GraphiteApple
+import GraphiteTestSupport
 
 @MainActor
 private final class TestReadAloudSpeech: ReadAloudSpeaking {
@@ -51,7 +52,7 @@ private final class TestReadAloudSpeech: ReadAloudSpeaking {
 final class ReadAloudSessionTests: XCTestCase {
     private func makeSession() throws -> (ReadAloudSession, TestReadAloudSpeech) {
         let speech = TestReadAloudSpeech()
-        let preferences = try XCTUnwrap(UserDefaults(suiteName: "ReadAloudTests-\(UUID().uuidString)"))
+        let preferences = try IsolatedDeviceState.make(prefix: "ReadAloudTests", for: self).preferences
         let session = ReadAloudSession(speech: speech, preferences: preferences)
         session.chooseVoice("test-voice")
         return (session, speech)
@@ -61,7 +62,7 @@ final class ReadAloudSessionTests: XCTestCase {
     /// session lists them only once something needs them.
     func testTheVoicesAreListedOnlyOnceSomethingNeedsThem() throws {
         let speech = TestReadAloudSpeech()
-        let preferences = try XCTUnwrap(UserDefaults(suiteName: "ReadAloudTests-\(UUID().uuidString)"))
+        let preferences = try IsolatedDeviceState.make(prefix: "ReadAloudTests", for: self).preferences
         let session = ReadAloudSession(speech: speech, preferences: preferences)
         XCTAssertEqual(speech.voiceListings, 0)
         XCTAssertEqual(session.voices.map(\.id), ["test-voice"])
@@ -194,7 +195,7 @@ final class ReadAloudSessionTests: XCTestCase {
     func testFollowsTheSystemVoiceAndSettingsUntilAVoiceIsChosenForGraphite() throws {
         let speech = TestReadAloudSpeech()
         speech.voices = [ReadAloudVoice(id: "ava", name: "Ava", language: "en-US", quality: 3)]
-        let preferences = try XCTUnwrap(UserDefaults(suiteName: "ReadAloudTests-\(UUID().uuidString)"))
+        let preferences = try IsolatedDeviceState.make(prefix: "ReadAloudTests", for: self).preferences
         let session = ReadAloudSession(speech: speech, preferences: preferences)
         session.load(try ReadAloudDocument.plainText("Static gates draw almost no current while they rest, which keeps the power low."))
         XCTAssertEqual(session.selectedVoiceIdentifier, "ava", "No system voice: the best installed voice.")
@@ -221,7 +222,7 @@ final class ReadAloudSessionTests: XCTestCase {
         let speech = TestReadAloudSpeech()
         speech.voices = [ReadAloudVoice(id: "com.apple.eloquence.en-US.Eddy", name: "Eddy", language: "en-US", quality: 1),
                          ReadAloudVoice(id: "aaron", name: "Aaron", language: "en-US", quality: 2)]
-        let preferences = try XCTUnwrap(UserDefaults(suiteName: "ReadAloudTests-\(UUID().uuidString)"))
+        let preferences = try IsolatedDeviceState.make(prefix: "ReadAloudTests", for: self).preferences
         preferences.set("com.apple.eloquence.en-US.Eddy", forKey: "GraphiteReadAloudVoice")
         preferences.set("com.apple.eloquence.en-US.Eddy", forKey: "GraphiteReadAloudChosenVoice")
         let session = ReadAloudSession(speech: speech, preferences: preferences)
@@ -285,6 +286,7 @@ final class ReadAloudSessionTests: XCTestCase {
         XCTAssertEqual(session.state, .finished)
         let releasesWhileContinuing = speech.releaseCount
         session.load(try ReadAloudDocument.plainText("Last."))
+        XCTAssertEqual(speech.releaseCount, releasesWhileContinuing, "Loading the next page keeps the audio the finish asked to keep.")
         session.play()
         session.didFinishDocument = { false }
         speech.eventHandler?(.finished(try XCTUnwrap(speech.requests.last?.identifier)))
@@ -313,7 +315,7 @@ final class ReadAloudSessionTests: XCTestCase {
     func testAutomaticVoiceFollowsNewlyInstalledPremiumVoiceUntilThePersonChooses() throws {
         let speech = TestReadAloudSpeech()
         speech.voices = [ReadAloudVoice(id: "compact", name: "Samantha", language: "en-US", quality: 1)]
-        let preferences = try XCTUnwrap(UserDefaults(suiteName: "ReadAloudTests-\(UUID().uuidString)"))
+        let preferences = try IsolatedDeviceState.make(prefix: "ReadAloudTests", for: self).preferences
         let session = ReadAloudSession(speech: speech, preferences: preferences)
         session.load(try ReadAloudDocument.plainText("The pull-down network uses nMOS transistors, and the pull-up network uses pMOS transistors."))
         XCTAssertTrue(session.readingLanguage.hasPrefix("en"))

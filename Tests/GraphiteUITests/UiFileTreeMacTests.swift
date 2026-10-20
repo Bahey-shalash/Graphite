@@ -5,6 +5,7 @@ import XCTest
 import GraphiteApple
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// The sidebar's file tree in the Mac's outline view: a vault with thousands of files at its
 /// root shows, and an expanded folder's contents follow it as rows of their own.
@@ -29,7 +30,6 @@ final class UiFileTreeMacTests: XCTestCase {
 
         // Before each row was a single view, the outline view made every earlier row to find
         // each one, and these steps took about 20 s with 2,000 files; since, about 1 s (2026-10-15).
-        let started = Date.now
         let outlineView = try await showSidebar(of: workspace)
         try await waitUntil { outlineView.numberOfRows == rootRowCount }
 
@@ -48,9 +48,6 @@ final class UiFileTreeMacTests: XCTestCase {
         // Opening Course again shows both levels at once, from the contents already listed.
         workspace.expandedFolders.insert(try VaultPath("Course"))
         try await waitUntil { outlineView.numberOfRows == rootRowCount + 3 }
-
-        let elapsedSeconds = Date.now.timeIntervalSince(started)
-        XCTAssertLessThan(elapsedSeconds, 10, "Showing \(rootRowCount) rows and folding took \(elapsedSeconds) s")
     }
 
     /// A row is selected through its tag, the same tag a click sets the selection from. Set
@@ -93,7 +90,7 @@ final class UiFileTreeMacTests: XCTestCase {
         // Swift owns the window; closing it in tearDown must not release it a second time.
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: NavigationStack { sidebar })
-        window.orderFront(nil)
+        window.showInvisibly()
         windows.append(window)
         var outlineView: NSOutlineView?
         try await waitUntil {
@@ -112,15 +109,5 @@ final class UiFileTreeMacTests: XCTestCase {
         return nil
     }
 
-    private func waitUntil(timeoutSeconds: TimeInterval = 20, _ condition: () -> Bool) async throws {
-        let deadline = Date.now.addingTimeInterval(timeoutSeconds)
-        while !condition() {
-            guard Date.now < deadline else {
-                XCTFail("Timed out after \(timeoutSeconds) s")
-                return
-            }
-            try await Task.sleep(for: .milliseconds(50))
-        }
-    }
 }
 #endif

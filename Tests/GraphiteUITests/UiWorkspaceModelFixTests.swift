@@ -5,33 +5,23 @@ import GraphiteCore
 import GraphiteIndex
 import GraphiteApple
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// Vault switching, link following, external changes, and attachment saving in the
 /// workspace model, run against real vault folders.
 @MainActor
 final class UiWorkspaceModelFixTests: XCTestCase {
     private var temporaryDirectories: [URL] = []
-    private var savedGraphitePreferences: [String: Any] = [:]
-    private var vaultIdentifiersBeforeTest: Set<UUID> = []
+    private var device: IsolatedWorkspaceDevice!
 
     override func setUp() async throws {
-        // The workspace remembers vaults in the standard preferences; the test process's
-        // own preferences are put back as they were afterwards.
-        savedGraphitePreferences = UserDefaults.standard.dictionaryRepresentation().filter { key, _ in key.hasPrefix("Graphite") }
-        vaultIdentifiersBeforeTest = Set(VaultLibrary().vaults.map(\.id))
+        // The workspace remembers vaults, and keeps their indexes, in preferences and folders
+        // of this test's own.
+        device = try IsolatedWorkspaceDevice.make(for: self)
     }
 
     override func tearDown() async throws {
-        // Indexes are kept per vault identifier; those of the vaults these tests opened go.
-        for vault in VaultLibrary().vaults where !vaultIdentifiersBeforeTest.contains(vault.id) {
-            VaultIndex.removeIndex(forVault: vault.id)
-        }
-        for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix("Graphite") {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
-        for (key, storedValue) in savedGraphitePreferences { UserDefaults.standard.set(storedValue, forKey: key) }
         for directory in temporaryDirectories {
-            if let cacheURL = try? VaultIndex.cacheURL(for: directory) { try? FileManager.default.removeItem(at: cacheURL) }
             try? FileManager.default.removeItem(at: directory)
         }
     }
@@ -39,8 +29,7 @@ final class UiWorkspaceModelFixTests: XCTestCase {
     // MARK: Helpers
 
     private func makeVault(files: [String: String] = [:], folders: [String] = []) throws -> URL {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("WorkspaceVault-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        let vault = try TemporaryVault.make(prefix: "WorkspaceVault", for: self).root
         temporaryDirectories.append(vault)
         for folder in folders {
             try FileManager.default.createDirectory(at: vault.appendingPathComponent(folder, isDirectory: true), withIntermediateDirectories: true)
@@ -54,19 +43,8 @@ final class UiWorkspaceModelFixTests: XCTestCase {
         return vault.resolvingSymlinksInPath()
     }
 
-    private func waitUntil(timeoutSeconds: Double = 20, _ condition: () -> Bool) async throws {
-        let deadline = Date.now.addingTimeInterval(timeoutSeconds)
-        while !condition() {
-            guard Date.now < deadline else {
-                XCTFail("The condition did not become true in time.")
-                return
-            }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-    }
-
     private func openedWorkspace(_ vault: URL) async throws -> WorkspaceModel {
-        let workspace = WorkspaceModel()
+        let workspace = device.makeWorkspace()
         try await workspace.openFolderAsVault(vault)
         return workspace
     }
@@ -79,7 +57,7 @@ final class UiWorkspaceModelFixTests: XCTestCase {
 
     func testDeepLinkCreatingAUniqueNoteRefreshesTheSidebar() async throws {
         let vault = try makeVault(files: ["Idea.md": "existing idea"])
-        let workspace = WorkspaceModel()
+        let workspace = device.makeWorkspace()
         workspace.store = VaultStore(root: vault)
         await workspace.refreshDirectory()
         XCTAssertEqual(workspace.rootEntries.map(\.path.rawValue), ["Idea.md"])
@@ -156,15 +134,15 @@ final class UiWorkspaceModelFixTests: XCTestCase {
         await workspace.open(try VaultPath("Private note.md"))
         let removedIdentifier = try XCTUnwrap(workspace.currentVaultIdentifier)
         let rememberedKeys = ["GraphiteRecentFiles.", "GraphiteExpandedFolders.", "GraphiteTabLayout."].map { prefix in prefix + removedIdentifier.uuidString }
-        UserDefaults.standard.set(["Folder"], forKey: rememberedKeys[1])
-        XCTAssertNotNil(UserDefaults.standard.object(forKey: rememberedKeys[0]))
-        XCTAssertNotNil(UserDefaults.standard.object(forKey: rememberedKeys[2]))
+        device.defaults.set(["Folder"], forKey: rememberedKeys[1])
+        XCTAssertNotNil(device.defaults.object(forKey: rememberedKeys[0]))
+        XCTAssertNotNil(device.defaults.object(forKey: rememberedKeys[2]))
 
         try await workspace.openFolderAsVault(otherVault)
         workspace.removeFromVaultList(try XCTUnwrap(workspace.vaultLibrary.vault(withIdentifier: removedIdentifier)))
 
         XCTAssertNil(workspace.vaultLibrary.vault(withIdentifier: removedIdentifier))
-        for key in rememberedKeys { XCTAssertNil(UserDefaults.standard.object(forKey: key), key) }
+        for key in rememberedKeys { XCTAssertNil(device.defaults.object(forKey: key), key) }
         XCTAssertTrue(FileManager.default.fileExists(atPath: removedVault.appendingPathComponent("Private note.md").path))
     }
 
@@ -281,8 +259,9 @@ final class UiWorkspaceModelFixTests: XCTestCase {
         XCTAssertEqual(reloadedSession.currentPageIndex, 3)
     }
 
-    /// Edits made to the PDF on screen while its new version loads used to be dropped with
-    /// the old session. They are kept, as a conflict with the other app's version.
+    /// Edits made to the PDF on screen while the other app's new version is read used to be dropped
+    /// with the old session. They are kept, as a conflict with the other app's version. The edit is
+    /// made by the function that reads the new version, so it is made exactly then, however fast the read is.
     func testEditsMadeWhileChangedPDFReloadsAreKept() async throws {
         let vault = try makeVault()
         let location = vault.appendingPathComponent("Lecture.pdf")
@@ -291,27 +270,38 @@ final class UiWorkspaceModelFixTests: XCTestCase {
         await workspace.open(try VaultPath("Lecture.pdf"))
         let originalSession = try XCTUnwrap(workspace.pdfSession)
 
-        // A long PDF, so its reload takes long enough to draw on the old one meanwhile.
-        try writePDF(pageCount: 1_000, to: location)
-        let temporaryDirectory = FileManager.default.temporaryDirectory
-        let snapshotPrefix = "Graphite-OpenPDF-"
-        let snapshotsBeforeReload = Set((try FileManager.default.contentsOfDirectory(atPath: temporaryDirectory.path)).filter { name in name.hasPrefix(snapshotPrefix) })
-        let reload = Task { @MainActor in await workspace.checkOpenDocumentsForExternalChanges() }
-        // The reload's private copy of the new version appears as soon as it starts reading.
-        let deadline = Date.now.addingTimeInterval(20)
-        while Date.now < deadline {
-            let snapshots = Set((try FileManager.default.contentsOfDirectory(atPath: temporaryDirectory.path)).filter { name in name.hasPrefix(snapshotPrefix) })
-            if !snapshots.subtracting(snapshotsBeforeReload).isEmpty { break }
-            try await Task.sleep(for: .milliseconds(1))
+        try writePDF(pageCount: 3, to: location)
+        var didReadNewVersion = false
+        await workspace.checkOpenDocumentsForExternalChanges { changedLocation, password in
+            try originalSession.apply(.rotate(page: 0, clockwise: true))
+            didReadNewVersion = true
+            return try await workspace.openPDFSession(at: changedLocation, password: password)
         }
-        guard workspace.pdfSession === originalSession else {
-            await reload.value
-            throw XCTSkip("The reload finished before an edit could be made during it.")
-        }
+
+        XCTAssertTrue(didReadNewVersion, "The new version was read.")
+        XCTAssertTrue(workspace.pdfSession === originalSession, "The session with the edit stays in its tab.")
+        XCTAssertEqual(originalSession.pageCount, 2)
+        XCTAssertTrue(originalSession.hasUnsavedChanges)
+        XCTAssertTrue(originalSession.hasExternalConflict)
+    }
+
+    /// An edit made before the check finds the file changed is a conflict too, and nothing is reloaded.
+    /// It is made after the check is started and before it runs, so it is always before the check ends.
+    func testEditsMadeWhileTheChangeIsBeingFoundAreKept() async throws {
+        let vault = try makeVault()
+        let location = vault.appendingPathComponent("Lecture.pdf")
+        try writePDF(pageCount: 2, to: location)
+        let workspace = try await openedWorkspace(vault)
+        await workspace.open(try VaultPath("Lecture.pdf"))
+        let originalSession = try XCTUnwrap(workspace.pdfSession)
+
+        try writePDF(pageCount: 3, to: location)
+        let check = Task { @MainActor in await workspace.checkOpenDocumentsForExternalChanges() }
         try originalSession.apply(.rotate(page: 0, clockwise: true))
-        await reload.value
+        await check.value
 
         XCTAssertTrue(workspace.pdfSession === originalSession)
+        XCTAssertEqual(originalSession.pageCount, 2)
         XCTAssertTrue(originalSession.hasUnsavedChanges)
         XCTAssertTrue(originalSession.hasExternalConflict)
     }
@@ -491,7 +481,7 @@ final class UiWorkspaceModelFixTests: XCTestCase {
 
     /// A sync that keeps reporting changes used to postpone the refresh until it paused.
     func testSteadyExternalChangesRefreshWithinTwoSeconds() {
-        let firstReport = ContinuousClock.now
+        let firstReport = Duration.seconds(100)
         XCTAssertEqual(WorkspaceModel.externalRefreshDeadline(firstReport: firstReport, latestReport: firstReport), firstReport + .milliseconds(500))
         XCTAssertEqual(WorkspaceModel.externalRefreshDeadline(firstReport: firstReport, latestReport: firstReport + .seconds(1)), firstReport + .milliseconds(1_500))
         XCTAssertEqual(WorkspaceModel.externalRefreshDeadline(firstReport: firstReport, latestReport: firstReport + .seconds(10)), firstReport + .seconds(2))
