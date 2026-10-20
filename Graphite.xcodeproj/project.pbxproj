@@ -28,22 +28,22 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		A00000000000000000000005 /* GraphiteApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphiteApp.swift; sourceTree = "<group>"; };
 		A00000000000000000000006 /* Graphite.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Graphite.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A00000000000000000000033 /* GraphiteIntegrationTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GraphiteIntegrationTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		A00000000000000000000005 /* GraphiteApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphiteApp.swift; sourceTree = "<group>"; };
 		A00000000000000000000050 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		A00000000000000000000051 /* AppIconRed.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.icon; path = AppIconRed.icon; sourceTree = "<group>"; };
 		A00000000000000000000052 /* AppIconBlack.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.icon; path = AppIconBlack.icon; sourceTree = "<group>"; };
 		A00000000000000000000053 /* AppIconCharcoal.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.icon; path = AppIconCharcoal.icon; sourceTree = "<group>"; };
 		A00000000000000000000054 /* AppIconBlueGraphite.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.icon; path = AppIconBlueGraphite.icon; sourceTree = "<group>"; };
 		A00000000000000000000055 /* IconPreviews.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = IconPreviews.xcassets; sourceTree = "<group>"; };
-		A00000000000000000000206 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		A00000000000000000000207 /* Graphite.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Graphite.entitlements; sourceTree = "<group>"; };
 		A00000000000000000000201 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		A00000000000000000000202 /* OBJECTIVE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = OBJECTIVE.md; sourceTree = "<group>"; };
 		A00000000000000000000203 /* RULES.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = RULES.md; sourceTree = "<group>"; };
 		A00000000000000000000204 /* AGENTS.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = AGENTS.md; sourceTree = "<group>"; };
 		A00000000000000000000205 /* Package.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Package.swift; sourceTree = "<group>"; };
+		A00000000000000000000206 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A00000000000000000000207 /* Graphite.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Graphite.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -79,11 +79,6 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		A00000000000000000000216 /* Tests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = Tests;
-			sourceTree = "<group>";
-		};
 		A00000000000000000000212 /* Sources */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Sources;
@@ -105,6 +100,11 @@
 		A00000000000000000000215 /* Design */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Design;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000216 /* Tests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Tests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -145,6 +145,15 @@
 			);
 			sourceTree = "<group>";
 		};
+		A00000000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000006 /* Graphite.app */,
+				A00000000000000000000033 /* GraphiteIntegrationTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
 		A00000000000000000000230 /* App */ = {
 			isa = PBXGroup;
 			children = (
@@ -168,15 +177,6 @@
 				A00000000000000000000051 /* AppIconRed.icon */,
 			);
 			path = Icons;
-			sourceTree = "<group>";
-		};
-		A00000000000000000000003 /* Products */ = {
-			isa = PBXGroup;
-			children = (
-				A00000000000000000000006 /* Graphite.app */,
-				A00000000000000000000033 /* GraphiteIntegrationTests.xctest */,
-			);
-			name = Products;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */

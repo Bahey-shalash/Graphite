@@ -180,7 +180,8 @@ struct LivePreviewWidgetView: View {
                 RenderedMarkdownBlock(markdown: block.markdown, environment: environment, sourceTokens: readingSnapshot?.tokens)
                     .environment(\.livePreviewTableEditor, tableEditor)
                     .onAppear {
-                        menuContext?.itemsAtPoint = { [weak tableEditor] point in tableEditor?.menuItems(at: point) ?? [] }
+                        let editor = tableEditor
+                        menuContext?.itemsAtPoint = { [weak editor] point in editor?.menuItems(at: point) ?? [] }
                     }
             } else {
                 RenderedMarkdownBlock(markdown: block.markdown, environment: environment, sourceTokens: readingSnapshot?.tokens)
