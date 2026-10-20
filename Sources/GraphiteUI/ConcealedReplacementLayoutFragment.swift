@@ -42,46 +42,56 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
     /// block. Each line of a block is a paragraph, so its first character says.
     private let codeBlockDecoration: CodeBlockLineDecoration?
 
+    /// What a paragraph needs drawn besides its text, found from its attributes.
+    private struct DrawingNeeds {
+        var containsInlineMath = false
+        var headingPrefixWidth: CGFloat = 0
+        var drawsBehindText = false
+        var drawsOverText = false
+        var reachesAcrossColumn = false
+        var containsQuoteBar = false
+        var codeBlockDecoration: CodeBlockLineDecoration?
+    }
+
     override init(textElement: NSTextElement, range rangeInElement: NSTextRange?) {
-        if let attributedString = (textElement as? NSTextParagraph)?.attributedString {
-            var foundInlineMath = false
-            let wholeString = NSRange(location: 0, length: attributedString.length)
-            var foundBehind = false, foundOver = false, foundAcross = false, foundQuoteBar = false
-            attributedString.enumerateAttributes(in: wholeString) { attributes, _, _ in
-                if attributes[ConcealedReplacement.mathAttributeKey] != nil { foundInlineMath = true; foundOver = true }
-                if let replacement = attributes[ConcealedReplacement.attributeKey] as? String {
-                    foundOver = true
-                    if replacement == ConcealedReplacement.quoteBar.rawValue { foundQuoteBar = true }
-                }
-                if attributes[ConcealedReplacement.roundedBackgroundKey] != nil { foundBehind = true }
-                if attributes[ConcealedReplacement.quoteBackgroundKey] != nil { foundBehind = true; foundAcross = true }
-                if attributes[ConcealedReplacement.headingOrnamentKey] != nil { foundBehind = true; foundOver = true; foundAcross = true }
-            }
-            codeBlockDecoration = attributedString.length > 0
-                ? attributedString.attribute(ConcealedReplacement.codeBlockKey, at: 0, effectiveRange: nil) as? CodeBlockLineDecoration : nil
-            drawsBehindText = foundBehind || codeBlockDecoration != nil
-            drawsOverText = foundOver
-            reachesAcrossColumn = foundAcross
-            containsQuoteBar = foundQuoteBar
-            containsInlineMath = foundInlineMath
-            var prefixWidth: CGFloat = 0
-            attributedString.enumerateAttribute(ConcealedReplacement.headingOrnamentKey, in: wholeString) { value, range, stop in
-                guard let ornament = value as? ThemedHeadingOrnament, let prefix = ornament.prefix else { return }
-                let font = attributedString.attribute(.font, at: range.location, effectiveRange: nil) as? PlatformFont ?? .preferredFont(forTextStyle: .body)
-                prefixWidth = Self.prefixFont(for: font).map { prefixFont in (prefix as NSString).size(withAttributes: [.font: prefixFont]).width + 8 } ?? 0
-                stop.pointee = true
-            }
-            headingPrefixWidth = prefixWidth
-        } else {
-            containsInlineMath = false
-            headingPrefixWidth = 0
-            codeBlockDecoration = nil
-            drawsBehindText = false
-            drawsOverText = false
-            reachesAcrossColumn = false
-            containsQuoteBar = false
-        }
+        let needs = (textElement as? NSTextParagraph).map { paragraph in Self.drawingNeeds(of: paragraph.attributedString) } ?? DrawingNeeds()
+        containsInlineMath = needs.containsInlineMath
+        headingPrefixWidth = needs.headingPrefixWidth
+        codeBlockDecoration = needs.codeBlockDecoration
+        drawsBehindText = needs.drawsBehindText || needs.codeBlockDecoration != nil
+        drawsOverText = needs.drawsOverText
+        reachesAcrossColumn = needs.reachesAcrossColumn
+        containsQuoteBar = needs.containsQuoteBar
         super.init(textElement: textElement, range: rangeInElement)
+    }
+
+    private static func drawingNeeds(of attributedString: NSAttributedString) -> DrawingNeeds {
+        var needs = DrawingNeeds()
+        let wholeString = NSRange(location: 0, length: attributedString.length)
+        attributedString.enumerateAttributes(in: wholeString) { attributes, _, _ in
+            if attributes[ConcealedReplacement.mathAttributeKey] != nil { needs.containsInlineMath = true; needs.drawsOverText = true }
+            if let replacement = attributes[ConcealedReplacement.attributeKey] as? String {
+                needs.drawsOverText = true
+                if replacement == ConcealedReplacement.quoteBar.rawValue { needs.containsQuoteBar = true }
+            }
+            if attributes[ConcealedReplacement.roundedBackgroundKey] != nil { needs.drawsBehindText = true }
+            if attributes[ConcealedReplacement.quoteBackgroundKey] != nil { needs.drawsBehindText = true; needs.reachesAcrossColumn = true }
+            if attributes[ConcealedReplacement.headingOrnamentKey] != nil {
+                needs.drawsBehindText = true
+                needs.drawsOverText = true
+                needs.reachesAcrossColumn = true
+            }
+        }
+        if attributedString.length > 0 {
+            needs.codeBlockDecoration = attributedString.attribute(ConcealedReplacement.codeBlockKey, at: 0, effectiveRange: nil) as? CodeBlockLineDecoration
+        }
+        attributedString.enumerateAttribute(ConcealedReplacement.headingOrnamentKey, in: wholeString) { value, range, stop in
+            guard let ornament = value as? ThemedHeadingOrnament, let prefix = ornament.prefix else { return }
+            let font = attributedString.attribute(.font, at: range.location, effectiveRange: nil) as? PlatformFont ?? .preferredFont(forTextStyle: .body)
+            needs.headingPrefixWidth = prefixFont(for: font).map { prefixFont in (prefix as NSString).size(withAttributes: [.font: prefixFont]).width + 8 } ?? 0
+            stop.pointee = true
+        }
+        return needs
     }
 
     required init?(coder: NSCoder) {
@@ -268,7 +278,10 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
     /// Rounded backgrounds behind tag pills and highlights, quote boxes, and heading
     /// backgrounds, under the text.
     private func drawThemeShapesBehindText(at point: CGPoint) {
-        if let codeBlockDecoration { drawCodeBlock(codeBlockDecoration, at: point) }
+        if let codeBlockDecoration {
+            CodeBlockBoxDrawing.draw(codeBlockDecoration, at: point, columnWidth: columnWidth, indentationFromColumn: indentationFromColumn,
+                                     height: layoutFragmentFrame.height, firstLine: textLineFragments.first)
+        }
         for lineFragment in textLineFragments {
             let attributedString = lineFragment.attributedString
             let lineOrigin = CGPoint(x: point.x + lineFragment.typographicBounds.minX, y: point.y + lineFragment.typographicBounds.minY)
@@ -299,78 +312,6 @@ final class ConcealedReplacementLayoutFragment: NSTextLayoutFragment {
                 }
             }
         }
-    }
-
-    // MARK: Code blocks
-
-    /// This line's slice of its block's box, its indentation guides, and on the first line
-    /// the language at the right.
-    private func drawCodeBlock(_ decoration: CodeBlockLineDecoration, at point: CGPoint) {
-        let height = layoutFragmentFrame.height
-        // Each slice reaches half a point into the next, so no seam shows between lines.
-        let box = CGRect(x: point.x - indentationFromColumn, y: point.y, width: columnWidth + indentationFromColumn, height: height + (decoration.isLastLine ? 0 : 0.5))
-        decoration.background.setFill()
-        Self.path(box, cornerRadius: decoration.cornerRadius, roundsTop: decoration.isFirstLine, roundsBottom: decoration.isLastLine).fill()
-        decoration.border.setStroke()
-        let border = Self.borderPath(box.insetBy(dx: 0.5, dy: 0), cornerRadius: decoration.cornerRadius, isFirstLine: decoration.isFirstLine, isLastLine: decoration.isLastLine)
-        border.lineWidth = 1
-        border.stroke()
-        if let firstLine = textLineFragments.first, !decoration.guideOffsets.isEmpty {
-            decoration.guideColor.setFill()
-            let lineOriginX = point.x + firstLine.typographicBounds.minX
-            for offset in decoration.guideOffsets where offset < firstLine.attributedString.length {
-                let guideX = (lineOriginX + firstLine.locationForCharacter(at: offset).x + 1).rounded()
-                DrawingPath(rect: CGRect(x: guideX, y: point.y, width: 1, height: height + 0.5)).fill()
-            }
-        }
-        if let label = decoration.languageLabel {
-            let attributes: [NSAttributedString.Key: Any] = [.font: decoration.labelFont, .foregroundColor: decoration.labelColor]
-            let size = (label as NSString).size(withAttributes: attributes)
-            let origin = CGPoint(x: point.x + columnWidth - decoration.horizontalPadding - size.width, y: point.y + max(0, height - size.height) * 0.6)
-            (label as NSString).draw(at: origin, withAttributes: attributes)
-        }
-    }
-
-    /// This slice's part of the box's border: its two sides, and the top with its rounded
-    /// corners on the first line, the bottom with its corners on the last. The line is drawn
-    /// half a point inside the box, so it stays crisp and within the slice.
-    private static func borderPath(_ rect: CGRect, cornerRadius: CGFloat, isFirstLine: Bool, isLastLine: Bool) -> DrawingPath {
-        let radius = min(cornerRadius, rect.height / 2, rect.width / 2)
-        let top = isFirstLine ? rect.minY + 0.5 : rect.minY
-        let bottom = isLastLine ? rect.maxY - 0.5 : rect.maxY
-        let path = CGMutablePath()
-        // Down the left side, along the bottom on the last line, and up the right side.
-        if isFirstLine {
-            path.move(to: CGPoint(x: rect.maxX, y: top + radius))
-            path.addArc(tangent1End: CGPoint(x: rect.maxX, y: top), tangent2End: CGPoint(x: rect.maxX - radius, y: top), radius: radius)
-            path.addArc(tangent1End: CGPoint(x: rect.minX, y: top), tangent2End: CGPoint(x: rect.minX, y: top + radius), radius: radius)
-        } else {
-            path.move(to: CGPoint(x: rect.minX, y: top))
-        }
-        if isLastLine {
-            path.addArc(tangent1End: CGPoint(x: rect.minX, y: bottom), tangent2End: CGPoint(x: rect.minX + radius, y: bottom), radius: radius)
-            path.addArc(tangent1End: CGPoint(x: rect.maxX, y: bottom), tangent2End: CGPoint(x: rect.maxX, y: bottom - radius), radius: radius)
-            path.addLine(to: CGPoint(x: rect.maxX, y: isFirstLine ? top + radius : top))
-        } else {
-            path.addLine(to: CGPoint(x: rect.minX, y: bottom))
-            path.move(to: CGPoint(x: rect.maxX, y: bottom))
-            path.addLine(to: CGPoint(x: rect.maxX, y: isFirstLine ? top + radius : top))
-        }
-        return DrawingPath(cgPath: path)
-    }
-
-    /// `rect` with its top corners, its bottom corners, both or neither rounded.
-    private static func path(_ rect: CGRect, cornerRadius: CGFloat, roundsTop: Bool, roundsBottom: Bool) -> DrawingPath {
-        let topRadius = roundsTop ? min(cornerRadius, rect.height / 2, rect.width / 2) : 0
-        let bottomRadius = roundsBottom ? min(cornerRadius, rect.height / 2, rect.width / 2) : 0
-        let path = CGMutablePath()
-        path.move(to: CGPoint(x: rect.minX, y: rect.minY + topRadius))
-        path.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.minY), tangent2End: CGPoint(x: rect.minX + topRadius, y: rect.minY), radius: topRadius)
-        path.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.minY), tangent2End: CGPoint(x: rect.maxX, y: rect.minY + topRadius), radius: topRadius)
-        path.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.maxY), tangent2End: CGPoint(x: rect.maxX - bottomRadius, y: rect.maxY), radius: bottomRadius)
-        path.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.maxY), tangent2End: CGPoint(x: rect.minX, y: rect.maxY - bottomRadius), radius: bottomRadius)
-        path.closeSubpath()
-        return DrawingPath(cgPath: path)
     }
 
     /// A heading's underline across the column under its last line, and its prefix in the margin.

@@ -243,8 +243,10 @@ public struct CodeLanguage: Hashable, Sendable {
         stringPrefixes: "L u U u8 R LR uR UR u8R", lineComments: ["//"], blockComments: cStyleComments, strings: doubleAndSingleQuotes)
 
     static let objectiveC = CodeLanguage(
-        name: "objectivec", features: cStyleFeatures.union([.lineStartHashDirectives, .underscoreTypeSuffix, .capitalizedIdentifiersAreTypes, .atAttributes, .sigilStringPrefixes]),
-        keywords: cKeywords + " self super in out inout bycopy byref oneway nonatomic atomic strong weak copy assign readonly readwrite retain nullable nonnull",
+        name: "objectivec",
+        features: cStyleFeatures.union([.lineStartHashDirectives, .underscoreTypeSuffix, .capitalizedIdentifiersAreTypes, .atAttributes, .sigilStringPrefixes]),
+        keywords: cKeywords
+            + " self super in out inout bycopy byref oneway nonatomic atomic strong weak copy assign readonly readwrite retain nullable nonnull",
         typeNames: cTypes + " id instancetype BOOL SEL IMP Class NSInteger NSUInteger CGFloat",
         constants: "nil Nil NULL YES NO true false", typeDeclarationKeywords: "struct enum union",
         lineComments: ["//"], blockComments: cStyleComments, strings: doubleAndSingleQuotes)
@@ -328,7 +330,8 @@ public struct CodeLanguage: Hashable, Sendable {
                   StringRule(opening: "'''", closing: "'''", usesBackslashEscapes: true, spansLines: true), .escaped("\""), .escaped("'")])
 
     static let swift = CodeLanguage(
-        name: "swift", features: [.marksFunctionCalls, .capitalizedIdentifiersAreTypes, .capitalizedCallsMakeTypes, .hashDirectives, .atAttributes, .identifiersAndOperators],
+        name: "swift",
+        features: [.marksFunctionCalls, .capitalizedIdentifiersAreTypes, .capitalizedCallsMakeTypes, .hashDirectives, .atAttributes, .identifiersAndOperators],
         keywords: """
             associatedtype class deinit enum extension fileprivate func import init inout internal let open operator private \
             precedencegroup protocol public rethrows static struct subscript typealias var break case catch continue default defer do \
@@ -341,7 +344,8 @@ public struct CodeLanguage: Hashable, Sendable {
         strings: [StringRule(opening: "\"\"\"", closing: "\"\"\"", usesBackslashEscapes: true, spansLines: true), .escaped("\"")])
 
     static let rust = CodeLanguage(
-        name: "rust", features: cStyleFeatures.union([.capitalizedIdentifiersAreTypes, .capitalizedCallsMakeTypes, .bracketAttributes, .macroBang, .characterLiteralsOnly]),
+        name: "rust",
+        features: cStyleFeatures.union([.capitalizedIdentifiersAreTypes, .capitalizedCallsMakeTypes, .bracketAttributes, .macroBang, .characterLiteralsOnly]),
         keywords: """
             as async await break const continue crate dyn else enum extern fn for if impl in let loop match mod move mut pub ref return \
             self Self static struct super trait type union unsafe use where while yield macro_rules
@@ -507,7 +511,9 @@ public struct CodeLanguage: Hashable, Sendable {
         lineComments: ["//"], blockComments: cStyleComments, strings: doubleAndSingleQuotes, identifierExtraCharacters: "-")
 
     static let ruby = CodeLanguage(
-        name: "ruby", features: [.capitalizedIdentifiersAreTypes, .capitalizedCallsMakeTypes, .atVariables, .dollarVariables, .uppercaseIdentifiersAreConstants, .identifiersAndOperators],
+        name: "ruby",
+        features: [.capitalizedIdentifiersAreTypes, .capitalizedCallsMakeTypes, .atVariables, .dollarVariables, .uppercaseIdentifiersAreConstants,
+                   .identifiersAndOperators],
         keywords: """
             alias and begin break case class def defined do else elsif end ensure for if in module next not or redo rescue retry return \
             super then undef unless until when while yield require require_relative include extend attr_accessor attr_reader \

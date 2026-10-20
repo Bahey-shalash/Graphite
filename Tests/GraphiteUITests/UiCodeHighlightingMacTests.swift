@@ -154,6 +154,11 @@ final class UiCodeHighlightingMacTests: XCTestCase {
     func testTheFencesShowWhileTheCursorIsInTheBlock() async throws {
         let (_, textView) = try await makeEditor(text: Self.boxNote, mode: .livePreview)
         let textStorage = try XCTUnwrap(textView.textStorage)
+        // Markup shows at the cursor once the note has keyboard focus, in a window that is never shown.
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: true)
+        window.contentView = textView.enclosingScrollView
+        defer { window.contentView = nil }
+        XCTAssertTrue(window.makeFirstResponder(textView))
         textView.setSelectedRange(NSRange(location: (textView.string as NSString).range(of: "return").location, length: 0))
         XCTAssertFalse(isConcealed("```C++", in: textStorage), "Inside the block its fences show, as in Obsidian.")
         XCTAssertNil(try XCTUnwrap(decoration(onLineContaining: "```C++", in: textStorage)).languageLabel, "The fence shows the language itself.")
@@ -180,20 +185,16 @@ final class UiCodeHighlightingMacTests: XCTestCase {
         window.contentView = scrollView
         coordinator.resume(scrollView)
         defer { window.contentView = nil }
-        for _ in 0..<5 {
+        /// A fresh capture of the visible text, laid out and displayed.
+        func capture() throws -> NSBitmapImageRep {
             textView.layoutSubtreeIfNeeded()
             textView.displayIfNeeded()
-            try await Task.sleep(for: .milliseconds(40))
-        }
-        let bitmap = try XCTUnwrap(textView.bitmapImageRepForCachingDisplay(in: textView.visibleRect))
-        textView.cacheDisplay(in: textView.visibleRect, to: bitmap)
-        let image = try XCTUnwrap(bitmap.cgImage)
-        let snapshotURL = FileManager.default.temporaryDirectory.appendingPathComponent("graphite-code-block-mac.png")
-        if let destination = CGImageDestinationCreateWithURL(snapshotURL as CFURL, "public.png" as CFString, 1, nil) {
-            CGImageDestinationAddImage(destination, image, nil)
-            CGImageDestinationFinalize(destination)
+            let bitmap = try XCTUnwrap(textView.bitmapImageRepForCachingDisplay(in: textView.visibleRect))
+            textView.cacheDisplay(in: textView.visibleRect, to: bitmap)
+            return bitmap
         }
         func brightness(besideLineContaining text: String) throws -> CGFloat {
+            let bitmap = try capture()
             let textLayoutManager = try XCTUnwrap(textView.textLayoutManager)
             let contentStorage = try XCTUnwrap(textLayoutManager.textContentManager as? NSTextContentStorage)
             let location = try XCTUnwrap(contentStorage.location(contentStorage.documentRange.location, offsetBy: (textView.string as NSString).range(of: text).location))
@@ -204,9 +205,12 @@ final class UiCodeHighlightingMacTests: XCTestCase {
                                                      y: Int(pointY * CGFloat(bitmap.pixelsHigh) / textView.visibleRect.height))?.usingColorSpace(.deviceRGB))
             return color.brightnessComponent
         }
+        try await waitUntil("the box's gray reaches past the end of a short code line") {
+            try brightness(besideLineContaining: "return sum") < brightness(besideLineContaining: "Intro paragraph") - 0.02
+        }
         let besideCode = try brightness(besideLineContaining: "return sum")
         let besideProse = try brightness(besideLineContaining: "Intro paragraph")
-        XCTAssertLessThan(besideCode, besideProse - 0.02, "The box's gray reaches past the end of a short code line (snapshot: \(snapshotURL.path)).")
+        XCTAssertLessThan(besideCode, besideProse - 0.02, "The box's gray reaches past the end of a short code line.")
     }
 
     // MARK: Code themes
@@ -270,34 +274,42 @@ final class UiCodeHighlightingMacTests: XCTestCase {
         let location = NSMaxRange((textView.string as NSString).range(of: text))
         textView.setSelectedRange(NSRange(location: location, length: 0))
         // The block's code is noted on the turn after the cursor enters it.
-        try await Task.sleep(for: .milliseconds(50))
+        await runMainQueueTurns()
         textView.insertText(typed, replacementRange: NSRange(location: location, length: 0))
         coordinator.textDidChange(Notification(name: NSText.didChangeNotification, object: textView))
-        try await Task.sleep(for: .milliseconds(50))
+        await runMainQueueTurns()
         textView.setSelectedRange(NSRange(location: (textView.string as NSString).range(of: destination).location, length: 0))
-        try await Task.sleep(for: .milliseconds(100))
+        await runMainQueueTurns()
+    }
+
+    /// Lets the work the editor queues for the next turns of the main queue run, for the
+    /// tests that check that something did not change; a change that must happen is waited for.
+    private func runMainQueueTurns() async {
+        for _ in 0..<10 { await Task.yield() }
     }
 
     func testABlockEditedAndLeftIsFormattedAndUndoPutsItBack() async throws {
         let (coordinator, textView) = try await makeEditor(text: Self.unformattedNote, mode: .livePreview)
         try await type("\nint y=1,z=2;", after: "return 0;", thenMoveTo: "After", in: textView, coordinator: coordinator)
         let formatted = "Intro\n\n```c\nint main() {\n    return 0;\n    int y=1, z=2;\n}\n```\n\nAfter the block.\n"
+        try await waitUntil("the block is formatted") { textView.string == formatted }
         XCTAssertEqual(textView.string, formatted)
         XCTAssertEqual(coordinator.session.text, formatted, "The note saves the formatted code.")
         XCTAssertEqual((textView.string as NSString).substring(from: textView.selectedRange().location).prefix(5), "After", "The cursor stays where it went.")
         XCTAssertEqual(foregroundColor(of: "return", in: try XCTUnwrap(textView.textStorage)), CodeSyntaxColors.color(for: .keyword, theme: nil))
 
         coordinator.noteUndoManager.undo()
-        try await Task.sleep(for: .milliseconds(100))
-        XCTAssertEqual(textView.string, "Intro\n\n```c\nint main(){\nreturn 0;\nint y=1,z=2;\n\n\n}\n```\n\nAfter the block.\n", "Undo takes back the formatting alone.")
+        let unformattedAfterUndo = "Intro\n\n```c\nint main(){\nreturn 0;\nint y=1,z=2;\n\n\n}\n```\n\nAfter the block.\n"
+        try await waitUntil("undo has taken back the formatting") { textView.string == unformattedAfterUndo }
+        XCTAssertEqual(textView.string, unformattedAfterUndo, "Undo takes back the formatting alone.")
     }
 
     func testABlockOnlyPassedThroughIsLeftAlone() async throws {
         let (_, textView) = try await makeEditor(text: Self.unformattedNote, mode: .source)
         textView.setSelectedRange(NSRange(location: (textView.string as NSString).range(of: "return").location, length: 0))
-        try await Task.sleep(for: .milliseconds(50))
+        await runMainQueueTurns()
         textView.setSelectedRange(NSRange(location: (textView.string as NSString).range(of: "After").location, length: 0))
-        try await Task.sleep(for: .milliseconds(100))
+        await runMainQueueTurns()
         XCTAssertEqual(textView.string, Self.unformattedNote)
     }
 
@@ -312,7 +324,7 @@ final class UiCodeHighlightingMacTests: XCTestCase {
         try await type(" x;", after: "return 0;", thenMoveTo: "int main", in: textView, coordinator: coordinator)
         XCTAssertTrue(textView.string.contains("int main(){\nreturn 0; x;"), "The cursor is still in the block.")
         textView.setSelectedRange(NSRange(location: 0, length: 0))
-        try await Task.sleep(for: .milliseconds(100))
+        try await waitUntil("leaving the block above formats it") { textView.string.contains("int main() {\n    return 0; x;\n}") }
         XCTAssertTrue(textView.string.contains("int main() {\n    return 0; x;\n}"), "Leaving it above formats it too.")
     }
 
@@ -326,8 +338,8 @@ final class UiCodeHighlightingMacTests: XCTestCase {
 
     /// Pixels of the rendered view whose color is clearly not gray: syntax colors, where
     /// plain code is black on a light gray background.
-    private func saturatedPixelCount(of markdown: String) async throws -> Int {
-        let root = FileManager.default.temporaryDirectory
+    private func saturatedPixelCount(of markdown: String, waitingForAtLeast expectedCount: Int? = nil) async throws -> Int {
+        let root = try TemporaryVault.make(prefix: "ReadingView", for: self).root
         let view = ObsidianMarkdownText(markdown: markdown, root: root, textSize: 17, navigate: { _, _ in }, scrollToHeading: { _ in })
             .frame(width: 420, height: 220, alignment: .topLeading)
             .background(Color.white)
@@ -338,27 +350,33 @@ final class UiCodeHighlightingMacTests: XCTestCase {
         window.contentView = hostingView
         hostingView.frame = NSRect(x: 0, y: 0, width: 420, height: 220)
         defer { window.contentView = nil; window.orderOut(nil) }
-        for _ in 0..<10 {
+        func count() throws -> Int {
             hostingView.layoutSubtreeIfNeeded()
             hostingView.displayIfNeeded()
-            try await Task.sleep(for: .milliseconds(30))
-        }
-        let bitmap = try XCTUnwrap(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
-        hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
-        var count = 0
-        for verticalPixel in 0..<bitmap.pixelsHigh {
-            for horizontalPixel in 0..<bitmap.pixelsWide {
-                guard let color = bitmap.colorAt(x: horizontalPixel, y: verticalPixel)?.usingColorSpace(.deviceRGB) else { continue }
-                let components = [color.redComponent, color.greenComponent, color.blueComponent]
-                if let largest = components.max(), let smallest = components.min(), largest - smallest > 0.25 { count += 1 }
+            let bitmap = try XCTUnwrap(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
+            hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
+            var count = 0
+            for verticalPixel in 0..<bitmap.pixelsHigh {
+                for horizontalPixel in 0..<bitmap.pixelsWide {
+                    guard let color = bitmap.colorAt(x: horizontalPixel, y: verticalPixel)?.usingColorSpace(.deviceRGB) else { continue }
+                    let components = [color.redComponent, color.greenComponent, color.blueComponent]
+                    if let largest = components.max(), let smallest = components.min(), largest - smallest > 0.25 { count += 1 }
+                }
             }
+            return count
         }
-        return count
+        // A block that stays plain has nothing to wait for; it is drawn after a few turns.
+        if let expectedCount {
+            try await waitUntil("the view is drawn with at least \(expectedCount) colored pixels") { try count() >= expectedCount }
+        } else {
+            await runMainQueueTurns()
+        }
+        return try count()
     }
 
     func testReadingViewColorsACppBlock() async throws {
         let code = "#include <vector>\nint main() {\n    return 42; // done\n}"
-        let colored = try await saturatedPixelCount(of: "```cpp\n\(code)\n```")
+        let colored = try await saturatedPixelCount(of: "```cpp\n\(code)\n```", waitingForAtLeast: 201)
         let plain = try await saturatedPixelCount(of: "```dataview\n\(code)\n```")
         XCTAssertGreaterThan(colored, 200, "The C++ block is drawn in syntax colors.")
         XCTAssertLessThan(plain, colored / 10, "A block in an unknown language stays plain.")

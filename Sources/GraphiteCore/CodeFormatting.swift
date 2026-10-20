@@ -61,8 +61,8 @@ struct CodeFormattingStyle {
             return CodeFormattingStyle(structure: .brackets, defaultIndentation: "\t", spacesAfterCommas: true, spacesAroundBlockBraces: true,
                                        maximumBlankLines: 1, preprocessorLinesAtLeftEdge: false)
         case "json", "css":
-            return CodeFormattingStyle(structure: .brackets, defaultIndentation: "  ", spacesAfterCommas: language.name == "json", spacesAroundBlockBraces: false,
-                                       maximumBlankLines: 1, preprocessorLinesAtLeftEdge: false)
+            return CodeFormattingStyle(structure: .brackets, defaultIndentation: "  ", spacesAfterCommas: language.name == "json",
+                                       spacesAroundBlockBraces: false, maximumBlankLines: 1, preprocessorLinesAtLeftEdge: false)
         case "vhdl", "verilog", "matlab", "lua", "ruby":
             let indentation = ["lua", "ruby"].contains(language.name) ? "  " : "    "
             return CodeFormattingStyle(structure: .keywords, defaultIndentation: indentation, spacesAfterCommas: true, spacesAroundBlockBraces: false,
@@ -101,7 +101,8 @@ private struct LineFormatter {
         self.units = units
         self.lineRanges = lineRanges
         keywords = CodeBlockKeywords(language: language)
-        indentation = Self.indentation(of: units, lineRanges: lineRanges, ignoresPreprocessorLines: style.preprocessorLinesAtLeftEdge) ?? style.defaultIndentation
+        indentation = Self.indentation(of: units, lineRanges: lineRanges, ignoresPreprocessorLines: style.preprocessorLinesAtLeftEdge)
+            ?? style.defaultIndentation
     }
 
     /// The indentation the code already uses: a tab, or the narrowest run of two to eight

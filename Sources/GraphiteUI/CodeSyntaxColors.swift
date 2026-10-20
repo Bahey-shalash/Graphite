@@ -2,6 +2,37 @@ import SwiftUI
 import GraphiteCore
 import Textual
 
+/// The colors one code block is drawn in, resolved for a code theme and a vault theme.
+/// Each color follows light, dark and Increase Contrast by itself.
+struct CodePalette {
+    let colors: [CodeTokenKind: PlatformColor]
+    /// Code that is no token, such as punctuation, and the text of an unknown language.
+    let text: PlatformColor
+    let background: PlatformColor
+    /// The language label, and a fence while it shows.
+    let quietText: PlatformColor
+    /// The thin lines that show each level of indentation.
+    let guide: PlatformColor
+    /// The box's one-point border.
+    let border: PlatformColor
+
+    /// Reading view's colors for the same palette, made with it so they are made once.
+    let highlighterTheme: StructuredText.HighlighterTheme
+
+    init(colors: [CodeTokenKind: PlatformColor], text: PlatformColor, background: PlatformColor, quietText: PlatformColor,
+         guide: PlatformColor, border: PlatformColor) {
+        self.colors = colors
+        self.text = text
+        self.background = background
+        self.quietText = quietText
+        self.guide = guide
+        self.border = border
+        highlighterTheme = CodeSyntaxColors.makeHighlighterTheme(colors: colors, text: text, background: background)
+    }
+
+    func color(for kind: CodeTokenKind) -> PlatformColor { colors[kind] ?? text }
+}
+
 /// The colors of highlighted code, the same in Live Preview, Source mode and reading view.
 /// Graphite's own colors are Obsidian's default syntax colors (`--code-keyword` pink, types
 /// in `--code-function` yellow, names in `--code-property` cyan, values purple, operators
@@ -28,7 +59,8 @@ enum CodeSyntaxColors {
     ]
 
     private static let graphiteColors: [CodeTokenKind: PlatformColor] = hexByKind.compactMapValues { hexes in
-        guard let light = PlatformColor(graphiteHex: hexes.light)?.sRGBComponents, let dark = PlatformColor(graphiteHex: hexes.dark)?.sRGBComponents else { return nil }
+        guard let light = PlatformColor(graphiteHex: hexes.light)?.sRGBComponents,
+              let dark = PlatformColor(graphiteHex: hexes.dark)?.sRGBComponents else { return nil }
         func color(_ components: (red: Double, green: Double, blue: Double)) -> PlatformColor {
             PlatformColor.sRGB(red: components.red, green: components.green, blue: components.blue, alpha: 1)
         }
@@ -52,22 +84,11 @@ enum CodeSyntaxColors {
 
     // MARK: The code block
 
-    /// Behind a code block, in the editor and in reading view: the theme's, else a gray a
-    /// step off the page, as Obsidian's `--code-background`.
-    private static func blockBackground(theme: NoteThemeStyle?) -> PlatformColor {
-        theme?.codeBlockBackground ?? theme?.codeBackground ?? graphiteBlockBackground
-    }
-
     private static let graphiteBlockBackground = PlatformColor.appearanceDependent(AppearanceVariants(
         light: PlatformColor.sRGB(red: 0.960784, green: 0.960784, blue: 0.968627, alpha: 1),
         lightIncreasedContrast: PlatformColor.sRGB(red: 0.92, green: 0.92, blue: 0.93, alpha: 1),
         dark: PlatformColor.sRGB(red: 0.120543, green: 0.122844, blue: 0.141312, alpha: 1),
         darkIncreasedContrast: PlatformColor.sRGB(red: 0.16, green: 0.16, blue: 0.18, alpha: 1)))
-
-    /// The language's name at the block's top right, quiet as Obsidian's.
-    private static func labelColor(theme: NoteThemeStyle?) -> PlatformColor {
-        theme?.textMuted ?? MarkdownTextStyler.secondaryTextColor
-    }
 
     /// The thin lines that show each level of indentation: the text color, faint, and less
     /// faint with Increase Contrast. Made in an appearance-dependent provider, because a
@@ -79,13 +100,6 @@ enum CodeSyntaxColors {
         theme?.codeBlockRadius.map { radius in CGFloat(min(radius, 24)) } ?? 4
     }
 
-    /// The box's border: the vault theme's, when it gives one, else a light gray a step
-    /// darker than the box (lighter in dark appearance).
-    private static func blockBorder(theme: NoteThemeStyle?) -> PlatformColor {
-        if let width = theme?.codeBlockBorderWidth, width > 0, let color = theme?.codeBlockBorderColor { return color }
-        return graphiteBlockBorder
-    }
-
     private static let graphiteBlockBorder = PlatformColor.appearanceDependent(AppearanceVariants(
         light: PlatformColor.sRGB(red: 210 / 255, green: 210 / 255, blue: 215 / 255, alpha: 1),
         lightIncreasedContrast: PlatformColor.sRGB(red: 160 / 255, green: 160 / 255, blue: 166 / 255, alpha: 1),
@@ -95,55 +109,64 @@ enum CodeSyntaxColors {
     // MARK: Palettes
 
     /// The colors code blocks are drawn in, for the code theme chosen and the vault's
-    /// Obsidian theme, which only Obsidian's own colors follow.
+    /// Obsidian theme, which only Obsidian's own colors follow. Every palette is made once:
+    /// the other themes' in `themedPalettes`, Obsidian's without a vault theme in
+    /// `graphiteObsidianPalette`, and Obsidian's with one by `NoteThemeStyle`, so the same
+    /// palette hands out the same colors on every call.
     static func palette(codeTheme: CodeColorTheme, noteTheme: NoteThemeStyle?) -> CodePalette {
-        let key = PaletteKey(codeTheme: codeTheme, noteThemeFingerprint: codeTheme == .obsidian ? noteTheme?.tokens.fingerprint ?? "" : "")
-        if let palette = palettesByKey[key] { return palette }
-        let palette = codeTheme.palette() ?? CodePalette(
-            colors: Dictionary(uniqueKeysWithValues: CodeTokenKind.allCases.map { kind in (kind, color(for: kind, theme: noteTheme)) }),
-            text: noteTheme?.codeColor ?? MarkdownTextStyler.primaryTextColor, background: blockBackground(theme: noteTheme),
-            quietText: labelColor(theme: noteTheme), guide: indentationGuideColor, border: blockBorder(theme: noteTheme))
-        palettesByKey[key] = palette
-        return palette
+        if codeTheme == .obsidian { return noteTheme?.obsidianCodePalette ?? graphiteObsidianPalette }
+        return themedPalettes[codeTheme] ?? graphiteObsidianPalette
     }
 
-    private struct PaletteKey: Hashable {
-        let codeTheme: CodeColorTheme
-        let noteThemeFingerprint: String
-    }
+    private static let themedPalettes: [CodeColorTheme: CodePalette] = Dictionary(
+        uniqueKeysWithValues: CodeColorTheme.allCases.compactMap { codeTheme in codeTheme.palette().map { palette in (codeTheme, palette) } })
 
-    /// Palettes already made: one per code theme, and for Obsidian's one per vault theme,
-    /// which a vault changes rarely.
-    private static var palettesByKey: [PaletteKey: CodePalette] = [:]
+    private static let graphiteObsidianPalette = obsidianPalette(
+        themeTokenColors: [:], codeColor: nil, codeBackground: nil, codeBlockBackground: nil, quietText: nil, borderWidth: nil, borderColor: nil)
+
+    /// Obsidian's palette for the values a vault theme sets (all nil: Graphite's own). A
+    /// theme's values win; the box is the theme's block background, else its code background.
+    static func obsidianPalette(themeTokenColors: [CodeTokenKind: PlatformColor], codeColor: PlatformColor?, codeBackground: PlatformColor?,
+                                codeBlockBackground: PlatformColor?, quietText: PlatformColor?, borderWidth: Double?,
+                                borderColor: PlatformColor?) -> CodePalette {
+        var colors: [CodeTokenKind: PlatformColor] = [:]
+        for kind in CodeTokenKind.allCases {
+            colors[kind] = themeTokenColors[kind] ?? graphiteColors[kind] ?? codeColor ?? MarkdownTextStyler.primaryTextColor
+        }
+        // The border: the vault theme's, when it gives one, else a light gray a step darker
+        // than the box (lighter in dark appearance).
+        let border: PlatformColor
+        if let borderWidth, borderWidth > 0, let borderColor { border = borderColor } else { border = graphiteBlockBorder }
+        return CodePalette(
+            colors: colors, text: codeColor ?? MarkdownTextStyler.primaryTextColor,
+            background: codeBlockBackground ?? codeBackground ?? graphiteBlockBackground,
+            quietText: quietText ?? MarkdownTextStyler.secondaryTextColor, guide: indentationGuideColor, border: border)
+    }
 
     /// Reading view's colors, for Textual: one entry per token type, for Graphite's tokens
     /// and for the Prism token types Textual's own highlighter gives the languages Graphite
     /// does not tokenize itself, so both read alike.
     static func highlighterTheme(codeTheme: CodeColorTheme, noteTheme: NoteThemeStyle?) -> StructuredText.HighlighterTheme {
-        let key = PaletteKey(codeTheme: codeTheme, noteThemeFingerprint: noteTheme?.tokens.fingerprint ?? "")
-        if let highlighterTheme = highlighterThemesByKey[key] { return highlighterTheme }
-        let highlighterTheme = makeHighlighterTheme(palette: palette(codeTheme: codeTheme, noteTheme: noteTheme))
-        highlighterThemesByKey[key] = highlighterTheme
-        return highlighterTheme
+        palette(codeTheme: codeTheme, noteTheme: noteTheme).highlighterTheme
     }
 
-    private static var highlighterThemesByKey: [PaletteKey: StructuredText.HighlighterTheme] = [:]
-
-    private static func makeHighlighterTheme(palette: CodePalette) -> StructuredText.HighlighterTheme {
+    nonisolated static func makeHighlighterTheme(colors: [CodeTokenKind: PlatformColor], text: PlatformColor,
+                                                 background: PlatformColor) -> StructuredText.HighlighterTheme {
         func dynamic(_ color: PlatformColor) -> DynamicColor {
             // The platform color resolves itself for the appearance and contrast it is drawn in.
             DynamicColor(light: Color(color), dark: Color(color))
         }
         var tokenProperties: [StructuredText.HighlighterTheme.TokenType: AnyTextProperty] = [:]
         for kind in CodeTokenKind.allCases {
-            let property = AnyTextProperty(.foregroundColor(dynamic(palette.color(for: kind))))
+            let property = AnyTextProperty(.foregroundColor(dynamic(colors[kind] ?? text)))
             for tokenType in tokenTypes(of: kind) { tokenProperties[tokenType] = property }
         }
-        return StructuredText.HighlighterTheme(foregroundColor: dynamic(palette.text), backgroundColor: dynamic(palette.background), tokenProperties: tokenProperties)
+        return StructuredText.HighlighterTheme(foregroundColor: dynamic(text), backgroundColor: dynamic(background),
+                                                tokenProperties: tokenProperties)
     }
 
     /// Textual's token types, after Prism's, that take the color of `kind`.
-    private static func tokenTypes(of kind: CodeTokenKind) -> [StructuredText.HighlighterTheme.TokenType] {
+    nonisolated private static func tokenTypes(of kind: CodeTokenKind) -> [StructuredText.HighlighterTheme.TokenType] {
         switch kind {
         case .keyword: [.keyword, .tag, .atrule, .important, .selector]
         case .typeName: [.className, .namespace]
@@ -171,7 +194,8 @@ enum CodeSyntaxColors {
         var location = 0
         for token in CodeSyntaxHighlighter.tokens(in: code, language: codeLanguage) {
             if token.range.location > location {
-                segments.append(StructuredText.CodeSegment(content: source.substring(with: NSRange(location: location, length: token.range.location - location)), type: .plain))
+                let gap = NSRange(location: location, length: token.range.location - location)
+                segments.append(StructuredText.CodeSegment(content: source.substring(with: gap), type: .plain))
             }
             segments.append(StructuredText.CodeSegment(content: source.substring(with: token.range), type: readingTokenTypes[token.kind] ?? .plain))
             location = NSMaxRange(token.range)

@@ -260,7 +260,7 @@ struct MarkdownTextStyler {
     }
 
     // The theme's colors where it sets them, else Graphite's (`NoteThemeStyle`).
-    private var theme: NoteThemeStyle? { configuration.theme }
+    var theme: NoteThemeStyle? { configuration.theme }
     var textColor: PlatformColor { theme?.textNormal ?? Self.primaryTextColor }
     private var mutedColor: PlatformColor { theme?.textMuted ?? Self.secondaryTextColor }
     /// Markdown syntax markers only: decoration, never content.
@@ -357,240 +357,6 @@ struct MarkdownTextStyler {
         textStorage.endEditing()
     }
 
-    // MARK: Code
-
-    /// The colors of code blocks, for the code theme and the vault's theme.
-    private var codePalette: CodePalette { CodeSyntaxColors.palette(codeTheme: configuration.codeColorTheme, noteTheme: theme) }
-
-    /// Holds, on each highlighted line of a fenced code block, the `CodeLineState` the line
-    /// starts in, as its `storedValue`. A restyle compares the state its last line ends in
-    /// with the one stored on the next line, to recolor the lines after an edit that opens
-    /// or closes a block comment or a string spanning lines, and only those.
-    static let codeLineStateKey = NSAttributedString.Key("GraphiteCodeLineState")
-
-    /// Colors the code lines among `spans`, block by block, in the language each block's
-    /// fence names. Lines of a language Graphite does not highlight keep the code color.
-    private func highlightCode(in spans: [MarkdownStyleSpan], to textStorage: NSTextStorage, source: NSString, hiddenRanges: [NSRange]) {
-        let codeSpans = spans.filter { span in span.style == .codeBlock && span.fencedCodeBlock != nil && NSMaxRange(span.range) <= source.length }
-        var groupStart = 0
-        while groupStart < codeSpans.count {
-            var groupEnd = groupStart + 1
-            while groupEnd < codeSpans.count, codeSpans[groupEnd].fencedCodeBlock == codeSpans[groupStart].fencedCodeBlock { groupEnd += 1 }
-            if let block = codeSpans[groupStart].fencedCodeBlock, let language = CodeLanguage.named(block.language) {
-                highlightLines(of: codeSpans[groupStart..<groupEnd], in: block, language: language, textStorage: textStorage, source: source, hiddenRanges: hiddenRanges)
-            }
-            groupStart = groupEnd
-        }
-    }
-
-    /// Colors the lines of `lineSpans`, all in `block`, from the state the first starts in,
-    /// found by following the block's lines above it without making tokens. Then recolors
-    /// the lines after them while they were colored for another state.
-    private func highlightLines(of lineSpans: ArraySlice<MarkdownStyleSpan>, in block: FencedCodeBlock, language: CodeLanguage,
-                                textStorage: NSTextStorage, source: NSString, hiddenRanges: [NSRange]) {
-        guard let firstSpan = lineSpans.first, let lastSpan = lineSpans.last, block.codeStart <= firstSpan.range.location else { return }
-        let firstLineStart = source.lineRange(for: NSRange(location: firstSpan.range.location, length: 0)).location
-        let lastLineEnd = NSMaxRange(source.lineRange(for: NSRange(location: lastSpan.range.location, length: 0)))
-        guard block.codeStart <= firstLineStart, lastLineEnd <= source.length else { return }
-        var units = [UInt16](repeating: 0, count: lastLineEnd - block.codeStart)
-        source.getCharacters(&units, range: NSRange(location: block.codeStart, length: units.count))
-        var highlighter = CodeLineHighlighter(language: language)
-        let lineRanges = CodeSyntaxHighlighter.lineRanges(in: units)
-        for (lineIndex, lineRange) in lineRanges.enumerated() {
-            // The empty range after the last line break starts the line after the block's.
-            if lineRange.lowerBound == units.count, lineIndex > 0 { break }
-            let lineStart = block.codeStart + lineRange.lowerBound
-            let codeRange = Self.codeRange(of: lineRange, in: units, quoteDepth: block.quoteDepth)
-            guard lineStart >= firstLineStart else {
-                highlighter.advance(pastLine: codeRange, of: units)
-                continue
-            }
-            let lineEnd = lineIndex + 1 < lineRanges.count ? block.codeStart + lineRanges[lineIndex + 1].lowerBound : lastLineEnd
-            textStorage.addAttribute(Self.codeLineStateKey, value: highlighter.state.storedValue, range: NSRange(location: lineStart, length: lineEnd - lineStart))
-            for token in highlighter.tokens(inLine: codeRange, of: units) {
-                textStorage.addAttribute(.foregroundColor, value: codePalette.color(for: token.kind), range: token.range.shifted(by: block.codeStart))
-            }
-        }
-        recolorLinesColoredForAnotherState(after: lastLineEnd, entering: highlighter, in: block, textStorage: textStorage, source: source, hiddenRanges: hiddenRanges)
-    }
-
-    /// Recolors the block's lines from `location` on while the state each starts in differs
-    /// from the one stored on it: typing `/*` colors the code after it as a comment, up to
-    /// a line already colored for that state. A line without a stored state ends the block.
-    private func recolorLinesColoredForAnotherState(after location: Int, entering startingHighlighter: CodeLineHighlighter, in block: FencedCodeBlock,
-                                                    textStorage: NSTextStorage, source: NSString, hiddenRanges: [NSRange]) {
-        var highlighter = startingHighlighter
-        var lineStart = location
-        let codeColor = codePalette.text
-        while lineStart < source.length,
-              let storedValue = textStorage.attribute(Self.codeLineStateKey, at: lineStart, effectiveRange: nil) as? Int,
-              storedValue != highlighter.state.storedValue {
-            let lineRange = source.lineRange(for: NSRange(location: lineStart, length: 0))
-            var units = [UInt16](repeating: 0, count: lineRange.length)
-            source.getCharacters(&units, range: lineRange)
-            let contentLength = CodeSyntaxHighlighter.lineRanges(in: units).first?.upperBound ?? units.count
-            let codeRange = Self.codeRange(of: 0..<contentLength, in: units, quoteDepth: block.quoteDepth)
-            textStorage.addAttribute(Self.codeLineStateKey, value: highlighter.state.storedValue, range: lineRange)
-            let tokens = highlighter.tokens(inLine: codeRange, of: units)
-            // Hidden lines (a folded section, a callout drawn as a view) stay hidden.
-            if !hiddenRanges.contains(where: { hiddenRange in NSIntersectionRange(hiddenRange, lineRange).length > 0 }) {
-                textStorage.addAttribute(.foregroundColor, value: codeColor, range: NSRange(location: lineStart, length: contentLength))
-                for token in tokens {
-                    textStorage.addAttribute(.foregroundColor, value: codePalette.color(for: token.kind), range: token.range.shifted(by: lineStart))
-                }
-            }
-            lineStart = NSMaxRange(lineRange)
-        }
-    }
-
-    /// The unquoted fenced code block whose lines, fences included, `selection` starts or
-    /// ends on. Prose lines are answered from their first character and the block context,
-    /// without scanning them.
-    func fencedCodeBlock(touchedBy selection: NSRange, in textStorage: NSTextStorage, source: NSString,
-                         blockContextCheckpoints: MarkdownBlockContextCheckpoints?) -> FencedCodeBlock? {
-        guard textStorage.length == source.length else { return nil }
-        let space = UInt16(UInt8(ascii: " ")), fenceCharacters: Set<UInt16> = [UInt16(UInt8(ascii: "`")), UInt16(UInt8(ascii: "~"))]
-        for location in Set([selection.location, NSMaxRange(selection)]) where location <= source.length {
-            let lineRange = source.lineRange(for: NSRange(location: location, length: 0))
-            var firstVisible = lineRange.location
-            while firstVisible < NSMaxRange(lineRange), source.character(at: firstVisible) == space { firstVisible += 1 }
-            let mayBeFence = firstVisible < NSMaxRange(lineRange) && fenceCharacters.contains(source.character(at: firstVisible))
-            let context = blockContextCheckpoints?.blockContext(atLineStart: lineRange.location, in: textStorage, source: source)
-                ?? MarkdownStyleScanner.blockContext(atLineContaining: lineRange.location, in: source)
-            guard mayBeFence || context == .fencedCode else { continue }
-            let lineStart = NSRange(location: lineRange.location, length: 0)
-            let spans = blockContextCheckpoints?.spans(in: textStorage, source: source, range: lineStart) ?? MarkdownStyleScanner.spans(in: source, range: lineStart)
-            let block = spans.first { span in span.fencedCodeBlock != nil && span.range.location >= lineRange.location && span.range.location <= NSMaxRange(lineRange) }?
-                .fencedCodeBlock
-            if let block, block.quoteDepth == 0 { return block }
-        }
-        return nil
-    }
-
-    /// A code block's opening fence's line and its closing one's, when it has one.
-    static func fenceLineRanges(of block: FencedCodeBlock, in source: NSString) -> [NSRange] {
-        guard block.codeStart > 0, block.codeStart <= source.length else { return [] }
-        var ranges = [source.lineRange(for: NSRange(location: block.codeStart - 1, length: 0))]
-        let codeEnd = NSMaxRange(block.codeRange(in: source))
-        if codeEnd < source.length { ranges.append(source.lineRange(for: NSRange(location: codeEnd, length: 0))) }
-        return ranges
-    }
-
-    /// Draws each fenced code block in `spans` as one box (`CodeBlockLineDecoration`): its
-    /// lines are inset from the box's edges and set without the space between paragraphs,
-    /// and in Live Preview its fences are hidden, unless the selection starts or ends in it,
-    /// leaving short lines that pad the box above and below. Quoted code (in a callout)
-    /// keeps the plain background, inside its quote's bars.
-    private func drawCodeBlocksAsBoxes(in spans: [MarkdownStyleSpan], to textStorage: NSTextStorage, source: NSString, revealedMarkup: RevealedMarkup?,
-                                       fonts: MarkdownStyleFonts, blockContextCheckpoints: MarkdownBlockContextCheckpoints?) {
-        let codeFont = fonts.codeFont
-        let padding: CGFloat = 14
-        let palette = codePalette
-        let background = palette.background
-        let cornerRadius = CodeSyntaxColors.blockCornerRadius(theme: theme)
-        let labelColor = palette.quietText
-        let labelFont = PlatformFont.systemFont(ofSize: max(codeFont.pointSize * 0.8, 10))
-        let guideColor = palette.guide
-        let indentationWidth = max(1, configuration.editingBehavior.tabSize)
-        func paragraphStyle(fixedHeight: CGFloat?) -> NSParagraphStyle {
-            let style = NSMutableParagraphStyle()
-            style.firstLineHeadIndent = padding
-            style.headIndent = padding
-            style.tailIndent = -padding
-            style.paragraphSpacing = 0
-            style.paragraphSpacingBefore = 0
-            if let fixedHeight {
-                style.minimumLineHeight = fixedHeight
-                style.maximumLineHeight = fixedHeight
-            } else {
-                style.lineSpacing = codeFont.pointSize * 0.35
-            }
-            return style
-        }
-        let lineStyle = paragraphStyle(fixedHeight: nil)
-        // A hidden fence leaves a short line that pads the box; above the code, room for the language.
-        let edgePadding: CGFloat = 9
-        let labeledOpeningStyle = paragraphStyle(fixedHeight: (labelFont.ascender - labelFont.descender + edgePadding).rounded())
-        let openingPaddingStyle = paragraphStyle(fixedHeight: edgePadding)
-        let closingPaddingStyle = paragraphStyle(fixedHeight: edgePadding)
-        /// The block whose fences show, found once, when a fence is styled.
-        var codeBlockShowingFences: FencedCodeBlock??
-        for span in spans {
-            guard let block = span.fencedCodeBlock, block.quoteDepth == 0, span.style == .codeBlock || span.style == .syntaxMarker,
-                  span.range.location <= source.length else { continue }
-            let lineRange = source.lineRange(for: NSRange(location: span.range.location, length: 0))
-            guard lineRange.length > 0, NSMaxRange(span.range) <= source.length else { continue }
-            let isFence = span.style == .syntaxMarker
-            let isOpening = isFence && span.range.location < block.codeStart
-            var showsFence = true
-            if isFence, configuration.mode == .livePreview {
-                if codeBlockShowingFences == nil {
-                    codeBlockShowingFences = .some(revealedMarkup.flatMap { markup in
-                        fencedCodeBlock(touchedBy: markup.selection, in: textStorage, source: source, blockContextCheckpoints: blockContextCheckpoints)
-                    })
-                }
-                showsFence = codeBlockShowingFences??.codeStart == block.codeStart
-            }
-            var style = lineStyle
-            if !isFence { textStorage.addAttribute(.foregroundColor, value: palette.text, range: span.range) }
-            if isFence {
-                if showsFence {
-                    textStorage.addAttribute(.font, value: codeFont, range: span.range)
-                    textStorage.addAttribute(.foregroundColor, value: palette.quietText, range: span.range)
-                } else {
-                    conceal(span.range, in: textStorage)
-                    style = !isOpening ? closingPaddingStyle : block.language.isEmpty ? openingPaddingStyle : labeledOpeningStyle
-                }
-            }
-            textStorage.removeAttribute(.backgroundColor, range: lineRange)
-            textStorage.addAttribute(.paragraphStyle, value: style, range: lineRange)
-            let label = isOpening && !showsFence && !block.language.isEmpty ? block.language : nil
-            let decoration = CodeBlockLineDecoration(background: background, cornerRadius: cornerRadius, isFirstLine: isOpening, isLastLine: isFence && !isOpening,
-                                                     languageLabel: label, labelColor: labelColor, labelFont: labelFont, horizontalPadding: padding,
-                                                     guideOffsets: isFence ? [] : Self.indentationGuideOffsets(of: lineRange, in: source, indentationWidth: indentationWidth),
-                                                     guideColor: guideColor, border: palette.border)
-            textStorage.addAttribute(ConcealedReplacement.codeBlockKey, value: decoration, range: lineRange)
-        }
-    }
-
-    /// Where a code line's indentation guides go, counted from the line's start: at the
-    /// start of each level of its leading tabs and spaces (`indentationWidth` columns, a tab
-    /// reaching the next level), once the level is filled. A blank line has none.
-    static func indentationGuideOffsets(of lineRange: NSRange, in source: NSString, indentationWidth: Int) -> [Int] {
-        let space = UInt16(UInt8(ascii: " ")), tab = UInt16(UInt8(ascii: "\t"))
-        var levelStarts: [(offset: Int, column: Int)] = []
-        var column = 0
-        var offset = 0
-        while offset < lineRange.length {
-            let unit = source.character(at: lineRange.location + offset)
-            guard unit == space || unit == tab else { break }
-            if column % indentationWidth == 0 { levelStarts.append((offset, column)) }
-            column = unit == tab ? column + indentationWidth - column % indentationWidth : column + 1
-            offset += 1
-        }
-        guard offset < lineRange.length, let scalar = Unicode.Scalar(source.character(at: lineRange.location + offset)),
-              !CharacterSet.newlines.contains(scalar) else { return [] }
-        return levelStarts.filter { levelStart in levelStart.column + indentationWidth <= column }.map(\.offset)
-    }
-
-    /// The part of a code line after the quote markers its block repeats (`> ` in a callout).
-    private static func codeRange(of lineRange: Range<Int>, in units: [UInt16], quoteDepth: Int) -> Range<Int> {
-        var start = lineRange.lowerBound
-        for _ in 0..<quoteDepth {
-            while start < lineRange.upperBound, units[start] == CodeUnitsForQuotes.space || units[start] == CodeUnitsForQuotes.tab { start += 1 }
-            guard start < lineRange.upperBound, units[start] == CodeUnitsForQuotes.greaterThan else { break }
-            start += 1
-            if start < lineRange.upperBound, units[start] == CodeUnitsForQuotes.space { start += 1 }
-        }
-        return start..<lineRange.upperBound
-    }
-
-    private enum CodeUnitsForQuotes {
-        static let space = UInt16(UInt8(ascii: " "))
-        static let tab = UInt16(UInt8(ascii: "\t"))
-        static let greaterThan = UInt16(UInt8(ascii: ">"))
-    }
-
     /// Restyles the markup that starts or stops showing when the revealed markup goes from
     /// `previousMarkup` to `revealedMarkup`, and nothing else: the text was styled for
     /// `previousMarkup`, so a cursor moving through a long note changes the attributes of
@@ -606,16 +372,8 @@ struct MarkdownTextStyler {
         let documentRange = NSRange(location: 0, length: source.length)
         let concealedBlocks = Self.blocks(concealedBlocks, fitting: source)
         let foldedRegions = Self.regions(foldedRegions, fitting: source)
-        // A code block's fences show while the selection touches the block, however far
-        // from the selection they are: entering or leaving one restyles both its fence lines.
-        let previousCodeBlock = previousMarkup.flatMap { markup in
-            fencedCodeBlock(touchedBy: markup.selection, in: textStorage, source: source, blockContextCheckpoints: blockContextCheckpoints)
-        }
-        let codeBlock = revealedMarkup.flatMap { markup in
-            fencedCodeBlock(touchedBy: markup.selection, in: textStorage, source: source, blockContextCheckpoints: blockContextCheckpoints)
-        }
-        let fenceLines = previousCodeBlock?.codeStart == codeBlock?.codeStart ? []
-            : [previousCodeBlock, codeBlock].compactMap { block in block }.flatMap { block in Self.fenceLineRanges(of: block, in: source) }
+        let fenceLines = fenceLinesOfCodeBlocksTouched(by: previousMarkup, and: revealedMarkup, in: textStorage, source: source,
+                                                       blockContextCheckpoints: blockContextCheckpoints)
         func restyleFenceLines() -> [NSRange] {
             fenceLines.map { fenceLine in
                 applyStyles(to: textStorage, editedRange: fenceLine, restyleEverything: false, revealedMarkup: revealedMarkup, concealedBlocks: concealedBlocks,
@@ -1061,7 +819,7 @@ struct MarkdownTextStyler {
         textStorage.addAttribute(.foregroundColor, value: mutedColor, range: taskTextRange)
     }
 
-    private func conceal(_ range: NSRange, in textStorage: NSTextStorage) {
+    func conceal(_ range: NSRange, in textStorage: NSTextStorage) {
         textStorage.addAttribute(.font, value: Self.concealedFont, range: range)
         textStorage.addAttribute(.foregroundColor, value: PlatformColor.clear, range: range)
     }
@@ -1184,7 +942,7 @@ struct MarkdownTextStyler {
 /// create a font for every heading, code, math, and emphasis span. Kept for one pass only,
 /// so a text size or Dynamic Type change needs no invalidation.
 @MainActor
-private final class MarkdownStyleFonts {
+final class MarkdownStyleFonts {
     let baseFont: PlatformFont
     let typography: NoteTypography
     let theme: NoteThemeStyle?
