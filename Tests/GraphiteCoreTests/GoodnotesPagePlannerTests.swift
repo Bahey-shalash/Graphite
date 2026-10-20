@@ -255,11 +255,19 @@ final class GoodnotesPagePlannerTests: XCTestCase {
         ]
         let plan = try XCTUnwrap(Self.plannedPlan(GoodnotesPagePlanner.plan(Self.page(elements: elements), pageNumber: 1)))
         XCTAssertEqual(plan.strokes, [])
+        XCTAssertEqual(plan.pictures, [], "Pictures without an attachment have no file to place.")
         XCTAssertEqual(plan.report, [
             .elementsNotYetConverted(kind: .shape, count: 1), .tapeLeftOut(strokeCount: 1), .olderVaryingWidthInkLeftOut(strokeCount: 1),
-            .elementsNotYetConverted(kind: .picture, count: 2), .elementsNotYetConverted(kind: .shapeFill, count: 1),
+            .pictureFilesMissing(count: 2), .elementsNotYetConverted(kind: .shapeFill, count: 1),
             .elementsNotYetConverted(kind: .textBox, count: 3), .elementsNotYetConverted(kind: .stickyNote, count: 1)
         ])
+    }
+
+    func testABookmarkedPageIsPlannedBookmarked() throws {
+        let bookmarked = try XCTUnwrap(Self.plannedPlan(GoodnotesPagePlanner.plan(Self.page(elements: [], isBookmarked: true), pageNumber: 1)))
+        XCTAssertTrue(bookmarked.isBookmarked)
+        let unmarked = try XCTUnwrap(Self.plannedPlan(GoodnotesPagePlanner.plan(Self.page(elements: []), pageNumber: 1)))
+        XCTAssertFalse(unmarked.isBookmarked)
     }
 
     // MARK: Builders
@@ -274,8 +282,9 @@ final class GoodnotesPagePlannerTests: XCTestCase {
         GoodnotesPaper(identifier: "paper-1", attachment: attachment, pdfPageNumber: 2, sizeInUnits: CGSize(width: 1100, height: 1650), template: nil)
     }
 
-    private static func page(paper: GoodnotesPaper? = makePaper(), elements: [GoodnotesElement], issues: [GoodnotesReadingIssue] = []) -> GoodnotesPage {
-        let descriptor = GoodnotesPageDescriptor(identifier: "page-1", layerIdentifier: nil, paper: paper, isBookmarked: false, isFlagged: false)
+    private static func page(paper: GoodnotesPaper? = makePaper(), elements: [GoodnotesElement], issues: [GoodnotesReadingIssue] = [],
+                             isBookmarked: Bool = false) -> GoodnotesPage {
+        let descriptor = GoodnotesPageDescriptor(identifier: "page-1", layerIdentifier: nil, paper: paper, isBookmarked: isBookmarked, isFlagged: false)
         return GoodnotesPage(descriptor: descriptor, elements: elements, issues: issues)
     }
 

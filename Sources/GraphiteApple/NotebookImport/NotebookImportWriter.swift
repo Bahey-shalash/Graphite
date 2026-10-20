@@ -3,9 +3,9 @@ import PDFKit
 import GraphiteCore
 
 /// Writes an imported notebook as a new ordinary PDF that Graphite's own PDF code wrote: each planned page is a PDF
-/// page of its size with its background as page content (`ImportedBackgroundPages`), and its strokes are standard
-/// `/Ink` annotations with Graphite's re-editing record (`ImportedPageInk`), so the PDF opens, re-edits and saves like
-/// a notebook made in Graphite.
+/// page of its size with its background as page content (`ImportedBackgroundPages`), its pictures are Graphite's
+/// picture stamps (`ImportedPagePictures`), and its strokes are standard `/Ink` annotations over them with Graphite's
+/// re-editing record (`ImportedPageInk`), so the PDF opens, re-edits and saves like a notebook made in Graphite.
 ///
 /// Pages are planned, made and applied one at a time; a page's plan and PencilKit drawing are released once the page
 /// has its ink. The PDFKit document being written still grows with the notebook. The file is written as
@@ -22,7 +22,7 @@ public struct NotebookImportWriter: Sendable {
 
     /// - Parameters:
     ///   - pageCount: How many pages the notebook has; `planForPage` is asked for each index from 0, in order.
-    ///   - sourceFiles: Reads the files the plans' backgrounds name.
+    ///   - sourceFiles: Reads the files the plans' backgrounds and pictures name.
     ///   - strokeCreationDate: The PencilKit creation date of every imported stroke.
     public func write(pageCount: Int, planForPage: (Int) throws -> ImportedPagePlan, sourceFiles: any ImportSourceFiles,
                       strokeCreationDate: Date, to destination: URL) throws -> NotebookImportWriting {
@@ -37,7 +37,7 @@ public struct NotebookImportWriter: Sendable {
                 for pageIndex in 0..<pageCount {
                     try Task.checkCancellation()
                     let pageReport = try autoreleasepool {
-                        try appendPage(planForPage(pageIndex), at: pageIndex, to: document, backgrounds: &backgrounds,
+                        try appendPage(planForPage(pageIndex), at: pageIndex, to: document, backgrounds: &backgrounds, sourceFiles: sourceFiles,
                                        strokeCreationDate: strokeCreationDate)
                     }
                     pageReports.append(pageReport)
@@ -50,10 +50,18 @@ public struct NotebookImportWriter: Sendable {
         }
     }
 
+    /// The pictures go on the page before its ink, so the ink is over them (invariant M-15). A bookmarked page gets the
+    /// outline item Graphite adds for a bookmark, so the PDF's bookmarks follow the pages' order.
     private func appendPage(_ plan: ImportedPagePlan, at pageIndex: Int, to document: PDFDocument, backgrounds: inout ImportedBackgroundPages,
-                            strokeCreationDate: Date) throws -> ImportedPageReport {
+                            sourceFiles: any ImportSourceFiles, strokeCreationDate: Date) throws -> ImportedPageReport {
         document.insert(try backgrounds.page(for: plan, pageIndex: pageIndex), at: pageIndex)
+        if plan.isBookmarked {
+            try PDFPageManager.apply(.bookmark(page: pageIndex, label: PDFPageManager.bookmarkLabelPrefix + "\(pageIndex + 1)"), to: document)
+        }
+        let picturesLeftOut = try ImportedPagePictures.place(plan.pictures, onPageAt: pageIndex, of: document, pageSize: plan.sizeInPoints,
+                                                                     sourceFiles: sourceFiles)
         try ImportedPageInk.apply(plan.strokes, toPageAt: pageIndex, of: document, pageSize: plan.sizeInPoints, strokeCreationDate: strokeCreationDate)
-        return ImportedPageReport(sourcePageNumber: plan.sourcePageNumber, entries: plan.report)
+        return ImportedPageReport(sourcePageNumber: plan.sourcePageNumber,
+                                  entries: ImportedPagePictures.report(plan.report, adding: picturesLeftOut))
     }
 }

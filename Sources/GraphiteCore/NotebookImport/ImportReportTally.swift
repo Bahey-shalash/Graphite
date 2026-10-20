@@ -4,7 +4,7 @@ import Foundation
 /// entry each with their count, and every other entry is kept once, in first-reported order.
 struct ImportReportTally {
     enum CountedKind: Hashable {
-        case highlighter, pencil, tape, olderVaryingWidthInk, dashes
+        case highlighter, pencil, tape, olderVaryingWidthInk, dashes, pictureMovedUnderInk, animatedPicture, pictureFileMissing, shapeAsInk
         case element(ImportElementKind)
     }
 
@@ -32,6 +32,10 @@ struct ImportReportTally {
         case .tape: .tapeLeftOut(strokeCount: count)
         case .olderVaryingWidthInk: .olderVaryingWidthInkLeftOut(strokeCount: count)
         case .dashes: .dashesNotKept(strokeCount: count)
+        case .pictureMovedUnderInk: .picturesMovedUnderInk(count: count)
+        case .animatedPicture: .animatedPicturesKeptStill(count: count)
+        case .pictureFileMissing: .pictureFilesMissing(count: count)
+        case .shapeAsInk: .shapesDrawnAsInk(count: count)
         case .element(let elementKind): .elementsNotYetConverted(kind: elementKind, count: count)
         }
     }

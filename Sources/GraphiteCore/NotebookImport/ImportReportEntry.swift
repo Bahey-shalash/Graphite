@@ -11,11 +11,22 @@ public enum ImportReportEntry: Sendable, Hashable {
     case tapeLeftOut(strokeCount: Int)
     /// Goodnotes' older varying-width ink, whose center line is not decoded.
     case olderVaryingWidthInkLeftOut(strokeCount: Int)
+    /// Shapes (lines, arcs, rectangles, ellipses) drawn as ink strokes along their outline: Graphite has no editable
+    /// shapes yet.
+    case shapesDrawnAsInk(count: Int)
     /// Dashed strokes, drawn solid: PencilKit has no dashed ink.
     case dashesNotKept(strokeCount: Int)
     /// Elements whose kind a later import step converts (shapes, fills, pictures, text, sticky notes).
     case elementsNotYetConverted(kind: ImportElementKind, count: Int)
-    /// The page's paper ruling, drawn as plain paper until Graphite's paper system has it.
+    /// Pictures the source draws over some of its ink; Graphite draws a page's pictures under all its ink.
+    case picturesMovedUnderInk(count: Int)
+    /// Animated pictures (GIFs), kept as their first frame in the PDF.
+    case animatedPicturesKeptStill(count: Int)
+    /// Pictures whose image file is not in the notebook; they are left out.
+    case pictureFilesMissing(count: Int)
+    /// Pictures whose file is not an image that can be decoded, such as a damaged one; they are left out.
+    case picturesNotDecodable(count: Int)
+    /// A paper ruling the import does not describe, drawn as plain paper.
     case paperRulingNotDrawn
     /// The page has no paper record, so its size and background are not known; it is left out.
     case pageWithoutPaper

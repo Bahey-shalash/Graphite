@@ -12,16 +12,61 @@ public struct ImportedPagePlan: Sendable, Equatable {
     public let background: ImportedPageBackground
     /// In drawing order.
     public let strokes: [ImportedStroke]
+    /// Under the ink, in drawing order (the first drawn first): Graphite draws a page's pictures under its ink.
+    public let pictures: [ImportedPicture]
+    /// Web links over parts of the page.
+    public let links: [ImportedLink]
+    /// The source bookmarks the page (Goodnotes' favorites, Notability's bookmarked PDF pages).
+    public let isBookmarked: Bool
     /// What was simplified or left out on this page, and why.
     public let report: [ImportReportEntry]
 
+    /// A page with no pictures or links, and not bookmarked, unless they are given.
     public init(sourcePageNumber: Int, sizeInPoints: CGSize, background: ImportedPageBackground, strokes: [ImportedStroke],
-                report: [ImportReportEntry]) {
+                pictures: [ImportedPicture] = [], links: [ImportedLink] = [], isBookmarked: Bool = false, report: [ImportReportEntry]) {
         self.sourcePageNumber = sourcePageNumber
         self.sizeInPoints = sizeInPoints
         self.background = background
         self.strokes = strokes
+        self.pictures = pictures
+        self.links = links
+        self.isBookmarked = isBookmarked
         self.report = report
+    }
+}
+
+/// A picture placed on a page: an image file of the source, shown in `frame` before it is turned, turned clockwise by
+/// `rotationRadiansClockwise` about the frame's center.
+public struct ImportedPicture: Sendable, Equatable {
+    public let file: ImportedSourceFile
+    /// The upright frame in page points, before turning.
+    public let frame: CGRect
+    public let rotationRadiansClockwise: Double
+    /// The part of the image shown, in the image's pixels from its top-left corner; nil for the whole image.
+    public let cropRectangleInPixels: CGRect?
+    public let isFlippedHorizontally: Bool
+    public let isFlippedVertically: Bool
+
+    public init(file: ImportedSourceFile, frame: CGRect, rotationRadiansClockwise: Double, cropRectangleInPixels: CGRect?,
+                isFlippedHorizontally: Bool, isFlippedVertically: Bool) {
+        self.file = file
+        self.frame = frame
+        self.rotationRadiansClockwise = rotationRadiansClockwise
+        self.cropRectangleInPixels = cropRectangleInPixels
+        self.isFlippedHorizontally = isFlippedHorizontally
+        self.isFlippedVertically = isFlippedVertically
+    }
+}
+
+/// A web link over an area of a page, written as a standard `/Link` annotation.
+public struct ImportedLink: Sendable, Equatable {
+    /// The area in page points (axis-aligned; a turned source box is given by the box around it).
+    public let area: CGRect
+    public let url: URL
+
+    public init(area: CGRect, url: URL) {
+        self.area = area
+        self.url = url
     }
 }
 
@@ -48,8 +93,37 @@ public enum ImportedPageBackground: Sendable, Equatable {
     /// A page of a PDF in the source, drawn as it is, scaled to the page: Goodnotes' paper (template or imported PDF)
     /// and Notability's imported PDF pages.
     case pdfPage(ImportedSourceFile, pageNumber: Int)
-    /// A plain paper of this colour, until the source's ruling has a Graphite paper (design step 5).
+    /// A plain paper of this colour.
     case plainColor(NotebookImportColor)
+    /// Ruled or grid paper, drawn by Graphite's paper system with the source's own ruling.
+    case ruledPaper(ImportedRuledPaper)
+}
+
+/// Ruled or grid paper as the source draws it, in page points from the top-left corner: rows from `firstRowFromTop`
+/// every `spacing` to the bottom edge, each from `leftEdge` to `rightEdge`, and on grid paper columns at
+/// `gridColumnAnchor` and every spacing to both sides, the page's full height.
+public struct ImportedRuledPaper: Sendable, Equatable {
+    public let paperColor: NotebookImportColor
+    public let lineColor: NotebookImportColor
+    public let lineWidth: Double
+    public let spacing: Double
+    public let firstRowFromTop: Double
+    public let leftEdge: Double
+    public let rightEdge: Double
+    /// Nil for ruled paper.
+    public let gridColumnAnchor: Double?
+
+    public init(paperColor: NotebookImportColor, lineColor: NotebookImportColor, lineWidth: Double, spacing: Double, firstRowFromTop: Double,
+                leftEdge: Double, rightEdge: Double, gridColumnAnchor: Double?) {
+        self.paperColor = paperColor
+        self.lineColor = lineColor
+        self.lineWidth = lineWidth
+        self.spacing = spacing
+        self.firstRowFromTop = firstRowFromTop
+        self.leftEdge = leftEdge
+        self.rightEdge = rightEdge
+        self.gridColumnAnchor = gridColumnAnchor
+    }
 }
 
 /// One stroke, sampled into the points PencilKit needs.
