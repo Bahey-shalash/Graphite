@@ -428,7 +428,8 @@ public final class BaseEvaluator {
         case "ctime": return record.map { record in .date(BaseDate(date: record.createdDate, hasTime: true)) } ?? .null
         case "mtime": return record.map { record in .date(BaseDate(date: record.modifiedDate, hasTime: true)) } ?? .null
         case "tags": return .list((record?.tags ?? []).map { tag in .string("#" + tag) })
-        case "links": return .list(outgoingLinks(of: record, includesEmbeds: false).map { outgoingLink in .link(BaseLink(target: outgoingLink.target, source: path)) })
+        case "links":
+            return .list(outgoingLinks(of: record, includesEmbeds: false).map { outgoingLink in .link(BaseLink(target: outgoingLink.target, source: path)) })
         case "embeds": return .list(internalBodyLinks(of: record).filter(\.isEmbed).map { link in .link(BaseLink(target: link.target, source: path)) })
         case "backlinks": return .list(backlinks(to: path).map(BaseValue.file))
         case "properties": return noteObject(of: record)
@@ -1173,12 +1174,16 @@ public final class BaseEvaluator {
             guard let argument = arguments.first, !argument.isNull else { return .boolean(false) }
             let recordLinks = outgoingLinks(of: record, includesEmbeds: true)
             if let destination = filePath(of: argument, from: path) {
-                return .boolean(recordLinks.contains { outgoingLink in link(outgoingLink.target, from: path, isWiki: outgoingLink.isWiki, pointsTo: destination) })
+                return .boolean(recordLinks.contains { outgoingLink in
+                    link(outgoingLink.target, from: path, isWiki: outgoingLink.isWiki, pointsTo: destination)
+                })
             }
             let writtenTarget: String
             if case .link(let link) = argument { writtenTarget = link.pathPart } else { writtenTarget = BaseLink.parse(argument.displayText)?.pathPart ?? argument.displayText }
             let normalizedTarget = Self.normalizedLinkText(writtenTarget)
-            return .boolean(recordLinks.contains { outgoingLink in Self.normalizedLinkText(WikiLinkResolver.pathPart(outgoingLink.target)) == normalizedTarget })
+            return .boolean(recordLinks.contains { outgoingLink in
+                Self.normalizedLinkText(WikiLinkResolver.pathPart(outgoingLink.target)) == normalizedTarget
+            })
         default:
             return nil
         }

@@ -1000,13 +1000,18 @@ final class CommunityPluginHost {
     /// the plugin waits for the answer and for the whole move it starts, however long it runs.
     /// Only time in which the file is neither asked about nor moving counts toward the deadline.
     private func outcomeOfMoveWaitingForAnswer(of source: VaultPath, in workspace: WorkspaceModel) async -> FileMoveOutcome {
-        var deadline = ContinuousClock.now + renameAnswerDeadline
+        // Set when the file is first seen neither asked about nor moving; nil while it is.
+        var deadline: ContinuousClock.Instant?
         while workspace.answeredMoveOutcomes[source] == nil {
-            let isAskedAbout = workspace.pendingMove?.path == source || workspace.pendingMove?.queuedMoves.requests.contains(where: { request in request.path == source }) == true
+            let pendingMove = workspace.pendingMove
+            let isAskedAbout = pendingMove?.path == source || pendingMove?.queuedMoves.requests.contains(where: { request in request.path == source }) == true
+            let now = ContinuousClock.now
             if isAskedAbout || workspace.pathsMovingAfterAnswer.contains(source) {
-                deadline = ContinuousClock.now + renameAnswerDeadline
-            } else if ContinuousClock.now >= deadline {
-                break
+                deadline = nil
+            } else if let deadline {
+                if now >= deadline { break }
+            } else {
+                deadline = now + renameAnswerDeadline
             }
             try? await Task.sleep(for: .milliseconds(100)) // Cancellation only shortens the pause; the outcome and the deadline end the wait.
         }

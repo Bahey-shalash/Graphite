@@ -259,7 +259,8 @@ extension CanvasFile {
             throw CanvasFileError.editNotApplied
         }
         members += [("x", CanvasJSONWriter.integer(node.frame.minX)), ("y", CanvasJSONWriter.integer(node.frame.minY)),
-                    ("width", CanvasJSONWriter.integer(writableSideLength(node.frame.width))), ("height", CanvasJSONWriter.integer(writableSideLength(node.frame.height)))]
+                    ("width", CanvasJSONWriter.integer(writableSideLength(node.frame.width))),
+                    ("height", CanvasJSONWriter.integer(writableSideLength(node.frame.height)))]
         if let color = node.color { members.append(("color", CanvasJSONWriter.string(color.text))) }
         return objectBytes(members + trailingMembers)
     }

@@ -344,7 +344,7 @@ public struct BaseDefinitionEditor {
             // Views that `<<: *defaults` supplies live in the anchored mapping, which an
             // edit here cannot change without changing every other user of the anchor.
             if let mergedViewsNode = BaseDefinition.applyingMergeKeys(rootMapping)["views"], !BaseDefinition.isNullValue(mergedViewsNode) {
-                throw Self.mergedViews
+                throw BaseDefinitionEditRefusal.viewsFromMergeKey
             }
         default:
             break
@@ -356,7 +356,6 @@ public struct BaseDefinitionEditor {
     }
 
     private static let unreadableViews = GraphiteError.invalidFile("This base's “views” is not a list of view settings, so Graphite left the file unchanged. Fix “views” in the file first.")
-    private static let mergedViews = GraphiteError.invalidFile("This base takes its “views” from a merge key (<<), so Graphite left the file unchanged. Edit the views in the file instead.")
 
     private mutating func updateView(at viewIndex: Int, _ change: (inout Node.Mapping) -> Void) throws {
         var views = try ensuredViews()
@@ -1158,5 +1157,19 @@ struct YAMLSplicer {
         let afterIndentation = linePrefix.dropFirst(indentation.count)
         guard afterIndentation.first == "-", afterIndentation.count > 1, afterIndentation.dropFirst().allSatisfy({ character in character == " " }) else { return nil }
         return indentation.count
+    }
+}
+
+/// An edit the base editor refuses, leaving the file unchanged, because writing it would
+/// change more than the edit asks.
+public enum BaseDefinitionEditRefusal: LocalizedError, Equatable, Sendable {
+    /// The views come from a merge key (`<<`); an explicit `views` list would hide them.
+    case viewsFromMergeKey
+
+    public var errorDescription: String? {
+        switch self {
+        case .viewsFromMergeKey:
+            "This base takes its “views” from a merge key (<<), so Graphite left the file unchanged. Edit the views in the file instead."
+        }
     }
 }

@@ -327,7 +327,9 @@ final class WorkspaceModel {
         VaultIndex.removeIndex(forVault: vault.id, in: applicationFolders.cachesFolder)
         CommunityPluginHost.forgetVault(vault.id, defaults: deviceDefaults)
         // Opening the folder again makes a new identifier, so nothing would read these again.
-        for key in [Self.expandedFoldersKey(for: vault.id), Self.recentFilesKey(for: vault.id), Self.tabLayoutKey(for: vault.id), Self.foldsKey(for: vault.id)] {
+        let vaultKeys = [Self.expandedFoldersKey(for: vault.id), Self.recentFilesKey(for: vault.id),
+                         Self.tabLayoutKey(for: vault.id), Self.foldsKey(for: vault.id)]
+        for key in vaultKeys {
             deviceDefaults.removeObject(forKey: key)
         }
         documentPlaceStore.forgetVault(vault.id)
@@ -338,9 +340,7 @@ final class WorkspaceModel {
     /// settings, so it stays open only when this vault opens again at its folder's new place.
     private func prepareToLeaveCurrentVault(isReopeningCurrentVault: Bool) async throws {
         guard !recording.state.isActive else { throw GraphiteError.unavailable("Finish the current recording before switching vaults.") }
-        guard isReopeningCurrentVault || drawingEditorRequest == nil else {
-            throw GraphiteError.unavailable("Insert or cancel the drawing before switching vaults.")
-        }
+        guard isReopeningCurrentVault || drawingEditorRequest == nil else { throw VaultSwitchRefusal.drawingIsOpen }
         rememberPlacesOfOpenDocuments()
         try await saveOpenDocuments()
     }
@@ -1562,6 +1562,18 @@ extension WorkspaceModel {
             let remembered = readAloudNavigator.rememberedLocation(for: pdf.location.path) ?? 0
             let first = min(max(0, remembered), max(0, pdf.pageCount - 1))
             readAloud.readPDF(pdf, firstPageIndex: first, lastPageIndex: max(first, pdf.pageCount - 1))
+        }
+    }
+}
+
+/// Why the open vault cannot be left yet.
+enum VaultSwitchRefusal: LocalizedError, Equatable {
+    /// A drawing is open in its editor, and it saves through the open vault.
+    case drawingIsOpen
+
+    var errorDescription: String? {
+        switch self {
+        case .drawingIsOpen: "Insert or cancel the drawing before switching vaults."
         }
     }
 }

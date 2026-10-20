@@ -272,7 +272,8 @@ struct EmbeddedPDFViewer: View {
     private static func protectionBannerText(for protection: PDFProtection) -> String {
         switch protection {
         case .passwordProtected: "This PDF is protected by a password, so Graphite shows it without changing it: annotating is off."
-        case .digitallySigned: "This PDF is digitally signed, so Graphite shows it without changing it: annotating is off. To edit it anyway, open it in the PDF view."
+        case .digitallySigned:
+            "This PDF is digitally signed, so Graphite shows it without changing it: annotating is off. To edit it anyway, open it in the PDF view."
         }
     }
 
