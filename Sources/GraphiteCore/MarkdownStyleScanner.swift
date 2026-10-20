@@ -157,7 +157,7 @@ public enum MarkdownStyleScanner {
                 lineStart = previousLineRange.location
                 state = previousState
             } else {
-                state = nextState(after: previousLine, endingAt: NSMaxRange(previousLineRange), previousState)
+                state = nextState(after: previousLine, endingAt: NSMaxRange(previousLineRange), in: text, previousState)
             }
         }
         var spans: [MarkdownStyleSpan] = []
@@ -176,8 +176,8 @@ public enum MarkdownStyleScanner {
                 state = stateForStyling(line: line, state)
                 let isParagraphText = nextLineUnderlineLevel != nil && state.context == .normal && isParagraphText(line)
                 let neighbors = LineNeighbors(isAfterParagraphText: previousLineIsParagraphText, setextHeadingLevel: isParagraphText ? nextLineUnderlineLevel : nil)
-                spans.append(contentsOf: lineSpans(line: line as NSString, lineLocation: lineStart, state: state, neighbors: neighbors))
-                state = nextState(after: line, endingAt: nextLineStart, state)
+                spans.append(contentsOf: lineSpans(line: line as NSString, lineLocation: lineStart, state: state, neighbors: neighbors, in: text))
+                state = nextState(after: line, endingAt: nextLineStart, in: text, state)
                 previousLineIsParagraphText = isParagraphText
             }
             lineStart = nextLineStart
@@ -239,7 +239,7 @@ public enum MarkdownStyleScanner {
                 guard let candidateLineStart = firstLineThatMayChangeState(state, in: text, range: searchedRange) else { break }
                 lineRange = text.lineRange(for: NSRange(location: candidateLineStart, length: 0))
             }
-            state = nextState(after: text.substring(with: lineRange), endingAt: NSMaxRange(lineRange), state)
+            state = nextState(after: text.substring(with: lineRange), endingAt: NSMaxRange(lineRange), in: text, state)
             lineStart = NSMaxRange(lineRange)
         }
         return state
@@ -309,26 +309,40 @@ public enum MarkdownStyleScanner {
         return BlockState()
     }
 
-    /// The state after `line`, which ends (line break included) at `lineEnd` in the text.
-    static func nextState(after line: String, endingAt lineEnd: Int, _ state: BlockState) -> BlockState {
+    /// The state after `line`, which ends (line break included) at `lineEnd` in `text`.
+    static func nextState(after line: String, endingAt lineEnd: Int, in text: NSString, _ state: BlockState) -> BlockState {
         switch state.context {
         case .fencedCode:
             let (depth, content) = quoteMarkersAndContent(of: line, maximumDepth: state.fenceQuoteDepth)
             // Leaving the quote ends the code block, and the line is read afresh.
-            if depth < state.fenceQuoteDepth { return nextState(after: line, endingAt: lineEnd, BlockState()) }
+            if depth < state.fenceQuoteDepth { return nextState(after: line, endingAt: lineEnd, in: text, BlockState()) }
             guard let fence = state.openFence, !CodeFence.closes(fence, content) else { return BlockState() }
             return state
         case .mathBlock:
             return contentWithoutQuoteMarkers(line).hasSuffix("$$") ? BlockState() : state
         case .normal, .frontmatter:
             let (depth, content) = quoteMarkersAndContent(of: line, maximumDepth: .max)
-            if let (fence, info) = CodeFence.opening(content) {
+            if let (fence, info) = fenceOpening(content, ofLine: line, startingAt: lineEnd - (line as NSString).length, in: text) {
                 let codeBlock = FencedCodeBlock(language: NotePreviewDocument.codeBlockLanguage(ofFenceInfo: info), codeStart: lineEnd, quoteDepth: depth, fence: fence)
                 return BlockState(context: .fencedCode, openFence: fence, fenceQuoteDepth: depth, fencedCodeBlock: codeBlock)
             }
             if opensDisplayMathBlock(content) { return BlockState(context: .mathBlock) }
             return BlockState()
         }
+    }
+
+    /// The fence that `content`, the text of `line` (which starts at `lineStart` in `text`)
+    /// after its quote markers, opens. Indented past `CodeFence.maximumIndentation` columns,
+    /// a line opens one only within that many columns of the content of the list item
+    /// holding it, as `MarkdownCodeRanges` reads fences; only such a line looks up its list
+    /// item. Indentation is counted before any quote marker, so a quoted line's content
+    /// is not checked.
+    private static func fenceOpening(_ content: String, ofLine line: String, startingAt lineStart: Int, in text: NSString) -> (fence: String, info: String)? {
+        guard let opening = CodeFence.opening(content) else { return nil }
+        let indentation = ListItemContainers.leadingColumns(of: line)
+        guard indentation <= CodeFence.maximumIndentation
+                || indentation <= ListItemContainers.containerColumn(ofLineAt: lineStart, in: text) + CodeFence.maximumIndentation else { return nil }
+        return opening
     }
 
     /// Whether a line starting with `$$` leaves display math open: its unescaped `$$`
@@ -423,7 +437,7 @@ public enum MarkdownStyleScanner {
         return [MarkdownStyleSpan(range: NSRange(location: lineLocation, length: contentLength), style: .frontmatter)]
     }
 
-    private static func lineSpans(line: NSString, lineLocation: Int, state: BlockState, neighbors: LineNeighbors) -> [MarkdownStyleSpan] {
+    private static func lineSpans(line: NSString, lineLocation: Int, state: BlockState, neighbors: LineNeighbors, in text: NSString) -> [MarkdownStyleSpan] {
         let contentLength = lengthWithoutLineEnding(line)
         if contentLength == 0, state.context == .fencedCode, let codeBlock = state.fencedCodeBlock {
             // An empty span still tells the editor the blank line is part of the block's code.
@@ -450,7 +464,7 @@ public enum MarkdownStyleScanner {
         case .mathBlock:
             return [span(lineContent, .math)]
         case .normal:
-            if let (fence, info) = CodeFence.opening(content) {
+            if let (fence, info) = fenceOpening(content, ofLine: line as String, startingAt: lineLocation, in: text) {
                 let depth = quoteMarkersAndContent(of: trimmedLine, maximumDepth: .max).depth
                 let codeBlock = FencedCodeBlock(language: NotePreviewDocument.codeBlockLanguage(ofFenceInfo: info), codeStart: lineLocation + line.length,
                                                 quoteDepth: depth, fence: fence)

@@ -676,6 +676,11 @@ public enum CodeFence {
         guard let fenceCharacter = fence.first else { return false }
         return trimmedLine.count >= fence.count && trimmedLine.allSatisfy { character in character == fenceCharacter }
     }
+
+    /// Columns a fence may be indented past the content column of its container: the
+    /// list item holding it, or column 0 outside lists. Indented further, a fence line
+    /// is indented code or paragraph text.
+    public static let maximumIndentation = 3
 }
 
 /// Where code is in Markdown text: fenced blocks and inline code spans. Links and embeds
@@ -689,32 +694,22 @@ public enum MarkdownCodeRanges {
         var ranges: [NSRange] = []
         var fenceStart: Int?
         var tracker = CodeFenceTracker()
-        // Content columns of the list items the current line may belong to. A fence opens
-        // only within three columns of its container's content, so "    ```" continuing
-        // a paragraph is text, while the same line inside a list item opens a fence.
-        var listContentColumns: [Int] = []
+        var listItems = ListItemContainers()
         var openFenceIndentationLimit = 0
         var lineStart = 0
         while lineStart < text.length {
             let lineRange = text.lineRange(for: NSRange(location: lineStart, length: 0))
             let line = text.substring(with: lineRange)
-            let indentation = leadingColumns(of: line)
             let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
             let isCode: Bool
             if tracker.isInsideFence {
                 // Indented further, a fence line is content, not the closing fence.
-                isCode = indentation > openFenceIndentationLimit || tracker.isCodeLine(trimmedLine)
+                isCode = ListItemContainers.leadingColumns(of: line) > openFenceIndentationLimit || tracker.isCodeLine(trimmedLine)
+            } else if let opening = listItems.fenceOpening(of: line) {
+                isCode = tracker.isCodeLine(trimmedLine)
+                openFenceIndentationLimit = opening.containerColumn + CodeFence.maximumIndentation
             } else {
-                if !trimmedLine.isEmpty {
-                    while let contentColumn = listContentColumns.last, contentColumn > indentation { listContentColumns.removeLast() }
-                }
-                let indentationLimit = (listContentColumns.last ?? 0) + 3
-                isCode = indentation <= indentationLimit && tracker.isCodeLine(trimmedLine)
-                if isCode {
-                    openFenceIndentationLimit = indentationLimit
-                } else if let contentColumn = listItemContentColumn(of: line, indentation: indentation) {
-                    listContentColumns.append(contentColumn)
-                }
+                isCode = false
             }
             if isCode, fenceStart == nil { fenceStart = lineRange.location }
             if !isCode, let start = fenceStart {
@@ -788,9 +783,61 @@ public enum MarkdownCodeRanges {
         while index > 0 && text.character(at: index - 1) == backslash { index -= 1 }
         return (location - index) % 2 == 1
     }
+}
+
+/// The list items a line can belong to, as CommonMark nests blocks: a non-blank line
+/// belongs to the innermost item whose content column it reaches. A fence opens only
+/// within `CodeFence.maximumIndentation` columns of that column (column 0 outside lists),
+/// so "    ```" continuing a paragraph is text while the same line inside a list item
+/// opens a fence. The index, the editor, reading view and Live Preview find fence
+/// openings through this type.
+struct ListItemContainers {
+    /// Content columns of the open items, innermost last; each is greater than the one before it.
+    private var contentColumns: [Int] = []
+    /// No item's content starts before this column: a one-character marker, then a space.
+    private static let smallestContentColumn = 2
+
+    init() {}
+
+    /// The fence `line` opens, its info text and the content column of its container, or
+    /// nil; a line that opens no fence and starts a list item opens that item. Call once
+    /// per line outside fenced code, in order.
+    mutating func fenceOpening(of line: String) -> (fence: String, info: String, containerColumn: Int)? {
+        let indentation = Self.leadingColumns(of: line)
+        let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedLine.isEmpty {
+            while let contentColumn = contentColumns.last, contentColumn > indentation { contentColumns.removeLast() }
+        }
+        let containerColumn = contentColumns.last ?? 0
+        if indentation <= containerColumn + CodeFence.maximumIndentation, let (fence, info) = CodeFence.opening(trimmedLine) {
+            return (fence, info, containerColumn)
+        }
+        if let contentColumn = Self.listItemContentColumn(of: line, indentation: indentation) { contentColumns.append(contentColumn) }
+        return nil
+    }
+
+    /// The content column of the innermost list item holding the line that starts at
+    /// `lineStart`, or 0, read backwards instead of following every line from the top:
+    /// the nearest earlier item whose content column that line and every non-blank line
+    /// between them reach. Unlike `fenceOpening(of:)` it does not skip fenced code, so a
+    /// list marker written in code above the line counts as an item.
+    static func containerColumn(ofLineAt lineStart: Int, in text: NSString) -> Int {
+        var reachedColumn = leadingColumns(of: text.substring(with: text.lineRange(for: NSRange(location: lineStart, length: 0))))
+        var earlierLineEnd = lineStart
+        while earlierLineEnd > 0 && reachedColumn >= smallestContentColumn {
+            let lineRange = text.lineRange(for: NSRange(location: earlierLineEnd - 1, length: 0))
+            earlierLineEnd = lineRange.location
+            let line = text.substring(with: lineRange)
+            guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            let indentation = leadingColumns(of: line)
+            if let contentColumn = listItemContentColumn(of: line, indentation: indentation), contentColumn <= reachedColumn { return contentColumn }
+            reachedColumn = min(reachedColumn, indentation)
+        }
+        return 0
+    }
 
     /// Leading indentation in columns, with tabs advancing to the next multiple of four.
-    private static func leadingColumns(of line: String) -> Int {
+    static func leadingColumns(of line: String) -> Int {
         var columns = 0
         for character in line {
             if character == " " { columns += 1 } else if character == "\t" { columns += 4 - columns % 4 } else { break }

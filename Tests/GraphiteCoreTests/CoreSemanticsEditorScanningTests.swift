@@ -49,6 +49,39 @@ final class CoreSemanticsEditorScanningTests: XCTestCase {
         XCTAssertEqual(context(atLineOf: "inside", in: "```\n> ```\ninside\n```\nafter"), .fencedCode, "A quote marker inside code is code.")
     }
 
+    /// BUG-MDCORE-03: the editor, reading view and Live Preview opened a fence indented four columns outside a list.
+    func testAFenceIndentedFourColumnsOpensCodeOnlyInsideAListItem() {
+        let source = "Text\n    ```\n\n# Heading\n\n> [!note] Title\n> body\n"
+        XCTAssertEqual(MarkdownCodeRanges.ranges(in: source as NSString), [], "The index reads no code here.")
+        XCTAssertEqual(context(atLineOf: "# Heading", in: source), .normal)
+        XCTAssertEqual(text(styled: .heading(level: 1), in: source), ["# Heading"])
+        XCTAssertTrue(text(styled: .codeBlock, in: source).isEmpty)
+        XCTAssertEqual(LivePreviewBlockScanner.blocks(in: source as NSString).map(\.kind), [.callout])
+        let readingBlocks = NotePreviewDocument.blocks(from: source)
+        XCTAssertTrue(readingBlocks.contains { block in
+            if case .heading(level: 1, text: "Heading", anchor: _) = block { return true }
+            return false
+        })
+        XCTAssertTrue(readingBlocks.contains { block in
+            if case .callout = block { return true }
+            return false
+        })
+
+        // Inside a list item the same indentation stays within three columns of the item's content.
+        let listSource = "- item\n    ```\n    # not a heading\n    ```\nafter **bold**\n"
+        XCTAssertEqual(context(atLineOf: "# not a heading", in: listSource), .fencedCode)
+        XCTAssertEqual(context(atLineOf: "after", in: listSource), .normal)
+        XCTAssertEqual(text(styled: .strong, in: listSource), ["bold"])
+        XCTAssertFalse(NotePreviewDocument.blocks(from: listSource).contains { block in
+            if case .heading = block { return true }
+            return false
+        })
+        // A tab-indented fence under a nested item belongs to the outer item, as HTML paste writes it.
+        let nestedSource = "- a\n\t- b\n\t```\n\tcode **x**\n\t```\nafter"
+        XCTAssertEqual(MarkdownCodeRanges.ranges(in: nestedSource as NSString).count, 1)
+        XCTAssertEqual(context(atLineOf: "\tcode", in: nestedSource), .fencedCode)
+        XCTAssertTrue(text(styled: .strong, in: nestedSource).isEmpty)
+    }
     // MARK: Display and inline math
 
     func testDisplayMathClosedOnItsLineDoesNotStyleTheRestOfTheNote() {
@@ -132,7 +165,7 @@ final class CoreSemanticsEditorScanningTests: XCTestCase {
             while lineStart < source.length {
                 let lineRange = source.lineRange(for: NSRange(location: lineStart, length: 0))
                 XCTAssertEqual(MarkdownStyleScanner.blockContext(atLineContaining: lineStart, in: source), expected.context, "\(source) at \(lineStart)")
-                expected = MarkdownStyleScanner.nextState(after: source.substring(with: lineRange), endingAt: NSMaxRange(lineRange), expected)
+                expected = MarkdownStyleScanner.nextState(after: source.substring(with: lineRange), endingAt: NSMaxRange(lineRange), in: source, expected)
                 lineStart = NSMaxRange(lineRange)
             }
         }
@@ -151,7 +184,7 @@ final class CoreSemanticsEditorScanningTests: XCTestCase {
             while lineStart < source.length {
                 let lineRange = source.lineRange(for: NSRange(location: lineStart, length: 0))
                 XCTAssertEqual(MarkdownStyleScanner.blockContext(atLineContaining: lineStart, in: source), expected.context, "padding \(padding) at \(lineStart)")
-                expected = MarkdownStyleScanner.nextState(after: source.substring(with: lineRange), endingAt: NSMaxRange(lineRange), expected)
+                expected = MarkdownStyleScanner.nextState(after: source.substring(with: lineRange), endingAt: NSMaxRange(lineRange), in: source, expected)
                 lineStart = NSMaxRange(lineRange)
             }
         }
