@@ -1,6 +1,6 @@
 # Import Phase 3: conversion to ordinary files (design)
 
-Status: reviewed 2026-10-20, with the owner's decisions below. Steps 1 and 2 are built and tested ("Built so far" below); nothing calls them from the app yet. Phase 3 of [the import checklist](Goodnotes-Notability-import-todo.md), on top of the Phase 2 readers (`GoodnotesNotebookReader`, `NotabilityNoteReader`).
+Status: reviewed 2026-10-20, with the owner's decisions below. Steps 1 to 6 are built and tested ("Built so far" below), except Goodnotes links, which sit on text boxes and wait for step 8 with them; nothing calls them from the app yet. Phase 3 of [the import checklist](Goodnotes-Notability-import-todo.md), on top of the Phase 2 readers (`GoodnotesNotebookReader`, `NotabilityNoteReader`).
 
 ## Shape
 
@@ -41,7 +41,7 @@ Pages are planned and written one at a time, so the source is never decoded whol
   - Curves are sampled to 0.1 point (`BezierFlattening`).
   - Goodnotes' fountain and brush outlines are flattened into the stroke's exact outline (`GoodnotesOutlineFlattening`).
   - A Notability curve that crosses a page edge is cut there (`NotabilityCurveSampling`).
-  - Shapes, fills, pictures, text, tape and the older ink are counted in the report for their later steps.
+  - Fills, text, tape and the older ink are counted in the report (shapes and pictures were too, until steps 3 and 4).
 - **Writer (GraphiteApple):** `NotebookImportWriter.write(pageCount:planForPage:sourceFiles:strokeCreationDate:to:)` writes one PDF, one page at a time:
   - the background is a copy of the source PDF page, or a page redrawn upright and stretched when its size or rotation differs, or plain paper;
   - the ink goes through `PDFPageInkTracker`, so the page carries Graphite's re-editing record;
@@ -63,6 +63,17 @@ Pages are planned and written one at a time, so the source is never decoded whol
   - `ImportedStrokeBuilderTests` and `NotebookImportWriterTests` write PDFs and read them back with PDFKit.
   - Not done yet: a sample notebook written end to end and compared with its export (Phase 5).
 
+## Built so far (steps 3 to 6, 2026-10-20)
+
+- **Pictures (step 3):** `GoodnotesPicturePlanner` and `NotabilityPagePlanner` give each picture its file, frame, angle, crop and flips (`ImportedPicture`). The writer prepares each image (`ImportedPictureImage`: turned upright by its orientation, cropped, flipped, a GIF as its first frame) and places it as a Graphite picture before the page's ink (`ImportedPagePictures`, invariants M-14 and M-15).
+  - Reported: a Goodnotes picture drawn over ink (`picturesMovedUnderInk`), an animated picture kept still, a picture whose file is not in the notebook, and one whose file does not decode (`picturesNotDecodable`). Those last two are left out; the rest of the page is written.
+  - A picture whose plan is unusable (frame, angle or crop), or one too large even made smaller, is a typed error.
+- **Shapes (step 4):** a Goodnotes shape with geometry and a width becomes one ink stroke along its outline (`ShapeOutlineSampling`: straight sides get a point every 2 points or less, arcs and ellipses within 0.1 point). A Notability line shape becomes ink too, straight or a quadratic through its control point, cut at the page edges like a curve, and drawn just before the curve it precedes (`NotabilityShapeSampling`).
+  - Reported: every shape drawn as ink (`shapesDrawnAsInk`), and dashes drawn solid.
+  - A shape without geometry or width, or of a kind not described, is counted as left out.
+- **Notability paper (step 5):** ruled and grid paper are drawn by Graphite's paper system. `PaperSpecification` has an optional `PaperRuling`: line colour, line width, where the rows start and end, and the grid's column anchor. Without it, every template draws as before, byte for byte (`PDFTemplateGeneratorGoldenTests`), and older data decodes unchanged. `NotabilityPaperRuling` gives the ruling Notability's export draws ("Paper" in `Notability-format.md`). A line style not described is plain paper, reported.
+- **Bookmarks (step 6):** a bookmarked Goodnotes page, or a Notability page made from a bookmarked PDF page, gets the outline item Graphite adds for a bookmark ("Page 3"), in page order. Goodnotes links are on text boxes, so they come with step 8; until then, the report lists the text box as left out. Outline entries are not read into the plan yet.
+
 ## Order of work, and what each step needs
 
 | Step | What | Needs from Graphite | Exact or reported |
@@ -71,13 +82,13 @@ Pages are planned and written one at a time, so the source is never decoded whol
 | 2 | Ink: Goodnotes ball pen, fountain and brush pen (with their outline), pencil (force, azimuth, altitude), highlighter; Notability pen and highlighter (width × knot factor, force) | Nothing new | Exact shape in PDF readers. Two differences go in the report: Graphite draws a highlighter normally where Goodnotes multiplies it, and Graphite's pencil is not Goodnotes' texture |
 | 3 | Pictures: turned, Notability crop (the bitmap cropped before placing), GIF as its first frame | Pictures above ink for Goodnotes' free stacking (checklist: "Graphite features this needs first") | Under the ink until that exists; a picture that Goodnotes draws over ink is reported |
 | 4 | Shapes: lines, arcs, rectangles, ellipses, Notability lines and curves, as ink strokes sampled from their geometry | Editable shapes, dashed ink, filled shapes | Shapes arrive as ink. Dashes and fills are reported |
-| 5 | Notability paper (white or black, ruled every width / 17, grid, #A3B7D3, 0.5 and 0.4 points) | `PaperSpecification` with a free line colour and line width: a small addition to the paper system | Exact once added |
-| 6 | Links, bookmarks, outline: a link on a Goodnotes text box becomes a `/Link` annotation, bookmarks become outline items (`PDFEdit.bookmark`), outline entries are reported (their target is not resolved yet) | Nothing new | Exact for links and bookmarks |
+| 5 | Notability paper (white or black, ruled every width / 17, grid, #A3B7D3, 0.5 and 0.4 points) | `PaperSpecification` with a free line colour and line width: a small addition to the paper system (`PaperRuling`, added) | Exact on the letter samples |
+| 6 | Links, bookmarks, outline: bookmarks become outline items (`PDFEdit.bookmark`). A link on a Goodnotes text box becomes a `/Link` annotation with step 8, as it sits on the text box. Outline entries are reported (their target is not resolved yet) | Nothing new | Exact for bookmarks; links wait for step 8 |
 | 7 | Audio: Notability `.m4a` and Goodnotes MP4 audio copied as `.m4a` where the vault's attachment policy says; no companion note (owner decision 4) | Synchronised replay for stroke timing (not planned) | The audio is exact. Stroke timing is not kept |
 | 8 | Text boxes, sticky notes, older RTF text boxes, Notability typed text | Text boxes on PDF pages | Blocked; listed in the report until then (owner decision 1, and "Text boxes" below) |
 | 9 | The import report value (per page: converted, simplified, skipped, with the reason), for Phase 4 to show | Nothing new | — |
 
-Steps 1, 2 and 9 come first and stand alone. Steps 3, 4 and 6 follow with their reported limits. Step 5 needs its paper addition first. Step 7 is independent. Step 8 waits for text boxes on PDF pages (owner decision 1).
+Steps 1, 2 and 9 come first and stand alone. Steps 3, 4 and 6 follow with their reported limits. Step 5 needed its paper addition first. Step 7 is independent. Step 8 waits for text boxes on PDF pages (owner decision 1).
 
 ## Text boxes (step 8)
 
