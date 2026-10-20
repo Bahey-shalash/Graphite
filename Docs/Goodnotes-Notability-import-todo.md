@@ -73,7 +73,7 @@ Every row of the table above, one element at a time:
 - [ ] Page sizes and orientation per page. **Built and tested 2026-10-20**, not yet in the app: each page is its source's size in points (Goodnotes' paper size, Notability's export page), and a Notability note's continuous document is cut into those pages.
 - [ ] Images as separate pictures from their original files, with position, size, rotation, crop and stacking. **Built and tested 2026-10-20 (design step 3)**, not yet in the app: Graphite pictures with frame, angle, crop and flips, under the ink; a Goodnotes picture drawn over ink is moved under it and reported, and a GIF keeps its first frame.
 - [ ] Text boxes as editable text boxes; shapes as shapes; links, outline and bookmarks. **Bookmarks built 2026-10-20** (design step 6). Shapes arrive as ink until Graphite has editable shapes; text boxes and the Goodnotes links on them wait for text boxes on PDF pages (owner decision 1); outline entries are not converted yet.
-- [ ] Notability audio and its timing.
+- [ ] Notability audio and its timing. **Audio built and tested 2026-10-20 (design step 7)**, not yet in the app: both apps' recordings are written as `.m4a` files, byte for byte; the timing of writing during a recording is left out for now and reported (owner decision, 2026-10-20).
 - [ ] Folder structure of a Goodnotes or Notability library export kept as folders in the vault.
 
 ## Phase 4: import experience

@@ -4,6 +4,16 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-20.
 
+## Importing Goodnotes and Notability: recordings, and large files read without a copy: 2026-10-20
+
+On the branch `goodnotes-notability-import`: step 7 of [the Phase 3 design](Goodnotes-Notability-import-phase-3-design.md), and the audit's CC-IMPORT-13. Nothing in the app calls the import yet.
+
+- **Automated tests, all passing on macOS**, run as single classes (`xcrun xctest -XCTest`), no full or hosted suite:
+  - GraphiteCore: every import class, 282 tests, with the owner's samples configured (none skipped). New: `ZipArchiveEntryCopyTests` (8: a stored entry read and copied from the archive's own bytes, a deflated one through one buffer, the checksum checked at the end, a stream past its size stopped there, the destination's error passed on, the limit before any piece) and `ImportedRecordingPlannerTests` (4).
+  - GraphiteApple: `NotebookImportRecordingWriterTests` (5: bytes unchanged, a file that is not MPEG-4 refused, a source failing part way and an existing file leaving the destination as it was), with the other writer tests still passing (41 in all).
+- **Samples:** a temporary check, not committed, wrote both made-for-purpose recordings through the readers and the writer: each `.m4a` is byte-identical to the notebook's file, and Core Audio's `afinfo` reads AAC, 22,050 Hz mono, 47.2 and 18.9 seconds (metadata only, nothing played). Every recording of every sample (4, the longest 486 seconds and 2 MB, deflated) copies with its checksum correct.
+- **Not established:** the recordings in the running app, where they go in the vault (Phase 4), and memory on a long recording on the iPad.
+
 ## Importing Goodnotes and Notability: pictures, shapes, Notability paper and bookmarks: 2026-10-20
 
 On the branch `goodnotes-notability-import`: the audit's remaining Low findings for the import (CC-IMPORT-04, 05, 07 and 11, SRP-IMPORT-01, OCP-IMPORT-02), the paper system's optional ruling, and steps 3 to 6 of [the Phase 3 design](Goodnotes-Notability-import-phase-3-design.md). CC-IMPORT-12 (golden notebooks in the repository) waits for the owner, and CC-IMPORT-13 (attachments copied whole) for step 7. Nothing in the app calls the import yet.
