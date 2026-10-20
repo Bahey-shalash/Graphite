@@ -119,6 +119,60 @@ final class PDFPencilInkTests: XCTestCase {
         XCTAssertEqual(secondUpdate.addedStrokes.count, 1)
     }
 
+    /// A stroke drawn after the others is converted alone; the page's other strokes and
+    /// annotations stay as they were, and the next full update still knows every name.
+    func testAStrokeAddedAfterTheOthersIsConvertedAloneAndLaterUpdatesKnowItsName() throws {
+        let document = try blankDocument()
+        let page = try XCTUnwrap(document.page(at: 0))
+        var tracker = PDFPageInkTracker(group: PDFInkGroups.newGroup(on: page))
+        let strokes = (1...3).map { number in
+            stroke(from: CGPoint(x: 50, y: CGFloat(number) * 100), to: CGPoint(x: 300, y: CGFloat(number) * 100), seconds: TimeInterval(number))
+        }
+        let firstTwo = PKDrawing(strokes: Array(strokes.prefix(2)))
+        try PDFPageManager.apply(.updateInk(tracker.update(for: firstTwo, pageIndex: 0, coordinates: try coordinates())), to: document)
+        let namesBefore = inkNames(on: page)
+        XCTAssertNil(tracker.updateAppending(strokes[2], at: 3, pageIndex: 0, coordinates: try coordinates()),
+                     "A stroke not right after the strokes the tracker saw takes the full update.")
+
+        let appending = try XCTUnwrap(tracker.updateAppending(strokes[2], at: 2, pageIndex: 0, coordinates: try coordinates()))
+        XCTAssertEqual(appending.removal, .strokes([]))
+        XCTAssertEqual(appending.addedStrokes.count, 1)
+        XCTAssertTrue(appending.defersEditableRecord)
+        try PDFPageManager.apply(.updateInk(appending), to: document)
+        XCTAssertEqual(inkNames(on: page), namesBefore + appending.addedStrokes.compactMap(\.name), "Only the new stroke's annotation is added.")
+        XCTAssertNotNil(page.annotations.first?.value(forAnnotationKey: PDFPageManager.drawingKey), "The group's first annotation keeps its record.")
+
+        // Erasing the middle stroke compares every stroke and finds the right annotation.
+        let erased = PKDrawing(strokes: [strokes[0], strokes[2]])
+        let erasing = tracker.update(for: erased, pageIndex: 0, coordinates: try coordinates(), defersEditableRecord: true)
+        XCTAssertEqual(erasing.removal, .strokes([namesBefore[1]]))
+        XCTAssertTrue(erasing.addedStrokes.isEmpty)
+        try PDFPageManager.apply(.updateInk(erasing), to: document)
+        let record = try XCTUnwrap(tracker.deferredEditableRecordUpdate(for: erased, pageIndex: 0))
+        try PDFPageManager.apply(.updateInk(record), to: document)
+        let reopenedPage = try XCTUnwrap(PDFDocument(data: XCTUnwrap(document.dataRepresentation()))?.page(at: 0))
+        let restored = try XCTUnwrap(PDFPageInkTracker.restoring(XCTUnwrap(PDFInkGroups.editableGroup(on: reopenedPage))))
+        XCTAssertEqual(restored.drawing.strokes.map(\.path.creationDate), erased.strokes.map(\.path.creationDate))
+        XCTAssertEqual(Set(inkNames(on: reopenedPage)), Set([namesBefore[0]] + appending.addedStrokes.compactMap(\.name)))
+    }
+
+    /// A page's ink read back from its file can take a stroke drawn after it at once, without
+    /// a first full update.
+    func testARestoredPageTakesAStrokeAddedAfterItsOthersAlone() throws {
+        let document = try blankDocument()
+        let page = try XCTUnwrap(document.page(at: 0))
+        var tracker = PDFPageInkTracker(group: PDFInkGroups.newGroup(on: page))
+        let written = PKDrawing(strokes: [stroke(from: CGPoint(x: 50, y: 100), to: CGPoint(x: 300, y: 100), seconds: 1)])
+        try PDFPageManager.apply(.updateInk(tracker.update(for: written, pageIndex: 0, coordinates: try coordinates())), to: document)
+        var (restoredTracker, restoredDrawing) = try XCTUnwrap(PDFPageInkTracker.restoring(XCTUnwrap(PDFInkGroups.editableGroup(on: page))))
+        let added = stroke(from: CGPoint(x: 50, y: 200), to: CGPoint(x: 300, y: 200), seconds: 2)
+        let appending = try XCTUnwrap(restoredTracker.updateAppending(added, at: restoredDrawing.strokes.count, pageIndex: 0, coordinates: try coordinates()))
+        try PDFPageManager.apply(.updateInk(appending), to: document)
+        restoredDrawing.strokes.append(added)
+        let record = try XCTUnwrap(restoredTracker.deferredEditableRecordUpdate(for: restoredDrawing, pageIndex: 0))
+        XCTAssertEqual(record.editableRecord?.strokeNames, inkNames(on: page), "The record names every annotation, in drawing order.")
+    }
+
     /// Other readers draw the saved appearance: a stroke that widens with pressure must be
     /// wide at its heavy end and thin at its light end, not one average width.
     func testSavedInkKeepsPencilWidthVariation() throws {

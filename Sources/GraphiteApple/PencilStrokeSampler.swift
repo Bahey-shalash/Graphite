@@ -94,12 +94,18 @@ public enum PencilStrokeSampler {
         return maskPath.copy(using: &transform)
     }
 
-    /// The whole center line in drawing coordinates, erased parts included.
+    /// The whole center line in drawing coordinates, erased parts included, each sample as wide as PencilKit draws
+    /// it: a point's size is not its drawn width (`PencilInkRenderedWidth`; a pen point of size 3 is drawn 2 points
+    /// wide, one of size 8 12 points), so PDF ink and vector drawings would otherwise be thicker or thinner than the
+    /// canvas showed. Inks whose drawn width turns with the nib keep the point size.
     static func centerLineSamples(of stroke: PKStroke) -> [VectorStrokeSample] {
         let transform = stroke.transform
         let widthScale = abs(transform.a * transform.d - transform.b * transform.c).squareRoot()
+        let inkType = stroke.ink.inkType
         return stroke.path.interpolatedPoints(in: nil, by: .distance(sampleSpacing)).map { strokePoint in
-            VectorStrokeSample(point: strokePoint.location.applying(transform), width: Double(strokePoint.size.width * widthScale))
+            let pointSize = Double(strokePoint.size.width)
+            let drawnWidth = PencilInkRenderedWidth.renderedWidth(forPointSize: pointSize, inkType: inkType) ?? pointSize
+            return VectorStrokeSample(point: strokePoint.location.applying(transform), width: drawnWidth * Double(widthScale))
         }
     }
 }

@@ -14,7 +14,24 @@ import GraphiteApple
 class HistoryCanvasView: PKCanvasView {
     /// The drawing as of the last change the history knows, to tell what the next change
     /// removed and added.
-    var recordedDrawing = PKDrawing()
+    var recordedDrawing = PKDrawing() {
+        didSet { changeFollowsInkingStroke = false }
+    }
+
+    /// Whether the change since `recordedDrawing` comes from a stroke of an inking tool,
+    /// which only adds a stroke after the others.
+    private var changeFollowsInkingStroke = false
+
+    /// The change from `recordedDrawing` to `drawing`, or nil when they show the same strokes.
+    /// A stroke an inking tool just added after the others is recognized from its neighbour,
+    /// without comparing every stroke of the drawing, so a pen-up costs the same on a full
+    /// page as on an empty one (`FR-104`); any other change compares them all.
+    func changeSinceRecorded(to drawing: PKDrawing) -> PencilDrawingChange? {
+        if changeFollowsInkingStroke, let appendingChange = PencilDrawingChange(appendingLastStrokeOf: drawing, to: recordedDrawing) {
+            return appendingChange
+        }
+        return PencilDrawingChange(from: recordedDrawing, to: drawing)
+    }
 
     private static let discardingUndoManager: UndoManager = {
         let undoManager = UndoManager()
@@ -60,9 +77,8 @@ class HistoryCanvasView: PKCanvasView {
     private var fixedTool: PencilToolSelection?
     /// The palette followed, to draw with its tool again when `toolForDrawing` changes.
     private weak var followedToolPicker: PKToolPicker?
-    /// Hears the palette's changes after the canvas has taken its tool, where the canvas
-    /// draws with tools changed by `toolForDrawing`.
-    private var paletteToolCorrection: PaletteToolCorrection?
+    /// Gives the canvas the palette's tool, as `toolForDrawing` makes it, whenever it changes.
+    private var paletteToolFollower: PaletteToolFollower?
 
     /// The tool the canvas draws with for a tool chosen in the palette or the bar: the same
     /// one, except for the highlighter while it ignores tilt, and on a canvas zoomed to draw
@@ -78,6 +94,21 @@ class HistoryCanvasView: PKCanvasView {
         }
         evenHighlighterColor = highlighter.color
         return EvenHighlighter.invisibleStandIn(for: highlighter)
+    }
+
+    /// The tool at `scale` times its width: PencilKit draws a tool as wide on screen at any
+    /// zoom of its canvas, so a canvas that keeps a stroke as wide in its drawing at any zoom
+    /// draws with the chosen width times its zoom. PencilKit gives the pen, the pencil and
+    /// the highlighter no more than their widest width.
+    static func tool(_ tool: PKTool, scaledBy scale: CGFloat) -> PKTool {
+        guard scale > 0, scale != 1 else { return tool }
+        if let inkingTool = tool as? PKInkingTool {
+            return PKInkingTool(inkingTool.inkType, color: inkingTool.color, width: inkingTool.width * scale, azimuth: inkingTool.azimuth)
+        }
+        if let eraserTool = tool as? PKEraserTool {
+            return PKEraserTool(eraserTool.eraserType, width: eraserTool.width * scale)
+        }
+        return tool
     }
 
     /// The topmost of the canvas's own views under PencilKit's ink, such as the drawing
@@ -105,10 +136,34 @@ class HistoryCanvasView: PKCanvasView {
     /// Takes the chosen tool again, after what `toolForDrawing` returns has changed.
     func retakeChosenTool() {
         if let fixedTool {
-            if fixedTool.kind.drawsInk { tool = toolForDrawing(fixedTool.tool) }
+            if fixedTool.kind.drawsInk { drawWith(fixedTool.tool) }
         } else if followsToolPicker, let followedToolPicker, let selectedTool = Self.selectedTool(of: followedToolPicker) {
-            tool = toolForDrawing(selectedTool)
+            drawWith(selectedTool)
         }
+    }
+
+    /// Draws with the tool `toolForDrawing` makes of a chosen one.
+    private func drawWith(_ chosenTool: PKTool) {
+        prepareToDraw(with: chosenTool)
+        tool = toolForDrawing(chosenTool)
+    }
+
+    /// Called before the canvas takes a chosen tool, by a canvas whose drawing scale depends
+    /// on the tool (`PDFPageCanvasView`).
+    func prepareToDraw(with chosenTool: PKTool) {}
+
+    /// The tool chosen in the fixed bar or the palette, before `toolForDrawing` changes it;
+    /// nil when the bar's choice draws no ink, or nothing is followed yet.
+    var chosenTool: PKTool? {
+        if let fixedTool { return fixedTool.kind.drawsInk ? fixedTool.tool : nil }
+        guard followsToolPicker, let followedToolPicker else { return nil }
+        return Self.selectedTool(of: followedToolPicker)
+    }
+
+    /// PencilKit began a stroke with the canvas's tool (`PKCanvasViewDelegate.canvasViewDidBeginUsingTool`).
+    func toolUseDidBegin() {
+        changeFollowsInkingStroke = tool is PKInkingTool
+        PencilWritingTrace.strokeDidBegin(on: self)
     }
 
     private static func selectedTool(of toolPicker: PKToolPicker) -> PKTool? {
@@ -128,24 +183,18 @@ class HistoryCanvasView: PKCanvasView {
             pointsToRead = newFixedTool.kind == .readAloud
             // The lasso, the laser and the Read Aloud pen are Graphite's own; PencilKit's tool
             // stays what it was and draws nothing.
-            if newFixedTool.kind.drawsInk { tool = toolForDrawing(newFixedTool.tool) }
+            if newFixedTool.kind.drawsInk { drawWith(newFixedTool.tool) }
             isRulerActive = newFixedTool.isRulerActive
         } else if !followsToolPicker {
             fixedTool = nil
             followsToolPicker = true
             followedToolPicker = toolPicker
-            toolPicker.addObserver(self)
-            let correction = PaletteToolCorrection(canvas: self)
-            toolPicker.addObserver(correction)
-            paletteToolCorrection = correction
+            let follower = PaletteToolFollower(canvas: self)
+            toolPicker.addObserver(follower)
+            paletteToolFollower = follower
             isRulerActive = toolPicker.isRulerActive
             // Observers hear only later changes; start with the tool already selected.
-            if let selectedTool = toolPicker.selectedToolItem.tool {
-                tool = toolForDrawing(selectedTool)
-            } else {
-                (self as PKToolPickerObserver).toolPickerSelectedToolItemDidChange?(toolPicker)
-                retakeChosenTool()
-            }
+            retakeChosenTool()
             selectsInk = PaletteInkSelection.isOn
             pointsWithLaser = PaletteInkSelection.pointsWithLaser
             pointsToRead = PaletteInkSelection.pointsToRead
@@ -161,9 +210,8 @@ class HistoryCanvasView: PKCanvasView {
 
     /// Stops following the palette, before the canvas is released or takes the fixed bar's tool.
     func stopFollowing(_ toolPicker: PKToolPicker) {
-        toolPicker.removeObserver(self)
-        if let paletteToolCorrection { toolPicker.removeObserver(paletteToolCorrection) }
-        paletteToolCorrection = nil
+        if let paletteToolFollower { toolPicker.removeObserver(paletteToolFollower) }
+        paletteToolFollower = nil
         followedToolPicker = nil
         followsToolPicker = false
         if let paletteInkSelectionObserver { NotificationCenter.default.removeObserver(paletteInkSelectionObserver) }
@@ -385,7 +433,7 @@ class HistoryCanvasView: PKCanvasView {
         guard let lastStroke = reportedDrawing.strokes.last, evenHighlighterInk != nil || EvenHighlighter.isInvisible(lastStroke.ink),
               reportedDrawing.strokes.count == recordedDrawing.strokes.count + 1,
               reportedDrawing.strokes.last?.ink.inkType == .marker,
-              let change = PencilDrawingChange(from: recordedDrawing, to: reportedDrawing), let newStrokeIndex = change.appendedStrokeIndex,
+              let change = changeSinceRecorded(to: reportedDrawing), let newStrokeIndex = change.appendedStrokeIndex,
               newStrokeIndex < reportedDrawing.strokes.count,
               let evenStroke = evenHighlighterStroke(reportedDrawing.strokes[newStrokeIndex]) else { return nil }
         var strokes = reportedDrawing.strokes
@@ -824,21 +872,27 @@ final class PencilToolPickerHostView: UIView {
     }
 }
 
-/// Hears the floating palette's tool changes beside the canvas, which takes the palette's
-/// tool as it is: on the next turn of the main queue, after the canvas has, it gives the
-/// canvas the tool `toolForDrawing` makes of it, where that differs.
+/// Follows the floating palette for a canvas: gives it the palette's tool as
+/// `toolForDrawing` makes it, in the same turn as the palette's choice changes, and the
+/// palette's ruler. The canvas does not observe the palette itself: PencilKit would give
+/// it the palette's tool as it is, too narrow on the page of a zoomed canvas, and gives it
+/// again at moments no observer hears of (a canvas added as an observer takes it at once).
+/// So the palette, like the fixed bar, puts the tool on the canvas only through
+/// `toolForDrawing`, from the first stroke after a choice on.
 @MainActor
-private final class PaletteToolCorrection: NSObject, PKToolPickerObserver {
+private final class PaletteToolFollower: NSObject, PKToolPickerObserver {
     private weak var canvas: HistoryCanvasView?
 
     init(canvas: HistoryCanvasView) {
         self.canvas = canvas
     }
 
-    nonisolated func toolPickerSelectedToolItemDidChange(_ toolPicker: PKToolPicker) {
-        DispatchQueue.main.async { [weak self] in
-            MainActor.assumeIsolated { self?.canvas?.retakeChosenTool() }
-        }
+    func toolPickerSelectedToolItemDidChange(_ toolPicker: PKToolPicker) {
+        canvas?.retakeChosenTool()
+    }
+
+    func toolPickerIsRulerActiveDidChange(_ toolPicker: PKToolPicker) {
+        canvas?.isRulerActive = toolPicker.isRulerActive
     }
 }
 #endif
