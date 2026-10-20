@@ -1,5 +1,6 @@
 import XCTest
 @testable import GraphiteCore
+import GraphiteTestSupport
 
 final class CodeSyntaxHighlightingTests: XCTestCase {
     /// The text of each token of `code`, with its kind.
@@ -419,17 +420,16 @@ final class CodeSyntaxHighlightingTests: XCTestCase {
         XCTAssertNotNil(try tokens("\"unterminated\n'x", "c"))
     }
 
-    /// A 2,000-line block is tokenized well within a frame in an optimized build; this debug
-    /// test allows far more and catches a pass that is quadratic in the block's length.
+    /// A 2,000-line block is tokenized well within a frame in an optimized build; this test
+    /// compares it with a block a quarter as long and catches a pass that is quadratic in the length.
     func testLongBlockIsTokenizedQuickly() throws {
         let language = try XCTUnwrap(CodeLanguage.named("cpp"))
         let line = "    for (int index = 0; index < count; ++index) { total += values[index] * 0x1F; } // sum\n"
-        let code = String(repeating: line, count: 2_000)
-        let start = Date()
-        let tokens = CodeSyntaxHighlighter.uncachedTokens(in: code, language: language)
-        let elapsedSeconds = Date().timeIntervalSince(start)
+        let tokens = CodeSyntaxHighlighter.uncachedTokens(in: String(repeating: line, count: 2_000), language: language)
         XCTAssertEqual(tokens.filter { token in token.kind == .comment }.count, 2_000)
-        XCTAssertLessThan(elapsedSeconds, 2.0, "2,000 lines took \(elapsedSeconds) s")
+        ScalingChecks.assertScalesLinearly(smallSize: 500, largeSize: 2_000, "tokenizing a block of lines") { lineCount in
+            _ = CodeSyntaxHighlighter.uncachedTokens(in: String(repeating: line, count: lineCount), language: language)
+        }
     }
 
     func testCachedTokensMatchUncached() throws {
