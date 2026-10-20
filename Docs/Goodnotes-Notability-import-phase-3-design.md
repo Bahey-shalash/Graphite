@@ -1,6 +1,6 @@
 # Import Phase 3: conversion to ordinary files (design)
 
-Status: proposal of 2026-10-20 for review, nothing built. Phase 3 of [the import checklist](Goodnotes-Notability-import-todo.md), on top of the Phase 2 readers (`GoodnotesNotebookReader`, `NotabilityNoteReader`).
+Status: reviewed 2026-10-20, with the owner's decisions below. Steps 1 and 2 are built and tested ("Built so far" below); nothing calls them from the app yet. Phase 3 of [the import checklist](Goodnotes-Notability-import-todo.md), on top of the Phase 2 readers (`GoodnotesNotebookReader`, `NotabilityNoteReader`).
 
 ## Shape
 
@@ -34,6 +34,35 @@ The work is split in two, as `FR-05` asks:
 
 Pages are planned and written one at a time, so the source is never decoded whole. The PDFKit document being written still grows with the notebook; memory on a 500-page notebook is measured in Phase 5 before the import is offered.
 
+## Built so far (steps 1 and 2, 2026-10-20)
+
+- **Planners (GraphiteCore):**
+  - `GoodnotesPagePlanner` and `NotabilityPagePlanner` turn a reader page into an `ImportedPageOutcome`: a planned page or a page left out, with its `ImportReportEntry` list.
+  - Curves are sampled to 0.1 point (`BezierFlattening`).
+  - Goodnotes' fountain and brush outlines are flattened into the stroke's exact outline (`GoodnotesOutlineFlattening`).
+  - A Notability curve that crosses a page edge is cut there (`NotabilityCurveSampling`).
+  - Shapes, fills, pictures, text, tape and the older ink are counted in the report for their later steps.
+- **Writer (GraphiteApple):** `NotebookImportWriter.write(pageCount:planForPage:sourceFiles:strokeCreationDate:to:)` writes one PDF, one page at a time:
+  - the background is a copy of the source PDF page, or a page redrawn upright and stretched when its size or rotation differs, or plain paper;
+  - the ink goes through `PDFPageInkTracker`, so the page carries Graphite's re-editing record;
+  - the file is written with `AtomicFileWriter` (`.absent`) through `PDFFileService`'s verification.
+- **PencilKit's point size is not the width it draws.** Measured on macOS 27 and the iOS 27 simulator:
+  - the monoline and the pen draw 2 × size − 4;
+  - the fountain pen with its nib across the stroke draws the same;
+  - the pencil draws about 1.73 × size;
+  - the highlighter, with its tip across the stroke, draws about 1.37 × size.
+
+  `ImportedStrokeBuilder` picks each point's size from these measurements (`PencilInkRenderedWidth`), so the canvas draws the planned width. The writer then replaces each stroke's PDF appearance with the planned one (the source's outline, or the samples outlined at their planned widths), since `PDFPageInkTracker` takes the size as the width. Graphite's own PDF ink takes the size as the width too, which likely makes its saved ink thinner than the canvas shows: a follow-up outside the import.
+- **Not exact:**
+  - PencilKit's data stores a monoline stroke made from points as pen ink, which draws the same.
+  - The highlighter's transparency is in the PDF appearance only, and it is not multiplied (owner decision 2).
+  - The pencil's grain varies its edge by about 2%.
+- **Tests:**
+  - `GoodnotesPagePlannerTests`, `NotabilityPagePlannerTests`, `BezierFlatteningTests` and `ImportReportTallyTests` test the planners with values.
+  - `GoodnotesPagePlannerSampleTests` and `NotabilityPagePlannerSampleTests` plan every page of every sample (opt-in).
+  - `ImportedStrokeBuilderTests` and `NotebookImportWriterTests` write PDFs and read them back with PDFKit.
+  - Not done yet: a sample notebook written end to end and compared with its export (Phase 5).
+
 ## Order of work, and what each step needs
 
 | Step | What | Needs from Graphite | Exact or reported |
@@ -44,11 +73,11 @@ Pages are planned and written one at a time, so the source is never decoded whol
 | 4 | Shapes: lines, arcs, rectangles, ellipses, Notability lines and curves, as ink strokes sampled from their geometry | Editable shapes, dashed ink, filled shapes | Shapes arrive as ink. Dashes and fills are reported |
 | 5 | Notability paper (white or black, ruled every width / 17, grid, #A3B7D3, 0.5 and 0.4 points) | `PaperSpecification` with a free line colour and line width: a small addition to the paper system | Exact once added |
 | 6 | Links, bookmarks, outline: a link on a Goodnotes text box becomes a `/Link` annotation, bookmarks become outline items (`PDFEdit.bookmark`), outline entries are reported (their target is not resolved yet) | Nothing new | Exact for links and bookmarks |
-| 7 | Audio: Notability `.m4a` and Goodnotes MP4 audio copied as `.m4a` where the vault's attachment policy says, and optionally a Markdown note embedding the PDF and the recordings | Synchronised replay for stroke timing (not planned) | The audio is exact. Stroke timing is not kept |
-| 8 | Text boxes, sticky notes, older RTF text boxes, Notability typed text | Text boxes on PDF pages | Blocked; see question 1 and "Text boxes" below |
+| 7 | Audio: Notability `.m4a` and Goodnotes MP4 audio copied as `.m4a` where the vault's attachment policy says; no companion note (owner decision 4) | Synchronised replay for stroke timing (not planned) | The audio is exact. Stroke timing is not kept |
+| 8 | Text boxes, sticky notes, older RTF text boxes, Notability typed text | Text boxes on PDF pages | Blocked; listed in the report until then (owner decision 1, and "Text boxes" below) |
 | 9 | The import report value (per page: converted, simplified, skipped, with the reason), for Phase 4 to show | Nothing new | — |
 
-Steps 1, 2 and 9 come first and stand alone. Steps 3, 4 and 6 follow with their reported limits. Step 5 needs its paper addition first. Step 7 is independent. Step 8 waits for the feature or for the owner's interim choice.
+Steps 1, 2 and 9 come first and stand alone. Steps 3, 4 and 6 follow with their reported limits. Step 5 needs its paper addition first. Step 7 is independent. Step 8 waits for text boxes on PDF pages (owner decision 1).
 
 ## Text boxes (step 8)
 
@@ -58,10 +87,7 @@ What a Goodnotes text box needs, from the text-box sample (2026-10-20) checked a
 - **Text:** starts at the inset, with its first baseline at inset + 0.952 × the font size, in Helvetica Neue ("Modern") or Georgia ("Classic").
 - **Links:** a run's link becomes a `/Link` annotation over the box.
 
-Whichever way the owner chooses, the planner gives each text box as a value: text, runs, fonts, sizes in points, colours, links, and the box's frame with its angle. The writer then needs one of:
-- a Graphite text box on PDF pages;
-- a standard `/FreeText` annotation, which turned text needs drawn in its own appearance stream, since `/FreeText` has no angle of its own;
-- only the report entry.
+Until Graphite has text boxes on PDF pages, text is left out and listed in the report (owner decision 1). When it has them, the planner gives each text box as a value (text, runs, fonts, sizes in points, colours, links, and the box's frame with its angle), and the writer makes a Graphite text box of it.
 
 Notability's typed text is the note's body, laid out from the document's top left with no box. It would become one box the page's width at the top of the first page, flowing onto later pages as the export shows.
 
@@ -73,9 +99,11 @@ Notability's typed text is the note's body, laid out from the document's top lef
 
 No full or hosted suites run locally; only these classes, with `--filter`.
 
-## Questions for the owner
+## Owner decisions (2026-10-20)
 
-1. **Text boxes:** until Graphite has text boxes on PDF pages, should text become standard `/FreeText` annotations (visible and editable in Preview and other readers, not yet in Graphite), or wait for the feature and only list the text in the report?
-2. **Highlighter:** may an imported highlighter look lighter over coloured ink than in Goodnotes (Graphite does not multiply)?
-3. **Stroke timing:** may the recordings' stroke timing be left out until Graphite has synchronised replay, or should it be kept in the optional companion note's properties?
-4. **Companion note:** should the import also write a Markdown note per notebook (title, dates, an embed of the PDF and its recordings), or only the PDF and the audio?
+The owner's answer, word for word: "Leave typed text out until Graphite has real text boxes on PDF pages; a lighter highlighter is fine, drop audio timing for now, no companion note."
+
+1. **Typed text** is not imported for now, and there is no `/FreeText` stand-in. Goodnotes text boxes, older RTF text boxes, sticky notes and Notability's typed text are listed in the import report as left out, with the reason. Step 8 stays blocked on real text boxes on PDF pages. The readers' text model, rotation included, stays ready for it.
+2. **Highlighter:** a plain see-through highlighter is fine; the report notes that Graphite does not multiply it as Goodnotes does.
+3. **Audio:** the `.m4a` is kept, and the timing of strokes during a recording is dropped for now.
+4. **No companion Markdown note:** the import writes the PDF (and the audio), and its report is shown after the import.
