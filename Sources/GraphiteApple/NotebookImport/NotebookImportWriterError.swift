@@ -26,4 +26,8 @@ public enum NotebookImportWriterError: Error {
     case pictureGeometryUnusable(ImportedSourceFile, frame: CGRect, rotationRadiansClockwise: Double, pageIndex: Int)
     /// The written PDF did not open again with every page, so it was not put in place.
     case verificationFailed(pageCount: Int)
+    /// A recording's file is not MPEG-4 (no `ftyp` box first), so it would not play as an `.m4a`.
+    case recordingNotMPEG4(ImportedSourceFile)
+    /// The recording's copy could not be written at the destination's volume, such as a full disk.
+    case recordingNotWritten(URL, underlyingError: any Error)
 }
