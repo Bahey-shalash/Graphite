@@ -2,7 +2,25 @@
 
 What Graphite does today, how each part is verified, and what is still missing. `OBJECTIVE.md` describes the complete product; this file tracks progress toward it. Update it with every change that adds, removes, or re-verifies behavior.
 
-Last updated: 2026-10-19.
+Last updated: 2026-10-20.
+
+## Importing Goodnotes and Notability: reader hardening, and pages, paper and ink converted: 2026-10-20
+
+On the branch `goodnotes-notability-import`. Two parts:
+- **Reader hardening:** the audit findings of `Docs/solid/areas/import.md` that come before the converter: BUG-IMPORT-01 and 02, CC-IMPORT-01, 02, 03, 06, 08, 09, 10 and 14, and OCP-IMPORT-01.
+- **Phase 3, steps 1 and 2:** pages, paper and ink, in [the Phase 3 design](Goodnotes-Notability-import-phase-3-design.md); `Architecture.md` › "Reading Goodnotes and Notability files" describes both.
+
+Nothing in the app calls the import yet.
+
+- **Automated tests, all passing on macOS:** 261 run with `swift test --filter`, no full or hosted suite.
+  - GraphiteCore, 244 including both readers' earlier tests. New this round: `BezierFlatteningTests` (18), `GoodnotesPagePlannerTests` (17), `NotabilityPagePlannerTests` (20), `ImportReportTallyTests` (6), `NotebookArchivePathTests` (2), `LittleEndianBytesTests` (1) and `PackedLittleEndianValuesTests` (2), plus regression tests in the readers' existing test files, one per fixed finding.
+  - GraphiteApple: `ImportedStrokeBuilderTests` (7) and `NotebookImportWriterTests` (10). These write PDFs into a temporary vault and read them back with PDFKit: page sizes, backgrounds, one `/Ink` per stroke, the re-editing record, refusal to overwrite, and the drawn width of each ink.
+- **Before the fixes:** for ten of the fixes, a test of the same behaviour, run against the code before them (a `git archive` export of `cab68c7`), fails: both defects, CC-IMPORT-06, 08 (four cases), 09 and 10, and OCP-IMPORT-01. The other fixes change bounds and types and are pinned by their own tests.
+- **Samples:** with the owner's samples configured, every reader count still equals the reference reader's (41 Goodnotes notebooks, 9 Notability notes). Every page plans: 105,113 strokes from 1.8 million samples for Goodnotes, and all 3,036 curves of the first Notability note. The new `attachmentNotInLog` issue found 17 live pictures in three library notebooks whose images are not in the notebook.
+- **Not established:**
+  - a whole sample written to PDF and compared with its app's export;
+  - memory and time on a long notebook or on the iPad;
+  - the UIKit-only ink tests after the writer's change to `PDFPencilInk.swift` and `PencilStrokeSampler.swift`, which now also compile on macOS. They run in the hosted suite on CI.
 
 ## Reading Goodnotes and Notability files: 2026-10-19
 

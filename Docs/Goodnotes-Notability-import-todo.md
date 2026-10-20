@@ -68,9 +68,9 @@ Element-level import can only be as good as Graphite's own editor: where Graphit
 
 Every row of the table above, one element at a time:
 
-- [ ] Strokes to PencilKit strokes (for re-editing) and to PDF ink annotations (for every reader), one Graphite stroke per source stroke, with the source's points, pressure, width, color, opacity and tool.
-- [ ] Paper as page content through Graphite's paper system, with the source's exact spacing, margins and colors; custom paper from its original file.
-- [ ] Page sizes and orientation per page.
+- [ ] Strokes to PencilKit strokes (for re-editing) and to PDF ink annotations (for every reader), one Graphite stroke per source stroke, with the source's points, pressure, width, color, opacity and tool. **Built and tested 2026-10-20 (design steps 1 and 2)**, not yet in the app: ball pen, fountain and brush pens with Goodnotes' exact outline as the PDF appearance, pencil with force and tilt, highlighter, and Notability pen and highlighter. Not converted yet: shapes, tape and the older varying-width ink, which are counted in the import report; a whole sample written and compared with its export (Phase 5).
+- [ ] Paper as page content through Graphite's paper system, with the source's exact spacing, margins and colors; custom paper from its original file. **Partly built 2026-10-20:** Goodnotes paper (its template PDF page) and imported PDF pages of both apps are copied as page content; Notability's ruled and grid paper is plain paper of its colour until the paper system has its line colour and width (design step 5).
+- [ ] Page sizes and orientation per page. **Built and tested 2026-10-20**, not yet in the app: each page is its source's size in points (Goodnotes' paper size, Notability's export page), and a Notability note's continuous document is cut into those pages.
 - [ ] Images as separate pictures from their original files, with position, size, rotation, crop and stacking.
 - [ ] Text boxes as editable text boxes; shapes as shapes; links, outline and bookmarks.
 - [ ] Notability audio and its timing.

@@ -187,6 +187,8 @@ A fill is its own element, drawn in its place in the order: 1 id; 2 bounding box
 
 1 id; 2 the bounding box of the picture as drawn `{1: origin, 2: size}`; 3 the placement `{1: centre, 2: size before turning, 3: angle in radians}`, clockwise on the page; 4 the attachment; 5 position; 6 the kind of picture as far as seen: 2 a JPEG 2000 sticker, 5 an animated GIF (kept as the original GIF file), 1 on the turned picture, absent on photos and on a PNG sticker; 7 an id not found among the attachments; 14 1 when deleted. The picture file is drawn stretched to the placement's size, turned about its centre. A turned picture's angle in the sample was 0.5087 radians (29.1°) for a drag to "about 30 degrees clockwise".
 
+**A picture can name an attachment the notebook does not have.** In three library notebooks, 21 picture records (17 not erased) name attachment identifiers that are neither in the event log nor a file under `attachments/`, so their images are not in the notebook at all. The reference reader gives them no file without saying so; the Swift reader reports `attachmentNotInLog` for each.
+
 **Cropping replaces the file.** A cropped picture points to a new PNG of the kept part (201 × 150 pixels from a 400 × 300 original), with no crop rectangle; the original stays among the attachments. An import keeps the cropped bitmap, which is at the original's resolution.
 
 ### Text boxes (body field 21, schema 35)
