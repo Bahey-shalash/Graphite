@@ -221,6 +221,23 @@ final class IndexSearchFixTests: XCTestCase {
         XCTAssertFalse(checkedByLine.contains("Media/photo.jpg"))
     }
 
+    /// BUG-VAULT-03: a canvas has no searchable text (`PreparedFile.searchableText`), so a pattern
+    /// that matches empty text finds it only by its name, as the matcher decides.
+    func testPatternsMatchingEmptyTextSkipCanvases() async throws {
+        let canvasText = #"{"nodes":[{"id":"card","type":"text","text":"Plan","x":0,"y":0,"width":200,"height":60}],"edges":[]}"#
+        try await index.update([
+            try note("Notes/A.md", "text"),
+            try note("Notes/Empty.md", ""),
+            try note("Boards/Plan.canvas", canvasText),
+        ], generation: "test")
+        let anywhere = try await paths("/^$/")
+        XCTAssertEqual(anywhere, ["Notes/Empty.md"])
+        let inContent = try await paths("content:/^$/")
+        XCTAssertEqual(inContent, ["Notes/Empty.md"])
+        let anyContent = try await paths("content:/x*/")
+        XCTAssertEqual(anyContent, ["Notes/A.md", "Notes/Empty.md"])
+    }
+
     func testInvalidRegularExpressionIsReported() async throws {
         try await index.update([try note("Notes/A.md", "text")], generation: "test")
         for query in ["/(/", "-/(/", "line:(/[a-/)", "[status:/(/]"] {
