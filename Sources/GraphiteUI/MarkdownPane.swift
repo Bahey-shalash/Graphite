@@ -1030,7 +1030,8 @@ struct NoteLinksInspector: View {
 
     private func linkMention(_ match: SearchMatch, in source: VaultPath) {
         Task {
-            await workspace.linkMention(match, in: source, to: session.path)
+            // A mention that was not linked stays listed; the alert says why.
+            guard await workspace.linkMention(match, in: source, to: session.path) else { return }
             // The linked note leaves this list, and its link joins the linked mentions.
             unlinkedMentions = unlinkedMentions.compactMap { group in
                 guard group.path == source else { return group }

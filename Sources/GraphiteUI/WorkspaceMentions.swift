@@ -55,11 +55,12 @@ extension WorkspaceModel {
         return groups
     }
 
-    /// Turns an unlinked mention into a link to `note`, as Obsidian's "Link" button does.
+    /// Turns an unlinked mention into a link to `note`, as Obsidian's "Link" button does,
+    /// and returns whether the link was written; a failure is reported in `errorMessage`.
     /// The note it is in changes through its editor when open, so the change can be undone;
     /// otherwise the file is rewritten only if it is still as it was read.
-    func linkMention(_ match: SearchMatch, in source: VaultPath, to note: VaultPath) async {
-        guard let store else { return }
+    func linkMention(_ match: SearchMatch, in source: VaultPath, to note: VaultPath) async -> Bool {
+        guard let store else { return false }
         let settings = vaultSettings
         let fileCount = (try? await index?.fileCount(named: note.name)) ?? 0
         let linkTarget = LinkCompletion.linkTarget(for: note, from: source, settings: settings, isNameUnique: fileCount <= 1)
@@ -70,7 +71,7 @@ extension WorkspaceModel {
             if let session = openMarkdownSession(at: source) {
                 guard Self.mentionIsStill(at: range, in: session.text, matching: match) else { throw Self.mentionChanged }
                 session.apply(Mentions.linkingEdit(mention: range, in: session.text, linkTarget: linkTarget, usesWikilinks: settings.usesWikilinks, markdownDestination: destination))
-                return
+                return true
             }
             let snapshot = try await store.read(source, maximumBytes: MarkdownSession.maximumEditableBytes)
             // Read and written as a note is: a byte order mark is neither counted in the
@@ -81,7 +82,11 @@ extension WorkspaceModel {
             let updated = (text as NSString).replacingCharacters(in: edit.range, with: edit.replacement)
             _ = try await store.save(NoteTextEncoding.encode(updated, hasByteOrderMark: decoded.hasByteOrderMark), at: source, expecting: .revision(snapshot.revision))
             refreshIndex(for: [source])
-        } catch { errorMessage = error.localizedDescription }
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
     }
 
     private static var mentionChanged: GraphiteError {

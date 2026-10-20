@@ -443,9 +443,9 @@ enum LivePreviewText {
                 let alias = match.range(at: 2).location == NSNotFound ? nil : source.substring(with: match.range(at: 2))
                 // `[[Note\|alias]]` in a table: the backslash escapes the pipe.
                 if alias != nil, target.hasSuffix("\\") { target.removeLast() }
-                // Escaped and percent-encoded as in reading view, so a backslash at the end of
-                // the label or an unbalanced parenthesis in the target keeps the link whole.
-                let label = ReadingViewBuilder.escapedLabel(alias ?? (target.hasPrefix("#") ? String(target.dropFirst()) : target))
+                // Labelled, escaped and percent-encoded as in reading view, so a backslash at the
+                // end of the label or an unbalanced parenthesis in the target keeps the link whole.
+                let label = ReadingViewBuilder.escapedLabel(ReadingViewBuilder.displayText(target: target, alias: alias))
                 output.replaceCharacters(in: match.range, with: "[\(label)](\(GraphiteOpenLink.markdownDestination(target: target)))")
             }
             text = output as String
