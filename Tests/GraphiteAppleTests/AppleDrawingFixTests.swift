@@ -269,7 +269,7 @@ final class AppleDrawingFixTests: XCTestCase {
         XCTAssertFalse(isDrawing, name, file: testFile, line: line)
         XCTAssertFalse(hasStrokes, name, file: testFile, line: line)
         XCTAssertLessThan(peakFootprintMegabytes() - peakBefore, 150, "\(name): decoding must stay within its budget.", file: testFile, line: line)
-        XCTAssertLessThan(Date().timeIntervalSince(startTime), 20, name, file: testFile, line: line)
+        XCTAssertLessThan(Date().timeIntervalSince(startTime), HangGuard.seconds, name, file: testFile, line: line)
     }
 
     /// Every note that embeds this small PDF used to inflate a gigabyte three times over.

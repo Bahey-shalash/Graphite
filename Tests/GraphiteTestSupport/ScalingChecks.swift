@@ -94,3 +94,11 @@ public enum ScalingChecks {
         Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
     }
 }
+
+/// How long work that must end, though it could run for hours if the guard that stops it failed (an alias bomb, a pattern that
+/// backtracks without end), may take before a test calls it hung. The test asserts that the guard tripped; this is only the
+/// backstop, long enough for any machine and far shorter than the failure it detects.
+public enum HangGuard {
+    public static let seconds = 60.0
+    public static let duration = Duration.seconds(60)
+}

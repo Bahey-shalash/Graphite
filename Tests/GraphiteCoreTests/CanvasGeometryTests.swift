@@ -1,6 +1,7 @@
 import XCTest
 import CoreGraphics
 @testable import GraphiteCore
+import GraphiteTestSupport
 
 final class CanvasGeometryTests: XCTestCase {
     private func card(_ identifier: String, _ frame: CGRect) -> CanvasNode {
@@ -221,21 +222,25 @@ final class CanvasGeometryTests: XCTestCase {
                        "Cards whose tops are nearly level form a row, read from the left; a group comes before what it holds.")
     }
 
+    /// Finding the cards in view scans the cards, so a board four times as large takes four times as long and no more. That
+    /// the scan fits in a frame at 120 Hz is a claim about the owner's iPad, checked by its nightly benchmark
+    /// (`PerformanceBenchmarkTests.testFindingTheVisibleCardsOfAVeryLargeBoardFitsInAFrame`), not by a runner's clock.
     func testFindingWhatIsVisibleOnAVeryLargeBoardIsQuick() throws {
         let file = try CanvasFixtures.file(CanvasFixtures.largeBoard(cardCount: 20_000))
         let viewport = CanvasViewport(scale: 1, origin: CGPoint(x: 9_000, y: 12_000))
         let visibleFrame = viewport.visibleBoardFrame(viewSize: CGSize(width: 1200, height: 900))
-        let frameCount = 600
-        let start = ContinuousClock.now
         var visibleCount = 0
-        for frameIndex in 0..<frameCount {
+        for frameIndex in 0..<600 {
             let panned = visibleFrame.offsetBy(dx: CGFloat(frameIndex), dy: 0)
             visibleCount = file.nodes.reduce(0) { count, node in count + (node.frame.intersects(panned) ? 1 : 0) }
         }
-        let elapsed = ContinuousClock.now - start
         XCTAssertEqual(visibleCount, 4 * 5, "Only the cards in view are found: 4 columns by 5 rows here.")
-        let secondsPerFrame = Double(elapsed.components.seconds) / Double(frameCount) + Double(elapsed.components.attoseconds) / 1e18 / Double(frameCount)
-        print("Canvas measurement: finding the visible cards among 20000 takes \(String(format: "%.3f", secondsPerFrame * 1000)) ms per frame")
-        XCTAssertLessThan(secondsPerFrame, 0.008, "Well inside one frame at 120 Hz.")
+        ScalingChecks.assertScalesLinearly(smallSize: 5_000, largeSize: 20_000, "finding the visible cards") { cardCount in
+            let board = file.nodes.prefix(cardCount)
+            for frameIndex in 0..<100 {
+                let panned = visibleFrame.offsetBy(dx: CGFloat(frameIndex), dy: 0)
+                _ = board.reduce(0) { count, node in count + (node.frame.intersects(panned) ? 1 : 0) }
+            }
+        }
     }
 }

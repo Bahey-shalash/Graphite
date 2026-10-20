@@ -54,17 +54,22 @@ final class IndexSearchFixTests: XCTestCase {
         } catch is CancellationError {}
 
         let clock = ContinuousClock()
-        let startTime = clock.now
         // Every note is a candidate and none matches, so the search checks the whole vault
         // unless cancellation stops it.
         let running = Task { try await searchedIndex.search("line:(quick -brown)") }
         try await Task.sleep(for: .milliseconds(100))
+        let cancelTime = clock.now
         running.cancel()
         do {
             _ = try await running.value
             XCTFail("A search cancelled while it runs must stop.")
         } catch is CancellationError {}
-        XCTAssertLessThan(clock.now - startTime, .seconds(2))
+        let stopDuration = clock.now - cancelTime
+        // How long it takes to read the whole vault, on this machine, for comparison.
+        let fullSearchStart = clock.now
+        _ = try await searchedIndex.search("line:(quick -brown)")
+        let fullSearchDuration = clock.now - fullSearchStart
+        XCTAssertLessThan(stopDuration * 2, fullSearchDuration, "Cancelling stops the search at once, not after it has read the vault.")
         // The index is usable right away.
         let fileCount = try await index.fileCount()
         XCTAssertEqual(fileCount, 600)
@@ -87,7 +92,6 @@ final class IndexSearchFixTests: XCTestCase {
         XCTAssertFalse(switcherMatches.isEmpty)
         XCTAssertTrue(page.results.isEmpty)
         XCTAssertNil(page.continuation, "An empty page is the last one.")
-        XCTAssertLessThan(lookupDuration, .seconds(1))
         XCTAssertLessThan(lookupDuration * 2, searchDuration, "The lookup must not wait for the whole search.")
     }
 
@@ -241,7 +245,7 @@ final class IndexSearchFixTests: XCTestCase {
         } catch let error as SearchError {
             XCTAssertEqual(error, .regularExpressionTooSlow)
         }
-        XCTAssertLessThan(clock.now - startTime, .seconds(5))
+        XCTAssertLessThan(clock.now - startTime, HangGuard.duration)
         let fileCount = try await index.fileCount()
         XCTAssertEqual(fileCount, 1)
     }

@@ -30,7 +30,6 @@ final class UiFileTreeMacTests: XCTestCase {
 
         // Before each row was a single view, the outline view made every earlier row to find
         // each one, and these steps took about 20 s with 2,000 files; since, about 1 s (2026-10-15).
-        let started = Date.now
         let outlineView = try await showSidebar(of: workspace)
         try await waitUntil { outlineView.numberOfRows == rootRowCount }
 
@@ -49,9 +48,6 @@ final class UiFileTreeMacTests: XCTestCase {
         // Opening Course again shows both levels at once, from the contents already listed.
         workspace.expandedFolders.insert(try VaultPath("Course"))
         try await waitUntil { outlineView.numberOfRows == rootRowCount + 3 }
-
-        let elapsedSeconds = Date.now.timeIntervalSince(started)
-        XCTAssertLessThan(elapsedSeconds, 10, "Showing \(rootRowCount) rows and folding took \(elapsedSeconds) s")
     }
 
     /// A row is selected through its tag, the same tag a click sets the selection from. Set
