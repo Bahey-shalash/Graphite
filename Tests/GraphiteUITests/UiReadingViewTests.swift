@@ -211,6 +211,18 @@ final class UiReadingViewTests: XCTestCase {
         XCTAssertFalse(plain.hasUnresolvedEmbeds)
     }
 
+    func testTableOfContentsLinkScrollsToTheHeadingItsSlugNames() async throws {
+        let build = try await build("1. [Overview](#1-overview)\n2. [Notes](#notes-1)\n\n## 1. Overview\nText\n\n## Notes\nA\n\n## Notes\nB\n\n## Footnote 1\nSee[^1]\n\n[^1]: Footnote\n", note: "Note.md")
+        let overview = NotePreviewDocument.anchor(forHeading: "1. Overview")
+        let notes = NotePreviewDocument.anchor(forHeading: "Notes")
+        XCTAssertEqual(HeadingScrollRequest.readingScrollTarget(forLinkAnchor: "1-overview", in: build.blocks), overview)
+        XCTAssertEqual(HeadingScrollRequest.readingScrollTarget(forLinkAnchor: "notes-1", in: build.blocks),
+                       HeadingScrollRequest.readingScrollTarget(anchor: notes, occurrence: 1))
+        XCTAssertEqual(HeadingScrollRequest.readingScrollTarget(forLinkAnchor: notes, in: build.blocks), notes)
+        XCTAssertEqual(HeadingScrollRequest.readingScrollTarget(forLinkAnchor: RenderedFootnote.anchor(for: 1), in: build.blocks), RenderedFootnote.anchor(for: 1))
+        XCTAssertEqual(HeadingScrollRequest(anchor: "1-overview").readingScrollTarget(in: build.blocks), overview)
+    }
+
     func testOnlyTheNotesFirstHeadingOfANameIsAScrollTarget() async throws {
         try write("## Summary\nEmbedded text\n", to: "Template.md")
         let build = try await build("![[Template]]\n\n## Summary\nFirst\n\n## Summary\nSecond\n", note: "Note.md")

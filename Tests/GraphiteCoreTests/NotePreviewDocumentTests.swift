@@ -117,6 +117,26 @@ final class NotePreviewDocumentTests: XCTestCase {
         XCTAssertEqual(NotePreviewDocument.section(of: body, headingAnchor: "missing"), body)
     }
 
+    func testTableOfContentsLinksFindHeadingsByTheirGitHubSlugs() {
+        XCTAssertEqual(HeadingSlug.slug(forHeading: "2. LRT7 Version — How It Works"), "2-lrt7-version--how-it-works")
+        XCTAssertEqual(HeadingSlug.slug(forHeading: "2.1 Objectives"), "21-objectives")
+        XCTAssertEqual(HeadingSlug.slug(forHeading: "Step 1: Open the Website!"), "step-1-open-the-website")
+        XCTAssertEqual(HeadingSlug.slug(forHeading: "Équations différentielles & my_notes"), "équations-différentielles--my_notes")
+
+        let body = "## Table of Contents\n1. [Overview](#1-overview)\n\n## 1. Overview\ntext\n### 2.1 Objectives\nmore\n## Notes\na\n## Notes\nb"
+        let overviewLocation = (body as NSString).range(of: "## 1. Overview").location
+        let objectivesLocation = (body as NSString).range(of: "### 2.1 Objectives").location
+        let secondNotesLocation = (body as NSString).range(of: "## Notes", options: .backwards).location
+        XCTAssertEqual(NotePreviewDocument.headingLineLocation(ofHeadingWithAnchor: "1-overview", in: body), overviewLocation)
+        XCTAssertEqual(NotePreviewDocument.headingLineLocation(ofHeadingWithAnchor: "21-objectives", in: body), objectivesLocation)
+        // GitHub numbers a repeated heading's slug.
+        XCTAssertEqual(NotePreviewDocument.headingLineLocation(ofHeadingWithAnchor: "notes-1", in: body), secondNotesLocation)
+        // The heading's own text still wins, and a slug no heading has finds nothing.
+        XCTAssertEqual(NotePreviewDocument.headingLineLocation(ofHeadingWithAnchor: "1. overview", in: body), overviewLocation)
+        XCTAssertNil(NotePreviewDocument.headingLineLocation(ofHeadingWithAnchor: "missing-heading", in: body))
+        XCTAssertEqual(NotePreviewDocument.section(of: body, headingAnchor: "21-objectives"), "### 2.1 Objectives\nmore")
+    }
+
     func testDisplayMathBlockBecomesOneLineWithItsLaTeXProtected() {
         let markdown = "Before\n\n$$\n\\frac{a}{b} % half\n\\{x \\mid x > 0\\}\n$$\n\nAfter"
         XCTAssertEqual(ObsidianInlineMarkup.protectingMath(in: markdown),
