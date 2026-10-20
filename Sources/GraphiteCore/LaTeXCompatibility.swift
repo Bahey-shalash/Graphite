@@ -90,6 +90,12 @@ public enum LaTeXCompatibility {
     /// The typesetter only knows `aligned`, with exactly two columns.
     private static let alignmentBeginPattern = try? NSRegularExpression(pattern: "\\\\begin\\{(align\\*?|flalign\\*?|alignat\\*?|alignedat|aligned)\\}(?:\\{\\d+\\})?")
 
+    /// Alignment environments nested deeper than this are left as written, for the typesetter
+    /// to draw or reject. Each level is rewritten by a recursive call over its body, so without
+    /// a limit a crafted formula of thousands of levels would exhaust the stack of the thread
+    /// preparing the reading view.
+    static let maximumAlignmentNestingDepth = 16
+
     public static func normalized(_ latex: String) -> String {
         guard latex.contains("\\") else { return latex }
         var text = removingLabelCommands(from: latex)
@@ -97,7 +103,7 @@ public enum LaTeXCompatibility {
             guard let pattern = replacement.pattern else { continue }
             text = pattern.stringByReplacingMatches(in: text, range: NSRange(location: 0, length: (text as NSString).length), withTemplate: replacement.template)
         }
-        return rewritingColorDeclarationsAndOperatorNames(in: rewritingAlignments(in: text))
+        return rewritingColorDeclarationsAndOperatorNames(in: rewritingAlignments(in: text, nestingDepth: 1))
     }
 
     /// The display formula `latex` with its equation numbers, or nil when it has none and
@@ -255,9 +261,10 @@ public enum LaTeXCompatibility {
     /// `&` gains an empty second column, keeping its rows right-aligned as MathJax draws
     /// them. Columns past the second, as in `alignat{2}` or several equations per row,
     /// join the second column with a `\qquad` between equations, so the formula still
-    /// draws, though only the first pair stays aligned across rows.
-    private static func rewritingAlignments(in latex: String) -> String {
-        guard let alignmentBeginPattern, latex.contains("align") else { return latex }
+    /// draws, though only the first pair stays aligned across rows. `nestingDepth` is the level
+    /// of the environments found in `latex`, 1 for those of the whole formula.
+    private static func rewritingAlignments(in latex: String, nestingDepth: Int) -> String {
+        guard nestingDepth <= maximumAlignmentNestingDepth, let alignmentBeginPattern, latex.contains("align") else { return latex }
         let source = latex as NSString
         var output = ""
         var copiedUpTo = 0
@@ -268,7 +275,7 @@ public enum LaTeXCompatibility {
             guard let end = environmentEnd(named: environment, in: source, bodyStart: NSMaxRange(match.range)) else { break }
             let body = source.substring(with: NSRange(location: NSMaxRange(match.range), length: end.bodyEnd - NSMaxRange(match.range)))
             output += source.substring(with: NSRange(location: copiedUpTo, length: match.range.location - copiedUpTo))
-            output += "\\begin{aligned}" + twoColumnBody(rewritingAlignments(in: body)) + "\\end{aligned}"
+            output += "\\begin{aligned}" + twoColumnBody(rewritingAlignments(in: body, nestingDepth: nestingDepth + 1)) + "\\end{aligned}"
             copiedUpTo = end.environmentEnd
             searchStart = end.environmentEnd
         }
@@ -277,25 +284,34 @@ public enum LaTeXCompatibility {
     }
 
     /// Where the `\end{environment}` matching an opened environment starts and ends.
-    /// Environments of the same name nested inside are skipped.
+    /// Environments of the same name nested inside are skipped. A marker is searched for again
+    /// only once the scan has passed the one found before, so the text is scanned once however
+    /// deeply the environments nest.
     private static func environmentEnd(named environment: String, in source: NSString, bodyStart: Int) -> (bodyEnd: Int, environmentEnd: Int)? {
         let beginMarker = "\\begin{\(environment)}"
         let endMarker = "\\end{\(environment)}"
+        func nextMarker(_ marker: String, foundBefore: NSRange?, from searchStart: Int) -> NSRange {
+            if let foundBefore, foundBefore.location == NSNotFound || foundBefore.location >= searchStart { return foundBefore }
+            return source.range(of: marker, range: NSRange(location: searchStart, length: source.length - searchStart))
+        }
         var depth = 1
         var searchStart = bodyStart
+        var nextBegin: NSRange?
+        var nextEnd: NSRange?
         while searchStart < source.length {
-            let searchRange = NSRange(location: searchStart, length: source.length - searchStart)
-            let nextEnd = source.range(of: endMarker, range: searchRange)
-            guard nextEnd.location != NSNotFound else { return nil }
-            let nextBegin = source.range(of: beginMarker, range: searchRange)
-            if nextBegin.location != NSNotFound, nextBegin.location < nextEnd.location {
+            let end = nextMarker(endMarker, foundBefore: nextEnd, from: searchStart)
+            guard end.location != NSNotFound else { return nil }
+            let begin = nextMarker(beginMarker, foundBefore: nextBegin, from: searchStart)
+            nextEnd = end
+            nextBegin = begin
+            if begin.location != NSNotFound, begin.location < end.location {
                 depth += 1
-                searchStart = NSMaxRange(nextBegin)
+                searchStart = NSMaxRange(begin)
                 continue
             }
             depth -= 1
-            if depth == 0 { return (nextEnd.location, NSMaxRange(nextEnd)) }
-            searchStart = NSMaxRange(nextEnd)
+            if depth == 0 { return (end.location, NSMaxRange(end)) }
+            searchStart = NSMaxRange(end)
         }
         return nil
     }

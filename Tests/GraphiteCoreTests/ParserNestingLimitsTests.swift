@@ -1,5 +1,6 @@
 import XCTest
 @testable import GraphiteCore
+import GraphiteTestSupport
 
 /// Notes and YAML nested deeper than these limits are not given to the recursive parsers,
 /// whose stack a deep enough input exhausts. The limits are values the app depends on, so
@@ -10,6 +11,7 @@ final class ParserNestingLimitsTests: XCTestCase {
         XCTAssertEqual(YAMLNesting.maximumFlowDepth, 32)
         XCTAssertEqual(YAMLNesting.maximumBlockIndentation, 64)
         XCTAssertEqual(NotePreviewDocument.maximumCalloutNestingDepth, 16)
+        XCTAssertEqual(LaTeXCompatibility.maximumAlignmentNestingDepth, 16)
         XCTAssertEqual(HTMLToMarkdown.maximumConvertedLength, 2_000_000)
         XCTAssertEqual(NotePreviewDocument.maximumEmbeddedNoteBytes, 1_048_576)
     }
@@ -91,6 +93,39 @@ final class ParserNestingLimitsTests: XCTestCase {
         let beyondLimit = depthOfCallouts(in: NotePreviewDocument.blocks(from: nestedCallouts(17)))
         XCTAssertEqual(beyondLimit.callouts, 16)
         XCTAssertNotNil(beyondLimit.remainder, "The level beyond the limit is left as Markdown.")
+    }
+
+    // MARK: Display formulas
+
+    func testAlignmentsNestedSixteenDeepAreRewrittenAndTheSeventeenthIsLeftAsWritten() {
+        func nestedAlignments(_ depth: Int) -> String {
+            String(repeating: "\\begin{align*}", count: depth) + "x" + String(repeating: "\\end{align*}", count: depth)
+        }
+        func occurrences(of marker: String, in text: String) -> Int { text.components(separatedBy: marker).count - 1 }
+        let atLimit = LaTeXCompatibility.normalized(nestedAlignments(16))
+        XCTAssertEqual(occurrences(of: "\\begin{aligned}", in: atLimit), 16)
+        XCTAssertEqual(occurrences(of: "\\begin{align*}", in: atLimit), 0)
+        let beyondLimit = LaTeXCompatibility.normalized(nestedAlignments(17))
+        XCTAssertEqual(occurrences(of: "\\begin{aligned}", in: beyondLimit), 16)
+        XCTAssertEqual(occurrences(of: "\\begin{align*}", in: beyondLimit), 1, "The level beyond the limit is left for the typesetter.")
+    }
+
+    func testFiveThousandNestedAlignmentsArePreparedOnAConcurrencySizedStack() {
+        let formula = Self.nestedAlignedEnvironments(5_000)
+        let normalizedLength = onConcurrencySizedStack { _ in LaTeXCompatibility.normalized(formula).count }(5_000)
+        let isNumbered = onConcurrencySizedStack { _ in LaTeXCompatibility.numberedEquation(formula + "\\tag{1}") != nil }(5_000)
+        XCTAssertGreaterThan(normalizedLength, formula.count / 2, "The formula is prepared rather than dropped.")
+        XCTAssertTrue(isNumbered, "A tag after the formula still numbers it.")
+    }
+
+    func testNestedAlignmentsArePreparedInTimeProportionalToTheirLength() {
+        ScalingChecks.assertScalesLinearly(smallSize: 1_250, largeSize: 5_000, "nested alignment environments") { depth in
+            _ = LaTeXCompatibility.normalized(Self.nestedAlignedEnvironments(depth))
+        }
+    }
+
+    private static func nestedAlignedEnvironments(_ depth: Int) -> String {
+        String(repeating: "\\begin{aligned}", count: depth) + "x" + String(repeating: "\\end{aligned}", count: depth)
     }
 
     // MARK: Helpers
