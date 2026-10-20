@@ -191,6 +191,15 @@ final class UiReadingViewTests: XCTestCase {
         XCTAssertEqual(checkboxes.count, 1)
     }
 
+    /// BUG-MDCORE-06: Live Preview's rendered blocks showed a note's private-use characters as U+FFFD.
+    func testPrivateUseCharactersInLivePreviewBlocksAreKept() throws {
+        let written = "Icon \u{E005} and glyph \u{E000}X \u{E00A}here"
+        let prepared = LivePreviewText.prepared(written + " and [[Note]]", colorsEnabled: true, paletteHexByName: [:])
+        let shown = String(try ObsidianMarkdownParser(baseURL: nil, textSize: 17).attributedString(for: prepared).characters)
+        XCTAssertTrue(shown.contains(written), shown)
+        XCTAssertFalse(shown.contains("\u{FFFD}"), shown)
+    }
+
     // MARK: Embedded notes (F537, F542, F543)
 
     func testEmbeddedNoteTooLargeIsShownAsALink() async throws {

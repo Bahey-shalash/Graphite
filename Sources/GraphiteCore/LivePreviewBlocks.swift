@@ -45,6 +45,7 @@ public enum LivePreviewBlockScanner {
         let frontmatterLength = frontmatter?.range.length ?? 0
         let lines = lines(in: text, from: frontmatterLength)
         let mathLines = DisplayMathLines(lines.map(\.content))
+        var listItems = ListItemContainers()
         var lineIndex = 0
         // The line after a table, fence, math block or callout, which cannot be a
         // paragraph line that a following `---` underlines.
@@ -59,7 +60,7 @@ public enum LivePreviewBlockScanner {
             let content = lines[lineIndex].content
             let trimmedContent = content.trimmingCharacters(in: .whitespaces)
             let fullRange = NSRange(location: 0, length: (content as NSString).length)
-            if let (fence, info) = CodeFence.opening(trimmedContent) {
+            if let (fence, info, _) = listItems.fenceOpening(of: content) {
                 let language = info.lowercased()
                 var closingIndex = lineIndex + 1
                 while closingIndex < lines.count && !CodeFence.closes(fence, lines[closingIndex].content.trimmingCharacters(in: .whitespaces)) { closingIndex += 1 }

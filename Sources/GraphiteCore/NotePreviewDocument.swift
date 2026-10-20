@@ -106,12 +106,13 @@ public enum NotePreviewDocument {
             pendingMarkdown.removeAll()
             pendingLineStartOffsets.removeAll()
         }
+        var listItems = ListItemContainers()
         var lineIndex = 0
         while lineIndex < lines.count {
             let line = lines[lineIndex]
             let trimmedLine = line.trimmingCharacters(in: .whitespaces)
             // Fenced code passes through untouched; a base fence becomes a base view.
-            if let (fence, info) = CodeFence.opening(trimmedLine) {
+            if let (fence, info, _) = listItems.fenceOpening(of: line) {
                 let language = info.lowercased()
                 var closingIndex = lineIndex + 1
                 while closingIndex < lines.count && !CodeFence.closes(fence, lines[closingIndex].trimmingCharacters(in: .whitespaces)) { closingIndex += 1 }
