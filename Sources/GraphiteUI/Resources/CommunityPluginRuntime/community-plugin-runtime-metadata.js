@@ -369,6 +369,8 @@
             this.resolutionTimer = null;
             this.readQueue = [];
             this.activeReadCount = 0;
+            /// The newest read asked for each note whose read is queued or in flight.
+            this.newestReadByFile = new Map();
         }
 
         // Obsidian's public API.
@@ -554,8 +556,14 @@
             });
         }
 
+        /// Only the newest read asked for a note stores what it finds, as answers can arrive
+        /// out of order. A plugin's write indexes its text at once and has asked for a read of
+        /// the note before that (through the vault's `create` or `modify` event), so an older
+        /// read never replaces the written text.
         enqueueRead(file, isChange, completion) {
-            this.readQueue.push({ file, isChange, completion });
+            const queuedRead = { file, isChange, completion };
+            this.newestReadByFile.set(file, queuedRead);
+            this.readQueue.push(queuedRead);
             this.pumpReadQueue();
         }
 
@@ -563,22 +571,25 @@
             while (this.activeReadCount < concurrentNoteReads && this.readQueue.length > 0) {
                 const queued = this.readQueue.shift();
                 this.activeReadCount += 1;
-                this.readNote(queued.file, queued.isChange).catch((error) => console.warn('Graphite could not read “' + queued.file.path + '” for plugins.', error)).finally(() => {
+                this.readNote(queued).catch((error) => console.warn('Graphite could not read “' + queued.file.path + '” for plugins.', error)).finally(() => {
                     this.activeReadCount -= 1;
+                    if (this.newestReadByFile.get(queued.file) === queued) this.newestReadByFile.delete(queued.file);
                     if (queued.completion) queued.completion();
                     this.pumpReadQueue();
                 });
             }
         }
 
-        async readNote(file, isChange) {
-            if (file.extension !== 'md' || this.vault.getFileByPath(file.path) !== file) return;
+        async readNote(queuedRead) {
+            const file = queuedRead.file;
+            const isNewestRead = () => this.newestReadByFile.get(file) === queuedRead;
+            if (file.extension !== 'md' || this.vault.getFileByPath(file.path) !== file || !isNewestRead()) return;
             const response = await hostBridge.send('vault.read', { path: file.path, encoding: 'text', isSkippingCloudFiles: true, maximumBytes: maximumIndexedNoteBytes });
             if (response.isNotDownloaded || response.isTooLarge || typeof response.text !== 'string') return;
-            if (this.vault.getFileByPath(file.path) !== file) return;
+            if (this.vault.getFileByPath(file.path) !== file || !isNewestRead()) return;
             const metadata = new NoteParser(response.text).parse();
             this.metadataByPath.set(file.path, metadata);
-            if (isChange) {
+            if (queuedRead.isChange) {
                 this.resolveLinksOf(file.path);
                 this.trigger('changed', file, response.text, metadata);
                 this.trigger('resolve', file);

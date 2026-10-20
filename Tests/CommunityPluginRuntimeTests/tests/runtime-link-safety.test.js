@@ -78,3 +78,34 @@ test('window.open sends only web and mail addresses to Graphite and opens no win
         harness.close();
     }
 });
+
+// BUG-RUNTIME-V01: a tapped area of an image map was not handled as a link and could replace the page.
+test('a tapped image-map area follows the same rules as a link and never replaces the page', async () => {
+    const harness = await startRuntime({ files: { 'Other.md': 'Other' } });
+    try {
+        const document = harness.window.document;
+        const imageMap = document.createElement('map');
+        imageMap.setAttribute('name', 'regions');
+        document.body.appendChild(imageMap);
+        const tapArea = (href, className) => {
+            const area = document.createElement('area');
+            area.setAttribute('href', href);
+            if (className) area.className = className;
+            imageMap.appendChild(area);
+            const click = new harness.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+            area.dispatchEvent(click);
+            area.remove();
+            return click.defaultPrevented;
+        };
+        assert.equal(tapArea('about:blank'), true, 'an about: address would replace the runtime page');
+        assert.equal(tapArea('javascript:alert(1)'), true);
+        assert.equal(tapArea('https://example.com/region'), true);
+        assert.equal(tapArea('Other', 'internal-link'), true);
+        await settle();
+        assert.deepEqual(openedExternally(harness), ['https://example.com/region']);
+        assert.deepEqual(openedInGraphite(harness), [['workspace.openLinkText', 'Other']]);
+        imageMap.remove();
+    } finally {
+        harness.close();
+    }
+});

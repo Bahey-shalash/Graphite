@@ -9,9 +9,8 @@
 }
 
 :where(body) {
-    --font-interface: -apple-system, system-ui, sans-serif;
-    --font-text: -apple-system, system-ui, sans-serif;
-    --font-monospace: ui-monospace, "SF Mono", Menlo, monospace;
+    /* --font-text, --font-interface and --font-monospace come from the default layer, which
+       derives them from a theme's `-theme` font variables. */
     --font-ui-smaller: 12px;
     --font-ui-small: 13px;
     --font-ui-medium: 15px;

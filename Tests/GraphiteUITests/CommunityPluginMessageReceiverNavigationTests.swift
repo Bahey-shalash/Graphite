@@ -85,4 +85,16 @@ final class CommunityPluginMessageReceiverNavigationTests: XCTestCase {
         let decision = await policy(for: "about:blank", kind: .other, inMainFrame: false)
         XCTAssertEqual(decision, .allow)
     }
+
+    /// BUG-RUNTIME-V01: a blank page in the main frame replaced the runtime page and ended every plugin.
+    func testABlankPageInTheMainFrameIsCancelledSoTheRuntimeIsNeverReplaced() async throws {
+        for address in ["about:blank", "about:srcdoc"] {
+            for kind in [WKNavigationType.linkActivated, .other] {
+                let mainFrameDecision = await policy(for: address, kind: kind, inMainFrame: true)
+                XCTAssertEqual(mainFrameDecision, .cancel, "\(address) (\(kind.rawValue))")
+                let newWindowDecision = await policy(for: address, kind: kind, inMainFrame: nil)
+                XCTAssertEqual(newWindowDecision, .cancel, "\(address) in a new window (\(kind.rawValue))")
+            }
+        }
+    }
 }

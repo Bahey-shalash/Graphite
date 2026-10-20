@@ -142,3 +142,41 @@ test('the plugins page shares the default variable layer the theme resolver meas
     }
     assert.match(runtimeStyles, /--color-base-00: #ffffff/);
 });
+
+// BUG-RUNTIME-04: the runtime's own styles overrode the fonts the default layer takes from a theme.
+test('a theme\'s font variables reach the plugins page through the default layer', () => {
+    const fileSystem = require('node:fs');
+    const path = require('node:path');
+    const { JSDOM } = require('jsdom');
+    const runtimeFolder = path.join(__dirname, '../../../Sources/GraphiteUI/Resources/CommunityPluginRuntime');
+    const indexPage = fileSystem.readFileSync(path.join(runtimeFolder, 'index.html'), 'utf8');
+    const styleSheetNames = Array.from(indexPage.matchAll(/<link rel="stylesheet" href="([^"]+)">/g), (match) => match[1]);
+    const pageStyles = styleSheetNames.map((name) => '<style>' + fileSystem.readFileSync(path.join(runtimeFolder, name), 'utf8') + '</style>').join('');
+    const themeStyles = '<style>body { --font-text-theme: "Theme Text"; --font-interface-theme: "Theme Interface"; --font-monospace-theme: "Theme Code"; }</style>';
+    const page = new JSDOM('<!doctype html><html><head>' + pageStyles + themeStyles + '</head><body class="graphite-plugin-runtime theme-light"></body></html>');
+    try {
+        const bodyStyle = page.window.getComputedStyle(page.window.document.body);
+        // jsdom cascades custom properties but leaves `var()` unresolved, as declared.
+        const resolvedVariable = (name) => bodyStyle.getPropertyValue(name).trim().replace(/var\((--[\w-]+)\)/g, (reference, referencedName) => resolvedVariable(referencedName));
+        assert.equal(resolvedVariable('--font-text'), '"Theme Text"');
+        assert.equal(resolvedVariable('--font-interface'), '"Theme Interface"');
+        assert.equal(resolvedVariable('--font-monospace'), '"Theme Code"');
+    } finally {
+        page.window.close();
+    }
+});
+
+// BUG-RUNTIME-07: getTheme() answered the dark theme on a light page.
+test('app.getTheme follows the page\'s light or dark appearance when appearance.json names no theme', async () => {
+    const harness = await startRuntime({});
+    try {
+        assert.equal(harness.app.isDarkMode(), false);
+        assert.equal(harness.app.getTheme(), 'moonstone', 'a light page is Obsidian\'s light theme');
+        await harness.send({ operation: 'appearance.changed', appearance: 'dark' });
+        assert.equal(harness.app.isDarkMode(), true);
+        assert.equal(harness.app.getTheme(), 'obsidian', 'a dark page is Obsidian\'s dark theme');
+        assert.equal(harness.app.vault.config.theme, harness.app.getTheme(), 'the settings object reports the same theme');
+    } finally {
+        harness.close();
+    }
+});
