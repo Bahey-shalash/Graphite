@@ -14,10 +14,12 @@ extension WorkspaceModel {
         }
         do {
             let notes = try await index.placedNotes(propertyNames: propertyNames)
+            // Notes of a vault left during the query are neither kept nor shown.
+            guard self.index === index else { return nil }
             placedNotesCache = (version, propertyNames, notes)
             return notes
         } catch {
-            errorMessage = error.localizedDescription
+            if self.index === index { errorMessage = error.localizedDescription }
             return nil
         }
     }

@@ -10,10 +10,12 @@ extension WorkspaceModel {
         if let graphCache, graphCache.indexVersion == version { return graphCache.graph }
         do {
             let graph = try await index.linkGraph()
+            // A graph of a vault left during the query is neither kept nor shown.
+            guard self.index === index else { return nil }
             graphCache = (version, graph)
             return graph
         } catch {
-            errorMessage = error.localizedDescription
+            if self.index === index { errorMessage = error.localizedDescription }
             return nil
         }
     }

@@ -299,6 +299,10 @@ final class ReadAloudNavigator {
 
     func removeFromQueue(_ item: QueueItem) { queue.removeAll { $0.id == item.id } }
 
+    /// Forgets the queue, the history and the pen's marks, which name files of the vault
+    /// being left; another vault may hold different files at the same paths.
+    func clearQueueHistoryAndPenMarks() { queue = []; history = []; clearPenMarks() }
+
     var canGoToPreviousItem: Bool { !history.isEmpty }
 
     /// Reads the next queued note or PDF, from where it was left.

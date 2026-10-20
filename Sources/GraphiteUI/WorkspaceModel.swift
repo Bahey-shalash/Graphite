@@ -311,7 +311,7 @@ final class WorkspaceModel {
     func createVault(named name: String, in parentFolder: URL?) async throws {
         // Checked before the folder exists: a refused switch would otherwise leave an empty
         // folder behind, and trying the same name again would find it taken.
-        try await prepareToLeaveCurrentVault()
+        try await prepareToLeaveCurrentVault(isReopeningCurrentVault: false)
         try await openVault(identifier: nil, location: VaultLocator.createVaultFolder(named: name, in: parentFolder))
     }
 
@@ -333,15 +333,20 @@ final class WorkspaceModel {
         documentPlaceStore.forgetVault(vault.id)
     }
 
-    /// Refuses to leave the vault during a recording, and saves every open document.
-    private func prepareToLeaveCurrentVault() async throws {
+    /// Refuses to leave the vault during a recording, or while a drawing is open in its editor,
+    /// and saves every open document. An open drawing saves through the open vault's store and
+    /// settings, so it stays open only when this vault opens again at its folder's new place.
+    private func prepareToLeaveCurrentVault(isReopeningCurrentVault: Bool) async throws {
         guard !recording.state.isActive else { throw GraphiteError.unavailable("Finish the current recording before switching vaults.") }
+        guard isReopeningCurrentVault || drawingEditorRequest == nil else {
+            throw GraphiteError.unavailable("Insert or cancel the drawing before switching vaults.")
+        }
         rememberPlacesOfOpenDocuments()
         try await saveOpenDocuments()
     }
 
     private func openVault(identifier: UUID?, location: VaultLocation) async throws {
-        try await prepareToLeaveCurrentVault()
+        try await prepareToLeaveCurrentVault(isReopeningCurrentVault: identifier != nil && identifier == currentVaultIdentifier)
         let (access, refreshedLocation) = try await VaultLocator.accessInBackground(location)
         let root = access.root
         // Known before anything is recorded, so the index can be named after it.
@@ -374,12 +379,21 @@ final class WorkspaceModel {
         // The plugins of the vault being left unload before anything of it closes.
         await communityPlugins.vaultWillClose()
         // The editors stayed editable through the waits above: what was typed meanwhile is
-        // saved now, with nothing to wait for between this and the documents closing.
-        for document in tabDocuments.values { try? await document.saveAllChanges() }
+        // saved now, with nothing to wait for between this and the documents closing. A failed
+        // save keeps this vault open with its unsaved work, and its plugins load again.
+        do {
+            for document in tabDocuments.values { try await document.saveAllChanges() }
+        } catch {
+            vaultMonitor.stop()
+            communityPlugins.vaultDidOpen(self)
+            throw error
+        }
         monitor?.stop(); stopIndexing(); externalChangeTask?.cancel()
         pendingExternalChanges.removeAll(); firstPendingExternalChangeTime = nil
         indexingMessage = ""
         readAloud?.clear()
+        readAloudNavigator?.clearQueueHistoryAndPenMarks()
+        calloutFolds.forgetEveryNote()
         folderAccess = access; store = vaultStore; index = vaultIndex; monitor = vaultMonitor
         readAloud?.vaultRoot = access.root
         EmbeddedPDFSessions.shared.useVault(root: root, owner: self, saving: embeddedPDFSaving(writer: vaultStore.writer))
