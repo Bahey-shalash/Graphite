@@ -70,7 +70,7 @@ enum GoodnotesPictureField: Int, GoodnotesFieldNumber {
     case elementIdentifier = 1
     /// The bounding box of the picture as drawn.
     case boundingBox = 2
-    /// The placement: centre, size before turning, angle.
+    /// The placement: center, size before turning, angle.
     case placement = 3
     case attachment = 4
     case drawingPosition = 5

@@ -232,6 +232,28 @@ final class BinaryPropertyListTests: XCTestCase {
         }
     }
 
+    /// CC-IMPORT-04: a processing instruction ended at its first `>`, and closing tags could take the depth below 0, so
+    /// `<?x a>` and N closing tags let N + 64 real levels pass the scan.
+    func testClosingTagsCannotPayForRealLevelsInsideAnInstructionOrBelowZero() {
+        let closings = String(repeating: "</array>", count: 10)
+        let levels = String(repeating: "<array>", count: 74) + String(repeating: "</array>", count: 74)
+        let hiddenInInstruction = "<plist><?x a>" + closings + "?>" + levels + "</plist>"
+        XCTAssertTrue(PropertyListDocument.xmlNesting(in: Array(hiddenInInstruction.utf8)[...], exceeds: 64))
+        let strayClosings = "<plist>" + closings + levels + "</plist>"
+        XCTAssertTrue(PropertyListDocument.xmlNesting(in: Array(strayClosings.utf8)[...], exceeds: 64))
+        let instructionWithMarkup = "<?xml version=\"1.0\"?><?note <array> ?><plist><array><array/></array></plist>"
+        XCTAssertFalse(PropertyListDocument.xmlNesting(in: Array(instructionWithMarkup.utf8)[...], exceeds: 1),
+                       "an instruction's text up to its ?> is not markup")
+    }
+
+    func testSixHundredLevelsOfSpacedArrayTagsAreRefusedBeforeFoundationParsesThem() {
+        let deep = "<plist>" + String(repeating: "<array >", count: 600) + String(repeating: "</array >", count: 600) + "</plist>"
+        XCTAssertTrue(PropertyListDocument.xmlNesting(in: Array(deep.utf8)[...], exceeds: 64))
+        XCTAssertThrowsError(try PropertyListDocument.plainValue(of: Array(deep.utf8)[...], maximumNestingDepth: 64, maximumValueCount: 1_000)) { error in
+            XCTAssertEqual(error as? PropertyListDocumentError, .nestingTooDeep(limit: 64))
+        }
+    }
+
     func testXMLDocumentsAreReadAndDeepNestingIsRefusedBeforeParsing() throws {
         let xml = """
         <?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>b</key><array><integer>2</integer><true/></array>\

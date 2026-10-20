@@ -6,12 +6,13 @@ struct XMLTag {
     private static let tagEnd = UInt8(ascii: ">")
     private static let slash = UInt8(ascii: "/")
     private static let exclamation = UInt8(ascii: "!")
-    private static let question = UInt8(ascii: "?")
     private static let containerNames = [Array("array".utf8), Array("dict".utf8)]
     private static let commentOpening = Array("<!--".utf8)
     private static let commentEnd = Array("-->".utf8)
     private static let characterDataOpening = Array("<![CDATA[".utf8)
     private static let characterDataEnd = Array("]]>".utf8)
+    private static let processingInstructionOpening = Array("<?".utf8)
+    private static let processingInstructionEnd = Array("?>".utf8)
 
     /// Just past the tag.
     let end: Int
@@ -28,11 +29,15 @@ struct XMLTag {
         } else if rest.starts(with: Self.characterDataOpening) {
             guard let dataEnd = Self.end(of: Self.characterDataEnd, in: rest) else { return nil }
             self.init(end: dataEnd, isContainer: false, isClosing: false, isSelfClosing: false)
+        } else if rest.starts(with: Self.processingInstructionOpening) {
+            // A processing instruction ends at `?>`, not at its first `>`: what lies between is not markup.
+            guard let instructionEnd = Self.end(of: Self.processingInstructionEnd, in: rest[(opening + 2)...]) else { return nil }
+            self.init(end: instructionEnd, isContainer: false, isClosing: false, isSelfClosing: false)
         } else {
             guard let close = rest.firstIndex(of: Self.tagEnd) else { return nil }
             let inside = bytes[(opening + 1)..<close]
             let isClosing = inside.first == Self.slash
-            let isMarkup = inside.first == Self.exclamation || inside.first == Self.question
+            let isMarkup = inside.first == Self.exclamation
             let name = inside.drop { byte in byte == Self.slash }.prefix { byte in byte != Self.slash && !Self.isWhitespace(byte) }
             self.init(end: close + 1, isContainer: !isMarkup && Self.containerNames.contains { container in name.elementsEqual(container) },
                       isClosing: isClosing, isSelfClosing: inside.last == Self.slash)

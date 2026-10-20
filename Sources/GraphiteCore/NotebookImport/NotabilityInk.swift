@@ -37,7 +37,8 @@ struct NotabilityInk: Sendable {
     /// The curves with a finite point, sorted by their lowest y, and the tallest of their extents: the curves on a
     /// page are found by a binary search instead of a pass over every curve.
     private let curveIndicesByLowestY: [Int]
-    private let tallestVerticalExtent: Double
+    /// The largest vertical extent of one curve, which bounds how far above a page a curve on it can start.
+    let tallestVerticalExtent: Double
     /// The largest y of any curve's finite points; nil when no curve has one.
     let highestY: Double?
 
@@ -109,26 +110,25 @@ struct NotabilityInk: Sendable {
         return indicesByUUID
     }
 
-    /// The curves, in drawing order, whose points' vertical extent is on the page (`NotabilityPagePlacement`), found
-    /// by a binary search over the curves sorted by their lowest y.
-    func curveIndices(onPage pageNumber: Int, placement: NotabilityPagePlacement) -> [Int] {
-        guard let pageHeight = placement.geometry.pageHeightInUnits else { return [] }
-        let page = Double(pageNumber)
-        // One page of slack covers the rounding of the floor division that assigns a position to a page.
-        let earliestLowestY = (page - 2) * pageHeight - tallestVerticalExtent
+    /// A measured curve's vertical extent in document units.
+    struct CurveExtent {
+        let curveIndex: Int
+        let lowestY: Double
+        let highestY: Double
+    }
+
+    /// The curves with a finite point, in order of their lowest y, from the first whose lowest y is at least `lowestY`
+    /// (a binary search), each with its vertical extent. Which of them are on a page is `NotabilityPagePlacement`'s.
+    func curveExtents(fromLowestY lowestY: Double) -> LazyMapSequence<ArraySlice<Int>, CurveExtent> {
         var low = 0
         var high = curveIndicesByLowestY.count
         while low < high {
             let middle = (low + high) / 2
-            if locations[curveIndicesByLowestY[middle]].lowestY < earliestLowestY { low = middle + 1 } else { high = middle }
+            if locations[curveIndicesByLowestY[middle]].lowestY < lowestY { low = middle + 1 } else { high = middle }
         }
-        var onPage: [Int] = []
-        for curveIndex in curveIndicesByLowestY[low...] {
-            let location = locations[curveIndex]
-            guard let firstPage = placement.geometry.pagePosition(ofVerticalPosition: location.lowestY), firstPage <= page else { break }
-            if placement.isOnPage(pageNumber, lowestY: location.lowestY, highestY: location.highestY) { onPage.append(curveIndex) }
+        return curveIndicesByLowestY[low...].lazy.map { curveIndex in
+            CurveExtent(curveIndex: curveIndex, lowestY: locations[curveIndex].lowestY, highestY: locations[curveIndex].highestY)
         }
-        return onPage.sorted()
     }
 
     private static func count(of key: NotabilityInkKey, in fields: KeyedArchiveFields, archive: KeyedArchive) throws(NotabilityReadingError) -> Int64 {

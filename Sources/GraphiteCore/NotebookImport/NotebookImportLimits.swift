@@ -24,9 +24,9 @@ public struct NotebookImportLimits: Sendable, Equatable {
         self.maximumPlainValueCount = maximumPlainValueCount
     }
 
-    /// The bounds of the reference readers in `scripts/` (512 MiB per entry on the Mac, 256 MiB on the iPhone and iPad,
-    /// where an app has less memory), 64 MiB per compressed payload, 64 levels of nesting, and 250,000 plain values
-    /// (about 8 MiB of values).
+    /// 512 MiB per entry on the Mac, the bound of the reference readers in `scripts/`, and half of it on the iPhone and
+    /// iPad, where an app has less memory and a notebook's largest files (recordings, imported PDFs) are far smaller;
+    /// 64 MiB per compressed payload; 64 levels of nesting; and 250,000 plain values (about 8 MiB of values).
     public static let standard = NotebookImportLimits(
         maximumEntryBytes: standardMaximumEntryBytes, maximumDecodedPayloadBytes: 64 * 1_048_576,
         maximumArchiveReferenceDepth: 64, maximumPropertyListNestingDepth: 64, maximumPlainValueCount: 250_000)

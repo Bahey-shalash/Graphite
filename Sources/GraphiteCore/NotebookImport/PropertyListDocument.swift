@@ -46,9 +46,10 @@ public enum PropertyListDocument {
 
     /// Whether `<array>` and `<dict>` elements nest deeper than `limit`, reading tags as an XML parser does: a tag's
     /// name ends at whitespace, `/` or `>`, so `<array >` and `<array x="1">` count; a self-closing `<array/>` does not
-    /// nest; comments, CDATA sections, declarations and processing instructions are skipped. The scan stops as soon
-    /// as the depth passes the limit; the values Foundation parses are checked against the limit again.
-    private static func xmlNesting(in bytes: ArraySlice<UInt8>, exceeds limit: Int) -> Bool {
+    /// nest; comments, CDATA sections, declarations and processing instructions (to their `?>`) are skipped; and the
+    /// depth never goes below 0. The scan stops as soon as the depth passes the limit; the values Foundation parses are
+    /// checked against the limit again.
+    static func xmlNesting(in bytes: ArraySlice<UInt8>, exceeds limit: Int) -> Bool {
         var depth = 0
         var position = bytes.startIndex
         while let tagOpening = bytes[position...].firstIndex(of: tagStart) {
@@ -56,7 +57,8 @@ public enum PropertyListDocument {
             position = tag.end
             guard tag.isContainer else { continue }
             if tag.isClosing {
-                depth -= 1
+                // Never below 0: closing tags without an opening cannot pay for real levels later.
+                depth = max(depth - 1, 0)
             } else if !tag.isSelfClosing {
                 depth += 1
                 if depth > limit { return true }
