@@ -16,5 +16,6 @@ The 2026-10-18 audit read source and tests at `b13dec3` without running builds, 
 - [Implementation coverage](Docs/Coverage.md): implemented behavior, dated validation, and incomplete or unverified work.
 - [SOLID and clean-code standard](Docs/solid/README.md): findings, defects, invariants, rules for new code, and the cleanup plan.
 - [Community plugins](Docs/Community-plugins.md): how Graphite runs Obsidian community plugins, what works, what does not yet, and how it was checked.
+- [Releasing to TestFlight](Docs/TestFlight.md): the App Store Connect record, uploading a build, and what the upload declares.
 
 After each cleanup wave, update [Docs/solid/progress.md](Docs/solid/progress.md), [status.md](Docs/solid/status.md) and [rule-status.md](Docs/solid/rule-status.md) from the current code. Feature completeness and test counts alone do not establish SOLID compliance.

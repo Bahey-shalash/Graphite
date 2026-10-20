@@ -64,10 +64,42 @@ final class InfoPropertyListDeclarationsTests: XCTestCase {
         XCTAssertEqual(Set(try infoPropertyList().keys), [
             "CFBundleDisplayName", "CFBundleExecutable", "CFBundleIdentifier", "CFBundleName", "CFBundlePackageType",
             "CFBundleShortVersionString", "CFBundleVersion", "CFBundleURLTypes",
-            "LSSupportsOpeningDocumentsInPlace",
+            "ITSAppUsesNonExemptEncryption", "LSSupportsOpeningDocumentsInPlace",
             "NSCameraUsageDescription", "NSMicrophoneUsageDescription", "NSPhotoLibraryAddUsageDescription",
             "UIApplicationSceneManifest", "UIBackgroundModes", "UIFileSharingEnabled", "UILaunchScreen",
             "UISupportedInterfaceOrientations", "UISupportsDocumentBrowser", "UTExportedTypeDeclarations",
         ])
+    }
+
+    // MARK: App Store Connect
+
+    /// Each TestFlight upload needs a higher build number, which `scripts/archive-for-testflight.sh` passes as
+    /// `CURRENT_PROJECT_VERSION`; a number written into `Info.plist` would ignore it.
+    func testTheVersionAndBuildNumberComeFromTheProjectsBuildSettings() throws {
+        let propertyList = try infoPropertyList()
+        XCTAssertEqual(propertyList["CFBundleShortVersionString"] as? String, "$(MARKETING_VERSION)")
+        XCTAssertEqual(propertyList["CFBundleVersion"] as? String, "$(CURRENT_PROJECT_VERSION)")
+        let project = try String(contentsOf: repositoryRoot.appendingPathComponent("Graphite.xcodeproj/project.pbxproj"), encoding: .utf8)
+        XCTAssertEqual(project.components(separatedBy: "MARKETING_VERSION = ").count - 1, 2)
+        XCTAssertEqual(project.components(separatedBy: "CURRENT_PROJECT_VERSION = ").count - 1, 2)
+    }
+
+    /// Without this answer every uploaded build waits in App Store Connect for the export compliance question.
+    func testTheAppDeclaresItUsesNoNonExemptEncryption() throws {
+        XCTAssertEqual(try infoPropertyList()["ITSAppUsesNonExemptEncryption"] as? Bool, false)
+    }
+
+    func testThePrivacyManifestDeclaresNoTrackingAndIsCopiedIntoTheApp() throws {
+        let data = try Data(contentsOf: repositoryRoot.appendingPathComponent("App/PrivacyInfo.xcprivacy"))
+        let manifest = try XCTUnwrap(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
+        XCTAssertEqual(manifest["NSPrivacyTracking"] as? Bool, false)
+        XCTAssertEqual((manifest["NSPrivacyCollectedDataTypes"] as? [Any])?.count, 0)
+        let accessedTypes = try XCTUnwrap(manifest["NSPrivacyAccessedAPITypes"] as? [[String: Any]])
+        XCTAssertEqual(Set(accessedTypes.compactMap { $0["NSPrivacyAccessedAPIType"] as? String }), [
+            "NSPrivacyAccessedAPICategoryUserDefaults", "NSPrivacyAccessedAPICategoryFileTimestamp",
+            "NSPrivacyAccessedAPICategorySystemBootTime", "NSPrivacyAccessedAPICategoryDiskSpace",
+        ])
+        let project = try String(contentsOf: repositoryRoot.appendingPathComponent("Graphite.xcodeproj/project.pbxproj"), encoding: .utf8)
+        XCTAssertTrue(project.contains("/* PrivacyInfo.xcprivacy in Resources */,"))
     }
 }
