@@ -199,6 +199,9 @@ final class NotebookImportWriterTests: XCTestCase {
         assertColor(try drawnColor(of: stretchedPage, at: CGPoint(x: 300, y: 225)), [255, 0, 0], "Its red quarter, stretched with it")
         XCTAssertEqual(writing.pageReports.map(\.sourcePageNumber), [1, 2, 3])
         XCTAssertEqual(writing.pageReports.map(\.entries), plans.map(\.report))
+        XCTAssertEqual(writing.pageReports.map(\.written), plans.map { plan in
+            ImportedPageContents(strokeCount: plan.strokes.count, pictureCount: 0, isBookmarked: false)
+        })
         XCTAssertEqual(writing.revision, try FileRevision.read(XCTUnwrap(document.documentURL)))
     }
 

@@ -61,7 +61,10 @@ public struct NotebookImportWriter: Sendable {
         let picturesLeftOut = try ImportedPagePictures.place(plan.pictures, onPageAt: pageIndex, of: document, pageSize: plan.sizeInPoints,
                                                                      sourceFiles: sourceFiles)
         try ImportedPageInk.apply(plan.strokes, toPageAt: pageIndex, of: document, pageSize: plan.sizeInPoints, strokeCreationDate: strokeCreationDate)
+        let placedPictureCount = plan.pictures.count - picturesLeftOut.missingFileCount - picturesLeftOut.notDecodableCount
         return ImportedPageReport(sourcePageNumber: plan.sourcePageNumber,
+                                  written: ImportedPageContents(strokeCount: plan.strokes.count, pictureCount: placedPictureCount,
+                                                                isBookmarked: plan.isBookmarked),
                                   entries: ImportedPagePictures.report(plan.report, adding: picturesLeftOut))
     }
 }
