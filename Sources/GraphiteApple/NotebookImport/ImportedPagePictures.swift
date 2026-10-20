@@ -64,14 +64,14 @@ enum ImportedPagePictures {
             throw NotebookImportWriterError.pictureGeometryUnusable(picture.file, frame: frame, rotationRadiansClockwise: picture.rotationRadiansClockwise,
                                                                     pageIndex: pageIndex)
         }
-        let fileBytes: [UInt8]
+        let fileContents: Data
         do {
-            fileBytes = try sourceFiles.contents(of: picture.file)
+            fileContents = try sourceFiles.contents(of: picture.file)
         } catch {
             // The reader's error says only that the file is not there to read; the picture is reported as missing.
             return .fileMissing
         }
-        guard let imageData = try preparedImageData(Data(fileBytes), for: picture, pageIndex: pageIndex) else { return .notDecodable }
+        guard let imageData = try preparedImageData(fileContents, for: picture, pageIndex: pageIndex) else { return .notDecodable }
         let pdfPicture = PDFPicture(imageData: imageData, bounds: pageBounds(of: frame, coordinates: coordinates), quarterTurns: 0,
                                     rotationRadians: picture.rotationRadiansClockwise)
         try PDFPageManager.apply(.addPicture(page: pageIndex, picture: pdfPicture), to: document, drawsInkOutlines: true)

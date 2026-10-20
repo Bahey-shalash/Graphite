@@ -25,11 +25,23 @@ public enum ZipArchiveError: Error, Hashable, Sendable {
     case readOutsideArchive(offset: Int)
 }
 
+/// Why copying a ZIP entry out stopped: the archive's damage, or the destination's own error.
+public enum ZipEntryCopyError<DestinationError: Error>: Error {
+    case archive(ZipArchiveError)
+    case destination(DestinationError)
+}
+
 /// The entries of a ZIP archive, read from bytes the caller supplies (memory-mapped for a large file), so that only
 /// the entries asked for are ever decompressed and nothing else of the archive is copied. Stored and deflated entries
 /// are read; encryption, ZIP64 and other compression methods are refused by name. When two entries share a name the
 /// later one is read, as Python's `zipfile` does.
+///
+/// A notebook's records are read whole (`contents(of:)`). Its attachments, which can be large, are read without a copy
+/// when stored (`data(of:)`, a slice of the caller's bytes) or copied out in pieces (`copy(_:chunkByteCount:to:)`).
 public struct ZipArchive: Sendable {
+    /// The piece size of `copy(_:chunkByteCount:to:)`: the only buffer a deflated entry's copy allocates.
+    public static let standardCopyChunkByteCount = 256 * 1024
+
     public struct Entry: Sendable, Equatable {
         public let name: String
         public let compressionMethod: UInt16
@@ -47,15 +59,15 @@ public struct ZipArchive: Sendable {
     private static let centralDirectoryEntryBytes = 46
     private static let localHeaderBytes = 30
     private static let maximumCommentBytes = 65_535
-    private static let storedMethod: UInt16 = 0
-    private static let deflateMethod: UInt16 = 8
+    static let storedMethod: UInt16 = 0
+    static let deflateMethod: UInt16 = 8
     private static let encryptedFlag: UInt16 = 1
     /// Deflate expands at most about 1,032 times (a run of one byte coded as length-258 matches), so a larger ratio
     /// is a damaged or hostile entry; the slack covers the few bytes of a tiny stream's header.
     private static let maximumDeflateExpansion = 1_032
     private static let deflateExpansionSlackBytes = 1_024
     /// Raw deflate, with no zlib header or checksum: the window size negated.
-    private static let rawDeflateWindowBits: Int32 = -15
+    static let rawDeflateWindowBits: Int32 = -15
 
     private let archiveBytes: Data
     private let limits: NotebookImportLimits
@@ -86,6 +98,58 @@ public struct ZipArchive: Sendable {
 
     /// The entry's uncompressed bytes, checked against the size and CRC-32 the directory records.
     public func contents(of entry: Entry) throws(ZipArchiveError) -> [UInt8] {
+        try checkReadable(entry)
+        let contents = try archiveBytes.withUnsafeBytes { rawBytes in
+            Result { () throws(ZipArchiveError) in try Self.uncompressedBytes(of: entry, in: LittleEndianBytes(rawBytes)) }
+        }.get()
+        guard Self.checksum(of: contents) == entry.checksum else { throw ZipArchiveError.checksumMismatch(name: entry.name) }
+        return contents
+    }
+
+    /// The entry's uncompressed bytes, checked as `contents(of:)` checks them. A stored entry is a slice of the
+    /// archive's bytes, not a copy, so its indices start where it lies in the archive; a deflated one is inflated.
+    public func data(of entry: Entry) throws(ZipArchiveError) -> Data {
+        try checkReadable(entry)
+        guard entry.compressionMethod == Self.storedMethod else { return Data(try contents(of: entry)) }
+        let range = try archiveBytes.withUnsafeBytes { rawBytes in
+            Result { () throws(ZipArchiveError) -> Range<Int> in
+                let bytes = LittleEndianBytes(rawBytes)
+                let stored = try Self.storedBytes(of: entry, in: bytes)
+                guard stored.count == entry.uncompressedByteCount else { throw ZipArchiveError.entryDataDamaged(name: entry.name) }
+                guard Self.checksum(of: stored) == entry.checksum else { throw ZipArchiveError.checksumMismatch(name: entry.name) }
+                let start = rawBytes.baseAddress.map { base in stored.baseAddress.map { address in address - base } ?? 0 } ?? 0
+                return start..<(start + stored.count)
+            }
+        }.get()
+        return archiveBytes[(archiveBytes.startIndex + range.lowerBound)..<(archiveBytes.startIndex + range.upperBound)]
+    }
+
+    /// Hands the entry's uncompressed bytes to `consume` in pieces of at most `chunkByteCount` bytes, in order: a stored
+    /// entry as slices of the archive's bytes, a deflated one through one buffer of that size. The size and CRC-32 are
+    /// known to match only at the end, so the destination must not be used until this returns without an error.
+    public func copy<DestinationError: Error>(_ entry: Entry, chunkByteCount: Int = standardCopyChunkByteCount,
+                                               to consume: (UnsafeRawBufferPointer) throws(DestinationError) -> Void)
+        throws(ZipEntryCopyError<DestinationError>) {
+        do throws(ZipArchiveError) { try checkReadable(entry) } catch { throw .archive(error) }
+        let pieceByteCount = max(chunkByteCount, 1)
+        try archiveBytes.withUnsafeBytes { rawBytes in
+            Result { () throws(ZipEntryCopyError<DestinationError>) in
+                let stored: UnsafeRawBufferPointer
+                do throws(ZipArchiveError) { stored = try Self.storedBytes(of: entry, in: LittleEndianBytes(rawBytes)) } catch { throw .archive(error) }
+                var pieces = ZipEntryPieces<DestinationError>(entry: entry)
+                switch entry.compressionMethod {
+                case Self.storedMethod: try pieces.handOver(stored, pieceByteCount: pieceByteCount, to: consume)
+                case Self.deflateMethod: try pieces.inflate(stored, pieceByteCount: pieceByteCount, to: consume)
+                default: throw .archive(.compressionMethodNotSupported(name: entry.name, method: entry.compressionMethod))
+                }
+                try pieces.finish()
+            }
+        }.get()
+    }
+
+    /// Refuses an entry before anything of it is read: encrypted, larger than the limit, or claiming more than deflate
+    /// can produce from its compressed size.
+    private func checkReadable(_ entry: Entry) throws(ZipArchiveError) {
         guard !entry.isEncrypted else { throw ZipArchiveError.entryEncrypted(name: entry.name) }
         guard entry.uncompressedByteCount <= limits.maximumEntryBytes else {
             throw ZipArchiveError.entryTooLarge(name: entry.name, limitBytes: limits.maximumEntryBytes)
@@ -94,11 +158,6 @@ public struct ZipArchive: Sendable {
             || entry.uncompressedByteCount <= entry.compressedByteCount * Self.maximumDeflateExpansion + Self.deflateExpansionSlackBytes else {
             throw ZipArchiveError.compressionRatioImpossible(name: entry.name)
         }
-        let contents = try archiveBytes.withUnsafeBytes { rawBytes in
-            Result { () throws(ZipArchiveError) in try Self.uncompressedBytes(of: entry, in: LittleEndianBytes(rawBytes)) }
-        }.get()
-        guard Self.checksum(of: contents) == entry.checksum else { throw ZipArchiveError.checksumMismatch(name: entry.name) }
-        return contents
     }
 
     private static func uncompressedBytes(of entry: Entry, in bytes: LittleEndianBytes) throws(ZipArchiveError) -> [UInt8] {
@@ -212,9 +271,11 @@ public struct ZipArchive: Sendable {
     }
 
     private static func checksum(of contents: [UInt8]) -> UInt32 {
-        contents.withUnsafeBytes { buffer in
-            UInt32(crc32(0, buffer.baseAddress?.assumingMemoryBound(to: Bytef.self), uInt(buffer.count)))
-        }
+        contents.withUnsafeBytes { buffer in checksum(of: buffer) }
+    }
+
+    static func checksum(of buffer: UnsafeRawBufferPointer, continuing previous: UInt32 = 0) -> UInt32 {
+        UInt32(crc32(uLong(previous), buffer.baseAddress?.assumingMemoryBound(to: Bytef.self), uInt(buffer.count)))
     }
 }
 

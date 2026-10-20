@@ -11,7 +11,7 @@ final class NotebookImportPaperAndBookmarkWriterTests: XCTestCase {
     private struct NoFiles: ImportSourceFiles {
         struct MissingFile: Error {}
 
-        func contents(of file: ImportedSourceFile) throws -> [UInt8] {
+        func contents(of file: ImportedSourceFile) throws -> Data {
             throw MissingFile()
         }
     }

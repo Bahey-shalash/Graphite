@@ -166,9 +166,9 @@ final class NotabilityNoteReaderTests: XCTestCase {
 
     func testFileBytesAreReadFromTheNoteFolder() throws {
         let reader = try reader(Self.completeNote())
-        XCTAssertEqual(try reader.fileBytes(.fixture("Images/Image 1.png")), [0x89, 0x50, 0x4E, 0x47])
-        XCTAssertEqual(try reader.fileBytes(.fixture("PDFs/ABC.pdf")), Array("%PDF-1.7".utf8))
-        XCTAssertThrowsError(try reader.fileBytes(.fixture("Images/Missing.png"))) { error in
+        XCTAssertEqual(Array(try reader.contents(ofFileAt: .fixture("Images/Image 1.png"))), [0x89, 0x50, 0x4E, 0x47])
+        XCTAssertEqual(Array(try reader.contents(ofFileAt: .fixture("PDFs/ABC.pdf"))), Array("%PDF-1.7".utf8))
+        XCTAssertThrowsError(try reader.contents(ofFileAt: .fixture("Images/Missing.png"))) { error in
             XCTAssertEqual(error as? NotabilityReadingError, .archive(.entryMissing(name: "Synthetic Note/Images/Missing.png")))
         }
     }
