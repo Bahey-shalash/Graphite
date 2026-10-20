@@ -3,9 +3,33 @@ import GraphiteCore
 
 /// Obsidian's Templates and Daily notes core plugins, with the vault's own settings files.
 extension WorkspaceModel {
-    /// Notes in the Templates folder, by name.
+    /// The Templates settings shown in Settings; Obsidian's defaults while the file cannot be read.
+    var templateSettings: TemplateSettings { templateSettingsReading.settings ?? TemplateSettings() }
+    /// The Daily notes settings shown in Settings; Obsidian's defaults while the file cannot be read.
+    var dailyNoteSettings: DailyNoteSettings { dailyNoteSettingsReading.settings ?? DailyNoteSettings() }
+
+    /// What the person is told when the Templates or Daily notes settings file of the open
+    /// vault cannot be read, or nil when both were read.
+    var unreadableSettingsMessage: String? {
+        let reasons = [templateSettingsReading.unreadableReason, dailyNoteSettingsReading.unreadableReason].compactMap { reason in reason }
+        guard !reasons.isEmpty else { return nil }
+        return "Graphite could not read the Templates or Daily notes settings in this vault, so templates and daily notes "
+            + "are not used until it can. " + reasons.joined(separator: " ")
+    }
+
+    /// What `read` gives for one settings file: its settings, or why it could not be read.
+    static func settingsReading<Settings>(_ read: () async throws -> Settings) async -> VaultSettingsReading<Settings> {
+        do {
+            return .read(try await read())
+        } catch {
+            return .unreadable(reason: error.localizedDescription)
+        }
+    }
+
+    /// Notes in the Templates folder, by name; none while the Templates settings cannot be read.
     func templateFiles() -> [VaultPath] {
-        guard let root = folderAccess?.root, let folder = templateSettings.folderPath, let location = try? folder.url(in: root) else { return [] }
+        guard let root = folderAccess?.root, let folder = templateSettingsReading.settings?.folderPath,
+              let location = try? folder.url(in: root) else { return [] }
         let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey]
         guard let enumerator = FileManager.default.enumerator(at: location, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }
         var templates: [VaultPath] = []
@@ -24,10 +48,13 @@ extension WorkspaceModel {
     /// are added to the note's.
     func insertTemplate(_ template: VaultPath, into session: MarkdownSession) async {
         guard let store else { return }
+        guard let settings = templateSettingsReading.settings else {
+            errorMessage = unreadableSettingsMessage
+            return
+        }
         do {
             let snapshot = try await store.read(template, maximumBytes: MarkdownSession.maximumEditableBytes)
             guard let templateText = String(data: snapshot.data, encoding: .utf8) else { throw GraphiteError.invalidFile("“\(template.name)” is not UTF-8 text.") }
-            let settings = templateSettings
             let rendered = TemplateRenderer.render(templateText, title: session.path.stem, date: .now, dateFormat: settings.dateFormat, timeFormat: settings.timeFormat)
             let declaredTypes = await store.propertyTypes()
             session.apply(TemplateInsertion.edit(inserting: rendered, into: session.text, at: session.selection, declaredTypes: declaredTypes))
@@ -35,10 +62,13 @@ extension WorkspaceModel {
     }
 
     /// Opens the daily note of `date`, creating it from the daily note template first when
-    /// it does not exist yet.
+    /// it does not exist yet. Refused while the Daily notes settings cannot be read.
     func openDailyNote(for date: Date = .now, placement: TabPlacement = .currentTab) async {
         guard let store else { return }
-        let settings = dailyNoteSettings
+        guard let settings = dailyNoteSettingsReading.settings else {
+            errorMessage = unreadableSettingsMessage
+            return
+        }
         do {
             let path = try settings.notePath(for: date)
             if try await !store.fileExists(path) {
@@ -66,7 +96,10 @@ extension WorkspaceModel {
     /// file is not a daily note, skipping days without a note, as Obsidian does.
     func openAdjacentDailyNote(forward: Bool) async {
         guard let index else { return }
-        let settings = dailyNoteSettings
+        guard let settings = dailyNoteSettingsReading.settings else {
+            errorMessage = unreadableSettingsMessage
+            return
+        }
         let calendar = Calendar(identifier: .gregorian)
         let reference = selection.flatMap { path in settings.date(ofNoteAt: path) } ?? calendar.startOfDay(for: .now)
         let folder = settings.folder.isEmpty ? VaultPath.root : ((try? VaultPath(settings.folder)) ?? .root)
@@ -88,7 +121,7 @@ extension WorkspaceModel {
         guard let store, settings != templateSettings else { return }
         do {
             try await store.saveTemplateSettings(settings)
-            templateSettings = settings
+            templateSettingsReading = .read(settings)
         } catch { errorMessage = error.localizedDescription }
     }
 
@@ -96,7 +129,7 @@ extension WorkspaceModel {
         guard let store, settings != dailyNoteSettings else { return }
         do {
             try await store.saveDailyNoteSettings(settings)
-            dailyNoteSettings = settings
+            dailyNoteSettingsReading = .read(settings)
         } catch { errorMessage = error.localizedDescription }
     }
 }
