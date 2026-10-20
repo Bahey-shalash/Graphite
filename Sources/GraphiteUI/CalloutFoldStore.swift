@@ -4,7 +4,7 @@ import GraphiteCore
 
 /// Which callouts the person has expanded or collapsed, per note, shared by the reading view
 /// and Live Preview, so Read Aloud reads what is open and skips what is folded. Kept for the
-/// session only; the note's own `-` and `+` markers remain the starting point.
+/// session and the open vault only; the note's own `-` and `+` markers remain the starting point.
 @MainActor @Observable
 final class CalloutFoldStore {
     private var expansionByNote: [String: [String: Bool]] = [:]
@@ -17,6 +17,12 @@ final class CalloutFoldStore {
 
     func setExpanded(_ isExpanded: Bool, notePath: String, key: String) {
         expansionByNote[notePath, default: [:]][key] = isExpanded
+    }
+
+    /// Forgets the entries of every note, when another vault opens: a note there at the same
+    /// path is another note.
+    func forgetEveryNote() {
+        expansionByNote = [:]
     }
 }
 

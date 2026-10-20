@@ -126,6 +126,160 @@ final class UiWorkspaceModelFixTests: XCTestCase {
         XCTAssertEqual(fileText("Note.md", in: firstVault), "original plus words typed while the vault opens")
     }
 
+    /// BUG-ARCH-03: The open drawing saves through the open vault's store and settings, so a switch, such
+    /// as a `graphite://open?vault=` link, is refused while its editor is up.
+    func testVaultSwitchIsRefusedWhileADrawingIsOpen() async throws {
+        let firstVault = try makeVault(files: ["Note.md": "original"])
+        let secondVault = try makeVault()
+        let workspace = try await openedWorkspace(firstVault)
+        let firstVaultIdentifier = try XCTUnwrap(workspace.currentVaultIdentifier)
+        workspace.drawingEditorRequest = DrawingEditorRequest(
+            target: .newDrawing(notePath: try VaultPath("Note.md"), insertionRange: NSRange(location: 0, length: 0)),
+            title: "New Drawing", initialStrokeData: Data(), canvasWidth: nil, background: .white, format: .png)
+
+        do {
+            try await workspace.openFolderAsVault(secondVault)
+            XCTFail("A drawing is open, so the vault switch is refused.")
+        } catch {
+            let graphiteError = try XCTUnwrap(error as? GraphiteError)
+            guard case .unavailable = graphiteError else { return XCTFail("Refused as unavailable, not \(graphiteError).") }
+        }
+        XCTAssertEqual(workspace.currentVaultIdentifier, firstVaultIdentifier)
+        XCTAssertEqual(workspace.folderAccess?.root.lastPathComponent, firstVault.lastPathComponent)
+        XCTAssertNotNil(workspace.drawingEditorRequest)
+    }
+
+    /// The open vault's folder moved: the same vault opens again, and the drawing stays open.
+    func testReopeningTheMovedVaultKeepsTheOpenDrawing() async throws {
+        let vault = try makeVault(files: ["Note.md": "original"])
+        let workspace = try await openedWorkspace(vault)
+        let vaultIdentifier = try XCTUnwrap(workspace.currentVaultIdentifier)
+        workspace.drawingEditorRequest = DrawingEditorRequest(
+            target: .newDrawing(notePath: try VaultPath("Note.md"), insertionRange: NSRange(location: 0, length: 0)),
+            title: "New Drawing", initialStrokeData: Data(), canvasWidth: nil, background: .white, format: .png)
+
+        await workspace.vaultFolderDidMove(to: vault)
+
+        XCTAssertNil(workspace.errorMessage)
+        XCTAssertEqual(workspace.currentVaultIdentifier, vaultIdentifier)
+        XCTAssertNotNil(workspace.drawingEditorRequest)
+    }
+
+    /// BUG-ARCH-04: Text typed while the vault being left unloads its plugins, whose last save then fails,
+    /// is never let go with its session: the switch is refused and the text stays open.
+    func testFailedLastSaveOfAVaultSwitchKeepsTheVaultAndTheTypedText() async throws {
+        let firstVault = try makeVault(files: ["Note.md": "original"])
+        let secondVault = try makeVault()
+        let workspace = try await openedWorkspace(firstVault)
+        await workspace.open(try VaultPath("Note.md"))
+        let session = try XCTUnwrap(workspace.markdownSession)
+        let firstVaultIdentifier = try XCTUnwrap(workspace.currentVaultIdentifier)
+        // A font size changed just before: its save is the wait after the checked save.
+        workspace.pendingAppearanceSave = Task {}
+
+        let switching = Task { @MainActor in try await workspace.openFolderAsVault(secondVault) }
+        let deadline = ContinuousClock.now + .seconds(20)
+        while workspace.pendingAppearanceSave != nil, ContinuousClock.now < deadline { await Task.yield() }
+        XCTAssertNil(workspace.pendingAppearanceSave, "The switch reached the appearance save.")
+        // Typed during that wait; meanwhile another app changed the note.
+        session.text = "original plus words typed while the plugins unload"
+        session.hasExternalConflict = true
+
+        do {
+            try await switching.value
+            XCTFail("The last save failed, so the vault switch is refused.")
+        } catch {
+            XCTAssertEqual(error as? GraphiteError, .conflict)
+        }
+        XCTAssertEqual(workspace.currentVaultIdentifier, firstVaultIdentifier)
+        XCTAssertEqual(workspace.folderAccess?.root.lastPathComponent, firstVault.lastPathComponent)
+        XCTAssertTrue(workspace.markdownSession === session)
+        XCTAssertEqual(session.text, "original plus words typed while the plugins unload")
+        XCTAssertEqual(fileText("Note.md", in: firstVault), "original")
+    }
+
+    /// BUG-ARCH-V01: The listening queue names files of the vault it was filled in; the next vault starts
+    /// with none, so reading to the end there opens no note of the same path.
+    func testVaultSwitchEmptiesTheListeningQueueAndThePenMarks() async throws {
+        let firstVault = try makeVault(files: ["Reading.md": "Words read aloud.", "Week 3.md": "Queued in the first vault."])
+        let secondVault = try makeVault(files: ["Week 3.md": "Another note at the same path."])
+        let workspace = try await openedWorkspace(firstVault)
+        workspace.setCorePluginEnabled(.readAloud, true)
+        let reader = try XCTUnwrap(workspace.readAloud)
+        let navigator = try XCTUnwrap(workspace.readAloudNavigator)
+        // While something is read, a queued file waits for it to end.
+        reader.readMarkdown("Words read aloud.", path: try VaultPath("Reading.md"), startsPlaying: false)
+        XCTAssertTrue(reader.isActive)
+        navigator.addToQueue(try VaultPath("Week 3.md"))
+        _ = navigator.penTapped(ReadAloudNavigator.PenMark(sourceIdentifier: "Reading.md", pageIndex: 0,
+                                                            range: NSRange(location: 0, length: 5), bounds: .zero))
+        XCTAssertEqual(navigator.queue.map(\.path.rawValue), ["Week 3.md"])
+        XCTAssertNotNil(navigator.penStart)
+
+        try await workspace.openFolderAsVault(secondVault)
+
+        XCTAssertTrue(navigator.queue.isEmpty)
+        XCTAssertFalse(navigator.canGoToPreviousItem)
+        XCTAssertNil(navigator.penStart)
+        XCTAssertNil(navigator.penEnd)
+    }
+
+    /// BUG-ARCH-V02: Callout folds are kept per note path for the session; a note at the same path in the
+    /// next vault starts from its own markers.
+    func testVaultSwitchForgetsCalloutFolds() async throws {
+        let firstVault = try makeVault(files: ["Lecture.md": "> [!NOTE]- Title\n> body\n"])
+        let secondVault = try makeVault(files: ["Lecture.md": "> [!NOTE]- Title\n> another body\n"])
+        let workspace = try await openedWorkspace(firstVault)
+        let key = ReadAloudFolding.calloutKey(type: "note", title: "Title")
+        workspace.calloutFolds.setExpanded(true, notePath: "Lecture.md", key: key)
+
+        try await workspace.openFolderAsVault(secondVault)
+
+        XCTAssertEqual(workspace.calloutFolds.expansion(for: "Lecture.md"), [:])
+        XCTAssertFalse(workspace.calloutFolds.isExpanded(notePath: "Lecture.md", key: key, initially: false))
+    }
+
+    /// BUG-CANVAS-06: A graph query of the vault being left that ends after the switch neither fills the
+    /// cache nor reaches the next vault's graph.
+    func testAGraphQueryOfTheVaultBeingLeftIsNotShownInTheNextVault() async throws {
+        let firstVault = try makeVault(files: ["Old.md": "A note of the vault being left."])
+        let workspace = try await openedWorkspace(firstVault)
+        try await waitUntil { workspace.hasCompletedIndexScan }
+        let nextIndex = try VaultIndex(databaseURL: try makeVault().appendingPathComponent("index.sqlite"))
+
+        let staleQuery = Task { @MainActor in await workspace.vaultGraph() }
+        await Task.yield()
+        // What the switch's reset does while the old vault's query runs.
+        workspace.index = nextIndex
+        workspace.graphCache = nil
+        let staleGraph = await staleQuery.value
+        let currentGraph = await workspace.vaultGraph()
+
+        XCTAssertNil(staleGraph)
+        let currentNodes = try XCTUnwrap(currentGraph).nodes.map(\.id)
+        XCTAssertFalse(currentNodes.contains("Old.md"), "\(currentNodes)")
+    }
+
+    /// A map query of the vault being left that ends after the switch neither fills the cache
+    /// nor reaches the next vault's map.
+    func testAMapQueryOfTheVaultBeingLeftIsNotShownInTheNextVault() async throws {
+        let firstVault = try makeVault(files: ["Paris.md": "---\ncoordinates: [48.8566, 2.3522]\n---\n# Paris\n"])
+        let workspace = try await openedWorkspace(firstVault)
+        try await waitUntil { workspace.hasCompletedIndexScan }
+        let nextIndex = try VaultIndex(databaseURL: try makeVault().appendingPathComponent("index.sqlite"))
+
+        let staleQuery = Task { @MainActor in await workspace.placedNotes() }
+        await Task.yield()
+        // What the switch's reset does while the old vault's query runs.
+        workspace.index = nextIndex
+        workspace.placedNotesCache = nil
+        let staleNotes = await staleQuery.value
+        let currentNotes = await workspace.placedNotes()
+
+        XCTAssertNil(staleNotes)
+        XCTAssertEqual(try XCTUnwrap(currentNotes).map(\.path.rawValue), [])
+    }
+
     /// The folds, recent files, and tabs remembered for a vault go with it from the list.
     func testRemovingVaultFromListForgetsItsRememberedState() async throws {
         let removedVault = try makeVault(files: ["Private note.md": "secret"])
