@@ -175,6 +175,11 @@ extension WorkspaceModel {
     /// without an answer cancels the moves queued behind it too.
     func resolve(_ pendingMove: PendingMove, updatesLinks: Bool, alwaysUpdates: Bool = false) async {
         if self.pendingMove?.id == pendingMove.id { self.pendingMove = nil }
+        // Marked before the first suspension, so whoever waits for one of these moves never
+        // sees it neither asked about nor moving while the answer is carried out.
+        let answeredPaths = Set([pendingMove.path] + pendingMove.queuedMoves.requests.map { request in request.path })
+        pathsMovingAfterAnswer.formUnion(answeredPaths)
+        defer { pathsMovingAfterAnswer.subtract(answeredPaths) }
         if alwaysUpdates {
             var settings = vaultSettings
             settings.updatesLinksAutomatically = true
