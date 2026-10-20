@@ -9,7 +9,7 @@ final class PackedLittleEndianValuesTests: XCTestCase {
         let values = try XCTUnwrap(PackedLittleEndianValues(bytes: bytes[...], entryCount: 2, entryByteCount: 4))
         XCTAssertEqual(values.uint32(at: 0), 1)
         XCTAssertEqual(values.float(at: 1), 1)
-        XCTAssertEqual(values.entryCount, 2)
+        XCTAssertEqual(values.bytes.count, 8)
         XCTAssertNil(PackedLittleEndianValues(bytes: bytes[...], entryCount: 3, entryByteCount: 4))
         XCTAssertNil(PackedLittleEndianValues(bytes: bytes[...], entryCount: 1, entryByteCount: 4))
         XCTAssertNil(PackedLittleEndianValues(bytes: bytes[...], entryCount: -1, entryByteCount: 4))
@@ -21,6 +21,6 @@ final class PackedLittleEndianValuesTests: XCTestCase {
         let bytes: [UInt8] = [9, 9, 2, 0, 0, 0]
         let values = try XCTUnwrap(PackedLittleEndianValues(bytes: bytes[2...], entryCount: 1, entryByteCount: 4))
         XCTAssertEqual(values.uint32(at: 0), 2)
-        XCTAssertEqual(PackedLittleEndianValues.empty.entryCount, 0)
+        XCTAssertTrue(PackedLittleEndianValues.empty.bytes.isEmpty)
     }
 }

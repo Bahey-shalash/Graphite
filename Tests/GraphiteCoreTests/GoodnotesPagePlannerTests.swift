@@ -277,7 +277,7 @@ final class GoodnotesPagePlannerTests: XCTestCase {
         return plan
     }
 
-    private static func makePaper(attachment: GoodnotesAttachment? = GoodnotesAttachment(identifier: "attachment-1", fileIdentifier: "FILE-1", file: .fixture("attachments/FILE-1"),
+    private static func makePaper(attachment: GoodnotesAttachment? = GoodnotesAttachment(identifier: "attachment-1", file: .fixture("attachments/FILE-1"),
                                                                                       byteCount: nil, pdfPageCount: nil)) -> GoodnotesPaper {
         GoodnotesPaper(identifier: "paper-1", attachment: attachment, pdfPageNumber: 2, sizeInUnits: CGSize(width: 1100, height: 1650), template: nil)
     }

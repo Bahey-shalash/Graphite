@@ -14,6 +14,21 @@ struct NotabilityPagePlacement {
         return firstPage <= Double(pageNumber) && Double(pageNumber) <= lastPage
     }
 
+    /// The curves on the page, in drawing order. Only curves whose lowest y is within a page and the tallest curve's
+    /// extent above the page are looked at, and the scan stops at the first curve that starts below the page.
+    func curveIndices(onPage pageNumber: Int, of ink: NotabilityInk) -> [Int] {
+        guard let pageHeight = geometry.pageHeightInUnits else { return [] }
+        let page = Double(pageNumber)
+        // One page of slack covers the rounding of the floor division that assigns a position to a page.
+        let earliestLowestY = (page - 2) * pageHeight - ink.tallestVerticalExtent
+        var onPage: [Int] = []
+        for extent in ink.curveExtents(fromLowestY: earliestLowestY) {
+            guard let firstPage = geometry.pagePosition(ofVerticalPosition: extent.lowestY), firstPage <= page else { break }
+            if isOnPage(pageNumber, lowestY: extent.lowestY, highestY: extent.highestY) { onPage.append(extent.curveIndex) }
+        }
+        return onPage.sorted()
+    }
+
     /// The number of pages content reaches: the page of the bottom of the ink and of the pictures' turned frames, at
     /// least 1; nil when the page height is not known.
     func pageCount(inkBottomY: Double?, pictures: [NotabilityPicture]) -> Int? {
