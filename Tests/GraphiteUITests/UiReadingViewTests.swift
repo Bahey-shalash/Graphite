@@ -200,6 +200,17 @@ final class UiReadingViewTests: XCTestCase {
         XCTAssertFalse(shown.contains("\u{FFFD}"), shown)
     }
 
+    // MARK: Wikilink labels shared with Live Preview
+
+    /// BUG-READING-05: Live Preview labelled `[[Note#Heading]]` as written, reading view as "Note > Heading".
+    func testLivePreviewBlocksLabelWikilinksAsReadingViewDoes() async throws {
+        let source = "[[Lecture 3#Proof]], [[Note.md]], [[Note#^block]], [[#Local]] and [[Other|alias]]\n"
+        let readingLabels = try links(in: markdownTexts(try await build(source, note: "Host.md").blocks).joined()).map(\.text)
+        let livePreviewLabels = try links(in: LivePreviewText.prepared(source, colorsEnabled: false, paletteHexByName: [:])).map(\.text)
+        XCTAssertEqual(readingLabels, ["Lecture 3 > Proof", "Note", "Note > block", "Local", "alias"])
+        XCTAssertEqual(livePreviewLabels, readingLabels)
+    }
+
     // MARK: Embedded notes (F537, F542, F543)
 
     func testEmbeddedNoteTooLargeIsShownAsALink() async throws {

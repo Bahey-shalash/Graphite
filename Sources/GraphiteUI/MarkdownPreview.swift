@@ -578,7 +578,7 @@ actor ReadingViewBuilder {
                    await resolve(link.target, isWiki: link.isWiki, note: note, root: root, index: index) == nil {
                     destination = GraphiteOpenLink.markingUnresolved(destination)
                 }
-                replacement = "[\(Self.escapedLabel(Self.displayText(for: link)))](\(destination))"
+                replacement = "[\(Self.escapedLabel(Self.displayText(target: link.target, alias: link.label)))](\(destination))"
             } else {
                 continue
             }
@@ -642,11 +642,12 @@ actor ReadingViewBuilder {
         return (encodedPath + (fragment.map { fragment in "#" + fragment } ?? ""), false)
     }
 
-    /// How Obsidian displays a Wikilink: its alias, "Heading" for a link to a heading in
-    /// the same note, "Note > Heading" for another note's heading.
-    static func displayText(for link: NoteLink) -> String {
-        if let label = link.label, !label.isEmpty { return label }
-        let parts = link.target.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
+    /// How Obsidian displays a Wikilink with this target and alias: its alias, "Heading"
+    /// for a link to a heading in the same note, "Note > Heading" for another note's
+    /// heading. Reading view and Live Preview's rendered blocks both label links with it.
+    static func displayText(target: String, alias: String?) -> String {
+        if let alias, !alias.isEmpty { return alias }
+        let parts = target.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
         let noteName = parts[0].hasSuffix(".md") ? String(parts[0].dropLast(3)) : parts[0]
         guard parts.count == 2 else { return noteName }
         let subpath = parts[1].hasPrefix("^") ? String(parts[1].dropFirst()) : parts[1]

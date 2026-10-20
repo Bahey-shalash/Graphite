@@ -27,6 +27,24 @@ final class WorkspaceMentionsLimitTests: XCTestCase {
         return workspace
     }
 
+    /// BUG-READING-04: the mention left the list although no link was written.
+    func testLinkingAMentionReportsWhetherTheLinkWasWritten() async throws {
+        let workspace = try await makeWorkspace(noteCount: 2, noteText: "I wrote Target here without a link.")
+        let target = try VaultPath("Target.md")
+        let groups = await workspace.unlinkedMentions(of: target, names: ["Target"])
+        let changedGroup = try XCTUnwrap(groups.first { group in group.path.rawValue == "Mention 000.md" })
+        let unchangedGroup = try XCTUnwrap(groups.first { group in group.path.rawValue == "Mention 001.md" })
+        try Data("A different sentence altogether.".utf8).write(to: vault.appendingPathComponent("Mention 000.md"))
+
+        let linkedChangedNote = await workspace.linkMention(try XCTUnwrap(changedGroup.matches.first), in: changedGroup.path, to: target)
+        let linkedUnchangedNote = await workspace.linkMention(try XCTUnwrap(unchangedGroup.matches.first), in: unchangedGroup.path, to: target)
+
+        XCTAssertFalse(linkedChangedNote, "The note changed after it was listed, so no link was written.")
+        XCTAssertEqual(try String(contentsOf: vault.appendingPathComponent("Mention 000.md"), encoding: .utf8), "A different sentence altogether.")
+        XCTAssertTrue(linkedUnchangedNote)
+        XCTAssertTrue(try String(contentsOf: vault.appendingPathComponent("Mention 001.md"), encoding: .utf8).contains("[[Target]]"))
+    }
+
     func testTheLinkedMentionsListShowsAtMost200OfTheNotesThatLinkToTheNote() async throws {
         let workspace = try await makeWorkspace(noteCount: 201, noteText: "See [[Target]] for more.")
 
