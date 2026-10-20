@@ -21,6 +21,9 @@ final class VideoRecordingTests: XCTestCase {
         attachmentsFolder = workFolder.appendingPathComponent("Vault/attachments", isDirectory: true)
         try FileManager.default.createDirectory(at: recoveryFolder, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: attachmentsFolder, withIntermediateDirectories: true)
+        // After the folders, so the tear-down finds them. In the iOS Simulator the recordings' sound (written, joined and exported by AVFoundation) opens the Mac's audio output:
+        // measured, a test of this class does it a moment after it ends, whether or not it shows a preview.
+        try SimulatorAudio.requireNoAudioOutput(whichIs: "Writing and joining a recording's sound")
     }
 
     override func tearDown() async throws {

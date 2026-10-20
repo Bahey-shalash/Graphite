@@ -25,6 +25,7 @@ final class VideoRecordingWorkspaceTests: XCTestCase {
     }
 
     func testAVideoRecordsWhileThePersonMovesBetweenDocumentsAndPlaysBackAfterwards() async throws {
+        try SimulatorAudio.requireNoAudioOutput(whichIs: "Writing and joining a recording's sound")
         let (workspace, vault) = try await makeWorkspace(files: [
             "Course/Lecture 3.md": "# Lecture 3\n\nNotes taken during the lecture.\n",
             "Course/Exercises.md": "# Exercises\n",
@@ -111,6 +112,7 @@ final class VideoRecordingWorkspaceTests: XCTestCase {
     }
 
     func testAVideoInterruptedByLeavingTheScreenGoesOnAndIsSavedAsOneFile() async throws {
+        try SimulatorAudio.requireNoAudioOutput(whichIs: "Writing and joining a recording's sound")
         let (workspace, _) = try await makeWorkspace(files: ["Lecture.md": "# Lecture\n"])
         let source = SyntheticCaptureSource()
         workspace.recording.makeVideoCaptureSource = { source }
