@@ -246,6 +246,7 @@ final class NotebookImportPictureWriterTests: XCTestCase {
                                         files: twoHalvesFiles())
         XCTAssertEqual(PDFPageManager.pictures(on: page).count, 1)
         XCTAssertEqual(writing.pageReports.first?.entries, [.pictureFilesMissing(count: 2), .paperRulingNotDrawn])
+        XCTAssertEqual(writing.pageReports.first?.written?.pictureCount, 1, "only the placed picture counts as written")
         XCTAssertEqual(ImportedPagePictures.report([.paperRulingNotDrawn], adding: ImportedPagePictures.LeftOut(missingFileCount: 1)),
                        [.paperRulingNotDrawn, .pictureFilesMissing(count: 1)])
         XCTAssertEqual(ImportedPagePictures.report([.paperRulingNotDrawn], adding: ImportedPagePictures.LeftOut()), [.paperRulingNotDrawn])
@@ -259,6 +260,7 @@ final class NotebookImportPictureWriterTests: XCTestCase {
         let (page, writing) = try write(pagePlan, files: files)
         XCTAssertTrue(PDFPageManager.pictures(on: page).isEmpty)
         XCTAssertEqual(writing.pageReports.first?.entries, [.pictureFilesMissing(count: 1), .picturesNotDecodable(count: 2)])
+        XCTAssertEqual(writing.pageReports.first?.written?.pictureCount, 0)
     }
 
     func testAnUnusableFrameAngleOrCropIsTheTypedError() throws {

@@ -1,6 +1,6 @@
 # Import Phase 3: conversion to ordinary files (design)
 
-Status: reviewed 2026-10-20, with the owner's decisions below. Steps 1 to 7 are built and tested ("Built so far" below), except Goodnotes links, which sit on text boxes and wait for step 8 with them; nothing calls them from the app yet. Phase 3 of [the import checklist](Goodnotes-Notability-import-todo.md), on top of the Phase 2 readers (`GoodnotesNotebookReader`, `NotabilityNoteReader`).
+Status: reviewed 2026-10-20, with the owner's decisions below. Steps 1 to 7 and 9 are built and tested ("Built so far" below), except Goodnotes links, which sit on text boxes and wait for step 8 with them; nothing calls them from the app yet. Phase 3 of [the import checklist](Goodnotes-Notability-import-todo.md), on top of the Phase 2 readers (`GoodnotesNotebookReader`, `NotabilityNoteReader`).
 
 ## Shape
 
@@ -84,6 +84,14 @@ Pages are planned and written one at a time, so the source is never decoded whol
   - A recording is copied in pieces (`ZipArchive.copy(_:chunkByteCount:to:)`): a stored one straight from the mapped notebook, a deflated one (Goodnotes' recordings) through one 256 KiB buffer. Its size and CRC-32 are checked at the end, before the staged copy is moved into place.
   - A deflated PDF or picture is still inflated whole, since PDFKit and ImageIO need it whole.
 
+## Built so far (step 9, 2026-10-20)
+
+`NotebookImportReport` (GraphiteCore) is the import's report as plain values, for the import's caller to show; the words are the presenter's (Phase 4).
+- **Pages:** every source page in order, as an `ImportedPageReport`: what the written page holds (`ImportedPageContents`: its strokes, the pictures placed on it, its bookmark), or nil when the page was left out, and its entries. The writer returns the written pages' reports; the caller adds the pages the planner left out.
+- **The notebook as a whole:** its recordings' report, `pageGeometryUnknown` for a Notability note that cannot be cut into pages, and the issues the reader found outside the pages (`notebookEntries(of:recordings:)`).
+- **Summary:** one `ImportReportSummaryLine` per kind of entry (`ImportReportEntryKind`), in first-seen order, with the counts added up and the pages it occurs on. Each kind has a category: simplified, left out, or a reading issue. Reading issues of one case are one line whatever element they name: on the samples a single case (elements missing from a layer's member list) occurs 10,805 times, and each notebook's summary is at most 7 lines.
+- `isComplete` is true only when at least one page was written and nothing was simplified, left out or unreadable: 14 of the 50 samples.
+
 ## Order of work, and what each step needs
 
 | Step | What | Needs from Graphite | Exact or reported |
@@ -96,7 +104,7 @@ Pages are planned and written one at a time, so the source is never decoded whol
 | 6 | Links, bookmarks, outline: bookmarks become outline items (`PDFEdit.bookmark`). A link on a Goodnotes text box becomes a `/Link` annotation with step 8, as it sits on the text box. Outline entries are reported (their target is not resolved yet) | Nothing new | Exact for bookmarks; links wait for step 8 |
 | 7 | Audio: Notability `.m4a` and Goodnotes MP4 audio copied as `.m4a` where the vault's attachment policy says; no companion note (owner decision 4) | Synchronised replay for stroke timing (not planned) | The audio is exact (byte for byte on the samples). Stroke timing is not kept, and the report says so |
 | 8 | Text boxes, sticky notes, older RTF text boxes, Notability typed text | Text boxes on PDF pages | Blocked; listed in the report until then (owner decision 1, and "Text boxes" below) |
-| 9 | The import report value (per page: converted, simplified, skipped, with the reason), for Phase 4 to show | Nothing new | — |
+| 9 | The import report value (per page: converted, simplified, skipped, with the reason), for Phase 4 to show | Nothing new | Built (`NotebookImportReport`) |
 
 Steps 1, 2 and 9 come first and stand alone. Steps 3, 4 and 6 follow with their reported limits. Step 5 needed its paper addition first. Step 7 is independent. Step 8 waits for text boxes on PDF pages (owner decision 1).
 

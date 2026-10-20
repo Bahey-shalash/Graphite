@@ -164,6 +164,20 @@ final class NotabilityNoteReaderTests: XCTestCase {
         }
     }
 
+    /// SRP-IMPORT-01: one extent rule for a picture, its turned frame, serves the page count and the pages' contents.
+    func testAPictureTurnedPastTheLastPageAddsAPageThatHoldsIt() throws {
+        var builder = Self.completeNote()
+        let top = 2 * pageHeight - 100
+        builder.pictures.append(SyntheticNotabilityPicture(relativePath: "Images/Image 1.png", origin: "{10, \(top)}", size: "{400, 20}",
+                                                           rotationRadians: Double.pi / 2))
+        let turned = try reader(builder)
+        XCTAssertEqual(turned.pageCount, 3, "turned upright, the 400-unit picture reaches past the second page")
+        XCTAssertEqual(try turned.page(number: 3).pictures.count, 1)
+        XCTAssertEqual(try turned.page(number: 2).pictures.count, 1)
+        builder.pictures[builder.pictures.count - 1].rotationRadians = 0
+        XCTAssertEqual(try reader(builder).pageCount, 2, "lying flat, it ends on the second page")
+    }
+
     func testFileBytesAreReadFromTheNoteFolder() throws {
         let reader = try reader(Self.completeNote())
         XCTAssertEqual(Array(try reader.contents(ofFileAt: .fixture("Images/Image 1.png"))), [0x89, 0x50, 0x4E, 0x47])

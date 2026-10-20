@@ -6,23 +6,19 @@ import Foundation
 /// instead of reading memory past the note.
 struct PackedLittleEndianValues: Sendable {
     let bytes: ArraySlice<UInt8>
-    let entryCount: Int
-    let entryByteCount: Int
 
-    static let empty = PackedLittleEndianValues(checkedBytes: [], entryCount: 0, entryByteCount: 1)
+    static let empty = PackedLittleEndianValues(checkedBytes: [])
 
     /// Nil when the bytes are not exactly `entryCount` entries of `entryByteCount` bytes.
     init?(bytes: ArraySlice<UInt8>, entryCount: Int64, entryByteCount: Int) {
         guard entryCount >= 0, entryByteCount > 0, let count = Int(exactly: entryCount) else { return nil }
         let expectedByteCount = count.multipliedReportingOverflow(by: entryByteCount)
         guard !expectedByteCount.overflow, bytes.count == expectedByteCount.partialValue else { return nil }
-        self.init(checkedBytes: bytes, entryCount: count, entryByteCount: entryByteCount)
+        self.init(checkedBytes: bytes)
     }
 
-    private init(checkedBytes: ArraySlice<UInt8>, entryCount: Int, entryByteCount: Int) {
+    private init(checkedBytes: ArraySlice<UInt8>) {
         bytes = checkedBytes
-        self.entryCount = entryCount
-        self.entryByteCount = entryByteCount
     }
 
     func byte(at index: Int) -> UInt8 { bytes[bytes.startIndex + index] }
