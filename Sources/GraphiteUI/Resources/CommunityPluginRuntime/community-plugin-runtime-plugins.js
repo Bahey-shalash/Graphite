@@ -1373,7 +1373,7 @@
         /// Runs a command for Graphite's command palette or a keyboard shortcut.
         async 'command.run'(message) {
             const app = runtime.app;
-            if (message.activeDocument) app.workspace.setActiveDocument(message.activeDocument);
+            if (message.activeDocument) app.workspace.setActiveDocument(message.activeDocument, { givesEditorToNewCommand: true });
             const command = app.commands.findCommand(message.commandIdentifier);
             if (!command) return { outcome: 'missing' };
             try {

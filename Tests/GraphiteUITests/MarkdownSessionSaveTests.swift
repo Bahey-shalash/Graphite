@@ -1,15 +1,14 @@
 import XCTest
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 @MainActor
 final class MarkdownSessionSaveTests: XCTestCase {
     /// Autosave, navigation, ⌘S and leaving the app can each start a save while another
     /// is running. The later saves used to spin on the main actor forever, freezing the app.
     func testOverlappingSavesAllFinishAndWriteTheLatestText() async throws {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("Vault-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: vault) }
+        let vault = try TemporaryVault.make(prefix: "Vault", for: self).root
         let notePath = try VaultPath("Note.md")
         try Data("start".utf8).write(to: vault.appendingPathComponent("Note.md"))
         let store = VaultStore(root: vault)

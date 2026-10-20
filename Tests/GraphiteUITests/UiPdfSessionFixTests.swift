@@ -7,6 +7,7 @@ import GraphiteApple
 @testable import GraphiteUI
 #if canImport(AppKit)
 import AppKit
+import GraphiteTestSupport
 #endif
 
 /// Records whether an observation fired; the change handler may run on any thread.
@@ -19,10 +20,10 @@ private final class ObservationFlag: @unchecked Sendable {
 
 @MainActor
 final class UiPdfSessionFixTests: XCTestCase {
-    private let directory = FileManager.default.temporaryDirectory.appendingPathComponent("PDFSessionFix-\(UUID().uuidString)")
+    private var directory: URL!
 
     override func setUpWithError() throws {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        directory = try TemporaryVault.make(prefix: "PDFSessionFix", for: self).root
     }
 
     override func tearDownWithError() throws {
@@ -76,15 +77,6 @@ final class UiPdfSessionFixTests: XCTestCase {
         let savedDocument = try XCTUnwrap(PDFDocument(url: location))
         let page = try XCTUnwrap(savedDocument.page(at: pageIndex))
         return page.annotations.filter { annotation in PDFMarkupKind(annotationType: annotation.type) != nil }.count
-    }
-
-    private func waitUntil(timeout: Duration, _ condition: () -> Bool) async throws -> Bool {
-        let deadline = ContinuousClock.now + timeout
-        while !condition() {
-            if ContinuousClock.now > deadline { return false }
-            try await Task.sleep(for: .milliseconds(50))
-        }
-        return true
     }
 
     // MARK: Saving (baseline replay, merging, overlapping saves, conflicts, failures)
@@ -191,8 +183,7 @@ final class UiPdfSessionFixTests: XCTestCase {
             }
             writeFinished.fire()
         }
-        let didStartWriting = try await waitUntil(timeout: .seconds(5)) { writeStarted.didFire }
-        XCTAssertTrue(didStartWriting)
+        try await waitUntil("the first save starts writing", timeoutSeconds: 5) { writeStarted.didFire }
 
         let changed = try await session.hasChangedExternally()
 
@@ -227,16 +218,19 @@ final class UiPdfSessionFixTests: XCTestCase {
 
     func testFailedAutosaveIsRetriedWithoutAnotherEdit() async throws {
         let location = try makePDF(named: "Notes.pdf", pageCount: 1)
-        let session = try await PDFSession.open(location)
+        let clock = ManualClock()
+        let session = try await PDFSession.open(location, clock: clock)
         try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: directory.path)
         try session.apply(.addMarkup(page: 0, markup: highlight()))
 
-        let didFail = try await waitUntil(timeout: .seconds(10)) { session.hasFailedSave }
-        XCTAssertTrue(didFail, "The first autosave should have run and failed.")
+        try await clock.awaitPendingSleepers()
+        clock.advance(by: .seconds(2))
+        try await waitUntil("the first autosave runs and fails") { session.hasFailedSave }
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directory.path)
 
-        let didSave = try await waitUntil(timeout: .seconds(15)) { !session.hasUnsavedChanges }
-        XCTAssertTrue(didSave, "The retry should save the edit.")
+        try await clock.awaitPendingSleepers()
+        clock.advance(by: .seconds(4))
+        try await waitUntil("the retry saves the edit") { !session.hasUnsavedChanges }
         XCTAssertEqual(try markupCount(onPage: 0, ofFileAt: location), 1)
     }
 
@@ -271,8 +265,7 @@ final class UiPdfSessionFixTests: XCTestCase {
 
         // The monitor does report a write made without it.
         _ = try AtomicFileWriter().write(Data(contentsOf: location), to: location, expecting: .revision(FileRevision.read(location)))
-        let didReportOtherWrite = try await waitUntil(timeout: .seconds(5)) { reportedChanges.didFire }
-        XCTAssertTrue(didReportOtherWrite)
+        try await waitUntil("the other write is reported", timeoutSeconds: 5) { reportedChanges.didFire }
     }
 
     // MARK: Protected and signed PDFs

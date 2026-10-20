@@ -4,12 +4,12 @@ import SwiftUI
 import XCTest
 import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// The Mac's Live Preview draws a note's properties over their concealed YAML, as Obsidian
 /// shows them above the note, and keeps the cursor out of the YAML it does not draw.
 @MainActor
 final class UiEditorMacPropertiesTests: XCTestCase {
-    private var vaultDirectories: [URL] = []
     private var windows: [NSWindow] = []
 
     override func tearDown() async throws {
@@ -18,8 +18,6 @@ final class UiEditorMacPropertiesTests: XCTestCase {
             window.contentView = nil
         }
         windows = []
-        for vaultDirectory in vaultDirectories { try? FileManager.default.removeItem(at: vaultDirectory) }
-        vaultDirectories = []
         try await super.tearDown()
     }
 
@@ -29,9 +27,7 @@ final class UiEditorMacPropertiesTests: XCTestCase {
     /// A text view in a window, connected to a coordinator the way `makeNSView` connects it.
     private func makeEditor(text: String = noteText, mode: EditingMode = .livePreview,
                             showsProperties: Bool = true) async throws -> (NativeMarkdownEditor.Coordinator, MarkdownMacTextView) {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("Vault-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
-        vaultDirectories.append(vault)
+        let vault = try TemporaryVault.make(prefix: "Vault", for: self).root
         try Data(text.utf8).write(to: vault.appendingPathComponent("Note.md"))
         let store = VaultStore(root: vault)
         let notePath = try VaultPath("Note.md")
@@ -76,14 +72,6 @@ final class UiEditorMacPropertiesTests: XCTestCase {
 
     private func isConcealed(_ location: Int, in textView: NSTextView) -> Bool {
         (paragraphStyle(at: location, in: textView)?.maximumLineHeight ?? 0) == 0.01
-    }
-
-    private func waitUntil(timeoutSeconds: TimeInterval = 5, _ condition: () -> Bool) async throws {
-        let deadline = Date.now.addingTimeInterval(timeoutSeconds)
-        while !condition() {
-            guard Date.now < deadline else { return XCTFail("Timed out after \(timeoutSeconds) s") }
-            try await Task.sleep(for: .milliseconds(20))
-        }
     }
 
     private func moveCursor(to selection: NSRange, in textView: NSTextView, _ coordinator: NativeMarkdownEditor.Coordinator) {

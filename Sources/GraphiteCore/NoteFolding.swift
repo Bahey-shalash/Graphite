@@ -46,7 +46,25 @@ public enum NoteFolding {
         }
         // Each line's heading level, found once: every section below reads the levels of the
         // lines after its heading. This runs on every keystroke, so long notes depend on it.
-        let headingLevels = lines.map { line in line.isCode ? nil : headingLevel(ofLine: line.content) }
+        var headingLevels: [Int?] = []
+        // Whether a heading's next line is its setext underline, which belongs to the heading.
+        var hasSetextUnderline: [Bool] = []
+        headingLevels.reserveCapacity(lines.count)
+        hasSetextUnderline.reserveCapacity(lines.count)
+        for (index, line) in lines.enumerated() {
+            if line.isCode {
+                headingLevels.append(nil)
+                hasSetextUnderline.append(false)
+            } else if let level = headingLevel(ofLine: line.content) {
+                headingLevels.append(level)
+                hasSetextUnderline.append(false)
+            } else {
+                let nextLine = index + 1 < lines.count && !lines[index + 1].isCode ? lines[index + 1].content : nil
+                let setextLevel = setextHeadingLevel(ofLine: line.content, nextLine: nextLine)
+                headingLevels.append(setextLevel)
+                hasSetextUnderline.append(setextLevel != nil)
+            }
+        }
         for (index, line) in lines.enumerated() where !line.isCode {
             if let level = headingLevels[index] {
                 // The section runs to the next heading of the same or a higher level.
@@ -60,7 +78,9 @@ public enum NoteFolding {
                 // Blank lines just before the next heading stay visible, as in Obsidian.
                 while lastIndex > index, lines[lastIndex].content.trimmingCharacters(in: .whitespaces).isEmpty { lastIndex -= 1 }
                 let headingKey = key("h\(level)|" + line.content.trimmingCharacters(in: .whitespaces))
-                if let region = region(kind: .heading(level: level), header: line, last: lines[lastIndex], hasBody: lastIndex > index, key: headingKey) {
+                // A setext heading's underline is part of the heading, not of what folds under it.
+                let firstBodyIndex = hasSetextUnderline[index] ? index + 2 : index + 1
+                if let region = region(kind: .heading(level: level), header: line, last: lines[lastIndex], hasBody: lastIndex >= firstBodyIndex, key: headingKey) {
                     regions.append(region)
                 }
             } else if isListItem(line.content) {
@@ -84,6 +104,28 @@ public enum NoteFolding {
             }
         }
         return regions
+    }
+
+    /// The level of the setext heading whose text is `content`, when `nextLine` underlines it:
+    /// `MarkdownStyleScanner.setextHeadingLevel(ofLine:nextLine:)`, without its paragraph test
+    /// for the many lines whose next line is no underline.
+    private static func setextHeadingLevel(ofLine content: String, nextLine: String?) -> Int? {
+        guard let nextLine, let firstCharacter = nextLine.utf8.first(where: { character in character != UInt8(ascii: " ") }),
+              firstCharacter == UInt8(ascii: "=") || firstCharacter == UInt8(ascii: "-") else { return nil }
+        return MarkdownStyleScanner.setextHeadingLevel(ofLine: content, nextLine: nextLine)
+    }
+
+    /// The fold key of every heading that folds, by the UTF-16 offset at which its line starts
+    /// in `text`. The reading view looks its headings up here by where they are in the note,
+    /// so a heading folded in one view is the same heading in the others, whatever the
+    /// reading view makes of its text (a link, a highlight, closing hashes).
+    public static func headingKeysByLineStart(in text: String) -> [Int: String] {
+        var keysByLineStart: [Int: String] = [:]
+        for region in regions(in: text) {
+            guard case .heading = region.kind else { continue }
+            keysByLineStart[region.headerRange.location] = region.key
+        }
+        return keysByLineStart
     }
 
     /// `MarkdownEditing.headingLevel(of:)`, without its pattern for the many lines whose first
@@ -165,6 +207,17 @@ public enum NoteFolding {
         }
         let lineBefore = lineText(before, containing: replacedRange), lineAfter = lineText(after, containing: insertedRange)
         guard isPlainText(lineBefore), isPlainText(lineAfter), indentWidth(of: lineBefore) == indentWidth(of: lineAfter) else { return nil }
+        // A line that underlines the one above it (`===`), or is underlined by the one below,
+        // is part of a setext heading, so editing it can change a region or its key.
+        func nextLineText(_ text: NSString, after range: NSRange) -> String? {
+            var lineEnd = 0
+            text.getLineStart(nil, end: &lineEnd, contentsEnd: nil, for: range)
+            guard lineEnd < text.length else { return nil }
+            return lineText(text, containing: NSRange(location: lineEnd, length: 0))
+        }
+        guard MarkdownStyleScanner.setextUnderlineLevel(lineBefore) == nil, MarkdownStyleScanner.setextUnderlineLevel(lineAfter) == nil,
+              nextLineText(before, after: replacedRange).flatMap(MarkdownStyleScanner.setextUnderlineLevel) == nil,
+              nextLineText(after, after: insertedRange).flatMap(MarkdownStyleScanner.setextUnderlineLevel) == nil else { return nil }
         let change = replacementLength - replacedRange.length
         let editStart = replacedRange.location, editEnd = NSMaxRange(replacedRange)
         // A line's start at the edit stays; a line's text end at the edit moves with the typing.

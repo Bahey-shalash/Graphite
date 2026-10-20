@@ -12,14 +12,20 @@ struct SettingsView: View {
     @State private var vaultSettingsChanges = VaultSettingsChanges()
 
     enum SettingsPage: Hashable {
-        case general, editor, filesAndLinks, appearance, readAloud, corePlugins, communityPlugins
+        case general, editor, filesAndLinks, appearance, corePlugins, communityPlugins
         case plugin(CorePlugin)
         /// A community plugin's own settings tab, by plugin identifier.
         case communityPlugin(String)
     }
 
     /// Plugins that have options of their own, like Obsidian's plugin tabs.
-    private static let configurablePlugins: [CorePlugin] = [.colors, .drawings, .audioRecorder, .templates, .dailyNotes, .fileRecovery]
+    private static let configurablePlugins: [CorePlugin] = [.colors, .drawings, .audioRecorder, .readAloud, .templates, .dailyNotes, .fileRecovery]
+
+    /// The plugin pages the sidebar's Core Plugins section lists: those of the plugins that
+    /// are on, as in Obsidian.
+    static func pluginPages(isEnabled: (CorePlugin) -> Bool) -> [CorePlugin] {
+        configurablePlugins.filter(isEnabled)
+    }
 
     var body: some View {
         NavigationSplitView {
@@ -29,13 +35,10 @@ struct SettingsView: View {
                     Label("Editor", systemImage: "pencil.line").tag(SettingsPage.editor)
                     Label("Files and Links", systemImage: "folder").tag(SettingsPage.filesAndLinks)
                     Label("Appearance", systemImage: "paintbrush").tag(SettingsPage.appearance)
-                    if workspace.preferences.isEnabled(.readAloud) {
-                        Label("Read Aloud", systemImage: "speaker.wave.2").tag(SettingsPage.readAloud)
-                    }
                     Label("Core Plugins", systemImage: "puzzlepiece.extension").tag(SettingsPage.corePlugins)
                     Label("Community Plugins", systemImage: "puzzlepiece").tag(SettingsPage.communityPlugins)
                 }
-                let enabledConfigurablePlugins = Self.configurablePlugins.filter(workspace.preferences.isEnabled)
+                let enabledConfigurablePlugins = Self.pluginPages(isEnabled: workspace.preferences.isEnabled)
                 if !enabledConfigurablePlugins.isEmpty {
                     Section("Core Plugins") {
                         ForEach(enabledConfigurablePlugins) { plugin in
@@ -103,13 +106,19 @@ struct SettingsView: View {
         case .editor: EditorSettingsPage(workspace: workspace, preferences: workspace.preferences, vaultSettingsChanges: vaultSettingsChanges)
         case .filesAndLinks: FilesAndLinksSettingsPage(workspace: workspace, vaultSettingsChanges: vaultSettingsChanges)
         case .appearance: AppearanceSettingsPage(workspace: workspace, preferences: workspace.preferences)
-        case .readAloud: ReadAloudSettingsPage(reader: workspace.readAloud, vaultRoot: workspace.folderAccess?.root)
         case .corePlugins: CorePluginsSettingsPage(workspace: workspace, preferences: workspace.preferences)
         case .communityPlugins: CommunityPluginsSettingsPage(workspace: workspace) { pluginIdentifier in selectedPage = .communityPlugin(pluginIdentifier) }
         case .communityPlugin(let pluginIdentifier): CommunityPluginOptionsPage(host: workspace.communityPlugins, pluginIdentifier: pluginIdentifier)
         case .plugin(.colors): ColorsSettingsPage(preferences: workspace.preferences)
         case .plugin(.drawings): DrawingsSettingsPage(preferences: workspace.preferences)
         case .plugin(.audioRecorder): AudioRecorderSettingsPage(preferences: workspace.preferences)
+        // Turned off while its page is open, Read Aloud's page gives way to Core Plugins.
+        case .plugin(.readAloud):
+            if let reader = workspace.readAloud {
+                ReadAloudSettingsPage(reader: reader, vaultRoot: workspace.folderAccess?.root)
+            } else {
+                CorePluginsSettingsPage(workspace: workspace, preferences: workspace.preferences)
+            }
         case .plugin(.templates): TemplatesSettingsPage(workspace: workspace)
         case .plugin(.dailyNotes): DailyNotesSettingsPage(workspace: workspace)
         case .plugin(.fileRecovery): FileRecoverySettingsPage(workspace: workspace, preferences: workspace.preferences) { dismiss() }
@@ -155,7 +164,8 @@ private struct GeneralSettingsPage: View {
             }
             Section("About") {
                 LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development build")
-                if let library = ReadAloudVoices.library {
+                // Only while Read Aloud is on: reading the voice library builds it.
+                if workspace.preferences.isEnabled(.readAloud), let library = ReadAloudVoices.library {
                     NavigationLink("Voice Credits") {
                         Form { Section { NeuralVoiceCredits(voices: library.manifest.voices) } footer: {
                             Text("Read Aloud’s downloadable voices, by their makers, under these licenses.")
@@ -250,9 +260,7 @@ private struct AppearanceSettingsPage: View {
 
     var body: some View {
         Form {
-            #if os(iOS)
-            AppIconSettingsSection()
-            #endif
+            AppIconAndFilesSections(library: preferences.library)
             Section("Theme") {
                 Picker("Base Color Scheme", selection: $preferences.appearanceMode) {
                     ForEach(AppearanceMode.allCases) { mode in Text(mode.title).tag(mode) }
@@ -357,12 +365,11 @@ private struct CorePluginsSettingsPage: View {
         plugin == .readAloud ? $offersVoiceDeletion : .constant(false)
     }
 
-    /// Turning Read Aloud off stops any reading and offers to free the space its voices take.
+    /// Turning Read Aloud off stops any reading (`WorkspaceModel.setCorePluginEnabled`) and
+    /// offers to free the space its voices take; nothing is deleted without that answer.
     private func setEnabled(_ plugin: CorePlugin, _ isEnabled: Bool) {
-        preferences.setEnabled(plugin, isEnabled)
+        workspace.setCorePluginEnabled(plugin, isEnabled)
         guard plugin == .readAloud, !isEnabled else { return }
-        workspace.readAloud.clear()
-        workspace.readAloud.showsReader = false
         guard let library = ReadAloudVoices.library else { return }
         Task {
             await library.refreshCacheSize()

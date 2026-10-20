@@ -56,7 +56,8 @@ public final class RecordingController: NSObject, AVAudioRecorderDelegate {
     @ObservationIgnored var makeVideoCaptureSource: @MainActor () -> any VideoCaptureSource = { CameraCaptureSource() }
     @ObservationIgnored var videoStorage = RecordingStorage.system
     /// Where recordings are written until they are saved into the vault.
-    @ObservationIgnored var recoveryFolderLocation: @MainActor () throws -> URL = { try RecordingRecoveryFolder.location() }
+    /// Public so the app's composition can point it at a temporary folder for hosted tests.
+    @ObservationIgnored public var recoveryFolderLocation: @MainActor () throws -> URL = { try RecordingRecoveryFolder.location() }
     @ObservationIgnored private var previewRenderer: AVSampleBufferVideoRenderer?
     /// Whether a video was being recorded, not paused, when it was interrupted; it then
     /// goes on by itself once the camera is back.

@@ -902,6 +902,18 @@ public enum WikiLinkResolver {
         return Array(NSOrderedSet(array: paths).array.compactMap { candidate in candidate as? VaultPath })
     }
 
+    /// The first of `directCandidates` that is a file in the vault at `root`. A folder is not
+    /// a link target: `[[Projects]]` beside a Projects folder names the note Projects.md, as
+    /// in Obsidian, so a folder never stands in for a file that is missing.
+    public static func existingDirectFile(target: String, source: VaultPath, isWiki: Bool = true, in root: URL) -> VaultPath? {
+        for candidate in directCandidates(target: target, source: source, isWiki: isWiki) {
+            guard let location = try? candidate.url(in: root) else { continue } // A candidate outside the vault names no file.
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: location.path, isDirectory: &isDirectory), !isDirectory.boolValue { return candidate }
+        }
+        return nil
+    }
+
     /// Whether a link's path starts with `./` or `../`, which only the note's own folder
     /// can resolve.
     public static func isExplicitlyRelative(_ linkPath: String) -> Bool {

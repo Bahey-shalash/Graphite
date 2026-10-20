@@ -1,5 +1,7 @@
 import Foundation
 import AVFoundation
+import GraphiteApple
+import GraphiteCore
 
 /// Plays rendered passages through `AVAudioEngine`. Speed goes through a time-pitch unit, so a
 /// faster reading keeps the voice's pitch, and pausing holds the exact place within a passage.
@@ -15,13 +17,31 @@ final class RenderedPassagePlayer {
     /// Changes with every play or stop; a completion from an earlier segment is ignored.
     private var playbackToken = UUID()
     private(set) var isPaused = false
+    /// Whether nothing the engine plays is heard (`AudioOutputRoute.silent`).
+    var isSilent: Bool { engine.mainMixerNode.outputVolume == 0 }
 
-    init() {
+    /// Called when the engine stopped itself because its output changed (headphones unplugged,
+    /// a Bluetooth device disconnected, a new sample rate), which ends the playing passage's sound.
+    var engineConfigurationDidChange: (@MainActor () -> Void)?
+
+    /// `.silent` plays at zero volume: the engine, the timing and the completions are the real ones.
+    init(output: AudioOutputRoute = .thisProcess) {
+        if output == .silent { engine.mainMixerNode.outputVolume = 0 }
         engine.attach(player)
         engine.attach(timePitch)
+        // The player lives as long as the speech does; the observer holds it weakly.
+        NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.engineConfigurationDidChange?() }
+        }
     }
 
-    /// Plays `file` from `startSeconds` at `rate` (0.5 to 1.5); `finished` runs on the main
+    /// The time-pitch rate that plays at `speed`, held to the speeds the controls offer so the
+    /// audio plays at the speed the controls show. The unit accepts rates from 1/32 to 32.
+    static func timePitchRate(forSpeed speed: Double) -> Float {
+        Float(min(ReadAloudSession.speedRange.upperBound, max(ReadAloudSession.speedRange.lowerBound, speed)))
+    }
+
+    /// Plays `file` from `startSeconds` at `rate`, a speed from `ReadAloudSession.speedRange`; `finished` runs on the main
     /// actor when the last sample has been heard, unless playback was stopped or replaced.
     func play(_ file: URL, from startSeconds: Double, rate: Double, finished: @escaping @MainActor () -> Void) throws {
         stop()
@@ -36,7 +56,7 @@ final class RenderedPassagePlayer {
             try connect(timePitch, to: engine.mainMixerNode, format: format)
             connectedFormat = format
         }
-        timePitch.rate = Float(min(1.5, max(0.5, rate)))
+        timePitch.rate = Self.timePitchRate(forSpeed: rate)
         sampleRate = format.sampleRate
         let startFrame = AVAudioFramePosition(max(0, startSeconds) * format.sampleRate)
         let remainingFrames = audioFile.length - startFrame
@@ -63,7 +83,7 @@ final class RenderedPassagePlayer {
     }
 
     func setRate(_ rate: Double) {
-        timePitch.rate = Float(min(1.5, max(0.5, rate)))
+        timePitch.rate = Self.timePitchRate(forSpeed: rate)
     }
 
     func pause() {
@@ -89,22 +109,13 @@ final class RenderedPassagePlayer {
         engine.stop()
     }
 
-    // From macOS 27 and iOS 27 connecting and starting report failures as errors; before,
-    // they could only raise an exception.
+    // Connecting and starting report failures as errors.
 
     private func connect(_ node: AVAudioNode, to destination: AVAudioNode, format: AVAudioFormat) throws {
-        if #available(iOS 27, *) {
-            try engine.connectNode(node, to: destination, format: format)
-        } else {
-            engine.connect(node, to: destination, format: format)
-        }
+        try engine.connectNode(node, to: destination, format: format)
     }
 
     private func startPlayer() throws {
-        if #available(iOS 27, *) {
-            try player.playAudio()
-        } else {
-            player.play()
-        }
+        try player.playAudio()
     }
 }

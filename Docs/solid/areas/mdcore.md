@@ -615,3 +615,31 @@ Commits touching each file (reconnaissance, of 242 up to b13dec3): `NotePreviewD
 | Defects | 1 (BUG-01) | 3 (BUG-02, -04, -05) | 2 (BUG-03, -06) | 6 |
 
 Invariants: 26 (MDCORE-INV-01 to MDCORE-INV-26).
+
+## 9. Since the snapshot
+
+Delta audit of 2026-10-19 at `fff794b` (main), against `FR-01` to `FR-108`. Commits `7ad8900`, `93d82a6`, `5199d75` and `1798e2c` changed the heading-key, setext, link-resolution, quoted-fence and nesting-guard rules (Phase 0 fixes of `BUG-MDCORE-*` and `BUG-READING-*`).
+
+### New findings
+
+#### DIP-MDCORE-05 `WikiLinkResolver.existingDirectFile` puts a `FileManager` call in GraphiteCore
+- **Severity:** Medium
+- **Rule:** `FR-51`, `FR-54`, `FR-49`
+- **Evidence:** [MarkdownSemantics.swift:905-915](../../../Sources/GraphiteCore/MarkdownSemantics.swift#L905-L915) calls `FileManager.default.fileExists(atPath:isDirectory:)` from a public Core function used by the reading builder ([MarkdownPreview.swift:517](../../../Sources/GraphiteUI/MarkdownPreview.swift#L517)) and the workspace. Introduced in `93d82a6`.
+- **Why it matters:** the link-resolution policy that both resolvers now share probes the global file system; it cannot be tested without a real folder (`WikiLinkResolverExistingFileTests` builds one) and bypasses the vault's file capability.
+- **Fix direction:** the Core function takes a `fileKind(at: VaultPath) -> FileKind?` lookup (as `LSP-READING-03` proposes); UI and workspace pass an adapter over the vault's file access.
+
+#### CC-MDCORE-10 The setext rule's comment claims one owner, but the editor styler composes the rule itself, and NotePreviewDocument adds a forwarder
+- **Severity:** Low
+- **Rule:** `FR-80`, `FR-10`, `RULES.md` (no forwarding layers)
+- **Evidence:** the doc comment says styling, outline, links, embeds, reading view and folding "all read it here" ([MarkdownStyleScanner.swift:378-384](../../../Sources/GraphiteCore/MarkdownStyleScanner.swift#L378-L384)), but the styler combines `setextUnderlineLevel` and `isParagraphText` itself ([:169-177](../../../Sources/GraphiteCore/MarkdownStyleScanner.swift#L169-L177)), and `NotePreviewDocument.setextHeadingLevel` is a private one-line forwarder ([NotePreviewDocument.swift:317-320](../../../Sources/GraphiteCore/NotePreviewDocument.swift#L317-L320)). Introduced in `7ad8900`.
+- **Why it matters:** a change made in `setextHeadingLevel` does not reach editor styling, whatever the comment says.
+- **Fix direction:** the styler calls it (its underline pre-check stays as the documented fast path); delete the forwarder; the comment lists the real callers.
+
+### State changes of earlier findings
+- `LSP-MDCORE-01`: Open → **Partly fixed** (the setext row): folding, the outline, heading links and reading blocks use `MarkdownStyleScanner.setextHeadingLevel` ([NoteFolding.swift:63](../../../Sources/GraphiteCore/NoteFolding.swift#L63), [NotePreviewDocument.swift:161](../../../Sources/GraphiteCore/NotePreviewDocument.swift#L161)). The fence row is unchanged.
+- `SRP-MDCORE-05`: **Worse**. `isInCodeOrFrontmatter` dropped `CodeFenceTracker` for a hand-written quoted-fence state machine ([MarkdownEditing.swift:205-249](../../../Sources/GraphiteCore/MarkdownEditing.swift#L205-L249), `5199d75`) that repeats `MarkdownStyleScanner.nextState` ([MarkdownStyleScanner.swift:307-330](../../../Sources/GraphiteCore/MarkdownStyleScanner.swift#L307-L330)); it agrees with the styler on quoted fences, but by copying the rule, and is now about 44 code lines.
+- `CC-MDCORE-09`: **Worse**: one more per-call-site `MarkdownNesting.exceedsSafeDepth` guard before `Document(parsing:)` ([NotePreviewDocument.swift:820-822](../../../Sources/GraphiteCore/NotePreviewDocument.swift#L820-L822), `1798e2c`) instead of one bounded parser entry (`FR-68`).
+
+### Patterns to keep
+- The incremental fold path refuses edits that touch a setext underline instead of growing a second copy of the region logic ([NoteFolding.swift:210-220](../../../Sources/GraphiteCore/NoteFolding.swift#L210-L220)).

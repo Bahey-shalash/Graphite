@@ -1,5 +1,6 @@
 import XCTest
 @testable import GraphiteCore
+import GraphiteTestSupport
 
 /// Regression tests for colors that ran past their block or were hidden by code and math.
 final class CoreHtmlColorsTextColorMarkupTests: XCTestCase {
@@ -79,10 +80,10 @@ final class CoreHtmlColorsTextColorMarkupTests: XCTestCase {
 
     func testDenseColorsParseQuickly() {
         let line = "Line with `code $x$` and $y+1$ with ~={#ff0000}red=~ and ~={#00ff00}green=~ text.\n"
-        let text = String(repeating: line, count: 8_000) as NSString
-        let start = Date()
-        XCTAssertEqual(TextColorMarkup.sections(in: text).count, 16_000)
+        XCTAssertEqual(TextColorMarkup.sections(in: String(repeating: line, count: 8_000) as NSString).count, 16_000)
         // Every marker scanned every code span and formula in the note: this took about five seconds.
-        XCTAssertLessThan(Date().timeIntervalSince(start), 3.0)
+        ScalingChecks.assertScalesLinearly(smallSize: 2_000, largeSize: 8_000, "dense colors") { lineCount in
+            _ = TextColorMarkup.sections(in: String(repeating: line, count: lineCount) as NSString)
+        }
     }
 }

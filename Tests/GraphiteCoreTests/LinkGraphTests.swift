@@ -1,5 +1,6 @@
 import XCTest
 @testable import GraphiteCore
+import GraphiteTestSupport
 
 final class LinkGraphTests: XCTestCase {
     private func path(_ text: String) -> VaultPath {
@@ -152,12 +153,13 @@ final class LinkGraphTests: XCTestCase {
     }
 
     func testALargeGraphSettlesQuickly() {
-        let names = (0..<1_500).map { number in "N\(number)" }
-        let edges = (1..<1_500).map { number in GraphEdge(source: names[number], target: names[(number * 7) % number]) }
-        var layout = GraphLayout(graph: LinkGraph(nodes: names.map { name in GraphNode(id: name, kind: .note) }, edges: edges))
-        let start = Date.now
-        for _ in 0..<60 { layout.step() }
-        XCTAssertLessThan(Date.now.timeIntervalSince(start), 10, "60 steps of 1,500 nodes, even in a debug build.")
+        // 60 steps of a graph settle in about n log n with the tree of distant nodes, and in n squared without it.
+        ScalingChecks.assertScalesLinearly(smallSize: 375, largeSize: 1_500, maximumRatio: 10, "graph layout, 60 steps") { nodeCount in
+            let names = (0..<nodeCount).map { number in "N\(number)" }
+            let edges = (1..<nodeCount).map { number in GraphEdge(source: names[number], target: names[(number * 7) % number]) }
+            var layout = GraphLayout(graph: LinkGraph(nodes: names.map { name in GraphNode(id: name, kind: .note) }, edges: edges))
+            for _ in 0..<60 { layout.step() }
+        }
     }
 }
 

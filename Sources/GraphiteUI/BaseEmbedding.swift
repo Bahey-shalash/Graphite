@@ -109,3 +109,40 @@ public struct BaseFileEmbedView: View {
         }
     }
 }
+
+/// The height of a base inside a note that does not grow with its rows: the embed's
+/// default height, or for a map the plugin's `mapHeight` plus the toolbar above it.
+struct BaseEmbeddedHeight: ViewModifier {
+    /// The toolbar above an embedded map.
+    static let mapToolbarHeight: CGFloat = 48
+    /// Narrower notes (a phone) get a map no taller than it is wide.
+    static let compactWidthThreshold: CGFloat = 600
+    /// The lowest a narrow note makes a map, which keeps a few streets in sight.
+    static let minimumCompactMapHeight: CGFloat = 200
+
+    /// Nil when the base grows with its rows instead.
+    let defaultHeight: CGFloat?
+    /// The map's `mapHeight`, when the view is a map.
+    let configuredMapHeight: CGFloat?
+    /// The note's width, nil until the base is first laid out.
+    @State private var availableWidth: CGFloat?
+
+    func body(content: Content) -> some View {
+        content
+            .frame(height: height)
+            .onGeometryChange(for: CGFloat.self) { geometry in geometry.size.width } action: { width in availableWidth = width }
+    }
+
+    private var height: CGFloat? {
+        guard let defaultHeight else { return nil }
+        guard let configuredMapHeight else { return defaultHeight }
+        return Self.mapHeight(configuredHeight: configuredMapHeight, availableWidth: availableWidth) + Self.mapToolbarHeight
+    }
+
+    /// A `mapHeight` chosen on a wide screen would fill a phone's, leaving no room beside
+    /// the map for the finger that scrolls the note, so a narrow note caps it at its width.
+    static func mapHeight(configuredHeight: CGFloat, availableWidth: CGFloat?) -> CGFloat {
+        guard let availableWidth, availableWidth.isFinite, availableWidth > 0, availableWidth < compactWidthThreshold else { return configuredHeight }
+        return min(configuredHeight, max(minimumCompactMapHeight, availableWidth.rounded(.down)))
+    }
+}

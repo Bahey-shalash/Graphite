@@ -38,7 +38,7 @@ final class InkWidthAtZoomTests: XCTestCase {
         canvas.takeTool(from: toolPicker, fixedTool: selection(.pen, width: 2.8))
         pdfView.autoScales = false
         pdfView.scaleFactor = 3.2
-        try await waitUntil { canvas.zoomScale == PDFPageOverlayView.maximumRenderingScale }
+        try await waitUntil("the page canvas draws at its largest scale") { canvas.zoomScale == PDFPageOverlayView.maximumRenderingScale }
 
         canvas.takeTool(from: toolPicker, fixedTool: selection(.pencil, width: 7))
         XCTAssertEqual(canvas.zoomScale, 2, "16 points is the widest pencil: the page is drawn at twice its size")
@@ -55,23 +55,15 @@ final class InkWidthAtZoomTests: XCTestCase {
     /// The palette's tool reaches a zoomed page's canvas as the bar's does, in the turn the
     /// palette's choice changes, and nothing puts the palette's unscaled tool there later.
     func testThePalettesToolIsTheBarsToolOnAZoomedPageInTheSameTurn() async throws {
-        let defaults = UserDefaults.standard
-        let preferenceKeys = [PencilToolbarStyle.preferenceKey, PDFAnnotationPreferenceKey.showsToolPicker]
-        let preferencesBefore = preferenceKeys.map { key in defaults.object(forKey: key) }
-        defer {
-            for (key, preference) in zip(preferenceKeys, preferencesBefore) {
-                if let preference { defaults.set(preference, forKey: key) } else { defaults.removeObject(forKey: key) }
-            }
-        }
-        defaults.set(PencilToolbarStyle.floating.rawValue, forKey: PencilToolbarStyle.preferenceKey)
-        defaults.set(true, forKey: PDFAnnotationPreferenceKey.showsToolPicker)
         let (canvas, pdfView, window) = try await hostedPageCanvas(named: "PaletteAtZoom")
         defer { window.isHidden = true; window.rootViewController = nil }
-        try await waitUntil { canvas.followsToolPicker }
         pdfView.autoScales = false
         pdfView.scaleFactor = 2.2
-        try await waitUntil { canvas.zoomScale == 2.5 }
+        try await waitUntil("the page canvas draws at 2.5 times the page") { canvas.zoomScale == 2.5 }
         let toolPicker = try XCTUnwrap(pdfView.annotationCoordinator?.toolPicker)
+        // The canvas follows the PDF's palette, as with the floating palette chosen in Settings.
+        canvas.takeTool(from: toolPicker, fixedTool: nil)
+        XCTAssertTrue(canvas.followsToolPicker)
 
         (toolPicker as any SelectedToolSetting).selectedTool = PKInkingTool(.monoline, color: .black, width: 2)
         let paletteTool = try XCTUnwrap(canvas.tool as? PKInkingTool)
@@ -106,8 +98,7 @@ final class InkWidthAtZoomTests: XCTestCase {
 
     /// The first page's canvas of a blank PDF shown in a window, with the PDF's view.
     private func hostedPageCanvas(named name: String) async throws -> (PDFPageCanvasView, GraphitePDFDisplayView, UIWindow) {
-        let location = FileManager.default.temporaryDirectory.appendingPathComponent("\(name)-\(UUID().uuidString).pdf")
-        try PDFTemplateGenerator.documentData(paper: PaperSpecification(template: .blank)).write(to: location)
+        let location = try makeHostedBlankNotebook(named: name)
         temporaryLocations.append(location)
         let session = try await PDFSession.open(location)
         let controller = UIHostingController(rootView: NavigationStack { PDFPane(session: session, resolveConflict: { _ in }) })
@@ -117,7 +108,7 @@ final class InkWidthAtZoomTests: XCTestCase {
         window.rootViewController = controller
         window.makeKeyAndVisible()
         controller.view.layoutIfNeeded()
-        try await waitUntil { self.canvases(in: controller.view).contains { !$0.isHidden } }
+        try await waitUntil("the page's canvas is shown") { self.canvases(in: controller.view).contains { !$0.isHidden } }
         let canvas = try XCTUnwrap(canvases(in: controller.view).first { !$0.isHidden })
         return (canvas, try XCTUnwrap(session.pdfView as? GraphitePDFDisplayView), window)
     }
@@ -125,18 +116,12 @@ final class InkWidthAtZoomTests: XCTestCase {
     private var temporaryLocations: [URL] = []
 
     override func tearDown() async throws {
-        for location in temporaryLocations { try? FileManager.default.removeItem(at: location) }
+        for location in temporaryLocations { try? FileManager.default.removeItem(at: location) } // A file left in the temporary folder harms nothing.
         temporaryLocations = []
     }
 
     private func canvases(in view: UIView) -> [PDFPageCanvasView] {
         view.subviews.flatMap { child in ((child as? PDFPageCanvasView).map { [$0] } ?? []) + canvases(in: child) }
-    }
-
-    private func waitUntil(_ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(5)
-        while !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(25)) }
-        XCTAssertTrue(condition(), "The hosted canvas did not reach the expected state.")
     }
 }
 #endif

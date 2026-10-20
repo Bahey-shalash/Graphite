@@ -2,7 +2,72 @@
 
 What Graphite does today, how each part is verified, and what is still missing. `OBJECTIVE.md` describes the complete product; this file tracks progress toward it. Update it with every change that adds, removes, or re-verifies behavior.
 
-Last updated: 2026-10-17.
+Last updated: 2026-10-20.
+
+## Importing Goodnotes and Notability: the import report: 2026-10-20
+
+On the branch `goodnotes-notability-import`: step 9 of [the Phase 3 design](Goodnotes-Notability-import-phase-3-design.md), the import report as plain values. Nothing shows it yet (Phase 4).
+
+- **Automated tests, all passing on macOS**, run as single classes (`xcrun xctest -XCTest`), no full or hosted suite: every GraphiteCore import class, 287 tests, with the owner's samples configured (none skipped), among them the new `NotebookImportReportTests` (5); the GraphiteApple import classes, 41 tests, whose writer tests now also check what each written page holds (strokes, placed pictures).
+- **Samples:** a temporary check, not committed, built the report of every sample (50): each summary has at most 7 lines, 14 notebooks import with nothing to report, and the one Notability note without known pages is reported as such. Before reading issues were grouped by case, one Goodnotes case gave 10,805 lines.
+- **Not established:** how the report reads to a person; its wording and layout are Phase 4.
+
+## Importing Goodnotes and Notability: recordings, and large files read without a copy: 2026-10-20
+
+On the branch `goodnotes-notability-import`: step 7 of [the Phase 3 design](Goodnotes-Notability-import-phase-3-design.md), and the audit's CC-IMPORT-13. Nothing in the app calls the import yet.
+
+- **Automated tests, all passing on macOS**, run as single classes (`xcrun xctest -XCTest`), no full or hosted suite:
+  - GraphiteCore: every import class, 282 tests, with the owner's samples configured (none skipped). New: `ZipArchiveEntryCopyTests` (8: a stored entry read and copied from the archive's own bytes, a deflated one through one buffer, the checksum checked at the end, a stream past its size stopped there, the destination's error passed on, the limit before any piece) and `ImportedRecordingPlannerTests` (4).
+  - GraphiteApple: `NotebookImportRecordingWriterTests` (5: bytes unchanged, a file that is not MPEG-4 refused, a source failing part way and an existing file leaving the destination as it was), with the other writer tests still passing (41 in all).
+- **Samples:** a temporary check, not committed, wrote both made-for-purpose recordings through the readers and the writer: each `.m4a` is byte-identical to the notebook's file, and Core Audio's `afinfo` reads AAC, 22,050 Hz mono, 47.2 and 18.9 seconds (metadata only, nothing played). Every recording of every sample (4, the longest 486 seconds and 2 MB, deflated) copies with its checksum correct.
+- **Not established:** the recordings in the running app, where they go in the vault (Phase 4), and memory on a long recording on the iPad.
+
+## Importing Goodnotes and Notability: pictures, shapes, Notability paper and bookmarks: 2026-10-20
+
+On the branch `goodnotes-notability-import`: the audit's remaining Low findings for the import (CC-IMPORT-04, 05, 07 and 11, SRP-IMPORT-01, OCP-IMPORT-02), the paper system's optional ruling, and steps 3 to 6 of [the Phase 3 design](Goodnotes-Notability-import-phase-3-design.md). CC-IMPORT-12 (golden notebooks in the repository) waits for the owner, and CC-IMPORT-13 (attachments copied whole) for step 7. Nothing in the app calls the import yet.
+
+- **Automated tests, all passing on macOS**, run as single classes (`xcrun xctest -XCTest`), no full or hosted suite:
+  - GraphiteCore: all 29 import classes, 266 tests. New this round: `GoodnotesPicturePlannerTests` (5), `NotabilityPicturePlannerTests` (3), `NotabilityPaperAndShapePlannerTests` (9), `ShapeOutlineSamplingTests` (4), `GoodnotesElementKindTests` (4), `NotabilityKnownKeysTests` (4), `KeyOrderedDictionaryTests` (1), `LittleEndianIntegerTests` (2), and new tests in `BinaryPropertyListTests`, `GoodnotesPagePlannerTests` and `KeyedArchiveTests`.
+  - GraphiteApple: `PDFTemplateGeneratorGoldenTests` (1: every template in three colour sets at every New Notebook size and orientation, the same bytes as before the ruling was added), `PaperRulingTests` (4), `NotebookImportPictureWriterTests` (10), `NotebookImportPaperAndBookmarkWriterTests` (4), with `NotebookImportWriterTests` (10) and `ImportedStrokeBuilderTests` (7) still passing.
+- **Samples:** with the owner's samples configured, every reader count still equals the reference reader's. Every Goodnotes page plans with one stroke per ink subpath and one per drawable shape; 149 pictures are planned and the 17 whose files are not in their notebooks are reported. Every Notability page plans, with its 9 pictures; the ruled and grid samples' rows and columns match their exports' (letter paper, Mac).
+- **Not established:**
+  - pictures, shapes and ruled paper in the running app and on the iPad;
+  - Notability paper on A4, landscape or iPad-made notes, and rectangles and ellipses from Notability (no sample has them);
+  - a whole sample written to PDF and compared with its app's export (Phase 5).
+
+## Importing Goodnotes and Notability: reader hardening, and pages, paper and ink converted: 2026-10-20
+
+On the branch `goodnotes-notability-import`. Two parts:
+- **Reader hardening:** the audit findings of `Docs/solid/areas/import.md` that come before the converter: BUG-IMPORT-01 and 02, CC-IMPORT-01, 02, 03, 06, 08, 09, 10 and 14, and OCP-IMPORT-01.
+- **Phase 3, steps 1 and 2:** pages, paper and ink, in [the Phase 3 design](Goodnotes-Notability-import-phase-3-design.md); `Architecture.md` › "Reading Goodnotes and Notability files" describes both.
+
+Nothing in the app calls the import yet.
+
+- **Automated tests, all passing on macOS:** 261 run with `swift test --filter`, no full or hosted suite.
+  - GraphiteCore, 244 including both readers' earlier tests. New this round: `BezierFlatteningTests` (18), `GoodnotesPagePlannerTests` (17), `NotabilityPagePlannerTests` (20), `ImportReportTallyTests` (6), `NotebookArchivePathTests` (2), `LittleEndianBytesTests` (1) and `PackedLittleEndianValuesTests` (2), plus regression tests in the readers' existing test files, one per fixed finding.
+  - GraphiteApple: `ImportedStrokeBuilderTests` (7) and `NotebookImportWriterTests` (10). These write PDFs into a temporary vault and read them back with PDFKit: page sizes, backgrounds, one `/Ink` per stroke, the re-editing record, refusal to overwrite, and the drawn width of each ink.
+- **Before the fixes:** for ten of the fixes, a test of the same behaviour, run against the code before them (a `git archive` export of `cab68c7`), fails: both defects, CC-IMPORT-06, 08 (four cases), 09 and 10, and OCP-IMPORT-01. The other fixes change bounds and types and are pinned by their own tests.
+- **Samples:** with the owner's samples configured, every reader count still equals the reference reader's (41 Goodnotes notebooks, 9 Notability notes). Every page plans: 105,113 strokes from 1.8 million samples for Goodnotes, and all 3,036 curves of the first Notability note. The new `attachmentNotInLog` issue found 17 live pictures in three library notebooks whose images are not in the notebook.
+- **Not established:**
+  - a whole sample written to PDF and compared with its app's export;
+  - memory and time on a long notebook or on the iPad;
+  - the UIKit-only ink tests after the writer's change to `PDFPencilInk.swift` and `PencilStrokeSampler.swift`, which now also compile on macOS. They run in the hosted suite on CI.
+
+## Reading Goodnotes and Notability files: 2026-10-19
+
+Phase 2 of [the import checklist](Goodnotes-Notability-import-todo.md), on the branch `goodnotes-notability-import`; `Architecture.md` › "Reading Goodnotes and Notability files" describes it. Readers only: nothing converts a notebook into Graphite's files, and nothing in the app calls them yet.
+
+- Automated tests, all passing on macOS (`swift test`, 166 tests): `ZipArchiveTests` (33), `ProtocolBufferMessageTests` (28), `AppleLZ4DecoderTests` (23), `TplImageTests` (13), `GoodnotesNotebookReaderTests` (24), `BinaryPropertyListTests` (14), `KeyedArchiveTests` (9), `NotabilityNoteReaderTests` (9) and `NotabilityNoteReaderMalformedInputTests` (11), all on synthetic files built in the tests: the values each format holds, unknowns reported, and damaged and hostile files (wrong magic numbers, cuts at every byte, sizes and counts up to 2^64 refused before allocating, cyclic and exponentially shared object graphs, seeded byte changes), each ending in a typed error or a listed skipped part.
+- Compared with the reference readers: `GoodnotesNotebookReaderSampleTests` and `NotabilityNoteReaderSampleTests` read the owner's samples (41 Goodnotes notebooks, 9 Notability notes, from the local `samples/import-formats` branch) and every count and unknown category equals `scripts/import-reference-counts.py`'s. They are skipped unless `GRAPHITE_IMPORT_SAMPLES` and `GRAPHITE_IMPORT_REFERENCE_COUNTS` are set, as the samples are personal and not in the repository. Tables in `Goodnotes-format.md` and `Notability-format.md`.
+- Not established: the five Goodnotes samples not on the branch (the four of 2026-10-18 and the Pencil test); memory and time on a notebook of hundreds of pages, and on the iPad (the 41 Goodnotes samples, every page, read in 7.4 seconds in a debug build on the Mac); anything the samples lack (see each format document's unknowns).
+
+## Library, New menu and New Notebook: 2026-10-19
+
+The first round of [the notebook library checklist](Notebook-library-and-new-file-todo.md), on the branch `notebook-library`; `Architecture.md` › "Library and creating notebooks" describes it.
+
+- Automated tests, all passing on macOS: `NotebookPageSizeTests` (6), `NotebookPlacementTests` (3), `LibraryListingTests` (3), `NotePreviewSummaryTests` (10, with emphasis kept as style, links without their target, nested lists, callouts, code blocks and the picture placed where it sits), `FolderStyleListTests` (8, with unknown keys, entries and colors kept, a foreign file refused, styles following moves and deletions, no file written for a vault without styles); `NewNotebookOptionsTests` (9, every named size in both orientations makes a valid PDF, the size check agrees with the generator on every side) and `PaperPreviewRendererTests` (5); `CreatableItemTests` (4), `NotebookLibraryPreferencesTests` (3), `LibraryModelTests` (12, with regression tests for previews cancelled when SwiftUI shows a rebuilt grid's tile before removing the old one, and for the delta audit's BUG-SHELL-07 (a style file not in Graphite's format hid every folder; now kept aside), BUG-SHELL-08 (a changed file kept its old preview), BUG-SHELL-09 (renders not cancelled and not limited) and CC-SHELL-11 (no byte budget for the preview cache)) and `WorkspaceNotebookCreationTests` (4: embedded at the cursor with the attachments, in a folder with a link, a taken name, text typed meanwhile kept).
+- Checked by hand in the iPad simulator (iPad Pro 11-inch (M5), iOS 27, portrait, a copy of the test vault without videos): the library as home with the file tree's sidebar folded away; folders in system colors with engraved symbols from `.obsidian/graphite-folder-styles.json`; a folder of PDFs and notes shows first pages and note text; the New menu offers Notebook first; the New Notebook sheet's picture, size and color menus and paper gallery; Create made `Untitled Notebook.pdf` in the folder shown and opened it in a tab with its paper; choosing a tab leaves the library and the house button brings it back. The library first looked like Goodnotes' library; at the owner's request it was redrawn in the Files app's style.
+- Not established: the iPhone layout, landscape, dark mode, Dynamic Type at the largest sizes, VoiceOver, the Mac, drag and drop, Import, folder colors from the menu, creating a notebook from inside a note in the app (tested in the workspace only), undo of that insertion, and anything with Apple Pencil or on a device.
 
 ## Tables edited in place, scrolling only when wider, and the editor's Color menu: 2026-10-17
 
@@ -1251,6 +1316,31 @@ Not established: on the iPad itself, with Apple Pencil, and on the Mac. In the s
 - `Edge cases/Bases/`: 93 notes (books, people, courses, assignments, places in six cities, odd records) and 18 bases, including broken ones. `00 Bases overview.md` gives the expected counts and summary values per base.
 - `Edge cases/Media/`: images (EXIF rotation, transparency, GIF, HEIC, WebP, CMYK, 16-bit, 8000×6000, fake PNG), audio and video (including corrupt, portrait and HEVC), PDFs (outline, annotations from another app, rotated and mixed page sizes, password `graphite`, corrupt, empty, page labels, scans, 100 pages). `Media gallery.md` embeds them all.
 - `Edge cases/Files/`: encodings (CRLF, CR, BOM, UTF-16, Latin-1, binary), 0-byte and 2 MB notes, odd names, hidden files, non-note files, a folder named like a note, twelve levels of folders, 250 linked notes, and symbolic links inside and outside the vault.
+
+## Read Aloud as a core plugin, off by default: 2026-10-19
+
+Owner decision of 2026-10-19; the design is in `Read-aloud-core-plugin.md`, and what it does is in `Architecture.md` (Read Aloud as a core plugin).
+
+**Covered by package tests.** These are run on macOS with `swift test --filter` (85 tests, 0 failures, including the classes around them). Every Read Aloud reading in them goes through a silent fake voice.
+- `CorePluginSwitchesTests` (9): a fresh device has Read Aloud off and every other plugin on, and the switches are stored and read back.
+- `CorePluginSwitchMigrationTests` (17):
+  - the pure decision;
+  - preference, voice-folder and no-evidence devices;
+  - Read Aloud turned off earlier;
+  - the migration runs once;
+  - a workspace of an existing user and of a new one.
+- `WorkspaceReadAloudCorePluginTests` (9):
+  - no controller is built while Read Aloud is off;
+  - turning it on builds one, without a relaunch;
+  - turning it off during playback stops speech, releases audio, closes the reader and drops the controller;
+  - remembered places are kept;
+  - the Settings plugin pages follow the switch;
+  - the `graphite://read` link refuses while Read Aloud is off.
+- `WorkspaceDeepLinksTests` and `GraphitePreferencesPersistedKeysTests`, which now include the `GraphiteEnabledCorePlugins` key.
+
+**Not run yet.** The full package suite and the hosted iPad suite were held back on 2026-10-19 while Read Aloud tests that speak aloud are being made silent. The four hosted Read Aloud test files turn the plugin on first.
+
+**Not verified.** Whether each menu, button and the floating player actually disappear and come back in the running app on iPad and Mac has been checked only through the model the views read, not by eye.
 
 ## Implemented and covered by automated tests
 

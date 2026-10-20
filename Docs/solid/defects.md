@@ -684,7 +684,7 @@ Each entry is the verifier's own trace. "Reported" in the severity line is the a
 #### BUG-VOICE-V01 A pronunciation file that fails to read or parse is replaced by the one entry added in Settings
 - **Verdict:** Confirmed
 - **Severity:** High
-- **Reach:** iPad, iPhone and Mac. Fallback path: the vault's `.graphite/pronunciations.json` is unreadable or unparseable when Settings opens. Causes include a hand edit with a stray trailing comma, a file over 256 KiB, or a read error such as a cloud file that is not downloaded. When it happens, the loss is total and has no undo.
+- **Reach:** iPad, iPhone and Mac. Fallback path: the vault's `.graphite/pronunciations.json` is unreadable or unparseable when Settings opens. Causes include a hand edit that leaves invalid JSON (for example a file cut off before its closing brace; Apple's JSON parser accepts a trailing comma, so that case loads fully), a file over 256 KiB, or a read error such as a cloud file that is not downloaded. When it happens, the loss is total and has no undo.
 - **Trigger:** A user hand-edits the pronunciation file and leaves a syntax error, then opens Settings › Read Aloud › Pronunciations. The vault section is empty, so they add one term.
 - **Path:**
   1. `load` turns every failure into an empty list. `Data(contentsOf:)` failing gives `entries = []` ([ReadAloudPronunciationEditor.swift:96](../../Sources/GraphiteUI/ReadAloudPronunciationEditor.swift#L96)). `vaultEntries` returns `[]` for a file over the size limit or for JSON that does not parse ([ReadAloudPronunciations.swift:63-64](../../Sources/GraphiteCore/ReadAloudPronunciations.swift#L63-L64)).
@@ -1201,3 +1201,22 @@ Each entry is the verifier's own trace. "Reported" in the severity line is the a
 | BUG-ARCH-07 | ARCH | Confirmed | Medium |
 | BUG-ARCH-V01 | ARCH | Confirmed | Low |
 | BUG-ARCH-V02 | ARCH | Confirmed | Low |
+
+## Found after the snapshot
+
+The delta audits of 2026-10-19 (code changed between `b13dec3` and `9040705`) and 2026-10-20 (`9040705` to `5aae924`) found ten defects. Each is written up in section 9 of its area document; the lead traced the three marked "lead".
+
+| ID | Area | Verdict | Severity | Defect |
+| --- | --- | --- | --- | --- |
+| [BUG-SHELL-07](areas/shell.md#the-notebook-library-9040705) | SHELL | **Fixed** in `bf86b5d`; Confirmed (lead) | High | A damaged `.obsidian/graphite-folder-styles.json` makes every folder of the library show "Can't Show This Folder" |
+| [BUG-SHELL-08](areas/shell.md#the-notebook-library-9040705) | SHELL | **Fixed** in `bf86b5d`; Confirmed | Medium | A file that changes while its tile is on screen keeps its old preview |
+| [BUG-SHELL-09](areas/shell.md#the-notebook-library-9040705) | SHELL | **Fixed** in `bf86b5d`; Confirmed (the effect on visible previews is Plausible) | Medium | A tile's preview keeps rendering after the tile scrolls away, with no limit on concurrent renders |
+| [BUG-SHELL-10](areas/shell.md#other-shell-changes-fff794b) | SHELL | Confirmed (lead) | Medium | When a vault's Templates or Daily notes settings cannot be read, the previous vault's settings stay in force and can create a daily note in the new vault |
+| [BUG-SHELL-11](areas/shell.md#other-shell-changes-fff794b) | SHELL | Confirmed | Low | A plugin's rename is answered "not renamed" when the move takes longer than 10 s after the person answers |
+| [BUG-SHELL-12](areas/shell.md#other-shell-changes-fff794b) | SHELL | Confirmed | Low | `graphite://read?file=X` reads nothing when X is already open on the other side of the split |
+| [BUG-VOICE-11](areas/voice.md#9-since-the-snapshot) | VOICE | Confirmed (lead) | Medium | Pronunciation Settings overwrite terms that reached the vault file after the page opened |
+| [BUG-VOICE-12](areas/voice.md#9-since-the-snapshot) | VOICE | Plausible (a device check settles it) | Low | Connecting headphones pauses High Quality reading whenever the engine reconfigures |
+| [BUG-IMPORT-01](areas/import.md#bug-import-01-a-goodnotes-notebook-without-its-event-log-opens-as-an-empty-notebook-with-no-issue) | IMPORT | **Fixed** in `471de62`; Confirmed (lead) | Medium | A Goodnotes notebook without its event log opens as an empty notebook with no issue (latent: the readers are not wired into the app) |
+| [BUG-IMPORT-02](areas/import.md#bug-import-02-a-negative-stored-page-width-gives-a-notability-pagecount-below-1-breaking-its-at-least-1-contract) | IMPORT | **Fixed** in `471de62`; Confirmed (lead) | Low | A negative stored page width gives a Notability `pageCount` below 1 (latent) |
+
+`BUG-SHELL-07`, `-08` and `-09` are fixed with regression tests in `bf86b5d`. Fix before more features land on top: `BUG-SHELL-10` and `BUG-VOICE-11` (both write into the vault from the wrong data).

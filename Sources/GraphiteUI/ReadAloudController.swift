@@ -65,6 +65,8 @@ final class ReadAloudController {
     @ObservationIgnored private var preparation: Task<Void, Never>?
     @ObservationIgnored private var preparationIdentifier: UUID?
     @ObservationIgnored private var pdfContinuation: (() -> Void)?
+    /// The way on that is preparing the next PDF page now, which Stop in the player puts back.
+    @ObservationIgnored private var preparingPDFContinuation: (() -> Void)?
     @ObservationIgnored private var foldPreparationIdentifier: UUID?
     /// Footer and header text found on the pages read so far, skipped on the following ones.
     @ObservationIgnored private var pdfRunningText: [String] = []
@@ -411,9 +413,19 @@ final class ReadAloudController {
         errorMessage = "The document changed. Choose the passage again to read the current version."
     }
 
+    /// Stop in the floating player: reading stops and the page being prepared is dropped, so it
+    /// does not start reading afterwards. The way on to the next page of the PDF is kept, for
+    /// Play to continue through the pages chosen.
+    func stopReading() {
+        let wayOn = pdfContinuation ?? (isPreparing ? preparingPDFContinuation : nil)
+        stop()
+        pdfContinuation = wayOn
+    }
+
     func stop() {
         stopIdentifier = UUID()
         preparationIdentifier = nil
+        preparingPDFContinuation = nil
         preparation?.cancel()
         preparation = nil
         isPreparing = false
@@ -442,11 +454,20 @@ final class ReadAloudController {
         showsReader = false
     }
 
+    /// Read Aloud was turned off: reading stops and is cleared, and Graphite leaves the lock
+    /// screen and the media controls now, because this controller is dropped next and the
+    /// Now Playing update that follows a change would never run.
+    func clearAndLeaveNowPlaying() {
+        clear()
+        nowPlaying?.clear()
+    }
+
     /// Starts preparing the next PDF page after the last word of this one; true when it did.
     @discardableResult
     func continuePDFIfNeeded() -> Bool {
         guard session.state == .finished, let continuation = pdfContinuation else { return false }
         pdfContinuation = nil
+        preparingPDFContinuation = continuation
         continuation()
         return true
     }
@@ -722,6 +743,7 @@ final class ReadAloudController {
     private func finishPreparing(_ document: ReadAloudDocument, needsReview: Bool = false) {
         isPreparing = false
         preparation = nil
+        preparingPDFContinuation = nil
         session.load(document)
         neuralSpeech?.setLanguage(session.readingLanguage)
         var plays = playsCurrentPreparation && !needsReview
@@ -734,7 +756,7 @@ final class ReadAloudController {
             }
             plays = position.plays && !needsReview
         }
-        if plays { session.play() }
+        if plays { session.play() } else { session.releaseAudioUnlessSpeaking() }
         if needsReview || session.message != nil { showsReader = true }
     }
 
@@ -743,6 +765,7 @@ final class ReadAloudController {
         isPreparing = false
         preparation = nil
         pdfContinuation = nil
+        preparingPDFContinuation = nil
         playsCurrentPreparation = false
         errorMessage = error.localizedDescription
         showsReader = true

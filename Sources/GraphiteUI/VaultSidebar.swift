@@ -9,6 +9,8 @@ import GraphiteIndex
 struct CreationRequest: Identifiable {
     let kind: CreationKind
     var directory: VaultPath?
+    /// Opens the new file in a tab of its own, as from the library, which stays as the home tab.
+    var opensInNewTab = false
     var id: String { kind.rawValue + "|" + (directory?.rawValue ?? "") }
 }
 
@@ -56,6 +58,9 @@ struct VaultSidebar: View {
     /// Shows the document column on a phone, where the list and the document take turns
     /// on screen; also for the file already open, whose selection does not change.
     var showDocument: () -> Void = {}
+    /// Whether the window is as narrow as a phone. The sidebar's own column is narrow on an
+    /// iPad too, so the library's place is decided by the window's width, not the column's.
+    var isWindowCompact = false
     @State private var isRootDropTargeted = false
     /// The file "Reveal Current File" scrolls to once the folders above it have listed their contents.
     @State private var fileToReveal: VaultPath?
@@ -66,16 +71,25 @@ struct VaultSidebar: View {
     @Environment(\.noteTypography) private var typography
     @AppStorage(SidebarPanelSettingKey.panel) private var storedPanel = SidebarPanel.files
     @State private var overview = VaultOverviewModel()
+    @Environment(LibraryModel.self) private var library: LibraryModel?
     @AppStorage(SidebarPanelSettingKey.tagSortOrder) private var tagSortOrder = VaultListSortOrder.frequencyDescending
     @AppStorage(SidebarPanelSettingKey.showsNestedTags) private var showsNestedTags = true
     @AppStorage(SidebarPanelSettingKey.propertySortOrder) private var propertySortOrder = VaultListSortOrder.frequencyDescending
 
+    /// In Library mode on a wide window the library is the file browser, so the sidebar
+    /// keeps search, bookmarks, tags and properties but not a second file tree.
     private var availablePanels: [SidebarPanel] {
-        SidebarPanel.allCases.filter { panel in panel.plugin.map(workspace.preferences.isEnabled) ?? true }
+        let showsFileTree = workspace.preferences.library.presentation == .list || isWindowCompact
+        return SidebarPanel.allCases.filter { panel in
+            (panel.plugin.map(workspace.preferences.isEnabled) ?? true) && (panel != .files || showsFileTree)
+        }
     }
 
-    /// The chosen panel, or the file list when its plugin was turned off.
-    private var panel: SidebarPanel { availablePanels.contains(storedPanel) ? storedPanel : .files }
+    /// The chosen panel, or the first offered when its plugin was turned off or the library
+    /// replaces the file list.
+    private var panel: SidebarPanel {
+        availablePanels.contains(storedPanel) ? storedPanel : (availablePanels.first ?? .files)
+    }
     /// A community plugin's view chosen in the picker, shown in place of Graphite's panels,
     /// kept by the plugin host so it is saved with the layout and shown again after a restart.
     private var chosenPluginView: String? {
@@ -191,7 +205,10 @@ struct VaultSidebar: View {
                     .tint(.primary)
                     .help("New Note")
                     #else
-                    Menu("New", systemImage: "square.and.pencil") { newDocumentMenuItems }
+                    NewItemButton(firstKind: workspace.preferences.library.firstCreatedKind, isEnabled: workspace.preferences.isEnabled,
+                                  actions: newItemActions) {
+                        Label("New", systemImage: "square.and.pencil")
+                    }
                     .tint(.primary)
                     #endif
                     Menu("\(panel.title) Options", systemImage: "ellipsis") { panelMenu }
@@ -200,19 +217,17 @@ struct VaultSidebar: View {
             }
         }
         .sidebarBar(edge: .top) {
-            if workspace.store != nil && availablePanels.count + workspace.communityPlugins.sidebarViews.count > 1 {
-                Picker("Sidebar", selection: pickerChoice) {
-                    ForEach(availablePanels) { panel in Label(panel.title, systemImage: panel.systemImage).tag(SidebarChoice.panel(panel)) }
-                    ForEach(pickerPluginViews) { view in
-                        Label(view.title, systemImage: CommunityPluginViewSymbol.systemImage(forIcon: view.icon)).tag(SidebarChoice.pluginView(view.id))
+            if showsPanelPicker || showsPresentationSwitch {
+                HStack(spacing: 10) {
+                    if showsPanelPicker { panelPicker }
+                    // The same switch as the library's top row, beside the panels rather than
+                    // in the bar, whose narrow width hides its last buttons.
+                    if showsPresentationSwitch {
+                        LibraryPresentationSwitch(presentation: workspace.preferences.library.presentation) { presentation in
+                            workspace.preferences.library.presentation = presentation
+                        }
                     }
                 }
-                .pickerStyle(.segmented)
-                // Symbols, which fit four panels in a phone's width or a narrow sidebar where
-                // their names were cut off; VoiceOver reads the names. The Mac otherwise writes
-                // the picker's own name, "Sidebar", before it.
-                .labelStyle(.iconOnly)
-                .labelsHidden()
                 .padding(.horizontal, 16).padding(.vertical, 6)
             }
         }
@@ -220,6 +235,28 @@ struct VaultSidebar: View {
             // A phone switches vaults from the title, and its search field is at the bottom.
             if !isCompactWidth { VaultSwitcherBar(workspace: workspace) { showsVaultManager = true } }
         }
+    }
+
+    private var showsPanelPicker: Bool {
+        workspace.store != nil && availablePanels.count + workspace.communityPlugins.sidebarViews.count > 1
+    }
+
+    /// A phone shows its files as the library itself, with the switch in its top row.
+    private var showsPresentationSwitch: Bool { workspace.store != nil && !isWindowCompact }
+
+    private var panelPicker: some View {
+        Picker("Sidebar", selection: pickerChoice) {
+            ForEach(availablePanels) { panel in Label(panel.title, systemImage: panel.systemImage).tag(SidebarChoice.panel(panel)) }
+            ForEach(pickerPluginViews) { view in
+                Label(view.title, systemImage: CommunityPluginViewSymbol.systemImage(forIcon: view.icon)).tag(SidebarChoice.pluginView(view.id))
+            }
+        }
+        .pickerStyle(.segmented)
+        // Symbols, which fit four panels in a phone's width or a narrow sidebar where their
+        // names were cut off; VoiceOver reads the names. The Mac otherwise writes the
+        // picker's own name, "Sidebar", before it.
+        .labelStyle(.iconOnly)
+        .labelsHidden()
     }
 
     private var isCompactWidth: Bool { horizontalSizeClass == .compact }
@@ -246,6 +283,14 @@ struct VaultSidebar: View {
         case .files:
             FileExplorerMenuItems(workspace: workspace) { path in fileToReveal = path }
         }
+    }
+
+    private var newItemActions: NewItemActions {
+        NewItemActions(directory: nil,
+                       create: { kind, directory in creation = CreationRequest(kind: kind, directory: directory) },
+                       openDailyNote: { Task { await workspace.openDailyNote() } },
+                       newFolder: { directory in workspace.fileSheet = .newFolder(in: workspace.newFileDirectory(directory)) },
+                       importFiles: { sources, directory in Task { await workspace.importFiles(from: sources, into: workspace.newFileDirectory(directory)) } })
     }
 
     @ViewBuilder private var newDocumentMenuItems: some View {
@@ -282,11 +327,26 @@ struct VaultSidebar: View {
                 swiftUIList
             }
             #else
-            swiftUIList
+            if let library, showsLibrary {
+                let requestCreation = { (kind: CreationKind, directory: VaultPath?) in creation = CreationRequest(kind: kind, directory: directory) }
+                LibraryView(library: library, vault: workspace.libraryVault,
+                            actions: workspace.libraryActions(openFile: { path in Task { await workspace.open(path) }; showDocument() },
+                                                              requestCreation: requestCreation),
+                            entries: workspace.libraryEntryPresentation { kind, directory in requestCreation(kind, directory) })
+            } else {
+                swiftUIList
+            }
             #endif
         }
         // Folders expanded in one vault must not stay expanded, with stale contents, in the next.
         .id(workspace.currentVaultIdentifier)
+    }
+
+    /// On a phone the sidebar is the whole screen, so the library takes the file list's place;
+    /// a wider window shows it in an empty tab instead.
+    private var showsLibrary: Bool {
+        isWindowCompact && workspace.preferences.library.presentation == .library && workspace.store != nil
+            && workspace.searchQuery.isEmpty && panel == .files && workspace.pickedSidebarFiles == nil
     }
 
     #if os(macOS)
@@ -766,7 +826,7 @@ struct VaultEntryMenu: View {
         }
         Button("Open in New Tab", systemImage: "plus.rectangle.on.rectangle") { Task { await workspace.open(entry.path, placement: .newTab) } }
         Button(workspace.openOnOtherSideTitle, systemImage: "rectangle.split.2x1") { Task { await workspace.open(entry.path, placement: .otherGroup) } }
-        ReadAloudQueueMenuItems(navigator: workspace.readAloudNavigator, path: entry.path)
+        if let navigator = workspace.readAloudNavigator { ReadAloudQueueMenuItems(navigator: navigator, path: entry.path) }
         Divider()
         Button("Rename…", systemImage: "pencil") { workspace.fileSheet = .rename(entry.path) }
         Button("Move to…", systemImage: "folder") { workspace.fileSheet = .move(entry.path) }

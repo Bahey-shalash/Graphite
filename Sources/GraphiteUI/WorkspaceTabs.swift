@@ -17,6 +17,9 @@ final class TabDocument {
     var headingScrollRequest: HeadingScrollRequest?
     /// The view a `[[Books.base#Gallery]]` link asked the tab's base to show.
     var baseViewRequest: BaseViewRequest?
+    /// A notebook to create from the tab's note, asked for by the note's menus or the
+    /// command palette; the note's pane shows the New Notebook sheet for it.
+    var notebookInsertion: NotebookInsertionRequest?
     var isOpening = false
     /// The community plugin view an empty tab shows (its leaf's identifier), until a file opens in it.
     var pluginViewIdentifier: String?
@@ -223,7 +226,7 @@ extension WorkspaceModel {
         await open(path, placement: .newTab)
     }
 
-    private func saveBeforeClosing(_ tabIDs: [UUID]) async -> Bool {
+    func saveBeforeClosing(_ tabIDs: [UUID]) async -> Bool {
         // A tab on screen stays editable while the others save, so all are checked again.
         repeat {
             for tabID in tabIDs {
@@ -349,7 +352,7 @@ extension WorkspaceModel {
                 // An edit while the note is read: reading goes on at the same sentence.
                 newMarkdown?.textDidChange = { [weak self, weak newMarkdown] in
                     guard let self, let newMarkdown else { return }
-                    readAloud.noteTextDidChange(path: path, text: newMarkdown.text,
+                    readAloud?.noteTextDidChange(path: path, text: newMarkdown.text,
                         hiddenRanges: ReadAloudFolding.hiddenRanges(in: newMarkdown.text, foldedKeys: newMarkdown.foldedKeys,
                                                                     calloutExpansion: calloutFolds.expansion(for: path.rawValue)))
                 }
@@ -418,7 +421,7 @@ extension WorkspaceModel {
 
     func saveTabLayout() {
         guard let layoutVaultIdentifier, let data = try? JSONEncoder().encode(savedLayoutWithPluginViews()) else { return }
-        UserDefaults.standard.set(data, forKey: Self.tabLayoutKey(for: layoutVaultIdentifier))
+        deviceDefaults.set(data, forKey: Self.tabLayoutKey(for: layoutVaultIdentifier))
     }
 
     /// Restores the vault's tabs as they were left; their files load as they are shown.
@@ -429,7 +432,7 @@ extension WorkspaceModel {
             guard let location = try? path.url(in: root) else { return false }
             return FileManager.default.fileExists(atPath: location.path)
         }
-        if let data = UserDefaults.standard.data(forKey: Self.tabLayoutKey(for: currentVaultIdentifier)),
+        if let data = deviceDefaults.data(forKey: Self.tabLayoutKey(for: currentVaultIdentifier)),
            let saved = try? JSONDecoder().decode(SavedTabLayout.self, from: data) {
             layout = TabLayout(saved: saved, fileExists: fileExists)
             takePluginViewsToRestore(from: saved)

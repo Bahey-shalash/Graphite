@@ -1,8 +1,11 @@
-#if canImport(UIKit)
 import Foundation
-import UIKit
 import PencilKit
 import GraphiteCore
+#if canImport(UIKit)
+import UIKit
+#else
+import AppKit
+#endif
 
 /// Identifies a PencilKit stroke's visible state without comparing its points. A stroke
 /// the lasso moved, recolored or resized, or the pixel eraser cut, gets a new fingerprint.
@@ -46,7 +49,12 @@ struct PDFStrokeFingerprint: Hashable {
         maskPath = stroke.mask?.cgPath
         inkType = stroke.ink.inkType
         var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        #if canImport(UIKit)
         stroke.ink.color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        #else
+        // AppKit raises for a color outside an RGB space, so the ink is compared in extended sRGB.
+        stroke.ink.color.usingColorSpace(.extendedSRGB)?.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        #endif
         self.red = Self.atStoredPrecision(red); self.green = Self.atStoredPrecision(green)
         self.blue = Self.atStoredPrecision(blue); self.alpha = Self.atStoredPrecision(alpha)
     }
@@ -233,4 +241,3 @@ public struct PDFPageInkTracker {
         return StrokeOutliner.shape(forSegments: [pageCenterLine], color: color, clippedTo: pageVisibleArea)?.subpaths
     }
 }
-#endif

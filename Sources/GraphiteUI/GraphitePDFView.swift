@@ -1407,7 +1407,8 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
             // other change compares the page's strokes and annotations (FR-104).
             let appendingUpdate = change?.appendedStrokeIndex.flatMap { appendedStrokeIndex in
                 PencilWritingTrace.measure("Ink tracker update") {
-                    canvas.inkTracker.updateAppending(drawing.strokes[appendedStrokeIndex], at: appendedStrokeIndex, pageIndex: pageIndex, coordinates: coordinates)
+                    canvas.inkTracker.updateAppending(drawing.strokes[appendedStrokeIndex], at: appendedStrokeIndex,
+                                                      pageIndex: pageIndex, coordinates: coordinates)
                 }
             }
             let update = appendingUpdate ?? PencilWritingTrace.measure("Ink tracker update") {

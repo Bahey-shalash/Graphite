@@ -278,8 +278,7 @@ final class PDFInkHistoryTests: XCTestCase {
     // MARK: Helpers
 
     private func openNotebook(pageCount: Int) async throws -> PDFSession {
-        let location = FileManager.default.temporaryDirectory.appendingPathComponent("InkHistory-\(UUID().uuidString).pdf")
-        try PDFTemplateGenerator.documentData(paper: PaperSpecification(template: .blank), pageCount: pageCount).write(to: location)
+        let location = try makeHostedBlankNotebook(named: "InkHistory", pageCount: pageCount)
         locations.append(location)
         return try await PDFSession.open(location)
     }
@@ -364,10 +363,5 @@ final class PDFInkHistoryTests: XCTestCase {
         }
     }
 
-    private func waitUntil(_ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(5)
-        while !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(25)) }
-        XCTAssertTrue(condition(), "The hosted PDF workspace did not reach the expected state.")
-    }
 }
 #endif

@@ -199,25 +199,53 @@ public enum MarkdownEditing {
         return ending == "\r\n" || ending == "\r" ? ending : "\n"
     }
 
-    /// Whether the line at `lineStart` is inside fenced code or the note's frontmatter.
+    /// Whether the line at `lineStart` is inside fenced code or the note's frontmatter. A fence
+    /// written in a quote or callout (`> ```) is code as the editor styles it: it runs to its
+    /// closing fence or to the first line outside the quote, whichever comes first.
     private static func isInCodeOrFrontmatter(lineStart: Int, in text: NSString) -> Bool {
         var location = 0
         if let frontmatterEnd = frontmatterEnd(in: text) {
             if lineStart < frontmatterEnd { return true }
             location = frontmatterEnd
         }
-        var fenceTracker = CodeFenceTracker()
+        var openFence: String?
+        var fenceQuoteDepth = 0
+        let quoteMarker = unichar(UInt8(ascii: ">"))
         while location < lineStart {
             var lineEnd = 0, contentsEnd = 0
             text.getLineStart(nil, end: &lineEnd, contentsEnd: &contentsEnd, for: NSRange(location: location, length: 0))
             defer { location = lineEnd }
-            // Only a line starting with a fence character can open or close a fence, so the
-            // others are skipped without making a string of each line.
-            guard let firstCharacter = firstNonWhitespaceUnit(from: location, to: contentsEnd, in: text),
-                  firstCharacter == unichar(UInt8(ascii: "`")) || firstCharacter == unichar(UInt8(ascii: "~")) else { continue }
-            _ = fenceTracker.isCodeLine(text.substring(with: NSRange(location: location, length: contentsEnd - location)).trimmingCharacters(in: .whitespaces))
+            // Only a line starting with a fence character or a quote marker can open or close a
+            // fence, and a line outside the quote ends a quoted one, so the others are skipped
+            // without making a string of each line.
+            guard let firstCharacter = firstNonWhitespaceUnit(from: location, to: contentsEnd, in: text) else {
+                if openFence != nil, fenceQuoteDepth > 0 { openFence = nil }
+                continue
+            }
+            let canTouchFence = firstCharacter == unichar(UInt8(ascii: "`")) || firstCharacter == unichar(UInt8(ascii: "~")) || firstCharacter == quoteMarker
+            guard canTouchFence || (openFence != nil && fenceQuoteDepth > 0) else { continue }
+            let line = text.substring(with: NSRange(location: location, length: contentsEnd - location))
+            if let fence = openFence {
+                let (depth, content) = MarkdownStyleScanner.quoteMarkersAndContent(of: line, maximumDepth: fenceQuoteDepth)
+                if depth >= fenceQuoteDepth {
+                    if CodeFence.closes(fence, content) { openFence = nil }
+                    continue
+                }
+                openFence = nil
+            }
+            let (depth, content) = MarkdownStyleScanner.quoteMarkersAndContent(of: line, maximumDepth: .max)
+            if let (fence, _) = CodeFence.opening(content) {
+                openFence = fence
+                fenceQuoteDepth = depth
+            }
         }
-        return fenceTracker.isInsideFence
+        guard openFence != nil else { return false }
+        guard fenceQuoteDepth > 0 else { return true }
+        // The line itself is outside a quoted fence when it has fewer quote markers than the fence.
+        var lineContentsEnd = 0
+        text.getLineStart(nil, end: nil, contentsEnd: &lineContentsEnd, for: NSRange(location: lineStart, length: 0))
+        let line = text.substring(with: NSRange(location: lineStart, length: lineContentsEnd - lineStart))
+        return MarkdownStyleScanner.quoteMarkersAndContent(of: line, maximumDepth: fenceQuoteDepth).depth >= fenceQuoteDepth
     }
 
     /// Where the note's frontmatter ends, just past its closing line, or nil when the note

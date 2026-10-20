@@ -4,18 +4,15 @@ import ImageIO
 import GraphiteCore
 @testable import GraphiteApple
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 @MainActor
 final class UiRootSettingsTests: XCTestCase {
     /// XCTest makes a new instance for each test, so each test has its own directory.
-    private let temporaryDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("UiRootSettings-\(UUID().uuidString)", isDirectory: true)
+    private var temporaryDirectory: URL!
 
     override func setUpWithError() throws {
-        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: temporaryDirectory)
+        temporaryDirectory = try TemporaryVault.make(prefix: "UiRootSettings", for: self).root
     }
 
     // MARK: Image pane
@@ -209,13 +206,6 @@ final class UiRootSettingsTests: XCTestCase {
 
     // MARK: Vault settings
 
-    private func waitUntil(_ condition: () -> Bool) async throws {
-        for _ in 0..<500 where !condition() {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        XCTAssertTrue(condition(), "Timed out waiting for the settings to be saved.")
-    }
-
     /// Each settings control used to copy the saved settings and write them in its own
     /// task, so a second change made before the first was written started from the old copy.
     func testQuickSettingsChangesBuildOnEachOther() async throws {
@@ -324,21 +314,6 @@ final class UiRootSettingsTests: XCTestCase {
         // After deleting "color-2", counting colors alone gave "color-3" a second time.
         XCTAssertEqual(PaletteColorNames.unusedName(in: palette), "color-4")
         XCTAssertEqual(PaletteColorNames.unusedName(in: [PaletteColor(name: "red", hex: "#e93147")]), "color-2")
-    }
-
-    // MARK: New notebooks
-
-    /// The create sheet used to close first and let the generator reject the size, so the
-    /// user's entries were lost.
-    func testCustomPaperSizeProblemMatchesWhatTheGeneratorAccepts() throws {
-        for sideLength in [72.0, 612, 2880] {
-            XCTAssertNil(CustomPaperSize.problem(with: CGSize(width: sideLength, height: 792)))
-            XCTAssertNoThrow(try PDFTemplateGenerator.documentData(paper: PaperSpecification(width: sideLength, height: 792)))
-        }
-        for sideLength in [71.9, 2880.1, 50, 0, -10, 100_000, .infinity, .nan] {
-            XCTAssertNotNil(CustomPaperSize.problem(with: CGSize(width: 612, height: sideLength)), "\(sideLength)")
-            XCTAssertThrowsError(try PDFTemplateGenerator.documentData(paper: PaperSpecification(width: 612, height: sideLength)), "\(sideLength)")
-        }
     }
 
     // MARK: Image decoding

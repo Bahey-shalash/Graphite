@@ -1,6 +1,6 @@
 # The Notability file format (`.note`)
 
-Status: Phase 1 of [the import checklist](Goodnotes-Notability-import-todo.md). Recovered on 2026-10-18 and 2026-10-19 from ten of the owner's notes and Notability's own PDF export of each, by reading the files only; Notability's code was not inspected, decompiled or copied. Nothing here is implemented in Graphite yet.
+Status: Phase 1 of [the import checklist](Goodnotes-Notability-import-todo.md). Recovered on 2026-10-18 and 2026-10-19 from ten of the owner's notes and Notability's own PDF export of each, by reading the files only; Notability's code was not inspected, decompiled or copied. Phase 2 added a Swift reader in GraphiteCore (`NotabilityNoteReader`, see Swift reader below); nothing converts a note into Graphite's files yet (Phase 3).
 
 What was checked: a reference reader written for this (`scripts/notability-reader.py`) reads all ten notes with nothing unknown, and accounts for every point, per-knot value, shape, picture, text run, PDF page and timed curve. Pages drawn from what it read were compared with each note's PDF export, rendered at 100 pixels per inch (see "Comparison with Notability's PDF export" below). They line up with no offset; the differences are the antialiased edges of strokes and, for typed text, the substitute font.
 
@@ -82,7 +82,7 @@ Choosing single pages instead of continuous scrolling changed nothing in the not
 | `Legacy:13` | `No Lines` | White (254 of 255 once rendered: the export draws the paper as a tiled 512 × 512 image) |
 | `Legacy:15` | `No Lines` | Black |
 | `Legacy:13` | `Lines:false:false:0.5` | White with horizontal rules every page width / 17 units (33.647 for 572), the first one rule down from the top, from x = 0 to page width − 2 × 15.9375 / s; colour #A3B7D3, 0.5 points wide |
-| `Legacy:13` | `Grid:false:true:0.5` | White with the same horizontal rules across the whole width, and vertical rules at the same spacing with one at the middle of the page; #A3B7D3, 0.4 points wide |
+| `Legacy:13` | `Grid:false:true:0.5` | White with the same horizontal rules from x = 0 to the page's right edge, and vertical rules the page's full height at the same spacing, one of them at the middle of the document's width (x = page width / 2 units: 321.94 points on letter paper); #A3B7D3, 0.4 points wide |
 
 The two booleans and the 0.5 in `lineStyle2` are not understood (the grid is drawn 0.4 points wide). Whether the spacing is always page width / 17 is known only for these two notes.
 
@@ -169,6 +169,26 @@ The scale is `unscaledContentSize` / crop size (0.5 units per image pixel in the
 | `NBCPTimeManagerSOADurationsKey` | float32 | How long the curve took to write, in seconds |
 
 In the sample: the zigzag at 10.8 s for 0.5 s and the line at 15.4 s for 0.3 s, both in recording 1, 4.6 seconds apart (the person writing noted "about 4 seconds later").
+
+## Swift reader
+
+`NotabilityNoteReader` (GraphiteCore, `Sources/GraphiteCore/NotebookImport/`) reads what `scripts/notability-reader.py` reads, into plain values for the conversion of Phase 3. It takes the note's bytes (memory-mapped by the caller), reads `Session.plist` with its own bounded `bplist00` reader (`BinaryPropertyList`) and resolves the keyed archive lazily, one reference at a time (`KeyedArchive`): `PropertyListSerialization` returns an archive's UIDs as opaque `CFKeyedArchiverUID` objects whose number is reachable only through private API, so it reads only the XML `Recordings/library.plist` here. Following references carries a visiting set and a depth limit, and the reader only follows the format's own key paths, so a cyclic object graph cannot make it loop. The packed curve arrays stay as slices of the session's bytes: opening builds a small per-curve index (offsets and lowest and highest y), and `curve(at:)` and `page(number:)` decode only the curves asked for.
+
+Unknown keys, classes, styles, kinds and versions are reported as `NotabilityReadingIssue` cases, one per kind of "unknown" the reference reader prints. Where the reference reader stops with an error, the Swift reader skips only the picture or shape it cannot read and lists it. It also reads the per-knot altitude angles and azimuth vectors, which the reference reader does not, and reports them as an issue when their length does not match the knots. A page lists every curve whose lowest and highest points span it, where the reference reader lists only curves with a point on the page; on the first sample both give the same pages (1,295, 827 and 914 curves).
+
+Its counts equal the reference reader's on all nine notes of the `samples/import-formats` branch, with no unknown category on either side (`NotabilityNoteReaderSampleTests` against `scripts/import-reference-counts.py`, 2026-10-19). "Pages" is the reference reader's "pages reached by content"; the typed-text note is reflowable and stores no page width, so neither reader computes its pages.
+
+| Note | Curves | Points | Highlighter | Shapes | Pictures | Text runs | Text (UTF-16) | PDF pages | Recordings | Timed curves | Pages |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| First sample | 3,036 | 71,886 | 15 | 52 | 6 | 0 | 0 | 0 | 0 | 0 | 3 |
+| Grid paper | 1 | 40 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| Imported PDF | 1 | 37 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 1 |
+| Recording | 2 | 35 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 2 | 1 |
+| Pictures | 1 | 37 | 0 | 0 | 3 | 0 | 0 | 0 | 0 | 0 | 1 |
+| Ruled paper | 1 | 40 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| Separate pages | 2 | 32 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 2 |
+| Shapes | 0 | 0 | 0 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| Typed text | 0 | 0 | 0 | 0 | 0 | 3 | 40 | 0 | 0 | 0 | none |
 
 ## Comparison with Notability's PDF export
 

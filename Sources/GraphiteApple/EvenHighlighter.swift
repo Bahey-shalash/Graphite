@@ -87,10 +87,7 @@ public enum EvenHighlighter {
     /// Pencil's tilt and then change at the lift.
     public static func invisibleStandIn(for highlighter: PKInkingTool) -> PKInkingTool {
         let invisibleColor = highlighter.color.withAlphaComponent(0)
-        if #available(iOS 26.0, *) {
-            return PKInkingTool(highlighter.inkType, color: invisibleColor, width: highlighter.width, azimuth: highlighter.azimuth)
-        }
-        return PKInkingTool(highlighter.inkType, color: invisibleColor, width: highlighter.width)
+        return PKInkingTool(highlighter.inkType, color: invisibleColor, width: highlighter.width, azimuth: highlighter.azimuth)
     }
 
     /// Whether ink is the invisible stand-in's, which no stroke may keep.

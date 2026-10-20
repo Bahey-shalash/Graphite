@@ -21,8 +21,8 @@ final class MainThreadResponsivenessTests: XCTestCase {
     private var savedSpeed = 1.0
 
     override func tearDown() async throws {
-        workspace?.readAloud.clear()
-        workspace?.readAloud.session.setSpeed(savedSpeed)
+        workspace?.activeReadAloud.clear()
+        workspace?.activeReadAloud.session.setSpeed(savedSpeed)
         window?.isHidden = true
         window?.rootViewController = nil
         window = nil
@@ -52,8 +52,11 @@ final class MainThreadResponsivenessTests: XCTestCase {
         try XCTSkipIf(MainThreadWatchdog.isDebuggerAttached, "Under a debugger the watchdog does not run.")
         MainThreadWatchdog.shared.start()
         let before = records(named: "MainThreadStall")
-        usleep(3_000_000)
-        try await Task.sleep(for: .seconds(1.5))
+        // The main thread stays blocked until the watchdog, which runs on a thread of its own, has
+        // written its record: how soon it does depends on the machine, so no fixed time is used.
+        let stallDeadline = ContinuousClock.now + .seconds(60)
+        while records(named: "MainThreadStall-").subtracting(before).isEmpty, ContinuousClock.now < stallDeadline { usleep(50_000) }
+        try await waitUntil("the record says when the stall ended") { !self.records(named: "MainThreadStallEnded-").subtracting(before).isEmpty }
         DiagnosticRecords.waitForPendingWrites()
         let stallRecords = records(named: "MainThreadStall-").subtracting(before)
         XCTAssertEqual(stallRecords.count, 1, "One record of the stall.")
@@ -98,7 +101,7 @@ final class MainThreadResponsivenessTests: XCTestCase {
         window.rootViewController = controller
         window.makeKeyAndVisible()
         self.window = window
-        try await waitUntil(seconds: 30) {
+        try await waitUntil(timeoutSeconds: 30) {
             self.descendants(of: controller.view, matching: UIScrollView.self).contains { scrollView in scrollView.contentSize.height > 5_000 }
         }
         try await Task.sleep(for: .seconds(1))
@@ -125,6 +128,7 @@ final class MainThreadResponsivenessTests: XCTestCase {
     /// The same note read aloud for real in the workspace's reading view, with the words
     /// highlighted and followed: the main thread stays mostly free.
     func testALongNoteReadAloudInTheReadingViewLeavesTheMainThreadMostlyFree() async throws {
+        try TimingBudgets.requireTheOwnersDevice()
         let source = String(repeating: Self.longNote, count: 3)
         let workspace = try await makeWorkspace(notes: ["Long.md": source])
         await workspace.open(try VaultPath("Long.md"))
@@ -132,15 +136,15 @@ final class MainThreadResponsivenessTests: XCTestCase {
         session.viewMode = .reading
         _ = try host(workspace, size: CGSize(width: 834, height: 1194))
         try await Task.sleep(for: .seconds(3))
-        workspace.readAloud.readMarkdown(session.text, path: session.path)
-        try await waitUntil(seconds: 30) { workspace.readAloud.highlight(in: session.path) != nil }
+        workspace.activeReadAloud.readMarkdown(session.text, path: session.path)
+        try await waitUntil(timeoutSeconds: 30) { workspace.activeReadAloud.highlight(in: session.path) != nil }
         try await Task.sleep(for: .seconds(1))
         var ranges = Set<Int>()
         let measuredSeconds = 6.0
         let start = Self.mainThreadProcessorNanoseconds()
         let deadline = Date().addingTimeInterval(measuredSeconds)
         while Date() < deadline {
-            if let range = workspace.readAloud.highlight(in: session.path) { ranges.insert(range.location) }
+            if let range = workspace.activeReadAloud.highlight(in: session.path) { ranges.insert(range.location) }
             try await Task.sleep(for: .milliseconds(20))
         }
         let busyFraction = Double(Self.mainThreadProcessorNanoseconds() - start) / (measuredSeconds * 1_000_000_000)
@@ -208,11 +212,11 @@ final class MainThreadResponsivenessTests: XCTestCase {
         defer { warnings.stop() }
         let probe = MainThreadProbe()
         probe.start()
-        workspace.readAloud.readPDF(pdf, firstPageIndex: 0, lastPageIndex: pdf.pageCount - 1)
-        try await waitUntil(seconds: 20) { workspace.readAloudNavigator.highlightFrameInWindow != nil }
+        workspace.activeReadAloud.readPDF(pdf, firstPageIndex: 0, lastPageIndex: pdf.pageCount - 1)
+        try await waitUntil(timeoutSeconds: 20) { workspace.activeReadAloudNavigator.highlightFrameInWindow != nil }
         try await Task.sleep(for: .seconds(5))
         let measurement = probe.stop()
-        workspace.readAloud.clear()
+        workspace.activeReadAloud.clear()
         print("PDF read aloud while written on, 507 points wide: \(measurement), \(warnings.summary)")
         XCTAssertEqual(warnings.count(of: SwiftUIWarningCapture.cycleMarker), 0, "SwiftUI found no update cycle.")
         XCTAssertLessThan(measurement.longestUnansweredSeconds, 1, "The main thread kept answering.")
@@ -245,14 +249,16 @@ final class MainThreadResponsivenessTests: XCTestCase {
         let folder = try folder ?? makeDirectory()
         for (name, text) in notes { try Data(text.utf8).write(to: folder.appendingPathComponent(name)) }
         let workspace = WorkspaceModel()
+        // Read Aloud is a core plugin that is off by default; these tests read.
+        workspace.setCorePluginEnabled(.readAloud, true)
         workspace.folderAccess = FolderAccess(root: folder)
         workspace.store = VaultStore(root: folder)
         let index = try VaultIndex(databaseURL: folder.appendingPathComponent("index.sqlite"))
         let names = try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { name in name.hasSuffix(".md") || name.hasSuffix(".pdf") }
         try await index.refresh(paths: names.map { name in try VaultPath(name) }, root: folder)
         workspace.index = index
-        savedSpeed = workspace.readAloud.session.speed
-        workspace.readAloud.session.setSpeed(2)
+        savedSpeed = workspace.activeReadAloud.session.speed
+        workspace.activeReadAloud.session.setSpeed(2)
         self.workspace = workspace
         return workspace
     }
@@ -262,7 +268,7 @@ final class MainThreadResponsivenessTests: XCTestCase {
             NavigationStack {
                 WorkspacePanes(workspace: workspace, showsLinksInspector: .constant(false), create: { _ in }, showQuickSwitcher: {})
             }
-            ReadAloudFloatingPlayer(reader: workspace.readAloud, navigator: workspace.readAloudNavigator)
+            ReadAloudFloatingPlayer(reader: workspace.activeReadAloud, navigator: workspace.activeReadAloudNavigator)
         }))
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { scene in scene as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
@@ -273,16 +279,6 @@ final class MainThreadResponsivenessTests: XCTestCase {
         return controller
     }
 
-    private func waitUntil(seconds: Double = 10, _ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(seconds)
-        while !condition() {
-            guard Date() < deadline else {
-                XCTFail("The condition did not become true within \(seconds) seconds")
-                throw CancellationError()
-            }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-    }
 }
 
 /// The word being read, which a test changes as Read Aloud would.
@@ -402,3 +398,16 @@ final class SwiftUIWarningCapture: @unchecked Sendable {
     }
 }
 #endif
+
+private extension WorkspaceModel {
+    /// The reader of a workspace whose Read Aloud plugin these tests turned on.
+    var activeReadAloud: ReadAloudController {
+        guard let readAloud else { preconditionFailure("The Read Aloud core plugin was turned on when the workspace was made.") }
+        return readAloud
+    }
+
+    var activeReadAloudNavigator: ReadAloudNavigator {
+        guard let readAloudNavigator else { preconditionFailure("The Read Aloud core plugin was turned on when the workspace was made.") }
+        return readAloudNavigator
+    }
+}

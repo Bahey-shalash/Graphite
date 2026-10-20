@@ -2,11 +2,11 @@ import XCTest
 import CryptoKit
 import GraphiteCore
 @testable import GraphiteIndex
+import GraphiteTestSupport
 
 final class IndexTests: XCTestCase {
     func testLinksResolveDottedNamesUnicodeFormsAndPartialPaths() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "TemporaryFolder", for: self).root
         let index = try VaultIndex(databaseURL: directory.appendingPathComponent("index.sqlite"))
         let source = try VaultPath("Notes/Source.md")
         let dotted = try VaultPath("Courses/CS-250 Homework 2.1.md")
@@ -32,8 +32,7 @@ final class IndexTests: XCTestCase {
     }
 
     func testSearchPutsFileNameMatchesFirstWithoutDuplicates() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "TemporaryFolder", for: self).root
         let index = try VaultIndex(databaseURL: directory.appendingPathComponent("index.sqlite"))
         try await index.update([
             IndexedFile(path: try VaultPath("Lectures/Signals.md"), size: 40, modified: .now, markdown: "Math appears in the body of this lecture."),
@@ -50,8 +49,7 @@ final class IndexTests: XCTestCase {
     }
 
     func testSearchAliasesAmbiguityAndBacklinks() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "TemporaryFolder", for: self).root
         let index = try VaultIndex(databaseURL: directory.appendingPathComponent("index.sqlite"))
         let source = try VaultPath("Course/Lecture.md")
         let target = try VaultPath("Course/Quantization.md")
@@ -75,8 +73,7 @@ final class IndexTests: XCTestCase {
     }
 
     func testEverySearchSortOrder() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "TemporaryFolder", for: self).root
         let index = try VaultIndex(databaseURL: directory.appendingPathComponent("index.sqlite"))
         // Folders sort the other way from the names, and names differ in case, so path
         // order and case-sensitive order both disagree with the expected name order.
@@ -106,14 +103,9 @@ final class IncrementalIndexTests: XCTestCase {
     private var index: VaultIndex!
 
     override func setUp() async throws {
-        vault = FileManager.default.temporaryDirectory.appendingPathComponent("Vault-\(UUID().uuidString)")
+        vault = try TemporaryVault.make(prefix: "Vault", for: self).root
         try FileManager.default.createDirectory(at: vault.appendingPathComponent("Course"), withIntermediateDirectories: true)
         index = try VaultIndex(databaseURL: vault.appendingPathExtension("cache").appendingPathComponent("index.sqlite"))
-    }
-
-    override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: vault)
-        try? FileManager.default.removeItem(at: vault.appendingPathExtension("cache"))
     }
 
     private func write(_ text: String, to relativePath: String) throws {

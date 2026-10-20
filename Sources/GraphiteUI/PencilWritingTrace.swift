@@ -36,7 +36,7 @@ enum PencilWritingTrace {
     @inline(__always)
     static func pencilDidTouch(_ touch: UITouch) {
         #if DEBUG || GRAPHITE_WRITING_TRACE
-        let deliveryMilliseconds = (ProcessInfo.processInfo.systemUptime - touch.timestamp) * millisecondsPerSecond
+        let deliveryMilliseconds = (PencilActivity.now - touch.timestamp) * millisecondsPerSecond
         signposter.emitEvent("Pencil down", "delivered after \(deliveryMilliseconds, format: .fixed(precision: 2)) ms")
         #endif
     }
@@ -45,7 +45,7 @@ enum PencilWritingTrace {
     @inline(__always)
     static func pencilDidLift(_ touch: UITouch) {
         #if DEBUG || GRAPHITE_WRITING_TRACE
-        let deliveryMilliseconds = (ProcessInfo.processInfo.systemUptime - touch.timestamp) * millisecondsPerSecond
+        let deliveryMilliseconds = (PencilActivity.now - touch.timestamp) * millisecondsPerSecond
         signposter.emitEvent("Pencil up", "delivered after \(deliveryMilliseconds, format: .fixed(precision: 2)) ms")
         #endif
     }
@@ -101,9 +101,8 @@ enum PencilWritingTrace {
 
     private static func describe(_ tool: PKTool) -> String {
         if let inkingTool = tool as? PKInkingTool {
-            var description = "\(inkingTool.inkType.rawValue) width \(String(format: "%.3f", inkingTool.width))"
-            if #available(iOS 26.0, *) { description += " azimuth \(String(format: "%.3f", inkingTool.azimuth))" }
-            return description + " alpha \(String(format: "%.2f", inkingTool.color.cgColor.alpha))"
+            return "\(inkingTool.inkType.rawValue) width \(String(format: "%.3f", inkingTool.width))"
+                + " azimuth \(String(format: "%.3f", inkingTool.azimuth)) alpha \(String(format: "%.2f", inkingTool.color.cgColor.alpha))"
         }
         if let eraserTool = tool as? PKEraserTool { return "eraser width \(String(format: "%.3f", eraserTool.width))" }
         return String(describing: type(of: tool))

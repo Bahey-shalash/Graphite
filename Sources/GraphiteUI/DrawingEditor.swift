@@ -219,12 +219,13 @@ struct DrawingEditor: View {
                 Button("Crop") { runPictureChange { try await canvasController.applyCrop() } }
                     .fontWeight(.semibold)
                     .tint(.primary)
+                    .disabled(canvasController.pictureOperations.isRunning)
             } else {
                 Text(canvasController.selectedPictureIdentifier == nil ? "Tap an image to select it." : "Drag the image to move it, a corner to resize it, or the arrow handle to rotate it.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 8)
-                PictureEditingButtons(isEnabled: canvasController.selectedPictureIdentifier != nil, canReorder: canvasController.pictures.count > 1,
+                PictureEditingButtons(isEnabled: canvasController.selectedPictureIdentifier != nil && !canvasController.pictureOperations.isRunning, canReorder: canvasController.pictures.count > 1,
                                       rotateRight: { runPictureChange { try await canvasController.rotateSelectedPictureRight() } },
                                       crop: { canvasController.beginCroppingPicture() },
                                       moveInOrder: { toFront in canvasController.moveSelectedPictureInOrder(toFront: toFront) },
@@ -347,6 +348,7 @@ struct DrawingEditor: View {
     /// enough: the system can tear down a background window's views, which is the case the
     /// copy is kept for.
     private func close() {
+        canvasController.pictureOperations.cancel()
         removeDraft()
         dismiss()
     }
@@ -384,10 +386,10 @@ struct DrawingEditor: View {
         catch { errorMessage = error.localizedDescription }
     }
 
-    private func runPictureChange(_ change: @escaping () async throws -> Void) {
-        Task {
-            do { try await change() } catch { errorMessage = error.localizedDescription }
-        }
+    /// One picture change at a time: a second tap while one runs is ignored, because it would
+    /// start from the picture the first is about to replace.
+    private func runPictureChange(_ change: @escaping @MainActor () async throws -> Void) {
+        canvasController.pictureOperations.start(change, onFailure: { error in errorMessage = error.localizedDescription })
     }
 
     private func addPicture(imageData: Data) async {
@@ -450,6 +452,8 @@ final class DrawingCanvasController {
         didSet { showPicturesAndPaper() }
     }
     var hasChanges: Bool
+    /// Turning or cropping a picture re-encodes it off the main thread; only one runs at a time.
+    let pictureOperations = ExclusiveOperationRunner()
     var hasInk = false
     var canvasWidth: Double = 0
     var loadingError: String?
@@ -601,6 +605,7 @@ final class DrawingCanvasController {
         let placed = pictures[pictureIndex]
         let pictureData = placed.picture.imageData
         let turnedData = try await Task.detached(priority: .userInitiated) { try PictureEditing.rotatedClockwise(pictureData) }.value
+        try Task.checkCancellation()
         let frame = placed.picture.frame
         let turnedFrame = CGRect(x: frame.midX - frame.height / 2, y: frame.midY - frame.width / 2, width: frame.height, height: frame.width)
         replacePicture(placed.id, with: DrawingBackgroundImage(imageData: turnedData, frame: turnedFrame, rotationRadians: placed.picture.rotationRadians),
@@ -637,6 +642,7 @@ final class DrawingCanvasController {
                             width: keptFrame.width / frame.width, height: keptFrame.height / frame.height)
         let pictureData = placed.picture.imageData
         let croppedData = try await Task.detached(priority: .userInitiated) { try PictureEditing.cropped(pictureData, to: region) }.value
+        try Task.checkCancellation()
         // The part kept stays where it was shown: a picture of its own, turned as the
         // picture was, about its own middle.
         let rotationRadians = placed.picture.rotationRadians

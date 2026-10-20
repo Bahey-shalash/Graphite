@@ -2,6 +2,7 @@ import Foundation
 import XCTest
 import GraphiteApple
 import GraphiteCore
+import GraphiteTestSupport
 @testable import GraphiteUI
 
 /// Values the whole window observes stay the same while nothing changed, so a redraw of the
@@ -9,20 +10,14 @@ import GraphiteCore
 /// 24,712 files at a vault's root these redraws cost the Mac over a second per note.
 @MainActor
 final class UiRedrawAvoidanceTests: XCTestCase {
-    private var temporaryDirectories: [URL] = []
-
     override func tearDown() async throws {
-        for directory in temporaryDirectories { try? FileManager.default.removeItem(at: directory) }
-        temporaryDirectories = []
         try await super.tearDown()
     }
 
     /// SwiftUI compares colors by their platform color object; an accent made again on each
     /// read counted as a new environment value every time.
     func testTheAccentReadTwiceIsTheSameColor() throws {
-        let suiteName = "UiRedrawAvoidanceTests-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let defaults = try IsolatedDeviceState.make(prefix: "UiRedrawAvoidanceTests", for: self).preferences
         let preferences = GraphitePreferences(defaults: defaults)
 
         XCTAssertEqual(preferences.accentColor, preferences.accentColor)
@@ -32,11 +27,9 @@ final class UiRedrawAvoidanceTests: XCTestCase {
     /// change refreshes the vault's root. Its files were asked about again each time, up to
     /// 5,000 of a 24,712-file root through the file provider; now only new files are.
     func testRefreshingAnUnchangedFolderDoesNotAskAboutItsFilesAgain() async throws {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("RedrawVault-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
-        temporaryDirectories.append(vault)
+        let vault = try TemporaryVault.make(prefix: "RedrawVault", for: self).root
         for name in ["Alpha.md", "Beta.md"] { try Data("# \(name)\n".utf8).write(to: vault.appendingPathComponent(name)) }
-        let store = try TestConflictVersionStore()
+        let store = try FakeConflictVersionStore()
         let workspace = WorkspaceModel()
         workspace.folderAccess = FolderAccess(root: vault)
         workspace.store = VaultStore(root: vault)

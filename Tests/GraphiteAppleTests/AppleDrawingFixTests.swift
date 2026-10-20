@@ -10,6 +10,7 @@ import GraphiteCore
 #if canImport(PencilKit) && canImport(AppKit)
 import PencilKit
 import AppKit
+import GraphiteTestSupport
 #endif
 
 final class AppleDrawingFixTests: XCTestCase {
@@ -63,8 +64,7 @@ final class AppleDrawingFixTests: XCTestCase {
     }
 
     private func temporaryDirectory() throws -> URL {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("AppleDrawingFixTests-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let directory = try TemporaryVault.make(prefix: "AppleDrawingFixTests", for: self).root
         addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
         return directory
     }
@@ -269,7 +269,7 @@ final class AppleDrawingFixTests: XCTestCase {
         XCTAssertFalse(isDrawing, name, file: testFile, line: line)
         XCTAssertFalse(hasStrokes, name, file: testFile, line: line)
         XCTAssertLessThan(peakFootprintMegabytes() - peakBefore, 150, "\(name): decoding must stay within its budget.", file: testFile, line: line)
-        XCTAssertLessThan(Date().timeIntervalSince(startTime), 20, name, file: testFile, line: line)
+        XCTAssertLessThan(Date().timeIntervalSince(startTime), HangGuard.seconds, name, file: testFile, line: line)
     }
 
     /// Every note that embeds this small PDF used to inflate a gigabyte three times over.
@@ -851,4 +851,3 @@ final class AppleDrawingFixTests: XCTestCase {
         XCTAssertEqual(PDFEmbedOptions(fragment: "page=2&height=300"), PDFEmbedOptions(startPageNumber: 2, height: 300))
     }
 }
-

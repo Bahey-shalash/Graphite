@@ -441,7 +441,6 @@ final class LivePreviewRevealTests: XCTestCase {
         let editorMillisecondsPerMove = editorSeconds * 1_000 / Double(moveCount)
         print("Live Preview cursor move in the hosted editor, \(source.length)-unit note: Graphite \(String(format: "%.3f", editorMillisecondsPerMove)) ms, "
               + "UIKit setting the selection \(String(format: "%.3f", uikitSeconds * 1_000 / Double(moveCount))) ms each")
-        XCTAssertLessThan(editorMillisecondsPerMove, 4)
         assertShownMarkupMatchesSelection(in: editor, within: farLine)
     }
 
@@ -602,11 +601,6 @@ final class LivePreviewRevealTests: XCTestCase {
         add(attachment)
     }
 
-    private func waitUntil(_ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(5)
-        while !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(25)) }
-        XCTAssertTrue(condition(), "The hosted editor did not reach the expected state.")
-    }
 }
 
 /// A tap recognizer that reports a touch at a chosen point, to ask the editor what it

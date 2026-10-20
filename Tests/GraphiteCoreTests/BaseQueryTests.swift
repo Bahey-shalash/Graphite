@@ -280,6 +280,12 @@ final class BaseQueryTests: XCTestCase {
         XCTAssertEqual(doingRow.cells[4].value, .string(""), "if(due, …, \"\") is empty text without a due date.")
         XCTAssertEqual(result.summaries[.formula("days_until_due")]?.value, .value(.number(-1)), "Text values are ignored by Average.")
         XCTAssertEqual(result.matchingCount, 4)
+        XCTAssertEqual(result.groupDisplayName, "Status", "Group headings name the property by its display name, as Obsidian does.")
+    }
+
+    func testAnUngroupedViewHasNoGroupDisplayName() throws {
+        let result = try run("views:\n  - type: cards\n    name: Cards\n")
+        XCTAssertNil(result.groupDisplayName)
     }
 
     func testMultipleSortKeysAndDirectionsWithEmptyValuesLast() throws {

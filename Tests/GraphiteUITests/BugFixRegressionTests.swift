@@ -4,6 +4,7 @@ import SwiftUI
 import GraphiteApple
 @testable import GraphiteCore
 @testable import GraphiteUI
+import GraphiteTestSupport
 
 /// Edge cases found in a review of the whole app, each of which went wrong before.
 @MainActor
@@ -22,7 +23,7 @@ final class BugFixRegressionTests: XCTestCase {
     // MARK: Read Aloud's places
 
     private func makeNavigator() throws -> (ReadAloudNavigator, UserDefaults) {
-        let preferences = try XCTUnwrap(UserDefaults(suiteName: "BugFixRegressionTests-\(UUID().uuidString)"))
+        let preferences = try IsolatedDeviceState.make(prefix: "BugFixRegressionTests", for: self).preferences
         let session = ReadAloudSession(speech: PenTestSpeech(), preferences: preferences)
         let reader = ReadAloudController(session: session, preferences: preferences)
         return (ReadAloudNavigator(reader: reader, preferences: preferences), preferences)
@@ -70,9 +71,7 @@ final class BugFixRegressionTests: XCTestCase {
     /// Switching tabs made the Mac's PDF view again at the top of the current page at best;
     /// it now comes back to the same place on the page, as the iPad does.
     func testTheMacPDFViewComesBackToItsPlaceOnThePage() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("MacPlace-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TemporaryVault.make(prefix: "MacPlace", for: self).root
         let location = try PerformanceBenchmarkTests.makeLecturePDF(at: directory.appendingPathComponent("Lecture.pdf"), pageCount: 20)
         let session = try await PDFSession.open(location)
         session.keptPlace = PDFPagePlace(pageIndex: 7, fractionFromTop: 0.5)

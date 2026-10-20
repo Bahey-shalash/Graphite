@@ -3,6 +3,7 @@ import CoreGraphics
 import ImageIO
 import UniformTypeIdentifiers
 @testable import GraphiteApple
+import GraphiteTestSupport
 
 /// Embeds are decoded at the width they are shown at rather than a fixed longest side, and
 /// never larger than the longest side allows.
@@ -10,12 +11,7 @@ final class ImagePreviewSizingTests: XCTestCase {
     private var directory: URL!
 
     override func setUpWithError() throws {
-        directory = FileManager.default.temporaryDirectory.appendingPathComponent("ImagePreviewSizing-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: directory)
+        directory = try TemporaryVault.make(prefix: "ImagePreviewSizing", for: self).root
     }
 
     private func bitmap(width: Int, height: Int) throws -> CGImage {

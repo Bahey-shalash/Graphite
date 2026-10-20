@@ -925,3 +925,27 @@ No new protocol is introduced beyond `HostChannel`, which already has two implem
 Correction to the "Not read" list above: eight test files, not seven, were read only through their names and cited excerpts (the eight listed). `editor-commands.test.js`, `support/runtime-harness.js` and `support/test-vault-host.js` were read in full.
 
 Severity tally: High 2 (SRP-RUNTIME-02, OCP-RUNTIME-01); Medium 20; Low 10. Bugs: 7 (3 traced: BUG-RUNTIME-01, 02, 03; 4 partly traced). Invariants: 28.
+
+## 9. Since the snapshot
+
+Delta audit of 2026-10-19 at `fff794b` (main), against `FR-01` to `FR-108`. Commits: `1f45079` (each plugin command gets its own editor), `61de461` (`Mod` shortcuts fire), `4489db2` (plugin views).
+
+### New findings
+
+#### LSP-RUNTIME-07 `setViewState` on the note's leaf returns without changing that leaf's view
+- **Severity:** Medium
+- **Rule:** `FR-30`, `FR-29`
+- **Evidence:** with a note active, `getLeaf(false)` returns `markdownLeaf` ([community-plugin-runtime-workspace.js:861-864](../../../Sources/GraphiteUI/Resources/CommunityPluginRuntime/community-plugin-runtime-workspace.js#L861-L864)); on that leaf (kind `'mirror'`), `setViewState` creates another tab leaf, sets the state there and returns ([:609-617](../../../Sources/GraphiteUI/Resources/CommunityPluginRuntime/community-plugin-runtime-workspace.js#L609-L617)); the plugin's leaf keeps its `MarkdownView`, and `revealLeaf(leaf)` returns early for it ([:915](../../../Sources/GraphiteUI/Resources/CommunityPluginRuntime/community-plugin-runtime-workspace.js#L915)). Introduced in `4489db2`.
+- **Why it matters:** in Obsidian, after `await leaf.setViewState({type})` that leaf shows the view; plugins that then read `leaf.view` act on the note's view.
+- **Fix direction:** the leaf object the plugin holds becomes the one that shows the view; a Node test on `leaf.view.getViewType()`.
+
+#### CC-RUNTIME-13 "`Mod` means Command" is decided in two functions
+- **Severity:** Low
+- **Rule:** `FR-10`
+- **Evidence:** `Keymap.normalizedModifiers` maps `Mod` to `Meta` ([community-plugin-runtime-interface.js:173-175](../../../Sources/GraphiteUI/Resources/CommunityPluginRuntime/community-plugin-runtime-interface.js#L173-L175)) and `isModifier` makes the same mapping itself ([:176-178](../../../Sources/GraphiteUI/Resources/CommunityPluginRuntime/community-plugin-runtime-interface.js#L176-L178)); a registration listing both `Mod` and `Meta` becomes `"Meta,Meta"` and never matches. Introduced in `61de461`.
+- **Fix direction:** one platform-modifier helper; remove duplicates when normalizing.
+
+### State changes of earlier findings
+- `SRP-RUNTIME-04`: **Worse**: `replacesCurrentTab` is a loose field not declared in the `WorkspaceLeaf` constructor ([community-plugin-runtime-workspace.js:573-588](../../../Sources/GraphiteUI/Resources/CommunityPluginRuntime/community-plugin-runtime-workspace.js#L573-L588), set at [:613-614](../../../Sources/GraphiteUI/Resources/CommunityPluginRuntime/community-plugin-runtime-workspace.js#L613-L614)).
+- `CC-RUNTIME-02`: **Worse**: the `view.reveal` payload is written twice ([:664](../../../Sources/GraphiteUI/Resources/CommunityPluginRuntime/community-plugin-runtime-workspace.js#L664), [:920](../../../Sources/GraphiteUI/Resources/CommunityPluginRuntime/community-plugin-runtime-workspace.js#L920)).
+- `CC-RUNTIME-10`: **Worse by two** lines over 160 characters (the same two).
