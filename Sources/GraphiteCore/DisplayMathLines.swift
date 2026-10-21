@@ -28,7 +28,7 @@ public struct DisplayMathLines {
     /// the note for each one.
     private let closingLineIndexFromLine: [Int?]
 
-    private static let codeSpanPattern = try? NSRegularExpression(pattern: "(?<!`)(`+)(?!`)[^\\n]*?(?<!`)\\1(?!`)")
+    private static let codeSpanPattern = DisplayMathLinesPattern.codeSpanPattern.compiled()
     private static let dollarSignCodeUnit = UInt16(UInt8(ascii: "$"))
     private static let backslashCodeUnit = UInt16(UInt8(ascii: "\\"))
 
@@ -100,8 +100,13 @@ public struct DisplayMathLines {
                 precedingBackslashCount = codeUnit == backslashCodeUnit ? precedingBackslashCount + 1 : 0
             }
         }
-        guard skippingCodeSpans, !offsets.isEmpty, line.contains("`"), let codeSpanPattern else { return offsets }
+        guard skippingCodeSpans, !offsets.isEmpty, line.contains("`") else { return offsets }
         let codeRanges = codeSpanPattern.matches(in: line, range: NSRange(location: 0, length: (line as NSString).length)).map(\.range)
         return offsets.filter { offset in !codeRanges.contains { codeRange in NSLocationInRange(offset, codeRange) } }
     }
+}
+
+/// The constant patterns of `DisplayMathLines`; `StaticPatternTests` compiles every case.
+enum DisplayMathLinesPattern: String, StaticPatternSet {
+    case codeSpanPattern = #"(?<!`)(`+)(?!`)[^\n]*?(?<!`)\1(?!`)"#
 }

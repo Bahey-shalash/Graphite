@@ -375,8 +375,8 @@ public enum LinkInText: Equatable, Sendable {
 }
 
 public enum LinkLocator {
-    private static let wikilinkPattern = try? NSRegularExpression(pattern: "(!?)\\[\\[([^\\]|\\n]+)(?:\\|[^\\]\\n]+)?\\]\\]")
-    private static let markdownLinkPattern = try? NSRegularExpression(pattern: "(?<!!)\\[[^\\]\\n]*\\]\\(([^)\\n]+)\\)")
+    private static let wikilinkPattern = LinkLocatorPattern.wikilinkPattern.compiled()
+    private static let markdownLinkPattern = LinkLocatorPattern.markdownLinkPattern.compiled()
 
     /// The link around a character of a line, if any. Embeds are not links.
     /// - Parameter includesEnd: Also counts the position right after the link's last
@@ -385,15 +385,21 @@ public enum LinkLocator {
         let lineLength = (line as NSString).length
         let wholeLine = NSRange(location: 0, length: lineLength)
         let contains = { (range: NSRange) in NSLocationInRange(index, range) || (includesEnd && index == NSMaxRange(range)) }
-        if let match = wikilinkPattern?.matches(in: line, range: wholeLine).first(where: { match in contains(match.range) }) {
+        if let match = wikilinkPattern.matches(in: line, range: wholeLine).first(where: { match in contains(match.range) }) {
             guard match.range(at: 1).length == 0 else { return nil }
             return .note(target: (line as NSString).substring(with: match.range(at: 2)), isWiki: true)
         }
-        if let match = markdownLinkPattern?.matches(in: line, range: wholeLine).first(where: { match in contains(match.range) }) {
+        if let match = markdownLinkPattern.matches(in: line, range: wholeLine).first(where: { match in contains(match.range) }) {
             let destination = (line as NSString).substring(with: match.range(at: 1))
             if let webLocation = URL(string: destination), webLocation.scheme != nil { return .web(webLocation) }
             return .note(target: destination, isWiki: false)
         }
         return nil
     }
+}
+
+/// The constant patterns of `LinkLocator`; `StaticPatternTests` compiles every case.
+enum LinkLocatorPattern: String, StaticPatternSet {
+    case wikilinkPattern = #"(!?)\[\[([^\]|\n]+)(?:\|[^\]\n]+)?\]\]"#
+    case markdownLinkPattern = #"(?<!!)\[[^\]\n]*\]\(([^)\n]+)\)"#
 }

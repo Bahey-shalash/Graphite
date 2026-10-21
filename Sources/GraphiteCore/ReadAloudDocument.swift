@@ -222,7 +222,7 @@ public struct ReadAloudDocument: Equatable, Sendable {
             }
             // Dot leaders in a table of contents (". . . . 144") are not read.
             var segmentStart = line.range.location
-            for leader in Self.dotLeader?.matches(in: source, range: line.range) ?? [] {
+            for leader in Self.dotLeader.matches(in: source, range: line.range) {
                 appendSource(NSRange(location: segmentStart, length: leader.range.location - segmentStart))
                 unitText += " "
                 segmentStart = NSMaxRange(leader.range)
@@ -271,7 +271,7 @@ public struct ReadAloudDocument: Equatable, Sendable {
         return candidates
     }
 
-    private static let dotLeader = try? NSRegularExpression(pattern: #"(?:\s*\.){4,}\s*"#)
+    private static let dotLeader = ReadAloudDocumentPattern.dotLeader.compiled()
 
     /// The length of a bullet glyph and the spaces after it at the start of a line, if any.
     private static func leadingBulletLength(in line: String) -> Int? {
@@ -627,13 +627,17 @@ public struct ReadAloudDocument: Equatable, Sendable {
     /// Only abbreviations whose meaning is unambiguous where they match; "Fig.", "Eq.",
     /// "No." and "pp." only before a number.
     private static let abbreviationSpeech: [(NSRegularExpression, String)] = [
-        (#"\be\.g\."#, "for example"), (#"\bi\.e\."#, "that is"), (#"\bw\.r\.t\."#, "with respect to"),
-        (#"\bvs\."#, "versus"), (#"\bcf\."#, "compare"), (#"\bFigs\.(?=\s*[\d(])"#, "Figures"),
-        (#"\bFig\.(?=\s*[\d(])"#, "Figure"), (#"\bEqs?\.(?=\s*\(?\d)"#, "Equation"),
-        (#"\bNo\.(?=\s*\d)"#, "number"), (#"\bpp\.(?=\s*\d)"#, "pages")
-    ].compactMap { pattern, speech in
-        (try? NSRegularExpression(pattern: pattern)).map { expression in (expression, speech) }
-    }
+        (ReadAloudDocumentPattern.forExampleAbbreviation.compiled(), "for example"),
+        (ReadAloudDocumentPattern.thatIsAbbreviation.compiled(), "that is"),
+        (ReadAloudDocumentPattern.withRespectToAbbreviation.compiled(), "with respect to"),
+        (ReadAloudDocumentPattern.versusAbbreviation.compiled(), "versus"),
+        (ReadAloudDocumentPattern.compareAbbreviation.compiled(), "compare"),
+        (ReadAloudDocumentPattern.figuresAbbreviation.compiled(), "Figures"),
+        (ReadAloudDocumentPattern.figureAbbreviation.compiled(), "Figure"),
+        (ReadAloudDocumentPattern.equationAbbreviation.compiled(), "Equation"),
+        (ReadAloudDocumentPattern.numberAbbreviation.compiled(), "number"),
+        (ReadAloudDocumentPattern.pagesAbbreviation.compiled(), "pages")
+    ]
 
     /// Display math inside a callout or quote carries the "> " of every line it spans; those
     /// markers belong to the quote, not to the equation.
@@ -727,4 +731,19 @@ public enum ReadAloudError: LocalizedError {
         case .textRecognitionUnavailable: "This device could not recognize the text on this scanned page, so nothing was read. Try again, or choose a page with selectable text."
         }
     }
+}
+
+/// The constant patterns of `ReadAloudDocument`; `StaticPatternTests` compiles every case.
+enum ReadAloudDocumentPattern: String, StaticPatternSet {
+    case forExampleAbbreviation = #"\be\.g\."#
+    case thatIsAbbreviation = #"\bi\.e\."#
+    case withRespectToAbbreviation = #"\bw\.r\.t\."#
+    case versusAbbreviation = #"\bvs\."#
+    case compareAbbreviation = #"\bcf\."#
+    case figuresAbbreviation = #"\bFigs\.(?=\s*[\d(])"#
+    case figureAbbreviation = #"\bFig\.(?=\s*[\d(])"#
+    case equationAbbreviation = #"\bEqs?\.(?=\s*\(?\d)"#
+    case numberAbbreviation = #"\bNo\.(?=\s*\d)"#
+    case pagesAbbreviation = #"\bpp\.(?=\s*\d)"#
+    case dotLeader = #"(?:\s*\.){4,}\s*"#
 }

@@ -8,9 +8,9 @@ Every finding and defect with its current state: **Fixed** (the current code no 
 
 | State | Count |
 | --- | ---: |
-| Open | 472 |
+| Open | 470 |
 | Partly fixed | 36 |
-| Fixed | 102 |
+| Fixed | 104 |
 | Duplicate | 2 |
 | No change needed | 1 |
 | **All** | **613** |
@@ -24,7 +24,7 @@ Open items by prefix and severity:
 | LSP | 3 | 24 | 22 | 49 |
 | ISP | 3 | 20 | 18 | 41 |
 | DIP | 2 | 32 | 19 | 53 |
-| CC | 0 | 81 | 110 | 191 |
+| CC | 0 | 80 | 109 | 189 |
 | BUG | 0 | 0 | 1 | 1 |
 
 Partly fixed items by prefix and severity:
@@ -362,7 +362,7 @@ Partly fixed items by prefix and severity:
 | [CC-ARCH-12](cross-cutting/architecture.md#cc-arch-12-the-hosted-test-isolation-that-launchmode-documents-covers-three-of-seven-app-private-stores-cites-the-wrong-invariant-and-leaves-a-preferences-file-per-run) | ARCH | Medium | Open | Delta audit 2026-10-19 (`fff794b`); introduced in `0c074d9` | The hosted-test isolation that `LaunchMode` documents covers three of seven app-private stores, cites the wrong invariant, and leaves a preferences file per run |
 | [CC-BASES-01](areas/bases.md#cc-bases-01-29-functions-exceed-40-code-lines) | BASES | Medium | Partly fixed | Three listed functions are now under 40 code lines (`BaseCardsView.card` about 36, `BaseTableView.headerRow` 30, `BaseListView.item` 32), so the count goes from 29 to 26. | 29 functions exceed 40 code lines |
 | [CC-BASES-02](areas/bases.md#cc-bases-02-ad-hoc-latest-answer-wins-and-17-owner-less-view-tasks) | BASES | Medium | Open | Present at the snapshot (area document) | Ad-hoc "latest answer wins" and 17 owner-less view tasks |
-| [CC-BASES-03](areas/bases.md#cc-bases-03-seven-static-regular-expressions-are-built-with-try) | BASES | Low | Open | Present at the snapshot (area document) | Seven static regular expressions are built with `try?` |
+| [CC-BASES-03](areas/bases.md#cc-bases-03-seven-static-regular-expressions-are-built-with-try) | BASES | Low | Fixed | Phase 3 step 4 (2026-10-21): the Bases patterns are `BaseDateParsingPattern`, `BaseDurationParsingPattern`, `BaseFrontmatterPattern`, `BasePropertyEditingPattern` and `BaseQueryEnginePattern` cases compiled once through `StaticPatternSet.compiled()` and covered by `StaticPatternTests`; no `try?` remains on a Bases pattern. | Seven static regular expressions are built with `try?` |
 | [CC-BASES-04](areas/bases.md#cc-bases-04-the-frontmatter-regular-expression-exists-four-times-one-copy-byte-identical) | BASES | Low | Open | Present at the snapshot (area document) | The frontmatter regular expression exists four times, one copy byte-identical |
 | [CC-BASES-05](areas/bases.md#cc-bases-05-one-concept-several-rules-property-name-matching-and-number-reading) | BASES | Low | Open | Present at the snapshot (area document) | One concept, several rules: property-name matching and number reading |
 | [CC-BASES-06](areas/bases.md#cc-bases-06-work-and-side-effects-in-body-and-view-initialisers) | BASES | Medium | Open | Present at the snapshot (area document) | Work and side effects in `body` and view initialisers |
@@ -455,7 +455,7 @@ Partly fixed items by prefix and severity:
 | [CC-LECTURE-14](areas/lecture.md#cc-lecture-14-swallowed-errors-hide-leftovers-in-the-recovery-folder) | LECTURE | Low | Open | Present at the snapshot (area document) | Swallowed errors hide leftovers in the recovery folder |
 | [CC-LECTURE-15](areas/lecture.md#cc-lecture-15-unsafe-concurrency-escapes-are-spread-across-files-each-with-a-stated-invariant) | LECTURE | Low | Open | Present at the snapshot (area document) | Unsafe concurrency escapes are spread across files, each with a stated invariant |
 | [CC-LECTURE-16](areas/lecture.md#cc-lecture-16-moviepartwritertrack-keeps-a-struct-of-escaping-closures-that-only-its-removed-fallback-needed-on-the-per-frame-path) | LECTURE | Low | Open | Delta audit 2026-10-19 (`fff794b`); introduced in `f65a8dd` | `MoviePartWriter.Track` keeps a struct of escaping closures that only its removed fallback needed, on the per-frame path |
-| [CC-MDCORE-01](areas/mdcore.md#cc-mdcore-01-constant-regular-expressions-use-three-failure-policies-53-of-them-fail-silently) | MDCORE | Medium | Open | Present at the snapshot (area document) | Constant regular expressions use three failure policies; 53 of them fail silently |
+| [CC-MDCORE-01](areas/mdcore.md#cc-mdcore-01-constant-regular-expressions-use-three-failure-policies-53-of-them-fail-silently) | MDCORE | Medium | Fixed | Phase 3 step 4 (2026-10-21, `solid-cleanup-phases`). Every constant regular expression is a case of a `StaticPatternSet` enum named after its owner ([StaticPattern.swift](../../Sources/GraphiteCore/StaticPattern.swift)), compiled once into a `static let` through `compiled()`, which stops at first use on a malformed literal; `StaticPatternTests` (Core and UI) compiles every case of all 37 sets, and gate `static-pattern-sets-tested` (0) fails when a set is missing from them. Gates: `constant-pattern-try` 93 → 6 (the person-supplied search, date-format and link-destination patterns, each with a same-line comment), `try-force` 2 → 0. | Constant regular expressions use three failure policies; 53 of them fail silently |
 | [CC-MDCORE-02](areas/mdcore.md#cc-mdcore-02-per-keystroke-code-still-tests-overlaps-linearly-while-two-other-files-fixed-the-same-quadratic) | MDCORE | Medium | Open | Present at the snapshot (area document) | Per-keystroke code still tests overlaps linearly, while two other files fixed the same quadratic |
 | [CC-MDCORE-03](areas/mdcore.md#cc-mdcore-03-23-functions-exceed-40-code-lines-the-largest-is-176) | MDCORE | Low | Open | Present at the snapshot (area document) | 23 functions exceed 40 code lines; the largest is 176 |
 | [CC-MDCORE-04](areas/mdcore.md#cc-mdcore-04-nine-comments-narrate-history-instead-of-stating-the-rule) | MDCORE | Low | Fixed | Phase 3 step 1 (2026-10-21, `solid-cleanup-phases`). The history comments state the current rule: [MarkdownStyleScanner.swift](../../Sources/GraphiteCore/MarkdownStyleScanner.swift) (chunked reading), [MarkdownEditing.swift](../../Sources/GraphiteCore/MarkdownEditing.swift) (frontmatter end, unwrapping, joining spans), [HTMLToMarkdown.swift](../../Sources/GraphiteCore/HTMLToMarkdown.swift), [TextColorMarkup.swift](../../Sources/GraphiteCore/TextColorMarkup.swift), [SortedRangeSet.swift](../../Sources/GraphiteCore/SortedRangeSet.swift), [WikiLinkResolver.swift](../../Sources/GraphiteCore/WikiLinkResolver.swift), [LivePreviewBlocks.swift](../../Sources/GraphiteCore/LivePreviewBlocks.swift). `ParserNestingLimits.swift` keeps its measured stack numbers, which are the rule's basis. | Nine comments narrate history instead of stating the rule |

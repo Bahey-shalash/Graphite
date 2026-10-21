@@ -26,18 +26,11 @@ public struct NoteSemantics: Sendable {
 public enum MarkdownSemantics {
     /// Captures the YAML between the delimiters; works for LF and CRLF files and for
     /// empty frontmatter.
-    private static let frontmatterPattern = try? NSRegularExpression(pattern: "\\A---\\r?\\n(?:([\\s\\S]*?)\\r?\\n)?(?:---|\\.\\.\\.)[ \\t]*(?:\\r?\\n|$)")
+    private static let frontmatterPattern = MarkdownSemanticsPattern.frontmatterPattern.compiled()
     /// Group 1 is the embed's `!`, group 2 the link's content.
-    private static let wikilinkPattern = try? NSRegularExpression(pattern: "(!?)\\[\\[([^\\]\\n]+)\\]\\]")
-
-    private enum PatternError: Error {
-        /// The fixed patterns above failed to compile, which only a regular expression
-        /// engine change could cause.
-        case unavailable
-    }
+    private static let wikilinkPattern = MarkdownSemanticsPattern.wikilinkPattern.compiled()
 
     public static func parse(_ source: String) throws -> NoteSemantics {
-        guard let frontmatterPattern, let wikilinkPattern else { throw PatternError.unavailable }
         var body = source
         var frontmatter: String?
         var prefixCount = 0
@@ -200,9 +193,9 @@ enum SourceRangeRole: Equatable {
 /// How a misplaced range is recognized: a Markdown link's source text has the shape of
 /// a link, `[text](destination)`, `[text][label]`, `[text]` or `<destination>`.
 private enum MarkdownLinkSource {
-    private static let escapedPunctuation = try? NSRegularExpression(pattern: "\\\\([!-/:-@\\[-`{-~])")
+    private static let escapedPunctuation = MarkdownLinkSourcePattern.escapedPunctuation.compiled()
     /// A CommonMark entity or numeric character reference, such as `&amp;` or `&#38;`.
-    private static let characterReference = try? NSRegularExpression(pattern: "&(?:#[0-9]{1,7}|#[xX][0-9A-Fa-f]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});")
+    private static let characterReference = MarkdownLinkSourcePattern.characterReference.compiled()
     private static let backslash = UInt16(UInt8(ascii: "\\"))
     private static let backtick = UInt16(UInt8(ascii: "`"))
     private static let openingBracket = UInt16(UInt8(ascii: "["))
@@ -230,10 +223,10 @@ private enum MarkdownLinkSource {
         case openingParenthesis:
             guard units.last == closingParenthesis else { return false }
             let fullRange = NSRange(location: 0, length: units.count)
-            let unescapedText = escapedPunctuation?.stringByReplacingMatches(in: sourceText, range: fullRange, withTemplate: "$1") ?? sourceText
+            let unescapedText = escapedPunctuation.stringByReplacingMatches(in: sourceText, range: fullRange, withTemplate: "$1")
             // The parser decodes character references (`Fish&amp;Chips.md`) in the destination.
             // They are not decoded here, so a link written with one is accepted by its shape.
-            let hasCharacterReference = characterReference?.firstMatch(in: sourceText, range: fullRange) != nil
+            let hasCharacterReference = characterReference.firstMatch(in: sourceText, range: fullRange) != nil
             return sourceText.contains(destination) || unescapedText.contains(destination) || hasCharacterReference
         default:
             return false
@@ -281,4 +274,16 @@ private enum MarkdownLinkSource {
         }
         return nil
     }
+}
+
+/// The constant patterns of `MarkdownSemantics`; `StaticPatternTests` compiles every case.
+enum MarkdownSemanticsPattern: String, StaticPatternSet {
+    case frontmatterPattern = #"\A---\r?\n(?:([\s\S]*?)\r?\n)?(?:---|\.\.\.)[ \t]*(?:\r?\n|$)"#
+    case wikilinkPattern = #"(!?)\[\[([^\]\n]+)\]\]"#
+}
+
+/// The constant patterns of `MarkdownLinkSource`; `StaticPatternTests` compiles every case.
+enum MarkdownLinkSourcePattern: String, StaticPatternSet {
+    case escapedPunctuation = #"\\([!-/:-@\[-`{-~])"#
+    case characterReference = "&(?:#[0-9]{1,7}|#[xX][0-9A-Fa-f]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});"
 }

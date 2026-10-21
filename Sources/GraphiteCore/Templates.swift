@@ -123,12 +123,10 @@ enum PluginConfiguration {
 /// templates made for community plugins such as Periodic Notes use; Obsidian's own
 /// Templates plugin leaves those as written.
 public enum TemplateRenderer {
-    private static let variablePattern = try? NSRegularExpression(
-        pattern: "\\{\\{\\s*(title|date|time|yesterday|tomorrow)\\s*(?:([+-]\\d+)\\s*([yQMwdhms]))?\\s*(?::(.*?))?\\s*\\}\\}",
-        options: .caseInsensitive)
+    private static let variablePattern = TemplateRendererPattern.variablePattern.compiled()
 
     public static func render(_ template: String, title: String, date: Date, dateFormat: String, timeFormat: String, timeZone: TimeZone = .current) -> String {
-        guard date.timeIntervalSinceReferenceDate.isFinite, let variablePattern else { return template }
+        guard date.timeIntervalSinceReferenceDate.isFinite else { return template }
         let source = template as NSString
         var result = ""
         var location = 0
@@ -257,5 +255,16 @@ public enum TemplateInsertion {
         let replacement = newFrontmatter + between + body
         return MarkdownTextEdit(range: NSRange(location: 0, length: location + length), replacement: replacement,
                                 selectionAfter: NSRange(location: (replacement as NSString).length, length: 0))
+    }
+}
+
+/// The constant patterns of `TemplateRenderer`; `StaticPatternTests` compiles every case.
+enum TemplateRendererPattern: String, StaticPatternSet {
+    case variablePattern = #"\{\{\s*(title|date|time|yesterday|tomorrow)\s*(?:([+-]\d+)\s*([yQMwdhms]))?\s*(?::(.*?))?\s*\}\}"#
+
+    var options: NSRegularExpression.Options {
+        switch self {
+        case .variablePattern: [.caseInsensitive]
+        }
     }
 }
