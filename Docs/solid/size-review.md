@@ -129,6 +129,7 @@ Destinations come from the area blueprints; the finding or section ID in the las
 | `Sources/GraphiteUI/NativeMarkdownEditor.swift` | `MarkdownTextView` | 393 | split planned → `NotePasteboardImporter` for paste and drop, `ReadAloudHighlightOverlay`; the focus policy and readable column stay | The view runs the paste and drop import pipeline and 26 stored properties (`SRP-EDITOR-03`, 3.4). |
 | `Sources/GraphiteCore/TextColorMarkup.swift` | `TextColorMarkup` | 377 | split planned → `MarkdownBlockSegments` takes block segmentation; the type keeps tokens, pairing and removal | 165 of its lines are a private block parser (`SRP-MDCORE-03`, 3.6). |
 | `Sources/GraphiteUI/PDFSession.swift` | `PDFSession` | 375 | split planned → the parts of the `(file)` row | 46 stored properties in 11 responsibilities (`SRP-LECTURE-02`). |
+| `Sources/GraphiteUI/GraphitePreferences.swift` | `(file)` | 402 | split planned → the feature-area preference types of the `GraphitePreferences.init` row, each reading its own keys through the typed registry | The file holds the keys and properties of nine feature areas plus the per-feature stores (library, new notebooks, Export to PDF) it hands out (`SRP-SHELL-06`). |
 
 ### Rows from the Phase 1 review
 
@@ -347,6 +348,7 @@ These rows review every item that had no row at the first 70. They were measured
 | `Sources/GraphiteUI/GraphitePreferences.swift` | `GraphitePreferences.init` | 41 | split planned → each of `EditorPreferences`, `AppearancePreferences`, `DrawingPreferences`, `RecordingPreferences`, `SearchPreferences`, `RecoveryPreferences`, `CorePluginPreferences` and `CommandPalettePreferences` reads its own keys through the typed registry | The initializer reads 36 keys of nine feature areas, so adding any option edits it (`SRP-SHELL-06`). |
 | `Sources/GraphiteUI/MapViews.swift` | `VaultMapScreen.body` | 41 | one concept | It lays out the map screen (map, empty state, search and toolbar) with one load call. |
 | `Sources/GraphiteUI/MarkdownPane.swift` | `DrawingAtCursorTracker.findDrawingAtCursor` | 41 | one concept | It answers one question, which drawing or image is under the cursor, with early exits and a cache. |
+| `Sources/GraphiteUI/MarkdownPane.swift` | `MarkdownPane.moreMenuItems` | 41 | one concept | It is the note's More menu, one line or short block per command in the order the menu shows them. |
 | `Sources/GraphiteUI/NeuralVoiceSettings.swift` | `NeuralVoicesSection.body` | 41 | one concept | It lists the offered and unavailable voices with the delete confirmation; downloading and deleting belong to the library. |
 | `Sources/GraphiteUI/ReadAloudReader.swift` | `ReadAloudSectionPicker.body` | 41 | split planned → `MarkdownReading` finds the sections off the main actor and reports a failure; the view renders the list | The `body` runs the detached section search and its error state in its `.task` (`SRP-VOICE-01`). |
 | `Sources/GraphiteUI/VaultSidebar.swift` | `VaultSidebar.searchResults` | 41 | one concept | It lists the search results with their sort and bookmark menu; the search itself runs in the workspace. |

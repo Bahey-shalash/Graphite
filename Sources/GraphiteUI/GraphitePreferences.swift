@@ -1,3 +1,15 @@
+/**
+ * File: GraphitePreferences.swift
+ * -------------------------------
+ * Layer: UI
+ * Description: The settings Graphite keeps on this device, read and written through their keys, and the per-feature
+ *              stores it hands out (the library, new notebooks, Export to PDF).
+ *
+ * Authors: Bahey Shalash, Félix Chevalier
+ * Version: 0.18
+ * Date: 21/10/2026
+ */
+
 import Foundation
 import Observation
 import SwiftUI
@@ -220,6 +232,8 @@ final class GraphitePreferences {
     let library: NotebookLibraryPreferences
     /// The paper and size the next notebook starts with.
     let notebookCreation: NotebookCreationDefaults
+    /// The options the last note was exported to PDF with.
+    let notePDFExport: NotePDFExportDefaults
 
     var drawingFormat: DrawingFormat { didSet { defaults.set(drawingFormat.rawValue, forKey: Key.drawingFormat) } }
     var drawingBackground: DrawingBackground { didSet { defaults.set(drawingBackground.rawValue, forKey: Key.drawingBackground) } }
@@ -376,6 +390,7 @@ final class GraphitePreferences {
         self.defaults = defaults
         library = NotebookLibraryPreferences(defaults: defaults)
         notebookCreation = NotebookCreationDefaults(defaults: defaults)
+        notePDFExport = NotePDFExportDefaults(defaults: defaults)
         drawingFormat = defaults.string(forKey: Key.drawingFormat).flatMap(DrawingFormat.init(rawValue:)) ?? .png
         drawingBackground = defaults.string(forKey: Key.drawingBackground).flatMap(DrawingBackground.init(rawValue:)) ?? .white
         drawsOnPencilDoubleTap = defaults.object(forKey: Key.drawsOnPencilDoubleTap) as? Bool ?? true

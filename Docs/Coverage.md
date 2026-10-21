@@ -1464,6 +1464,17 @@ An embedded PDF's Open in PDF View did nothing when the PDF was open in another 
 
 Not established: on the iPad itself, with Apple Pencil, and on the Mac. In the simulator, a tap on the embed's toolbar within about a second of switching back to the note's tab twice did nothing (Annotate, and reading view's Open in PDF View), while the same tap a few seconds later worked; the cause was not found.
 
+## Export a note to PDF: 2026-10-21
+
+More › Export to PDF… on a note (`Docs/Export-to-PDF-todo.md`, architecture under Markdown views). Covered by automated tests:
+
+- `NotePageFlowTests` (15, Core): blocks that fit share a page with their spacing; a block that does not fit starts the next page whole; a heading is never last on a page and needs only the first item of a divided block, or the heading after it, with it; a list is divided to fill the page; a table's runs fit with its header; a text taller than a page is cut in its lowest gap that fits, at the page's height only without gaps; an item taller than a page is cut in its gaps; pictures taller than a page are scaled onto a page of their own; no page is filled past its height.
+- `MarkdownSectionUnitsTests` (7), `PrintedLineGapsTests` (2), `NotePDFOptionsTests` (5, golden JSON of `GraphiteNotePDFOptions`), `StaticPatternTests` (the ordered-list marker pattern).
+- `NotePDFRendererTests` (7, Mac package tests): a sample lecture note's text (math, a folded callout printed open, a table, code, a picture, a footnote), title, no author, nested outline and its one web link annotation; 30 paragraphs, a 60-item list and a 40-row table where every line is printed once, the table's header is on every page it spans and the heading is on its list's page; a paragraph taller than an A5 page cut between lines; light pixels in dark appearance with the note's bytes, date and the vault's files unchanged; properties only when asked for; cancelling gives no PDF; a preview of two pages.
+- Hosted `NotePDFExportHostedTests` (4, iPad Pro 11-inch simulator, iOS 27.0): the sample note's text, outline, link and printed picture; page breaks and headings; light colours with the app's windows and traits dark; the sheet's two-page preview in portrait then landscape, the export reaching the save step in landscape and the options remembered.
+
+Checked by looking: PDFs of a demo vault (`9_Static logic` and `Lecture_L01_Shannon` from the test vault, and a sampler note with every kind of block), made in the iPad simulator's app process and rendered page by page: 34 pages with 40 figures in 3.3 to 4.6 s. Seen there and still open: very wide display formulas break oddly at the print width with a stray bar at their right edge; formulas are 4× bitmaps; large pictures print at the column's width. Not checked: tapping More › Export to PDF… in the running app (the simulator tool had no access), the Mac, Files and Acrobat, the owner's iPad.
+
 ## The test vault
 
 `Tests/test_vault/` (not committed; see `.gitignore`) is a copy of a real course vault plus edge cases for testing by hand. Every edge-case note starts with a "What to check" callout saying what correct behavior looks like, compared with Obsidian.

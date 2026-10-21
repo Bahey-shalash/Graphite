@@ -162,6 +162,7 @@ Every key below is an exact string in the device's `UserDefaults.standard` (65 g
 | ST-26 | Application Support holds `Graphite/File Recovery` (D-16), `Graphite/Recovery/Recordings` (REC-01), `Drawing Drafts/<request UUID>.svg` + `.json` (INK-17) and `Voices/<voice id>` (RA-08); Caches holds `Graphite/Indexes` (IX-01), `Graphite/ThemeTokens` (TH-01) and `ReadAloudAudio` (RA-03..06); `Library/Diagnostics` (EX-08) temporary `Graphite-OpenPDF-*` baselines (PDF-05) and `Graphite Exports`, and the temporary folders `Graphite Folder Looks/Look <hash>` and `Graphite Plain Folder`, empty folders whose system icon is Apple's art for a folder look (`AppleFolderArt`, `FinderFolderAttributes.plainFolderIcon`), complete the list; nothing is stored outside these. | [FileRecovery.swift:40-41](../../Sources/GraphiteCore/FileRecovery.swift#L40-L41), [RecordingRecovery.swift:53-54](../../Sources/GraphiteCore/RecordingRecovery.swift#L53-L54), [DrawingEditorDraftStore.swift:70](../../Sources/GraphiteUI/DrawingEditorDraftStore.swift#L70), [NeuralVoiceCatalog.swift:26-35](../../Sources/GraphiteVoices/NeuralVoiceCatalog.swift#L26-L35), [VaultIndex.swift:213](../../Sources/GraphiteIndex/VaultIndex.swift#L213), [ThemeTokenResolver.swift:179](../../Sources/GraphiteUI/ThemeTokenResolver.swift#L179), [ReadAloudAudioCache.swift:35-49](../../Sources/GraphiteVoices/ReadAloudAudioCache.swift#L35-L49), [DiagnosticRecords.swift:11-22](../../Sources/GraphiteApple/DiagnosticRecords.swift#L11-L22), [PDFSession.swift:11](../../Sources/GraphiteUI/PDFSession.swift#L11), [WorkspaceModel.swift:1082](../../Sources/GraphiteUI/WorkspaceModel.swift#L1082) | **No test today.** Path-registry test comparing each constant with these literals. | ARCH-INV-03 |
 | ST-27 | Plugin web storage is `WKWebsiteDataStore(forIdentifier: vault UUID)`, removed when the vault leaves the list; a plugin's `localStorage` keys are `<vault identifier>-<key>` with JSON values. | [CommunityPluginHost.swift:373](../../Sources/GraphiteUI/CommunityPluginHost.swift#L373), [CommunityPluginHost.swift:304-309](../../Sources/GraphiteUI/CommunityPluginHost.swift#L304-L309), [community-plugin-runtime-plugins.js:903-918](../../Sources/GraphiteUI/Resources/CommunityPluginRuntime/community-plugin-runtime-plugins.js#L903-L918) | Existing hosted `CommunityPluginHostTests`; save then load a value under a fixed `appId`. | PLUGIN-INV-14, ARCH-INV-05, RUNTIME-INV-21 |
 | ST-28 | (added 2026-10-21) On the Mac, `NSViewCanUseGPUAcceleration` is registered (never written) as the Boolean `false` before the first window draws, so AppKit draws large self-drawing views on the processor and opening a note does not start Core Animation's Metal renderer (a 170 MB transient); a value set with `defaults write` still wins. | [MacViewDrawing.swift](../../Sources/GraphiteUI/MacViewDrawing.swift), [GraphiteApp.swift](../../App/GraphiteApp.swift) | Existing `MacViewDrawingTests` (registered as a Boolean, overridable); the peak itself is measured by hand (`Coverage.md`, "A small core"). | Coverage 2026-10-21 |
+| ST-29 | (added 2026-10-21) `GraphiteNotePDFOptions` holds the last Export to PDF options as JSON with the keys `includesFileNameAsTitle`, `pageSize` (`a4`, `letter`, `a5`, `a3`, `legal`, `tabloid`), `orientation` (`portrait`/`landscape`), `margins` (`standard`, `small`, `none`), `downscalePercent` (50…100) and `includesProperties`; a missing key takes its default (A4 portrait, default margins, 100, title on, properties off), and data that does not decode starts from the defaults and is left as it is. | [NotePDFOptions.swift](../../Sources/GraphiteCore/NotePDFOptions.swift), [NotePDFExportDefaults.swift](../../Sources/GraphiteUI/NotePDFExportDefaults.swift) | `NotePDFOptionsTests` (golden JSON, missing keys). | added: Export to PDF |
 
 ## IX: index, search and derived data
 
@@ -340,6 +341,8 @@ These are the bytes other apps and later builds read. A drawing file must stay a
 | PDF-11 | Ink is recorded before a canvas is released, before saves, copies, exports, deletions and page-tree edits, and a canvas whose overlay PDFKit dropped is reused. **Corrected 2026-10-19:** there is no PDFInkRecorder type; the seam is PDFSession.registerPendingInkRecordWriter, which runs before save, copy, export, deletion, move and insertion. | [GraphitePDFView.swift:1199-1211](../../Sources/GraphiteUI/GraphitePDFView.swift#L1199-L1211), [GraphitePDFView.swift:1332-1338](../../Sources/GraphiteUI/GraphitePDFView.swift#L1332-L1338), [PDFSession.swift:369](../../Sources/GraphiteUI/PDFSession.swift#L369), [PDFSession.swift:439](../../Sources/GraphiteUI/PDFSession.swift#L439) | **No test today.** With `PDFInkRecorder`: draw, release without a delegate callback, save: the file holds the stroke. | LECTURE-INV-34 |
 | PDF-12 | Only one embed annotates a given PDF at a time; before it starts, the other sessions of that file are saved; a session whose closing save failed is kept until an embed shows it again. | [EmbeddedPDFViewer.swift:630-680](../../Sources/GraphiteUI/EmbeddedPDFViewer.swift#L630-L680), [EmbeddedPDFViewer.swift:489-514](../../Sources/GraphiteUI/EmbeddedPDFViewer.swift#L489-L514) | **No test today.** Model test with two embeds of one file and a failing save fake. | LECTURE-INV-36 |
 | PDF-13 | Hidden tabs keep at most 1 PDF session; a session with unsaved edits, a save in progress, a conflict, or still opening is never released; a released PDF reopens on the same page. | [WorkspaceTabs.swift:251-271](../../Sources/GraphiteUI/WorkspaceTabs.swift#L251-L271) | Existing `UiSidebarPaletteFixTests` release cases. | SHELL-INV-15 |
+| PDF-14 | (added 2026-10-21) Exporting a note to PDF only reads the note: the PDF is made in memory and written only where the person saves it with the file exporter; it is titled with the note's name, has no author, an outline that follows the note's headings and link annotations on its web links, and is drawn in light colours (white page, dark text) whatever the app's appearance. | [NotePDFRenderer.swift](../../Sources/GraphiteUI/NotePDFRenderer.swift), [NotePDFFinishing.swift](../../Sources/GraphiteUI/NotePDFFinishing.swift), [NotePDFExportSheet.swift](../../Sources/GraphiteUI/NotePDFExportSheet.swift) | `NotePDFRendererTests`, hosted `NotePDFExportHostedTests`. | added: Export to PDF |
+| PDF-15 | (added 2026-10-21) A note's PDF pages end between blocks; a heading is never last on a page; a list, table, code block, callout, embedded note or footnote list is divided between its parts (a table's later pages repeat its header, a code block's its fences, an ordered list keeps counting); a block or part taller than a page is cut only in a gap of at least four identical pixel rows at 2 pixels per point, and at the page's height only when it has none; a picture or embedded PDF page taller than a page is scaled to fit a page of its own. | [NotePageFlow.swift](../../Sources/GraphiteCore/NotePageFlow.swift), [MarkdownSectionUnits.swift](../../Sources/GraphiteCore/MarkdownSectionUnits.swift), [PrintedLineGaps.swift](../../Sources/GraphiteCore/PrintedLineGaps.swift) | `NotePageFlowTests`, `MarkdownSectionUnitsTests`, `PrintedLineGapsTests`, `NotePDFRendererTests`, hosted `NotePDFExportHostedTests`. | added: Export to PDF |
 
 ## REC: recording
 
@@ -601,14 +604,14 @@ Plugins are Obsidian community plugins run in a separate WKWebView, never on the
 | D | user data in the vault | 28 | 5 | 6 |
 | OB | Obsidian-shared files in `.obsidian` | 17 | 1 | 2 |
 | NM | generated names, dates and number encodings | 11 | 0 | 2 |
-| ST | settings, defaults keys and app-private storage | 27 | 1 | 16 |
+| ST | settings, defaults keys and app-private storage | 28 | 1 | 16 |
 | IX | index, search and derived data | 14 | 1 | 3 |
 | LK | links, anchors and their rewriting | 18 | 3 | 3 |
 | MD | Markdown syntax and semantics | 24 | 4 | 8 |
 | M | embedded metadata and record formats in drawings and PDFs | 22 | 0 | 11 |
 | ED | editing behaviour | 27 | 3 | 13 |
 | INK | Pencil and the drawing editor | 21 | 3 | 15 |
-| PDF | PDF notebooks and annotation behaviour | 13 | 0 | 12 |
+| PDF | PDF notebooks and annotation behaviour | 15 | 0 | 12 |
 | REC | recording | 8 | 1 | 5 |
 | RA | Read Aloud | 34 | 6 | 21 |
 | B | Bases | 31 | 0 | 11 |
@@ -621,9 +624,9 @@ Plugins are Obsidian community plugins run in a separate WKWebView, never on the
 | U | UX behaviour users rely on | 4 | 0 | 1 |
 | P | performance and responsiveness budgets the code enforces | 16 | 0 | 7 |
 | EX | external identifiers and declarations other software depends on | 8 | 0 | 7 |
-| **Total** | | **413** | **39** | **195** |
+| **Total** | | **416** | **39** | **195** |
 
-No row is retired whole yet; the single-window part of N-11 is struck through (decision 12, 2026-10-21). The rows carry the 403 area invariants (`<AREA>-INV-NN`; where several areas stated one rule the row lists all their IDs, and every ID appears in a Source cell), the 39 defects of "Fix before the cleanup starts" in [defects.md](defects.md) (the 38 High and Confirmed Medium defects plus BUG-SHELL-02), and the facts found by searching the code for persisted keys, date formats, URL schemes, notification names, embedded-metadata identifiers, Keychain names, migration names and Info.plist declarations (Source says "Added: code search").
+No row is retired whole yet; the single-window part of N-11 is struck through (decision 12, 2026-10-21). Three rows were added with Export to PDF (ST-29, PDF-14, PDF-15, 2026-10-21). The rows carry the 403 area invariants (`<AREA>-INV-NN`; where several areas stated one rule the row lists all their IDs, and every ID appears in a Source cell), the 39 defects of "Fix before the cleanup starts" in [defects.md](defects.md) (the 38 High and Confirmed Medium defects plus BUG-SHELL-02), and the facts found by searching the code for persisted keys, date formats, URL schemes, notification names, embedded-metadata identifiers, Keychain names, migration names and Info.plist declarations (Source says "Added: code search").
 
 ## Pinned by tests
 
@@ -722,6 +725,8 @@ Phase 0 (2026-10-19) added characterization tests for 161 rows of priorities 1 t
 | PDF-10 | Pinned | PageCoordinatesTests; CoreDrawingDataFixTests; VaultTests |  |
 | PDF-11 | Partly pinned | PDFSessionPendingInkRecordTests (in part) | GAP: "recorded before a canvas is released" and canvas reuse live in the UIKit GraphitePDFView (hosted iPad suite). |
 | PDF-12 | Partly pinned | EmbeddedPDFSessionsAnnotationClaimTests; UiPdfViewsTests (in part) | GAP: keeping a session whose closing save failed is decided in the EmbeddedPDFViewer view's scheduleRelease (seam). |
+| PDF-14 | Pinned | NotePDFRendererTests; NotePDFExportHostedTests |  |
+| PDF-15 | Pinned | NotePageFlowTests; MarkdownSectionUnitsTests; PrintedLineGapsTests; NotePDFRendererTests; NotePDFExportHostedTests |  |
 | PL-01 | Pinned | CommunityPluginInstallerRequestTests |  |
 | PL-02 | Pinned | CommunityPluginInstallerRequestTests |  |
 | PL-05 | Pinned | host-message-contract.test.js; CommunityPluginHostMessageContractTests |  |
@@ -789,6 +794,7 @@ Phase 0 (2026-10-19) added characterization tests for 161 rows of priorities 1 t
 | ST-15 | Pinned | ReadAloudNavigatorPlaceKeysTests |  |
 | ST-18 | Pinned | WorkspaceDeviceStateTests |  |
 | ST-25 | Pinned | InAppNotificationNamesTests |  |
+| ST-29 | Pinned | NotePDFOptionsTests |  |
 | ST-26 | Partly pinned | ApplicationStorageLocationsTests (in part) | GAP: RecordingRecoveryFolder.location() and NeuralVoiceCatalog.voicesFolder() create real folders when called; "Graphite Exports" is inside the iOS-only exportDrawingCopy. |
 | TH-02 | Pinned | ThemeProbeVocabularyTests |  |
 | TH-05 | Pinned | CalloutAppearanceThemeLookupTests | NOTE: the colour lookup lowercases the type but the icon table does not, so "WARNING" gets the theme colour and the pencil icon (a likely Low defect). |

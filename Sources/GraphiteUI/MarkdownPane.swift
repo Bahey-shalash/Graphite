@@ -3,10 +3,10 @@
  * ------------------------
  * Layer: UI
  * Description: A note's pane: the editor or reading view, its toolbar and More commands in the system's overflow
- *              menu, find in note, and the sheets for inserting attachments, photos and drawings.
+ *              menu (Export to PDF among them), find in note, and the sheets for inserting attachments, photos and drawings.
  *
  * Authors: Bahey Shalash, Félix Chevalier
- * Version: 0.44
+ * Version: 0.46
  * Date: 21/10/2026
  */
 
@@ -122,6 +122,7 @@ struct MarkdownPane: View {
         .modifier(WordCountDisplay(session: session, isShown: preferences.isEnabled(.wordCount) && isFocused,
                                    isCompactWidth: isCompactWidth))
         .toolbar { if isFocused { toolbarContent } }
+        .notePDFExport(of: session, in: ReadingVault(workspace.folderAccess?.root, workspace.index), preferences: preferences) { readingConfiguration }
         .sheet(isPresented: $showsReadingSections, onDismiss: {
             if let pending = pendingReadingSection {
                 pendingReadingSection = nil
@@ -587,6 +588,7 @@ struct MarkdownPane: View {
             .disabled(session.foldedKeys.isEmpty)
         Button("Save Now", systemImage: "square.and.arrow.down") { Task { try? await session.save() } }
         Button("Copy Graphite URL", systemImage: "link") { Pasteboard.copy(workspace.openingLink(to: session.path)) }
+        NotePDFExportButton()
         if preferences.isEnabled(.bookmarks) {
             let isBookmarked = workspace.bookmarks.fileBookmark(for: session.path) != nil
             Button(isBookmarked ? "Remove Bookmark" : "Bookmark", systemImage: isBookmarked ? "bookmark.slash" : "bookmark") {
