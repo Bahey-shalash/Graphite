@@ -31,4 +31,21 @@ final class ShownFolderLookTests: XCTestCase {
         XCTAssertEqual(ShownFolderLook.resolve(stored: stored, finder: finderGreenStar),
                        .drawnByFinder(FolderStyle(color: .green, mark: .symbol("star.fill"))))
     }
+
+    func testAPictureGraphiteWroteIsFindersCustomIcon() throws {
+        let picture = FolderPicture(path: try VaultPath(".obsidian/graphite-folder-icons/0123456789abcdef.png"), layout: .onFolder)
+        let stored = FolderStyle(mark: .picture(picture))
+        let finder = FinderFolderLook(tags: [], iconMark: nil, hasCustomIconFlag: true, hasCustomIconFile: true)
+        XCTAssertEqual(ShownFolderLook.resolve(stored: stored, finder: finder), .drawnByFinder(stored))
+        let tinted = FolderStyle(color: .red, mark: .picture(picture))
+        let redFinder = FinderFolderLook(tags: [FinderTag(name: "Red", color: .red)], iconMark: nil, hasCustomIconFlag: true, hasCustomIconFile: true)
+        XCTAssertEqual(ShownFolderLook.resolve(stored: tinted, finder: redFinder), .drawnByGraphite(tinted))
+    }
+
+    func testAPictureSetInFinderShowsAsFinders() {
+        let finder = FinderFolderLook(tags: [], iconMark: nil, hasCustomIconFlag: true, hasCustomIconFile: true)
+        XCTAssertEqual(ShownFolderLook.resolve(stored: nil, finder: finder), .drawnByFinder(FolderStyle()))
+        XCTAssertEqual(ShownFolderLook.resolve(stored: FolderStyle(mark: .symbol("star.fill")), finder: finder), .drawnByFinder(FolderStyle()))
+    }
 }
+

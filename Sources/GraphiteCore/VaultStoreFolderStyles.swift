@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 /// Graphite's folder colors and symbols, read and written as bookmarks are.
 extension VaultStore {
@@ -23,7 +24,39 @@ extension VaultStore {
             if updated == existing, let existingData { return existingData }
             return try updated.configurationData()
         }
+        // A picture left behind is only a small file in Graphite's own folder; the styles are saved.
+        try? removeUnusedFolderPictures(keeping: updated) // A failed clean-up is tried again on the next change.
         return updated
+    }
+
+    /// Saves a folder's picture as a PNG in `FolderPicture.directory`, named after its content
+    /// so the same picture is kept once, and returns where it is.
+    public func saveFolderPicture(_ pngData: Data) throws -> VaultPath {
+        let directory = try VaultPath(FolderPicture.directory)
+        try createDirectory(directory)
+        let name = SHA256.hash(data: pngData).prefix(Self.pictureNameBytes).map { byte in String(format: "%02x", byte) }.joined()
+        let path = try directory.appending(name + ".png")
+        if try !fileExists(path) { _ = try save(pngData, at: path, expecting: .absent) }
+        return path
+    }
+
+    /// The bytes of a picture's content hash its file name keeps: 16 hexadecimal digits.
+    private static let pictureNameBytes = 8
+
+    /// Deletes the pictures Graphite saved that no folder uses any more: only files in its
+    /// own folder named as it names them, so a file put there by hand stays.
+    func removeUnusedFolderPictures(keeping styles: FolderStyleList) throws {
+        let directory = try VaultPath(FolderPicture.directory)
+        guard try fileExists(directory) else { return }
+        let usedPictures = Set(styles.styles.values.compactMap(\.picture?.path))
+        for entry in try children(of: directory) where !entry.isDirectory && !usedPictures.contains(entry.path) && Self.isSavedPictureName(entry.path.name) {
+            _ = try delete(entry.path, method: .permanent)
+        }
+    }
+
+    static func isSavedPictureName(_ name: String) -> Bool {
+        let stem = (name as NSString).deletingPathExtension
+        return (name as NSString).pathExtension == "png" && stem.count == pictureNameBytes * 2 && stem.allSatisfy(\.isHexDigit)
     }
 
     /// Moves a folder-color file this build cannot read to a free name beside it, such as

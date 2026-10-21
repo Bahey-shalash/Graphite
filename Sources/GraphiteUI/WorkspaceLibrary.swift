@@ -33,7 +33,8 @@ extension WorkspaceModel {
                        importFiles: { [weak self] sources, folder in Task { await self?.importFiles(from: sources, into: folder) } },
                        moveItems: { [weak self] paths, folder in Task { for path in paths { await self?.move(path, into: folder) } } },
                        setSortOrder: { [weak self] sortOrder in self?.setFileSortOrder(sortOrder) },
-                       setPresentation: { [weak self] presentation in self?.preferences.library.presentation = presentation })
+                       setPresentation: { [weak self] presentation in self?.preferences.library.presentation = presentation },
+                       findPictures: { [weak self] query in await self?.vaultPictures(matching: query) ?? [] })
     }
 
     func libraryEntryPresentation(requestCreation: @escaping (CreationKind, VaultPath) -> Void) -> LibraryEntryPresentation {
@@ -44,6 +45,24 @@ extension WorkspaceModel {
                                  },
                                  menu: { [unowned self] entry in VaultEntryMenu(entry: entry, workspace: self, requestCreation: requestCreation) })
     }
+
+    /// Pictures of the vault whose name matches `query`, from the index; the recent ones for an
+    /// empty query. A failed search finds none.
+    private func vaultPictures(matching query: String) async -> [VaultPath] {
+        guard !query.isEmpty else {
+            return existingRecentFiles(limit: Self.recentPictureCount).filter(Self.isPicture)
+        }
+        let matches = (try? await index?.quickSwitcherMatches(for: query, limit: Self.pictureMatchLimit)) ?? [] // A failed search finds none.
+        var seenPaths: Set<VaultPath> = []
+        return matches.map(\.path).filter { path in Self.isPicture(path) && seenPaths.insert(path).inserted }
+    }
+
+    private static func isPicture(_ path: VaultPath) -> Bool {
+        if case .image = DocumentKind(path: path) { true } else { false }
+    }
+
+    private static let recentPictureCount = 30
+    private static let pictureMatchLimit = 200
 
     /// The file list's and the library's sort order, Obsidian's "Sort order" setting.
     func setFileSortOrder(_ sortOrder: FileSortOrder) {

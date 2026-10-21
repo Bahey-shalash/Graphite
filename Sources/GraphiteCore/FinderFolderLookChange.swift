@@ -10,6 +10,16 @@ public struct FinderFolderLookChange: Equatable, Sendable {
     /// Nil removes the attribute.
     public let iconAttributeData: Data?
     public let setsCustomIconFlag: Bool
+    public let customIconFile: CustomIconFileChange
+
+    /// Finder's custom icon file, `Icon\r`, and what happens to it.
+    public enum CustomIconFileChange: Equatable, Sendable {
+        case keep
+        /// Written from the folder's picture, drawn as its layout says.
+        case write(FolderPicture)
+        /// A look chosen in Graphite replaces a picture set before, in Finder or in Graphite.
+        case remove
+    }
 
     /// The change for `style` on a folder that shows `current`. Tags named after a tag
     /// color are the color tags Finder and Graphite add; they are replaced, and every other
@@ -22,8 +32,10 @@ public struct FinderFolderLookChange: Equatable, Sendable {
             tags.append(FinderTag(name: colorTagNames[tagColor] ?? tagColor.defaultTagName, color: tagColor))
         }
         let mark = style?.mark
-        return FinderFolderLookChange(tags: tags, iconAttributeData: mark.map(FinderFolderLook.iconAttributeData(for:)),
-                                      setsCustomIconFlag: mark != nil || current.hasCustomIconFile)
+        let customIconFile: CustomIconFileChange = if let picture = style?.picture { .write(picture) }
+            else if current.hasCustomIconFile { .remove } else { .keep }
+        return FinderFolderLookChange(tags: tags, iconAttributeData: mark.flatMap(FinderFolderLook.iconAttributeData(for:)),
+                                      setsCustomIconFlag: mark != nil, customIconFile: customIconFile)
     }
 
     /// The color label Finder keeps beside the tags: the last colored tag's.

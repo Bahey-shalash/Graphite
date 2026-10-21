@@ -32,6 +32,8 @@ struct LibraryActions {
     let moveItems: ([VaultPath], VaultPath) -> Void
     let setSortOrder: (FileSortOrder) -> Void
     let setPresentation: (LibraryPresentation) -> Void
+    /// Pictures of the vault whose name matches, for a folder's picture; recent ones for an empty query.
+    let findPictures: (String) async -> [VaultPath]
 }
 
 /// How each item is named and marked, and its menu: the file tree's own.
@@ -219,7 +221,8 @@ struct LibraryView: View {
     }
 
     private func tile(for entry: VaultEntry) -> some View {
-        LibraryTile(entry: entry, library: library, entries: entries, open: { open(entry) }, moveItems: actions.moveItems)
+        LibraryTile(entry: entry, library: library, entries: entries, open: { open(entry) }, moveItems: actions.moveItems,
+                    findPictures: actions.findPictures)
             .onAppear { library.tileAppeared(entry) }
             .onDisappear { library.tileDisappeared(entry) }
     }
@@ -241,6 +244,7 @@ private struct LibraryTile: View {
     let entries: LibraryEntryPresentation
     let open: () -> Void
     let moveItems: ([VaultPath], VaultPath) -> Void
+    let findPictures: (String) async -> [VaultPath]
     @State private var isDropTargeted = false
 
     /// The picture's height; the folder symbol fills most of it.
@@ -276,7 +280,7 @@ private struct LibraryTile: View {
         .accessibilityAddTraits(.isButton)
         .draggable(VaultItemTransfer(path: entry.path.rawValue))
         .modifier(FolderTileDropTarget(entry: entry, moveItems: moveItems, isTargeted: $isDropTargeted))
-        .modifier(LibraryTileMenu(entry: entry, library: library, entries: entries))
+        .modifier(LibraryTileMenu(entry: entry, library: library, entries: entries, findPictures: findPictures))
     }
 
     @ViewBuilder private var artwork: some View {
@@ -302,6 +306,7 @@ private struct LibraryTileMenu: ViewModifier {
     let entry: VaultEntry
     let library: LibraryModel
     let entries: LibraryEntryPresentation
+    let findPictures: (String) async -> [VaultPath]
     @State private var isCustomizing = false
 
     func body(content: Content) -> some View {
@@ -315,12 +320,21 @@ private struct LibraryTileMenu: ViewModifier {
             }
             .accessibilityAction(named: "Customize Folder") { if entry.isDirectory { isCustomizing = true } }
             .popover(isPresented: $isCustomizing) {
-                FolderCustomizationPopover(folderName: entries.displayName(entry.path), style: library.folderLooks.shownLook(of: entry.path).style) { style in
+                FolderCustomizationPopover(folderName: entries.displayName(entry.path), style: library.folderLooks.shownLook(of: entry.path).style,
+                                           picture: library.folderLooks.picture(of: entry.path), pictureActions: pictureActions) { style in
                     Task { await library.setStyle(style, for: entry.path) }
                 }
                 .presentationCompactAdaptation(.sheet)
                 .presentationDetents([.medium, .large])
             }
+    }
+
+    private var pictureActions: FolderPictureActions {
+        let library = library
+        let folder = entry.path
+        return FolderPictureActions(findVaultPictures: findPictures,
+                                    readVaultPicture: { path in try await library.pictureData(at: path) },
+                                    applyPicture: { picture, layout, color in await library.setPicture(picture, layout: layout, color: color, for: folder) })
     }
 }
 

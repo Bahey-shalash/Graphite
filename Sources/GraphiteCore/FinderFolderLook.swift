@@ -125,6 +125,9 @@ public struct FinderFolderLook: Equatable, Sendable {
     /// The symbol or emoji Finder draws on the folder.
     public var mark: FolderMark? { hasCustomIconFlag ? iconMark : nil }
 
+    /// Whether Finder draws its custom icon file: the flag is set and no symbol or emoji wins over it.
+    public var showsCustomIconFile: Bool { hasCustomIconFlag && hasCustomIconFile && mark == nil }
+
     /// Whether Finder draws the folder unlike a plain one. A tag alone only adds a dot
     /// beside the name: Finder tints a folder only when it has a symbol or emoji.
     public var isCustomized: Bool { mark != nil || (hasCustomIconFlag && hasCustomIconFile) }
@@ -156,11 +159,14 @@ public struct FinderFolderLook: Equatable, Sendable {
         return finderInformationData[finderInformationData.startIndex + flagsByteOffset] & customIconFlagHighByte != 0
     }
 
-    /// The icon attribute Finder reads for a mark.
-    public static func iconAttributeData(for mark: FolderMark) -> Data {
-        let fields: [String: JSONValue] = switch mark {
-        case .symbol(let symbolName): [IconFieldName.symbol: .string(symbolName)]
-        case .emoji(let emojiText): [IconFieldName.emoji: .string(emojiText)]
+    /// The icon attribute Finder reads for a symbol or emoji; nil for a picture, which is
+    /// Finder's custom icon file instead.
+    public static func iconAttributeData(for mark: FolderMark) -> Data? {
+        let fields: [String: JSONValue]
+        switch mark {
+        case .symbol(let symbolName): fields = [IconFieldName.symbol: .string(symbolName)]
+        case .emoji(let emojiText): fields = [IconFieldName.emoji: .string(emojiText)]
+        case .picture: return nil
         }
         return (try? JSONEncoder().encode(JSONValue.object(fields))) ?? Data() // Encoding a dictionary of strings cannot fail.
     }

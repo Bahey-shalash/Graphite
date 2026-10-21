@@ -1,23 +1,43 @@
 import SwiftUI
+import PhotosUI
 import GraphiteCore
+import GraphiteApple
+
+/// What the popover's Picture menu needs from the library.
+struct FolderPictureActions {
+    /// Pictures of the vault whose name matches; recent ones for an empty query.
+    let findVaultPictures: (String) async -> [VaultPath]
+    let readVaultPicture: (VaultPath) async throws -> Data
+    /// Saves a framed picture in the vault and makes it the folder's look with the color given;
+    /// returns the new look, or nil when it failed (the library reports why).
+    let applyPicture: (CGImage, FolderPictureLayout, FolderColor?) async -> FolderStyle?
+}
 
 /// A folder's look, chosen as in Finder's folder popover: a large preview with the folder's
 /// name, one row of colors, the symbols in sections, then Clear and Emoji. Each choice is
 /// applied at once, as Finder applies it.
 struct FolderCustomizationPopover: View {
     let folderName: String
+    let pictureActions: FolderPictureActions
     let apply: (FolderStyle?) -> Void
     @State private var draft: FolderStyle
+    /// The folder's picture as the preview draws it.
+    @State private var shownPicture: CGImage?
+    @State private var pictureSource: FolderPictureSource?
+    @State private var pickedPicture: PickedFolderPicture?
+    @State private var pictureFailure: FolderPictureProblem?
 
     static let width: CGFloat = 330
     private static let previewSymbolPoints: CGFloat = 84
     private static let symbolGridHeight: CGFloat = 250
     private static let symbolCellPoints: CGFloat = 38
 
-    init(folderName: String, style: FolderStyle?, apply: @escaping (FolderStyle?) -> Void) {
+    init(folderName: String, style: FolderStyle?, picture: CGImage?, pictureActions: FolderPictureActions, apply: @escaping (FolderStyle?) -> Void) {
         self.folderName = folderName
+        self.pictureActions = pictureActions
         self.apply = apply
         _draft = State(initialValue: style ?? FolderStyle())
+        _shownPicture = State(initialValue: picture)
     }
 
     var body: some View {
@@ -31,12 +51,53 @@ struct FolderCustomizationPopover: View {
                 Button("Clear") { change { style in style = FolderStyle() } }
                     .disabled(draft.isPlain)
                 Spacer()
+                pictureMenu
                 EmojiInputButton(currentEmoji: currentEmoji) { emoji in change { style in style.mark = .emoji(emoji) } }
             }
             .buttonStyle(.borderless)
         }
         .padding(16)
         .frame(width: Self.width)
+        .modifier(FolderPicturePicking(source: $pictureSource, findVaultPictures: pictureActions.findVaultPictures,
+                                       readVaultPicture: pictureActions.readVaultPicture,
+                                       pick: { image in pickedPicture = PickedFolderPicture(image: image) },
+                                       fail: { message in pictureFailure = message }))
+        .sheet(item: $pickedPicture) { picked in
+            FolderPictureSheet(picture: picked.image, folderName: folderName, folderColor: draft.color) { framedPicture, layout in
+                applyPicture(framedPicture, layout: layout)
+            }
+        }
+        .alert("Picture Not Used", isPresented: Binding(get: { pictureFailure != nil }, set: { isShown in if !isShown { pictureFailure = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(pictureFailure?.message ?? "")
+        }
+    }
+
+    /// Photos, Files or a picture of the vault, as Finder takes a picture pasted on a folder.
+    private var pictureMenu: some View {
+        Menu {
+            Button("Photos…", systemImage: "photo.on.rectangle") { pictureSource = .photos }
+            Button("Files…", systemImage: "folder") { pictureSource = .files }
+            Button("From Vault…", systemImage: "books.vertical") { pictureSource = .vault }
+        } label: {
+            Label("Picture", systemImage: "photo")
+                .font(.callout)
+                .padding(.horizontal, 12)
+                .frame(minHeight: 30)
+                .background(.fill.tertiary, in: Capsule())
+        }
+        .menuIndicator(.hidden)
+        .fixedSize()
+    }
+
+    private func applyPicture(_ framedPicture: CGImage, layout: FolderPictureLayout) {
+        let color = draft.color
+        Task {
+            guard let style = await pictureActions.applyPicture(framedPicture, layout, color) else { return }
+            draft = style
+            shownPicture = framedPicture
+        }
     }
 
     private var currentEmoji: String? {
@@ -45,7 +106,7 @@ struct FolderCustomizationPopover: View {
 
     private var preview: some View {
         VStack(spacing: 4) {
-            LibraryFolderArtwork(style: draft, symbolPointSize: Self.previewSymbolPoints)
+            LibraryFolderArtwork(style: draft, picture: shownPicture, symbolPointSize: Self.previewSymbolPoints)
                 .frame(height: Self.previewSymbolPoints * 1.05)
             Text(folderName)
                 .font(.headline)
@@ -176,5 +237,76 @@ private struct CrossedOutLine: Shape {
         path.move(to: CGPoint(x: rect.minX + inset, y: rect.maxY - inset))
         path.addLine(to: CGPoint(x: rect.maxX - inset, y: rect.minY + inset))
         return path
+    }
+}
+
+/// Where a folder's picture is chosen from.
+enum FolderPictureSource: Identifiable {
+    case photos, files, vault
+    var id: Self { self }
+}
+
+/// The pickers of the Picture menu: the photo library, Files, or the vault. A chosen picture
+/// is read and decoded off the main actor, at a bounded size, before it is handed over.
+private struct FolderPicturePicking: ViewModifier {
+    @Binding var source: FolderPictureSource?
+    let findVaultPictures: (String) async -> [VaultPath]
+    let readVaultPicture: (VaultPath) async throws -> Data
+    let pick: (CGImage) -> Void
+    let fail: (FolderPictureProblem) -> Void
+    @State private var pickedPhoto: PhotosPickerItem?
+
+    func body(content: Content) -> some View {
+        content
+            .photosPicker(isPresented: isPresenting(.photos), selection: $pickedPhoto, matching: .images)
+            .fileImporter(isPresented: isPresenting(.files), allowedContentTypes: [.image]) { pickedFile in
+                guard case .success(let location) = pickedFile else { return }
+                decode { try await Task.detached(priority: .userInitiated) { try PickedImageFiles.imageData(at: location) }.value }
+            }
+            .sheet(isPresented: isPresenting(.vault)) {
+                VaultPicturePicker(findPictures: findVaultPictures) { path in decode { try await readVaultPicture(path) } }
+            }
+            .onChange(of: pickedPhoto) { _, photo in
+                guard let photo else { return }
+                pickedPhoto = nil
+                decode {
+                    guard let imageData = try await photo.loadTransferable(type: Data.self) else { throw FolderPictureProblem.unreadable }
+                    return imageData
+                }
+            }
+    }
+
+    private func isPresenting(_ presentedSource: FolderPictureSource) -> Binding<Bool> {
+        Binding(get: { source == presentedSource }, set: { isPresented in if !isPresented, source == presentedSource { source = nil } })
+    }
+
+    private func decode(_ load: @escaping () async throws -> Data) {
+        Task {
+            do {
+                let imageData = try await load()
+                let image = await Task.detached(priority: .userInitiated) { FolderIconRenderer.decodedPicture(from: imageData) }.value
+                guard let image else { return fail(.notAPicture) }
+                pick(image)
+            } catch is CancellationError {
+                return
+            } catch GraphiteError.oversized(_) {
+                fail(.tooLarge)
+            } catch {
+                fail(.unreadable)
+            }
+        }
+    }
+}
+
+/// Why a chosen picture was not used, worded for the alert.
+enum FolderPictureProblem: Error {
+    case unreadable, notAPicture, tooLarge
+
+    var message: String {
+        switch self {
+        case .unreadable: "Graphite could not read this picture."
+        case .notAPicture: "This file is not a picture Graphite can read."
+        case .tooLarge: "This picture is too large to use."
+        }
     }
 }

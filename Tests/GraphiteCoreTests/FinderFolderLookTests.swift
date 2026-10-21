@@ -71,7 +71,7 @@ final class FinderFolderLookTests: XCTestCase {
     }
 
     func testTheIconAttributeIsWhatFinderWrites() {
-        XCTAssertEqual(String(decoding: FinderFolderLook.iconAttributeData(for: .emoji("🥸")), as: UTF8.self), #"{"emoji":"🥸"}"#)
-        XCTAssertEqual(String(decoding: FinderFolderLook.iconAttributeData(for: .symbol("star.fill")), as: UTF8.self), #"{"sym":"star.fill"}"#)
+        XCTAssertEqual(String(decoding: FinderFolderLook.iconAttributeData(for: .emoji("🥸")) ?? Data(), as: UTF8.self), #"{"emoji":"🥸"}"#)
+        XCTAssertEqual(String(decoding: FinderFolderLook.iconAttributeData(for: .symbol("star.fill")) ?? Data(), as: UTF8.self), #"{"sym":"star.fill"}"#)
     }
 }

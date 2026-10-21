@@ -28,7 +28,7 @@ struct EmojiInputButton: View {
         if let currentEmoji {
             Text(currentEmoji).font(.title3)
         } else {
-            Label("Emoji", systemImage: "face.smiling").font(.callout)
+            Label("Emoji", systemImage: "face.smiling").font(.callout).lineLimit(1).fixedSize()
         }
     }
 }

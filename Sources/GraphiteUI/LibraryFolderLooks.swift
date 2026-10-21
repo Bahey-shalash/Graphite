@@ -5,31 +5,38 @@ import GraphiteCore
 import GraphiteApple
 
 /// The looks of one vault's folders as the library shows them: Graphite's styles from the
-/// vault, Finder's own looks of the folders listed, and on the Mac the system's icons of the
-/// folder tiles on screen. A new vault gets a new instance.
+/// vault, Finder's own looks of the folders listed, and the pictures of the folder tiles on
+/// screen (a folder's own picture, and on the Mac the system's icon wherever Finder draws the
+/// look). A new vault gets a new instance.
 @MainActor @Observable
 final class LibraryFolderLooks {
-    /// The icons' width in pixels: a 120-point tile on the Mac's 2x screens.
-    static let systemIconPixels = 256
+    /// Reads a picture of the vault, scaled to a longer side in pixels, off the main actor.
+    typealias PictureLoader = @Sendable (VaultPath, _ longerSidePixels: Int) async -> CGImage?
+
+    /// The tile pictures' side in pixels: a 120-point tile at 3x.
+    static let tileImagePixels = 384
 
     private(set) var styles = FolderStyleList()
     /// Finder's looks of the folders listed, read with the listing.
     private(set) var finderLooks: [VaultPath: FinderFolderLook] = [:]
-    /// The Mac's icons of the folder tiles on screen that Finder draws; a tile's icon goes
-    /// when it scrolls away. Always empty on iOS, which has no API for the Files app's icons.
-    private(set) var systemIcons: [VaultPath: CGImage] = [:]
+    /// The pictures of the folder tiles on screen; a tile's picture goes when it scrolls away.
+    private(set) var tileImages: [VaultPath: CGImage] = [:]
     /// The Mac's plain folder, drawn once.
     private(set) var plainFolderIcon: CGImage?
 
     @ObservationIgnored private let attributes: FinderFolderAttributes?
-    @ObservationIgnored private var visibleFolders: Set<VaultPath> = []
-    /// Folder tiles on screen whose icon waits to be drawn, oldest first.
-    @ObservationIgnored private var waitingIcons: [VaultPath] = []
-    /// Draws the waiting icons one at a time; nil while none waits.
-    @ObservationIgnored private var iconTask: Task<Void, Never>?
+    @ObservationIgnored private let loadPicture: PictureLoader
+    /// How many tiles of each folder are on screen. SwiftUI shows a rebuilt grid's tile before
+    /// it removes the old one, so a folder's picture goes only when its last tile does.
+    @ObservationIgnored private var visibleTileCounts: [VaultPath: Int] = [:]
+    /// Folder tiles on screen whose picture waits to be drawn, oldest first.
+    @ObservationIgnored private var waitingImages: [VaultPath] = []
+    /// Draws the waiting pictures one at a time; nil while none waits.
+    @ObservationIgnored private var imageTask: Task<Void, Never>?
 
-    init(attributes: FinderFolderAttributes?) {
+    init(attributes: FinderFolderAttributes?, loadPicture: @escaping PictureLoader) {
         self.attributes = attributes
+        self.loadPicture = loadPicture
     }
 
     func shownLook(of folder: VaultPath) -> ShownFolderLook {
@@ -41,7 +48,7 @@ final class LibraryFolderLooks {
         let changedFolders = Set(styles.styles.keys).union(newStyles.styles.keys)
             .filter { folder in styles.style(for: folder) != newStyles.style(for: folder) }
         styles = newStyles
-        redrawIcons(of: changedFolders)
+        redrawImages(of: changedFolders)
     }
 
     /// Reads Finder's looks of the listed folders off the main actor: three small reads of
@@ -54,7 +61,7 @@ final class LibraryFolderLooks {
         guard looks != finderLooks else { return }
         let changedFolders = Set(looks.keys).union(finderLooks.keys).filter { folder in looks[folder] != finderLooks[folder] }
         finderLooks = looks
-        redrawIcons(of: changedFolders)
+        redrawImages(of: changedFolders)
     }
 
     /// On the Mac, writes a folder's look where Finder reads it, then reads back what Finder
@@ -71,68 +78,110 @@ final class LibraryFolderLooks {
         }.value
         if finderLooks[folder] != look {
             finderLooks[folder] = look
-            redrawIcons(of: [folder])
         }
+        // The system's icon changes even when the look reads the same, as with a new picture.
+        redrawImages(of: [folder])
         return isWritten
         #else
         return true
         #endif
     }
 
-    // MARK: System icons
+    // MARK: Tile pictures
+
+    /// The folder's own picture as its tile shows it, when one is drawn.
+    func picture(of folder: VaultPath) -> CGImage? {
+        guard case .picture = imageSource(of: folder) else { return nil }
+        return tileImages[folder]
+    }
 
     func tileAppeared(_ folder: VaultPath) {
-        visibleFolders.insert(folder)
-        requestIcon(of: folder)
+        visibleTileCounts[folder, default: 0] += 1
+        requestImage(of: folder)
     }
 
     func tileDisappeared(_ folder: VaultPath) {
-        visibleFolders.remove(folder)
-        waitingIcons.removeAll { waitingFolder in waitingFolder == folder }
-        systemIcons[folder] = nil
+        let remainingTiles = max(visibleTileCounts[folder, default: 0] - 1, 0)
+        visibleTileCounts[folder] = remainingTiles == 0 ? nil : remainingTiles
+        guard remainingTiles == 0 else { return }
+        waitingImages.removeAll { waitingFolder in waitingFolder == folder }
+        tileImages[folder] = nil
     }
 
-    /// Draws again the icons of folders whose look changed; the old icon shows until then.
-    private func redrawIcons(of changedFolders: Set<VaultPath>) {
-        for folder in changedFolders where visibleFolders.contains(folder) {
-            waitingIcons.removeAll { waitingFolder in waitingFolder == folder }
-            if case .drawnByFinder = shownLook(of: folder) { requestIcon(of: folder, redrawing: true) } else { systemIcons[folder] = nil }
-        }
-    }
+    private func isVisible(_ folder: VaultPath) -> Bool { visibleTileCounts[folder] != nil }
 
-    /// Queues the system icon of a tile Finder draws, or draws the plain folder once; on the
-    /// Mac only, since iOS has no such icons.
-    private func requestIcon(of folder: VaultPath, redrawing: Bool = false) {
+    /// What a tile's picture is drawn from: on the Mac the system's icon wherever Finder draws
+    /// the look, otherwise the folder's own picture; nil when the tile is drawn without one.
+    private func imageSource(of folder: VaultPath) -> FolderTileImageSource? {
+        let look = shownLook(of: folder)
         #if os(macOS)
-        switch shownLook(of: folder) {
-        case .drawnByFinder:
-            guard redrawing || systemIcons[folder] == nil, !waitingIcons.contains(folder) else { return }
-            waitingIcons.append(folder)
-        case .plain:
-            guard plainFolderIcon == nil else { return }
-        case .drawnByGraphite:
-            return
-        }
-        guard iconTask == nil, let attributes else { return }
-        iconTask = Task { [weak self] in
-            await self?.drawIconsUntilNoneWaits(with: attributes)
-            self?.iconTask = nil
-        }
+        if case .drawnByFinder = look { return .systemIcon }
         #endif
+        return look.style?.picture.map { picture in .picture(picture.path) }
     }
 
-    #if os(macOS)
-    private func drawIconsUntilNoneWaits(with attributes: FinderFolderAttributes) async {
-        let pixels = Self.systemIconPixels
-        if plainFolderIcon == nil {
+    /// Draws again the pictures of folders whose look changed; the old picture shows until then.
+    private func redrawImages(of changedFolders: Set<VaultPath>) {
+        for folder in changedFolders where isVisible(folder) {
+            waitingImages.removeAll { waitingFolder in waitingFolder == folder }
+            if imageSource(of: folder) == nil { tileImages[folder] = nil } else { requestImage(of: folder, redrawing: true) }
+        }
+    }
+
+    /// Queues a tile's picture, and on the Mac draws the plain folder once.
+    private func requestImage(of folder: VaultPath, redrawing: Bool = false) {
+        if imageSource(of: folder) != nil {
+            guard redrawing || tileImages[folder] == nil, !waitingImages.contains(folder) else { return }
+            waitingImages.append(folder)
+        } else {
+            #if os(macOS)
+            guard case .plain = shownLook(of: folder), plainFolderIcon == nil else { return }
+            #else
+            return
+            #endif
+        }
+        guard imageTask == nil else { return }
+        imageTask = Task { [weak self] in
+            await self?.drawImagesUntilNoneWaits()
+            self?.imageTask = nil
+        }
+    }
+
+    private func drawImagesUntilNoneWaits() async {
+        let pixels = Self.tileImagePixels
+        #if os(macOS)
+        if plainFolderIcon == nil, let attributes {
             plainFolderIcon = await Task.detached(priority: .userInitiated) { attributes.systemIcon(of: nil, pixels: pixels) }.value
         }
-        while !waitingIcons.isEmpty, !Task.isCancelled {
-            let folder = waitingIcons.removeFirst()
-            let icon = await Task.detached(priority: .userInitiated) { attributes.systemIcon(of: folder, pixels: pixels) }.value
+        #endif
+        while !waitingImages.isEmpty, !Task.isCancelled {
+            let folder = waitingImages.removeFirst()
+            guard let source = imageSource(of: folder) else { continue }
+            let image = await drawImage(from: source, of: folder, pixels: pixels)
             // A tile that scrolled away, or whose look changed while it was drawn, waits again or needs none.
-            if visibleFolders.contains(folder), !waitingIcons.contains(folder) { systemIcons[folder] = icon }
+            if isVisible(folder), !waitingImages.contains(folder) { tileImages[folder] = image }
         }
     }
-    #endif
+
+    private func drawImage(from source: FolderTileImageSource, of folder: VaultPath, pixels: Int) async -> CGImage? {
+        switch source {
+        case .picture(let picturePath):
+            return await loadPicture(picturePath, pixels)
+        case .systemIcon:
+            #if os(macOS)
+            guard let attributes else { return nil }
+            return await Task.detached(priority: .userInitiated) { attributes.systemIcon(of: folder, pixels: pixels) }.value
+            #else
+            return nil
+            #endif
+        }
+    }
+}
+
+/// What a folder tile's picture is drawn from.
+enum FolderTileImageSource: Equatable {
+    /// The system's own icon of the folder, as Finder draws it; on the Mac only.
+    case systemIcon
+    /// The folder's picture in the vault.
+    case picture(VaultPath)
 }

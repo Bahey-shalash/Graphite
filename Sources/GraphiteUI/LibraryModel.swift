@@ -37,7 +37,7 @@ final class LibraryModel {
     private(set) var failure: LibraryFailure?
     var filter: LibraryFilter = .all { didSet { applyFilter() } }
     /// The folders' looks: Graphite's styles and Finder's; replaced with the vault.
-    private(set) var folderLooks = LibraryFolderLooks(attributes: nil)
+    private(set) var folderLooks = LibraryFolderLooks(attributes: nil) { _, _ in nil }
     /// Previews of the tiles on screen; a tile's entry goes when it scrolls away.
     private(set) var visiblePreviews: [VaultPath: LibraryTilePreview] = [:]
 
@@ -61,7 +61,7 @@ final class LibraryModel {
         if newSource?.vaultIdentifier != source?.vaultIdentifier {
             cancelPreviews()
             previewCache = Self.makePreviewCache()
-            folderLooks = LibraryFolderLooks(attributes: newSource?.finderAttributes)
+            folderLooks = Self.makeFolderLooks(for: newSource)
             folder = .root
         }
         source = newSource
@@ -160,6 +160,28 @@ final class LibraryModel {
         if await !folderLooks.writeFinderLook(style, of: styledFolder) { failure = .finderLookNotWritten }
     }
 
+    /// Makes a framed picture the folder's look: saved as a PNG in the vault, then the style
+    /// that points at it. Returns the new look, nil when the picture could not be saved.
+    func setPicture(_ framedPicture: CGImage, layout: FolderPictureLayout, color: FolderColor?, for styledFolder: VaultPath) async -> FolderStyle? {
+        guard let source else { return nil }
+        do {
+            let pngData = try await Task.detached(priority: .userInitiated) { try FolderIconRenderer.pngData(of: framedPicture) }.value
+            let picturePath = try await source.store.saveFolderPicture(pngData)
+            let style = FolderStyle(color: color, mark: .picture(FolderPicture(path: picturePath, layout: layout)))
+            await setStyle(style, for: styledFolder)
+            return failure == .styleNotSaved ? nil : style
+        } catch {
+            failure = .styleNotSaved
+            return nil
+        }
+    }
+
+    /// A picture of the vault chosen for a folder, bounded as a picked file is.
+    func pictureData(at path: VaultPath) async throws -> Data {
+        guard let source else { throw CancellationError() }
+        return try await source.store.read(path, maximumBytes: PickedImageFiles.maximumImageBytes).data
+    }
+
     func dismissFailure() { failure = nil }
 
     // MARK: Previews
@@ -249,6 +271,15 @@ final class LibraryModel {
         requestedPreviewKeys = [:]
         visiblePreviews = [:]
         visibleTileCounts = [:]
+    }
+
+    /// A folder's picture is a PNG in the vault, read as a picture tile's preview is.
+    private static func makeFolderLooks(for source: Source?) -> LibraryFolderLooks {
+        let renderPreview = source?.renderPreview
+        return LibraryFolderLooks(attributes: source?.finderAttributes) { picturePath, longerSidePixels in
+            guard case .picture(let image) = await renderPreview?(picturePath, longerSidePixels) else { return nil }
+            return image
+        }
     }
 
     private static func makePreviewCache() -> LibraryPreviewCache {

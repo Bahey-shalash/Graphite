@@ -51,6 +51,9 @@ public struct FinderFolderAttributes: Sendable {
     /// a change of metadata only, so a file provider such as iCloud Drive syncs it.
     public func write(_ change: FinderFolderLookChange, to folder: VaultPath) throws {
         var location = try folder.url(in: root)
+        // The system writes the custom icon file and its flag itself, so this comes first and
+        // the flag is settled below.
+        try writeCustomIconFile(change.customIconFile, at: location)
         var coordinationError: NSError?
         var writeError: (any Error)?
         NSFileCoordinator().coordinate(writingItemAt: location, options: .contentIndependentMetadataOnly, error: &coordinationError) { coordinatedLocation in
@@ -83,6 +86,34 @@ public struct FinderFolderAttributes: Sendable {
         // The system's icons of the folder are drawn again from what was written.
         NSWorkspace.shared.noteFileSystemChanged(location.path)
     }
+
+    private func writeCustomIconFile(_ customIconFile: FinderFolderLookChange.CustomIconFileChange, at location: URL) throws {
+        switch customIconFile {
+        case .keep:
+            return
+        case .remove:
+            guard NSWorkspace.shared.setIcon(nil, forFile: location.path, options: []) else { throw Self.iconNotWritten }
+        case .write(let picture):
+            let pictureLocation = try picture.path.url(in: root)
+            guard let pictureData = try? Data(contentsOf: pictureLocation, options: .mappedIfSafe), // A missing picture is reported below.
+                  let pictureImage = FolderIconRenderer.decodedPicture(from: pictureData),
+                  let iconImage = FolderIconRenderer.finderIcon(picture: pictureImage, layout: picture.layout,
+                                                                folderIcon: systemIcon(of: nil, pixels: Self.finderIconPixels)) else {
+                throw Self.iconNotWritten
+            }
+            let icon = NSImage(cgImage: iconImage, size: NSSize(width: Self.finderIconPixels, height: Self.finderIconPixels))
+            guard NSWorkspace.shared.setIcon(icon, forFile: location.path, options: []) else { throw Self.iconNotWritten }
+        }
+    }
+
+    /// The side of the custom icon written for Finder, its largest icon view at 2x.
+    static let finderIconPixels = 1_024
+    /// Why Finder's icon of a folder was not written.
+    public enum Failure: Error, Equatable {
+        case iconNotWritten
+    }
+
+    private static let iconNotWritten = Failure.iconNotWritten
 
     /// The folder's icon as Finder draws it, `pixels` wide; the generic folder for nil.
     public func systemIcon(of folder: VaultPath?, pixels: Int) -> CGImage? {
