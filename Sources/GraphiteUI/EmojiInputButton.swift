@@ -15,9 +15,7 @@ struct EmojiInputButton: View {
 
     var body: some View {
         label
-            .padding(.horizontal, 12)
-            .frame(minHeight: 30)
-            .background(.fill.tertiary, in: Capsule())
+            .bottomButtonLabel()
             .overlay { EmojiInputField(choose: choose) }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(currentEmoji.map { emoji in "Emoji, \(emoji)" } ?? "Emoji")
@@ -25,10 +23,11 @@ struct EmojiInputButton: View {
     }
 
     @ViewBuilder private var label: some View {
+        // As Finder's: the chosen emoji takes the symbol's place beside the word.
         if let currentEmoji {
-            Text(currentEmoji).font(.title3)
+            Label { Text("Emoji") } icon: { Text(currentEmoji) }
         } else {
-            Label("Emoji", systemImage: "face.smiling").font(.callout).lineLimit(1).fixedSize()
+            Label("Emoji", systemImage: "face.smiling")
         }
     }
 }
