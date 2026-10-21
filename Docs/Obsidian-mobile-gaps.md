@@ -22,7 +22,7 @@ Found while checking these: the iPad keyboard's curly quotes did not quote a sea
 - Editable handwriting in notes (PNG, PDF or SVG drawings with an Edit button).
 - Lecture recording that keeps running while you move between documents, with pause, resume and interruption handling.
 - Bases map view built in (Obsidian needs its Maps plugin).
-- Possible: several windows at once in Stage Manager, which Obsidian's iPad app does not support (Graphite does not either yet; see below).
+- Several windows at once on the iPad (Stage Manager, Split View) and the Mac, which Obsidian's iPad app does not support: two notes side by side, a PDF beside its note, two vaults open at once.
 
 ## The gaps that matter most for studying on an iPad
 
@@ -120,7 +120,7 @@ Status: **Missing**, **Partial**, or **Done**. "Desktop only" items are left out
 | Right sidebar | Partial | Outline, backlinks, outgoing links, tags for Markdown notes; nothing for PDFs |
 | Pull-down quick action, swipe gestures | Missing | |
 | Hardware keyboard shortcuts | Done | In the iPad menu bar (File, View, Go) and the editor; not configurable, no Hotkeys settings page |
-| Multiple windows (Stage Manager) | Missing | `UIApplicationSupportsMultipleScenes` is off; planned in [Multiple-windows-todo.md](Multiple-windows-todo.md) |
+| Multiple windows (Stage Manager) | Done | Several windows on the iPad and the Mac, on one vault or several; New Window (⌥⌘N), Open in New Window, a file or tab dragged to the screen's edge; the iPhone keeps one window ([Multiple-windows-todo.md](Multiple-windows-todo.md); Stage Manager by hand not tried yet) |
 | Share extension (share to Graphite) | Missing | |
 | URL scheme and deep links | Done | `graphite://` with Obsidian's actions and parameters (`open` with `file` or `path`, `search`, `new` with `append`, `overwrite` and `silent`, `daily`, and `vault/…`), so an Obsidian link works once its scheme is changed; Copy Graphite URL from a note, a file, and the command palette. `obsidian://` links written in notes still go to Obsidian; no document types declared for "Open in Graphite" |
 | Siri, Shortcuts, widgets | Missing | |
