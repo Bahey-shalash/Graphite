@@ -12,7 +12,8 @@ import PencilKit
 /// Format › Color menu uses; Draw Shapes, which turns the shape tool on and off
 /// (`PencilShapes`); Select Ink, which turns on Graphite's lasso (`InkSelectionController`),
 /// with its type, freehand or rectangular; the laser pointer (`LaserPointerController`),
-/// with its dot or line; and, on PDF pages, the Read Aloud pen (`ReadAloudPenController`).
+/// with its dot or line; and, on PDF pages, the Read Aloud pen (`ReadAloudPenController`)
+/// and the text tool (`TextBoxToolController`).
 @MainActor
 enum PencilToolPalette {
     /// Whether strokes become the shapes they were meant to be; shared by every canvas.
@@ -39,7 +40,8 @@ enum PencilToolPalette {
     ///
     /// A button of its own rather than a plain bar item: the palette would fill a selected
     /// item with the system's blue, the one color in a row of neutral buttons.
-    static func makeAccessoryItem(for toolPicker: PKToolPicker, offersReadAloudPen: @escaping @MainActor () -> Bool = { false }) -> UIBarButtonItem {
+    static func makeAccessoryItem(for toolPicker: PKToolPicker, offersReadAloudPen: @escaping @MainActor () -> Bool = { false },
+                                  offersTextBoxes: Bool = false) -> UIBarButtonItem {
         let button = PaletteAccessoryButton(configuration: .plain())
         button.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -51,10 +53,11 @@ enum PencilToolPalette {
         button.configurationUpdateHandler = { button in
             let inkSelection = PaletteInkSelection.of(button.window?.windowScene)
             let selectsInk = inkSelection.isOn, pointsWithLaser = inkSelection.pointsWithLaser
-            let pointsToRead = inkSelection.pointsToRead
-            let isInverted = selectsInk || pointsWithLaser || pointsToRead || button.isSelected
+            let pointsToRead = inkSelection.pointsToRead, placesTextBoxes = inkSelection.placesTextBoxes
+            let isInverted = selectsInk || pointsWithLaser || pointsToRead || placesTextBoxes || button.isSelected
             var configuration = UIButton.Configuration.plain()
-            let symbolName = selectsInk ? LassoShape.stored.symbolName : button.isSelected ? "square.fill.on.circle.fill" : "swatchpalette"
+            let symbolName = selectsInk ? LassoShape.stored.symbolName : placesTextBoxes ? PencilToolKind.text.symbolName
+                : button.isSelected ? "square.fill.on.circle.fill" : "swatchpalette"
             configuration.image = pointsToRead ? ReadAloudPenGlyph.templateImage()
                 : pointsWithLaser ? LaserPointerGlyph.templateImage() : UIImage(systemName: symbolName)
             configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 15, weight: .medium)
@@ -63,17 +66,18 @@ enum PencilToolPalette {
             configuration.background.backgroundColor = isInverted ? .label : .tertiarySystemFill
             button.configuration = configuration
         }
-        button.accessibilityLabel = "Colors, Shapes, Selection and Laser"
+        button.accessibilityLabel = offersTextBoxes ? "Colors, Shapes, Selection, Laser and Text" : "Colors, Shapes, Selection and Laser"
         button.accessibilityHint = "Gives the pen in use one of your colors, turns strokes into shapes, selects ink and images to move, resize or capture, or points with a laser"
+            + (offersTextBoxes ? ", or places text boxes" : "")
         button.showsLargeContentViewer = true
-        button.largeContentTitle = "Colors, Shapes, Selection and Laser"
+        button.largeContentTitle = button.accessibilityLabel
         button.showsMenuAsPrimaryAction = true
         // Read each time the menu opens: the colors, the tool in use and the switches change.
         button.menu = UIMenu(children: [
             UIDeferredMenuElement.uncached { [weak toolPicker, weak button] provideElements in
                 let inkSelection = PaletteInkSelection.of(button?.window?.windowScene)
                 provideElements(toolPicker.map { toolPicker in
-                    menuElements(for: toolPicker, inkSelection: inkSelection, offersReadAloudPen: offersReadAloudPen())
+                    menuElements(for: toolPicker, inkSelection: inkSelection, offersReadAloudPen: offersReadAloudPen(), offersTextBoxes: offersTextBoxes)
                 } ?? [])
             },
         ])
@@ -95,14 +99,15 @@ enum PencilToolPalette {
     /// Whether shapes are on, and the tool of Graphite's that is in use.
     static func accessibilityValue(shapesAreOn: Bool, inkSelection: PaletteInkSelection) -> String {
         (shapesAreOn ? "Shapes on" : "Shapes off") + (inkSelection.isOn ? ", selecting ink"
-            : inkSelection.pointsWithLaser ? ", laser pointer" : inkSelection.pointsToRead ? ", Read Aloud pen" : "")
+            : inkSelection.pointsWithLaser ? ", laser pointer" : inkSelection.pointsToRead ? ", Read Aloud pen"
+            : inkSelection.placesTextBoxes ? ", text" : "")
     }
 
     /// Favorite colors as a row of swatches, or the highlighter's own colors while the marker
     /// is in use, then the Draw Shapes switch.
     static func menuElements(for toolPicker: PKToolPicker, inkSelection: PaletteInkSelection, palette: [PaletteColor] = GraphitePreferences.storedColorPalette(),
                              highlighterPalette: [PaletteColor] = GraphitePreferences.storedHighlighterPalette(),
-                             offersReadAloudPen: Bool = false) -> [UIMenuElement] {
+                             offersReadAloudPen: Bool = false, offersTextBoxes: Bool = false) -> [UIMenuElement] {
         let shapesAction = UIAction(title: "Draw Shapes", image: UIImage(systemName: "square.on.circle"),
                                     state: drawsShapes ? .on : .off) { _ in
             UserDefaults.standard.set(!drawsShapes, forKey: drawsShapesPreferenceKey)
@@ -136,6 +141,11 @@ enum PencilToolPalette {
             inkSelection.pointsToRead.toggle()
         }
         let readAloudMenus: [UIMenuElement] = offersReadAloudPen ? [UIMenu(options: .displayInline, children: [readAloudPenAction])] : []
+        let textBoxAction = UIAction(title: "Text Box", subtitle: "Tap the page to type, or a box to edit it",
+                                     image: UIImage(systemName: PencilToolKind.text.symbolName), state: inkSelection.placesTextBoxes ? .on : .off) { _ in
+            inkSelection.placesTextBoxes.toggle()
+        }
+        let textMenus: [UIMenuElement] = offersTextBoxes ? [UIMenu(options: .displayInline, children: [textBoxAction])] : []
         return [colorsMenu, UIMenu(options: .displayInline, children: [shapesAction]),
                 UIMenu(options: .displayInline, children: [
                     selectionAction,
@@ -146,7 +156,7 @@ enum PencilToolPalette {
                     laserAction,
                     UIMenu(title: "Laser Type", subtitle: LaserPointerStyle.stored.title, image: UIImage(systemName: LaserPointerStyle.stored.symbolName),
                            options: .singleSelection, children: laserStyles),
-                ])] + readAloudMenus
+                ])] + textMenus + readAloudMenus
     }
 
     // MARK: Favorite colors

@@ -157,7 +157,7 @@ public struct PDFPicture: Sendable, Equatable {
 /// one is made for one of them.
 ///
 /// In a shown document PDFKit also makes every stamp it reads from the file one of these
-/// (`PDFPictureDrawingDelegate`). Such an annotation has no picture of its own: at its
+/// (`PDFAnnotationDrawingDelegate`). Such an annotation has no picture of its own: at its
 /// first drawing it reads Graphite's picture from its keys and from then on draws it
 /// itself, as after an edit, instead of leaving PDFKit to draw the saved appearance. Any
 /// other stamp is drawn by PDFKit as before.
@@ -273,23 +273,4 @@ final class PDFPictureReadFromFile: Sendable {
     let drawing: PDFPictureAnnotationDrawing?
 
     init(drawing: PDFPictureAnnotationDrawing?) { self.drawing = drawing }
-}
-
-/// The delegate of every PDF document Graphite shows (`PDFPageManager.prepareForDisplay`):
-/// PDFKit makes the stamps it reads from the file `PDFPictureAnnotation`s, so Graphite's
-/// pictures are drawn as smoothly after the PDF is opened again as while it is edited. The
-/// file is not changed: a stamp read this way keeps its saved appearance and keys, and a
-/// document Graphite writes never has this delegate.
-public final class PDFPictureDrawingDelegate: NSObject, PDFDocumentDelegate, @unchecked Sendable {
-    // Unchecked: it has no state, so it can be shared by documents on any thread.
-    public static let shared = PDFPictureDrawingDelegate()
-
-    override private init() { super.init() }
-
-    /// PDFKit asks with the subtype without its slash. For any other subtype, the base
-    /// class leaves PDFKit to choose as it would without a delegate (seen with PDFKit on
-    /// macOS 27 and iOS 27, `PDFPictureTests`).
-    public func `class`(forAnnotationType annotationType: String) -> AnyClass {
-        annotationType == PDFPicture.annotationTypeName ? PDFPictureAnnotation.self : PDFAnnotation.self
-    }
 }

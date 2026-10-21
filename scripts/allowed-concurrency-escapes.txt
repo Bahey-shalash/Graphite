@@ -16,7 +16,9 @@ Sources/GraphiteApple/CameraCaptureSource.swift        CameraCaptureSource      
 Sources/GraphiteApple/FolderAccess.swift               VaultMonitor             # mutex around the state, immutable callbacks
 Sources/GraphiteApple/MainThreadWatchdog.swift         MetricKitDiagnostics     # no state
 Sources/GraphiteApple/MainThreadWatchdog.swift         MainThreadWatchdog       # lock around the state, set-once fields
-Sources/GraphiteApple/PDFPicture.swift                 PDFPictureDrawingDelegate # no state
+Sources/GraphiteApple/PDFAnnotationDrawingDelegate.swift PDFAnnotationDrawingDelegate # no state
+Sources/GraphiteApple/PDFAnnotationDrawingDelegate.swift PDFWrittenDocumentDelegate # no state
+Sources/GraphiteApple/PDFTextBoxLayout.swift            PDFTextBoxLayout # immutable Core Foundation objects and values
 Sources/GraphiteApple/ReadAloudSpeech.swift            SpeechCallbackIdentity   # retains only; never reads the wrapped object off the main actor
 Sources/GraphiteApple/RecordingController.swift        StartedRecorder          # handed once to the main actor
 Sources/GraphiteApple/VideoRecording.swift             VideoRecording           # confined to one serial queue
@@ -54,6 +56,7 @@ Sources/GraphiteUI/MarkdownPreview.swift               assumeIsolated x2  # seed
 Sources/GraphiteUI/NativeMarkdownEditor.swift          assumeIsolated x1  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
 Sources/GraphiteUI/PDFPaneHealth.swift                 assumeIsolated x1  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
 Sources/GraphiteUI/PDFPictureControls.swift            assumeIsolated x4  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
+Sources/GraphiteUI/PDFTextBoxInteraction.swift         assumeIsolated x4  # observers on the main queue and the main-thread scroll view's offset, as for pictures (CC 28)
 Sources/GraphiteUI/PresentedScreenObserver.swift       assumeIsolated x1  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
 Sources/GraphiteUI/ReadAloudNowPlaying.swift           assumeIsolated x1  # one of the two uses with no documented thread (CC-ARCH-06): replace by an explicit hop
 Sources/GraphiteUI/ReadAloudPen.swift                  assumeIsolated x2  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)

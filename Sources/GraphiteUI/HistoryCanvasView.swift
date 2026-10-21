@@ -181,8 +181,9 @@ class HistoryCanvasView: PKCanvasView {
             selectsInk = newFixedTool.kind == .lasso
             pointsWithLaser = newFixedTool.kind == .laser
             pointsToRead = newFixedTool.kind == .readAloud
-            // The lasso, the laser and the Read Aloud pen are Graphite's own; PencilKit's tool
-            // stays what it was and draws nothing.
+            placesTextBoxes = newFixedTool.kind == .text
+            // The lasso, the laser, the Read Aloud pen and the text tool are Graphite's own;
+            // PencilKit's tool stays what it was and draws nothing.
             if newFixedTool.kind.drawsInk { drawWith(newFixedTool.tool) }
             isRulerActive = newFixedTool.isRulerActive
         } else if !followsToolPicker {
@@ -215,6 +216,7 @@ class HistoryCanvasView: PKCanvasView {
         selectsInk = inkSelection.isOn
         pointsWithLaser = inkSelection.pointsWithLaser
         pointsToRead = inkSelection.pointsToRead
+        placesTextBoxes = inkSelection.placesTextBoxes
     }
 
     /// A tool was chosen in the palette this canvas follows: Graphite's tools are put away in
@@ -298,7 +300,7 @@ class HistoryCanvasView: PKCanvasView {
     }
 
     private func applyDrawingEnabled() {
-        isDrawingEnabled = !isDrawingSuspended && !selectsInk && !pointsWithLaser && !pointsToRead
+        isDrawingEnabled = !isDrawingSuspended && !selectsInk && !pointsWithLaser && !pointsToRead && !placesTextBoxes
     }
 
     // MARK: Pointing
@@ -339,6 +341,29 @@ class HistoryCanvasView: PKCanvasView {
         set {
             guard newValue != pointsToRead else { return }
             readAloudPen.isActive = newValue
+            applyDrawingEnabled()
+        }
+    }
+
+    // MARK: Placing text
+
+    private var hasTextBoxTool = false
+    /// The text tool on this canvas (`TextBoxToolController`).
+    private(set) lazy var textBoxTool: TextBoxToolController = {
+        hasTextBoxTool = true
+        return TextBoxToolController(canvas: self)
+    }()
+
+    /// Where the text tool tapped, in the window; set by the owner of a PDF page's canvas.
+    /// Without it the tool places nothing.
+    var textToolTapped: ((CGPoint) -> Void)?
+
+    /// Whether the canvas places text boxes instead of drawing.
+    var placesTextBoxes: Bool {
+        get { hasTextBoxTool && textBoxTool.isActive }
+        set {
+            guard newValue != placesTextBoxes else { return }
+            textBoxTool.isActive = newValue
             applyDrawingEnabled()
         }
     }

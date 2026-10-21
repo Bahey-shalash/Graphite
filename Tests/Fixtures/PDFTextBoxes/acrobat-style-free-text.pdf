@@ -1,0 +1,44 @@
+%PDF-1.7
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 300] /Contents 4 0 R /Annots [5 0 R] /Resources << >> >>
+endobj
+4 0 obj
+<< /Length 3 >>
+stream
+q Q
+endstream
+endobj
+5 0 obj
+<< /Type /Annot /Subtype /FreeText /Rect [50 150 250 210] /NM (acrobat-box-1) /Contents (Hello bold italic underSecond line) /DA (0 0 0 rg /Helv 12 Tf) /DS (font: Helvetica,sans-serif 12.0pt; text-align:left; color:#FF0000 ) /RC (<?xml version="1.0"?><body xmlns="http://www.w3.org/1999/xhtml" xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/" xfa:APIVersion="Acrobat:23.6.0" xfa:spec="2.0.2" style="font-size:12.0pt;text-align:left;color:#FF0000;font-weight:normal;font-style:normal;font-family:Helvetica,sans-serif;font-stretch:normal"><p dir="ltr"><span style="font-family:Helvetica">Hello <b>bold</b> <i>italic</i> <span style="text-decoration:underline">under</span></span></p><p dir="ltr"><span style="color:#0000FF;font-size:18.0pt">Second line</span></p></body>) /IT /FreeTextTypeWriter /RD [1 1 1 1] /BS << /W 1 /S /S >> /C [1 1 0] /CA 1 /Subj (Typewriter) /Q 0 /F 4 /AcrobatVendorKey (keep me) /AP << /N 6 0 R >> >>
+endobj
+6 0 obj
+<< /Type /XObject /Subtype /Form /BBox [0 0 200 60] /Resources << /Font << /Helv 7 0 R >> >> /Length 67 >>
+stream
+q 1 0 0 rg BT /Helv 12 Tf 2 30 Td (Hello bold italic under) Tj ET Q
+endstream
+endobj
+7 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000241 00000 n 
+0000000293 00000 n 
+0000001237 00000 n 
+0000001444 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+1541
+%%EOF
