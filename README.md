@@ -38,16 +38,65 @@ It is a native app written in Swift, built iPad-first for lectures and handwriti
 - **Import from Goodnotes and Notability** into ordinary PDFs and recordings.
 - **A small core.** Extras such as voices and tour pictures are downloaded on first use, so the app stays light in size, memory and battery.
 
+## Apple Pencil drawings inside notes
+
+Put the cursor where a derivation, a circuit or a sketch belongs and insert a drawing. Graphite opens a canvas as wide as the note that grows downward as you write, with PencilKit's tools. **Insert** saves it next to your other attachments and places a normal embed, such as `![[Fourier harmonics.png]]`, where the cursor was.
+
+You choose the file format. PNG keeps every brush exactly as drawn, and PDF or SVG keeps the ink as sharp vector lines. Each format can be opened in Graphite and edited stroke by stroke again, while Obsidian, Preview or a browser simply sees an image.
+
 <table>
   <tr>
-    <td><img src="AddOns/WelcomeTour/WelcomeTourEmbeddedPDF-light.jpg" alt="A lecture slide embedded in a Markdown note on iPad"></td>
-    <td><img src="AddOns/WelcomeTour/WelcomeTourNote-mac-light.jpg" alt="A note with math and a callout in the Mac app"></td>
+    <td width="50%"><img src="AddOns/WelcomeTour/WelcomeTourDrawingCanvas-light.jpg" alt="The drawing canvas with PencilKit's tool palette and a sketch of a square wave and its first harmonic"></td>
+    <td width="50%"><img src="AddOns/WelcomeTour/WelcomeTourDrawingInNote-dark.jpg" alt="The finished drawing embedded in a Markdown note, in dark appearance"></td>
   </tr>
   <tr>
-    <td align="center"><sub>A slide embedded in a note, on iPad</sub></td>
-    <td align="center"><sub>The native Mac app</sub></td>
+    <td align="center"><sub>Drawing on the canvas</sub></td>
+    <td align="center"><sub>The drawing inside the note, with an Edit button to change it later</sub></td>
   </tr>
 </table>
+
+## Annotating PDFs
+
+Lecture slides, papers and notebooks are PDFs, and Graphite writes on them directly. Choose a pen, highlighter or eraser from a palette that floats over the page, or keep the tools in a bar above it. Ink is saved as standard PDF annotations, so Preview, Acrobat and Obsidian show what you wrote. Pages can be added, reordered, rotated and bookmarked, and blank notebooks get real paper (dotted, grid, ruled, Cornell and more) as page content.
+
+A PDF page also embeds in a note at the height you choose, so the slide you need sits next to your notes on it.
+
+<table>
+  <tr>
+    <td width="50%"><img src="AddOns/WelcomeTour/WelcomeTourPDFFloatingPalette-light.jpg" alt="Handwritten notes on a lecture slide, with the floating Pencil palette"></td>
+    <td width="50%"><img src="AddOns/WelcomeTour/WelcomeTourPDFFixedBar-light.jpg" alt="The same slides with the tools in a fixed bar above the page"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Writing on slides with the floating palette</sub></td>
+    <td align="center"><sub>Or with the tools in a fixed bar</sub></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="AddOns/WelcomeTour/WelcomeTourEmbeddedPDF-light.jpg" alt="A lecture slide embedded in a Markdown note on iPad"></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><sub>A slide embedded in a note</sub></td>
+  </tr>
+</table>
+
+## A Mac app that stays light
+
+On the Mac, Graphite is a Mac app through and through: SwiftUI and AppKit, real menus, windows and keyboard shortcuts. No browser engine draws your notes. A web view starts only if you turn on community plugins. A vault opens without waiting for a full scan, search reads an index kept on disk, and the whole vault is never loaded into memory.
+
+<p align="center">
+  <img src="AddOns/WelcomeTour/WelcomeTourNote-mac-light.jpg" width="820" alt="A note on Fourier series with formulas and a callout in the Mac app">
+</p>
+
+| Measured on the Mac | Result |
+| --- | --- |
+| App size | 60 MB |
+| Launch to first window | 0.7 to 1.0 s |
+| Memory at rest, vault and note open | 137 MB (58 MB with no vault) |
+| Processor time at rest | 0.00 to 0.01 s over 30 s |
+| Typing in a list item, median frame | 7.6 ms |
+| Search in a vault of 100,000 notes, slowest queries | 11 to 28 ms per keystroke |
+| A vault of 36,392 files | Opens, and the main thread is idle 7 s after launch |
+
+<sub>Release builds on the developer's Mac, with a 28-file vault unless the row names another. The 36,392-file vault was opened in a debug build. Each figure, how it was taken and what was not measured are in [Implementation coverage](Docs/Coverage.md).</sub>
 
 ## Status
 
