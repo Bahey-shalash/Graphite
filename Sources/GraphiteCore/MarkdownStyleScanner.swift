@@ -216,9 +216,10 @@ public enum MarkdownStyleScanner {
     /// The state at `targetLineStart`, after the frontmatter, found without building a
     /// string for every earlier line: only a line whose first visible character (after
     /// quote markers) is a fence character or `$` can open or close a block, and only a
-    /// line ending in `$` closes display math. The characters are read in chunks, because
-    /// on the editor's text storage every call goes through a slow proxy, and a walk line
-    /// by line would cost each keystroke time in proportion to the note's length. A code block
+    /// line holding `$$` closes display math (`DisplayMathLines.closesOpenBlock`). The
+    /// characters are read in chunks, because on the editor's text storage every call goes
+    /// through a slow proxy, and a walk line by line would cost each keystroke time in
+    /// proportion to the note's length. A code block
     /// inside a quote also ends at a line outside the quote, so it is followed line by line.
     ///
     /// A `checkpoint` at or before `targetLineStart`, made after the same frontmatter,
@@ -269,8 +270,8 @@ public enum MarkdownStyleScanner {
         var lineStart = range.location
         // Outside display math: whether the line holds only indentation and quote markers so far.
         var lineIsIndentationSoFar = true
-        // In display math: whether the line's last visible character so far is `$`.
-        var lastVisibleIsDollar = false
+        // In display math: whether the previous character on the line is `$`.
+        var previousIsDollar = false
         var chunkStart = range.location
         while chunkStart < NSMaxRange(range) {
             let chunkLength = min(unitsPerChunk, NSMaxRange(range) - chunkStart)
@@ -278,15 +279,12 @@ public enum MarkdownStyleScanner {
             for offset in 0..<chunkLength {
                 let unit = chunk[offset]
                 if unit == lineFeed || unit == carriageReturn || unicodeLineTerminators.contains(unit) {
-                    if lastVisibleIsDollar { return lineStart }
                     lineStart = chunkStart + offset + 1
                     lineIsIndentationSoFar = true
+                    previousIsDollar = false
                 } else if isMathBlock {
-                    if unit == dollar {
-                        lastVisibleIsDollar = true
-                    } else if lastVisibleIsDollar && !isWhitespaceOrNewline(unit) {
-                        lastVisibleIsDollar = false
-                    }
+                    if unit == dollar && previousIsDollar { return lineStart }
+                    previousIsDollar = unit == dollar
                 } else if lineIsIndentationSoFar {
                     if significantUnits.contains(unit) { return lineStart }
                     lineIsIndentationSoFar = unit == greaterThan || isWhitespaceOrNewline(unit)
@@ -294,7 +292,7 @@ public enum MarkdownStyleScanner {
             }
             chunkStart += chunkLength
         }
-        return lastVisibleIsDollar ? lineStart : nil
+        return nil
     }
 
     private static let whitespaceAndNewlineCharacters = CharacterSet.whitespacesAndNewlines
@@ -322,7 +320,7 @@ public enum MarkdownStyleScanner {
             guard let fence = state.openFence, !MarkdownFenceSyntax.closes(fence, content) else { return BlockState() }
             return state
         case .mathBlock:
-            return contentWithoutQuoteMarkers(line).hasSuffix("$$") ? BlockState() : state
+            return DisplayMathLines.closesOpenBlock(line) ? BlockState() : state
         case .normal, .frontmatter:
             let (depth, content) = MarkdownQuoteSyntax.markersAndTrimmedContent(of: line, maximumDepth: .max)
             if let (fence, info) = fenceOpening(content, ofLine: line, startingAt: lineEnd - (line as NSString).length, in: text) {
@@ -335,16 +333,12 @@ public enum MarkdownStyleScanner {
     }
 
     /// The fence that `content`, the text of `line` (which starts at `lineStart` in `text`)
-    /// after its quote markers, opens. Indented past `MarkdownFenceSyntax.maximumIndentation` columns,
-    /// a line opens one only within that many columns of the content of the list item
-    /// holding it, as `MarkdownCodeRanges` reads fences; only such a line looks up its list
-    /// item. Indentation is counted before any quote marker, so a quoted line's content
-    /// is not checked.
+    /// after its quote markers, opens, within the indentation limit of its list item
+    /// (`ListItemContainers.allowsFence`), as `CodeFenceTracker` reads fences. Indentation
+    /// is counted before any quote marker, so a quoted line's content is not checked.
     private static func fenceOpening(_ content: String, ofLine line: String, startingAt lineStart: Int, in text: NSString) -> (fence: String, info: String)? {
-        guard let opening = MarkdownFenceSyntax.opening(content) else { return nil }
-        let indentation = ListItemContainers.leadingColumns(of: line)
-        guard indentation <= MarkdownFenceSyntax.maximumIndentation
-                || indentation <= ListItemContainers.containerColumn(ofLineAt: lineStart, in: text) + MarkdownFenceSyntax.maximumIndentation else { return nil }
+        guard let opening = MarkdownFenceSyntax.opening(content),
+              ListItemContainers.allowsFence(indentedBy: ListItemContainers.leadingColumns(of: line), onLineAt: lineStart, in: text) else { return nil }
         return opening
     }
 
@@ -491,10 +485,9 @@ public enum MarkdownStyleScanner {
     private static func inlineSpans(line: NSString, range: NSRange) -> [MarkdownStyleSpan] {
         guard range.length > 0 else { return [] }
         var spans: [MarkdownStyleSpan] = []
-        var claimedRanges: [NSRange] = []
-        func isUnclaimed(_ candidate: NSRange) -> Bool {
-            !claimedRanges.contains { claimedRange in NSIntersectionRange(claimedRange, candidate).length > 0 }
-        }
+        // Claimed in priority order, each new match tested by a binary search.
+        var claimedRanges = SortedRangeSet()
+        func isUnclaimed(_ candidate: NSRange) -> Bool { !claimedRanges.intersects(candidate) }
         func add(_ spanRange: NSRange, _ style: MarkdownStyle, in elementRange: NSRange) {
             spans.append(MarkdownStyleSpan(range: spanRange, style: style, inlineElementRange: elementRange))
         }
@@ -506,23 +499,25 @@ public enum MarkdownStyleScanner {
         let lineString = line as String
         for codeSpan in MarkdownCodeRanges.codeSpans(in: line, range: range) {
             addDelimited(codeSpan.range, style: .inlineCode, delimiterLength: codeSpan.delimiterLength)
-            claimedRanges.append(codeSpan.range)
+            claimedRanges.insert(codeSpan.range)
         }
         // A block's `^id` at the end of its line hides away from the cursor, as in Obsidian.
         for match in Patterns.blockIdentifier.matches(in: lineString, range: range) where isUnclaimed(match.range) {
             spans.append(MarkdownStyleSpan(range: match.range, style: .concealableMarker))
-            claimedRanges.append(match.range)
+            claimedRanges.insert(match.range)
         }
-        for pattern in [Patterns.inlineDisplayMath, Patterns.inlineMath] {
-            for match in pattern.matches(in: lineString, range: range) where isUnclaimed(match.range) {
-                add(match.range, .math, in: match.range)
-                claimedRanges.append(match.range)
-            }
+        for match in Patterns.inlineDisplayMath.matches(in: lineString, range: range) where isUnclaimed(match.range) {
+            add(match.range, .math, in: match.range)
+            claimedRanges.insert(match.range)
+        }
+        for formula in MarkdownInlineMathSyntax.formulas(in: lineString, range: range) where isUnclaimed(formula.range) {
+            add(formula.range, .math, in: formula.range)
+            claimedRanges.insert(formula.range)
         }
         // A footnote definition's `[^label]:` at the start of its line reads as a label.
         for match in Patterns.footnoteDefinition.matches(in: lineString, range: range) where isUnclaimed(match.range) {
             spans.append(MarkdownStyleSpan(range: match.range, style: .syntaxMarker))
-            claimedRanges.append(match.range)
+            claimedRanges.insert(match.range)
         }
         // `[^label]` and `^[text]` show their label or text, small and raised.
         for pattern in [Footnotes.referencePattern, Footnotes.inlinePattern] {
@@ -531,7 +526,7 @@ public enum MarkdownStyleScanner {
                 add(NSRange(location: match.range.location, length: content.location - match.range.location), .concealableMarker, in: match.range)
                 add(content, .footnote, in: match.range)
                 add(NSRange(location: NSMaxRange(content), length: NSMaxRange(match.range) - NSMaxRange(content)), .concealableMarker, in: match.range)
-                claimedRanges.append(match.range)
+                claimedRanges.insert(match.range)
             }
         }
         for match in Patterns.wikilink.matches(in: lineString, range: range) where isUnclaimed(match.range) {
@@ -558,7 +553,7 @@ public enum MarkdownStyleScanner {
                 add(contentRange, isEmbed ? .embed : .link, in: match.range)
             }
             add(NSRange(location: NSMaxRange(match.range) - 2, length: 2), .concealableMarker, in: match.range)
-            claimedRanges.append(match.range)
+            claimedRanges.insert(match.range)
         }
         for match in Patterns.markdownLink.matches(in: lineString, range: range) where isUnclaimed(match.range) {
             let isEmbed = match.range(at: 1).length > 0
@@ -566,7 +561,7 @@ public enum MarkdownStyleScanner {
             add(NSRange(location: match.range.location, length: labelRange.location - match.range.location), .concealableMarker, in: match.range)
             add(labelRange, isEmbed ? .embed : .link, in: match.range)
             add(NSRange(location: NSMaxRange(labelRange), length: NSMaxRange(match.range) - NSMaxRange(labelRange)), .concealableMarker, in: match.range)
-            claimedRanges.append(match.range)
+            claimedRanges.insert(match.range)
         }
         // Emphasis can hold any of the elements above (`**bold with a [[link]]**`), and a
         // delimiter inside one is that element's text. With each element replaced by
@@ -574,7 +569,7 @@ public enum MarkdownStyleScanner {
         var emphasisLine = lineString
         if !claimedRanges.isEmpty {
             let placeholderLine = NSMutableString(string: lineString)
-            for claimedRange in claimedRanges {
+            for claimedRange in claimedRanges.intervals {
                 placeholderLine.replaceCharacters(in: claimedRange, with: String(repeating: claimedTextPlaceholder, count: claimedRange.length))
             }
             emphasisLine = placeholderLine as String
@@ -610,9 +605,6 @@ public enum MarkdownStyleScanner {
         static let blockIdentifier = MarkdownStyleScannerPattern.blockIdentifier.compiled()
         /// `$$…$$` inside a line, as Obsidian renders it.
         static let inlineDisplayMath = MarkdownStyleScannerPattern.inlineDisplayMath.compiled()
-        /// Pandoc's and Obsidian's rules: no space inside either `$`, the closing `$` is not
-        /// followed by a digit (so "$5 and $10" are prices), and `\$` is a literal dollar.
-        static let inlineMath = MarkdownStyleScannerPattern.inlineMath.compiled()
         static let wikilink = MarkdownStyleScannerPattern.wikilink.compiled()
         static let footnoteDefinition = MarkdownStyleScannerPattern.footnoteDefinition.compiled()
         /// The destination may hold one level of balanced parentheses, as Wikipedia URLs do.
@@ -631,7 +623,6 @@ enum MarkdownStyleScannerPattern: String, StaticPatternSet {
     case calloutTitle = #"\[![A-Za-z0-9_-]+\][+-]?"#
     case blockIdentifier = #"(?<=[ \t])\^[A-Za-z0-9-]+[ \t]*$|^\^[A-Za-z0-9-]+[ \t]*$"#
     case inlineDisplayMath = #"(?<![\\$])\$\$(?:[^$\n\\]|\\.)+?\$\$"#
-    case inlineMath = #"(?<![\\$])\$(?![\s$])(?:[^$\n\\]|\\.)+?(?<!\s)\$(?![$\d])"#
     case wikilink = #"(!?)\[\[[^\]\n]+\]\]"#
     case footnoteDefinition = #"^\[\^[^\]\s]+\]:"#
     case markdownLink = #"(!?)\[([^\]\n]*)\]\((?:[^()\n]|\([^()\n]*\))*\)"#

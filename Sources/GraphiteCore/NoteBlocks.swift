@@ -80,7 +80,7 @@ public enum NoteBlocks {
                 let closesOnSameLine = trimmedLine.count > 2 && trimmedLine.hasSuffix("$$") && trimmedLine != "$$"
                 if !closesOnSameLine {
                     endIndex += 1
-                    while endIndex < lines.count, !lines[endIndex].content.trimmingCharacters(in: .whitespaces).hasSuffix("$$") { endIndex += 1 }
+                    while endIndex < lines.count, !DisplayMathLines.closesOpenBlock(lines[endIndex].content) { endIndex += 1 }
                     endIndex = min(endIndex, lines.count - 1)
                 }
             } else if trimmedLine.hasPrefix(">") {

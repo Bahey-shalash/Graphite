@@ -6,7 +6,7 @@
  *              menu (Export to PDF among them), find in note, and the sheets for inserting attachments, photos and drawings.
  *
  * Authors: Bahey Shalash, Félix Chevalier
- * Version: 0.47
+ * Version: 0.48
  * Date: 21/10/2026
  */
 
@@ -585,7 +585,7 @@ struct MarkdownPane: View {
         Button("Unfold All", systemImage: "rectangle.expand.vertical") { session.unfoldAll() }
             .disabled(session.foldedKeys.isEmpty)
         Button("Save Now", systemImage: "square.and.arrow.down") { Task { try? await session.save() } }
-        Button("Copy Graphite URL", systemImage: "link") { Pasteboard.copy(workspace.openingLink(to: session.path)) }
+        FileLocationMenuItems(path: session.path, openingLink: workspace.openingLink(to: session.path), vaultRoot: workspace.folderAccess?.root)
         NotePDFExportButton()
         if preferences.isEnabled(.bookmarks) {
             let isBookmarked = workspace.bookmarks.fileBookmark(for: session.path) != nil

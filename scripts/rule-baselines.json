@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "comment": "Counts of what the rules forbid; they only go down. Lower them with `python3 scripts/check-rules.py --record`. See Docs/solid/rewrite-foundations.md section 12.2.",
   "recordedOn": "2026-10-21",
-  "recordedAtRevision": "ebb847c7 plus the working tree",
+  "recordedAtRevision": "7cf39010 plus the working tree",
   "gates": {
     "ambient-time-and-randomness": 64,
     "app-storage-literals": 7,
@@ -21,7 +21,7 @@
     "files-over-1000-code-lines": 6,
     "graphite-error-prose": 286,
     "hash-value-identity": 3,
-    "lines-over-160-characters": 848,
+    "lines-over-160-characters": 847,
     "localized-description-in-tests": 39,
     "localized-description-in-ui": 176,
     "mutable-statics": 0,

@@ -4,6 +4,14 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-21.
 
+## Reveal in Finder on the Mac: 2026-10-21
+
+What is built: **Reveal in Finder** opens a Finder window with the item selected (`NSWorkspace.activateFileViewerSelecting`; a folder is selected in its parent). It is in the sidebar's menus of files and folders, a tab's menu, the "…" menus of notes and canvases, and **Reveal Vault in Finder** in the vault switcher's menu. `RevealInFinderButton` and `FileLocationMenuItems` (`FileLocationMenuItems.swift`) take the vault folder, not the workspace. The iPad and iPhone leave the item out. The Guide's "Rename, Move and Delete" topic mentions it on the Mac. The sidebar's file menu now copies through the shared `Pasteboard.copy`.
+
+How it is verified: package tests on the Mac, `UiFileTreeNativeMacTests.testARowsMenuIsTheSidebarsMenuForThatFile` (a file's menu has Reveal in Finder, enabled; a folder's menu has it), `GuideContentTests` (8).
+
+Not established: nothing was clicked by hand; whether Finder comes forward with the item selected was not watched. The iPad and iPhone builds were not compiled for this change (the button's body is empty there).
+
 ## Several windows on the iPad and the Mac: 2026-10-21
 
 What is built ([Multiple-windows-todo.md](Multiple-windows-todo.md), commits from `ad9e11f8`): windows on the Mac (`WindowGroup`, File › New Window with ⌥⌘N, window tabs) and on the iPad (several scenes; the iPhone keeps one), on one vault or several. One index per vault for all its windows, one scan at a time (`VaultIndexRegistry`); a note open in two windows is one text and neither save is refused (`OpenNoteFiles`); one recording and one Read Aloud at a time, a refusal naming the window that runs it (`OpenWindows`); one plugin runtime per vault acting on the window in front (`CommunityPluginHosts`); Settings acts on the front window and a setting reaches every window; quitting saves every window; a closed window keeps edits it cannot save in place as "… Graphite edits" copies; "Open in New Window" in the menus of files, search results, bookmarks and tabs, ⇧⌥⌘ on a link, and a file or tab dragged to the iPad screen's edge; each window restores its own vault and tabs after a relaunch.
