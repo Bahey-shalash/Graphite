@@ -4,9 +4,10 @@ import GraphiteCore
 /// What every window of the app shares, built once per process (decision 12 of
 /// `Docs/solid/rewrite-foundations.md`): the preferences, the vault list, what the device
 /// remembers per vault (open folders, recent files, tabs, folds, places, plugin consent), the
-/// folders of the files kept for each vault, and the add-on packs. Each window's
-/// `WorkspaceModel` holds its own tabs, sidebar and alerts over these; one preferences object
-/// for all of them is why a setting changed in one window reaches every other at once.
+/// folders of the files kept for each vault, the add-on packs and each open vault's index.
+/// Each window's `WorkspaceModel` holds its own tabs, sidebar and alerts over these; one
+/// preferences object for all of them is why a setting changed in one window reaches every
+/// other at once.
 ///
 /// The app builds the live ones once, in `GraphiteApp.init`; a test or a hosted launch
 /// builds ones of its own, so neither touches the preferences or folders of the device.
@@ -24,6 +25,8 @@ public final class ProcessServices {
     /// What this device has downloaded of the extras Graphite does not carry, such as the
     /// welcome tour's pictures; every window and Settings read the same one.
     let addOns: AddOnLibrary
+    /// One index per open vault, shared by every window on it.
+    let vaultIndexes: VaultIndexRegistry
     /// Builds a Read Aloud controller and its speech: the system voice, the downloaded voices
     /// and their renderer. Called only while the Read Aloud core plugin is on, so a launch
     /// with it off creates no speech engine.
@@ -39,6 +42,7 @@ public final class ProcessServices {
         documentPlaceStore = DocumentPlaceStore(defaults: defaults)
         self.applicationFolders = applicationFolders
         addOns = .standard(applicationFolders: applicationFolders)
+        vaultIndexes = VaultIndexRegistry(cachesFolder: applicationFolders.cachesFolder)
         self.makeReadAloudController = makeReadAloudController
     }
 

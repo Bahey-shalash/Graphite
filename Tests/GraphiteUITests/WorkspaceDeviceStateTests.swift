@@ -128,7 +128,7 @@ final class WorkspaceDeviceStateTests: XCTestCase {
         XCTAssertNotNil(device.defaults.object(forKey: "GraphiteFolds." + removedIdentifier.uuidString), "The folds were kept.")
         try await workspace.openFolderAsVault(try makeVault())
 
-        workspace.removeFromVaultList(try XCTUnwrap(workspace.vaultLibrary.vault(withIdentifier: removedIdentifier)))
+        try workspace.removeFromVaultList(try XCTUnwrap(workspace.vaultLibrary.vault(withIdentifier: removedIdentifier)))
 
         XCTAssertNil(device.defaults.object(forKey: "GraphiteFolds." + removedIdentifier.uuidString))
     }
@@ -149,7 +149,7 @@ final class WorkspaceDeviceStateTests: XCTestCase {
         let otherVault = try makeVault()
         try await workspace.openFolderAsVault(otherVault)
 
-        workspace.removeFromVaultList(try XCTUnwrap(workspace.vaultLibrary.vault(withIdentifier: removedIdentifier)))
+        try workspace.removeFromVaultList(try XCTUnwrap(workspace.vaultLibrary.vault(withIdentifier: removedIdentifier)))
 
         for prefix in remembered { XCTAssertNil(device.defaults.object(forKey: key(prefix, removedIdentifier)), prefix) }
         XCTAssertNil(workspace.vaultLibrary.vault(withIdentifier: removedIdentifier))
@@ -163,7 +163,7 @@ final class WorkspaceDeviceStateTests: XCTestCase {
         let identifier = try XCTUnwrap(workspace.currentVaultIdentifier)
         workspace.expandedFolders.insert(try VaultPath("Folder"))
 
-        workspace.removeFromVaultList(try XCTUnwrap(workspace.vaultLibrary.vault(withIdentifier: identifier)))
+        try workspace.removeFromVaultList(try XCTUnwrap(workspace.vaultLibrary.vault(withIdentifier: identifier)))
 
         XCTAssertNotNil(workspace.vaultLibrary.vault(withIdentifier: identifier))
         XCTAssertEqual(device.defaults.stringArray(forKey: "GraphiteExpandedFolders." + identifier.uuidString), ["Folder"])
@@ -194,7 +194,7 @@ final class WorkspaceDeviceStateTests: XCTestCase {
         try await workspace.openFolderAsVault(try makeVault())
         XCTAssertTrue(FileManager.default.fileExists(atPath: indexLocation.path))
 
-        workspace.removeFromVaultList(try XCTUnwrap(workspace.vaultLibrary.vault(withIdentifier: removedIdentifier)))
+        try workspace.removeFromVaultList(try XCTUnwrap(workspace.vaultLibrary.vault(withIdentifier: removedIdentifier)))
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: indexLocation.path))
     }
