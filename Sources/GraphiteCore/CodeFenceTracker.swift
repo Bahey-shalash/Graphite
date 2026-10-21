@@ -12,10 +12,10 @@ public struct CodeFenceTracker {
     /// Whether this line belongs to fenced code, fences included. Call once per line, in order.
     public mutating func isCodeLine(_ trimmedLine: String) -> Bool {
         if let fence = openFence {
-            if CodeFence.closes(fence, trimmedLine) { openFence = nil }
+            if MarkdownFenceSyntax.closes(fence, trimmedLine) { openFence = nil }
             return true
         }
-        guard let (fence, _) = CodeFence.opening(trimmedLine) else { return false }
+        guard let (fence, _) = MarkdownFenceSyntax.opening(trimmedLine) else { return false }
         openFence = fence
         return true
     }

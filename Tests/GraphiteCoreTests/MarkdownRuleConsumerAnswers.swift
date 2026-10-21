@@ -18,10 +18,10 @@ enum MarkdownRuleConsumer: String, CaseIterable {
     case markdownEditing
     case markdownSemantics
     case displayMathLines
-    case readingHighlightCodeSpanPattern
-    case readingCodeSpanPattern
-    case textColorCodeSpanPattern
-    case displayMathCodeSpanPattern
+    case readingHighlightCodeSpans
+    case readingCodeSpans
+    case textColorCodeSpans
+    case displayMathCodeSpans
 }
 
 /// A heading as every consumer's answer is normalised: the corpus line it is on and its level.
@@ -289,23 +289,19 @@ enum HeadingAnswers {
         try MarkdownSemantics.parse(note.text as String).headings
     }
 
-    /// The ATX line rule `MarkdownEditing.headingLevel(of:)` with the setext rule, as folding
+    /// The ATX line rule `MarkdownHeadingSyntax.level(of:)` with the setext rule, as folding
     /// and block references compose them, on the lines outside the reference's code, math
     /// and frontmatter.
     static func markdownEditing(_ note: SplitCorpusNote) -> [HeadingAnswer] {
         lineRuleHeadings(note) { content, nextContent in
-            MarkdownEditing.headingLevel(of: content) ?? MarkdownStyleScanner.setextHeadingLevel(ofLine: content, nextLine: nextContent)
+            MarkdownHeadingSyntax.level(of: content) ?? MarkdownHeadingSyntax.setextHeadingLevel(ofLine: content, nextLine: nextContent)
         }
     }
 
-    /// `TextColorMarkup`'s heading-line pattern, which tells a heading but not its level; the
-    /// level is the run of `#` it matched. It has no setext rule.
+    /// The ATX line rule `MarkdownHeadingSyntax.level(of:)`, which `TextColorMarkup` asks
+    /// whether a line is a heading. It has no setext rule: an underline only ends a paragraph.
     static func textColorMarkup(_ note: SplitCorpusNote) -> [HeadingAnswer] {
-        let pattern = TextColorMarkupPattern.headingLinePattern.compiled()
-        return lineRuleHeadings(note) { content, _ in
-            guard pattern.firstMatch(in: content, range: NSRange(location: 0, length: (content as NSString).length)) != nil else { return nil }
-            return content.drop { character in character.isWhitespace }.prefix { character in character == "#" }.count
-        }
+        lineRuleHeadings(note) { content, _ in MarkdownHeadingSyntax.level(of: content) }
     }
 
     static func noteFolding(_ note: SplitCorpusNote) -> [HeadingAnswer] {
@@ -351,16 +347,17 @@ enum ThematicBreakAnswers {
         return note.bodyLines(touchedBy: spans.filter { span in span.style == .horizontalRule }.map(\.range))
     }
 
-    /// The line rule `MarkdownEditing.isThematicBreak(_:)`, on the lines outside the reference's
-    /// code, math and frontmatter that do not underline a setext heading.
+    /// The line rule `MarkdownListSyntax.isThematicBreak(_:)`, which the editing commands read
+    /// before a list item, on the lines outside the reference's code, math and frontmatter
+    /// that do not underline a setext heading.
     static func markdownEditing(_ note: SplitCorpusNote) -> Set<Int> {
-        lineRuleBreaks(note, isThematicBreak: MarkdownEditing.isThematicBreak)
+        lineRuleBreaks(note, isThematicBreak: MarkdownListSyntax.isThematicBreak)
     }
 
-    /// `TextColorMarkup`'s thematic-break pattern, composed like `markdownEditing`.
+    /// The same line rule, which `TextColorMarkup` asks whether a line ends a paragraph,
+    /// composed like `markdownEditing`.
     static func textColorMarkup(_ note: SplitCorpusNote) -> Set<Int> {
-        let pattern = TextColorMarkupPattern.thematicBreakLinePattern.compiled()
-        return lineRuleBreaks(note) { content in pattern.firstMatch(in: content, range: NSRange(location: 0, length: (content as NSString).length)) != nil }
+        lineRuleBreaks(note, isThematicBreak: MarkdownListSyntax.isThematicBreak)
     }
 
     static func livePreviewBlockScanner(_ note: SplitCorpusNote) -> Set<Int> {
@@ -368,15 +365,15 @@ enum ThematicBreakAnswers {
     }
 
     /// A thematic break is no block, so it is read from what `NoteBlocks.blocks(in:)` leaves
-    /// out: a non-blank line in no block that is no ATX heading (NoteBlocks' own rule,
-    /// `MarkdownEditing.headingLevel`) and not part of a setext heading, which is a text
+    /// out: a non-blank line in no block that is no ATX heading (`MarkdownHeadingSyntax.level`,
+    /// which NoteBlocks asks) and not part of a setext heading, which is a text
     /// line in no block directly over its underline in no block.
     static func noteBlocks(_ note: SplitCorpusNote) -> Set<Int> {
         let blockLines = note.bodyLines(touchedBy: NoteBlocks.blocks(in: note.text as String).map(\.range))
         func isLeftOut(_ lineIndex: Int) -> Bool {
             guard note.bodyLineIndices.contains(lineIndex), !blockLines.contains(lineIndex) else { return false }
             let content = note.lines[lineIndex].content
-            return !content.trimmingCharacters(in: .whitespaces).isEmpty && MarkdownEditing.headingLevel(of: content) == nil
+            return !content.trimmingCharacters(in: .whitespaces).isEmpty && MarkdownHeadingSyntax.level(of: content) == nil
         }
         return Set(note.bodyLineIndices.filter { lineIndex in isLeftOut(lineIndex) && !isLeftOut(lineIndex - 1) && !isLeftOut(lineIndex + 1) })
     }
@@ -387,7 +384,7 @@ enum ThematicBreakAnswers {
             guard !blockLines.contains(lineIndex), isThematicBreak(note.lines[lineIndex].content) else { return false }
             let previousIndex = lineIndex - 1
             guard note.bodyLineIndices.contains(previousIndex), !blockLines.contains(previousIndex) else { return true }
-            return MarkdownStyleScanner.setextHeadingLevel(ofLine: note.lines[previousIndex].content, nextLine: note.lines[lineIndex].content) == nil
+            return MarkdownHeadingSyntax.setextHeadingLevel(ofLine: note.lines[previousIndex].content, nextLine: note.lines[lineIndex].content) == nil
         })
     }
 }
@@ -460,30 +457,32 @@ enum CodeSpanAnswers {
         MarkdownCodeRanges.codeSpans(in: note.text, range: NSRange(location: 0, length: note.text.length)).map(\.range)
     }
 
-    /// The reading view's highlight pass, line by line at "\n".
-    static func readingHighlightCodeSpanPattern(_ note: SplitCorpusNote) -> [NSRange] {
-        matchesLineByLine(ObsidianInlineMarkupPattern.highlightCodeSpanPattern.compiled(), in: note)
+    /// The reading view's highlight pass, which asks `MarkdownCodeRanges.codeSpans` line by
+    /// line at "\n".
+    static func readingHighlightCodeSpans(_ note: SplitCorpusNote) -> [NSRange] {
+        codeSpansLineByLine(in: note)
     }
 
-    /// The reading view's math protection, line by line at "\n".
-    static func readingCodeSpanPattern(_ note: SplitCorpusNote) -> [NSRange] {
-        matchesLineByLine(ObsidianInlineMarkupPattern.codeSpanPattern.compiled(), in: note)
+    /// The reading view's comment and math protection, which ask the same, line by line at "\n".
+    static func readingCodeSpans(_ note: SplitCorpusNote) -> [NSRange] {
+        codeSpansLineByLine(in: note)
     }
 
-    /// `TextColorMarkup` runs its pattern over the whole note.
-    static func textColorCodeSpanPattern(_ note: SplitCorpusNote) -> [NSRange] {
-        TextColorMarkupPattern.codeSpanPattern.compiled().matches(in: note.text as String, range: NSRange(location: 0, length: note.text.length)).map(\.range)
+    /// `TextColorMarkup` asks `MarkdownCodeRanges.codeSpans` over the whole note.
+    static func textColorCodeSpans(_ note: SplitCorpusNote) -> [NSRange] {
+        MarkdownCodeRanges.codeSpans(in: note.text, range: NSRange(location: 0, length: note.text.length)).map(\.range)
     }
 
-    /// `DisplayMathLines` reads the lines the reading view splits at "\n".
-    static func displayMathCodeSpanPattern(_ note: SplitCorpusNote) -> [NSRange] {
-        matchesLineByLine(DisplayMathLinesPattern.codeSpanPattern.compiled(), in: note)
+    /// `DisplayMathLines` asks it on the lines the reading view splits at "\n".
+    static func displayMathCodeSpans(_ note: SplitCorpusNote) -> [NSRange] {
+        codeSpansLineByLine(in: note)
     }
 
-    private static func matchesLineByLine(_ pattern: NSRegularExpression, in note: SplitCorpusNote) -> [NSRange] {
+    private static func codeSpansLineByLine(in note: SplitCorpusNote) -> [NSRange] {
         SplitCorpusNote.lineFeedSeparatedLineRanges(of: note.text as String).flatMap { lineRange in
-            pattern.matches(in: note.text.substring(with: lineRange), range: NSRange(location: 0, length: lineRange.length)).map { match in
-                NSRange(location: lineRange.location + match.range.location, length: match.range.length)
+            let line = note.text.substring(with: lineRange) as NSString
+            return MarkdownCodeRanges.codeSpans(in: line, range: NSRange(location: 0, length: line.length)).map { codeSpan in
+                NSRange(location: lineRange.location + codeSpan.range.location, length: codeSpan.range.length)
             }
         }
     }

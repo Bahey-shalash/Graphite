@@ -177,16 +177,8 @@ public enum TextColorMarkup {
         return [deepestSection]
     }
 
-    private static let headingLinePattern = TextColorMarkupPattern.headingLinePattern.compiled()
-    private static let listItemLinePattern = TextColorMarkupPattern.listItemLinePattern.compiled()
     private static let tableRowLinePattern = TextColorMarkupPattern.tableRowLinePattern.compiled()
     private static let cellBorderPattern = TextColorMarkupPattern.cellBorderPattern.compiled()
-    /// A table's delimiter row, such as `--- | :---:` or `|---|`.
-    private static let tableDelimiterRowPattern = TextColorMarkupPattern.tableDelimiterRowPattern.compiled()
-    /// A thematic break, which is a block of its own.
-    private static let thematicBreakLinePattern = TextColorMarkupPattern.thematicBreakLinePattern.compiled()
-    /// A setext heading's underline; it makes the paragraph above it a heading.
-    private static let setextUnderlinePattern = TextColorMarkupPattern.setextUnderlinePattern.compiled()
 
     /// The blocks a color cannot leave, as rendered notes separate them: runs of
     /// non-blank lines, except that a heading, each list item, each table cell and a
@@ -225,7 +217,7 @@ public enum TextColorMarkup {
             var line = text.substring(with: lineRange)
             // A byte order mark is not text; a heading after it is still a heading.
             if lineRange.location == 0, line.hasPrefix("\u{FEFF}") { line.removeFirst() }
-            let (quoteDepth, content) = quoteMarkersRemoved(from: line)
+            let (quoteDepth, content) = MarkdownQuoteSyntax.markersRemoved(from: line)
             let startsDeeperQuote = quoteDepth > previousQuoteDepth
             let isAfterTableRow = previousLineIsTableRow
             previousQuoteDepth = quoteDepth
@@ -235,18 +227,19 @@ public enum TextColorMarkup {
                 isInTable = false
                 continue
             }
-            let isHeading = matches(headingLinePattern, content)
-            let isListItem = matches(listItemLinePattern, content)
-            let isThematicBreak = matches(thematicBreakLinePattern, content)
+            let isHeading = MarkdownHeadingSyntax.level(of: content) != nil
+            let isListItem = MarkdownListSyntax.isListItem(content)
+            let isThematicBreak = MarkdownListSyntax.isThematicBreak(content)
             if isInTable && !isHeading && !isListItem && !isThematicBreak && !startsDeeperQuote {
                 paragraphs.append(contentsOf: cellRanges(ofRow: lineRange, in: text))
                 previousLineIsTableRow = true
                 continue
             }
             isInTable = false
-            if content.contains("|"), matches(tableDelimiterRowPattern, content) {
-                // A delimiter row under a paragraph line with as many cells makes that line a
-                // header row, as GitHub-flavored Markdown reads tables without outer pipes.
+            if content.contains("|"), MarkdownTableSyntax.isDelimiterRow(trimmedUnits: content.trimmingCharacters(in: .whitespacesAndNewlines).utf16) {
+                // A delimiter row, such as `--- | :---:` or `|---|`, under a paragraph line with as
+                // many cells makes that line a header row, as GitHub-flavored Markdown reads
+                // tables without outer pipes.
                 if let header = lastParagraphLine, tableCellCount(of: header.content) == tableCellCount(of: content) {
                     endParagraph(at: header.range.location)
                     paragraphs.append(contentsOf: cellRanges(ofRow: header.range, in: text))
@@ -263,7 +256,8 @@ public enum TextColorMarkup {
             if isHeading {
                 endParagraph(at: lineRange.location)
                 paragraphs.append(lineRange)
-            } else if isThematicBreak || paragraphStart != nil && matches(setextUnderlinePattern, content) {
+            } else if isThematicBreak || paragraphStart != nil && MarkdownHeadingSyntax.setextUnderlineLevel(content) != nil {
+                // A setext heading's underline makes the paragraph above it a heading.
                 endParagraph(at: lineRange.location)
             } else if matches(tableRowLinePattern, content) {
                 endParagraph(at: lineRange.location)
@@ -277,21 +271,6 @@ public enum TextColorMarkup {
         }
         endParagraph(at: text.length)
         return paragraphs
-    }
-
-    /// The line after its `>` quote markers (each with up to three spaces before it and
-    /// one optional space after it), and how many there were.
-    private static func quoteMarkersRemoved(from line: String, maximumDepth: Int = .max) -> (depth: Int, content: String) {
-        var remaining = Substring(line)
-        var depth = 0
-        while depth < maximumDepth {
-            let indentation = remaining.prefix { character in character == " " }
-            guard indentation.count <= 3, remaining.dropFirst(indentation.count).first == ">" else { break }
-            remaining = remaining.dropFirst(indentation.count + 1)
-            if remaining.first == " " || remaining.first == "\t" { remaining = remaining.dropFirst() }
-            depth += 1
-        }
-        return (depth, String(remaining))
     }
 
     /// The number of cells in a table row, not counting its optional outer pipes.
@@ -322,8 +301,6 @@ public enum TextColorMarkup {
         return end
     }
 
-    /// A code span: a run of backticks closed by a run of the same length.
-    private static let codeSpanPattern = TextColorMarkupPattern.codeSpanPattern.compiled()
     /// Obsidian's inline math: no space inside either `$`, and no digit after the closing
     /// one, so "$5 and $10" is not math.
     private static let inlineMathPattern = TextColorMarkupPattern.inlineMathPattern.compiled()
@@ -333,7 +310,7 @@ public enum TextColorMarkup {
     private static func protectedRanges(in text: NSString, codeAndMathBlockRanges: [NSRange]) -> [NSRange] {
         var ranges = codeAndMathBlockRanges
         let wholeText = NSRange(location: 0, length: text.length)
-        let codeSpanRanges = codeSpanPattern.matches(in: text as String, range: wholeText).map(\.range)
+        let codeSpanRanges = MarkdownCodeRanges.codeSpans(in: text, range: wholeText).map(\.range)
         ranges.append(contentsOf: codeSpanRanges)
         // A code span comes first, so a `$` inside one cannot pair with a `$` elsewhere:
         // the spans are replaced by line breaks, which inline math cannot cross, keeping
@@ -377,21 +354,18 @@ public enum TextColorMarkup {
         var previousLineIsBlank = true
         var previousQuoteDepth = 0
         var listContentIndentation: Int?
-        func matches(_ pattern: NSRegularExpression, _ line: String) -> NSTextCheckingResult? {
-            pattern.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length))
-        }
         var lineStart = 0
         while lineStart < text.length {
             let lineRange = text.lineRange(for: NSRange(location: lineStart, length: 0))
             lineStart = NSMaxRange(lineRange)
             let line = text.substring(with: lineRange)
             if let block = fencedBlock {
-                let (quoteDepth, content) = quoteMarkersRemoved(from: line, maximumDepth: block.quoteDepth)
+                let (quoteDepth, content) = MarkdownQuoteSyntax.markersRemoved(from: line, maximumDepth: block.quoteDepth)
                 if quoteDepth == block.quoteDepth {
                     let trimmedLine = content.trimmingCharacters(in: .whitespacesAndNewlines)
                     let closes = block.delimiter == "$$"
                         ? trimmedLine.hasPrefix("$$") || trimmedLine.hasSuffix("$$")
-                        : isClosingFence(trimmedLine, openingFence: block.delimiter)
+                        : MarkdownFenceSyntax.closes(block.delimiter, trimmedLine)
                     if closes {
                         ranges.append(NSRange(location: block.start, length: NSMaxRange(lineRange) - block.start))
                         fencedBlock = nil
@@ -406,10 +380,10 @@ public enum TextColorMarkup {
                 fencedBlock = nil
                 previousLineEndsParagraph = true
             }
-            let (quoteDepth, content) = quoteMarkersRemoved(from: line)
+            let (quoteDepth, content) = MarkdownQuoteSyntax.markersRemoved(from: line)
             let trimmedLine = content.trimmingCharacters(in: .whitespacesAndNewlines)
             let isBlank = trimmedLine.isEmpty
-            let indentation = indentationWidth(of: content)
+            let indentation = ListItemContainers.leadingColumns(of: content)
             let isInNewQuoteContainer = quoteDepth != previousQuoteDepth
             // Fewer quote markers after a paragraph line is a lazy continuation of that
             // paragraph, not the start of a block.
@@ -431,10 +405,11 @@ public enum TextColorMarkup {
                 previousLineIsBlank = true
                 continue
             }
-            let isHeading = matches(headingLinePattern, content) != nil
-            let isThematicBreak = matches(thematicBreakLinePattern, content) != nil
-            let listItemMatch = isThematicBreak ? nil : matches(listItemLinePattern, content)
-            if let contentIndentation = listContentIndentation, indentation < contentIndentation, listItemMatch == nil, previousLineIsBlank || isHeading {
+            let isHeading = MarkdownHeadingSyntax.level(of: content) != nil
+            let isThematicBreak = MarkdownListSyntax.isThematicBreak(content)
+            let contentSource = content as NSString
+            let listItemMarker = MarkdownListSyntax.listMarker(in: contentSource, range: NSRange(location: 0, length: contentSource.length))
+            if let contentIndentation = listContentIndentation, indentation < contentIndentation, listItemMarker == nil, previousLineIsBlank || isHeading {
                 listContentIndentation = nil
             }
             if listContentIndentation == nil && indentation >= 4 && (previousLineEndsParagraph || startsDeeperQuote) {
@@ -442,13 +417,14 @@ public enum TextColorMarkup {
                 previousLineIsBlank = false
                 continue
             }
-            if let fence = openingFence(of: trimmedLine) {
+            if let (fence, _) = MarkdownFenceSyntax.opening(trimmedLine) {
                 fencedBlock = (lineRange.location, fence, quoteDepth)
             } else if trimmedLine.hasPrefix("$$") && !trimmedLine.dropFirst(2).contains("$$") {
                 // A line such as "$$E=mc^2$$ is famous" holds its whole formula.
                 fencedBlock = (lineRange.location, "$$", quoteDepth)
-            } else if let listItemMatch, listContentIndentation == nil {
-                listContentIndentation = listItemMatch.range.length
+            } else if let listItemMarker, listContentIndentation == nil {
+                // The item's text starts one column after its marker.
+                listContentIndentation = NSMaxRange(listItemMarker) + 1
             }
             previousLineEndsParagraph = isHeading || isThematicBreak
             previousLineIsBlank = false
@@ -457,44 +433,12 @@ public enum TextColorMarkup {
         if let block = indentedBlock { ranges.append(NSRange(location: block.start, length: block.end - block.start)) }
         return ranges
     }
-
-    /// Leading indentation in columns, with a tab reaching the next multiple of four.
-    private static func indentationWidth(of line: String) -> Int {
-        var width = 0
-        for character in line {
-            if character == " " { width += 1 } else if character == "\t" { width += 4 - width % 4 } else { break }
-        }
-        return width
-    }
-
-    /// The backticks or tildes that open a code fence, at least three of the same kind.
-    /// A backtick fence's info string cannot contain a backtick, so a line such as
-    /// "```inline```" is a code span in a paragraph, not a fence.
-    private static func openingFence(of trimmedLine: String) -> String? {
-        guard let fenceCharacter = trimmedLine.first, fenceCharacter == "`" || fenceCharacter == "~" else { return nil }
-        let fence = String(trimmedLine.prefix { character in character == fenceCharacter })
-        guard fence.count >= 3 else { return nil }
-        if fenceCharacter == "`" && trimmedLine.dropFirst(fence.count).contains("`") { return nil }
-        return fence
-    }
-
-    /// A fence closes only with the same character, at least as many times, and nothing else.
-    private static func isClosingFence(_ trimmedLine: String, openingFence: String) -> Bool {
-        guard let fenceCharacter = openingFence.first else { return false }
-        return trimmedLine.count >= openingFence.count && trimmedLine.allSatisfy { character in character == fenceCharacter }
-    }
 }
 
 /// The constant patterns of `TextColorMarkup`; `StaticPatternTests` compiles every case.
 enum TextColorMarkupPattern: String, StaticPatternSet {
     case openingMarkerPattern = #"~=\{([^}\s]+)\}"#
-    case headingLinePattern = #"^\s{0,3}#{1,6}(?:\s|$)"#
-    case listItemLinePattern = #"^\s*(?:[-*+]|\d+[.)])\s"#
     case tableRowLinePattern = #"^\s*\|"#
     case cellBorderPattern = #"(?<!\\)\|"#
-    case tableDelimiterRowPattern = #"^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$"#
-    case thematicBreakLinePattern = #"^ {0,3}(?:(?:\* *){3,}|(?:- *){3,}|(?:_ *){3,})\s*$"#
-    case setextUnderlinePattern = #"^ {0,3}(?:=+|-+)\s*$"#
-    case codeSpanPattern = #"(?<!`)(`+)(?!`)[^\n]*?(?<!`)\1(?!`)"#
     case inlineMathPattern = #"(?<![\\$])\$(?![\s$])[^$\n]*?(?<![\s\\])\$(?![\d$])"#
 }

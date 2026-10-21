@@ -1396,7 +1396,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
                 return behavior.continuesLists ? MarkdownEditing.continuingList(in: text, selection: range, indentUnit: behavior.indentUnit, tabSize: behavior.tabSize) : nil
             case "\t":
                 let line = text.substring(with: text.lineRange(for: NSRange(location: range.location, length: 0)))
-                guard behavior.continuesLists, MarkdownEditing.listLine(line.trimmingCharacters(in: .newlines))?.isListItem == true || selection.length > 0 else { return nil }
+                guard behavior.continuesLists, MarkdownListSyntax.listLine(line.trimmingCharacters(in: .newlines))?.isListItem == true || selection.length > 0 else { return nil }
                 return MarkdownEditing.indenting(in: text, selection: selection, indentUnit: behavior.indentUnit)
             case "":
                 guard range.length == 1, selection.length == 0, NSMaxRange(range) == selection.location, behavior.pairsBrackets else { return nil }
