@@ -152,6 +152,8 @@ final class WorkspaceModel {
     /// (`WorkspaceTemplates.swift`). Each is replaced whenever a vault opens.
     var templateSettingsReading = VaultSettingsReading.read(TemplateSettings())
     var dailyNoteSettingsReading = VaultSettingsReading.read(DailyNoteSettings())
+    /// The vault's keyboard shortcuts, with its changes in `.obsidian/hotkeys.json`.
+    let keyboardShortcuts = VaultKeyboardShortcuts()
     /// Obsidian's bookmarks, from `.obsidian/bookmarks.json`.
     var bookmarks = BookmarkList()
     /// The whole vault's graph, built once per index change.
@@ -200,8 +202,12 @@ final class WorkspaceModel {
     /// What every window of the app shares: the place store, the add-on packs and what builds
     /// `readAloud` when the plugin is on at launch or turned on later.
     @ObservationIgnored let processServices: ProcessServices
-    /// The open vault's Obsidian community plugins.
-    let communityPlugins: CommunityPluginHost
+    /// The open vault's Obsidian community plugins, which every window on the vault shares
+    /// (`CommunityPluginHosts`); before a vault opens, an idle host of the window's own.
+    private(set) var communityPlugins: CommunityPluginHost
+    /// A window to open on this vault, asked for by "Open in New Window"; the window's scene
+    /// opens it and clears the request.
+    var newWindowRequest: GraphiteWindowContent?
     /// The PDFs embedded in this window's notes, which its views read from the environment.
     let embeddedPDFSessions = EmbeddedPDFSessions()
     /// This window among the process's windows (`OpenWindows`), for what one window runs at a time.
@@ -352,13 +358,13 @@ final class WorkspaceModel {
 
     /// Opens a vault the window was opened on (`GraphiteWindowContent`): with the vault's
     /// remembered tabs, or with one empty tab, or `file`, for a window opened from another.
-    func openVaultOfWindow(_ vaultIdentifier: UUID, restoresTabs: Bool, showing file: VaultPath?) async {
+    func openVaultOfWindow(_ vaultIdentifier: UUID, tabs: WindowTabsToRestore, showing file: VaultPath?) async {
         guard let vault = vaultLibrary.vault(withIdentifier: vaultIdentifier) else { return await restoreVault() }
-        await reopen(vault, restoresTabs: restoresTabs)
+        await reopen(vault, tabs: tabs)
         if let file, currentVaultIdentifier == vaultIdentifier { _ = await open(file) }
     }
 
-    private func openVault(identifier: UUID?, location: VaultLocation, restoresTabs: Bool = true) async throws {
+    private func openVault(identifier: UUID?, location: VaultLocation, tabs: WindowTabsToRestore = .vaultsLast) async throws {
         try await prepareToLeaveCurrentVault(isReopeningCurrentVault: identifier != nil && identifier == currentVaultIdentifier)
         let (access, refreshedLocation) = try await VaultLocator.accessInBackground(location)
         let root = access.root
@@ -395,8 +401,9 @@ final class WorkspaceModel {
             vaultIndexLease.end()
             throw error
         }
-        // The plugins of the vault being left unload before anything of it closes.
-        await communityPlugins.vaultWillClose()
+        // The plugins of the vault being left unload before anything of it closes, unless
+        // another window has that vault open.
+        await leaveVaultsPlugins()
         // The editors stayed editable through the waits above: what was typed meanwhile is
         // saved now, with nothing to wait for between this and the documents closing. A failed
         // save keeps this vault open with its unsaved work, and its plugins load again.
@@ -405,7 +412,7 @@ final class WorkspaceModel {
         } catch {
             vaultMonitor.stop()
             vaultIndexLease.end()
-            communityPlugins.vaultDidOpen(self)
+            joinVaultsPlugins()
             throw error
         }
         forgetStateOfVaultBeingLeft()
@@ -438,9 +445,13 @@ final class WorkspaceModel {
         startIndexing(.unlessScanned)
         // Returns to where the user left this vault, as Obsidian restores its workspace. A
         // window opened from another starts empty, and saves its tabs once they change.
-        if restoresTabs { restoreTabLayout() } else { layoutVaultIdentifier = currentVaultIdentifier }
+        switch tabs {
+        case .vaultsLast: restoreTabLayout()
+        case .window(let windowLayout): restoreTabLayout(windowLayout)
+        case .none: layoutVaultIdentifier = currentVaultIdentifier
+        }
         checkForUnfinishedRecordings()
-        communityPlugins.vaultDidOpen(self)
+        joinVaultsPlugins()
         if preferences.isEnabled(.dailyNotes), dailyNoteSettings.opensOnStartup { await openDailyNote() }
     }
 
@@ -491,11 +502,11 @@ final class WorkspaceModel {
     /// Opens the vault used most recently, at launch.
     func restoreVault() async {
         guard folderAccess == nil, let vault = vaultLibrary.list.mostRecentlyOpened else { return }
-        await reopen(vault, restoresTabs: true)
+        await reopen(vault, tabs: .vaultsLast)
     }
 
-    private func reopen(_ vault: KnownVault, restoresTabs: Bool) async {
-        do { try await openVault(identifier: vault.id, location: vault.location, restoresTabs: restoresTabs) }
+    private func reopen(_ vault: KnownVault, tabs: WindowTabsToRestore) async {
+        do { try await openVault(identifier: vault.id, location: vault.location, tabs: tabs) }
         catch { errorMessage = "Graphite couldn't reopen “\(vault.name)”. " + error.localizedDescription }
     }
 
@@ -507,6 +518,7 @@ final class WorkspaceModel {
         // vault's file said: its settings are never used in this vault.
         templateSettingsReading = await Self.settingsReading { try await store.templateSettings() }
         dailyNoteSettingsReading = await Self.settingsReading { try await store.dailyNoteSettings() }
+        await reloadKeyboardShortcuts(from: store)
         if let unreadableSettingsMessage { errorMessage = unreadableSettingsMessage }
         await reloadBookmarks()
         await reloadVaultAppearance()
@@ -556,6 +568,10 @@ final class WorkspaceModel {
     func open(_ requestedPath: VaultPath, placement: TabPlacement = .currentTab, pdfPageIndex: Int? = nil, takesFocus: Bool = true) async -> UUID? {
         guard store != nil else { return nil }
         let path = storedPath(for: requestedPath)
+        if placement == .newWindow {
+            newWindowRequest = .showing(path, inVault: currentVaultIdentifier)
+            return nil
+        }
         // A file a plugin shows in a view of its own (Excalidraw's drawings, Fountain's
         // scripts) opens in that view, live in a tab, even where Graphite already shows it as a
         // file; any other file as Graphite shows it.
@@ -589,7 +605,8 @@ final class WorkspaceModel {
         let tabID: UUID
         switch placement {
         case .currentTab: tabID = layout.tabForOpeningHere()
-        case .newTab: tabID = layout.addTab()
+        // A new window was asked for above; the scene opens a tab where it cannot open one.
+        case .newTab, .newWindow: tabID = layout.addTab()
         case .otherGroup: tabID = layout.tabForOpeningInOtherGroup()
         }
         if tabID != previousTabID, let previousDocument = tabDocuments[previousTabID] {
@@ -726,6 +743,31 @@ final class WorkspaceModel {
         externalChangeTask?.cancel()
         stopIndexing()
         processServices.openWindows.remove(openWindow)
+        Task { await leaveVaultsPlugins() }
+    }
+
+    /// The window came to the front: the vault's plugins act on it.
+    func windowCameToFront() {
+        guard let currentVaultIdentifier else { return }
+        processServices.communityPluginHosts.windowCameToFront(vault: currentVaultIdentifier, window: ObjectIdentifier(self))
+    }
+
+    /// Takes the open vault's plugin host, shared with its other windows; the first window on
+    /// the vault loads the plugins.
+    private func joinVaultsPlugins() {
+        guard let currentVaultIdentifier else { return }
+        let joined = processServices.communityPluginHosts.join(vault: currentVaultIdentifier, window: ObjectIdentifier(self)) { [weak self] in
+            guard let self else { return }
+            communityPlugins.vaultDidOpen(self, loadsPlugins: false)
+        }
+        communityPlugins = joined.host
+        joined.host.vaultDidOpen(self, loadsPlugins: joined.isFirstWindow)
+    }
+
+    /// Leaves the open vault's plugins to its other windows, or unloads them with the last.
+    private func leaveVaultsPlugins() async {
+        guard let currentVaultIdentifier else { return await communityPlugins.vaultWillClose() }
+        await processServices.communityPluginHosts.leave(vault: currentVaultIdentifier, window: ObjectIdentifier(self))
     }
 
     // MARK: One at a time

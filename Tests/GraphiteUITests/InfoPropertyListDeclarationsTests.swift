@@ -52,8 +52,13 @@ final class InfoPropertyListDeclarationsTests: XCTestCase {
 
     func testThePlatformDeclarationsAreTheseValues() throws {
         let propertyList = try infoPropertyList()
+        // Several windows on the iPad, one on the iPhone (owner, 2026-10-21).
         let sceneManifest = try XCTUnwrap(propertyList["UIApplicationSceneManifest"] as? [String: Any])
         XCTAssertEqual(sceneManifest["UIApplicationSupportsMultipleScenes"] as? Bool, false)
+        let iPadSceneManifest = try XCTUnwrap(propertyList["UIApplicationSceneManifest~ipad"] as? [String: Any])
+        XCTAssertEqual(iPadSceneManifest["UIApplicationSupportsMultipleScenes"] as? Bool, true)
+        // A file or tab dragged to the edge of the screen opens a window through this activity.
+        XCTAssertEqual(propertyList["NSUserActivityTypes"] as? [String], [GraphiteWindowContent.activityType])
         XCTAssertEqual(propertyList["UIBackgroundModes"] as? [String], ["audio"])
         XCTAssertEqual(propertyList["UIFileSharingEnabled"] as? Bool, true)
         XCTAssertEqual(propertyList["LSSupportsOpeningDocumentsInPlace"] as? Bool, true)
@@ -65,8 +70,8 @@ final class InfoPropertyListDeclarationsTests: XCTestCase {
             "CFBundleDisplayName", "CFBundleExecutable", "CFBundleIdentifier", "CFBundleName", "CFBundlePackageType",
             "CFBundleShortVersionString", "CFBundleVersion", "CFBundleURLTypes",
             "ITSAppUsesNonExemptEncryption", "LSApplicationCategoryType", "LSSupportsOpeningDocumentsInPlace",
-            "NSCameraUsageDescription", "NSMicrophoneUsageDescription", "NSPhotoLibraryAddUsageDescription",
-            "UIApplicationSceneManifest", "UIBackgroundModes", "UIFileSharingEnabled", "UILaunchScreen",
+            "NSCameraUsageDescription", "NSMicrophoneUsageDescription", "NSPhotoLibraryAddUsageDescription", "NSUserActivityTypes",
+            "UIApplicationSceneManifest", "UIApplicationSceneManifest~ipad", "UIBackgroundModes", "UIFileSharingEnabled", "UILaunchScreen",
             "UISupportedInterfaceOrientations", "UISupportsDocumentBrowser", "UTExportedTypeDeclarations",
         ])
     }
