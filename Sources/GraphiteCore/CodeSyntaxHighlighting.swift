@@ -112,7 +112,7 @@ public enum CodeSyntaxHighlighter {
     /// The language a fenced code block's info text names (```` ```cpp ````, ```` ```C++ ````,
     /// ```` ```py title="x" ````), or nil for one Graphite does not highlight.
     public static func language(forFenceInfo info: String) -> CodeLanguage? {
-        CodeLanguage.named(NotePreviewDocument.codeBlockLanguage(ofFenceInfo: info.trimmingCharacters(in: .whitespaces)))
+        CodeLanguage.named(MarkdownFenceSyntax.language(ofInfo: info.trimmingCharacters(in: .whitespaces)))
     }
 
     /// The tokens of `code`, with ranges in its UTF-16 units. Kept for the code blocks

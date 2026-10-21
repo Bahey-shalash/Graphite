@@ -1037,8 +1037,8 @@ public enum SearchContentParts {
         var current: [String] = []
         var fences = CodeFenceTracker()
         for line in lines(of: content) {
-            let isCode = fences.isCodeLine(line.trimmingCharacters(in: .whitespaces))
-            if !isCode, MarkdownEditing.headingLevel(of: line) != nil, !current.isEmpty {
+            let isCode = fences.isCodeLine(untrimmedLine: line)
+            if !isCode, MarkdownHeadingSyntax.level(of: line) != nil, !current.isEmpty {
                 sections.append(current.joined(separator: "\n"))
                 current = []
             }
@@ -1059,7 +1059,7 @@ public enum SearchContentParts {
             for (blockIndex, block) in blocks.enumerated() {
                 if block.kind == .quote, quotedContent.quoteDepth < SearchQueryParser.maximumNestingDepth {
                     let unquotedText = lines(of: block.text).map { line in
-                        let prefixLength = MarkdownEditing.listLine(line)?.quotePrefix.utf16.count ?? 0
+                        let prefixLength = MarkdownListSyntax.listLine(line)?.quotePrefix.utf16.count ?? 0
                         return (line as NSString).substring(from: prefixLength)
                     }.joined(separator: "\n")
                     // Frontmatter exists only at the start of the actual note. A quoted
@@ -1069,7 +1069,7 @@ public enum SearchContentParts {
                 }
                 guard block.kind == .listItem,
                       let firstLine = lines(of: block.text).first,
-                      let listLine = MarkdownEditing.listLine(firstLine), let status = listLine.taskStatus else { continue }
+                      let listLine = MarkdownListSyntax.listLine(firstLine), let status = listLine.taskStatus else { continue }
                 if scope == .taskTodo && status != " " { continue }
                 if scope == .taskDone && status == " " { continue }
                 var taskText = (block.text as NSString).substring(from: listLine.prefixLength)

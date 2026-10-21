@@ -1,3 +1,15 @@
+/**
+ * File: UiFileTreeNativeMacTests.swift
+ * ------------------------------------
+ * Layer: Tests
+ * Description: The Mac's file tree (AppKit outline view): many root files at once, folding, dragging and dropping,
+ *              and each row's menu, Reveal in Finder included.
+ *
+ * Authors: Bahey Shalash, Félix Chevalier
+ * Version: 0.5
+ * Date: 21/10/2026
+ */
+
 #if os(macOS)
 import AppKit
 import SwiftUI
@@ -131,12 +143,16 @@ final class UiFileTreeNativeMacTests: XCTestCase {
         let fileMenu = try XCTUnwrap(controller.menu(forRow: 1))
         fileMenu.update()
         let fileTitles = fileMenu.items.map(\.title)
-        for title in ["Open in New Tab", "Rename…", "Move to…", "Copy Vault Path", "Delete"] {
+        for title in ["Open in New Tab", "Rename…", "Move to…", "Copy Vault Path", "Reveal in Finder", "Delete"] {
             XCTAssertTrue(fileTitles.contains(title), "\(title) in \(fileTitles)")
         }
+        XCTAssertEqual(fileMenu.items.first { item in item.title == "Reveal in Finder" }?.isEnabled, true)
         let folderMenu = try XCTUnwrap(controller.menu(forRow: 0))
         folderMenu.update()
-        XCTAssertTrue(folderMenu.items.map(\.title).contains("New Note"), "\(folderMenu.items.map(\.title))")
+        let folderTitles = folderMenu.items.map(\.title)
+        for title in ["New Note", "Reveal in Finder"] {
+            XCTAssertTrue(folderTitles.contains(title), "\(title) in \(folderTitles)")
+        }
     }
 
     // MARK: Helpers

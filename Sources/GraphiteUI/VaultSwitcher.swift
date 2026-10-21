@@ -1,3 +1,15 @@
+/**
+ * File: VaultSwitcher.swift
+ * -------------------------
+ * Layer: UI
+ * Description: The vault switcher at the bottom of the sidebar, its menu (every known vault, Manage Vaults…,
+ *              Reveal Vault in Finder on the Mac) and the vault manager.
+ *
+ * Authors: Bahey Shalash, Félix Chevalier
+ * Version: 0.12
+ * Date: 21/10/2026
+ */
+
 import SwiftUI
 import UniformTypeIdentifiers
 import GraphiteCore
@@ -68,6 +80,7 @@ struct VaultSwitcherMenuItems: View {
             .pickerStyle(.inline)
         }
         Button("Manage Vaults…", systemImage: "folder.badge.gearshape") { manageVaults() }
+        if workspace.store != nil { RevealInFinderButton(path: .root, vaultRoot: workspace.folderAccess?.root, title: "Reveal Vault in Finder") }
         if showsIndexingMessage, workspace.store != nil, !workspace.indexingMessage.isEmpty {
             Section { Text(workspace.indexingMessage) }
         }

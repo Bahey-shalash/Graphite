@@ -6,7 +6,7 @@
  *              bottom bar, palettes, sheets and full-screen viewers, and the links the window handles.
  *
  * Authors: Bahey Shalash, Félix Chevalier
- * Version: 0.40
+ * Version: 0.41
  * Date: 21/10/2026
  */
 
@@ -148,6 +148,11 @@ struct GraphiteRootView: View {
         .focusedSceneValue(\.workspaceMenuActions, WorkspaceMenuActions(workspace: workspace, window: windowActions,
                                                                           showCommandPalette: { activePalette = .commandPalette },
                                                                           save: { Task { await save() } }))
+        // Export to PDF and Print for the note in front or a note in the file list.
+        .notePDFExport(note: workspace.markdownSession, vault: ReadingVault(workspace.folderAccess?.root, workspace.index), preferences: workspace.preferences,
+                       usesStrictLineBreaks: workspace.vaultSettings.usesStrictLineBreaks,
+                       appearance: NotePDFAppearance(typography: workspace.noteTypography, codeColorTheme: workspace.preferences.codeColorTheme,
+                                                     accent: workspace.preferences.accentColor))
         .overlay { paletteOverlay }
         .animation(GraphiteMotion.animation(.snappy(duration: 0.18)), value: activePalette)
         #if canImport(UIKit)
@@ -499,10 +504,13 @@ struct GraphiteRootView: View {
                 case .templatePicker:
                     TemplatePicker(workspace: workspace) { self.activePalette = nil }
                 case .commandPalette:
-                    CommandPalette(commands: WorkspaceCommandList.commands(for: workspace, window: windowActions),
-                                   recentCommandIdentifiers: Binding(get: { workspace.preferences.recentCommandIdentifiers },
-                                                                     set: { identifiers in workspace.preferences.recentCommandIdentifiers = identifiers })) {
-                        self.activePalette = nil
+                    NotePDFPaletteCommands(hasNoteInFront: workspace.markdownSession != nil) { noteCommands in
+                        let recentCommandIdentifiers = Binding(get: { workspace.preferences.recentCommandIdentifiers },
+                                                               set: { identifiers in workspace.preferences.recentCommandIdentifiers = identifiers })
+                        CommandPalette(commands: WorkspaceCommandList.commands(for: workspace, window: windowActions) + noteCommands,
+                                       recentCommandIdentifiers: recentCommandIdentifiers) {
+                            self.activePalette = nil
+                        }
                     }
                 }
             }

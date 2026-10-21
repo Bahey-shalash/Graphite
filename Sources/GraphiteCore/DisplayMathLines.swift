@@ -28,7 +28,6 @@ public struct DisplayMathLines {
     /// the note for each one.
     private let closingLineIndexFromLine: [Int?]
 
-    private static let codeSpanPattern = DisplayMathLinesPattern.codeSpanPattern.compiled()
     private static let dollarSignCodeUnit = UInt16(UInt8(ascii: "$"))
     private static let backslashCodeUnit = UInt16(UInt8(ascii: "\\"))
 
@@ -38,7 +37,7 @@ public struct DisplayMathLines {
         var closingIndices = [Int?](repeating: nil, count: lines.count + 1)
         for lineIndex in lines.indices.reversed() {
             counts[lineIndex] = Self.delimiterOffsets(in: lines[lineIndex], skippingCodeSpans: false).count
-            closingIndices[lineIndex] = counts[lineIndex] % 2 == 1 ? lineIndex : closingIndices[lineIndex + 1]
+            closingIndices[lineIndex] = Self.closesOpenBlock(delimiterCount: counts[lineIndex]) ? lineIndex : closingIndices[lineIndex + 1]
         }
         delimiterCounts = counts
         closingLineIndexFromLine = closingIndices
@@ -68,8 +67,17 @@ public struct DisplayMathLines {
         let unquotedLine = line.drop { character in character == ">" || character == " " || character == "\t" || character == "\r" }
         guard let firstCharacter = unquotedLine.first else { return true }
         guard firstCharacter == "`" || firstCharacter == "~" else { return false }
-        return CodeFence.opening(unquotedLine.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
+        return MarkdownFenceSyntax.opening(unquotedLine.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
     }
+
+    /// Whether `line`, inside an open block, closes it: it holds an odd number of unescaped
+    /// `$$`. A line ending in `\$$` holds none (an escaped `$`, then a lone `$`), so the block
+    /// stays open. Readers that follow display math line by line ask this.
+    public static func closesOpenBlock(_ line: String) -> Bool {
+        closesOpenBlock(delimiterCount: delimiterOffsets(in: line, skippingCodeSpans: false).count)
+    }
+
+    private static func closesOpenBlock(delimiterCount: Int) -> Bool { delimiterCount % 2 == 1 }
 
     /// UTF-16 offset of the `$$` that closes an open block on `line`: the first one.
     public static func closingDelimiterOffset(in line: String) -> Int? {
@@ -101,12 +109,8 @@ public struct DisplayMathLines {
             }
         }
         guard skippingCodeSpans, !offsets.isEmpty, line.contains("`") else { return offsets }
-        let codeRanges = codeSpanPattern.matches(in: line, range: NSRange(location: 0, length: (line as NSString).length)).map(\.range)
+        let source = line as NSString
+        let codeRanges = MarkdownCodeRanges.codeSpans(in: source, range: NSRange(location: 0, length: source.length)).map(\.range)
         return offsets.filter { offset in !codeRanges.contains { codeRange in NSLocationInRange(offset, codeRange) } }
     }
-}
-
-/// The constant patterns of `DisplayMathLines`; `StaticPatternTests` compiles every case.
-enum DisplayMathLinesPattern: String, StaticPatternSet {
-    case codeSpanPattern = #"(?<!`)(`+)(?!`)[^\n]*?(?<!`)\1(?!`)"#
 }

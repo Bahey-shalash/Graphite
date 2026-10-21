@@ -1,3 +1,14 @@
+/**
+ * File: StaticPatternTests.swift
+ * ------------------------------
+ * Layer: Tests
+ * Description: Compiles every constant regular expression of GraphiteCore, so a malformed pattern fails here.
+ *
+ * Authors: Bahey Shalash
+ * Version: 0.2
+ * Date: 21/10/2026
+ */
+
 import Foundation
 import XCTest
 @testable import GraphiteCore
@@ -13,22 +24,24 @@ final class StaticPatternTests: XCTestCase {
         assertEveryCaseCompiles(BaseQueryEnginePattern.self)
         assertEveryCaseCompiles(CommunityPluginCompatibilityPattern.self)
         assertEveryCaseCompiles(CommunityPluginMarkdownRenderingPattern.self)
-        assertEveryCaseCompiles(DisplayMathLinesPattern.self)
         assertEveryCaseCompiles(EmbedLocatorPattern.self)
         assertEveryCaseCompiles(FootnotesPattern.self)
         assertEveryCaseCompiles(FrontmatterLocatorPattern.self)
         assertEveryCaseCompiles(FrontmatterRegionPattern.self)
+        assertEveryCaseCompiles(MarkdownSectionUnitsPattern.self)
         assertEveryCaseCompiles(HTMLToMarkdownPattern.self)
         assertEveryCaseCompiles(LaTeXCompatibilityPattern.self)
         assertEveryCaseCompiles(LinkLocatorPattern.self)
-        assertEveryCaseCompiles(LivePreviewBlockScannerPattern.self)
-        assertEveryCaseCompiles(MarkdownEditingPattern.self)
+        assertEveryCaseCompiles(MarkdownBlockIdentifierSyntaxPattern.self)
+        assertEveryCaseCompiles(MarkdownHeadingSyntaxPattern.self)
+        assertEveryCaseCompiles(MarkdownInlineMathPattern.self)
         assertEveryCaseCompiles(MarkdownLinkSourcePattern.self)
+        assertEveryCaseCompiles(MarkdownListSyntaxPattern.self)
+        assertEveryCaseCompiles(MarkdownQuoteSyntaxPattern.self)
         assertEveryCaseCompiles(MarkdownSemanticsPattern.self)
         assertEveryCaseCompiles(MarkdownStyleScannerPattern.self)
         assertEveryCaseCompiles(MarkdownTableEditingPattern.self)
         assertEveryCaseCompiles(MentionsPattern.self)
-        assertEveryCaseCompiles(NoteBlocksPattern.self)
         assertEveryCaseCompiles(NoteLinkScannerPattern.self)
         assertEveryCaseCompiles(NotePreviewDocumentPattern.self)
         assertEveryCaseCompiles(ObsidianInlineMarkupPattern.self)

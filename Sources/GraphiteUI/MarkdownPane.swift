@@ -3,10 +3,10 @@
  * ------------------------
  * Layer: UI
  * Description: A note's pane: the editor or reading view, its toolbar and More commands in the system's overflow
- *              menu, find in note, and the sheets for inserting attachments, photos and drawings.
+ *              menu (Export to PDF among them), find in note, and the sheets for inserting attachments, photos and drawings.
  *
  * Authors: Bahey Shalash, Félix Chevalier
- * Version: 0.44
+ * Version: 0.48
  * Date: 21/10/2026
  */
 
@@ -99,7 +99,8 @@ struct MarkdownPane: View {
                                      readAloudRange: workspace.readAloud?.highlight(in: session.path),
                                      followsReading: workspace.readAloud?.shouldFollow(session.path) ?? false,
                                      suspendReadingFollow: { workspace.readAloud?.suspendFollowing(in: session.path.rawValue) },
-                                     readAloudHooks: readAloudHooks, contextMenu: editorContextMenuActions) { target, isWiki in
+                                     readAloudHooks: readAloudHooks, contextMenu: editorContextMenuActions,
+                                     keyCommandTable: workspace.keyboardShortcuts.editorKeyCommands) { target, isWiki in
                     follow(target, isWiki: isWiki)
                 }
                 // The suggestions change at every keystroke; only this overlay reads them.
@@ -416,9 +417,7 @@ struct MarkdownPane: View {
         #endif
     }
 
-    private var paletteHexByName: [String: String] {
-        Dictionary(preferences.colorPalette.map { color in (color.name, color.hex) }, uniquingKeysWith: { firstHex, _ in firstHex })
-    }
+    private var paletteHexByName: [String: String] { preferences.colorPaletteHexByName }
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
@@ -586,7 +585,8 @@ struct MarkdownPane: View {
         Button("Unfold All", systemImage: "rectangle.expand.vertical") { session.unfoldAll() }
             .disabled(session.foldedKeys.isEmpty)
         Button("Save Now", systemImage: "square.and.arrow.down") { Task { try? await session.save() } }
-        Button("Copy Graphite URL", systemImage: "link") { Pasteboard.copy(workspace.openingLink(to: session.path)) }
+        FileLocationMenuItems(path: session.path, openingLink: workspace.openingLink(to: session.path), vaultRoot: workspace.folderAccess?.root)
+        NotePDFExportButton()
         if preferences.isEnabled(.bookmarks) {
             let isBookmarked = workspace.bookmarks.fileBookmark(for: session.path) != nil
             Button(isBookmarked ? "Remove Bookmark" : "Bookmark", systemImage: isBookmarked ? "bookmark.slash" : "bookmark") {

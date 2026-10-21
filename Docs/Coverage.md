@@ -4,6 +4,14 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-21.
 
+## Reveal in Finder on the Mac: 2026-10-21
+
+What is built: **Reveal in Finder** opens a Finder window with the item selected (`NSWorkspace.activateFileViewerSelecting`; a folder is selected in its parent). It is in the sidebar's menus of files and folders, a tab's menu, the "…" menus of notes and canvases, and **Reveal Vault in Finder** in the vault switcher's menu. `RevealInFinderButton` and `FileLocationMenuItems` (`FileLocationMenuItems.swift`) take the vault folder, not the workspace. The iPad and iPhone leave the item out. The Guide's "Rename, Move and Delete" topic mentions it on the Mac. The sidebar's file menu now copies through the shared `Pasteboard.copy`.
+
+How it is verified: package tests on the Mac, `UiFileTreeNativeMacTests.testARowsMenuIsTheSidebarsMenuForThatFile` (a file's menu has Reveal in Finder, enabled; a folder's menu has it), `GuideContentTests` (8).
+
+Not established: nothing was clicked by hand; whether Finder comes forward with the item selected was not watched. The iPad and iPhone builds were not compiled for this change (the button's body is empty there).
+
 ## Several windows on the iPad and the Mac: 2026-10-21
 
 What is built ([Multiple-windows-todo.md](Multiple-windows-todo.md), commits from `ad9e11f8`): windows on the Mac (`WindowGroup`, File › New Window with ⌥⌘N, window tabs) and on the iPad (several scenes; the iPhone keeps one), on one vault or several. One index per vault for all its windows, one scan at a time (`VaultIndexRegistry`); a note open in two windows is one text and neither save is refused (`OpenNoteFiles`); one recording and one Read Aloud at a time, a refusal naming the window that runs it (`OpenWindows`); one plugin runtime per vault acting on the window in front (`CommunityPluginHosts`); Settings acts on the front window and a setting reaches every window; quitting saves every window; a closed window keeps edits it cannot save in place as "… Graphite edits" copies; "Open in New Window" in the menus of files, search results, bookmarks and tabs, ⇧⌥⌘ on a link, and a file or tab dragged to the iPad screen's edge; each window restores its own vault and tabs after a relaunch.
@@ -80,7 +88,7 @@ The welcome tour's screenshots are the first pack: 3.1 MB on iPad and iPhone and
 
 ## A Guide for beginners: 2026-10-21
 
-The Guide (`GuideView`, its topics in `GuideTopic` and their words in the `GuideCopy` files) teaches Graphite step by step, from making a vault and a first note to every feature: 32 topics in six sections (The Basics, Writing Notes, Finding and Organizing, Handwriting and PDFs, Studying, Making It Yours). Each topic has numbered steps that name the controls as the app labels them, Markdown to type where it helps, and tips; a search field finds topics by any of their words, and each topic links to the next. Where the Mac differs (no [[ suggestions or formatting shortcuts in its editor, canvases and PDFs viewed but not drawn on, a New Note button with a menu), its steps say so, and its Guide leaves out drawings, Pencil tools and notebooks. It opens from Settings › General › Guide, the welcome screen's Guide button and the welcome tour's last page, and on the Mac from Help › Graphite Guide (⌘?) in a window of its own.
+The Guide (`GuideView`, its topics in `GuideTopic` and their words in the `GuideCopy` files) teaches Graphite step by step, from making a vault and a first note to every feature: 32 topics in six sections (The Basics, Writing Notes, Finding and Organizing, Handwriting and PDFs, Studying, Making It Yours). Each topic has numbered steps that name the controls as the app labels them, Markdown to type where it helps, and tips; a search field finds topics by any of their words, and each topic links to the next. Where the Mac differs (no [[ suggestions in its editor, canvases and PDFs viewed but not drawn on, a New Note button with a menu), its steps say so, and its Guide leaves out drawings, Pencil tools and notebooks. It opens from Settings › General › Guide, the welcome screen's Guide button and the welcome tour's last page, and on the Mac from Help › Graphite Guide (⌘?) in a window of its own.
 
 - **Automated tests:** `GuideContentTests` (7, macOS package): every topic has a title, a summary and steps, titles are distinct, every section has topics and each topic is in one, the Guide starts with vaults and the first note, search matches every word ignoring case and reads the examples, the Mac keeps only the PDF topic of its section, and `**bold**` is styled with its marks removed. All pass.
 - **Checked by hand:** the iPad simulator (Settings › General › Guide, topics with steps, an example and the next link), the iPhone simulator (the Guide opens on its list of topics with search), and the Mac (Help › Graphite Guide opens the window, with the Mac's words).
@@ -114,6 +122,15 @@ On the branch `fix-math-breaking-at-rounded-width`, commits `7fff98b` to `ceb2be
 - **Automated tests, all passing on macOS:** each new test was run before its fix (failing) and after it (passing). The full package suite passed locally (`swift test --parallel`, 3,397 tests) with `UiMapViewMacTests` skipped: that existing class opened the speaker through `systemsoundserverd` at its start in two runs, so it was left out under the no-sound rule. The Node runtime suite passes (136 tests: 118 pass, 18 skipped for unbuilt real plugins). `scripts/check-rules.py` fails only `default-over-own-enum`, as on `e3d97c9`.
 - **Not established:** device checks of Reveal current file with the sidebar hidden (iPad, Mac), of a deep link reaching the app while the full-screen drawing editor is up, and of the Mac editor taking the keyboard for a new note in the app. The plugin rename still polls (`CC-PLUGIN-15`).
 - **Still open:** `BUG-VOICE-12` (connecting headphones pauses High Quality reading). It needs a device check of what `AVAudioEngine` does on a new output, and on the Mac a way to tell a new output from a lost one.
+
+## Wide formulas wrap, braces are drawn, hyphens in text stay hyphens: 2026-10-21
+
+Three faults in display math, reported on the iPad in callouts of `ETH_Computer_Architecture/Textbook/2_Memory_Systems_Challenges_and_Opportunities_Textbook.md`:
+
+- A formula of three fractions, wider than its callout, kept its last fraction on the first line and was cut off at the callout's edge. SwiftUIMath decided whether to break before a fraction from the text since the previous fraction only; it now measures the whole line (`Vendor/swiftui-math/GRAPHITE-PATCHES.md`, 2). `AppProjectTextualPatchTests.testFractionAfterEarlierFractionsBreaksOntoANewLine` measures that formula at 95, 80 and 60 % of its width; it failed before the fix at 95 and 60 %.
+- A formula with `\underbrace{…}_{label}` showed as its LaTeX source: the typesetter did not know `\underbrace` or `\overbrace`. Both are now typeset, the brace drawn as a path as wide as what it spans and the label centred beyond it (patch 3). `testUnderbraceAndOverbraceAreTypesetWithTheirLabels` checks the reported formula parses and the sizes of braces with and without labels.
+- `\text{wear-out}` read "wear − out": a hyphen in `\text` became a minus sign. It is now a hyphen (patch 4), checked by `testHyphenInsideTextIsAHyphen`.
+- Rendered on the Mac at 22 points: the three formulas on one line, wrapped at 60 % of their width, over- and underbraces with and without labels, and a brace with a second script. Not yet checked on the iPad.
 
 ## Formulas no longer lose their letters in reading view: 2026-10-20
 
@@ -1463,6 +1480,19 @@ An embedded PDF's Open in PDF View did nothing when the PDF was open in another 
 - Full runs with both changes: the app's `GraphiteIntegrationTests` target passed 206 of 206 on the iPad Pro 11-inch (M5) simulator, iOS 27.0. `swift test` on macOS ran 1,662 tests (816 core, 137 index, 201 Apple, 508 UI): all passed except `UiEditorMacEditorTests.testHeadingJumpWaitsForAWindowThenSelectsAndScrollsToTheHeading`, which fails on `main` too, with the measurement test skipped as before. The iPhone simulator was not run.
 
 Not established: on the iPad itself, with Apple Pencil, and on the Mac. In the simulator, a tap on the embed's toolbar within about a second of switching back to the note's tab twice did nothing (Annotate, and reading view's Open in PDF View), while the same tap a few seconds later worked; the cause was not found.
+
+## Export a note to PDF: 2026-10-21
+
+More › Export to PDF… on a note (`Docs/Export-to-PDF-todo.md`, architecture under Markdown views). Covered by automated tests:
+
+- `NotePageFlowTests` (15, Core): blocks that fit share a page with their spacing; a block that does not fit starts the next page whole; a heading is never last on a page and needs only the first item of a divided block, or the heading after it, with it; a list is divided to fill the page; a table's runs fit with its header; a text taller than a page is cut in its lowest gap that fits, at the page's height only without gaps; an item taller than a page is cut in its gaps; pictures taller than a page are scaled onto a page of their own; no page is filled past its height.
+- `MarkdownSectionUnitsTests` (7), `PrintedLineGapsTests` (2), `NotePDFOptionsTests` (5, golden JSON of `GraphiteNotePDFOptions`), `StaticPatternTests` (the ordered-list marker pattern).
+- `NotePDFRendererTests` (7, Mac package tests): a sample lecture note's text (math, a folded callout printed open, a table, code, a picture, a footnote), title, no author, nested outline and its one web link annotation; 30 paragraphs, a 60-item list and a 40-row table where every line is printed once, the table's header is on every page it spans and the heading is on its list's page; a paragraph taller than an A5 page cut between lines; light pixels in dark appearance with the note's bytes, date and the vault's files unchanged; properties only when asked for; cancelling gives no PDF; a preview of two pages.
+- Hosted `NotePDFExportHostedTests` (4, iPad Pro 11-inch simulator, iOS 27.0): the sample note's text, outline, link and printed picture; page breaks and headings; light colours with the app's windows and traits dark; the sheet's two-page preview in portrait then landscape, the export reaching the save step in landscape and the options remembered.
+
+Print and the menus (same day, later): More › Print…, File › Export as PDF…, File › Print… (⌘P on the Mac; the command palette moves to ⇧⌘P there), the command palette's Export to PDF and Print current file, and the file list's Export to PDF…. Covered: `NotePDFExportTests` (3: a PDF made to print uses the remembered options and leaves them unchanged, Stop ends a print, failures worded); the iPad and Mac apps build. Not covered by a test or tried by hand yet: the system print panels themselves and the menu items.
+
+Checked by looking: PDFs of a demo vault (`9_Static logic` and `Lecture_L01_Shannon` from the test vault, and a sampler note with every kind of block), made in the iPad simulator's app process and rendered page by page: 34 pages with 40 figures in 3.3 to 4.6 s. Seen there and still open: very wide display formulas break oddly at the print width with a stray bar at their right edge; formulas are 4× bitmaps; large pictures print at the column's width. Not checked: tapping More › Export to PDF… in the running app (the simulator tool had no access), the Mac, Files and Acrobat, the owner's iPad.
 
 ## The test vault
 
