@@ -162,7 +162,7 @@ struct VaultManagerView: View {
                     KnownVaultRow(vault: vault, location: workspace.vaultLibrary.readableLocation(of: vault), isOpen: vault.id == workspace.currentVaultIdentifier) {
                         Task { await open { try await workspace.openVault(vault) } }
                     } remove: {
-                        workspace.removeFromVaultList(vault)
+                        do { try workspace.removeFromVaultList(vault) } catch { errorMessage = error.localizedDescription }
                     }
                 }
             } header: {
