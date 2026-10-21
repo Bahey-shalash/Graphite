@@ -1,5 +1,6 @@
 import Foundation
 import GraphiteCore
+import NotebookImport
 
 /// What `NotebookImportWriter` wrote: the new file's revision and, page by page, what the import simplified or left out.
 public struct NotebookImportWriting: Sendable, Equatable {

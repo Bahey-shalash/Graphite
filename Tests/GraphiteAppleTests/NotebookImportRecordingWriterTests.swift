@@ -1,5 +1,6 @@
 import XCTest
 import GraphiteCore
+import NotebookImport
 import GraphiteTestSupport
 @testable import GraphiteApple
 

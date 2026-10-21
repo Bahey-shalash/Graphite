@@ -2,6 +2,7 @@ import Foundation
 import CoreGraphics
 import PDFKit
 import GraphiteCore
+import NotebookImport
 
 /// Makes the PDF page under an imported page's ink, of the plan's size, from its background. Lives for one write.
 ///

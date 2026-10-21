@@ -3,6 +3,7 @@ import CoreGraphics
 import PencilKit
 import PDFKit
 import GraphiteCore
+import NotebookImport
 @testable import GraphiteApple
 #if canImport(UIKit)
 import UIKit

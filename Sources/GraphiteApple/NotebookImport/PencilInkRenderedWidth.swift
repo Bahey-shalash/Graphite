@@ -1,6 +1,7 @@
 import Foundation
 import PencilKit
 import GraphiteCore
+import NotebookImport
 
 /// How wide PencilKit draws a stroke point of a given size, for each ink an imported stroke uses. A point's
 /// `PKStrokePoint.size` is not the width PencilKit draws, and the relation differs for each ink.

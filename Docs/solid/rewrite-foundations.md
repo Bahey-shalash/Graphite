@@ -529,6 +529,8 @@ Direction runs one way: a module imports only modules listed in its row. Every r
 | `GraphiteFixtures` (test-only) | In-memory and failing fakes, builders, `ManualClock`, value fixtures; no XCTest, so previews may import it under `#if DEBUG` | Core, Storage, Index, Apple | Foundation |
 | `GraphiteTestSupport` (test-only) | `TemporaryVault`, `IsolatedDeviceState`, `awaitCondition`, hosted windows and touch synthesis, contract suites | Fixtures, every module under test | XCTest |
 
+Added 2026-10-21, for the notebook import: every module may import a standalone package of section 3.5, which imports no Graphite module; today that is `NotebookImport`, which `GraphiteApple` (the import's PDF and recording writers) imports. `scripts/check-imports.py` lists the packages (`STANDALONE_PACKAGES`) and refuses a Graphite import under `Packages/`.
+
 Added 2026-10-21, for document scanning and folder looks: `GraphiteApple` may import CoreText (the invisible text of a scanned PDF), CoreImage (the mask that removes a picture's background), QuickLookThumbnailing (the system's own icon of a folder on iOS) and UniformTypeIdentifiers (the type of an image it encodes). Today's `GraphiteUI`, until it is cut into the feature modules above, may import VisionKit (the system's document scanner), PhotosUI (the photo picker) and UniformTypeIdentifiers (file types of pickers, drops and exports); `scripts/check-imports.py` lists them in its rows.
 
 ```
@@ -589,7 +591,7 @@ Code that serves Graphite but knows nothing about it lives in its own Swift pack
 
 | Package | Contents | State |
 | --- | --- | --- |
-| `NotebookImport` (working name) | The Goodnotes and Notability readers and the formats under them (ZIP, binary property lists, keyed archives, protocol buffers, Apple LZ4, XML tags), the page, stroke, picture and recording planners and the import report: the 80 files of `Sources/GraphiteCore/NotebookImport` | The folder type-checks on its own with Foundation, CoreGraphics and zlib (`swiftc -typecheck` over the 80 files, 2026-10-20), so it moves as it is. Its tests against real notebooks wait for non-personal sample notebooks (`CC-IMPORT-12`). Phase 5 moves it. |
+| `NotebookImport` (working name) | The Goodnotes and Notability readers and the formats under them (ZIP, binary property lists, keyed archives, protocol buffers, Apple LZ4, XML tags), the page, stroke, picture and recording planners and the import report: the 80 files of `Sources/GraphiteCore/NotebookImport` | Moved 2026-10-21 (branch `notebook-import-in-app`), as it was: the 80 files to `Packages/NotebookImport/Sources/NotebookImport`, their 31 test files and 7 fixtures to `Packages/NotebookImport/Tests/NotebookImportTests`, with its own `Package.swift` and README. `GraphiteApple` depends on it by path; CI builds and tests it alone. Its tests against real notebooks still wait for non-personal sample notebooks (`CC-IMPORT-12`). |
 | Candidates | JSON Canvas reading and byte-preserving editing (`CanvasFile`, `CanvasJSON`, `CanvasChange`); the Bases formula evaluator; the Obsidian Markdown syntax scanners; the PNG and SVG ink encoders (`BandedPNGEncoder`, `SVGDrawingFile`); `ReadAloudWordAlignment` | Not checked. Each moves when the same type-check passes after its area's phase has cleaned it, and only if it is useful outside Graphite. |
 
 ## 4. Composition root and dependency injection

@@ -3,6 +3,7 @@ import CoreGraphics
 import PDFKit
 import PencilKit
 import GraphiteCore
+import NotebookImport
 import GraphiteTestSupport
 import Synchronization
 @testable import GraphiteApple
