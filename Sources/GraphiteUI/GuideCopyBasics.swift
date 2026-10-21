@@ -91,7 +91,8 @@ enum GuideBasicsCopy {
             GuideStep("Select words, then use the **Format** menu in the note's toolbar: Bold, Italic, Strikethrough, Highlight, Code, Heading " +
                       "and more."),
             GuideStep("Or type the Markdown yourself:", example: "**bold**  *italic*  ~~struck through~~  ==highlighted==  `code`"),
-            GuideStep("Right-click selected text for **Format**, **Paragraph** (lists, headings, quote) and **Insert**.")
+            GuideStep("Right-click selected text for **Format**, **Paragraph** (lists, headings, quote) and **Insert**."),
+            GuideStep("With the keyboard: ⌘B bold, ⌘I italic, ⇧⌘H highlight, ⇧⌘X strikethrough, ⌃⌘1 to ⌃⌘6 for headings.")
         ]),
         tips: ["**Format** › **Color** colors text. It writes ~={#hex}text=~, which the Colors plugin for Obsidian reads too."])
 
