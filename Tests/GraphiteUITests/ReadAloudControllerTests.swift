@@ -203,7 +203,7 @@ final class ReadAloudControllerTests: XCTestCase {
         let recognition = try XCTUnwrap(snapshot.recognition)
         let geometry = recognition.geometry
         let bounds = try XCTUnwrap(recognition.words.first?.pageBounds)
-        let highlight = PDFReadAloudHighlight(pageIndex: 0, location: .recognizedText(bounds, geometry), expectedText: "Repeat")
+        let highlight = PDFReadAloudHighlight(pageIndex: 0, location: .pageArea(bounds, geometry), expectedText: "Repeat")
         let highlighter = PDFReadAloudHighlighter()
         let beforePixels = try readingOverlayBitmap(view)
         highlighter.update([highlight], in: view)

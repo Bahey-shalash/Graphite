@@ -40,21 +40,50 @@ public struct PDFReadAloudPage: Sendable {
         public let pageRange: NSRange
     }
 
+    /// The text of a text box, read after the page's printed text, with the area it covers.
+    public struct TextBoxSegment: Sendable {
+        public let textRange: NSRange
+        public let pageBounds: CGRect
+        public let geometry: PDFReadingPageGeometry
+    }
+
     public let originalText: String
     public let text: String
     public let segments: [Segment]
     public let layoutNotice: String?
     public let usesLayout: Bool
     public let recognition: PDFRecognizedReading?
+    /// The page's text boxes, in reading order (`PDFTextBoxReadingOrder`), after its printed text.
+    public let textBoxSegments: [TextBoxSegment]
 
     init(originalText: String, text: String, segments: [Segment], layoutNotice: String?, usesLayout: Bool,
-         recognition: PDFRecognizedReading? = nil) {
+         recognition: PDFRecognizedReading? = nil, textBoxSegments: [TextBoxSegment] = []) {
         self.originalText = originalText
         self.text = text
         self.segments = segments
         self.layoutNotice = layoutNotice
         self.usesLayout = usesLayout
         self.recognition = recognition
+        self.textBoxSegments = textBoxSegments
+    }
+
+    /// The page with its text boxes read after its printed text, each a paragraph of its own.
+    func appendingTextBoxes(_ boxes: [PDFTextBox], geometry: PDFReadingPageGeometry) throws -> PDFReadAloudPage {
+        guard !boxes.isEmpty else { return self }
+        var combinedText = text
+        var boxSegments: [TextBoxSegment] = []
+        for box in boxes {
+            if !combinedText.isEmpty { combinedText += "\n\n" }
+            let start = combinedText.utf16.count
+            combinedText += box.plainText
+            guard combinedText.utf16.count <= ReadAloudDocument.maximumSourceUTF16Count else { throw ReadAloudError.passageTooLarge }
+            let bounds = box.annotationBounds.intersection(geometry.cropBounds)
+            guard !bounds.isNull, !bounds.isEmpty else { continue }
+            let textRange = NSRange(location: start, length: combinedText.utf16.count - start)
+            boxSegments.append(TextBoxSegment(textRange: textRange, pageBounds: bounds, geometry: geometry))
+        }
+        return PDFReadAloudPage(originalText: originalText, text: combinedText, segments: segments, layoutNotice: layoutNotice, usesLayout: usesLayout,
+                                recognition: recognition, textBoxSegments: textBoxSegments + boxSegments)
     }
 
     public func correctingRecognizedWords(_ corrections: [Int: String]) throws -> Self {
@@ -162,18 +191,30 @@ public actor PDFReadAloudExtraction {
         guard document.allowsCopying else { throw GraphiteError.unavailable("This PDF does not allow text extraction.") }
         guard let page = document.page(at: 0) else { throw ReadAloudError.noReadableText }
         let text = page.string ?? ""
+        let textBoxes = Self.textBoxesInReadingOrder(on: page)
+        let geometry = PDFReadingPageGeometry(mediaBounds: page.bounds(for: .mediaBox), cropBounds: page.bounds(for: .cropBox), rotation: page.rotation)
         if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            // A page with only typed text, such as a notebook page, is read from its boxes. A
+            // scanned page is recognized; its boxes are not read (their offsets would move with
+            // the corrections of the recognized words).
+            if !textBoxes.isEmpty { return try PDFReadAloudPage.fileOrder("").appendingTextBoxes(textBoxes, geometry: geometry) }
             return try await recognizedPage(page, originalText: text, readingOrder: readingOrder)
         }
         guard text.utf16.count <= ReadAloudDocument.maximumSourceUTF16Count else { throw ReadAloudError.passageTooLarge }
-        guard readingOrder == .layout else { return .fileOrder(text) }
+        guard readingOrder == .layout else { return try PDFReadAloudPage.fileOrder(text).appendingTextBoxes(textBoxes, geometry: geometry) }
         do {
-            return try await layoutPage(page, originalText: text)
+            return try await layoutPage(page, originalText: text).appendingTextBoxes(textBoxes, geometry: geometry)
         } catch is CancellationError { throw CancellationError() }
         catch {
             try Task.checkCancellation()
-            return .fileOrder(text, notice: "This page’s layout could not be matched safely. It uses the file’s text order; review the transcript or select a passage.")
+            return try PDFReadAloudPage.fileOrder(text, notice: "This page’s layout could not be matched safely. It uses the file’s text order; review the transcript or select a passage.")
+                .appendingTextBoxes(textBoxes, geometry: geometry)
         }
+    }
+
+    /// The page's text boxes that hold text, as a person reads them on the page as shown.
+    private static func textBoxesInReadingOrder(on page: PDFPage) -> [PDFTextBox] {
+        PDFTextBoxReadingOrder.sorted(PDFPageManager.textBoxes(on: page).filter { box in !box.isEmpty }, pageQuarterTurns: page.rotation / 90)
     }
 
     private func layoutPage(_ page: PDFPage, originalText: String) async throws -> PDFReadAloudPage {

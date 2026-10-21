@@ -21,6 +21,12 @@ public struct NoteSemantics: Sendable {
     public let aliases: [String]
     public let body: String
     public let frontmatter: String?
+
+    /// Text that is not Markdown, such as a PDF's text boxes: searchable, with no links,
+    /// headings, tags, aliases or properties of its own.
+    public static func plainText(_ text: String) -> NoteSemantics {
+        NoteSemantics(links: [], headings: [], tags: [], aliases: [], body: text, frontmatter: nil)
+    }
 }
 
 public enum MarkdownSemantics {
