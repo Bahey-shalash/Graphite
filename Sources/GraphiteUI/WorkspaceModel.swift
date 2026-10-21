@@ -204,6 +204,12 @@ final class WorkspaceModel {
     let communityPlugins: CommunityPluginHost
     /// The PDFs embedded in this window's notes, which its views read from the environment.
     let embeddedPDFSessions = EmbeddedPDFSessions()
+    /// This window among the process's windows (`OpenWindows`), for what one window runs at a time.
+    @ObservationIgnored private(set) lazy var openWindow = OpenWindow(
+        name: { [weak self] in self?.windowName ?? "" },
+        isRecording: { [weak self] in self?.recording.state.isActive ?? false },
+        isReadingAloud: { [weak self] in self?.readAloud?.isReading ?? false },
+        stopReadingAloud: { [weak self] in self?.readAloud?.stop(); self?.readAloud?.showsReader = false })
     /// Set by indexing when a scan of the whole vault finishes; tests that fill the index
     /// themselves set it too.
     var hasCompletedIndexScan = false
@@ -238,6 +244,7 @@ final class WorkspaceModel {
             recording.recoveryFolderLocation = { try RecordingRecoveryFolder.location(in: applicationSupportFolder) }
         }
         if preferences.isEnabled(.readAloud) { startReadAloud() }
+        processServices.openWindows.add(openWindow)
     }
 
     /// Turns a core plugin on or off, and starts or ends what it runs, with no relaunch:
@@ -251,7 +258,7 @@ final class WorkspaceModel {
 
     private func startReadAloud() {
         guard readAloud == nil else { return }
-        let reader = processServices.makeReadAloudController()
+        let reader = processServices.makeReadAloudController { [weak self] in self?.readAloudStartRefusal }
         reader.vaultRoot = folderAccess?.root
         let navigator = ReadAloudNavigator(reader: reader)
         navigator.startReading = { [weak self] path, resumeLocation in
@@ -676,6 +683,29 @@ final class WorkspaceModel {
         monitor?.stop(); monitor = nil
         externalChangeTask?.cancel()
         stopIndexing()
+        processServices.openWindows.remove(openWindow)
+    }
+
+    // MARK: One at a time
+
+    /// The window as its title bar names it: the document it shows and its vault.
+    var windowName: String {
+        guard let selection else { return "“\(title)”" }
+        return "“\(selection.stem)” in \(title)"
+    }
+
+    /// Whether this window or another records: the device has one microphone and camera, and
+    /// narration would reconfigure a lecture recording's audio session.
+    var isRecordingInAnyWindow: Bool {
+        recording.state.isActive || processServices.openWindows.windowRecording(besides: openWindow) != nil
+    }
+
+    /// Why this window may not start reading aloud now, naming the window that records or reads.
+    private var readAloudStartRefusal: OtherWindowActivity? {
+        let openWindows = processServices.openWindows
+        if let recordingWindow = openWindows.windowRecording(besides: openWindow) { return .recording(windowName: recordingWindow.name()) }
+        if let readingWindow = openWindows.windowReadingAloud(besides: openWindow) { return .readingAloud(windowName: readingWindow.name()) }
+        return nil
     }
 
     /// Empties the index and scans the vault again, for every window on it.
@@ -1220,8 +1250,12 @@ final class WorkspaceModel {
         // A recording that could not be saved is waiting; starting would not record, and the
         // note it will be embedded in must stay the one it was started from.
         guard recording.canStartRecording else { return }
-        readAloud?.stop()
-        readAloud?.showsReader = false
+        if let recordingWindow = processServices.openWindows.windowRecording(besides: openWindow) {
+            errorMessage = OtherWindowActivity.recording(windowName: recordingWindow.name()).errorDescription
+            return
+        }
+        // Narration in any window stops: it would reconfigure the recording's audio session.
+        for window in processServices.openWindows.all { window.stopReadingAloud() }
         do {
             let notePath = markdownSession?.path
             let directory = try await recordingDirectory(note: notePath, store: store)

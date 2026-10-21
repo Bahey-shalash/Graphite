@@ -23,7 +23,9 @@ private struct ReadAloudPDFRequest {
 }
 
 /// One reading session per window, independent of document navigation. Only a
-/// selected PDF page's text is retained; the next page is loaded after completion.
+/// selected PDF page's text is retained; the next page is loaded after completion. One
+/// window reads at a time: a reading started while another window reads, or records, is
+/// refused with the reason (`startRefusal`).
 @MainActor @Observable
 final class ReadAloudController {
     let session: ReadAloudSession
@@ -84,11 +86,16 @@ final class ReadAloudController {
     /// High Quality reading with a downloaded voice, when this controller's session speaks
     /// through it; nil for the system voice alone (tests, and builds without the manifest).
     @ObservationIgnored let neuralSpeech: NeuralReadAloudSpeech?
+    /// Why a reading may not start now, as while another window reads aloud or records;
+    /// nil when it may. Tests and a single window pass none.
+    @ObservationIgnored private let startRefusal: @MainActor () -> OtherWindowActivity?
 
     init(session: ReadAloudSession = ReadAloudSession(), neuralSpeech: NeuralReadAloudSpeech? = nil,
-         preferences: UserDefaults = .standard, playsWhenPrepared: Bool = false) {
+         preferences: UserDefaults = .standard, playsWhenPrepared: Bool = false,
+         startRefusal: @escaping @MainActor () -> OtherWindowActivity? = { nil }) {
         self.session = session
         self.neuralSpeech = neuralSpeech
+        self.startRefusal = startRefusal
         self.preferences = preferences
         self.playsWhenPrepared = playsWhenPrepared
         nowPlaying = playsWhenPrepared ? ReadAloudNowPlaying() : nil
@@ -101,7 +108,7 @@ final class ReadAloudController {
     func readMarkdown(_ markdown: String, path: VaultPath, range: NSRange? = nil,
                       scope: String = "Whole note", paletteHexByName: [String: String] = [:], startsPlaying: Bool = true,
                       hiddenRanges: [NSRange] = []) {
-        begin(title: path.stem, sourceIdentifier: path.rawValue, scope: scope)
+        guard begin(title: path.stem, sourceIdentifier: path.rawValue, scope: scope) else { return }
         playsCurrentPreparation = playsWhenPrepared && startsPlaying
         markdownRequest = ReadAloudMarkdownRequest(sourceText: markdown, path: path, selectedRange: range,
                                                   scopeDescription: scope, paletteHexByName: paletteHexByName, hiddenRanges: hiddenRanges)
@@ -214,8 +221,8 @@ final class ReadAloudController {
     }
 
     func readPDF(_ pdf: PDFSession, firstPageIndex: Int, lastPageIndex: Int) {
-        begin(title: pdf.location.deletingPathExtension().lastPathComponent,
-              sourceIdentifier: pdf.location.path, scope: "Pages \(firstPageIndex + 1)–\(lastPageIndex + 1)")
+        guard begin(title: pdf.location.deletingPathExtension().lastPathComponent,
+                    sourceIdentifier: pdf.location.path, scope: "Pages \(firstPageIndex + 1)–\(lastPageIndex + 1)") else { return }
         guard firstPageIndex >= 0, lastPageIndex >= firstPageIndex, lastPageIndex < pdf.pageCount else {
             failed(ReadAloudError.emptyRange, identifier: preparationIdentifier); return
         }
@@ -233,8 +240,8 @@ final class ReadAloudController {
     }
 
     func readPDFSelection(_ pdf: PDFSession) {
-        begin(title: pdf.location.deletingPathExtension().lastPathComponent,
-              sourceIdentifier: pdf.location.path, scope: "Selected PDF text")
+        guard begin(title: pdf.location.deletingPathExtension().lastPathComponent,
+                    sourceIdentifier: pdf.location.path, scope: "Selected PDF text") else { return }
         guard pdf.document.allowsCopying else {
             failed(GraphiteError.unavailable("This PDF does not allow text extraction."), identifier: preparationIdentifier); return
         }
@@ -263,8 +270,8 @@ final class ReadAloudController {
     }
 
     func readPDFRange(_ pdf: PDFSession, start: PDFReadAloudEndpoint, end: PDFReadAloudEndpoint? = nil) {
-        begin(title: pdf.location.deletingPathExtension().lastPathComponent, sourceIdentifier: pdf.location.path,
-              scope: end == nil ? "From selected word to end" : "Chosen start and end")
+        guard begin(title: pdf.location.deletingPathExtension().lastPathComponent, sourceIdentifier: pdf.location.path,
+                    scope: end == nil ? "From selected word to end" : "Chosen start and end") else { return }
         guard pdf.document.allowsCopying else {
             failed(GraphiteError.unavailable("This PDF does not allow text extraction."), identifier: preparationIdentifier); return
         }
@@ -537,6 +544,9 @@ final class ReadAloudController {
 
     /// A passage is loaded, being prepared, or could not be prepared and says why.
     var isActive: Bool { session.document != nil || isPreparing || errorMessage != nil }
+    /// A passage is loaded or being prepared: this window holds the audio output and the
+    /// Now Playing entry, so no other window may read.
+    var isReading: Bool { session.document != nil || isPreparing }
 
     /// High Quality reading is waiting for its next passage to be rendered.
     var isWaitingForPreparedAudio: Bool { neuralSpeech?.isWaitingForPassage ?? false }
@@ -615,7 +625,16 @@ final class ReadAloudController {
         return true
     }
 
-    private func begin(title: String, sourceIdentifier: String, scope: String) {
+    /// Clears the last reading and starts preparing a new one; false, with the reason shown
+    /// in the player, when this window may not read now.
+    @discardableResult
+    private func begin(title: String, sourceIdentifier: String, scope: String) -> Bool {
+        if let refusal = startRefusal() {
+            self.title = title
+            scopeDescription = scope
+            errorMessage = refusal.errorDescription
+            return false
+        }
         stop()
         session.clear()
         foldPreparation?.cancel()
@@ -650,6 +669,7 @@ final class ReadAloudController {
         playsCurrentPreparation = playsWhenPrepared
         preparationIdentifier = UUID()
         session.refreshVoices()
+        return true
     }
 
     private func loadPDFPage(_ pdf: PDFSession, pageIndex: Int, lastPageIndex: Int,

@@ -536,8 +536,8 @@ struct MarkdownPane: View {
                 }
             }
         }
-        .disabled(workspace.recording.state.isActive)
-        if workspace.recording.state.isActive { Text("Finish recording to read aloud.") }
+        .disabled(workspace.isRecordingInAnyWindow)
+        if workspace.isRecordingInAnyWindow { Text("Finish recording to read aloud.") }
     }
 
     @ViewBuilder private var moreMenuItems: some View {
@@ -582,7 +582,7 @@ struct MarkdownPane: View {
     }
 
     private func startReading(range: NSRange? = nil, scope: String = "Whole note") {
-        guard !workspace.recording.state.isActive, let reader = workspace.readAloud, let navigator = workspace.readAloudNavigator else { return }
+        guard !workspace.isRecordingInAnyWindow, let reader = workspace.readAloud, let navigator = workspace.readAloudNavigator else { return }
         reader.readMarkdown(session.text, path: session.path, range: range, scope: scope, paletteHexByName: paletteHexByName,
                             hiddenRanges: foldedRanges)
         // The whole note goes on from where it was left; the player offers Start Over.

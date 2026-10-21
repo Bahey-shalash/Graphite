@@ -371,7 +371,7 @@ public struct GraphiteRootView: View {
         }
         if !usesFloatingPlayer, let reader = workspace.readAloud, reader.isActive {
             ToolbarItemGroup(placement: .primaryAction) {
-                ReadAloudToolbarControls(reader: reader, isDisabled: workspace.recording.state.isActive,
+                ReadAloudToolbarControls(reader: reader, isDisabled: workspace.isRecordingInAnyWindow,
                                          accentColor: workspace.preferences.accentColor)
                     .tint(.primary)
             }
