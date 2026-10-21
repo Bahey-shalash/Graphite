@@ -37,7 +37,7 @@ final class LibraryModel {
     private(set) var failure: LibraryFailure?
     var filter: LibraryFilter = .all { didSet { applyFilter() } }
     /// The folders' looks: Graphite's styles and Finder's; replaced with the vault.
-    private(set) var folderLooks = LibraryFolderLooks(attributes: nil) { _, _ in nil }
+    private(set) var folderLooks = LibraryFolderLooks(attributes: nil, appleArt: AppleFolderArt()) { _, _ in nil }
     /// Previews of the tiles on screen; a tile's entry goes when it scrolls away.
     private(set) var visiblePreviews: [VaultPath: LibraryTilePreview] = [:]
 
@@ -276,7 +276,7 @@ final class LibraryModel {
     /// A folder's picture is a PNG in the vault, read as a picture tile's preview is.
     private static func makeFolderLooks(for source: Source?) -> LibraryFolderLooks {
         let renderPreview = source?.renderPreview
-        return LibraryFolderLooks(attributes: source?.finderAttributes) { picturePath, longerSidePixels in
+        return LibraryFolderLooks(attributes: source?.finderAttributes, appleArt: AppleFolderArt()) { picturePath, longerSidePixels in
             guard case .picture(let image) = await renderPreview?(picturePath, longerSidePixels) else { return nil }
             return image
         }

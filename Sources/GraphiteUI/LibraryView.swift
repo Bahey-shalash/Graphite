@@ -321,7 +321,7 @@ private struct LibraryTileMenu: ViewModifier {
             .accessibilityAction(named: "Customize Folder") { if entry.isDirectory { isCustomizing = true } }
             .popover(isPresented: $isCustomizing) {
                 FolderCustomizationPopover(folderName: entries.displayName(entry.path), style: library.folderLooks.shownLook(of: entry.path).style,
-                                           picture: library.folderLooks.picture(of: entry.path), pictureActions: pictureActions) { style in
+                                           previewImage: library.folderLooks.tileImages[entry.path], pictureActions: pictureActions) { style in
                     Task { await library.setStyle(style, for: entry.path) }
                 }
                 .presentationCompactAdaptation(.sheet)
@@ -332,9 +332,12 @@ private struct LibraryTileMenu: ViewModifier {
     private var pictureActions: FolderPictureActions {
         let library = library
         let folder = entry.path
+        let looks = library.folderLooks
         return FolderPictureActions(findVaultPictures: findPictures,
                                     readVaultPicture: { path in try await library.pictureData(at: path) },
-                                    applyPicture: { picture, layout, color in await library.setPicture(picture, layout: layout, color: color, for: folder) })
+                                    applyPicture: { picture, layout, color in await library.setPicture(picture, layout: layout, color: color, for: folder) },
+                                    drawPreview: { style in await looks.image(for: style) },
+                                    drawPicturePreview: { style, picture in await looks.image(for: style, picture: picture) })
     }
 }
 

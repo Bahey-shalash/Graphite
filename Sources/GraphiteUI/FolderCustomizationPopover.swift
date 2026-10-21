@@ -11,6 +11,10 @@ struct FolderPictureActions {
     /// Saves a framed picture in the vault and makes it the folder's look with the color given;
     /// returns the new look, or nil when it failed (the library reports why).
     let applyPicture: (CGImage, FolderPictureLayout, FolderColor?) async -> FolderStyle?
+    /// Draws a look with Apple's folder art, for the previews.
+    let drawPreview: (FolderStyle) async -> FolderTileImage?
+    /// Draws a look with a picture not saved yet, for the picture sheet's preview.
+    let drawPicturePreview: (FolderStyle, CGImage) async -> FolderTileImage?
 }
 
 /// A folder's look, chosen as in Finder's folder popover: a large preview with the folder's
@@ -21,8 +25,8 @@ struct FolderCustomizationPopover: View {
     let pictureActions: FolderPictureActions
     let apply: (FolderStyle?) -> Void
     @State private var draft: FolderStyle
-    /// The folder's picture as the preview draws it.
-    @State private var shownPicture: CGImage?
+    /// The draft as Apple's art draws it, redrawn after each choice.
+    @State private var previewImage: FolderTileImage?
     @State private var pictureSource: FolderPictureSource?
     @State private var pickedPicture: PickedFolderPicture?
     @State private var pictureFailure: FolderPictureProblem?
@@ -32,12 +36,12 @@ struct FolderCustomizationPopover: View {
     private static let symbolGridHeight: CGFloat = 250
     private static let symbolCellPoints: CGFloat = 38
 
-    init(folderName: String, style: FolderStyle?, picture: CGImage?, pictureActions: FolderPictureActions, apply: @escaping (FolderStyle?) -> Void) {
+    init(folderName: String, style: FolderStyle?, previewImage: FolderTileImage?, pictureActions: FolderPictureActions, apply: @escaping (FolderStyle?) -> Void) {
         self.folderName = folderName
         self.pictureActions = pictureActions
         self.apply = apply
         _draft = State(initialValue: style ?? FolderStyle())
-        _shownPicture = State(initialValue: picture)
+        _previewImage = State(initialValue: previewImage)
     }
 
     var body: some View {
@@ -63,7 +67,8 @@ struct FolderCustomizationPopover: View {
                                        pick: { image in pickedPicture = PickedFolderPicture(image: image) },
                                        fail: { message in pictureFailure = message }))
         .sheet(item: $pickedPicture) { picked in
-            FolderPictureSheet(picture: picked.image, folderName: folderName, folderColor: draft.color) { framedPicture, layout in
+            FolderPictureSheet(picture: picked.image, folderName: folderName, folderColor: draft.color,
+                               drawPreview: pictureActions.drawPicturePreview) { framedPicture, layout in
                 applyPicture(framedPicture, layout: layout)
             }
         }
@@ -96,7 +101,6 @@ struct FolderCustomizationPopover: View {
         Task {
             guard let style = await pictureActions.applyPicture(framedPicture, layout, color) else { return }
             draft = style
-            shownPicture = framedPicture
         }
     }
 
@@ -106,8 +110,9 @@ struct FolderCustomizationPopover: View {
 
     private var preview: some View {
         VStack(spacing: 4) {
-            LibraryFolderArtwork(style: draft, picture: shownPicture, symbolPointSize: Self.previewSymbolPoints)
-                .frame(height: Self.previewSymbolPoints * 1.05)
+            FolderArtView(style: draft, image: previewImage, symbolPointSize: Self.previewSymbolPoints)
+                .frame(height: Self.previewSymbolPoints * 1.25)
+                .task(id: draft) { previewImage = await pictureActions.drawPreview(draft) }
             Text(folderName)
                 .font(.headline)
                 .lineLimit(1)
