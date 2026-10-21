@@ -38,22 +38,16 @@ public struct DisplayMathView: View {
   }
 
   public var body: some View {
-    // Drawn as a canvas symbol, as an attachment is. A symbol keeps the formula's exact
-    // size. A view's frame is rounded to whole pixels, and in a frame a fraction of a
-    // point narrower than the formula the typesetter breaks the formula into lines.
+    // `Math` draws its outlines as shapes, not into a `Canvas` (Graphite patch 19); its
+    // typesetter keeps a formula on one line in a frame a fraction of a point narrower than
+    // it (`DisplayProvider.lineBreakTolerance`), which the canvas symbol was there for.
     DisplayMathSize(latex: latex, fontSize: fontSize) {
-      Canvas { context, _ in
-        guard let formula = context.resolveSymbol(id: latex) else { return }
-        context.draw(formula, at: .zero, anchor: .topLeading)
-      } symbols: {
-        NaturalWidthWhenItFits {
-          Math(latex)
-            .mathFont(DisplayMathRendering.font(size: fontSize))
-            .mathTypesettingStyle(.display)
-            // Explicit LaTeX colors take precedence; ordinary formulas keep the surrounding style.
-            .mathRenderingMode(latex.contains("\\color") || latex.contains("\\textcolor") ? .multicolor : .monochrome)
-        }
-        .tag(latex)
+      NaturalWidthWhenItFits {
+        Math(latex)
+          .mathFont(DisplayMathRendering.font(size: fontSize))
+          .mathTypesettingStyle(.display)
+          // Explicit LaTeX colors take precedence; ordinary formulas keep the surrounding style.
+          .mathRenderingMode(latex.contains("\\color") || latex.contains("\\textcolor") ? .multicolor : .monochrome)
       }
     }
   }
