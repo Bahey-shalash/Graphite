@@ -17,7 +17,7 @@ final class FolderStyleListTests: XCTestCase {
     func testReadsColorsAndSymbols() throws {
         let list = try FolderStyleList(configurationData: Data(writtenByANewerBuild.utf8))
         XCTAssertEqual(list.style(for: try VaultPath("Courses/BA1"))?.color, .green)
-        XCTAssertEqual(list.style(for: try VaultPath("Courses/BA1"))?.symbolName, "face.smiling")
+        XCTAssertEqual(list.style(for: try VaultPath("Courses/BA1"))?.mark, .symbol("face.smiling"))
         XCTAssertEqual(list.style(for: try VaultPath("Courses/BA2"))?.color, .unknown("sunset"))
         XCTAssertNil(list.style(for: try VaultPath("Courses")))
     }
@@ -81,8 +81,65 @@ final class FolderStyleListTests: XCTestCase {
         _ = try await store.updateFolderStyles { list in list.forget(.root) }
         XCTAssertFalse(FileManager.default.fileExists(atPath: vault.appendingPathComponent(FolderStyleList.configurationPath).path))
         let lab = try VaultPath("Lab")
-        _ = try await store.updateFolderStyles { list in list.setStyle(FolderStyle(color: .orange, symbolName: "flask"), for: lab) }
+        _ = try await store.updateFolderStyles { list in list.setStyle(FolderStyle(color: .orange, mark: .symbol("flask")), for: lab) }
         let stored = try await store.folderStyles().style(for: lab)
-        XCTAssertEqual(stored, FolderStyle(color: .orange, symbolName: "flask"))
+        XCTAssertEqual(stored, FolderStyle(color: .orange, mark: .symbol("flask")))
+    }
+
+    /// The file Graphite wrote before emoji and "no color" existed reads the same today.
+    func testTheEarlierFormatStillReads() throws {
+        let earlierFile = #"{"folders": {"Lab": {"color": "orange", "symbol": "flask"}, "Notes": {"color": "teal"}}}"#
+        let list = try FolderStyleList(configurationData: Data(earlierFile.utf8))
+        XCTAssertEqual(list.style(for: try VaultPath("Lab")), FolderStyle(color: .orange, mark: .symbol("flask")))
+        XCTAssertEqual(list.style(for: try VaultPath("Notes")), FolderStyle(color: .teal))
+    }
+
+    func testNoColorIsWrittenSoEarlierBuildsStillShowTheEmoji() throws {
+        var list = FolderStyleList()
+        list.setStyle(FolderStyle(mark: .emoji("🥸")), for: try VaultPath("Lab"))
+        let folders = try JSONSerialization.jsonObject(with: list.configurationData()) as? [String: Any]
+        let entry = try XCTUnwrap((folders?["folders"] as? [String: Any])?["Lab"] as? [String: Any])
+        XCTAssertEqual(entry["color"] as? String, "none")
+        XCTAssertEqual(entry["emoji"] as? String, "🥸")
+        let reread = try FolderStyleList(configurationData: list.configurationData())
+        XCTAssertEqual(reread.style(for: try VaultPath("Lab")), FolderStyle(mark: .emoji("🥸")))
+    }
+
+    func testAnyColorIsKeptAsHexadecimal() throws {
+        var list = FolderStyleList()
+        list.setStyle(FolderStyle(color: .custom(red: 0x1A, green: 0x2B, blue: 0xFF)), for: try VaultPath("Lab"))
+        let reread = try FolderStyleList(configurationData: list.configurationData())
+        XCTAssertEqual(reread.style(for: try VaultPath("Lab"))?.color, .custom(red: 0x1A, green: 0x2B, blue: 0xFF))
+        XCTAssertEqual(FolderColor(rawValue: "#1a2bff"), .custom(red: 0x1A, green: 0x2B, blue: 0xFF))
+        XCTAssertEqual(FolderColor(rawValue: "#1A2B"), .unknown("#1A2B"))
+        XCTAssertEqual(FolderColor.custom(red: 0x1A, green: 0x2B, blue: 0xFF).rawValue, "#1A2BFF")
+    }
+
+    func testASymbolWinsOverAnEmojiAsInFinder() throws {
+        let both = #"{"folders": {"Lab": {"color": "none", "symbol": "flask", "emoji": "🥸"}}}"#
+        let list = try FolderStyleList(configurationData: Data(both.utf8))
+        XCTAssertEqual(list.style(for: try VaultPath("Lab"))?.mark, .symbol("flask"))
+    }
+
+    func testAPlainStyleRemovesTheEntryUnlessAnotherBuildKeptKeysInIt() throws {
+        var list = try FolderStyleList(configurationData: Data(writtenByANewerBuild.utf8))
+        list.setStyle(FolderStyle(), for: try VaultPath("Courses/BA2"))
+        XCTAssertNil(list.style(for: try VaultPath("Courses/BA2")))
+        list.setStyle(nil, for: try VaultPath("Courses/BA1"))
+        let folders = try JSONSerialization.jsonObject(with: list.configurationData()) as? [String: Any]
+        let entry = try XCTUnwrap((folders?["folders"] as? [String: Any])?["Courses/BA1"] as? [String: Any])
+        XCTAssertEqual(entry["pinned"] as? Bool, true)
+        XCTAssertEqual(entry["color"] as? String, "none")
+    }
+
+    func testTheFirstEmojiTypedIsTaken() {
+        XCTAssertEqual(FolderMark.firstEmoji(in: "ab😀🎉"), "😀")
+        XCTAssertEqual(FolderMark.firstEmoji(in: "👍🏽"), "👍🏽")
+        XCTAssertEqual(FolderMark.firstEmoji(in: "👩‍💻"), "👩‍💻")
+        XCTAssertEqual(FolderMark.firstEmoji(in: "❤️"), "❤️")
+        XCTAssertEqual(FolderMark.firstEmoji(in: "1️⃣"), "1️⃣")
+        XCTAssertNil(FolderMark.firstEmoji(in: "1#*"))
+        XCTAssertNil(FolderMark.firstEmoji(in: "©"))
+        XCTAssertNil(FolderMark.firstEmoji(in: ""))
     }
 }

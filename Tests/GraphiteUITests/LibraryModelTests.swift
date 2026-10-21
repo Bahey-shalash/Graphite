@@ -58,9 +58,9 @@ final class LibraryModelTests: XCTestCase {
     func testAFolderStyleIsSavedInTheVault() async throws {
         let library = LibraryModel()
         await library.reload(source: source(), sortOrder: .alphabetical)
-        await library.setStyle(FolderStyle(color: .green, symbolName: "flask"), for: try VaultPath("Courses"))
+        await library.setStyle(FolderStyle(color: .green, mark: .symbol("flask")), for: try VaultPath("Courses"))
         XCTAssertNil(library.failure)
-        XCTAssertEqual(library.style(of: try VaultPath("Courses")), FolderStyle(color: .green, symbolName: "flask"))
+        XCTAssertEqual(library.style(of: try VaultPath("Courses")), FolderStyle(color: .green, mark: .symbol("flask")))
         let stored = try FolderStyleList(configurationData: Data(contentsOf: vault.appendingPathComponent(FolderStyleList.configurationPath)))
         XCTAssertEqual(stored.style(for: try VaultPath("Courses"))?.color, .green)
     }

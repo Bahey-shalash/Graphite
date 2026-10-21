@@ -1,10 +1,8 @@
 import Foundation
 
-/// The keys of `.obsidian/graphite-folder-styles.json`.
+/// The top-level key of `.obsidian/graphite-folder-styles.json`.
 private enum FieldName {
     static let folders = "folders"
-    static let color = "color"
-    static let symbol = "symbol"
 }
 
 /// Why `.obsidian/graphite-folder-styles.json` is refused rather than read; the file is then
@@ -14,67 +12,8 @@ public enum FolderStyleListError: Error, Equatable {
     case foldersNotAnObject
 }
 
-/// A folder tile's color in the library.
-public enum FolderColor: Equatable, Hashable, Sendable {
-    case blue, green, yellow, orange, red, pink, purple, indigo, teal, gray
-    /// A color written by a newer Graphite, kept as written.
-    case unknown(String)
-
-    public static let knownColors: [FolderColor] = [.blue, .green, .yellow, .orange, .red, .pink, .purple, .indigo, .teal, .gray]
-
-    public init(rawValue: String) {
-        self = Self.knownColors.first { color in color.rawValue == rawValue } ?? .unknown(rawValue)
-    }
-
-    public var rawValue: String {
-        switch self {
-        case .blue: "blue"
-        case .green: "green"
-        case .yellow: "yellow"
-        case .orange: "orange"
-        case .red: "red"
-        case .pink: "pink"
-        case .purple: "purple"
-        case .indigo: "indigo"
-        case .teal: "teal"
-        case .gray: "gray"
-        case .unknown(let rawValue): rawValue
-        }
-    }
-}
-
-/// How one folder looks in the library: its color, and an SF Symbol drawn on it.
-public struct FolderStyle: Equatable, Sendable {
-    public var color: FolderColor
-    /// An SF Symbol name; nil for a plain folder.
-    public var symbolName: String?
-    /// Keys this build does not know, kept as they were.
-    fileprivate var otherFields: [String: JSONValue]
-
-    public init(color: FolderColor, symbolName: String? = nil) {
-        self.color = color
-        self.symbolName = symbolName
-        otherFields = [:]
-    }
-
-    fileprivate init?(fields: [String: JSONValue]) {
-        var fields = fields
-        guard case .string(let colorName) = fields.removeValue(forKey: FieldName.color) else { return nil }
-        color = FolderColor(rawValue: colorName)
-        if case .string(let symbolName) = fields.removeValue(forKey: FieldName.symbol) { self.symbolName = symbolName } else { symbolName = nil }
-        otherFields = fields
-    }
-
-    fileprivate var fields: [String: JSONValue] {
-        var fields = otherFields
-        fields[FieldName.color] = .string(color.rawValue)
-        if let symbolName { fields[FieldName.symbol] = .string(symbolName) }
-        return fields
-    }
-}
-
 /// Graphite's optional `.obsidian/graphite-folder-styles.json`: each styled folder's color and
-/// symbol, by vault path. Obsidian ignores the file; without it every folder looks plain.
+/// symbol or emoji, by vault path. Obsidian ignores the file; without it every folder looks plain.
 /// Entries and keys this build does not understand are kept as they were.
 public struct FolderStyleList: Equatable, Sendable {
     public static let configurationPath = ".obsidian/graphite-folder-styles.json"
@@ -130,15 +69,12 @@ public struct FolderStyleList: Equatable, Sendable {
 
     public func style(for folder: VaultPath) -> FolderStyle? { styles[folder] }
 
-    /// Sets a folder's style; nil makes it plain again.
+    /// Sets a folder's style; nil or a plain style makes it plain again. Keys another build
+    /// wrote stay with the folder, so a plain folder keeps its entry only for them.
     public mutating func setStyle(_ style: FolderStyle?, for folder: VaultPath) {
-        if var style {
-            // Keys another build wrote stay with the folder when its color changes here.
-            style.otherFields = styles[folder]?.otherFields ?? style.otherFields
-            styles[folder] = style
-        } else {
-            styles[folder] = nil
-        }
+        var style = style ?? FolderStyle()
+        style.otherFields = styles[folder]?.otherFields ?? style.otherFields
+        styles[folder] = style.isPlain && style.otherFields.isEmpty ? nil : style
     }
 
     /// Keeps the styles of a renamed or moved folder, and of the folders inside it.
