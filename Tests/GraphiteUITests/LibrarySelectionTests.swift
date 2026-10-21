@@ -1,5 +1,4 @@
 import XCTest
-import SwiftUI
 import GraphiteCore
 @testable import GraphiteUI
 
@@ -47,23 +46,6 @@ final class LibrarySelectionTests: XCTestCase {
         XCTAssertEqual(selection.chosenPaths, [shown[1]])
     }
 
-    func testBeginningWithATileChoosesIt() throws {
-        let shown = try paths("A.md", "B.md")
-        var selection = LibrarySelection()
-        selection.begin(choosing: shown[0])
-        XCTAssertTrue(selection.isSelecting)
-        XCTAssertTrue(selection.isChosen(shown[0]))
-        XCTAssertEqual(selection.anchorPath, shown[0])
-    }
-
-    func testCommandTogglesShiftExtendsAndNoKeyIsAPlainClick() {
-        XCTAssertEqual(LibrarySelection.Gesture(heldKeys: .command), .toggle)
-        XCTAssertEqual(LibrarySelection.Gesture(heldKeys: .shift), .extendRange)
-        XCTAssertEqual(LibrarySelection.Gesture(heldKeys: [.command, .shift]), .toggle)
-        XCTAssertNil(LibrarySelection.Gesture(heldKeys: []))
-        XCTAssertNil(LibrarySelection.Gesture(heldKeys: .option))
-    }
-
     func testSelectAllAndDeselectAll() throws {
         let shown = try paths("A.md", "B.md", "C.md")
         var selection = LibrarySelection()
@@ -103,7 +85,8 @@ final class LibrarySelectionTests: XCTestCase {
     func testEndingForgetsEverything() throws {
         let shown = try paths("A.md")
         var selection = LibrarySelection()
-        selection.begin(choosing: shown[0])
+        selection.begin()
+        selection.apply(.toggle, to: shown[0], among: shown)
         selection.end()
         XCTAssertEqual(selection, LibrarySelection())
     }

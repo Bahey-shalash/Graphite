@@ -52,6 +52,13 @@ extension WorkspaceModel {
                                      return preferences.isEnabled(.bookmarks) && isBookmarked(path)
                                  },
                                  menu: { [unowned self] entry in VaultEntryMenu(entry: entry, workspace: self, requestCreation: requestCreation) },
+                                 accessibilityActions: { [weak self] entry in
+                                     guard let self else { return [] }
+                                     return entryActions(for: entry).map { action in
+                                         LibraryEntryAction(action: action, title: action.title(otherSideTitle: openOnOtherSideTitle),
+                                                            perform: { [weak self] in self?.perform(action, on: entry.path) })
+                                     }
+                                 },
                                  fileLocation: { [weak self] path in
                                      guard let root = self?.folderAccess?.root else { return nil }
                                      return try? path.url(in: root) // A path outside the vault has no location to share.

@@ -115,7 +115,7 @@ The owner chose the first two; the rest are defaults taken to start building, ea
 - [x] Sort (the vault's sort order: name, modified, created) and filter (all, notebooks and PDFs, notes, pictures and drawings, canvases and bases).
 - [x] Favorites are Obsidian's bookmarks: Bookmark in an item's menu adds or removes it, and a bookmarked item shows a small star by its date. Not built: a Favorites section of its own in the library (the Bookmarks panel lists them).
 - [x] Layout: adaptive columns; tiles keep the page's aspect ratio. Not checked yet: four columns on a landscape iPad, two on the iPhone.
-- [ ] Accessibility: each tile reads as name, kind and date, and its menu is the context menu; the favorite state is read by the star button only. Not checked with VoiceOver or at the largest text sizes.
+- [x] Accessibility (2026-10-21): a tile reads as name, kind and date (a folder: name, look and item count), its menu's actions are VoiceOver custom actions too, the selection is spoken by the selected trait and the favorite state once, as the tile's value. Checked at the largest text size in the iPad simulator (names wrap, nothing overlaps); not checked with VoiceOver itself. Folder tiles now say "N items" under the name, as the Files app does.
 
 ## Part 2: folder tiles
 
@@ -130,7 +130,7 @@ The owner chose the first two; the rest are defaults taken to start building, ea
 - [x] Image: scaled down with ImageIO while decoding.
 - [x] Drawing: PNG drawings are images; SVG drawings show a picture symbol (not drawn yet).
 - [x] Markdown: the first 4 KB drawn as a page of reading view (headings in their sizes, wrapped text with bold, italic and code, nested lists and tasks, quotes, callouts, code blocks, rules, the first picture where it sits), scaled down to the tile; never the source.
-- [ ] Canvas and Base: a kind symbol for now.
+- [x] Canvas and Base: the kind's symbol on a gray tile, as other files without a preview (seen in the iPad simulator); a preview of a canvas or a base is not built.
 - [x] Other files: a kind symbol (not the system's icon for the type).
 - [x] Under each tile: name and modification date; touch and hold (or a secondary click) opens the file tree's own menu: new tab, other side, rename, move, copy, share, bookmark, delete, ….
 - [x] Previews follow changes: a file listed with a new date or size gets a new preview. External changes reach the library when the workspace lists the vault again (`directoryVersion`).

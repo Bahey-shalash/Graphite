@@ -55,8 +55,19 @@ struct LibraryEntryPresentation {
     let displayName: (VaultPath) -> String
     let isBookmarked: (VaultPath) -> Bool
     let menu: (VaultEntry) -> VaultEntryMenu
+    /// The menu's actions as VoiceOver's custom actions.
+    let accessibilityActions: (VaultEntry) -> [LibraryEntryAction]
     /// Where a file is on disk, for sharing; nil outside the vault.
     let fileLocation: (VaultPath) -> URL?
+}
+
+/// One action of an item's menu, as VoiceOver offers it.
+struct LibraryEntryAction: Identifiable {
+    let action: VaultEntryAction
+    let title: String
+    let perform: () -> Void
+
+    var id: VaultEntryAction { action }
 }
 
 /// The vault as the Files app shows a folder: one folder at a time, folders as the system's
@@ -73,7 +84,10 @@ struct LibraryView: View {
     @State private var isConfirmingDeletion = false
     @State private var isBackTargeted = false
 
-    private var tileWidth: CGFloat { horizontalSizeClass == .compact ? 110 : 140 }
+    @ScaledMetric(relativeTo: .subheadline) private var textScale: CGFloat = 1
+
+    /// Larger text widens the tiles with it, so names keep their line length and a column still fits.
+    private var tileWidth: CGFloat { (horizontalSizeClass == .compact ? 110 : 140) * min(textScale, LibraryTile.maximumTextScale) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -130,7 +144,41 @@ struct LibraryView: View {
     /// One quiet row, as the Files app's bar: back to the enclosing folder, the folder's name,
     /// then the view options and New as plain symbols.
     private var header: some View {
-        HStack(spacing: 4) {
+        // The title and the controls share a row while they fit; at large text sizes the title takes a row of its own.
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 4) {
+                backButton
+                headerTitle(lineLimit: 1).fixedSize(horizontal: true, vertical: false)
+                Spacer(minLength: 8)
+                headerControls
+            }
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 4) {
+                    backButton
+                    headerTitle(lineLimit: 3)
+                    Spacer(minLength: 0)
+                }
+                HStack(spacing: 4) {
+                    Spacer(minLength: 0)
+                    headerControls
+                }
+            }
+        }
+        .font(.title3)
+        .buttonStyle(.borderless)
+        .padding(.leading, library.folder.rawValue.isEmpty ? 20 : 8)
+        .padding(.trailing, 12)
+        .padding(.vertical, 6)
+    }
+
+    private func headerTitle(lineLimit: Int) -> some View {
+        Text(title(of: library.folder))
+            .font(.title2.weight(.bold))
+            .lineLimit(lineLimit)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    @ViewBuilder private var backButton: some View {
             if !library.folder.rawValue.isEmpty {
                 Button {
                     Task { await library.show(library.folder.parent) }
@@ -146,11 +194,14 @@ struct LibraryView: View {
                 .background { if isBackTargeted { Circle().fill(.fill.secondary) } }
                 .modifier(LibraryDropDestination(folder: library.folder.parent, actions: dropActions, isTargeted: $isBackTargeted))
             }
-            Text(title(of: library.folder))
-                .font(.title2.weight(.bold))
-                .lineLimit(1)
-                .accessibilityAddTraits(.isHeader)
-            Spacer(minLength: 8)
+    }
+
+    /// The symbols keep a size a finger can hit; only the title and the tiles follow the text size beyond that.
+    @ViewBuilder private var headerControls: some View {
+        headerControlButtons.dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+    }
+
+    @ViewBuilder private var headerControlButtons: some View {
             windowButtons
             LibraryPresentationSwitch(presentation: vault.presentation, choose: actions.setPresentation)
                 .padding(.horizontal, 4)
@@ -161,12 +212,6 @@ struct LibraryView: View {
                     .contentShape(Rectangle())
             }
             .accessibilityLabel("New")
-        }
-        .font(.title3)
-        .buttonStyle(.borderless)
-        .padding(.leading, library.folder.rawValue.isEmpty ? 20 : 8)
-        .padding(.trailing, 12)
-        .padding(.vertical, 6)
     }
 
     /// Settings and the quick switcher, which the sidebar offered before the library

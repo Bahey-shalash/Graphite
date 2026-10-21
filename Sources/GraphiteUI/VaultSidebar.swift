@@ -812,13 +812,13 @@ struct VaultEntryMenu: View {
             Button("Review Versions…", systemImage: "square.on.square") { workspace.conflictVersionsRequest = ConflictVersionsRequest(path: entry.path) }
             Divider()
         }
-        Button("Open in New Tab", systemImage: "plus.rectangle.on.rectangle") { Task { await workspace.open(entry.path, placement: .newTab) } }
-        Button(workspace.openOnOtherSideTitle, systemImage: "rectangle.split.2x1") { Task { await workspace.open(entry.path, placement: .otherGroup) } }
+        actionButton(.openInNewTab)
+        actionButton(.openOnOtherSide)
         if let navigator = workspace.readAloudNavigator { ReadAloudQueueMenuItems(navigator: navigator, path: entry.path) }
         Divider()
-        Button("Rename…", systemImage: "pencil") { workspace.fileSheet = .rename(entry.path) }
-        Button("Move to…", systemImage: "folder") { workspace.fileSheet = .move(entry.path) }
-        Button("Make a Copy", systemImage: "plus.square.on.square") { Task { await workspace.duplicate(entry.path) } }
+        actionButton(.rename)
+        actionButton(.moveTo)
+        actionButton(.makeCopy)
         if let root = workspace.folderAccess?.root, let location = try? entry.path.url(in: root) {
             ShareLink(item: location) { Label("Share…", systemImage: "square.and.arrow.up") }
         }
@@ -827,7 +827,7 @@ struct VaultEntryMenu: View {
         bookmarkButton
         CommunityPluginFileActionsButton(host: workspace.communityPlugins, path: entry.path)
         Divider()
-        Button("Delete", systemImage: "trash", role: .destructive) { Task { await workspace.requestDeletion(of: entry.path) } }
+        actionButton(.delete)
     }
 
     @ViewBuilder private var folderMenu: some View {
@@ -837,22 +837,26 @@ struct VaultEntryMenu: View {
         if workspace.preferences.isEnabled(.canvas) { Button("New Canvas", systemImage: "rectangle.3.group") { requestCreation(.canvas, entry.path) } }
         Button("New Folder", systemImage: "folder.badge.plus") { workspace.fileSheet = .newFolder(in: entry.path) }
         Divider()
-        Button("Rename…", systemImage: "pencil") { workspace.fileSheet = .rename(entry.path) }
-        Button("Move to…", systemImage: "folder") { workspace.fileSheet = .move(entry.path) }
-        Button("Make a Copy", systemImage: "plus.square.on.square") { Task { await workspace.duplicate(entry.path) } }
+        actionButton(.rename)
+        actionButton(.moveTo)
+        actionButton(.makeCopy)
         Button("Copy Vault Path", systemImage: "doc.on.doc") { copyToPasteboard(entry.path.rawValue) }
         bookmarkButton
         CommunityPluginFileActionsButton(host: workspace.communityPlugins, path: entry.path)
         Divider()
-        Button("Delete", systemImage: "trash", role: .destructive) { Task { await workspace.requestDeletion(of: entry.path) } }
+        actionButton(.delete)
     }
 
     @ViewBuilder private var bookmarkButton: some View {
         if workspace.preferences.isEnabled(.bookmarks) {
-            let isBookmarked = workspace.isBookmarked(entry.path)
-            Button(isBookmarked ? "Remove Bookmark" : "Bookmark", systemImage: isBookmarked ? "bookmark.slash" : "bookmark") {
-                Task { await workspace.toggleBookmark(entry.path) }
-            }
+            actionButton(workspace.isBookmarked(entry.path) ? .removeBookmark : .bookmark)
+        }
+    }
+
+    /// One of the shared actions, which VoiceOver offers as well.
+    private func actionButton(_ action: VaultEntryAction) -> some View {
+        Button(action.title(otherSideTitle: workspace.openOnOtherSideTitle), systemImage: action.systemImage, role: action.isDestructive ? .destructive : nil) {
+            workspace.perform(action, on: entry.path)
         }
     }
 
