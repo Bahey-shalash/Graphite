@@ -4,6 +4,10 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-21.
 
+## The repository's new address in the app: 2026-10-21
+
+The repository moved to [github.com/Graphite-Note/Graphite](https://github.com/Graphite-Note/Graphite) under the Apache License 2.0. `ProjectAddresses` holds its address and its issues page. The welcome tour's "Open source" point opens the repository, and its "This is a beta" point now also offers GitHub issues besides TestFlight feedback. Settings › General › About gains **Source Code** and **Report a Problem**. The Guide gains "Source Code and Feedback" under Making It Yours: where the code is, how to report a problem or a security issue, and TestFlight feedback. Checked by `WelcomeTourContentTests` and `GuideContentTests`; the Settings links were not looked at on a device or simulator.
+
 ## Scanning documents: 2026-10-21
 
 Graphite scans paper documents with the system scanner (VisionKit) where the device can, and saves the pages as one PDF. The design is in [Architecture](Architecture.md#scanning-documents); the checklist entry is Part 4 of [the library todo](Notebook-library-and-new-file-todo.md).

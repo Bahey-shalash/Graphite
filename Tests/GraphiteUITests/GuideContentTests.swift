@@ -51,6 +51,13 @@ final class GuideContentTests: XCTestCase {
         #endif
     }
 
+    func testTheSourceCodeTopicLinksToTheRepository() {
+        XCTAssertEqual(GuideTopic.sourceCodeAndFeedback.section, .customizing)
+        let summary = GuideText.styled(GuideTopic.sourceCodeAndFeedback.content.summary)
+        XCTAssertTrue(summary.runs.contains { run in run.link?.absoluteString == "https://github.com/Graphite-Note/Graphite" })
+        XCTAssertTrue(GuideTopic.sourceCodeAndFeedback.matches("github issue"))
+    }
+
     func testBoldWordsAreStyledAndTheMarksRemoved() {
         let styled = GuideText.styled("Tap **New**, then **Note**.")
         XCTAssertEqual(String(styled.characters), "Tap New, then Note.")
