@@ -6,6 +6,11 @@ import GraphiteApple
 
 /// The library of one window: the folder shown as a grid, its listing, the filter, the
 /// folders' colors, and the previews of the tiles on screen.
+///
+/// It holds more than 15 stored properties because the grid's tiles on screen need four kinds of
+/// derived data that live and die with the tiles: previews (with their queue, cache and counts),
+/// the folders' looks, and the folders' item counts. Each has its own type; this class only
+/// starts and stops them as tiles come and go.
 @MainActor @Observable
 final class LibraryModel {
     /// What the listing and previews are read from; replaced when the vault changes.
@@ -38,6 +43,8 @@ final class LibraryModel {
     var filter: LibraryFilter = .all { didSet { applyFilter() } }
     /// The folders' looks: Graphite's styles and Finder's; replaced with the vault.
     private(set) var folderLooks = LibraryFolderLooks(attributes: nil, appleArt: AppleFolderArt()) { _, _ in nil }
+    /// How many items the folder tiles on screen hold; replaced with the vault.
+    private(set) var folderItemCounts = LibraryFolderItemCounts { _ in nil }
     /// Previews of the tiles on screen; a tile's entry goes when it scrolls away.
     private(set) var visiblePreviews: [VaultPath: LibraryTilePreview] = [:]
 
@@ -62,6 +69,8 @@ final class LibraryModel {
             cancelPreviews()
             previewCache = Self.makePreviewCache()
             folderLooks = Self.makeFolderLooks(for: newSource)
+            folderItemCounts.cancelAll()
+            folderItemCounts = Self.makeFolderItemCounts(for: newSource)
             folder = .root
         }
         source = newSource
@@ -119,6 +128,7 @@ final class LibraryModel {
         if failure == .folderUnreadable { failure = nil }
         applyFilter()
         refreshChangedPreviews()
+        folderItemCounts.refreshVisibleFolders()
         await loadFolderStyles(from: source.store)
         await folderLooks.readFinderLooks(of: entries.filter(\.isDirectory).map(\.path))
         await reconcileFolderLooks(store: source.store)
@@ -217,7 +227,11 @@ final class LibraryModel {
     /// Starts the preview of a tile that came on screen, from the cache when it is current.
     func tileAppeared(_ entry: VaultEntry) {
         guard source != nil else { return }
-        guard !entry.isDirectory else { return folderLooks.tileAppeared(entry.path) }
+        if entry.isDirectory {
+            folderLooks.tileAppeared(entry.path)
+            folderItemCounts.tileAppeared(entry.path)
+            return
+        }
         visibleTileCounts[entry.path, default: 0] += 1
         // A tile of the same file already asked for this version.
         let isRequested = requestedPreviewKeys[entry.path] == LibraryPreviewCache.Key(entry: entry)
@@ -227,7 +241,11 @@ final class LibraryModel {
 
     /// Stops a tile's preview work and lets go of its picture once it leaves the screen.
     func tileDisappeared(_ entry: VaultEntry) {
-        guard !entry.isDirectory else { return folderLooks.tileDisappeared(entry.path) }
+        if entry.isDirectory {
+            folderLooks.tileDisappeared(entry.path)
+            folderItemCounts.tileDisappeared(entry.path)
+            return
+        }
         let remainingTiles = max(visibleTileCounts[entry.path, default: 0] - 1, 0)
         visibleTileCounts[entry.path] = remainingTiles == 0 ? nil : remainingTiles
         guard remainingTiles == 0 else { return }
@@ -307,6 +325,15 @@ final class LibraryModel {
         return LibraryFolderLooks(attributes: source?.finderAttributes, appleArt: AppleFolderArt()) { picturePath, longerSidePixels in
             guard case .picture(let image) = await renderPreview?(picturePath, longerSidePixels) else { return nil }
             return image
+        }
+    }
+
+    /// Counts a folder's items off the main actor, as the tile says them under its name.
+    private static func makeFolderItemCounts(for source: Source?) -> LibraryFolderItemCounts {
+        guard let root = source?.store.root else { return LibraryFolderItemCounts { _ in nil } }
+        let counter = FolderItemCounter(root: root)
+        return LibraryFolderItemCounts { folder in
+            await Task.detached(priority: .utility) { try? counter.childCount(of: folder) }.value // A folder that cannot be read shows its date.
         }
     }
 

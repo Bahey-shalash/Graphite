@@ -8,6 +8,7 @@ struct NotebookPaperGalleryView: View {
     @Binding var options: NewNotebookOptions
     let pictures: NotebookPaperPictures
     @Environment(\.displayScale) private var displayScale
+    @Environment(MyTemplatesModel.self) private var myTemplates: MyTemplatesModel?
 
     private static let pictureWidthPoints: CGFloat = 112
     private let columns = [GridItem(.adaptive(minimum: pictureWidthPoints, maximum: 160), spacing: 20, alignment: .top)]
@@ -25,11 +26,17 @@ struct NotebookPaperGalleryView: View {
                     }
                 }
             }
+            if let myTemplates { NotebookMyTemplatesSection(options: $options, model: myTemplates) }
         }
     }
 
+    /// Whether a built-in paper is the chosen one: not while one of the person's own templates is.
+    private func isChosen(_ choice: NotebookPaperChoice) -> Bool {
+        options.myTemplateFileName == nil && options.paperChoice == choice
+    }
+
     private func tile(for choice: NotebookPaperChoice) -> some View {
-        let isChosen = options.paperChoice == choice
+        let isChosen = isChosen(choice)
         return VStack(spacing: 8) {
             Button {
                 options.choose(choice)
@@ -68,7 +75,7 @@ struct NotebookPaperGalleryView: View {
                     NotebookPaperColorSwatch(paperColor: paperColor)
                         .padding(2)
                         .overlay {
-                            if options.paperChoice == choice, paperColor == chosenColor {
+                            if isChosen(choice), paperColor == chosenColor {
                                 Circle().strokeBorder(Color.accentColor, lineWidth: 1.5)
                             }
                         }

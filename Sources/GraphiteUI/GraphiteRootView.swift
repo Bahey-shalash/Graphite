@@ -38,6 +38,8 @@ struct GraphiteRootView: View {
     @State private var opensVaultManagerAfterSettings = false
     @State private var creation: CreationRequest?
     @State private var library = LibraryModel()
+    /// The person's own paper templates, which the New Notebook sheets of the window read from the environment.
+    @State private var myTemplates = MyTemplatesModel()
     @State private var showsInspector = false
     @State private var activePalette: ActivePalette?
     @State private var columnVisibility = NavigationSplitViewVisibility.automatic
@@ -323,6 +325,8 @@ struct GraphiteRootView: View {
 
     private var detailColumn: some View {
         documentArea
+            // The New Notebook sheet that Insert › New Notebook opens in a note reads the templates from here.
+            .modifier(MyTemplatesEnvironment(model: myTemplates, vaultIdentifier: workspace.currentVaultIdentifier, source: workspace.myTemplatesSource))
             // Nothing a document view holds carries over to another vault.
             .id(workspace.currentVaultIdentifier)
             .overlay { RecordingPreviewOverlay(workspace: workspace) }
@@ -585,8 +589,9 @@ struct GraphiteRootView: View {
             NewNotebookSheet(folderDescription: folderDescription, initialOptions: workspace.preferences.notebookCreation.initialOptions()) { name, options in
                 workspace.preferences.notebookCreation.remember(options)
                 if request.opensInNewTab { openTabForLibraryCreation() }
-                Task { await workspace.createNotebook(named: name, paper: options.paper, pageCount: options.pageCount, in: request.directory) }
+                Task { await workspace.createNotebook(named: name, options: options, in: request.directory) }
             }
+            .environment(myTemplates)
         case .note, .base, .canvas:
             CreateDocumentSheet(kind: request.kind, folderDescription: folderDescription) { name in
                 if request.opensInNewTab { openTabForLibraryCreation() }

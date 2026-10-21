@@ -25,6 +25,9 @@ struct LibraryVault {
     let firstCreatedKind: CreationKind
     let isPluginEnabled: (CorePlugin) -> Bool
     let presentation: LibraryPresentation
+    /// The vault's "Confirm file deletion" and "Deleted files" settings, which deleting the selection follows.
+    let confirmsDeletion: Bool
+    let deletionMethod: DeletionMethod
 
     /// Lists again when the vault, its sort order, or its files change.
     var reloadKey: String {
@@ -40,15 +43,26 @@ struct LibraryActions {
     let openDailyNote: () -> Void
     let newFolder: (VaultPath) -> Void
     let importFiles: ([URL], VaultPath) -> Void
+    /// Takes what a drop carries for a folder; see `LibraryDropActions.receive`.
+    let receiveDrop: ([NSItemProvider], VaultPath) -> Bool
     /// Saves a finished document scan as a new notebook in a folder; nil where the device cannot scan.
     let saveScannedNotebook: (@MainActor (ScannedDocumentPDF, Date, VaultPath?) async -> Void)?
     let reportProblem: @MainActor (String) -> Void
+    /// Saves a picture from the photo library or the camera as a file in a folder, and opens it.
+    let savePicture: @MainActor (Data, Date, VaultPath?) async -> Void
+    let canTakePhoto: Bool
     /// Moves vault items into a folder, as a drop on a folder tile asks.
     let moveItems: ([VaultPath], VaultPath) -> Void
     let setSortOrder: (FileSortOrder) -> Void
     let setPresentation: (LibraryPresentation) -> Void
     /// Pictures of the vault whose name matches, for a folder's picture; recent ones for an empty query.
     let findPictures: (String) async -> [VaultPath]
+    /// Deletes the items one by one, as the file tree does; the question was asked already.
+    let deleteItems: ([VaultPath]) -> Void
+    /// Makes a copy of each item beside it.
+    let duplicateItems: ([VaultPath]) -> Void
+    /// Asks which folder the items move to.
+    let requestMove: ([VaultPath]) -> Void
 }
 
 /// How each item is named and marked, and its menu: the file tree's own.
@@ -56,6 +70,19 @@ struct LibraryEntryPresentation {
     let displayName: (VaultPath) -> String
     let isBookmarked: (VaultPath) -> Bool
     let menu: (VaultEntry) -> VaultEntryMenu
+    /// The menu's actions as VoiceOver's custom actions.
+    let accessibilityActions: (VaultEntry) -> [LibraryEntryAction]
+    /// Where a file is on disk, for sharing; nil outside the vault.
+    let fileLocation: (VaultPath) -> URL?
+}
+
+/// One action of an item's menu, as VoiceOver offers it.
+struct LibraryEntryAction: Identifiable {
+    let action: VaultEntryAction
+    let title: String
+    let perform: () -> Void
+
+    var id: VaultEntryAction { action }
 }
 
 /// The vault as the Files app shows a folder: one folder at a time, folders as the system's
@@ -68,10 +95,16 @@ struct LibraryView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.libraryWindowActions) private var windowActions
     @State private var isDropTargeted = false
+    @State private var selection = LibrarySelection()
+    @State private var isConfirmingDeletion = false
+    @State private var isBackTargeted = false
     /// How many columns the grid has over a display's fold, nil when no fold runs down it.
     @State private var columnCountOverFold: Int?
 
-    private var tileWidth: CGFloat { horizontalSizeClass == .compact ? 110 : 140 }
+    @ScaledMetric(relativeTo: .subheadline) private var textScale: CGFloat = 1
+
+    /// Larger text widens the tiles with it, so names keep their line length and a column still fits.
+    private var tileWidth: CGFloat { (horizontalSizeClass == .compact ? 110 : 140) * min(textScale, LibraryTile.maximumTextScale) }
     private nonisolated static let gridPaddingPoints: CGFloat = 20
     private nonisolated static let columnSpacingPoints: CGFloat = 20
 
@@ -86,11 +119,20 @@ struct LibraryView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            if selection.isSelecting { selectionHeader } else { header }
             content
         }
         .task(id: vault.reloadKey) {
             await library.reload(source: vault.source, sortOrder: vault.sortOrder)
+        }
+        .onChange(of: library.items) { keepChosenTilesListed() }
+        .onChange(of: library.folder) { selection.end() }
+        .confirmationDialog("Delete \(selection.chosenCount) \(selection.chosenCount == 1 ? "Item" : "Items")?",
+                            isPresented: $isConfirmingDeletion, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) { actions.deleteItems(chosenPaths) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(vault.deletionMethod.confirmationExplanation(itemCount: selection.chosenCount))
         }
         .alert(noticeTitle, isPresented: Binding(get: { noticeMessage != nil }, set: { isShown in
             if !isShown { library.dismissFailure() }
@@ -130,7 +172,41 @@ struct LibraryView: View {
     /// One quiet row, as the Files app's bar: back to the enclosing folder, the folder's name,
     /// then the view options and New as plain symbols.
     private var header: some View {
-        HStack(spacing: 4) {
+        // The title and the controls share a row while they fit; at large text sizes the title takes a row of its own.
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 4) {
+                backButton
+                headerTitle(lineLimit: 1).fixedSize(horizontal: true, vertical: false)
+                Spacer(minLength: 8)
+                headerControls
+            }
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 4) {
+                    backButton
+                    headerTitle(lineLimit: 3)
+                    Spacer(minLength: 0)
+                }
+                HStack(spacing: 4) {
+                    Spacer(minLength: 0)
+                    headerControls
+                }
+            }
+        }
+        .font(.title3)
+        .buttonStyle(.borderless)
+        .padding(.leading, library.folder.rawValue.isEmpty ? 20 : 8)
+        .padding(.trailing, 12)
+        .padding(.vertical, 6)
+    }
+
+    private func headerTitle(lineLimit: Int) -> some View {
+        Text(title(of: library.folder))
+            .font(.title2.weight(.bold))
+            .lineLimit(lineLimit)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    @ViewBuilder private var backButton: some View {
             if !library.folder.rawValue.isEmpty {
                 Button {
                     Task { await library.show(library.folder.parent) }
@@ -142,12 +218,18 @@ struct LibraryView: View {
                 }
                 .font(.title3.weight(.medium))
                 .accessibilityLabel("Back to \(title(of: library.folder.parent))")
+                // Dropping on it moves into the enclosing folder, the way up a level.
+                .background { if isBackTargeted { Circle().fill(.fill.secondary) } }
+                .modifier(LibraryDropDestination(folder: library.folder.parent, actions: dropActions, isTargeted: $isBackTargeted))
             }
-            Text(title(of: library.folder))
-                .font(.title2.weight(.bold))
-                .lineLimit(1)
-                .accessibilityAddTraits(.isHeader)
-            Spacer(minLength: 8)
+    }
+
+    /// The symbols keep a size a finger can hit; only the title and the tiles follow the text size beyond that.
+    @ViewBuilder private var headerControls: some View {
+        headerControlButtons.dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+    }
+
+    @ViewBuilder private var headerControlButtons: some View {
             windowButtons
             LibraryPresentationSwitch(presentation: vault.presentation, choose: actions.setPresentation)
                 .padding(.horizontal, 4)
@@ -158,12 +240,6 @@ struct LibraryView: View {
                     .contentShape(Rectangle())
             }
             .accessibilityLabel("New")
-        }
-        .font(.title3)
-        .buttonStyle(.borderless)
-        .padding(.leading, library.folder.rawValue.isEmpty ? 20 : 8)
-        .padding(.trailing, 12)
-        .padding(.vertical, 6)
     }
 
     /// Settings and the quick switcher, which the sidebar offered before the library
@@ -184,6 +260,9 @@ struct LibraryView: View {
     /// What the grid shows and in which order.
     private var viewOptionsMenu: some View {
         Menu {
+            Button("Select", systemImage: "checkmark.circle") { selection.begin() }
+                .disabled(library.items.isEmpty)
+            Divider()
             Picker("Show", selection: Binding(get: { library.filter }, set: { filter in library.filter = filter })) {
                 ForEach(LibraryFilter.allCases) { filter in Label(filter.title, systemImage: filter.systemImage).tag(filter) }
             }
@@ -216,7 +295,8 @@ struct LibraryView: View {
                               newFolder: { directory in actions.newFolder(directory ?? folder) },
                               importFiles: { sources, directory in actions.importFiles(sources, directory ?? folder) },
                               saveScannedNotebook: actions.saveScannedNotebook,
-                              reportProblem: actions.reportProblem)
+                              reportProblem: actions.reportProblem,
+                              savePicture: actions.savePicture, canTakePhoto: actions.canTakePhoto)
     }
 
     // MARK: Grid
@@ -231,7 +311,8 @@ struct LibraryView: View {
                                    description: Text(emptyFolderExplanation))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
-                .modifier(LibraryDropTarget(folder: library.folder, importFiles: actions.importFiles, isTargeted: $isDropTargeted))
+                .modifier(LibraryDropDestination(folder: library.folder, actions: dropActions, isTargeted: $isDropTargeted))
+                .modifier(LibraryDropRing(isTargeted: isDropTargeted))
         } else {
             let minimumColumnWidth = tileWidth
             ScrollView {
@@ -247,7 +328,11 @@ struct LibraryView: View {
                                                      minimumColumnWidthPoints: minimumColumnWidth, spacingPoints: Self.columnSpacingPoints,
                                                      isDividedByFold: true)
             } action: { columnCount in columnCountOverFold = columnCount }
-            .modifier(LibraryDropTarget(folder: library.folder, importFiles: actions.importFiles, isTargeted: $isDropTargeted))
+            // A drag that starts on a chosen tile carries every chosen tile.
+            .dragContainer(for: VaultItemTransfer.self, itemID: \.path) { draggedPaths in draggedPaths.map(draggedItem(forRawPath:)) }
+            .dragContainerSelection(selection.chosenPaths.map(\.rawValue))
+            .modifier(LibraryDropDestination(folder: library.folder, actions: dropActions, isTargeted: $isDropTargeted))
+            .modifier(LibraryDropRing(isTargeted: isDropTargeted))
         }
     }
 
@@ -259,10 +344,20 @@ struct LibraryView: View {
     }
 
     private func tile(for entry: VaultEntry) -> some View {
-        LibraryTile(entry: entry, library: library, entries: entries, open: { open(entry) }, moveItems: actions.moveItems,
-                    findPictures: actions.findPictures)
+        LibraryTile(entry: entry, library: library, entries: entries, selection: tileSelection(of: entry), open: { open(entry) },
+                    choose: { gesture in choose(entry, with: gesture) }, dropActions: dropActions, findPictures: actions.findPictures)
             .onAppear { library.tileAppeared(entry) }
             .onDisappear { library.tileDisappeared(entry) }
+    }
+
+    private var dropActions: LibraryDropActions {
+        LibraryDropActions(receive: actions.receiveDrop)
+    }
+
+    /// A dragged item as other apps take it too: its path for Graphite, its file for the rest.
+    private func draggedItem(forRawPath rawPath: String) -> VaultItemTransfer {
+        let location = (try? VaultPath(rawPath)).flatMap(entries.fileLocation) // A name no vault path can hold has no file to give.
+        return VaultItemTransfer(path: rawPath, fileLocation: location)
     }
 
     private func open(_ entry: VaultEntry) {
@@ -271,160 +366,6 @@ struct LibraryView: View {
         } else {
             actions.openFile(entry.path)
         }
-    }
-}
-
-/// One folder or file, as the Files app's grid shows it: its picture, its name, and its date.
-/// Touch and hold (or a secondary click) opens the item's menu.
-private struct LibraryTile: View {
-    let entry: VaultEntry
-    let library: LibraryModel
-    let entries: LibraryEntryPresentation
-    let open: () -> Void
-    let moveItems: ([VaultPath], VaultPath) -> Void
-    let findPictures: (String) async -> [VaultPath]
-    @State private var isDropTargeted = false
-
-    /// The picture's height; the folder symbol fills most of it.
-    private static let artworkHeightPoints: CGFloat = 120
-
-    var body: some View {
-        let isBookmarked = entries.isBookmarked(entry.path)
-        Button(action: open) {
-            VStack(spacing: 6) {
-                artwork
-                    .frame(height: Self.artworkHeightPoints)
-                    .padding(6)
-                    .background {
-                        if isDropTargeted { RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.fill.secondary) }
-                    }
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    // Tag dots, as Finder and Files show them beside a name.
-                    if entry.isDirectory {
-                        ForEach(Array(library.folderLooks.tagColors(of: entry.path).prefix(3).enumerated()), id: \.offset) { _, tagColor in
-                            Circle().fill(tagColor.tileColor).frame(width: 9, height: 9).accessibilityHidden(true)
-                        }
-                    }
-                    Text(entries.displayName(entry.path))
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.primary)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
-                }
-                HStack(spacing: 3) {
-                    if isBookmarked { Image(systemName: "star.fill").imageScale(.small).accessibilityHidden(true) }
-                    Text(entry.modified.formatted(date: .abbreviated, time: .omitted))
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityTitle(isBookmarked: isBookmarked))
-        .accessibilityAddTraits(.isButton)
-        .draggable(VaultItemTransfer(path: entry.path.rawValue))
-        .modifier(FolderTileDropTarget(entry: entry, moveItems: moveItems, isTargeted: $isDropTargeted))
-        .modifier(LibraryTileMenu(entry: entry, library: library, entries: entries, findPictures: findPictures))
-    }
-
-    @ViewBuilder private var artwork: some View {
-        if entry.isDirectory {
-            LibraryFolderTileArtwork(folder: entry.path, looks: library.folderLooks, symbolPointSize: Self.artworkHeightPoints * 0.8)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            LibraryFileArtwork(entry: entry, preview: library.visiblePreviews[entry.path])
-        }
-    }
-
-    private func accessibilityTitle(isBookmarked: Bool) -> String {
-        let kind = entry.isDirectory ? "Folder" : entry.kind.libraryTitle
-        let look = entry.isDirectory ? library.folderLooks.shownLook(of: entry.path).style.map { style in ", \(style.spokenDescription)" } ?? "" : ""
-        let bookmark = isBookmarked ? ", bookmarked" : ""
-        return "\(entries.displayName(entry.path)), \(kind)\(look)\(bookmark), \(entry.modified.formatted(date: .abbreviated, time: .shortened))"
-    }
-}
-
-/// A tile's menu, the file tree's own, with Customize Folder… for a folder, which opens
-/// Finder's folder popover over the tile (a sheet on the iPhone).
-private struct LibraryTileMenu: ViewModifier {
-    let entry: VaultEntry
-    let library: LibraryModel
-    let entries: LibraryEntryPresentation
-    let findPictures: (String) async -> [VaultPath]
-    @State private var isCustomizing = false
-
-    func body(content: Content) -> some View {
-        content
-            .contextMenu {
-                if entry.isDirectory {
-                    Button("Customize Folder…", systemImage: "paintpalette") { isCustomizing = true }
-                    Divider()
-                }
-                entries.menu(entry)
-            }
-            .accessibilityAction(named: "Customize Folder") { if entry.isDirectory { isCustomizing = true } }
-            .popover(isPresented: $isCustomizing) {
-                FolderCustomizationPopover(folderName: entries.displayName(entry.path), style: library.folderLooks.shownLook(of: entry.path).style,
-                                           previewImage: library.folderLooks.tileImages[entry.path], pictureActions: pictureActions) { style in
-                    Task { await library.setStyle(style, for: entry.path) }
-                }
-                .presentationCompactAdaptation(.sheet)
-                .presentationDetents([.medium, .large])
-            }
-    }
-
-    private var pictureActions: FolderPictureActions {
-        let library = library
-        let folder = entry.path
-        let looks = library.folderLooks
-        return FolderPictureActions(findVaultPictures: findPictures,
-                                    readVaultPicture: { path in try await library.pictureData(at: path) },
-                                    applyPicture: { picture, layout, color in await library.setPicture(picture, layout: layout, color: color, for: folder) },
-                                    drawPreview: { style in await looks.image(for: style) },
-                                    drawFolderArt: { color in await looks.folderArt(color: color) })
-    }
-}
-
-/// A folder tile takes files dragged onto it.
-private struct FolderTileDropTarget: ViewModifier {
-    let entry: VaultEntry
-    let moveItems: ([VaultPath], VaultPath) -> Void
-    @Binding var isTargeted: Bool
-
-    func body(content: Content) -> some View {
-        if entry.isDirectory {
-            content.dropDestination(for: VaultItemTransfer.self) { items, _ in
-                let paths = items.compactMap { item in try? VaultPath(item.path) } // A dragged name no vault path can hold moves nothing.
-                    .filter { path in path != entry.path && path.parent != entry.path }
-                guard !paths.isEmpty else { return false }
-                moveItems(paths, entry.path)
-                return true
-            } isTargeted: { targeted in isTargeted = targeted }
-        } else {
-            content
-        }
-    }
-}
-
-/// The grid takes files from Files or the Finder, copied into the folder shown.
-private struct LibraryDropTarget: ViewModifier {
-    let folder: VaultPath
-    let importFiles: ([URL], VaultPath) -> Void
-    @Binding var isTargeted: Bool
-
-    func body(content: Content) -> some View {
-        content
-            .dropDestination(for: URL.self) { sources, _ in
-                let fileSources = sources.filter(\.isFileURL)
-                guard !fileSources.isEmpty else { return false }
-                importFiles(fileSources, folder)
-                return true
-            } isTargeted: { targeted in isTargeted = targeted }
-            .overlay {
-                if isTargeted { RoundedRectangle(cornerRadius: 12).strokeBorder(Color.accentColor, lineWidth: 2).padding(6).allowsHitTesting(false) }
-            }
     }
 }
 
@@ -480,5 +421,62 @@ struct LibraryPresentationSwitch: View {
         .labelStyle(.iconOnly)
         .fixedSize()
         .help("Show files as a library or as a list")
+    }
+}
+
+// MARK: Choosing several tiles
+
+extension LibraryView {
+    func tileSelection(of entry: VaultEntry) -> LibraryTileSelection {
+        guard selection.isSelecting else { return .notSelecting }
+        return selection.isChosen(entry.path) ? .chosen : .unchosen
+    }
+
+    /// A click or tap that chooses a tile; outside selection, a ⌘-click or ⇧-click starts it, as the Finder does.
+    func choose(_ entry: VaultEntry, with gesture: LibrarySelection.Gesture) {
+        if !selection.isSelecting { selection.begin() }
+        selection.apply(gesture, to: entry.path, among: library.items.map(\.path))
+    }
+
+    /// The chosen tiles in the order shown.
+    var chosenPaths: [VaultPath] { selection.chosenPaths(in: library.items.map(\.path)) }
+
+    /// After the folder is listed again: tiles that are gone (moved, deleted, renamed) leave the
+    /// choice, and choosing ends once everything chosen has gone.
+    func keepChosenTilesListed() {
+        guard selection.isSelecting, selection.chosenCount > 0 else { return }
+        selection.keepListed(library.items.map(\.path))
+        if selection.chosenCount == 0 { selection.end() }
+    }
+
+    var selectionHeader: some View {
+        let chosenEntries = library.items.filter { entry in selection.isChosen(entry.path) }
+        let shareLocations: [URL]? = chosenEntries.contains(where: \.isDirectory) ? nil : chosenEntries.compactMap { entry in entries.fileLocation(entry.path) }
+        return LibrarySelectionHeader(
+            content: LibrarySelectionBarContent(chosenCount: selection.chosenCount,
+                                                hasChosenAll: selection.hasChosenAll(listedCount: library.items.count),
+                                                shareLocations: shareLocations),
+            actions: LibrarySelectionBarActions(
+                toggleSelectAll: { toggleSelectAll() },
+                duplicate: {
+                    actions.duplicateItems(chosenPaths)
+                    selection.end()
+                },
+                move: { actions.requestMove(chosenPaths) },
+                delete: { requestDeletionOfChosenTiles() },
+                done: { selection.end() }),
+            usesMenu: horizontalSizeClass == .compact)
+    }
+
+    private func toggleSelectAll() {
+        if selection.hasChosenAll(listedCount: library.items.count) {
+            selection.deselectAll()
+        } else {
+            selection.selectAll(of: library.items.map(\.path))
+        }
+    }
+
+    private func requestDeletionOfChosenTiles() {
+        if vault.confirmsDeletion { isConfirmingDeletion = true } else { actions.deleteItems(chosenPaths) }
     }
 }
