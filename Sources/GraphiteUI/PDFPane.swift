@@ -220,7 +220,7 @@ private struct PDFPaneContent: View {
                     // One row for both, as in Focus, where no tab bar holds the controls.
                     PencilToolbar(toolbox: toolbox, drawsShapes: $drawsShapes,
                                   addImage: { pictureSource = .photoLibrary }, undoAvailability: session.undoAvailability,
-                                  offersReadAloudPen: readAloud != nil) {
+                                  offersReadAloudPen: readAloud != nil, offersTextBoxes: true) {
                         EmptyView()
                     } trailingControls: {
                         HStack(spacing: 12) {
@@ -237,20 +237,24 @@ private struct PDFPaneContent: View {
                 } else if showsFixedToolbar {
                     PencilToolbar(toolbox: toolbox, drawsShapes: $drawsShapes,
                                   addImage: { pictureSource = .photoLibrary }, undoAvailability: session.undoAvailability,
-                                  offersReadAloudPen: readAloud != nil)
+                                  offersReadAloudPen: readAloud != nil, offersTextBoxes: true)
                 }
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if session.isWriting, session.selectedPicture != nil { PDFPictureArrangementBar(session: session) }
+            if session.isWriting, session.selectedPicture != nil {
+                PDFPictureArrangementBar(session: session)
+            } else if session.isWriting, session.textBoxActivity != .idle {
+                PDFTextBoxArrangementBar(session: session)
+            }
         }
         // A phone's palette docks at the bottom of the screen, over the bar that moves
         // between files; the bar comes back when the palette goes.
         .toolbar(isCompactWidth && annotationInput.showsToolPicker ? .hidden : .automatic, for: .bottomBar)
         .modifier(PDFPictureAdding(session: session, source: $pictureSource))
         // Reading is not arranging, and neither is taking up a tool.
-        .onChange(of: session.isWriting) { _, isWriting in if !isWriting { session.selectedPicture = nil } }
-        .onChange(of: toolbox.selection) { _, _ in session.selectedPicture = nil }
+        .onChange(of: session.isWriting) { _, isWriting in if !isWriting { session.selectedPicture = nil; session.textBoxActivity = .idle } }
+        .onChange(of: toolbox.selection) { _, _ in session.selectedPicture = nil; session.textBoxActivity = .idle }
         #endif
         .onChange(of: session.readingTextVersion) { _, _ in readingStart = nil }
         .onAppear {
@@ -312,7 +316,8 @@ private struct PDFPaneContent: View {
         #if canImport(UIKit)
         // The palette gives way to the fixed bar, and to the bar that arranges a picture.
         return PDFAnnotationInput(isEnabled: isAnnotating, drawsWithFinger: drawsWithFinger,
-                                  showsToolPicker: showsToolPicker && isFocused && isAnnotating && !usesFixedToolbar && session.selectedPicture == nil,
+                                  showsToolPicker: showsToolPicker && isFocused && isAnnotating && !usesFixedToolbar && session.selectedPicture == nil
+                                      && session.textBoxActivity == .idle,
                                   drawsShapes: drawsShapes, isFocused: isFocused && isAnnotating,
                                   fixedTool: usesFixedToolbar ? toolbox.selection : nil,
                                   writingGuides: PDFAnnotationPreferenceKey.writingGuides(pattern: writingGuidePattern, spacing: writingGuideSpacing))

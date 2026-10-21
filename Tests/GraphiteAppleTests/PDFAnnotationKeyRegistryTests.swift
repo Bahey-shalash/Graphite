@@ -6,7 +6,7 @@ import GraphiteCore
 /// The key names Graphite writes into PDF annotations. Files saved by earlier builds, and
 /// by other readers that keep unknown keys, are found again only by these exact names.
 final class PDFAnnotationKeyRegistryTests: XCTestCase {
-    func testGraphiteKeysAreExactlyTheseTenNames() {
+    func testGraphiteKeysAreExactlyTheseThirteenNames() {
         let keysByName: [(key: PDFAnnotationKey, name: String)] = [
             (PDFPageManager.drawingKey, "GraphitePencilDrawingV1"),
             (PDFPageManager.groupKey, "GraphiteInkGroup"),
@@ -18,9 +18,14 @@ final class PDFAnnotationKeyRegistryTests: XCTestCase {
             (PDFPageManager.pictureRotationKey, "GraphitePictureRotation"),
             (PDFPageManager.pictureWidthKey, "GraphitePictureWidth"),
             (PDFPageManager.pictureHeightKey, "GraphitePictureHeight"),
+            (PDFPageManager.textBoxRecordKey, "GraphiteTextBoxV1"),
+            (PDFPageManager.textBoxRichTextKey, "GraphiteRichTextV1"),
+            (PDFPageManager.textBoxLinkOwnerKey, "GraphiteTextBoxLinkOwner"),
         ]
         for (key, name) in keysByName { XCTAssertEqual(key.rawValue, name) }
-        XCTAssertEqual(Set(keysByName.map(\.name)).count, 10)
+        XCTAssertEqual(Set(keysByName.map(\.name)).count, 13)
+        XCTAssertEqual(PDFPageManager.defaultStyleKey.rawValue, "/DS", "The standard keys of a text box PDFKit keeps but does not read.")
+        XCTAssertEqual(PDFPageManager.rotateKey.rawValue, "/Rotate")
         XCTAssertEqual(PDFPageManager.storedPictureKeys.map(\.rawValue), ["GraphitePictureV2", "GraphitePictureV1"],
                        "A turned picture's key is read first.")
     }

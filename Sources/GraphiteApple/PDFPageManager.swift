@@ -42,6 +42,13 @@ public enum PDFEdit: Sendable {
     /// Puts another picture in the place of one Graphite placed, as when it is turned or
     /// cropped, and places it among the page's other pictures.
     case replacePicture(PDFAnnotationReference, with: PDFPicture, order: PDFPictureOrder)
+    /// Places a text box on a page, over the page's ink.
+    case addTextBox(page: Int, textBox: PDFTextBox)
+    /// Puts another box in the place of a text box, one Graphite wrote or another
+    /// application's, with that box's own keys kept (`PDFTextBox.preservedEntries`).
+    case replaceTextBox(PDFAnnotationReference, with: PDFTextBox)
+    /// Removes a text box with the links over its text.
+    case removeTextBox(PDFAnnotationReference)
     case bookmark(page: Int, label: String)
     /// Removes the outline item at this path of child indices from the outline root.
     case removeOutlineItem(path: [Int])
@@ -64,10 +71,11 @@ public enum PDFEdit: Sendable {
     /// The page whose appearance the edit changes, for thumbnail invalidation.
     public var changedPageIndex: Int? {
         switch self {
-        case .rotate(let pageIndex, _), .addMarkup(let pageIndex, _), .addPicture(let pageIndex, _): pageIndex
+        case .rotate(let pageIndex, _), .addMarkup(let pageIndex, _), .addPicture(let pageIndex, _), .addTextBox(let pageIndex, _): pageIndex
         case .updateInk(let update): update.pageIndex
         case .recolorMarkup(let reference, _), .restoreMarkupColor(let reference, _), .removeAnnotation(let reference),
-             .movePicture(let reference, _), .replacePicture(let reference, _, _): reference.pageIndex
+             .movePicture(let reference, _), .replacePicture(let reference, _, _), .replaceTextBox(let reference, _),
+             .removeTextBox(let reference): reference.pageIndex
         default: nil
         }
     }
@@ -104,11 +112,29 @@ public enum PDFPageManager {
     /// annotation's rectangle is the box around it as turned.
     public static let pictureWidthKey = PDFAnnotationKey(rawValue: "GraphitePictureWidth")
     public static let pictureHeightKey = PDFAnnotationKey(rawValue: "GraphitePictureHeight")
+    /// Graphite's record of a text box (`PDFTextBoxRecord`), as JSON text.
+    public static let textBoxRecordKey = PDFAnnotationKey(rawValue: "GraphiteTextBoxV1")
+    /// A text box's rich text, written here because PDFKit does not write `/RC`; compaction
+    /// renames it `/RC` in the saved file (`PDFObjectCompaction`).
+    public static let textBoxRichTextKey = PDFAnnotationKey(rawValue: "GraphiteRichTextV1")
+    /// On a `/Link` over a text box's text: the name of the box it belongs to.
+    public static let textBoxLinkOwnerKey = PDFAnnotationKey(rawValue: "GraphiteTextBoxLinkOwner")
+    /// The standard default style of a `/FreeText`, which PDFKit keeps but does not read.
+    static let defaultStyleKey = PDFAnnotationKey(rawValue: "/DS")
+    /// The standard quarter turns of an annotation, which PDFKit keeps but does not read.
+    static let rotateKey = PDFAnnotationKey(rawValue: "/Rotate")
 
-    /// Makes a document that is shown, never written, draw Graphite's pictures itself
-    /// (`PDFPictureDrawingDelegate`). Call it before any page's annotations are read.
+    /// Makes a document that is shown, never written, draw Graphite's pictures and text boxes itself
+    /// (`PDFAnnotationDrawingDelegate`). Call it before any page's annotations are read.
     public static func prepareForDisplay(_ document: PDFDocument) {
-        document.delegate = PDFPictureDrawingDelegate.shared
+        document.delegate = PDFAnnotationDrawingDelegate.shared
+    }
+
+    /// Makes a document that will be written draw Graphite's text boxes itself when PDFKit
+    /// writes their appearance again (`PDFWrittenDocumentDelegate`). Call it before any
+    /// page's annotations are read.
+    public static func prepareForWriting(_ document: PDFDocument) {
+        document.delegate = PDFWrittenDocumentDelegate.shared
     }
 
     /// Applies one edit. Documents that will be written pass `drawsInkOutlines` so Pencil
@@ -123,8 +149,9 @@ public enum PDFPageManager {
         case .insert(let data, let insertionIndex):
             guard insertionIndex >= 0, insertionIndex <= document.pageCount,
                   let incoming = PDFDocument(data: data), !incoming.isLocked else { throw GraphiteError.invalidFile("Cannot import these PDF pages.") }
-            // Pages put back by undo carry Graphite's pictures; a shown document draws them.
-            if !drawsInkOutlines { prepareForDisplay(incoming) }
+            // Pages put back by undo carry Graphite's pictures and text boxes; a shown
+            // document draws them, and a written one draws the boxes' appearance.
+            if drawsInkOutlines { prepareForWriting(incoming) } else { prepareForDisplay(incoming) }
             for pageIndex in 0..<incoming.pageCount {
                 guard let importedPage = incoming.page(at: pageIndex)?.copy() as? PDFPage else { throw GraphiteError.invalidFile("Cannot copy imported page.") }
                 document.insert(importedPage, at: insertionIndex + pageIndex)
@@ -187,6 +214,12 @@ public enum PDFPageManager {
                 throw GraphiteError.invalidFile("This image no longer exists.")
             }
             try replacePicture(annotation, with: picture, order: order, on: targetPage, isForWrittenDocument: drawsInkOutlines)
+        case .addTextBox(let pageIndex, let textBox):
+            try addTextBox(textBox, to: page(at: pageIndex), isForWrittenDocument: drawsInkOutlines)
+        case .replaceTextBox(let reference, let textBox):
+            try replaceTextBox(reference, with: textBox, in: document, isForWrittenDocument: drawsInkOutlines)
+        case .removeTextBox(let reference):
+            try removeTextBox(reference, from: document)
         case .bookmark(let pageIndex, let label):
             let targetPage = try page(at: pageIndex)
             let outline = PDFOutline()
@@ -218,6 +251,7 @@ public enum PDFPageManager {
         let inkAnnotations = page.annotations.filter { annotation in annotation.value(forAnnotationKey: groupKey) != nil }
         for annotation in inkAnnotations { page.removeAnnotation(annotation) }
         for annotation in inkAnnotations { page.addAnnotation(annotation) }
+        moveTextBoxesToTop(of: page)
     }
 
     /// Replaces a picture and orders the page's pictures, then puts the Pencil ink after
@@ -241,6 +275,7 @@ public enum PDFPageManager {
         let inkAnnotations = page.annotations.filter { candidate in candidate.value(forAnnotationKey: groupKey) != nil }
         for placed in pictureAnnotations + inkAnnotations { page.removeAnnotation(placed) }
         for placed in orderedPictures + inkAnnotations { page.addAnnotation(placed) }
+        moveTextBoxesToTop(of: page)
     }
 
     /// Whether the annotation is a picture Graphite placed, without decoding its picture.
@@ -276,11 +311,15 @@ public enum PDFPageManager {
         page.annotations.filter { annotation in annotation.value(forAnnotationKey: groupKey) as? String == group }
     }
 
+    /// Adds the strokes' annotations under the page's text boxes, which stay over the ink.
     private static func addInkAnnotations(for update: PDFInkUpdate, to page: PDFPage, drawsInkOutlines: Bool) {
+        guard !update.addedStrokes.isEmpty else { return }
+        let textBoxesOnTop = takeTextBoxesOffTop(of: page)
         for stroke in update.addedStrokes {
             guard let annotation = PDFInkAnnotationFactory.annotation(for: stroke, group: update.group, drawsOutline: drawsInkOutlines) else { continue }
             page.addAnnotation(annotation)
         }
+        for annotation in textBoxesOnTop { page.addAnnotation(annotation) }
     }
 
     private static func applyInkUpdate(_ update: PDFInkUpdate, to page: PDFPage, drawsInkOutlines: Bool) throws {
@@ -327,7 +366,8 @@ public enum PDFPageManager {
     /// here, so edits recorded against its name still find it in the written file.
     public static func preserveGraphiteKeysThroughPageTreeRewrite(in document: PDFDocument) {
         let graphiteKeys = [groupKey, drawingKey, strokeNamesKey, annotationNameKey, pictureKey, turnedPictureKey, pictureTurnsKey,
-                            pictureRotationKey, pictureWidthKey, pictureHeightKey]
+                            pictureRotationKey, pictureWidthKey, pictureHeightKey, textBoxRecordKey, textBoxRichTextKey, textBoxLinkOwnerKey,
+                            defaultStyleKey, rotateKey]
         for pageIndex in 0..<document.pageCount {
             for annotation in document.page(at: pageIndex)?.annotations ?? [] {
                 for key in graphiteKeys {
@@ -337,6 +377,7 @@ public enum PDFPageManager {
                    let standardName = annotation.value(forAnnotationKey: .name) as? String, !standardName.isEmpty {
                     annotation.setValue(standardName, forAnnotationKey: annotationNameKey)
                 }
+                preserveTextBoxEntriesThroughPageTreeRewrite(of: annotation)
             }
         }
     }
@@ -374,6 +415,7 @@ public enum PDFPageManager {
         guard let writtenData = document.dataRepresentation(), let exported = PDFDocument(data: writtenData), exported.pageCount == document.pageCount else {
             throw GraphiteError.invalidFile("Could not prepare the pages for export.")
         }
+        prepareForWriting(exported)
         // Outline entries and links to pages that are not exported are removed rather than
         // written as destinations to the first page.
         let destinations = ResolvedDestinations(in: exported, includesOutline: true, includesLinks: true)
@@ -497,6 +539,7 @@ public actor PDFFileService {
                     replayResult = Result {
                         if baselineURL == nil, try FileRevision.read(source) != revision { throw GraphiteError.conflict }
                         guard let document = PDFDocument(url: source), !document.isLocked else { throw GraphiteError.invalidFile("This PDF is locked or unreadable.") }
+                        PDFPageManager.prepareForWriting(document)
                         guard document.allowsDocumentChanges, document.allowsCommenting else { throw GraphiteError.unavailable("This PDF does not permit editing.") }
                         try PDFPageManager.replay(edits, on: document)
                         guard Self.write(document, to: staging) else {
@@ -519,6 +562,7 @@ public actor PDFFileService {
     public func saveCopy(baselineURL: URL, edits: [PDFEdit], destination: URL) throws -> FileRevision {
         try writer.replace(destination, expecting: .absent) { staging in
             guard let document = PDFDocument(url: baselineURL) else { throw GraphiteError.invalidFile("The open PDF snapshot is unavailable.") }
+            PDFPageManager.prepareForWriting(document)
             try PDFPageManager.replay(edits, on: document)
             guard Self.write(document, to: staging) else { throw GraphiteError.invalidFile("Could not verify the PDF copy.") }
         }
@@ -540,6 +584,7 @@ public actor PDFFileService {
     }
     public func export(baselineURL: URL, edits: [PDFEdit], pages: [Int]) throws -> Data {
         guard let document = PDFDocument(url: baselineURL) else { throw GraphiteError.invalidFile("The PDF snapshot is unavailable.") }
+        PDFPageManager.prepareForWriting(document)
         try PDFPageManager.replay(edits, on: document)
         return try PDFPageManager.export(pages: pages, from: document)
     }
@@ -548,6 +593,7 @@ public actor PDFFileService {
     /// pages exactly as `export(pages:from:)` writes them.
     public func export(baselineURL: URL, edits: [PDFEdit], pageRuns: [[Int]]) throws -> [Data] {
         guard let document = PDFDocument(url: baselineURL) else { throw GraphiteError.invalidFile("The PDF snapshot is unavailable.") }
+        PDFPageManager.prepareForWriting(document)
         try PDFPageManager.replay(edits, on: document)
         return try pageRuns.map { pageRun in try PDFPageManager.export(pages: pageRun, from: document) }
     }

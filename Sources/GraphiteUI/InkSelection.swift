@@ -76,47 +76,56 @@ enum InkLasso {
 }
 
 /// Graphite's own tools that the canvases following the floating palette take instead of
-/// drawing: its lasso and its laser pointer. The palette's own lasso is PencilKit's, which
-/// can neither resize nor recolor what it selects and tells nobody what that is. Both are
-/// switched on from the palette's accessory menu and off again by choosing any tool; only
-/// one is on at a time. They are not kept between launches.
+/// drawing: its lasso, its laser pointer, the Read Aloud pen and the text tool. The palette's
+/// own lasso is PencilKit's, which can neither resize nor recolor what it selects and tells
+/// nobody what that is. Each is switched on from the palette's accessory menu and off again
+/// by choosing any tool; only one is on at a time, as one value holds which. They are not
+/// kept between launches.
 ///
 /// Each window has its own (`PaletteInkSelection.of(_:)` on the iPad; owner, 2026-10-21):
 /// the lasso taken up in one window leaves the pen of another window drawing.
 @MainActor
 final class PaletteInkSelection {
+    /// The tool of Graphite's the palette's canvases use, or none, while they draw.
+    enum Tool: Equatable {
+        case none, lasso, laser, readAloudPen, textBox
+    }
+
     /// Posted with the selection that changed as its object.
     static let didChange = Notification.Name("GraphitePaletteInkSelectionDidChange")
+    var tool = Tool.none {
+        didSet { if tool != oldValue { NotificationCenter.default.post(name: Self.didChange, object: self) } }
+    }
+
     /// Graphite's lasso ("Select Ink").
-    var isOn = false {
-        didSet {
-            guard isOn != oldValue else { return }
-            if isOn { pointsWithLaser = false; pointsToRead = false }
-            NotificationCenter.default.post(name: Self.didChange, object: self)
-        }
+    var isOn: Bool {
+        get { tool == .lasso }
+        set { take(.lasso, isOn: newValue) }
     }
     /// The laser pointer.
-    var pointsWithLaser = false {
-        didSet {
-            guard pointsWithLaser != oldValue else { return }
-            if pointsWithLaser { isOn = false; pointsToRead = false }
-            NotificationCenter.default.post(name: Self.didChange, object: self)
-        }
+    var pointsWithLaser: Bool {
+        get { tool == .laser }
+        set { take(.laser, isOn: newValue) }
     }
     /// The Read Aloud pen.
-    var pointsToRead = false {
-        didSet {
-            guard pointsToRead != oldValue else { return }
-            if pointsToRead { isOn = false; pointsWithLaser = false }
-            NotificationCenter.default.post(name: Self.didChange, object: self)
-        }
+    var pointsToRead: Bool {
+        get { tool == .readAloudPen }
+        set { take(.readAloudPen, isOn: newValue) }
+    }
+    /// The text tool, on PDF pages.
+    var placesTextBoxes: Bool {
+        get { tool == .textBox }
+        set { take(.textBox, isOn: newValue) }
+    }
+
+    /// Takes up a tool, or puts it away when it is the one in use.
+    private func take(_ chosen: Tool, isOn: Bool) {
+        if isOn { tool = chosen } else if tool == chosen { tool = .none }
     }
 
     /// A tool chosen in the palette puts Graphite's tools away.
     func endForChosenTool() {
-        isOn = false
-        pointsWithLaser = false
-        pointsToRead = false
+        tool = .none
     }
 }
 
