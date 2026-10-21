@@ -179,7 +179,7 @@ The owner chose the first two; the rest are defaults taken to start building, ea
 ## Verification
 
 - [ ] Hosted tests: library grid model (sorting, filtering, favorites from bookmarks), preview cache budget and invalidation on file change, unique names, notebook size presets in points, template preview equal to the generated first page, insert-notebook placement for each attachment setting.
-- [ ] A 100,000-file vault in the simulator: scrolling the library stays smooth, memory stays within budget, no preview work for tiles not shown, cloud placeholders not downloaded.
+- [ ] A 100,000-file vault in the simulator: scrolling the library stays smooth, memory stays within budget, no preview work for tiles not shown, cloud placeholders not downloaded. Partly checked 2026-10-21 (see `Coverage.md`): 110,000 files opened and scrolled in a debug build in the iPad simulator, memory steady at about 400 to 425 MB while the index was still reading the vault; no frame times were measured and no cloud placeholders were tried, so it stays open.
 - [ ] On the owner's iPad with Apple Pencil: create a notebook from the library and from inside a note in both placements, write in it, reopen, and check the tile preview updates.
 - [ ] The created PDFs open correctly in Preview, Files, Obsidian and Goodnotes; the notes' embeds and links work in Obsidian.
 - [ ] Folder colors and symbols survive a restart, and (if stored in the vault) a second device.
