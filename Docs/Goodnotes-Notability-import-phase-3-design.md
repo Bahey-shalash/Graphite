@@ -136,9 +136,26 @@ What a Goodnotes text box needs, from the text-box sample (2026-10-20) checked a
 - **Text:** starts at the inset, with its first baseline at inset + 0.952 × the font size, in Helvetica Neue ("Modern") or Georgia ("Classic").
 - **Links:** a run's link becomes a `/Link` annotation over the box.
 
-Until Graphite has text boxes on PDF pages, text is left out and listed in the report (owner decision 1). When it has them, the planner gives each text box as a value (text, runs, fonts, sizes in points, colours, links, and the box's frame with its angle), and the writer makes a Graphite text box of it.
-
 Notability's typed text is the note's body, laid out from the document's top left with no box. It would become one box the page's width at the top of the first page, flowing onto later pages as the export shows.
+
+### What Graphite gives the import (built 2026-10-21, `Docs/PDF-text-boxes-todo.md`)
+
+Text boxes on PDF pages now exist (`PDFTextBox`), so step 8 is no longer blocked; the import itself (the planner's text value and the writer's call) is still to do, by the import's own work. Everything below is public API; the planner stays in its package and gives its own value, which the writer in GraphiteApple maps to these types.
+
+- **The value** (GraphiteCore): `PDFTextBox(name:runs:origin:width:height:rotationRadians:style:preservedEntries:)`.
+  - `origin` is the box's top-left corner as its text reads, in PDF page points (y up). From Goodnotes' top-left page coordinates (y down) it is `(x, pageHeight − y)`.
+  - `width` and `height` are in points along and across the text: Goodnotes' stored size × scale × 6/11.
+  - `rotationRadians` is clockwise about `origin`, as the page is seen unturned: Goodnotes' angle as it is (both turn clockwise about the top-left corner).
+  - `runs` are `PDFTextRun(text:attributes:)`; line breaks are `\n`. `PDFTextAttributes(fontFamily:fontSize:color:isBold:isItalic:isUnderlined:link:)` takes any family name ("Helvetica Neue", "Georgia"), a size in points, a `PDFTextColor(red:green:blue:)` in sRGB from 0 to 1, and a `URL` for a link.
+  - `style` is `PDFTextBoxStyle(alignment:lineSpacing:fillColor:borderColor:borderWidth:padding:)`. `padding` is the inset in points: Graphite's first baseline is `padding` + the font's ascent, which for Helvetica Neue is 0.952 × the size, so Goodnotes' inset gives its baseline exactly.
+  - `name` is a fresh UUID by default; `preservedEntries` stays empty for an import.
+- **Height:** `PDFTextBoxLayout.fitted(box)` (GraphiteApple) gives the box the height its text takes; or keep Goodnotes' stored height, which Graphite keeps until the box is typed in.
+- **Writing:** `PDFEdit.addTextBox(page:textBox:)`, replayed with the page's other edits (`PDFPageManager.replay`) on the document `NotebookImportWriter` writes. The box goes over the page's ink and pictures; each linked run becomes a `/Link` annotation over its text, moved and removed with the box. A document read from a file before the box is added should be given `PDFPageManager.prepareForWriting` before its annotations are read, as `PDFFileService` does.
+- **Flowing text (Notability):** `PDFTextBoxLayout(box:).textLengthFitting(height:)` says how much of the text fits a page's height in whole lines, and `PDFTextRun.split(_:atUTF16Offset:)` cuts the runs there; the rest goes into a box on the next page.
+- **Sticky notes:** Graphite has no sticky notes (the collapsed `/Text` note), by the decision in the text box checklist; a Goodnotes sticky note can become a text box with a fill (`PDFTextBoxStyle.fillColor`), or stay in the report as left out.
+- **Tested by** `PDFTextBoxFileFormatTests`, `PDFTextBoxLayoutTests` (the first baseline at 0.952 × the size for Helvetica Neue, the text that fits a height) and `PDFTextBoxTests` (`split`).
+
+Until the import uses this, text is left out and listed in the report (owner decision 1).
 
 ## Tests
 

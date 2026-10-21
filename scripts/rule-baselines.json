@@ -23,7 +23,7 @@
     "hash-value-identity": 3,
     "lines-over-160-characters": 847,
     "localized-description-in-tests": 39,
-    "localized-description-in-ui": 176,
+    "localized-description-in-ui": 175,
     "mutable-statics": 0,
     "shared-singletons": 0,
     "static-pattern-sets-tested": 0,

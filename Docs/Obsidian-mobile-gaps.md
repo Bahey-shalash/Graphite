@@ -18,7 +18,7 @@ Found while checking these: the iPad keyboard's curly quotes did not quote a sea
 
 ## Where Graphite already goes further than Obsidian mobile
 
-- PDF annotation (ink, highlight, underline, strikeout, bookmarks) and page management (insert, paper templates, rotate, move, import, export), including annotating a PDF embedded in a note. Obsidian's PDF viewer is read-only.
+- PDF annotation (ink, highlight, underline, strikeout, typed text boxes, bookmarks) and page management (insert, paper templates, rotate, move, import, export), including annotating a PDF embedded in a note. Obsidian's PDF viewer is read-only.
 - Editable handwriting in notes (PNG, PDF or SVG drawings with an Edit button).
 - Lecture recording that keeps running while you move between documents, with pause, resume and interruption handling.
 - Bases map view built in (Obsidian needs its Maps plugin).
@@ -159,6 +159,7 @@ Scale notes for 10,000–100,000 files: name matching uses `LIKE '%word%'` over 
 | PDF embeds with `#page=` and `#height=` | Done | |
 | PDF page and selection links, copy as quote | Partial | Page links and quotes, quotes into the note on the other side; new links do not record the selection (`&selection=`), which opens at its page only |
 | Find in PDF | Done | The system find bar; Obsidian mobile lacks it |
+| Typed text boxes on PDF pages | Partial | Standard `/FreeText` boxes made, typed in (keyboard, Scribble, dictation), moved, resized, turned, formatted, duplicated, deleted and undone on the iPad and iPhone, taken by the lasso, found by Search and read by Read Aloud (2026-10-21); not editable on the Mac, no sticky notes, boxes always over the ink; nothing tried on a device yet. Obsidian's PDF viewer shows them read-only |
 | Password-protected PDFs | Done | Read-only (no ink, markup or page changes); the password is asked each launch and never stored |
 | Canvas | Partial | See Core plugins |
 | Share notes, images or recordings out | Done | From each file's menu in the sidebar |
