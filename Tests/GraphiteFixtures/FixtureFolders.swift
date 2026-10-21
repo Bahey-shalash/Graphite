@@ -14,6 +14,11 @@ public enum FixtureFolders {
     /// Notes with awkward names, for the tests of name matching.
     public static let namingTestVault = repositoryRoot.appendingPathComponent("Tests/test_vault", isDirectory: true)
 
+    /// A Goodnotes notebook and a Notability note built by the NotebookImport package's own test builders (nothing from a
+    /// real notebook): four pages with ink, a picture, an outline entry, a bookmark, a page without paper and a timed
+    /// recording; and a two-page note with a recording.
+    public static let syntheticNotebooks = repositoryRoot.appendingPathComponent("Tests/SyntheticNotebooks", isDirectory: true)
+
     /// The Mac and iPad application's property lists.
     public static let applicationFolder = repositoryRoot.appendingPathComponent("App", isDirectory: true)
 

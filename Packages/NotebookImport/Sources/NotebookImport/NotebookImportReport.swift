@@ -78,7 +78,7 @@ public struct NotebookImportReport: Sendable, Equatable {
             case .notabilityReadingIssue(let issue): self = .notabilityReadingIssue(caseName: Self.caseName(of: issue))
             case .highlighterNotMultiplied, .pencilTextureNotKept, .tapeLeftOut, .olderVaryingWidthInkLeftOut, .shapesDrawnAsInk, .dashesNotKept,
                  .elementsNotYetConverted, .picturesMovedUnderInk, .animatedPicturesKeptStill, .pictureFilesMissing, .picturesNotDecodable,
-                 .recordingFilesMissing, .recordingTimingNotKept, .outlineEntriesWithoutPage, .paperRulingNotDrawn, .pageWithoutPaper,
+                 .recordingFilesMissing, .recordingsNotCopied, .recordingTimingNotKept, .outlineEntriesWithoutPage, .paperRulingNotDrawn, .pageWithoutPaper,
                  .backgroundFileMissing, .pageGeometryUnknown:
                 self = .kind(kind)
             }

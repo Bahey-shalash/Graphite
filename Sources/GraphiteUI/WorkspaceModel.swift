@@ -39,6 +39,9 @@ final class WorkspaceModel {
     var pendingDeletion: VaultPath?
     /// A rename, move, or new folder sheet on screen.
     var fileSheet: FileSheet?
+    /// The notebook import running or showing its report: nil until notebooks are imported and again once its report is
+    /// closed (`importNotebooks`, `endNotebookImport`), so the import holds nothing while it is not used.
+    var notebookImport: NotebookImportSession?
     /// Files and folders with a move or rename under way; a second request for one is
     /// ignored (the title bar can report the same rename twice).
     var pathsBeingMoved: Set<VaultPath> = []
@@ -351,6 +354,7 @@ final class WorkspaceModel {
     /// settings, so it stays open only when this vault opens again at its folder's new place.
     private func prepareToLeaveCurrentVault(isReopeningCurrentVault: Bool) async throws {
         guard !recording.state.isActive else { throw GraphiteError.unavailable("Finish the current recording before switching vaults.") }
+        guard notebookImport?.isImporting != true else { throw VaultSwitchRefusal.notebookImportIsRunning }
         guard isReopeningCurrentVault || drawingEditorRequest == nil else { throw VaultSwitchRefusal.drawingIsOpen }
         rememberPlacesOfOpenDocuments()
         try await saveOpenDocuments()
@@ -1721,10 +1725,13 @@ enum VaultRemovalRefusal: LocalizedError, Equatable {
 enum VaultSwitchRefusal: LocalizedError, Equatable {
     /// A drawing is open in its editor, and it saves through the open vault.
     case drawingIsOpen
+    /// Notebooks are being imported into the open vault.
+    case notebookImportIsRunning
 
     var errorDescription: String? {
         switch self {
         case .drawingIsOpen: "Insert or cancel the drawing before switching vaults."
+        case .notebookImportIsRunning: "Wait for the notebook import to finish, or stop it, before switching vaults."
         }
     }
 }
