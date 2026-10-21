@@ -346,7 +346,9 @@ extension WorkspaceModel {
             do {
                 let filesInFolder = isDirectory(path) ? (try await index?.paths(inside: path) ?? []) : []
                 let copy = try await store.duplicate(path)
-                copiedFiles += filesInFolder.isEmpty ? [copy] : filesInFolder.compactMap { file in try? file.replacingPrefix(path, with: copy) }
+                // A copied file's path is always valid.
+                let copiedInside = filesInFolder.compactMap { file in try? file.replacingPrefix(path, with: copy) } // Not valid: not indexed here.
+                copiedFiles += filesInFolder.isEmpty ? [copy] : copiedInside
             } catch {
                 failedNames.append("“\(path.name)”")
             }
@@ -440,7 +442,8 @@ extension WorkspaceModel {
             do {
                 try await store.createDirectory(directory)
                 let stem = source.deletingPathExtension().lastPathComponent
-                let path = try await store.uniquePath(directory: directory, stem: stem, extension: ImportedFileName.fileExtension(forSourceExtension: source.pathExtension))
+                let fileExtension = ImportedFileName.fileExtension(forSourceExtension: source.pathExtension)
+                let path = try await store.uniquePath(directory: directory, stem: stem, extension: fileExtension)
                 let destination = try path.url(in: root)
                 let writer = store.writer
                 _ = try await Task.detached { try writer.copy(from: source, to: destination, expecting: .absent) }.value

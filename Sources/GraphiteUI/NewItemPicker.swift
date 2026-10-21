@@ -7,6 +7,8 @@ enum CreatableItem: Hashable, Identifiable {
     case document(CreationKind)
     case dailyNote
     case scanDocuments
+    case pictureFromPhotos
+    case takePhoto
     case importFiles
     case folder
 
@@ -20,6 +22,8 @@ enum CreatableItem: Hashable, Identifiable {
         case .document(.base): "Base"
         case .dailyNote: "Today's Daily Note"
         case .scanDocuments: "Scan Documents"
+        case .pictureFromPhotos: "Image from Photos"
+        case .takePhoto: "Take Photo"
         case .importFiles: "Import"
         case .folder: "Folder"
         }
@@ -34,6 +38,8 @@ enum CreatableItem: Hashable, Identifiable {
         case .document(.base): "A table of notes"
         case .dailyNote: "Opens or creates it"
         case .scanDocuments: "Paper pages into a PDF notebook"
+        case .pictureFromPhotos: "A picture from your photo library, as a file here"
+        case .takePhoto: "With the camera, as a file here"
         case .importFiles: "PDFs, images and other files"
         case .folder: "In this folder"
         }
@@ -47,6 +53,8 @@ enum CreatableItem: Hashable, Identifiable {
         case .document(.base): "tablecells"
         case .dailyNote: "calendar"
         case .scanDocuments: "doc.viewfinder"
+        case .pictureFromPhotos: "photo"
+        case .takePhoto: "camera"
         case .importFiles: "square.and.arrow.down"
         case .folder: "folder.badge.plus"
         }
@@ -58,21 +66,22 @@ enum CreatableItem: Hashable, Identifiable {
         case .document(.canvas): .canvas
         case .document(.base): .bases
         case .dailyNote: .dailyNotes
-        case .document(.notebook), .document(.note), .scanDocuments, .importFiles, .folder: nil
+        case .document(.notebook), .document(.note), .scanDocuments, .pictureFromPhotos, .takePhoto, .importFiles, .folder: nil
         }
     }
 
     /// The two large choices first, in the order the person's note-taking asks for, then the
-    /// rest; items whose plugin is off are left out, and Scan Documents is left out where the
-    /// device cannot scan.
-    static func offered(firstKind: CreationKind, isEnabled: (CorePlugin) -> Bool,
-                        canScanDocuments: Bool) -> (large: [CreatableItem], others: [CreatableItem]) {
+    /// rest; items whose plugin is off are left out, and Scan Documents and Take Photo are left out
+    /// where the device has no camera for them.
+    static func offered(firstKind: CreationKind, isEnabled: (CorePlugin) -> Bool, canScanDocuments: Bool,
+                        canTakePhoto: Bool) -> (large: [CreatableItem], others: [CreatableItem]) {
         let large: [CreatableItem] = firstKind == .note ? [.document(.note), .document(.notebook)] : [.document(.notebook), .document(.note)]
-        let others: [CreatableItem] = [.document(.canvas), .document(.base), .dailyNote, .scanDocuments, .importFiles, .folder]
+        let others: [CreatableItem] = [.document(.canvas), .document(.base), .dailyNote, .scanDocuments, .pictureFromPhotos, .takePhoto, .importFiles, .folder]
         return (large, others.filter { item in
             switch item {
             case .scanDocuments: canScanDocuments
-            case .document, .dailyNote, .importFiles, .folder: item.requiredPlugin.map(isEnabled) ?? true
+            case .takePhoto: canTakePhoto
+            case .document, .dailyNote, .pictureFromPhotos, .importFiles, .folder: item.requiredPlugin.map(isEnabled) ?? true
             }
         })
     }
@@ -84,11 +93,12 @@ struct NewItemPicker: View {
     let firstKind: CreationKind
     let isEnabled: (CorePlugin) -> Bool
     let canScanDocuments: Bool
+    let canTakePhoto: Bool
     let choose: (CreatableItem) -> Void
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        let offered = CreatableItem.offered(firstKind: firstKind, isEnabled: isEnabled, canScanDocuments: canScanDocuments)
+        let offered = CreatableItem.offered(firstKind: firstKind, isEnabled: isEnabled, canScanDocuments: canScanDocuments, canTakePhoto: canTakePhoto)
         VStack(spacing: 14) {
             HStack(spacing: 12) {
                 ForEach(offered.large) { item in largeChoice(item) }
@@ -166,6 +176,10 @@ struct NewItemActions {
     let saveScannedNotebook: (@MainActor (ScannedDocumentPDF, Date, VaultPath?) async -> Void)?
     /// Tells the person why a scan could not be used.
     let reportProblem: @MainActor (String) -> Void
+    /// Saves a picture (its data, when it was taken) as a file in the folder and opens it.
+    let savePicture: @MainActor (Data, Date, VaultPath?) async -> Void
+    /// Whether this device has a camera, which Take Photo needs.
+    let canTakePhoto: Bool
 }
 
 /// A New button that opens `NewItemPicker`, and the file chooser its Import asks for.
@@ -177,6 +191,8 @@ struct NewItemButton<Label: View>: View {
     @State private var showsPicker = false
     @State private var showsImporter = false
     @State private var showsScanner = false
+    @State private var showsPhotoPicker = false
+    @State private var showsCamera = false
     @State private var scanProcessing = DocumentScanProcessing(wordRecognizer: .onDevice)
 
     var body: some View {
@@ -186,9 +202,12 @@ struct NewItemButton<Label: View>: View {
         }
             .accessibilityHint(scanProcessing.isProcessing ? "Preparing a scan. Cancels it." : "")
             .popover(isPresented: $showsPicker) {
-                NewItemPicker(firstKind: firstKind, isEnabled: isEnabled, canScanDocuments: actions.saveScannedNotebook != nil, choose: perform)
+                NewItemPicker(firstKind: firstKind, isEnabled: isEnabled, canScanDocuments: actions.saveScannedNotebook != nil,
+                              canTakePhoto: actions.canTakePhoto, choose: perform)
             }
             .modifier(scanPresentation)
+            .modifier(NewItemPicturePresentation(showsPhotoPicker: $showsPhotoPicker, showsCamera: $showsCamera,
+                                                 directory: actions.directory, save: actions.savePicture))
             .fileImporter(isPresented: $showsImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
                 // A cancelled chooser imports nothing; there is nothing to report.
                 guard case .success(let sources) = result, !sources.isEmpty else { return }
@@ -214,6 +233,8 @@ struct NewItemButton<Label: View>: View {
         case .document(let kind): actions.create(kind, actions.directory)
         case .dailyNote: actions.openDailyNote()
         case .scanDocuments: showsScanner = true
+        case .pictureFromPhotos: showsPhotoPicker = true
+        case .takePhoto: showsCamera = true
         case .importFiles: showsImporter = true
         case .folder: actions.newFolder(actions.directory)
         }

@@ -48,6 +48,9 @@ struct LibraryActions {
     /// Saves a finished document scan as a new notebook in a folder; nil where the device cannot scan.
     let saveScannedNotebook: (@MainActor (ScannedDocumentPDF, Date, VaultPath?) async -> Void)?
     let reportProblem: @MainActor (String) -> Void
+    /// Saves a picture from the photo library or the camera as a file in a folder, and opens it.
+    let savePicture: @MainActor (Data, Date, VaultPath?) async -> Void
+    let canTakePhoto: Bool
     /// Moves vault items into a folder, as a drop on a folder tile asks.
     let moveItems: ([VaultPath], VaultPath) -> Void
     let setSortOrder: (FileSortOrder) -> Void
@@ -292,7 +295,8 @@ struct LibraryView: View {
                               newFolder: { directory in actions.newFolder(directory ?? folder) },
                               importFiles: { sources, directory in actions.importFiles(sources, directory ?? folder) },
                               saveScannedNotebook: actions.saveScannedNotebook,
-                              reportProblem: actions.reportProblem)
+                              reportProblem: actions.reportProblem,
+                              savePicture: actions.savePicture, canTakePhoto: actions.canTakePhoto)
     }
 
     // MARK: Grid

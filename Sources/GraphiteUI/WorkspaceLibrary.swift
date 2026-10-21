@@ -36,6 +36,7 @@ extension WorkspaceModel {
                        receiveDrop: { [weak self] providers, folder in self?.receiveDrop(providers, into: folder) ?? false },
                        saveScannedNotebook: scannedNotebookSaver(),
                        reportProblem: { [weak self] message in self?.errorMessage = message },
+                       savePicture: pictureSaver(), canTakePhoto: Self.canTakePhotos,
                        moveItems: { [weak self] paths, folder in Task { for path in paths { await self?.move(path, into: folder) } } },
                        setSortOrder: { [weak self] sortOrder in self?.setFileSortOrder(sortOrder) },
                        setPresentation: { [weak self] presentation in self?.preferences.library.presentation = presentation },

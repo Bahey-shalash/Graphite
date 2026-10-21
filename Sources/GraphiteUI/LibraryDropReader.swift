@@ -112,9 +112,9 @@ enum LibraryDropReader {
         return await withCheckedContinuation { continuation in
             _ = provider.loadFileRepresentation(forTypeIdentifier: type.identifier) { location, _ in
                 // The system removes its file when this handler returns, so the copy is made here.
+                let fileExtension = type.preferredFilenameExtension
                 let staged = location.flatMap { file in
-                    try? DroppedFileStaging.stage(file, namedAfter: suggestedName,
-                                                  fileExtension: type.preferredFilenameExtension) // Not copied: not imported.
+                    try? DroppedFileStaging.stage(file, namedAfter: suggestedName, fileExtension: fileExtension) // Not copied: not imported.
                 }
                 guard let staged else {
                     continuation.resume(returning: nil)
