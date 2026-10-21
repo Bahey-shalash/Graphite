@@ -1,3 +1,15 @@
+/**
+ * File: CanvasPane.swift
+ * ----------------------
+ * Layer: UI
+ * Description: An Obsidian canvas's pane: its cards and connections, the toolbar with Undo, Redo and Write, and its
+ *              More commands in the system's overflow menu.
+ *
+ * Authors: Bahey Shalash
+ * Version: 0.8
+ * Date: 21/10/2026
+ */
+
 import SwiftUI
 import ImageIO
 import GraphiteCore
@@ -36,7 +48,12 @@ struct CanvasPane: View {
                     .overlay(alignment: .bottom) {
                         if session.isWriting { CanvasAddBar(session: session, chooseFile: { kind in filePicker = kind }).padding(.bottom, 16) }
                     }
-                    .overlay { if session.isWriting { CanvasSelectionBarPlacement(session: session, open: { path in open(path) }) } }
+                    .overlay {
+                        if session.isWriting {
+                            CanvasSelectionBarPlacement(session: session, shortcuts: CanvasSelectionShortcuts(workspace.keyboardShortcuts),
+                                                        open: { path in open(path) })
+                        }
+                    }
             }
         }
         #if canImport(UIKit)
@@ -148,29 +165,38 @@ struct CanvasPane: View {
                 DocumentModeToggle(isWriting: $session.isWriting)
             }
             #endif
-            Menu("More", systemImage: "ellipsis") {
-                Button("Zoom to Fit", systemImage: "arrow.up.left.and.arrow.down.right") { session.zoomToFit() }
-                Button("Actual Size", systemImage: "1.magnifyingglass") { session.resetZoom() }
-                if let renameDocument { Button("Rename…", systemImage: "pencil") { renameDocument.rename() } }
-                if session.isWriting {
-                    Divider()
-                    Button("Select All", systemImage: "checkmark.circle") { session.selectAll() }
-                        .keyboardShortcut("a", modifiers: .command)
-                    Toggle("Snap to Grid", systemImage: "grid", isOn: $session.snapsToGrid)
-                    Toggle("Snap to Objects", systemImage: "rectangle.split.2x1", isOn: $session.snapsToObjects)
-                }
-                Divider()
-                Button("Save Now", systemImage: "square.and.arrow.down") { Task { try? await session.save() } }
-                Button("Copy Graphite URL", systemImage: "link") { Pasteboard.copy(workspace.openingLink(to: session.path)) }
-                if preferences.isEnabled(.bookmarks) {
-                    let isBookmarked = workspace.bookmarks.fileBookmark(for: session.path) != nil
-                    Button(isBookmarked ? "Remove Bookmark" : "Bookmark", systemImage: isBookmarked ? "bookmark.slash" : "bookmark") {
-                        Task { await workspace.toggleBookmark(session.path) }
-                    }
-                }
-                WorkspaceMoreMenuItems()
-            }
+            #if !os(iOS)
+            Menu("More", systemImage: "ellipsis") { moreMenuItems }
+            #endif
         }.tint(.primary) }
+        #if os(iOS)
+        // The system's overflow menu (•••) holds the More commands together with whatever the
+        // bar has no room for, so there is one such menu, also on iPhone Duo's side bar.
+        ToolbarOverflowMenu { moreMenuItems }
+        #endif
+    }
+
+    @ViewBuilder private var moreMenuItems: some View {
+        Button("Zoom to Fit", systemImage: "arrow.up.left.and.arrow.down.right") { session.zoomToFit() }
+        Button("Actual Size", systemImage: "1.magnifyingglass") { session.resetZoom() }
+        if let renameDocument { Button("Rename…", systemImage: "pencil") { renameDocument.rename() } }
+        if session.isWriting {
+            Divider()
+            Button("Select All", systemImage: "checkmark.circle") { session.selectAll() }
+                .keyboardShortcut(workspace.keyboardShortcuts.menuShortcut(for: .canvasSelectAll))
+            Toggle("Snap to Grid", systemImage: "grid", isOn: $session.snapsToGrid)
+            Toggle("Snap to Objects", systemImage: "rectangle.split.2x1", isOn: $session.snapsToObjects)
+        }
+        Divider()
+        Button("Save Now", systemImage: "square.and.arrow.down") { Task { try? await session.save() } }
+        FileLocationMenuItems(path: session.path, openingLink: workspace.openingLink(to: session.path), vaultRoot: workspace.folderAccess?.root)
+        if preferences.isEnabled(.bookmarks) {
+            let isBookmarked = workspace.bookmarks.fileBookmark(for: session.path) != nil
+            Button(isBookmarked ? "Remove Bookmark" : "Bookmark", systemImage: isBookmarked ? "bookmark.slash" : "bookmark") {
+                Task { await workspace.toggleBookmark(session.path) }
+            }
+        }
+        WorkspaceMoreMenuItems()
     }
 
     private func saveCopy() async {
@@ -285,6 +311,7 @@ private struct CanvasAddBar: View {
 /// board, and keeps it on screen when the selection is not.
 private struct CanvasSelectionBarPlacement: View {
     let session: CanvasSession
+    let shortcuts: CanvasSelectionShortcuts
     let open: (VaultPath) -> Void
     @State private var barSize = CGSize(width: 240, height: 48)
     private static let gap: CGFloat = 40
@@ -298,7 +325,7 @@ private struct CanvasSelectionBarPlacement: View {
                 let halfWidth = barSize.width / 2, halfHeight = barSize.height / 2
                 let fitsAbove = selectionFrame.minY - Self.gap - halfHeight >= halfHeight + 8
                 let centerY = fitsAbove ? selectionFrame.minY - Self.gap : selectionFrame.maxY + Self.gap
-                CanvasSelectionBar(session: session, open: open)
+                CanvasSelectionBar(session: session, shortcuts: shortcuts, open: open)
                     .onGeometryChange(for: CGSize.self) { barGeometry in barGeometry.size } action: { size in barSize = size }
                     .position(x: min(max(selectionFrame.midX, halfWidth + 8), max(geometry.size.width - halfWidth - 8, halfWidth + 8)),
                               y: min(max(centerY, halfHeight + 8), max(geometry.size.height - halfHeight - 80, halfHeight + 8)))
@@ -307,9 +334,21 @@ private struct CanvasSelectionBarPlacement: View {
     }
 }
 
+/// The vault's shortcuts for the selection bar's actions.
+private struct CanvasSelectionShortcuts {
+    let deleteSelection: KeyboardShortcut?
+    let duplicateSelection: KeyboardShortcut?
+
+    @MainActor init(_ keyboardShortcuts: VaultKeyboardShortcuts) {
+        deleteSelection = keyboardShortcuts.menuShortcut(for: .canvasDeleteSelection)
+        duplicateSelection = keyboardShortcuts.menuShortcut(for: .canvasDuplicateSelection)
+    }
+}
+
 /// What can be done with the selected cards and connections.
 private struct CanvasSelectionBar: View {
     let session: CanvasSession
+    let shortcuts: CanvasSelectionShortcuts
     let open: (VaultPath) -> Void
     @State private var showsColors = false
 
@@ -325,7 +364,7 @@ private struct CanvasSelectionBar: View {
                     .accessibilityIdentifier("canvasDoneEditing")
             } else {
                 Button("Delete", systemImage: "trash") { session.deleteSelection() }
-                    .keyboardShortcut(.delete, modifiers: [])
+                    .keyboardShortcut(shortcuts.deleteSelection)
                     .accessibilityIdentifier("canvasDelete")
                 Button("Color", systemImage: "paintpalette") { showsColors = true }
                     .popover(isPresented: $showsColors) {
@@ -350,7 +389,7 @@ private struct CanvasSelectionBar: View {
                 if !edges.isEmpty && nodes.isEmpty { lineEndsMenu(for: edges) }
                 if !nodes.isEmpty {
                     Button("Duplicate", systemImage: "plus.square.on.square") { session.duplicateSelection() }
-                        .keyboardShortcut("d", modifiers: .command)
+                        .keyboardShortcut(shortcuts.duplicateSelection)
                     Menu("Arrange", systemImage: "square.3.layers.3d") {
                         Button("Bring to Front", systemImage: "square.3.layers.3d.top.filled") { session.bringSelectionToFront() }
                         Button("Send to Back", systemImage: "square.3.layers.3d.bottom.filled") { session.sendSelectionToBack() }

@@ -76,7 +76,7 @@ class HistoryCanvasView: PKCanvasView {
     private(set) var followsToolPicker = false
     private var fixedTool: PencilToolSelection?
     /// The palette followed, to draw with its tool again when `toolForDrawing` changes.
-    private weak var followedToolPicker: PKToolPicker?
+    private(set) weak var followedToolPicker: PKToolPicker?
     /// Gives the canvas the palette's tool, as `toolForDrawing` makes it, whenever it changes.
     private var paletteToolFollower: PaletteToolFollower?
 
@@ -196,19 +196,34 @@ class HistoryCanvasView: PKCanvasView {
             isRulerActive = toolPicker.isRulerActive
             // Observers hear only later changes; start with the tool already selected.
             retakeChosenTool()
-            selectsInk = PaletteInkSelection.isOn
-            pointsWithLaser = PaletteInkSelection.pointsWithLaser
-            pointsToRead = PaletteInkSelection.pointsToRead
-            placesTextBoxes = PaletteInkSelection.placesTextBoxes
+            takePaletteInkSelection()
+            // Any window's change: each canvas reads its own window's modes again.
             paletteInkSelectionObserver = NotificationCenter.default.addObserver(forName: PaletteInkSelection.didChange, object: nil, queue: nil) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.selectsInk = PaletteInkSelection.isOn
-                    self?.pointsWithLaser = PaletteInkSelection.pointsWithLaser
-                    self?.pointsToRead = PaletteInkSelection.pointsToRead
-                    self?.placesTextBoxes = PaletteInkSelection.placesTextBoxes
-                }
+                MainActor.assumeIsolated { self?.takePaletteInkSelection() }
             }
         }
+    }
+
+    /// The window whose palette modes the canvas last took; a canvas laid out again in the
+    /// same window keeps what it has.
+    private weak var paletteWindowScene: UIWindowScene?
+
+    /// Takes Graphite's tools as this window's palette has them (`PaletteInkSelection`).
+    private func takePaletteInkSelection() {
+        guard followsToolPicker else { return }
+        paletteWindowScene = window?.windowScene
+        let inkSelection = PaletteInkSelection.of(window?.windowScene)
+        selectsInk = inkSelection.isOn
+        pointsWithLaser = inkSelection.pointsWithLaser
+        pointsToRead = inkSelection.pointsToRead
+        placesTextBoxes = inkSelection.placesTextBoxes
+    }
+
+    /// A tool was chosen in the palette this canvas follows: Graphite's tools are put away in
+    /// this window, and the canvas draws with the tool.
+    fileprivate func paletteToolWasChosen() {
+        PaletteInkSelection.of(window?.windowScene).endForChosenTool()
+        retakeChosenTool()
     }
 
     /// Stops following the palette, before the canvas is released or takes the fixed bar's tool.
@@ -549,6 +564,8 @@ class HistoryCanvasView: PKCanvasView {
         if window != nil, strokeHoldRecognizer.view == nil { addGestureRecognizer(strokeHoldRecognizer) }
         if window != nil, evenStrokeFollower.view == nil { addGestureRecognizer(evenStrokeFollower) }
         if window != nil { followEvenHighlighterPreference() }
+        // Another window has modes of its own.
+        if let windowScene = window?.windowScene, windowScene !== paletteWindowScene { takePaletteInkSelection() }
     }
 
     var isShowingShapePreview: Bool { shapePreviewLayer.superlayer != nil }
@@ -914,7 +931,7 @@ private final class PaletteToolFollower: NSObject, PKToolPickerObserver {
     }
 
     func toolPickerSelectedToolItemDidChange(_ toolPicker: PKToolPicker) {
-        canvas?.retakeChosenTool()
+        canvas?.paletteToolWasChosen()
     }
 
     func toolPickerIsRulerActiveDidChange(_ toolPicker: PKToolPicker) {

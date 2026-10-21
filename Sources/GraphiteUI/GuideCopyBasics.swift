@@ -1,3 +1,15 @@
+/**
+ * File: GuideCopyBasics.swift
+ * ---------------------------
+ * Layer: UI
+ * Description: The Guide's basic topics: vaults, first note, reading and writing, the sidebar's file menus,
+ *              formatting, links, embeds, lists, tables, callouts, pictures, properties and tags.
+ *
+ * Authors: Bahey Shalash
+ * Version: 0.3
+ * Date: 21/10/2026
+ */
+
 import Foundation
 
 /// The words of the Guide's first two sections, The Basics and Writing Notes. Every control
@@ -71,7 +83,8 @@ enum GuideBasicsCopy {
                                   mac: "Right-click a file or folder in the sidebar to see its menu.")),
             GuideStep("**Rename…** changes its name. If other notes link to it, Graphite offers to update those links."),
             GuideStep("**Move to…** picks another folder. You can also drag the file onto a folder."),
-            GuideStep("**Make a Copy** duplicates it. **Delete** removes it after asking."),
+            GuideStep(forPlatform(touch: "**Make a Copy** duplicates it. **Delete** removes it after asking.",
+                                  mac: "**Make a Copy** duplicates it. **Reveal in Finder** shows it in a Finder window. **Delete** removes it after asking.")),
             GuideStep(forPlatform(touch: "To make a folder, choose **New** › **Folder**.",
                                   mac: "To make a folder, open the menu of the **New Note** button › **New Folder**."))
         ],
@@ -91,7 +104,8 @@ enum GuideBasicsCopy {
             GuideStep("Select words, then use the **Format** menu in the note's toolbar: Bold, Italic, Strikethrough, Highlight, Code, Heading " +
                       "and more."),
             GuideStep("Or type the Markdown yourself:", example: "**bold**  *italic*  ~~struck through~~  ==highlighted==  `code`"),
-            GuideStep("Right-click selected text for **Format**, **Paragraph** (lists, headings, quote) and **Insert**.")
+            GuideStep("Right-click selected text for **Format**, **Paragraph** (lists, headings, quote) and **Insert**."),
+            GuideStep("With the keyboard: ⌘B bold, ⌘I italic, ⇧⌘H highlight, ⇧⌘X strikethrough, ⌃⌘1 to ⌃⌘6 for headings.")
         ]),
         tips: ["**Format** › **Color** colors text. It writes ~={#hex}text=~, which the Colors plugin for Obsidian reads too."])
 

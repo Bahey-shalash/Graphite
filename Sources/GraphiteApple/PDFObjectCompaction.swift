@@ -302,7 +302,8 @@ private struct CompactionPlanner {
         let keptObjects = orderedNumbers.filter(reachable.contains).compactMap { number -> CompactionPlan.KeptObject? in
             guard let object = objects[number] else { return nil }
             return CompactionPlan.KeptObject(number: number, generation: object.generation, sourceRange: object.range,
-                                             replacement: pictureImages[number]?.objectBytes ?? picturesWithoutMarkupCopy[number] ?? textBoxes.replacements[number]
+                                             replacement: pictureImages[number]?.objectBytes ?? picturesWithoutMarkupCopy[number]
+                                                 ?? textBoxes.replacements[number]
                                                 ?? repairedStreams[number])
         }
         let removedByteCount = removedNumbers.reduce(0) { total, number in total + (objects[number]?.range.count ?? 0) }

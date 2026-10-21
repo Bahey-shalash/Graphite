@@ -16,7 +16,7 @@ final class NotePreviewDocumentCodeBlockLanguageTests: XCTestCase {
 
     func testPluginLanguageIsTheFirstWordOfTheInfoTextInBothScanners() {
         let source = "```dataview table\nTABLE rating\n```"
-        XCTAssertEqual(NotePreviewDocument.codeBlockLanguage(ofFenceInfo: "dataview table"), "dataview")
+        XCTAssertEqual(MarkdownFenceSyntax.language(ofInfo: "dataview table"), "dataview")
         XCTAssertEqual(readingViewBlocks(source, pluginLanguages: ["dataview"]), [.pluginCodeBlock(language: "dataview", source: "TABLE rating")])
         XCTAssertEqual(livePreviewKinds(source, pluginLanguages: ["dataview"]), [.pluginCodeBlock(language: "dataview")])
         // The whole info text is not the language.

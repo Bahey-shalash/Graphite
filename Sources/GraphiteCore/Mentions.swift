@@ -28,18 +28,18 @@ public enum Mentions {
         let searchedNames = names.map { name in name.trimmingCharacters(in: .whitespaces) }.filter { name in !name.isEmpty }
             .sorted { first, second in (first as NSString).length > (second as NSString).length }
         guard !searchedNames.isEmpty else { return [] }
-        let excluded = excludedRanges(in: source)
+        let excluded = SortedRangeSet(excludedRanges(in: source))
         var mentions: [NSRange] = []
+        var mentionedRanges = SortedRangeSet()
         for name in searchedNames {
             var searchRange = NSRange(location: 0, length: source.length)
             while searchRange.length > 0 {
                 let found = source.range(of: name, options: [.caseInsensitive, .diacriticInsensitive], range: searchRange)
                 guard found.location != NSNotFound else { break }
                 searchRange = NSRange(location: NSMaxRange(found), length: source.length - NSMaxRange(found))
-                guard isWholeWords(found, in: source),
-                      !excluded.contains(where: { range in NSIntersectionRange(range, found).length > 0 }),
-                      !mentions.contains(where: { mention in NSIntersectionRange(mention, found).length > 0 }) else { continue }
+                guard isWholeWords(found, in: source), !excluded.intersects(found), !mentionedRanges.intersects(found) else { continue }
                 mentions.append(found)
+                mentionedRanges.insert(found)
             }
         }
         return mentions.sorted { first, second in first.location < second.location }
@@ -64,11 +64,9 @@ public enum Mentions {
 
     // MARK: Private
 
-    private static let excludedPatterns: [NSRegularExpression] = [
-        // Wikilinks and embeds, Markdown links and images, inline math, comments, tags, web addresses.
-        "!?\\[\\[[^\\]\\n]*\\]\\]", "!?\\[[^\\]\\n]*\\]\\([^)\\n]*\\)", "(?<!\\$)\\$[^$\\n]+\\$(?!\\$)", "%%[\\s\\S]*?%%",
-        "(?<![\\p{L}\\p{N}_/&#])#[\\p{L}\\p{N}_/\\-]+", "[A-Za-z][A-Za-z0-9+.-]*://[^\\s)>\\]]+", "<[^>\\n]+>",
-    ].compactMap { pattern in try? NSRegularExpression(pattern: pattern) }
+    /// Wikilinks and embeds, Markdown links and images, inline math, comments, tags, web addresses
+    /// and HTML tags: every case of `MentionsPattern`.
+    private static let excludedPatterns: [NSRegularExpression] = MentionsPattern.allCases.map { pattern in pattern.compiled() }
 
     private static func excludedRanges(in source: NSString) -> [NSRange] {
         var ranges: [NSRange] = []
@@ -85,8 +83,9 @@ public enum Mentions {
         var location = 0
         while location < source.length {
             let lineRange = source.lineRange(for: NSRange(location: location, length: 0))
-            let line = source.substring(with: lineRange).trimmingCharacters(in: .whitespacesAndNewlines)
-            let isCode = tracker.isCodeLine(line)
+            let untrimmedLine = source.substring(with: lineRange)
+            let isCode = tracker.isCodeLine(untrimmedLine: untrimmedLine)
+            let line = untrimmedLine.trimmingCharacters(in: .whitespacesAndNewlines)
             let togglesMath = !isCode && line.hasPrefix("$$")
             let closesOnSameLine = togglesMath && line.count > 2 && line.hasSuffix("$$")
             if isCode || isInsideMath || togglesMath { ranges.append(lineRange) }
@@ -103,4 +102,15 @@ public enum Mentions {
         }
         return !isWordCharacter(at: range.location - 1) && !isWordCharacter(at: NSMaxRange(range))
     }
+}
+
+/// The spans of a note that `Mentions` never links: each case is one kind; `StaticPatternTests` compiles every case.
+enum MentionsPattern: String, StaticPatternSet {
+    case wikilinkOrEmbed = #"!?\[\[[^\]\n]*\]\]"#
+    case markdownLinkOrImage = #"!?\[[^\]\n]*\]\([^)\n]*\)"#
+    case inlineMath = #"(?<!\$)\$[^$\n]+\$(?!\$)"#
+    case comment = #"%%[\s\S]*?%%"#
+    case tag = #"(?<![\p{L}\p{N}_/&#])#[\p{L}\p{N}_/\-]+"#
+    case webAddress = #"[A-Za-z][A-Za-z0-9+.-]*://[^\s)>\]]+"#
+    case htmlTag = #"<[^>\n]+>"#
 }

@@ -12,9 +12,13 @@ struct GraphiteApp: App {
     /// How this launch was asked to run, read here once from the process and passed on from
     /// here: the hosted tests launch the app in `.hostedTests` (`LaunchMode`).
     private let launchMode: LaunchMode
+    /// What every window shares (the preferences, the vault list, the add-on packs), built
+    /// once here; each window builds its own workspace over it.
+    private let processServices: ProcessServices
 
     init() {
         launchMode = LaunchMode(arguments: ProcessInfo.processInfo.arguments, environment: ProcessInfo.processInfo.environment)
+        processServices = ProcessServices.make(for: launchMode)
         // Hang and crash reports, and a record of any freeze, in Library/Diagnostics.
         if launchMode.startsDiagnostics { GraphiteDiagnostics.start() }
         #if os(macOS)
@@ -25,19 +29,24 @@ struct GraphiteApp: App {
 
     var body: some Scene {
         #if os(macOS)
-        // The main window and the Settings window, on one workspace.
-        GraphiteMacScenes(launchMode: launchMode)
+        // The windows of workspaces, the Guide's window and the Settings window.
+        GraphiteMacScenes(processServices: processServices, launchMode: launchMode)
         #else
-        // iPadOS keeps this to one scene: Info.plist sets UIApplicationSupportsMultipleScenes to false.
-        WindowGroup {
+        // A window per workspace; the system keeps each window's content (`GraphiteWindowContent`).
+        WindowGroup(id: GraphiteWindow.identifier, for: GraphiteWindowContent.self) { $windowContent in
             // A launch argument opens the voice measuring screen instead; see NeuralVoiceBenchmarkScreen.
-            if NeuralVoiceBenchmarkScreen.isRequested { NeuralVoiceBenchmarkScreen() } else { GraphiteRootView(launchMode: launchMode) }
+            if NeuralVoiceBenchmarkScreen.isRequested { NeuralVoiceBenchmarkScreen() } else {
+                GraphiteWindowScene(processServices: processServices, launchMode: launchMode, windowContent: $windowContent)
+            }
         }
             // No default size here, unlike the Mac: iPadOS 27 took it as the window's
             // smallest and largest size alike (1,200 by 852 points), so a window tiled beside
             // another app was laid out 1,065 points wide and cut off at its right edge
             // (reported by the owner, 2026-10-13). iPadOS sizes the window itself.
-            .commands { GraphiteCommands() }
+            .commands {
+                GraphiteCommands()
+                WindowCommands()
+            }
             // Read Aloud voices download in a background session that can finish while
             // Graphite is closed; iOS then wakes it to receive the files.
             .backgroundTask(.urlSession(GraphiteVoiceDownloads.sessionIdentifier)) {

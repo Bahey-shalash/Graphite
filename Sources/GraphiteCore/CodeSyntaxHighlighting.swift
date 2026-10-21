@@ -112,7 +112,7 @@ public enum CodeSyntaxHighlighter {
     /// The language a fenced code block's info text names (```` ```cpp ````, ```` ```C++ ````,
     /// ```` ```py title="x" ````), or nil for one Graphite does not highlight.
     public static func language(forFenceInfo info: String) -> CodeLanguage? {
-        CodeLanguage.named(NotePreviewDocument.codeBlockLanguage(ofFenceInfo: info.trimmingCharacters(in: .whitespaces)))
+        CodeLanguage.named(MarkdownFenceSyntax.language(ofInfo: info.trimmingCharacters(in: .whitespaces)))
     }
 
     /// The tokens of `code`, with ranges in its UTF-16 units. Kept for the code blocks
@@ -298,11 +298,11 @@ private struct CodeLineScanner {
         defer { directiveLineKind = nil }
         var index = continueOpenConstruct(lineStart, lineEnd)
         guard index < lineEnd || state != .normal else { return }
-        /// The last unit that is not a space before `index`, or 0.
+        // The last unit that is not a space before `index`, or 0.
         var previousUnit: UInt16 = index > lineStart ? units[index - 1] : 0
         var previousWasIdentifier = false
         var isFirstTokenOfLine = index == lineStart
-        /// The kind a declaration keyword gives the next identifier: `def name`, `class Name`.
+        // The kind a declaration keyword gives the next identifier: `def name`, `class Name`.
         var declaredKind: CodeTokenKind?
         if features.contains(.yamlKeys), isFirstTokenOfLine { index = scanYAMLKey(lineStart, lineEnd) }
 

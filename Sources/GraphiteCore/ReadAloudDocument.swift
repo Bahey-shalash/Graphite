@@ -222,7 +222,7 @@ public struct ReadAloudDocument: Equatable, Sendable {
             }
             // Dot leaders in a table of contents (". . . . 144") are not read.
             var segmentStart = line.range.location
-            for leader in Self.dotLeader?.matches(in: source, range: line.range) ?? [] {
+            for leader in Self.dotLeader.matches(in: source, range: line.range) {
                 appendSource(NSRange(location: segmentStart, length: leader.range.location - segmentStart))
                 unitText += " "
                 segmentStart = NSMaxRange(leader.range)
@@ -271,7 +271,7 @@ public struct ReadAloudDocument: Equatable, Sendable {
         return candidates
     }
 
-    private static let dotLeader = try? NSRegularExpression(pattern: #"(?:\s*\.){4,}\s*"#)
+    private static let dotLeader = ReadAloudDocumentPattern.dotLeader.compiled()
 
     /// The length of a bullet glyph and the spaces after it at the start of a line, if any.
     private static func leadingBulletLength(in line: String) -> Int? {
@@ -319,7 +319,7 @@ public struct ReadAloudDocument: Equatable, Sendable {
         mask(NSRange(location: 0, length: FrontmatterLocator.length(in: original)))
         // Folded away by the person (`ReadAloudFolding`): not read.
         for range in hiddenRanges where range.location >= 0 && NSMaxRange(range) <= original.length { mask(range) }
-        for range in ObsidianInlineMarkup.commentRanges(in: source) { mask(range) }
+        for range in ObsidianComments.commentRanges(in: source) { mask(range) }
         let footnotes = Footnotes.parse(prepared as String)
         for definition in footnotes.definitions { mask(definition.range) }
         for reference in footnotes.references { mask(reference.range) }
@@ -385,7 +385,7 @@ public struct ReadAloudDocument: Equatable, Sendable {
             if let range = section.closingMarkerRange { mask(range) }
         }
         let parsedSource = prepared as String
-        let parsed = Document(parsing: parsedSource)
+        guard let parsed = BoundedMarkdownParser.document(parsing: parsedSource) else { throw ReadAloudError.excessiveNesting }
         var converter = MarkdownSourceLocationConverter(parsedSource)
         var leaves: [(node: any Markup, containerIndex: Int?)] = []
         var stack: [(node: any Markup, containerIndex: Int?, followsBreak: Bool)] = [(parsed, nil, false)]
@@ -545,7 +545,7 @@ public struct ReadAloudDocument: Equatable, Sendable {
                     let semicolon = prepared.range(of: ";", range: searchRange)
                     if semicolon.location != NSNotFound {
                         let entityRange = NSRange(location: sourceOffset, length: semicolon.location - sourceOffset + 1)
-                        let decoded = Document(parsing: prepared.substring(with: entityRange)).child(at: 0)?.child(at: 0) as? Text
+                        let decoded = BoundedMarkdownParser.document(parsing: prepared.substring(with: entityRange))?.child(at: 0)?.child(at: 0) as? Text
                         if decoded?.string == characterText { mappedRange = entityRange; hasExactMapping = true }
                     }
                 }
@@ -627,13 +627,17 @@ public struct ReadAloudDocument: Equatable, Sendable {
     /// Only abbreviations whose meaning is unambiguous where they match; "Fig.", "Eq.",
     /// "No." and "pp." only before a number.
     private static let abbreviationSpeech: [(NSRegularExpression, String)] = [
-        (#"\be\.g\."#, "for example"), (#"\bi\.e\."#, "that is"), (#"\bw\.r\.t\."#, "with respect to"),
-        (#"\bvs\."#, "versus"), (#"\bcf\."#, "compare"), (#"\bFigs\.(?=\s*[\d(])"#, "Figures"),
-        (#"\bFig\.(?=\s*[\d(])"#, "Figure"), (#"\bEqs?\.(?=\s*\(?\d)"#, "Equation"),
-        (#"\bNo\.(?=\s*\d)"#, "number"), (#"\bpp\.(?=\s*\d)"#, "pages")
-    ].compactMap { pattern, speech in
-        (try? NSRegularExpression(pattern: pattern)).map { expression in (expression, speech) }
-    }
+        (ReadAloudDocumentPattern.forExampleAbbreviation.compiled(), "for example"),
+        (ReadAloudDocumentPattern.thatIsAbbreviation.compiled(), "that is"),
+        (ReadAloudDocumentPattern.withRespectToAbbreviation.compiled(), "with respect to"),
+        (ReadAloudDocumentPattern.versusAbbreviation.compiled(), "versus"),
+        (ReadAloudDocumentPattern.compareAbbreviation.compiled(), "compare"),
+        (ReadAloudDocumentPattern.figuresAbbreviation.compiled(), "Figures"),
+        (ReadAloudDocumentPattern.figureAbbreviation.compiled(), "Figure"),
+        (ReadAloudDocumentPattern.equationAbbreviation.compiled(), "Equation"),
+        (ReadAloudDocumentPattern.numberAbbreviation.compiled(), "number"),
+        (ReadAloudDocumentPattern.pagesAbbreviation.compiled(), "pages")
+    ]
 
     /// Display math inside a callout or quote carries the "> " of every line it spans; those
     /// markers belong to the quote, not to the equation.
@@ -727,4 +731,19 @@ public enum ReadAloudError: LocalizedError {
         case .textRecognitionUnavailable: "This device could not recognize the text on this scanned page, so nothing was read. Try again, or choose a page with selectable text."
         }
     }
+}
+
+/// The constant patterns of `ReadAloudDocument`; `StaticPatternTests` compiles every case.
+enum ReadAloudDocumentPattern: String, StaticPatternSet {
+    case forExampleAbbreviation = #"\be\.g\."#
+    case thatIsAbbreviation = #"\bi\.e\."#
+    case withRespectToAbbreviation = #"\bw\.r\.t\."#
+    case versusAbbreviation = #"\bvs\."#
+    case compareAbbreviation = #"\bcf\."#
+    case figuresAbbreviation = #"\bFigs\.(?=\s*[\d(])"#
+    case figureAbbreviation = #"\bFig\.(?=\s*[\d(])"#
+    case equationAbbreviation = #"\bEqs?\.(?=\s*\(?\d)"#
+    case numberAbbreviation = #"\bNo\.(?=\s*\d)"#
+    case pagesAbbreviation = #"\bpp\.(?=\s*\d)"#
+    case dotLeader = #"(?:\s*\.){4,}\s*"#
 }

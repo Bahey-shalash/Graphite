@@ -50,7 +50,8 @@ enum TextBoxRichTextPromotion {
             let richTextCuts = richTextCuts(in: annotation, object: object.range, bytes: bytes)
             let cuts = (richTextCuts + defaultAppearanceCuts(in: annotation, object: object.range))
                 .sorted { first, second in first.range.lowerBound < second.range.lowerBound }
-            guard !cuts.isEmpty, zip(cuts, cuts.dropFirst()).allSatisfy({ earlier, later in earlier.range.upperBound <= later.range.lowerBound }) else { continue }
+            guard !cuts.isEmpty,
+                  zip(cuts, cuts.dropFirst()).allSatisfy({ earlier, later in earlier.range.upperBound <= later.range.lowerBound }) else { continue }
             if !richTextCuts.isEmpty { richTextsNamed += 1 }
             var objectBytes = Data()
             var copiedUpTo = object.range.lowerBound
@@ -97,7 +98,8 @@ enum TextBoxRichTextPromotion {
         let bytes = Array(name.utf8)
         var index = 0
         while index < bytes.count {
-            if bytes[index] == UInt8(ascii: "#"), index + 2 < bytes.count, let value = UInt8(String(decoding: bytes[(index + 1)...(index + 2)], as: UTF8.self), radix: 16) {
+            if bytes[index] == UInt8(ascii: "#"), index + 2 < bytes.count,
+               let value = UInt8(String(decoding: bytes[(index + 1)...(index + 2)], as: UTF8.self), radix: 16) {
                 decoded.append(value)
                 index += 3
             } else {

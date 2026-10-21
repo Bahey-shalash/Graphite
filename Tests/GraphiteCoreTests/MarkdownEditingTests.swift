@@ -1,10 +1,43 @@
 import Foundation
+import GraphiteTestSupport
 import XCTest
 @testable import GraphiteCore
 
-/// Regression tests for the editing commands in `MarkdownEditing`: line endings other than
+final class MarkdownEditingTests: XCTestCase {
+    private func applying(_ edit: MarkdownTextEdit, to text: String) -> String {
+        (text as NSString).replacingCharacters(in: edit.range, with: edit.replacement)
+    }
+
+    func testHeadingReplacesTheLineStartNotTheCursor() {
+        let text = "Intro\nSome words here\nAfter"
+        let cursor = NSRange(location: 11, length: 0)
+        let edit = MarkdownEditing.settingHeading(level: 2, in: text as NSString, selection: cursor)
+        XCTAssertEqual(applying(edit, to: text), "Intro\n## Some words here\nAfter")
+        XCTAssertEqual(edit.selectionAfter, NSRange(location: 14, length: 0))
+    }
+
+    func testHeadingChangesLevelAndTogglesOff() {
+        let text = "### Title\r\nnext"
+        let changed = MarkdownEditing.settingHeading(level: 1, in: text as NSString, selection: NSRange(location: 5, length: 0))
+        XCTAssertEqual(applying(changed, to: text), "# Title\r\nnext")
+        let removed = MarkdownEditing.settingHeading(level: 3, in: text as NSString, selection: NSRange(location: 5, length: 0))
+        XCTAssertEqual(applying(removed, to: text), "Title\r\nnext")
+        XCTAssertEqual(removed.selectionAfter.location, 1)
+    }
+
+    func testHeadingOnEverySelectedLineAndAnEmptyNote() {
+        let text = "one\ntwo\nthree"
+        let edit = MarkdownEditing.settingHeading(level: 4, in: text as NSString, selection: NSRange(location: 1, length: 5))
+        XCTAssertEqual(applying(edit, to: text), "#### one\n#### two\nthree")
+        XCTAssertEqual(applying(MarkdownEditing.settingHeading(level: 1, in: "", selection: NSRange(location: 0, length: 0)), to: ""), "# ")
+        XCTAssertNil(MarkdownHeadingSyntax.level(of: "#hashtag"))
+        XCTAssertEqual(MarkdownHeadingSyntax.level(of: "  ## x"), 2)
+    }
+}
+
+/// The editing commands of `MarkdownEditing` with line endings other than
 /// LF, characters wider than one UTF-16 unit, and where the cursor goes.
-final class CoreEditingFixTests: XCTestCase {
+final class MarkdownEditingCommandTests: XCTestCase {
     private func applying(_ edit: MarkdownTextEdit?, to text: String) -> String? {
         edit.map { edit in (text as NSString).replacingCharacters(in: edit.range, with: edit.replacement) }
     }
@@ -138,17 +171,17 @@ final class CoreEditingFixTests: XCTestCase {
     // MARK: List lines
 
     func testListLineReadsWhatTheLineHas() {
-        XCTAssertEqual(MarkdownEditing.listLine("-")?.spacing, "", "No space is invented after a marker that ends the line.")
-        XCTAssertEqual(MarkdownEditing.listLine("- [ ]")?.prefixLength, 5)
-        XCTAssertEqual(MarkdownEditing.listLine("- [ ] a")?.prefixLength, 6)
-        XCTAssertNil(MarkdownEditing.listLine("- - -"), "A thematic break is not a list item.")
-        XCTAssertNil(MarkdownEditing.listLine("* * *"))
-        XCTAssertEqual(MarkdownEditing.listLine("> - - -")?.isListItem, false)
-        XCTAssertEqual(MarkdownEditing.listLine("- - a")?.isListItem, true)
-        XCTAssertNil(MarkdownEditing.listLine("\u{661}. a"), "Only ASCII digits number a list.")
-        XCTAssertTrue(MarkdownEditing.isThematicBreak("- - -"))
-        XCTAssertTrue(MarkdownEditing.isThematicBreak("***"))
-        XCTAssertFalse(MarkdownEditing.isThematicBreak("- - a"))
+        XCTAssertEqual(MarkdownListSyntax.listLine("-")?.spacing, "", "No space is invented after a marker that ends the line.")
+        XCTAssertEqual(MarkdownListSyntax.listLine("- [ ]")?.prefixLength, 5)
+        XCTAssertEqual(MarkdownListSyntax.listLine("- [ ] a")?.prefixLength, 6)
+        XCTAssertNil(MarkdownListSyntax.listLine("- - -"), "A thematic break is not a list item.")
+        XCTAssertNil(MarkdownListSyntax.listLine("* * *"))
+        XCTAssertEqual(MarkdownListSyntax.listLine("> - - -")?.isListItem, false)
+        XCTAssertEqual(MarkdownListSyntax.listLine("- - a")?.isListItem, true)
+        XCTAssertNil(MarkdownListSyntax.listLine("\u{661}. a"), "Only ASCII digits number a list.")
+        XCTAssertTrue(MarkdownListSyntax.isThematicBreak("- - -"))
+        XCTAssertTrue(MarkdownListSyntax.isThematicBreak("***"))
+        XCTAssertFalse(MarkdownListSyntax.isThematicBreak("- - a"))
     }
 
     func testReturnOnAnEmptyTaskWithoutTrailingSpaceEndsTheList() {

@@ -30,12 +30,6 @@ public struct LivePreviewBlock: Equatable, Sendable {
 }
 
 public enum LivePreviewBlockScanner {
-    /// An embed alone on its line. Its destination may hold one balanced `(…)`, as
-    /// `EmbedLocator` reads it, so `![](photo (1).png)` is an image block too.
-    private static let standaloneEmbedPattern = try? NSRegularExpression(pattern: "^[ \\t]*(!\\[\\[[^\\]\\n]+\\]\\]|!\\[[^\\]\\n]*\\]\\((?:<[^<>\\n]*>[^)\\n]*|[^()\\n]+(?:\\([^()\\n]*\\)[^()\\n]*)?)\\))[ \\t]*$")
-    private static let calloutHeaderPattern = try? NSRegularExpression(pattern: "^>[ \\t]?\\[![A-Za-z0-9_-]+\\][+-]?")
-    private static let horizontalRulePattern = try? NSRegularExpression(pattern: "^ {0,3}(?:(?:-[ \\t]*){3,}|(?:\\*[ \\t]*){3,}|(?:_[ \\t]*){3,})$")
-
     /// - Parameter pluginCodeBlockLanguages: Languages community plugins draw. As in Obsidian,
     ///   a fenced block in one of them is drawn by its plugin in Live Preview too.
     public static func blocks(in text: NSString, pluginCodeBlockLanguages: Set<String> = []) -> [LivePreviewBlock] {
@@ -59,11 +53,10 @@ public enum LivePreviewBlockScanner {
         while lineIndex < lines.count {
             let content = lines[lineIndex].content
             let trimmedContent = content.trimmingCharacters(in: .whitespaces)
-            let fullRange = NSRange(location: 0, length: (content as NSString).length)
             if let (fence, info, _) = listItems.fenceOpening(of: content) {
                 let language = info.lowercased()
                 var closingIndex = lineIndex + 1
-                while closingIndex < lines.count && !CodeFence.closes(fence, lines[closingIndex].content.trimmingCharacters(in: .whitespaces)) { closingIndex += 1 }
+                while closingIndex < lines.count && !MarkdownFenceSyntax.closes(fence, lines[closingIndex].content.trimmingCharacters(in: .whitespaces)) { closingIndex += 1 }
                 let lastIndex = min(closingIndex, lines.count - 1)
                 // An unclosed fence runs to the end of the note, as in CommonMark and reading view.
                 if language == "base" {
@@ -71,7 +64,7 @@ public enum LivePreviewBlockScanner {
                     let yaml = lineIndex + 1 <= lastContentIndex ? markdown(lineIndex + 1, lastContentIndex) : ""
                     blocks.append(LivePreviewBlock(kind: .baseDefinition(yaml), range: span(lineIndex, lastIndex), markdown: yaml))
                 } else if !pluginCodeBlockLanguages.isEmpty {
-                    let pluginLanguage = NotePreviewDocument.codeBlockLanguage(ofFenceInfo: info)
+                    let pluginLanguage = MarkdownFenceSyntax.language(ofInfo: info)
                     if !pluginLanguage.isEmpty, pluginCodeBlockLanguages.contains(pluginLanguage) {
                         let lastContentIndex = closingIndex < lines.count ? closingIndex - 1 : lastIndex
                         let code = lineIndex + 1 <= lastContentIndex ? markdown(lineIndex + 1, lastContentIndex) : ""
@@ -102,7 +95,7 @@ public enum LivePreviewBlockScanner {
                     continue
                 }
             }
-            if calloutHeaderPattern?.firstMatch(in: content, range: fullRange) != nil {
+            if MarkdownQuoteSyntax.isCalloutHeader(content) {
                 var lastIndex = lineIndex
                 while lastIndex + 1 < lines.count && lines[lastIndex + 1].content.hasPrefix(">") { lastIndex += 1 }
                 blocks.append(LivePreviewBlock(kind: .callout, range: span(lineIndex, lastIndex), markdown: markdown(lineIndex, lastIndex)))
@@ -112,7 +105,7 @@ public enum LivePreviewBlockScanner {
             }
             // A table needs a header row and a delimiter row, like GFM; its outer pipes may
             // be left out (`a | b` over `--|--`), as Obsidian and GFM allow.
-            if lineIndex + 1 < lines.count, startsTable(header: trimmedContent, delimiter: lines[lineIndex + 1].content) {
+            if lineIndex + 1 < lines.count, MarkdownTableSyntax.startsTable(header: trimmedContent, delimiter: lines[lineIndex + 1].content) {
                 let hasOuterPipes = trimmedContent.hasPrefix("|")
                 var lastIndex = lineIndex + 1
                 while lastIndex + 1 < lines.count {
@@ -125,21 +118,21 @@ public enum LivePreviewBlockScanner {
                 lineIndexAfterBlock = lineIndex
                 continue
             }
-            if standaloneEmbedPattern?.firstMatch(in: content, range: fullRange) != nil,
-               let embed = EmbedLocator.embed(at: (content as NSString).range(of: "!").location + 1, in: content as NSString) {
-                if !isRemoteImage(embed) {
+            if let embed = EmbedLocator.standaloneEmbed(onLine: content) {
+                // A web image is not a vault file, so it gets no embed widget and stays
+                // Markdown, as reading view leaves it.
+                if !embed.isRemoteImage {
                     blocks.append(LivePreviewBlock(kind: .embed(embed), range: lines[lineIndex].range, markdown: content))
                 }
-            } else if MarkdownEditing.headingLevel(of: content) == nil,
+            } else if MarkdownHeadingSyntax.level(of: content) == nil,
                       let opening = mathLines.opening(at: lineIndex), let closingLineIndex = opening.closingLineIndex {
                 // A formula opened after other text (`- $$` in a list item, `Energy is $$`)
                 // stays in its paragraph, closing line included, so that line does not
                 // start a formula of its own.
                 lineIndex = closingLineIndex + 1
                 continue
-            } else if horizontalRulePattern?.firstMatch(in: content, range: fullRange) != nil,
-                      MarkdownStyleScanner.setextUnderlineLevel(content) == nil || lineIndex == 0 || lineIndex == lineIndexAfterBlock
-                        || !MarkdownStyleScanner.isParagraphText(lines[lineIndex - 1].content) {
+            } else if MarkdownListSyntax.isThematicBreak(content), lineIndex == 0 || lineIndex == lineIndexAfterBlock
+                        || MarkdownHeadingSyntax.setextHeadingLevel(ofLine: lines[lineIndex - 1].content, nextLine: content) == nil {
                 // Directly after paragraph text, `---` underlines a heading instead of
                 // drawing a rule; after a heading, a list item or a blank line it is a rule.
                 blocks.append(LivePreviewBlock(kind: .horizontalRule, range: lines[lineIndex].range, markdown: content))
@@ -149,10 +142,6 @@ public enum LivePreviewBlockScanner {
         return blocks
     }
 
-    /// Lines where CommonMark and reading view end them: at "\n", "\r\n" or a lone "\r".
-    /// Each range includes its line break; the content excludes it, so a Windows note's
-    /// "\r" never reaches fence, math or table detection. U+2028 and U+2029 stay inside a
-    /// line, as reading view keeps them.
     /// The leading frontmatter alone, for an editor that renders only the properties. It
     /// reads the start of the note, not every line.
     public static func frontmatterBlock(in text: NSString) -> LivePreviewBlock? {
@@ -161,6 +150,10 @@ public enum LivePreviewBlockScanner {
         return LivePreviewBlock(kind: .frontmatter, range: NSRange(location: 0, length: frontmatterLength), markdown: text.substring(to: frontmatterLength))
     }
 
+    /// Lines where CommonMark and reading view end them: at "\n", "\r\n" or a lone "\r".
+    /// Each range includes its line break; the content excludes it, so a Windows note's
+    /// "\r" never reaches fence, math or table detection. U+2028 and U+2029 stay inside a
+    /// line, as reading view keeps them.
     private static func lines(in text: NSString, from start: Int) -> [(range: NSRange, content: String)] {
         var lines: [(range: NSRange, content: String)] = []
         var lineStart = start
@@ -183,28 +176,6 @@ public enum LivePreviewBlockScanner {
     private static let lineFeed = UInt16(UInt8(ascii: "\n"))
     private static let carriageReturn = UInt16(UInt8(ascii: "\r"))
 
-    /// A web image (`![](https://…)`) is not a vault file, so it gets no embed widget and
-    /// stays Markdown, as reading view leaves it. Only the destination counts, not a title
-    /// written after it.
-    private static func isRemoteImage(_ embed: EmbedReference) -> Bool {
-        let destination = embed.target.split(whereSeparator: \.isWhitespace).first.map(String.init) ?? embed.target
-        return !embed.isWiki && URL(string: destination)?.scheme != nil
-    }
-
-    /// A table's first two lines: a header row with a pipe, over a delimiter row. Without
-    /// a leading pipe, the delimiter row needs one too, so text over a `---` rule is no table.
-    static func startsTable(header trimmedHeader: String, delimiter: String) -> Bool {
-        guard isTableDelimiterRow(delimiter) else { return false }
-        if trimmedHeader.hasPrefix("|") { return true }
-        return trimmedHeader.contains("|") && delimiter.contains("|")
-    }
-
-    static func isTableDelimiterRow(_ line: String) -> Bool {
-        let trimmedLine = line.trimmingCharacters(in: .whitespaces)
-        guard trimmedLine.contains("-") else { return false }
-        return trimmedLine.allSatisfy { character in "|-: \t".contains(character) }
-    }
-
     /// Where the one fenced block in `language` holding `code` is in `text`: its zero-based
     /// first line (the opening fence) and the lines it spans. Nil when no block or more than
     /// one matches, since a plugin editing "its" lines must not reach another block.
@@ -214,8 +185,8 @@ public enum LivePreviewBlockScanner {
             block.kind == .pluginCodeBlock(language: language) && block.markdown == code
         }
         guard matches.count == 1, let block = matches.first else { return nil }
-        /// Lines end as `lines(in:)` ends them: at `\n`, `\r\n`, or a lone `\r`, which a
-        /// note saved by an old Mac app has; counting only `\n` put every block on line 0.
+        // Lines end as `lines(in:)` ends them: at `\n`, `\r\n`, or a lone `\r`, which a
+        // note saved by an old Mac app has.
         func lineNumber(at location: Int) -> Int {
             var lines = 0
             var index = 0

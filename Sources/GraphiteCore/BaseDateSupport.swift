@@ -5,13 +5,12 @@ import Foundation
 /// a `Z` or `±HH:mm` offset after the time. Values without an offset are local wall-clock
 /// times. Text that JavaScript's `Date` rejects, such as `12:75` or `2025-01-01Z`, is not a date.
 public enum BaseDateParsing {
-    private static let datePattern = try? NSRegularExpression(pattern:
-        "^(\\d{4})-(\\d{1,2})-(\\d{1,2})(?:[T ](\\d{1,2}):(\\d{2})(?::(\\d{2})(?:\\.(\\d+))?)?)?\\s*(Z|[+-]\\d{2}(?::?\\d{2})?)?$")
+    private static let datePattern = BaseDateParsingPattern.datePattern.compiled()
 
     public static func date(from text: String, calendar: Calendar) -> BaseDate? {
         let trimmedText = text.trimmingCharacters(in: .whitespaces)
         let foundationText = trimmedText as NSString
-        guard let match = datePattern?.firstMatch(in: trimmedText, range: NSRange(location: 0, length: foundationText.length)) else { return nil }
+        guard let match = datePattern.firstMatch(in: trimmedText, range: NSRange(location: 0, length: foundationText.length)) else { return nil }
         func component(_ groupIndex: Int) -> String? {
             let range = match.range(at: groupIndex)
             return range.location == NSNotFound ? nil : foundationText.substring(with: range)
@@ -66,9 +65,8 @@ public enum BaseDateParsing {
 
 /// Parses duration strings such as `1 day`, `7d`, `1M`, `2h 30m` or ISO 8601 `P1DT2H`.
 public enum BaseDurationParsing {
-    private static let partPattern = try? NSRegularExpression(pattern: "\\s*([+-]?\\d+(?:\\.\\d+)?)\\s*([A-Za-z]+)\\s*,?")
-    private static let isoPattern = try? NSRegularExpression(pattern:
-        "^([+-])?P(?:(\\d+(?:\\.\\d+)?)Y)?(?:(\\d+(?:\\.\\d+)?)M)?(?:(\\d+(?:\\.\\d+)?)W)?(?:(\\d+(?:\\.\\d+)?)D)?(?:(T)(?:(\\d+(?:\\.\\d+)?)H)?(?:(\\d+(?:\\.\\d+)?)M)?(?:(\\d+(?:\\.\\d+)?)S)?)?$")
+    private static let partPattern = BaseDurationParsingPattern.partPattern.compiled()
+    private static let isoPattern = BaseDurationParsingPattern.isoPattern.compiled()
 
     private enum Unit {
         case year, month, week, day, hour, minute, second, millisecond
@@ -109,7 +107,8 @@ public enum BaseDurationParsing {
         let foundationText = trimmedText as NSString
         var duration = BaseDuration()
         var consumedLength = 0
-        guard let matches = partPattern?.matches(in: trimmedText, range: NSRange(location: 0, length: foundationText.length)), !matches.isEmpty else { return nil }
+        let matches = partPattern.matches(in: trimmedText, range: NSRange(location: 0, length: foundationText.length))
+        guard !matches.isEmpty else { return nil }
         for match in matches {
             // Parts must be contiguous; anything in between makes the text not a duration.
             guard match.range.location == consumedLength,
@@ -137,7 +136,7 @@ public enum BaseDurationParsing {
 
     private static func isoDuration(from text: String) -> BaseDuration? {
         let foundationText = text as NSString
-        guard let match = isoPattern?.firstMatch(in: text, range: NSRange(location: 0, length: foundationText.length)) else { return nil }
+        guard let match = isoPattern.firstMatch(in: text, range: NSRange(location: 0, length: foundationText.length)) else { return nil }
         func isPresent(_ groupIndex: Int) -> Bool { match.range(at: groupIndex).location != NSNotFound }
         func amount(_ groupIndex: Int) -> Double {
             isPresent(groupIndex) ? Double(foundationText.substring(with: match.range(at: groupIndex))) ?? 0 : 0

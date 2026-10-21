@@ -169,9 +169,10 @@ private struct LineFormatter {
             }
             var lineIndentation: String
             if case .blockComment = line.entryState {
-                // A comment's later lines under its first: ` * ` lines one space in.
-                lineIndentation = commentIndentation + (content.hasPrefix("*") ? " " : (style.structure == .none ? "" : indentation))
-                if style.structure == .none { lineIndentation = leadingWhitespace(of: line) }
+                // A comment's later lines under its first: ` * ` lines one space in. Without
+                // structure a comment line keeps its own indentation.
+                lineIndentation = style.structure == .none ? leadingWhitespace(of: line)
+                    : commentIndentation + (content.hasPrefix("*") ? " " : indentation)
             } else if style.structure == .none {
                 lineIndentation = leadingWhitespace(of: line)
             } else if style.preprocessorLinesAtLeftEdge, content.hasPrefix("#") {

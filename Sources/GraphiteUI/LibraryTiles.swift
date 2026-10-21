@@ -64,8 +64,8 @@ struct LibraryFolderArtwork: View {
     }
 }
 
-/// A folder tile's picture: Apple's own folder art wherever the system gives it (Finder's on
-/// the Mac, the Files app's on iOS), with the folder's look; Graphite's drawing meanwhile.
+/// A folder tile's picture: Finder's own folder art on the Mac, with the folder's look;
+/// Graphite's drawing meanwhile, and always on iOS, which gives no folder art.
 struct LibraryFolderTileArtwork: View {
     let folder: VaultPath
     let looks: LibraryFolderLooks

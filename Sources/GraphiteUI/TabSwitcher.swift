@@ -1,3 +1,15 @@
+/**
+ * File: TabSwitcher.swift
+ * -----------------------
+ * Layer: UI
+ * Description: The open tabs on a phone, as a sheet listing both sides of a split, and the Tabs button that shows
+ *              how many are open as a numbered square symbol.
+ *
+ * Authors: Bahey Shalash
+ * Version: 0.3
+ * Date: 21/10/2026
+ */
+
 import SwiftUI
 import GraphiteCore
 
@@ -96,22 +108,24 @@ struct TabSwitcher: View {
             Button("Close Other Tabs", systemImage: "xmark.square") { Task { await workspace.closeOtherTabs(keeping: tab.id) } }
                 .disabled(group.tabs.count == 1)
             Button(tab.isPinned ? "Unpin" : "Pin", systemImage: tab.isPinned ? "pin.slash" : "pin") { workspace.togglePin(tab.id) }
+            if let path = tab.path { OpenInNewWindowButton { Task { await workspace.open(path, placement: .newWindow) } } }
         }
     }
 }
 
-/// The number of open tabs in a rounded square, as Safari and Obsidian mobile show it.
+/// The open tabs' button: "Tabs", shown as their number in a rounded square, as Safari and
+/// Obsidian mobile show it. The number is a symbol, not drawn text, so the button moves with
+/// the rest of the bar to the side of iPhone Duo's display, where the system keeps items
+/// showing text in a horizontal bar. Past the highest numbered square, a stack of squares.
 struct TabCountLabel: View {
     let count: Int
+    static let highestNumberedSquare = 50
 
     var body: some View {
-        Text(count > 99 ? "99+" : "\(count)")
-            .font(.system(size: 12, weight: .semibold).monospacedDigit())
-            .padding(.horizontal, 4)
-            .frame(minWidth: 22, minHeight: 22)
-            .overlay {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .strokeBorder(lineWidth: 1.5)
-            }
+        Label("Tabs", systemImage: Self.systemImage(forCount: count))
+    }
+
+    static func systemImage(forCount count: Int) -> String {
+        (0...highestNumberedSquare).contains(count) ? "\(count).square" : "square.on.square"
     }
 }

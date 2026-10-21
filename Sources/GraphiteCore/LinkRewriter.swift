@@ -10,10 +10,10 @@ import Foundation
 /// - A reference-style link (`[text][ref]`) keeps its own entry, whose text has no
 ///   destination to rewrite, and its definition (`[ref]: Note.md`) is reported as a link too.
 public enum NoteLinkScanner {
-    private static let wikiLinkPattern = try? NSRegularExpression(pattern: "(!?)\\[\\[([^\\]\\n]+)\\]\\]")
+    private static let wikiLinkPattern = NoteLinkScannerPattern.wikiLinkPattern.compiled()
     /// A line that may hold a link reference definition, up to its opening bracket, in the
     /// body or in a block quote.
-    private static let definitionStartPattern = try? NSRegularExpression(pattern: "^(?:[ \\t]*>)*[ ]{0,3}\\[", options: [.anchorsMatchLines])
+    private static let definitionStartPattern = NoteLinkScannerPattern.definitionStartPattern.compiled()
 
     public static func links(in text: String) throws -> [NoteLink] {
         let semantics = try MarkdownSemantics.parse(text)
@@ -41,7 +41,7 @@ public enum NoteLinkScanner {
         let frontmatterRange = NSRange(location: 0, length: frontmatterLength)
         var matches: [FrontmatterLinkMatch] = []
         var wikiLinkRanges: [NSRange] = []
-        for match in wikiLinkPattern?.matches(in: source as String, range: frontmatterRange) ?? [] {
+        for match in wikiLinkPattern.matches(in: source as String, range: frontmatterRange) {
             wikiLinkRanges.append(match.range)
             matches.append(FrontmatterLinkMatch(range: match.range, isEmbed: match.range(at: 1).length > 0, isWiki: true,
                                                 content: source.substring(with: match.range(at: 2)), destination: ""))
@@ -119,13 +119,13 @@ public enum NoteLinkScanner {
                   MarkdownLinkSyntax.destinationRange(inLinkText: linkText) == nil else { continue }
             if usedTargets[link.target] == nil { usedTargets[link.target] = link.isEmbed }
         }
-        guard !usedTargets.isEmpty, let definitionStartPattern else { return [] }
-        let codeRanges = MarkdownCodeRanges.ranges(in: source)
+        guard !usedTargets.isEmpty else { return [] }
+        let codeRanges = MarkdownCodeRanges.rangeSet(in: source)
         var definitions: [NoteLink] = []
         let body = NSRange(location: bodyStart, length: source.length - bodyStart)
         for match in definitionStartPattern.matches(in: source as String, range: body) {
             let opening = NSMaxRange(match.range) - 1
-            guard !MarkdownCodeRanges.range(NSRange(location: opening, length: 1), isInside: codeRanges),
+            guard !codeRanges.intersects(NSRange(location: opening, length: 1)),
                   let definition = MarkdownLinkSyntax.definition(in: source, openingBracket: opening) else { continue }
             var destination = source.substring(with: definition.destinationRange)
             if destination.hasPrefix("<") && destination.hasSuffix(">") { destination = String(destination.dropFirst().dropLast()) }
@@ -637,5 +637,18 @@ private struct LinkReplacementGroup {
             merged.replaceCharacters(in: offsetRange, with: inner.mergedText(in: original))
         }
         return merged as String
+    }
+}
+
+/// The constant patterns of `NoteLinkScanner`; `StaticPatternTests` compiles every case.
+enum NoteLinkScannerPattern: String, StaticPatternSet {
+    case wikiLinkPattern = #"(!?)\[\[([^\]\n]+)\]\]"#
+    case definitionStartPattern = #"^(?:[ \t]*>)*[ ]{0,3}\["#
+
+    var options: NSRegularExpression.Options {
+        switch self {
+        case .wikiLinkPattern: []
+        case .definitionStartPattern: [.anchorsMatchLines]
+        }
     }
 }

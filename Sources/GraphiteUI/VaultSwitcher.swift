@@ -1,3 +1,15 @@
+/**
+ * File: VaultSwitcher.swift
+ * -------------------------
+ * Layer: UI
+ * Description: The vault switcher at the bottom of the sidebar, its menu (every known vault, Manage Vaults…,
+ *              Reveal Vault in Finder on the Mac) and the vault manager.
+ *
+ * Authors: Bahey Shalash, Félix Chevalier
+ * Version: 0.12
+ * Date: 21/10/2026
+ */
+
 import SwiftUI
 import UniformTypeIdentifiers
 import GraphiteCore
@@ -68,6 +80,7 @@ struct VaultSwitcherMenuItems: View {
             .pickerStyle(.inline)
         }
         Button("Manage Vaults…", systemImage: "folder.badge.gearshape") { manageVaults() }
+        if workspace.store != nil { RevealInFinderButton(path: .root, vaultRoot: workspace.folderAccess?.root, title: "Reveal Vault in Finder") }
         if showsIndexingMessage, workspace.store != nil, !workspace.indexingMessage.isEmpty {
             Section { Text(workspace.indexingMessage) }
         }
@@ -162,7 +175,7 @@ struct VaultManagerView: View {
                     KnownVaultRow(vault: vault, location: workspace.vaultLibrary.readableLocation(of: vault), isOpen: vault.id == workspace.currentVaultIdentifier) {
                         Task { await open { try await workspace.openVault(vault) } }
                     } remove: {
-                        workspace.removeFromVaultList(vault)
+                        Task { await perform(closingSheetOnSuccess: false) { try workspace.removeFromVaultList(vault) } }
                     }
                 }
             } header: {
@@ -190,9 +203,15 @@ struct VaultManagerView: View {
 
     /// Runs an opening action and closes the sheet once the vault is open.
     private func open(_ opening: () async throws -> Void) async {
+        await perform(closingSheetOnSuccess: true, opening)
+    }
+
+    /// Runs an action of the sheet and shows why it failed in the sheet, where the window's
+    /// alert cannot appear.
+    private func perform(closingSheetOnSuccess: Bool, _ action: () async throws -> Void) async {
         do {
-            try await opening()
-            if isPresentedAsSheet { dismiss() }
+            try await action()
+            if closingSheetOnSuccess, isPresentedAsSheet { dismiss() }
         } catch { errorMessage = error.localizedDescription }
     }
 }

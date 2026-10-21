@@ -1747,7 +1747,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
 
     /// Whether the text tool is in use, whose own taps place and type in text boxes.
     private var placesTextBoxes: Bool {
-        input.fixedTool.map { tool in tool.kind == .text } ?? PaletteInkSelection.placesTextBoxes
+        input.fixedTool.map { tool in tool.kind == .text } ?? PaletteInkSelection.of(pdfView?.window?.windowScene).placesTextBoxes
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {

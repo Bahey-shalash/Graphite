@@ -23,7 +23,7 @@ final class CoreSemanticsTextRulesTests: XCTestCase {
     func testIndentedFenceContinuingAParagraphIsText() {
         let text = "\\`[[Real]]\\`\n    ```\n[[AfterIndented]]"
         XCTAssertEqual(codeTexts(in: text), [])
-        XCTAssertFalse(MarkdownCodeRanges.range((text as NSString).range(of: "[[AfterIndented]]"), isInside: MarkdownCodeRanges.ranges(in: text as NSString)))
+        XCTAssertFalse(MarkdownCodeRanges.rangeSet(in: text as NSString).intersects((text as NSString).range(of: "[[AfterIndented]]")))
     }
 
     func testFencesInsideListItemsMayBeIndented() {
