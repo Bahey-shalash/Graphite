@@ -349,6 +349,7 @@ These rows review every item that had no row at the first 70. They were measured
 | `Sources/GraphiteUI/MarkdownPane.swift` | `DrawingAtCursorTracker.findDrawingAtCursor` | 41 | one concept | It answers one question, which drawing or image is under the cursor, with early exits and a cache. |
 | `Sources/GraphiteUI/NeuralVoiceSettings.swift` | `NeuralVoicesSection.body` | 41 | one concept | It lists the offered and unavailable voices with the delete confirmation; downloading and deleting belong to the library. |
 | `Sources/GraphiteUI/ReadAloudReader.swift` | `ReadAloudSectionPicker.body` | 41 | split planned → `MarkdownReading` finds the sections off the main actor and reports a failure; the view renders the list | The `body` runs the detached section search and its error state in its `.task` (`SRP-VOICE-01`). |
+| `Sources/GraphiteApple/PDFAnnotationFileEntries.swift` | `PDFAnnotationFileEntries.preservedValue` | 41 | one concept | It is an exhaustive switch over Core Graphics' object types, one case each, mapping a kept value of another application's annotation; arrays and dictionaries recurse with a bounded nesting. |
 | `Sources/GraphiteUI/VaultSidebar.swift` | `VaultSidebar.searchResults` | 41 | one concept | It lists the search results with their sort and bookmark menu; the search itself runs in the workspace. |
 | `Sources/GraphiteUI/WorkspaceTagsAndProperties.swift` | `WorkspaceModel.renameProperty` | 41 | split planned → `NoteTextEditor` edits one note, open or closed, with an explicit save policy; the rename keeps the loop over paths and the failure report | It carries its own copy of "edit a note whether it is open or not" (`SRP-READING-06`). |
 
@@ -356,9 +357,9 @@ These rows review every item that had no row at the first 70. They were measured
 
 | Outcome | Items |
 | --- | ---: |
-| `one concept` | 124 |
+| `one concept` | 125 |
 | `split planned` | 160 |
 | Not yet reviewed | 0 |
-| **Over a threshold in the working tree (2026-10-19)** | **284** |
+| **Over a threshold in the working tree (2026-10-21)** | **284** |
 
 `python3 scripts/size-report.py` exits with status 0 when every item has a row that has not grown by more than a fifth. It was made a Phase 1 gate by decision 5 of [rewrite-foundations.md](rewrite-foundations.md); the `split planned` rows are the work list of the later phases.

@@ -276,10 +276,11 @@ public actor VaultIndex {
         }
     }
 
-    /// Whether a scan reads the file's text: notes, and canvases for the links their cards make.
+    /// Whether a scan reads the file's text: notes, canvases for the links their cards make,
+    /// and PDFs for the text of their text boxes (`PDFIndexText`).
     static func readsText(of path: VaultPath) -> Bool {
         let kind = DocumentKind(path: path)
-        return kind == .markdown || kind == .canvas
+        return kind == .markdown || kind == .canvas || kind == .pdf
     }
 
     /// Parses a file for the index. Static, so a scan runs it outside the actor and queries
@@ -291,6 +292,8 @@ public actor VaultIndex {
             let semantics: NoteSemantics?
             if let text = file.markdown, DocumentKind(path: file.path) == .canvas {
                 semantics = try? CanvasLinks.semantics(ofCanvasText: text) // Unreadable: no links, and `isUnreadableCanvas` records it.
+            } else if DocumentKind(path: file.path) == .pdf {
+                semantics = file.markdown.map(NoteSemantics.plainText)
             } else {
                 semantics = try file.markdown.map { text in try MarkdownSemantics.parse(text) }
             }
@@ -547,6 +550,8 @@ public actor VaultIndex {
         let isMarkdown: Bool
         /// A canvas, whose text is read for its links but is not searchable.
         let isCanvas: Bool
+        /// A PDF, whose text boxes' text is searchable (`PDFIndexText`).
+        let isPDF: Bool
         /// Set once the file is known to have changed: a note whose text the scan reads.
         var readsContent = false
     }
@@ -560,7 +565,7 @@ public actor VaultIndex {
     }
 
     /// The text of a note a scan read.
-    private enum NoteReading: Sendable {
+    enum NoteReading: Sendable {
         case text(String)
         case notText
         case failed(any Error)
@@ -638,7 +643,7 @@ public actor VaultIndex {
             state.discoveredFiles += 1
             state.scannedFiles.append(ScannedFile(path: path, location: location, size: values.fileSize ?? 0, modified: values.contentModificationDate ?? .distantPast,
                                                   created: values.creationDate, isMarkdown: DocumentKind(path: path) == .markdown,
-                                                  isCanvas: DocumentKind(path: path) == .canvas))
+                                                  isCanvas: DocumentKind(path: path) == .canvas, isPDF: DocumentKind(path: path) == .pdf))
             if state.scannedFiles.count >= Self.unchangedCheckChunkSize { try await checkScannedFiles(&state, generation: generation) }
         }
         try await checkScannedFiles(&state, generation: generation)
@@ -664,8 +669,8 @@ public actor VaultIndex {
             // A note too large to index or still in the cloud stays unread until its
             // size, date or download state changes; reading it again would give the
             // same result. The download state is asked last, and only when it decides.
-            let isContentReadable = (storedContentState == nil || storedContentState == .notRead) && (file.isMarkdown || file.isCanvas)
-                && file.size <= Self.maximumIndexedNoteBytes && !Self.isNotDownloaded(file.location)
+            let isContentReadable = (storedContentState == nil || storedContentState == .notRead) && (file.isMarkdown || file.isCanvas || file.isPDF)
+                && file.size <= (file.isPDF ? PDFIndexText.maximumPDFBytes : Self.maximumIndexedNoteBytes) && !Self.isNotDownloaded(file.location)
             if let storedContentState, storedContentState != .notRead || !isContentReadable {
                 if file.isMarkdown, storedContentState != .indexed { state.pendingFiles += 1 }
                 state.unchangedPaths.append(file.path.rawValue)
@@ -673,7 +678,8 @@ public actor VaultIndex {
             }
             if file.isMarkdown, !isContentReadable { state.pendingFiles += 1 }
             file.readsContent = isContentReadable
-            if isContentReadable { state.batchContentBytes += file.size }
+            // A PDF is not read whole: only its text boxes' text, which is bounded.
+            if isContentReadable { state.batchContentBytes += file.isPDF ? min(file.size, PDFFreeTextContents.maximumUTF16Count * 2) : file.size }
             state.batch.append(file)
             state.updatedFiles += 1
             if state.batch.count >= Self.maximumBatchFileCount || state.batchContentBytes >= Self.maximumBatchContentBytes {
@@ -755,12 +761,18 @@ public actor VaultIndex {
                 guard coordinationError == nil else { continuation.resume(returning: nil); return }
                 // Each note is read through its intent's URL, which follows a move
                 // reported during coordination.
-                continuation.resume(returning: intents.map { intent in noteReading(from: Result { try readNoteData(at: intent.url) }) })
+                continuation.resume(returning: intents.map { intent in
+                    DocumentKind(fileExtension: intent.url.pathExtension) == .pdf ? PDFIndexText.reading(at: intent.url)
+                        : noteReading(from: Result { try readNoteData(at: intent.url) })
+                })
             }
         }
         if let coordinatedReadings { return coordinatedReadings }
         let writer = AtomicFileWriter()
-        return locations.map { location in noteReading(from: Result { try writer.read(location, maximumBytes: maximumIndexedNoteBytes).data }) }
+        return locations.map { location in
+            DocumentKind(fileExtension: location.pathExtension) == .pdf ? PDFIndexText.coordinatedReading(at: location)
+                : noteReading(from: Result { try writer.read(location, maximumBytes: maximumIndexedNoteBytes).data })
+        }
     }
 
     /// The same size check and read as `AtomicFileWriter.read`, for a location that is
@@ -894,7 +906,10 @@ public actor VaultIndex {
         let size = values.fileSize ?? 0
         var markdown: String?
         var isUnreadableAsText = false
-        if Self.readsText(of: path), values.ubiquitousItemDownloadingStatus != .notDownloaded, size <= Self.maximumIndexedNoteBytes {
+        if DocumentKind(path: path) == .pdf {
+            if values.ubiquitousItemDownloadingStatus != .notDownloaded, size <= PDFIndexText.maximumPDFBytes,
+               case .text(let text) = PDFIndexText.coordinatedReading(at: location) { markdown = text }
+        } else if Self.readsText(of: path), values.ubiquitousItemDownloadingStatus != .notDownloaded, size <= Self.maximumIndexedNoteBytes {
             // `try?`: a note that cannot be read right now (removed mid-refresh, no
             // permission, grown past the limit) keeps its inventory row without text, and
             // the next scan reads it again.

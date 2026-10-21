@@ -53,12 +53,19 @@ struct PDFReadAloudSource: Sendable {
         if let recognition = snapshot.recognition {
             return PDFReadAloudSource(text: snapshot.text, segments: recognition.words.map { word in
                 Segment(textRange: word.textRange, pageIndex: pageIndex,
-                        location: .recognizedText(word.pageBounds, recognition.geometry))
+                        location: .pageArea(word.pageBounds, recognition.geometry))
             })
         }
         return PDFReadAloudSource(text: snapshot.text, segments: snapshot.segments.map { segment in
             Segment(textRange: segment.textRange, pageIndex: pageIndex, pageRange: segment.pageRange)
-        })
+        } + textBoxSegments(of: snapshot, pageIndex: pageIndex))
+    }
+
+    /// The page's text boxes, each highlighted as a whole while it is read.
+    private static func textBoxSegments(of snapshot: PDFReadAloudPage, pageIndex: Int) -> [Segment] {
+        snapshot.textBoxSegments.map { box in
+            Segment(textRange: box.textRange, pageIndex: pageIndex, location: .pageArea(box.pageBounds, box.geometry))
+        }
     }
 
     @MainActor
@@ -129,7 +136,7 @@ struct PDFReadAloudSource: Sendable {
             }
             closeRun(at: segment.pageRange.length)
         }
-        return PDFReadAloudSource(text: snapshot.text, segments: segments)
+        return PDFReadAloudSource(text: snapshot.text, segments: segments + textBoxSegments(of: snapshot, pageIndex: pageIndex))
     }
 
     static func selection(_ selection: PDFSelection, in document: PDFDocument) throws -> PDFReadAloudSource {
@@ -180,7 +187,7 @@ struct PDFReadAloudSource: Sendable {
                 return PDFReadAloudHighlight(pageIndex: segment.pageIndex,
                     characterRange: NSRange(location: pageRange.location + intersection.location - segment.textRange.location, length: intersection.length),
                     expectedText: source.substring(with: intersection))
-            case .recognizedText:
+            case .pageArea:
                 return PDFReadAloudHighlight(pageIndex: segment.pageIndex, location: segment.location,
                     expectedText: source.substring(with: segment.textRange))
             }
@@ -191,7 +198,8 @@ struct PDFReadAloudSource: Sendable {
 struct PDFReadAloudHighlight: Equatable, Sendable {
     enum Location: Equatable, Sendable {
         case characters(NSRange)
-        case recognizedText(CGRect, PDFReadingPageGeometry)
+        /// An area of the page: a word recognized on a scanned page, or a text box.
+        case pageArea(CGRect, PDFReadingPageGeometry)
     }
     let pageIndex: Int
     let location: Location
@@ -235,7 +243,7 @@ struct PDFReadAloudHighlight: Equatable, Sendable {
         guard let page = document.page(at: pageIndex) else { return nil }
         switch location {
         case .characters: return selection(in: document)?.bounds(for: page)
-        case .recognizedText(let bounds, let geometry):
+        case .pageArea(let bounds, let geometry):
             // PDFKit may populate transient Live Text after showing a scan.
             // Image anchors depend on the validated page revision/geometry,
             // rather than whether PDFKit currently exposes recognized text.
@@ -286,7 +294,7 @@ final class PDFReadAloudHighlighter {
         highlightedDocument = view.document
         remainingSelections.append(contentsOf: selections)
         view.highlightedSelections = remainingSelections.isEmpty ? nil : remainingSelections
-        let recognizedHighlights = highlights.filter { if case .recognizedText = $0.location { return true }; return false }
+        let recognizedHighlights = highlights.filter { if case .pageArea = $0.location { return true }; return false }
         if recognizedHighlights.isEmpty {
             recognizedOverlay?.removeFromSuperview()
             recognizedOverlay = nil
@@ -306,7 +314,7 @@ final class PDFReadAloudHighlighter {
             recognizedOverlay = nil
             return
         }
-        recognizedOverlay?.update(previousHighlights.filter { if case .recognizedText = $0.location { return true }; return false }, in: view)
+        recognizedOverlay?.update(previousHighlights.filter { if case .pageArea = $0.location { return true }; return false }, in: view)
     }
 
     /// The word being read, in the view's coordinates.
