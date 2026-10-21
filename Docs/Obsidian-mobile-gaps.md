@@ -128,7 +128,7 @@ Status: **Missing**, **Partial**, or **Done**. "Desktop only" items are left out
 | Fonts and Dynamic Type | Partial | One size slider; system text size ignored |
 | Trash | Done | System trash, `.trash`, or permanent, as the vault's setting says |
 | Vault switcher | Done | Rename or delete a vault in Files |
-| Settings search, hotkey and toolbar settings | Missing | |
+| Settings search, hotkey and toolbar settings | Missing | Hotkeys planned in [Keyboard-shortcuts-settings-todo.md](Keyboard-shortcuts-settings-todo.md) |
 | Per-vault core plugin settings | Partial | Graphite's switches apply to every vault |
 
 ### Search and links

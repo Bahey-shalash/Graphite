@@ -17,6 +17,10 @@ struct GraphiteApp: App {
         launchMode = LaunchMode(arguments: ProcessInfo.processInfo.arguments, environment: ProcessInfo.processInfo.environment)
         // Hang and crash reports, and a record of any freeze, in Library/Diagnostics.
         if launchMode.startsDiagnostics { GraphiteDiagnostics.start() }
+        #if os(macOS)
+        // Before the first window draws: opening a note no longer reserves 170 MB.
+        MacViewDrawing.drawLargeViewsWithoutTheMetalRenderer()
+        #endif
     }
 
     var body: some Scene {
