@@ -65,7 +65,8 @@ MODULE_ROWS = {
     "GraphiteApple": {
         "folders": ["Sources/GraphiteApple"],
         "modules": {"GraphiteCore"},
-        "frameworks": {"UIKit", "AppKit", "PDFKit", "PencilKit", "AVFoundation", "Vision", "Security", "MetricKit", "ImageIO"},
+        "frameworks": {"UIKit", "AppKit", "PDFKit", "PencilKit", "AVFoundation", "Vision", "Security", "MetricKit", "ImageIO",
+                       "CoreText", "CoreImage", "QuickLookThumbnailing", "UniformTypeIdentifiers"},
         "allows_runtime": True,
     },
     "GraphiteVoices": {
@@ -78,7 +79,8 @@ MODULE_ROWS = {
     "GraphiteUI": {
         "folders": ["Sources/GraphiteUI"],
         "modules": {"GraphiteCore", "GraphiteIndex", "GraphiteApple", "GraphiteVoices"},
-        "frameworks": {"SwiftUI", "UIKit", "AppKit", "Textual", "PDFKit", "PencilKit", "WebKit", "MapKit", "AVFoundation", "MediaPlayer"},
+        "frameworks": {"SwiftUI", "UIKit", "AppKit", "Textual", "PDFKit", "PencilKit", "WebKit", "MapKit", "AVFoundation", "MediaPlayer",
+                       "VisionKit", "PhotosUI", "UniformTypeIdentifiers"},
         "allows_runtime": True,
     },
     "GraphiteBenchmarks": {
