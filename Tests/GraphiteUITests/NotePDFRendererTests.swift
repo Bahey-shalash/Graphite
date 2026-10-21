@@ -67,7 +67,7 @@ final class NotePDFRendererTests: XCTestCase {
         """
 
     private func source(_ text: String, name: String = "Signals") throws -> NotePDFSource {
-        NotePDFSource(text: text, path: try VaultPath("\(name).md"), vault: try XCTUnwrap(ReadingVault(vault.root, index)),
+        NotePDFSource(text: text, path: try VaultPath("\(name).md"), vault: try XCTUnwrap(ReadingVault(vault.root, index, store: VaultStore(root: vault.root))),
                       readingConfiguration: ReadingConfiguration(), title: name,
                       appearance: NotePDFAppearance(typography: .standard, codeColorTheme: .obsidian, accent: .blue))
     }
@@ -206,6 +206,99 @@ final class NotePDFRendererTests: XCTestCase {
         XCTAssertEqual(preview.pageCount, 2)
     }
 
+    func testABasePrintsItsCardsWithCoversGroupedAsOnScreen() async throws {
+        try await writeRestaurants(count: 30)
+        let note = Self.restaurantsBase(type: "cards", name: "By city", extra: "    image: note.cover")
+        let document = try await render(note)
+        let pages = pageTexts(document)
+        let text = pages.joined(separator: "\n")
+        XCTAssertGreaterThan(document.pageCount, 1, "Thirty cards with covers fill more than a page.")
+        for expected in ["By city", "30 results", "Luzern", "Zürich", "Bern", "Cuisine 7", "After the base."] {
+            XCTAssertTrue(text.contains(expected), "The PDF's text has “\(expected)”: \(text)")
+        }
+        XCTAssertFalse(text.contains("inFolder"), "The base is drawn, not its YAML.")
+        for number in 1...30 {
+            XCTAssertEqual(try occurrences(of: "Restaurant \(number)", in: text), 1, "Each card printed once, never cut between pages: Restaurant \(number)")
+        }
+        // The grouping heading counts all of its group's cards, also on a page that shows only some of them.
+        for city in ["Luzern", "Zürich", "Bern"] {
+            XCTAssertFalse(text.matches(of: try Regex("\(city)\\s*10(?![0-9])")).isEmpty, "\(city)'s heading counts its 10 restaurants: \(text)")
+            XCTAssertTrue(text.matches(of: try Regex("\(city)\\s*[0-9](?![0-9])")).isEmpty, "No heading counts only the cards on its page: \(text)")
+        }
+        let page = try XCTUnwrap(document.page(at: 0))
+        let picture = page.thumbnail(of: page.bounds(for: .cropBox).size, for: .cropBox)
+        let colours = try XCTUnwrap(PictureBrightness(picture))
+        XCTAssertGreaterThan(colours.redFraction, 0.02, "The cards' red covers are drawn.")
+        attachPages(of: document, named: "Base of cards")
+    }
+
+    func testABaseListAndTablePrintEveryRowOnceInOrder() async throws {
+        try await writeRestaurants(count: 90)
+        for type in ["list", "table"] {
+            let document = try await render(Self.restaurantsBase(type: type, name: "All \(type)", extra: type == "list" ? "    markers: numbers" : ""))
+            let pages = pageTexts(document)
+            let text = pages.joined(separator: "\n")
+            XCTAssertGreaterThan(document.pageCount, 1, "Ninety rows fill more than a page (\(type)).")
+            XCTAssertTrue(text.contains("All \(type)"), text)
+            XCTAssertFalse(text.contains("inFolder"), "The base is drawn, not its YAML (\(type)).")
+            for number in 1...90 {
+                XCTAssertEqual(try occurrences(of: "Restaurant \(number)", in: text), 1, "Printed once (\(type)): Restaurant \(number)")
+            }
+            if type == "table" {
+                let pagesWithRows = pages.filter { page in page.contains("Restaurant ") }
+                XCTAssertTrue(pagesWithRows.allSatisfy { page in page.contains("cuisine") }, "The header row is printed on every page of the table.")
+            } else {
+                XCTAssertTrue(text.contains("30."), "Numbers go on across pages to the group's last item.")
+            }
+            attachPages(of: document, named: "Base \(type)")
+        }
+    }
+
+
+    /// Restaurants in three cities, each with the same red cover, and a base of them.
+    private func writeRestaurants(count: Int) async throws {
+        let context = try XCTUnwrap(CGContext(data: nil, width: 120, height: 80, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(red: 0.9, green: 0.1, blue: 0.1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 120, height: 80))
+        try vault.writeFile("Cover.png", data: try ImageEncoding.pngData(from: try XCTUnwrap(context.makeImage())))
+        let cities = ["Luzern", "Zürich", "Bern"]
+        for number in 1...count {
+            try vault.writeFile("Restaurants/Restaurant \(number).md",
+                                text: "---\ncity: \(cities[number % 3])\ncuisine: Cuisine \(number)\ncover: \"[[Cover.png]]\"\n---\nA restaurant.\n")
+        }
+        _ = try await index.reconcile(root: vault.root)
+    }
+
+    private static func restaurantsBase(type: String, name: String, extra: String = "") -> String {
+        """
+        # Restaurants
+
+        ```base
+        filters:
+          and:
+            - file.inFolder("Restaurants")
+        views:
+          - type: \(type)
+            name: \(name)
+            groupBy:
+              property: city
+              direction: ASC
+            order:
+              - file.name
+              - cuisine
+        \(extra)
+        ```
+
+        After the base.
+        """
+    }
+
+    /// How often `name` is printed, not counting longer names it begins ("Restaurant 1" in "Restaurant 12").
+    private func occurrences(of name: String, in text: String) throws -> Int {
+        text.matches(of: try Regex(NSRegularExpression.escapedPattern(for: name) + "(?![0-9])")).count
+    }
+
     // MARK: Helpers
 
     private func withDarkAppearance<Result>(_ work: () async throws -> Result) async rethrows -> Result {
@@ -229,6 +322,8 @@ final class NotePDFRendererTests: XCTestCase {
 private struct PictureBrightness {
     let averageLuminance: Double
     let darkestLuminance: Double
+    /// The share of pixels that are strongly red.
+    let redFraction: Double
 
     #if os(macOS)
     init?(_ picture: NSImage) {
@@ -256,13 +351,16 @@ private struct PictureBrightness {
         guard didDraw, width > 0, height > 0 else { return nil }
         var total = 0.0
         var darkest = 1.0
+        var redCount = 0
         for pixelIndex in 0..<(width * height) {
             let offset = pixelIndex * 4
+            if pixels[offset] > 180, pixels[offset + 1] < 90, pixels[offset + 2] < 90 { redCount += 1 }
             let luminance = (0.2126 * Double(pixels[offset]) + 0.7152 * Double(pixels[offset + 1]) + 0.0722 * Double(pixels[offset + 2])) / 255
             total += luminance
             darkest = min(darkest, luminance)
         }
         averageLuminance = total / Double(width * height)
         darkestLuminance = darkest
+        redFraction = Double(redCount) / Double(width * height)
     }
 }

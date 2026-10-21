@@ -248,12 +248,16 @@ struct ReadingBlockLocation: Equatable, Sendable {
 struct ReadingVault {
     let root: URL
     let index: VaultIndex
+    /// Reads base files and the vault's property types, so a printed base runs as on screen;
+    /// nil prints bases as their names.
+    let store: VaultStore?
 
     /// Nil while no vault is open.
-    init?(_ root: URL?, _ index: VaultIndex?) {
+    init?(_ root: URL?, _ index: VaultIndex?, store: VaultStore? = nil) {
         guard let root, let index else { return nil }
         self.root = root
         self.index = index
+        self.store = store
     }
 
     /// The note's reading-view blocks, built off the main actor.

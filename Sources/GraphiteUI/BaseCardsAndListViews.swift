@@ -35,7 +35,7 @@ struct BaseCardGridMetrics: Equatable {
 
 /// Obsidian's cards view: a grid of cards with an optional cover image.
 struct BaseCardsView: View {
-    private static let defaultCardWidth: CGFloat = 220
+    static let defaultCardWidth: CGFloat = 220
 
     let result: BaseQueryResult
     let actions: BaseViewActions
@@ -177,7 +177,9 @@ struct BaseListView: View {
         LazyVStack(alignment: .leading, spacing: 0) {
             ForEach(result.visibleGroups(rowLimit: rowLimit)) { visibleGroup in
                 if result.view.groupBy != nil { BaseGroupHeader(group: visibleGroup.group, result: result, actions: actions).padding(.top, 8) }
-                ForEach(Array(visibleGroup.rows.enumerated()), id: \.element.id) { position, row in item(row, number: position + 1) }
+                ForEach(Array(visibleGroup.rows.enumerated()), id: \.element.id) { position, row in
+                    item(row, number: visibleGroup.group.leftOutRows.before + position + 1)
+                }
             }
         }
         // The toolbar's margin, so the list lines up under the view's name.
@@ -270,7 +272,7 @@ struct BaseGroupHeader: View {
             default:
                 Text("No value").font(.headline).foregroundStyle(.secondary)
             }
-            Text("\(group.rows.count)").font(.caption).foregroundStyle(.secondary)
+            Text("\(group.fullRowCount)").font(.caption).foregroundStyle(.secondary)
             Spacer(minLength: 0)
         }
         .padding(.vertical, 4)

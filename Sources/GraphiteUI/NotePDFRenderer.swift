@@ -78,7 +78,8 @@ final class NotePDFRenderer {
         reportProgress(0)
         let build = try await source.vault.build(source.text, note: source.path, configuration: printingConfiguration)
         try Task.checkCancellation()
-        blocks = await NotePDFBlocks.prepared(build.blocks, title: options.includesFileNameAsTitle ? source.title : nil, root: source.vault.root)
+        blocks = await NotePDFBlocks.prepared(build.blocks, title: options.includesFileNameAsTitle ? source.title : nil, vault: source.vault, note: source.path,
+                                             layoutWidth: options.layoutWidth)
         try Task.checkCancellation()
         let flowBlocks = try await measuredFlowBlocks(pageLimit: pageLimit) { fraction in reportProgress(0.1 + 0.4 * fraction) }
         let allPlacements = await NotePageFlow.placements(of: flowBlocks, pageHeight: Double(options.layoutPageHeight), measurements: measurements)
