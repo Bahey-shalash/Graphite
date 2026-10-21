@@ -104,9 +104,10 @@ enum WelcomeTourPointTitle {
     }
 }
 
-/// A picture of Graphite from the app's `WelcomeTour` asset catalog, with a light and a dark
-/// appearance, taken on iPad and, for the pages the Mac shows, on the Mac (the catalog's `mac`
-/// idiom), so each platform shows itself. The pictures were taken in a demo vault of lecture notes.
+/// A picture of Graphite in the light and the dark appearance, from the welcome tour's add-on
+/// pack (`WelcomeTourScreenshotPack`), which is downloaded the first time the tour opens rather
+/// than carried in the app. iPad and iPhone show iPad pictures; the Mac shows its own. The
+/// pictures were taken in a demo vault of lecture notes.
 struct WelcomeTourScreenshot: Identifiable {
     /// The name in the segmented control when a page has several screenshots.
     let label: String

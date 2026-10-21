@@ -44,6 +44,7 @@ struct WelcomeTour: View {
     let pages: [WelcomeTourPage]
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accent) private var accent
+    @Environment(AddOnLibrary.self) private var addOns: AddOnLibrary?
     /// The page in view, which the scroll position and the buttons both move.
     @State private var visiblePage: WelcomeTourPage?
 
@@ -77,7 +78,11 @@ struct WelcomeTour: View {
             }
         }
         .tint(accent)
-        .onAppear { if visiblePage == nil { visiblePage = pages.first } }
+        .onAppear {
+            if visiblePage == nil { visiblePage = pages.first }
+            // The screenshots are an add-on: fetched the first time the tour opens.
+            if let pack = WelcomeTourScreenshotPack.forThisPlatform { addOns?.download(pack) }
+        }
     }
 
     /// Fits an iPhone's width: Back, a dot for each page and Next take about 350 points.
