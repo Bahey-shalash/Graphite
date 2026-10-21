@@ -916,7 +916,7 @@ final class WorkspaceModel {
             let directory = newFileDirectory(directory)
             try await store.createDirectory(directory)
             let path = try await store.uniquePath(directory: directory, stem: name, extension: "pdf")
-            try await writeNotebook(options, at: path, store: store, root: root)
+            try await writeNotebook(options, titled: name, at: path, store: store, root: root)
             refreshIndex(for: [path])
             await refreshDirectory(); await open(path)
         } catch { errorMessage = error.localizedDescription }

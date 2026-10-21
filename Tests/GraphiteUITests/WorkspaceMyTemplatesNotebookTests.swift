@@ -60,6 +60,17 @@ final class WorkspaceMyTemplatesNotebookTests: XCTestCase {
         XCTAssertEqual(PDFDocument(url: vault.location(of: "Squares.pdf"))?.pageCount, 2)
     }
 
+    func testACoverTitledWithTheNotebooksNameIsTheFirstPage() async throws {
+        let (workspace, vault) = try await makeWorkspace()
+        var options = NewNotebookOptions(paperChoice: .squared, paperStyle: PaperSpecification(), pageSize: .named(.a4, .portrait), pageCount: 2)
+        options.cover = .green
+        await workspace.createNotebook(named: "Thermodynamics", options: options)
+        XCTAssertNil(workspace.errorMessage)
+        let document = try XCTUnwrap(PDFDocument(url: vault.location(of: "Thermodynamics.pdf")))
+        XCTAssertEqual(document.pageCount, 3)
+        XCTAssertTrue(try XCTUnwrap(document.page(at: 0)?.string).contains("Thermodynamics"), "The cover carries the notebook's name.")
+    }
+
     func testATemplateThatIsGoneMakesNoNotebookAndSaysSo() async throws {
         let (workspace, vault) = try await makeWorkspace()
         var options = NewNotebookOptions(paperChoice: .dotted, paperStyle: PaperSpecification(), pageSize: .named(.a4, .portrait), pageCount: 2)
