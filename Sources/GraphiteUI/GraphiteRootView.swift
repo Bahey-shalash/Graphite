@@ -300,8 +300,6 @@ struct GraphiteRootView: View {
         // packs too. Every window shares one library (`ProcessServices`).
         .environment(workspace.processServices.addOns)
         .environment(\.embeddedPDFSessions, workspace.embeddedPDFSessions)
-        .environment(myTemplates)
-        .task(id: workspace.currentVaultIdentifier) { myTemplates.use(workspace.myTemplatesSource) }
     }
 
     /// Opens the vault the window was opened on, or, for the window of a launch, the vault
@@ -327,6 +325,8 @@ struct GraphiteRootView: View {
 
     private var detailColumn: some View {
         documentArea
+            // The New Notebook sheet that Insert › New Notebook opens in a note reads the templates from here.
+            .modifier(MyTemplatesEnvironment(model: myTemplates, vaultIdentifier: workspace.currentVaultIdentifier, source: workspace.myTemplatesSource))
             // Nothing a document view holds carries over to another vault.
             .id(workspace.currentVaultIdentifier)
             .overlay { RecordingPreviewOverlay(workspace: workspace) }
@@ -589,6 +589,7 @@ struct GraphiteRootView: View {
                 if request.opensInNewTab { openTabForLibraryCreation() }
                 Task { await workspace.createNotebook(named: name, options: options, in: request.directory) }
             }
+            .environment(myTemplates)
         case .note, .base, .canvas:
             CreateDocumentSheet(kind: request.kind, folderDescription: folderDescription) { name in
                 if request.opensInNewTab { openTabForLibraryCreation() }
