@@ -18,6 +18,8 @@ protocol MarkdownStyledTextView: AnyObject, Sendable {
     var isComposingText: Bool { get }
     /// The width of the text column, which rendered blocks' views take.
     var renderedBlockColumnWidth: CGFloat { get }
+    /// The pane's width inside its margins, which a base's view takes.
+    var renderedBlockPaneWidth: CGFloat { get }
     var typingAttributes: [NSAttributedString.Key: Any] { get set }
 }
 
@@ -30,6 +32,7 @@ extension UITextView: MarkdownStyledTextView {
     }
     var isComposingText: Bool { markedTextRange != nil }
     var renderedBlockColumnWidth: CGFloat { (self as? MarkdownTextView)?.contentColumnWidth ?? bounds.width }
+    var renderedBlockPaneWidth: CGFloat { (self as? MarkdownTextView)?.paneContentWidth ?? renderedBlockColumnWidth }
 }
 #else
 extension NSTextView: MarkdownStyledTextView {
@@ -45,6 +48,7 @@ extension NSTextView: MarkdownStyledTextView {
         guard let textContainer else { return 0 }
         return textContainer.size.width - 2 * textContainer.lineFragmentPadding
     }
+    var renderedBlockPaneWidth: CGFloat { (self as? MarkdownMacTextView)?.paneContentWidth ?? renderedBlockColumnWidth }
 }
 #endif
 
@@ -352,7 +356,7 @@ final class MarkdownEditorStyling {
         let block = visited.block
         // The block must still start where it was found: the line before its code opens it.
         guard block.codeStart > 0, block.codeStart <= source.length,
-              let opening = CodeFence.opening(source.substring(with: source.lineRange(for: NSRange(location: block.codeStart - 1, length: 0)))
+              let opening = MarkdownFenceSyntax.opening(source.substring(with: source.lineRange(for: NSRange(location: block.codeStart - 1, length: 0)))
                 .trimmingCharacters(in: .whitespacesAndNewlines)), opening.fence == block.fence,
               let language = CodeLanguage.named(block.language) else { return nil }
         let codeRange = block.codeRange(in: source)
@@ -405,7 +409,9 @@ final class MarkdownEditorStyling {
     /// - Parameter restyledRange: The lines being restyled, whose blocks' heights are kept
     ///   as the ones the text reserves; nil when the styling leaves the blocks alone.
     private func concealedBlocks(in textView: any MarkdownStyledTextView, restyledRange: NSRange?) -> [ConcealedBlock] {
-        renderedBlocks.concealedBlocks(for: concealedEntries(in: textView), columnWidth: textView.renderedBlockColumnWidth, configuration: configuration,
+        renderedBlocks.concealedBlocks(for: concealedEntries(in: textView),
+                                       widths: RenderedBlockWidths(column: textView.renderedBlockColumnWidth, pane: textView.renderedBlockPaneWidth),
+                                       configuration: configuration,
                                        restyledRange: restyledRange)
     }
 

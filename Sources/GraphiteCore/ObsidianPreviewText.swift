@@ -23,7 +23,7 @@ public enum ObsidianPreviewText {
             if let closingLineIndex = mathClosingLineIndex {
                 isBlockLine = true
                 if lineIndex >= closingLineIndex { mathClosingLineIndex = nil }
-            } else if fenceTracker.isCodeLine(untrimmedLine: unquoted) {
+            } else if fenceTracker.isCodeLine(untrimmedLine: MarkdownQuoteSyntax.markersRemoved(from: content).content) {
                 // Fences and everything between them are left exactly as written.
                 isBlockLine = true
             } else if let opening = mathLines.opening(at: lineIndex) {

@@ -370,6 +370,7 @@ private struct BookmarkRows: View {
         if bookmark.type == "file", let path = bookmark.vaultPath, workspace.isInVault(path) {
             Button("Open in New Tab", systemImage: "plus.rectangle.on.rectangle") { Task { await workspace.open(bookmark, placement: .newTab) } }
             Button(workspace.openOnOtherSideTitle, systemImage: "rectangle.split.2x1") { Task { await workspace.open(bookmark, placement: .otherGroup) } }
+            OpenInNewWindowButton { Task { await workspace.open(path, placement: .newWindow) } }
             Divider()
         }
         Button("Rename…", systemImage: "pencil") {

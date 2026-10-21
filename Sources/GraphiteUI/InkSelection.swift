@@ -81,42 +81,51 @@ enum InkLasso {
 /// nobody what that is. Each is switched on from the palette's accessory menu and off again
 /// by choosing any tool; only one is on at a time, as one value holds which. They are not
 /// kept between launches.
+///
+/// Each window has its own (`PaletteInkSelection.of(_:)` on the iPad; owner, 2026-10-21):
+/// the lasso taken up in one window leaves the pen of another window drawing.
 @MainActor
-enum PaletteInkSelection {
+final class PaletteInkSelection {
     /// The tool of Graphite's the palette's canvases use, or none, while they draw.
     enum Tool: Equatable {
         case none, lasso, laser, readAloudPen, textBox
     }
 
+    /// Posted with the selection that changed as its object.
     static let didChange = Notification.Name("GraphitePaletteInkSelectionDidChange")
-    static var tool = Tool.none {
-        didSet { if tool != oldValue { NotificationCenter.default.post(name: didChange, object: nil) } }
+    var tool = Tool.none {
+        didSet { if tool != oldValue { NotificationCenter.default.post(name: Self.didChange, object: self) } }
     }
 
     /// Graphite's lasso ("Select Ink").
-    static var isOn: Bool {
+    var isOn: Bool {
         get { tool == .lasso }
         set { take(.lasso, isOn: newValue) }
     }
     /// The laser pointer.
-    static var pointsWithLaser: Bool {
+    var pointsWithLaser: Bool {
         get { tool == .laser }
         set { take(.laser, isOn: newValue) }
     }
     /// The Read Aloud pen.
-    static var pointsToRead: Bool {
+    var pointsToRead: Bool {
         get { tool == .readAloudPen }
         set { take(.readAloudPen, isOn: newValue) }
     }
     /// The text tool, on PDF pages.
-    static var placesTextBoxes: Bool {
+    var placesTextBoxes: Bool {
         get { tool == .textBox }
         set { take(.textBox, isOn: newValue) }
     }
 
     /// Takes up a tool, or puts it away when it is the one in use.
-    private static func take(_ chosen: Tool, isOn: Bool) {
+    private func take(_ chosen: Tool, isOn: Bool) {
         if isOn { tool = chosen } else if tool == chosen { tool = .none }
+    }
+
+    /// A tool chosen in the palette puts Graphite's tools away.
+    func endForChosenTool() {
+        tool = .none
     }
 }
 

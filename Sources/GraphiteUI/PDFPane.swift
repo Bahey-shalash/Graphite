@@ -1,3 +1,15 @@
+/**
+ * File: PDFPane.swift
+ * -------------------
+ * Layer: UI
+ * Description: A PDF's pane: the pages, their thumbnails, Pencil annotation, find, adding pages, Go to Page, and
+ *              the toolbar with its More commands in the system's overflow menu.
+ *
+ * Authors: Bahey Shalash, Félix Chevalier
+ * Version: 0.22
+ * Date: 21/10/2026
+ */
+
 import SwiftUI
 import PDFKit
 import UniformTypeIdentifiers
@@ -69,6 +81,8 @@ private struct PDFPaneContent: View {
     @AppStorage(PDFAnnotationPreferenceKey.drawsWithFinger) private var drawsWithFinger = false
     @AppStorage(PDFAnnotationPreferenceKey.showsToolPicker) private var showsToolPicker = true
     @Environment(\.renameDocument) private var renameDocument
+    /// The window's registry of embedded PDFs; nil outside a window's workspace.
+    @Environment(\.embeddedPDFSessions) private var embeddedPDFSessions
     #if canImport(UIKit)
     @AppStorage(PDFAnnotationPreferenceKey.drawsShapes) private var drawsShapes = false
     @AppStorage(PDFAnnotationPreferenceKey.writingGuidePattern) private var writingGuidePattern = DrawingPaperPattern.plain
@@ -248,13 +262,20 @@ private struct PDFPaneContent: View {
             // drawn from the file rather than from the live document.
             thumbnailRenderer.prepare(for: session.document)
             // An embed of this PDF that starts annotating saves this pane's edits first.
-            EmbeddedPDFSessions.shared.add(session)
+            embeddedPDFSessions?.add(session)
         }
         .onDisappear {
             thumbnailRenderer.removeThumbnails()
-            EmbeddedPDFSessions.shared.remove(session)
+            embeddedPDFSessions?.remove(session)
         }
         .toolbar { if isFocused { toolbarContent } }
+        // Go to Page, from the More menu: a sheet rather than a popover from the menu, which
+        // may not show once the menu has closed.
+        .sheet(isPresented: $showsPageJump) {
+            pageJumpField
+                .padding(20)
+                .presentationDetents([.height(140)])
+        }
         .sheet(isPresented: $showsReadingPageRange, onDismiss: {
             if let range = pendingReadingPageRange {
                 pendingReadingPageRange = nil
@@ -390,15 +411,15 @@ private struct PDFPaneContent: View {
                 UndoRedoButtons(availability: session.undoAvailability)
                 #endif
             }
+            #if !os(iOS)
             Menu("More", systemImage: "ellipsis") { moreMenuItems }
-                // A sheet rather than a popover from the menu, which may not show once the
-                // menu has closed.
-                .sheet(isPresented: $showsPageJump) {
-                    pageJumpField
-                        .padding(20)
-                        .presentationDetents([.height(140)])
-                }
+            #endif
         }.tint(.primary) }
+        #if os(iOS)
+        // The system's overflow menu (•••) holds the More commands together with whatever the
+        // bar has no room for, so there is one such menu, also on iPhone Duo's side bar.
+        ToolbarOverflowMenu { moreMenuItems }
+        #endif
     }
 
     @ViewBuilder private var moreMenuItems: some View {

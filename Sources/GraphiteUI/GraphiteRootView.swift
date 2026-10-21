@@ -1,11 +1,29 @@
+/**
+ * File: GraphiteRootView.swift
+ * ----------------------------
+ * Layer: UI
+ * Description: The root view of one window: the sidebar and documents split view, the window's toolbar and phone
+ *              bottom bar, palettes, sheets and full-screen viewers, and the links the window handles.
+ *
+ * Authors: Bahey Shalash, Félix Chevalier
+ * Version: 0.41
+ * Date: 21/10/2026
+ */
+
 import SwiftUI
 import QuickLook
 import GraphiteCore
 import GraphiteApple
 import GraphiteIndex
 
-public struct GraphiteRootView: View {
+struct GraphiteRootView: View {
     @State private var workspace: WorkspaceModel
+    /// What the window was opened to show, which the system keeps with it; this view keeps it
+    /// at the vault it shows, so a relaunch opens the window there.
+    @Binding private var windowContent: GraphiteWindowContent?
+    /// The window's tabs (`WindowTabs`), which the system keeps with the window, so each
+    /// window shows its own tabs again after a relaunch.
+    @SceneStorage("GraphiteWindowTabs") private var keptWindowTabs: Data?
     /// False for a hosted-tests launch, which opens no vault of its own (`LaunchMode`).
     private let restoresLastVault: Bool
     /// False for a hosted-tests launch, which never opens the welcome tour by itself.
@@ -20,9 +38,6 @@ public struct GraphiteRootView: View {
     @State private var opensVaultManagerAfterSettings = false
     @State private var creation: CreationRequest?
     @State private var library = LibraryModel()
-    /// What this device has downloaded of the extras Graphite does not carry, such as the
-    /// welcome tour's pictures; every sheet of the window reads it from the environment.
-    @State private var addOns: AddOnLibrary?
     @State private var showsInspector = false
     @State private var activePalette: ActivePalette?
     @State private var columnVisibility = NavigationSplitViewVisibility.automatic
@@ -44,6 +59,9 @@ public struct GraphiteRootView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     #if os(macOS)
     @Environment(\.openSettings) private var openSettings
+    /// Which window is in front, for the Settings window (`GraphiteMacScenes`).
+    @Environment(FrontmostWindow.self) private var frontmostWindow: FrontmostWindow?
+    @Environment(\.controlActiveState) private var controlActiveState
     #endif
 
     private enum ActivePalette { case quickSwitcher, commandPalette, templatePicker }
@@ -53,9 +71,11 @@ public struct GraphiteRootView: View {
     /// document's own controls.
     private var isCompactWidth: Bool { horizontalSizeClass == .compact }
 
-    /// The root view of a launch in `launchMode`, with the workspace made for it.
-    public init(launchMode: LaunchMode) {
-        _workspace = State(initialValue: WorkspaceModel(launchMode: launchMode))
+    /// The root view of one window of a launch in `launchMode`, over the window's workspace
+    /// (`GraphiteWindowScene` makes it once per window).
+    init(workspace: WorkspaceModel, launchMode: LaunchMode, windowContent: Binding<GraphiteWindowContent?>) {
+        _workspace = State(initialValue: workspace)
+        _windowContent = windowContent
         restoresLastVault = launchMode.restoresLastVault
         presentsWelcomeTour = launchMode.presentsWelcomeTour
         _isRestoringVault = State(initialValue: launchMode.restoresLastVault)
@@ -65,17 +85,10 @@ public struct GraphiteRootView: View {
     /// replace with the last vault this device opened.
     init(workspace: WorkspaceModel) {
         _workspace = State(initialValue: workspace)
+        _windowContent = .constant(nil)
         restoresLastVault = true
         presentsWelcomeTour = false
         _isRestoringVault = State(initialValue: false)
-    }
-
-    /// The root view of a workspace other scenes share, as the Mac's Settings window does.
-    init(reopeningLastVaultIn workspace: WorkspaceModel, launchMode: LaunchMode) {
-        _workspace = State(initialValue: workspace)
-        restoresLastVault = launchMode.restoresLastVault
-        presentsWelcomeTour = launchMode.presentsWelcomeTour
-        _isRestoringVault = State(initialValue: launchMode.restoresLastVault)
     }
 
     public var body: some View {
@@ -95,6 +108,7 @@ public struct GraphiteRootView: View {
                     if usesFloatingPlayer, let reader = workspace.readAloud, let navigator = workspace.readAloudNavigator,
                        reader.isActive && !workspace.recording.state.isActive {
                         ReadAloudFloatingPlayer(reader: reader, navigator: navigator)
+                            .placedBesideDisplayFold(alignment: .center)
                     }
                 }
         }
@@ -134,6 +148,11 @@ public struct GraphiteRootView: View {
         .focusedSceneValue(\.workspaceMenuActions, WorkspaceMenuActions(workspace: workspace, window: windowActions,
                                                                           showCommandPalette: { activePalette = .commandPalette },
                                                                           save: { Task { await save() } }))
+        // Export to PDF and Print for the note in front or a note in the file list.
+        .notePDFExport(note: workspace.markdownSession, vault: ReadingVault(workspace.folderAccess?.root, workspace.index), preferences: workspace.preferences,
+                       usesStrictLineBreaks: workspace.vaultSettings.usesStrictLineBreaks,
+                       appearance: NotePDFAppearance(typography: workspace.noteTypography, codeColorTheme: workspace.preferences.codeColorTheme,
+                                                     accent: workspace.preferences.accentColor))
         .overlay { paletteOverlay }
         .animation(GraphiteMotion.animation(.snappy(duration: 0.18)), value: activePalette)
         #if canImport(UIKit)
@@ -207,12 +226,12 @@ public struct GraphiteRootView: View {
                 try await workspace.exportDrawingCopy(content, format: format, title: request.title)
             } preserveDraft: { content in
                 guard let vaultIdentifier = workspace.currentVaultIdentifier else { return }
-                Self.draftIdentifiersOpenInThisProcess.insert(request.id)
-                DrawingEditorDraftStore.shared.preserve(DrawingEditorDraft(request: request, vaultIdentifier: vaultIdentifier)) {
+                workspace.processServices.drawingDrafts.markOpenInThisProcess(request.id)
+                workspace.processServices.drawingDrafts.preserve(DrawingEditorDraft(request: request, vaultIdentifier: vaultIdentifier)) {
                     try await DrawingFileService().draftFileData(for: content)
                 }
             } removeDraft: {
-                DrawingEditorDraftStore.shared.removeDraft(withIdentifier: request.id)
+                workspace.processServices.drawingDrafts.removeDraft(withIdentifier: request.id)
             }
         }
         .onChange(of: workspace.currentVaultIdentifier) { _, vaultIdentifier in
@@ -227,7 +246,7 @@ public struct GraphiteRootView: View {
         #endif
         .messageAlert($workspace.errorMessage)
         .task {
-            if restoresLastVault { await workspace.restoreVault() }
+            if restoresLastVault { await openVaultOfWindow() }
             isRestoringVault = false
             // Links that arrived while the last vault reopened, as when one launched Graphite.
             isVaultRestored = true
@@ -252,6 +271,13 @@ public struct GraphiteRootView: View {
         .onOpenURL { url in
             if isVaultRestored { Task { await workspace.handle(url) } } else { pendingLinks.append(url) }
         }
+        // The scene keeps the window's tabs, for its own restoration after a relaunch.
+        .onChange(of: workspace.layout.saved) { keptWindowTabs = workspace.windowTabsToKeep() }
+        #if os(macOS)
+        .onChange(of: controlActiveState, initial: true) { _, state in
+            if state == .key { frontmostWindow?.workspace = workspace; workspace.windowCameToFront() }
+        }
+        #endif
         .onChange(of: scenePhase) { previousPhase, phase in
             workspace.scenePhaseDidChange(from: previousPhase, to: phase, saveBeforeLeaving: saveBeforeLeavingScreen)
         }
@@ -268,10 +294,23 @@ public struct GraphiteRootView: View {
             if let completedLocation { Task { await workspace.recordingDidFinish(at: completedLocation) } }
         }
         .preferredColorScheme(workspace.preferences.appearanceMode.colorScheme)
-        // Outermost, so the window's sheets (the welcome tour, Settings) read it too. Made
-        // when the window first appears, from the folders of the workspace it belongs to.
-        .environment(addOns)
-        .onAppear { if addOns == nil { addOns = .standard(applicationFolders: workspace.applicationFolders) } }
+        // Outermost, so the window's sheets (the welcome tour, Settings) read the add-on
+        // packs too. Every window shares one library (`ProcessServices`).
+        .environment(workspace.processServices.addOns)
+        .environment(\.embeddedPDFSessions, workspace.embeddedPDFSessions)
+    }
+
+    /// Opens the vault the window was opened on, or, for the window of a launch, the vault
+    /// used last; from then on the window's content follows the vault it shows.
+    private func openVaultOfWindow() async {
+        if let windowContent, let vaultIdentifier = windowContent.vaultIdentifier {
+            let tabs: WindowTabsToRestore = windowContent.opensFreshTabs ? .none
+                : WindowTabs.layout(in: keptWindowTabs, forVault: vaultIdentifier).map(WindowTabsToRestore.window) ?? .vaultsLast
+            await workspace.openVaultOfWindow(vaultIdentifier, tabs: tabs, showing: windowContent.file)
+        } else {
+            await workspace.restoreVault()
+        }
+        windowContent = GraphiteWindowContent(vaultIdentifier: workspace.currentVaultIdentifier)
     }
 
     private func recoveryMessage(for unfinished: RecoverableRecording) -> String {
@@ -287,7 +326,7 @@ public struct GraphiteRootView: View {
             // Nothing a document view holds carries over to another vault.
             .id(workspace.currentVaultIdentifier)
             .overlay { RecordingPreviewOverlay(workspace: workspace) }
-            .overlay(alignment: .top) { NoticeBanner(notice: $workspace.notice) }
+            .overlay { NoticeBanner(notice: $workspace.notice).placedBesideDisplayFold(alignment: .top) }
             .onChange(of: workspace.selection) { workspace.notice = nil }
             // Editable, so the title bar's menu offers Rename, as for documents in Files.
             .modifier(DocumentTitle(title: titleBinding, isCompactWidth: isCompactWidth))
@@ -358,12 +397,7 @@ public struct GraphiteRootView: View {
             }
             // Notes, PDFs and canvases end their own More menu with these commands; other
             // documents and an empty tab have no menu of their own, so the window shows one.
-            if !focusedDocumentHasMoreMenu {
-                ToolbarItem(placement: .primaryAction) {
-                    Menu("More", systemImage: "ellipsis") { WorkspaceMoreMenuItems() }
-                        .tint(.primary)
-                }
-            }
+            if !focusedDocumentHasMoreMenu { windowMoreMenu }
         }
         if workspace.store != nil && showsRecordingControl {
             ToolbarItem(placement: .primaryAction) {
@@ -373,11 +407,24 @@ public struct GraphiteRootView: View {
         }
         if !usesFloatingPlayer, let reader = workspace.readAloud, reader.isActive {
             ToolbarItemGroup(placement: .primaryAction) {
-                ReadAloudToolbarControls(reader: reader, isDisabled: workspace.recording.state.isActive,
+                ReadAloudToolbarControls(reader: reader, isDisabled: workspace.isRecordingInAnyWindow,
                                          accentColor: workspace.preferences.accentColor)
                     .tint(.primary)
             }
         }
+    }
+
+    /// The window's More menu, for a document without one of its own or an empty tab: on iOS
+    /// in the system's overflow menu (•••), the one such menu of the bar.
+    @ToolbarContentBuilder private var windowMoreMenu: some ToolbarContent {
+        #if os(iOS)
+        ToolbarOverflowMenu { WorkspaceMoreMenuItems() }
+        #else
+        ToolbarItem(placement: .primaryAction) {
+            Menu("More", systemImage: "ellipsis") { WorkspaceMoreMenuItems() }
+                .tint(.primary)
+        }
+        #endif
     }
 
     /// Whether the focused document puts a More menu of its own in the toolbar.
@@ -409,27 +456,40 @@ public struct GraphiteRootView: View {
     @ToolbarContentBuilder private var compactBottomBar: some ToolbarContent {
         // The keyboard, and the note's keyboard toolbar, take over while typing, as in
         // Obsidian mobile; the two bars would otherwise stand one over the other.
+        // Groups and spacers of the toolbar rather than spacing inside one group, so the bar
+        // keeps its groups where iPhone Duo stands it on the side; finding a file, a new note
+        // and the open tabs stay in view longest when it has no room for every button.
         if workspace.store != nil && isCompactWidth && !isKeyboardShown && workspace.markdownSession?.isTyping != true {
             ToolbarItemGroup(placement: .bottomBar) {
-                Group {
-                    Button("Back", systemImage: "chevron.backward") { Task { await workspace.goBack() } }
-                        .disabled(!workspace.history.canGoBack)
-                    Button("Forward", systemImage: "chevron.forward") { Task { await workspace.goForward() } }
-                        .disabled(!workspace.history.canGoForward)
-                    Spacer()
-                    Button("Quick Switcher", systemImage: "magnifyingglass") { activePalette = .quickSwitcher }
-                    Spacer()
-                    Button("New Note", systemImage: "square.and.pencil") { creation = CreationRequest(kind: .note) }
-                    Spacer()
-                    Button { showsTabSwitcher = true } label: {
-                        TabCountLabel(count: workspace.openTabCount)
-                    }
-                    .accessibilityLabel("Tabs")
-                    .accessibilityValue(workspace.openTabCount == 1 ? "1 open" : "\(workspace.openTabCount) open")
-                    Spacer()
-                    Button("Command Palette", systemImage: "command") { activePalette = .commandPalette }
+                Button("Back", systemImage: "chevron.backward") { Task { await workspace.goBack() } }
+                    .disabled(!workspace.history.canGoBack)
+                    .tint(.primary)
+                Button("Forward", systemImage: "chevron.forward") { Task { await workspace.goForward() } }
+                    .disabled(!workspace.history.canGoForward)
+                    .tint(.primary)
+            }
+            ToolbarSpacer(.flexible, placement: .bottomBar)
+            ToolbarItem(placement: .bottomBar) {
+                Button("Quick Switcher", systemImage: "magnifyingglass") { activePalette = .quickSwitcher }.tint(.primary)
+            }
+            .visibilityPriority(.high)
+            ToolbarSpacer(.flexible, placement: .bottomBar)
+            ToolbarItem(placement: .bottomBar) {
+                Button("New Note", systemImage: "square.and.pencil") { creation = CreationRequest(kind: .note) }.tint(.primary)
+            }
+            .visibilityPriority(.high)
+            ToolbarSpacer(.flexible, placement: .bottomBar)
+            ToolbarItem(placement: .bottomBar) {
+                Button { showsTabSwitcher = true } label: {
+                    TabCountLabel(count: workspace.openTabCount)
                 }
+                .accessibilityValue(workspace.openTabCount == 1 ? "1 open" : "\(workspace.openTabCount) open")
                 .tint(.primary)
+            }
+            .visibilityPriority(.high)
+            ToolbarSpacer(.flexible, placement: .bottomBar)
+            ToolbarItem(placement: .bottomBar) {
+                Button("Command Palette", systemImage: "command") { activePalette = .commandPalette }.tint(.primary)
             }
         }
     }
@@ -444,10 +504,13 @@ public struct GraphiteRootView: View {
                 case .templatePicker:
                     TemplatePicker(workspace: workspace) { self.activePalette = nil }
                 case .commandPalette:
-                    CommandPalette(commands: WorkspaceCommandList.commands(for: workspace, window: windowActions),
-                                   recentCommandIdentifiers: Binding(get: { workspace.preferences.recentCommandIdentifiers },
-                                                                     set: { identifiers in workspace.preferences.recentCommandIdentifiers = identifiers })) {
-                        self.activePalette = nil
+                    NotePDFPaletteCommands(hasNoteInFront: workspace.markdownSession != nil) { noteCommands in
+                        let recentCommandIdentifiers = Binding(get: { workspace.preferences.recentCommandIdentifiers },
+                                                               set: { identifiers in workspace.preferences.recentCommandIdentifiers = identifiers })
+                        CommandPalette(commands: WorkspaceCommandList.commands(for: workspace, window: windowActions) + noteCommands,
+                                       recentCommandIdentifiers: recentCommandIdentifiers) {
+                            self.activePalette = nil
+                        }
                     }
                 }
             }
@@ -630,18 +693,15 @@ public struct GraphiteRootView: View {
         }
     }
 
-    /// Drafts whose editor this process has open or has already reopened. Only a draft left
-    /// by an ended process is reopened, never one still open in another window.
-    @MainActor private static var draftIdentifiersOpenInThisProcess: Set<UUID> = []
-
     /// Reopens a drawing whose editor was open when the system ended the app, with its
     /// unsaved strokes, as if the app had never left.
     private func reopenDrawingDraft(forVault vaultIdentifier: UUID) async {
-        let recoveredDrafts = await DrawingEditorDraftStore.shared.drafts(forVault: vaultIdentifier)
-        guard let recoveredDraft = recoveredDrafts.first(where: { recoveredDraft in !Self.draftIdentifiersOpenInThisProcess.contains(recoveredDraft.draft.requestIdentifier) }),
+        let drafts = workspace.processServices.drawingDrafts
+        let recoveredDrafts = await drafts.drafts(forVault: vaultIdentifier)
+        guard let recoveredDraft = recoveredDrafts.first(where: { recoveredDraft in !drafts.isOpenInThisProcess(recoveredDraft.draft.requestIdentifier) }),
               workspace.currentVaultIdentifier == vaultIdentifier, workspace.drawingEditorRequest == nil,
               let root = workspace.folderAccess?.root else { return }
-        Self.draftIdentifiersOpenInThisProcess.insert(recoveredDraft.draft.requestIdentifier)
+        drafts.markOpenInThisProcess(recoveredDraft.draft.requestIdentifier)
         do {
             let request = try recoveredDraft.editorRequest(inVaultAt: root)
             // A new drawing's embed goes into its note, which must be open when it is saved.
@@ -650,7 +710,7 @@ public struct GraphiteRootView: View {
             }
             workspace.drawingEditorRequest = request
         } catch {
-            DrawingEditorDraftStore.shared.removeDraft(withIdentifier: recoveredDraft.draft.requestIdentifier)
+            drafts.removeDraft(withIdentifier: recoveredDraft.draft.requestIdentifier)
         }
     }
     #endif

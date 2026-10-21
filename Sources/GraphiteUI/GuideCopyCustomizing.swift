@@ -91,18 +91,41 @@ enum GuideCustomizingCopy {
             systemImage: "keyboard",
             title: "Keyboard Shortcuts",
             summary: forPlatform(touch: "With a keyboard attached to iPad, these shortcuts work. Hold ⌘ to see them listed.",
-                                 mac: "The shortcuts that work everywhere in Graphite."),
+                                 mac: "The shortcuts that work everywhere in Graphite, and how to change them."),
             steps: [
-                GuideStep("Notes and files: ⌘N new note, ⌘O Quick Switcher, ⌘P Command Palette, ⇧⌘F search all files, ⌘E read or write, ⌘S save."),
+                GuideStep("Notes and files: ⌘N new note, ⌘O Quick Switcher, ⌘P Command Palette (⇧⌘P on the Mac, where ⌘P prints), " +
+                          "⇧⌘F search all files, ⌘E read or write, ⌘S save."),
                 GuideStep("Tabs: ⌘T new tab, ⌘W close tab, ⇧⌘T reopen it, ⌃Tab next tab, ⌘1 to ⌘8 a tab, ⌘9 the last tab, ⌘[ and ⌘] back and " +
                           "forward."),
-                GuideStep(forPlatform(
-                    touch: "Writing: ⌘B bold, ⌘I italic, ⇧⌘H highlight, ⇧⌘X strikethrough, ⌃⌘C code, ⌘/ comment, ⌘K link, ⌘L tick a task, ⌃⌘1 to " +
-                           "⌃⌘6 headings, ⌥⌘↑ and ⌥⌘↓ move a line.",
-                    mac: "Writing: use the **Format** and **Insert** menus in the note's toolbar, or right-click the text.")),
+                GuideStep("Writing: ⌘B bold, ⌘I italic, ⇧⌘H highlight, ⇧⌘X strikethrough, ⌃⌘C code, ⌘/ comment, ⌘K link, ⌘L tick a task, ⌃⌘1 to " +
+                          "⌃⌘6 headings, ⌥⌘↑ and ⌥⌘↓ move a line."),
                 GuideStep("Text size, with **Quick Font Size Adjustment** on: ⌘+ bigger, ⌘- smaller, ⌘0 back to normal."),
-                GuideStep(forPlatform(touch: "Settings: ⌘,.", mac: "Settings: ⌘,. This Guide: ⌘?."))
+                GuideStep(forPlatform(touch: "Settings: ⌘,.", mac: "Settings: ⌘,. This Guide: ⌘?.")),
+                GuideStep(forPlatform(
+                    touch: "On iPad, **Settings › Keyboard Shortcuts** lists every command. Find one by name or by shortcut, tap **Record Shortcut** and " +
+                           "press the new keys, or remove or reset a shortcut. The shortcuts belong to the vault and are the same in Obsidian.",
+                    mac: "**Settings › Keyboard Shortcuts** lists every command. Find one by name or by shortcut, click **Record Shortcut** and press " +
+                         "the new keys, or remove or reset a shortcut. The shortcuts belong to the vault and are the same in Obsidian.")),
             ])
+    }
+
+    static var sourceCodeAndFeedback: GuideTopicContent {
+        GuideTopicContent(
+            systemImage: "chevron.left.forwardslash.chevron.right",
+            title: "Source Code and Feedback",
+            summary: "Graphite is open source under the Apache License 2.0. Its code and issues are on GitHub at " +
+                     "[github.com/Graphite-Note/Graphite](https://github.com/Graphite-Note/Graphite).",
+            steps: [
+                GuideStep("Settings › General › About has **Source Code**, which opens the repository, and **Report a Problem**, which opens " +
+                          "its issues."),
+                GuideStep("To report a problem, choose **New issue**, then **Bug report**, and say what you did, what you expected and what " +
+                          "happened. A small sample file helps more than a personal note."),
+                GuideStep(forPlatform(
+                    touch: "Testing through TestFlight? Take a screenshot and share it with TestFlight to send feedback straight to the developer.",
+                    mac: "Testing through TestFlight? In the TestFlight app, choose Graphite Note, then **Send Beta Feedback**."))
+            ],
+            tips: ["Report a security problem privately: on the repository's **Security** tab, choose **Report a vulnerability**.",
+                   "To build Graphite yourself, follow **Building** in the repository's README."])
     }
 }
 
@@ -141,6 +164,7 @@ extension GuideTopic {
         case .syncAndObsidian: GuideCustomizingCopy.syncAndObsidian
         case .fileRecovery: GuideCustomizingCopy.fileRecovery
         case .keyboardShortcuts: GuideCustomizingCopy.keyboardShortcuts
+        case .sourceCodeAndFeedback: GuideCustomizingCopy.sourceCodeAndFeedback
         }
     }
 }

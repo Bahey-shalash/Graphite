@@ -2,9 +2,10 @@ import Foundation
 import CoreGraphics
 import GraphiteCore
 
-/// Draws a folder look with Apple's own folder art, as `AppleFolderArtPlan` says: the system
-/// draws a stand-in folder in Graphite's temporary items (Finder's art on the Mac, the Files
-/// app's on iOS), then a picture is placed on it.
+/// Draws a folder look with Apple's own folder art, as `AppleFolderArtPlan` says: Finder
+/// draws a stand-in folder in Graphite's temporary items, then a picture is placed on it.
+/// iOS gives no folder art (see `FinderFolderAttributes.systemIcon(at:pixels:)`), so there
+/// no stand-in is made and the caller draws the folder.
 public struct AppleFolderArt: Sendable {
     /// Where the stand-in folders are kept: one empty folder per look, in the temporary items.
     public let standInDirectory: URL
@@ -26,8 +27,12 @@ public struct AppleFolderArt: Sendable {
     }
 
     private func standInArt(_ plan: AppleFolderArtPlan, pixels: Int) async -> CGImage? {
+        #if os(macOS)
         guard let standIn = preparedStandIn(plan) else { return nil }
         return await FinderFolderAttributes.systemIcon(at: standIn, pixels: pixels)
+        #else
+        return nil
+        #endif
     }
 
     /// The stand-in folder carrying the plan's look, made the first time it is needed; nil

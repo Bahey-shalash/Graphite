@@ -28,6 +28,12 @@ struct EmbeddedPDFViewer: View {
     /// Opens the PDF in the full PDF pane at a zero-based page index.
     let openInPane: (Int) -> Void
 
+    /// The window's registry of embedded PDFs (`EmbeddedPDFSessions`).
+    @Environment(\.embeddedPDFSessions) private var windowSessions
+    /// For an embed shown outside any window's workspace, as in a preview: a registry of
+    /// its own, saving with no vault.
+    @State private var standaloneSessions = EmbeddedPDFSessions()
+    private var sessions: EmbeddedPDFSessions { windowSessions ?? standaloneSessions }
     @State private var session: PDFSession?
     @State private var loadingError: String?
     @State private var isVisible = false
@@ -153,7 +159,7 @@ struct EmbeddedPDFViewer: View {
             if let session { thumbnailRenderer.prepare(for: session.document) }
         }
         // Another embed of this PDF started annotating; only one edits it at a time.
-        .onChange(of: EmbeddedPDFSessions.shared.annotatingSession(at: location)) { _, annotatingSession in
+        .onChange(of: sessions.annotatingSession(at: location)) { _, annotatingSession in
             if isAnnotating, let session, annotatingSession != ObjectIdentifier(session) { isAnnotating = false }
         }
         .confirmationDialog("Discard your annotations in this embed and show the version saved by the other app?", isPresented: $showsReloadConfirmation, titleVisibility: .visible) {
@@ -446,7 +452,7 @@ struct EmbeddedPDFViewer: View {
     }
 
     private func reload() {
-        if let session { EmbeddedPDFSessions.shared.remove(session) }
+        if let session { sessions.remove(session) }
         stopAnnotating()
         session = nil
         conflictNotice = nil
@@ -457,7 +463,7 @@ struct EmbeddedPDFViewer: View {
 
     private func startAnnotating(_ session: PDFSession) {
         isPreparingToAnnotate = true
-        let sessions = EmbeddedPDFSessions.shared
+        let sessions = sessions
         Task {
             defer { isPreparingToAnnotate = false }
             do {
@@ -482,14 +488,14 @@ struct EmbeddedPDFViewer: View {
 
     private func stopAnnotating() {
         isAnnotating = false
-        if let session { EmbeddedPDFSessions.shared.endAnnotating(session) }
+        if let session { sessions.endAnnotating(session) }
     }
 
     // MARK: Loading and releasing
 
     private func loadIfNeeded() async {
         guard isVisible, session == nil, loadingError == nil else { return }
-        let sessions = EmbeddedPDFSessions.shared
+        let sessions = sessions
         // A session whose closing save failed comes back with its edits and its banner.
         if let keptSession = sessions.takeKeptSession(at: location) {
             sessions.add(keptSession)
@@ -520,7 +526,7 @@ struct EmbeddedPDFViewer: View {
         Task {
             try? await Task.sleep(for: Self.releaseDelay)
             guard !isVisible else { return }
-            let sessions = EmbeddedPDFSessions.shared
+            let sessions = sessions
             do {
                 try await closingSession.saveBeforeClosing()
             } catch {
@@ -574,16 +580,22 @@ private final class PDFSaveBackgroundTime {
 }
 #endif
 
-/// The PDF sessions of the embeds in every open note, by file.
+extension EnvironmentValues {
+    /// The window's registry of embedded PDFs, set by its root view; nil outside a window.
+    @Entry var embeddedPDFSessions: EmbeddedPDFSessions? = nil
+}
+
+/// The PDF sessions of the embeds in one window's notes, by file.
 ///
-/// Embeds are created by separate notes and reading views that share no owner, so this
-/// registry is app-wide. It keeps two embeds of one PDF from editing it from separate
+/// Embeds are created by separate notes and reading views that share no owner, so the
+/// window's workspace owns this registry and its views read it from the environment
+/// (`embeddedPDFSessions`). It keeps two embeds of one PDF from editing it from separate
 /// copies, and it keeps a session whose closing save failed, with its unsaved edits, until
-/// an embed of that PDF shows it again.
+/// an embed of that PDF shows it again. Another window has a registry of its own: a PDF
+/// annotated there reaches this window as a change on disk, reloaded when it has no edits
+/// here (owner, 2026-10-21).
 @MainActor @Observable
 final class EmbeddedPDFSessions {
-    static let shared = EmbeddedPDFSessions()
-
     private struct ShownSession {
         weak var session: PDFSession?
     }
@@ -597,8 +609,8 @@ final class EmbeddedPDFSessions {
     }
 
     /// Embeds are drawn by reading views and Live Preview widgets that have no workspace
-    /// to ask, so each workspace registers its open vault here, by root folder.
-    @ObservationIgnored private var vaultSavingByRootPath: [String: (owner: ObjectIdentifier, saving: VaultSaving)] = [:]
+    /// to ask, so the window's workspace registers its open vault here, by root folder.
+    @ObservationIgnored private var vaultSaving: (rootPath: String, saving: VaultSaving)?
     @ObservationIgnored private var shownSessionsByLocation: [URL: [ShownSession]] = [:]
     @ObservationIgnored private var keptSessionsByLocation: [URL: [PDFSession]] = [:]
     /// The session of the one embed annotating each PDF.
@@ -606,15 +618,10 @@ final class EmbeddedPDFSessions {
 
     private static func key(for location: URL) -> URL { location.standardizedFileURL }
 
-    /// Makes PDFs inside `root` save through `saving`, replacing any vault `owner`
-    /// registered before, as when a workspace switches vaults.
-    func useVault(root: URL, owner: AnyObject, saving: VaultSaving) {
-        stopUsingVaults(of: owner)
-        vaultSavingByRootPath[WorkspaceModel.comparablePath(of: root)] = (ObjectIdentifier(owner), saving)
-    }
-
-    func stopUsingVaults(of owner: AnyObject) {
-        vaultSavingByRootPath = vaultSavingByRootPath.filter { _, entry in entry.owner != ObjectIdentifier(owner) }
+    /// Makes PDFs inside `root` save through `saving`, replacing the vault registered
+    /// before, as when the window switches vaults.
+    func useVault(root: URL, saving: VaultSaving) {
+        vaultSaving = (WorkspaceModel.comparablePath(of: root), saving)
     }
 
     /// Opens a PDF for an embed, saving through its vault's writer when a workspace has
@@ -627,11 +634,8 @@ final class EmbeddedPDFSessions {
     }
 
     private func vaultSaving(containing location: URL) -> VaultSaving? {
-        guard !vaultSavingByRootPath.isEmpty else { return nil }
-        let locationPath = WorkspaceModel.comparablePath(of: location)
-        // A vault inside another vault's folder saves its own files.
-        return vaultSavingByRootPath.filter { rootPath, _ in locationPath.hasPrefix(rootPath + "/") }
-            .max { leftEntry, rightEntry in leftEntry.key.count < rightEntry.key.count }?.value.saving
+        guard let vaultSaving, WorkspaceModel.comparablePath(of: location).hasPrefix(vaultSaving.rootPath + "/") else { return nil }
+        return vaultSaving.saving
     }
 
     func add(_ session: PDFSession) {

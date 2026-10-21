@@ -119,7 +119,7 @@ final class ReadingTaskTests: XCTestCase {
             return ReadingTasks.Location(statusOffset: 3, lineChecksum: 0)
         }
         XCTAssertEqual(askedLineIndices, [])
-        let unchecked = String(ObsidianInlineMarkup.uncheckedTaskMarker)
+        let unchecked = String(ReadingMarkers.uncheckedTaskMarker)
         XCTAssertEqual(prepared, "- \(unchecked)32 first \n- \(unchecked)32 second")
     }
 
@@ -142,7 +142,7 @@ final class ReadingTaskTests: XCTestCase {
     }
 
     func testDamagedMarkedTaskIsReadAsFarAsItIsWhole() {
-        let marker = String(ObsidianInlineMarkup.checkedTaskMarker)
+        let marker = String(ReadingMarkers.checkedTaskMarker)
         func task(in text: String) -> ReadingTasks.MarkedTask? { ReadingTasks.markedTask(at: text.unicodeScalars.startIndex, in: text.unicodeScalars)?.task }
         XCTAssertNil(task(in: marker), "A marker without a status is no task.")
         XCTAssertNil(task(in: marker + "x"))

@@ -16,6 +16,9 @@ final class ReadAloudNowPlaying {
     }
 
     private var commandTargets: [(MPRemoteCommand, Any)] = []
+    /// Whether this entry is on the lock screen. Each window's controller has one, and only
+    /// the one reading publishes; another window's must not clear it.
+    private var isPublished = false
     /// The listening queue's next and previous item, for the next and previous track buttons
     /// of headphones and the lock screen; each returns false when there is no such item.
     static var queueCommands: (next: @MainActor () -> Bool, previous: @MainActor () -> Bool)?
@@ -24,6 +27,7 @@ final class ReadAloudNowPlaying {
     func update(title: String?, detail: String, state: ReadAloudSession.State, progress: Double?, commands: Commands) {
         guard let title else { clear(); return }
         if commandTargets.isEmpty { register(commands) }
+        isPublished = true
         var information: [String: Any] = [
             MPMediaItemPropertyTitle: title,
             MPMediaItemPropertyArtist: detail,
@@ -41,6 +45,8 @@ final class ReadAloudNowPlaying {
     func clear() {
         for (command, target) in commandTargets { command.removeTarget(target) }
         commandTargets.removeAll()
+        guard isPublished else { return }
+        isPublished = false
         let center = MPNowPlayingInfoCenter.default()
         center.nowPlayingInfo = nil
         #if os(macOS)

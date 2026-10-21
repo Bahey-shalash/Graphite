@@ -25,14 +25,6 @@ public indirect enum NotePreviewBlock: Equatable, Sendable {
 }
 
 public enum NotePreviewDocument {
-    /// An ATX heading. As in CommonMark, trailing `#`s are a closing sequence only after a
-    /// space, so `## Learning C#` keeps its `#`.
-    private static let headingPattern = try? NSRegularExpression(pattern: "^ {0,3}(#{1,6})[ \\t]+(.+?)(?:[ \\t]+#+)?[ \\t]*$")
-    private static let calloutHeaderPattern = try? NSRegularExpression(pattern: "^>[ \\t]?\\[!([A-Za-z0-9_-]+)\\]([+-]?)[ \\t]*(.*)$")
-    /// An embed alone on its line. Its destination may hold one balanced `(…)`, as
-    /// `EmbedLocator` reads it, so `![](photo (1).png)` is an image block too.
-    private static let standaloneEmbedPattern = try? NSRegularExpression(pattern: "^[ \\t]*(!\\[\\[[^\\]\\n]+\\]\\]|!\\[[^\\]\\n]*\\]\\((?:<[^<>\\n]*>[^)\\n]*|[^()\\n]+(?:\\([^()\\n]*\\)[^()\\n]*)?)\\))[ \\t]*$")
-
     /// Callouts nested deeper than this stay quoted Markdown. Each level is split by a
     /// recursive call that walks the rest of the callout again, so without a limit a
     /// crafted note of thousands of levels would exhaust the stack of the thread building
@@ -62,22 +54,16 @@ public enum NotePreviewDocument {
         locatedBlocks(from: body).map(\.block)
     }
 
-    /// The language of a fenced code block as Obsidian gives it to code block processors:
-    /// the first word of the fence's info text, so ```` ```dataview table ```` is `dataview`.
-    public static func codeBlockLanguage(ofFenceInfo info: String) -> String {
-        String(info.prefix { character in !character.isWhitespace })
-    }
-
     /// The blocks of `blocks(from:)`, each with where its lines start in `body`.
     /// - Parameter pluginCodeBlockLanguages: Languages community plugins draw; a fenced
     ///   block in one of them becomes a block of its own instead of staying code.
     public static func locatedBlocks(from body: String, pluginCodeBlockLanguages: Set<String> = []) -> [LocatedBlock] {
-        let commentRanges = ObsidianInlineMarkup.commentRanges(in: body)
+        let commentRanges = ObsidianComments.commentRanges(in: body)
         let bodyOffsets = ReplacedTextOffsets(replacements: commentRanges.map { commentRange in (commentRange, 0) })
         var lines: [String] = []
         var lineStartOffsets: [Int] = []
         var lineStart = 0
-        for line in ObsidianInlineMarkup.removing(commentRanges, from: body).components(separatedBy: "\n") {
+        for line in ObsidianComments.removing(commentRanges, from: body).components(separatedBy: "\n") {
             // Only removals were made, so every remaining character has a place in the body.
             lineStartOffsets.append(bodyOffsets.originalOffset(of: lineStart) ?? lineStart)
             lineStart += line.utf16.count + 1
@@ -115,11 +101,13 @@ public enum NotePreviewDocument {
             if let (fence, info, _) = listItems.fenceOpening(of: line) {
                 let language = info.lowercased()
                 var closingIndex = lineIndex + 1
-                while closingIndex < lines.count && !CodeFence.closes(fence, lines[closingIndex].trimmingCharacters(in: .whitespaces)) { closingIndex += 1 }
+                while closingIndex < lines.count, !MarkdownFenceSyntax.closes(fence, lines[closingIndex].trimmingCharacters(in: .whitespaces)) {
+                    closingIndex += 1
+                }
                 let lastFenceLineIndex = min(closingIndex, lines.count - 1)
                 let code = lines[lineIndex...lastFenceLineIndex].dropFirst().dropLast(closingIndex < lines.count ? 1 : 0).joined(separator: "\n")
                 // Matched as written, as Obsidian matches a processor's language.
-                let pluginLanguage = codeBlockLanguage(ofFenceInfo: info)
+                let pluginLanguage = MarkdownFenceSyntax.language(ofInfo: info)
                 if language == "base" {
                     flushMarkdown()
                     append(.baseDefinition(code), startingAtLine: lineIndex)
@@ -152,21 +140,21 @@ public enum NotePreviewDocument {
                     continue
                 }
             }
-            if let heading = heading(in: line) {
+            if let heading = MarkdownHeadingSyntax.titledHeading(in: line) {
                 flushMarkdown()
                 append(.heading(level: heading.level, text: heading.text, anchor: anchor(forHeading: heading.text)), startingAtLine: lineIndex)
                 lineIndex += 1
                 continue
             }
             // A setext heading is its text line and its underline, which the block swallows.
-            if let setextLevel = setextHeadingLevel(ofLine: line, nextLine: lineIndex + 1 < lines.count ? lines[lineIndex + 1] : nil) {
+            if let setextLevel = MarkdownHeadingSyntax.setextHeadingLevel(ofLine: line, nextLine: lineIndex + 1 < lines.count ? lines[lineIndex + 1] : nil) {
                 flushMarkdown()
                 let text = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 append(.heading(level: setextLevel, text: text, anchor: anchor(forHeading: text)), startingAtLine: lineIndex)
                 lineIndex += 2
                 continue
             }
-            if calloutDepth < maximumCalloutNestingDepth, let callout = calloutHeader(in: line) {
+            if calloutDepth < maximumCalloutNestingDepth, let callout = MarkdownQuoteSyntax.calloutHeader(in: line) {
                 flushMarkdown()
                 var bodyLines: [String] = []
                 var bodyLineStartOffsets: [Int] = []
@@ -184,7 +172,9 @@ public enum NotePreviewDocument {
                 lineIndex = bodyIndex
                 continue
             }
-            if let embed = standaloneEmbed(in: line) {
+            // A web image (`![](https://…)`) is not a vault file. It stays Markdown, which the
+            // renderer draws from the web as it does an inline one.
+            if let embed = EmbedLocator.standaloneEmbed(onLine: line), !embed.isRemoteImage {
                 flushMarkdown()
                 append(.embed(embed), startingAtLine: lineIndex)
                 lineIndex += 1
@@ -215,19 +205,9 @@ public enum NotePreviewDocument {
     public static let maximumEmbeddedNoteBytes = 1_048_576
 
     /// The part of a note from a heading up to the next heading of the same or higher
-    /// level, as `![[Note#Heading]]` embeds it. The whole body when the heading is absent.
-    public static func section(of body: String, headingAnchor: String) -> String {
-        sectionIfPresent(of: body, headingAnchor: headingAnchor) ?? body
-    }
-
-    /// The section `headingAnchor` names, or nil when the note has no such heading. The
-    /// anchor may be Obsidian's heading path, `parent#child`, which names the first
-    /// `child` heading inside the `parent` section.
-    public static func sectionIfPresent(of body: String, headingAnchor: String) -> String? {
-        locatedSectionIfPresent(of: body, headingAnchor: headingAnchor)?.text
-    }
-
-    /// `sectionIfPresent` with the UTF-16 offset in `body` at which the section starts.
+    /// level, as `![[Note#Heading]]` embeds it, with the UTF-16 offset in `body` at which it
+    /// starts; nil when the note has no such heading. The anchor may be Obsidian's heading
+    /// path, `parent#child`, which names the first `child` heading inside the `parent` section.
     public static func locatedSectionIfPresent(of body: String, headingAnchor: String) -> (text: String, location: Int)? {
         let lines = body.components(separatedBy: "\n")
         let headings = headingLines(in: lines, of: body)
@@ -273,7 +253,7 @@ public enum NotePreviewDocument {
     /// Every heading with its line, found in one pass that follows code fences and
     /// comments across lines, as the outline and sections both need.
     private static func headingLines(in lines: [String], of body: String) -> [HeadingLine] {
-        let commentRanges = ObsidianInlineMarkup.commentRanges(in: body)
+        let commentRanges = ObsidianComments.commentRanges(in: body)
         var fenceTracker = CodeFenceTracker()
         var headings: [HeadingLine] = []
         var nextLineStart = 0
@@ -298,9 +278,10 @@ public enum NotePreviewDocument {
                 }
             }
             guard !fenceTracker.isCodeLine(untrimmedLine: line) else { continue }
-            if let heading = heading(in: visibleLine) {
+            if let heading = MarkdownHeadingSyntax.titledHeading(in: visibleLine) {
                 headings.append(HeadingLine(lineIndex: lineIndex, level: heading.level, text: heading.text, anchor: anchor(forHeading: heading.text)))
-            } else if let setextLevel = setextHeadingLevel(ofLine: visibleLine, nextLine: lineIndex + 1 < lines.count ? lines[lineIndex + 1] : nil) {
+            } else if let setextLevel = MarkdownHeadingSyntax.setextHeadingLevel(ofLine: visibleLine,
+                                                                                 nextLine: lineIndex + 1 < lines.count ? lines[lineIndex + 1] : nil) {
                 let text = visibleLine.trimmingCharacters(in: .whitespacesAndNewlines)
                 headings.append(HeadingLine(lineIndex: lineIndex, level: setextLevel, text: text, anchor: anchor(forHeading: text)))
             }
@@ -325,484 +306,11 @@ public enum NotePreviewDocument {
         }
         return matchedPosition
     }
-
-    /// The level of the setext heading `line` is the text of, when `nextLine` underlines it.
-    private static func setextHeadingLevel(ofLine line: String, nextLine: String?) -> Int? {
-        MarkdownStyleScanner.setextHeadingLevel(ofLine: line, nextLine: nextLine)
-    }
-
-    private static func heading(in line: String) -> (level: Int, text: String)? {
-        guard line.utf8.contains(UInt8(ascii: "#")) else { return nil }
-        let cleanLine = line.hasSuffix("\r") ? String(line.dropLast()) : line
-        guard let headingPattern, let match = headingPattern.firstMatch(in: cleanLine, range: NSRange(location: 0, length: (cleanLine as NSString).length)) else { return nil }
-        let source = cleanLine as NSString
-        return (source.substring(with: match.range(at: 1)).count, source.substring(with: match.range(at: 2)))
-    }
-
-    static func calloutHeader(in line: String) -> (type: String, title: String, folding: CalloutFolding)? {
-        guard let calloutHeaderPattern, let match = calloutHeaderPattern.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) else { return nil }
-        let source = line as NSString
-        let type = source.substring(with: match.range(at: 1)).lowercased()
-        let foldMarker = source.substring(with: match.range(at: 2))
-        let writtenTitle = source.substring(with: match.range(at: 3))
-        let title = writtenTitle.isEmpty ? type.prefix(1).uppercased() + type.dropFirst() : writtenTitle
-        return (type, title, foldMarker == "-" ? .collapsed : foldMarker == "+" ? .expanded : .notFoldable)
-    }
-
-    private static func standaloneEmbed(in line: String) -> EmbedReference? {
-        guard let standaloneEmbedPattern, standaloneEmbedPattern.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) != nil else { return nil }
-        let embedLocation = (line as NSString).range(of: "!").location
-        guard let embed = EmbedLocator.embed(at: embedLocation + 1, in: line as NSString) else { return nil }
-        // A web image (`![](https://…)`) is not a vault file. It stays Markdown, which the
-        // renderer draws from the web as it does an inline one. Only the destination
-        // counts, not a title written after it.
-        let destination = embed.target.split(whereSeparator: \.isWhitespace).first.map(String.init) ?? embed.target
-        guard embed.isWiki || URL(string: destination)?.scheme == nil else { return nil }
-        return embed
-    }
-}
-
-/// Inline Obsidian syntax that Markdown renderers do not know, rewritten for the
-/// reading view only. Private-use characters mark colored and highlighted runs so the
-/// renderer's parser keeps them in place; the view turns them into attributes.
-public enum ObsidianInlineMarkup {
-    public static let colorStartMarker: Character = "\u{E000}"
-    public static let colorHexEndMarker: Character = "\u{E001}"
-    public static let colorEndMarker: Character = "\u{E002}"
-    public static let highlightStartMarker: Character = "\u{E003}"
-    public static let highlightEndMarker: Character = "\u{E004}"
-    /// Stand for a task's `[ ]` and `[x]`, which the reading view draws as checkboxes.
-    public static let uncheckedTaskMarker: Character = "\u{E005}"
-    public static let checkedTaskMarker: Character = "\u{E006}"
-    /// Around a footnote's number, which the reading view raises and shrinks.
-    public static let footnoteStartMarker: Character = "\u{E007}"
-    public static let footnoteEndMarker: Character = "\u{E008}"
-    /// Around a display formula that has equation numbers, kept as written with its `\tag`
-    /// commands, which the reading view lays out itself. U+E009 is the reading view's own
-    /// (`ReadingMarkerEscaping`).
-    public static let numberedEquationStartMarker: Character = "\u{E00A}"
-    public static let numberedEquationEndMarker: Character = "\u{E00B}"
-    private static let numberedEquationStartScalar: Unicode.Scalar = "\u{E00A}"
-    private static let numberedEquationEndScalar: Unicode.Scalar = "\u{E00B}"
-    /// The markers this rewrite adds. The footnote markers are left out: the reading view
-    /// inserts them before this rewrite runs.
-    private static let markerScalarValues: [ClosedRange<UInt32>] = [0xE000...0xE006, 0xE00A...0xE00B]
-    private static let highlightPattern = try? NSRegularExpression(pattern: "(?<![=~])==(?![\\s=~])([^=\\n]+?)(?<!\\s)==(?!=)")
-    /// A single-backtick code span, whose `==` is not a highlight.
-    private static let highlightCodeSpanPattern = try? NSRegularExpression(pattern: "`[^`]+`")
-    private static let tableDisplayMathPattern = try? NSRegularExpression(pattern: "\\$\\$([^$\\n]+)\\$\\$")
-    /// `$$…$$` on one line, or Obsidian's inline `$…$`: no space just inside either `$`, and
-    /// no digit after the closing one, so "$5 and $10" is not math.
-    private static let mathSpanPattern = try? NSRegularExpression(pattern: "\\$\\$(?!\\$)([^\\n]+?)\\$\\$|(?<![\\\\$])\\$(?![\\s$])([^$\\n]*?[^\\s\\\\])?\\$(?![\\d$])")
-    private static let codeSpanPattern = try? NSRegularExpression(pattern: "(?<!`)(`+)(?!`)[^\\n]*?(?<!`)\\1(?!`)")
-    private static let quotePrefixPattern = try? NSRegularExpression(pattern: "^\\s*(?:>\\s?)*")
-
-    /// Rewrites color sections, highlights, tasks, and comments for display.
-    /// - Parameter taskLocation: Where the task on a line of `markdown`, given by its index,
-    ///   is in the note, when a tap on its checkbox can change the note there; nil draws
-    ///   every checkbox as a picture.
-    public static func preparedForReading(_ markdown: String, colorsEnabled: Bool, paletteHexByName: [String: String],
-                                          taskLocation: ((_ lineIndex: Int, _ status: Unicode.Scalar) -> ReadingTasks.Location?)? = nil) -> String {
-        var text = removingBlockIdentifiers(from: removingComments(from: replacingMarkerCharacters(in: markdown)))
-        text = displayMathInTableCellsMadeInline(text)
-        // A comment removed here can join two lines; the lines that follow no longer have
-        // the indices `taskLocation` knows them by, so no task is given a place.
-        let keepsLines = taskLocation != nil && lineCount(of: text) == lineCount(of: markdown)
-        let protected = protectingMathKeepingLineIndices(in: text)
-        text = protected.text
-        if colorsEnabled { text = markingColors(in: text, paletteHexByName: paletteHexByName) }
-        return markingTasks(in: markingHighlights(in: text), lineIndices: keepsLines ? protected.lineIndices : nil, taskLocation: taskLocation)
-    }
-
-    private static func lineCount(of text: String) -> Int {
-        text.utf8.reduce(1) { count, byte in byte == UInt8(ascii: "\n") ? count + 1 : count }
-    }
-
-    /// A marker character already in the note, such as an icon-font glyph, would be read
-    /// as formatting: a checkbox, or a color that deletes the text after it. Each one is
-    /// shown as U+FFFD, the standard sign for a character that cannot be displayed; these
-    /// private-use code points have no standard appearance of their own.
-    static func replacingMarkerCharacters(in markdown: String) -> String {
-        func isMarker(_ scalar: Unicode.Scalar) -> Bool { markerScalarValues.contains { values in values.contains(scalar.value) } }
-        guard markdown.unicodeScalars.contains(where: isMarker) else { return markdown }
-        var scalars = String.UnicodeScalarView()
-        for scalar in markdown.unicodeScalars {
-            scalars.append(isMarker(scalar) ? "\u{FFFD}" : scalar)
-        }
-        return String(scalars)
-    }
-
-    /// Writes each task's brackets as `ReadingTasks.markedText(for:)`, which the reading view
-    /// draws as a checkbox.
-    /// - Parameters:
-    ///   - lineIndices: For each line of `markdown`, the index `taskLocation` knows it by;
-    ///     nil when the lines cannot be told apart any more.
-    ///   - taskLocation: Where a line's task is in the note; see `preparedForReading`.
-    static func markingTasks(in markdown: String, lineIndices: [Int]? = nil,
-                             taskLocation: ((_ lineIndex: Int, _ status: Unicode.Scalar) -> ReadingTasks.Location?)? = nil) -> String {
-        guard let taskPattern = ReadingTasks.pattern else { return markdown }
-        var fenceTracker = CodeFenceTracker()
-        let lines = markdown.components(separatedBy: "\n")
-        let knownLineIndices = lineIndices?.count == lines.count ? lineIndices : nil
-        return lines.enumerated().map { linePosition, line in
-            if fenceTracker.isCodeLine(untrimmedLine: line) { return line }
-            let source = line as NSString
-            guard let match = taskPattern.firstMatch(in: line, range: NSRange(location: 0, length: source.length)),
-                  let status = source.substring(with: match.range(at: 2)).unicodeScalars.first else { return line }
-            let location = knownLineIndices.flatMap { knownLineIndices in taskLocation?(knownLineIndices[linePosition], status) }
-            return source.substring(with: match.range(at: 1)) + ReadingTasks.markedText(for: ReadingTasks.MarkedTask(status: status, location: location))
-                + source.substring(from: NSMaxRange(match.range))
-        }.joined(separator: "\n")
-    }
-
-    private static let blockIdentifierPattern = try? NSRegularExpression(pattern: "(?:[ \\t]+|^)\\^[A-Za-z0-9-]+[ \\t]*$")
-
-    /// Block `^id`s mark blocks for links; Obsidian does not show them when reading. Code
-    /// and display math are left alone, so `x ^2` at the end of a formula line stays.
-    static func removingBlockIdentifiers(from markdown: String) -> String {
-        guard let blockIdentifierPattern, markdown.contains("^") else { return markdown }
-        let lines = markdown.components(separatedBy: "\n")
-        let mathLines = DisplayMathLines(lines)
-        var fenceTracker = CodeFenceTracker()
-        var mathClosingLineIndex: Int?
-        var outputLines: [String] = []
-        outputLines.reserveCapacity(lines.count)
-        for (lineIndex, line) in lines.enumerated() {
-            let source = line as NSString
-            var searchStart = 0
-            if let closingLineIndex = mathClosingLineIndex {
-                guard lineIndex == closingLineIndex, let closingOffset = DisplayMathLines.closingDelimiterOffset(in: line) else {
-                    outputLines.append(line)
-                    continue
-                }
-                // An identifier may follow the closing `$$` of a formula.
-                mathClosingLineIndex = nil
-                searchStart = closingOffset + 2
-            } else if fenceTracker.isCodeLine(untrimmedLine: line) {
-                outputLines.append(line)
-                continue
-            } else if let opening = mathLines.opening(at: lineIndex) {
-                // The end of the line, where an identifier would be, is inside the formula.
-                mathClosingLineIndex = opening.closingLineIndex ?? lines.count
-                outputLines.append(line)
-                continue
-            }
-            let searchRange = NSRange(location: searchStart, length: source.length - searchStart)
-            outputLines.append(blockIdentifierPattern.stringByReplacingMatches(in: line, range: searchRange, withTemplate: ""))
-        }
-        return outputLines.joined(separator: "\n")
-    }
-
-    /// Removes Obsidian `%%` comments, markers included. `%%` in code is text.
-    static func removingComments(from markdown: String) -> String {
-        removing(commentRanges(in: markdown), from: markdown)
-    }
-
-    /// `markdown` without `ranges`, which are in order and do not overlap.
-    static func removing(_ ranges: [NSRange], from markdown: String) -> String {
-        guard !ranges.isEmpty else { return markdown }
-        let output = NSMutableString(string: markdown)
-        for range in ranges.reversed() { output.deleteCharacters(in: range) }
-        return output as String
-    }
-
-    /// UTF-16 ranges of the `%%` comments in `text`, markers included. A comment may span
-    /// lines and hide fences, headings and embeds. Outside a comment, `%%` in fenced code
-    /// or a code span is text, such as a printf format or a Jupyter `# %%` cell marker. A
-    /// comment that is never closed is left as written.
-    static func commentRanges(in markdown: String) -> [NSRange] {
-        guard containsCommentMarker(markdown) else { return [] }
-        var ranges: [NSRange] = []
-        var fenceTracker = CodeFenceTracker()
-        var commentStart: Int?
-        var lineStart = 0
-        for line in markdown.components(separatedBy: "\n") {
-            defer { lineStart += line.utf16.count + 1 }
-            // Inside a comment a fence is hidden text, so it neither opens nor closes code.
-            // A fence in a quote or callout (`> ```) is code too.
-            let unquotedLine = line.drop { character in character == ">" || character == " " || character == "\t" }
-            if commentStart == nil, fenceTracker.isCodeLine(untrimmedLine: unquotedLine) { continue }
-            guard line.utf8.contains(UInt8(ascii: "%")) else { continue }
-            let lineSource = line as NSString
-            let codeRanges = codeSpanPattern?.matches(in: line, range: NSRange(location: 0, length: lineSource.length)).map(\.range) ?? []
-            var searchStart = 0
-            while searchStart < lineSource.length {
-                let marker = lineSource.range(of: "%%", range: NSRange(location: searchStart, length: lineSource.length - searchStart))
-                guard marker.location != NSNotFound else { break }
-                searchStart = NSMaxRange(marker)
-                if let start = commentStart {
-                    ranges.append(NSRange(location: start, length: lineStart + NSMaxRange(marker) - start))
-                    commentStart = nil
-                } else if !codeRanges.contains(where: { codeRange in NSLocationInRange(marker.location, codeRange) }) {
-                    commentStart = lineStart + marker.location
-                }
-            }
-        }
-        return ranges
-    }
-
-    /// Whether `markdown` holds `%%` anywhere. Every note is checked on every render, and
-    /// most have no comment, so this compares bytes instead of characters.
-    private static func containsCommentMarker(_ markdown: String) -> Bool {
-        let percentSign = UInt8(ascii: "%")
-        var previousByteIsPercentSign = false
-        for byte in markdown.utf8 {
-            if byte == percentSign, previousByteIsPercentSign { return true }
-            previousByteIsPercentSign = byte == percentSign
-        }
-        return false
-    }
-
-    /// A `$$…$$` inside a table row would render as a block and break the row, so it is
-    /// shown as inline math there. A table written in a code block is left as written.
-    static func displayMathInTableCellsMadeInline(_ markdown: String) -> String {
-        guard let tableDisplayMathPattern, markdown.contains("$$") else { return markdown }
-        var fenceTracker = CodeFenceTracker()
-        return markdown.components(separatedBy: "\n").map { line in
-            if fenceTracker.isCodeLine(untrimmedLine: line) { return line }
-            guard line.trimmingCharacters(in: .whitespaces).hasPrefix("|") else { return line }
-            let source = line as NSString
-            return tableDisplayMathPattern.stringByReplacingMatches(in: line, range: NSRange(location: 0, length: source.length), withTemplate: "\\$$1\\$")
-        }.joined(separator: "\n")
-    }
-
-    /// Makes every formula reach the math renderer exactly as written. The renderer finds
-    /// math in the text Markdown leaves behind, so a display block is put on one line (a
-    /// line break would split it), and Markdown punctuation inside math is backslash-escaped
-    /// so `\\{`, `\\\\`, `*` and `_` survive parsing as LaTeX. Code is left alone.
-    static func protectingMath(in markdown: String) -> String {
-        protectingMathKeepingLineIndices(in: markdown).text
-    }
-
-    /// `protectingMath`, with the index in `markdown` of the line each line of the result
-    /// starts with: a display block written over several lines becomes one.
-    private static func protectingMathKeepingLineIndices(in markdown: String) -> (text: String, lineIndices: [Int]) {
-        let lines = markdown.components(separatedBy: "\n")
-        let mathLines = DisplayMathLines(lines)
-        var fenceTracker = CodeFenceTracker()
-        var outputLines: [String] = []
-        var outputLineIndices: [Int] = []
-        var lineIndex = 0
-        while lineIndex < lines.count {
-            let line = lines[lineIndex]
-            let prefixLength = quotePrefixLength(of: line)
-            let content = String(line.dropFirst(prefixLength))
-            outputLineIndices.append(lineIndex)
-            if fenceTracker.isCodeLine(untrimmedLine: content) {
-                outputLines.append(line)
-                lineIndex += 1
-                continue
-            }
-            guard let opening = mathLines.opening(at: lineIndex) else {
-                outputLines.append(protectingInlineMath(in: line))
-                lineIndex += 1
-                continue
-            }
-            // An unclosed display block runs to the end, as in Obsidian.
-            let closingLineIndex = opening.closingLineIndex ?? lines.count - 1
-            outputLines.append(joinedDisplayMath(opening: opening, openingLine: line, openingQuotePrefixLength: prefixLength,
-                                                 followingLines: lines[(lineIndex + 1)..<(closingLineIndex + 1)],
-                                                 isClosed: opening.closingLineIndex != nil))
-            lineIndex = closingLineIndex + 1
-        }
-        return (outputLines.joined(separator: "\n"), outputLineIndices)
-    }
-
-    /// One line holding a display formula that was written over several: the text before
-    /// the opening `$$` (only its quote markers when the formula starts the line), the
-    /// LaTeX between the delimiters, and any text after the closing `$$`.
-    private static func joinedDisplayMath(opening: DisplayMathLines.Opening, openingLine: String, openingQuotePrefixLength: Int,
-                                          followingLines: ArraySlice<String>, isClosed: Bool) -> String {
-        let openingSource = openingLine as NSString
-        let leadingText = opening.isAtLineStart
-            ? String(openingLine.prefix(openingQuotePrefixLength))
-            : protectingInlineMath(in: openingSource.substring(to: opening.delimiterOffset))
-        var latexLines = [openingSource.substring(from: opening.delimiterOffset + 2)]
-        var trailingText = ""
-        for (position, line) in zip(followingLines.indices, followingLines) {
-            let lineSource = line as NSString
-            let quotePrefixEnd = (String(line.prefix(quotePrefixLength(of: line))) as NSString).length
-            guard isClosed, position == followingLines.indices.last, let closingOffset = DisplayMathLines.closingDelimiterOffset(in: line) else {
-                latexLines.append(lineSource.substring(from: quotePrefixEnd))
-                continue
-            }
-            let latexStart = min(quotePrefixEnd, closingOffset)
-            latexLines.append(lineSource.substring(with: NSRange(location: latexStart, length: closingOffset - latexStart)))
-            trailingText = protectingInlineMath(in: lineSource.substring(from: closingOffset + 2))
-        }
-        let latex = latexLines.map(withoutLaTeXComment).joined(separator: " ").trimmingCharacters(in: .whitespaces)
-        return leadingText + displayMath(latex) + trailingText
-    }
-
-    /// A display formula as the reading view takes it: between `$$`, in LaTeX the
-    /// typesetter draws, or, when it has equation numbers, as written between the
-    /// numbered-equation markers.
-    private static func displayMath(_ latex: String) -> String {
-        guard LaTeXCompatibility.numberedEquation(latex) != nil else {
-            return "$$ " + escapedForMarkdown(LaTeXCompatibility.normalized(latex), isInTableRow: false) + " $$"
-        }
-        return String(numberedEquationStartMarker) + escapedForMarkdown(latex, isInTableRow: false) + String(numberedEquationEndMarker)
-    }
-
-    /// The display formula with equation numbers that is all of `markdown`, which the
-    /// reading view draws with each number at the right of the text column.
-    public static func numberedEquation(aloneIn markdown: String) -> NumberedEquation? {
-        // Markers are single scalars and are found as scalars: one followed by a combining
-        // mark is one Character with it.
-        let scalars = markdown.unicodeScalars
-        guard let start = scalars.firstIndex(where: { scalar in !scalar.properties.isWhitespace }), scalars[start] == numberedEquationStartScalar,
-              let end = scalars.lastIndex(where: { scalar in !scalar.properties.isWhitespace }), scalars[end] == numberedEquationEndScalar else { return nil }
-        let escapedLatex = scalars[scalars.index(after: start)..<end]
-        guard !escapedLatex.contains(numberedEquationStartScalar), !escapedLatex.contains(numberedEquationEndScalar) else { return nil }
-        return LaTeXCompatibility.numberedEquation(unescapedFromMarkdown(String(String.UnicodeScalarView(escapedLatex))))
-    }
-
-    /// Writes every display formula with equation numbers between `$$`, its numbers after
-    /// their rows, for text drawn where a number cannot stand at the right of the column.
-    public static func inliningEquationNumbers(in markdown: String) -> String {
-        let scalars = markdown.unicodeScalars
-        guard scalars.contains(numberedEquationStartScalar) else { return markdown }
-        var output = String.UnicodeScalarView()
-        var remainder = scalars[...]
-        while let start = remainder.firstIndex(of: numberedEquationStartScalar),
-              let end = remainder[start...].firstIndex(of: numberedEquationEndScalar) {
-            output.append(contentsOf: remainder[..<start])
-            let latex = unescapedFromMarkdown(String(String.UnicodeScalarView(remainder[remainder.index(after: start)..<end])))
-            let drawnLatex = LaTeXCompatibility.numberedEquation(latex)?.latexWithTagsInline ?? LaTeXCompatibility.normalized(latex)
-            output.append(contentsOf: ("$$ " + escapedForMarkdown(drawnLatex, isInTableRow: false) + " $$").unicodeScalars)
-            remainder = remainder[remainder.index(after: end)...]
-        }
-        output.append(contentsOf: remainder)
-        return String(output)
-    }
-
-    private static func protectingInlineMath(in line: String) -> String {
-        guard line.contains("$"), let mathSpanPattern else { return line }
-        let source = line as NSString
-        let wholeLine = NSRange(location: 0, length: source.length)
-        let codeRanges = codeSpanPattern?.matches(in: line, range: wholeLine).map(\.range) ?? []
-        let isInTableRow = line.trimmingCharacters(in: .whitespaces).hasPrefix("|")
-        let output = NSMutableString(string: line)
-        for match in mathSpanPattern.matches(in: line, range: wholeLine).reversed()
-        where !codeRanges.contains(where: { codeRange in NSIntersectionRange(codeRange, match.range).length > 0 }) {
-            let isDisplayMath = match.range(at: 1).location != NSNotFound
-            let contentRange = isDisplayMath ? match.range(at: 1) : match.range(at: 2)
-            guard contentRange.location != NSNotFound else { continue }
-            let latex = source.substring(with: contentRange)
-            // An equation number belongs to a display formula. Inline math has none, as in
-            // MathJax, and neither has a formula in a table cell, which is drawn inline.
-            if isDisplayMath, !isInTableRow, LaTeXCompatibility.numberedEquation(latex) != nil {
-                output.replaceCharacters(in: match.range, with: displayMath(latex.trimmingCharacters(in: .whitespaces)))
-            } else {
-                output.replaceCharacters(in: contentRange, with: escapedForMarkdown(LaTeXCompatibility.normalized(latex), isInTableRow: isInTableRow))
-            }
-        }
-        return output as String
-    }
-
-    /// Backslash-escapes ASCII punctuation, which CommonMark then reads as the character
-    /// itself. In a table row, `\\|` is how a pipe is written inside a cell, so it stays one.
-    private static func escapedForMarkdown(_ latex: String, isInTableRow: Bool) -> String {
-        let text = isInTableRow ? latex.replacingOccurrences(of: "\\|", with: "|") : latex
-        var escaped = ""
-        escaped.reserveCapacity(text.utf8.count * 2)
-        for character in text {
-            if character.isASCII, character.isPunctuation || character.isSymbol { escaped.append("\\") }
-            escaped.append(character)
-        }
-        return escaped
-    }
-
-    /// The text `escapedForMarkdown` was given, outside a table row.
-    private static func unescapedFromMarkdown(_ escapedText: String) -> String {
-        var text = ""
-        text.reserveCapacity(escapedText.utf8.count)
-        var isEscaped = false
-        for character in escapedText {
-            if character == "\\", !isEscaped {
-                isEscaped = true
-            } else {
-                text.append(character)
-                isEscaped = false
-            }
-        }
-        return text
-    }
-
-    /// LaTeX ignores everything after an unescaped `%`; joined lines must not inherit that.
-    private static func withoutLaTeXComment(_ line: String) -> String {
-        var isEscaped = false
-        for (offset, character) in line.enumerated() {
-            if character == "%" && !isEscaped { return String(line.prefix(offset)) }
-            isEscaped = character == "\\" && !isEscaped
-        }
-        return line
-    }
-
-    private static func quotePrefixLength(of line: String) -> Int {
-        guard let quotePrefixPattern, line.hasPrefix(">") || line.first?.isWhitespace == true else { return 0 }
-        let prefixRange = quotePrefixPattern.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length))?.range
-        // Only a quote prefix counts; plain indentation stays part of the line.
-        guard let prefixRange, (line as NSString).substring(with: prefixRange).contains(">") else { return 0 }
-        return (line as NSString).substring(with: prefixRange).count
-    }
-
-    static func markingColors(in markdown: String, paletteHexByName: [String: String]) -> String {
-        let source = markdown as NSString
-        let sections = TextColorMarkup.sections(in: source, paletteHexByName: paletteHexByName)
-        guard !sections.isEmpty else { return markdown }
-        // Replacements are applied from the end so earlier ranges stay valid.
-        var replacements: [(range: NSRange, text: String)] = []
-        for section in sections {
-            replacements.append((section.openingMarkerRange, String(colorStartMarker) + section.hexColor + String(colorHexEndMarker)))
-            if let closingRange = section.closingMarkerRange {
-                replacements.append((closingRange, String(colorEndMarker)))
-            } else {
-                replacements.append((NSRange(location: NSMaxRange(section.contentRange), length: 0), String(colorEndMarker)))
-            }
-        }
-        let output = NSMutableString(string: markdown)
-        for replacement in replacements.sorted(by: { firstReplacement, secondReplacement in
-            firstReplacement.range.location > secondReplacement.range.location
-                || (firstReplacement.range.location == secondReplacement.range.location && firstReplacement.range.length > secondReplacement.range.length)
-        }) {
-            output.replaceCharacters(in: replacement.range, with: replacement.text)
-        }
-        return output as String
-    }
-
-    static func markingHighlights(in markdown: String) -> String {
-        guard let highlightPattern else { return markdown }
-        var fenceTracker = CodeFenceTracker()
-        return markdown.components(separatedBy: "\n").map { line in
-            if fenceTracker.isCodeLine(untrimmedLine: line) { return line }
-            guard line.contains("==") else { return line }
-            let source = line as NSString
-            let codeRanges = highlightCodeSpanPattern?.matches(in: line, range: NSRange(location: 0, length: source.length)).map(\.range) ?? []
-            let output = NSMutableString(string: line)
-            for match in highlightPattern.matches(in: line, range: NSRange(location: 0, length: source.length)).reversed()
-            where !codeRanges.contains(where: { codeRange in NSIntersectionRange(codeRange, match.range).length > 0 }) {
-                output.replaceCharacters(in: match.range, with: String(highlightStartMarker) + source.substring(with: match.range(at: 1)) + String(highlightEndMarker))
-            }
-            return output as String
-        }.joined(separator: "\n")
-    }
-}
-
-extension CodeFenceTracker {
-    /// `isCodeLine` for a line as written. Only a line whose first character after
-    /// indentation is a backtick or tilde can open or close a fence, so other lines are
-    /// answered without trimming them: long notes are scanned this way on every render.
-    mutating func isCodeLine(untrimmedLine line: some StringProtocol) -> Bool {
-        guard let firstCharacter = line.first(where: { character in !character.isWhitespace }),
-              firstCharacter == "`" || firstCharacter == "~" else { return isInsideFence }
-        return isCodeLine(line.trimmingCharacters(in: .whitespacesAndNewlines))
-    }
 }
 
 extension NotePreviewDocument {
     /// A reference definition (`[label]: destination`), which links elsewhere in the run use.
-    private static let referenceDefinitionPattern = try? NSRegularExpression(pattern: "^ {0,3}\\[[^\\]]+\\]:", options: [.anchorsMatchLines])
+    private static let referenceDefinitionPattern = NotePreviewDocumentPattern.referenceDefinitionPattern.compiled()
 
     /// The blocks with each run of Markdown divided into sections as Obsidian's reading view
     /// divides a note, one per top-level block (a paragraph, a list, a table, a quote, a code
@@ -828,11 +336,11 @@ extension NotePreviewDocument {
         guard case .markdown(let markdown) = located.block else { return [located] }
         let lines = markdown.components(separatedBy: "\n")
         guard lines.count > 1, lines.count == located.lineStartOffsets.count,
-              referenceDefinitionPattern?.firstMatch(in: markdown, range: NSRange(location: 0, length: (markdown as NSString).length)) == nil else { return [located] }
-        // swift-markdown overflows its stack on a run nested past the limit, so such a run stays whole.
-        guard !MarkdownNesting.exceedsSafeDepth(markdown) else { return [located] }
+              referenceDefinitionPattern.firstMatch(in: markdown, range: NSRange(location: 0, length: (markdown as NSString).length)) == nil else { return [located] }
+        // A run nested too deeply to parse stays whole.
+        guard let document = BoundedMarkdownParser.document(parsing: markdown) else { return [located] }
         var sections: [LocatedBlock] = []
-        for child in Document(parsing: markdown).children {
+        for child in document.children {
             guard let range = child.range else { return [located] }
             let firstLineIndex = range.lowerBound.line - 1
             // The range ends just after the block; at the start of a line, that line is not the block's.
@@ -849,4 +357,11 @@ extension NotePreviewDocument {
         }
         return sections.isEmpty ? [located] : sections
     }
+}
+
+/// The constant patterns of `NotePreviewDocument`; `StaticPatternTests` compiles every case.
+enum NotePreviewDocumentPattern: String, StaticPatternSet {
+    case referenceDefinitionPattern = #"^ {0,3}\[[^\]]+\]:"#
+
+    var options: NSRegularExpression.Options { [.anchorsMatchLines] }
 }

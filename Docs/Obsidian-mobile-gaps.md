@@ -22,7 +22,7 @@ Found while checking these: the iPad keyboard's curly quotes did not quote a sea
 - Editable handwriting in notes (PNG, PDF or SVG drawings with an Edit button).
 - Lecture recording that keeps running while you move between documents, with pause, resume and interruption handling.
 - Bases map view built in (Obsidian needs its Maps plugin).
-- Possible: several windows at once in Stage Manager, which Obsidian's iPad app does not support (Graphite does not either yet; see below).
+- Several windows at once on the iPad (Stage Manager, Split View) and the Mac, which Obsidian's iPad app does not support: two notes side by side, a PDF beside its note, two vaults open at once.
 
 ## The gaps that matter most for studying on an iPad
 
@@ -35,7 +35,7 @@ Ranked by how often a student would hit them.
 5. ~~**Images into notes**~~ Done: camera, Photos (HEIC saved as JPEG), paste (as "Pasted image …"), drag and drop of images, files and sidebar items, Copy Image, and pasted web pages converted to Markdown ("Auto convert HTML"). Drops and the camera still need a device to verify.
 6. ~~**Tabs and split view**~~ Done: tabs with pins, reopen closed tab and ⌘T ⌘W ⇧⌘T ⌃Tab ⌘1–9; a second side ("Split right", "Open to the Right") with a divider; a note's page links drive a PDF on the other side while the note keeps focus; tabs and the split are restored per vault. Undo does not survive a tab switch; a file is open in at most one tab.
 7. ~~**Search operators**~~ Done: `path:`, `file:`, `content:`, `tag:` with nested tags, quotes, `-`, `OR`, parentheses, `[property:value]`, `line:`, `block:`, `section:`, `task:`, `task-todo:`, `task-done:`, `match-case:`, regular expressions, sort orders, and several matching lines per result.
-8. ~~**Keyboard shortcuts**~~ Done: the window's commands are in the iPad menu bar (File, View, Go) with ⌘N ⌘T ⌘O ⌘W ⇧⌘T ⌘S ⌘, ⇧⌘F ⌘E ⌘P ⌃⌘S ⌘[ ⌘] ⌃Tab ⌘1–9; in the editor ⌘B ⌘I ⌘K ⌘L ⌘/ ⌃⌘C (inline code; ⌘` cycles through windows) ⇧⌘H ⇧⌘X ⌃⌘1–6 ⌥⌘↑↓ ⇧Tab, ⌘F find and ⌥⌘F replace, and ⌥Return, ⌘Return and ⌥⌘Return to follow the link at the cursor. Not configurable; checked only without a hardware keyboard so far.
+8. ~~**Keyboard shortcuts**~~ Done: the window's commands are in the iPad menu bar (File, View, Go) with ⌘N ⌘T ⌘O ⌘W ⇧⌘T ⌘S ⌘, ⇧⌘F ⌘E ⌘P ⌃⌘S ⌘[ ⌘] ⌃Tab ⌘1–9; in the editor ⌘B ⌘I ⌘K ⌘L ⌘/ ⌃⌘C (inline code; ⌘` cycles through windows) ⇧⌘H ⇧⌘X ⌃⌘1–6 ⌥⌘↑↓ ⇧Tab, ⌘F find and ⌥⌘F replace, and ⌥Return, ⌘Return and ⌥⌘Return to follow the link at the cursor (the Mac's editor has the same editing shortcuts, without the link ones). Configurable per vault in Settings › Keyboard Shortcuts (Mac and iPad), stored in Obsidian's `.obsidian/hotkeys.json` (see [Keyboard-shortcuts-settings-todo.md](Keyboard-shortcuts-settings-todo.md) for what was checked with a hardware keyboard).
 9. ~~**PDF study tools**~~ Done: find in a PDF (the system find bar); Copy Link to Page, Copy as Quote, and "Quote in" the note on the other side from the text selection menu, and Copy Link to This Page from More; links written by Obsidian with `#page=N&selection=…` open at their page; password-protected PDFs open after asking for the password, read-only. Links point to the page, not to the selection within it.
 10. ~~**Templates and daily notes**~~ Done: the Templates and Daily notes core plugins with their own settings files (`.obsidian/templates.json`, `.obsidian/daily-notes.json`); Insert › Template… and "Templates: Insert template" fill in `{{title}}`, `{{date}}` and `{{time}}` with Moment.js formats and add the template's properties to the note's; today's daily note is created from its template, opened at startup when asked, and the previous and next daily notes are one command away. No Calendar view.
 11. ~~**Backlinks with context and unlinked mentions**~~ Done: the Backlinks panel lists linked mentions with the line of each link, and unlinked mentions (the note's name or aliases written as text, outside links, code, math, comments, tags and web addresses), each with a Link button that turns the words into a link, keeping them as written. A line opens its note there. At most 200 notes are read for either list; no filter or sort yet.
@@ -56,7 +56,7 @@ Status: **Missing**, **Partial**, or **Done**. "Desktop only" items are left out
 | Bases | Partial | Kanban settings and folder columns, map styles (vector tiles), images in `html()`; see `Coverage.md` |
 | Bookmarks | Done | Obsidian's `bookmarks.json`: notes, headings, blocks, folders, searches and groups, opened from the left sidebar; bookmark from a note's More menu, the outline, Files and search; rename, remove, new group; follows renames. Graphs and web pages are listed and kept. No drag to reorder or into groups |
 | Canvas | Partial | Reading and editing boards, byte-exact writes, backlinks and renames; no web pages in link cards, no drag and drop onto the board, no "Convert to file", no group backgrounds set from Graphite |
-| Command palette | Done | About 30 commands; no custom hotkeys or pinned commands |
+| Command palette | Done | About 30 commands, each showing the shortcut the vault gives it; no pinned commands |
 | Daily notes | Done | Settings, template, startup, previous and next; no Calendar view |
 | File explorer | Done | Drag and drop between folders not yet tried on a device |
 | File recovery | Done | Copies before saves (at most once per interval), external changes and deletions, kept on the device outside the vault; restore (undoable when the note is open) or recreate a deleted note; per-note history from More, all notes from the command palette and Settings. No diff between versions |
@@ -95,7 +95,7 @@ Status: **Missing**, **Partial**, or **Done**. "Desktop only" items are left out
 | Link, tag and property autocompletion | Partial | Links and tags done; property names and values not yet |
 | Block references (`^id`) | Done | Links scroll to the block, embeds show only it |
 | Find and replace in a note | Done | The system find bar (⌘F or the toolbar); replace from its menu |
-| Keyboard shortcuts | Done | ⌘B ⌘I ⌘K ⌘L ⌘/ ⌃⌘1–6 ⌥⌘↑↓ ⇧Tab ⌥⌘F and link following in the editor, plus the menu bar's; not configurable |
+| Keyboard shortcuts | Done | ⌘B ⌘I ⌘K ⌘L ⌘/ ⌃⌘1–6 ⌥⌘↑↓ ⇧Tab ⌥⌘F and link following in the editor, plus the menu bar's; changed per vault in Settings › Keyboard Shortcuts, shared with Obsidian's `hotkeys.json` |
 | Tick tasks in reading view | Done | In the note, and in an embedded note's file, as Obsidian does |
 | Custom task statuses (`[/]`, `[-]`, `[>]`) | Partial | Reading view draws any status as a checkbox, checked unless it is a space; Live Preview reads only `[ ]`, `[x]`, `[/]` and `[-]` as tasks; no per-status icons |
 | Live Preview reveal | Done | One element at a time; list, task and quote markers by line, as before |
@@ -119,8 +119,8 @@ Status: **Missing**, **Partial**, or **Done**. "Desktop only" items are left out
 | Recent files | Done | In the quick switcher, remembered per vault |
 | Right sidebar | Partial | Outline, backlinks, outgoing links, tags for Markdown notes; nothing for PDFs |
 | Pull-down quick action, swipe gestures | Missing | |
-| Hardware keyboard shortcuts | Done | In the iPad menu bar (File, View, Go) and the editor; not configurable, no Hotkeys settings page |
-| Multiple windows (Stage Manager) | Missing | `UIApplicationSupportsMultipleScenes` is off; planned in [Multiple-windows-todo.md](Multiple-windows-todo.md) |
+| Hardware keyboard shortcuts | Done | In the iPad menu bar (File, View, Go) and the editor; Settings › Keyboard Shortcuts changes them per vault (not on the iPhone) |
+| Multiple windows (Stage Manager) | Done | Several windows on the iPad and the Mac, on one vault or several; New Window (⌥⌘N), Open in New Window, a file or tab dragged to the screen's edge; the iPhone keeps one window ([Multiple-windows-todo.md](Multiple-windows-todo.md); Stage Manager by hand not tried yet) |
 | Share extension (share to Graphite) | Missing | |
 | URL scheme and deep links | Done | `graphite://` with Obsidian's actions and parameters (`open` with `file` or `path`, `search`, `new` with `append`, `overwrite` and `silent`, `daily`, and `vault/…`), so an Obsidian link works once its scheme is changed; Copy Graphite URL from a note, a file, and the command palette. `obsidian://` links written in notes still go to Obsidian; no document types declared for "Open in Graphite" |
 | Siri, Shortcuts, widgets | Missing | |
@@ -128,7 +128,7 @@ Status: **Missing**, **Partial**, or **Done**. "Desktop only" items are left out
 | Fonts and Dynamic Type | Partial | One size slider; system text size ignored |
 | Trash | Done | System trash, `.trash`, or permanent, as the vault's setting says |
 | Vault switcher | Done | Rename or delete a vault in Files |
-| Settings search, hotkey and toolbar settings | Missing | Hotkeys planned in [Keyboard-shortcuts-settings-todo.md](Keyboard-shortcuts-settings-todo.md) |
+| Settings search, hotkey and toolbar settings | Partial | Hotkeys done: Settings › Keyboard Shortcuts on the Mac and the iPad ([Keyboard-shortcuts-settings-todo.md](Keyboard-shortcuts-settings-todo.md)); no Settings search, no toolbar settings |
 | Per-vault core plugin settings | Partial | Graphite's switches apply to every vault |
 
 ### Search and links
@@ -163,4 +163,5 @@ Scale notes for 10,000–100,000 files: name matching uses `LIKE '%word%'` over 
 | Password-protected PDFs | Done | Read-only (no ink, markup or page changes); the password is asked each launch and never stored |
 | Canvas | Partial | See Core plugins |
 | Share notes, images or recordings out | Done | From each file's menu in the sidebar |
+| Export a note to PDF | Partial | More › Export to PDF… on a note (2026-10-21), with Obsidian's options and a preview; the reading view's own drawing, vector text, outline and web links. Not yet: Print, the Mac's File menu, the command palette and the file list's menu (`Docs/Export-to-PDF-todo.md`) |
 | Slides | Missing | |

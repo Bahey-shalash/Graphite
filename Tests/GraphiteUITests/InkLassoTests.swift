@@ -50,22 +50,36 @@ final class InkLassoTests: XCTestCase {
     }
 
     func testThePalettesSelectionSwitchTellsCanvasesOnlyWhenItChanges() {
-        PaletteInkSelection.isOn = false
+        let inkSelection = PaletteInkSelection()
         var notificationCount = 0
-        let observer = NotificationCenter.default.addObserver(forName: PaletteInkSelection.didChange, object: nil, queue: nil) { _ in
+        let observer = NotificationCenter.default.addObserver(forName: PaletteInkSelection.didChange, object: inkSelection, queue: nil) { _ in
             MainActor.assumeIsolated { notificationCount += 1 }
         }
-        defer {
-            NotificationCenter.default.removeObserver(observer)
-            PaletteInkSelection.isOn = false
-        }
-        PaletteInkSelection.isOn = false
+        defer { NotificationCenter.default.removeObserver(observer) }
+        inkSelection.isOn = false
         XCTAssertEqual(notificationCount, 0)
-        PaletteInkSelection.isOn = true
-        PaletteInkSelection.isOn = true
+        inkSelection.isOn = true
+        inkSelection.isOn = true
         XCTAssertEqual(notificationCount, 1)
-        PaletteInkSelection.isOn = false
+        inkSelection.isOn = false
         XCTAssertEqual(notificationCount, 2)
+    }
+
+    /// Each window has its palette's modes: the lasso in one leaves another's pen drawing.
+    func testTwoSelectionsAreIndependentAndAToolChoicePutsBothToolsAway() {
+        let firstWindow = PaletteInkSelection()
+        let secondWindow = PaletteInkSelection()
+
+        firstWindow.isOn = true
+        secondWindow.pointsWithLaser = true
+
+        XCTAssertTrue(firstWindow.isOn)
+        XCTAssertFalse(firstWindow.pointsWithLaser)
+        XCTAssertTrue(secondWindow.pointsWithLaser)
+        XCTAssertFalse(secondWindow.isOn)
+        firstWindow.endForChosenTool()
+        XCTAssertFalse(firstWindow.isOn)
+        XCTAssertTrue(secondWindow.pointsWithLaser)
     }
 
     func testARectangularLassoIsTheBoxBetweenTwoCornersDraggedEitherWay() {

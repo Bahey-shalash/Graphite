@@ -394,7 +394,7 @@ public struct BaseQueryEngine {
             return vaultImage(evaluator.resolveLink(link.target, from: link.source ?? source))
         case .string(let text), .image(let text):
             let trimmedText = text.trimmingCharacters(in: .whitespaces)
-            if Self.hexColorPattern?.firstMatch(in: trimmedText, range: NSRange(trimmedText.startIndex..., in: trimmedText)) != nil { return .color(trimmedText) }
+            if Self.hexColorPattern.firstMatch(in: trimmedText, range: NSRange(trimmedText.startIndex..., in: trimmedText)) != nil { return .color(trimmedText) }
             if let url = Self.webURL(trimmedText) { return .remote(url) }
             if let link = BaseLink.parse(trimmedText) { return imageReference(for: .link(link), source: source, evaluator: evaluator) }
             if let path = try? VaultPath(trimmedText), !path.rawValue.isEmpty, evaluator.record(at: path) != nil { return vaultImage(path) }
@@ -406,7 +406,7 @@ public struct BaseQueryEngine {
 
     /// Compiled once: it runs for every card. `\z` rather than `$`, which would also
     /// match before a final line break.
-    private static let hexColorPattern = try? NSRegularExpression(pattern: "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\\z")
+    private static let hexColorPattern = BaseQueryEnginePattern.hexColorPattern.compiled()
 
     /// Covers load only from the web. A note must not make a card show a local file
     /// from outside the vault (`file://`) or send other kinds of requests.

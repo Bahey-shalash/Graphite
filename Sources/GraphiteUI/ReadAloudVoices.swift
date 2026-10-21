@@ -33,10 +33,10 @@ enum ReadAloudVoices {
 
     /// A reading controller whose speech uses a downloaded voice in High Quality mode and the
     /// system voice otherwise.
-    static func makeController() -> ReadAloudController {
-        guard let library, let preparation else { return ReadAloudController(playsWhenPrepared: true) }
+    static func makeController(startRefusal: @escaping @MainActor () -> OtherWindowActivity?) -> ReadAloudController {
+        guard let library, let preparation else { return ReadAloudController(playsWhenPrepared: true, startRefusal: startRefusal) }
         let speech = NeuralReadAloudSpeech(quick: AppleReadAloudSpeech(), library: library, preparation: preparation)
-        return ReadAloudController(session: ReadAloudSession(speech: speech), neuralSpeech: speech, playsWhenPrepared: true)
+        return ReadAloudController(session: ReadAloudSession(speech: speech), neuralSpeech: speech, playsWhenPrepared: true, startRefusal: startRefusal)
     }
 }
 
