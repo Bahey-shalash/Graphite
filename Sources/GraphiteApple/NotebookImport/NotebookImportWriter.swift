@@ -1,6 +1,7 @@
 import Foundation
 import PDFKit
 import GraphiteCore
+import NotebookImport
 
 /// Writes an imported notebook as a new ordinary PDF that Graphite's own PDF code wrote: each planned page is a PDF
 /// page of its size with its background as page content (`ImportedBackgroundPages`), its pictures are Graphite's

@@ -12,6 +12,7 @@ file (comments and strings removed) and reports:
     Foundation, CoreGraphics, CryptoKit, zlib, Synchronization, Markdown and Yams; MLX only in GraphiteVoices, GRDB only
     in GraphiteIndex, Markdown and Yams only in GraphiteCore);
   * a dependency in Package.swift that the module's row does not allow;
+  * a Graphite module imported by a standalone package under Packages/ (section 3.5: a package knows nothing of Graphite);
   * target-state confinement inside GraphiteUI, which is one module today: how many of its files import GraphiteIndex
     (features never import the index, section 3.3 rule 3), Textual (only the editor and rendering modules), WebKit (only
     plugins) and MapKit (only Bases and the graph and map views). These counts only go down as the feature modules are cut.
@@ -46,6 +47,10 @@ BASELINE_PATH = os.path.join("scripts", "import-baselines.json")
 FOUNDATIONAL_FRAMEWORKS = {"Foundation", "CoreGraphics", "CryptoKit", "zlib", "Synchronization"}
 # Language and logging runtime that every module except GraphiteCore uses (not in the table; an interpretation, listed here).
 RUNTIME_FRAMEWORKS = {"Swift", "Observation", "os", "OSLog"}
+
+# Standalone packages under Packages/ (section 3.5): they know nothing of Graphite, so every module may import them, and
+# none of them may import a Graphite module.
+STANDALONE_PACKAGES = {"NotebookImport"}
 
 # Section 3.2 rows for today's modules. "modules" are Graphite modules it may import; "frameworks" are the system and
 # third-party frameworks it may import beyond FOUNDATIONAL_FRAMEWORKS and RUNTIME_FRAMEWORKS. `prefixes` allow a family.
@@ -128,7 +133,7 @@ def imported_modules(file):
 
 
 def framework_is_allowed(row, name):
-    if name in FOUNDATIONAL_FRAMEWORKS or name in row["frameworks"]:
+    if name in FOUNDATIONAL_FRAMEWORKS or name in STANDALONE_PACKAGES or name in row["frameworks"]:
         return True
     if row.get("allows_runtime") and name in RUNTIME_FRAMEWORKS:
         return True
@@ -155,6 +160,10 @@ def collect_violations(tree):
                         continue
                     if name in imported_modules(file):
                         violations[f"target-state: GraphiteUI files import {name} ({why})"].append(file.relative_path)
+    for file in tree.files(["Packages"]):
+        for name in imported_modules(file):
+            if name in GRAPHITE_MODULES:
+                violations[f"Packages imports {name} (a standalone package knows nothing of Graphite, 3.5)"].append(file.relative_path)
     for key, files in package_dependency_violations(tree.root).items():
         violations[key].extend(files)
     return violations

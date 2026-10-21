@@ -3,6 +3,7 @@ import CoreGraphics
 import PDFKit
 import PencilKit
 import GraphiteCore
+import NotebookImport
 
 /// Puts a page's imported strokes on its PDF page the way every Graphite save does: a PencilKit drawing turned into a
 /// `PDFInkUpdate` by a fresh `PDFPageInkTracker`, applied by `PDFPageManager`. The page gets a new ink group whose

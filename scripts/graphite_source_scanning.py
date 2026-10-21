@@ -185,7 +185,15 @@ class SourceTree:
         return [self.file(path) for path in swift_file_paths(self.root, directories, exclude_directories)]
 
     def production_files(self):
-        return self.files(PRODUCTION_DIRECTORIES, exclude_directories=("App/Tests",))
+        return self.files(PRODUCTION_DIRECTORIES + self.package_directories("Sources"), exclude_directories=("App/Tests",))
 
     def test_files(self):
-        return self.files(TEST_DIRECTORIES)
+        return self.files(TEST_DIRECTORIES + self.package_directories("Tests"))
+
+    def package_directories(self, kind):
+        """`Packages/<Name>/<kind>` of every standalone package (rewrite-foundations section 3.5): the rules hold there too."""
+        packages = os.path.join(self.root, "Packages")
+        if not os.path.isdir(packages):
+            return ()
+        return tuple(os.path.join("Packages", name, kind) for name in sorted(os.listdir(packages))
+                     if os.path.isdir(os.path.join(packages, name, kind)))

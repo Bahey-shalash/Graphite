@@ -2,6 +2,7 @@ import Foundation
 import CoreGraphics
 import PDFKit
 import GraphiteCore
+import NotebookImport
 
 /// Puts a page's imported pictures on its PDF page as Graphite's own pictures (`PDFPicture`, invariant M-14), in the
 /// plan's order, before the page's ink is added, so the ink stays over them (M-15). Each picture's file is read,

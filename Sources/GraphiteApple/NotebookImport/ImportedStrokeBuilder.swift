@@ -2,6 +2,7 @@ import Foundation
 import CoreGraphics
 import PencilKit
 import GraphiteCore
+import NotebookImport
 #if canImport(UIKit)
 import UIKit
 #else

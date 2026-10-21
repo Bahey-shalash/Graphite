@@ -19,7 +19,7 @@ exits with status 1 while any are left (status 0 when none are). Sizes ask a que
 a split (see Docs/solid/size-review.md).
 
 Usage:
-  python3 scripts/size-report.py                 check Sources/ and App/ against the register
+  python3 scripts/size-report.py                 check Sources/, App/ and Packages/ against the register
   python3 scripts/size-report.py --all           also print items that have a current row
   python3 scripts/size-report.py --list          print every item over a threshold, register or not
   python3 scripts/size-report.py --root <path>   measure another checkout (default: the repository)
@@ -33,7 +33,7 @@ FUNCTION_THRESHOLD, FUNCTION_STRONG = 40, 80
 TYPE_THRESHOLD, TYPE_STRONG = 300, 600
 FILE_THRESHOLD, FILE_STRONG, FILE_SMELL = 400, 500, 1000
 ALLOWED_GROWTH = 1.2
-SCANNED_DIRECTORIES = ("Sources", "App")
+SCANNED_DIRECTORIES = ("Sources", "App", "Packages")
 REGISTER = os.path.join("Docs", "solid", "size-review.md")
 
 

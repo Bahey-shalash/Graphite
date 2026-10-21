@@ -1,6 +1,7 @@
 import Foundation
 import CoreGraphics
 import GraphiteCore
+import NotebookImport
 
 /// Why `NotebookImportWriter` wrote no file. Every case leaves the destination as it was and the source unchanged.
 public enum NotebookImportWriterError: Error {

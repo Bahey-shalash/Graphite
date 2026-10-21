@@ -4,6 +4,7 @@ import ImageIO
 import PDFKit
 import UniformTypeIdentifiers
 import GraphiteCore
+import NotebookImport
 import GraphiteTestSupport
 @testable import GraphiteApple
 

@@ -1,5 +1,6 @@
 import Foundation
 import GraphiteCore
+import NotebookImport
 
 /// Writes one imported recording (`ImportedRecording`) as an `.m4a` file: the source's bytes, unchanged, copied in
 /// pieces (`ImportSourceFiles.copy(_:to:)`), so a long recording is never held whole. The copy goes to a staged file

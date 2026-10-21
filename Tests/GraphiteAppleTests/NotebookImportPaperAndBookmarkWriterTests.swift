@@ -2,6 +2,7 @@ import XCTest
 import CoreGraphics
 import PDFKit
 import GraphiteCore
+import NotebookImport
 import GraphiteTestSupport
 @testable import GraphiteApple
 

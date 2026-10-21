@@ -2,6 +2,7 @@ import Foundation
 import CoreGraphics
 import ImageIO
 import GraphiteCore
+import NotebookImport
 
 /// The PNG or JPEG bytes a `PDFPicture` holds for an imported picture: the shown part of its file, flipped as planned.
 ///
