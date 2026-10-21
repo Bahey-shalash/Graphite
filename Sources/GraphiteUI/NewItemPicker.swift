@@ -1,3 +1,15 @@
+/**
+ * File: NewItemPicker.swift
+ * -------------------------
+ * Layer: UI
+ * Description: The New menu: a notebook and a note as large choices, the other kinds below, and the
+ *              New button that opens it and carries out the choice once the menu has closed.
+ *
+ * Authors: Bahey Shalash
+ * Version: 0.5
+ * Date: 21/10/2026
+ */
+
 import SwiftUI
 import GraphiteCore
 import GraphiteApple
@@ -189,6 +201,8 @@ struct NewItemButton<Label: View>: View {
     let actions: NewItemActions
     @ViewBuilder let label: () -> Label
     @State private var showsPicker = false
+    /// What was chosen in the menu, carried out once the menu has closed.
+    @State private var chosenItem: CreatableItem?
     @State private var showsImporter = false
     @State private var showsScanner = false
     @State private var showsPhotoPicker = false
@@ -203,7 +217,10 @@ struct NewItemButton<Label: View>: View {
             .accessibilityHint(scanProcessing.isProcessing ? "Preparing a scan. Cancels it." : "")
             .popover(isPresented: $showsPicker) {
                 NewItemPicker(firstKind: firstKind, isEnabled: isEnabled, canScanDocuments: actions.saveScannedNotebook != nil,
-                              canTakePhoto: actions.canTakePhoto, choose: perform)
+                              canTakePhoto: actions.canTakePhoto, choose: { item in chosenItem = item })
+                    // On the iPad a sheet asked for while the popover is still closing is never shown,
+                    // so New Notebook, the scanner and the file chooser wait until it has gone.
+                    .onDisappear(perform: performChosenItem)
             }
             .modifier(scanPresentation)
             .modifier(NewItemPicturePresentation(showsPhotoPicker: $showsPhotoPicker, showsCamera: $showsCamera,
@@ -226,6 +243,12 @@ struct NewItemButton<Label: View>: View {
         return DocumentScanPresentation(isPresented: $showsScanner, processing: scanProcessing,
                                         save: { scan, scannedAt in await saveScannedNotebook?(scan, scannedAt, directory) },
                                         report: actions.reportProblem)
+    }
+
+    private func performChosenItem() {
+        guard let item = chosenItem else { return }
+        chosenItem = nil
+        perform(item)
     }
 
     private func perform(_ item: CreatableItem) {
