@@ -225,8 +225,9 @@ final class ReadAloudLectureHighlightTests: XCTestCase {
         try await waitUntil { pdf.pdfView != nil }
         let pdfView = try XCTUnwrap(pdf.pdfView)
         pdf.isWriting = true
-        PaletteInkSelection.pointsToRead = true
-        defer { PaletteInkSelection.pointsToRead = false }
+        let inkSelection = PaletteInkSelection.of(pdfView.window?.windowScene)
+        inkSelection.pointsToRead = true
+        defer { inkSelection.pointsToRead = false }
         let page = try XCTUnwrap(pdf.document.page(at: 0))
         func canvas() -> PDFPageCanvasView? {
             descendants(of: controller.view, matching: PDFPageCanvasView.self).first { canvas in canvas.page === page && !canvas.isHidden }

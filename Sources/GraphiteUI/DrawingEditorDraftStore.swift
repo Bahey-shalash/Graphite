@@ -65,15 +65,31 @@ struct RecoveredDrawingDraft: Sendable {
 /// user's unsaved work, not a cache.
 @MainActor
 final class DrawingEditorDraftStore {
-    static let shared = DrawingEditorDraftStore(directory: URL.applicationSupportDirectory.appendingPathComponent("Drawing Drafts", isDirectory: true))
-
     let directory: URL
     /// Writes and removals run one after another in the order they were asked for, so a
     /// removal after closing the editor cannot be overtaken by an earlier write.
     private var latestOperation: Task<Void, Never>?
+    /// Drafts whose editor a window of this process has open or has already reopened. Only a
+    /// draft left by an ended process is reopened, never one still open in another window.
+    private var draftIdentifiersOpenInThisProcess: Set<UUID> = []
 
     init(directory: URL) {
         self.directory = directory
+    }
+
+    /// The drafts folder in `applicationFolders`' Application Support. One store per process
+    /// (`ProcessServices`) writes it, for every window.
+    static func directory(in applicationFolders: ApplicationFolders) -> URL {
+        (applicationFolders.applicationSupportFolder ?? URL.applicationSupportDirectory).appendingPathComponent("Drawing Drafts", isDirectory: true)
+    }
+
+    /// Records that a window has the draft's editor open, so no other window reopens it.
+    func markOpenInThisProcess(_ draftIdentifier: UUID) {
+        draftIdentifiersOpenInThisProcess.insert(draftIdentifier)
+    }
+
+    func isOpenInThisProcess(_ draftIdentifier: UUID) -> Bool {
+        draftIdentifiersOpenInThisProcess.contains(draftIdentifier)
     }
 
     /// Writes the draft's drawing file, encoded off the main actor by `drawingFile`, then

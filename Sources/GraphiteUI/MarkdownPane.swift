@@ -362,7 +362,7 @@ struct MarkdownPane: View {
             resolve: { [workspace] target, isWiki in await workspace.resolveLink(target, from: notePath, isWiki: isWiki) },
             open: { [workspace] path in Task { await workspace.open(path) } },
             follow: { [workspace] target, isWiki in Task { await workspace.follow(target, from: notePath, isWiki: isWiki) } },
-            openPDF: openPDF,
+            openPDF: openPDF, embeddedPDFSessions: workspace.embeddedPDFSessions,
             updateProperties: preferences.isEnabled(.properties) ? { [session] properties in session.replaceProperties(properties) } : nil,
             declaredPropertyTypes: session.declaredPropertyTypes,
             baseContext: workspace.baseEmbedContext(for: notePath),

@@ -38,6 +38,7 @@ Sources/GraphiteApple/MoviePartWriter.swift            handedOverBuffer         
 Sources/GraphiteApple/VideoRecording.swift             handedOverFrame          # a frame nothing else holds
 Sources/GraphiteApple/RecordingController.swift        recordingSettings        # an immutable settings dictionary
 Sources/GraphiteUI/LivePreviewRenderedBlocks.swift     associationKey           # only the address is used
+Sources/GraphiteUI/PencilToolPalette.swift             windowSceneAssociationKey # only the address is used
 
 # --- assumeIsolated: main-queue observers, timers and callbacks (architecture.md 8.4); CC-ARCH-06 names the two with no documented thread ---
 Sources/GraphiteUI/CanvasBoardHost.swift               assumeIsolated x1  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)

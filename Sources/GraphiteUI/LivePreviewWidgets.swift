@@ -54,6 +54,9 @@ struct LivePreviewEnvironment {
     /// Opens an embedded PDF in the PDF view at a zero-based page, focusing it; without it,
     /// an embed follows a page link to the PDF instead.
     var openPDF: ((VaultPath, Int) -> Void)? = nil
+    /// The window's registry of embedded PDFs, which a rendered block's own hosting does
+    /// not inherit from the window.
+    var embeddedPDFSessions: EmbeddedPDFSessions? = nil
     /// Nil when the Properties view is turned off: the frontmatter then stays as text.
     let updateProperties: (([NoteProperty]) -> Void)?
     /// Property types assigned in `.obsidian/types.json`, which the frontmatter is read with.
