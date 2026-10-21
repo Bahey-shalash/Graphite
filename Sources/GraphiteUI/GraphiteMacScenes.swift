@@ -31,7 +31,18 @@ public struct GraphiteMacScenes: Scene {
         // the window tab bar even though the New Window menu item is replaced.
         Window("Graphite", id: GraphiteMacScenes.mainWindowIdentifier) { GraphiteRootView(reopeningLastVaultIn: workspace, launchMode: launchMode) }
             .defaultSize(width: 1200, height: 820)
-            .commands { GraphiteCommands() }
+            .commands {
+                GraphiteCommands()
+                GuideCommands()
+            }
+        // The Guide in a window of its own, beside the notes it explains.
+        Window("Graphite Guide", id: GraphiteMacScenes.guideWindowIdentifier) {
+            GuideView(showsDoneButton: false)
+                .environment(\.accent, workspace.preferences.accentColor)
+                .preferredColorScheme(workspace.preferences.appearanceMode.colorScheme)
+        }
+        .defaultSize(width: 1000, height: 720)
+        .defaultPosition(.center)
         Settings {
             SettingsView(workspace: workspace) { workspace.isVaultManagerPresented = true }
                 .defaultAppStorage(workspace.deviceDefaults)
@@ -42,6 +53,19 @@ public struct GraphiteMacScenes: Scene {
     }
 
     static let mainWindowIdentifier = "main"
+    static let guideWindowIdentifier = "guide"
+}
+
+/// Help › Graphite Guide opens the Guide's window.
+private struct GuideCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(replacing: .help) {
+            Button("Graphite Guide") { openWindow(id: GraphiteMacScenes.guideWindowIdentifier) }
+                .keyboardShortcut("?", modifiers: .command)
+        }
+    }
 }
 
 /// Saves what is open before Graphite quits. A note saves once typing has paused for most
