@@ -157,7 +157,7 @@ The owner chose the first two; the rest are defaults taken to start building, ea
 - [x] Ruled narrow (6 mm) and ruled wide (8 mm); the other spacings, line color and strength under Lines.
 - [x] Size: A3, A4, A5, A6, A7 (iPhone), Letter, Tabloid and Custom, with Portrait and Landscape in the same menu; custom 1 to 40 inches.
 - [x] Paper color menu.
-- [ ] My Templates (a PDF or image as paper, kept in the vault), with Edit to reorder and hide.
+- [x] My Templates (2026-10-21, branch `notebook-library-leftovers`): a PDF page or a picture as paper, kept in the vault as an ordinary PDF in `.obsidian/graphite-templates/` (why there: `Architecture.md`), shown with its picture beside the built-in papers, with Edit to reorder, rename, hide and delete, and Add from Files or Photos. A notebook of it has the page as every page, copied as it is (vector stays vector). Checked on macOS by tests and in the iPad simulator; not on a device. Not built: inserting a template's page into an existing notebook.
 - [x] The last paper and size are remembered; spacing and colors start as Settings has them.
 - [ ] Not checked yet: the sheet at iPad portrait and landscape and on the iPhone.
 - [ ] Handwriting language (only with handwriting recognition).

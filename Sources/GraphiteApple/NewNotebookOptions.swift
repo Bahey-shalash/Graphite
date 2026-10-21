@@ -22,6 +22,9 @@ public struct NewNotebookOptions: Equatable, Sendable {
     public static let pageCountRange: ClosedRange<Int> = 1...1000
 
     public private(set) var paperChoice: NotebookPaperChoice
+    /// The file name of one of the person's own paper templates, when a notebook of it is made;
+    /// its page then replaces the paper, the size and the colors below.
+    public private(set) var myTemplateFileName: String?
     /// Spacing, line color and strength, and paper color. Its template and size are
     /// replaced by `paperChoice` and `pageSize` in `paper`.
     public var paperStyle: PaperSpecification
@@ -36,8 +39,14 @@ public struct NewNotebookOptions: Equatable, Sendable {
         if let spacingPoints = paperChoice.spacingPoints { self.paperStyle.spacing = spacingPoints }
     }
 
-    /// Chooses a paper; ruled narrow and wide also set their spacing.
+    /// Chooses one of the person's own paper templates.
+    public mutating func choose(myTemplate fileName: String) {
+        myTemplateFileName = fileName
+    }
+
+    /// Chooses a paper; ruled narrow and wide also set their spacing. It replaces a template chosen before.
     public mutating func choose(_ choice: NotebookPaperChoice) {
+        myTemplateFileName = nil
         paperChoice = choice
         if let spacingPoints = choice.spacingPoints { paperStyle.spacing = spacingPoints }
     }
@@ -58,6 +67,7 @@ public struct NewNotebookOptions: Equatable, Sendable {
     }
 
     public var problem: NewNotebookProblem? {
+        if myTemplateFileName != nil { return Self.pageCountRange.contains(pageCount) ? nil : .pageCountOutOfRange }
         let size = pageSize.pointSize
         let sidesAreValid = [Double(size.width), Double(size.height)].allSatisfy { sideLength in
             sideLength.isFinite && Self.sideLengthRangePoints.contains(sideLength)

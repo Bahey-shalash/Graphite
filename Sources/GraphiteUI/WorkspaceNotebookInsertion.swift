@@ -34,7 +34,7 @@ extension WorkspaceModel {
             }
             try await store.createDirectory(directory)
             let path = try await store.uniquePath(directory: directory, stem: name, extension: "pdf")
-            _ = try await PDFFileService(writer: store.writer).create(paper: options.paper, pageCount: options.pageCount, at: path.url(in: root))
+            try await writeNotebook(options, at: path, store: store, root: root)
             let insertedText = placement.insertedText(fromEmbed: await embed(for: path, in: session.path, settings: settings))
             insertEmbed(insertedText, of: path, into: session, at: range, chosenIn: textWhenChosen)
             refreshIndex(for: [path])

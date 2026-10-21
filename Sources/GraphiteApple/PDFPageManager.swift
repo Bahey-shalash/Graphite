@@ -484,6 +484,11 @@ public actor PDFFileService {
         try writer.write(PDFTemplateGenerator.documentData(paper: paper, pageCount: pageCount), to: destination, expecting: .absent)
     }
 
+    /// A notebook of `pageCount` copies of one of the person's own paper templates.
+    public func create(templateAt templateLocation: URL, pageCount: Int, at destination: URL) throws -> FileRevision {
+        try writer.write(MyPaperTemplateNotebook.documentData(templateAt: templateLocation, pageCount: pageCount), to: destination, expecting: .absent)
+    }
+
     /// Replays `edits` on the baseline snapshot (or the file itself) and replaces the file
     /// atomically if it still has `revision`. When `savedSnapshotDestination` is given,
     /// the exact bytes written are also copied there, so the caller can make them its
