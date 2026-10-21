@@ -143,10 +143,10 @@ struct InkPreset: Codable, Equatable, Identifiable {
     }
 }
 
-/// What the bar has in use: one of its inks, the eraser, the lasso, the laser pointer, or
-/// the Read Aloud pen.
+/// What the bar has in use: one of its inks, the eraser, the lasso, the laser pointer, the
+/// Read Aloud pen, or the text tool.
 enum PencilToolKind: String, Codable, CaseIterable, Identifiable {
-    case ink, eraser, lasso, laser, readAloud
+    case ink, eraser, lasso, laser, readAloud, text
 
     var id: String { rawValue }
     var title: String {
@@ -156,6 +156,7 @@ enum PencilToolKind: String, Codable, CaseIterable, Identifiable {
         case .lasso: "Lasso"
         case .laser: "Laser Pointer"
         case .readAloud: "Read Aloud Pen"
+        case .text: "Text Box"
         }
     }
     var symbolName: String {
@@ -167,14 +168,16 @@ enum PencilToolKind: String, Codable, CaseIterable, Identifiable {
         case .laser: "cursorarrow.rays"
         // Only a fallback, as for the laser (`ReadAloudPenGlyph`).
         case .readAloud: "speaker.wave.2"
+        case .text: "character.textbox"
         }
     }
     /// Whether the canvas draws with PencilKit's tool: the lasso and the laser pointer are
     /// Graphite's own and draw nothing.
     var drawsInk: Bool { self == .ink || self == .eraser }
-    /// Tools for the moment, put away with the app: the laser points while presenting, and
-    /// the Read Aloud pen points at what to read. The tool before them is kept instead.
-    var isPutAwayWithApp: Bool { self == .laser || self == .readAloud }
+    /// Tools for the moment, put away with the app: the laser points while presenting, the
+    /// Read Aloud pen points at what to read, and the text tool places a box or two among the
+    /// ink. The tool before them is kept instead, which a build without them can read.
+    var isPutAwayWithApp: Bool { self == .laser || self == .readAloud || self == .text }
 }
 
 /// The tool a canvas draws with, as a value, so a canvas is updated exactly when it changes.
@@ -509,7 +512,7 @@ extension PencilToolSelection {
         switch kind {
         case .ink: preset.inkingTool
         case .eraser: erasesWholeStrokes ? PKEraserTool(.vector) : PKEraserTool(.fixedWidthBitmap, width: CGFloat(eraserWidth))
-        case .lasso, .laser, .readAloud: PKLassoTool()
+        case .lasso, .laser, .readAloud, .text: PKLassoTool()
         }
     }
 }

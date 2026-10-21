@@ -102,10 +102,11 @@ final class PDFThumbnailRenderer {
     }
 
     /// Draws the page's annotations over its content, as PDFKit's own thumbnails show them.
-    /// Ink under a live Pencil canvas is hidden in the document; it is drawn here too.
+    /// Ink under a live Pencil canvas, and text boxes drawn over it, are hidden in the
+    /// document; they are drawn here too.
     private func composite(_ contentImage: CGImage, annotationsOf page: PDFPage, content: PDFPageContent) -> PDFThumbnailImage {
         let annotations = page.annotations.filter { annotation in
-            annotation.type != "Popup" && (annotation.shouldDisplay || annotation.value(forAnnotationKey: PDFPageManager.groupKey) != nil)
+            annotation.type != "Popup" && (annotation.shouldDisplay || Self.isHiddenUnderLiveOverlay(annotation))
         }
         guard !annotations.isEmpty, let context = makeThumbnailBitmapContext(width: contentImage.width, height: contentImage.height) else {
             return Self.image(contentImage, pointSize: content.outputSize, scale: content.scale)
@@ -129,6 +130,11 @@ final class PDFThumbnailRenderer {
     /// Draws the whole page on the main actor, for a page without a Core Graphics page or
     /// one turned while its content was drawn. PDFKit's page and annotation drawing both
     /// apply the page rotation themselves, in a context with the PDF's upward y axis.
+    /// Graphite's ink and text boxes, which the document hides while a page's overlay shows them.
+    private static func isHiddenUnderLiveOverlay(_ annotation: PDFAnnotation) -> Bool {
+        annotation.value(forAnnotationKey: PDFPageManager.groupKey) != nil || annotation.value(forAnnotationKey: PDFPageManager.textBoxRecordKey) != nil
+    }
+
     private func render(_ page: PDFPage, fitting pointSize: CGSize, scale: CGFloat) -> PDFThumbnailImage {
         let outputSize = page.thumbnailSize(fitting: pointSize)
         let cropBox = page.bounds(for: .cropBox)
@@ -143,8 +149,9 @@ final class PDFThumbnailRenderer {
         let pixelsPerPagePoint = CGFloat(pixelWidth) / displayedWidth
         context.scaleBy(x: pixelsPerPagePoint, y: pixelsPerPagePoint)
         page.draw(with: .cropBox, to: context)
-        // Ink under a live Pencil canvas is hidden in the document; draw it here explicitly.
-        for annotation in page.annotations where !annotation.shouldDisplay && annotation.value(forAnnotationKey: PDFPageManager.groupKey) != nil {
+        // Ink under a live Pencil canvas, and text boxes over it, are hidden in the document;
+        // draw them here explicitly.
+        for annotation in page.annotations where !annotation.shouldDisplay && Self.isHiddenUnderLiveOverlay(annotation) {
             annotation.draw(with: .cropBox, in: context)
         }
         guard let pageImage = context.makeImage() else { return page.thumbnail(of: outputSize, for: .cropBox) }

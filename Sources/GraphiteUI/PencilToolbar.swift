@@ -50,6 +50,8 @@ struct PencilToolbar<LeadingControls: View, TrailingControls: View>: View {
     var undoAvailability: UndoAvailability?
     /// The Read Aloud pen, on PDF pages.
     var offersReadAloudPen = false
+    /// The text tool, on PDF pages.
+    var offersTextBoxes = false
     /// The document's own controls, such as Write, Undo and Redo, where they have no
     /// other place: the bar shares its row with them rather than adding one.
     @ViewBuilder var leadingControls: LeadingControls
@@ -59,7 +61,7 @@ struct PencilToolbar<LeadingControls: View, TrailingControls: View>: View {
         HStack(spacing: 12) {
             leadingControls.padding(.leading, 16)
             PencilToolRow(toolbox: toolbox, drawsShapes: $drawsShapes, addImage: addImage,
-                          undoAvailability: undoAvailability, offersReadAloudPen: offersReadAloudPen)
+                          undoAvailability: undoAvailability, offersReadAloudPen: offersReadAloudPen, offersTextBoxes: offersTextBoxes)
                 .frame(maxWidth: .infinity)
             trailingControls
                 .labelStyle(.iconOnly)
@@ -95,6 +97,10 @@ struct PencilToolRow: View {
     var rowHeight: CGFloat = PencilToolbarMetrics.height
     /// The Read Aloud pen, where there is text to read: on PDF pages.
     var offersReadAloudPen = false
+    /// The text tool, on PDF pages.
+    var offersTextBoxes = false
+    /// The look of the next new text box, which the text tool's options change.
+    @AppStorage(PDFTextBoxDefaults.preferenceKey) private var storedTextBoxDefaults: Data?
     /// The highlighter's colors as Settings keeps them, followed so a change there shows on
     /// the bar at once, not only when the bar is made again.
     @AppStorage(GraphitePreferences.highlighterPaletteKey) private var storedHighlighterPalette: Data?
@@ -173,6 +179,7 @@ struct PencilToolRow: View {
             toolButton(.eraser)
             toolButton(.lasso)
             toolButton(.laser)
+            if offersTextBoxes { toolButton(.text) }
             if offersReadAloudPen { toolButton(.readAloud) }
         }
     }
@@ -230,6 +237,9 @@ struct PencilToolRow: View {
             }
             .pickerStyle(.segmented)
             .fixedSize()
+            separator
+        case .text:
+            textToolOptions
             separator
         case .readAloud:
             Text(offersReadAloudPen ? "Tap a word to read; tap another to stop there" : "Nothing to read here")
@@ -320,7 +330,26 @@ struct PencilToolRow: View {
 
     /// Whether the colors follow the tool's own controls: not for the laser pointer, which
     /// points in its own red and whose only choice is Dot or Line.
-    static func offersColors(toolInUse: PencilToolKind) -> Bool { toolInUse != .laser && toolInUse != .readAloud }
+    static func offersColors(toolInUse: PencilToolKind) -> Bool { toolInUse != .laser && toolInUse != .readAloud && toolInUse != .text }
+
+    /// The look of the next new text box, on the bar where there is a page to put it on.
+    @ViewBuilder private var textToolOptions: some View {
+        if offersTextBoxes {
+            let defaults = PDFTextBoxDefaults.stored(decoding: storedTextBoxDefaults)
+            PDFTextFormatControls(attributes: defaults.attributes, style: defaults.boxStyle, apply: { change in
+                var changed = defaults
+                changed.attributes = change.applied(to: defaults.attributes)
+                changed.boxStyle = change.applied(to: defaults.boxStyle, textColor: defaults.attributes.color)
+                if let encoded = changed.encoded { storedTextBoxDefaults = encoded }
+            }, isCompact: true)
+        } else {
+            Text("Text boxes go on PDF pages")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .fixedSize()
+        }
+    }
 
     private var separator: some View {
         Hairline(axis: .vertical).frame(height: 20).padding(.horizontal, 6)
@@ -390,9 +419,9 @@ private extension View {
 
 extension PencilToolbar where LeadingControls == EmptyView, TrailingControls == EmptyView {
     init(toolbox: PencilToolbox, drawsShapes: Binding<Bool>, addImage: (() -> Void)? = nil, undoAvailability: UndoAvailability? = nil,
-         offersReadAloudPen: Bool = false) {
+         offersReadAloudPen: Bool = false, offersTextBoxes: Bool = false) {
         self.init(toolbox: toolbox, drawsShapes: drawsShapes, addImage: addImage, undoAvailability: undoAvailability,
-                  offersReadAloudPen: offersReadAloudPen, leadingControls: { EmptyView() }, trailingControls: { EmptyView() })
+                  offersReadAloudPen: offersReadAloudPen, offersTextBoxes: offersTextBoxes, leadingControls: { EmptyView() }, trailingControls: { EmptyView() })
     }
 }
 
@@ -414,7 +443,7 @@ struct TabBarPencilTools: View {
         if session.showsFixedPencilTools(style: toolbarStyle, showsTools: showsToolPicker, horizontalSizeClass: horizontalSizeClass, isFocused: isFocused) {
             PencilToolRow(toolbox: PencilToolbox.shared, drawsShapes: $drawsShapes,
                           addImage: { pictureSource = .photoLibrary }, undoAvailability: session.undoAvailability, rowHeight: PencilToolbarMetrics.heightInTabBar,
-                          offersReadAloudPen: offersReadAloudPen)
+                          offersReadAloudPen: offersReadAloudPen, offersTextBoxes: true)
                 .modifier(PDFPictureAdding(session: session, source: $pictureSource))
         }
     }
@@ -433,6 +462,7 @@ extension PDFSession {
     /// arranging a picture puts it away.
     func showsFloatingPencilPalette(style: PencilToolbarStyle, showsTools: Bool, horizontalSizeClass: UserInterfaceSizeClass?, isFocused: Bool) -> Bool {
         (style == .floating || horizontalSizeClass == .compact) && showsTools && isFocused && isWriting && !isProtected && selectedPicture == nil
+            && textBoxActivity == .idle
     }
 }
 #endif

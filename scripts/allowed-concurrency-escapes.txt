@@ -55,6 +55,7 @@ Sources/GraphiteUI/MarkdownPreview.swift               assumeIsolated x2  # seed
 Sources/GraphiteUI/NativeMarkdownEditor.swift          assumeIsolated x1  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
 Sources/GraphiteUI/PDFPaneHealth.swift                 assumeIsolated x1  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
 Sources/GraphiteUI/PDFPictureControls.swift            assumeIsolated x4  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
+Sources/GraphiteUI/PDFTextBoxInteraction.swift         assumeIsolated x4  # observers on the main queue and the main-thread scroll view's offset, as for pictures (CC 28)
 Sources/GraphiteUI/PresentedScreenObserver.swift       assumeIsolated x1  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)
 Sources/GraphiteUI/ReadAloudNowPlaying.swift           assumeIsolated x1  # one of the two uses with no documented thread (CC-ARCH-06): replace by an explicit hop
 Sources/GraphiteUI/ReadAloudPen.swift                  assumeIsolated x2  # seeded from the snapshot (architecture.md 8.4); state the thread at the site (CC 28)

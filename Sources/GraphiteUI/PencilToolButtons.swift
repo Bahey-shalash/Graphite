@@ -109,6 +109,7 @@ struct PencilToolGlyph: View {
         case lasso
         case laser
         case readAloud
+        case text
 
         /// The glyph of a tool other than an ink.
         init(kind: PencilToolKind) {
@@ -117,6 +118,7 @@ struct PencilToolGlyph: View {
             case .lasso: self = .lasso
             case .laser: self = .laser
             case .readAloud: self = .readAloud
+            case .text: self = .text
             }
         }
     }
@@ -133,6 +135,7 @@ struct PencilToolGlyph: View {
         case .lasso: PencilToolKind.lasso.symbolName
         case .laser: PencilToolKind.laser.symbolName
         case .readAloud: PencilToolKind.readAloud.symbolName
+        case .text: PencilToolKind.text.symbolName
         }
     }
 

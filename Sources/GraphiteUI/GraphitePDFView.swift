@@ -520,7 +520,11 @@ final class GraphitePDFDisplayView: PDFView {
     /// canvas draws only the input its drawing policy allows; the other touches still
     /// reach the scrolling, zooming, and text selection gestures of this view.
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        // The frame of a picture being arranged is over the page and its canvas.
+        // The text box being typed in, and the frame of a picture or box being arranged, are
+        // over the page and its canvas: Scribble and the caret take the Pencil there.
+        for case let editingView as PDFTextBoxEditingView in subviews {
+            if let touchedView = editingView.hitTest(editingView.convert(point, from: self), with: event) { return touchedView }
+        }
         for case let pictureSelection as SelectionFrameView in subviews {
             if let touchedView = pictureSelection.hitTest(pictureSelection.convert(point, from: self), with: event) { return touchedView }
         }
@@ -651,6 +655,8 @@ final class PDFPageCanvasView: HistoryCanvasView {
 final class PDFPageOverlayView: UIView {
     let canvas: PDFPageCanvasView
     private let guideView = DrawingPaperView()
+    /// Graphite's text boxes of the page, over the ink (`PDFPageTextBoxesView`).
+    let textBoxesView = PDFPageTextBoxesView(frame: .zero)
     /// How many times the page's size the canvas draws at: the PDF view's zoom, within what
     /// keeps the chosen tool's width on the page.
     var renderingScale: CGFloat { min(zoomRenderingScale, toolRenderingScaleLimit) }
@@ -690,6 +696,7 @@ final class PDFPageOverlayView: UIView {
         isOpaque = false
         addSubview(guideView)
         addSubview(canvas)
+        addSubview(textBoxesView)
         canvas.placeIn(self)
     }
 
@@ -726,9 +733,10 @@ final class PDFPageOverlayView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        // The guides start at the page's top-left corner, in the page's points.
+        // The guides and the text boxes start at the page's top-left corner, in its points.
         guideView.frame = bounds
         guideView.drawingRegion = bounds
+        textBoxesView.frame = bounds
         let scale = renderingScale
         let canvasBounds = CGRect(x: 0, y: 0, width: bounds.width * scale, height: bounds.height * scale)
         if canvas.bounds.size != canvasBounds.size || canvas.zoomScale != scale {
@@ -782,7 +790,8 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     private weak var pdfView: GraphitePDFDisplayView?
     /// Apple's floating palette, which this view's canvases follow.
     let toolPicker = PencilToolPalette.makeToolPicker()
-    private lazy var paletteAccessoryItem = PencilToolPalette.makeAccessoryItem(for: toolPicker) { [weak self] in self?.readAloudPen != nil }
+    private lazy var paletteAccessoryItem = PencilToolPalette.makeAccessoryItem(
+        for: toolPicker, offersReadAloudPen: { [weak self] in self?.readAloudPen != nil }, offersTextBoxes: true)
     private let toolPickerHost = PencilToolPickerHostView()
     /// The palette is drawn above every screen of the app; it gives way while a sheet, an
     /// alert or a file picker is presented over the PDF.
@@ -803,6 +812,8 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     private var selectionAnchor: (page: PDFPage, point: CGPoint)?
     private var pageObserver: PDFViewPageObserver?
     private var pictureSelection: PDFPictureSelectionController?
+    /// The page's text boxes: drawn over the ink, placed, selected and typed in.
+    private var textBoxInteraction: PDFTextBoxInteraction?
     private var toolboxObserver: NSObjectProtocol?
     private var zoomObserver: NSObjectProtocol?
     /// Draws the canvases at the zoom once it has settled, not at every step of a pinch.
@@ -885,6 +896,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         let pictureSelection = PDFPictureSelectionController(session: session, pdfView: view)
         self.pictureSelection = pictureSelection
         session.visiblePageCenter = { [weak pictureSelection] in pictureSelection?.visiblePageCenter() }
+        textBoxInteraction = PDFTextBoxInteraction(session: session, pdfView: view)
         session.registerPendingInkRecordWriter(for: self) { [weak self] in self?.writeDeferredInkRecords() }
         zoomObserver = NotificationCenter.default.addObserver(forName: .PDFViewScaleChanged, object: view, queue: nil) { [weak self] _ in
             MainActor.assumeIsolated { self?.scheduleRenderingScaleUpdate() }
@@ -925,6 +937,8 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         pageObserver?.stop()
         pictureSelection?.stop()
         pictureSelection = nil
+        textBoxInteraction?.stop()
+        textBoxInteraction = nil
         if let toolboxObserver { NotificationCenter.default.removeObserver(toolboxObserver) }
         toolboxObserver = nil
         if let zoomObserver { NotificationCenter.default.removeObserver(zoomObserver) }
@@ -1023,8 +1037,9 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         guard let pdfView else { return }
         defer {
             updateToolPickerVisibility(isInsideViewUpdate: true)
-            // The session's selected picture may have changed; SwiftUI updates the view then.
+            // The session's selected picture or text box may have changed; SwiftUI updates the view then.
             pictureSelection?.update()
+            textBoxInteraction?.syncWithActivity()
         }
         // SwiftUI calls this on every update of the pane; the view tree is walked only
         // when the input actually changes.
@@ -1034,6 +1049,8 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         input = newInput
         PencilToolPalette.updateShapesButton(paletteAccessoryItem, isOn: newInput.drawsShapes)
         if wasEnabled != newInput.isEnabled {
+            // Reading is not typing in a box or arranging one.
+            if !newInput.isEnabled { session.textBoxActivity = .idle }
             editMenuInteraction?.dismissMenu()
             tappedMarkup = nil
             selectionAnchor = nil
@@ -1248,6 +1265,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         hiddenCanvasOrder.removeAll { hiddenIdentifier in hiddenIdentifier == identifier }
         configure(canvas)
         placeReadAloudMarkers(on: canvas)
+        if let overlay = overlayView as? PDFPageOverlayView { textBoxInteraction?.pageDidAppear(page, in: overlay) }
     }
 
     func pdfView(_ pdfView: PDFView, willEndDisplayingOverlayView overlayView: UIView, for page: PDFPage) {
@@ -1256,6 +1274,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         displayedPages.remove(identifier)
         // Thumbnails and other views show the saved ink while no canvas covers the page.
         setInkAnnotationsHidden(false, on: page, group: canvas.inkTracker.group)
+        textBoxInteraction?.pageDidDisappear(page)
         hiddenCanvasOrder.append(identifier)
         while hiddenCanvasOrder.count > Self.retainedHiddenCanvasCount {
             let evictedIdentifier = hiddenCanvasOrder.removeFirst()
@@ -1338,6 +1357,7 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     private func configure(_ canvas: PDFPageCanvasView) {
         restoreStoredInkIfNeeded(on: canvas)
         canvas.readAloudPenTapped = readAloudPen == nil ? nil : { [weak self] windowPoint in self?.handleReadAloudPenTap(atWindowPoint: windowPoint) }
+        canvas.textToolTapped = { [weak self] windowPoint in self?.textBoxInteraction?.handleTextToolTap(atWindowPoint: windowPoint) }
         canvas.takeTool(from: toolPicker, fixedTool: input.fixedTool)
         canvas.drawingPolicy = input.drawsWithFinger ? .anyInput : .pencilOnly
         canvas.showWritingGuides(input.writingGuides)
@@ -1545,8 +1565,12 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         (canvasView as? HistoryCanvasView)?.toolUseDidBegin()
         beginInteraction?()
         pdfView?.clearSelection()
-        // Drawing ends arranging a picture.
+        // Drawing ends arranging a picture or a text box, and typing in one.
         if session.selectedPicture != nil { session.selectedPicture = nil }
+        if session.textBoxActivity != .idle {
+            session.textBoxActivity = .idle
+            textBoxInteraction?.syncWithActivity()
+        }
         // A text field or the selection menu may have taken first responder.
         if input.holdsFirstResponder, !toolPickerHost.isFirstResponder { toolPickerHost.becomeFirstResponder() }
     }
@@ -1583,6 +1607,8 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     private func updateFirstResponder() {
         // A change that waited for the view update may arrive after the view is dismantled.
         guard !isDetached, let pdfView else { return }
+        // The text box typed in keeps first responder, which the keyboard and Scribble need.
+        if textBoxInteraction?.isEditing == true { return }
         if input.holdsFirstResponder && pdfView.window != nil {
             // A screen presented over the PDF keeps the first responder it takes, as a text
             // field in a sheet does; the PDF takes it back when the screen goes.
@@ -1669,6 +1695,9 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
         let viewPoint = recognizer.location(in: pdfView)
         guard let markup = markup(at: viewPoint) else {
             pdfView.clearSelection()
+            // A tap on a text box selects it, or types in the one selected; a tap beside it
+            // ends typing or arranging.
+            if input.isEnabled, !placesTextBoxes, textBoxInteraction?.handleTap(at: viewPoint) == true { return }
             // A tap on a picture selects it; a tap beside it ends arranging.
             let tappedPicture = input.isEnabled ? pictureSelection?.picture(at: viewPoint) : nil
             if session.selectedPicture != tappedPicture { session.selectedPicture = tappedPicture }
@@ -1713,7 +1742,12 @@ final class PDFAnnotationCoordinator: NSObject, @preconcurrency PDFPageOverlayVi
     /// arranging a picture; any other tap is left to the pen.
     private func takesTap(at viewPoint: CGPoint, in pdfView: PDFView) -> Bool {
         markup(at: viewPoint) != nil || pdfView.currentSelection != nil || session.selectedPicture != nil
-            || pictureSelection?.picture(at: viewPoint) != nil
+            || pictureSelection?.picture(at: viewPoint) != nil || (!placesTextBoxes && textBoxInteraction?.takesTap(at: viewPoint) == true)
+    }
+
+    /// Whether the text tool is in use, whose own taps place and type in text boxes.
+    private var placesTextBoxes: Bool {
+        input.fixedTool.map { tool in tool.kind == .text } ?? PaletteInkSelection.placesTextBoxes
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
