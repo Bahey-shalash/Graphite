@@ -133,7 +133,8 @@ public enum MarkdownEditing {
 
     /// Whether the line at `lineStart` is inside fenced code or the note's frontmatter. A fence
     /// written in a quote or callout (`> ```) is code as the editor styles it: it runs to its
-    /// closing fence or to the first line outside the quote, whichever comes first.
+    /// closing fence or to the first line outside the quote, whichever comes first. A fence
+    /// opens within the indentation limit of its list item, as the editor styles it.
     private static func isInCodeOrFrontmatter(lineStart: Int, in text: NSString) -> Bool {
         var location = 0
         if let frontmatterEnd = frontmatterEnd(in: text) {
@@ -166,7 +167,8 @@ public enum MarkdownEditing {
                 openFence = nil
             }
             let (depth, content) = MarkdownQuoteSyntax.markersAndTrimmedContent(of: line, maximumDepth: .max)
-            if let (fence, _) = MarkdownFenceSyntax.opening(content) {
+            if let (fence, _) = MarkdownFenceSyntax.opening(content),
+               ListItemContainers.allowsFence(indentedBy: ListItemContainers.leadingColumns(of: line), onLineAt: location, in: text) {
                 openFence = fence
                 fenceQuoteDepth = depth
             }

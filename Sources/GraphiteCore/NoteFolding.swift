@@ -33,7 +33,7 @@ public enum NoteFolding {
             var lineEnd = 0, contentsEnd = 0
             source.getLineStart(nil, end: &lineEnd, contentsEnd: &contentsEnd, for: NSRange(location: location, length: 0))
             let content = source.substring(with: NSRange(location: location, length: contentsEnd - location))
-            let isCode = tracker.isCodeLine(content.trimmingCharacters(in: .whitespaces))
+            let isCode = tracker.isCodeLine(untrimmedLine: content)
             lines.append((NSRange(location: location, length: lineEnd - location), contentsEnd, content, isCode))
             location = lineEnd
         }

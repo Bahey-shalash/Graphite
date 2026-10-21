@@ -37,7 +37,7 @@ public struct DisplayMathLines {
         var closingIndices = [Int?](repeating: nil, count: lines.count + 1)
         for lineIndex in lines.indices.reversed() {
             counts[lineIndex] = Self.delimiterOffsets(in: lines[lineIndex], skippingCodeSpans: false).count
-            closingIndices[lineIndex] = counts[lineIndex] % 2 == 1 ? lineIndex : closingIndices[lineIndex + 1]
+            closingIndices[lineIndex] = Self.closesOpenBlock(delimiterCount: counts[lineIndex]) ? lineIndex : closingIndices[lineIndex + 1]
         }
         delimiterCounts = counts
         closingLineIndexFromLine = closingIndices
@@ -69,6 +69,15 @@ public struct DisplayMathLines {
         guard firstCharacter == "`" || firstCharacter == "~" else { return false }
         return MarkdownFenceSyntax.opening(unquotedLine.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
     }
+
+    /// Whether `line`, inside an open block, closes it: it holds an odd number of unescaped
+    /// `$$`. A line ending in `\$$` holds none (an escaped `$`, then a lone `$`), so the block
+    /// stays open. Readers that follow display math line by line ask this.
+    public static func closesOpenBlock(_ line: String) -> Bool {
+        closesOpenBlock(delimiterCount: delimiterOffsets(in: line, skippingCodeSpans: false).count)
+    }
+
+    private static func closesOpenBlock(delimiterCount: Int) -> Bool { delimiterCount % 2 == 1 }
 
     /// UTF-16 offset of the `$$` that closes an open block on `line`: the first one.
     public static func closingDelimiterOffset(in line: String) -> Int? {

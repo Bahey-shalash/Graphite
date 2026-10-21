@@ -343,8 +343,8 @@ public enum ObsidianInlineMarkup {
     private static let markerScalarValues: [ClosedRange<UInt32>] = [0xE000...0xE006, 0xE00A...0xE00B]
     private static let highlightPattern = ObsidianInlineMarkupPattern.highlightPattern.compiled()
     private static let tableDisplayMathPattern = ObsidianInlineMarkupPattern.tableDisplayMathPattern.compiled()
-    /// `$$…$$` on one line, or Obsidian's inline `$…$`: no space just inside either `$`, and
-    /// no digit after the closing one, so "$5 and $10" is not math.
+    /// `$$…$$` within a line, or inline `$…$` as `MarkdownInlineMathSyntax` reads it, in one
+    /// pass over each line (`InlineMathRuleTests` holds the second half to that rule).
     private static let mathSpanPattern = ObsidianInlineMarkupPattern.mathSpanPattern.compiled()
     private static let quotePrefixPattern = ObsidianInlineMarkupPattern.quotePrefixPattern.compiled()
 
@@ -471,7 +471,7 @@ public enum ObsidianInlineMarkup {
             defer { lineStart += line.utf16.count + 1 }
             // Inside a comment a fence is hidden text, so it neither opens nor closes code.
             // A fence in a quote or callout (`> ```) is code too.
-            let unquotedLine = line.drop { character in character == ">" || character == " " || character == "\t" }
+            let unquotedLine = MarkdownQuoteSyntax.markersRemoved(from: Substring(line)).content
             if commentStart == nil, fenceTracker.isCodeLine(untrimmedLine: unquotedLine) { continue }
             guard line.utf8.contains(UInt8(ascii: "%")) else { continue }
             let lineSource = line as NSString
@@ -638,7 +638,6 @@ public enum ObsidianInlineMarkup {
         where !codeRanges.contains(where: { codeRange in NSIntersectionRange(codeRange, match.range).length > 0 }) {
             let isDisplayMath = match.range(at: 1).location != NSNotFound
             let contentRange = isDisplayMath ? match.range(at: 1) : match.range(at: 2)
-            guard contentRange.location != NSNotFound else { continue }
             let latex = source.substring(with: contentRange)
             // An equation number belongs to a display formula. Inline math has none, as in
             // MathJax, and neither has a formula in a table cell, which is drawn inline.
@@ -803,7 +802,8 @@ enum NotePreviewDocumentPattern: String, StaticPatternSet {
 enum ObsidianInlineMarkupPattern: String, StaticPatternSet {
     case highlightPattern = #"(?<![=~])==(?![\s=~])([^=\n]+?)(?<!\s)==(?!=)"#
     case tableDisplayMathPattern = #"\$\$([^$\n]+)\$\$"#
-    case mathSpanPattern = #"\$\$(?!\$)([^\n]+?)\$\$|(?<![\\$])\$(?![\s$])([^$\n]*?[^\s\\])?\$(?![\d$])"#
+    /// `$$…$$`, or `MarkdownInlineMathPattern.formula` after the `|`.
+    case mathSpanPattern = #"\$\$(?!\$)([^\n]+?)\$\$|(?<![\\$])\$(?![\s$])((?:[^$\r\n\\]++|\\.)++)(?<!\s)\$(?![$\d])"#
     case quotePrefixPattern = #"^\s*(?:>\s?)*"#
     case blockIdentifierPattern = #"(?:[ \t]+|^)\^[A-Za-z0-9-]+[ \t]*$"#
 }
