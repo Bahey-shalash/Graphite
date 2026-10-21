@@ -6,7 +6,7 @@
  *              More commands in the system's overflow menu.
  *
  * Authors: Bahey Shalash
- * Version: 0.7
+ * Version: 0.8
  * Date: 21/10/2026
  */
 
@@ -189,7 +189,7 @@ struct CanvasPane: View {
         }
         Divider()
         Button("Save Now", systemImage: "square.and.arrow.down") { Task { try? await session.save() } }
-        Button("Copy Graphite URL", systemImage: "link") { Pasteboard.copy(workspace.openingLink(to: session.path)) }
+        FileLocationMenuItems(path: session.path, openingLink: workspace.openingLink(to: session.path), vaultRoot: workspace.folderAccess?.root)
         if preferences.isEnabled(.bookmarks) {
             let isBookmarked = workspace.bookmarks.fileBookmark(for: session.path) != nil
             Button(isBookmarked ? "Remove Bookmark" : "Bookmark", systemImage: isBookmarked ? "bookmark.slash" : "bookmark") {
