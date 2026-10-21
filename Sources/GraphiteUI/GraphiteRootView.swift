@@ -270,7 +270,7 @@ struct GraphiteRootView: View {
         .onChange(of: workspace.layout.saved) { keptWindowTabs = workspace.windowTabsToKeep() }
         #if os(macOS)
         .onChange(of: controlActiveState, initial: true) { _, state in
-            if state == .key { frontmostWindow?.workspace = workspace }
+            if state == .key { frontmostWindow?.workspace = workspace; workspace.windowCameToFront() }
         }
         #endif
         .onChange(of: scenePhase) { previousPhase, phase in
