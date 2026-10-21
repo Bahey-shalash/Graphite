@@ -3,5 +3,10 @@
     "app": 87714274,
     "assetCatalog": 29509400,
     "binary": 45459344
+  },
+  "macOS": {
+    "app": 59335671,
+    "assetCatalog": 2068936,
+    "binary": 44500464
   }
 }
