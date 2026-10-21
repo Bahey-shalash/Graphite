@@ -163,6 +163,21 @@ final class AppProjectTextualPatchTests: XCTestCase {
         XCTAssertGreaterThan(brokenLong.ascent + brokenLong.descent, 1.5 * (naturalLong.ascent + naturalLong.descent))
     }
 
+    /// A fraction late in a long formula goes onto a new line when it would run past the
+    /// width. The typesetter measured only the text since the last fraction, so the third
+    /// fraction here was placed past the edge of a callout and cut off.
+    func testFractionAfterEarlierFractionsBreaksOntoANewLine() throws {
+        let fontSize: CGFloat = 22
+        let latex = #"\text{new time} = \frac{1-f}{s} + f, \qquad \text{memory share} = \frac{f}{\frac{1-f}{s} + f}, \qquad \text{overall speedup} = \frac{1}{\frac{1-f}{s} + f}"#
+        let natural = try XCTUnwrap(DisplayMathRendering.metrics(for: latex, fontSize: fontSize))
+        for fraction in [0.95, 0.8, 0.6] {
+            let width = natural.width * fraction
+            let fitted = try XCTUnwrap(DisplayMathRendering.metrics(for: latex, fontSize: fontSize, fittingWidth: width))
+            XCTAssertLessThanOrEqual(fitted.width, width + MathAttachment.naturalWidthTolerance, "at \(fraction) of its width")
+            XCTAssertGreaterThan(fitted.ascent + fitted.descent, 1.5 * (natural.ascent + natural.descent), "at \(fraction) of its width")
+        }
+    }
+
     /// The view draws display math at its natural width when it overhangs the column by
     /// up to a point; the measurement used to refit it (and reserve the wrapped height)
     /// as soon as it overhung at all.
