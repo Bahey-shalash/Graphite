@@ -14,7 +14,7 @@ final class WorkspaceModel {
     private(set) var currentVaultIdentifier: UUID?
     let vaultLibrary: VaultLibrary
     /// The preferences the per-vault keys below are written to. The app's are the standard
-    /// ones; a test or a hosted launch gives its own (`WorkspaceDeviceServices`).
+    /// ones; a test or a hosted launch gives its own (`ProcessServices`).
     let deviceDefaults: UserDefaults
     /// Where the files kept for each vault outside it (indexes, File recovery copies,
     /// unfinished recordings) live: the system's folders, or temporary ones for tests.
@@ -75,10 +75,6 @@ final class WorkspaceModel {
     @ObservationIgnored var restorableSidebarPluginViews: (views: [SavedTabLayout.PluginView], shownViewType: String?) = ([], nil)
     /// The native editors of recently hidden notes, kept with their undo history.
     @ObservationIgnored let markdownEditorRetention = MarkdownEditorRetention()
-    /// Where each vault's documents were left (`WorkspacePlaces.swift`). Shared by every
-    /// workspace of the app; a test gives its workspace one of its own, so places it leaves
-    /// stay out of the app's preferences and out of other tests.
-    @ObservationIgnored var documentPlaceStore: DocumentPlaceStore
     /// Bases inside the open vault's notes keep their results here while scrolled out of
     /// sight. Replaced when another vault opens, since its models read the old vault.
     @ObservationIgnored private(set) var embeddedBaseModelCache = EmbeddedBaseModelCache()
@@ -201,8 +197,9 @@ final class WorkspaceModel {
     /// Jumps, section skips, the listening queue and remembered places for Read Aloud; nil
     /// while Read Aloud is off.
     private(set) var readAloudNavigator: ReadAloudNavigator?
-    /// Builds `readAloud` when the plugin is on at launch or turned on later.
-    @ObservationIgnored private let makeReadAloudController: @MainActor () -> ReadAloudController
+    /// What every window of the app shares: the place store, the add-on packs and what builds
+    /// `readAloud` when the plugin is on at launch or turned on later.
+    @ObservationIgnored let processServices: ProcessServices
     /// The open vault's Obsidian community plugins.
     let communityPlugins: CommunityPluginHost
     /// Set by indexing when a scan of the whole vault finishes; tests that fill the index
@@ -224,19 +221,18 @@ final class WorkspaceModel {
     /// settling of external changes and canvas autosave.
     let clock: any ApplicationClock
 
-    /// A workspace over the device state it is given: the preferences, the vault list, the
-    /// place store and the folders, with its delays counted on `clock`. The app builds them
-    /// once where it creates the workspace.
-    init(deviceServices: WorkspaceDeviceServices, clock: any ApplicationClock) {
+    /// One window's workspace over the services every window shares: the preferences, the
+    /// vault list, the place store and the folders, with its delays counted on `clock`. The
+    /// app builds the services once per process and a workspace for each window.
+    init(processServices: ProcessServices, clock: any ApplicationClock) {
         self.clock = clock
-        deviceDefaults = deviceServices.defaults
-        applicationFolders = deviceServices.applicationFolders
-        preferences = deviceServices.preferences
-        vaultLibrary = deviceServices.vaultLibrary
-        documentPlaceStore = deviceServices.documentPlaceStore
-        communityPlugins = CommunityPluginHost(defaults: deviceServices.defaults)
-        makeReadAloudController = deviceServices.makeReadAloudController
-        if let applicationSupportFolder = deviceServices.applicationFolders.applicationSupportFolder {
+        self.processServices = processServices
+        deviceDefaults = processServices.defaults
+        applicationFolders = processServices.applicationFolders
+        preferences = processServices.preferences
+        vaultLibrary = processServices.vaultLibrary
+        communityPlugins = CommunityPluginHost(defaults: processServices.defaults)
+        if let applicationSupportFolder = processServices.applicationFolders.applicationSupportFolder {
             recording.recoveryFolderLocation = { try RecordingRecoveryFolder.location(in: applicationSupportFolder) }
         }
         if preferences.isEnabled(.readAloud) { startReadAloud() }
@@ -253,7 +249,7 @@ final class WorkspaceModel {
 
     private func startReadAloud() {
         guard readAloud == nil else { return }
-        let reader = makeReadAloudController()
+        let reader = processServices.makeReadAloudController()
         reader.vaultRoot = folderAccess?.root
         let navigator = ReadAloudNavigator(reader: reader)
         navigator.startReading = { [weak self] path, resumeLocation in
@@ -277,12 +273,7 @@ final class WorkspaceModel {
     /// A workspace on the app's own device state. Callers that do not pass their own are the
     /// tests written before the workspace could be given one; Phase 2 removes this.
     convenience init() {
-        self.init(deviceServices: .live(), clock: LiveApplicationClock())
-    }
-
-    /// A workspace for a launch in `launchMode`.
-    convenience init(launchMode: LaunchMode) {
-        self.init(deviceServices: .make(for: launchMode), clock: LiveApplicationClock())
+        self.init(processServices: .live(), clock: LiveApplicationClock())
     }
 
     var title: String { folderAccess?.root.lastPathComponent ?? "Graphite" }
@@ -333,7 +324,7 @@ final class WorkspaceModel {
         for key in vaultKeys {
             deviceDefaults.removeObject(forKey: key)
         }
-        documentPlaceStore.forgetVault(vault.id)
+        processServices.documentPlaceStore.forgetVault(vault.id)
     }
 
     /// Refuses to leave the vault during a recording, or while a drawing is open in its editor,

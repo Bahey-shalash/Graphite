@@ -45,18 +45,18 @@ struct IsolatedWorkspaceDevice {
     /// is stored now. Read Aloud, when it is on, speaks through a silent fake that makes no
     /// sound (`PenTestSpeech`), keeps its preferences in this device's suite, and stays off
     /// the lock screen.
-    func makeServices(makeReadAloudController: (@MainActor () -> ReadAloudController)? = nil) -> WorkspaceDeviceServices {
+    func makeServices(makeReadAloudController: (@MainActor () -> ReadAloudController)? = nil) -> ProcessServices {
         let defaults = defaults
-        return WorkspaceDeviceServices(defaults: defaults, applicationFolders: applicationFolders,
-                                       makeReadAloudController: makeReadAloudController ?? {
-                                           ReadAloudController(session: ReadAloudSession(speech: PenTestSpeech(), preferences: defaults),
-                                                               preferences: defaults)
-                                       })
+        return ProcessServices(defaults: defaults, applicationFolders: applicationFolders,
+                               makeReadAloudController: makeReadAloudController ?? {
+                                   ReadAloudController(session: ReadAloudSession(speech: PenTestSpeech(), preferences: defaults),
+                                                       preferences: defaults)
+                               })
     }
 
     /// A workspace on this device whose delays run on `clock`.
     func makeWorkspace(clock: any ApplicationClock = LiveApplicationClock(),
                        makeReadAloudController: (@MainActor () -> ReadAloudController)? = nil) -> WorkspaceModel {
-        WorkspaceModel(deviceServices: makeServices(makeReadAloudController: makeReadAloudController), clock: clock)
+        WorkspaceModel(processServices: makeServices(makeReadAloudController: makeReadAloudController), clock: clock)
     }
 }

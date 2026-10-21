@@ -17,7 +17,6 @@ Sources/GraphiteApple/MainThreadWatchdog.swift      MainThreadWatchdog.shared   
 Sources/GraphiteApple/PDFPicture.swift              PDFPictureDrawingDelegate.shared   # no state (DIP-LECTURE-01)
 Sources/GraphiteApple/DrawingFileService.swift      ImageDecodingLimiter.shared        # bounded decode concurrency for the whole process
 # Process-wide state that tests share and that Phase 2 hands to the environment.
-Sources/GraphiteUI/WorkspacePlaces.swift            DocumentPlaceStore.shared          # over UserDefaults.standard; Phase 2 (T-18)
 Sources/GraphiteUI/MarkdownPreview.swift            ReadingImageCache.shared           # bounded NSCache; owner and memory release in Phase 6
 Sources/GraphiteUI/DrawingEditorDraftStore.swift    DrawingEditorDraftStore.shared     # drafts folder in Application Support; Phase 2
 Sources/GraphiteUI/PencilToolPalette.swift          PaletteToolChoiceObserver.shared   # Pencil palette observer; per-device fact, Phase 2
