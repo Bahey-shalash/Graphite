@@ -32,6 +32,8 @@ public final class ProcessServices {
     let drawingDrafts: DrawingEditorDraftStore
     /// The open windows, for what only one of them may run at a time.
     let openWindows = OpenWindows()
+    /// The notes open in every window, so a note open in two windows is one text.
+    let openNotes = OpenNoteFiles()
     /// Builds a window's Read Aloud controller and its speech: the system voice, the
     /// downloaded voices and their renderer, shared by every window. Called only while the
     /// Read Aloud core plugin is on, so a launch with it off creates no speech engine. The

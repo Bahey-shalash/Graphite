@@ -10,9 +10,19 @@ final class MarkdownSession {
     private let didSave: @MainActor (VaultPath) -> Void
     var text: String {
         didSet {
-            if text != oldValue { editVersion += 1; textDidChange?() }
+            guard text != oldValue else { return }
+            editVersion += 1
+            textDidChange?()
+            if !isTakingSharedText { shareText() }
         }
     }
+    /// The open notes of every window, where this note's other sessions are found; nil for a
+    /// session alone, as in tests.
+    @ObservationIgnored private let openNotes: OpenNoteFiles?
+    /// This note's key among the open notes.
+    @ObservationIgnored private let fileKey: String
+    /// Set while the text comes from another session of the note, so it is not sent back.
+    @ObservationIgnored private var isTakingSharedText = false
     /// A window-level consumer can invalidate a reading snapshot even when the
     /// editor is hidden in another tab. The session does not own that consumer.
     @ObservationIgnored var textDidChange: (@MainActor () -> Void)?
@@ -133,16 +143,55 @@ final class MarkdownSession {
     var isSaving: Bool { activeSave != nil }
     var hasUnsavedChanges: Bool { text != savedText || !pendingInsertions.isEmpty }
 
-    init(path: VaultPath, snapshot: FileSnapshot, store: VaultStore, didSave: @escaping @MainActor (VaultPath) -> Void) throws {
+    init(path: VaultPath, snapshot: FileSnapshot, store: VaultStore, openNotes: OpenNoteFiles? = nil,
+         didSave: @escaping @MainActor (VaultPath) -> Void) throws {
         guard let decoded = NoteTextEncoding.decode(snapshot.data) else { throw GraphiteError.invalidFile("This note is not UTF-8 encoded.") }
         self.path = path; self.store = store; self.didSave = didSave
         text = decoded.text; savedText = decoded.text; hasByteOrderMark = decoded.hasByteOrderMark; revision = snapshot.revision
+        self.openNotes = openNotes
+        fileKey = OpenNoteFiles.key(for: try path.url(in: store.root))
+        // Open in another window already: this one shows its text, edits not saved yet included.
+        if let openSession = openNotes?.register(self, file: fileKey) {
+            takeSharedText(openSession.text)
+            takeSavedState(of: openSession)
+        }
+    }
+
+    // MARK: One note in several windows
+
+    private var siblings: [MarkdownSession] { openNotes?.siblings(of: self, file: fileKey) ?? [] }
+
+    private func shareText() {
+        for sibling in siblings { sibling.takeSharedText(text) }
+    }
+
+    /// Shows the text another session of the note has; its editor applies the difference.
+    private func takeSharedText(_ sharedText: String) {
+        isTakingSharedText = true
+        text = sharedText
+        isTakingSharedText = false
+    }
+
+    /// After a save or a reload: the other sessions of the note know what is on disk now, so
+    /// their next save expects this revision and nothing is left for them to save.
+    private func shareSavedState() {
+        for sibling in siblings { sibling.takeSavedState(of: self) }
+    }
+
+    private func takeSavedState(of session: MarkdownSession) {
+        savedText = session.savedText
+        hasByteOrderMark = session.hasByteOrderMark
+        revision = session.revision
+        if !session.hasExternalConflict { hasExternalConflict = false }
     }
 
     /// Saves the current text. A save already in flight is awaited first, so autosave,
     /// navigation, and the keyboard shortcut never race or report a spurious error.
     func save() async throws {
-        while let previousSave = activeSave {
+        // Another window's save of the note is awaited too: it sets the revision this one expects.
+        var awaitedSaves: Set<Task<Void, Error>> = []
+        while let previousSave = ([activeSave] + siblings.map(\.activeSave)).compactMap({ save in save }).first(where: { save in !awaitedSaves.contains(save) }) {
+            awaitedSaves.insert(previousSave)
             _ = try? await previousSave.value
             // Whichever waiter resumes first clears the finished save. Awaiting a finished
             // task does not suspend, so a waiter that left it in place would spin on the
@@ -160,6 +209,9 @@ final class MarkdownSession {
             let newRevision = try await store.save(dataToSave, at: path, expecting: .revision(expectedRevision))
             self.revision = newRevision
             self.savedText = textToSave
+            // Before anyone waiting for this save resumes: another window's save of the note,
+            // waiting for this one, must expect the new revision.
+            self.shareSavedState()
         }
         activeSave = saveTask
         defer { if activeSave == saveTask { activeSave = nil } }
@@ -212,6 +264,7 @@ final class MarkdownSession {
         pendingInsertions = []
         text = decoded.text; savedText = decoded.text; hasByteOrderMark = decoded.hasByteOrderMark; revision = snapshot.revision
         hasExternalConflict = false; errorMessage = nil
+        shareSavedState()
     }
 
     /// Writes the edits to a new note beside this one and ends the conflict: this note
