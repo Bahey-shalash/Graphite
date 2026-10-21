@@ -25,7 +25,7 @@ public struct ScannedDocumentPDF: Sendable {
 /// Turns the pages of a document scan into one ordinary PDF: each page is the scanned
 /// picture, JPEG-compressed, at A4 width and the picture's own proportions, with an invisible
 /// text layer from on-device recognition laid over the words. Any PDF reader can select and
-/// search that text, and Graphite's index reads it like a PDF that was typed.
+/// search that text; Graphite's vault index does not read PDF text yet.
 ///
 /// An actor, so recognition, JPEG encoding and PDF writing run on its own executor and never
 /// on the main actor (`FR-103`); the work stops at the next page when the calling task is
