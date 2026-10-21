@@ -6,7 +6,7 @@
  *              stores it hands out (the library, new notebooks, Export to PDF).
  *
  * Authors: Bahey Shalash, Félix Chevalier
- * Version: 0.18
+ * Version: 0.19
  * Date: 21/10/2026
  */
 
@@ -274,6 +274,12 @@ final class GraphitePreferences {
 
     var colorPalette: [PaletteColor] {
         didSet { defaults.set(try? JSONEncoder().encode(colorPalette), forKey: Key.colorPalette) }
+    }
+
+    /// The palette's colors by name, which `~={name}text=~` markup is drawn with; the first
+    /// color of a repeated name wins.
+    var colorPaletteHexByName: [String: String] {
+        Dictionary(colorPalette.map { color in (color.name, color.hex) }, uniquingKeysWith: { firstHex, _ in firstHex })
     }
 
     /// The chosen accent, for views made outside SwiftUI's environment.

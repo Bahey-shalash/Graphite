@@ -1,3 +1,14 @@
+/**
+ * File: WelcomeTourCopy.swift
+ * ---------------------------
+ * Layer: UI
+ * Description: The welcome tour's words, page by page.
+ *
+ * Authors: Bahey Shalash
+ * Version: 0.6
+ * Date: 21/10/2026
+ */
+
 import Foundation
 
 /// The words and pictures of each welcome tour page. Every place named here (a button, a
@@ -45,7 +56,7 @@ enum WelcomeTourCopy {
                                      "In the note's More menu, View picks Reading View, Live Preview or Source Mode."),
             WelcomeTourPoint(systemImage: "magnifyingglass", title: .words("Find anything"),
                              detail: "Search every file from the sidebar. The Quick Switcher (⌘O) opens a note by name, and the Command Palette " +
-                                     "(⌘P) runs any command.")
+                                     "(⌘P, or ⇧⌘P on the Mac) runs any command.")
         ],
         pointLayout: .list,
         screenshots: [WelcomeTourScreenshot(label: "Note", assetName: "WelcomeTourMarkdown",

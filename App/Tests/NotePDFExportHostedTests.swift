@@ -7,7 +7,7 @@
  *              while the app is dark, and the sheet's preview, options and export.
  *
  * Authors: Bahey Shalash
- * Version: 0.1
+ * Version: 0.2
  * Date: 21/10/2026
  */
 
@@ -148,7 +148,7 @@ final class NotePDFExportHostedTests: XCTestCase {
         let source = NotePDFSource(text: "# Lecture\n\n" + note, path: try VaultPath("Lecture.md"), vault: try XCTUnwrap(ReadingVault(root, index)),
                                    readingConfiguration: ReadingConfiguration(), title: "Lecture",
                                    appearance: NotePDFAppearance(typography: .standard, codeColorTheme: .obsidian, accent: .blue))
-        let export = NotePDFExport(source: source, defaults: NotePDFExportDefaults(defaults: defaults))
+        let export = NotePDFExport(source: source, defaults: NotePDFExportDefaults(defaults: defaults), purpose: .save)
         let controller = UIHostingController(rootView: NotePDFExportSheet(export: export))
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { scene in scene as? UIWindowScene }.first)
         let sheetWindow = UIWindow(windowScene: scene)

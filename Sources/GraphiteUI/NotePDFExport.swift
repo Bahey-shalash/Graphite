@@ -6,7 +6,7 @@
  *              progress and cancellation, and the finished PDF handed to the file exporter.
  *
  * Authors: Bahey Shalash
- * Version: 0.1
+ * Version: 0.2
  * Date: 21/10/2026
  */
 
@@ -32,6 +32,8 @@ final class NotePDFExport {
         case exporting(fractionDone: Double)
         /// The PDF is made and waits for the person to pick where it goes.
         case saving(PDFExportDocument)
+        /// The PDF is made and waits for the print panel.
+        case printing(NotePDF)
         case failed(message: String)
     }
 
@@ -43,6 +45,7 @@ final class NotePDFExport {
         didSet { if options != oldValue { startPreview() } }
     }
 
+    let purpose: NotePDFPurpose
     private let source: NotePDFSource
     private let defaults: NotePDFExportDefaults
     private var previewTask: Task<Void, Never>?
@@ -53,9 +56,10 @@ final class NotePDFExport {
     /// The preview pages' height, in points, which they are drawn for.
     nonisolated static let previewPageHeight: CGFloat = 240
 
-    init(source: NotePDFSource, defaults: NotePDFExportDefaults) {
+    init(source: NotePDFSource, defaults: NotePDFExportDefaults, purpose: NotePDFPurpose) {
         self.source = source
         self.defaults = defaults
+        self.purpose = purpose
         options = defaults.options
     }
 
@@ -64,6 +68,15 @@ final class NotePDFExport {
     var isExporting: Bool {
         if case .exporting = phase { return true }
         return false
+    }
+
+    /// Whether a PDF made to print is ready, or stopped: the progress sheet then closes.
+    var isFinishedPrinting: Bool {
+        switch phase {
+        case .printing: true
+        case .choosing: purpose == .print && exportTask != nil
+        case .exporting, .saving, .failed: false
+        }
     }
 
     /// Draws the first pages again with the current options, replacing a preview in progress.
@@ -86,17 +99,22 @@ final class NotePDFExport {
         }
     }
 
-    /// Makes the whole PDF, remembering the options for the next export on this device.
+    /// Makes the whole PDF: to save, remembering the options for the next export on this
+    /// device; to print, with the options last remembered.
     func export() {
         guard !isExporting else { return }
-        defaults.remember(options)
+        if purpose == .save { defaults.remember(options) }
         previewTask?.cancel()
         let renderer = NotePDFRenderer(source: source, options: options)
         phase = .exporting(fractionDone: 0)
         exportTask = Task { [weak self] in
             do {
                 let pdf = try await renderer.render { fraction in self?.phase = .exporting(fractionDone: fraction) }
-                self?.phase = .saving(PDFExportDocument(data: pdf.data))
+                switch self?.purpose {
+                case .save: self?.phase = .saving(PDFExportDocument(data: pdf.data))
+                case .print: self?.phase = .printing(pdf)
+                case nil: break
+                }
             } catch is CancellationError {
                 self?.phase = .choosing
             } catch {
@@ -134,6 +152,8 @@ final class NotePDFExport {
         switch error as? NotePDFExportError {
         case .drawingUnavailable, .drawnPDFUnreadable, .finishedPDFUnwritable:
             "The PDF could not be made. Try again, or export with other options."
+        case .noNoteInFront, .noteNotText:
+            "The note could not be read, so no PDF was made."
         case nil:
             (error as? LocalizedError)?.errorDescription ?? "The PDF could not be made or saved. Try again."
         }
