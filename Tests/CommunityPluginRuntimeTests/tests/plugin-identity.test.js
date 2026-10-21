@@ -14,14 +14,14 @@ ${body}
 module.exports = ExamplePlugin;`;
 }
 
-test('commands are identified as <plugin id>:<command id> and named <plugin name>: <command name> in commands.changed', async () => {
+test('commands are identified as <plugin id>:<command id> and named <plugin name>: <command name> in commands.changed, with their declared hotkeys', async () => {
     const harness = await startRuntime({ files: {} });
     try {
         const manifest = { id: 'quick-add', name: 'QuickAdd', version: '1.0.0', minAppVersion: '1.0.0', description: 'Test', author: 'Graphite' };
         await installAndLoadPlugin(harness, { manifest, mainSource: pluginSource(`
 class ExamplePlugin extends obsidian.Plugin {
     onload() {
-        this.addCommand({ id: 'run', name: 'Run choice', icon: 'zap', callback: () => {} });
+        this.addCommand({ id: 'run', name: 'Run choice', icon: 'zap', callback: () => {}, hotkeys: [{ modifiers: ['Mod', 'Shift'], key: 'Q' }, { modifiers: ['Mod'] }] });
         this.addCommand({ id: 'insert', name: 'Insert here', editorCallback: () => {} });
         this.addCommand({ id: 'maybe', name: 'Maybe', editorCheckCallback: () => false });
     }
@@ -31,9 +31,11 @@ class ExamplePlugin extends obsidian.Plugin {
         assert.deepEqual(plain(lists.at(-1)), {
             operation: 'commands.changed',
             commands: [
-                { commandIdentifier: 'quick-add:run', name: 'QuickAdd: Run choice', icon: 'zap', needsEditor: false, pluginIdentifier: 'quick-add' },
-                { commandIdentifier: 'quick-add:insert', name: 'QuickAdd: Insert here', icon: null, needsEditor: true, pluginIdentifier: 'quick-add' },
-                { commandIdentifier: 'quick-add:maybe', name: 'QuickAdd: Maybe', icon: null, needsEditor: true, pluginIdentifier: 'quick-add' },
+                // Declared hotkeys pass to Graphite's shortcut list; one without a key is left out.
+                { commandIdentifier: 'quick-add:run', name: 'QuickAdd: Run choice', icon: 'zap', needsEditor: false, pluginIdentifier: 'quick-add',
+                    hotkeys: [{ modifiers: ['Mod', 'Shift'], key: 'Q' }] },
+                { commandIdentifier: 'quick-add:insert', name: 'QuickAdd: Insert here', icon: null, needsEditor: true, pluginIdentifier: 'quick-add', hotkeys: [] },
+                { commandIdentifier: 'quick-add:maybe', name: 'QuickAdd: Maybe', icon: null, needsEditor: true, pluginIdentifier: 'quick-add', hotkeys: [] },
             ],
         });
         assert.deepEqual(plain(await harness.send({ operation: 'command.run', commandIdentifier: 'quick-add:run' })), { outcome: 'ran' });
