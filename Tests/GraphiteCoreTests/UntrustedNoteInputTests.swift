@@ -1,10 +1,10 @@
 import XCTest
 @testable import GraphiteCore
 
-/// Files from a synced vault that used to crash Graphite. Because the last document
-/// reopens and the vault is indexed at every launch, each of these crashed it again on
-/// every launch. A regression here crashes the test process instead of failing a test.
-final class CrashLoopRegressionTests: XCTestCase {
+/// Notes a synced vault can hold that must never crash Graphite: the last document reopens
+/// and the vault is indexed at every launch, so a crash on one of them would repeat at every
+/// launch. A failure here crashes the test process instead of failing a test.
+final class UntrustedNoteInputTests: XCTestCase {
     // MARK: Numbers that do not fit in Int
 
     func testFrontmatterNumbersBeyondIntDoNotTrap() throws {

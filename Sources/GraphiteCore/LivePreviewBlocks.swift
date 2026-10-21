@@ -149,10 +149,6 @@ public enum LivePreviewBlockScanner {
         return blocks
     }
 
-    /// Lines where CommonMark and reading view end them: at "\n", "\r\n" or a lone "\r".
-    /// Each range includes its line break; the content excludes it, so a Windows note's
-    /// "\r" never reaches fence, math or table detection. U+2028 and U+2029 stay inside a
-    /// line, as reading view keeps them.
     /// The leading frontmatter alone, for an editor that renders only the properties. It
     /// reads the start of the note, not every line.
     public static func frontmatterBlock(in text: NSString) -> LivePreviewBlock? {
@@ -161,6 +157,10 @@ public enum LivePreviewBlockScanner {
         return LivePreviewBlock(kind: .frontmatter, range: NSRange(location: 0, length: frontmatterLength), markdown: text.substring(to: frontmatterLength))
     }
 
+    /// Lines where CommonMark and reading view end them: at "\n", "\r\n" or a lone "\r".
+    /// Each range includes its line break; the content excludes it, so a Windows note's
+    /// "\r" never reaches fence, math or table detection. U+2028 and U+2029 stay inside a
+    /// line, as reading view keeps them.
     private static func lines(in text: NSString, from start: Int) -> [(range: NSRange, content: String)] {
         var lines: [(range: NSRange, content: String)] = []
         var lineStart = start
@@ -214,8 +214,8 @@ public enum LivePreviewBlockScanner {
             block.kind == .pluginCodeBlock(language: language) && block.markdown == code
         }
         guard matches.count == 1, let block = matches.first else { return nil }
-        /// Lines end as `lines(in:)` ends them: at `\n`, `\r\n`, or a lone `\r`, which a
-        /// note saved by an old Mac app has; counting only `\n` put every block on line 0.
+        // Lines end as `lines(in:)` ends them: at `\n`, `\r\n`, or a lone `\r`, which a
+        // note saved by an old Mac app has.
         func lineNumber(at location: Int) -> Int {
             var lines = 0
             var index = 0

@@ -43,8 +43,8 @@ public enum TextColorMarkup {
         let textAsString = text as String
         let blockRanges = codeAndMathBlockRanges(in: text)
         let protectedRanges = mergedRanges(protectedRanges(in: text, codeAndMathBlockRanges: blockRanges))
-        // Binary search over sorted, disjoint ranges: scanning them all for every marker
-        // made dense notes quadratic.
+        // Binary search over sorted, disjoint ranges, so each marker costs a logarithmic
+        // lookup rather than a scan of every range.
         func isProtected(_ range: NSRange) -> Bool {
             var lowerBound = 0
             var upperBound = protectedRanges.count

@@ -73,6 +73,7 @@
 				GraphiteTestSupport/SimulatorAudio.swift,
 				GraphiteTestSupport/TemporaryVault.swift,
 				GraphiteTestSupport/TextRecognitionCapability.swift,
+				GraphiteTestSupport/WaitUntil.swift,
 				GraphiteUITests/IsolatedWorkspaceDevice.swift,
 				GraphiteUITests/PerformanceBenchmarkTests.swift,
 				GraphiteUITests/WorkspaceConflictVersionsTests.swift,

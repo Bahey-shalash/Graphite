@@ -8,8 +8,8 @@ import XCTest
 /// tell its own work to proceed (an injected clock, a continuation) does not poll.
 ///
 /// It runs on the actor of its caller, so a main-actor test's condition reads main-actor
-/// state directly. The hosted iPad target cannot import this target and keeps an identical
-/// copy in `App/Tests/HostedWaitUntil.swift`; change both together.
+/// state directly. The hosted iPad target compiles this file as one of its own sources, so
+/// both suites wait the same way.
 public func waitUntil(_ description: String = "the condition", timeoutSeconds: TimeInterval = 20, pollingIntervalSeconds: TimeInterval = 0.02,
                       file: StaticString = #filePath, line: UInt = #line, isolation: isolated (any Actor)? = #isolation,
                       _ condition: () async throws -> Bool) async throws {
