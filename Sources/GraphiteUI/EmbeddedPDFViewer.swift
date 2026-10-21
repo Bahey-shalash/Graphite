@@ -86,18 +86,22 @@ struct EmbeddedPDFViewer: View {
             #if canImport(UIKit)
             if let session, isAnnotating, !session.isProtected, usesFixedToolbar {
                 PencilToolbar(toolbox: toolbox, drawsShapes: $drawsShapes,
-                              addImage: { pictureSource = .photoLibrary }, undoAvailability: session.undoAvailability)
+                              addImage: { pictureSource = .photoLibrary }, undoAvailability: session.undoAvailability, offersTextBoxes: true)
             }
             #endif
             content
             #if canImport(UIKit)
-            if let session, isAnnotating, session.selectedPicture != nil { PDFPictureArrangementBar(session: session) }
+            if let session, isAnnotating, session.selectedPicture != nil {
+                PDFPictureArrangementBar(session: session)
+            } else if let session, isAnnotating, session.textBoxActivity != .idle {
+                PDFTextBoxArrangementBar(session: session)
+            }
             #endif
         }
         #if canImport(UIKit)
         .modifier(EmbeddedPDFPictureAdding(session: session, source: $pictureSource))
         // Taking up a tool ends arranging a picture.
-        .onChange(of: toolbox.selection) { _, _ in session?.selectedPicture = nil }
+        .onChange(of: toolbox.selection) { _, _ in session?.selectedPicture = nil; session?.textBoxActivity = .idle }
         #endif
         .frame(height: height)
         .frame(maxWidth: .infinity)
@@ -306,7 +310,8 @@ struct EmbeddedPDFViewer: View {
         #if canImport(UIKit)
         // The palette gives way to the fixed bar, and to the bar that arranges a picture.
         return PDFAnnotationInput(isEnabled: isEnabled, drawsWithFinger: drawsWithFinger,
-                                  showsToolPicker: isEnabled && !usesFixedToolbar && session.selectedPicture == nil, drawsShapes: drawsShapes,
+                                  showsToolPicker: isEnabled && !usesFixedToolbar && session.selectedPicture == nil && session.textBoxActivity == .idle,
+                                  drawsShapes: drawsShapes,
                                   isFocused: isEnabled, fixedTool: usesFixedToolbar ? toolbox.selection : nil,
                                   writingGuides: PDFAnnotationPreferenceKey.writingGuides(pattern: writingGuidePattern, spacing: writingGuideSpacing))
         #else

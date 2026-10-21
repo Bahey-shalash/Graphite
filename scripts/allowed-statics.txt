@@ -45,9 +45,7 @@ Sources/GraphiteUI/LivePreviewWidgets.swift         LivePreviewEmbedImageLocatio
 Sources/GraphiteUI/HistoryCanvasView.swift          HistoryCanvasView.footprintsByTool  # stroke footprints per tool
 Sources/GraphiteUI/GraphitePDFView.swift            PDFAnnotationCoordinator.enclosingScrollRestrictions # scroll-restriction bookkeeping per scroll view
 Sources/GraphiteUI/GraphiteRootView.swift           GraphiteRootView.draftIdentifiersOpenInThisProcess # drafts open in this process
-Sources/GraphiteUI/InkSelection.swift               PaletteInkSelection.isOn            # palette ink-selection flags shared by every selection
-Sources/GraphiteUI/InkSelection.swift               PaletteInkSelection.pointsWithLaser # palette flag
-Sources/GraphiteUI/InkSelection.swift               PaletteInkSelection.pointsToRead    # palette flag
+Sources/GraphiteUI/InkSelection.swift               PaletteInkSelection.tool            # the palette's one Graphite tool, shared by every canvas
 Sources/GraphiteUI/InkSelection.swift               InkSelectionController.controllerWithSelection # weak: the controller that holds the selection
 Sources/GraphiteUI/LassoTools.swift                 LassoPasteboard.pasteboard          # the pasteboard the lasso copies to (platform edge)
 Sources/GraphiteUI/LassoTools.swift                 LassoPasteboard.recentScreenshotSizes # recent screenshot sizes for paste fitting

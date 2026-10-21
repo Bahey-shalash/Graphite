@@ -248,6 +248,9 @@ final class PDFSession {
     /// page's ink reads back as not editable, so every save, export and page-structure
     /// change runs them first.
     @ObservationIgnored private var pendingInkRecordWriters: [ObjectIdentifier: () -> Void] = [:]
+    /// Told when a page's text boxes change, keyed by the view drawing them
+    /// (`registerTextBoxChangeObserver`).
+    @ObservationIgnored private var textBoxChangeObservers: [ObjectIdentifier: () -> Void] = [:]
     /// Identifies this session's page drags, so a page dragged from another PDF is refused.
     let identifier = UUID()
 
@@ -271,8 +274,21 @@ final class PDFSession {
     }
     /// The picture being moved or resized, if any; see `PDFSessionPictures.swift`.
     var selectedPicture: PDFPictureSelection? {
-        didSet { if selectedPicture != oldValue { pictureCrop = nil } }
+        didSet {
+            if selectedPicture != oldValue { pictureCrop = nil }
+            if selectedPicture != nil, textBoxActivity != .idle { textBoxActivity = .idle }
+        }
     }
+    /// What the PDF's text boxes are doing (`PDFSessionTextBoxes.swift`). A box selected or
+    /// typed in ends arranging a picture, as arranging a picture ends it.
+    var textBoxActivity: PDFTextBoxActivity = .idle {
+        didSet { if textBoxActivity != .idle, selectedPicture != nil { selectedPicture = nil } }
+    }
+    /// The format the bar's format popover shows: of the box selected, or of the text at the
+    /// caret of the box typed in; nil while no box is.
+    var textBoxFormat: PDFTextBoxDefaults?
+    /// Set by the view that shows the PDF: formats the box selected or typed in.
+    @ObservationIgnored var applyTextBoxFormat: ((PDFTextBoxFormatChange) -> Void)?
     /// While the selected picture is cropped, the part to keep, in its page's coordinates.
     var pictureCrop: CGRect? {
         didSet { if pictureCrop != oldValue { NotificationCenter.default.post(name: Self.picturesDidChange, object: self) } }
@@ -423,6 +439,19 @@ final class PDFSession {
 
     func writePendingInkRecords() {
         for write in pendingInkRecordWriters.values { write() }
+    }
+
+    /// Registers a view that draws the PDF's text boxes, told after each change of one.
+    func registerTextBoxChangeObserver(for owner: AnyObject, _ changed: @escaping () -> Void) {
+        textBoxChangeObservers[ObjectIdentifier(owner)] = changed
+    }
+
+    func unregisterTextBoxChangeObserver(for owner: AnyObject) {
+        textBoxChangeObservers[ObjectIdentifier(owner)] = nil
+    }
+
+    func textBoxesDidChange() {
+        for changed in textBoxChangeObservers.values { changed() }
     }
 
     private func record(_ edit: PDFEdit) {
