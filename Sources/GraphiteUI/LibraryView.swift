@@ -345,7 +345,7 @@ private struct LibraryTileMenu: ViewModifier {
                                     readVaultPicture: { path in try await library.pictureData(at: path) },
                                     applyPicture: { picture, layout, color in await library.setPicture(picture, layout: layout, color: color, for: folder) },
                                     drawPreview: { style in await looks.image(for: style) },
-                                    drawPicturePreview: { style, picture in await looks.image(for: style, picture: picture) })
+                                    drawFolderArt: { color in await looks.folderArt(color: color) })
     }
 }
 

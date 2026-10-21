@@ -161,6 +161,15 @@ public struct FinderFolderAttributes: Sendable {
         return NSWorkspace.shared.icon(for: .folder).cgImage(forProposedRect: &proposedRect, context: nil, hints: nil)
     }
 
+    /// Gives a folder anywhere, such as one dropped on the icon maker, an icon as Finder's
+    /// custom icon. The folder's access comes with the drop.
+    public static func setCustomIcon(_ icon: CGImage, onFolderAt location: URL) throws {
+        let hasAccess = location.startAccessingSecurityScopedResource()
+        defer { if hasAccess { location.stopAccessingSecurityScopedResource() } }
+        let image = NSImage(cgImage: icon, size: NSSize(width: icon.width, height: icon.height))
+        guard NSWorkspace.shared.setIcon(image, forFile: location.path, options: []) else { throw Failure.iconNotWritten }
+    }
+
     static func systemIcon(at location: URL, pixels: Int) async -> CGImage? {
         systemIconNow(at: location, pixels: pixels)
     }
