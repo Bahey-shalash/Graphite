@@ -1,0 +1,25 @@
+name: Feature request
+description: Suggest something Graphite should do.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do
+      description: The task or study workflow, and what gets in the way today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+      description: How it could work. If Obsidian, Goodnotes or another app already does it, say how.
+  - type: dropdown
+    id: device
+    attributes:
+      label: Device
+      multiple: true
+      options:
+        - iPad
+        - iPhone
+        - Mac
