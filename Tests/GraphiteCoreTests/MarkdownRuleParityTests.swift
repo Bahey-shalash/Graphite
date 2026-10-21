@@ -83,14 +83,14 @@ final class MarkdownRuleParityTests: XCTestCase {
             literal: Self.lineSetLiteral)
     }
 
-    func testEveryCodeSpanPatternFindsTheReferenceCodeSpansExceptTheRecordedDivergences() throws {
+    func testEveryCodeSpanReaderFindsTheReferenceCodeSpansExceptTheRecordedDivergences() throws {
         try assertParity(
             reference: ParityConsumer(.markdownCodeRanges, answer: CodeSpanAnswers.markdownCodeRanges),
             consumers: [
-                ParityConsumer(.readingHighlightCodeSpanPattern, answer: CodeSpanAnswers.readingHighlightCodeSpanPattern),
-                ParityConsumer(.readingCodeSpanPattern, answer: CodeSpanAnswers.readingCodeSpanPattern),
-                ParityConsumer(.textColorCodeSpanPattern, answer: CodeSpanAnswers.textColorCodeSpanPattern),
-                ParityConsumer(.displayMathCodeSpanPattern, answer: CodeSpanAnswers.displayMathCodeSpanPattern),
+                ParityConsumer(.readingHighlightCodeSpans, answer: CodeSpanAnswers.readingHighlightCodeSpans),
+                ParityConsumer(.readingCodeSpans, answer: CodeSpanAnswers.readingCodeSpans),
+                ParityConsumer(.textColorCodeSpans, answer: CodeSpanAnswers.textColorCodeSpans),
+                ParityConsumer(.displayMathCodeSpans, answer: CodeSpanAnswers.displayMathCodeSpans),
             ],
             expectedDivergences: Self.codeSpanDivergences,
             literal: Self.rangesLiteral)
@@ -177,10 +177,7 @@ final class MarkdownRuleParityTests: XCTestCase {
 
     /// Question 3. Reference: the editor's `.horizontalRule` spans, which read past quote
     /// markers and leave a `---` under paragraph text to the setext heading.
-    static let thematicBreakDivergences: [ExpectedDivergence<Set<Int>>] = [
-        // `    - - -` after a blank line: the line rule allows any indentation; CommonMark reads indented code.
-        ExpectedDivergence(note: "spacedDashesIndentedFourSpaces", consumer: .markdownEditing, finding: "LSP-MDCORE-01", currentAnswer: [2]),
-    ]
+    static let thematicBreakDivergences: [ExpectedDivergence<Set<Int>>] = []
 
     /// Question 4. Reference: `DisplayMathLines`, the one `$$` pairing, outside fenced code.
     static let displayMathDivergences: [ExpectedDivergence<Set<Int>>] = [
@@ -196,20 +193,7 @@ final class MarkdownRuleParityTests: XCTestCase {
 
     /// Question 5. Reference: `MarkdownCodeRanges.codeSpans(in:range:)`, which is escape-aware
     /// and pairs runs of equal length.
-    static let codeSpanDivergences: [ExpectedDivergence<[NSRange]>] = [
-        // Multi-backtick spans: the highlight pass pairs single backticks only.
-        ExpectedDivergence(note: "multipleBacktickCodeSpans", consumer: .readingHighlightCodeSpanPattern, finding: "LSP-MDCORE-01", currentAnswer: [NSRange(location: 5, length: 3), NSRange(location: 10, length: 7), NSRange(location: 18, length: 5), NSRange(location: 23, length: 5), NSRange(location: 33, length: 4), NSRange(location: 42, length: 4)]),
-        // An escaped backtick: the copied patterns have no escape rule and open a span at it.
-        ExpectedDivergence(note: "escapedBacktickBeforeCodeSpan", consumer: .readingHighlightCodeSpanPattern, finding: "LSP-MDCORE-01", currentAnswer: [NSRange(location: 1, length: 11), NSRange(location: 17, length: 6)]),
-        ExpectedDivergence(note: "escapedBacktickBeforeCodeSpan", consumer: .readingCodeSpanPattern, finding: "LSP-MDCORE-01", currentAnswer: [NSRange(location: 1, length: 11), NSRange(location: 17, length: 6)]),
-        ExpectedDivergence(note: "escapedBacktickBeforeCodeSpan", consumer: .textColorCodeSpanPattern, finding: "LSP-MDCORE-01", currentAnswer: [NSRange(location: 1, length: 11), NSRange(location: 17, length: 6)]),
-        ExpectedDivergence(note: "escapedBacktickBeforeCodeSpan", consumer: .displayMathCodeSpanPattern, finding: "LSP-MDCORE-01", currentAnswer: [NSRange(location: 1, length: 11), NSRange(location: 17, length: 6)]),
-        // Lone CR line endings: the patterns let a span cross a lone CR, joining the two fences of a block.
-        ExpectedDivergence(note: "loneCarriageReturnLineEndings", consumer: .readingHighlightCodeSpanPattern, finding: "LSP-MDCORE-05", currentAnswer: [NSRange(location: 15, length: 12)]),
-        ExpectedDivergence(note: "loneCarriageReturnLineEndings", consumer: .readingCodeSpanPattern, finding: "LSP-MDCORE-05", currentAnswer: [NSRange(location: 13, length: 16)]),
-        ExpectedDivergence(note: "loneCarriageReturnLineEndings", consumer: .textColorCodeSpanPattern, finding: "LSP-MDCORE-05", currentAnswer: [NSRange(location: 13, length: 16)]),
-        ExpectedDivergence(note: "loneCarriageReturnLineEndings", consumer: .displayMathCodeSpanPattern, finding: "LSP-MDCORE-05", currentAnswer: [NSRange(location: 13, length: 16)]),
-    ]
+    static let codeSpanDivergences: [ExpectedDivergence<[NSRange]>] = []
 
     // MARK: Harness
 

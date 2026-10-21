@@ -30,8 +30,8 @@ final class MarkdownEditingTests: XCTestCase {
         let edit = MarkdownEditing.settingHeading(level: 4, in: text as NSString, selection: NSRange(location: 1, length: 5))
         XCTAssertEqual(applying(edit, to: text), "#### one\n#### two\nthree")
         XCTAssertEqual(applying(MarkdownEditing.settingHeading(level: 1, in: "", selection: NSRange(location: 0, length: 0)), to: ""), "# ")
-        XCTAssertNil(MarkdownEditing.headingLevel(of: "#hashtag"))
-        XCTAssertEqual(MarkdownEditing.headingLevel(of: "  ## x"), 2)
+        XCTAssertNil(MarkdownHeadingSyntax.level(of: "#hashtag"))
+        XCTAssertEqual(MarkdownHeadingSyntax.level(of: "  ## x"), 2)
     }
 }
 
@@ -171,17 +171,17 @@ final class MarkdownEditingCommandTests: XCTestCase {
     // MARK: List lines
 
     func testListLineReadsWhatTheLineHas() {
-        XCTAssertEqual(MarkdownEditing.listLine("-")?.spacing, "", "No space is invented after a marker that ends the line.")
-        XCTAssertEqual(MarkdownEditing.listLine("- [ ]")?.prefixLength, 5)
-        XCTAssertEqual(MarkdownEditing.listLine("- [ ] a")?.prefixLength, 6)
-        XCTAssertNil(MarkdownEditing.listLine("- - -"), "A thematic break is not a list item.")
-        XCTAssertNil(MarkdownEditing.listLine("* * *"))
-        XCTAssertEqual(MarkdownEditing.listLine("> - - -")?.isListItem, false)
-        XCTAssertEqual(MarkdownEditing.listLine("- - a")?.isListItem, true)
-        XCTAssertNil(MarkdownEditing.listLine("\u{661}. a"), "Only ASCII digits number a list.")
-        XCTAssertTrue(MarkdownEditing.isThematicBreak("- - -"))
-        XCTAssertTrue(MarkdownEditing.isThematicBreak("***"))
-        XCTAssertFalse(MarkdownEditing.isThematicBreak("- - a"))
+        XCTAssertEqual(MarkdownListSyntax.listLine("-")?.spacing, "", "No space is invented after a marker that ends the line.")
+        XCTAssertEqual(MarkdownListSyntax.listLine("- [ ]")?.prefixLength, 5)
+        XCTAssertEqual(MarkdownListSyntax.listLine("- [ ] a")?.prefixLength, 6)
+        XCTAssertNil(MarkdownListSyntax.listLine("- - -"), "A thematic break is not a list item.")
+        XCTAssertNil(MarkdownListSyntax.listLine("* * *"))
+        XCTAssertEqual(MarkdownListSyntax.listLine("> - - -")?.isListItem, false)
+        XCTAssertEqual(MarkdownListSyntax.listLine("- - a")?.isListItem, true)
+        XCTAssertNil(MarkdownListSyntax.listLine("\u{661}. a"), "Only ASCII digits number a list.")
+        XCTAssertTrue(MarkdownListSyntax.isThematicBreak("- - -"))
+        XCTAssertTrue(MarkdownListSyntax.isThematicBreak("***"))
+        XCTAssertFalse(MarkdownListSyntax.isThematicBreak("- - a"))
     }
 
     func testReturnOnAnEmptyTaskWithoutTrailingSpaceEndsTheList() {

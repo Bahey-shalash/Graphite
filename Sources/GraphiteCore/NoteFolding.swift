@@ -107,12 +107,12 @@ public enum NoteFolding {
     }
 
     /// The level of the setext heading whose text is `content`, when `nextLine` underlines it:
-    /// `MarkdownStyleScanner.setextHeadingLevel(ofLine:nextLine:)`, without its paragraph test
+    /// `MarkdownHeadingSyntax.setextHeadingLevel(ofLine:nextLine:)`, without its paragraph test
     /// for the many lines whose next line is no underline.
     private static func setextHeadingLevel(ofLine content: String, nextLine: String?) -> Int? {
         guard let nextLine, let firstCharacter = nextLine.utf8.first(where: { character in character != UInt8(ascii: " ") }),
               firstCharacter == UInt8(ascii: "=") || firstCharacter == UInt8(ascii: "-") else { return nil }
-        return MarkdownStyleScanner.setextHeadingLevel(ofLine: content, nextLine: nextLine)
+        return MarkdownHeadingSyntax.setextHeadingLevel(ofLine: content, nextLine: nextLine)
     }
 
     /// The fold key of every heading that folds, by the UTF-16 offset at which its line starts
@@ -128,14 +128,14 @@ public enum NoteFolding {
         return keysByLineStart
     }
 
-    /// `MarkdownEditing.headingLevel(of:)`, without its pattern for the many lines whose first
+    /// `MarkdownHeadingSyntax.level(of:)`, without its pattern for the many lines whose first
     /// character after spaces is not `#` and so cannot be headings.
     private static func headingLevel(ofLine content: String) -> Int? {
         guard content.utf8.first(where: { character in character != UInt8(ascii: " ") }) == UInt8(ascii: "#") else { return nil }
-        return MarkdownEditing.headingLevel(of: content)
+        return MarkdownHeadingSyntax.level(of: content)
     }
 
-    /// Whether a line is a list item, quoted or not, as `MarkdownEditing.listLine(_:)` reads
+    /// Whether a line is a list item, quoted or not, as `MarkdownListSyntax.listLine(_:)` reads
     /// it: quote markers, indentation, then `-`, `*`, `+` or a number with `.` or `)`, followed
     /// by spaces or the line's end. Read character by character rather than with the pattern,
     /// because folding reads every line of the note on every keystroke.
@@ -171,7 +171,7 @@ public enum NoteFolding {
         guard index == characters.count || characters[index] == space || characters[index] == tab else { return false }
         // `- - -` and `***` are thematic breaks, not items; the full reading settles those rare lines.
         if marker == UInt8(ascii: "-") || marker == UInt8(ascii: "*"), characters[index...].contains(marker) {
-            return MarkdownEditing.listLine(content)?.isListItem == true
+            return MarkdownListSyntax.listLine(content)?.isListItem == true
         }
         return true
     }
@@ -215,9 +215,9 @@ public enum NoteFolding {
             guard lineEnd < text.length else { return nil }
             return lineText(text, containing: NSRange(location: lineEnd, length: 0))
         }
-        guard MarkdownStyleScanner.setextUnderlineLevel(lineBefore) == nil, MarkdownStyleScanner.setextUnderlineLevel(lineAfter) == nil,
-              nextLineText(before, after: replacedRange).flatMap(MarkdownStyleScanner.setextUnderlineLevel) == nil,
-              nextLineText(after, after: insertedRange).flatMap(MarkdownStyleScanner.setextUnderlineLevel) == nil else { return nil }
+        guard MarkdownHeadingSyntax.setextUnderlineLevel(lineBefore) == nil, MarkdownHeadingSyntax.setextUnderlineLevel(lineAfter) == nil,
+              nextLineText(before, after: replacedRange).flatMap(MarkdownHeadingSyntax.setextUnderlineLevel) == nil,
+              nextLineText(after, after: insertedRange).flatMap(MarkdownHeadingSyntax.setextUnderlineLevel) == nil else { return nil }
         let change = replacementLength - replacedRange.length
         let editStart = replacedRange.location, editEnd = NSMaxRange(replacedRange)
         // A line's start at the edit stays; a line's text end at the edit moves with the typing.
@@ -264,7 +264,7 @@ public enum NoteFolding {
     public static func newLineAfterFoldedSection(_ region: FoldableRegion, in text: String) -> MarkdownTextEdit {
         let source = text as NSString
         var insertion = "\n"
-        if region.kind == .listItem, let listLine = MarkdownEditing.listLine(source.substring(with: region.headerRange)), listLine.isListItem {
+        if region.kind == .listItem, let listLine = MarkdownListSyntax.listLine(source.substring(with: region.headerRange)), listLine.isListItem {
             var marker = listLine.marker
             if let number = listLine.orderedNumber, let delimiter = marker.last { marker = String(number + 1) + String(delimiter) }
             insertion += listLine.quotePrefix + listLine.indentation + marker + (listLine.spacing.isEmpty ? " " : listLine.spacing)

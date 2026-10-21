@@ -2173,7 +2173,7 @@ struct ObsidianCodeBlockStyle: StructuredText.CodeBlockStyle {
 
     @MainActor
     func makeBody(configuration: Configuration) -> some View {
-        let language = configuration.languageHint.map { hint in NotePreviewDocument.codeBlockLanguage(ofFenceInfo: hint) } ?? ""
+        let language = configuration.languageHint.map { hint in MarkdownFenceSyntax.language(ofInfo: hint) } ?? ""
         let cornerRadius = CodeSyntaxColors.blockCornerRadius(theme: theme)
         let palette = CodeSyntaxColors.palette(codeTheme: codeTheme, noteTheme: theme)
         Overflow {
