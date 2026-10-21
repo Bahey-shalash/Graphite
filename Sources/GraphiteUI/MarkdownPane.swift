@@ -1,3 +1,15 @@
+/**
+ * File: MarkdownPane.swift
+ * ------------------------
+ * Layer: UI
+ * Description: A note's pane: the editor or reading view, its toolbar and More commands in the system's overflow
+ *              menu, find in note, and the sheets for inserting attachments, photos and drawings.
+ *
+ * Authors: Bahey Shalash, Félix Chevalier
+ * Version: 0.44
+ * Date: 21/10/2026
+ */
+
 import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
@@ -434,11 +446,18 @@ struct MarkdownPane: View {
                 #endif
                 DocumentModeToggle(isWriting: isWritingBinding)
             }
+            #if !os(iOS)
             Menu("More", systemImage: "ellipsis") { moreMenuItems }
+            #endif
             if !isCompactWidth {
                 Button("Sidebar", systemImage: "sidebar.right") { showsLinksInspector.toggle() }
             }
         }.tint(.primary) }
+        #if os(iOS)
+        // The system's overflow menu (•••) holds the More commands together with whatever the
+        // bar has no room for, so there is one such menu, also on iPhone Duo's side bar.
+        ToolbarOverflowMenu { moreMenuItems }
+        #endif
     }
 
     @ViewBuilder private var formatMenuItems: some View {

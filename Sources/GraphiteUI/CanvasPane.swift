@@ -1,3 +1,15 @@
+/**
+ * File: CanvasPane.swift
+ * ----------------------
+ * Layer: UI
+ * Description: An Obsidian canvas's pane: its cards and connections, the toolbar with Undo, Redo and Write, and its
+ *              More commands in the system's overflow menu.
+ *
+ * Authors: Bahey Shalash
+ * Version: 0.7
+ * Date: 21/10/2026
+ */
+
 import SwiftUI
 import ImageIO
 import GraphiteCore
@@ -148,29 +160,38 @@ struct CanvasPane: View {
                 DocumentModeToggle(isWriting: $session.isWriting)
             }
             #endif
-            Menu("More", systemImage: "ellipsis") {
-                Button("Zoom to Fit", systemImage: "arrow.up.left.and.arrow.down.right") { session.zoomToFit() }
-                Button("Actual Size", systemImage: "1.magnifyingglass") { session.resetZoom() }
-                if let renameDocument { Button("Rename…", systemImage: "pencil") { renameDocument.rename() } }
-                if session.isWriting {
-                    Divider()
-                    Button("Select All", systemImage: "checkmark.circle") { session.selectAll() }
-                        .keyboardShortcut("a", modifiers: .command)
-                    Toggle("Snap to Grid", systemImage: "grid", isOn: $session.snapsToGrid)
-                    Toggle("Snap to Objects", systemImage: "rectangle.split.2x1", isOn: $session.snapsToObjects)
-                }
-                Divider()
-                Button("Save Now", systemImage: "square.and.arrow.down") { Task { try? await session.save() } }
-                Button("Copy Graphite URL", systemImage: "link") { Pasteboard.copy(workspace.openingLink(to: session.path)) }
-                if preferences.isEnabled(.bookmarks) {
-                    let isBookmarked = workspace.bookmarks.fileBookmark(for: session.path) != nil
-                    Button(isBookmarked ? "Remove Bookmark" : "Bookmark", systemImage: isBookmarked ? "bookmark.slash" : "bookmark") {
-                        Task { await workspace.toggleBookmark(session.path) }
-                    }
-                }
-                WorkspaceMoreMenuItems()
-            }
+            #if !os(iOS)
+            Menu("More", systemImage: "ellipsis") { moreMenuItems }
+            #endif
         }.tint(.primary) }
+        #if os(iOS)
+        // The system's overflow menu (•••) holds the More commands together with whatever the
+        // bar has no room for, so there is one such menu, also on iPhone Duo's side bar.
+        ToolbarOverflowMenu { moreMenuItems }
+        #endif
+    }
+
+    @ViewBuilder private var moreMenuItems: some View {
+        Button("Zoom to Fit", systemImage: "arrow.up.left.and.arrow.down.right") { session.zoomToFit() }
+        Button("Actual Size", systemImage: "1.magnifyingglass") { session.resetZoom() }
+        if let renameDocument { Button("Rename…", systemImage: "pencil") { renameDocument.rename() } }
+        if session.isWriting {
+            Divider()
+            Button("Select All", systemImage: "checkmark.circle") { session.selectAll() }
+                .keyboardShortcut("a", modifiers: .command)
+            Toggle("Snap to Grid", systemImage: "grid", isOn: $session.snapsToGrid)
+            Toggle("Snap to Objects", systemImage: "rectangle.split.2x1", isOn: $session.snapsToObjects)
+        }
+        Divider()
+        Button("Save Now", systemImage: "square.and.arrow.down") { Task { try? await session.save() } }
+        Button("Copy Graphite URL", systemImage: "link") { Pasteboard.copy(workspace.openingLink(to: session.path)) }
+        if preferences.isEnabled(.bookmarks) {
+            let isBookmarked = workspace.bookmarks.fileBookmark(for: session.path) != nil
+            Button(isBookmarked ? "Remove Bookmark" : "Bookmark", systemImage: isBookmarked ? "bookmark.slash" : "bookmark") {
+                Task { await workspace.toggleBookmark(session.path) }
+            }
+        }
+        WorkspaceMoreMenuItems()
     }
 
     private func saveCopy() async {
