@@ -16,8 +16,11 @@ import GraphiteCore
 import GraphiteApple
 import GraphiteIndex
 
-public struct GraphiteRootView: View {
+struct GraphiteRootView: View {
     @State private var workspace: WorkspaceModel
+    /// What the window was opened to show, which the system keeps with it; this view keeps it
+    /// at the vault it shows, so a relaunch opens the window there.
+    @Binding private var windowContent: GraphiteWindowContent?
     /// False for a hosted-tests launch, which opens no vault of its own (`LaunchMode`).
     private let restoresLastVault: Bool
     /// False for a hosted-tests launch, which never opens the welcome tour by itself.
@@ -53,6 +56,9 @@ public struct GraphiteRootView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     #if os(macOS)
     @Environment(\.openSettings) private var openSettings
+    /// Which window is in front, for the Settings window (`GraphiteMacScenes`).
+    @Environment(FrontmostWindow.self) private var frontmostWindow: FrontmostWindow?
+    @Environment(\.controlActiveState) private var controlActiveState
     #endif
 
     private enum ActivePalette { case quickSwitcher, commandPalette, templatePicker }
@@ -62,10 +68,11 @@ public struct GraphiteRootView: View {
     /// document's own controls.
     private var isCompactWidth: Bool { horizontalSizeClass == .compact }
 
-    /// The root view of one window of a launch in `launchMode`, with a workspace of its own
-    /// over the services every window shares.
-    public init(processServices: ProcessServices, launchMode: LaunchMode) {
-        _workspace = State(initialValue: WorkspaceModel(processServices: processServices, clock: LiveApplicationClock()))
+    /// The root view of one window of a launch in `launchMode`, over the window's workspace
+    /// (`GraphiteWindowScene` makes it once per window).
+    init(workspace: WorkspaceModel, launchMode: LaunchMode, windowContent: Binding<GraphiteWindowContent?>) {
+        _workspace = State(initialValue: workspace)
+        _windowContent = windowContent
         restoresLastVault = launchMode.restoresLastVault
         presentsWelcomeTour = launchMode.presentsWelcomeTour
         _isRestoringVault = State(initialValue: launchMode.restoresLastVault)
@@ -75,17 +82,10 @@ public struct GraphiteRootView: View {
     /// replace with the last vault this device opened.
     init(workspace: WorkspaceModel) {
         _workspace = State(initialValue: workspace)
+        _windowContent = .constant(nil)
         restoresLastVault = true
         presentsWelcomeTour = false
         _isRestoringVault = State(initialValue: false)
-    }
-
-    /// The root view of a workspace other scenes share, as the Mac's Settings window does.
-    init(reopeningLastVaultIn workspace: WorkspaceModel, launchMode: LaunchMode) {
-        _workspace = State(initialValue: workspace)
-        restoresLastVault = launchMode.restoresLastVault
-        presentsWelcomeTour = launchMode.presentsWelcomeTour
-        _isRestoringVault = State(initialValue: launchMode.restoresLastVault)
     }
 
     public var body: some View {
@@ -238,7 +238,7 @@ public struct GraphiteRootView: View {
         #endif
         .messageAlert($workspace.errorMessage)
         .task {
-            if restoresLastVault { await workspace.restoreVault() }
+            if restoresLastVault { await openVaultOfWindow() }
             isRestoringVault = false
             // Links that arrived while the last vault reopened, as when one launched Graphite.
             isVaultRestored = true
@@ -263,6 +263,11 @@ public struct GraphiteRootView: View {
         .onOpenURL { url in
             if isVaultRestored { Task { await workspace.handle(url) } } else { pendingLinks.append(url) }
         }
+        #if os(macOS)
+        .onChange(of: controlActiveState, initial: true) { _, state in
+            if state == .key { frontmostWindow?.workspace = workspace }
+        }
+        #endif
         .onChange(of: scenePhase) { previousPhase, phase in
             workspace.scenePhaseDidChange(from: previousPhase, to: phase, saveBeforeLeaving: saveBeforeLeavingScreen)
         }
@@ -283,6 +288,19 @@ public struct GraphiteRootView: View {
         // packs too. Every window shares one library (`ProcessServices`).
         .environment(workspace.processServices.addOns)
         .environment(\.embeddedPDFSessions, workspace.embeddedPDFSessions)
+    }
+
+    /// Opens the vault the window was opened on, or, for the window of a launch, the vault
+    /// used last; from then on the window's content follows the vault it shows.
+    private func openVaultOfWindow() async {
+        if let windowContent, let vaultIdentifier = windowContent.vaultIdentifier {
+            // A path that no longer reads as one shows no file; the window still opens its vault.
+            let file = windowContent.filePath.flatMap { path in try? VaultPath(path) } // see above
+            await workspace.openVaultOfWindow(vaultIdentifier, restoresTabs: !windowContent.opensFreshTabs, showing: file)
+        } else {
+            await workspace.restoreVault()
+        }
+        windowContent = GraphiteWindowContent(vaultIdentifier: workspace.currentVaultIdentifier)
     }
 
     private func recoveryMessage(for unfinished: RecoverableRecording) -> String {

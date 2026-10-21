@@ -48,7 +48,7 @@ Sources/GraphiteUI/PalmRejection.swift              PencilActivity.lastHoverReco
 Sources/GraphiteUI/PencilToolbar.swift              PencilToolRowForm.lastShown         # last shown row form, for animation continuity
 Sources/GraphiteUI/ReadAloudNowPlaying.swift        ReadAloudNowPlaying.queueCommands   # set by whichever navigator was built last (DIP-ARCH-02)
 Sources/GraphiteUI/TableCellTextField.swift         TableCellTextField.focusedField     # weak: the focused table cell
-Sources/GraphiteUI/GraphiteMacScenes.swift          GraphiteApplicationDelegate.workspaceToSave # weak: quit-time save hand-over (platform edge; BUG-SHELL-03)
+Sources/GraphiteUI/GraphiteMacScenes.swift          GraphiteApplicationDelegate.openWindows # weak: every window's saves for quitting (platform edge; BUG-SHELL-03, decision 12)
 # An association key whose address only is used.
 Sources/GraphiteUI/LivePreviewRenderedBlocks.swift  RenderedBlockEditSourceMenu.associationKey # nonisolated(unsafe): the address is the key, never mutated
 Sources/GraphiteUI/PencilToolPalette.swift          PaletteInkSelection.windowSceneAssociationKey # nonisolated(unsafe): the address is the key, never mutated
