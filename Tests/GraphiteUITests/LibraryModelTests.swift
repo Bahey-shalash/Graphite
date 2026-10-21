@@ -65,13 +65,26 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(stored.style(for: try VaultPath("Courses"))?.color, .green)
     }
 
-    func testHomeStartsShownAndStepsBackWhenADocumentIsChosen() {
+    func testHomeStartsShownAndStepsBackWhenADocumentIsChosen() async {
         let library = LibraryModel()
         XCTAssertTrue(library.isShownAsHome)
         library.leaveHome()
         XCTAssertFalse(library.isShownAsHome)
-        library.showHome()
+        await library.showHome()
         XCTAssertTrue(library.isShownAsHome)
+    }
+
+    func testHomeReturnsToTheFolderShownThenToTheVaultRoot() async throws {
+        let library = LibraryModel()
+        await library.reload(source: source(), sortOrder: .alphabetical)
+        await library.show(try VaultPath("Courses/Photos"))
+        library.leaveHome()
+        await library.showHome()
+        XCTAssertTrue(library.isShownAsHome)
+        XCTAssertEqual(library.folder, try VaultPath("Courses/Photos"))
+        await library.showHome()
+        XCTAssertEqual(library.folder, .root)
+        XCTAssertEqual(library.items.map(\.path.rawValue), ["Courses", "Inbox.md"])
     }
 }
 
