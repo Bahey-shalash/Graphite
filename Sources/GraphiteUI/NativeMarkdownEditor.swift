@@ -2139,10 +2139,11 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             } else if let link = link(at: point, in: textView) {
                 switch link {
                 case .note(let target, let isWiki):
-                    // ⌘ opens the link in a new tab and ⌥⌘ beside the note, as in Obsidian.
+                    // ⌘ opens the link in a new tab, ⌥⌘ beside the note and ⇧⌥⌘ in a new window, as in Obsidian.
                     let modifierFlags = recognizer.modifierFlags
                     if modifierFlags.contains(.command), let followLinkElsewhere = actions.followLinkElsewhere {
-                        followLinkElsewhere(target, isWiki, modifierFlags.contains(.alternate) ? .otherGroup : .newTab)
+                        followLinkElsewhere(target, isWiki, TabPlacement.forLink(command: true, option: modifierFlags.contains(.alternate),
+                                                                                 shift: modifierFlags.contains(.shift)))
                     } else {
                         follow(target, isWiki)
                     }
@@ -3475,7 +3476,8 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             switch link {
             case .note(let target, let isWiki):
                 if modifierFlags.contains(.command), let followLinkElsewhere = actions.followLinkElsewhere {
-                    followLinkElsewhere(target, isWiki, modifierFlags.contains(.option) ? .otherGroup : .newTab)
+                    followLinkElsewhere(target, isWiki, TabPlacement.forLink(command: true, option: modifierFlags.contains(.option),
+                                                                             shift: modifierFlags.contains(.shift)))
                 } else {
                     follow(target, isWiki)
                 }

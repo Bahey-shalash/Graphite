@@ -203,9 +203,14 @@ class HistoryCanvasView: PKCanvasView {
         }
     }
 
+    /// The window whose palette modes the canvas last took; a canvas laid out again in the
+    /// same window keeps what it has.
+    private weak var paletteWindowScene: UIWindowScene?
+
     /// Takes Graphite's tools as this window's palette has them (`PaletteInkSelection`).
     private func takePaletteInkSelection() {
         guard followsToolPicker else { return }
+        paletteWindowScene = window?.windowScene
         let inkSelection = PaletteInkSelection.of(window?.windowScene)
         selectsInk = inkSelection.isOn
         pointsWithLaser = inkSelection.pointsWithLaser
@@ -535,7 +540,7 @@ class HistoryCanvasView: PKCanvasView {
         if window != nil, evenStrokeFollower.view == nil { addGestureRecognizer(evenStrokeFollower) }
         if window != nil { followEvenHighlighterPreference() }
         // Another window has modes of its own.
-        if window != nil { takePaletteInkSelection() }
+        if let windowScene = window?.windowScene, windowScene !== paletteWindowScene { takePaletteInkSelection() }
     }
 
     var isShowingShapePreview: Bool { shapePreviewLayer.superlayer != nil }

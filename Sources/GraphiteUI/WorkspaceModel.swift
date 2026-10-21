@@ -202,6 +202,9 @@ final class WorkspaceModel {
     @ObservationIgnored let processServices: ProcessServices
     /// The open vault's Obsidian community plugins.
     let communityPlugins: CommunityPluginHost
+    /// A window to open on this vault, asked for by "Open in New Window"; the window's scene
+    /// opens it and clears the request.
+    var newWindowRequest: GraphiteWindowContent?
     /// The PDFs embedded in this window's notes, which its views read from the environment.
     let embeddedPDFSessions = EmbeddedPDFSessions()
     /// This window among the process's windows (`OpenWindows`), for what one window runs at a time.
@@ -556,6 +559,10 @@ final class WorkspaceModel {
     func open(_ requestedPath: VaultPath, placement: TabPlacement = .currentTab, pdfPageIndex: Int? = nil, takesFocus: Bool = true) async -> UUID? {
         guard store != nil else { return nil }
         let path = storedPath(for: requestedPath)
+        if placement == .newWindow {
+            newWindowRequest = .showing(path, inVault: currentVaultIdentifier)
+            return nil
+        }
         // A file a plugin shows in a view of its own (Excalidraw's drawings, Fountain's
         // scripts) opens in that view, live in a tab, even where Graphite already shows it as a
         // file; any other file as Graphite shows it.
@@ -589,7 +596,8 @@ final class WorkspaceModel {
         let tabID: UUID
         switch placement {
         case .currentTab: tabID = layout.tabForOpeningHere()
-        case .newTab: tabID = layout.addTab()
+        // A new window was asked for above; the scene opens a tab where it cannot open one.
+        case .newTab, .newWindow: tabID = layout.addTab()
         case .otherGroup: tabID = layout.tabForOpeningInOtherGroup()
         }
         if tabID != previousTabID, let previousDocument = tabDocuments[previousTabID] {
