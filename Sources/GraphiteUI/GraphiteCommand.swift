@@ -43,6 +43,7 @@ enum GraphiteCommand: String, CaseIterable {
     case renameFile = "workspace:edit-file-title", moveFile = "file-explorer:move-file", duplicateFile = "file-explorer:duplicate-file"
     case deleteFile = "app:delete-file", revealFile = "file-explorer:reveal-active-file", collapseFolders = "graphite:collapse-all-folders"
     case copyURL = "workspace:copy-url", reviewOtherVersions = "graphite:review-other-versions"
+    case exportToPDF = "workspace:export-pdf", printNote = "graphite:print-file"
     case browseSnapshots = "file-recovery:open", openLocalHistory = "graphite:open-local-history"
     case openVault = "app:open-vault", openSettings = "app:open-settings"
     case startRecording = "audio-recorder:start", startVideoRecording = "graphite:start-video-recording", stopRecording = "audio-recorder:stop"
@@ -154,6 +155,11 @@ extension GraphiteCommand {
         case .revealFile: return Descriptor(title: "Files: Reveal current file in navigation", group: .file)
         case .collapseFolders: return Descriptor(title: "Files: Collapse all folders", group: .file)
         case .copyURL: return Descriptor(title: "Copy Graphite URL", group: .file)
+        case .exportToPDF: return Descriptor(title: "Export to PDF", group: .file, binding: .menuBar, macMenuTitles: ["Export as PDF…"])
+        case .printNote:
+            // ⌘P prints on the Mac, as in its other apps; the iPad keeps it for the command palette, as Obsidian does.
+            return Descriptor(title: "Print current file", group: .file, defaultCombinations: ShortcutPlatform.current == .macOS ? command("P") : [],
+                              binding: .menuBar, macMenuTitles: ["Print…"])
         case .reviewOtherVersions: return Descriptor(title: "Review other versions of the current file", group: .file)
         case .browseSnapshots: return Descriptor(title: "File recovery: Browse all snapshots", group: .file, corePlugin: .fileRecovery)
         case .openLocalHistory: return Descriptor(title: "File recovery: Open local history", group: .file, corePlugin: .fileRecovery)
@@ -177,7 +183,8 @@ extension GraphiteCommand {
         case .splitRight: return Descriptor(title: "Split right", group: .view, binding: .menuBar, macMenuTitles: ["Split Right"])
         case .closeThisSide: return Descriptor(title: "Close this side of the split", group: .view, binding: .menuBar, macMenuTitles: ["Close This Side"])
         case .commandPalette:
-            return Descriptor(title: "Command palette: Open command palette", group: .view, defaultCombinations: command("P"),
+            return Descriptor(title: "Command palette: Open command palette", group: .view,
+                              defaultCombinations: ShortcutPlatform.current == .macOS ? command("P", [.command, .shift]) : command("P"),
                               binding: .menuBar, macMenuTitles: ["Command Palette…"])
         case .toggleFocusMode: return Descriptor(title: "Workspace: Toggle focus mode", group: .view)
         case .increaseFontSize:

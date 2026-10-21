@@ -54,6 +54,26 @@ public protocol AttachmentLoader: Sendable {
     text: String,
     environment: ColorEnvironmentValues
   ) async throws -> Attachment
+
+  /// Graphite patch: the attachment for the URL when it is at hand without loading, such as
+  /// one a cache already holds, or nil. A text draws it at once instead of after loading,
+  /// which a text drawn only once, as into a PDF, needs.
+  func readyAttachment(
+    for url: URL,
+    text: String,
+    environment: ColorEnvironmentValues
+  ) -> Attachment?
+}
+
+extension AttachmentLoader {
+  /// Nothing is at hand before loading, as upstream.
+  public func readyAttachment(
+    for url: URL,
+    text: String,
+    environment: ColorEnvironmentValues
+  ) -> Attachment? {
+    nil
+  }
 }
 
 extension EnvironmentValues {

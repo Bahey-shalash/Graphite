@@ -19,6 +19,8 @@ extension FocusedValues {
 /// being edited.
 public struct GraphiteCommands: Commands {
     @FocusedValue(\.workspaceMenuActions) private var actions
+    /// Export to PDF and Print for the focused window's note in front (`NotePDFExportPresentation`).
+    @FocusedValue(\.notePDFExport) private var notePDFExport
     /// The shortcuts of the Mac's one workspace, which the menus keep while the Settings
     /// window, which has no workspace actions, is in front.
     private let keyboardShortcutsOutsideFocus: VaultKeyboardShortcuts?
@@ -53,6 +55,14 @@ public struct GraphiteCommands: Commands {
             Button("Save") { actions?.save() }
                 .keyboardShortcut(shortcut(.save))
                 .disabled(workspace == nil)
+        }
+        CommandGroup(replacing: .printItem) {
+            Button("Export as PDF…") { notePDFExport?.start(nil, .save) }
+                .keyboardShortcut(shortcut(.exportToPDF))
+                .disabled(notePDFExport == nil || workspace?.markdownSession == nil)
+            Button("Print…") { notePDFExport?.start(nil, .print) }
+                .keyboardShortcut(shortcut(.printNote))
+                .disabled(notePDFExport == nil || workspace?.markdownSession == nil)
         }
         #if canImport(UIKit)
         // The Mac's Settings scene puts "Settings…" and ⌘, in the app menu itself.

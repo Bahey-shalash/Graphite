@@ -1,3 +1,15 @@
+/**
+ * File: VaultSidebar.swift
+ * ------------------------
+ * Layer: UI
+ * Description: The sidebar's file list of the vault: folders and files, their menus (open, rename, move, share, export to PDF,
+ *              delete), drag and drop, and creating files in a folder.
+ *
+ * Authors: Bahey Shalash, Félix Chevalier
+ * Version: 0.34
+ * Date: 21/10/2026
+ */
+
 import SwiftUI
 import UniformTypeIdentifiers
 import CoreTransferable
@@ -839,6 +851,7 @@ struct VaultEntryMenu: View {
         }
         Button("Copy Vault Path", systemImage: "doc.on.doc") { copyToPasteboard(entry.path.rawValue) }
         Button("Copy Graphite URL", systemImage: "link") { copyToPasteboard(workspace.openingLink(to: entry.path)) }
+        if DocumentKind(path: entry.path) == .markdown { NotePDFFileMenuButton(path: entry.path) }
         bookmarkButton
         CommunityPluginFileActionsButton(host: workspace.communityPlugins, path: entry.path)
         Divider()
