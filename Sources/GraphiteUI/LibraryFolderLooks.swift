@@ -51,9 +51,12 @@ final class LibraryFolderLooks {
         await drawImage(from: .appleArt(style), of: .root, pixels: Self.tileImagePixels)
     }
 
-    /// A look with a picture not saved in the vault yet, for the picture sheet's preview.
-    func image(for style: FolderStyle, picture: CGImage) async -> FolderTileImage? {
-        await drawArt(for: style, picture: picture, pixels: Self.tileImagePixels)
+    /// Apple's folder art in a color, at the icon maker's export size, for its folder templates.
+    func folderArt(color: FolderColor?) async -> CGImage? {
+        let appleArt = appleArt
+        return await Task.detached(priority: .userInitiated) {
+            await appleArt.art(for: FolderStyle(color: color), picture: nil, pixels: FolderIconMakerRenders.exportPixels)
+        }.value
     }
 
     func shownLook(of folder: VaultPath) -> ShownFolderLook {

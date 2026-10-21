@@ -13,8 +13,8 @@ struct FolderPictureActions {
     let applyPicture: (CGImage, FolderPictureLayout, FolderColor?) async -> FolderStyle?
     /// Draws a look with Apple's folder art, for the previews.
     let drawPreview: (FolderStyle) async -> FolderTileImage?
-    /// Draws a look with a picture not saved yet, for the picture sheet's preview.
-    let drawPicturePreview: (FolderStyle, CGImage) async -> FolderTileImage?
+    /// Apple's folder art in a color, the back layer of the icon maker's folder templates.
+    let drawFolderArt: (FolderColor?) async -> CGImage?
 }
 
 /// A folder's look, chosen as in Finder's folder popover: a large preview with the folder's
@@ -68,10 +68,13 @@ struct FolderCustomizationPopover: View {
                                        pick: { image in pickedPicture = PickedFolderPicture(image: image) },
                                        fail: { message in pictureFailure = message }))
         .sheet(item: $pickedPicture) { picked in
-            FolderPictureSheet(picture: picked.image, folderName: folderName, folderColor: draft.color,
-                               drawPreview: pictureActions.drawPicturePreview) { framedPicture, layout in
-                applyPicture(framedPicture, layout: layout)
+            let color = draft.color
+            let drawFolderArt = pictureActions.drawFolderArt
+            FolderIconMaker(picture: picked.image, folderName: folderName, drawFolderArt: { await drawFolderArt(color) }) { keptPicture, layout in
+                applyPicture(keptPicture, layout: layout)
             }
+            // A page-sized sheet gives the iPad room for the template column beside the preview.
+            .presentationSizing(.page)
         }
         .alert("Picture Not Used", isPresented: Binding(get: { pictureFailure != nil }, set: { isShown in if !isShown { pictureFailure = nil } })) {
             Button("OK", role: .cancel) {}
