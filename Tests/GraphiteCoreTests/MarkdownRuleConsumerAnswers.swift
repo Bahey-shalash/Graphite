@@ -172,18 +172,18 @@ struct SplitCorpusNote {
 // MARK: Question 1: is this line fenced code?
 
 enum FencedCodeAnswers {
-    /// `MarkdownCodeRanges.ranges(in:)` without its code spans: `CodeFenceTracker` with the
-    /// indentation limit that `ListItemContainers` applies.
+    /// `MarkdownCodeRanges.ranges(in:)` without its code spans: `CodeFenceTracker`, which
+    /// applies the fence indentation limit of `ListItemContainers`.
     static func markdownCodeRanges(_ note: SplitCorpusNote) -> Set<Int> {
         let wholeText = NSRange(location: 0, length: note.text.length)
         let codeSpans = Set(MarkdownCodeRanges.codeSpans(in: note.text, range: wholeText).map(\.range))
         return note.bodyLines(touchedBy: MarkdownCodeRanges.ranges(in: note.text).filter { range in !codeSpans.contains(range) })
     }
 
-    /// `CodeFenceTracker` fed every trimmed line, as folding, footnotes and the outline feed it.
+    /// `CodeFenceTracker` fed every line as written, as folding, footnotes and the outline feed it.
     static func codeFenceTracker(_ note: SplitCorpusNote) -> Set<Int> {
         var tracker = CodeFenceTracker()
-        return Set(note.bodyLineIndices.filter { lineIndex in tracker.isCodeLine(note.lines[lineIndex].content.trimmingCharacters(in: .whitespaces)) })
+        return Set(note.bodyLineIndices.filter { lineIndex in tracker.isCodeLine(untrimmedLine: note.lines[lineIndex].content) })
     }
 
     /// Lines with a `.codeBlock` span or a fence (a `.syntaxMarker` that names its block).

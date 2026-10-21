@@ -224,7 +224,7 @@ public enum LinkCompletion {
         var isInsideComment = false
 
         private static let space: UInt8 = 0x20, tab: UInt8 = 0x09, lineFeed: UInt8 = 0x0A, carriageReturn: UInt8 = 0x0D
-        private static let greaterThan: UInt8 = 0x3E, backtick: UInt8 = 0x60, tilde: UInt8 = 0x7E
+        private static let greaterThan: UInt8 = 0x3E
 
         mutating func read(_ bytes: UnsafeBufferPointer<UInt8>) {
             var lineStart = 0
@@ -259,12 +259,13 @@ public enum LinkCompletion {
                     fenceTracker = CodeFenceTracker()
                 } else {
                     let fenceContentStart = quoteDepth == fenceQuoteDepth ? contentStart : Self.quoteMarkers(in: line, maximumDepth: fenceQuoteDepth).contentStart
-                    // Only a line starting with the fence's character can close it.
-                    if Self.mayBeFence(line, from: fenceContentStart) { _ = fenceTracker.isCodeLine(Self.trimmedText(line, from: fenceContentStart)) }
+                    _ = fenceTracker.isCodeLine(utf8Line: UnsafeBufferPointer(rebasing: line[fenceContentStart...]))
                     return
                 }
             }
-            if !isInsideComment, Self.mayBeFence(line, from: contentStart), fenceTracker.isCodeLine(Self.trimmedText(line, from: contentStart)) {
+            // Every line outside comments goes to the tracker, which follows list items for
+            // the fence indentation limit and copies only a line that may be a fence.
+            if !isInsideComment, fenceTracker.isCodeLine(utf8Line: UnsafeBufferPointer(rebasing: line[contentStart...])) {
                 fenceQuoteDepth = quoteDepth
                 return
             }
@@ -287,19 +288,6 @@ public enum LinkCompletion {
                 depth += 1
             }
             return (depth, contentStart)
-        }
-
-        /// Whether the first character after the leading spaces is a backtick or a tilde, or
-        /// beyond ASCII, where it may be other whitespace that the trimmed line check skips.
-        private static func mayBeFence(_ line: UnsafeBufferPointer<UInt8>, from start: Int) -> Bool {
-            var index = start
-            while index < line.count, line[index] == space || line[index] == tab { index += 1 }
-            guard index < line.count else { return false }
-            return line[index] == backtick || line[index] == tilde || line[index] >= 0x80
-        }
-
-        private static func trimmedText(_ line: UnsafeBufferPointer<UInt8>, from start: Int) -> String {
-            String(decoding: UnsafeBufferPointer(rebasing: line[start...]), as: UTF8.self).trimmingCharacters(in: .whitespaces)
         }
 
         private static func containsCommentOpening(_ line: UnsafeBufferPointer<UInt8>, from start: Int) -> Bool {
@@ -338,7 +326,7 @@ public enum LinkCompletion {
     private static func endsInsideComment<Text: StringProtocol>(_ text: Text, startsInside: Bool) -> Bool {
         guard startsInside || text.contains("<!--") else { return false }
         let source = String(text) as NSString
-        let codeRanges = MarkdownCodeRanges.ranges(in: source)
+        let codeRanges = MarkdownCodeRanges.rangeSet(in: source)
         var isInside = startsInside
         var searchLocation = 0
         while searchLocation < source.length {
@@ -346,7 +334,7 @@ public enum LinkCompletion {
             let found = source.range(of: marker, options: .literal, range: NSRange(location: searchLocation, length: source.length - searchLocation))
             guard found.location != NSNotFound else { break }
             searchLocation = NSMaxRange(found)
-            if !isInside && MarkdownCodeRanges.range(found, isInside: codeRanges) { continue }
+            if !isInside && codeRanges.intersects(found) { continue }
             isInside.toggle()
         }
         return isInside

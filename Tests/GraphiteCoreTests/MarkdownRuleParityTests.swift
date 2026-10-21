@@ -103,22 +103,13 @@ final class MarkdownRuleParityTests: XCTestCase {
 
     // MARK: Expected divergences
 
-    /// Question 1. Reference: `MarkdownCodeRanges`, which is `CodeFenceTracker` with the fence
-    /// indentation limit of `ListItemContainers`.
+    /// Question 1. Reference: `MarkdownCodeRanges`, which is `CodeFenceTracker`: fences within
+    /// the indentation limit of their list item (`ListItemContainers`).
     static let fencedCodeDivergences: [ExpectedDivergence<Set<Int>>] = [
-        // A fence indented four columns: the plain tracker has no indentation limit; colours and the index read indented code.
-        ExpectedDivergence(note: "fenceIndentedFourColumns", consumer: .codeFenceTracker, finding: "BUG-MDCORE-03", currentAnswer: [0, 1, 2]),
-        ExpectedDivergence(note: "fenceIndentedFourColumns", consumer: .noteFolding, finding: "BUG-MDCORE-03", currentAnswer: [0, 1, 2]),
-        ExpectedDivergence(note: "fenceIndentedFourColumns", consumer: .footnotes, finding: "BUG-MDCORE-03", currentAnswer: [0, 1, 2]),
-        ExpectedDivergence(note: "fenceIndentedFourColumns", consumer: .markdownEditing, finding: "BUG-MDCORE-03", currentAnswer: [0, 1, 2]),
+        // A fence indented four columns: colours and the index read indented code.
         ExpectedDivergence(note: "fenceIndentedFourColumns", consumer: .textColorMarkup, finding: "SRP-MDCORE-03", currentAnswer: [0, 1, 2]),
         ExpectedDivergence(note: "fenceIndentedFourColumns", consumer: .markdownSemantics, finding: "LSP-MDCORE-04", currentAnswer: [0, 1, 2]),
-        // A fence four columns past a list item's content: the same split, inside the item.
-        ExpectedDivergence(note: "fenceInListItemFourColumnsPastItemContent", consumer: .codeFenceTracker, finding: "BUG-MDCORE-03", currentAnswer: [2, 3, 4]),
-        ExpectedDivergence(note: "fenceInListItemFourColumnsPastItemContent", consumer: .noteFolding, finding: "BUG-MDCORE-03", currentAnswer: [2, 3, 4]),
-        ExpectedDivergence(note: "fenceInListItemFourColumnsPastItemContent", consumer: .footnotes, finding: "BUG-MDCORE-03", currentAnswer: [2, 3, 4]),
-        ExpectedDivergence(note: "fenceInListItemFourColumnsPastItemContent", consumer: .markdownEditing, finding: "BUG-MDCORE-03", currentAnswer: [2, 3, 4]),
-        ExpectedDivergence(note: "fenceInListItemFourColumnsPastItemContent", consumer: .textColorMarkup, finding: "SRP-MDCORE-03", currentAnswer: [2, 3, 4]),
+        // A fence four columns past a list item's content: the index reads indented code in the item.
         ExpectedDivergence(note: "fenceInListItemFourColumnsPastItemContent", consumer: .markdownSemantics, finding: "LSP-MDCORE-04", currentAnswer: [2, 3, 4]),
         // A fence in a quote: code for the readers that follow quote depth, text for the reference.
         ExpectedDivergence(note: "fenceInQuote", consumer: .markdownStyleScanner, finding: "LSP-MDCORE-01", currentAnswer: [1, 2, 3]),
@@ -183,10 +174,6 @@ final class MarkdownRuleParityTests: XCTestCase {
     static let displayMathDivergences: [ExpectedDivergence<Set<Int>>] = [
         // `$$x = 1$$` alone: colours open no block for a closed pair, and their inline pattern skips `$$`.
         ExpectedDivergence(note: "displayMathOnOneLine", consumer: .textColorMarkup, finding: "LSP-MDCORE-01", currentAnswer: []),
-        // A formula line ending in `\$$`: closed there by a suffix test; DisplayMathLines counts no delimiter and closes at the next `$$`.
-        ExpectedDivergence(note: "escapedDollarBeforeDollarInsideDisplayMath", consumer: .markdownStyleScanner, finding: "LSP-MDCORE-01", currentAnswer: [0, 1, 3, 4]),
-        ExpectedDivergence(note: "escapedDollarBeforeDollarInsideDisplayMath", consumer: .noteBlocks, finding: "LSP-MDCORE-01", currentAnswer: [0, 1, 3, 4]),
-        ExpectedDivergence(note: "escapedDollarBeforeDollarInsideDisplayMath", consumer: .textColorMarkup, finding: "LSP-MDCORE-01", currentAnswer: [0, 1, 3, 4]),
         // Lone CR line endings: the reading view sees one line, so no `$$` line of its own.
         ExpectedDivergence(note: "loneCarriageReturnLineEndings", consumer: .notePreviewDocumentBlocks, finding: "LSP-MDCORE-05", currentAnswer: []),
     ]

@@ -42,18 +42,9 @@ public enum TextColorMarkup {
         guard text.length > 0 else { return [] }
         let textAsString = text as String
         let blockRanges = codeAndMathBlockRanges(in: text)
-        let protectedRanges = mergedRanges(protectedRanges(in: text, codeAndMathBlockRanges: blockRanges))
-        // Binary search over sorted, disjoint ranges, so each marker costs a logarithmic
-        // lookup rather than a scan of every range.
-        func isProtected(_ range: NSRange) -> Bool {
-            var lowerBound = 0
-            var upperBound = protectedRanges.count
-            while lowerBound < upperBound {
-                let middle = (lowerBound + upperBound) / 2
-                if NSMaxRange(protectedRanges[middle]) <= range.location { lowerBound = middle + 1 } else { upperBound = middle }
-            }
-            return lowerBound < protectedRanges.count && NSIntersectionRange(protectedRanges[lowerBound], range).length > 0
-        }
+        // Each marker costs a binary search rather than a scan of every protected range.
+        let protectedRanges = SortedRangeSet(protectedRanges(in: text, codeAndMathBlockRanges: blockRanges))
+        func isProtected(_ range: NSRange) -> Bool { protectedRanges.intersects(range) }
         var sections: [TextColorSection] = []
         for paragraphRange in paragraphRanges(in: text, codeAndMathBlockRanges: blockRanges) {
             var markers: [(range: NSRange, hexColor: String?)] = []
@@ -301,10 +292,6 @@ public enum TextColorMarkup {
         return end
     }
 
-    /// Obsidian's inline math: no space inside either `$`, and no digit after the closing
-    /// one, so "$5 and $10" is not math.
-    private static let inlineMathPattern = TextColorMarkupPattern.inlineMathPattern.compiled()
-
     /// Code fences, `$$` blocks, code spans and inline math: markup there is part of the
     /// code or formula, not markup. Color markers around a formula still color it.
     private static func protectedRanges(in text: NSString, codeAndMathBlockRanges: [NSRange]) -> [NSRange] {
@@ -323,21 +310,8 @@ public enum TextColorMarkup {
             }
             textOutsideCodeSpans = maskedText as String
         }
-        ranges.append(contentsOf: inlineMathPattern.matches(in: textOutsideCodeSpans, range: wholeText).map(\.range))
+        ranges.append(contentsOf: MarkdownInlineMathSyntax.formulas(in: textOutsideCodeSpans, range: wholeText).map(\.range))
         return ranges
-    }
-
-    /// Sorted, disjoint ranges covering the same text as the given ones.
-    private static func mergedRanges(_ ranges: [NSRange]) -> [NSRange] {
-        var merged: [NSRange] = []
-        for range in ranges.sorted(by: { firstRange, secondRange in firstRange.location < secondRange.location }) where range.length > 0 {
-            if let last = merged.last, NSMaxRange(last) >= range.location {
-                merged[merged.count - 1].length = max(NSMaxRange(last), NSMaxRange(range)) - last.location
-            } else {
-                merged.append(range)
-            }
-        }
-        return merged
     }
 
     /// Code blocks, fenced or indented by four spaces, and `$$` blocks, each from its first
@@ -364,7 +338,7 @@ public enum TextColorMarkup {
                 if quoteDepth == block.quoteDepth {
                     let trimmedLine = content.trimmingCharacters(in: .whitespacesAndNewlines)
                     let closes = block.delimiter == "$$"
-                        ? trimmedLine.hasPrefix("$$") || trimmedLine.hasSuffix("$$")
+                        ? DisplayMathLines.closesOpenBlock(content)
                         : MarkdownFenceSyntax.closes(block.delimiter, trimmedLine)
                     if closes {
                         ranges.append(NSRange(location: block.start, length: NSMaxRange(lineRange) - block.start))
@@ -417,7 +391,10 @@ public enum TextColorMarkup {
                 previousLineIsBlank = false
                 continue
             }
-            if let (fence, _) = MarkdownFenceSyntax.opening(trimmedLine) {
+            if indentation <= (listContentIndentation ?? 0) + MarkdownFenceSyntax.maximumIndentation,
+               let (fence, _) = MarkdownFenceSyntax.opening(trimmedLine) {
+                // Indented further past its list item's text (or the margin), a fence line
+                // continues the paragraph.
                 fencedBlock = (lineRange.location, fence, quoteDepth)
             } else if trimmedLine.hasPrefix("$$") && !trimmedLine.dropFirst(2).contains("$$") {
                 // A line such as "$$E=mc^2$$ is famous" holds its whole formula.
@@ -440,5 +417,4 @@ enum TextColorMarkupPattern: String, StaticPatternSet {
     case openingMarkerPattern = #"~=\{([^}\s]+)\}"#
     case tableRowLinePattern = #"^\s*\|"#
     case cellBorderPattern = #"(?<!\\)\|"#
-    case inlineMathPattern = #"(?<![\\$])\$(?![\s$])[^$\n]*?(?<![\s\\])\$(?![\d$])"#
 }

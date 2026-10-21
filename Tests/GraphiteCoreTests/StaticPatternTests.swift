@@ -22,6 +22,7 @@ final class StaticPatternTests: XCTestCase {
         assertEveryCaseCompiles(LinkLocatorPattern.self)
         assertEveryCaseCompiles(MarkdownBlockIdentifierSyntaxPattern.self)
         assertEveryCaseCompiles(MarkdownHeadingSyntaxPattern.self)
+        assertEveryCaseCompiles(MarkdownInlineMathPattern.self)
         assertEveryCaseCompiles(MarkdownLinkSourcePattern.self)
         assertEveryCaseCompiles(MarkdownListSyntaxPattern.self)
         assertEveryCaseCompiles(MarkdownQuoteSyntaxPattern.self)

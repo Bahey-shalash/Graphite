@@ -120,12 +120,12 @@ public enum NoteLinkScanner {
             if usedTargets[link.target] == nil { usedTargets[link.target] = link.isEmbed }
         }
         guard !usedTargets.isEmpty else { return [] }
-        let codeRanges = MarkdownCodeRanges.ranges(in: source)
+        let codeRanges = MarkdownCodeRanges.rangeSet(in: source)
         var definitions: [NoteLink] = []
         let body = NSRange(location: bodyStart, length: source.length - bodyStart)
         for match in definitionStartPattern.matches(in: source as String, range: body) {
             let opening = NSMaxRange(match.range) - 1
-            guard !MarkdownCodeRanges.range(NSRange(location: opening, length: 1), isInside: codeRanges),
+            guard !codeRanges.intersects(NSRange(location: opening, length: 1)),
                   let definition = MarkdownLinkSyntax.definition(in: source, openingBracket: opening) else { continue }
             var destination = source.substring(with: definition.destinationRange)
             if destination.hasPrefix("<") && destination.hasSuffix(">") { destination = String(destination.dropFirst().dropLast()) }

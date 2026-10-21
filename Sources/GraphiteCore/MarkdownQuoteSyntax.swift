@@ -8,7 +8,16 @@ public enum MarkdownQuoteSyntax {
     /// with up to three spaces before it and one optional space or tab after it. Returns how
     /// many there were and the rest of the line as written.
     static func markersRemoved(from line: String, maximumDepth: Int = .max) -> (depth: Int, content: String) {
-        var remaining = Substring(line)
+        let (depth, content) = markersRemoved(from: Substring(line), maximumDepth: maximumDepth)
+        return (depth, String(content))
+    }
+
+    /// `markersRemoved(from:maximumDepth:)` without copying the line, for walks that read
+    /// every line of a note.
+    static func markersRemoved(from line: Substring, maximumDepth: Int = .max) -> (depth: Int, content: Substring) {
+        // Most lines start with neither a space nor a marker.
+        guard let firstByte = line.utf8.first, firstByte == UInt8(ascii: " ") || firstByte == UInt8(ascii: ">") else { return (0, line) }
+        var remaining = line
         var depth = 0
         while depth < maximumDepth {
             let indentation = remaining.prefix { character in character == " " }
@@ -17,7 +26,7 @@ public enum MarkdownQuoteSyntax {
             if remaining.first == " " || remaining.first == "\t" { remaining = remaining.dropFirst() }
             depth += 1
         }
-        return (depth, String(remaining))
+        return (depth, remaining)
     }
 
     /// Up to `maximumDepth` leading quote markers and the trimmed text after them, as the
