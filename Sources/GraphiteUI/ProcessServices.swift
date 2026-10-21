@@ -30,13 +30,17 @@ public final class ProcessServices {
     let vaultIndexes: VaultIndexRegistry
     /// The unsaved strokes of drawing editors, kept in Application Support for every window.
     let drawingDrafts: DrawingEditorDraftStore
-    /// Builds a Read Aloud controller and its speech: the system voice, the downloaded voices
-    /// and their renderer. Called only while the Read Aloud core plugin is on, so a launch
-    /// with it off creates no speech engine.
-    let makeReadAloudController: @MainActor () -> ReadAloudController
+    /// The open windows, for what only one of them may run at a time.
+    let openWindows = OpenWindows()
+    /// Builds a window's Read Aloud controller and its speech: the system voice, the
+    /// downloaded voices and their renderer, shared by every window. Called only while the
+    /// Read Aloud core plugin is on, so a launch with it off creates no speech engine. The
+    /// argument says why the window may not start reading now, as while another window reads.
+    let makeReadAloudController: @MainActor (_ startRefusal: @escaping @MainActor () -> OtherWindowActivity?) -> ReadAloudController
 
     /// Services over `defaults` and `applicationFolders`.
-    init(defaults: UserDefaults, applicationFolders: ApplicationFolders, makeReadAloudController: @escaping @MainActor () -> ReadAloudController) {
+    init(defaults: UserDefaults, applicationFolders: ApplicationFolders,
+         makeReadAloudController: @escaping @MainActor (_ startRefusal: @escaping @MainActor () -> OtherWindowActivity?) -> ReadAloudController) {
         self.defaults = defaults
         // Before the preferences read the switches: a device that used Read Aloud keeps it on.
         CorePluginSwitchMigration.runIfNeeded(in: defaults, voicesFolder: CorePluginSwitchMigration.voicesFolder(in: applicationFolders))

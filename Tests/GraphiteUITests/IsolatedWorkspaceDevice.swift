@@ -47,11 +47,11 @@ struct IsolatedWorkspaceDevice {
     /// the lock screen.
     func makeServices(makeReadAloudController: (@MainActor () -> ReadAloudController)? = nil) -> ProcessServices {
         let defaults = defaults
-        return ProcessServices(defaults: defaults, applicationFolders: applicationFolders,
-                               makeReadAloudController: makeReadAloudController ?? {
-                                   ReadAloudController(session: ReadAloudSession(speech: PenTestSpeech(), preferences: defaults),
-                                                       preferences: defaults)
-                               })
+        return ProcessServices(defaults: defaults, applicationFolders: applicationFolders) { startRefusal in
+            // A controller a test gives keeps its own rules; the default one refuses as the app's does.
+            makeReadAloudController?() ?? ReadAloudController(session: ReadAloudSession(speech: PenTestSpeech(), preferences: defaults),
+                                                              preferences: defaults, startRefusal: startRefusal)
+        }
     }
 
     /// A workspace on this device whose delays run on `clock`.
