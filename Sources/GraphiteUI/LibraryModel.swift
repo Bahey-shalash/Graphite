@@ -12,6 +12,8 @@ final class LibraryModel {
     struct Source {
         let vaultIdentifier: UUID
         let store: VaultStore
+        /// Finder's looks of the vault's folders, read on every platform and written on the Mac.
+        let finderAttributes: FinderFolderAttributes
         /// Makes a tile's preview, as `LibraryPreviewLoader.preview` does. It runs inside the
         /// tile's own task, off the main actor, so cancelling the tile reaches it.
         let renderPreview: @Sendable (VaultPath, _ longerSidePixels: Int) async -> LibraryTilePreview
@@ -34,7 +36,8 @@ final class LibraryModel {
     private(set) var items: [VaultEntry] = []
     private(set) var failure: LibraryFailure?
     var filter: LibraryFilter = .all { didSet { applyFilter() } }
-    private(set) var folderStyles = FolderStyleList()
+    /// The folders' looks: Graphite's styles and Finder's; replaced with the vault.
+    private(set) var folderLooks = LibraryFolderLooks(attributes: nil)
     /// Previews of the tiles on screen; a tile's entry goes when it scrolls away.
     private(set) var visiblePreviews: [VaultPath: LibraryTilePreview] = [:]
 
@@ -58,6 +61,7 @@ final class LibraryModel {
         if newSource?.vaultIdentifier != source?.vaultIdentifier {
             cancelPreviews()
             previewCache = Self.makePreviewCache()
+            folderLooks = LibraryFolderLooks(attributes: newSource?.finderAttributes)
             folder = .root
         }
         source = newSource
@@ -116,6 +120,7 @@ final class LibraryModel {
         applyFilter()
         refreshChangedPreviews()
         await loadFolderStyles(from: source.store)
+        await folderLooks.readFinderLooks(of: entries.filter(\.isDirectory).map(\.path))
     }
 
     /// Reads the folder colors. A file that is not Graphite's format is moved aside under a
@@ -123,10 +128,9 @@ final class LibraryModel {
     /// for another reason (the provider, a file not yet downloaded) keeps the colors shown.
     private func loadFolderStyles(from store: VaultStore) async {
         do {
-            let styles = try await store.folderStyles()
-            if styles != folderStyles { folderStyles = styles }
+            folderLooks.replaceStyles(try await store.folderStyles())
         } catch is FolderStyleListError {
-            folderStyles = FolderStyleList()
+            folderLooks.replaceStyles(FolderStyleList())
             do {
                 let keptCopy = try await store.moveFolderStylesAside()
                 failure = .folderStylesSetAside(keptCopyName: keptCopy.name)
@@ -143,16 +147,17 @@ final class LibraryModel {
         if filteredItems != items { items = filteredItems }
     }
 
-    func style(of folder: VaultPath) -> FolderStyle? { folderStyles.style(for: folder) }
-
-    /// Saves a folder's look in the vault; a failure leaves the folder as it was and is reported.
+    /// Saves a folder's look in the vault, then on the Mac where Finder reads it. A failure
+    /// to save leaves the folder as it was; each failure is reported.
     func setStyle(_ style: FolderStyle?, for styledFolder: VaultPath) async {
         guard let source else { return }
         do {
-            folderStyles = try await source.store.updateFolderStyles { @Sendable styles in styles.setStyle(style, for: styledFolder) }
+            folderLooks.replaceStyles(try await source.store.updateFolderStyles { @Sendable styles in styles.setStyle(style, for: styledFolder) })
         } catch {
             failure = .styleNotSaved
+            return
         }
+        if await !folderLooks.writeFinderLook(style, of: styledFolder) { failure = .finderLookNotWritten }
     }
 
     func dismissFailure() { failure = nil }
@@ -161,7 +166,8 @@ final class LibraryModel {
 
     /// Starts the preview of a tile that came on screen, from the cache when it is current.
     func tileAppeared(_ entry: VaultEntry) {
-        guard !entry.isDirectory, source != nil else { return }
+        guard source != nil else { return }
+        guard !entry.isDirectory else { return folderLooks.tileAppeared(entry.path) }
         visibleTileCounts[entry.path, default: 0] += 1
         // A tile of the same file already asked for this version.
         let isRequested = requestedPreviewKeys[entry.path] == LibraryPreviewCache.Key(entry: entry)
@@ -171,7 +177,7 @@ final class LibraryModel {
 
     /// Stops a tile's preview work and lets go of its picture once it leaves the screen.
     func tileDisappeared(_ entry: VaultEntry) {
-        guard !entry.isDirectory else { return }
+        guard !entry.isDirectory else { return folderLooks.tileDisappeared(entry.path) }
         let remainingTiles = max(visibleTileCounts[entry.path, default: 0] - 1, 0)
         visibleTileCounts[entry.path] = remainingTiles == 0 ? nil : remainingTiles
         guard remainingTiles == 0 else { return }
@@ -310,6 +316,8 @@ final class LibraryPreviewCache {
 enum LibraryFailure: Equatable {
     case folderUnreadable
     case styleNotSaved
+    /// The look was saved in the vault, but Finder's copy of it on the folder was not written.
+    case finderLookNotWritten
     /// The vault's folder-color file was not Graphite's format; it was kept under this name
     /// beside it, and the folders show plain.
     case folderStylesSetAside(keptCopyName: String)
