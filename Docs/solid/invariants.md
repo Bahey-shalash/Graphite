@@ -626,11 +626,7 @@ Plugins are Obsidian community plugins run in a separate WKWebView, never on the
 | EX | external identifiers and declarations other software depends on | 9 | 0 | 7 |
 | **Total** | | **416** | **39** | **195** |
 
-<<<<<<< HEAD
-No row is retired whole yet; the single-window part of N-11 is struck through (decision 12, 2026-10-21). The rows carry the 403 area invariants (`<AREA>-INV-NN`; where several areas stated one rule the row lists all their IDs, and every ID appears in a Source cell), the 39 defects of "Fix before the cleanup starts" in [defects.md](defects.md) (the 38 High and Confirmed Medium defects plus BUG-SHELL-02), and the facts found by searching the code for persisted keys, date formats, URL schemes, notification names, embedded-metadata identifiers, Keychain names, migration names and Info.plist declarations (Source says "Added: code search").
-=======
-No row is retired yet. Three rows were added after the audit with Settings › Keyboard Shortcuts (OB-18, ED-28, EX-09, 2026-10-21). The other rows carry the 403 area invariants (`<AREA>-INV-NN`; where several areas stated one rule the row lists all their IDs, and every ID appears in a Source cell), the 39 defects of "Fix before the cleanup starts" in [defects.md](defects.md) (the 38 High and Confirmed Medium defects plus BUG-SHELL-02), and the facts found by searching the code for persisted keys, date formats, URL schemes, notification names, embedded-metadata identifiers, Keychain names, migration names and Info.plist declarations (Source says "Added: code search").
->>>>>>> origin/main
+No row is retired whole yet; the single-window part of N-11 is struck through (decision 12, 2026-10-21). Three rows were added after the audit with Settings › Keyboard Shortcuts (OB-18, ED-28, EX-09, 2026-10-21). The other rows carry the 403 area invariants (`<AREA>-INV-NN`; where several areas stated one rule the row lists all their IDs, and every ID appears in a Source cell), the 39 defects of "Fix before the cleanup starts" in [defects.md](defects.md) (the 38 High and Confirmed Medium defects plus BUG-SHELL-02), and the facts found by searching the code for persisted keys, date formats, URL schemes, notification names, embedded-metadata identifiers, Keychain names, migration names and Info.plist declarations (Source says "Added: code search").
 
 ## Pinned by tests
 

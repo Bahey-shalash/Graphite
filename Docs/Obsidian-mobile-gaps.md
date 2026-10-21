@@ -119,13 +119,8 @@ Status: **Missing**, **Partial**, or **Done**. "Desktop only" items are left out
 | Recent files | Done | In the quick switcher, remembered per vault |
 | Right sidebar | Partial | Outline, backlinks, outgoing links, tags for Markdown notes; nothing for PDFs |
 | Pull-down quick action, swipe gestures | Missing | |
-<<<<<<< HEAD
-| Hardware keyboard shortcuts | Done | In the iPad menu bar (File, View, Go) and the editor; not configurable, no Hotkeys settings page |
-| Multiple windows (Stage Manager) | Done | Several windows on the iPad and the Mac, on one vault or several; New Window (⌥⌘N), Open in New Window, a file or tab dragged to the screen's edge; the iPhone keeps one window ([Multiple-windows-todo.md](Multiple-windows-todo.md); Stage Manager by hand not tried yet) |
-=======
 | Hardware keyboard shortcuts | Done | In the iPad menu bar (File, View, Go) and the editor; Settings › Keyboard Shortcuts changes them per vault (not on the iPhone) |
-| Multiple windows (Stage Manager) | Missing | `UIApplicationSupportsMultipleScenes` is off; planned in [Multiple-windows-todo.md](Multiple-windows-todo.md) |
->>>>>>> origin/main
+| Multiple windows (Stage Manager) | Done | Several windows on the iPad and the Mac, on one vault or several; New Window (⌥⌘N), Open in New Window, a file or tab dragged to the screen's edge; the iPhone keeps one window ([Multiple-windows-todo.md](Multiple-windows-todo.md); Stage Manager by hand not tried yet) |
 | Share extension (share to Graphite) | Missing | |
 | URL scheme and deep links | Done | `graphite://` with Obsidian's actions and parameters (`open` with `file` or `path`, `search`, `new` with `append`, `overwrite` and `silent`, `daily`, and `vault/…`), so an Obsidian link works once its scheme is changed; Copy Graphite URL from a note, a file, and the command palette. `obsidian://` links written in notes still go to Obsidian; no document types declared for "Open in Graphite" |
 | Siri, Shortcuts, widgets | Missing | |
