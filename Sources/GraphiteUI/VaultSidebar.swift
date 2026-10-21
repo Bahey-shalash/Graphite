@@ -6,7 +6,7 @@
  *              delete), drag and drop, and creating files in a folder.
  *
  * Authors: Bahey Shalash, Félix Chevalier
- * Version: 0.34
+ * Version: 0.35
  * Date: 21/10/2026
  */
 
@@ -849,8 +849,9 @@ struct VaultEntryMenu: View {
         if let root = workspace.folderAccess?.root, let location = try? entry.path.url(in: root) {
             ShareLink(item: location) { Label("Share…", systemImage: "square.and.arrow.up") }
         }
-        Button("Copy Vault Path", systemImage: "doc.on.doc") { copyToPasteboard(entry.path.rawValue) }
-        Button("Copy Graphite URL", systemImage: "link") { copyToPasteboard(workspace.openingLink(to: entry.path)) }
+        Button("Copy Vault Path", systemImage: "doc.on.doc") { Pasteboard.copy(entry.path.rawValue) }
+        RevealInFinderButton(path: entry.path, vaultRoot: workspace.folderAccess?.root)
+        Button("Copy Graphite URL", systemImage: "link") { Pasteboard.copy(workspace.openingLink(to: entry.path)) }
         if DocumentKind(path: entry.path) == .markdown { NotePDFFileMenuButton(path: entry.path) }
         bookmarkButton
         CommunityPluginFileActionsButton(host: workspace.communityPlugins, path: entry.path)
@@ -868,7 +869,8 @@ struct VaultEntryMenu: View {
         Button("Rename…", systemImage: "pencil") { workspace.fileSheet = .rename(entry.path) }
         Button("Move to…", systemImage: "folder") { workspace.fileSheet = .move(entry.path) }
         Button("Make a Copy", systemImage: "plus.square.on.square") { Task { await workspace.duplicate(entry.path) } }
-        Button("Copy Vault Path", systemImage: "doc.on.doc") { copyToPasteboard(entry.path.rawValue) }
+        Button("Copy Vault Path", systemImage: "doc.on.doc") { Pasteboard.copy(entry.path.rawValue) }
+        RevealInFinderButton(path: entry.path, vaultRoot: workspace.folderAccess?.root)
         bookmarkButton
         CommunityPluginFileActionsButton(host: workspace.communityPlugins, path: entry.path)
         Divider()
@@ -882,15 +884,6 @@ struct VaultEntryMenu: View {
                 Task { await workspace.toggleBookmark(entry.path) }
             }
         }
-    }
-
-    private func copyToPasteboard(_ text: String) {
-        #if canImport(UIKit)
-        UIPasteboard.general.string = text
-        #elseif canImport(AppKit)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-        #endif
     }
 }
 
