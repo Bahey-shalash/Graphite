@@ -297,7 +297,9 @@ struct VaultSidebar: View {
                        create: { kind, directory in creation = CreationRequest(kind: kind, directory: directory) },
                        openDailyNote: { Task { await workspace.openDailyNote() } },
                        newFolder: { directory in workspace.fileSheet = .newFolder(in: workspace.newFileDirectory(directory)) },
-                       importFiles: { sources, directory in Task { await workspace.importFiles(from: sources, into: workspace.newFileDirectory(directory)) } })
+                       importFiles: { sources, directory in Task { await workspace.importFiles(from: sources, into: workspace.newFileDirectory(directory)) } },
+                       saveScannedNotebook: workspace.scannedNotebookSaver(),
+                       reportProblem: { [workspace] message in workspace.errorMessage = message })
     }
 
     @ViewBuilder private var newDocumentMenuItems: some View {

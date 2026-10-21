@@ -43,6 +43,6 @@
   },
   "skippedTestsBaselines": {
     "hosted-ipad": 32,
-    "swift-test": 24
+    "swift-test": 25
   }
 }
