@@ -6,7 +6,7 @@
  *              on a display's fold, each side's tab bar, and the document of its active tab.
  *
  * Authors: Bahey Shalash
- * Version: 0.27
+ * Version: 0.28
  * Date: 21/10/2026
  */
 
@@ -348,6 +348,7 @@ private struct TabBar: View {
                 workspace.activateTab(tab.id)
                 workspace.revealCurrentFile()
             }
+            RevealInFinderButton(path: path, vaultRoot: workspace.folderAccess?.root)
             Button("Rename…", systemImage: "pencil") { workspace.fileSheet = .rename(path) }
             CommunityPluginFileActionsButton(host: workspace.communityPlugins, path: path, source: "tab-header")
         }

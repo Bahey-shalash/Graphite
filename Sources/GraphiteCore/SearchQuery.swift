@@ -1037,7 +1037,7 @@ public enum SearchContentParts {
         var current: [String] = []
         var fences = CodeFenceTracker()
         for line in lines(of: content) {
-            let isCode = fences.isCodeLine(line.trimmingCharacters(in: .whitespaces))
+            let isCode = fences.isCodeLine(untrimmedLine: line)
             if !isCode, MarkdownHeadingSyntax.level(of: line) != nil, !current.isEmpty {
                 sections.append(current.joined(separator: "\n"))
                 current = []

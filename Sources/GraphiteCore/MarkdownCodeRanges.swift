@@ -11,23 +11,10 @@ public enum MarkdownCodeRanges {
         var ranges: [NSRange] = []
         var fenceStart: Int?
         var tracker = CodeFenceTracker()
-        var listItems = ListItemContainers()
-        var openFenceIndentationLimit = 0
         var lineStart = 0
         while lineStart < text.length {
             let lineRange = text.lineRange(for: NSRange(location: lineStart, length: 0))
-            let line = text.substring(with: lineRange)
-            let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            let isCode: Bool
-            if tracker.isInsideFence {
-                // Indented further, a fence line is content, not the closing fence.
-                isCode = ListItemContainers.leadingColumns(of: line) > openFenceIndentationLimit || tracker.isCodeLine(trimmedLine)
-            } else if let opening = listItems.fenceOpening(of: line) {
-                isCode = tracker.isCodeLine(trimmedLine)
-                openFenceIndentationLimit = opening.containerColumn + MarkdownFenceSyntax.maximumIndentation
-            } else {
-                isCode = false
-            }
+            let isCode = tracker.isCodeLine(untrimmedLine: text.substring(with: lineRange))
             if isCode, fenceStart == nil { fenceStart = lineRange.location }
             if !isCode, let start = fenceStart {
                 ranges.append(NSRange(location: start, length: lineRange.location - start))
@@ -40,9 +27,10 @@ public enum MarkdownCodeRanges {
         return ranges
     }
 
-    /// Whether `range` overlaps code.
-    public static func range(_ range: NSRange, isInside codeRanges: [NSRange]) -> Bool {
-        codeRanges.contains { codeRange in NSIntersectionRange(codeRange, range).length > 0 }
+    /// `ranges(in:)` as a set that answers each overlap test with a binary search, for a
+    /// pass that asks about many links or markers of one note.
+    package static func rangeSet(in text: NSString) -> SortedRangeSet {
+        SortedRangeSet(ranges(in: text))
     }
 
     /// CommonMark code spans within one line: a run of backticks not escaped by a

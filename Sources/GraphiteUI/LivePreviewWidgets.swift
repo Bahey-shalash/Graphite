@@ -413,9 +413,9 @@ enum LivePreviewText {
         var hasUnresolvedEmbeds = false
         let source = markdown as NSString
         let output = NSMutableString(string: markdown)
-        let codeRanges = MarkdownCodeRanges.ranges(in: source)
+        let codeRanges = MarkdownCodeRanges.rangeSet(in: source)
         for match in wikiEmbedPattern.matches(in: markdown, range: NSRange(location: 0, length: source.length)).reversed()
-        where !MarkdownCodeRanges.range(match.range, isInside: codeRanges) {
+        where !codeRanges.intersects(match.range) {
             var target = source.substring(with: match.range(at: 1))
             let label = match.range(at: 2).location == NSNotFound ? nil : source.substring(with: match.range(at: 2))
             // `![[image.png\|300]]` in a table, as Obsidian requires there: the backslash
@@ -438,9 +438,9 @@ enum LivePreviewText {
         var text = markdown
         let source = text as NSString
         let output = NSMutableString(string: text)
-        let codeRanges = MarkdownCodeRanges.ranges(in: source)
+        let codeRanges = MarkdownCodeRanges.rangeSet(in: source)
         for match in wikilinkPattern.matches(in: text, range: NSRange(location: 0, length: source.length)).reversed()
-        where !MarkdownCodeRanges.range(match.range, isInside: codeRanges) {
+        where !codeRanges.intersects(match.range) {
             var target = source.substring(with: match.range(at: 1))
             let alias = match.range(at: 2).location == NSNotFound ? nil : source.substring(with: match.range(at: 2))
             // `[[Note\|alias]]` in a table: the backslash escapes the pipe.

@@ -51,7 +51,7 @@ public enum Footnotes {
             source.getLineStart(nil, end: nil, contentsEnd: &contentsEnd, for: lineRange)
             let line = source.substring(with: NSRange(location: lineRange.location, length: contentsEnd - lineRange.location))
             defer { lineStart = NSMaxRange(lineRange) }
-            if tracker.isCodeLine(line.trimmingCharacters(in: .whitespaces)) { closeDefinition(); continue }
+            if tracker.isCodeLine(untrimmedLine: line) { closeDefinition(); continue }
             let lineLength = (line as NSString).length
             if let match = definitionPattern.firstMatch(in: line, range: NSRange(location: 0, length: lineLength)) {
                 closeDefinition()
@@ -67,8 +67,9 @@ public enum Footnotes {
                 continue
             }
             closeDefinition()
-            let codeRanges = MarkdownCodeRanges.ranges(in: line as NSString)
-            func isInCode(_ range: NSRange) -> Bool { codeRanges.contains { codeRange in NSIntersectionRange(codeRange, range).length > 0 } }
+            // The line is outside fenced code, so only its code spans can hold code.
+            let codeSpans = SortedRangeSet(MarkdownCodeRanges.codeSpans(in: line as NSString, range: NSRange(location: 0, length: lineLength)).map(\.range))
+            func isInCode(_ range: NSRange) -> Bool { codeSpans.intersects(range) }
             for match in referencePattern.matches(in: line, range: NSRange(location: 0, length: lineLength)) where !isInCode(match.range) {
                 references.append(Reference(label: (line as NSString).substring(with: match.range(at: 1)), inlineText: nil,
                                             range: NSRange(location: lineRange.location + match.range.location, length: match.range.length)))
