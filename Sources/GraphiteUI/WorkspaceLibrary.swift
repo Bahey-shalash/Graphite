@@ -8,7 +8,8 @@ extension WorkspaceModel {
     var libraryVault: LibraryVault {
         LibraryVault(source: librarySource, title: title, sortOrder: vaultSettings.fileSortOrder, listingVersion: directoryVersion,
                      firstCreatedKind: preferences.library.firstCreatedKind, isPluginEnabled: preferences.isEnabled,
-                     presentation: preferences.library.presentation)
+                     presentation: preferences.library.presentation, confirmsDeletion: vaultSettings.confirmsDeletion,
+                     deletionMethod: vaultSettings.deletionMethod)
     }
 
     private var librarySource: LibraryModel.Source? {
@@ -32,12 +33,16 @@ extension WorkspaceModel {
                        openDailyNote: { [weak self] in Task { await self?.openDailyNote() } },
                        newFolder: { [weak self] folder in self?.fileSheet = .newFolder(in: folder) },
                        importFiles: { [weak self] sources, folder in Task { await self?.importFiles(from: sources, into: folder) } },
+                       receiveDrop: { [weak self] providers, folder in self?.receiveDrop(providers, into: folder) ?? false },
                        saveScannedNotebook: scannedNotebookSaver(),
                        reportProblem: { [weak self] message in self?.errorMessage = message },
                        moveItems: { [weak self] paths, folder in Task { for path in paths { await self?.move(path, into: folder) } } },
                        setSortOrder: { [weak self] sortOrder in self?.setFileSortOrder(sortOrder) },
                        setPresentation: { [weak self] presentation in self?.preferences.library.presentation = presentation },
-                       findPictures: { [weak self] query in await self?.vaultPictures(matching: query) ?? [] })
+                       findPictures: { [weak self] query in await self?.vaultPictures(matching: query) ?? [] },
+                       deleteItems: { [weak self] paths in Task { for path in paths { await self?.delete(path) } } },
+                       duplicateItems: { [weak self] paths in Task { await self?.duplicate(paths) } },
+                       requestMove: { [weak self] paths in self?.fileSheet = .moveItems(paths) })
     }
 
     func libraryEntryPresentation(requestCreation: @escaping (CreationKind, VaultPath) -> Void) -> LibraryEntryPresentation {
@@ -46,7 +51,11 @@ extension WorkspaceModel {
                                      guard let self else { return false }
                                      return preferences.isEnabled(.bookmarks) && isBookmarked(path)
                                  },
-                                 menu: { [unowned self] entry in VaultEntryMenu(entry: entry, workspace: self, requestCreation: requestCreation) })
+                                 menu: { [unowned self] entry in VaultEntryMenu(entry: entry, workspace: self, requestCreation: requestCreation) },
+                                 fileLocation: { [weak self] path in
+                                     guard let root = self?.folderAccess?.root else { return nil }
+                                     return try? path.url(in: root) // A path outside the vault has no location to share.
+                                 })
     }
 
     /// Pictures of the vault whose name matches `query`, from the index; the recent ones for an
@@ -66,6 +75,22 @@ extension WorkspaceModel {
 
     private static let recentPictureCount = 30
     private static let pictureMatchLimit = 200
+
+    /// Takes a drop on the library, a folder tile or the back button: vault items move into the
+    /// folder through `move(_:into:)` (the file tree's own moves) and files from other apps are
+    /// copied in through `importFiles`, whose staged copies are removed afterwards.
+    func receiveDrop(_ providers: [NSItemProvider], into folder: VaultPath) -> Bool {
+        guard LibraryDropReader.canRead(providers) else { return false }
+        Task {
+            let plan = LibraryDropPlan.make(from: await LibraryDropReader.read(providers), into: folder)
+            for path in plan.movedPaths { await move(path, into: folder) }
+            guard !plan.droppedFiles.isEmpty else { return }
+            let batch = DroppedFileBatch(files: plan.droppedFiles)
+            await importFiles(from: batch.locations, into: folder)
+            batch.discard()
+        }
+        return true
+    }
 
     /// The file list's and the library's sort order, Obsidian's "Sort order" setting.
     func setFileSortOrder(_ sortOrder: FileSortOrder) {

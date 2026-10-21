@@ -35,19 +35,6 @@ enum CreationKind: String, Identifiable {
     }
 }
 
-/// A file or folder dragged within the sidebar.
-struct VaultItemTransfer: Codable, Transferable {
-    let path: String
-    static var transferRepresentation: some TransferRepresentation {
-        CodableRepresentation(contentType: .graphiteVaultItem)
-    }
-}
-
-extension UTType {
-    /// Declared in the app's Info.plist; used only for drags inside Graphite.
-    static let graphiteVaultItem = UTType(exportedAs: "com.graphite.study.vault-item")
-}
-
 // MARK: Sidebar
 
 struct VaultSidebar: View {
@@ -973,12 +960,15 @@ private extension View {
 enum FileSheet: Identifiable {
     case rename(VaultPath)
     case move(VaultPath)
+    /// Several items chosen in the library, moved into one folder.
+    case moveItems([VaultPath])
     case newFolder(in: VaultPath)
 
     var id: String {
         switch self {
         case .rename(let path): "rename|" + path.rawValue
         case .move(let path): "move|" + path.rawValue
+        case .moveItems(let paths): "moveItems|" + paths.map(\.rawValue).joined(separator: "|")
         case .newFolder(let directory): "folder|" + directory.rawValue
         }
     }
@@ -994,7 +984,8 @@ struct FileManagementPresentation: ViewModifier {
                 Group {
                     switch sheet {
                     case .rename(let path): RenameSheet(workspace: workspace, path: path)
-                    case .move(let path): MoveSheet(workspace: workspace, path: path)
+                    case .move(let path): MoveSheet(workspace: workspace, paths: [path])
+                    case .moveItems(let paths): MoveSheet(workspace: workspace, paths: paths)
                     case .newFolder(let directory): NewFolderSheet(workspace: workspace, directory: directory)
                     }
                 }
@@ -1024,11 +1015,7 @@ struct FileManagementPresentation: ViewModifier {
                 Button("Delete", role: .destructive) { Task { await workspace.delete(path) } }
                 Button("Cancel", role: .cancel) {}
             } message: { _ in
-                switch workspace.vaultSettings.deletionMethod {
-                case .systemTrash: Text("It goes to the trash, where it can be recovered.")
-                case .vaultTrash: Text("It goes to the vault's .trash folder.")
-                case .permanent: Text("It is deleted for good. This cannot be undone.")
-                }
+                Text(workspace.vaultSettings.deletionMethod.confirmationExplanation(itemCount: 1))
             }
     }
 }
@@ -1146,7 +1133,8 @@ private struct NewFolderSheet: View {
 /// Obsidian's "Move file to…": every folder in the vault, searchable.
 private struct MoveSheet: View {
     @Bindable var workspace: WorkspaceModel
-    let path: VaultPath
+    /// The items to move; one from a menu, several from the library's selection.
+    let paths: [VaultPath]
     @Environment(\.dismiss) private var dismiss
     @State private var folders: [VaultPath] = []
     @State private var query = ""
@@ -1156,7 +1144,10 @@ private struct MoveSheet: View {
 
     private var matchingFolders: [VaultPath] {
         let candidates = [VaultPath.root] + folders
-        let movable = candidates.filter { folder in !folder.isInside(path) && folder != path.parent }
+        // A folder cannot go into itself, and a folder every item is already in changes nothing.
+        let movable = candidates.filter { folder in
+            !paths.contains { path in folder.isInside(path) } && !paths.allSatisfy { path in folder == path.parent }
+        }
         guard !query.isEmpty else { return Array(movable.prefix(Self.maximumListedFolderCount)) }
         return Array(movable.lazy.filter { folder in folder.rawValue.localizedCaseInsensitiveContains(query) }.prefix(Self.maximumListedFolderCount))
     }
@@ -1167,7 +1158,7 @@ private struct MoveSheet: View {
             List(listedFolders, id: \.rawValue) { folder in
                 Button {
                     dismiss()
-                    Task { await workspace.move(path, into: folder) }
+                    Task { for path in paths { await workspace.move(path, into: folder) } }
                 } label: {
                     Label {
                         Text(folder.rawValue.isEmpty ? workspace.title : folder.rawValue).foregroundStyle(Color.primary)
@@ -1181,7 +1172,7 @@ private struct MoveSheet: View {
                 else if listedFolders.isEmpty { ContentUnavailableView.search(text: query) }
             }
             .searchable(text: $query, prompt: "Find a folder")
-            .navigationTitle("Move “\(path.name)”")
+            .navigationTitle(paths.count == 1 ? "Move “\(paths[0].name)”" : "Move \(paths.count) Items")
             #if canImport(UIKit)
             .navigationBarTitleDisplayMode(.inline)
             #endif
