@@ -797,7 +797,7 @@ Each table lists the new type, its single responsibility, the members it takes o
 | Lifetime | Owner | Holds |
 | --- | --- | --- |
 | Process | `AppEnvironment` services | Clock, device-state store, diagnostics, process-wide caches (each with a named bound and a `MemoryReleasing` conformance), the Pencil toolbox and its activity, voice library and render queue, the feature registry |
-| Window (scene) | `WorkspaceModel` router, `WorkspaceWindowLayout`, `PresentationRouter`, `WorkspaceAlerts`, `SceneLifecycleSaver`, the embedded-PDF session registry | Presentation state, columns, inspector, the alert queue; one workspace per window until the singletons are gone (`ARCH-INV-08`) |
+| Window (scene) | `WorkspaceModel` router, `WorkspaceWindowLayout`, `PresentationRouter`, `WorkspaceAlerts`, `SceneLifecycleSaver`, the embedded-PDF session registry | Presentation state, columns, inspector, the alert queue; one workspace per window, several windows per process since the scene split of decision 12 landed (2026-10-21; `ARCH-INV-08` retired) |
 | Vault | `OpenVault` and the models that conform to `VaultLifecycleObserver` | I/O handles, index, tabs, search, file list, conflict and recovery state, appearance, bookmarks, graph and map caches, plugin session, the vault's device memory |
 | Document | The `DocumentSession` of one tab | Text or document, revision, undo history, place, pending insertions, conflict |
 | View | `@State` | Presentation-only values that no other object reads (a focus ring, a popover flag, a drag in progress) |

@@ -241,7 +241,8 @@ private struct TabBar: View {
                                     close: { Task { await workspace.closeTab(tab.id) } },
                                     maximumWidth: keepsTabsBesidePencilTools ? DocumentToolbarLayout.minimumTabsWidthBesidePencilTools - 2 * Self.tabsInset : 220)
                                 .contextMenu { tabMenu(for: tab) }
-                                .draggable(TabTransfer(tabID: tab.id)) {
+                                .draggable(TabTransfer(tabID: tab.id), contentType: .graphiteTab,
+                                           opening: tab.path.map { path in .showing(path, inVault: workspace.currentVaultIdentifier) }) {
                                     Label(workspace.title(ofTab: tab), systemImage: tab.path.map { path in DocumentKind(path: path).systemImage } ?? "doc")
                                         .padding(8).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
                                 }
@@ -333,6 +334,7 @@ private struct TabBar: View {
         Button("Close", systemImage: "xmark") { Task { await workspace.closeTab(tab.id) } }
         Button("Close Other Tabs", systemImage: "xmark.square") { Task { await workspace.closeOtherTabs(keeping: tab.id) } }
             .disabled(group.tabs.count == 1)
+        if let path = tab.path { OpenInNewWindowButton { Task { await workspace.open(path, placement: .newWindow) } } }
         Divider()
         if let path = tab.path, let navigator = workspace.readAloudNavigator { ReadAloudQueueMenuItems(navigator: navigator, path: path) }
         Button(tab.isPinned ? "Unpin" : "Pin", systemImage: tab.isPinned ? "pin.slash" : "pin") { workspace.togglePin(tab.id) }

@@ -261,41 +261,31 @@ final class MarkdownTextView: UITextView {
     /// Whether the cursor is on a link, so Return with ⌥ or ⌘ follows it; set by the coordinator.
     var isCursorOnLink: (() -> Bool)?
 
-    /// Obsidian's editing shortcuts. ⌘B and ⌘I arrive through `toggleBoldface` and
-    /// `toggleItalics`, which also serve the edit menu's format items.
-    private var editorShortcuts: [(title: String, input: String, modifiers: UIKeyModifierFlags, command: EditorCommand)] {
-        var shortcuts: [(title: String, input: String, modifiers: UIKeyModifierFlags, command: EditorCommand)] = [
-            ("Outdent", "\t", .shift, .outdent),
-            ("Toggle Checkbox", "l", .command, .task),
-            ("Insert Link", "k", .command, .insertMarkdownLink),
-            ("Highlight", "h", [.command, .shift], .highlight),
-            ("Strikethrough", "x", [.command, .shift], .strikethrough),
-            // ⌃⌘C, beside the headings' ⌃⌘1 to ⌃⌘6: ⌘` cycles through an app's windows.
-            ("Code", "c", [.command, .control], .code),
-            ("Comment", "/", .command, .comment),
-            ("Find and Replace", "f", [.command, .alternate], .findAndReplace),
-            ("Move Line Up", UIKeyCommand.inputUpArrow, [.command, .alternate], .moveLinesUp),
-            ("Move Line Down", UIKeyCommand.inputDownArrow, [.command, .alternate], .moveLinesDown),
-        ]
-        shortcuts += (1...6).map { level in ("Heading \(level)", String(level), [.command, .control], .heading(level)) }
-        // Only on a link, so these keys keep their usual meaning elsewhere.
-        if isCursorOnLink?() == true {
-            shortcuts += [
-                ("Follow Link", "\r", .alternate, .followLink(.currentTab)),
-                ("Open Link in New Tab", "\r", .command, .followLink(.newTab)),
-                ("Open Link on the Other Side", "\r", [.command, .alternate], .followLink(.otherGroup)),
-            ]
-        }
-        return shortcuts
-    }
+    /// The vault's editing shortcuts (`VaultKeyboardShortcuts`); set by the editor.
+    var keyCommandTable = EditorKeyCommandTable.defaults
 
-    override var keyCommands: [UIKeyCommand]? {
-        var keyCommands = (super.keyCommands ?? []) + editorShortcuts.map { shortcut in
-            let keyCommand = UIKeyCommand(title: shortcut.title, action: #selector(runKeyCommand(_:)), input: shortcut.input,
-                                          modifierFlags: shortcut.modifiers, propertyList: shortcut.title)
+    /// The system's own ⌘B and ⌘I: they arrive through `toggleBoldface` and `toggleItalics`,
+    /// which also serve the edit menu's format items, so they get no key command of their own.
+    private static let systemFormatShortcuts: [GraphiteCommand: KeyCombination] = [
+        .toggleBold: KeyCombination(.command, .character("B")), .toggleItalics: KeyCombination(.command, .character("I")),
+    ]
+
+    /// The vault's editing shortcuts as key commands. The commands on a link exist only while
+    /// the cursor is on one, so Return keeps its usual meaning elsewhere.
+    private var editorKeyCommands: [UIKeyCommand] {
+        let isOnLink = isCursorOnLink?() == true
+        return keyCommandTable.entries.compactMap { entry in
+            guard !entry.command.followsLink || isOnLink, Self.systemFormatShortcuts[entry.command] != entry.combination,
+                  let input = entry.combination.keyCommandInput else { return nil }
+            let keyCommand = UIKeyCommand(title: entry.command.title, action: #selector(runKeyCommand(_:)), input: input,
+                                          modifierFlags: entry.combination.keyModifierFlags, propertyList: entry.command.identifier)
             keyCommand.wantsPriorityOverSystemBehavior = true
             return keyCommand
         }
+    }
+
+    override var keyCommands: [UIKeyCommand]? {
+        var keyCommands = (super.keyCommands ?? []) + editorKeyCommands
         if completion?.isVisible == true {
             for (input, name) in [(UIKeyCommand.inputUpArrow, "up"), (UIKeyCommand.inputDownArrow, "down"), (UIKeyCommand.inputEscape, "escape")] {
                 let keyCommand = UIKeyCommand(title: "", action: #selector(runCompletionKey(_:)), input: input, modifierFlags: [], propertyList: name)
@@ -316,9 +306,8 @@ final class MarkdownTextView: UITextView {
     }
 
     @objc private func runKeyCommand(_ keyCommand: UIKeyCommand) {
-        guard let title = keyCommand.propertyList as? String,
-              let shortcut = editorShortcuts.first(where: { shortcut in shortcut.title == title }) else { return }
-        runCommand?(shortcut.command)
+        guard let identifier = keyCommand.propertyList as? String, let editorCommand = GraphiteCommand(rawValue: identifier)?.editorCommand else { return }
+        runCommand?(editorCommand)
     }
 
     // MARK: Paste and drop
@@ -348,6 +337,11 @@ final class MarkdownTextView: UITextView {
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         if action == #selector(toggleUnderline(_:)) { return false }
+        // ⌘B and ⌘I stay the system's while the vault gives them to bold and italics.
+        for (command, selector) in [(GraphiteCommand.toggleBold, #selector(toggleBoldface(_:))), (.toggleItalics, #selector(toggleItalics(_:)))]
+        where action == selector {
+            guard let combination = Self.systemFormatShortcuts[command], keyCommandTable.isBound(command, to: combination) else { return false }
+        }
         if action == #selector(paste(_:)) && UIPasteboard.general.hasImages && insertAttachment != nil { return true }
         return super.canPerformAction(action, withSender: sender)
     }
@@ -566,13 +560,16 @@ struct NativeMarkdownEditor: UIViewRepresentable {
     var readAloudHooks: ReadAloudEditorHooks?
     /// The Color, Format, Paragraph and Insert submenus of the edit menu; see `EditorContextMenuContent`.
     var contextMenu: EditorContextMenuActions?
+    /// The vault's editing shortcuts.
+    var keyCommandTable: EditorKeyCommandTable
 
     init(session: MarkdownSession, configuration: EditorConfiguration, environment: LivePreviewEnvironment? = nil,
          headingScrollRequest: HeadingScrollRequest?, actions: EditorActions = EditorActions(),
          retention: MarkdownEditorRetention? = nil, retentionOwner: TabDocument? = nil, readAloudRange: NSRange? = nil,
          followsReading: Bool = false, suspendReadingFollow: (() -> Void)? = nil, readAloudHooks: ReadAloudEditorHooks? = nil,
-         contextMenu: EditorContextMenuActions? = nil, follow: @escaping (String, Bool) -> Void) {
+         contextMenu: EditorContextMenuActions? = nil, keyCommandTable: EditorKeyCommandTable = .defaults, follow: @escaping (String, Bool) -> Void) {
         self.contextMenu = contextMenu
+        self.keyCommandTable = keyCommandTable
         self.session = session
         self.configuration = configuration
         self.environment = environment
@@ -709,6 +706,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
     private func update(_ textView: MarkdownTextView, coordinator: Coordinator) {
         coordinator.session = session
         textView.readAloudRange = readAloudRange
+        textView.keyCommandTable = keyCommandTable
         textView.followsReading = followsReading
         coordinator.suspendReadingFollow = suspendReadingFollow
         coordinator.installReadAloudHooks(readAloudHooks, in: textView)
@@ -2139,10 +2137,11 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             } else if let link = link(at: point, in: textView) {
                 switch link {
                 case .note(let target, let isWiki):
-                    // ⌘ opens the link in a new tab and ⌥⌘ beside the note, as in Obsidian.
+                    // ⌘ opens the link in a new tab, ⌥⌘ beside the note and ⇧⌥⌘ in a new window, as in Obsidian.
                     let modifierFlags = recognizer.modifierFlags
                     if modifierFlags.contains(.command), let followLinkElsewhere = actions.followLinkElsewhere {
-                        followLinkElsewhere(target, isWiki, modifierFlags.contains(.alternate) ? .otherGroup : .newTab)
+                        followLinkElsewhere(target, isWiki, TabPlacement.forLink(command: true, option: modifierFlags.contains(.alternate),
+                                                                                 shift: modifierFlags.contains(.shift)))
                     } else {
                         follow(target, isWiki)
                     }
@@ -2416,6 +2415,29 @@ final class MarkdownMacTextView: NSTextView {
     /// quick adjustment is off. Set by the coordinator.
     var quickFontSize: QuickFontSizeAdjustment?
     private var quickFontSizeInput = QuickFontSizeMacInput()
+
+    /// The vault's editing shortcuts; set by the editor.
+    var keyCommandTable = EditorKeyCommandTable.defaults
+    /// The editor's coordinator, which runs the editing command a shortcut names.
+    weak var keyCommandOwner: NativeMarkdownEditor.Coordinator?
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if window?.firstResponder === self, runKeyCommand(for: event) { return true }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if runKeyCommand(for: event) { return }
+        super.keyDown(with: event)
+    }
+
+    /// Runs the editing command the vault gives the key press; false when it gives none, or
+    /// while text is being composed.
+    private func runKeyCommand(for event: NSEvent) -> Bool {
+        guard !hasMarkedText(), let keyCommandOwner, let combination = KeyCombination(event: event),
+              let editorCommand = keyCommandTable.command(matching: combination)?.editorCommand else { return false }
+        return keyCommandOwner.runKeyCommand(editorCommand, in: self)
+    }
 
     override func scrollWheel(with event: NSEvent) {
         // Control-scrolling changes the font size and does not scroll, so reading keeps following.
@@ -2725,6 +2747,8 @@ struct NativeMarkdownEditor: NSViewRepresentable {
     let environment: LivePreviewEnvironment?
     /// The Color, Format, Paragraph and Insert submenus of the context menu; see `EditorContextMenuContent`.
     var contextMenu: EditorContextMenuActions?
+    /// The vault's editing shortcuts.
+    var keyCommandTable: EditorKeyCommandTable
 
     /// The Mac has no keyboard toolbar: of `actions`, it uses pasting, dropping, following
     /// links elsewhere, and focusing the note's side.
@@ -2733,8 +2757,9 @@ struct NativeMarkdownEditor: NSViewRepresentable {
          retention: MarkdownEditorRetention? = nil, retentionOwner: TabDocument? = nil, readAloudRange: NSRange? = nil,
          followsReading: Bool = false, suspendReadingFollow: (() -> Void)? = nil,
          readAloudHooks: ReadAloudEditorHooks? = nil, contextMenu: EditorContextMenuActions? = nil,
-         follow: @escaping (String, Bool) -> Void) {
+         keyCommandTable: EditorKeyCommandTable = .defaults, follow: @escaping (String, Bool) -> Void) {
         self.contextMenu = contextMenu
+        self.keyCommandTable = keyCommandTable
         self.session = session
         self.configuration = configuration
         self.headingScrollRequest = headingScrollRequest
@@ -2822,6 +2847,8 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         coordinator.follow = follow
         guard let textView = scrollView.documentView as? NSTextView else { return }
         (textView as? MarkdownMacTextView)?.readAloudRange = readAloudRange
+        (textView as? MarkdownMacTextView)?.keyCommandTable = keyCommandTable
+        (textView as? MarkdownMacTextView)?.keyCommandOwner = coordinator
         (textView as? MarkdownMacTextView)?.quickFontSize = actions.quickFontSize
         (textView as? MarkdownMacTextView)?.readableColumnWidth = configuration.usesReadableLineLength
             ? (configuration.theme?.readableColumnWidth(forTextSize: configuration.textSize).map { width in width + 10 } ?? MarkdownMacTextView.graphiteReadableColumnWidth) : nil
@@ -3470,12 +3497,40 @@ struct NativeMarkdownEditor: NSViewRepresentable {
 
         /// Follows the link at a clicked character, as a tap does on the iPad: ⌘ opens it
         /// in a new tab and ⌥⌘ beside the note.
+        /// Runs an editing shortcut as an edit Undo takes back; false for a command the Mac's
+        /// editor does not run from the keyboard.
+        func runKeyCommand(_ command: EditorCommand, in textView: NSTextView) -> Bool {
+            switch command {
+            case .find, .findAndReplace:
+                let finderAction: NSTextFinder.Action = if case .find = command { .showFindInterface } else { .showReplaceInterface }
+                let sender = NSMenuItem()
+                sender.tag = finderAction.rawValue
+                textView.performTextFinderAction(sender)
+                return true
+            case .undo, .redo, .attach, .draw, .dismissKeyboard, .followLink:
+                return false
+            case .heading, .wrap, .bulletList, .numberedList, .task, .indent, .outdent, .moveLinesUp, .moveLinesDown,
+                 .insertWikilink, .insertTag, .insertMarkdownLink:
+                guard let textStorage = textView.textStorage,
+                      let edit = MarkdownEditing.edit(for: command, in: currentSource(of: textView), selection: textView.selectedRange(),
+                                                      indentUnit: configuration.editingBehavior.indentUnit, tabSize: configuration.editingBehavior.tabSize),
+                      NSMaxRange(edit.range) <= textStorage.length else { return false }
+                textView.breakUndoCoalescing()
+                guard textView.shouldChangeText(in: edit.range, replacementString: edit.replacement) else { return true }
+                textStorage.replaceCharacters(in: edit.range, with: edit.replacement)
+                textView.didChangeText()
+                if NSMaxRange(edit.selectionAfter) <= textStorage.length { textView.setSelectedRange(edit.selectionAfter) }
+                return true
+            }
+        }
+
         func followLink(atCharacter characterIndex: Int, modifierFlags: NSEvent.ModifierFlags, in textView: NSTextView) -> Bool {
             guard let link = link(atCharacter: characterIndex, in: textView) else { return false }
             switch link {
             case .note(let target, let isWiki):
                 if modifierFlags.contains(.command), let followLinkElsewhere = actions.followLinkElsewhere {
-                    followLinkElsewhere(target, isWiki, modifierFlags.contains(.option) ? .otherGroup : .newTab)
+                    followLinkElsewhere(target, isWiki, TabPlacement.forLink(command: true, option: modifierFlags.contains(.option),
+                                                                             shift: modifierFlags.contains(.shift)))
                 } else {
                     follow(target, isWiki)
                 }

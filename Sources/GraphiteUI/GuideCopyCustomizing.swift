@@ -91,17 +91,20 @@ enum GuideCustomizingCopy {
             systemImage: "keyboard",
             title: "Keyboard Shortcuts",
             summary: forPlatform(touch: "With a keyboard attached to iPad, these shortcuts work. Hold ⌘ to see them listed.",
-                                 mac: "The shortcuts that work everywhere in Graphite."),
+                                 mac: "The shortcuts that work everywhere in Graphite, and how to change them."),
             steps: [
                 GuideStep("Notes and files: ⌘N new note, ⌘O Quick Switcher, ⌘P Command Palette, ⇧⌘F search all files, ⌘E read or write, ⌘S save."),
                 GuideStep("Tabs: ⌘T new tab, ⌘W close tab, ⇧⌘T reopen it, ⌃Tab next tab, ⌘1 to ⌘8 a tab, ⌘9 the last tab, ⌘[ and ⌘] back and " +
                           "forward."),
-                GuideStep(forPlatform(
-                    touch: "Writing: ⌘B bold, ⌘I italic, ⇧⌘H highlight, ⇧⌘X strikethrough, ⌃⌘C code, ⌘/ comment, ⌘K link, ⌘L tick a task, ⌃⌘1 to " +
-                           "⌃⌘6 headings, ⌥⌘↑ and ⌥⌘↓ move a line.",
-                    mac: "Writing: use the **Format** and **Insert** menus in the note's toolbar, or right-click the text.")),
+                GuideStep("Writing: ⌘B bold, ⌘I italic, ⇧⌘H highlight, ⇧⌘X strikethrough, ⌃⌘C code, ⌘/ comment, ⌘K link, ⌘L tick a task, ⌃⌘1 to " +
+                          "⌃⌘6 headings, ⌥⌘↑ and ⌥⌘↓ move a line."),
                 GuideStep("Text size, with **Quick Font Size Adjustment** on: ⌘+ bigger, ⌘- smaller, ⌘0 back to normal."),
-                GuideStep(forPlatform(touch: "Settings: ⌘,.", mac: "Settings: ⌘,. This Guide: ⌘?."))
+                GuideStep(forPlatform(touch: "Settings: ⌘,.", mac: "Settings: ⌘,. This Guide: ⌘?.")),
+                GuideStep(forPlatform(
+                    touch: "On iPad, **Settings › Keyboard Shortcuts** lists every command. Find one by name or by shortcut, tap **Record Shortcut** and " +
+                           "press the new keys, or remove or reset a shortcut. The shortcuts belong to the vault and are the same in Obsidian.",
+                    mac: "**Settings › Keyboard Shortcuts** lists every command. Find one by name or by shortcut, click **Record Shortcut** and press " +
+                         "the new keys, or remove or reset a shortcut. The shortcuts belong to the vault and are the same in Obsidian.")),
             ])
     }
 
