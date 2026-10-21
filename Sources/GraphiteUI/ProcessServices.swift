@@ -1,12 +1,14 @@
 import Foundation
 import GraphiteCore
+import GraphiteIndex
 
 /// What every window of the app shares, built once per process (decision 12 of
 /// `Docs/solid/rewrite-foundations.md`): the preferences, the vault list, what the device
 /// remembers per vault (open folders, recent files, tabs, folds, places, plugin consent), the
-/// folders of the files kept for each vault, and the add-on packs. Each window's
-/// `WorkspaceModel` holds its own tabs, sidebar and alerts over these; one preferences object
-/// for all of them is why a setting changed in one window reaches every other at once.
+/// folders of the files kept for each vault, the add-on packs and each open vault's index.
+/// Each window's `WorkspaceModel` holds its own tabs, sidebar and alerts over these; one
+/// preferences object for all of them is why a setting changed in one window reaches every
+/// other at once.
 ///
 /// The app builds the live ones once, in `GraphiteApp.init`; a test or a hosted launch
 /// builds ones of its own, so neither touches the preferences or folders of the device.
@@ -24,13 +26,21 @@ public final class ProcessServices {
     /// What this device has downloaded of the extras Graphite does not carry, such as the
     /// welcome tour's pictures; every window and Settings read the same one.
     let addOns: AddOnLibrary
-    /// Builds a Read Aloud controller and its speech: the system voice, the downloaded voices
-    /// and their renderer. Called only while the Read Aloud core plugin is on, so a launch
-    /// with it off creates no speech engine.
-    let makeReadAloudController: @MainActor () -> ReadAloudController
+    /// One index per open vault, shared by every window on it.
+    let vaultIndexes: VaultIndexRegistry
+    /// The unsaved strokes of drawing editors, kept in Application Support for every window.
+    let drawingDrafts: DrawingEditorDraftStore
+    /// The open windows, for what only one of them may run at a time.
+    let openWindows = OpenWindows()
+    /// Builds a window's Read Aloud controller and its speech: the system voice, the
+    /// downloaded voices and their renderer, shared by every window. Called only while the
+    /// Read Aloud core plugin is on, so a launch with it off creates no speech engine. The
+    /// argument says why the window may not start reading now, as while another window reads.
+    let makeReadAloudController: @MainActor (_ startRefusal: @escaping @MainActor () -> OtherWindowActivity?) -> ReadAloudController
 
     /// Services over `defaults` and `applicationFolders`.
-    init(defaults: UserDefaults, applicationFolders: ApplicationFolders, makeReadAloudController: @escaping @MainActor () -> ReadAloudController) {
+    init(defaults: UserDefaults, applicationFolders: ApplicationFolders,
+         makeReadAloudController: @escaping @MainActor (_ startRefusal: @escaping @MainActor () -> OtherWindowActivity?) -> ReadAloudController) {
         self.defaults = defaults
         // Before the preferences read the switches: a device that used Read Aloud keeps it on.
         CorePluginSwitchMigration.runIfNeeded(in: defaults, voicesFolder: CorePluginSwitchMigration.voicesFolder(in: applicationFolders))
@@ -39,6 +49,8 @@ public final class ProcessServices {
         documentPlaceStore = DocumentPlaceStore(defaults: defaults)
         self.applicationFolders = applicationFolders
         addOns = .standard(applicationFolders: applicationFolders)
+        vaultIndexes = VaultIndexRegistry(cachesFolder: applicationFolders.cachesFolder)
+        drawingDrafts = DrawingEditorDraftStore(directory: DrawingEditorDraftStore.directory(in: applicationFolders))
         self.makeReadAloudController = makeReadAloudController
     }
 
