@@ -62,7 +62,8 @@ final class ApplicationStorageLocationsTests: XCTestCase {
     }
 
     func testDrawingDraftsAreKeptInApplicationSupportUnderDrawingDrafts() {
-        XCTAssertTrue(DrawingEditorDraftStore.shared.directory.path.hasSuffix("/Library/Application Support/Drawing Drafts"), DrawingEditorDraftStore.shared.directory.path)
+        let directory = DrawingEditorDraftStore.directory(in: .system)
+        XCTAssertTrue(directory.path.hasSuffix("/Library/Application Support/Drawing Drafts"), directory.path)
     }
 
     func testADrawingDraftIsAnSVGAndAJSONDescriptionNamedAfterTheRequestIdentifier() async throws {

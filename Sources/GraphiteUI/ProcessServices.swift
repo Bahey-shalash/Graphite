@@ -1,5 +1,6 @@
 import Foundation
 import GraphiteCore
+import GraphiteIndex
 
 /// What every window of the app shares, built once per process (decision 12 of
 /// `Docs/solid/rewrite-foundations.md`): the preferences, the vault list, what the device
@@ -27,6 +28,8 @@ public final class ProcessServices {
     let addOns: AddOnLibrary
     /// One index per open vault, shared by every window on it.
     let vaultIndexes: VaultIndexRegistry
+    /// The unsaved strokes of drawing editors, kept in Application Support for every window.
+    let drawingDrafts: DrawingEditorDraftStore
     /// Builds a Read Aloud controller and its speech: the system voice, the downloaded voices
     /// and their renderer. Called only while the Read Aloud core plugin is on, so a launch
     /// with it off creates no speech engine.
@@ -43,6 +46,7 @@ public final class ProcessServices {
         self.applicationFolders = applicationFolders
         addOns = .standard(applicationFolders: applicationFolders)
         vaultIndexes = VaultIndexRegistry(cachesFolder: applicationFolders.cachesFolder)
+        drawingDrafts = DrawingEditorDraftStore(directory: DrawingEditorDraftStore.directory(in: applicationFolders))
         self.makeReadAloudController = makeReadAloudController
     }
 

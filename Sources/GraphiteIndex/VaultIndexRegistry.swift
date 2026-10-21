@@ -1,9 +1,8 @@
 import Foundation
 import GraphiteCore
-import GraphiteIndex
 
 /// What a window hears about the index of its vault, which every window on that vault shares.
-enum VaultIndexEvent: Sendable {
+public enum VaultIndexEvent: Sendable {
     /// A scan of the whole vault started, asked for by this window or another.
     case scanStarted
     /// A scan ended; `isAnotherScanQueued` when a scan asked for meanwhile runs next.
@@ -18,7 +17,7 @@ enum VaultIndexEvent: Sendable {
 
 /// Whether a scan asked for must read the vault again, or may stand on one that already
 /// ended or is running.
-enum VaultIndexScanRequest {
+public enum VaultIndexScanRequest: Sendable {
     /// A window opening the vault: another window's finished or running scan serves it.
     case unlessScanned
     /// Something changed that a scan which started earlier may have missed.
@@ -26,13 +25,13 @@ enum VaultIndexScanRequest {
 }
 
 /// One index per vault for the whole process (decision 12 of
-/// `Docs/solid/rewrite-foundations.md`). Two windows on one vault used to open the vault's
+/// `Docs/solid/rewrite-foundations.md`); the app's `ProcessServices` holds one. Two windows on one vault used to open the vault's
 /// cache file twice, failing each other's writes ("database is locked") and pruning each
 /// other's rows on rescan. Now they share one `VaultIndex`, an actor and so the file's single
 /// writer, and one scan at a time; the index closes when the last window on its vault ends
 /// its lease. Two vaults in two windows keep an index each.
 @MainActor
-final class VaultIndexRegistry {
+public final class VaultIndexRegistry {
     /// One vault's index and its scans, while a window has the vault open.
     private final class SharedIndex {
         let vaultIdentifier: UUID
@@ -56,15 +55,15 @@ final class VaultIndexRegistry {
     private var sharedIndexes: [UUID: SharedIndex] = [:]
 
     /// Indexes kept in `cachesFolder`, or in the system's Caches folder when nil.
-    init(cachesFolder: URL?) {
+    public init(cachesFolder: URL?) {
         self.cachesFolder = cachesFolder
     }
 
     /// Whether a window has the vault open, so its index must stay.
-    func isOpen(_ vaultIdentifier: UUID) -> Bool { sharedIndexes[vaultIdentifier]?.listeners.isEmpty == false }
+    public func isOpen(_ vaultIdentifier: UUID) -> Bool { sharedIndexes[vaultIdentifier]?.listeners.isEmpty == false }
 
     /// The index of the vault `vaultIdentifier` at `root`, opened unless a window has it open.
-    func lease(forVault vaultIdentifier: UUID, root: URL) async throws -> VaultIndexLease {
+    public func lease(forVault vaultIdentifier: UUID, root: URL) async throws -> VaultIndexLease {
         let shared = sharedIndexes[vaultIdentifier] ?? open(vaultIdentifier, root: root)
         // The last window on the vault closed while its scan was stopping: that scan reports
         // nothing this window asked for, so one follows it.
@@ -193,12 +192,12 @@ final class VaultIndexRegistry {
 /// the scans and rebuilds the window asks for. Ending it, or letting it go, lets the index
 /// close when no other window holds it.
 @MainActor
-final class VaultIndexLease {
+public final class VaultIndexLease {
     fileprivate let identifier: UUID
-    let vaultIdentifier: UUID
-    let index: VaultIndex
+    public let vaultIdentifier: UUID
+    public let index: VaultIndex
     /// Every scan's start and end, and the rebuild's emptying, whichever window asked.
-    let events: AsyncStream<VaultIndexEvent>
+    public let events: AsyncStream<VaultIndexEvent>
     private weak var registry: VaultIndexRegistry?
 
     fileprivate init(identifier: UUID, vaultIdentifier: UUID, index: VaultIndex, events: AsyncStream<VaultIndexEvent>, registry: VaultIndexRegistry) {
@@ -213,15 +212,15 @@ final class VaultIndexLease {
         registry?.endLease(self)
     }
 
-    func requestScan(_ request: VaultIndexScanRequest) {
+    public func requestScan(_ request: VaultIndexScanRequest) {
         registry?.requestScan(request, for: self)
     }
 
-    func rebuild() async throws {
+    public func rebuild() async throws {
         try await registry?.rebuild(for: self)
     }
 
-    func end() {
+    public func end() {
         registry?.endLease(self)
     }
 }

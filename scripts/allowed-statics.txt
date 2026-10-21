@@ -18,11 +18,8 @@ Sources/GraphiteApple/PDFPicture.swift              PDFPictureDrawingDelegate.sh
 Sources/GraphiteApple/DrawingFileService.swift      ImageDecodingLimiter.shared        # bounded decode concurrency for the whole process
 # Process-wide state that tests share and that Phase 2 hands to the environment.
 Sources/GraphiteUI/MarkdownPreview.swift            ReadingImageCache.shared           # bounded NSCache; owner and memory release in Phase 6
-Sources/GraphiteUI/DrawingEditorDraftStore.swift    DrawingEditorDraftStore.shared     # drafts folder in Application Support; Phase 2
-Sources/GraphiteUI/PencilToolPalette.swift          PaletteToolChoiceObserver.shared   # Pencil palette observer; per-device fact, Phase 2
-Sources/GraphiteUI/PencilToolbox.swift              PencilToolbox.shared               # per-device Pencil tool state; Phase 2 (T-18)
+Sources/GraphiteUI/PencilToolbox.swift              PencilToolbox.shared               # per-device Pencil tool state, one for every window: the same pens everywhere (decision 12, owner 2026-10-21); injected in Phase 2 (T-18)
 Sources/GraphiteUI/CanvasCardViews.swift            CanvasPDFPageRenderer.shared       # bounded renderer for canvas PDF cards
-Sources/GraphiteUI/EmbeddedPDFViewer.swift          EmbeddedPDFSessions.shared         # rebound on every vault open; per-scene in Phase 6 (decision 12)
 
 # --- stored mutable statics, locks and caches (DIP-ARCH-02 and architecture.md 8.4) ---
 # Locks and caches that guard themselves.
@@ -41,14 +38,10 @@ Sources/GraphiteUI/LivePreviewWidgets.swift         LivePreviewEmbedImageLocatio
 # Per-device and per-process facts that become environment-owned objects with one owner in Phase 2.
 Sources/GraphiteUI/HistoryCanvasView.swift          HistoryCanvasView.footprintsByTool  # stroke footprints per tool
 Sources/GraphiteUI/GraphitePDFView.swift            PDFAnnotationCoordinator.enclosingScrollRestrictions # scroll-restriction bookkeeping per scroll view
-Sources/GraphiteUI/GraphiteRootView.swift           GraphiteRootView.draftIdentifiersOpenInThisProcess # drafts open in this process
-Sources/GraphiteUI/InkSelection.swift               PaletteInkSelection.isOn            # palette ink-selection flags shared by every selection
-Sources/GraphiteUI/InkSelection.swift               PaletteInkSelection.pointsWithLaser # palette flag
-Sources/GraphiteUI/InkSelection.swift               PaletteInkSelection.pointsToRead    # palette flag
 Sources/GraphiteUI/InkSelection.swift               InkSelectionController.controllerWithSelection # weak: the controller that holds the selection
 Sources/GraphiteUI/LassoTools.swift                 LassoPasteboard.pasteboard          # the pasteboard the lasso copies to (platform edge)
 Sources/GraphiteUI/LassoTools.swift                 LassoPasteboard.recentScreenshotSizes # recent screenshot sizes for paste fitting
-Sources/GraphiteUI/PalmRejection.swift              PencilActivity.state                # palm-rejection state (a per-device fact)
+Sources/GraphiteUI/PalmRejection.swift              PencilActivity.state                # palm-rejection state (a per-device fact): a palm resting on one window while the Pencil writes in another is rejected too (decision 12, checked 2026-10-21)
 Sources/GraphiteUI/PalmRejection.swift              PencilActivity.pencilTouch          # weak: the current Pencil touch
 Sources/GraphiteUI/PalmRejection.swift              PencilActivity.hoveringRecognizers  # hover recognizers by number
 Sources/GraphiteUI/PalmRejection.swift              PencilActivity.lastHoverRecognizerNumber # hover recognizer counter
@@ -58,3 +51,4 @@ Sources/GraphiteUI/TableCellTextField.swift         TableCellTextField.focusedFi
 Sources/GraphiteUI/GraphiteMacScenes.swift          GraphiteApplicationDelegate.workspaceToSave # weak: quit-time save hand-over (platform edge; BUG-SHELL-03)
 # An association key whose address only is used.
 Sources/GraphiteUI/LivePreviewRenderedBlocks.swift  RenderedBlockEditSourceMenu.associationKey # nonisolated(unsafe): the address is the key, never mutated
+Sources/GraphiteUI/PencilToolPalette.swift          PaletteInkSelection.windowSceneAssociationKey # nonisolated(unsafe): the address is the key, never mutated

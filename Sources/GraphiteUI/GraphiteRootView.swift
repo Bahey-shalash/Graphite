@@ -205,12 +205,12 @@ public struct GraphiteRootView: View {
                 try await workspace.exportDrawingCopy(content, format: format, title: request.title)
             } preserveDraft: { content in
                 guard let vaultIdentifier = workspace.currentVaultIdentifier else { return }
-                Self.draftIdentifiersOpenInThisProcess.insert(request.id)
-                DrawingEditorDraftStore.shared.preserve(DrawingEditorDraft(request: request, vaultIdentifier: vaultIdentifier)) {
+                workspace.processServices.drawingDrafts.markOpenInThisProcess(request.id)
+                workspace.processServices.drawingDrafts.preserve(DrawingEditorDraft(request: request, vaultIdentifier: vaultIdentifier)) {
                     try await DrawingFileService().draftFileData(for: content)
                 }
             } removeDraft: {
-                DrawingEditorDraftStore.shared.removeDraft(withIdentifier: request.id)
+                workspace.processServices.drawingDrafts.removeDraft(withIdentifier: request.id)
             }
         }
         .onChange(of: workspace.currentVaultIdentifier) { _, vaultIdentifier in
@@ -269,6 +269,7 @@ public struct GraphiteRootView: View {
         // Outermost, so the window's sheets (the welcome tour, Settings) read the add-on
         // packs too. Every window shares one library (`ProcessServices`).
         .environment(workspace.processServices.addOns)
+        .environment(\.embeddedPDFSessions, workspace.embeddedPDFSessions)
     }
 
     private func recoveryMessage(for unfinished: RecoverableRecording) -> String {
@@ -627,18 +628,15 @@ public struct GraphiteRootView: View {
         }
     }
 
-    /// Drafts whose editor this process has open or has already reopened. Only a draft left
-    /// by an ended process is reopened, never one still open in another window.
-    @MainActor private static var draftIdentifiersOpenInThisProcess: Set<UUID> = []
-
     /// Reopens a drawing whose editor was open when the system ended the app, with its
     /// unsaved strokes, as if the app had never left.
     private func reopenDrawingDraft(forVault vaultIdentifier: UUID) async {
-        let recoveredDrafts = await DrawingEditorDraftStore.shared.drafts(forVault: vaultIdentifier)
-        guard let recoveredDraft = recoveredDrafts.first(where: { recoveredDraft in !Self.draftIdentifiersOpenInThisProcess.contains(recoveredDraft.draft.requestIdentifier) }),
+        let drafts = workspace.processServices.drawingDrafts
+        let recoveredDrafts = await drafts.drafts(forVault: vaultIdentifier)
+        guard let recoveredDraft = recoveredDrafts.first(where: { recoveredDraft in !drafts.isOpenInThisProcess(recoveredDraft.draft.requestIdentifier) }),
               workspace.currentVaultIdentifier == vaultIdentifier, workspace.drawingEditorRequest == nil,
               let root = workspace.folderAccess?.root else { return }
-        Self.draftIdentifiersOpenInThisProcess.insert(recoveredDraft.draft.requestIdentifier)
+        drafts.markOpenInThisProcess(recoveredDraft.draft.requestIdentifier)
         do {
             let request = try recoveredDraft.editorRequest(inVaultAt: root)
             // A new drawing's embed goes into its note, which must be open when it is saved.
@@ -647,7 +645,7 @@ public struct GraphiteRootView: View {
             }
             workspace.drawingEditorRequest = request
         } catch {
-            DrawingEditorDraftStore.shared.removeDraft(withIdentifier: recoveredDraft.draft.requestIdentifier)
+            drafts.removeDraft(withIdentifier: recoveredDraft.draft.requestIdentifier)
         }
     }
     #endif

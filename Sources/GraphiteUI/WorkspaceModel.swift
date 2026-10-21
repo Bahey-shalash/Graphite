@@ -202,6 +202,8 @@ final class WorkspaceModel {
     @ObservationIgnored let processServices: ProcessServices
     /// The open vault's Obsidian community plugins.
     let communityPlugins: CommunityPluginHost
+    /// The PDFs embedded in this window's notes, which its views read from the environment.
+    let embeddedPDFSessions = EmbeddedPDFSessions()
     /// Set by indexing when a scan of the whole vault finishes; tests that fill the index
     /// themselves set it too.
     var hasCompletedIndexScan = false
@@ -393,7 +395,7 @@ final class WorkspaceModel {
         folderAccess = access; store = vaultStore; monitor = vaultMonitor
         useIndex(vaultIndexLease)
         readAloud?.vaultRoot = access.root
-        EmbeddedPDFSessions.shared.useVault(root: root, owner: self, saving: embeddedPDFSaving(writer: vaultStore.writer))
+        embeddedPDFSessions.useVault(root: root, saving: embeddedPDFSaving(writer: vaultStore.writer))
         rootEntries = entries
         checkConflictVersions(of: entries.lazy.filter { entry in !entry.isDirectory }.map(\.path))
         hasCompletedIndexScan = false
