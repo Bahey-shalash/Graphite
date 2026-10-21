@@ -32,6 +32,9 @@ public enum LaunchMode: Equatable, Sendable {
 
     /// Whether hang and crash diagnostics start with the app.
     public var startsDiagnostics: Bool { self == .normal }
+
+    /// Whether the welcome tour opens by itself the first time the app starts on a device.
+    public var presentsWelcomeTour: Bool { self == .normal }
 }
 
 /// Where sound goes. A person's launch plays through the speakers; a process that hosts tests

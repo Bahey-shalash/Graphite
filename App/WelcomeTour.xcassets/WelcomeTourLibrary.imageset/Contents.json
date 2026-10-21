@@ -1,0 +1,22 @@
+{
+  "images" : [
+    {
+      "filename" : "WelcomeTourLibrary-light.jpg",
+      "idiom" : "universal"
+    },
+    {
+      "appearances" : [
+        {
+          "appearance" : "luminosity",
+          "value" : "dark"
+        }
+      ],
+      "filename" : "WelcomeTourLibrary-dark.jpg",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

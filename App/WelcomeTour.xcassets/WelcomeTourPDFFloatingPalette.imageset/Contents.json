@@ -1,0 +1,22 @@
+{
+  "images" : [
+    {
+      "filename" : "WelcomeTourPDFFloatingPalette-light.jpg",
+      "idiom" : "universal"
+    },
+    {
+      "appearances" : [
+        {
+          "appearance" : "luminosity",
+          "value" : "dark"
+        }
+      ],
+      "filename" : "WelcomeTourPDFFloatingPalette-dark.jpg",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

@@ -31,6 +31,11 @@ final class LaunchModeTests: XCTestCase {
         XCTAssertFalse(LaunchMode.hostedTests.startsDiagnostics)
     }
 
+    func testOnlyANormalLaunchOpensTheWelcomeTourByItself() {
+        XCTAssertTrue(LaunchMode.normal.presentsWelcomeTour)
+        XCTAssertFalse(LaunchMode.hostedTests.presentsWelcomeTour, "A tour over the window would cover what the hosted tests drive.")
+    }
+
     func testTemporaryFoldersAreSeparateFoldersBelowTheParentAndNothingIsCreated() throws {
         let parent = try TemporaryVault.make(prefix: "ApplicationFoldersTests", for: self).root.appendingPathComponent("Root", isDirectory: true)
 

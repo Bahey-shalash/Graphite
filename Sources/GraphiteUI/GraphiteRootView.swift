@@ -8,6 +8,8 @@ public struct GraphiteRootView: View {
     @State private var workspace: WorkspaceModel
     /// False for a hosted-tests launch, which opens no vault of its own (`LaunchMode`).
     private let restoresLastVault: Bool
+    /// False for a hosted-tests launch, which never opens the welcome tour by itself.
+    private let presentsWelcomeTour: Bool
     /// The Mac shows Settings in its own window (`GraphiteMacScenes`).
     @State private var showsSettings = false
     /// Settings › Read Aloud › Floating Player; off keeps the controls in the toolbar.
@@ -52,6 +54,7 @@ public struct GraphiteRootView: View {
     public init(launchMode: LaunchMode) {
         _workspace = State(initialValue: WorkspaceModel(launchMode: launchMode))
         restoresLastVault = launchMode.restoresLastVault
+        presentsWelcomeTour = launchMode.presentsWelcomeTour
         _isRestoringVault = State(initialValue: launchMode.restoresLastVault)
     }
 
@@ -60,6 +63,7 @@ public struct GraphiteRootView: View {
     init(workspace: WorkspaceModel) {
         _workspace = State(initialValue: workspace)
         restoresLastVault = true
+        presentsWelcomeTour = false
         _isRestoringVault = State(initialValue: false)
     }
 
@@ -67,6 +71,7 @@ public struct GraphiteRootView: View {
     init(reopeningLastVaultIn workspace: WorkspaceModel, launchMode: LaunchMode) {
         _workspace = State(initialValue: workspace)
         restoresLastVault = launchMode.restoresLastVault
+        presentsWelcomeTour = launchMode.presentsWelcomeTour
         _isRestoringVault = State(initialValue: launchMode.restoresLastVault)
     }
 
@@ -94,6 +99,8 @@ public struct GraphiteRootView: View {
             isWindowTallerThanWide = isTallerThanWide
         }
         .tint(workspace.preferences.accentColor)
+        // Once per device, over the reopened vault or the welcome screen.
+        .modifier(FirstLaunchWelcomeTour(isReadyToShow: presentsWelcomeTour && !isRestoringVault))
         // The settings the views keep with `@AppStorage` are read from the preferences the
         // workspace writes to: the standard ones in the app, a private suite in a hosted run.
         .defaultAppStorage(workspace.deviceDefaults)

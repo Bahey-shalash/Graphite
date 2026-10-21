@@ -84,6 +84,7 @@ struct VaultManagerView: View {
     @Environment(\.accent) private var accent
     @State private var showsFolderPicker = false
     @State private var showsNewVaultForm = false
+    @State private var showsWelcomeTour = false
     @State private var errorMessage: String?
 
     var body: some View {
@@ -141,8 +142,12 @@ struct VaultManagerView: View {
             Text("Welcome to Graphite").font(.largeTitle.weight(.semibold))
             Text("Notes, handwriting, PDFs, and lectures, kept in ordinary files you own. A vault is a folder, and it can be an existing Obsidian vault.")
                 .font(.title3).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            Button("Take the Tour", systemImage: "sparkles") { showsWelcomeTour = true }
+                .buttonStyle(.bordered)
+                .padding(.top, 4)
         }
         .frame(maxWidth: .infinity)
+        .welcomeTour(isPresented: $showsWelcomeTour)
     }
 
     @ViewBuilder private var vaultSections: some View {

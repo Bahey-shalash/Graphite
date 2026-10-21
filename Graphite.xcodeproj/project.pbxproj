@@ -15,6 +15,7 @@
 		A00000000000000000000063 /* AppIconCharcoal.icon in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000053 /* AppIconCharcoal.icon */; };
 		A00000000000000000000064 /* AppIconBlueGraphite.icon in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000054 /* AppIconBlueGraphite.icon */; };
 		A00000000000000000000065 /* IconPreviews.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000055 /* IconPreviews.xcassets */; };
+		A00000000000000000000241 /* WelcomeTour.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000240 /* WelcomeTour.xcassets */; };
 		A00000000000000000000066 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000056 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
@@ -38,6 +39,7 @@
 		A00000000000000000000053 /* AppIconCharcoal.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.icon; path = AppIconCharcoal.icon; sourceTree = "<group>"; };
 		A00000000000000000000054 /* AppIconBlueGraphite.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.icon; path = AppIconBlueGraphite.icon; sourceTree = "<group>"; };
 		A00000000000000000000055 /* IconPreviews.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = IconPreviews.xcassets; sourceTree = "<group>"; };
+		A00000000000000000000240 /* WelcomeTour.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = WelcomeTour.xcassets; sourceTree = "<group>"; };
 		A00000000000000000000056 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		A00000000000000000000201 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		A00000000000000000000202 /* OBJECTIVE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = OBJECTIVE.md; sourceTree = "<group>"; };
@@ -167,6 +169,7 @@
 				A00000000000000000000055 /* IconPreviews.xcassets */,
 				A00000000000000000000206 /* Info.plist */,
 				A00000000000000000000056 /* PrivacyInfo.xcprivacy */,
+				A00000000000000000000240 /* WelcomeTour.xcassets */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -271,6 +274,7 @@
 				A00000000000000000000064 /* AppIconBlueGraphite.icon in Resources */,
 				A00000000000000000000065 /* IconPreviews.xcassets in Resources */,
 				A00000000000000000000066 /* PrivacyInfo.xcprivacy in Resources */,
+				A00000000000000000000241 /* WelcomeTour.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
