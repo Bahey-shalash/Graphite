@@ -329,7 +329,12 @@ final class CommunityPluginHost {
         guard let vaultIdentifier, let workspace else { return }
         consentDefaults.set(isTurnedOn, forKey: Self.consentKey(for: vaultIdentifier))
         isTurnedOnForVault = isTurnedOn
-        if isTurnedOn { await startIfNeeded(workspace) } else { await stopRuntime() }
+        if isTurnedOn {
+            await reloadInventory() // not read at vault open while plugins were off
+            await startIfNeeded(workspace)
+        } else {
+            await stopRuntime()
+        }
     }
 
     /// Removes what Graphite kept on the device for a vault that left the vault list.
@@ -346,11 +351,14 @@ final class CommunityPluginHost {
 
     // MARK: Vault lifecycle
 
-    /// A vault opened: its plugins are listed, and run when the person has turned them on.
+    /// A vault opened: when the person has turned plugins on for it, its plugins are listed and
+    /// run. Otherwise nothing is read: listing reads and scans every plugin's main.js, megabytes
+    /// each, so it waits until Settings › Community Plugins is opened or plugins are turned on.
     func vaultDidOpen(_ workspace: WorkspaceModel) {
         self.workspace = workspace
         vaultIdentifier = workspace.currentVaultIdentifier
         isTurnedOnForVault = vaultIdentifier.map { identifier in consentDefaults.bool(forKey: Self.consentKey(for: identifier)) } ?? false
+        guard isTurnedOnForVault else { return }
         Task {
             await reloadInventory()
             await startIfNeeded(workspace)

@@ -51,6 +51,7 @@ final class CommunityPluginHostWebViewConfigurationTests: XCTestCase {
         let vaultIdentifier = try XCTUnwrap(workspace.currentVaultIdentifier)
         openedVaultIdentifier = vaultIdentifier
         let host = workspace.communityPlugins
+        await host.reloadInventory() // opening lists nothing while plugins are off
         try await waitUntil("the plugin is listed") { host.inventory.plugins.count == 1 }
         await host.setTurnedOnForVault(true)
         try await waitUntil("the plugin loads", timeoutSeconds: 30) { host.loadStates["idle-plugin"] == .loaded }

@@ -4,6 +4,24 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-21.
 
+## A small core: size budget, measurements at rest, Mac icons, plugins dormant while off: 2026-10-21
+
+The owner's direction of 2026-10-21: Graphite is a small, light core, and extras are downloads, so size, memory and CPU are measured and guarded.
+
+- **Size budget.** `scripts/app-size-budget.py` lists an archived app's parts (whole app, binary, asset catalog and its largest assets, resource bundles) and fails when one is more than 1 % over `scripts/app-size-budget.json`. `scripts/archive-for-testflight.sh` runs it after archiving and stops before the upload unless given `--allow-size-growth`. The iOS budget was recorded from the archive of `02ffa5c`: app 87.7 MB, binary 45.5 MB, asset catalog 29.5 MB (of which 29 MB are the five app icons, 5.8 MB each: 11 pre-rendered images per Liquid Glass icon). The resource bundles: SwiftUIMath 7.4 MB, MLX 2.4 MB, GraphiteUI 1.4 MB, GraphiteApple 1.3 MB.
+- **The Mac leaves out the alternate icons.** Choosing the app icon is an iPad and iPhone setting, so the Mac build no longer compiles the four alternate icons and their Settings previews (`ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES[sdk=macosx*]` empty, `EXCLUDED_SOURCE_FILE_NAMES[sdk=macosx*]`): its asset catalog went from 10.6 MB to 2.0 MB.
+- **Community plugins cost nothing while off.** Opening a vault listed its plugins every time, which reads and regular-expression-scans each plugin's main.js (megabytes each), even with plugins off. Now nothing is read until plugins are turned on for the vault or Settings › Community Plugins is opened. `CommunityPluginHostDormantTests` pins it (no inventory, no load states, no web view after opening; turning plugins on lists and loads them); the plugin tests that need the list now ask for it as Settings does.
+- **Measured at rest** (Mac Release build, a 28-file demo vault, one note with formulas and a drawing open, three runs each; 30 s of rest after 18 s of settling):
+
+  | | Default features | All core plugins off | Default + Read Aloud on | No vault |
+  | --- | --- | --- | --- | --- |
+  | Launch to first window | 0.70–1.0 s | 0.70–0.73 s | 0.78–1.0 s | |
+  | Memory footprint at rest | 137 MB | 126 MB | 138–140 MB | 58 MB |
+  | Peak footprint during launch | 338 MB | 323 MB | | 60 MB |
+  | CPU time in 30 s at rest | 0.00–0.01 s | 0.00–0.01 s | 0.01 s | |
+
+  At rest Graphite uses no CPU, and switched-off features cost about 11 MB. Opening a vault and its note adds about 70 MB at rest and a transient peak near 330 MB in the first 1.5 s, mostly heap (`footprint`: 78 MB Malloc Small, 15 MB Malloc Large at rest; `heap`: SwiftUI property lists, Swift metadata, CoreSVG). A trace of `openVault` found no Graphite step that reads all notes, starts MLX or Metal, or makes a web view for a vault without a theme, and two experiments place the peak in the note editor: a vault of one one-line note with nothing open sits at 76 MB (peak 77 MB), and opening that note takes the peak to 273 MB and the footprint to 102 MB; turning spell checking off changes nothing (peak 336 against 337 MB). **Not established:** what inside the editor allocates the 200 MB (needs Instruments Allocations around opening a note), and the same measurements on an iPad.
+
 ## Add-ons: extras downloaded on first use, starting with the tour's pictures: 2026-10-21
 
 Graphite stays a small core: extras that a feature can do without until they arrive are add-on packs, downloaded the first time they are needed instead of shipped in the app. A pack (`AddOnPack`, Core) lists each file's name, size and SHA-256 and the commit it comes from; `AddOnPackStore` (GraphiteApple) downloads every file into a staging folder, checks it, and moves the pack into place below Application Support, never into a vault, or changes nothing if a file fails; `AddOnLibrary` (GraphiteUI) tracks each pack's state, and Settings › General › Add-ons lists the packs with their size, Download and Remove. The size and SHA-256 check (`DownloadedFileCheck`) is now shared with Read Aloud's voices.

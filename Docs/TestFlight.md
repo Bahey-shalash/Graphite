@@ -14,6 +14,10 @@ scripts/archive-for-testflight.sh /tmp/graphite-testflight --macos
 
 The script archives the `Graphite` scheme in Release for `generic/platform=iOS`, or `generic/platform=macOS` with `--macos`, and uploads it with `App/ExportOptions.plist` (method `app-store-connect`, automatic signing). The checkout sits in iCloud's Desktop, where codesign fails, so the folder it is given must be outside it. Xcode must be signed in to the team's Apple account. `--archive-only` stops before the upload. It refuses to start while another build or test run is going, because parallel builds starve the machine.
 
+Archive from a clean export of a pushed commit (`git archive <commit> | tar -x -C <folder outside iCloud>`, then that folder's script): the script builds whatever the working tree holds, uncommitted edits included.
+
+After archiving, the script runs `scripts/app-size-budget.py`, which lists the app's parts (binary, asset catalog and its largest assets, resource bundles) and compares them with `scripts/app-size-budget.json`. A part more than 1 % over its budget stops the script before the upload, so growth is a decision: move new resources into an add-on pack, or pass `--allow-size-growth` and record the new budget with `python3 scripts/app-size-budget.py <archive> --record`.
+
 Each upload needs a higher build number than the last. The script passes the date and time (`20261020.1530`) as `CURRENT_PROJECT_VERSION`, which `Info.plist` reads as `CFBundleVersion`; nothing in the repository changes per upload. The version people see is `MARKETING_VERSION` in the project (1.0). Raise it for a new release.
 
 Xcode's Organizer works too (Product › Archive, then Distribute App › TestFlight & App Store), but it uses build number 1 from the project unless it is raised by hand.

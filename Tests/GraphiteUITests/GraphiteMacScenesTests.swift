@@ -10,10 +10,13 @@ final class GraphiteMacScenesTests: XCTestCase {
         XCTAssertEqual(GraphiteMacScenes.mainWindowIdentifier, "main")
     }
 
-    func testTheMacAppIsOneWindowAndASettingsScene() {
+    /// One window for the workspace (never a WindowGroup, which would make a second workspace on
+    /// the same index), the Guide's window, which holds no workspace, and Settings.
+    func testTheMacAppIsOneWorkspaceWindowTheGuideWindowAndASettingsScene() {
         let scenes = GraphiteMacScenes(workspace: WorkspaceModel())
         let sceneType = String(describing: type(of: scenes.body))
-        XCTAssertEqual(sceneType.components(separatedBy: "Window<").count - 1, 1)
+        XCTAssertEqual(sceneType.components(separatedBy: "Window<").count - 1, 2)
+        XCTAssertEqual(sceneType.components(separatedBy: "GuideView").count - 1, 1)
         XCTAssertEqual(sceneType.components(separatedBy: "Settings<").count - 1, 1)
         XCTAssertFalse(sceneType.contains("WindowGroup"))
     }

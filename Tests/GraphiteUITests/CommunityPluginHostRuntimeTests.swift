@@ -187,6 +187,7 @@ final class CommunityPluginHostRuntimeTests: XCTestCase {
         try await workspace.openFolderAsVault(vault)
         openedVaultIdentifiers.append(try XCTUnwrap(workspace.currentVaultIdentifier))
         let host = workspace.communityPlugins
+        await host.reloadInventory() // opening lists nothing while plugins are off, as Settings lists them
         try await waitUntil("the plugins are listed") { host.inventory.plugins.count == plugins.count }
         return workspace
     }
