@@ -1,12 +1,12 @@
 {
   "iOS": {
-    "app": 87714274,
+    "app": 88194329,
     "assetCatalog": 29509400,
-    "binary": 45459344
+    "binary": 45939360
   },
   "macOS": {
-    "app": 59335671,
+    "app": 59785534,
     "assetCatalog": 2068936,
-    "binary": 44500464
+    "binary": 44950288
   }
 }
