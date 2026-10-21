@@ -37,7 +37,7 @@ final class WelcomeTourContentTests: XCTestCase {
     }
 
     func testTheSourceCodeLinkGoesToTheRepository() {
-        XCTAssertEqual(WelcomeTourCopy.sourceCodeAddress?.absoluteString, "https://github.com/Bahey-shalash/Graphite")
+        XCTAssertEqual(WelcomeTourCopy.sourceCodeAddress?.absoluteString, "https://github.com/Graphite-Note/Graphite")
         XCTAssertTrue(WelcomeTourPage.welcome.content.points.contains { point in point.destination == WelcomeTourCopy.sourceCodeAddress })
     }
 }

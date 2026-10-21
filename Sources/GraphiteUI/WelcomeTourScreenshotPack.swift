@@ -7,7 +7,7 @@ import GraphiteCore
 /// `revision`; `scripts/check-add-on-packs.py` checks that this list matches them.
 enum WelcomeTourScreenshotPack {
     static let revision = "d10be4ca83e7dbc2bf74a0aa5528d549f83bd5e7"
-    private static let baseAddress = URL(string: "https://raw.githubusercontent.com/Bahey-shalash/Graphite/\(revision)/AddOns/WelcomeTour")
+    private static let baseAddress = URL(string: "https://raw.githubusercontent.com/Graphite-Note/Graphite/\(revision)/AddOns/WelcomeTour")
 
     /// The pack this platform uses, or nil if its address could not be formed.
     static var forThisPlatform: AddOnPack? {
