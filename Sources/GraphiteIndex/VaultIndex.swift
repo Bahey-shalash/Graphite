@@ -71,9 +71,15 @@ public actor VaultIndex {
     /// every row of it on every scan.
     static let staleSearchRowDeletion = "DELETE FROM search WHERE rowid IN (SELECT rowid FROM files WHERE generation != ?)"
 
+    /// How long, in seconds, a write waits for another connection's lock before it fails.
+    static let busyTimeout: TimeInterval = 5
+
     public init(databaseURL: URL) throws {
         try FileManager.default.createDirectory(at: databaseURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         var configuration = Configuration()
+        // Another process may hold the write lock for a moment (a second copy of the app, or
+        // later the share extension): wait for it rather than fail with "database is locked".
+        configuration.busyMode = .timeout(Self.busyTimeout)
         configuration.prepareDatabase { database in
             try database.execute(sql: "PRAGMA cache_size = -8192")
             try database.execute(sql: "PRAGMA journal_mode = WAL")
