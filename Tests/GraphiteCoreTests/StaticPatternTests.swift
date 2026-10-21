@@ -1,3 +1,14 @@
+/**
+ * File: StaticPatternTests.swift
+ * ------------------------------
+ * Layer: Tests
+ * Description: Compiles every constant regular expression of GraphiteCore, so a malformed pattern fails here.
+ *
+ * Authors: Bahey Shalash
+ * Version: 0.2
+ * Date: 21/10/2026
+ */
+
 import Foundation
 import XCTest
 @testable import GraphiteCore
@@ -18,6 +29,7 @@ final class StaticPatternTests: XCTestCase {
         assertEveryCaseCompiles(FootnotesPattern.self)
         assertEveryCaseCompiles(FrontmatterLocatorPattern.self)
         assertEveryCaseCompiles(FrontmatterRegionPattern.self)
+        assertEveryCaseCompiles(MarkdownSectionUnitsPattern.self)
         assertEveryCaseCompiles(HTMLToMarkdownPattern.self)
         assertEveryCaseCompiles(LaTeXCompatibilityPattern.self)
         assertEveryCaseCompiles(LinkLocatorPattern.self)

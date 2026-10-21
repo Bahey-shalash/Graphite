@@ -162,4 +162,5 @@ Scale notes for 10,000–100,000 files: name matching uses `LIKE '%word%'` over 
 | Password-protected PDFs | Done | Read-only (no ink, markup or page changes); the password is asked each launch and never stored |
 | Canvas | Partial | See Core plugins |
 | Share notes, images or recordings out | Done | From each file's menu in the sidebar |
+| Export a note to PDF | Partial | More › Export to PDF… on a note (2026-10-21), with Obsidian's options and a preview; the reading view's own drawing, vector text, outline and web links. Not yet: Print, the Mac's File menu, the command palette and the file list's menu (`Docs/Export-to-PDF-todo.md`) |
 | Slides | Missing | |

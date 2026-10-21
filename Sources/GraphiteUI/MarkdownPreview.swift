@@ -1,3 +1,15 @@
+/**
+ * File: MarkdownPreview.swift
+ * ---------------------------
+ * Layer: UI
+ * Description: The reading view: builds a note's blocks off the main actor (links resolved, embeds read), shows them
+ *              with Textual in a lazy stack, keeps the reading position, folds headings, and follows the word read aloud.
+ *
+ * Authors: Bahey Shalash
+ * Version: 0.36
+ * Date: 21/10/2026
+ */
+
 import SwiftUI
 import Combine
 import Textual
@@ -40,6 +52,9 @@ struct ReadingConfiguration: Equatable, Sendable {
     var runsPluginPostProcessors = false
     /// Whether Wikilinks no file answers are marked, for a theme's unresolved link color.
     var marksUnresolvedLinks = false
+    /// Whether runs of Markdown are divided into Obsidian's sections (paragraphs, lists,
+    /// tables, code blocks), as a note exported to PDF is, so a page can end between them.
+    var dividesMarkdownIntoSections = false
 }
 
 /// A reading-view block after links are resolved and files located.
@@ -262,6 +277,26 @@ struct ReadingBlockLocation: Equatable, Sendable {
     let lineNoteOffsets: [Int]
 }
 
+/// An open vault as the reading view builds from it: its folder and its index. Views that
+/// build a note away from the reading view (a note's PDF) take it whole, so they need not
+/// know the index.
+struct ReadingVault {
+    let root: URL
+    let index: VaultIndex
+
+    /// Nil while no vault is open.
+    init?(_ root: URL?, _ index: VaultIndex?) {
+        guard let root, let index else { return nil }
+        self.root = root
+        self.index = index
+    }
+
+    /// The note's reading-view blocks, built off the main actor.
+    func build(_ source: String, note: VaultPath, configuration: ReadingConfiguration) async throws -> ReadingViewBuild {
+        try await ReadingViewBuilder().build(source: source, note: note, root: root, index: index, configuration: configuration)
+    }
+}
+
 /// Builds rendered blocks off the main actor: resolves links against the vault and index,
 /// and reads transcluded notes with a size bound. One builder builds one note.
 actor ReadingViewBuilder {
@@ -382,9 +417,9 @@ actor ReadingViewBuilder {
 
     /// While plugins change how notes read, runs of Markdown are divided into Obsidian's
     /// sections, so a plugin's change shows in the section it changed and the rest of the
-    /// run stays Graphite's.
+    /// run stays Graphite's; a note exported to PDF is divided likewise, for its page breaks.
     private static func sectioned(_ blocks: [NotePreviewDocument.LocatedBlock], for configuration: ReadingConfiguration) -> [NotePreviewDocument.LocatedBlock] {
-        configuration.runsPluginPostProcessors ? NotePreviewDocument.dividedIntoSections(blocks) : blocks
+        configuration.runsPluginPostProcessors || configuration.dividesMarkdownIntoSections ? NotePreviewDocument.dividedIntoSections(blocks) : blocks
     }
 
     /// The text of the note a run of blocks was split from, in which their tasks are found.
@@ -1364,6 +1399,7 @@ extension ReadingConfiguration {
         hasher.combine(pluginCodeBlockLanguages.sorted())
         hasher.combine(marksUnresolvedLinks)
         hasher.combine(runsPluginPostProcessors)
+        hasher.combine(dividesMarkdownIntoSections)
         return hasher.finalize()
     }
 }
@@ -1737,6 +1773,7 @@ private struct ObsidianMarkdownTextContent: View, Equatable {
     /// The word being read, when it is in this text; nil otherwise.
     let activeRange: NSRange?
     @Environment(\.readingHighlightFill) private var readingHighlightFill
+    @Environment(\.readingIsPrinted) private var isPrinted
 
     /// The same text, read at the same word. The closures are left out: their owners make
     /// new ones at every update, which do the same.
@@ -1773,7 +1810,7 @@ private struct ObsidianMarkdownTextContent: View, Equatable {
                 .font(typography.textSwiftUIFont(size: textSize))
                 .foregroundStyle(theme?.textNormal.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.primary))
                 .textual.lineSpacing(.fontScaled(theme?.lineHeight.map { height in max(0, height - 1.2) } ?? ObsidianMarkdownText.graphiteLineSpacing))
-                .textual.textSelection(.enabled)
+                .modifier(ReadingTextPrinting(isPrinted: isPrinted))
                 .textual.inlineStyle(inlineStyle)
                 .textual.codeBlockStyle(ObsidianCodeBlockStyle(monospaceFont: typography.monospaceSwiftUIFont(size: textSize), theme: theme, codeTheme: codeColorTheme))
                 // Code is colored as the editor colors it (`CodeSyntaxColors`).
@@ -1821,6 +1858,27 @@ private struct ObsidianMarkdownTextContent: View, Equatable {
         return equation
     }
 
+}
+
+extension EnvironmentValues {
+    /// Whether the reading view's text is drawn into a PDF, which cannot hold platform views:
+    /// the text is then not selectable, and code and wide tables wrap instead of scrolling.
+    @Entry var readingIsPrinted = false
+}
+
+/// A reading text on screen (selectable, wide content scrolling) or printed. The choice is
+/// made once for a whole view hierarchy and never changes in it, so the two branches never
+/// replace each other's text.
+private struct ReadingTextPrinting: ViewModifier {
+    let isPrinted: Bool
+
+    func body(content: Content) -> some View {
+        if isPrinted {
+            content.textual.textSelection(.disabled).textual.overflowMode(.wrap)
+        } else {
+            content.textual.textSelection(.enabled)
+        }
+    }
 }
 
 struct KeptTextProperty: TextProperty {
@@ -2625,6 +2683,13 @@ private struct VaultImageLoader: AttachmentLoader {
             throw GraphiteError.outsideVault
         }
         let thumbnail = try await ReadingImageCache.shared.thumbnail(for: fileLocation, kind: .inline)
+        return VaultImageAttachment(image: thumbnail.image, description: text, displaySize: PreviewImageFragment.displaySize(in: location))
+    }
+
+    /// The image the cache made last, drawn at once while `attachment(for:text:environment:)`
+    /// checks it is current; a note exported to PDF loads its images into the cache first.
+    func readyAttachment(for location: URL, text: String, environment: ColorEnvironmentValues) -> VaultImageAttachment? {
+        guard location.isFileURL, let thumbnail = ReadingImageCache.shared.lastThumbnail(for: URL(fileURLWithPath: location.path), kind: .inline) else { return nil }
         return VaultImageAttachment(image: thumbnail.image, description: text, displaySize: PreviewImageFragment.displaySize(in: location))
     }
 }
