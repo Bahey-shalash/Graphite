@@ -10,7 +10,7 @@ final class NotebookImportReportTests: XCTestCase {
     func testTheSummaryAddsUpEachKindAcrossPagesAndKeepsItsPages() {
         let report = NotebookImportReport(source: .goodnotes, pages: [
             ImportedPageReport(sourcePageNumber: 3, written: Self.written,
-                               entries: [.highlighterNotMultiplied(strokeCount: 2), .elementsNotYetConverted(kind: .textBox, count: 1)]),
+                               entries: [.highlighterNotMultiplied(strokeCount: 2), .elementsNotYetConverted(kind: .textWithoutFrame, count: 1)]),
             ImportedPageReport.leftOut(sourcePageNumber: 2, entries: [.pageWithoutPaper]),
             ImportedPageReport(sourcePageNumber: 1, written: Self.written,
                                entries: [.highlighterNotMultiplied(strokeCount: 3), .goodnotesReadingIssue(.eventKindNotKnown(999))])
@@ -20,7 +20,7 @@ final class NotebookImportReportTests: XCTestCase {
             ImportReportSummaryLine(kind: .highlighterNotMultiplied, totalCount: 5, occurrenceCount: 2, pageNumbers: [1, 3]),
             ImportReportSummaryLine(kind: .goodnotesReadingIssue(.eventKindNotKnown(999)), totalCount: nil, occurrenceCount: 2, pageNumbers: [1]),
             ImportReportSummaryLine(kind: .pageWithoutPaper, totalCount: nil, occurrenceCount: 1, pageNumbers: [2]),
-            ImportReportSummaryLine(kind: .elementsNotYetConverted(.textBox), totalCount: 1, occurrenceCount: 1, pageNumbers: [3]),
+            ImportReportSummaryLine(kind: .elementsNotYetConverted(.textWithoutFrame), totalCount: 1, occurrenceCount: 1, pageNumbers: [3]),
             ImportReportSummaryLine(kind: .recordingTimingNotKept, totalCount: 4, occurrenceCount: 1, pageNumbers: [])
         ])
         XCTAssertEqual(report.summary.map(\.category), [.simplified, .readingIssue, .leftOut, .leftOut, .leftOut])

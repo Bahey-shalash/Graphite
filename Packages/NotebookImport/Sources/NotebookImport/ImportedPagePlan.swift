@@ -14,6 +14,10 @@ public struct ImportedPagePlan: Sendable, Equatable {
     public let strokes: [ImportedStroke]
     /// Under the ink, in drawing order (the first drawn first): Graphite draws a page's pictures under its ink.
     public let pictures: [ImportedPicture]
+    /// Over the ink, in drawing order: Graphite draws a page's text boxes over its ink and pictures.
+    public let textBoxes: [ImportedTextBox]
+    /// Typed text that starts on this page and flows onto the next ones (Notability's body text).
+    public let flowingText: ImportedFlowingText?
     /// Web links over parts of the page.
     public let links: [ImportedLink]
     /// The source bookmarks the page (Goodnotes' favorites, Notability's bookmarked PDF pages).
@@ -21,14 +25,17 @@ public struct ImportedPagePlan: Sendable, Equatable {
     /// What was simplified or left out on this page, and why.
     public let report: [ImportReportEntry]
 
-    /// A page with no pictures or links, and not bookmarked, unless they are given.
+    /// A page with no pictures, text or links, and not bookmarked, unless they are given.
     public init(sourcePageNumber: Int, sizeInPoints: CGSize, background: ImportedPageBackground, strokes: [ImportedStroke],
-                pictures: [ImportedPicture] = [], links: [ImportedLink] = [], isBookmarked: Bool = false, report: [ImportReportEntry]) {
+                pictures: [ImportedPicture] = [], textBoxes: [ImportedTextBox] = [], flowingText: ImportedFlowingText? = nil,
+                links: [ImportedLink] = [], isBookmarked: Bool = false, report: [ImportReportEntry]) {
         self.sourcePageNumber = sourcePageNumber
         self.sizeInPoints = sizeInPoints
         self.background = background
         self.strokes = strokes
         self.pictures = pictures
+        self.textBoxes = textBoxes
+        self.flowingText = flowingText
         self.links = links
         self.isBookmarked = isBookmarked
         self.report = report

@@ -16,8 +16,21 @@ public enum ImportReportEntry: Sendable, Hashable {
     case shapesDrawnAsInk(count: Int)
     /// Dashed strokes, drawn solid: PencilKit has no dashed ink.
     case dashesNotKept(strokeCount: Int)
-    /// Elements whose kind a later import step converts (shapes, fills, pictures, text, sticky notes).
+    /// Elements of a kind the import does not convert (shapes it cannot draw, fills, text without a frame).
     case elementsNotYetConverted(kind: ImportElementKind, count: Int)
+    /// Runs of typed text in a style Graphite's text boxes do not draw (strike-through, raised or lowered text, a
+    /// see-through colour, line spacing, or another style of a Goodnotes text box whose runs' ranges are not known),
+    /// drawn without it.
+    case textStylesNotKept(runCount: Int)
+    /// Runs of typed text in a font this device does not have, drawn in Helvetica; the text box keeps the font's name,
+    /// so a device that has it draws it.
+    case fontsReplaced(runCount: Int)
+    /// Goodnotes sticky notes, written as text boxes with the note's colour, without the author's name Goodnotes prints
+    /// at the bottom: Graphite has no sticky notes.
+    case stickyNotesAsTextBoxes(count: Int)
+    /// Text boxes that could not be placed (a size or position that is not a number, or more text than one box holds);
+    /// they are left out.
+    case textBoxesNotPlaced(count: Int)
     /// Pictures the source draws over some of its ink; Graphite draws a page's pictures under all its ink.
     case picturesMovedUnderInk(count: Int)
     /// Animated pictures (GIFs), kept as their first frame in the PDF.
@@ -43,16 +56,20 @@ public enum ImportReportEntry: Sendable, Hashable {
     case pageWithoutPaper
     /// The paper names a PDF attachment that is not in the notebook; the page is plain white paper.
     case backgroundFileMissing
-    /// A Notability note whose page size is not known (a reflowable note, or a paper size not described); its pages
-    /// are left out.
+    /// A Notability note whose page size is not known (a paper size not described); its pages are left out.
     case pageGeometryUnknown
+    /// A Notability note whose text reflows to the device that opens it, so it stores no page width: laid out at the
+    /// width of a note made on a Mac, as Notability's export on a Mac lays it out.
+    case pageWidthAssumed
     /// The reader listed something it does not know or skipped on this page.
     case goodnotesReadingIssue(GoodnotesReadingIssue)
     case notabilityReadingIssue(NotabilityReadingIssue)
 }
 
 public enum ImportElementKind: Sendable, Hashable {
-    case shape, shapeFill, picture, textBox, stickyNote, typedText
+    case shape, shapeFill, picture
+    /// Goodnotes' typed text with no frame (element kind 12), whose purpose is not known: there is no place for it.
+    case textWithoutFrame
     /// A Goodnotes element of a kind the reader does not know.
     case unknownKind
     /// A Goodnotes stroke whose path layout the reader does not know.

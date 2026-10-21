@@ -106,18 +106,45 @@ enum PDFInkAnnotationFactory {
     private static let inkListSimplificationTolerance = 0.2
     /// Room around the ink so no reader clips anti-aliased edges at the annotation rectangle.
     private static let boundsMargin = 1.0
+    /// The narrowest border width written.
+    private static let minimumBorderWidth = 0.5
 
-    /// `drawsOutline` selects the outlined appearance for documents that are written.
-    static func annotation(for stroke: PortableInkStroke, group: String, drawsOutline: Bool) -> PDFAnnotation? {
+    /// What an ink annotation of a stroke holds, in page space: its rectangle, its `/InkList` paths, its border width
+    /// and its outline. The one place that decides them, for PDFKit's annotations and for those Graphite writes itself
+    /// (`PDFInkAnnotationObjects`).
+    struct Geometry {
+        let bounds: CGRect
+        /// One path per segment, simplified; a single point gets a second 0.01 point away.
+        let inkList: [[CGPoint]]
+        let borderWidth: Double
+        /// Closed subpaths of more than two points; empty without an outline.
+        let outline: [[CGPoint]]
+    }
+
+    /// Nil for a stroke without a finite segment or width.
+    static func geometry(for stroke: PortableInkStroke) -> Geometry? {
         let segments = stroke.segments.filter { segment in !segment.isEmpty && segment.allSatisfy { point in point.x.isFinite && point.y.isFinite } }
         guard !segments.isEmpty, stroke.width.isFinite else { return nil }
-        let color = CGColor(srgbRed: stroke.red, green: stroke.green, blue: stroke.blue, alpha: stroke.alpha)
         let outline = stroke.outline ?? []
         let inkPoints = Array(segments.joined()) + Array(outline.joined())
         let inkBounds = bounds(of: inkPoints).insetBy(dx: -(stroke.width / 2 + boundsMargin), dy: -(stroke.width / 2 + boundsMargin))
-        let annotation: PDFAnnotation = outline.isEmpty || !drawsOutline
+        let inkList = segments.map { segment in
+            var points = StrokeOutliner.simplified(segment, tolerance: inkListSimplificationTolerance)
+            // A single tap still needs a visible mark in readers that draw the InkList.
+            if points.count == 1, let onlyPoint = points.first { points.append(CGPoint(x: onlyPoint.x + 0.01, y: onlyPoint.y)) }
+            return points
+        }
+        return Geometry(bounds: inkBounds, inkList: inkList, borderWidth: max(minimumBorderWidth, stroke.width), outline: outline)
+    }
+
+    /// `drawsOutline` selects the outlined appearance for documents that are written.
+    static func annotation(for stroke: PortableInkStroke, group: String, drawsOutline: Bool) -> PDFAnnotation? {
+        guard let geometry = geometry(for: stroke) else { return nil }
+        let color = CGColor(srgbRed: stroke.red, green: stroke.green, blue: stroke.blue, alpha: stroke.alpha)
+        let inkBounds = geometry.bounds
+        let annotation: PDFAnnotation = geometry.outline.isEmpty || !drawsOutline
             ? PDFAnnotation(bounds: inkBounds, forType: .ink, withProperties: nil)
-            : PDFOutlinedInkAnnotation(bounds: inkBounds, outlineSubpaths: outline, fillColor: color)
+            : PDFOutlinedInkAnnotation(bounds: inkBounds, outlineSubpaths: geometry.outline, fillColor: color)
         #if canImport(UIKit)
         annotation.color = UIColor(cgColor: color)
         #else
@@ -125,14 +152,11 @@ enum PDFInkAnnotationFactory {
         #endif
         // One path per segment: PDFKit writes each added path as its own InkList
         // entry, while subpaths of a single path would be joined into one line.
-        for segment in segments {
-            var points = StrokeOutliner.simplified(segment, tolerance: inkListSimplificationTolerance)
-            // A single tap still needs a visible mark in readers that draw the InkList.
-            if points.count == 1, let onlyPoint = points.first { points.append(CGPoint(x: onlyPoint.x + 0.01, y: onlyPoint.y)) }
+        for points in geometry.inkList {
             annotation.add(path(through: points.map { point in CGPoint(x: point.x - inkBounds.minX, y: point.y - inkBounds.minY) }))
         }
         let border = PDFBorder()
-        border.lineWidth = max(0.5, stroke.width)
+        border.lineWidth = geometry.borderWidth
         annotation.border = border
         annotation.shouldPrint = true
         annotation.setValue(group, forAnnotationKey: PDFPageManager.groupKey)

@@ -1,6 +1,6 @@
 # NotebookImport
 
-Reads Goodnotes (`.goodnotes`) and Notability (`.note`) notebooks and plans each of their pages as plain values, so that an app can write them as ordinary files: a PDF page of the source's size, its background, its strokes as sampled points, its pictures with their original files, its bookmarks, the notebook's outline and its recordings. Everything the package cannot keep exactly is a typed entry of an import report, never dropped in silence.
+Reads Goodnotes (`.goodnotes`) and Notability (`.note`) notebooks and plans each of their pages as plain values, so that an app can write them as ordinary files: a PDF page of the source's size, its background, its strokes as sampled points, its pictures with their original files, its typed text as text boxes (and Notability's body text as text that flows from page to page), its bookmarks, the notebook's outline and its recordings. Everything the package cannot keep exactly is a typed entry of an import report, never dropped in silence.
 
 The formats are undocumented. What is known about them, and how each statement was checked, is in Graphite's `Docs/Goodnotes-format.md` and `Docs/Notability-format.md`.
 
@@ -19,7 +19,7 @@ The formats are undocumented. What is known about them, and how each statement w
 
 ## Not converted
 
-Typed text (Goodnotes text boxes, sticky notes, older RTF text boxes and Notability's typed text), tape, the older Goodnotes varying-width ink and the timing of strokes against a recording are counted in the report as left out. Shapes are planned as ink along their outline, and dashes as solid ink.
+Tape, the older Goodnotes varying-width ink, Goodnotes' typed text without a frame and the timing of strokes against a recording are counted in the report as left out. Shapes are planned as ink along their outline, and dashes as solid ink. Typed text is planned (`ImportedTextBox`, `ImportedFlowingText`), with what a text box cannot draw reported (strike-through, raised text, see-through colours, several looks in one Goodnotes box); an older Goodnotes text box is handed on as its RTF, and Notability's text is cut into pages by the writer, since both need the platform's text system. A reflowable Notability note is laid out at a Mac's page width only when the caller asks (`layingOutReflowableNote(atPageWidthInUnits:)`).
 
 ## What the package does not do
 

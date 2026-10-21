@@ -14,6 +14,7 @@ public enum ImportReportCategory: Sendable, Hashable, CaseIterable {
 public enum ImportReportEntryKind: Sendable, Hashable {
     case highlighterNotMultiplied, pencilTextureNotKept, tapeLeftOut, olderVaryingWidthInkLeftOut, shapesDrawnAsInk, dashesNotKept
     case elementsNotYetConverted(ImportElementKind)
+    case textStylesNotKept, fontsReplaced, stickyNotesAsTextBoxes, textBoxesNotPlaced, pageWidthAssumed
     case picturesMovedUnderInk, animatedPicturesKeptStill, pictureFilesMissing, picturesNotDecodable
     case recordingFilesMissing, recordingsNotCopied, recordingTimingNotKept, outlineEntriesWithoutPage
     case paperRulingNotDrawn, pageWithoutPaper, backgroundFileMissing, pageGeometryUnknown
@@ -23,9 +24,10 @@ public enum ImportReportEntryKind: Sendable, Hashable {
     public var category: ImportReportCategory {
         switch self {
         case .highlighterNotMultiplied, .pencilTextureNotKept, .shapesDrawnAsInk, .dashesNotKept, .picturesMovedUnderInk, .animatedPicturesKeptStill,
-             .paperRulingNotDrawn:
+             .paperRulingNotDrawn, .textStylesNotKept, .fontsReplaced, .stickyNotesAsTextBoxes, .pageWidthAssumed:
             .simplified
-        case .tapeLeftOut, .olderVaryingWidthInkLeftOut, .elementsNotYetConverted, .pictureFilesMissing, .picturesNotDecodable, .recordingFilesMissing,
+        case .tapeLeftOut, .olderVaryingWidthInkLeftOut, .elementsNotYetConverted, .textBoxesNotPlaced, .pictureFilesMissing, .picturesNotDecodable,
+             .recordingFilesMissing,
              .recordingsNotCopied, .recordingTimingNotKept, .outlineEntriesWithoutPage, .pageWithoutPaper, .backgroundFileMissing, .pageGeometryUnknown:
             .leftOut
         case .goodnotesReadingIssue, .notabilityReadingIssue:
@@ -44,6 +46,11 @@ extension ImportReportEntry {
         case .shapesDrawnAsInk: .shapesDrawnAsInk
         case .dashesNotKept: .dashesNotKept
         case .elementsNotYetConverted(let elementKind, _): .elementsNotYetConverted(elementKind)
+        case .textStylesNotKept: .textStylesNotKept
+        case .fontsReplaced: .fontsReplaced
+        case .stickyNotesAsTextBoxes: .stickyNotesAsTextBoxes
+        case .textBoxesNotPlaced: .textBoxesNotPlaced
+        case .pageWidthAssumed: .pageWidthAssumed
         case .picturesMovedUnderInk: .picturesMovedUnderInk
         case .animatedPicturesKeptStill: .animatedPicturesKeptStill
         case .pictureFilesMissing: .pictureFilesMissing
@@ -66,11 +73,13 @@ extension ImportReportEntry {
     public var count: Int? {
         switch self {
         case .highlighterNotMultiplied(let count), .pencilTextureNotKept(let count), .tapeLeftOut(let count), .olderVaryingWidthInkLeftOut(let count),
-             .shapesDrawnAsInk(let count), .dashesNotKept(let count), .elementsNotYetConverted(_, let count), .picturesMovedUnderInk(let count),
+             .shapesDrawnAsInk(let count), .dashesNotKept(let count), .elementsNotYetConverted(_, let count), .textStylesNotKept(let count),
+             .fontsReplaced(let count), .stickyNotesAsTextBoxes(let count), .textBoxesNotPlaced(let count), .picturesMovedUnderInk(let count),
              .animatedPicturesKeptStill(let count), .pictureFilesMissing(let count), .picturesNotDecodable(let count),
              .recordingFilesMissing(let count), .recordingsNotCopied(let count), .recordingTimingNotKept(let count), .outlineEntriesWithoutPage(let count):
             count
-        case .paperRulingNotDrawn, .pageWithoutPaper, .backgroundFileMissing, .pageGeometryUnknown, .goodnotesReadingIssue, .notabilityReadingIssue:
+        case .paperRulingNotDrawn, .pageWithoutPaper, .backgroundFileMissing, .pageGeometryUnknown, .pageWidthAssumed, .goodnotesReadingIssue,
+             .notabilityReadingIssue:
             nil
         }
     }

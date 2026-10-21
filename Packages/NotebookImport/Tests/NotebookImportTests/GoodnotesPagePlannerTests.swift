@@ -232,9 +232,24 @@ final class GoodnotesPagePlannerTests: XCTestCase {
         XCTAssertEqual(plan.report, [.pencilTextureNotKept(strokeCount: 1)])
     }
 
+    func testAPencilStrokeWrittenWithoutForceIsAsPaleAsGoodnotesDrawsIt() throws {
+        let still = GoodnotesPencilSample(point: .zero, azimuthRadians: 0.52, altitudeRadians: 1.05, force: 0)
+        let moved = GoodnotesPencilSample(point: CGPoint(x: 100, y: 0), azimuthRadians: 0.52, altitudeRadians: 1.05, force: 0)
+        let subpath = GoodnotesPencilSubpath(start: still, curves: [GoodnotesPencilCurve(control: still, end: moved, leadingValue: 0)])
+        let path = GoodnotesStrokePath.pencil(GoodnotesPencilPath(width: 4.68, subpaths: [subpath]))
+        let plan = try XCTUnwrap(Self.plannedPlan(GoodnotesPagePlanner.plan(Self.page(elements: [Self.stroke(path: path)]), pageNumber: 1)))
+        let stroke = try XCTUnwrap(plan.strokes.first)
+        XCTAssertEqual(stroke.color.alpha, Self.inkColor.alpha * GoodnotesPencilOpacity.opacityAtNoForce, accuracy: 1e-12)
+        XCTAssertEqual(stroke.color.red, Self.inkColor.red)
+        let pressed = try XCTUnwrap(Self.plannedPlan(GoodnotesPagePlanner.plan(Self.page(elements: [
+            Self.stroke(path: .pencil(GoodnotesPencilPath(width: 11, subpaths: [Self.pencilSubpath()])))
+        ]), pageNumber: 1)))
+        XCTAssertEqual(pressed.strokes.first?.color, Self.inkColor, "pressed from force 1 to 3, full colour")
+    }
+
     // MARK: Elements left out
 
-    func testShapesTapeOlderInkAndOtherElementsAreLeftOutAndCounted() throws {
+    func testShapesTapeOlderInkAndOtherElementsAreLeftOutOrCounted() throws {
         let shapeStroke = Self.stroke(path: Self.straightPath(), shape: GoodnotesShape(geometry: nil, width: nil), counter: 1)
         let tape = Self.stroke(path: Self.straightPath(), ink: .fountainPenBrushPenOrTape, isTape: true, counter: 2)
         let olderInk = Self.stroke(path: .olderVaryingWidth(GoodnotesOlderVaryingWidthPath(width: 11, outline: [])),
@@ -256,10 +271,11 @@ final class GoodnotesPagePlannerTests: XCTestCase {
         let plan = try XCTUnwrap(Self.plannedPlan(GoodnotesPagePlanner.plan(Self.page(elements: elements), pageNumber: 1)))
         XCTAssertEqual(plan.strokes, [])
         XCTAssertEqual(plan.pictures, [], "Pictures without an attachment have no file to place.")
+        XCTAssertEqual(plan.textBoxes.count, 2, "The older text box and the sticky note; the text box without a size has no width.")
         XCTAssertEqual(plan.report, [
             .elementsNotYetConverted(kind: .shape, count: 1), .tapeLeftOut(strokeCount: 1), .olderVaryingWidthInkLeftOut(strokeCount: 1),
-            .pictureFilesMissing(count: 2), .elementsNotYetConverted(kind: .shapeFill, count: 1),
-            .elementsNotYetConverted(kind: .textBox, count: 3), .elementsNotYetConverted(kind: .stickyNote, count: 1)
+            .pictureFilesMissing(count: 2), .elementsNotYetConverted(kind: .shapeFill, count: 1), .textBoxesNotPlaced(count: 1),
+            .elementsNotYetConverted(kind: .textWithoutFrame, count: 1), .stickyNotesAsTextBoxes(count: 1)
         ])
     }
 

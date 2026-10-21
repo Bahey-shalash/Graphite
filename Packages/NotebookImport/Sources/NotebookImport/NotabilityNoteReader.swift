@@ -8,12 +8,12 @@ import Foundation
 /// with `contents(ofFileAt:)`. What the note holds that the format description does not account for is listed
 /// in `issues`, never guessed at.
 public struct NotabilityNoteReader: Sendable {
-    public let note: NotabilityNote
+    public private(set) var note: NotabilityNote
     public let issues: [NotabilityReadingIssue]
     /// The pages the content reaches, as the reference reader counts them: the page of the largest y of any curve
     /// point or picture bottom, at least 1. Nil when the page height is unknown (a reflowable note, an unknown paper
     /// size) or that page number is beyond `Int`.
-    public let pageCount: Int?
+    public private(set) var pageCount: Int?
 
     private let zipArchive: ZipArchive
     private let folderName: String
@@ -50,6 +50,22 @@ public struct NotabilityNoteReader: Sendable {
         ink = content.ink
         issues = reading.issues.issues
         pageCount = NotabilityPagePlacement(geometry: content.pageGeometry).pageCount(inkBottomY: content.ink.highestY, pictures: content.pictures)
+    }
+
+    /// The reader with a reflowable note, which stores no page width (its text reflows to the device that opens it),
+    /// cut into pages `pageWidthInUnits` wide, as a device of that width would lay it out; a note that stores its width
+    /// is returned as it is. The reference reader computes no pages for such a note, so the reader itself never assumes
+    /// a width: the import does, with `NotabilityPageGeometry.macPageWidthInUnits`.
+    public func layingOutReflowableNote(atPageWidthInUnits pageWidthInUnits: Double) -> NotabilityNoteReader {
+        guard note.reflowState == .reflowable, note.pageGeometry.pageWidthInUnits == nil else { return self }
+        var reader = self
+        let geometry = NotabilityPageGeometry(pageWidthInUnits: pageWidthInUnits, paper: note.paper)
+        reader.note = NotabilityNote(name: note.name, sessionFormatVersion: note.sessionFormatVersion, applicationVersion: note.applicationVersion,
+                                     paper: note.paper, reflowState: note.reflowState, pageGeometry: geometry, shapes: note.shapes,
+                                     pictures: note.pictures, typedText: note.typedText, importedPDFPages: note.importedPDFPages,
+                                     recordings: note.recordings, playbackEvents: note.playbackEvents)
+        reader.pageCount = NotabilityPagePlacement(geometry: geometry).pageCount(inkBottomY: ink.highestY, pictures: note.pictures)
+        return reader
     }
 
     /// The recordings of `Recordings/library.plist`; none when the note has no library, and none with an issue when the

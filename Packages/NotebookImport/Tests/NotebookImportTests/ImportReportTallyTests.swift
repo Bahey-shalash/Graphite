@@ -51,21 +51,25 @@ final class ImportReportTallyTests: XCTestCase {
         tally.count(.olderVaryingWidthInk)
         tally.count(.dashes)
         tally.count(.element(.shape))
-        tally.count(.element(.typedText))
+        tally.count(.element(.textWithoutFrame))
+        tally.count(.textStyle)
+        tally.count(.stickyNote)
+        tally.count(.textBoxNotPlaced)
         XCTAssertEqual(tally.report, [
             .highlighterNotMultiplied(strokeCount: 1), .pencilTextureNotKept(strokeCount: 1), .tapeLeftOut(strokeCount: 1),
             .olderVaryingWidthInkLeftOut(strokeCount: 1), .dashesNotKept(strokeCount: 1),
-            .elementsNotYetConverted(kind: .shape, count: 1), .elementsNotYetConverted(kind: .typedText, count: 1)
+            .elementsNotYetConverted(kind: .shape, count: 1), .elementsNotYetConverted(kind: .textWithoutFrame, count: 1),
+            .textStylesNotKept(runCount: 1), .stickyNotesAsTextBoxes(count: 1), .textBoxesNotPlaced(count: 1)
         ])
     }
 
     func testElementKindsAreCountedSeparately() {
         var tally = ImportReportTally()
-        tally.count(.element(.textBox))
-        tally.count(.element(.stickyNote))
-        tally.count(.element(.textBox))
+        tally.count(.element(.textWithoutFrame))
+        tally.count(.element(.shapeFill))
+        tally.count(.element(.textWithoutFrame))
         XCTAssertEqual(tally.report, [
-            .elementsNotYetConverted(kind: .textBox, count: 2), .elementsNotYetConverted(kind: .stickyNote, count: 1)
+            .elementsNotYetConverted(kind: .textWithoutFrame, count: 2), .elementsNotYetConverted(kind: .shapeFill, count: 1)
         ])
     }
 }

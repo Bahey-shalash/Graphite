@@ -21,15 +21,17 @@ public struct ImportedPageReport: Sendable, Equatable {
     }
 }
 
-/// What a written page holds, as converted: its strokes, the pictures placed on it, and its bookmark.
+/// What a written page holds, as converted: its strokes, the pictures and text boxes placed on it, and its bookmark.
 public struct ImportedPageContents: Sendable, Equatable {
     public let strokeCount: Int
     public let pictureCount: Int
+    public let textBoxCount: Int
     public let isBookmarked: Bool
 
-    public init(strokeCount: Int, pictureCount: Int, isBookmarked: Bool) {
+    public init(strokeCount: Int, pictureCount: Int, textBoxCount: Int = 0, isBookmarked: Bool) {
         self.strokeCount = strokeCount
         self.pictureCount = pictureCount
+        self.textBoxCount = textBoxCount
         self.isBookmarked = isBookmarked
     }
 }

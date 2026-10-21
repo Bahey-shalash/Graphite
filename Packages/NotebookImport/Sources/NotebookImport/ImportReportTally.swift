@@ -5,6 +5,7 @@ import Foundation
 struct ImportReportTally {
     enum CountedKind: Hashable {
         case highlighter, pencil, tape, olderVaryingWidthInk, dashes, pictureMovedUnderInk, animatedPicture, pictureFileMissing, shapeAsInk
+        case textStyle, stickyNote, textBoxNotPlaced
         case element(ImportElementKind)
     }
 
@@ -36,6 +37,9 @@ struct ImportReportTally {
         case .animatedPicture: .animatedPicturesKeptStill(count: count)
         case .pictureFileMissing: .pictureFilesMissing(count: count)
         case .shapeAsInk: .shapesDrawnAsInk(count: count)
+        case .textStyle: .textStylesNotKept(runCount: count)
+        case .stickyNote: .stickyNotesAsTextBoxes(count: count)
+        case .textBoxNotPlaced: .textBoxesNotPlaced(count: count)
         case .element(let elementKind): .elementsNotYetConverted(kind: elementKind, count: count)
         }
     }

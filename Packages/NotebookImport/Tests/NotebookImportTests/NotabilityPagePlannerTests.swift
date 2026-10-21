@@ -209,7 +209,7 @@ final class NotabilityPagePlannerTests: XCTestCase {
 
     // MARK: Elements left out
 
-    func testShapesWithoutAWidthAndTypedTextOnTheFirstPageAreCountedAndPicturesArePlanned() throws {
+    func testShapesWithoutAWidthAreCountedAndPicturesArePlanned() throws {
         let shape = NotabilityShape(kind: .line, drawnBeforeCurveIndex: 0, start: .zero, end: CGPoint(x: 10, y: 10), quadraticControlPoint: nil,
                                     width: nil, color: Self.inkColor, dashPattern: nil)
         let picture = NotabilityPicture(file: .fixture("Images/Image 1.jpg"), origin: .zero, size: CGSize(width: 10, height: 10),
@@ -218,15 +218,20 @@ final class NotabilityPagePlannerTests: XCTestCase {
         let note = Self.note(typedText: NotabilityTypedText(text: "Some words", runs: []))
         let page = Self.page(number: 1, curves: [], shapes: [shape, shape], pictures: [picture])
         let plan = try XCTUnwrap(Self.plannedPlan(NotabilityPagePlanner.plan(page, note: note)))
-        XCTAssertEqual(plan.report, [.elementsNotYetConverted(kind: .shape, count: 2), .elementsNotYetConverted(kind: .typedText, count: 1)])
+        XCTAssertEqual(plan.report, [.elementsNotYetConverted(kind: .shape, count: 2)])
         XCTAssertEqual(plan.pictures.count, 1)
     }
 
-    func testTypedTextIsNotCountedOnLaterPagesOrWhenEmpty() throws {
+    func testTypedTextStartsOnlyOnTheFirstPageAndNeverWhenEmpty() throws {
         let typed = Self.note(typedText: NotabilityTypedText(text: "Some words", runs: []))
+        let first = try XCTUnwrap(Self.plannedPlan(NotabilityPagePlanner.plan(Self.page(number: 1, curves: []), note: typed)))
+        XCTAssertEqual(first.flowingText?.runs.map(\.text), ["Some words"])
+        XCTAssertEqual(first.report, [])
         let later = try XCTUnwrap(Self.plannedPlan(NotabilityPagePlanner.plan(Self.page(number: 2, curves: []), note: typed)))
+        XCTAssertNil(later.flowingText)
         XCTAssertEqual(later.report, [])
         let empty = try XCTUnwrap(Self.plannedPlan(NotabilityPagePlanner.plan(Self.page(number: 1, curves: []), note: Self.note())))
+        XCTAssertNil(empty.flowingText)
         XCTAssertEqual(empty.report, [])
     }
 

@@ -47,7 +47,7 @@ enum NotebookImportWording {
         case .notANotebook(let format): "This file is not a \(appName(format)) notebook."
         case .damaged(let format): "The notebook is damaged, or was saved by a version of \(appName(format)) that Graphite cannot read yet."
         case .tooLarge: "The notebook holds a file too large to import on this device."
-        case .noPages: "The notebook has no page Graphite can import yet. A note of typed text only waits for text on PDF pages."
+        case .noPages: "The notebook has no page Graphite can import yet."
         case .notWritten: "The PDF could not be saved in the vault. Check that the device has free space."
         }
     }
@@ -76,6 +76,11 @@ enum NotebookImportWording {
         case .shapesDrawnAsInk: return "Shapes drawn as ink: " + count(total, "shape", "shapes")
         case .dashesNotKept: return "Dashed lines drawn solid: " + count(total, "line", "lines")
         case .elementsNotYetConverted(let elementKind): return leftOutElements(elementKind, count: total)
+        case .textStylesNotKept: return "Typed text drawn without a style Graphite's text boxes do not have: " + count(total, "stretch", "stretches")
+        case .fontsReplaced: return "Typed text in a font this device does not have, drawn in Helvetica: " + count(total, "stretch", "stretches")
+        case .stickyNotesAsTextBoxes: return "Sticky notes made text boxes, without their author's name: " + count(total, "note", "notes")
+        case .textBoxesNotPlaced: return "Text boxes that could not be placed left out: " + count(total, "text box", "text boxes")
+        case .pageWidthAssumed: return "The note's text was laid out as wide as on a Mac, since the note does not store its width"
         case .picturesMovedUnderInk: return "Pictures moved under the ink: " + count(total, "picture", "pictures")
         case .animatedPicturesKeptStill: return "Animated pictures kept as their first frame: " + count(total, "picture", "pictures")
         case .pictureFilesMissing: return "Pictures missing from the notebook left out: " + count(total, "picture", "pictures")
@@ -94,9 +99,7 @@ enum NotebookImportWording {
 
     private static func leftOutElements(_ kind: ImportElementKind, count total: Int) -> String {
         switch kind {
-        case .textBox: "Text boxes left out until Graphite has text on PDF pages: " + count(total, "text box", "text boxes")
-        case .stickyNote: "Sticky notes left out until Graphite has text on PDF pages: " + count(total, "note", "notes")
-        case .typedText: "Typed text left out until Graphite has text on PDF pages"
+        case .textWithoutFrame: "Typed text without a place on the page left out: " + count(total, "piece", "pieces")
         case .shape: "Shapes Graphite could not draw left out: " + count(total, "shape", "shapes")
         case .shapeFill: "Shape fills left out: " + count(total, "fill", "fills")
         case .picture: "Pictures left out: " + count(total, "picture", "pictures")

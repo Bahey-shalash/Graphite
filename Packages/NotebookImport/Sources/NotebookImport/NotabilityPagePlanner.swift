@@ -7,7 +7,8 @@ import Foundation
 /// per unit (`Docs/Notability-format.md`, Coordinates and pages). The page is an imported PDF page when the note has
 /// one for it, and the note's paper otherwise, ruled as Notability rules it; a curve becomes PencilKit points along
 /// its cubic chain, its width the curve's width times the knot's factor, and is cut where it leaves the page; a line
-/// shape becomes ink drawn in its place among the curves.
+/// shape becomes ink drawn in its place among the curves. The typed text starts on the first page and flows onto the
+/// next ones (`NotabilityTextPlanner`).
 public enum NotabilityPagePlanner {
     private static let white = NotebookImportColor(red: 1, green: 1, blue: 1, alpha: 1)
     private static let black = NotebookImportColor(red: 0, green: 0, blue: 0, alpha: 1)
@@ -30,10 +31,17 @@ public enum NotabilityPagePlanner {
         let transform = PageTransform(topInUnits: page.topInUnits, pointsPerUnit: pointsPerUnit)
         let background = background(of: page.pageNumber, note: note, tally: &tally)
         let strokes = strokes(of: page, transform: transform, pageHeightInPoints: pageSize.height, tally: &tally)
-        if page.pageNumber == 1 && !note.typedText.text.isEmpty { tally.count(.element(.typedText)) }
+        var flowingText: ImportedFlowingText?
+        if page.pageNumber == 1 {
+            if note.reflowState == .reflowable { tally.add(.pageWidthAssumed) }
+            var continuationTally = ImportReportTally()
+            let continuationBackground = Self.background(of: Int.max, note: note, tally: &continuationTally)
+            flowingText = NotabilityTextPlanner.flowingText(of: note.typedText, pageSize: pageSize, pointsPerUnit: pointsPerUnit,
+                                                            continuationBackground: continuationBackground, tally: &tally)
+        }
         return .planned(ImportedPagePlan(sourcePageNumber: page.pageNumber, sizeInPoints: pageSize, background: background, strokes: strokes,
-                                         pictures: pictures(of: page, transform: transform), isBookmarked: isBookmarked(page.pageNumber, note: note),
-                                         report: tally.report))
+                                         pictures: pictures(of: page, transform: transform), flowingText: flowingText,
+                                         isBookmarked: isBookmarked(page.pageNumber, note: note), report: tally.report))
     }
 
     /// The page's curves in drawing order, each shape drawn just before the first curve its `drawnBeforeCurveIndex`

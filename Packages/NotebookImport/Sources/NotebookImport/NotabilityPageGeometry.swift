@@ -8,6 +8,9 @@ import Foundation
 public struct NotabilityPageGeometry: Sendable, Equatable {
     /// Every export seen draws the document's x = 0 this far from the page's left edge.
     public static let leftInsetPoints = 15.9375
+    /// The page width of a note made on a Mac (`lockedWidth:572.0:Mac`), which Notability's export on a Mac also gives a
+    /// reflowable note.
+    public static let macPageWidthInUnits = 572.0
     /// Notability's "Letter (Optimized)" page, 16:21, and the A4 page of an imported PDF's export.
     private static let letterPageSize = CGSize(width: 612.0, height: 803.25)
     private static let a4PageSize = CGSize(width: 595.2756, height: 842.7541)

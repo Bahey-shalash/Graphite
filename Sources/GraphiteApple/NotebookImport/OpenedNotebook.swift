@@ -34,7 +34,9 @@ public struct OpenedNotebook: Sendable {
             }
         case .notability:
             do throws(NotabilityReadingError) {
+                // A reflowable note is laid out as Notability's export on a Mac lays it out; the report says so.
                 let reader = try NotabilityNoteReader(archiveBytes: bytes, limits: limits)
+                    .layingOutReflowableNote(atPageWidthInUnits: NotabilityPageGeometry.macPageWidthInUnits)
                 return OpenedNotebook(reader: .notability(reader), format: format, sourcePageCount: reader.pageCount ?? 0,
                                       recordings: NotabilityRecordingPlanner.plan(reader.note), outline: .none)
             } catch {

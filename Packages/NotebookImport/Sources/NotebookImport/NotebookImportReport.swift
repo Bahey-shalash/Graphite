@@ -79,7 +79,8 @@ public struct NotebookImportReport: Sendable, Equatable {
             case .highlighterNotMultiplied, .pencilTextureNotKept, .tapeLeftOut, .olderVaryingWidthInkLeftOut, .shapesDrawnAsInk, .dashesNotKept,
                  .elementsNotYetConverted, .picturesMovedUnderInk, .animatedPicturesKeptStill, .pictureFilesMissing, .picturesNotDecodable,
                  .recordingFilesMissing, .recordingsNotCopied, .recordingTimingNotKept, .outlineEntriesWithoutPage, .paperRulingNotDrawn, .pageWithoutPaper,
-                 .backgroundFileMissing, .pageGeometryUnknown:
+                 .backgroundFileMissing, .pageGeometryUnknown, .textStylesNotKept, .fontsReplaced, .stickyNotesAsTextBoxes, .textBoxesNotPlaced,
+                 .pageWidthAssumed:
                 self = .kind(kind)
             }
         }

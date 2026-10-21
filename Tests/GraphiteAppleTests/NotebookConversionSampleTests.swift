@@ -1,5 +1,6 @@
 import XCTest
 import CoreGraphics
+import CoreText
 import ImageIO
 import PDFKit
 import GraphiteCore
@@ -8,9 +9,9 @@ import GraphiteTestSupport
 @testable import GraphiteApple
 
 /// Converts the owner's real Goodnotes and Notability samples end to end and reads every written PDF back: each page's
-/// size, its strokes as `/Ink` annotations, its pictures as Graphite pictures with their files' own bytes, its paper as
-/// page content rather than ink, and, where the sample folder holds the app's own export (`export.pdf`), how much of
-/// the drawn page differs from it. The samples are personal notebooks, never in the repository: the test reads them
+/// size, its strokes as `/Ink` annotations, its pictures as Graphite pictures with their files' own bytes, its typed text
+/// as Graphite text boxes, its paper as page content rather than ink, and, where the sample folder holds the app's own
+/// export (`export.pdf`), how much of the drawn page differs from it and where the export prints the typed text. The samples are personal notebooks, never in the repository: the test reads them
 /// from the folder `GRAPHITE_IMPORT_SAMPLES` names and is skipped on a machine without them.
 final class NotebookConversionSampleTests: XCTestCase {
     private static let samplesFolderVariable = "GRAPHITE_IMPORT_SAMPLES"
@@ -66,7 +67,7 @@ final class NotebookConversionSampleTests: XCTestCase {
     func testEverySampleIsWrittenWithItsPagesStrokesPicturesAndPaperAsPlanned() throws {
         let folder = try samplesFolder()
         let vault = try TemporaryVault.make(prefix: "NotebookConversionSamples", for: self)
-        var totals = (notebooks: 0, pages: 0, strokes: 0, pictures: 0, picturesKeptByteForByte: 0)
+        var totals = (notebooks: 0, pages: 0, strokes: 0, pictures: 0, picturesKeptByteForByte: 0, textBoxes: 0)
         for location in notebookFiles(in: folder) {
             let name = location.lastPathComponent
             let written: Written
@@ -76,8 +77,8 @@ final class NotebookConversionSampleTests: XCTestCase {
                 print("NOTEBOOK-CONVERSION \(name): no pages (left out whole)")
                 continue
             }
-            XCTAssertEqual(written.document.pageCount, written.plans.count, name)
-            XCTAssertEqual(written.writing.pageReports.count, written.notebook.sourcePageCount, name)
+            XCTAssertEqual(written.document.pageCount, written.writing.pageReports.count { report in report.written != nil }, name)
+            XCTAssertGreaterThanOrEqual(written.writing.pageReports.count, written.notebook.sourcePageCount, name)
             for (pageIndex, plan) in written.plans.enumerated() {
                 guard let page = written.document.page(at: pageIndex) else { continue }
                 let context = "\(name) page \(plan.sourcePageNumber)"
@@ -88,6 +89,10 @@ final class NotebookConversionSampleTests: XCTestCase {
                 let pictures = PDFPageManager.pictures(on: page)
                 let report = written.writing.pageReports.first { report in report.sourcePageNumber == plan.sourcePageNumber }
                 XCTAssertEqual(pictures.count, report?.written?.pictureCount, context)
+                let textBoxes = PDFPageManager.textBoxes(on: page)
+                XCTAssertEqual(textBoxes.count, report?.written?.textBoxCount, context)
+                XCTAssertGreaterThanOrEqual(textBoxes.count, plan.textBoxes.count { box in !ImportedTextRuns(box.content).isEmpty }, context)
+                totals.textBoxes += textBoxes.count
                 totals.picturesKeptByteForByte += try keptByteForByteCount(plan, pictures: pictures, sourceFiles: written.notebook.sourceFiles)
                 try assertPaperIsPageContent(page, background: plan.background, sourceFiles: written.notebook.sourceFiles, context: context)
                 totals.pages += 1
@@ -174,12 +179,61 @@ final class NotebookConversionSampleTests: XCTestCase {
         }
     }
 
+    /// Every text box's first line starts where the app's own export prints the same word: its left edge and its
+    /// baseline within `maximumTextOffsetPoints`. Only upright boxes are compared, on pages of the samples with an export.
+    func testTypedTextIsWhereEachAppsExportPrintsIt() throws {
+        let folder = try samplesFolder()
+        let vault = try TemporaryVault.make(prefix: "NotebookConversionText", for: self)
+        var comparedCount = 0
+        for location in notebookFiles(in: folder) {
+            guard let export = PDFDocument(url: location.deletingLastPathComponent().appendingPathComponent("export.pdf")),
+                  let written = try? convert(location, into: vault) else { continue }
+            for pageIndex in 0..<min(export.pageCount, written.document.pageCount) {
+                guard let page = written.document.page(at: pageIndex), let exportPage = export.page(at: pageIndex) else { continue }
+                for box in PDFPageManager.textBoxes(on: page) where box.rotationRadians == 0 {
+                    let context = "\(location.lastPathComponent) page \(pageIndex + 1) “\(box.plainText.prefix(24))”"
+                    let start = try XCTUnwrap(Self.firstLineStart(of: box), context)
+                    let exported = try XCTUnwrap(Self.exportedStart(of: box, on: exportPage), "The export prints the text: \(context)")
+                    print(String(format: "NOTEBOOK-TEXT %@: first line at (%.2f, %.2f), export (%.2f, %.2f)", context, start.x, start.y,
+                                 exported.x, exported.y))
+                    XCTAssertEqual(start.x, exported.x, accuracy: Self.maximumTextOffsetPoints, context)
+                    XCTAssertEqual(start.y, exported.y, accuracy: Self.maximumTextOffsetPoints, context)
+                    comparedCount += 1
+                }
+            }
+        }
+        print("NOTEBOOK-TEXT compared \(comparedCount) text boxes")
+    }
+
+    /// How far a text box's first line may start from where the export prints it, in points.
+    private static let maximumTextOffsetPoints = 1.5
+
+    /// The start of the box's first line on its baseline, in page space.
+    private static func firstLineStart(of box: PDFTextBox) -> CGPoint? {
+        let layout = PDFTextBoxLayout(box: box)
+        guard let origin = layout.lineOrigins.first else { return nil }
+        return origin.applying(layout.boxToPage)
+    }
+
+    /// Where the export prints the box's first word: the left edge of its first character, on the baseline below the
+    /// character's box by the font's descent (as Core Text measures it in the box's first font).
+    private static func exportedStart(of box: PDFTextBox, on exportPage: PDFPage) -> CGPoint? {
+        guard let firstWord = box.plainText.split(whereSeparator: \.isWhitespace).first, let exportText = exportPage.string,
+              let wordRange = exportText.range(of: String(firstWord)) else { return nil }
+        let characterIndex = exportText.utf16.distance(from: exportText.utf16.startIndex, to: wordRange.lowerBound.samePosition(in: exportText.utf16)
+            ?? exportText.utf16.startIndex)
+        let bounds = exportPage.characterBounds(at: characterIndex)
+        let descent = Double(CTFontGetDescent(PDFTextBoxFonts.font(for: box.leadingAttributes)))
+        return CGPoint(x: bounds.minX, y: bounds.minY + descent)
+    }
+
     private static func changesWhatTheExportShows(_ entry: ImportReportEntry) -> Bool {
         switch entry {
         case .elementsNotYetConverted, .tapeLeftOut, .olderVaryingWidthInkLeftOut, .pictureFilesMissing, .picturesNotDecodable, .backgroundFileMissing,
-             .paperRulingNotDrawn, .highlighterNotMultiplied, .pencilTextureNotKept:
+             .paperRulingNotDrawn, .highlighterNotMultiplied, .pencilTextureNotKept, .textStylesNotKept, .fontsReplaced, .stickyNotesAsTextBoxes,
+             .textBoxesNotPlaced:
             true
-        case .shapesDrawnAsInk, .dashesNotKept, .picturesMovedUnderInk, .animatedPicturesKeptStill,
+        case .shapesDrawnAsInk, .dashesNotKept, .picturesMovedUnderInk, .animatedPicturesKeptStill, .pageWidthAssumed,
              .recordingFilesMissing, .recordingsNotCopied, .recordingTimingNotKept, .outlineEntriesWithoutPage, .pageWithoutPaper, .pageGeometryUnknown,
              .goodnotesReadingIssue, .notabilityReadingIssue:
             false

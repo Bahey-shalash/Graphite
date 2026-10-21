@@ -4,7 +4,7 @@ import Foundation
 /// Samples one Goodnotes stroke into the strokes Graphite writes: one per subpath, in page points, the lasso offset
 /// applied. Ball pen and highlighter keep one width; the fountain and brush pens take the width stored at each
 /// center-line point and keep Goodnotes' outline for the PDF appearance; the pencil keeps the Pencil's force, azimuth
-/// and altitude. Shapes, tape and the older varying-width ink are counted in the report instead (design steps 4 and
+/// and altitude, and is as pale as its force makes it (`GoodnotesPencilOpacity`). Shapes, tape and the older varying-width ink are counted in the report instead (design steps 4 and
 /// later).
 enum GoodnotesStrokePlanner {
     /// How far a sampled piece may depart from the curve, in points.
@@ -117,7 +117,9 @@ enum GoodnotesStrokePlanner {
                 }
                 current = curve.end
             }
-            return ImportedStroke(ink: .pencil, color: color, samples: samples, outline: nil)
+            let opacity = GoodnotesPencilOpacity.opacity(forForces: samples.compactMap(\.force))
+            let paled = NotebookImportColor(red: color.red, green: color.green, blue: color.blue, alpha: color.alpha * opacity)
+            return ImportedStroke(ink: .pencil, color: paled, samples: samples, outline: nil)
         }
     }
 
