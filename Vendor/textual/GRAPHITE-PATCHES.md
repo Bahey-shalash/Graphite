@@ -83,4 +83,8 @@ A table style decides the width to offer. Upstream's `Overflow` scroll container
 
 `Sources/Textual/View+Textual.swift`: `textual.interactiveTableOverlay(content:)` is `tableOverlay(content:)` without `allowsHitTesting(false)`. Graphite's Live Preview places a cell editor and its tap target over a table's cells with it, as Obsidian edits a table's cells in place.
 
+## 18. Attachments at hand are drawn at once
+
+`Sources/Textual/Attachment/AttachmentLoader.swift`, `Internal/Attachment/WithAttachments.swift`: `AttachmentLoader` gains `readyAttachment(for:text:environment:)`, the attachment for a URL when the loader has it without loading (nil by default, as upstream). `WithAttachments` draws a text with those attachments until its asynchronous resolution finishes. Graphite's vault image loader answers from the reading view's image cache, so an image the cache holds shows in the first drawing of its text: a note exported to PDF draws each block a few times in quick succession, which do not wait for the asynchronous load, and a text scrolled back into view no longer shows without its images for a moment.
+
 Remove this vendored copy and return to the upstream package once an upstream release contains equivalents of these changes.

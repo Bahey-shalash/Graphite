@@ -28,7 +28,7 @@ final class GraphiteCommandTests: XCTestCase {
         func symbols(_ command: GraphiteCommand) -> [String] { table.combinations(for: command.identifier).map(\.symbols) }
         let expected: [GraphiteCommand: String] = [
             .newNote: "⌘N", .newTab: "⌘T", .quickSwitcher: "⌘O", .closeTab: "⌘W", .reopenClosedTab: "⇧⌘T", .save: "⌘S", .openSettings: "⌘,",
-            .searchAllFiles: "⇧⌘F", .toggleReadingView: "⌘E", .commandPalette: "⌘P", .goBack: "⌘[", .goForward: "⌘]", .nextTab: "⌃⇥",
+            .searchAllFiles: "⇧⌘F", .toggleReadingView: "⌘E", .goBack: "⌘[", .goForward: "⌘]", .nextTab: "⌃⇥",
             .previousTab: "⌃⇧⇥", .goToTab1: "⌘1", .goToTab8: "⌘8", .goToLastTab: "⌘9", .increaseFontSize: "⌘+", .decreaseFontSize: "⌘-",
             .resetFontSize: "⌘0", .toggleBold: "⌘B", .toggleItalics: "⌘I", .toggleChecklist: "⌘L", .insertLink: "⌘K", .toggleHighlight: "⇧⌘H",
             .toggleStrikethrough: "⇧⌘X", .toggleCode: "⌃⌘C", .toggleComment: "⌘/", .findInNote: "⌘F", .findAndReplaceInNote: "⌥⌘F",
@@ -36,6 +36,22 @@ final class GraphiteCommandTests: XCTestCase {
             .openLinkInNewTab: "⌘↩", .openLinkOnOtherSide: "⌥⌘↩", .canvasSelectAll: "⌘A", .canvasDeleteSelection: "⌫", .canvasDuplicateSelection: "⌘D",
         ]
         for (command, shortcut) in expected { XCTAssertEqual(symbols(command), [shortcut], command.identifier) }
+    }
+
+    func testCommandPPrintsOnTheMacAndOpensTheCommandPaletteOnTheIPad() {
+        let table = KeyboardShortcutTable(commands: GraphiteCommand.allCases.map(\.defaults), file: HotkeyFile())
+        func symbols(_ command: GraphiteCommand) -> [String] { table.combinations(for: command.identifier).map(\.symbols) }
+        switch ShortcutPlatform.current {
+        case .macOS:
+            XCTAssertEqual(symbols(.printNote), ["⌘P"])
+            XCTAssertEqual(symbols(.commandPalette), ["⇧⌘P"])
+        case .iPadOS:
+            XCTAssertEqual(symbols(.printNote), [])
+            XCTAssertEqual(symbols(.commandPalette), ["⌘P"])
+        }
+        XCTAssertEqual(GraphiteCommand.exportToPDF.identifier, "workspace:export-pdf", "Obsidian's identifier, so its hotkeys.json entry applies.")
+        XCTAssertEqual(GraphiteCommand.exportToPDF.macMenuTitles, ["Export as PDF…"])
+        XCTAssertEqual(GraphiteCommand.printNote.macMenuTitles, ["Print…"])
     }
 
     func testEveryCommandIsBoundWhereItsShortcutIsListenedFor() {
