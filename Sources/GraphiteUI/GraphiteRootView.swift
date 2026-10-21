@@ -21,6 +21,9 @@ struct GraphiteRootView: View {
     /// What the window was opened to show, which the system keeps with it; this view keeps it
     /// at the vault it shows, so a relaunch opens the window there.
     @Binding private var windowContent: GraphiteWindowContent?
+    /// The window's tabs (`WindowTabs`), which the system keeps with the window, so each
+    /// window shows its own tabs again after a relaunch.
+    @SceneStorage("GraphiteWindowTabs") private var keptWindowTabs: Data?
     /// False for a hosted-tests launch, which opens no vault of its own (`LaunchMode`).
     private let restoresLastVault: Bool
     /// False for a hosted-tests launch, which never opens the welcome tour by itself.
@@ -263,6 +266,8 @@ struct GraphiteRootView: View {
         .onOpenURL { url in
             if isVaultRestored { Task { await workspace.handle(url) } } else { pendingLinks.append(url) }
         }
+        // The scene keeps the window's tabs, for its own restoration after a relaunch.
+        .onChange(of: workspace.layout.saved) { keptWindowTabs = workspace.windowTabsToKeep() }
         #if os(macOS)
         .onChange(of: controlActiveState, initial: true) { _, state in
             if state == .key { frontmostWindow?.workspace = workspace }
@@ -294,7 +299,9 @@ struct GraphiteRootView: View {
     /// used last; from then on the window's content follows the vault it shows.
     private func openVaultOfWindow() async {
         if let windowContent, let vaultIdentifier = windowContent.vaultIdentifier {
-            await workspace.openVaultOfWindow(vaultIdentifier, restoresTabs: !windowContent.opensFreshTabs, showing: windowContent.file)
+            let tabs: WindowTabsToRestore = windowContent.opensFreshTabs ? .none
+                : WindowTabs.layout(in: keptWindowTabs, forVault: vaultIdentifier).map(WindowTabsToRestore.window) ?? .vaultsLast
+            await workspace.openVaultOfWindow(vaultIdentifier, tabs: tabs, showing: windowContent.file)
         } else {
             await workspace.restoreVault()
         }

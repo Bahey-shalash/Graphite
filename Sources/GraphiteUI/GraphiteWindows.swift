@@ -147,7 +147,7 @@ public struct GraphiteWindowScene: View {
                     guard let content = GraphiteWindowContent(activity: activity), let vaultIdentifier = content.vaultIdentifier else { return }
                     windowContent = content
                     Task {
-                        await workspace.openVaultOfWindow(vaultIdentifier, restoresTabs: false, showing: content.file)
+                        await workspace.openVaultOfWindow(vaultIdentifier, tabs: .none, showing: content.file)
                     }
                 }
                 .onChange(of: workspace.newWindowRequest) { _, request in
