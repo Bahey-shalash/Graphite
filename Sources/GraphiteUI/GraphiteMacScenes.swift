@@ -32,7 +32,7 @@ public struct GraphiteMacScenes: Scene {
         }
             .defaultSize(width: 1200, height: 820)
             .commands {
-                GraphiteCommands()
+                GraphiteCommands(keyboardShortcutsOutsideFocus: settingsWorkspace.keyboardShortcuts)
                 GuideCommands()
                 WindowCommands()
             }
