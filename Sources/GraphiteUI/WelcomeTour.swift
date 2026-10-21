@@ -65,7 +65,8 @@ struct WelcomeTour: View {
             }
             .scrollTargetBehavior(.paging)
             .scrollPosition(id: $visiblePage)
-            .scrollIndicators(.hidden)
+            // `.hidden` still shows a scroller on a Mac set to always show scroll bars.
+            .scrollIndicators(.never)
             footer
         }
         .overlay(alignment: .topTrailing) {
