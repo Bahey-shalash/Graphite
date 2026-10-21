@@ -44,7 +44,7 @@ let package = Package(
         // The babbling clip is a real Qwen3-TTS rendering, to test the checks on real audio.
         .testTarget(name: "GraphiteCoreTests", dependencies: ["GraphiteCore", "GraphiteTestSupport", "GraphiteFixtures"], resources: [.copy("Resources/QwenBabbling.m4a")]),
         .testTarget(name: "GraphiteIndexTests", dependencies: ["GraphiteIndex", "GraphiteBenchmarks", "GraphiteTestSupport", "GraphiteFixtures"]),
-        .testTarget(name: "GraphiteAppleTests", dependencies: ["GraphiteApple", "GraphiteTestSupport"]),
+        .testTarget(name: "GraphiteAppleTests", dependencies: ["GraphiteApple", "GraphiteTestSupport", "GraphiteFixtures"]),
         .testTarget(name: "GraphiteUITests", dependencies: ["GraphiteUI", "GraphiteTestSupport", .product(name: "Textual", package: "textual")])
     ]
 )

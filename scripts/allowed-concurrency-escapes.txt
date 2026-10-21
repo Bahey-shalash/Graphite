@@ -16,7 +16,9 @@ Sources/GraphiteApple/CameraCaptureSource.swift        CameraCaptureSource      
 Sources/GraphiteApple/FolderAccess.swift               VaultMonitor             # mutex around the state, immutable callbacks
 Sources/GraphiteApple/MainThreadWatchdog.swift         MetricKitDiagnostics     # no state
 Sources/GraphiteApple/MainThreadWatchdog.swift         MainThreadWatchdog       # lock around the state, set-once fields
-Sources/GraphiteApple/PDFPicture.swift                 PDFPictureDrawingDelegate # no state
+Sources/GraphiteApple/PDFAnnotationDrawingDelegate.swift PDFAnnotationDrawingDelegate # no state
+Sources/GraphiteApple/PDFAnnotationDrawingDelegate.swift PDFWrittenDocumentDelegate # no state
+Sources/GraphiteApple/PDFTextBoxLayout.swift            PDFTextBoxLayout # immutable Core Foundation objects and values
 Sources/GraphiteApple/ReadAloudSpeech.swift            SpeechCallbackIdentity   # retains only; never reads the wrapped object off the main actor
 Sources/GraphiteApple/RecordingController.swift        StartedRecorder          # handed once to the main actor
 Sources/GraphiteApple/VideoRecording.swift             VideoRecording           # confined to one serial queue

@@ -24,6 +24,17 @@ import ImageIO
 /// it is, so only the image's own object is replaced. The copy of the picture's bytes PDFKit puts
 /// in its own markup data is removed too (see `PictureMarkupCopyRemoval`).
 ///
+/// PDFKit does not write a `/FreeText` annotation's rich text `/RC`, so Graphite's text
+/// boxes keep theirs under `PDFPageManager.textBoxRichTextKey`; here that key is renamed
+/// `/RC`, the standard key every reader takes rich text from, and Apple's markup copy of
+/// the box is left out (`TextBoxRichTextPromotion`).
+///
+/// PDFKit writes the font a text box's appearance embeds without its stream's `/Length`
+/// when the document was read from a file (seen with PDFKit on macOS 27, for its own
+/// `/FreeText` as for Graphite's); readers that need the length, Ghostscript among them,
+/// then draw the text in another font. Such a stream is given its length
+/// (`StreamLengthRepair`).
+///
 /// Only the single-section, uncompressed cross-reference table PDFKit writes is
 /// understood. Anything else (an incremental update, a cross-reference stream, an
 /// encrypted file, a syntax error) leaves the file as PDFKit wrote it.
@@ -35,6 +46,10 @@ public enum PDFObjectCompaction {
         public let picturesStoredAsJPEG: Int
         /// Pictures whose bytes PDFKit had also copied into its own markup data.
         public let pictureMarkupCopiesRemoved: Int
+        /// Text boxes whose rich text was given its standard key, `/RC`.
+        public let textBoxRichTextsNamed: Int
+        /// Streams PDFKit wrote without `/Length`, given theirs (`StreamLengthRepair`).
+        public let streamLengthsRepaired: Int
     }
 
     /// Writes the compacted PDF to `destination` and reports what changed. Returns nil, and
@@ -182,8 +197,27 @@ private struct CompactionPlanner {
         let generation: Int
         let range: Range<Int>
         let references: [Int]
-        /// Whether the object is a dictionary with a Graphite picture's bytes.
-        let isPictureCandidate: Bool
+        let candidacy: Candidacy
+    }
+
+    /// What an object may be rewritten for, found as it is read.
+    private struct Candidacy: OptionSet {
+        let rawValue: Int
+        /// A dictionary with a Graphite picture's bytes.
+        static let picture = Candidacy(rawValue: 1 << 0)
+        /// A `/FreeText` with a Graphite text box's rich text, or a `/DA` written as a name.
+        static let freeText = Candidacy(rawValue: 1 << 1)
+        /// A stream whose dictionary has no `/Length`.
+        static let streamWithoutLength = Candidacy(rawValue: 1 << 2)
+    }
+
+    private static func candidacy(of value: PDFSyntaxValue, isStream: Bool) -> Candidacy {
+        guard case .dictionary(let dictionary) = value else { return [] }
+        var candidacy: Candidacy = []
+        if PictureStorage.storedImage(in: dictionary) != nil { candidacy.insert(.picture) }
+        if TextBoxRichTextPromotion.needsRepair(dictionary) { candidacy.insert(.freeText) }
+        if isStream, dictionary.entries["Length"] == nil { candidacy.insert(.streamWithoutLength) }
+        return candidacy
     }
 
     /// The most objects or cross-reference entries read, bounding memory for a damaged file.
@@ -234,22 +268,22 @@ private struct CompactionPlanner {
             scanner.position = entry.offset
             // Each entry must point at its own object's header.
             guard scanner.readUnsignedInteger() == number, scanner.readUnsignedInteger() == entry.generation, scanner.readKeyword() == "obj",
-                  let value = scanner.readValue(), scanner.position <= end else { return nil }
+                  let value = scanner.readObjectValue(), scanner.position <= end else { return nil }
             var references: [Int] = []
             value.collectReferences(into: &references)
-            var isPictureCandidate = false
-            if case .dictionary(let dictionary) = value { isPictureCandidate = PictureStorage.storedImage(in: dictionary) != nil }
             objects[number] = SourceObject(generation: entry.generation, range: entry.offset..<end, references: references,
-                                           isPictureCandidate: isPictureCandidate)
+                                           candidacy: Self.candidacy(of: value, isStream: scanner.streamDataStart(before: end) != nil))
         }
 
         var trailerReferences: [Int] = []
         PDFSyntaxValue.dictionary(trailer).collectReferences(into: &trailerReferences)
         var reachable = Self.reachableNumbers(from: trailerReferences) { number in objects[number]?.references ?? [] }
-        let pictureCandidates = reachable.filter { number in objects[number]?.isPictureCandidate == true }
+        let candidates = { (candidacy: Candidacy) in reachable.filter { number in objects[number]?.candidacy.contains(candidacy) == true } }
         let objectLocations = { (number: Int) in objects[number].map { object in (generation: object.generation, range: object.range) } }
-        let pictureImages = PictureImageReplacement.find(in: pictureCandidates, objects: objectLocations, bytes: bytes)
-        let picturesWithoutMarkupCopy = PictureMarkupCopyRemoval.find(in: pictureCandidates, objects: objectLocations, bytes: bytes)
+        let pictureImages = PictureImageReplacement.find(in: candidates(.picture), objects: objectLocations, bytes: bytes)
+        let picturesWithoutMarkupCopy = PictureMarkupCopyRemoval.find(in: candidates(.picture), objects: objectLocations, bytes: bytes)
+        let textBoxes = TextBoxRichTextPromotion.find(in: candidates(.freeText), objects: objectLocations, bytes: bytes)
+        let repairedStreams = StreamLengthRepair.find(in: candidates(.streamWithoutLength), objects: objectLocations, bytes: bytes)
         if !pictureImages.isEmpty {
             // A picture image written as its JPEG no longer refers to its soft mask.
             reachable = Self.reachableNumbers(from: trailerReferences) { number in
@@ -257,7 +291,10 @@ private struct CompactionPlanner {
             }
         }
         let removedNumbers = objects.keys.filter { number in !reachable.contains(number) }
-        guard !removedNumbers.isEmpty || !pictureImages.isEmpty || !picturesWithoutMarkupCopy.isEmpty else { return nil }
+        guard !removedNumbers.isEmpty || !pictureImages.isEmpty || !picturesWithoutMarkupCopy.isEmpty || !textBoxes.replacements.isEmpty
+                || !repairedStreams.isEmpty else {
+            return nil
+        }
 
         var freeGenerations: [Int: Int] = [:]
         for (number, entry) in entries where !entry.inUse { freeGenerations[number] = entry.generation }
@@ -265,14 +302,16 @@ private struct CompactionPlanner {
         let keptObjects = orderedNumbers.filter(reachable.contains).compactMap { number -> CompactionPlan.KeptObject? in
             guard let object = objects[number] else { return nil }
             return CompactionPlan.KeptObject(number: number, generation: object.generation, sourceRange: object.range,
-                                             replacement: pictureImages[number]?.objectBytes ?? picturesWithoutMarkupCopy[number])
+                                             replacement: pictureImages[number]?.objectBytes ?? picturesWithoutMarkupCopy[number] ?? textBoxes.replacements[number]
+                                                ?? repairedStreams[number])
         }
         let removedByteCount = removedNumbers.reduce(0) { total, number in total + (objects[number]?.range.count ?? 0) }
         let headerEnd = inUseEntries[firstNumber]!.offset
         return CompactionPlan(headerRange: 0..<headerEnd, keptObjects: keptObjects, crossReferenceSize: crossReferenceSize,
                               freeGenerations: freeGenerations, trailerDictionaryRange: trailerRange,
                               report: .init(removedObjectCount: removedNumbers.count, removedByteCount: removedByteCount,
-                                            picturesStoredAsJPEG: pictureImages.count, pictureMarkupCopiesRemoved: picturesWithoutMarkupCopy.count))
+                                            picturesStoredAsJPEG: pictureImages.count, pictureMarkupCopiesRemoved: picturesWithoutMarkupCopy.count,
+                                            textBoxRichTextsNamed: textBoxes.richTextsNamed, streamLengthsRepaired: repairedStreams.count))
     }
 
     private static func reachableNumbers(from roots: [Int], references: (Int) -> [Int]) -> Set<Int> {
@@ -489,7 +528,7 @@ private enum PictureMarkupCopyRemoval {
 
 /// A PDF value as far as compaction needs it: strings keep their decoded bytes, numbers
 /// that are not integers are not kept.
-private indirect enum PDFSyntaxValue: Equatable {
+indirect enum PDFSyntaxValue: Equatable {
     case integer(Int)
     case otherNumber
     case boolean(Bool)
@@ -511,7 +550,7 @@ private indirect enum PDFSyntaxValue: Equatable {
     }
 }
 
-private struct PDFSyntaxDictionary: Equatable {
+struct PDFSyntaxDictionary: Equatable {
     var entries: [String: PDFSyntaxValue] = [:]
     /// Where each value's text is in the file.
     var sourceRanges: [String: Range<Int>] = [:]
@@ -520,7 +559,7 @@ private struct PDFSyntaxDictionary: Equatable {
 }
 
 /// Reads PDF tokens and values from the file's bytes (ISO 32000-1, section 7.2 and 7.3).
-private struct PDFSyntaxScanner {
+struct PDFSyntaxScanner {
     /// Arrays and dictionaries nested deeper than this are refused, so a damaged file
     /// cannot exhaust the stack.
     private static let maximumNesting = 256
@@ -592,6 +631,17 @@ private struct PDFSyntaxScanner {
         if scanner.position < end, bytes[scanner.position] == 0x0D { scanner.position += 1 }
         if scanner.position < end, bytes[scanner.position] == 0x0A { scanner.position += 1 }
         return scanner.position
+    }
+
+    /// The value of an object after its `obj` keyword; an object with no value, which PDFKit
+    /// writes for an empty stream it read (`4 0 obj endobj`), is null, as the standard reads it.
+    mutating func readObjectValue() -> PDFSyntaxValue? {
+        let start = position
+        if let value = readValue() { return value }
+        position = start
+        guard readKeyword() == "endobj" else { return nil }
+        position = start
+        return .null
     }
 
     mutating func readValue(nesting: Int = 0) -> PDFSyntaxValue? {
