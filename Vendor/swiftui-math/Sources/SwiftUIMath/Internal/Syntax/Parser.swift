@@ -399,6 +399,9 @@ extension Math {
         } else if spacesAllowed && char == " " {
           // If spaces are allowed then spaces do not need escaping with a \ before being used.
           atom = AtomFactory.atom(forLatexSymbol: " ")
+        } else if spacesAllowed && currentFontStyle == .roman && char == "-" {
+          // Graphite patch: a hyphen in \text is a hyphen, not a minus sign with spaces.
+          atom = Atom(type: .ordinary, nucleus: "-")
         } else {
           atom = AtomFactory.atom(forCharacter: char)
           if atom == nil {
@@ -564,6 +567,11 @@ extension Math {
             if let underline = atom as? Underline {
               str += "\\underline"
               str += "{\(atomListToString(underline.innerList!))}"
+            }
+          } else if atom.type == .horizontalBrace {
+            if let brace = atom as? HorizontalBrace {
+              str += brace.isOver ? "\\overbrace" : "\\underbrace"
+              str += "{\(atomListToString(brace.innerList!))}"
             }
           } else if atom.type == .accent {
             if let accent = atom as? Accent {
@@ -758,6 +766,11 @@ extension Math {
         let under = Underline()
         under.innerList = self.buildInternal(true)
         return under
+      } else if command == "underbrace" || command == "overbrace" {
+        // Graphite patch: one argument; the label follows as the atom's script.
+        let brace = HorizontalBrace(isOver: command == "overbrace")
+        brace.innerList = self.buildInternal(true)
+        return brace
       } else if command == "substack" {
         // \substack reads ONE braced argument containing rows separated by \\
         // Similar to how \frac reads {numerator}{denominator}

@@ -1,3 +1,15 @@
+/**
+ * File: QuickPalette.swift
+ * ------------------------
+ * Layer: UI
+ * Description: The quick switcher, the command palette and the template picker: a search field over a list of
+ *              matches, drawn over the document and beside a display's fold.
+ *
+ * Authors: Bahey Shalash
+ * Version: 0.6
+ * Date: 21/10/2026
+ */
+
 import SwiftUI
 import GraphiteCore
 import GraphiteIndex
@@ -207,6 +219,7 @@ struct PaletteOverlay<Palette: View>: View {
             Color.black.opacity(0.2).ignoresSafeArea().onTapGesture(perform: close)
             // Just under the navigation bar on a phone, leaving room above the keyboard.
             palette.padding(.horizontal, horizontalSizeClass == .compact ? 10 : 16).padding(.top, horizontalSizeClass == .compact ? 8 : 70)
+                .placedBesideDisplayFold(alignment: .top)
         }
         .transition(.opacity)
     }
@@ -321,11 +334,42 @@ extension DocumentKind {
 
 /// An action the command palette offers, like Obsidian's commands.
 struct PaletteCommand: Identifiable {
+    /// The identifier the recent commands keep.
     let id: String
+    /// The identifier of the command in the shortcut tables (`GraphiteCommand`, or a plugin's
+    /// command); nil for a command that has no shortcut.
+    let shortcutCommandIdentifier: String?
     let title: String
     let systemImage: String
-    var shortcut: String?
+    /// The shortcut the vault gives the command, shown beside it.
+    private(set) var shortcutCombination: KeyCombination?
     let run: () -> Void
+
+    init(id: String, shortcutCommandIdentifier: String? = nil, title: String, systemImage: String, run: @escaping () -> Void) {
+        self.id = id
+        self.shortcutCommandIdentifier = shortcutCommandIdentifier
+        self.title = title
+        self.systemImage = systemImage
+        self.run = run
+    }
+
+    init(id: String, command: GraphiteCommand?, title: String, systemImage: String, run: @escaping () -> Void) {
+        self.init(id: id, shortcutCommandIdentifier: command?.identifier, title: title, systemImage: systemImage, run: run)
+    }
+
+    /// A command titled as the list of commands titles it.
+    init(id: String, command: GraphiteCommand, systemImage: String, run: @escaping () -> Void) {
+        self.init(id: id, shortcutCommandIdentifier: command.identifier, title: command.title, systemImage: systemImage, run: run)
+    }
+
+    var shortcut: String? { shortcutCombination?.symbols }
+
+    /// The command with the first shortcut the table gives it.
+    func showingShortcut(from table: KeyboardShortcutTable) -> PaletteCommand {
+        var command = self
+        command.shortcutCombination = shortcutCommandIdentifier.flatMap { identifier in table.combinations(for: identifier).first }
+        return command
+    }
 }
 
 /// Obsidian's command palette: every command, found by a few letters of its name.

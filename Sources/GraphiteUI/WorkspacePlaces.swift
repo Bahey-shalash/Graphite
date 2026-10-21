@@ -12,11 +12,11 @@ extension WorkspaceModel {
     private var placeMemory: DocumentPlaceMemory {
         get {
             guard let currentVaultIdentifier else { return DocumentPlaceMemory() }
-            return documentPlaceStore.memory(forVault: currentVaultIdentifier)
+            return processServices.documentPlaceStore.memory(forVault: currentVaultIdentifier)
         }
         set {
             guard let currentVaultIdentifier else { return }
-            documentPlaceStore.update(newValue, forVault: currentVaultIdentifier)
+            processServices.documentPlaceStore.update(newValue, forVault: currentVaultIdentifier)
         }
     }
 
@@ -73,12 +73,10 @@ extension WorkspaceModel {
 
 /// Where documents were left, for each vault: read from the device's preferences once per
 /// vault, then kept in memory and written back only when it changes. Every workspace of the
-/// app shares one store (`shared`), so two windows on one vault do not overwrite each
-/// other's places with copies read earlier.
+/// app shares one store (`ProcessServices.documentPlaceStore`), so two windows on one vault
+/// do not overwrite each other's places with copies read earlier.
 @MainActor
 final class DocumentPlaceStore {
-    static let shared = DocumentPlaceStore(defaults: .standard)
-
     private let defaults: UserDefaults
     private var memories: [UUID: DocumentPlaceMemory] = [:]
 

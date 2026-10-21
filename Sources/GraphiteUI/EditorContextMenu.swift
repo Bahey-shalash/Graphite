@@ -172,8 +172,8 @@ enum ParagraphEditing {
         let replacement: String
     }
 
-    private static let headingMarksPattern = try? NSRegularExpression(pattern: "^( {0,3})#{1,6}(?:[ \\t]+|$)")
-    private static let quoteMarkPattern = try? NSRegularExpression(pattern: "^( {0,3})> ?")
+    private static let headingMarksPattern = ParagraphEditingPattern.headingMarksPattern.compiled()
+    private static let quoteMarkPattern = ParagraphEditingPattern.quoteMarkPattern.compiled()
 
     /// Makes the selected heading lines plain paragraphs (Obsidian's Body); other lines stay
     /// as they are. Nil when no selected line is a heading.
@@ -198,8 +198,8 @@ enum ParagraphEditing {
     }
 
     /// The change that removes a line's leading marks, keeping the indentation before them.
-    private static func markRemoval(of pattern: NSRegularExpression?, in line: String) -> LineChange? {
-        guard let match = pattern?.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) else { return nil }
+    private static func markRemoval(of pattern: NSRegularExpression, in line: String) -> LineChange? {
+        guard let match = pattern.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) else { return nil }
         let indentationLength = match.range(at: 1).length
         return LineChange(range: NSRange(location: indentationLength, length: match.range.length - indentationLength), replacement: "")
     }
@@ -387,3 +387,9 @@ extension NSMenu {
     }
 }
 #endif
+
+/// The constant patterns of `ParagraphEditing`; `StaticPatternTests` compiles every case.
+enum ParagraphEditingPattern: String, StaticPatternSet {
+    case headingMarksPattern = #"^( {0,3})#{1,6}(?:[ \t]+|$)"#
+    case quoteMarkPattern = "^( {0,3})> ?"
+}

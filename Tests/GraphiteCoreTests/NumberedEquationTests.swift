@@ -97,10 +97,10 @@ final class NumberedEquationTests: XCTestCase {
     func testDisplayFormulaWithANumberKeepsItsSourceBetweenMarkers() throws {
         for markdown in ["$$\nE = mc^2 \\tag{1}\n$$", "$$E = mc^2 \\tag{1}$$", "$$\n\\begin{align}\na &= b \\tag{1} \\\\\nc &= d \\tag{2}\n\\end{align}\n$$"] {
             let prepared = ObsidianInlineMarkup.preparedForReading(markdown, colorsEnabled: true, paletteHexByName: [:])
-            XCTAssertTrue(prepared.hasPrefix(String(ObsidianInlineMarkup.numberedEquationStartMarker)), markdown)
+            XCTAssertTrue(prepared.hasPrefix(String(ReadingMarkers.numberedEquationStartMarker)), markdown)
             XCTAssertFalse(prepared.contains("$$"))
             // Soft line breaks add spaces after the line; the formula is still all of the text.
-            let equation = try XCTUnwrap(ObsidianInlineMarkup.numberedEquation(aloneIn: ObsidianPreviewText.applyingSoftLineBreaks(to: prepared)), markdown)
+            let equation = try XCTUnwrap(ReadingMathPreparation.numberedEquation(aloneIn: ObsidianPreviewText.applyingSoftLineBreaks(to: prepared)), markdown)
             let latex = markdown.replacingOccurrences(of: "$$", with: "").trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\n", with: " ")
             XCTAssertEqual(equation, LaTeXCompatibility.numberedEquation(latex), markdown)
         }
@@ -119,9 +119,9 @@ final class NumberedEquationTests: XCTestCase {
 
     func testNumberedFormulaAmongOtherTextIsNotAloneAndTakesItsNumberInline() throws {
         let prepared = ObsidianInlineMarkup.preparedForReading("- item\n  $$\n  x^2 \\tag{1}\n  $$", colorsEnabled: false, paletteHexByName: [:])
-        XCTAssertNil(ObsidianInlineMarkup.numberedEquation(aloneIn: prepared))
-        let inlined = ObsidianInlineMarkup.inliningEquationNumbers(in: prepared)
-        XCTAssertFalse(inlined.contains(ObsidianInlineMarkup.numberedEquationStartMarker))
+        XCTAssertNil(ReadingMathPreparation.numberedEquation(aloneIn: prepared))
+        let inlined = ReadingMathPreparation.inliningEquationNumbers(in: prepared)
+        XCTAssertFalse(inlined.contains(ReadingMarkers.numberedEquationStartMarker))
         XCTAssertTrue(inlined.contains("$$ x\\^2  \\\\qquad \\\\text\\{\\(\\}\\\\text\\{1\\}\\\\text\\{\\)\\} $$"), inlined)
     }
 
@@ -132,7 +132,7 @@ final class NumberedEquationTests: XCTestCase {
 
     func testMarkerCharactersWrittenInANoteAreNotReadAsAFormula() {
         let prepared = ObsidianInlineMarkup.preparedForReading("\u{E00A}x \\tag{1}\u{E00B}", colorsEnabled: false, paletteHexByName: [:])
-        XCTAssertNil(ObsidianInlineMarkup.numberedEquation(aloneIn: prepared))
-        XCTAssertEqual(prepared, "\u{FFFD}x \\tag{1}\u{FFFD}")
+        XCTAssertNil(ReadingMathPreparation.numberedEquation(aloneIn: prepared))
+        XCTAssertEqual(prepared, "\u{E009}\u{E01A}x \\tag{1}\u{E009}\u{E01B}")
     }
 }

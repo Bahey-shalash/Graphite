@@ -218,7 +218,7 @@ public struct ReadAloudPronunciations: Equatable, Sendable {
             && (characters[characters.count - 2].isUppercase || characters[characters.count - 2].isNumber)
         if isPlural, let singular = pronunciation(of: String(word.dropLast()), context: context) { return singular.plural() }
         let length = (word as NSString).length
-        if let match = Self.lettersAndNumber?.firstMatch(in: word, range: NSRange(location: 0, length: length)) {
+        if let match = Self.lettersAndNumber.firstMatch(in: word, range: NSRange(location: 0, length: length)) {
             let letters = (word as NSString).substring(with: match.range(at: 1))
             let number = (word as NSString).substring(with: match.range(at: 2))
             let lettersSaid = pronunciation(of: letters, context: context)?.say ?? letters
@@ -237,7 +237,7 @@ public struct ReadAloudPronunciations: Equatable, Sendable {
     }
 
     /// "DDR4", "NAND2", "L2", "FO4": capitals followed by a number.
-    private static let lettersAndNumber = try? NSRegularExpression(pattern: #"^([A-Z]{1,8})([0-9]{1,3})$"#)
+    private static let lettersAndNumber = ReadAloudPronunciationsPattern.lettersAndNumber.compiled()
 
     // MARK: Replacements
 
@@ -259,14 +259,14 @@ public struct ReadAloudPronunciations: Equatable, Sendable {
             found.append(Replacement(range: range, speech: speech, phoneticNotation: usesPhoneticNotation ? phonetic : nil))
         }
         // Units first, so "5 mA" is milliamps rather than a word "mA".
-        for match in Self.numberWithUnit?.matches(in: text, range: fullRange) ?? [] {
+        for match in Self.numberWithUnit.matches(in: text, range: fullRange) {
             let number = source.substring(with: match.range(at: 1))
             let unitRange = match.range(at: 3)
             guard let unit = Self.units[source.substring(with: unitRange)] else { continue }
             let spacing = match.range(at: 2).length == 0 ? " " : ""
             add(unitRange, spacing + (number == "1" ? unit.singular : unit.plural))
         }
-        for match in Self.proseSubscript?.matches(in: text, range: fullRange) ?? [] {
+        for match in Self.proseSubscript.matches(in: text, range: fullRange) {
             let base = source.substring(with: match.range(at: 1))
             let subscriptRange = match.range(at: 2).location != NSNotFound ? match.range(at: 2) : match.range(at: 3)
             let subscriptText = source.substring(with: subscriptRange)
@@ -275,7 +275,7 @@ public struct ReadAloudPronunciations: Equatable, Sendable {
                   let said = Self.subscriptSpeech(subscriptText) else { continue }
             add(match.range, base + " " + said)
         }
-        for match in Self.word?.matches(in: text, range: fullRange) ?? [] {
+        for match in Self.word.matches(in: text, range: fullRange) {
             let word = source.substring(with: match.range)
             let contextStart = max(0, match.range.location - 80)
             let contextRange = NSRange(location: contextStart, length: min(source.length, NSMaxRange(match.range) + 80) - contextStart)
@@ -283,7 +283,7 @@ public struct ReadAloudPronunciations: Equatable, Sendable {
                   pronunciation.say != word else { continue }
             add(match.range, pronunciation.say, phonetic: pronunciation.ipa)
         }
-        for match in Self.symbol?.matches(in: text, range: fullRange) ?? [] {
+        for match in Self.symbol.matches(in: text, range: fullRange) {
             let before = match.range.location == 0 || Self.isSpace(source.character(at: match.range.location - 1))
             let after = NSMaxRange(match.range) >= source.length || Self.isSpace(source.character(at: NSMaxRange(match.range)))
             guard let said = Self.symbolSpeech(source.substring(with: match.range), isSurroundedBySpace: before && after) else { continue }
@@ -293,7 +293,7 @@ public struct ReadAloudPronunciations: Equatable, Sendable {
     }
 
     /// Words, including "RISC-V", "x86-64", "SoC", "nMOS" and "DDR4".
-    private static let word = try? NSRegularExpression(pattern: #"(?<![\p{L}\p{N}_])(?:RISC-V|x86(?:-64)?|[A-Za-z][A-Za-z0-9]*)(?![\p{L}\p{N}_])"#)
+    private static let word = ReadAloudPronunciationsPattern.word.compiled()
 
     private static func isSpace(_ unit: unichar) -> Bool { unit == 32 || unit == 9 || unit == 10 || unit == 160 }
 
@@ -335,16 +335,13 @@ public struct ReadAloudPronunciations: Equatable, Sendable {
         "mm²": unit("square millimeter"), "µm²": unit("square micrometer"), "μm²": unit("square micrometer"), "nm²": unit("square nanometer")
     ]
 
-    private static let numberWithUnit: NSRegularExpression? = {
-        let symbols = units.keys.sorted { first, second in first.count > second.count }
-            .map(NSRegularExpression.escapedPattern(for:)).joined(separator: "|")
-        return try? NSRegularExpression(pattern: #"(?<![\p{L}\p{N}.])([0-9]+(?:[.,][0-9]+)?)(\s?)("# + symbols + #")(?![\p{L}\p{N}])"#)
-    }()
+    /// A number followed by one of `units`, longest symbol first.
+    private static let numberWithUnit = ReadAloudPronunciationsPattern.numberWithUnit.compiled()
 
     // MARK: Subscripts
 
     /// "V_DD", "V_{th}", "t_pd", "I_D" in prose, outside $…$.
-    private static let proseSubscript = try? NSRegularExpression(pattern: #"(?<![\p{L}\p{N}_\\])([A-Za-z])_(?:\{([A-Za-z0-9]{1,5})\}|([A-Za-z0-9]{1,5}))(?![\p{L}\p{N}_])"#)
+    private static let proseSubscript = ReadAloudPronunciationsPattern.proseSubscript.compiled()
 
     /// Subscripts said as words; other subscripts of capitals, or of up to two lowercase letters,
     /// are spelled ("D D", "G S", "p d"), and digits are said as numbers.
@@ -374,7 +371,7 @@ public struct ReadAloudPronunciations: Equatable, Sendable {
     public static func singleSubscriptedSymbol(_ expression: String) -> String? {
         let trimmed = expression.trimmingCharacters(in: .whitespaces)
         let source = trimmed as NSString
-        guard let match = singleSymbol?.firstMatch(in: trimmed, range: NSRange(location: 0, length: source.length)) else { return nil }
+        guard let match = singleSymbol.firstMatch(in: trimmed, range: NSRange(location: 0, length: source.length)) else { return nil }
         let base = source.substring(with: match.range(at: 1))
         let subscriptRange = match.range(at: 2).location != NSNotFound ? match.range(at: 2) : match.range(at: 3)
         let subscriptText = source.substring(with: subscriptRange)
@@ -382,11 +379,11 @@ public struct ReadAloudPronunciations: Equatable, Sendable {
         return base + " " + said
     }
 
-    private static let singleSymbol = try? NSRegularExpression(pattern: #"^([A-Za-z])_(?:\{(?:\\(?:mathrm|text|rm)\{)?([A-Za-z0-9]{1,5})\}?\}|([A-Za-z0-9]))$"#)
+    private static let singleSymbol = ReadAloudPronunciationsPattern.singleSymbol.compiled()
 
     // MARK: Symbols
 
-    private static let symbol = try? NSRegularExpression(pattern: #"[→←⇒⇐↔≈≤≥≠×±∝∞·√Δ∆]"#)
+    private static let symbol = ReadAloudPronunciationsPattern.symbol.compiled()
 
     static func symbolSpeech(_ symbol: String, isSurroundedBySpace: Bool) -> String? {
         switch symbol {
@@ -410,4 +407,16 @@ public struct ReadAloudPronunciations: Equatable, Sendable {
         default: nil
         }
     }
+}
+
+/// The constant patterns of `ReadAloudPronunciations`; `StaticPatternTests` compiles every case.
+enum ReadAloudPronunciationsPattern: String, StaticPatternSet {
+    /// Spells out the keys of `ReadAloudPronunciations.units`, longest first and escaped
+    /// (`NSRegularExpression.escapedPattern`); `StaticPatternTests` checks that the two agree.
+    case numberWithUnit = #"(?<![\p{L}\p{N}.])([0-9]+(?:[.,][0-9]+)?)(\s?)(GB\/s|Gb\/s|MB\/s|bits|GHz|GiB|KiB|MHz|MiB|THz|bit|dBm|kHz|meV|mm²|nm²|µm²|μm²|GB|Gb|GΩ|Hz|KB|Kb|MB|Mb|MΩ|TB|aF|aJ|cm|dB|eV|fF|fJ|fs|kB|kV|kW|kb|km|kΩ|mA|mV|mW|mm|ms|nA|nF|nJ|nW|nm|ns|pA|pF|pJ|pm|ps|um|us|°C|µA|µF|µJ|µV|µW|µm|µs|μA|μF|μV|μW|μm|μs|A|B|F|J|K|V|W|s|Ω)(?![\p{L}\p{N}])"#
+    case lettersAndNumber = "^([A-Z]{1,8})([0-9]{1,3})$"
+    case word = #"(?<![\p{L}\p{N}_])(?:RISC-V|x86(?:-64)?|[A-Za-z][A-Za-z0-9]*)(?![\p{L}\p{N}_])"#
+    case proseSubscript = #"(?<![\p{L}\p{N}_\\])([A-Za-z])_(?:\{([A-Za-z0-9]{1,5})\}|([A-Za-z0-9]{1,5}))(?![\p{L}\p{N}_])"#
+    case singleSymbol = #"^([A-Za-z])_(?:\{(?:\\(?:mathrm|text|rm)\{)?([A-Za-z0-9]{1,5})\}?\}|([A-Za-z0-9]))$"#
+    case symbol = "[→←⇒⇐↔≈≤≥≠×±∝∞·√Δ∆]"
 }

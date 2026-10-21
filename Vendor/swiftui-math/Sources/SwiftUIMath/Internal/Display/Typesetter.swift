@@ -65,7 +65,7 @@ func getInterElementSpaceArrayIndexForType(_ type: Math.AtomType, row: Bool) -> 
   case .number, .variable, .unaryOperator:
     return 0
   // Decorative types (accent, underline, overline) are treated as ordinary
-  case .accent, .underline, .overline:
+  case .accent, .underline, .overline, .horizontalBrace:
     return 0
   // Special types that don't typically participate in spacing are treated as ordinary
   case .boundary, .space, .style, .table:
@@ -741,8 +741,9 @@ extension Math {
       // No breaking if no width constraint
       guard maxWidth > 0 else { return false }
 
-      // No breaking if line is empty
-      guard currentLine.length > 0 else { return false }
+      // No breaking if line is empty. Graphite patch: a line holding only earlier displays
+      // (a fraction, then a space) has no current text but is not empty.
+      guard currentLine.length > 0 || currentPosition.x > 0 else { return false }
 
       // Calculate spacing between current content and new display
       var interElementSpace: CGFloat = 0
@@ -750,8 +751,11 @@ extension Math {
         interElementSpace = getInterElementSpace(prevNode!.type, right: displayType)
       }
 
-      // Calculate projected width
-      let currentWidth = getCurrentLineWidth()
+      // Calculate projected width. Graphite patch: from where the line's current text
+      // starts, as the interatom check measures, not from the start of the line. The text
+      // since the last display was measured alone, so a fraction late in a long line went
+      // past the width.
+      let currentWidth = currentPosition.x + getCurrentLineWidth()
       let projectedWidth = currentWidth + interElementSpace + display.width
 
       // Break only if it would exceed max width
@@ -1233,6 +1237,41 @@ extension Math {
           if atom.`subscript` != nil || atom.superscript != nil {
             self.makeScripts(
               atom, display: display, index: UInt(atom.indexRange.location), delta: 0)
+          }
+
+        case .horizontalBrace:
+          // Graphite patch: a brace under or over its argument, with its label beyond it.
+          // Considered as Ord in rule 16, and broken before like other complex displays.
+          let brace = atom as! HorizontalBrace
+          let display = self.makeHorizontalBrace(brace)
+
+          let shouldBreak = shouldBreakBeforeDisplay(
+            display, prevNode: prevNode, displayType: .ordinary)
+          if currentLine.length > 0 {
+            self.addDisplayLine()
+          }
+          if shouldBreak {
+            performLineBreak()
+          } else {
+            self.addInterElementSpace(prevNode, currentType: .ordinary)
+          }
+          atom.type = .ordinary
+
+          display.position = currentPosition
+          displayAtoms.append(display)
+          if currentLineStartIndex > 0 {
+            adjustPositionToAvoidOverlap(display)
+          }
+          currentPosition.x += display.width
+
+          // The script that is not the label is set as an ordinary script.
+          let remainingScripts = Atom(type: .ordinary, nucleus: "")
+          remainingScripts.indexRange = atom.indexRange
+          remainingScripts.superscript = brace.isOver ? nil : atom.superscript
+          remainingScripts.subscript = brace.isOver ? atom.subscript : nil
+          if remainingScripts.subscript != nil || remainingScripts.superscript != nil {
+            self.makeScripts(
+              remainingScripts, display: display, index: UInt(atom.indexRange.location), delta: 0)
           }
 
         case .overline:
@@ -2598,6 +2637,51 @@ extension Math {
       overDisplay.descent = innerListDisplay!.descent
       overDisplay.width = innerListDisplay!.width
       return overDisplay
+    }
+
+    // MARK: - Horizontal braces
+
+    /// Graphite patch: `\underbrace` and `\overbrace`. The brace is about as tall and as
+    /// thick as Latin Modern's own brace glyphs (0.32 and 0.06 em), and stands 0.2 em
+    /// from what it spans, as MathJax sets it. The label is placed as an operator's limit.
+    func makeHorizontalBrace(_ brace: HorizontalBrace) -> DisplayNode {
+      let em = styleFont.font.size
+      let inner =
+        Typesetter.createLineForMathList(
+          brace.innerList, font: font, style: style, cramped: brace.isOver ? true : cramped)
+        ?? DisplayList(children: [], range: brace.indexRange)
+      let gap = 0.2 * em
+      let braceDisplay = DisplayHorizontalBrace(
+        width: inner.width, height: min(0.32 * em, max(inner.width, 0) / 2),
+        thickness: 0.06 * em, isOver: brace.isOver, range: brace.indexRange)
+      inner.position = .zero
+      braceDisplay.position =
+        brace.isOver
+        ? CGPoint(x: 0, y: inner.ascent + gap)
+        : CGPoint(x: 0, y: -(inner.descent + gap + braceDisplay.ascent))
+      let nucleus = DisplayList(children: [inner, braceDisplay], range: brace.indexRange)
+
+      let labelList = brace.isOver ? brace.superscript : brace.`subscript`
+      guard let labelList else { return nucleus }
+      let label = Typesetter.createLineForMathList(
+        labelList, font: font, style: self.scriptStyle(),
+        cramped: brace.isOver ? self.superScriptCramped() : self.subscriptCramped())
+      let display = DisplayLargeOperator(
+        nucleus: nucleus, upperLimit: brace.isOver ? label : nil,
+        lowerLimit: brace.isOver ? nil : label, limitShift: 0, extraPadding: 0)
+      if let label {
+        if brace.isOver {
+          display.upperLimitGap = max(
+            styleFont.metrics.upperLimitGapMin,
+            styleFont.metrics.upperLimitBaselineRiseMin - label.descent)
+        } else {
+          display.lowerLimitGap = max(
+            styleFont.metrics.lowerLimitGapMin,
+            styleFont.metrics.lowerLimitBaselineDropMin - label.ascent)
+        }
+      }
+      display.range = brace.indexRange
+      return display
     }
 
     // MARK: - Accents

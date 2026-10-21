@@ -108,6 +108,15 @@ CONFINED_IN_INTERFACE_MODULE = {
     "MapKit": "only GraphiteBases and GraphiteGraphAndMap (3.3 rule 5)",
 }
 
+# Reviewed exceptions to the confinement: files of GraphiteUI that are composition, not a feature, and so may name what they
+# build. Each moves to the composition root (section 4.2) with Phase 2.
+COMPOSITION_FILES_IN_INTERFACE_MODULE = {
+    "Sources/GraphiteUI/ProcessServices.swift": {
+        "GraphiteIndex": "the process services hold the registry of each open vault's index, shared by its windows "
+                         "(decision 12; Docs/Multiple-windows-todo.md)",
+    },
+}
+
 IMPORT_PATTERN = re.compile(
     r"^[ \t]*(?:@\w+(?:\([^)\n]*\))?[ \t]+)*(?:(?:public|internal|package|private|fileprivate)[ \t]+)?import[ \t]+"
     r"(?:(?:class|struct|enum|protocol|typealias|func|var|let)[ \t]+)?([A-Za-z_]\w*)", re.MULTILINE)
@@ -142,6 +151,8 @@ def collect_violations(tree):
                     violations[f"{module} imports {name}"].append(file.relative_path)
             if module == "GraphiteUI":
                 for name, why in CONFINED_IN_INTERFACE_MODULE.items():
+                    if name in COMPOSITION_FILES_IN_INTERFACE_MODULE.get(file.relative_path, {}):
+                        continue
                     if name in imported_modules(file):
                         violations[f"target-state: GraphiteUI files import {name} ({why})"].append(file.relative_path)
     for key, files in package_dependency_violations(tree.root).items():

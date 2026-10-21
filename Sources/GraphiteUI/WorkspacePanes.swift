@@ -1,3 +1,15 @@
+/**
+ * File: WorkspacePanes.swift
+ * --------------------------
+ * Layer: UI
+ * Description: The documents area: one group of tabs or two side by side with a divider that can be dragged or held
+ *              on a display's fold, each side's tab bar, and the document of its active tab.
+ *
+ * Authors: Bahey Shalash
+ * Version: 0.28
+ * Date: 21/10/2026
+ */
+
 import SwiftUI
 import UniformTypeIdentifiers
 import GraphiteCore
@@ -66,11 +78,18 @@ struct WorkspacePanes: View {
                 // before the check above does.
                 let groups = workspace.layout.groups
                 let availableWidth = max(geometry.size.width - SplitDivider.width, 1)
+                // On a partly folded display the divider sits on the fold, as a split view's
+                // columns do, so neither side's document runs across it.
+                let foldFraction = DisplayFoldLayout.splitFraction(dividingAt: DisplayFolds.activeDivisions(in: geometry),
+                                                                   splitWidthPoints: geometry.size.width,
+                                                                   dividerWidthPoints: SplitDivider.width,
+                                                                   allowedRange: TabLayout.splitFractionRange)
+                let fraction = foldFraction ?? workspace.layout.splitFraction
                 if groups.count > 1 {
                     HStack(spacing: 0) {
                         pane(for: groups[0])
-                            .frame(width: availableWidth * workspace.layout.splitFraction)
-                        SplitDivider(fraction: workspace.layout.splitFraction) { translation in
+                            .frame(width: availableWidth * fraction)
+                        SplitDivider(fraction: fraction, isHeldByFold: foldFraction != nil) { translation in
                             let startFraction = dragStartFraction ?? workspace.layout.splitFraction
                             dragStartFraction = startFraction
                             workspace.layout.splitFraction = startFraction + translation / availableWidth
@@ -222,7 +241,8 @@ private struct TabBar: View {
                                     close: { Task { await workspace.closeTab(tab.id) } },
                                     maximumWidth: keepsTabsBesidePencilTools ? DocumentToolbarLayout.minimumTabsWidthBesidePencilTools - 2 * Self.tabsInset : 220)
                                 .contextMenu { tabMenu(for: tab) }
-                                .draggable(TabTransfer(tabID: tab.id)) {
+                                .draggable(TabTransfer(tabID: tab.id), contentType: .graphiteTab,
+                                           opening: tab.path.map { path in .showing(path, inVault: workspace.currentVaultIdentifier) }) {
                                     Label(workspace.title(ofTab: tab), systemImage: tab.path.map { path in DocumentKind(path: path).systemImage } ?? "doc")
                                         .padding(8).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
                                 }
@@ -314,6 +334,7 @@ private struct TabBar: View {
         Button("Close", systemImage: "xmark") { Task { await workspace.closeTab(tab.id) } }
         Button("Close Other Tabs", systemImage: "xmark.square") { Task { await workspace.closeOtherTabs(keeping: tab.id) } }
             .disabled(group.tabs.count == 1)
+        if let path = tab.path { OpenInNewWindowButton { Task { await workspace.open(path, placement: .newWindow) } } }
         Divider()
         if let path = tab.path, let navigator = workspace.readAloudNavigator { ReadAloudQueueMenuItems(navigator: navigator, path: path) }
         Button(tab.isPinned ? "Unpin" : "Pin", systemImage: tab.isPinned ? "pin.slash" : "pin") { workspace.togglePin(tab.id) }
@@ -327,6 +348,7 @@ private struct TabBar: View {
                 workspace.activateTab(tab.id)
                 workspace.revealCurrentFile()
             }
+            RevealInFinderButton(path: path, vaultRoot: workspace.folderAccess?.root)
             Button("Rename…", systemImage: "pencil") { workspace.fileSheet = .rename(path) }
             CommunityPluginFileActionsButton(host: workspace.communityPlugins, path: path, source: "tab-header")
         }
@@ -428,10 +450,13 @@ struct QuietIconButtonStyle: ButtonStyle {
 // MARK: Divider
 
 /// The line between the two sides; dragging it resizes them, and a double tap evens them.
+/// Held on a display's fold, it does neither: the fold decides the sides' widths until the
+/// display opens flat, when the sides take back the widths they had.
 private struct SplitDivider: View {
     static let width: CGFloat = 11
     static let coordinateSpaceName = "WorkspacePanes"
     let fraction: Double
+    let isHeldByFold: Bool
     let drag: (CGFloat) -> Void
     let endDrag: () -> Void
     let setFraction: (Double) -> Void
@@ -439,11 +464,12 @@ private struct SplitDivider: View {
     var body: some View {
         ZStack {
             Rectangle().fill(.separator).frame(width: 1)
-            Capsule().fill(.tertiary).frame(width: 5, height: 40)
+            Capsule().fill(.tertiary).frame(width: 5, height: 40).opacity(isHeldByFold ? 0 : 1)
         }
         .frame(width: Self.width)
         .frame(maxHeight: .infinity)
         .contentShape(Rectangle())
+        .allowsHitTesting(!isHeldByFold)
         // Measured in the panes' space: the divider itself moves while it is dragged.
         .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .named(Self.coordinateSpaceName))
             .onChanged { value in drag(value.translation.width) }
@@ -451,8 +477,9 @@ private struct SplitDivider: View {
         .onTapGesture(count: 2) { setFraction(0.5) }
         .accessibilityElement()
         .accessibilityLabel("Divider between the two sides")
-        .accessibilityValue("\(Int((fraction * 100).rounded())) percent for the left side")
+        .accessibilityValue(isHeldByFold ? "At the fold" : "\(Int((fraction * 100).rounded())) percent for the left side")
         .accessibilityAdjustableAction { direction in
+            guard !isHeldByFold else { return }
             switch direction {
             case .increment: setFraction(fraction + 0.05)
             case .decrement: setFraction(fraction - 0.05)

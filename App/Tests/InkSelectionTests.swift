@@ -21,7 +21,15 @@ final class InkSelectionTests: XCTestCase {
         LassoPasteboard.pasteboard = UIPasteboard(name: UIPasteboard.Name("GraphiteInkSelectionTests-\(UUID().uuidString)"), create: true) ?? .general
         savedShapesPreference = UserDefaults.standard.object(forKey: PDFAnnotationPreferenceKey.drawsShapes)
         UserDefaults.standard.set(false, forKey: PDFAnnotationPreferenceKey.drawsShapes)
-        PaletteInkSelection.isOn = false
+        putAwayPaletteToolsInEveryWindow()
+    }
+
+    /// Each window keeps its palette's modes (`PaletteInkSelection`); the tests' windows share
+    /// the app's scene, so one test's lasso would carry into the next.
+    private func putAwayPaletteToolsInEveryWindow() {
+        for case let windowScene as UIWindowScene in UIApplication.shared.connectedScenes {
+            PaletteInkSelection.of(windowScene).endForChosenTool()
+        }
     }
 
     override func tearDown() async throws {
@@ -29,7 +37,7 @@ final class InkSelectionTests: XCTestCase {
         windows = []
         for location in locations { try? FileManager.default.removeItem(at: location) }
         locations = []
-        PaletteInkSelection.isOn = false
+        putAwayPaletteToolsInEveryWindow()
         if LassoPasteboard.pasteboard !== UIPasteboard.general { UIPasteboard.remove(withName: LassoPasteboard.pasteboard.name) }
         LassoPasteboard.pasteboard = .general
         if let savedShapesPreference { UserDefaults.standard.set(savedShapesPreference, forKey: PDFAnnotationPreferenceKey.drawsShapes) }
@@ -203,18 +211,19 @@ final class InkSelectionTests: XCTestCase {
         XCTAssertTrue(canvas.followsToolPicker)
         XCTAssertFalse(canvas.selectsInk)
 
-        let toolPicker = PencilToolPalette.makeToolPicker()
-        PaletteInkSelection.isOn = true
+        let toolPicker = try XCTUnwrap(canvas.followedToolPicker)
+        let inkSelection = PaletteInkSelection.of(canvas.window?.windowScene)
+        inkSelection.isOn = true
         XCTAssertTrue(canvas.selectsInk)
         XCTAssertFalse(canvas.isDrawingEnabled)
 
         // The palette's menu shows the switch as on, and choosing a tool in the palette ends it.
-        let inlineMenus = PencilToolPalette.menuElements(for: toolPicker, palette: []).compactMap { element in element as? UIMenu }
+        let inlineMenus = PencilToolPalette.menuElements(for: toolPicker, inkSelection: inkSelection, palette: []).compactMap { element in element as? UIMenu }
         let switches = inlineMenus.flatMap(\.children).compactMap { element in element as? UIAction }
         XCTAssertEqual(switches.first { action in action.title == "Select Ink" }?.state, .on)
         let otherToolItem = try XCTUnwrap(toolPicker.toolItems.first { item in item !== toolPicker.selectedToolItem })
         toolPicker.selectedToolItem = otherToolItem
-        try await waitUntil { !PaletteInkSelection.isOn }
+        try await waitUntil { !inkSelection.isOn }
         XCTAssertFalse(canvas.selectsInk)
         XCTAssertTrue(canvas.isDrawingEnabled)
         _ = session
@@ -797,16 +806,17 @@ extension InkSelectionTests {
         XCTAssertFalse(session.hasUnsavedChanges)
 
         // The palette's menu offers the laser; it and Select Ink are never on together.
-        PaletteInkSelection.isOn = true
-        PaletteInkSelection.pointsWithLaser = true
-        XCTAssertFalse(PaletteInkSelection.isOn)
-        let inlineMenus = PencilToolPalette.menuElements(for: toolPicker, palette: []).compactMap { element in element as? UIMenu }
+        let inkSelection = PaletteInkSelection()
+        inkSelection.isOn = true
+        inkSelection.pointsWithLaser = true
+        XCTAssertFalse(inkSelection.isOn)
+        let inlineMenus = PencilToolPalette.menuElements(for: toolPicker, inkSelection: inkSelection, palette: []).compactMap { element in element as? UIMenu }
         let actions = inlineMenus.flatMap(\.children).compactMap { element in element as? UIAction }
         XCTAssertEqual(actions.first { action in action.title == "Laser Pointer" }?.state, .on)
         XCTAssertEqual(actions.first { action in action.title == "Select Ink" }?.state, .off)
         let typeMenus = inlineMenus.flatMap(\.children).compactMap { element in element as? UIMenu }.map(\.title)
         XCTAssertEqual(typeMenus, ["Lasso Type", "Laser Type"])
-        PaletteInkSelection.pointsWithLaser = false
+        inkSelection.pointsWithLaser = false
     }
 
     func testPicturesOfAnAreaAreDrawnAtPrintResolutionWithinTheirPixelLimits() {

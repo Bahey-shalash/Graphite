@@ -74,12 +74,47 @@ struct LoadFailure: Equatable {
 }
 
 /// Where a file opens.
+/// Which tabs a window shows when it opens its vault.
+enum WindowTabsToRestore: Equatable {
+    /// The vault's tabs as last left on this device, in any window.
+    case vaultsLast
+    /// The tabs this window had (`WindowTabs`), kept with the window by the system.
+    case window(SavedTabLayout)
+    /// One empty tab, for a window opened from another.
+    case none
+}
+
+/// A window's tabs, which its scene keeps (`@SceneStorage`) so that after a relaunch each
+/// window shows its own tabs rather than the ones its vault was last left with elsewhere.
+struct WindowTabs: Codable {
+    let vaultIdentifier: UUID
+    let layout: SavedTabLayout
+
+    /// The tabs kept for `vaultIdentifier`; nil when none were, or for another vault.
+    static func layout(in data: Data?, forVault vaultIdentifier: UUID) -> SavedTabLayout? {
+        // Tabs kept by another build, or for another vault, give way to the vault's last tabs.
+        guard let data, let windowTabs = try? JSONDecoder().decode(WindowTabs.self, from: data) else { return nil } // see above
+        return windowTabs.vaultIdentifier == vaultIdentifier ? windowTabs.layout : nil
+    }
+}
+
 enum TabPlacement {
     /// The active tab, or a new tab beside it when the active tab is pinned.
     case currentTab
     case newTab
     /// The other side of the split, created when needed ("Open to the right").
     case otherGroup
+    /// A window of its own on the same vault, where the app runs several windows (the iPad
+    /// and the Mac); a new tab elsewhere (`GraphiteWindowScene`).
+    case newWindow
+
+    /// Where a clicked link opens, as in Obsidian: ⌘ a new tab, ⌥⌘ beside the note, ⇧⌥⌘ a
+    /// new window; with neither, the current tab.
+    static func forLink(command: Bool, option: Bool, shift: Bool) -> TabPlacement {
+        guard command else { return .currentTab }
+        if option { return shift ? .newWindow : .otherGroup }
+        return .newTab
+    }
 }
 
 /// Tabs and the split, as in Obsidian: each tab has its own file, history, and pin; the
@@ -356,7 +391,9 @@ extension WorkspaceModel {
             switch DocumentKind(path: path) {
             case .markdown:
                 let snapshot = try await store.read(path, maximumBytes: MarkdownSession.maximumEditableBytes)
-                newMarkdown = try MarkdownSession(path: path, snapshot: snapshot, store: store) { [weak self] savedPath in self?.refreshIndex(for: [savedPath]) }
+                newMarkdown = try MarkdownSession(path: path, snapshot: snapshot, store: store, openNotes: processServices.openNotes) { [weak self] savedPath in
+                    self?.refreshIndex(for: [savedPath])
+                }
                 // An edit while the note is read: reading goes on at the same sentence.
                 newMarkdown?.textDidChange = { [weak self, weak newMarkdown] in
                     guard let self, let newMarkdown else { return }
@@ -427,6 +464,13 @@ extension WorkspaceModel {
 
     // MARK: Saving the layout
 
+    /// This window's tabs, for its scene to keep; nil before a vault is open.
+    func windowTabsToKeep() -> Data? {
+        guard let layoutVaultIdentifier else { return nil }
+        // Plain values that always encode; a window that keeps none restores the vault's last tabs.
+        return try? JSONEncoder().encode(WindowTabs(vaultIdentifier: layoutVaultIdentifier, layout: savedLayoutWithPluginViews())) // see above
+    }
+
     func saveTabLayout() {
         guard let layoutVaultIdentifier, let data = try? JSONEncoder().encode(savedLayoutWithPluginViews()) else { return }
         deviceDefaults.set(data, forKey: Self.tabLayoutKey(for: layoutVaultIdentifier))
@@ -434,14 +478,16 @@ extension WorkspaceModel {
 
     /// Restores the vault's tabs as they were left; their files load as they are shown.
     /// Before tabs existed Graphite remembered one document, which becomes the only tab.
-    func restoreTabLayout() {
+    /// - Parameter windowLayout: The tabs this window had, kept with the window by the
+    ///   system; nil for the vault's tabs as last left on this device, in any window.
+    func restoreTabLayout(_ windowLayout: SavedTabLayout? = nil) {
         guard let currentVaultIdentifier, let root = folderAccess?.root else { return }
         let fileExists: (VaultPath) -> Bool = { path in
             guard let location = try? path.url(in: root) else { return false }
             return FileManager.default.fileExists(atPath: location.path)
         }
-        if let data = deviceDefaults.data(forKey: Self.tabLayoutKey(for: currentVaultIdentifier)),
-           let saved = try? JSONDecoder().decode(SavedTabLayout.self, from: data) {
+        if let saved = windowLayout ?? deviceDefaults.data(forKey: Self.tabLayoutKey(for: currentVaultIdentifier))
+            .flatMap({ data in try? JSONDecoder().decode(SavedTabLayout.self, from: data) }) { // tabs saved by another build start the vault afresh
             layout = TabLayout(saved: saved, fileExists: fileExists)
             takePluginViewsToRestore(from: saved)
         } else if let document = vaultLibrary.vault(withIdentifier: currentVaultIdentifier)?.lastOpenedDocument, fileExists(document) {

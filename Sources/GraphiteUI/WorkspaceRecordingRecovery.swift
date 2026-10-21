@@ -14,7 +14,8 @@ extension WorkspaceModel {
 
     /// Looks for unfinished recordings, as after the app stopped while recording.
     func checkForUnfinishedRecordings() {
-        guard store != nil, !recording.state.isActive else { return }
+        // Another window's recording in progress is not unfinished.
+        guard store != nil, !isRecordingInAnyWindow else { return }
         recordingRecoveryOffer = recordingsToRecover().first
     }
 

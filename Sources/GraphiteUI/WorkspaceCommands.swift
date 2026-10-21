@@ -23,106 +23,106 @@ struct WindowActions {
 enum WorkspaceCommandList {
     static func commands(for workspace: WorkspaceModel, window: WindowActions) -> [PaletteCommand] {
         var commands: [PaletteCommand] = [
-            PaletteCommand(id: "switcher", title: "Quick switcher: Open quick switcher", systemImage: "doc.text.magnifyingglass", shortcut: "⌘O", run: window.showQuickSwitcher),
-            PaletteCommand(id: "search", title: "Search: Search in all files", systemImage: "magnifyingglass", shortcut: "⇧⌘F") { workspace.searchFocusRequest += 1 },
-            PaletteCommand(id: "new-note", title: "Create new note", systemImage: "square.and.pencil", shortcut: "⌘N") { window.create(.note) },
-            PaletteCommand(id: "new-notebook", title: "Create new notebook", systemImage: "book.closed") { window.create(.notebook) },
-            PaletteCommand(id: "new-folder", title: "Files: Create new folder", systemImage: "folder.badge.plus") { workspace.fileSheet = .newFolder(in: workspace.newFileDirectory(nil)) },
-            PaletteCommand(id: "toggle-left-sidebar", title: "Toggle left sidebar", systemImage: "sidebar.left", run: window.toggleSidebar),
-            PaletteCommand(id: "settings", title: "Open settings", systemImage: "gearshape", shortcut: "⌘,", run: window.showSettings),
-            PaletteCommand(id: "vaults", title: "Open another vault", systemImage: "building.columns", run: window.showVaultManager),
-            PaletteCommand(id: "collapse-folders", title: "Files: Collapse all folders", systemImage: "arrow.down.right.and.arrow.up.left") { workspace.collapseAllFolders() },
+            PaletteCommand(id: "switcher", command: .quickSwitcher, systemImage: "doc.text.magnifyingglass", run: window.showQuickSwitcher),
+            PaletteCommand(id: "search", command: .searchAllFiles, systemImage: "magnifyingglass") { workspace.searchFocusRequest += 1 },
+            PaletteCommand(id: "new-note", command: .newNote, systemImage: "square.and.pencil") { window.create(.note) },
+            PaletteCommand(id: "new-notebook", command: .newNotebook, systemImage: "book.closed") { window.create(.notebook) },
+            PaletteCommand(id: "new-folder", command: .newFolder, systemImage: "folder.badge.plus") { workspace.fileSheet = .newFolder(in: workspace.newFileDirectory(nil)) },
+            PaletteCommand(id: "toggle-left-sidebar", command: .toggleLeftSidebar, systemImage: "sidebar.left", run: window.toggleSidebar),
+            PaletteCommand(id: "settings", command: .openSettings, systemImage: "gearshape", run: window.showSettings),
+            PaletteCommand(id: "vaults", command: .openVault, systemImage: "building.columns", run: window.showVaultManager),
+            PaletteCommand(id: "collapse-folders", command: .collapseFolders, systemImage: "arrow.down.right.and.arrow.up.left") { workspace.collapseAllFolders() },
         ]
         if workspace.preferences.isEnabled(.bases) {
-            commands.append(PaletteCommand(id: "new-base", title: "Bases: Create new base", systemImage: "tablecells") { window.create(.base) })
+            commands.append(PaletteCommand(id: "new-base", command: .newBase, systemImage: "tablecells") { window.create(.base) })
         }
         if workspace.preferences.isEnabled(.canvas) {
-            commands.append(PaletteCommand(id: "new-canvas", title: "Canvas: Create new canvas", systemImage: "rectangle.3.group") { window.create(.canvas) })
+            commands.append(PaletteCommand(id: "new-canvas", command: .newCanvas, systemImage: "rectangle.3.group") { window.create(.canvas) })
         }
         if workspace.history.canGoBack {
-            commands.append(PaletteCommand(id: "back", title: "Navigate back", systemImage: "chevron.left", shortcut: "⌘[") { Task { await workspace.goBack() } })
+            commands.append(PaletteCommand(id: "back", command: .goBack, systemImage: "chevron.left") { Task { await workspace.goBack() } })
         }
         if workspace.history.canGoForward {
-            commands.append(PaletteCommand(id: "forward", title: "Navigate forward", systemImage: "chevron.right", shortcut: "⌘]") { Task { await workspace.goForward() } })
+            commands.append(PaletteCommand(id: "forward", command: .goForward, systemImage: "chevron.right") { Task { await workspace.goForward() } })
         }
         commands += tabCommands(for: workspace)
         if workspace.preferences.isEnabled(.fileRecovery) {
-            commands.append(PaletteCommand(id: "file-recovery-all", title: "File recovery: Browse all snapshots", systemImage: "clock.arrow.circlepath") {
+            commands.append(PaletteCommand(id: "file-recovery-all", command: .browseSnapshots, systemImage: "clock.arrow.circlepath") {
                 workspace.fileRecoveryRequest = FileRecoveryRequest(path: nil)
             })
             if let path = workspace.selection, DocumentKind(path: path) == .markdown {
-                commands.append(PaletteCommand(id: "file-recovery-note", title: "File recovery: Open local history", systemImage: "clock.arrow.circlepath") {
+                commands.append(PaletteCommand(id: "file-recovery-note", command: .openLocalHistory, systemImage: "clock.arrow.circlepath") {
                     workspace.fileRecoveryRequest = FileRecoveryRequest(path: path)
                 })
             }
         }
         if let path = workspace.selection {
-            commands.append(PaletteCommand(id: "copy-url", title: "Copy Graphite URL", systemImage: "link") { Pasteboard.copy(workspace.openingLink(to: path)) })
+            commands.append(PaletteCommand(id: "copy-url", command: .copyURL, systemImage: "link") { Pasteboard.copy(workspace.openingLink(to: path)) })
         }
         if let toggleFocusMode = window.toggleFocusMode {
-            commands.append(PaletteCommand(id: "workspace-focus", title: "Workspace: Toggle focus mode", systemImage: "arrow.up.left.and.arrow.down.right", run: toggleFocusMode))
+            commands.append(PaletteCommand(id: "workspace-focus", command: .toggleFocusMode, systemImage: "arrow.up.left.and.arrow.down.right", run: toggleFocusMode))
         }
         if workspace.preferences.isEnabled(.graph) {
-            commands.append(PaletteCommand(id: "graph-open", title: "Graph view: Open graph view", systemImage: "point.3.connected.trianglepath.dotted") {
+            commands.append(PaletteCommand(id: "graph-open", command: .openGraph, systemImage: "point.3.connected.trianglepath.dotted") {
                 workspace.isGraphPresented = true
             })
             if workspace.markdownSession != nil {
-                commands.append(PaletteCommand(id: "graph-local", title: "Graph view: Open local graph", systemImage: "point.3.filled.connected.trianglepath.dotted") {
+                commands.append(PaletteCommand(id: "graph-local", command: .openLocalGraph, systemImage: "point.3.filled.connected.trianglepath.dotted") {
                     workspace.deviceDefaults.set(NoteLinksInspector.InspectorPanel.graph.rawValue, forKey: "GraphiteInspectorPanel")
                     window.showLinksInspector()
                 })
             }
         }
         if workspace.preferences.isEnabled(.map) {
-            commands.append(PaletteCommand(id: "map-open", title: "Map view: Open map view", systemImage: "map") {
+            commands.append(PaletteCommand(id: "map-open", command: .openMap, systemImage: "map") {
                 workspace.isMapPresented = true
             })
             if workspace.markdownSession != nil {
-                commands.append(PaletteCommand(id: "map-local", title: "Map view: Open local map", systemImage: "mappin.and.ellipse") {
+                commands.append(PaletteCommand(id: "map-local", command: .openLocalMap, systemImage: "mappin.and.ellipse") {
                     workspace.deviceDefaults.set(NoteLinksInspector.InspectorPanel.map.rawValue, forKey: "GraphiteInspectorPanel")
                     window.showLinksInspector()
                 })
             }
         }
         if workspace.preferences.isEnabled(.bookmarks) {
-            commands.append(PaletteCommand(id: "bookmarks-show", title: "Bookmarks: Show bookmarks", systemImage: "bookmark") {
+            commands.append(PaletteCommand(id: "bookmarks-show", command: .showBookmarks, systemImage: "bookmark") {
                 workspace.deviceDefaults.set(SidebarPanel.bookmarks.rawValue, forKey: SidebarPanelSettingKey.panel)
                 workspace.searchQuery = ""
                 window.showSidebar()
             })
             if let path = workspace.selection {
                 let isBookmarked = workspace.isBookmarked(path)
-                commands.append(PaletteCommand(id: "bookmarks-file", title: isBookmarked ? "Bookmarks: Remove bookmark" : "Bookmarks: Bookmark current file",
+                commands.append(PaletteCommand(id: "bookmarks-file", command: .bookmarkCurrentFile, title: isBookmarked ? "Bookmarks: Remove bookmark" : "Bookmarks: Bookmark current file",
                                                systemImage: isBookmarked ? "bookmark.slash" : "bookmark") { Task { await workspace.toggleBookmark(path) } })
             }
             let query = workspace.searchQuery.trimmingCharacters(in: .whitespaces)
             if !query.isEmpty, workspace.bookmarks.searchBookmark(for: query) == nil {
-                commands.append(PaletteCommand(id: "bookmarks-search", title: "Bookmarks: Bookmark current search", systemImage: "magnifyingglass") {
+                commands.append(PaletteCommand(id: "bookmarks-search", command: .bookmarkCurrentSearch, systemImage: "magnifyingglass") {
                     Task { await workspace.bookmarkSearch(query) }
                 })
             }
         }
         if workspace.preferences.isEnabled(.dailyNotes) {
             commands += [
-                PaletteCommand(id: "daily-today", title: "Daily notes: Open today's daily note", systemImage: "calendar") { Task { await workspace.openDailyNote() } },
-                PaletteCommand(id: "daily-previous", title: "Daily notes: Open previous daily note", systemImage: "chevron.backward.circle") {
+                PaletteCommand(id: "daily-today", command: .todaysDailyNote, systemImage: "calendar") { Task { await workspace.openDailyNote() } },
+                PaletteCommand(id: "daily-previous", command: .previousDailyNote, systemImage: "chevron.backward.circle") {
                     Task { await workspace.openAdjacentDailyNote(forward: false) }
                 },
-                PaletteCommand(id: "daily-next", title: "Daily notes: Open next daily note", systemImage: "chevron.forward.circle") {
+                PaletteCommand(id: "daily-next", command: .nextDailyNote, systemImage: "chevron.forward.circle") {
                     Task { await workspace.openAdjacentDailyNote(forward: true) }
                 },
             ]
         }
         if let path = workspace.selection {
             commands += [
-                PaletteCommand(id: "rename", title: "Rename file", systemImage: "pencil") { workspace.fileSheet = .rename(path) },
-                PaletteCommand(id: "move", title: "Move file to another folder", systemImage: "folder") { workspace.fileSheet = .move(path) },
-                PaletteCommand(id: "copy", title: "Make a copy of the current file", systemImage: "plus.square.on.square") { Task { await workspace.duplicate(path) } },
-                PaletteCommand(id: "delete", title: "Delete current file", systemImage: "trash") { Task { await workspace.requestDeletion(of: path) } },
-                PaletteCommand(id: "reveal", title: "Files: Reveal current file in navigation", systemImage: "scope") { workspace.revealCurrentFile() },
+                PaletteCommand(id: "rename", command: .renameFile, systemImage: "pencil") { workspace.fileSheet = .rename(path) },
+                PaletteCommand(id: "move", command: .moveFile, systemImage: "folder") { workspace.fileSheet = .move(path) },
+                PaletteCommand(id: "copy", command: .duplicateFile, systemImage: "plus.square.on.square") { Task { await workspace.duplicate(path) } },
+                PaletteCommand(id: "delete", command: .deleteFile, systemImage: "trash") { Task { await workspace.requestDeletion(of: path) } },
+                PaletteCommand(id: "reveal", command: .revealFile, systemImage: "scope") { workspace.revealCurrentFile() },
             ]
             if workspace.conflictedPaths.contains(path) {
-                commands.append(PaletteCommand(id: "review-versions", title: "Review other versions of the current file", systemImage: "square.on.square") {
+                commands.append(PaletteCommand(id: "review-versions", command: .reviewOtherVersions, systemImage: "square.on.square") {
                     workspace.conflictVersionsRequest = ConflictVersionsRequest(path: path)
                 })
             }
@@ -132,14 +132,15 @@ enum WorkspaceCommandList {
         }
         if workspace.preferences.isEnabled(.audioRecorder) {
             if workspace.recording.canStartRecording {
-                commands.append(PaletteCommand(id: "record", title: "Audio recorder: Start recording", systemImage: "mic") { Task { await workspace.startRecording() } })
-                commands.append(PaletteCommand(id: "record-video", title: "Audio recorder: Start recording video", systemImage: "video") { Task { await workspace.startRecording(.video) } })
+                commands.append(PaletteCommand(id: "record", command: .startRecording, systemImage: "mic") { Task { await workspace.startRecording() } })
+                commands.append(PaletteCommand(id: "record-video", command: .startVideoRecording, systemImage: "video") { Task { await workspace.startRecording(.video) } })
             } else if workspace.recording.state.canStop {
-                commands.append(PaletteCommand(id: "stop-recording", title: "Audio recorder: Stop recording", systemImage: "stop.fill") { workspace.recording.stop() })
+                commands.append(PaletteCommand(id: "stop-recording", command: .stopRecording, systemImage: "stop.fill") { workspace.recording.stop() })
             }
         }
         commands += communityPluginCommands(for: workspace)
-        return commands
+        let table = workspace.keyboardShortcuts.table(pluginCommands: workspace.communityPlugins.commands)
+        return commands.map { command in command.showingShortcut(from: table) }
     }
 
     /// The commands of the vault's community plugins, named as Obsidian names them
@@ -150,7 +151,9 @@ enum WorkspaceCommandList {
         guard host.isRuntimeRunning else { return [] }
         let isEditingNote = workspace.markdownSession.map { session in session.viewMode != .reading } ?? false
         var commands = host.commands.filter { command in !command.needsEditor || isEditingNote }.map { command in
-            PaletteCommand(id: "community-plugin:" + command.id, title: command.name, systemImage: "puzzlepiece.extension") { Task { await host.run(command) } }
+            PaletteCommand(id: "community-plugin:" + command.id, shortcutCommandIdentifier: command.id, title: command.name, systemImage: "puzzlepiece.extension") {
+                Task { await host.run(command) }
+            }
         }
         commands += host.ribbonActions.map { ribbonAction in
             let pluginName = host.pluginName(of: ribbonAction.pluginIdentifier) ?? ribbonAction.pluginIdentifier
@@ -168,38 +171,38 @@ enum WorkspaceCommandList {
         let layout = workspace.layout
         let tab = layout.activeTab
         var commands = [
-            PaletteCommand(id: "new-tab", title: "New tab", systemImage: "plus", shortcut: "⌘T") { workspace.openNewTab() },
-            PaletteCommand(id: "close-tab", title: "Close current tab", systemImage: "xmark", shortcut: "⌘W") { Task { await workspace.closeTab(tab.id) } },
-            PaletteCommand(id: "pin-tab", title: tab.isPinned ? "Unpin current tab" : "Pin current tab", systemImage: tab.isPinned ? "pin.slash" : "pin") {
+            PaletteCommand(id: "new-tab", command: .newTab, systemImage: "plus") { workspace.openNewTab() },
+            PaletteCommand(id: "close-tab", command: .closeTab, systemImage: "xmark") { Task { await workspace.closeTab(tab.id) } },
+            PaletteCommand(id: "pin-tab", command: .togglePin, title: tab.isPinned ? "Unpin current tab" : "Pin current tab", systemImage: tab.isPinned ? "pin.slash" : "pin") {
                 workspace.togglePin(tab.id)
             },
         ]
         if layout.focusedGroup.tabs.count > 1 {
             commands += [
-                PaletteCommand(id: "close-other-tabs", title: "Close all other tabs", systemImage: "xmark.square") { Task { await workspace.closeOtherTabs(keeping: tab.id) } },
-                PaletteCommand(id: "next-tab", title: "Go to next tab", systemImage: "arrow.right.square", shortcut: "⌃⇥") { workspace.activateNeighborTab(forward: true) },
-                PaletteCommand(id: "previous-tab", title: "Go to previous tab", systemImage: "arrow.left.square", shortcut: "⌃⇧⇥") { workspace.activateNeighborTab(forward: false) },
+                PaletteCommand(id: "close-other-tabs", command: .closeOtherTabs, systemImage: "xmark.square") { Task { await workspace.closeOtherTabs(keeping: tab.id) } },
+                PaletteCommand(id: "next-tab", command: .nextTab, systemImage: "arrow.right.square") { workspace.activateNeighborTab(forward: true) },
+                PaletteCommand(id: "previous-tab", command: .previousTab, systemImage: "arrow.left.square") { workspace.activateNeighborTab(forward: false) },
             ]
         }
         if !layout.closedPaths.isEmpty {
-            commands.append(PaletteCommand(id: "reopen-tab", title: "Reopen closed tab", systemImage: "arrow.uturn.backward", shortcut: "⇧⌘T") {
+            commands.append(PaletteCommand(id: "reopen-tab", command: .reopenClosedTab, systemImage: "arrow.uturn.backward") {
                 Task { await workspace.reopenClosedTab() }
             })
         }
         if layout.isSplit {
             let focusedGroupID = layout.focusedGroupID
             commands += [
-                PaletteCommand(id: "focus-other-side", title: "Focus the other side of the split", systemImage: "arrow.left.arrow.right") {
+                PaletteCommand(id: "focus-other-side", command: .focusOtherSide, systemImage: "arrow.left.arrow.right") {
                     if let other = layout.otherGroup(than: focusedGroupID) { workspace.focusGroup(other.id) }
                 },
-                PaletteCommand(id: "close-side", title: "Close this side of the split", systemImage: "xmark.rectangle") { Task { await workspace.closeGroup(focusedGroupID) } },
+                PaletteCommand(id: "close-side", command: .closeThisSide, systemImage: "xmark.rectangle") { Task { await workspace.closeGroup(focusedGroupID) } },
             ]
         } else {
-            commands.append(PaletteCommand(id: "split-right", title: "Split right", systemImage: "rectangle.split.2x1") { workspace.splitRight() })
+            commands.append(PaletteCommand(id: "split-right", command: .splitRight, systemImage: "rectangle.split.2x1") { workspace.splitRight() })
         }
         if tab.path != nil || layout.focusedGroup.tabs.count > 1 || layout.isSplit {
             let isLeftSide = layout.groups.first?.id == layout.focusedGroupID
-            commands.append(PaletteCommand(id: "move-tab", title: isLeftSide ? "Move current tab to the right" : "Move current tab to the left",
+            commands.append(PaletteCommand(id: "move-tab", command: .moveTabToOtherSide, title: isLeftSide ? "Move current tab to the right" : "Move current tab to the left",
                                            systemImage: isLeftSide ? "rectangle.righthalf.inset.filled.arrow.right" : "rectangle.lefthalf.inset.filled.arrow.left") {
                 workspace.moveTabToOtherGroup(tab.id)
             })
@@ -210,48 +213,48 @@ enum WorkspaceCommandList {
     private static func noteCommands(session: MarkdownSession, workspace: WorkspaceModel, window: WindowActions) -> [PaletteCommand] {
         let editingMode = workspace.preferences.defaultEditingMode
         var commands = [
-            PaletteCommand(id: "toggle-reading", title: "Toggle reading view", systemImage: "book", shortcut: "⌘E") { session.toggleReadingView(editingMode: editingMode) },
-            PaletteCommand(id: "toggle-source", title: "Toggle Live Preview/Source mode", systemImage: "chevron.left.forwardslash.chevron.right") {
+            PaletteCommand(id: "toggle-reading", command: .toggleReadingView, systemImage: "book") { session.toggleReadingView(editingMode: editingMode) },
+            PaletteCommand(id: "toggle-source", command: .toggleSourceMode, systemImage: "chevron.left.forwardslash.chevron.right") {
                 session.viewMode = session.viewMode == .source ? .livePreview : .source
             },
-            PaletteCommand(id: "toggle-right-sidebar", title: "Toggle right sidebar", systemImage: "sidebar.right", run: window.toggleLinksInspector),
-            PaletteCommand(id: "find-in-note", title: "Search current file", systemImage: "text.magnifyingglass", shortcut: "⌘F") {
+            PaletteCommand(id: "toggle-right-sidebar", command: .toggleRightSidebar, systemImage: "sidebar.right", run: window.toggleLinksInspector),
+            PaletteCommand(id: "find-in-note", command: .findInNote, systemImage: "text.magnifyingglass") {
                 session.requestFind(.find, editingMode: editingMode)
             },
-            PaletteCommand(id: "replace-in-note", title: "Search & replace in current file", systemImage: "arrow.left.arrow.right", shortcut: "⌥⌘F") {
+            PaletteCommand(id: "replace-in-note", command: .findAndReplaceInNote, systemImage: "arrow.left.arrow.right") {
                 session.requestFind(.findAndReplace, editingMode: editingMode)
             },
-            PaletteCommand(id: "toggle-fold", title: "Toggle fold on the current line", systemImage: "chevron.down") {
+            PaletteCommand(id: "toggle-fold", command: .toggleFold, systemImage: "chevron.down") {
                 session.toggleFold(atLine: session.selection.location)
             },
-            PaletteCommand(id: "fold-all", title: "Fold all headings and lists", systemImage: "rectangle.compress.vertical") { session.foldAll() },
-            PaletteCommand(id: "unfold-all", title: "Unfold all headings and lists", systemImage: "rectangle.expand.vertical") { session.unfoldAll() },
+            PaletteCommand(id: "fold-all", command: .foldAll, systemImage: "rectangle.compress.vertical") { session.foldAll() },
+            PaletteCommand(id: "unfold-all", command: .unfoldAll, systemImage: "rectangle.expand.vertical") { session.unfoldAll() },
         ]
         if workspace.preferences.isEnabled(.templates) {
-            commands.append(PaletteCommand(id: "insert-template", title: "Templates: Insert template", systemImage: "doc.on.doc", run: window.showTemplatePicker))
+            commands.append(PaletteCommand(id: "insert-template", command: .insertTemplate, systemImage: "doc.on.doc", run: window.showTemplatePicker))
         }
         guard session.viewMode != .reading else { return commands }
         let text = { session.text as NSString }
         commands += (1...6).map { level in
-            PaletteCommand(id: "heading-\(level)", title: "Set as heading \(level)", systemImage: "number") {
+            PaletteCommand(id: "heading-\(level)", command: GraphiteCommand.heading(level), title: "Set as heading \(level)", systemImage: "number") {
                 session.apply(MarkdownEditing.settingHeading(level: level, in: text(), selection: session.selection))
             }
         }
         commands += [
-            PaletteCommand(id: "task", title: "Insert task", systemImage: "checklist") { session.insertBlock("- [ ] ") },
-            PaletteCommand(id: "table", title: "Insert table", systemImage: "tablecells") { session.insertBlock("| Column | Column |\n| --- | --- |\n|  |  |") },
-            PaletteCommand(id: "math", title: "Insert math block", systemImage: "function") { session.insertBlock("$$\n\n$$") },
-            PaletteCommand(id: "callout", title: "Insert callout", systemImage: "text.bubble") { session.insertBlock("> [!note]\n> ") },
+            PaletteCommand(id: "task", command: .insertTask, systemImage: "checklist") { session.insertBlock("- [ ] ") },
+            PaletteCommand(id: "table", command: .insertTable, systemImage: "tablecells") { session.insertBlock("| Column | Column |\n| --- | --- |\n|  |  |") },
+            PaletteCommand(id: "math", command: .insertMathBlock, systemImage: "function") { session.insertBlock("$$\n\n$$") },
+            PaletteCommand(id: "callout", command: .insertCallout, systemImage: "text.bubble") { session.insertBlock("> [!note]\n> ") },
         ]
         let document = workspace.activeDocument
         if document.markdownSession === session {
-            commands.append(PaletteCommand(id: "new-notebook-in-note", title: "Notebooks: Insert new notebook", systemImage: "book.closed") {
+            commands.append(PaletteCommand(id: "new-notebook-in-note", command: .insertNotebook, systemImage: "book.closed") {
                 document.notebookInsertion = NotebookInsertionRequest(session: session)
             })
         }
         #if canImport(UIKit)
         if workspace.preferences.isEnabled(.drawings) {
-            commands.append(PaletteCommand(id: "draw", title: "Pencil drawings: Insert drawing", systemImage: "pencil.tip.crop.circle.badge.plus") { workspace.beginNewDrawing(in: session) })
+            commands.append(PaletteCommand(id: "draw", command: .insertDrawing, systemImage: "pencil.tip.crop.circle.badge.plus") { workspace.beginNewDrawing(in: session) })
         }
         #endif
         return commands

@@ -76,9 +76,11 @@ extension WelcomeTourCopy {
 
     static var betaFeedbackDetail: String {
         #if os(macOS)
-        "Things will break. In the TestFlight app, choose Graphite Note, then Send Beta Feedback, to tell the developer."
+        "Things will break. In the TestFlight app, choose Graphite Note, then Send Beta Feedback, to tell the developer, " +
+        "or open an issue on GitHub."
         #else
-        "Things will break. Take a screenshot and share it with TestFlight to send your feedback straight to the developer."
+        "Things will break. Take a screenshot and share it with TestFlight to send your feedback straight to the developer, " +
+        "or open an issue on GitHub."
         #endif
     }
 

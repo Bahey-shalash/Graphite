@@ -1,3 +1,15 @@
+/**
+ * File: VaultSidebar.swift
+ * ------------------------
+ * Layer: UI
+ * Description: The sidebar's file list of the vault: folders and files, their menus (open, rename, move, share, export to PDF,
+ *              delete), drag and drop, and creating files in a folder.
+ *
+ * Authors: Bahey Shalash, Félix Chevalier
+ * Version: 0.35
+ * Date: 21/10/2026
+ */
+
 import SwiftUI
 import UniformTypeIdentifiers
 import CoreTransferable
@@ -453,6 +465,7 @@ struct VaultSidebar: View {
                     .contextMenu {
                         Button("Open in New Tab", systemImage: "plus.rectangle.on.rectangle") { Task { await workspace.open(result.path, placement: .newTab) } }
                         Button(workspace.openOnOtherSideTitle, systemImage: "rectangle.split.2x1") { Task { await workspace.open(result.path, placement: .otherGroup) } }
+                        OpenInNewWindowButton { Task { await workspace.open(result.path, placement: .newWindow) } }
                     }
                     .onAppear {
                         // More results load as the list reaches its end.
@@ -651,7 +664,7 @@ private struct FileTreeRows: View, Equatable {
                 .selectionDisabled(row.entry.isDirectory)
                 .fileTreeRow()
                 .listRowBackground(contents.dropTargetFolder == row.entry.path ? RoundedRectangle(cornerRadius: GraphiteChrome.cornerRadius).fill(accent.opacity(0.18)) : nil)
-                .draggable(VaultItemTransfer(path: row.entry.path.rawValue)) { VaultItemDragPreview(entry: row.entry, workspace: workspace) }
+                .draggableVaultEntry(row.entry, inVault: workspace.currentVaultIdentifier) { VaultItemDragPreview(entry: row.entry, workspace: workspace) }
         }
     }
 
@@ -814,6 +827,7 @@ struct VaultEntryMenu: View {
         }
         actionButton(.openInNewTab)
         actionButton(.openOnOtherSide)
+        OpenInNewWindowButton { Task { await workspace.open(entry.path, placement: .newWindow) } }
         if let navigator = workspace.readAloudNavigator { ReadAloudQueueMenuItems(navigator: navigator, path: entry.path) }
         Divider()
         actionButton(.rename)
@@ -822,8 +836,10 @@ struct VaultEntryMenu: View {
         if let root = workspace.folderAccess?.root, let location = try? entry.path.url(in: root) {
             ShareLink(item: location) { Label("Share…", systemImage: "square.and.arrow.up") }
         }
-        Button("Copy Vault Path", systemImage: "doc.on.doc") { copyToPasteboard(entry.path.rawValue) }
-        Button("Copy Graphite URL", systemImage: "link") { copyToPasteboard(workspace.openingLink(to: entry.path)) }
+        Button("Copy Vault Path", systemImage: "doc.on.doc") { Pasteboard.copy(entry.path.rawValue) }
+        RevealInFinderButton(path: entry.path, vaultRoot: workspace.folderAccess?.root)
+        Button("Copy Graphite URL", systemImage: "link") { Pasteboard.copy(workspace.openingLink(to: entry.path)) }
+        if DocumentKind(path: entry.path) == .markdown { NotePDFFileMenuButton(path: entry.path) }
         bookmarkButton
         CommunityPluginFileActionsButton(host: workspace.communityPlugins, path: entry.path)
         Divider()
@@ -840,7 +856,8 @@ struct VaultEntryMenu: View {
         actionButton(.rename)
         actionButton(.moveTo)
         actionButton(.makeCopy)
-        Button("Copy Vault Path", systemImage: "doc.on.doc") { copyToPasteboard(entry.path.rawValue) }
+        Button("Copy Vault Path", systemImage: "doc.on.doc") { Pasteboard.copy(entry.path.rawValue) }
+        RevealInFinderButton(path: entry.path, vaultRoot: workspace.folderAccess?.root)
         bookmarkButton
         CommunityPluginFileActionsButton(host: workspace.communityPlugins, path: entry.path)
         Divider()
@@ -858,15 +875,6 @@ struct VaultEntryMenu: View {
         Button(action.title(otherSideTitle: workspace.openOnOtherSideTitle), systemImage: action.systemImage, role: action.isDestructive ? .destructive : nil) {
             workspace.perform(action, on: entry.path)
         }
-    }
-
-    private func copyToPasteboard(_ text: String) {
-        #if canImport(UIKit)
-        UIPasteboard.general.string = text
-        #elseif canImport(AppKit)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-        #endif
     }
 }
 

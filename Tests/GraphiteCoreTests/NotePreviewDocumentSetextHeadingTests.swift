@@ -14,8 +14,8 @@ final class NotePreviewDocumentSetextHeadingTests: XCTestCase {
     }
 
     func testSectionEmbedOfASetextHeadingRunsToTheNextHeadingOfTheSameOrHigherLevel() {
-        XCTAssertEqual(NotePreviewDocument.sectionIfPresent(of: note, headingAnchor: "sub"), "Sub\n---\nBody\n")
-        XCTAssertEqual(NotePreviewDocument.sectionIfPresent(of: note, headingAnchor: "title"), note)
+        XCTAssertEqual(NotePreviewDocument.locatedSectionIfPresent(of: note, headingAnchor: "sub")?.text, "Sub\n---\nBody\n")
+        XCTAssertEqual(NotePreviewDocument.locatedSectionIfPresent(of: note, headingAnchor: "title")?.text, note)
     }
 
     func testReadingViewBlocksMakeSetextHeadingsHeadingBlocks() {

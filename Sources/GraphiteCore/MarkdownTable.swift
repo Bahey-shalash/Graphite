@@ -227,14 +227,13 @@ public enum MarkdownTableEditing {
     /// The text to show in a cell's editor for `cell.source`: the source as written, except
     /// `<br>` (any case, `<br/>`, `<br />`) shown as a line break. `replacingCell` turns it back.
     public static func editableText(ofCellSource cellSource: String) -> String {
-        guard let lineBreakTag = lineBreakTagPattern else { return cellSource }
         let fullRange = NSRange(location: 0, length: (cellSource as NSString).length)
-        return lineBreakTag.stringByReplacingMatches(in: cellSource, range: fullRange, withTemplate: "\n")
+        return lineBreakTagPattern.stringByReplacingMatches(in: cellSource, range: fullRange, withTemplate: "\n")
     }
 
     // MARK: Cell text
 
-    private static let lineBreakTagPattern = try? NSRegularExpression(pattern: "<br[ \\t]*/?>", options: .caseInsensitive)
+    private static let lineBreakTagPattern = MarkdownTableEditingPattern.lineBreakTagPattern.compiled()
 
     /// Escapes every pipe that is not already escaped (a pipe after a backslash, as the
     /// parser reads it) and writes each line break, `\r\n` included, as one `<br>`.
@@ -475,8 +474,7 @@ private struct MarkdownTableLayout {
         guard rawLines.count >= 2,
               let header = MarkdownTableLineLayout.make(units: units, contentRange: rawLines[0].content, endingRange: rawLines[0].ending),
               let delimiter = MarkdownTableLineLayout.make(units: units, contentRange: rawLines[1].content, endingRange: rawLines[1].ending),
-              MarkdownTableLayout.isDelimiterRow(delimiter, in: units),
-              MarkdownTableLayout.startsTable(header: header, delimiter: delimiter, in: units)
+              MarkdownTableSyntax.startsTable(trimmedHeaderUnits: units[header.trimmedRange], trimmedDelimiterUnits: units[delimiter.trimmedRange])
         else { return nil }
         var lines = [header, delimiter]
         for rawLine in rawLines.dropFirst(2) {
@@ -486,21 +484,6 @@ private struct MarkdownTableLayout {
         self.units = units
         self.lines = lines
         self.lineEnding = Array(units[header.endingRange])
-    }
-
-    /// The same rule Live Preview uses to find a table: a delimiter row has only pipes,
-    /// dashes, colons and spaces, with a dash among them.
-    private static func isDelimiterRow(_ line: MarkdownTableLineLayout, in units: [UInt16]) -> Bool {
-        let allowed = Set("|-: \t".utf16)
-        let trimmedUnits = units[line.trimmedRange]
-        return trimmedUnits.contains(UInt16(UInt8(ascii: "-"))) && trimmedUnits.allSatisfy { allowed.contains($0) }
-    }
-
-    /// A header row with a pipe over a delimiter row. Without a leading pipe, the delimiter
-    /// row needs a pipe too, so text over a `---` rule is no table.
-    private static func startsTable(header: MarkdownTableLineLayout, delimiter: MarkdownTableLineLayout, in units: [UInt16]) -> Bool {
-        if header.hasLeadingPipe { return true }
-        return units[header.trimmedRange].contains(MarkdownTableUnit.pipe) && units[delimiter.trimmedRange].contains(MarkdownTableUnit.pipe)
     }
 
     var table: MarkdownTable {
@@ -605,5 +588,16 @@ private struct MarkdownTableLayout {
             clearedUnits += hasSpaceBefore ? [MarkdownTableUnit.pipe] : [MarkdownTableUnit.space, MarkdownTableUnit.pipe]
         }
         return MarkdownTableReplacement(range: cell.textRange, units: clearedUnits)
+    }
+}
+
+/// The constant patterns of `MarkdownTableEditing`; `StaticPatternTests` compiles every case.
+enum MarkdownTableEditingPattern: String, StaticPatternSet {
+    case lineBreakTagPattern = #"<br[ \t]*/?>"#
+
+    var options: NSRegularExpression.Options {
+        switch self {
+        case .lineBreakTagPattern: [.caseInsensitive]
+        }
     }
 }
