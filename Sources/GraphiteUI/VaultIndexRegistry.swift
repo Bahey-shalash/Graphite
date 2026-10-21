@@ -35,6 +35,7 @@ enum VaultIndexScanRequest {
 final class VaultIndexRegistry {
     /// One vault's index and its scans, while a window has the vault open.
     private final class SharedIndex {
+        let vaultIdentifier: UUID
         let opening: Task<VaultIndex, any Error>
         /// The folder scans read: the latest a window opened the vault at.
         var root: URL
@@ -44,7 +45,8 @@ final class VaultIndexRegistry {
         /// The last finished scan's report; nil before one finished or once the index is emptied.
         var lastReport: IndexingReport?
 
-        init(root: URL, opening: Task<VaultIndex, any Error>) {
+        init(vaultIdentifier: UUID, root: URL, opening: Task<VaultIndex, any Error>) {
+            self.vaultIdentifier = vaultIdentifier
             self.root = root
             self.opening = opening
         }
@@ -59,11 +61,14 @@ final class VaultIndexRegistry {
     }
 
     /// Whether a window has the vault open, so its index must stay.
-    func isOpen(_ vaultIdentifier: UUID) -> Bool { sharedIndexes[vaultIdentifier] != nil }
+    func isOpen(_ vaultIdentifier: UUID) -> Bool { sharedIndexes[vaultIdentifier]?.listeners.isEmpty == false }
 
     /// The index of the vault `vaultIdentifier` at `root`, opened unless a window has it open.
     func lease(forVault vaultIdentifier: UUID, root: URL) async throws -> VaultIndexLease {
         let shared = sharedIndexes[vaultIdentifier] ?? open(vaultIdentifier, root: root)
+        // The last window on the vault closed while its scan was stopping: that scan reports
+        // nothing this window asked for, so one follows it.
+        if shared.listeners.isEmpty, shared.runningScan != nil { shared.isScanQueued = true }
         shared.root = root
         let (events, continuation) = AsyncStream.makeStream(of: VaultIndexEvent.self)
         let leaseIdentifier = UUID()
@@ -83,7 +88,7 @@ final class VaultIndexRegistry {
 
     private func open(_ vaultIdentifier: UUID, root: URL) -> SharedIndex {
         let cachesFolder = cachesFolder
-        let shared = SharedIndex(root: root, opening: Task.detached(priority: .utility) {
+        let shared = SharedIndex(vaultIdentifier: vaultIdentifier, root: root, opening: Task.detached(priority: .utility) {
             let location = try VaultIndex.cacheURL(forVault: vaultIdentifier, legacyRoot: root, in: cachesFolder)
             return try VaultIndex(databaseURL: location)
         })
@@ -120,8 +125,11 @@ final class VaultIndexRegistry {
 
     private func scanDidEnd(of shared: SharedIndex, index: VaultIndex, with outcome: Result<IndexingReport, any Error>) {
         shared.runningScan = nil
-        // The last window on the vault closed meanwhile.
-        guard !shared.listeners.isEmpty else { return }
+        // The last window on the vault closed meanwhile: the index closes now.
+        guard !shared.listeners.isEmpty else {
+            if sharedIndexes[shared.vaultIdentifier] === shared { sharedIndexes[shared.vaultIdentifier] = nil }
+            return
+        }
         switch outcome {
         case .success(let report):
             shared.lastReport = report
@@ -166,8 +174,13 @@ final class VaultIndexRegistry {
         continuation.finish()
         guard shared.listeners.isEmpty else { return }
         // The last window on the vault: its scan stops and the index closes once the
-        // windows let go of it.
-        shared.runningScan?.cancel()
+        // windows let go of it. A stopping scan still holds the database, so the index stays
+        // listed until it ends, and a window opening the vault meanwhile shares this
+        // connection instead of opening a second one, which the first would lock out.
+        if let runningScan = shared.runningScan {
+            runningScan.cancel()
+            return
+        }
         sharedIndexes[lease.vaultIdentifier] = nil
     }
 
