@@ -18,7 +18,7 @@ Archive from a clean export of a pushed commit (`git archive <commit> | tar -x -
 
 After archiving, the script runs `scripts/app-size-budget.py`, which lists the app's parts (binary, asset catalog and its largest assets, resource bundles) and compares them with `scripts/app-size-budget.json`. A part more than 1 % over its budget stops the script before the upload, so growth is a decision: move new resources into an add-on pack, or pass `--allow-size-growth` and record the new budget with `python3 scripts/app-size-budget.py <archive> --record`.
 
-Each upload needs a higher build number than the last. The script passes the date and time (`20261020.1530`) as `CURRENT_PROJECT_VERSION`, which `Info.plist` reads as `CFBundleVersion`; nothing in the repository changes per upload. The version people see is `MARKETING_VERSION` in the project (1.0). Raise it for a new release.
+Each upload needs a higher build number than the last. The script passes the date and time (`20261020.1530`) as `CURRENT_PROJECT_VERSION`, which `Info.plist` reads as `CFBundleVersion`; nothing in the repository changes per upload. The version people see is `MARKETING_VERSION` in the project (1.0.1 since 2026-10-21; 1.0 before). Raise it for a new release: a version with three numbers at most, since App Store Connect refuses a fourth.
 
 Xcode's Organizer works too (Product › Archive, then Distribute App › TestFlight & App Store), but it uses build number 1 from the project unless it is raised by hand.
 
