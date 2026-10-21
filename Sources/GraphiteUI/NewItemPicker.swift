@@ -1,10 +1,12 @@
 import SwiftUI
 import GraphiteCore
+import GraphiteApple
 
 /// One thing the New menu creates.
 enum CreatableItem: Hashable, Identifiable {
     case document(CreationKind)
     case dailyNote
+    case scanDocuments
     case importFiles
     case folder
 
@@ -17,6 +19,7 @@ enum CreatableItem: Hashable, Identifiable {
         case .document(.canvas): "Canvas"
         case .document(.base): "Base"
         case .dailyNote: "Today's Daily Note"
+        case .scanDocuments: "Scan Documents"
         case .importFiles: "Import"
         case .folder: "Folder"
         }
@@ -30,6 +33,7 @@ enum CreatableItem: Hashable, Identifiable {
         case .document(.canvas): "Cards on a board"
         case .document(.base): "A table of notes"
         case .dailyNote: "Opens or creates it"
+        case .scanDocuments: "Paper pages into a PDF notebook"
         case .importFiles: "PDFs, images and other files"
         case .folder: "In this folder"
         }
@@ -42,6 +46,7 @@ enum CreatableItem: Hashable, Identifiable {
         case .document(.canvas): "rectangle.3.group"
         case .document(.base): "tablecells"
         case .dailyNote: "calendar"
+        case .scanDocuments: "doc.viewfinder"
         case .importFiles: "square.and.arrow.down"
         case .folder: "folder.badge.plus"
         }
@@ -53,16 +58,23 @@ enum CreatableItem: Hashable, Identifiable {
         case .document(.canvas): .canvas
         case .document(.base): .bases
         case .dailyNote: .dailyNotes
-        case .document(.notebook), .document(.note), .importFiles, .folder: nil
+        case .document(.notebook), .document(.note), .scanDocuments, .importFiles, .folder: nil
         }
     }
 
     /// The two large choices first, in the order the person's note-taking asks for, then the
-    /// rest; items whose plugin is off are left out.
-    static func offered(firstKind: CreationKind, isEnabled: (CorePlugin) -> Bool) -> (large: [CreatableItem], others: [CreatableItem]) {
+    /// rest; items whose plugin is off are left out, and Scan Documents is left out where the
+    /// device cannot scan.
+    static func offered(firstKind: CreationKind, isEnabled: (CorePlugin) -> Bool,
+                        canScanDocuments: Bool) -> (large: [CreatableItem], others: [CreatableItem]) {
         let large: [CreatableItem] = firstKind == .note ? [.document(.note), .document(.notebook)] : [.document(.notebook), .document(.note)]
-        let others: [CreatableItem] = [.document(.canvas), .document(.base), .dailyNote, .importFiles, .folder]
-        return (large, others.filter { item in item.requiredPlugin.map(isEnabled) ?? true })
+        let others: [CreatableItem] = [.document(.canvas), .document(.base), .dailyNote, .scanDocuments, .importFiles, .folder]
+        return (large, others.filter { item in
+            switch item {
+            case .scanDocuments: canScanDocuments
+            case .document, .dailyNote, .importFiles, .folder: item.requiredPlugin.map(isEnabled) ?? true
+            }
+        })
     }
 }
 
@@ -71,11 +83,12 @@ enum CreatableItem: Hashable, Identifiable {
 struct NewItemPicker: View {
     let firstKind: CreationKind
     let isEnabled: (CorePlugin) -> Bool
+    let canScanDocuments: Bool
     let choose: (CreatableItem) -> Void
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        let offered = CreatableItem.offered(firstKind: firstKind, isEnabled: isEnabled)
+        let offered = CreatableItem.offered(firstKind: firstKind, isEnabled: isEnabled, canScanDocuments: canScanDocuments)
         VStack(spacing: 14) {
             HStack(spacing: 12) {
                 ForEach(offered.large) { item in largeChoice(item) }
@@ -148,6 +161,11 @@ struct NewItemActions {
     let openDailyNote: () -> Void
     let newFolder: (VaultPath?) -> Void
     let importFiles: ([URL], VaultPath?) -> Void
+    /// Saves a finished document scan as a new PDF notebook in the folder, and opens it. Nil
+    /// where the device cannot scan documents, which leaves Scan Documents out of the menu.
+    let saveScannedNotebook: (@MainActor (ScannedDocumentPDF, Date, VaultPath?) async -> Void)?
+    /// Tells the person why a scan could not be used.
+    let reportProblem: @MainActor (String) -> Void
 }
 
 /// A New button that opens `NewItemPicker`, and the file chooser its Import asks for.
@@ -158,12 +176,19 @@ struct NewItemButton<Label: View>: View {
     @ViewBuilder let label: () -> Label
     @State private var showsPicker = false
     @State private var showsImporter = false
+    @State private var showsScanner = false
+    @State private var scanProcessing = DocumentScanProcessing(wordRecognizer: .onDevice)
 
     var body: some View {
-        Button(action: { showsPicker = true }, label: label)
+        Button(action: openPickerOrCancelScan) {
+            // A scan takes a few seconds to become a PDF; the button shows it, and a tap cancels it.
+            if scanProcessing.isProcessing { ProgressView().frame(width: 44, height: 44) } else { label() }
+        }
+            .accessibilityHint(scanProcessing.isProcessing ? "Preparing a scan. Cancels it." : "")
             .popover(isPresented: $showsPicker) {
-                NewItemPicker(firstKind: firstKind, isEnabled: isEnabled, choose: perform)
+                NewItemPicker(firstKind: firstKind, isEnabled: isEnabled, canScanDocuments: actions.saveScannedNotebook != nil, choose: perform)
             }
+            .modifier(scanPresentation)
             .fileImporter(isPresented: $showsImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
                 // A cancelled chooser imports nothing; there is nothing to report.
                 guard case .success(let sources) = result, !sources.isEmpty else { return }
@@ -171,10 +196,24 @@ struct NewItemButton<Label: View>: View {
             }
     }
 
+    private func openPickerOrCancelScan() {
+        if scanProcessing.isProcessing { scanProcessing.cancel() } else { showsPicker = true }
+    }
+
+    /// The scanner Scan Documents opens; its PDF becomes a notebook in this button's folder.
+    private var scanPresentation: DocumentScanPresentation {
+        let directory = actions.directory
+        let saveScannedNotebook = actions.saveScannedNotebook
+        return DocumentScanPresentation(isPresented: $showsScanner, processing: scanProcessing,
+                                        save: { scan, scannedAt in await saveScannedNotebook?(scan, scannedAt, directory) },
+                                        report: actions.reportProblem)
+    }
+
     private func perform(_ item: CreatableItem) {
         switch item {
         case .document(let kind): actions.create(kind, actions.directory)
         case .dailyNote: actions.openDailyNote()
+        case .scanDocuments: showsScanner = true
         case .importFiles: showsImporter = true
         case .folder: actions.newFolder(actions.directory)
         }

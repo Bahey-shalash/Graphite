@@ -148,6 +148,7 @@ enum EditorContextMenuContent {
         ]
         if let choosePhoto = editorActions.choosePhoto { attachmentEntries.append(.action("Photo Library…", "photo.on.rectangle") { choosePhoto() }) }
         if let takePhoto = editorActions.takePhoto { attachmentEntries.append(.action("Take Photo…", "camera") { takePhoto() }) }
+        if let scanDocument = editorActions.scanDocument { attachmentEntries.append(.action("Scan Document…", "doc.viewfinder") { scanDocument() }) }
         if let attach = editorActions.attach { attachmentEntries.append(.action("Attachment…", "doc.badge.plus") { attach() }) }
         if let draw = editorActions.draw { attachmentEntries.append(.action("Draw", "pencil.tip.crop.circle.badge.plus") { draw() }) }
         if let template = actions.template { attachmentEntries.append(.action("Template…", "doc.on.doc") { template() }) }

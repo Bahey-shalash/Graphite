@@ -33,6 +33,8 @@ struct EditorActions {
     var choosePhoto: (() -> Void)?
     /// Nil where the device has no camera.
     var takePhoto: (() -> Void)?
+    /// Scans paper pages into a PDF attachment. Nil where the device cannot scan documents.
+    var scanDocument: (() -> Void)?
     /// Creates a notebook (a PDF) from the note, embedded or linked at the cursor.
     var newNotebook: (() -> Void)?
     var draw: (() -> Void)?
@@ -131,12 +133,14 @@ final class EditorKeyboardToolbar: UIInputView {
         let canAttach: Bool
         let canChoosePhoto: Bool
         let canTakePhoto: Bool
+        let canScanDocument: Bool
         let canDraw: Bool
 
         init(_ actions: EditorActions) {
             canAttach = actions.attach != nil
             canChoosePhoto = actions.choosePhoto != nil
             canTakePhoto = actions.takePhoto != nil
+            canScanDocument = actions.scanDocument != nil
             canDraw = actions.draw != nil
         }
     }
@@ -259,6 +263,9 @@ final class EditorKeyboardToolbar: UIInputView {
         let button = makeButton("Attach", "paperclip")
         var items: [UIMenuElement] = []
         if let takePhoto = actions.takePhoto { items.append(UIAction(title: "Take Photo", image: UIImage(systemName: "camera")) { _ in takePhoto() }) }
+        if let scanDocument = actions.scanDocument {
+            items.append(UIAction(title: "Scan Document", image: UIImage(systemName: "doc.viewfinder")) { _ in scanDocument() })
+        }
         if let choosePhoto = actions.choosePhoto { items.append(UIAction(title: "Photo Library", image: UIImage(systemName: "photo.on.rectangle")) { _ in choosePhoto() }) }
         if let attach = actions.attach { items.append(UIAction(title: "Choose File", image: UIImage(systemName: "folder")) { _ in attach() }) }
         if let newNotebook = actions.newNotebook {

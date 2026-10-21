@@ -1299,7 +1299,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
 
         /// The keyboard toolbar's optional buttons.
         struct KeyboardToolbarButtons: Equatable {
-            let attach, choosePhoto, takePhoto, draw: Bool
+            let attach, choosePhoto, takePhoto, scanDocument, draw: Bool
         }
 
         /// Builds the keyboard toolbar again when its optional buttons change, such as when
@@ -1307,13 +1307,15 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         /// current actions, not the ones from when the toolbar was built.
         func updateKeyboardToolbar(of textView: MarkdownTextView) {
             let buttons = KeyboardToolbarButtons(attach: actions.attach != nil, choosePhoto: actions.choosePhoto != nil,
-                                                 takePhoto: actions.takePhoto != nil, draw: actions.draw != nil)
+                                                 takePhoto: actions.takePhoto != nil, scanDocument: actions.scanDocument != nil,
+                                                 draw: actions.draw != nil)
             guard buttons != keyboardToolbarButtons else { return }
             keyboardToolbarButtons = buttons
             var toolbarActions = EditorActions()
             if buttons.attach { toolbarActions.attach = { [weak self] in self?.actions.attach?() } }
             if buttons.choosePhoto { toolbarActions.choosePhoto = { [weak self] in self?.actions.choosePhoto?() } }
             if buttons.takePhoto { toolbarActions.takePhoto = { [weak self] in self?.actions.takePhoto?() } }
+            if buttons.scanDocument { toolbarActions.scanDocument = { [weak self] in self?.actions.scanDocument?() } }
             if buttons.draw { toolbarActions.draw = { [weak self] in self?.actions.draw?() } }
             textView.inputAccessoryView = EditorKeyboardToolbar(actions: toolbarActions) { [weak self, weak textView] command in
                 guard let self, let textView else { return }

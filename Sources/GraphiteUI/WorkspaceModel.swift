@@ -1009,7 +1009,7 @@ final class WorkspaceModel {
     /// at once, and images without a name all get the same "Pasted image" name within one
     /// second; each can find that name free before any is written. The one that loses takes
     /// the next free name, rather than failing as if another app had written the file.
-    private func saveUnderFreeName(_ data: Data, in directory: VaultPath, stem: String, fileExtension: String, store: VaultStore) async throws -> VaultPath {
+    func saveUnderFreeName(_ data: Data, in directory: VaultPath, stem: String, fileExtension: String, store: VaultStore) async throws -> VaultPath {
         var attemptCount = 0
         while true {
             let path = try await store.uniquePath(directory: directory, stem: stem, extension: fileExtension)

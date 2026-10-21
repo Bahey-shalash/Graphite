@@ -31,6 +31,8 @@ extension WorkspaceModel {
                        openDailyNote: { [weak self] in Task { await self?.openDailyNote() } },
                        newFolder: { [weak self] folder in self?.fileSheet = .newFolder(in: folder) },
                        importFiles: { [weak self] sources, folder in Task { await self?.importFiles(from: sources, into: folder) } },
+                       saveScannedNotebook: scannedNotebookSaver(),
+                       reportProblem: { [weak self] message in self?.errorMessage = message },
                        moveItems: { [weak self] paths, folder in Task { for path in paths { await self?.move(path, into: folder) } } },
                        setSortOrder: { [weak self] sortOrder in self?.setFileSortOrder(sortOrder) },
                        setPresentation: { [weak self] presentation in self?.preferences.library.presentation = presentation })
