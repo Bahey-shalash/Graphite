@@ -4,10 +4,12 @@ import PDFKit
 import GraphiteCore
 import GraphiteApple
 
-/// What Graphite's lasso takes on a PDF page besides the ink: the page's pictures, in the
-/// canvas's drawing coordinates (the page unturned, its top-left corner at the origin),
-/// moved, resized and removed through the session as ordinary steps of the PDF's history;
-/// and the page itself, for a picture of an area.
+/// What Graphite's lasso takes on a PDF page besides the ink: the page's pictures and text
+/// boxes, in the canvas's drawing coordinates (the page unturned, its top-left corner at the
+/// origin), moved, resized and removed through the session as ordinary steps of the PDF's
+/// history; and the page itself, for a picture of an area. A text box is one of the lasso's
+/// pictures, known by `textBoxIdentifierPrefix` and its name; resized with ink, its text is
+/// scaled with it, as everything in the selection is.
 extension PDFPageCanvasView: LassoCanvasContent {
     private var session: PDFSession? { annotationCoordinator?.session }
 
@@ -38,15 +40,17 @@ extension PDFPageCanvasView: LassoCanvasContent {
         guard let coordinates = pageCoordinates else { return [] }
         // A picture is turned clockwise as the page is shown, which on the unturned page,
         // whose coordinates count downward like the screen's, is the same angle.
-        return pagePictures().map { picture in
+        let pictures = pagePictures().map { picture in
             LassoPicture(identifier: picture.name, frame: drawingRectangle(fromPage: picture.bounds, coordinates: coordinates),
                          rotationRadians: picture.rotationRadians)
         }
+        return pictures + pageTextBoxes().map { box in Self.lassoPicture(of: box, coordinates: coordinates) }
     }
 
     /// The picture as the unturned page draws it: turned back by the quarter turns the page
     /// was shown at when the picture was placed, so it is upright on a page shown that way.
     func lassoPictureImage(_ identifier: String) -> UIImage? {
+        if let box = textBox(identifiedAs: identifier) { return Self.image(of: box) }
         guard let picture = pagePictures().first(where: { picture in picture.name == identifier }),
               let image = UIImage(data: picture.imageData) else { return nil }
         return LassoAreaCapture.turned(image, quarterTurnsClockwise: -picture.quarterTurns)
@@ -57,12 +61,17 @@ extension PDFPageCanvasView: LassoCanvasContent {
         let historyPage = session.historyPage(for: page)
         do {
             for (identifier, frame) in frames.sorted(by: { first, second in first.key < second.key }) {
+                if let box = textBox(identifiedAs: identifier) {
+                    let moved = Self.box(box, movedTo: frame, coordinates: coordinates)
+                    try session.changeTextBox(from: box, to: moved, on: historyPage, actionName: "Move Selection")
+                    continue
+                }
                 try session.movePicture(PDFPictureSelection(pictureName: identifier, page: historyPage),
                                         to: pageRectangle(fromDrawing: frame, coordinates: coordinates))
             }
             session.undoManager.setActionName("Move Selection")
         } catch {
-            session.errorMessage = error.localizedDescription
+            session.reportFailedChange(error)
         }
     }
 
@@ -71,11 +80,15 @@ extension PDFPageCanvasView: LassoCanvasContent {
         let historyPage = session.historyPage(for: page)
         do {
             for identifier in identifiers {
+                if let box = textBox(identifiedAs: identifier) {
+                    try session.changeTextBox(from: box, to: nil, on: historyPage, actionName: "Delete Selection")
+                    continue
+                }
                 try session.removePicture(PDFPictureSelection(pictureName: identifier, page: historyPage))
             }
             session.undoManager.setActionName("Delete Selection")
         } catch {
-            session.errorMessage = error.localizedDescription
+            session.reportFailedChange(error)
         }
     }
 
@@ -85,6 +98,7 @@ extension PDFPageCanvasView: LassoCanvasContent {
     /// same spot have the same bounds, and selecting one hid both.
     func setLassoPicturesHidden(_ identifiers: Set<String>) {
         guard let page else { return }
+        setLassoTextBoxesHidden(identifiers)
         let hiddenBounds = pagePictures().filter { picture in identifiers.contains(picture.name) }.map(\.annotationBounds)
         for annotation in page.annotations where annotation.type == PDFPicture.annotationTypeName {
             if let name = annotation.persistentName {
@@ -117,6 +131,7 @@ extension PDFPageCanvasView: LassoCanvasContent {
         context.concatenate(page.transform(for: .cropBox).inverted().concatenating(pageToDrawing))
         page.draw(with: .cropBox, to: context)
         context.restoreGState()
+        drawTextBoxes(in: context, coordinates: coordinates)
     }
 
     var lassoDisplayQuarterTurns: Int { ((page?.rotation ?? 0) / 90 % 4 + 4) % 4 }
