@@ -10,18 +10,26 @@ final class OpenWindow {
     let isRecording: () -> Bool
     let isReadingAloud: () -> Bool
     let stopReadingAloud: () -> Void
+    /// Saves every document open in the window, as quitting does.
+    let saveOpenDocuments: () async throws -> Void
+    /// Shows a problem in the window, as why Graphite did not quit.
+    let presentProblem: (String) -> Void
 
     init(name: @escaping () -> String, isRecording: @escaping () -> Bool, isReadingAloud: @escaping () -> Bool,
-         stopReadingAloud: @escaping () -> Void) {
+         stopReadingAloud: @escaping () -> Void, saveOpenDocuments: @escaping () async throws -> Void,
+         presentProblem: @escaping (String) -> Void) {
         self.name = name
         self.isRecording = isRecording
         self.isReadingAloud = isReadingAloud
         self.stopReadingAloud = stopReadingAloud
+        self.saveOpenDocuments = saveOpenDocuments
+        self.presentProblem = presentProblem
     }
 }
 
-/// The windows of the process, for what only one window may run at a time: one recording
-/// (one microphone and camera) and one Read Aloud (one audio output and one Now Playing entry).
+/// The windows of the process, for what only one window may run at a time, one recording
+/// (one microphone and camera) and one Read Aloud (one audio output and one Now Playing
+/// entry), and for quitting, which waits for every window's saves.
 @MainActor
 final class OpenWindows {
     private struct WeakWindow {
