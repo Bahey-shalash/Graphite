@@ -209,7 +209,9 @@ final class WorkspaceModel {
         name: { [weak self] in self?.windowName ?? "" },
         isRecording: { [weak self] in self?.recording.state.isActive ?? false },
         isReadingAloud: { [weak self] in self?.readAloud?.isReading ?? false },
-        stopReadingAloud: { [weak self] in self?.readAloud?.stop(); self?.readAloud?.showsReader = false })
+        stopReadingAloud: { [weak self] in self?.readAloud?.stop(); self?.readAloud?.showsReader = false },
+        saveOpenDocuments: { [weak self] in try await self?.saveOpenDocuments() },
+        presentProblem: { [weak self] problem in self?.errorMessage = problem })
     /// Set by indexing when a scan of the whole vault finishes; tests that fill the index
     /// themselves set it too.
     var hasCompletedIndexScan = false
@@ -348,7 +350,15 @@ final class WorkspaceModel {
         try await saveOpenDocuments()
     }
 
-    private func openVault(identifier: UUID?, location: VaultLocation) async throws {
+    /// Opens a vault the window was opened on (`GraphiteWindowContent`): with the vault's
+    /// remembered tabs, or with one empty tab, or `file`, for a window opened from another.
+    func openVaultOfWindow(_ vaultIdentifier: UUID, restoresTabs: Bool, showing file: VaultPath?) async {
+        guard let vault = vaultLibrary.vault(withIdentifier: vaultIdentifier) else { return await restoreVault() }
+        await reopen(vault, restoresTabs: restoresTabs)
+        if let file, currentVaultIdentifier == vaultIdentifier { _ = await open(file) }
+    }
+
+    private func openVault(identifier: UUID?, location: VaultLocation, restoresTabs: Bool = true) async throws {
         try await prepareToLeaveCurrentVault(isReopeningCurrentVault: identifier != nil && identifier == currentVaultIdentifier)
         let (access, refreshedLocation) = try await VaultLocator.accessInBackground(location)
         let root = access.root
@@ -426,8 +436,9 @@ final class WorkspaceModel {
         await reloadVaultSettings()
         // Another window's scan of this vault, finished or running, serves this one.
         startIndexing(.unlessScanned)
-        // Returns to where the user left this vault, as Obsidian restores its workspace.
-        restoreTabLayout()
+        // Returns to where the user left this vault, as Obsidian restores its workspace. A
+        // window opened from another starts empty, and saves its tabs once they change.
+        if restoresTabs { restoreTabLayout() } else { layoutVaultIdentifier = currentVaultIdentifier }
         checkForUnfinishedRecordings()
         communityPlugins.vaultDidOpen(self)
         if preferences.isEnabled(.dailyNotes), dailyNoteSettings.opensOnStartup { await openDailyNote() }
@@ -480,7 +491,11 @@ final class WorkspaceModel {
     /// Opens the vault used most recently, at launch.
     func restoreVault() async {
         guard folderAccess == nil, let vault = vaultLibrary.list.mostRecentlyOpened else { return }
-        do { try await openVault(identifier: vault.id, location: vault.location) }
+        await reopen(vault, restoresTabs: true)
+    }
+
+    private func reopen(_ vault: KnownVault, restoresTabs: Bool) async {
+        do { try await openVault(identifier: vault.id, location: vault.location, restoresTabs: restoresTabs) }
         catch { errorMessage = "Graphite couldn't reopen “\(vault.name)”. " + error.localizedDescription }
     }
 
@@ -679,6 +694,33 @@ final class WorkspaceModel {
 
     /// The window closed: it stops hearing the vault and lets go of its index, which closes
     /// unless another window has the vault open.
+    /// The window is closing: everything open in it is saved. A document whose save fails
+    /// keeps its edits in a copy beside it ("… Graphite edits"), since the window that held
+    /// them goes; the names of those copies, and of documents not even a copy took, are
+    /// returned for another window to show.
+    func saveBeforeWindowCloses() async -> (copied: [String], notCopied: [String]) {
+        do {
+            try await saveOpenDocuments()
+            return ([], [])
+        } catch {
+            return await copyUnsavedDocuments()
+        }
+    }
+
+    private func copyUnsavedDocuments() async -> (copied: [String], notCopied: [String]) {
+        var copied: [String] = [], notCopied: [String] = []
+        for document in tabDocuments.values {
+            do {
+                if let note = document.markdownSession, note.hasUnsavedChanges { copied.append(try await note.saveSeparateCopy().name) }
+                if let pdf = document.pdfSession, pdf.hasUnsavedChanges { copied.append(try await pdf.saveSeparateCopy().lastPathComponent) }
+                if let canvas = document.canvasSession, canvas.hasUnsavedChanges { copied.append(try await canvas.saveSeparateCopy().name) }
+            } catch {
+                notCopied.append(document.loadedPath?.name ?? title)
+            }
+        }
+        return (copied, notCopied)
+    }
+
     func windowDidClose() {
         monitor?.stop(); monitor = nil
         externalChangeTask?.cancel()
