@@ -1,0 +1,9 @@
+Graphite
+Copyright 2026 Bahey Shalash and the Graphite contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Code under Vendor/ comes from other projects and keeps its own license, found in
+each folder (Vendor/mlx-audio-swift, Vendor/swiftui-math and Vendor/textual are
+MIT licensed; Vendor/math-speech lists the licenses of the packages it bundles
+in its README).

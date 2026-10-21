@@ -1,0 +1,43 @@
+name: Bug report
+description: Something in Graphite does not work as it should.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a vault with …
+        2. Tap …
+        3. See …
+    validations:
+      required: true
+  - type: dropdown
+    id: device
+    attributes:
+      label: Device
+      options:
+        - iPad
+        - iPhone
+        - Mac
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: OS version and Graphite build
+      placeholder: iPadOS 27.1, build 20261021.1202
+    validations:
+      required: true
+  - type: textarea
+    id: files
+    attributes:
+      label: Screenshots, recordings or a sample file
+      description: A small Markdown or PDF file that shows the problem helps most. Do not attach personal notes.
