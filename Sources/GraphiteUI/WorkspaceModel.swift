@@ -755,10 +755,10 @@ final class WorkspaceModel {
         guard let currentVaultIdentifier else { return }
         let joined = processServices.communityPluginHosts.join(vault: currentVaultIdentifier, window: ObjectIdentifier(self)) { [weak self] in
             guard let self else { return }
-            communityPlugins.adopt(self)
+            communityPlugins.vaultDidOpen(self, loadsPlugins: false)
         }
         communityPlugins = joined.host
-        if joined.isFirstWindow { joined.host.vaultDidOpen(self) } else { joined.host.adopt(self) }
+        joined.host.vaultDidOpen(self, loadsPlugins: joined.isFirstWindow)
     }
 
     /// Leaves the open vault's plugins to its other windows, or unloads them with the last.
