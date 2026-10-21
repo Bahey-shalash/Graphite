@@ -27,11 +27,11 @@ public indirect enum NotePreviewBlock: Equatable, Sendable {
 public enum NotePreviewDocument {
     /// An ATX heading. As in CommonMark, trailing `#`s are a closing sequence only after a
     /// space, so `## Learning C#` keeps its `#`.
-    private static let headingPattern = try? NSRegularExpression(pattern: "^ {0,3}(#{1,6})[ \\t]+(.+?)(?:[ \\t]+#+)?[ \\t]*$")
-    private static let calloutHeaderPattern = try? NSRegularExpression(pattern: "^>[ \\t]?\\[!([A-Za-z0-9_-]+)\\]([+-]?)[ \\t]*(.*)$")
+    private static let headingPattern = NotePreviewDocumentPattern.headingPattern.compiled()
+    private static let calloutHeaderPattern = NotePreviewDocumentPattern.calloutHeaderPattern.compiled()
     /// An embed alone on its line. Its destination may hold one balanced `(…)`, as
     /// `EmbedLocator` reads it, so `![](photo (1).png)` is an image block too.
-    private static let standaloneEmbedPattern = try? NSRegularExpression(pattern: "^[ \\t]*(!\\[\\[[^\\]\\n]+\\]\\]|!\\[[^\\]\\n]*\\]\\((?:<[^<>\\n]*>[^)\\n]*|[^()\\n]+(?:\\([^()\\n]*\\)[^()\\n]*)?)\\))[ \\t]*$")
+    private static let standaloneEmbedPattern = NotePreviewDocumentPattern.standaloneEmbedPattern.compiled()
 
     /// Callouts nested deeper than this stay quoted Markdown. Each level is split by a
     /// recursive call that walks the rest of the callout again, so without a limit a
@@ -334,13 +334,13 @@ public enum NotePreviewDocument {
     private static func heading(in line: String) -> (level: Int, text: String)? {
         guard line.utf8.contains(UInt8(ascii: "#")) else { return nil }
         let cleanLine = line.hasSuffix("\r") ? String(line.dropLast()) : line
-        guard let headingPattern, let match = headingPattern.firstMatch(in: cleanLine, range: NSRange(location: 0, length: (cleanLine as NSString).length)) else { return nil }
+        guard let match = headingPattern.firstMatch(in: cleanLine, range: NSRange(location: 0, length: (cleanLine as NSString).length)) else { return nil }
         let source = cleanLine as NSString
         return (source.substring(with: match.range(at: 1)).count, source.substring(with: match.range(at: 2)))
     }
 
     static func calloutHeader(in line: String) -> (type: String, title: String, folding: CalloutFolding)? {
-        guard let calloutHeaderPattern, let match = calloutHeaderPattern.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) else { return nil }
+        guard let match = calloutHeaderPattern.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) else { return nil }
         let source = line as NSString
         let type = source.substring(with: match.range(at: 1)).lowercased()
         let foldMarker = source.substring(with: match.range(at: 2))
@@ -350,7 +350,7 @@ public enum NotePreviewDocument {
     }
 
     private static func standaloneEmbed(in line: String) -> EmbedReference? {
-        guard let standaloneEmbedPattern, standaloneEmbedPattern.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) != nil else { return nil }
+        guard standaloneEmbedPattern.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) != nil else { return nil }
         let embedLocation = (line as NSString).range(of: "!").location
         guard let embed = EmbedLocator.embed(at: embedLocation + 1, in: line as NSString) else { return nil }
         // A web image (`![](https://…)`) is not a vault file. It stays Markdown, which the
@@ -385,15 +385,15 @@ public enum ObsidianInlineMarkup {
     /// The markers this rewrite adds. The footnote markers are left out: the reading view
     /// inserts them before this rewrite runs.
     private static let markerScalarValues: [ClosedRange<UInt32>] = [0xE000...0xE006, 0xE00A...0xE00B]
-    private static let highlightPattern = try? NSRegularExpression(pattern: "(?<![=~])==(?![\\s=~])([^=\\n]+?)(?<!\\s)==(?!=)")
+    private static let highlightPattern = ObsidianInlineMarkupPattern.highlightPattern.compiled()
     /// A single-backtick code span, whose `==` is not a highlight.
-    private static let highlightCodeSpanPattern = try? NSRegularExpression(pattern: "`[^`]+`")
-    private static let tableDisplayMathPattern = try? NSRegularExpression(pattern: "\\$\\$([^$\\n]+)\\$\\$")
+    private static let highlightCodeSpanPattern = ObsidianInlineMarkupPattern.highlightCodeSpanPattern.compiled()
+    private static let tableDisplayMathPattern = ObsidianInlineMarkupPattern.tableDisplayMathPattern.compiled()
     /// `$$…$$` on one line, or Obsidian's inline `$…$`: no space just inside either `$`, and
     /// no digit after the closing one, so "$5 and $10" is not math.
-    private static let mathSpanPattern = try? NSRegularExpression(pattern: "\\$\\$(?!\\$)([^\\n]+?)\\$\\$|(?<![\\\\$])\\$(?![\\s$])([^$\\n]*?[^\\s\\\\])?\\$(?![\\d$])")
-    private static let codeSpanPattern = try? NSRegularExpression(pattern: "(?<!`)(`+)(?!`)[^\\n]*?(?<!`)\\1(?!`)")
-    private static let quotePrefixPattern = try? NSRegularExpression(pattern: "^\\s*(?:>\\s?)*")
+    private static let mathSpanPattern = ObsidianInlineMarkupPattern.mathSpanPattern.compiled()
+    private static let codeSpanPattern = ObsidianInlineMarkupPattern.codeSpanPattern.compiled()
+    private static let quotePrefixPattern = ObsidianInlineMarkupPattern.quotePrefixPattern.compiled()
 
     /// Rewrites color sections, highlights, tasks, and comments for display.
     /// - Parameter taskLocation: Where the task on a line of `markdown`, given by its index,
@@ -438,7 +438,7 @@ public enum ObsidianInlineMarkup {
     ///   - taskLocation: Where a line's task is in the note; see `preparedForReading`.
     static func markingTasks(in markdown: String, lineIndices: [Int]? = nil,
                              taskLocation: ((_ lineIndex: Int, _ status: Unicode.Scalar) -> ReadingTasks.Location?)? = nil) -> String {
-        guard let taskPattern = ReadingTasks.pattern else { return markdown }
+        let taskPattern = ReadingTasks.pattern
         var fenceTracker = CodeFenceTracker()
         let lines = markdown.components(separatedBy: "\n")
         let knownLineIndices = lineIndices?.count == lines.count ? lineIndices : nil
@@ -453,12 +453,12 @@ public enum ObsidianInlineMarkup {
         }.joined(separator: "\n")
     }
 
-    private static let blockIdentifierPattern = try? NSRegularExpression(pattern: "(?:[ \\t]+|^)\\^[A-Za-z0-9-]+[ \\t]*$")
+    private static let blockIdentifierPattern = ObsidianInlineMarkupPattern.blockIdentifierPattern.compiled()
 
     /// Block `^id`s mark blocks for links; Obsidian does not show them when reading. Code
     /// and display math are left alone, so `x ^2` at the end of a formula line stays.
     static func removingBlockIdentifiers(from markdown: String) -> String {
-        guard let blockIdentifierPattern, markdown.contains("^") else { return markdown }
+        guard markdown.contains("^") else { return markdown }
         let lines = markdown.components(separatedBy: "\n")
         let mathLines = DisplayMathLines(lines)
         var fenceTracker = CodeFenceTracker()
@@ -522,7 +522,7 @@ public enum ObsidianInlineMarkup {
             if commentStart == nil, fenceTracker.isCodeLine(untrimmedLine: unquotedLine) { continue }
             guard line.utf8.contains(UInt8(ascii: "%")) else { continue }
             let lineSource = line as NSString
-            let codeRanges = codeSpanPattern?.matches(in: line, range: NSRange(location: 0, length: lineSource.length)).map(\.range) ?? []
+            let codeRanges = codeSpanPattern.matches(in: line, range: NSRange(location: 0, length: lineSource.length)).map(\.range)
             var searchStart = 0
             while searchStart < lineSource.length {
                 let marker = lineSource.range(of: "%%", range: NSRange(location: searchStart, length: lineSource.length - searchStart))
@@ -554,7 +554,7 @@ public enum ObsidianInlineMarkup {
     /// A `$$…$$` inside a table row would render as a block and break the row, so it is
     /// shown as inline math there. A table written in a code block is left as written.
     static func displayMathInTableCellsMadeInline(_ markdown: String) -> String {
-        guard let tableDisplayMathPattern, markdown.contains("$$") else { return markdown }
+        guard markdown.contains("$$") else { return markdown }
         var fenceTracker = CodeFenceTracker()
         return markdown.components(separatedBy: "\n").map { line in
             if fenceTracker.isCodeLine(untrimmedLine: line) { return line }
@@ -675,10 +675,10 @@ public enum ObsidianInlineMarkup {
     }
 
     private static func protectingInlineMath(in line: String) -> String {
-        guard line.contains("$"), let mathSpanPattern else { return line }
+        guard line.contains("$") else { return line }
         let source = line as NSString
         let wholeLine = NSRange(location: 0, length: source.length)
-        let codeRanges = codeSpanPattern?.matches(in: line, range: wholeLine).map(\.range) ?? []
+        let codeRanges = codeSpanPattern.matches(in: line, range: wholeLine).map(\.range)
         let isInTableRow = line.trimmingCharacters(in: .whitespaces).hasPrefix("|")
         let output = NSMutableString(string: line)
         for match in mathSpanPattern.matches(in: line, range: wholeLine).reversed()
@@ -738,7 +738,7 @@ public enum ObsidianInlineMarkup {
     }
 
     private static func quotePrefixLength(of line: String) -> Int {
-        guard let quotePrefixPattern, line.hasPrefix(">") || line.first?.isWhitespace == true else { return 0 }
+        guard line.hasPrefix(">") || line.first?.isWhitespace == true else { return 0 }
         let prefixRange = quotePrefixPattern.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length))?.range
         // Only a quote prefix counts; plain indentation stays part of the line.
         guard let prefixRange, (line as NSString).substring(with: prefixRange).contains(">") else { return 0 }
@@ -770,13 +770,12 @@ public enum ObsidianInlineMarkup {
     }
 
     static func markingHighlights(in markdown: String) -> String {
-        guard let highlightPattern else { return markdown }
         var fenceTracker = CodeFenceTracker()
         return markdown.components(separatedBy: "\n").map { line in
             if fenceTracker.isCodeLine(untrimmedLine: line) { return line }
             guard line.contains("==") else { return line }
             let source = line as NSString
-            let codeRanges = highlightCodeSpanPattern?.matches(in: line, range: NSRange(location: 0, length: source.length)).map(\.range) ?? []
+            let codeRanges = highlightCodeSpanPattern.matches(in: line, range: NSRange(location: 0, length: source.length)).map(\.range)
             let output = NSMutableString(string: line)
             for match in highlightPattern.matches(in: line, range: NSRange(location: 0, length: source.length)).reversed()
             where !codeRanges.contains(where: { codeRange in NSIntersectionRange(codeRange, match.range).length > 0 }) {
@@ -790,7 +789,7 @@ public enum ObsidianInlineMarkup {
 
 extension NotePreviewDocument {
     /// A reference definition (`[label]: destination`), which links elsewhere in the run use.
-    private static let referenceDefinitionPattern = try? NSRegularExpression(pattern: "^ {0,3}\\[[^\\]]+\\]:", options: [.anchorsMatchLines])
+    private static let referenceDefinitionPattern = NotePreviewDocumentPattern.referenceDefinitionPattern.compiled()
 
     /// The blocks with each run of Markdown divided into sections as Obsidian's reading view
     /// divides a note, one per top-level block (a paragraph, a list, a table, a quote, a code
@@ -816,7 +815,7 @@ extension NotePreviewDocument {
         guard case .markdown(let markdown) = located.block else { return [located] }
         let lines = markdown.components(separatedBy: "\n")
         guard lines.count > 1, lines.count == located.lineStartOffsets.count,
-              referenceDefinitionPattern?.firstMatch(in: markdown, range: NSRange(location: 0, length: (markdown as NSString).length)) == nil else { return [located] }
+              referenceDefinitionPattern.firstMatch(in: markdown, range: NSRange(location: 0, length: (markdown as NSString).length)) == nil else { return [located] }
         // A run nested too deeply to parse stays whole.
         guard let document = BoundedMarkdownParser.document(parsing: markdown) else { return [located] }
         var sections: [LocatedBlock] = []
@@ -837,4 +836,30 @@ extension NotePreviewDocument {
         }
         return sections.isEmpty ? [located] : sections
     }
+}
+
+/// The constant patterns of `NotePreviewDocument`; `StaticPatternTests` compiles every case.
+enum NotePreviewDocumentPattern: String, StaticPatternSet {
+    case headingPattern = #"^ {0,3}(#{1,6})[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$"#
+    case calloutHeaderPattern = #"^>[ \t]?\[!([A-Za-z0-9_-]+)\]([+-]?)[ \t]*(.*)$"#
+    case standaloneEmbedPattern = #"^[ \t]*(!\[\[[^\]\n]+\]\]|!\[[^\]\n]*\]\((?:<[^<>\n]*>[^)\n]*|[^()\n]+(?:\([^()\n]*\)[^()\n]*)?)\))[ \t]*$"#
+    case referenceDefinitionPattern = #"^ {0,3}\[[^\]]+\]:"#
+
+    var options: NSRegularExpression.Options {
+        switch self {
+        case .headingPattern, .calloutHeaderPattern, .standaloneEmbedPattern: []
+        case .referenceDefinitionPattern: [.anchorsMatchLines]
+        }
+    }
+}
+
+/// The constant patterns of `ObsidianInlineMarkup`; `StaticPatternTests` compiles every case.
+enum ObsidianInlineMarkupPattern: String, StaticPatternSet {
+    case highlightPattern = #"(?<![=~])==(?![\s=~])([^=\n]+?)(?<!\s)==(?!=)"#
+    case highlightCodeSpanPattern = "`[^`]+`"
+    case tableDisplayMathPattern = #"\$\$([^$\n]+)\$\$"#
+    case mathSpanPattern = #"\$\$(?!\$)([^\n]+?)\$\$|(?<![\\$])\$(?![\s$])([^$\n]*?[^\s\\])?\$(?![\d$])"#
+    case codeSpanPattern = #"(?<!`)(`+)(?!`)[^\n]*?(?<!`)\1(?!`)"#
+    case quotePrefixPattern = #"^\s*(?:>\s?)*"#
+    case blockIdentifierPattern = #"(?:[ \t]+|^)\^[A-Za-z0-9-]+[ \t]*$"#
 }

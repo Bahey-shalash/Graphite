@@ -19,7 +19,7 @@ public struct TextColorSection: Equatable, Sendable {
 /// in either app render the same. Notes store the hex; palette names are resolved only
 /// for notes written with a name.
 public enum TextColorMarkup {
-    private static let openingMarkerPattern = try? NSRegularExpression(pattern: "~=\\{([^}\\s]+)\\}")
+    private static let openingMarkerPattern = TextColorMarkupPattern.openingMarkerPattern.compiled()
     private static let hexPattern = "^#?(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
 
     /// Canonical hex for a hex literal, or nil for anything else.
@@ -39,7 +39,7 @@ public enum TextColorMarkup {
     }
 
     public static func sections(in text: NSString, paletteHexByName: [String: String] = [:]) -> [TextColorSection] {
-        guard let openingMarkerPattern, text.length > 0 else { return [] }
+        guard text.length > 0 else { return [] }
         let textAsString = text as String
         let blockRanges = codeAndMathBlockRanges(in: text)
         let protectedRanges = mergedRanges(protectedRanges(in: text, codeAndMathBlockRanges: blockRanges))
@@ -177,16 +177,16 @@ public enum TextColorMarkup {
         return [deepestSection]
     }
 
-    private static let headingLinePattern = try? NSRegularExpression(pattern: "^\\s{0,3}#{1,6}(?:\\s|$)")
-    private static let listItemLinePattern = try? NSRegularExpression(pattern: "^\\s*(?:[-*+]|\\d+[.)])\\s")
-    private static let tableRowLinePattern = try? NSRegularExpression(pattern: "^\\s*\\|")
-    private static let cellBorderPattern = try? NSRegularExpression(pattern: "(?<!\\\\)\\|")
+    private static let headingLinePattern = TextColorMarkupPattern.headingLinePattern.compiled()
+    private static let listItemLinePattern = TextColorMarkupPattern.listItemLinePattern.compiled()
+    private static let tableRowLinePattern = TextColorMarkupPattern.tableRowLinePattern.compiled()
+    private static let cellBorderPattern = TextColorMarkupPattern.cellBorderPattern.compiled()
     /// A table's delimiter row, such as `--- | :---:` or `|---|`.
-    private static let tableDelimiterRowPattern = try? NSRegularExpression(pattern: "^\\s*\\|?\\s*:?-+:?\\s*(?:\\|\\s*:?-+:?\\s*)*\\|?\\s*$")
+    private static let tableDelimiterRowPattern = TextColorMarkupPattern.tableDelimiterRowPattern.compiled()
     /// A thematic break, which is a block of its own.
-    private static let thematicBreakLinePattern = try? NSRegularExpression(pattern: "^ {0,3}(?:(?:\\* *){3,}|(?:- *){3,}|(?:_ *){3,})\\s*$")
+    private static let thematicBreakLinePattern = TextColorMarkupPattern.thematicBreakLinePattern.compiled()
     /// A setext heading's underline; it makes the paragraph above it a heading.
-    private static let setextUnderlinePattern = try? NSRegularExpression(pattern: "^ {0,3}(?:=+|-+)\\s*$")
+    private static let setextUnderlinePattern = TextColorMarkupPattern.setextUnderlinePattern.compiled()
 
     /// The blocks a color cannot leave, as rendered notes separate them: runs of
     /// non-blank lines, except that a heading, each list item, each table cell and a
@@ -203,8 +203,8 @@ public enum TextColorMarkup {
             paragraphStart = nil
             lastParagraphLine = nil
         }
-        func matches(_ pattern: NSRegularExpression?, _ line: String) -> Bool {
-            pattern?.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) != nil
+        func matches(_ pattern: NSRegularExpression, _ line: String) -> Bool {
+            pattern.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) != nil
         }
         var isInTable = false
         var previousLineIsTableRow = false
@@ -299,13 +299,13 @@ public enum TextColorMarkup {
         var row = rowContent.trimmingCharacters(in: .whitespacesAndNewlines)
         if row.hasPrefix("|") { row.removeFirst() }
         if row.hasSuffix("|") && !row.hasSuffix("\\|") { row.removeLast() }
-        let borderCount = cellBorderPattern?.numberOfMatches(in: row, range: NSRange(location: 0, length: (row as NSString).length)) ?? 0
+        let borderCount = cellBorderPattern.numberOfMatches(in: row, range: NSRange(location: 0, length: (row as NSString).length))
         return borderCount + 1
     }
 
     /// The text between unescaped `|` borders of a table row.
     private static func cellRanges(ofRow rowRange: NSRange, in text: NSString) -> [NSRange] {
-        let borders = cellBorderPattern?.matches(in: text as String, range: rowRange).map(\.range.location) ?? []
+        let borders = cellBorderPattern.matches(in: text as String, range: rowRange).map(\.range.location)
         var cellStart = rowRange.location
         var cells: [NSRange] = []
         for border in borders + [NSMaxRange(rowRange)] {
@@ -323,17 +323,17 @@ public enum TextColorMarkup {
     }
 
     /// A code span: a run of backticks closed by a run of the same length.
-    private static let codeSpanPattern = try? NSRegularExpression(pattern: "(?<!`)(`+)(?!`)[^\\n]*?(?<!`)\\1(?!`)")
+    private static let codeSpanPattern = TextColorMarkupPattern.codeSpanPattern.compiled()
     /// Obsidian's inline math: no space inside either `$`, and no digit after the closing
     /// one, so "$5 and $10" is not math.
-    private static let inlineMathPattern = try? NSRegularExpression(pattern: "(?<![\\\\$])\\$(?![\\s$])[^$\\n]*?(?<![\\s\\\\])\\$(?![\\d$])")
+    private static let inlineMathPattern = TextColorMarkupPattern.inlineMathPattern.compiled()
 
     /// Code fences, `$$` blocks, code spans and inline math: markup there is part of the
     /// code or formula, not markup. Color markers around a formula still color it.
     private static func protectedRanges(in text: NSString, codeAndMathBlockRanges: [NSRange]) -> [NSRange] {
         var ranges = codeAndMathBlockRanges
         let wholeText = NSRange(location: 0, length: text.length)
-        let codeSpanRanges = codeSpanPattern?.matches(in: text as String, range: wholeText).map(\.range) ?? []
+        let codeSpanRanges = codeSpanPattern.matches(in: text as String, range: wholeText).map(\.range)
         ranges.append(contentsOf: codeSpanRanges)
         // A code span comes first, so a `$` inside one cannot pair with a `$` elsewhere:
         // the spans are replaced by line breaks, which inline math cannot cross, keeping
@@ -346,7 +346,7 @@ public enum TextColorMarkup {
             }
             textOutsideCodeSpans = maskedText as String
         }
-        ranges.append(contentsOf: inlineMathPattern?.matches(in: textOutsideCodeSpans, range: wholeText).map(\.range) ?? [])
+        ranges.append(contentsOf: inlineMathPattern.matches(in: textOutsideCodeSpans, range: wholeText).map(\.range))
         return ranges
     }
 
@@ -377,8 +377,8 @@ public enum TextColorMarkup {
         var previousLineIsBlank = true
         var previousQuoteDepth = 0
         var listContentIndentation: Int?
-        func matches(_ pattern: NSRegularExpression?, _ line: String) -> NSTextCheckingResult? {
-            pattern?.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length))
+        func matches(_ pattern: NSRegularExpression, _ line: String) -> NSTextCheckingResult? {
+            pattern.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length))
         }
         var lineStart = 0
         while lineStart < text.length {
@@ -483,4 +483,18 @@ public enum TextColorMarkup {
         guard let fenceCharacter = openingFence.first else { return false }
         return trimmedLine.count >= openingFence.count && trimmedLine.allSatisfy { character in character == fenceCharacter }
     }
+}
+
+/// The constant patterns of `TextColorMarkup`; `StaticPatternTests` compiles every case.
+enum TextColorMarkupPattern: String, StaticPatternSet {
+    case openingMarkerPattern = #"~=\{([^}\s]+)\}"#
+    case headingLinePattern = #"^\s{0,3}#{1,6}(?:\s|$)"#
+    case listItemLinePattern = #"^\s*(?:[-*+]|\d+[.)])\s"#
+    case tableRowLinePattern = #"^\s*\|"#
+    case cellBorderPattern = #"(?<!\\)\|"#
+    case tableDelimiterRowPattern = #"^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$"#
+    case thematicBreakLinePattern = #"^ {0,3}(?:(?:\* *){3,}|(?:- *){3,}|(?:_ *){3,})\s*$"#
+    case setextUnderlinePattern = #"^ {0,3}(?:=+|-+)\s*$"#
+    case codeSpanPattern = #"(?<!`)(`+)(?!`)[^\n]*?(?<!`)\1(?!`)"#
+    case inlineMathPattern = #"(?<![\\$])\$(?![\s$])[^$\n]*?(?<![\s\\])\$(?![\d$])"#
 }

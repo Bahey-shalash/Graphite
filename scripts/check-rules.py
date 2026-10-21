@@ -141,6 +141,23 @@ def round_named_test_file_hits(files):
     return hits
 
 
+# `enum Name: String, StaticPatternSet` (any access level), the sets FR-62's one test must compile.
+STATIC_PATTERN_SET = re.compile(r"\benum\s+(\w+)\s*:\s*String\s*,\s*StaticPatternSet\b")
+
+
+def untested_static_pattern_set_hits(tree):
+    """`StaticPatternSet` conformers under Sources/ whose name no `StaticPatternTests.swift` under Tests/ mentions."""
+    tested_text = "\n".join(file.stripped_text for file in tree.files(["Tests"])
+                             if os.path.basename(file.relative_path) == "StaticPatternTests.swift")
+    hits = []
+    for file in tree.files(["Sources"]):
+        for match in STATIC_PATTERN_SET.finditer(file.stripped_text):
+            if not re.search(r"\b" + re.escape(match.group(1)) + r"\b", tested_text):
+                line_number = file.line_number_at(match.start())
+                hits.append(Hit(file.relative_path, line_number, file.raw_line(line_number).strip(), None))
+    return hits
+
+
 def own_enum_case_sets(files):
     """{enum name: set of case names} for every enum declared in `files` (names shared by two enums keep both sets)."""
     case_sets = []
@@ -436,6 +453,8 @@ def build_gates():
              lambda tree: pattern_hits(production(tree), r"\btry!")),
         Gate("constant-pattern-try", "CC 5, FR-62", "`try?`/`try!` on `NSRegularExpression` (constant patterns need a compile-once helper)",
              lambda tree: pattern_hits(production(tree), r"\btry[?!]\s+NSRegularExpression")),
+        Gate("static-pattern-sets-tested", "CC 5, FR-62", "`StaticPatternSet` conformers under Sources/ that no `StaticPatternTests.swift` under Tests/ compiles",
+             untested_static_pattern_set_hits),
         Gate("graphite-error-prose", "CC 6, FR-63", "`.unavailable(\"`, `.invalidFile(\"`, `.oversized(\"` with a string literal (errors are values, one presenter words them)",
              lambda tree: pattern_hits(production(tree), r"\.(?:unavailable|invalidFile|oversized)\(\s*\"\"")),
         Gate("localized-description-in-ui", "CC 7, FR-64", "`localizedDescription` in Sources/GraphiteUI (presenter and Logger only)",

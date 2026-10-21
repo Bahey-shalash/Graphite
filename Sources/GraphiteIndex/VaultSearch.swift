@@ -458,7 +458,7 @@ private final class RegularExpressionCache: @unchecked Sendable {
     func regularExpression(for argument: String) -> NSRegularExpression? {
         if let cached = compiled.object(forKey: argument as NSString) { return cached }
         let isCaseSensitive = argument.hasPrefix("c:")
-        guard let regularExpression = try? NSRegularExpression(pattern: String(argument.dropFirst(2)), options: isCaseSensitive ? [] : [.caseInsensitive]) else { return nil }
+        guard let regularExpression = try? NSRegularExpression(pattern: String(argument.dropFirst(2)), options: isCaseSensitive ? [] : [.caseInsensitive]) else { return nil } // The person's pattern; malformed: no match.
         compiled.setObject(regularExpression, forKey: argument as NSString)
         return regularExpression
     }

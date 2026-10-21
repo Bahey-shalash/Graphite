@@ -63,7 +63,7 @@ public enum MomentDateFormat {
             }
         }
         pattern += "$"
-        guard let expression = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
+        guard let expression = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive), // From the vault's format; malformed: no date.
               let match = expression.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length)) else { return nil }
         var components = DateComponents()
         for (fieldIndex, field) in fields.enumerated() {
