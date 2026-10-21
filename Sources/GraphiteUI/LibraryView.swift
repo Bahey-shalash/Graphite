@@ -28,6 +28,9 @@ struct LibraryActions {
     let openDailyNote: () -> Void
     let newFolder: (VaultPath) -> Void
     let importFiles: ([URL], VaultPath) -> Void
+    /// Saves a finished document scan as a new notebook in a folder; nil where the device cannot scan.
+    let saveScannedNotebook: (@MainActor (ScannedDocumentPDF, Date, VaultPath?) async -> Void)?
+    let reportProblem: @MainActor (String) -> Void
     /// Moves vault items into a folder, as a drop on a folder tile asks.
     let moveItems: ([VaultPath], VaultPath) -> Void
     let setSortOrder: (FileSortOrder) -> Void
@@ -178,7 +181,9 @@ struct LibraryView: View {
                               create: actions.requestCreation,
                               openDailyNote: actions.openDailyNote,
                               newFolder: { directory in actions.newFolder(directory ?? folder) },
-                              importFiles: { sources, directory in actions.importFiles(sources, directory ?? folder) })
+                              importFiles: { sources, directory in actions.importFiles(sources, directory ?? folder) },
+                              saveScannedNotebook: actions.saveScannedNotebook,
+                              reportProblem: actions.reportProblem)
     }
 
     // MARK: Grid

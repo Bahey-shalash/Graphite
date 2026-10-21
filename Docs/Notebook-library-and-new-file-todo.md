@@ -78,7 +78,8 @@ The owner chose the first two; the rest are defaults taken to start building, ea
 ## Part 4: one New menu that asks what to create
 
 - [x] One New button in the library and in the iPad and iPhone sidebar, opening `NewItemPicker`: Notebook and Note as large choices, then Canvas, Base, Today's Daily Note (each while its core plugin is on), Import and Folder. The Mac's sidebar keeps its menu (a click makes a note), without Import.
-- [ ] Later entries, each once the feature exists: Scan Documents, Image from Photos, Take Photo, Quick Record.
+- [x] Scan Documents, shown only where the device can scan (`VNDocumentCameraViewController.isSupported`: an iPhone or iPad with a camera, not the simulator or the Mac): the system scanner, then a new PDF notebook named "Scan 2026-10-21 14.05" in the folder shown (or the vault's location for new files), opened in a tab. Its pages are the scanned pictures at A4 width, with an invisible text layer from on-device recognition. Cancelling saves nothing; a failure is reported like other save errors. The same scanner is in a note's attach menu, Insert menu and context menu as "Scan Document", saving the PDF in the attachment folder and embedding it at the cursor. Not run on a device yet (see `Docs/Coverage.md`).
+- [ ] Later entries, each once the feature exists: Image from Photos, Take Photo, Quick Record.
 - [x] Notebook first in Library mode, Note first in List mode. ⌘N still makes a note.
 - [x] The new file goes into the folder shown, or the vault's location for new files.
 

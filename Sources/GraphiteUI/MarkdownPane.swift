@@ -17,6 +17,7 @@ struct MarkdownPane: View {
     @State private var showsAttachmentPicker = false
     @State private var showsPhotoPicker = false
     @State private var showsCamera = false
+    @State private var showsDocumentScanner = false
     @State private var pickedPhotos: [PhotosPickerItem] = []
     @State private var showsLinkPicker = false
     @State private var showsReloadConfirmation = false
@@ -173,6 +174,7 @@ struct MarkdownPane: View {
                 .ignoresSafeArea()
         }
         #endif
+        .modifier(documentScanPresentation(isPresented: $showsDocumentScanner))
         .sheet(isPresented: $showsLinkPicker) { LinkPicker(workspace: workspace, notePath: session.path) { link in session.insert(link) } }
         .modifier(notebookInsertion)
     }
@@ -251,6 +253,7 @@ struct MarkdownPane: View {
         actions.choosePhoto = { showsPhotoPicker = true }
         #if canImport(UIKit)
         if UIImagePickerController.isSourceTypeAvailable(.camera) { actions.takePhoto = { showsCamera = true } }
+        if DocumentScanner.isSupported { actions.scanDocument = { showsDocumentScanner = true } }
         #endif
         actions.insertAttachment = { [workspace, session] data, stem, fileExtension, range in
             Task { await workspace.saveAttachment(data, stem: stem, fileExtension: fileExtension, into: session, at: range) }
@@ -472,6 +475,7 @@ struct MarkdownPane: View {
         Button("Photo Library…", systemImage: "photo.on.rectangle") { showsPhotoPicker = true }
         #if canImport(UIKit)
         if UIImagePickerController.isSourceTypeAvailable(.camera) { Button("Take Photo…", systemImage: "camera") { showsCamera = true } }
+        if DocumentScanner.isSupported { Button("Scan Document…", systemImage: "doc.viewfinder") { showsDocumentScanner = true } }
         #endif
         Button("Attachment…", systemImage: "doc.badge.plus") { showsAttachmentPicker = true }
         Button("New Notebook…", systemImage: "book.closed") { document.notebookInsertion = NotebookInsertionRequest(session: session) }
@@ -653,19 +657,6 @@ struct MarkdownPane: View {
             } catch { workspace.errorMessage = error.localizedDescription }
         }
     }
-
-    #if canImport(UIKit)
-    /// A full-resolution camera photo takes long enough to encode that it is done off the
-    /// main thread.
-    private func insertCameraPhoto(_ image: UIImage) async {
-        let photoData = await Task.detached(priority: .userInitiated) { image.jpegData(compressionQuality: 0.85) }.value
-        guard let photoData else {
-            workspace.errorMessage = "The photo could not be saved. Take it again."
-            return
-        }
-        await workspace.saveAttachment(photoData, stem: CameraCapture.photoStem(), fileExtension: "jpg", into: session)
-    }
-    #endif
 
     private func saveCopy() async {
         do { let path = try await session.saveSeparateCopy(); await workspace.refreshDirectory(); await workspace.open(path) }
