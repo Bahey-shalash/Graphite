@@ -21,14 +21,17 @@ A page in Settings, on the Mac and the iPad, that lists Graphite's commands with
   The table is checked by hand on macOS 27 and iPadOS 27 against Apple's keyboard shortcut lists, and its source is noted in the code.
 - [ ] Mac: shortcuts the user set in System Settings › Keyboard › Keyboard Shortcuts › App Shortcuts (`NSUserKeyEquivalents`, for Graphite or for all apps) override the menu's. The page shows them on their rows as "set in System Settings". Check whether a sandboxed Graphite can also read the user's changes to the system's own shortcuts; if not, the page says the table covers only the system's defaults.
 - [ ] Keyboard layouts: shortcuts are stored by the key's character as Obsidian does; check them on the Swiss French layout on both devices, where `/`, `[`, `]` and `` ` `` need ⌥ or ⇧ (on the Mac, `allowsAutomaticKeyEquivalentLocalization`).
-- [ ] Storage: changes only (not the defaults) in the vault's `.obsidian/hotkeys.json`, Obsidian's format (`{"editor:toggle-bold": [{"modifiers": ["Mod"], "key": "B"}]}`, `Mod` being ⌘), so a vault keeps the same shortcuts in Obsidian and in Graphite. Entries for commands Graphite does not have are kept untouched when the file is written. A damaged file is reported and the defaults apply; it is never overwritten.
+- [ ] Storage, per vault (owner, 2026-10-21): changes only (not the defaults) in the vault's `.obsidian/hotkeys.json`, Obsidian's format (`{"editor:toggle-bold": [{"modifiers": ["Mod"], "key": "B"}]}`, `Mod` being ⌘), so a vault keeps the same shortcuts in Obsidian and in Graphite. Entries for commands Graphite does not have are kept untouched when the file is written. A damaged file is reported and the defaults apply; it is never overwritten.
 - [ ] Community plugins: commands added with `addCommand` appear in their plugin's group, with their declared `hotkeys` as defaults, and can be changed like the others. They leave the list when the plugin is turned off.
 - [ ] Costs nothing while unused: the list is built when the page opens; key handling looks shortcuts up in a table built once per change.
 - [ ] Tests: every menu, editor and palette shortcut comes from the list; a change in `hotkeys.json` reaches the menu and the editor; a clash between two commands is found; each kind of system clash is found from the table; an unknown command's entry survives a write; a damaged file leaves the defaults and the file as they were.
 - [ ] On the Mac and the iPad with a hardware keyboard: change ⌘B to another shortcut and use it in a note; try ⌘Tab and see it refused; try ⌘Q and see the warning; set a Graphite shortcut in System Settings and see it on the page.
 - [ ] `Architecture.md`, `Coverage.md`, [Obsidian-mobile-gaps.md](Obsidian-mobile-gaps.md) and `Docs/solid/invariants.md` updated once built and tested; `python3 scripts/size-report.py` passes.
 
+## Decisions
+
+- Shortcuts belong to the vault, in `.obsidian/hotkeys.json`, shared with Obsidian and the same on every device that opens the vault (owner, 2026-10-21).
+
 ## Open questions
 
-- Per vault in `.obsidian/hotkeys.json` (shared with Obsidian, and the same on every device that opens the vault), or per device?
 - The iPhone with a hardware keyboard: the same page, or nothing?
