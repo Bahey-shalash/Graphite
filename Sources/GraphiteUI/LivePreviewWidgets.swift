@@ -451,9 +451,9 @@ enum LivePreviewText {
             output.replaceCharacters(in: match.range, with: "[\(label)](\(GraphiteOpenLink.markdownDestination(target: target)))")
         }
         text = output as String
-        // The note's own private-use characters are escaped as reading view escapes them,
-        // so they are not read as markers; `ObsidianMarkdownParser` restores them.
-        return ObsidianInlineMarkup.preparedForReading(ReadingMarkerEscaping.escaping(text), colorsEnabled: colorsEnabled, paletteHexByName: paletteHexByName)
+        // The note's own private-use characters are escaped there as in reading view, so
+        // they are not read as markers; `ObsidianMarkdownParser` restores them.
+        return ObsidianInlineMarkup.preparedForReading(text, colorsEnabled: colorsEnabled, paletteHexByName: paletteHexByName)
     }
 }
 
