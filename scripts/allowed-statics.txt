@@ -14,7 +14,8 @@
 # Stateless or immutable process-wide objects; they can stay process-wide if injected (DIP-ARCH-02 "Why it matters").
 Sources/GraphiteApple/MainThreadWatchdog.swift      MetricKitDiagnostics.shared        # no state; started once by the root (ARCH 3.1)
 Sources/GraphiteApple/MainThreadWatchdog.swift      MainThreadWatchdog.shared          # lock and set-once fields; started once by the root
-Sources/GraphiteApple/PDFPicture.swift              PDFPictureDrawingDelegate.shared   # no state (DIP-LECTURE-01)
+Sources/GraphiteApple/PDFAnnotationDrawingDelegate.swift PDFAnnotationDrawingDelegate.shared # no state (DIP-LECTURE-01)
+Sources/GraphiteApple/PDFAnnotationDrawingDelegate.swift PDFWrittenDocumentDelegate.shared # no state, as the one above
 Sources/GraphiteApple/DrawingFileService.swift      ImageDecodingLimiter.shared        # bounded decode concurrency for the whole process
 # Process-wide state that tests share and that Phase 2 hands to the environment.
 Sources/GraphiteUI/WorkspacePlaces.swift            DocumentPlaceStore.shared          # over UserDefaults.standard; Phase 2 (T-18)
@@ -29,6 +30,7 @@ Sources/GraphiteUI/EmbeddedPDFViewer.swift          EmbeddedPDFSessions.shared  
 # Locks and caches that guard themselves.
 Sources/GraphiteApple/DiagnosticRecords.swift       DiagnosticContext.state             # OSAllocatedUnfairLock around a value; diagnostics edge
 Sources/GraphiteApple/PDFPicture.swift              PDFPictureAnnotation.fileReadingLock # NSLock serialising picture file reads
+Sources/GraphiteApple/PDFTextBoxAnnotation.swift    PDFTextBoxAnnotation.fileReadingLock # NSLock serialising text box file reads, as for pictures
 Sources/GraphiteCore/CodeSyntaxHighlighting.swift   CodeSyntaxHighlighter.cachedTokens  # Mutex token cache; becomes an instance of the reading renderer (foundations 3.4)
 Sources/GraphiteUI/PencilToolbar.swift              PencilInkSample.cache               # NSCache of ink sample images, bounded by the system
 Sources/GraphiteUI/LivePreviewRenderedBlocks.swift  LivePreviewRenderedBlocks.measuredHeights # bounded cache (capacity 2,000); leaks between tests

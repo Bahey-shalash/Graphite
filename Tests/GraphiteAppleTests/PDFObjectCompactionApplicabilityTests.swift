@@ -14,9 +14,9 @@ final class PDFObjectCompactionApplicabilityTests: XCTestCase {
     }
 
     /// One page and one object nothing refers to, with the given extra trailer entries.
-    private func fileData(trailerExtras: String) -> Data {
+    private func fileData(trailerExtras: String, unusedObject: String = "<< /Unused true >>") -> Data {
         let objects = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-                       "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>", "<< /Unused true >>"]
+                       "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>", unusedObject]
         var text = "%PDF-1.7\n"
         var offsets: [Int] = []
         for (objectIndex, object) in objects.enumerated() {
@@ -39,6 +39,13 @@ final class PDFObjectCompactionApplicabilityTests: XCTestCase {
 
     func testASingleCrossReferenceTableIsCompactedAndTheResultOpensWithTheSamePages() throws {
         let result = try compact(fileData(trailerExtras: ""))
+        XCTAssertEqual(result.report?.removedObjectCount, 1)
+        XCTAssertEqual(PDFDocument(url: result.destination)?.pageCount, 1)
+    }
+
+    func testAnObjectWithNoValueIsReadAsNullAsPDFKitWritesAnEmptyStreamItRead() throws {
+        // PDFKit writes `4 0 obj endobj` for an empty content stream of a file it opened.
+        let result = try compact(fileData(trailerExtras: "", unusedObject: ""))
         XCTAssertEqual(result.report?.removedObjectCount, 1)
         XCTAssertEqual(PDFDocument(url: result.destination)?.pageCount, 1)
     }
