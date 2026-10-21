@@ -65,7 +65,15 @@ final class LibraryModel {
         await listFolder()
     }
 
-    func showHome() { isShownAsHome = true }
+    /// The house button, as a tab bar's tab: from a document it brings the library back at
+    /// the folder it was showing; on the library it goes up to the vault's root.
+    func showHome() async {
+        guard isShownAsHome else {
+            isShownAsHome = true
+            return
+        }
+        await show(.root)
+    }
 
     /// A document tab was chosen or a file opened: the library steps back.
     func leaveHome() {
