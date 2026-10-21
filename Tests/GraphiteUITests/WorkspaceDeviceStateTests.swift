@@ -199,10 +199,24 @@ final class WorkspaceDeviceStateTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: indexLocation.path))
     }
 
+    // MARK: Windows
+
+    func testTwoWindowsOfOneProcessShareThePreferencesTheVaultListAndThePlaces() throws {
+        let device = try IsolatedWorkspaceDevice.make(for: self)
+        let processServices = device.makeServices()
+        let firstWindow = WorkspaceModel(processServices: processServices, clock: LiveApplicationClock())
+        let secondWindow = WorkspaceModel(processServices: processServices, clock: LiveApplicationClock())
+
+        XCTAssertIdentical(firstWindow.preferences, secondWindow.preferences, "A setting changed in one window reaches the other at once.")
+        XCTAssertIdentical(firstWindow.vaultLibrary, secondWindow.vaultLibrary)
+        XCTAssertIdentical(firstWindow.processServices.documentPlaceStore, secondWindow.processServices.documentPlaceStore)
+        XCTAssertIdentical(firstWindow.processServices.addOns, secondWindow.processServices.addOns)
+    }
+
     // MARK: Hosted launch
 
     func testAHostedTestsLaunchGetsAPreferencesSuiteAndFoldersOfItsOwn() throws {
-        let services = WorkspaceDeviceServices.make(for: .hostedTests)
+        let services = ProcessServices.make(for: .hostedTests)
 
         XCTAssertNotIdentical(services.defaults, UserDefaults.standard)
         XCTAssertTrue(services.vaultLibrary.vaults.isEmpty, "No vault of the device's is in its list.")
@@ -211,11 +225,11 @@ final class WorkspaceDeviceStateTests: XCTestCase {
         let applicationSupportFolder = try XCTUnwrap(services.applicationFolders.applicationSupportFolder)
         XCTAssertTrue(cachesFolder.resolvingSymlinksInPath().path.hasPrefix(temporaryRoot), cachesFolder.path)
         XCTAssertTrue(applicationSupportFolder.resolvingSymlinksInPath().path.hasPrefix(temporaryRoot), applicationSupportFolder.path)
-        XCTAssertNotEqual(cachesFolder, WorkspaceDeviceServices.make(for: .hostedTests).applicationFolders.cachesFolder, "Each launch has folders of its own.")
+        XCTAssertNotEqual(cachesFolder, ProcessServices.make(for: .hostedTests).applicationFolders.cachesFolder, "Each launch has folders of its own.")
     }
 
     func testAHostedTestsWorkspaceRestoresNoVault() async throws {
-        let workspace = WorkspaceModel(launchMode: .hostedTests)
+        let workspace = WorkspaceModel(processServices: .make(for: .hostedTests), clock: LiveApplicationClock())
 
         await workspace.restoreVault()
 

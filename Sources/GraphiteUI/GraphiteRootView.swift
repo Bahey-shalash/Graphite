@@ -20,9 +20,6 @@ public struct GraphiteRootView: View {
     @State private var opensVaultManagerAfterSettings = false
     @State private var creation: CreationRequest?
     @State private var library = LibraryModel()
-    /// What this device has downloaded of the extras Graphite does not carry, such as the
-    /// welcome tour's pictures; every sheet of the window reads it from the environment.
-    @State private var addOns: AddOnLibrary?
     @State private var showsInspector = false
     @State private var activePalette: ActivePalette?
     @State private var columnVisibility = NavigationSplitViewVisibility.automatic
@@ -53,9 +50,10 @@ public struct GraphiteRootView: View {
     /// document's own controls.
     private var isCompactWidth: Bool { horizontalSizeClass == .compact }
 
-    /// The root view of a launch in `launchMode`, with the workspace made for it.
-    public init(launchMode: LaunchMode) {
-        _workspace = State(initialValue: WorkspaceModel(launchMode: launchMode))
+    /// The root view of one window of a launch in `launchMode`, with a workspace of its own
+    /// over the services every window shares.
+    public init(processServices: ProcessServices, launchMode: LaunchMode) {
+        _workspace = State(initialValue: WorkspaceModel(processServices: processServices, clock: LiveApplicationClock()))
         restoresLastVault = launchMode.restoresLastVault
         presentsWelcomeTour = launchMode.presentsWelcomeTour
         _isRestoringVault = State(initialValue: launchMode.restoresLastVault)
@@ -268,10 +266,9 @@ public struct GraphiteRootView: View {
             if let completedLocation { Task { await workspace.recordingDidFinish(at: completedLocation) } }
         }
         .preferredColorScheme(workspace.preferences.appearanceMode.colorScheme)
-        // Outermost, so the window's sheets (the welcome tour, Settings) read it too. Made
-        // when the window first appears, from the folders of the workspace it belongs to.
-        .environment(addOns)
-        .onAppear { if addOns == nil { addOns = .standard(applicationFolders: workspace.applicationFolders) } }
+        // Outermost, so the window's sheets (the welcome tour, Settings) read the add-on
+        // packs too. Every window shares one library (`ProcessServices`).
+        .environment(workspace.processServices.addOns)
     }
 
     private func recoveryMessage(for unfinished: RecoverableRecording) -> String {
