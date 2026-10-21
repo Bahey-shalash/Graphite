@@ -100,9 +100,8 @@ enum LibraryDropReader {
         await withCheckedContinuation { continuation in
             provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
                 // An address that cannot be read imports nothing.
-                if let location = item as? URL { continuation.resume(returning: location.isFileURL ? location : nil) }
-                else if let data = item as? Data, let location = URL(dataRepresentation: data, relativeTo: nil) { continuation.resume(returning: location.isFileURL ? location : nil) }
-                else { continuation.resume(returning: nil) }
+                let location = (item as? URL) ?? (item as? Data).flatMap { data in URL(dataRepresentation: data, relativeTo: nil) }
+                continuation.resume(returning: location?.isFileURL == true ? location : nil)
             }
         }
     }
@@ -113,7 +112,10 @@ enum LibraryDropReader {
         return await withCheckedContinuation { continuation in
             _ = provider.loadFileRepresentation(forTypeIdentifier: type.identifier) { location, _ in
                 // The system removes its file when this handler returns, so the copy is made here.
-                guard let location, let staged = try? DroppedFileStaging.stage(location, namedAfter: suggestedName, fileExtension: type.preferredFilenameExtension) else { // A file that cannot be copied imports nothing.
+                let staged = location.flatMap { file in
+                    try? DroppedFileStaging.stage(file, namedAfter: suggestedName, fileExtension: type.preferredFilenameExtension) // Not copied: nothing imported.
+                }
+                guard let staged else {
                     continuation.resume(returning: nil)
                     return
                 }

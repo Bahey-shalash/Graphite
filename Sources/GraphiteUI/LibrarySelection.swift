@@ -1,4 +1,3 @@
-import SwiftUI
 import GraphiteCore
 
 /// Which tiles of the library's folder are chosen while the person selects several, and the
@@ -14,17 +13,6 @@ struct LibrarySelection: Equatable {
         case toggle
         /// Every tile from the last one chosen to this one is added (a ⇧-click).
         case extendRange
-
-        /// The gesture the modifier keys held at a click or tap ask for; nil when neither ⌘ nor ⇧ is held.
-        init?(heldKeys: EventModifiers) {
-            if heldKeys.contains(.command) {
-                self = .toggle
-            } else if heldKeys.contains(.shift) {
-                self = .extendRange
-            } else {
-                return nil
-            }
-        }
     }
 
     /// Whether tiles are chosen instead of opened.
@@ -35,13 +23,9 @@ struct LibrarySelection: Equatable {
 
     var chosenCount: Int { chosenPaths.count }
 
-    /// Starts choosing; a tile may be chosen at once, as a ⌘-click on a tile outside selection does.
-    mutating func begin(choosing path: VaultPath? = nil) {
+    /// Starts choosing, with nothing chosen yet.
+    mutating func begin() {
         isSelecting = true
-        if let path {
-            chosenPaths = [path]
-            anchorPath = path
-        }
     }
 
     /// Stops choosing and forgets the choice.

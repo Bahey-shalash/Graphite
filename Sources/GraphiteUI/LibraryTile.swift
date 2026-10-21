@@ -25,11 +25,16 @@ struct LibraryTile: View {
     let dropActions: LibraryDropActions
     let findPictures: (String) async -> [VaultPath]
     @State private var isDropTargeted = false
-    /// The modifier keys held at the last touch; read when the button acts (iPad with a keyboard).
-    @State private var heldKeys = HeldModifierKeys()
 
-    /// The picture's height; the folder symbol fills most of it.
-    private static let artworkHeightPoints: CGFloat = 120
+    @ScaledMetric(relativeTo: .subheadline) private var textScale: CGFloat = 1
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    /// The picture's height at the default text size; the folder symbol fills most of it.
+    static let baseArtworkHeightPoints: CGFloat = 120
+    /// Larger text makes the tile larger with it, up to this factor, so a column still fits the screen.
+    static let maximumTextScale: CGFloat = 2
+
+    private var artworkHeightPoints: CGFloat { Self.baseArtworkHeightPoints * min(textScale, Self.maximumTextScale) }
 
     /// A plain click on the Mac chooses the tile alone, as in the Finder; a tap toggles it.
     private static var plainChoiceGesture: LibrarySelection.Gesture {
@@ -45,7 +50,7 @@ struct LibraryTile: View {
         Button(action: activate) {
             VStack(spacing: 6) {
                 artwork
-                    .frame(height: Self.artworkHeightPoints)
+                    .frame(height: artworkHeightPoints)
                     .padding(6)
                     .background {
                         if isDropTargeted { RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.fill.secondary) }
@@ -61,10 +66,18 @@ struct LibraryTile: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityTitle(isBookmarked: isBookmarked))
+        .accessibilityLabel(accessibilityTitle)
+        // The favorite state is spoken once, as the value; the star beside the date is decoration.
+        .accessibilityValue(isBookmarked ? "Bookmarked" : "")
         .accessibilityAddTraits(selection == .chosen ? [.isButton, .isSelected] : .isButton)
         .accessibilityHint(selection.isSelecting ? (selection == .chosen ? "Deselects it." : "Selects it.") : "")
-        .modifier(ModifierKeyChoice(choose: choose, heldKeys: heldKeys))
+        .accessibilityActions {
+            // The context menu's actions, which VoiceOver offers as custom actions too.
+            if !selection.isSelecting {
+                ForEach(entries.accessibilityActions(entry)) { entryAction in Button(entryAction.title, action: entryAction.perform) }
+            }
+        }
+        .modifier(ModifierKeyChoice(choose: choose))
         #if os(macOS)
         // While choosing, a plain click only chooses; a double-click opens, as in the Finder.
         .simultaneousGesture(TapGesture(count: 2).onEnded { if selection.isSelecting { open() } })
@@ -87,27 +100,29 @@ struct LibraryTile: View {
                 Text(entries.displayName(entry.path))
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.primary)
-                    .lineLimit(2)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? Self.accessibilityNameLineLimit : 2)
                     .multilineTextAlignment(.center)
             }
             HStack(spacing: 3) {
                 if isBookmarked { Image(systemName: "star.fill").imageScale(.small).accessibilityHidden(true) }
-                Text(entry.modified.formatted(date: .abbreviated, time: .omitted))
+                Text(subtitle)
             }
             .font(.caption)
             .foregroundStyle(.secondary)
         }
     }
 
+    /// Names wrap to this many lines at accessibility text sizes, so a long name is read in full.
+    private static let accessibilityNameLineLimit = 6
+
+    /// A folder says how many items it holds, as the Files app does; a file says when it changed.
+    private var subtitle: String {
+        if entry.isDirectory, let itemCount = library.folderItemCounts.counts[entry.path] { return LibraryTileSpokenLabel.itemCountText(itemCount) }
+        return entry.modified.formatted(date: .abbreviated, time: .omitted)
+    }
+
     private func activate() {
-        // A tap with ⌘ or ⇧ held (a keyboard on the iPad) chooses, as a click does on the Mac.
-        if let keyGesture = LibrarySelection.Gesture(heldKeys: heldKeys.takeKeys()) {
-            choose(keyGesture)
-        } else if selection.isSelecting {
-            choose(Self.plainChoiceGesture)
-        } else {
-            open()
-        }
+        if selection.isSelecting { choose(Self.plainChoiceGesture) } else { open() }
     }
 
     /// The empty circle of a tile that can be chosen, and the checked one of a chosen tile.
@@ -125,43 +140,30 @@ struct LibraryTile: View {
 
     @ViewBuilder private var artwork: some View {
         if entry.isDirectory {
-            LibraryFolderTileArtwork(folder: entry.path, looks: library.folderLooks, symbolPointSize: Self.artworkHeightPoints * 0.8)
+            LibraryFolderTileArtwork(folder: entry.path, looks: library.folderLooks, symbolPointSize: artworkHeightPoints * 0.8)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             LibraryFileArtwork(entry: entry, preview: library.visiblePreviews[entry.path])
         }
     }
 
-    private func accessibilityTitle(isBookmarked: Bool) -> String {
-        let kind = entry.isDirectory ? "Folder" : entry.kind.libraryTitle
-        let look = entry.isDirectory ? library.folderLooks.shownLook(of: entry.path).style.map { style in ", \(style.spokenDescription)" } ?? "" : ""
-        let bookmark = isBookmarked ? ", bookmarked" : ""
-        return "\(entries.displayName(entry.path)), \(kind)\(look)\(bookmark), \(entry.modified.formatted(date: .abbreviated, time: .shortened))"
+    /// A file as name, kind and date; a folder as name, look and item count.
+    private var accessibilityTitle: String {
+        let name = entries.displayName(entry.path)
+        guard entry.isDirectory else {
+            let modifiedText = entry.modified.formatted(date: .abbreviated, time: .shortened)
+            return LibraryTileSpokenLabel.file(name: name, kind: entry.kind.libraryTitle, modifiedText: modifiedText)
+        }
+        return LibraryTileSpokenLabel.folder(name: name, lookDescription: library.folderLooks.shownLook(of: entry.path).style?.spokenDescription,
+                                             itemCount: library.folderItemCounts.counts[entry.path])
     }
 }
 
-/// The keyboard modifier keys held when a tile is touched, kept in a box so recording them
-/// redraws nothing.
-@MainActor
-final class HeldModifierKeys {
-    private var keys: EventModifiers = []
-
-    func record(_ newKeys: EventModifiers) { keys = newKeys }
-
-    /// The keys recorded at the last touch, forgotten once read, so a later activation by
-    /// VoiceOver or the keyboard does not inherit them.
-    func takeKeys() -> EventModifiers {
-        defer { keys = [] }
-        return keys
-    }
-}
-
-/// ⌘-click toggles and ⇧-click extends the choice, as in the Finder. On the Mac the clicks
-/// are gestures that take precedence over the button; on the iPad the keys held at the touch
-/// are recorded and the button reads them, because UIKit's gestures carry no modifiers there.
+/// ⌘-click toggles and ⇧-click extends the choice, as in the Finder. They are gestures that take
+/// precedence over the button, which a plain click still reaches. On the iPad a tap only chooses
+/// or opens: a gesture reading the keys held at the touch stopped the grid from scrolling.
 private struct ModifierKeyChoice: ViewModifier {
     let choose: (LibrarySelection.Gesture) -> Void
-    let heldKeys: HeldModifierKeys
 
     func body(content: Content) -> some View {
         #if os(macOS)
@@ -169,9 +171,7 @@ private struct ModifierKeyChoice: ViewModifier {
             .highPriorityGesture(TapGesture().modifiers(.command).onEnded { choose(.toggle) })
             .highPriorityGesture(TapGesture().modifiers(.shift).onEnded { choose(.extendRange) })
         #else
-        content.simultaneousGesture(SpatialEventGesture().onChanged { events in
-            heldKeys.record(events.first?.modifierKeys ?? [])
-        })
+        content
         #endif
     }
 }

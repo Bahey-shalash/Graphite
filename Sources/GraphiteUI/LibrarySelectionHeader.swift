@@ -34,23 +34,45 @@ struct LibrarySelectionHeader: View {
     }
 
     var body: some View {
-        HStack(spacing: 4) {
-            Text(title)
-                .font(.title2.weight(.bold))
-                .lineLimit(1)
-                .accessibilityAddTraits(.isHeader)
-            Spacer(minLength: 8)
-            if usesMenu { actionsMenu } else { actionButtons }
-            Button("Done", action: actions.done)
-                .fontWeight(.semibold)
-                .frame(minHeight: 44)
-                .keyboardShortcut(.escape, modifiers: [])
+        // The title shares the row with the actions while they fit; at large text sizes it takes a row of its own.
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 4) {
+                titleText(lineLimit: 1).fixedSize(horizontal: true, vertical: false)
+                Spacer(minLength: 8)
+                controls
+            }
+            VStack(alignment: .leading, spacing: 0) {
+                titleText(lineLimit: 2)
+                HStack(spacing: 4) {
+                    Spacer(minLength: 0)
+                    controls
+                }
+            }
         }
         .font(.title3)
         .buttonStyle(.borderless)
         .padding(.leading, 20)
         .padding(.trailing, 12)
         .padding(.vertical, 6)
+    }
+
+    private func titleText(lineLimit: Int) -> some View {
+        Text(title)
+            .font(.title2.weight(.bold))
+            .lineLimit(lineLimit)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    /// The symbols keep a size a finger can hit; only the title follows the text size beyond that.
+    private var controls: some View {
+        HStack(spacing: 4) {
+            if usesMenu { actionsMenu } else { actionButtons }
+            Button("Done", action: actions.done)
+                .fontWeight(.semibold)
+                .frame(minHeight: 44)
+                .keyboardShortcut(.escape, modifiers: [])
+        }
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
 
     private var selectAllTitle: String { content.hasChosenAll ? "Deselect All" : "Select All" }
@@ -90,6 +112,10 @@ struct LibrarySelectionHeader: View {
         .accessibilityLabel("Actions for the Selection")
     }
 
+    private var shareUnavailableReason: String {
+        content.chosenCount == 0 ? "Choose files to share." : "Folders cannot be shared. Choose files only."
+    }
+
     /// Share needs files: with a folder chosen it says why it is off.
     @ViewBuilder private var shareControl: some View {
         if let shareLocations = content.shareLocations, !shareLocations.isEmpty {
@@ -97,7 +123,8 @@ struct LibrarySelectionHeader: View {
         } else {
             Button("Share…", systemImage: "square.and.arrow.up") {}
                 .disabled(true)
-                .help(content.chosenCount == 0 ? "Choose files to share" : "Folders cannot be shared; choose files only")
+                .help(shareUnavailableReason)
+                .accessibilityHint(shareUnavailableReason)
         }
     }
 }
