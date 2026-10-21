@@ -22,13 +22,19 @@ struct BaseCardGridMetrics: Equatable {
     /// - Parameters:
     ///   - availableWidth: The view's whole width, margins included.
     ///   - preferredCardWidth: The view's card size.
-    init(availableWidth: CGFloat, preferredCardWidth: CGFloat) {
+    ///   - isPrinted: On paper the count is rounded to the nearest, cards a little narrower
+    ///     than their size (never under `minimumCardWidth`) rather than a few stretched ones,
+    ///     so a page holds more of them.
+    init(availableWidth: CGFloat, preferredCardWidth: CGFloat, isPrinted: Bool = false) {
         isCompact = availableWidth < Self.compactWidthThreshold
         spacing = isCompact ? 12 : 16
         padding = isCompact ? 12 : 16
         let contentWidth = availableWidth.isFinite ? availableWidth - 2 * padding : 0
         let cardWidth = preferredCardWidth.isFinite ? max(preferredCardWidth, Self.smallestPreferredCardWidth) : Self.smallestPreferredCardWidth
-        let fittingCount = max(1, Int(((contentWidth + spacing) / (cardWidth + spacing)).rounded(.down)))
+        let exactCount = (contentWidth + spacing) / (cardWidth + spacing)
+        let widestCount = max(1, Int(((contentWidth + spacing) / (Self.minimumCardWidth + spacing)).rounded(.down)))
+        let fittingCount = isPrinted ? min(max(1, Int(exactCount.rounded())), widestCount)
+                                     : max(1, Int(exactCount.rounded(.down)))
         columnCount = fittingCount < 2 && contentWidth >= 2 * Self.minimumCardWidth + spacing ? 2 : fittingCount
     }
 }
@@ -41,13 +47,14 @@ struct BaseCardsView: View {
     let actions: BaseViewActions
     @Environment(\.basesScrollVertically) private var scrollsVertically
     @Environment(\.baseRowLimit) private var rowLimit
+    @Environment(\.readingIsPrinted) private var isPrinted
     /// The view's width, nil until it is first laid out.
     @State private var availableWidth: CGFloat?
 
     private var options: BaseCardsOptions { result.view.cards }
     private var cardWidth: CGFloat { options.cardSize.map { size in CGFloat(size) } ?? Self.defaultCardWidth }
     private var metrics: BaseCardGridMetrics? {
-        availableWidth.map { width in BaseCardGridMetrics(availableWidth: width, preferredCardWidth: cardWidth) }
+        availableWidth.map { width in BaseCardGridMetrics(availableWidth: width, preferredCardWidth: cardWidth, isPrinted: isPrinted) }
     }
 
     var body: some View {
