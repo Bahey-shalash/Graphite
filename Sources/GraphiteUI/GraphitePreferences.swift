@@ -72,7 +72,8 @@ enum CorePlugin: String, CaseIterable, Identifiable, Codable {
         case .graph: "Draws the vault's notes and links, and each note's neighborhood in the right sidebar."
         case .map: "Places notes with a coordinates or location property on Apple's map, and the open note's linked places in the right sidebar."
         case .canvas: "Opens .canvas files as boards of cards and connections, to read and to edit."
-        case .notebookImport: "Turns Goodnotes and Notability notebooks into PDFs with editable handwriting when they are imported. Off, they are copied as they are."
+        case .notebookImport:
+            "Turns Goodnotes and Notability notebooks into PDFs with editable handwriting when they are imported. Off, they are copied as they are."
         }
     }
 

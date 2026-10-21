@@ -79,8 +79,7 @@ public struct OpenedNotebook: Sendable {
         var coordinationError: NSError?
         var bytes: Data?
         NSFileCoordinator().coordinate(readingItemAt: location, options: [], error: &coordinationError) { coordinatedLocation in
-            // A read error and a failed coordination mean the same: the file cannot be read.
-            bytes = try? Data(contentsOf: coordinatedLocation, options: .alwaysMapped)
+            bytes = try? Data(contentsOf: coordinatedLocation, options: .alwaysMapped) // Unread bytes are reported below as an unreadable source.
         }
         guard coordinationError == nil, let bytes else { throw .sourceUnreadable }
         return bytes
