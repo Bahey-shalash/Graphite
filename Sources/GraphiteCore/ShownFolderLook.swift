@@ -30,10 +30,16 @@ public enum ShownFolderLook: Equatable, Sendable {
 
 extension FolderStyle {
     /// Whether Finder draws this look exactly as Graphite does: a symbol or emoji on a folder
-    /// without a color or in a tag color. A color alone is only a tag dot in Finder.
+    /// without a color or in a tag color, a picture as the whole icon, or a picture on a folder
+    /// without a color (Finder's custom icon is drawn on the system's own folder). A color
+    /// alone is only a tag dot in Finder.
     public var isDrawnTheSameByFinder: Bool {
-        guard mark != nil else { return false }
-        return color.map { color in FinderTagColor(folderColor: color) != nil } ?? true
+        switch mark {
+        case nil: false
+        case .picture(let picture) where picture.layout == .wholeIcon: true
+        case .picture: color == nil
+        case .symbol, .emoji: color.map { color in FinderTagColor(folderColor: color) != nil } ?? true
+        }
     }
 }
 
@@ -41,7 +47,8 @@ extension FinderFolderLook {
     /// Whether Finder shows what Graphite last wrote for `style`: the same mark, and the
     /// same color where a tag can hold it.
     func agrees(with style: FolderStyle) -> Bool {
-        guard mark == style.mark else { return false }
+        let marksAgree = style.picture != nil ? showsCustomIconFile : mark == style.mark
+        guard marksAgree else { return false }
         guard let styleColor = style.color else { return color == nil }
         guard let tagColor = FinderTagColor(folderColor: styleColor) else { return true }
         return tagColor == color

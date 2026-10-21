@@ -48,6 +48,32 @@ final class FinderFolderAttributesTests: XCTestCase {
         XCTAssertEqual(pixels(of: try XCTUnwrap(attributes.systemIcon(of: lab, pixels: 64))), pixels(of: plainIcon))
     }
 
+    /// A picture written as Finder's custom icon is the folder's icon, and a symbol chosen
+    /// afterwards replaces it.
+    func testAPictureIsFindersCustomIcon() async throws {
+        let vault = try TemporaryVault.make(prefix: "FinderLook", files: ["Lab/Note.md": "x"], for: self)
+        let attributes = FinderFolderAttributes(root: vault.root)
+        let lab = try VaultPath("Lab")
+        let plainIcon = try XCTUnwrap(attributes.systemIcon(of: lab, pixels: 64))
+        let context = try XCTUnwrap(CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(red: 1, green: 0, blue: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+        let picturePath = try await VaultStore(root: vault.root).saveFolderPicture(FolderIconRenderer.pngData(of: try XCTUnwrap(context.makeImage())))
+        let style = FolderStyle(mark: .picture(FolderPicture(path: picturePath, layout: .onFolder)))
+
+        try attributes.write(FinderFolderLookChange.change(for: style, from: attributes.look(of: lab), colorTagNames: [:]), to: lab)
+
+        let look = attributes.look(of: lab)
+        XCTAssertTrue(look.showsCustomIconFile)
+        XCTAssertEqual(ShownFolderLook.resolve(stored: style, finder: look), .drawnByFinder(style))
+        XCTAssertNotEqual(pixels(of: try XCTUnwrap(attributes.systemIcon(of: lab, pixels: 64))), pixels(of: plainIcon))
+
+        try attributes.write(FinderFolderLookChange.change(for: FolderStyle(mark: .symbol("star.fill")), from: look, colorTagNames: [:]), to: lab)
+        XCTAssertFalse(attributes.look(of: lab).hasCustomIconFile)
+        XCTAssertEqual(attributes.look(of: lab).mark, .symbol("star.fill"))
+    }
+
     private func pixels(of image: CGImage) -> Data {
         let context = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
                                 space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)

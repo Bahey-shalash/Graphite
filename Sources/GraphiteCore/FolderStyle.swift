@@ -5,6 +5,8 @@ enum FolderStyleFieldName {
     static let color = "color"
     static let symbol = "symbol"
     static let emoji = "emoji"
+    static let picture = "picture"
+    static let pictureLayout = "pictureLayout"
 }
 
 /// A folder tile's color in the library.
@@ -54,11 +56,52 @@ public enum FolderColor: Equatable, Hashable, Sendable {
     }
 }
 
+/// How a folder's picture is drawn.
+public enum FolderPictureLayout: Equatable, Hashable, Sendable {
+    /// A rounded picture in the middle of the folder, as Finder draws app folders.
+    case onFolder
+    /// The picture is the whole icon, as a custom icon set in Finder.
+    case wholeIcon
+    /// A layout written by a newer Graphite; drawn on the folder.
+    case unknown(String)
+
+    public init(rawValue: String) {
+        switch rawValue {
+        case "onFolder": self = .onFolder
+        case "wholeIcon": self = .wholeIcon
+        default: self = .unknown(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .onFolder: "onFolder"
+        case .wholeIcon: "wholeIcon"
+        case .unknown(let rawValue): rawValue
+        }
+    }
+}
+
+/// A picture a folder carries: a PNG kept in the vault, under `directory`, so it syncs with it.
+public struct FolderPicture: Equatable, Hashable, Sendable {
+    /// Where Graphite keeps folder pictures; Obsidian ignores the folder.
+    public static let directory = ".obsidian/graphite-folder-icons"
+
+    public let path: VaultPath
+    public let layout: FolderPictureLayout
+
+    public init(path: VaultPath, layout: FolderPictureLayout) {
+        self.path = path
+        self.layout = layout
+    }
+}
+
 /// What is drawn on a folder, as Finder draws it: an SF Symbol engraved in the folder's
-/// color, or an emoji in its own colors. A folder has one or the other.
+/// color, an emoji in its own colors, or a picture. A folder has one of them.
 public enum FolderMark: Equatable, Hashable, Sendable {
     case symbol(String)
     case emoji(String)
+    case picture(FolderPicture)
 
     /// The first emoji of typed text, as the emoji keyboard or the character palette types
     /// it: one whole character, with its skin tone and joined parts. Nil when none is an emoji.
@@ -97,6 +140,11 @@ public struct FolderStyle: Equatable, Sendable {
         otherFields = [:]
     }
 
+    /// The folder's picture, when its mark is one.
+    public var picture: FolderPicture? {
+        if case .picture(let picture) = mark { picture } else { nil }
+    }
+
     /// Whether the folder looks like any other: nothing chosen, nothing to clear.
     public var isPlain: Bool { color == nil && mark == nil }
 
@@ -109,8 +157,12 @@ public struct FolderStyle: Equatable, Sendable {
         }
         let symbol = fields.removeValue(forKey: FolderStyleFieldName.symbol)
         let emoji = fields.removeValue(forKey: FolderStyleFieldName.emoji)
-        // Finder draws the symbol when a folder somehow has both.
-        if case .string(let symbolName) = symbol, !symbolName.isEmpty {
+        let picture = Self.picture(path: fields.removeValue(forKey: FolderStyleFieldName.picture),
+                                   layout: fields.removeValue(forKey: FolderStyleFieldName.pictureLayout))
+        // Finder draws the symbol when a folder somehow has both; a picture comes first, as Finder's custom icon.
+        if let picture {
+            mark = .picture(picture)
+        } else if case .string(let symbolName) = symbol, !symbolName.isEmpty {
             mark = .symbol(symbolName)
         } else if case .string(let emojiText) = emoji, !emojiText.isEmpty {
             mark = .emoji(emojiText)
@@ -120,12 +172,24 @@ public struct FolderStyle: Equatable, Sendable {
         otherFields = fields
     }
 
+    /// A picture only inside Graphite's picture folder: a style file edited by hand cannot
+    /// point a tile at another file of the vault.
+    private static func picture(path: JSONValue?, layout: JSONValue?) -> FolderPicture? {
+        guard case .string(let pathText) = path, let picturePath = try? VaultPath(pathText), // A path no vault can hold is no picture.
+              picturePath.parent.rawValue == FolderPicture.directory else { return nil }
+        let layoutName = if case .string(let name) = layout { name } else { FolderPictureLayout.onFolder.rawValue }
+        return FolderPicture(path: picturePath, layout: FolderPictureLayout(rawValue: layoutName))
+    }
+
     var fields: [String: JSONValue] {
         var fields = otherFields
         fields[FolderStyleFieldName.color] = .string(color?.rawValue ?? Self.noColorRawValue)
         switch mark {
         case .symbol(let symbolName): fields[FolderStyleFieldName.symbol] = .string(symbolName)
         case .emoji(let emojiText): fields[FolderStyleFieldName.emoji] = .string(emojiText)
+        case .picture(let picture):
+            fields[FolderStyleFieldName.picture] = .string(picture.path.rawValue)
+            fields[FolderStyleFieldName.pictureLayout] = .string(picture.layout.rawValue)
         case nil: break
         }
         return fields

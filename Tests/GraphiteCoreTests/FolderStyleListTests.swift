@@ -142,4 +142,39 @@ final class FolderStyleListTests: XCTestCase {
         XCTAssertNil(FolderMark.firstEmoji(in: "©"))
         XCTAssertNil(FolderMark.firstEmoji(in: ""))
     }
+
+    func testAPictureIsKeptWithItsLayout() throws {
+        let picture = FolderPicture(path: try VaultPath(".obsidian/graphite-folder-icons/0123456789abcdef.png"), layout: .wholeIcon)
+        var list = FolderStyleList()
+        list.setStyle(FolderStyle(color: .green, mark: .picture(picture)), for: try VaultPath("Lab"))
+        let reread = try FolderStyleList(configurationData: list.configurationData())
+        XCTAssertEqual(reread.style(for: try VaultPath("Lab")), FolderStyle(color: .green, mark: .picture(picture)))
+        XCTAssertEqual(reread.style(for: try VaultPath("Lab"))?.picture, picture)
+    }
+
+    /// A style file edited by hand cannot point a tile at a note or a file outside Graphite's folder.
+    func testAPictureOutsideGraphitesFolderIsIgnored() throws {
+        let edited = #"{"folders": {"Lab": {"color": "none", "picture": "Notes/secret.png", "emoji": "🥸"}, "Old": {"picture": ".obsidian/graphite-folder-icons/a.png", "pictureLayout": "stacked"}}}"#
+        let list = try FolderStyleList(configurationData: Data(edited.utf8))
+        XCTAssertEqual(list.style(for: try VaultPath("Lab"))?.mark, .emoji("🥸"))
+        XCTAssertEqual(list.style(for: try VaultPath("Old"))?.picture?.layout, .unknown("stacked"))
+    }
+
+    func testPicturesAreSavedOnceAndUnusedOnesRemoved() async throws {
+        let vault = try TemporaryVault.make(prefix: "FolderPictures", files: ["Lab/Note.md": "x"], for: self)
+        let store = VaultStore(root: vault.root)
+        let first = try await store.saveFolderPicture(Data("first".utf8))
+        let again = try await store.saveFolderPicture(Data("first".utf8))
+        XCTAssertEqual(again, first)
+        let second = try await store.saveFolderPicture(Data("second".utf8))
+        let handPlaced = try vault.writeFile(".obsidian/graphite-folder-icons/Logo.png", text: "kept")
+        let lab = try VaultPath("Lab")
+        _ = try await store.updateFolderStyles { list in list.setStyle(FolderStyle(mark: .picture(FolderPicture(path: second, layout: .onFolder))), for: lab) }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: try first.url(in: vault.root).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: try second.url(in: vault.root).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: handPlaced.path))
+        _ = try await store.updateFolderStyles { list in list.setStyle(nil, for: lab) }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: try second.url(in: vault.root).path))
+    }
 }

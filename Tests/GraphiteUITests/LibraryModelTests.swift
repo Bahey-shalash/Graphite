@@ -84,6 +84,29 @@ final class LibraryModelTests: XCTestCase {
     }
     #endif
 
+    /// A folder's picture is saved in the vault and drawn on the folder's tile while it is on screen.
+    func testAPictureIsSavedAndDrawnOnTheTile() async throws {
+        let library = LibraryModel()
+        await library.reload(source: source(), sortOrder: .alphabetical)
+        let courses = try XCTUnwrap(library.items.first { entry in entry.path.rawValue == "Courses" })
+        // As SwiftUI rebuilds a grid: the new tile appears before the old one goes.
+        library.tileAppeared(courses)
+        library.tileAppeared(courses)
+        library.tileDisappeared(courses)
+        let context = try XCTUnwrap(CGContext(data: nil, width: 40, height: 40, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(red: 0, green: 1, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 40, height: 40))
+
+        // Red: a color Finder's custom icon cannot show, so the tile draws the picture itself on every platform.
+        let style = await library.setPicture(try XCTUnwrap(context.makeImage()), layout: .onFolder, color: .red, for: courses.path)
+
+        let picture = try XCTUnwrap(style?.picture)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: try picture.path.url(in: vault).path))
+        XCTAssertEqual(library.folderLooks.shownLook(of: courses.path), .drawnByGraphite(try XCTUnwrap(style)))
+        try await waitUntil("the tile has its picture", timeoutSeconds: 5) { library.folderLooks.picture(of: courses.path) != nil }
+    }
+
     /// A look set in Finder, and not in Graphite, shows in the library.
     func testALookSetOnlyInFinderIsShown() async throws {
         let path = vault.appendingPathComponent("Courses").path

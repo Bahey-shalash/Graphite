@@ -3,22 +3,34 @@ import GraphiteCore
 import GraphiteApple
 
 /// A folder as Files and the Finder draw one: the system's folder symbol in the folder's
-/// color, with its symbol engraved on it or its emoji drawn in color, as the Finder shows them.
+/// color, with its symbol engraved on it, its emoji drawn in color, or its picture placed on it,
+/// as the Finder shows them; a picture that is the whole icon is drawn alone.
 struct LibraryFolderArtwork: View {
     let style: FolderStyle?
+    /// The folder's picture, once read; nil draws the folder without it meanwhile.
+    let picture: CGImage?
     /// The folder symbol's point size; the engraved symbol takes about a third of it.
     let symbolPointSize: CGFloat
+    @Environment(\.displayScale) private var displayScale
 
     /// Where a mark sits: the middle of the folder's body, below its tab.
     private var markOffset: CGFloat { symbolPointSize * 0.06 }
 
     var body: some View {
         let tint = (style?.color).tileColor
-        Image(systemName: "folder.fill")
-            .font(.system(size: symbolPointSize))
-            .foregroundStyle(tint.gradient)
-            .overlay { mark(tint: tint) }
-            .accessibilityHidden(true)
+        if style?.picture?.layout == .wholeIcon, let picture {
+            Image(decorative: picture, scale: displayScale)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: symbolPointSize * 1.1, height: symbolPointSize * 1.1)
+                .accessibilityHidden(true)
+        } else {
+            Image(systemName: "folder.fill")
+                .font(.system(size: symbolPointSize))
+                .foregroundStyle(tint.gradient)
+                .overlay { mark(tint: tint) }
+                .accessibilityHidden(true)
+        }
     }
 
     @ViewBuilder private func mark(tint: Color) -> some View {
@@ -34,6 +46,18 @@ struct LibraryFolderArtwork: View {
             Text(emojiText)
                 .font(.system(size: symbolPointSize * 0.4))
                 .offset(y: markOffset)
+        case .picture:
+            if let picture {
+                // Rounded in the middle of the folder's body, as Finder draws app folders.
+                // The folder symbol is about 1.2 times its point size wide; the picture takes Finder's share of that.
+                let side = symbolPointSize * 1.2 * FolderIconRenderer.pictureOnFolderSideFraction
+                Image(decorative: picture, scale: displayScale)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: side, height: side)
+                    .clipShape(RoundedRectangle(cornerRadius: side * FolderIconRenderer.pictureOnFolderCornerFraction, style: .continuous))
+                    .offset(y: markOffset)
+            }
         case nil:
             EmptyView()
         }
@@ -57,16 +81,21 @@ struct LibraryFolderTileArtwork: View {
                 .aspectRatio(contentMode: .fit)
                 .accessibilityHidden(true)
         } else {
-            LibraryFolderArtwork(style: look.style, symbolPointSize: symbolPointSize)
+            LibraryFolderArtwork(style: look.style, picture: looks.tileImages[folder], symbolPointSize: symbolPointSize)
         }
     }
 
+    /// The system's icon, on the Mac only: `tileImages` holds it for a look Finder draws.
     private func systemIcon(for look: ShownFolderLook) -> CGImage? {
+        #if os(macOS)
         switch look {
-        case .drawnByFinder: looks.systemIcons[folder]
+        case .drawnByFinder: looks.tileImages[folder]
         case .plain: looks.plainFolderIcon
         case .drawnByGraphite: nil
         }
+        #else
+        nil
+        #endif
     }
 }
 
@@ -165,6 +194,7 @@ extension FolderStyle {
         switch mark {
         case .symbol(let symbolName): parts.append(FolderSymbolCatalog.spokenName(of: symbolName))
         case .emoji(let emojiText): parts.append(emojiText)
+        case .picture: parts.append("picture")
         case nil: break
         }
         return parts.joined(separator: ", ")
