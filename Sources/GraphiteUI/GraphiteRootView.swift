@@ -1,3 +1,15 @@
+/**
+ * File: GraphiteRootView.swift
+ * ----------------------------
+ * Layer: UI
+ * Description: The root view of one window: the sidebar and documents split view, the window's toolbar and phone
+ *              bottom bar, palettes, sheets and full-screen viewers, and the links the window handles.
+ *
+ * Authors: Bahey Shalash, Félix Chevalier
+ * Version: 0.40
+ * Date: 21/10/2026
+ */
+
 import SwiftUI
 import QuickLook
 import GraphiteCore
@@ -93,6 +105,7 @@ public struct GraphiteRootView: View {
                     if usesFloatingPlayer, let reader = workspace.readAloud, let navigator = workspace.readAloudNavigator,
                        reader.isActive && !workspace.recording.state.isActive {
                         ReadAloudFloatingPlayer(reader: reader, navigator: navigator)
+                            .placedBesideDisplayFold(alignment: .center)
                     }
                 }
         }
@@ -285,7 +298,7 @@ public struct GraphiteRootView: View {
             // Nothing a document view holds carries over to another vault.
             .id(workspace.currentVaultIdentifier)
             .overlay { RecordingPreviewOverlay(workspace: workspace) }
-            .overlay(alignment: .top) { NoticeBanner(notice: $workspace.notice) }
+            .overlay { NoticeBanner(notice: $workspace.notice).placedBesideDisplayFold(alignment: .top) }
             .onChange(of: workspace.selection) { workspace.notice = nil }
             // Editable, so the title bar's menu offers Rename, as for documents in Files.
             .modifier(DocumentTitle(title: titleBinding, isCompactWidth: isCompactWidth))
@@ -356,12 +369,7 @@ public struct GraphiteRootView: View {
             }
             // Notes, PDFs and canvases end their own More menu with these commands; other
             // documents and an empty tab have no menu of their own, so the window shows one.
-            if !focusedDocumentHasMoreMenu {
-                ToolbarItem(placement: .primaryAction) {
-                    Menu("More", systemImage: "ellipsis") { WorkspaceMoreMenuItems() }
-                        .tint(.primary)
-                }
-            }
+            if !focusedDocumentHasMoreMenu { windowMoreMenu }
         }
         if workspace.store != nil && showsRecordingControl {
             ToolbarItem(placement: .primaryAction) {
@@ -376,6 +384,19 @@ public struct GraphiteRootView: View {
                     .tint(.primary)
             }
         }
+    }
+
+    /// The window's More menu, for a document without one of its own or an empty tab: on iOS
+    /// in the system's overflow menu (•••), the one such menu of the bar.
+    @ToolbarContentBuilder private var windowMoreMenu: some ToolbarContent {
+        #if os(iOS)
+        ToolbarOverflowMenu { WorkspaceMoreMenuItems() }
+        #else
+        ToolbarItem(placement: .primaryAction) {
+            Menu("More", systemImage: "ellipsis") { WorkspaceMoreMenuItems() }
+                .tint(.primary)
+        }
+        #endif
     }
 
     /// Whether the focused document puts a More menu of its own in the toolbar.
@@ -407,27 +428,40 @@ public struct GraphiteRootView: View {
     @ToolbarContentBuilder private var compactBottomBar: some ToolbarContent {
         // The keyboard, and the note's keyboard toolbar, take over while typing, as in
         // Obsidian mobile; the two bars would otherwise stand one over the other.
+        // Groups and spacers of the toolbar rather than spacing inside one group, so the bar
+        // keeps its groups where iPhone Duo stands it on the side; finding a file, a new note
+        // and the open tabs stay in view longest when it has no room for every button.
         if workspace.store != nil && isCompactWidth && !isKeyboardShown && workspace.markdownSession?.isTyping != true {
             ToolbarItemGroup(placement: .bottomBar) {
-                Group {
-                    Button("Back", systemImage: "chevron.backward") { Task { await workspace.goBack() } }
-                        .disabled(!workspace.history.canGoBack)
-                    Button("Forward", systemImage: "chevron.forward") { Task { await workspace.goForward() } }
-                        .disabled(!workspace.history.canGoForward)
-                    Spacer()
-                    Button("Quick Switcher", systemImage: "magnifyingglass") { activePalette = .quickSwitcher }
-                    Spacer()
-                    Button("New Note", systemImage: "square.and.pencil") { creation = CreationRequest(kind: .note) }
-                    Spacer()
-                    Button { showsTabSwitcher = true } label: {
-                        TabCountLabel(count: workspace.openTabCount)
-                    }
-                    .accessibilityLabel("Tabs")
-                    .accessibilityValue(workspace.openTabCount == 1 ? "1 open" : "\(workspace.openTabCount) open")
-                    Spacer()
-                    Button("Command Palette", systemImage: "command") { activePalette = .commandPalette }
+                Button("Back", systemImage: "chevron.backward") { Task { await workspace.goBack() } }
+                    .disabled(!workspace.history.canGoBack)
+                    .tint(.primary)
+                Button("Forward", systemImage: "chevron.forward") { Task { await workspace.goForward() } }
+                    .disabled(!workspace.history.canGoForward)
+                    .tint(.primary)
+            }
+            ToolbarSpacer(.flexible, placement: .bottomBar)
+            ToolbarItem(placement: .bottomBar) {
+                Button("Quick Switcher", systemImage: "magnifyingglass") { activePalette = .quickSwitcher }.tint(.primary)
+            }
+            .visibilityPriority(.high)
+            ToolbarSpacer(.flexible, placement: .bottomBar)
+            ToolbarItem(placement: .bottomBar) {
+                Button("New Note", systemImage: "square.and.pencil") { creation = CreationRequest(kind: .note) }.tint(.primary)
+            }
+            .visibilityPriority(.high)
+            ToolbarSpacer(.flexible, placement: .bottomBar)
+            ToolbarItem(placement: .bottomBar) {
+                Button { showsTabSwitcher = true } label: {
+                    TabCountLabel(count: workspace.openTabCount)
                 }
+                .accessibilityValue(workspace.openTabCount == 1 ? "1 open" : "\(workspace.openTabCount) open")
                 .tint(.primary)
+            }
+            .visibilityPriority(.high)
+            ToolbarSpacer(.flexible, placement: .bottomBar)
+            ToolbarItem(placement: .bottomBar) {
+                Button("Command Palette", systemImage: "command") { activePalette = .commandPalette }.tint(.primary)
             }
         }
     }

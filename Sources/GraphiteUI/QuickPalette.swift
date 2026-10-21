@@ -1,3 +1,15 @@
+/**
+ * File: QuickPalette.swift
+ * ------------------------
+ * Layer: UI
+ * Description: The quick switcher, the command palette and the template picker: a search field over a list of
+ *              matches, drawn over the document and beside a display's fold.
+ *
+ * Authors: Bahey Shalash
+ * Version: 0.6
+ * Date: 21/10/2026
+ */
+
 import SwiftUI
 import GraphiteCore
 import GraphiteIndex
@@ -207,6 +219,7 @@ struct PaletteOverlay<Palette: View>: View {
             Color.black.opacity(0.2).ignoresSafeArea().onTapGesture(perform: close)
             // Just under the navigation bar on a phone, leaving room above the keyboard.
             palette.padding(.horizontal, horizontalSizeClass == .compact ? 10 : 16).padding(.top, horizontalSizeClass == .compact ? 8 : 70)
+                .placedBesideDisplayFold(alignment: .top)
         }
         .transition(.opacity)
     }
