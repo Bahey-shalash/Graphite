@@ -31,12 +31,7 @@ enum WelcomeTourCopy {
                              detail: "The New button makes a note, a notebook, a canvas, a base or today's daily note, and imports PDFs and images.")
         ],
         pointLayout: .list,
-        screenshots: [
-            WelcomeTourScreenshot(label: "Library", assetName: "WelcomeTourLibrary",
-                                  accessibilityDescription: "The vault shown as a library: course folders, a note's thumbnail and a base."),
-            WelcomeTourScreenshot(label: "New", assetName: "WelcomeTourNewItem",
-                                  accessibilityDescription: "The New menu: Notebook, Note, Canvas, Base, Today's Daily Note, Import and Folder.")
-        ])
+        screenshots: vaultScreenshots)
 
     static let markdown = WelcomeTourPageContent(
         systemImage: "text.document",
@@ -289,6 +284,18 @@ enum WelcomeTourCopy {
         "Open Settings from the Graphite menu, or with ⌘,. As in Obsidian, every feature is a core plugin you can switch off."
         #else
         "Settings is the gear at the top of the sidebar, or ⌘, with a keyboard. As in Obsidian, every feature is a core plugin you can switch off."
+        #endif
+    }
+
+    /// The Mac's New button is a menu, which the iPad's New picture does not show.
+    private static var vaultScreenshots: [WelcomeTourScreenshot] {
+        let library = WelcomeTourScreenshot(label: "Library", assetName: "WelcomeTourLibrary",
+                                            accessibilityDescription: "The vault shown as a library: course folders, a note's thumbnail and a base.")
+        #if os(macOS)
+        return [library]
+        #else
+        return [library, WelcomeTourScreenshot(label: "New", assetName: "WelcomeTourNewItem",
+                                               accessibilityDescription: "The New menu: Notebook, Note, Canvas, Base, Today's Daily Note, Import and Folder.")]
         #endif
     }
 

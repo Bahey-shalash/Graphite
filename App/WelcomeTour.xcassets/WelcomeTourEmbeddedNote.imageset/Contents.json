@@ -1,22 +1,36 @@
 {
-  "images" : [
+  "images": [
     {
-      "filename" : "WelcomeTourEmbeddedNote-light.jpg",
-      "idiom" : "universal"
+      "filename": "WelcomeTourEmbeddedNote-light.jpg",
+      "idiom": "universal"
     },
     {
-      "appearances" : [
+      "appearances": [
         {
-          "appearance" : "luminosity",
-          "value" : "dark"
+          "appearance": "luminosity",
+          "value": "dark"
         }
       ],
-      "filename" : "WelcomeTourEmbeddedNote-dark.jpg",
-      "idiom" : "universal"
+      "filename": "WelcomeTourEmbeddedNote-dark.jpg",
+      "idiom": "universal"
+    },
+    {
+      "filename": "WelcomeTourEmbeddedNote-mac-light.jpg",
+      "idiom": "mac"
+    },
+    {
+      "appearances": [
+        {
+          "appearance": "luminosity",
+          "value": "dark"
+        }
+      ],
+      "filename": "WelcomeTourEmbeddedNote-mac-dark.jpg",
+      "idiom": "mac"
     }
   ],
-  "info" : {
-    "author" : "xcode",
-    "version" : 1
+  "info": {
+    "author": "xcode",
+    "version": 1
   }
 }

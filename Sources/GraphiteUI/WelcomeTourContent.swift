@@ -62,7 +62,7 @@ struct WelcomeTourPageContent {
     let points: [WelcomeTourPoint]
     /// How the points are laid out: a list beside the screenshots, or a grid of tiles.
     let pointLayout: WelcomeTourPointLayout
-    /// Screenshots of Graphite on iPad; with more than one, a segmented control picks one.
+    /// Screenshots of Graphite; with more than one, a segmented control picks one.
     let screenshots: [WelcomeTourScreenshot]
 }
 
@@ -105,7 +105,8 @@ enum WelcomeTourPointTitle {
 }
 
 /// A picture of Graphite from the app's `WelcomeTour` asset catalog, with a light and a dark
-/// appearance. The pictures were taken in a demo vault of lecture notes.
+/// appearance, taken on iPad and, for the pages the Mac shows, on the Mac (the catalog's `mac`
+/// idiom), so each platform shows itself. The pictures were taken in a demo vault of lecture notes.
 struct WelcomeTourScreenshot: Identifiable {
     /// The name in the segmented control when a page has several screenshots.
     let label: String
