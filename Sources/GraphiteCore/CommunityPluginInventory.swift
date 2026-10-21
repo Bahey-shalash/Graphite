@@ -50,7 +50,7 @@ public struct CommunityPluginCompatibility: Equatable, Sendable {
         "@codemirror/state", "@codemirror/view", "@lezer/common", "@lezer/highlight", "@lezer/lr",
     ]
 
-    private static let requirePattern = try? NSRegularExpression(pattern: #"\brequire\(\s*["']([^"'\s]{1,200})["']\s*\)"#)
+    private static let requirePattern = CommunityPluginCompatibilityPattern.requirePattern.compiled()
 
     public static func assess(manifest: CommunityPluginManifest, mainScript: String?, providedApiVersion: String = CommunityPluginCompatibility.providedApiVersion) -> Self {
         var blockers: [Blocker] = []
@@ -63,7 +63,6 @@ public struct CommunityPluginCompatibility: Equatable, Sendable {
     }
 
     static func missingModules(in mainScript: String) -> [RequiredModule] {
-        guard let requirePattern else { return [] }
         let source = mainScript as NSString
         var seenNames: Set<String> = []
         var modules: [RequiredModule] = []
@@ -155,4 +154,9 @@ public extension VaultStore {
         let styles = try fileExists(stylesPath) ? String(decoding: try read(stylesPath, maximumBytes: Self.maximumPluginStylesBytes).data, as: UTF8.self) : ""
         return CommunityPluginPackage(plugin: plugin, mainScript: String(decoding: mainScriptData, as: UTF8.self), styles: styles)
     }
+}
+
+/// The constant patterns of `CommunityPluginCompatibility`; `StaticPatternTests` compiles every case.
+enum CommunityPluginCompatibilityPattern: String, StaticPatternSet {
+    case requirePattern = #"\brequire\(\s*["']([^"'\s]{1,200})["']\s*\)"#
 }

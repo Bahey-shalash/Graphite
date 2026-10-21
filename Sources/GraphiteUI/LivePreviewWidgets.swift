@@ -54,6 +54,9 @@ struct LivePreviewEnvironment {
     /// Opens an embedded PDF in the PDF view at a zero-based page, focusing it; without it,
     /// an embed follows a page link to the PDF instead.
     var openPDF: ((VaultPath, Int) -> Void)? = nil
+    /// The window's registry of embedded PDFs, which a rendered block's own hosting does
+    /// not inherit from the window.
+    var embeddedPDFSessions: EmbeddedPDFSessions? = nil
     /// Nil when the Properties view is turned off: the frontmatter then stays as text.
     let updateProperties: (([NoteProperty]) -> Void)?
     /// Property types assigned in `.obsidian/types.json`, which the frontmatter is read with.
@@ -395,7 +398,7 @@ private struct RenderedMarkdownBlock: View {
 
 /// Wikilinks shown as their display text, plus colors and highlights, for rendered blocks.
 enum LivePreviewText {
-    private static let wikiEmbedPattern = try? NSRegularExpression(pattern: "!\\[\\[([^\\]|\\n]+)(?:\\|([^\\]\\n]+))?\\]\\]")
+    private static let wikiEmbedPattern = LivePreviewTextPattern.wikiEmbedPattern.compiled()
 
     /// Whether `markdown` may embed a vault file that `preparedResolvingEmbeds` looks up.
     static func hasWikiEmbed(_ markdown: String) -> Bool { markdown.contains("![[") }
@@ -404,15 +407,15 @@ enum LivePreviewText {
     /// `hasUnresolvedEmbeds` tells whether an embed was not found in the vault.
     @MainActor
     static func preparedResolvingEmbeds(_ markdown: String, environment: LivePreviewEnvironment) async -> (markdown: String, hasUnresolvedEmbeds: Bool) {
-        guard let wikiEmbedPattern, hasWikiEmbed(markdown) else {
+        guard hasWikiEmbed(markdown) else {
             return (prepared(markdown, colorsEnabled: environment.colorsEnabled, paletteHexByName: environment.paletteHexByName), false)
         }
         var hasUnresolvedEmbeds = false
         let source = markdown as NSString
         let output = NSMutableString(string: markdown)
-        let codeRanges = MarkdownCodeRanges.ranges(in: source)
+        let codeRanges = MarkdownCodeRanges.rangeSet(in: source)
         for match in wikiEmbedPattern.matches(in: markdown, range: NSRange(location: 0, length: source.length)).reversed()
-        where !MarkdownCodeRanges.range(match.range, isInside: codeRanges) {
+        where !codeRanges.intersects(match.range) {
             var target = source.substring(with: match.range(at: 1))
             let label = match.range(at: 2).location == NSNotFound ? nil : source.substring(with: match.range(at: 2))
             // `![[image.png\|300]]` in a table, as Obsidian requires there: the backslash
@@ -429,30 +432,28 @@ enum LivePreviewText {
         return (prepared(output as String, colorsEnabled: environment.colorsEnabled, paletteHexByName: environment.paletteHexByName), hasUnresolvedEmbeds)
     }
 
-    private static let wikilinkPattern = try? NSRegularExpression(pattern: "(?<!!)\\[\\[([^\\]|\\n]+)(?:\\|([^\\]\\n]+))?\\]\\]")
+    private static let wikilinkPattern = LivePreviewTextPattern.wikilinkPattern.compiled()
 
     static func prepared(_ markdown: String, colorsEnabled: Bool, paletteHexByName: [String: String]) -> String {
         var text = markdown
-        if let wikilinkPattern {
-            let source = text as NSString
-            let output = NSMutableString(string: text)
-            let codeRanges = MarkdownCodeRanges.ranges(in: source)
-            for match in wikilinkPattern.matches(in: text, range: NSRange(location: 0, length: source.length)).reversed()
-            where !MarkdownCodeRanges.range(match.range, isInside: codeRanges) {
-                var target = source.substring(with: match.range(at: 1))
-                let alias = match.range(at: 2).location == NSNotFound ? nil : source.substring(with: match.range(at: 2))
-                // `[[Note\|alias]]` in a table: the backslash escapes the pipe.
-                if alias != nil, target.hasSuffix("\\") { target.removeLast() }
-                // Labelled, escaped and percent-encoded as in reading view, so a backslash at the
-                // end of the label or an unbalanced parenthesis in the target keeps the link whole.
-                let label = ReadingViewBuilder.escapedLabel(ReadingViewBuilder.displayText(target: target, alias: alias))
-                output.replaceCharacters(in: match.range, with: "[\(label)](\(GraphiteOpenLink.markdownDestination(target: target)))")
-            }
-            text = output as String
+        let source = text as NSString
+        let output = NSMutableString(string: text)
+        let codeRanges = MarkdownCodeRanges.rangeSet(in: source)
+        for match in wikilinkPattern.matches(in: text, range: NSRange(location: 0, length: source.length)).reversed()
+        where !codeRanges.intersects(match.range) {
+            var target = source.substring(with: match.range(at: 1))
+            let alias = match.range(at: 2).location == NSNotFound ? nil : source.substring(with: match.range(at: 2))
+            // `[[Note\|alias]]` in a table: the backslash escapes the pipe.
+            if alias != nil, target.hasSuffix("\\") { target.removeLast() }
+            // Labelled, escaped and percent-encoded as in reading view, so a backslash at the
+            // end of the label or an unbalanced parenthesis in the target keeps the link whole.
+            let label = ReadingViewBuilder.escapedLabel(ReadingViewBuilder.displayText(target: target, alias: alias))
+            output.replaceCharacters(in: match.range, with: "[\(label)](\(GraphiteOpenLink.markdownDestination(target: target)))")
         }
-        // The note's own private-use characters are escaped as reading view escapes them,
-        // so they are not read as markers; `ObsidianMarkdownParser` restores them.
-        return ObsidianInlineMarkup.preparedForReading(ReadingMarkerEscaping.escaping(text), colorsEnabled: colorsEnabled, paletteHexByName: paletteHexByName)
+        text = output as String
+        // The note's own private-use characters are escaped there as in reading view, so
+        // they are not read as markers; `ObsidianMarkdownParser` restores them.
+        return ObsidianInlineMarkup.preparedForReading(text, colorsEnabled: colorsEnabled, paletteHexByName: paletteHexByName)
     }
 }
 
@@ -673,4 +674,10 @@ enum LivePreviewEmbedImageLocations {
     private static func key(for embed: EmbedReference, in root: URL) -> String {
         "\(root.standardizedFileURL.path)|\(embed.isWiki)|\(embed.target)"
     }
+}
+
+/// The constant patterns of `LivePreviewText`; `StaticPatternTests` compiles every case.
+enum LivePreviewTextPattern: String, StaticPatternSet {
+    case wikiEmbedPattern = #"!\[\[([^\]|\n]+)(?:\|([^\]\n]+))?\]\]"#
+    case wikilinkPattern = #"(?<!!)\[\[([^\]|\n]+)(?:\|([^\]\n]+))?\]\]"#
 }

@@ -247,10 +247,23 @@
                         icon: command.icon || null,
                         needsEditor: Boolean(command.editorCallback || command.editorCheckCallback),
                         pluginIdentifier: command.pluginIdentifier || null,
+                        hotkeys: declaredHotkeys(command),
                     })),
                 });
             });
         }
+    }
+
+    /// The shortcuts a command declared (`hotkeys`), as plain values Graphite reads; malformed
+    /// entries are left out.
+    function declaredHotkeys(command) {
+        if (!Array.isArray(command.hotkeys)) return [];
+        return command.hotkeys
+            .filter((hotkey) => hotkey && typeof hotkey.key === 'string' && hotkey.key.length > 0)
+            .map((hotkey) => ({
+                modifiers: Array.isArray(hotkey.modifiers) ? hotkey.modifiers.filter((modifier) => typeof modifier === 'string') : [],
+                key: hotkey.key,
+            }));
     }
 
     function reportCommandFailure(command, error) {
@@ -864,9 +877,10 @@
             // template's folds into a new note (Calendar, through the daily notes helper) call
             // it; Graphite keeps folds itself, so there are none to copy and nothing is kept.
             this.foldManager = { load() { return null; }, save() {} };
-            // Obsidian's hotkey registry (undocumented). Graphite's keyboard shortcuts are its
-            // own, so plugins that read the hotkeys set for their commands (Editing Toolbar
-            // shows them beside its buttons) find none, and what they set is not used.
+            // Obsidian's hotkey registry (undocumented). Graphite keeps the vault's shortcuts
+            // itself (Settings › Keyboard Shortcuts, from the commands' declared `hotkeys` and
+            // the vault's hotkeys.json), so plugins that read the hotkeys set for their commands
+            // (Editing Toolbar shows them beside its buttons) find none, and what they set is not used.
             this.hotkeyManager = {
                 customKeys: {},
                 defaultKeys: {},

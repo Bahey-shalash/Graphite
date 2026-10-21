@@ -205,8 +205,8 @@ final class UiNumberedEquationTests: XCTestCase {
         let source = "$$\n\\begin{align}\na &= b \\tag{1}\n\\end{align}\n$$"
         let livePreviewText = LivePreviewText.prepared(source, colorsEnabled: true, paletteHexByName: [:])
         let readingText = ObsidianPreviewText.applyingSoftLineBreaks(to: ObsidianInlineMarkup.preparedForReading(source, colorsEnabled: true, paletteHexByName: [:]))
-        let equation = try XCTUnwrap(ObsidianInlineMarkup.numberedEquation(aloneIn: livePreviewText))
-        XCTAssertEqual(ObsidianInlineMarkup.numberedEquation(aloneIn: readingText), equation)
+        let equation = try XCTUnwrap(ReadingMathPreparation.numberedEquation(aloneIn: livePreviewText))
+        XCTAssertEqual(ReadingMathPreparation.numberedEquation(aloneIn: readingText), equation)
         XCTAssertTrue(NumberedEquationView.canDraw(equation, textSize: Self.textSize))
     }
 
@@ -221,7 +221,7 @@ final class UiNumberedEquationTests: XCTestCase {
 
     func testFormulaTheTypesetterCannotDrawStaysItsSource() throws {
         let markdown = ObsidianInlineMarkup.preparedForReading("$$\\unknowncommand{x} \\tag{1}$$", colorsEnabled: true, paletteHexByName: [:])
-        let equation = try XCTUnwrap(ObsidianInlineMarkup.numberedEquation(aloneIn: markdown))
+        let equation = try XCTUnwrap(ReadingMathPreparation.numberedEquation(aloneIn: markdown))
         XCTAssertFalse(NumberedEquationView.canDraw(equation, textSize: Self.textSize))
         let attributed = try ObsidianMarkdownParser(baseURL: nil, textSize: Self.textSize).attributedString(for: markdown)
         XCTAssertTrue(String(attributed.characters).hasPrefix("$$ \\unknowncommand{x}"), String(attributed.characters))

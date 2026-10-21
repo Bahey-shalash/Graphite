@@ -3,63 +3,71 @@ import SwiftUI
 import AppKit
 import GraphiteCore
 
-/// The Mac's scenes: one main window, and Settings in a window of its own, opened with ⌘,
-/// from the app menu as on every Mac. Both act on the same workspace, so a setting changed
-/// there reaches the open vault at once.
+/// The Mac's scenes: windows of workspaces, as many as the person opens (File › New Window,
+/// ⌥⌘N, and the window tab bar), the Guide's window, and Settings in a window of its own,
+/// opened with ⌘, from the app menu as on every Mac. Settings acts on the window in front, so
+/// a setting changed there reaches its vault at once; device-wide settings reach every window.
 public struct GraphiteMacScenes: Scene {
-    @State private var workspace: WorkspaceModel
-    /// The Settings window's view of the add-on packs; the main window keeps its own over the
-    /// same folder, which is the truth both read.
-    @State private var settingsAddOns: AddOnLibrary
+    private let processServices: ProcessServices
     private let launchMode: LaunchMode
+    @State private var frontmostWindow: FrontmostWindow
 
-    public init(launchMode: LaunchMode) {
-        let workspace = WorkspaceModel(launchMode: launchMode)
-        _workspace = State(initialValue: workspace)
-        _settingsAddOns = State(initialValue: .standard(applicationFolders: workspace.applicationFolders))
+    public init(processServices: ProcessServices, launchMode: LaunchMode) {
+        self.processServices = processServices
         self.launchMode = launchMode
-        GraphiteApplicationDelegate.workspaceToSave = workspace
+        _frontmostWindow = State(initialValue: FrontmostWindow(processServices: processServices))
+        GraphiteApplicationDelegate.openWindows = processServices.openWindows
     }
 
-    /// For checks outside the app: the scenes of a workspace made elsewhere.
-    init(workspace: WorkspaceModel) {
-        _workspace = State(initialValue: workspace)
-        _settingsAddOns = State(initialValue: .standard(applicationFolders: workspace.applicationFolders))
-        launchMode = .normal
-    }
+    /// The workspace Settings shows: the front window's, or, with no window open, one of its own.
+    private var settingsWorkspace: WorkspaceModel { frontmostWindow.workspace ?? frontmostWindow.workspaceWithoutWindow }
 
     public var body: some Scene {
-        // A single window. Each window builds its own workspace, which reopens the last
-        // vault with its own index on the same cache file, recorder and autosave; two of
-        // them would fail each other's index writes ("database is locked") and delete
-        // each other's rows on rescan. A macOS WindowGroup also opens more windows from
-        // the window tab bar even though the New Window menu item is replaced.
-        Window("Graphite", id: GraphiteMacScenes.mainWindowIdentifier) { GraphiteRootView(reopeningLastVaultIn: workspace, launchMode: launchMode) }
+        // A window per workspace, each with its own tabs, sidebar and alerts over what every
+        // window shares (`ProcessServices`); windows on one vault share its index. The system
+        // keeps each window's content, so it opens on the same vault after a relaunch.
+        WindowGroup("Graphite", id: GraphiteWindow.identifier, for: GraphiteWindowContent.self) { $windowContent in
+            GraphiteWindowScene(processServices: processServices, launchMode: launchMode, windowContent: $windowContent)
+                .environment(frontmostWindow)
+        }
             .defaultSize(width: 1200, height: 820)
             .commands {
-                GraphiteCommands()
+                GraphiteCommands(keyboardShortcutsOutsideFocus: settingsWorkspace.keyboardShortcuts)
                 GuideCommands()
+                WindowCommands()
             }
         // The Guide in a window of its own, beside the notes it explains.
         Window("Graphite Guide", id: GraphiteMacScenes.guideWindowIdentifier) {
             GuideView(showsDoneButton: false)
-                .environment(\.accent, workspace.preferences.accentColor)
-                .preferredColorScheme(workspace.preferences.appearanceMode.colorScheme)
+                .environment(\.accent, processServices.preferences.accentColor)
+                .preferredColorScheme(processServices.preferences.appearanceMode.colorScheme)
         }
         .defaultSize(width: 1000, height: 720)
         .defaultPosition(.center)
         Settings {
-            SettingsView(workspace: workspace) { workspace.isVaultManagerPresented = true }
-                .defaultAppStorage(workspace.deviceDefaults)
-                .environment(settingsAddOns)
-                .tint(workspace.preferences.accentColor)
-                .environment(\.accent, workspace.preferences.accentColor)
-                .preferredColorScheme(workspace.preferences.appearanceMode.colorScheme)
+            SettingsView(workspace: settingsWorkspace) { settingsWorkspace.isVaultManagerPresented = true }
+                .defaultAppStorage(processServices.defaults)
+                .environment(processServices.addOns)
+                .tint(processServices.preferences.accentColor)
+                .environment(\.accent, processServices.preferences.accentColor)
+                .preferredColorScheme(processServices.preferences.appearanceMode.colorScheme)
         }
     }
 
-    static let mainWindowIdentifier = "main"
     static let guideWindowIdentifier = "guide"
+}
+
+/// The window in front, whose workspace the Settings window shows; each window's root view
+/// sets it as its window becomes key.
+@MainActor @Observable
+final class FrontmostWindow {
+    weak var workspace: WorkspaceModel?
+    /// Settings while no window is open: a workspace with no vault, over the same preferences.
+    @ObservationIgnored let workspaceWithoutWindow: WorkspaceModel
+
+    init(processServices: ProcessServices) {
+        workspaceWithoutWindow = WorkspaceModel(processServices: processServices, clock: LiveApplicationClock())
+    }
 }
 
 /// Help › Graphite Guide opens the Guide's window.
@@ -74,23 +82,27 @@ private struct GuideCommands: Commands {
     }
 }
 
-/// Saves what is open before Graphite quits. A note saves once typing has paused for most
-/// of a second, so ⌘Q right after typing lost the last words: the window's teardown
-/// cancelled the save that was waiting.
+/// Saves what every window has open before Graphite quits. A note saves once typing has
+/// paused for most of a second, so ⌘Q right after typing lost the last words: the window's
+/// teardown cancelled the save that was waiting.
 public final class GraphiteApplicationDelegate: NSObject, NSApplicationDelegate {
-    @MainActor static weak var workspaceToSave: WorkspaceModel?
+    /// The windows whose saves quitting waits for; `GraphiteMacScenes` sets it.
+    @MainActor static weak var openWindows: OpenWindows?
     /// How long quitting waits for the saves. A save still running then keeps running and
     /// Graphite stays open, so what was typed is not lost to a file another app holds.
     private static let saveDeadline = Duration.seconds(5)
 
     @MainActor public func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let workspace = Self.workspaceToSave else { return .terminateNow }
-        let reply = TerminationReply(application: sender, workspace: workspace)
+        let windows = Self.openWindows?.all ?? []
+        guard !windows.isEmpty else { return .terminateNow }
+        let reply = TerminationReply(application: sender)
         Task { @MainActor in
-            do {
-                try await workspace.saveOpenDocuments()
-                reply.finish(with: .succeeded)
-            } catch { reply.finish(with: .failed(error)) }
+            // One window after another; the first whose save fails keeps Graphite open and says why.
+            for window in windows {
+                reply.windowSaving = window
+                do { try await window.saveOpenDocuments() } catch { return reply.finish(with: .failed(error)) }
+            }
+            reply.finish(with: .succeeded)
         }
         reply.deadline = Task { @MainActor in
             do { try await Task.sleep(for: Self.saveDeadline) } catch { return }
@@ -101,16 +113,16 @@ public final class GraphiteApplicationDelegate: NSObject, NSApplicationDelegate 
 
     /// Answers the application once, whichever of the saves and the deadline ends first.
     /// The application quits only when every save succeeded; otherwise it stays open and
-    /// the workspace shows why.
+    /// the window whose save failed, or was still running, shows why.
     @MainActor private final class TerminationReply {
         private let application: NSApplication
-        private let workspace: WorkspaceModel
         private var hasReplied = false
         var deadline: Task<Void, Never>?
+        /// The window whose documents are being saved.
+        var windowSaving: OpenWindow?
 
-        init(application: NSApplication, workspace: WorkspaceModel) {
+        init(application: NSApplication) {
             self.application = application
-            self.workspace = workspace
         }
 
         func finish(with outcome: QuitSaveOutcome) {
@@ -119,7 +131,7 @@ public final class GraphiteApplicationDelegate: NSObject, NSApplicationDelegate 
             deadline?.cancel()
             let decision = QuitSaveDecision(outcome: outcome)
             if let blockingReason = decision.blockingReason {
-                workspace.errorMessage = blockingReason.presentedMessage
+                windowSaving?.presentProblem(blockingReason.presentedMessage)
             }
             application.reply(toApplicationShouldTerminate: decision.allowsTermination)
         }

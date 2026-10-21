@@ -69,6 +69,7 @@ enum GuideTopic: CaseIterable, Identifiable {
     case syncAndObsidian
     case fileRecovery
     case keyboardShortcuts
+    case sourceCodeAndFeedback
 
     var id: Self { self }
 
@@ -79,7 +80,7 @@ enum GuideTopic: CaseIterable, Identifiable {
         case .search, .quickSwitcherAndCommands, .tabsAndSplit, .library, .bases, .canvas, .graphAndMap, .templatesAndDailyNotes: .organizing
         case .drawings, .pencilTools, .annotatingPDFs, .notebooks: .handwritingAndPDFs
         case .recording, .readAloud: .studying
-        case .appearance, .corePlugins, .communityPlugins, .syncAndObsidian, .fileRecovery, .keyboardShortcuts: .customizing
+        case .appearance, .corePlugins, .communityPlugins, .syncAndObsidian, .fileRecovery, .keyboardShortcuts, .sourceCodeAndFeedback: .customizing
         }
     }
 
@@ -91,7 +92,7 @@ enum GuideTopic: CaseIterable, Identifiable {
         case .annotatingPDFs, .vaults, .firstNote, .readAndWrite, .filesAndFolders, .formatting, .links, .embeds, .listsAndTasks, .tables,
              .calloutsMathAndCode, .imagesAndAttachments, .propertiesAndTags, .search, .quickSwitcherAndCommands, .tabsAndSplit,
              .library, .bases, .canvas, .graphAndMap, .templatesAndDailyNotes, .recording, .readAloud, .appearance, .corePlugins,
-             .communityPlugins, .syncAndObsidian, .fileRecovery, .keyboardShortcuts: false
+             .communityPlugins, .syncAndObsidian, .fileRecovery, .keyboardShortcuts, .sourceCodeAndFeedback: false
         }
     }
 

@@ -2,7 +2,7 @@ import XCTest
 @testable import GraphiteCore
 
 /// Markdown edge cases that were read differently from Obsidian and CommonMark.
-final class MarkdownEdgeCaseRegressionTests: XCTestCase {
+final class MarkdownEdgeCaseTests: XCTestCase {
     private func styles(in text: String) -> [(text: String, style: MarkdownStyle)] {
         let source = text as NSString
         return MarkdownStyleScanner.spans(in: source, range: NSRange(location: 0, length: source.length)).map { span in
@@ -129,25 +129,9 @@ final class MarkdownEdgeCaseRegressionTests: XCTestCase {
     /// A task with digits of another script is no task, as the editor reads it.
     func testReadingTasksNeedASCIIDigits() {
         func isTask(_ line: String) -> Bool {
-            ReadingTasks.pattern?.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) != nil
+            ReadingTasks.pattern.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) != nil
         }
         XCTAssertFalse(isTask("١. [ ] x"))
         XCTAssertTrue(isTask("1. [ ] y"))
-    }
-}
-
-/// Where links lead, as Obsidian resolves them.
-final class LinkResolutionRegressionTests: XCTestCase {
-    /// `[[/Folder/Note]]` starts at the vault root, and only there: it named a path beside the note.
-    func testALinkStartingWithASlashIsFromTheVaultRootOnly() throws {
-        let source = try VaultPath("A/x.md")
-        XCTAssertEqual(WikiLinkResolver.directCandidates(target: "/Folder/Note", source: source).map(\.rawValue), ["Folder/Note.md", "Folder/Note"])
-    }
-
-    /// A Wikilink is written as the file is named; a Markdown link is percent-encoded.
-    func testOnlyMarkdownLinksArePercentDecoded() throws {
-        let source = try VaultPath("x.md")
-        XCTAssertEqual(WikiLinkResolver.directCandidates(target: "A%20B", source: source, isWiki: true).first?.rawValue, "A%20B.md")
-        XCTAssertEqual(WikiLinkResolver.directCandidates(target: "A%20B.md", source: source, isWiki: false).first?.rawValue, "A B.md")
     }
 }

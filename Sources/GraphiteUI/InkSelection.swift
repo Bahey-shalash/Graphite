@@ -80,32 +80,43 @@ enum InkLasso {
 /// can neither resize nor recolor what it selects and tells nobody what that is. Both are
 /// switched on from the palette's accessory menu and off again by choosing any tool; only
 /// one is on at a time. They are not kept between launches.
+///
+/// Each window has its own (`PaletteInkSelection.of(_:)` on the iPad; owner, 2026-10-21):
+/// the lasso taken up in one window leaves the pen of another window drawing.
 @MainActor
-enum PaletteInkSelection {
+final class PaletteInkSelection {
+    /// Posted with the selection that changed as its object.
     static let didChange = Notification.Name("GraphitePaletteInkSelectionDidChange")
     /// Graphite's lasso ("Select Ink").
-    static var isOn = false {
+    var isOn = false {
         didSet {
             guard isOn != oldValue else { return }
             if isOn { pointsWithLaser = false; pointsToRead = false }
-            NotificationCenter.default.post(name: didChange, object: nil)
+            NotificationCenter.default.post(name: Self.didChange, object: self)
         }
     }
     /// The laser pointer.
-    static var pointsWithLaser = false {
+    var pointsWithLaser = false {
         didSet {
             guard pointsWithLaser != oldValue else { return }
             if pointsWithLaser { isOn = false; pointsToRead = false }
-            NotificationCenter.default.post(name: didChange, object: nil)
+            NotificationCenter.default.post(name: Self.didChange, object: self)
         }
     }
     /// The Read Aloud pen.
-    static var pointsToRead = false {
+    var pointsToRead = false {
         didSet {
             guard pointsToRead != oldValue else { return }
             if pointsToRead { isOn = false; pointsWithLaser = false }
-            NotificationCenter.default.post(name: didChange, object: nil)
+            NotificationCenter.default.post(name: Self.didChange, object: self)
         }
+    }
+
+    /// A tool chosen in the palette puts Graphite's tools away.
+    func endForChosenTool() {
+        isOn = false
+        pointsWithLaser = false
+        pointsToRead = false
     }
 }
 

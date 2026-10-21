@@ -17,6 +17,8 @@ struct CommunityPluginCommand: Identifiable, Equatable {
     /// Editor commands need a note open for editing.
     let needsEditor: Bool
     let pluginIdentifier: String?
+    /// The shortcuts the plugin declared (`hotkeys`), which the vault's `hotkeys.json` can change.
+    var defaultCombinations: [KeyCombination] = []
 }
 
 /// A plugin's ribbon button, offered in the command palette (Obsidian mobile keeps the
@@ -354,8 +356,12 @@ final class CommunityPluginHost {
     /// A vault opened: when the person has turned plugins on for it, its plugins are listed and
     /// run. Otherwise nothing is read: listing reads and scans every plugin's main.js, megabytes
     /// each, so it waits until Settings › Community Plugins is opened or plugins are turned on.
-    func vaultDidOpen(_ workspace: WorkspaceModel) {
+    /// - Parameter loadsPlugins: False for another window on the open vault coming to the
+    ///   front: the plugins act on it (its active editor, file list and alerts) from now on,
+    ///   and nothing loads again (`CommunityPluginHosts`).
+    func vaultDidOpen(_ workspace: WorkspaceModel, loadsPlugins: Bool = true) {
         self.workspace = workspace
+        guard loadsPlugins else { return }
         vaultIdentifier = workspace.currentVaultIdentifier
         isTurnedOnForVault = vaultIdentifier.map { identifier in consentDefaults.bool(forKey: Self.consentKey(for: identifier)) } ?? false
         guard isTurnedOnForVault else { return }
@@ -1052,7 +1058,11 @@ final class CommunityPluginHost {
         case "commands.changed":
             commands = (message["commands"] as? [[String: Any]] ?? []).compactMap { command in
                 guard let identifier = command["commandIdentifier"] as? String, let name = command["name"] as? String else { return nil }
-                return CommunityPluginCommand(id: identifier, name: name, needsEditor: command["needsEditor"] as? Bool == true, pluginIdentifier: command["pluginIdentifier"] as? String)
+                let hotkeys = (command["hotkeys"] as? [NSDictionary] ?? []).compactMap { hotkey in
+                    KeyCombination(obsidianModifiers: hotkey["modifiers"] as? [String] ?? [], key: hotkey["key"] as? String ?? "")
+                }
+                return CommunityPluginCommand(id: identifier, name: name, needsEditor: command["needsEditor"] as? Bool == true,
+                                              pluginIdentifier: command["pluginIdentifier"] as? String, defaultCombinations: hotkeys)
             }
         case "ribbon.changed":
             ribbonActions = (message["items"] as? [[String: Any]] ?? []).compactMap { item in

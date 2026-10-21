@@ -1,3 +1,15 @@
+/**
+ * File: MarkdownPane.swift
+ * ------------------------
+ * Layer: UI
+ * Description: A note's pane: the editor or reading view, its toolbar and More commands in the system's overflow
+ *              menu (Export to PDF among them), find in note, and the sheets for inserting attachments, photos and drawings.
+ *
+ * Authors: Bahey Shalash, Félix Chevalier
+ * Version: 0.48
+ * Date: 21/10/2026
+ */
+
 import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
@@ -87,7 +99,8 @@ struct MarkdownPane: View {
                                      readAloudRange: workspace.readAloud?.highlight(in: session.path),
                                      followsReading: workspace.readAloud?.shouldFollow(session.path) ?? false,
                                      suspendReadingFollow: { workspace.readAloud?.suspendFollowing(in: session.path.rawValue) },
-                                     readAloudHooks: readAloudHooks, contextMenu: editorContextMenuActions) { target, isWiki in
+                                     readAloudHooks: readAloudHooks, contextMenu: editorContextMenuActions,
+                                     keyCommandTable: workspace.keyboardShortcuts.editorKeyCommands) { target, isWiki in
                     follow(target, isWiki: isWiki)
                 }
                 // The suggestions change at every keystroke; only this overlay reads them.
@@ -362,7 +375,7 @@ struct MarkdownPane: View {
             resolve: { [workspace] target, isWiki in await workspace.resolveLink(target, from: notePath, isWiki: isWiki) },
             open: { [workspace] path in Task { await workspace.open(path) } },
             follow: { [workspace] target, isWiki in Task { await workspace.follow(target, from: notePath, isWiki: isWiki) } },
-            openPDF: openPDF,
+            openPDF: openPDF, embeddedPDFSessions: workspace.embeddedPDFSessions,
             updateProperties: preferences.isEnabled(.properties) ? { [session] properties in session.replaceProperties(properties) } : nil,
             declaredPropertyTypes: session.declaredPropertyTypes,
             baseContext: workspace.baseEmbedContext(for: notePath),
@@ -404,9 +417,7 @@ struct MarkdownPane: View {
         #endif
     }
 
-    private var paletteHexByName: [String: String] {
-        Dictionary(preferences.colorPalette.map { color in (color.name, color.hex) }, uniquingKeysWith: { firstHex, _ in firstHex })
-    }
+    private var paletteHexByName: [String: String] { preferences.colorPaletteHexByName }
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
@@ -434,11 +445,18 @@ struct MarkdownPane: View {
                 #endif
                 DocumentModeToggle(isWriting: isWritingBinding)
             }
+            #if !os(iOS)
             Menu("More", systemImage: "ellipsis") { moreMenuItems }
+            #endif
             if !isCompactWidth {
                 Button("Sidebar", systemImage: "sidebar.right") { showsLinksInspector.toggle() }
             }
         }.tint(.primary) }
+        #if os(iOS)
+        // The system's overflow menu (•••) holds the More commands together with whatever the
+        // bar has no room for, so there is one such menu, also on iPhone Duo's side bar.
+        ToolbarOverflowMenu { moreMenuItems }
+        #endif
     }
 
     @ViewBuilder private var formatMenuItems: some View {
@@ -536,8 +554,8 @@ struct MarkdownPane: View {
                 }
             }
         }
-        .disabled(workspace.recording.state.isActive)
-        if workspace.recording.state.isActive { Text("Finish recording to read aloud.") }
+        .disabled(workspace.isRecordingInAnyWindow)
+        if workspace.isRecordingInAnyWindow { Text("Finish recording to read aloud.") }
     }
 
     @ViewBuilder private var moreMenuItems: some View {
@@ -567,7 +585,8 @@ struct MarkdownPane: View {
         Button("Unfold All", systemImage: "rectangle.expand.vertical") { session.unfoldAll() }
             .disabled(session.foldedKeys.isEmpty)
         Button("Save Now", systemImage: "square.and.arrow.down") { Task { try? await session.save() } }
-        Button("Copy Graphite URL", systemImage: "link") { Pasteboard.copy(workspace.openingLink(to: session.path)) }
+        FileLocationMenuItems(path: session.path, openingLink: workspace.openingLink(to: session.path), vaultRoot: workspace.folderAccess?.root)
+        NotePDFExportButton()
         if preferences.isEnabled(.bookmarks) {
             let isBookmarked = workspace.bookmarks.fileBookmark(for: session.path) != nil
             Button(isBookmarked ? "Remove Bookmark" : "Bookmark", systemImage: isBookmarked ? "bookmark.slash" : "bookmark") {
@@ -582,7 +601,7 @@ struct MarkdownPane: View {
     }
 
     private func startReading(range: NSRange? = nil, scope: String = "Whole note") {
-        guard !workspace.recording.state.isActive, let reader = workspace.readAloud, let navigator = workspace.readAloudNavigator else { return }
+        guard !workspace.isRecordingInAnyWindow, let reader = workspace.readAloud, let navigator = workspace.readAloudNavigator else { return }
         reader.readMarkdown(session.text, path: session.path, range: range, scope: scope, paletteHexByName: paletteHexByName,
                             hiddenRanges: foldedRanges)
         // The whole note goes on from where it was left; the player offers Start Over.

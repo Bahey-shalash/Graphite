@@ -357,7 +357,7 @@ extension SearchExpression {
         case .not(let item), .scoped(_, let item): item.invalidRegularExpressionPatterns
         case .property(_, let value): value?.invalidRegularExpressionPatterns ?? []
         case .term(let term):
-            term.kind == .regularExpression && (try? NSRegularExpression(pattern: term.text)) == nil ? [term.text] : []
+            term.kind == .regularExpression && (try? NSRegularExpression(pattern: term.text)) == nil ? [term.text] : [] // The person's; malformed: listed.
         }
     }
 }
@@ -972,7 +972,7 @@ public struct SearchMatcher {
     private mutating func regularExpression(_ pattern: String, isCaseSensitive: Bool) -> NSRegularExpression? {
         let key = (isCaseSensitive ? "1" : "0") + pattern
         if let cached = regularExpressions[key] { return cached }
-        let compiled = try? NSRegularExpression(pattern: pattern, options: isCaseSensitive ? [] : [.caseInsensitive])
+        let compiled = try? NSRegularExpression(pattern: pattern, options: isCaseSensitive ? [] : [.caseInsensitive]) // The person's; malformed: no match.
         if let compiled { regularExpressions[key] = compiled }
         return compiled
     }
@@ -1037,8 +1037,8 @@ public enum SearchContentParts {
         var current: [String] = []
         var fences = CodeFenceTracker()
         for line in lines(of: content) {
-            let isCode = fences.isCodeLine(line.trimmingCharacters(in: .whitespaces))
-            if !isCode, MarkdownEditing.headingLevel(of: line) != nil, !current.isEmpty {
+            let isCode = fences.isCodeLine(untrimmedLine: line)
+            if !isCode, MarkdownHeadingSyntax.level(of: line) != nil, !current.isEmpty {
                 sections.append(current.joined(separator: "\n"))
                 current = []
             }
@@ -1059,7 +1059,7 @@ public enum SearchContentParts {
             for (blockIndex, block) in blocks.enumerated() {
                 if block.kind == .quote, quotedContent.quoteDepth < SearchQueryParser.maximumNestingDepth {
                     let unquotedText = lines(of: block.text).map { line in
-                        let prefixLength = MarkdownEditing.listLine(line)?.quotePrefix.utf16.count ?? 0
+                        let prefixLength = MarkdownListSyntax.listLine(line)?.quotePrefix.utf16.count ?? 0
                         return (line as NSString).substring(from: prefixLength)
                     }.joined(separator: "\n")
                     // Frontmatter exists only at the start of the actual note. A quoted
@@ -1069,7 +1069,7 @@ public enum SearchContentParts {
                 }
                 guard block.kind == .listItem,
                       let firstLine = lines(of: block.text).first,
-                      let listLine = MarkdownEditing.listLine(firstLine), let status = listLine.taskStatus else { continue }
+                      let listLine = MarkdownListSyntax.listLine(firstLine), let status = listLine.taskStatus else { continue }
                 if scope == .taskTodo && status != " " { continue }
                 if scope == .taskDone && status == " " { continue }
                 var taskText = (block.text as NSString).substring(from: listLine.prefixLength)
@@ -1128,7 +1128,8 @@ public enum SearchExcerpts {
             switch term.kind {
             case .regularExpression:
                 let options: NSRegularExpression.Options = isCaseSensitive ? [] : [.caseInsensitive]
-                guard let regularExpression = try? NSRegularExpression(pattern: term.text, options: options) else { continue }
+                guard let regularExpression = try? NSRegularExpression(pattern: term.text, options: options) // The person's; malformed: no match.
+                else { continue }
                 // Excerpts are extras: a pattern too slow to finish shows none.
                 let matches = (try? TimeLimitedRegularExpression.matches(of: regularExpression, in: content)) ?? []
                 ranges += matches.map(\.range).filter { range in range.length > 0 }

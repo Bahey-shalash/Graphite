@@ -16,8 +16,6 @@ public struct MarkdownTextEdit: Equatable, Sendable {
 /// Line-based editing commands, like Obsidian's editor commands. Each returns one edit
 /// that keeps every character outside the touched lines unchanged.
 public enum MarkdownEditing {
-    private static let headingPrefix = try? NSRegularExpression(pattern: "^( {0,3})(#{1,6})(?:[ \\t]+|$)")
-
     /// Makes every selected line a heading of `level`, replacing any heading marks it has.
     /// When every line already is a heading of that level, the headings are removed, as
     /// Obsidian's "Toggle heading" does. Blank lines between selected paragraphs stay blank.
@@ -30,13 +28,13 @@ public enum MarkdownEditing {
         let skipsBlankLines = lines.count > 1
         func isSkipped(_ line: Line) -> Bool { skipsBlankLines && line.content.trimmingCharacters(in: .whitespaces).isEmpty }
         let headingLines = lines.filter { line in !isSkipped(line) }
-        let removes = !headingLines.isEmpty && headingLines.allSatisfy { line in headingLevel(of: line.content) == clampedLevel }
+        let removes = !headingLines.isEmpty && headingLines.allSatisfy { line in MarkdownHeadingSyntax.level(of: line.content) == clampedLevel }
         let marker = String(repeating: "#", count: clampedLevel) + " "
         var replacement = ""
         var selectionShift = 0
         for (lineIndex, line) in lines.enumerated() {
             if isSkipped(line) { replacement += line.content + line.ending; continue }
-            let prefixLength = headingPrefixLength(of: line.content)
+            let prefixLength = MarkdownHeadingSyntax.markerLength(of: line.content)
             let body = (line.content as NSString).substring(from: prefixLength)
             let newPrefix = removes ? "" : marker
             replacement += newPrefix + body + line.ending
@@ -49,74 +47,7 @@ public enum MarkdownEditing {
         return MarkdownTextEdit(range: linesRange, replacement: replacement, selectionAfter: NSRange(location: cursorLocation, length: selectionLength))
     }
 
-    /// The heading level of a line, or nil when it is not an ATX heading.
-    public static func headingLevel(of line: String) -> Int? {
-        guard let match = headingPrefix?.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) else { return nil }
-        return match.range(at: 2).length
-    }
-
-    private static func headingPrefixLength(of line: String) -> Int {
-        headingPrefix?.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length))?.range.length ?? 0
-    }
-
     // MARK: Lists
-
-    /// A line's list or quote markup: `> ` quote markers, indentation, the bullet or
-    /// number, and a task checkbox. Every part is the text exactly as the line has it.
-    public struct ListLine: Equatable, Sendable {
-        public let quotePrefix: String
-        public let indentation: String
-        /// `-`, `*`, `+`, or a number with `.` or `)`; empty for a quote line alone.
-        public let marker: String
-        /// The whitespace after the marker; empty when the marker ends the line, as in a
-        /// `-` typed alone.
-        public let spacing: String
-        /// The character inside `[ ]`, when the item is a task.
-        public let taskStatus: Character?
-        /// The checkbox as written: `[x] `, or `[ ]` when it ends the line; empty when the
-        /// item is not a task.
-        public let checkbox: String
-        /// Everything before the item's text, in UTF-16 units.
-        public var prefixLength: Int { (quotePrefix + indentation + marker + spacing + checkbox).utf16.count }
-        public var isListItem: Bool { !marker.isEmpty }
-        public var orderedNumber: Int? { Int(marker.dropLast()) }
-    }
-
-    // `[0-9]`, not `\d`: ICU's `\d` matches every script's decimal digits, and CommonMark
-    // numbers a list only with ASCII digits.
-    private static let listLinePattern = try? NSRegularExpression(pattern: "^((?:[ \\t]*>[ \\t]?)*)([ \\t]*)(?:([-*+]|[0-9]{1,9}[.)])([ \\t]+|$)(?:(\\[(.)\\])( |$))?)?")
-    /// A thematic break such as `- - -` or `* * *`, which CommonMark reads before a list item.
-    private static let thematicBreakPattern = try? NSRegularExpression(pattern: "^[ \\t]*([-*_])(?:[ \\t]*\\1){2,}[ \\t]*$")
-
-    /// The list or quote markup of `line` (without its line ending), or nil for plain text.
-    public static func listLine(_ line: String) -> ListLine? {
-        let text = line as NSString
-        guard let match = listLinePattern?.firstMatch(in: line, range: NSRange(location: 0, length: text.length)) else { return nil }
-        func group(_ index: Int) -> String { match.range(at: index).location == NSNotFound ? "" : text.substring(with: match.range(at: index)) }
-        let quotePrefix = group(1)
-        var marker = group(3)
-        // Only a `-` or `*` followed by the same character can start a thematic break, so the
-        // second pattern runs for those lines alone.
-        let textStart = NSMaxRange(match.range(at: 4))
-        if marker == "-" || marker == "*", match.range(at: 4).location != NSNotFound, textStart < text.length,
-           text.character(at: textStart) == (marker as NSString).character(at: 0),
-           isThematicBreak(text.substring(from: quotePrefix.utf16.count)) {
-            marker = ""
-        }
-        guard !marker.isEmpty || !quotePrefix.isEmpty else { return nil }
-        guard !marker.isEmpty else {
-            return ListLine(quotePrefix: quotePrefix, indentation: "", marker: "", spacing: "", taskStatus: nil, checkbox: "")
-        }
-        let taskStatus = match.range(at: 6).location == NSNotFound ? nil : group(6).first
-        return ListLine(quotePrefix: quotePrefix, indentation: group(2), marker: marker, spacing: group(4),
-                        taskStatus: taskStatus, checkbox: taskStatus == nil ? "" : group(5) + group(7))
-    }
-
-    /// Whether `line` (without its line ending or quote markers) is a thematic break such as
-    /// `- - -`, `***` or `___`.
-    public static func isThematicBreak(_ line: String) -> Bool {
-        thematicBreakPattern?.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) != nil
-    }
 
     /// Return in a list, a task list, or a quote, as Obsidian's smart lists do: the next
     /// line gets the same markup (the next number, an open checkbox), and the numbered
@@ -130,7 +61,7 @@ public enum MarkdownEditing {
         var lineStart = 0, lineEnd = 0, contentsEnd = 0
         text.getLineStart(&lineStart, end: &lineEnd, contentsEnd: &contentsEnd, for: NSRange(location: selection.location, length: 0))
         let line = text.substring(with: NSRange(location: lineStart, length: contentsEnd - lineStart))
-        guard let listLine = listLine(line), NSMaxRange(selection) <= contentsEnd else { return nil }
+        guard let listLine = MarkdownListSyntax.listLine(line), NSMaxRange(selection) <= contentsEnd else { return nil }
         // A marker with nothing after it, such as a `-` just typed, is not continued: Return
         // there is an ordinary line break until a space follows the marker.
         guard !listLine.isListItem || !listLine.spacing.isEmpty else { return nil }
@@ -144,14 +75,15 @@ public enum MarkdownEditing {
             if listLine.isListItem, !listLine.indentation.isEmpty {
                 let outdentedIndentation = removingOneLevel(from: listLine.indentation, indentUnit: indentUnit, tabSize: tabSize)
                 var marker = listLine.marker
-                var itemAbove: ListLine?
+                var itemAbove: MarkdownListSyntax.ListLine?
                 // A numbered item that moves out continues the numbering of the level it joins.
                 if listLine.orderedNumber != nil, let delimiter = listLine.marker.last,
                    let parentNumber = orderedNumber(ofItemAbove: lineStart, quotePrefix: listLine.quotePrefix,
                                                     indentationWidth: indentationWidth(outdentedIndentation, tabSize: tabSize), in: text, tabSize: tabSize) {
                     marker = String(parentNumber + 1) + String(delimiter)
-                    itemAbove = ListLine(quotePrefix: listLine.quotePrefix, indentation: outdentedIndentation, marker: String(parentNumber) + String(delimiter),
-                                         spacing: listLine.spacing, taskStatus: nil, checkbox: "")
+                    itemAbove = MarkdownListSyntax.ListLine(quotePrefix: listLine.quotePrefix, indentation: outdentedIndentation,
+                                                            marker: String(parentNumber) + String(delimiter), spacing: listLine.spacing,
+                                                            taskStatus: nil, checkbox: "")
                 }
                 let outdented = listLine.quotePrefix + outdentedIndentation + marker + listLine.spacing
                     + (listLine.taskStatus.map { _ in "[ ] " } ?? "")
@@ -201,7 +133,8 @@ public enum MarkdownEditing {
 
     /// Whether the line at `lineStart` is inside fenced code or the note's frontmatter. A fence
     /// written in a quote or callout (`> ```) is code as the editor styles it: it runs to its
-    /// closing fence or to the first line outside the quote, whichever comes first.
+    /// closing fence or to the first line outside the quote, whichever comes first. A fence
+    /// opens within the indentation limit of its list item, as the editor styles it.
     private static func isInCodeOrFrontmatter(lineStart: Int, in text: NSString) -> Bool {
         var location = 0
         if let frontmatterEnd = frontmatterEnd(in: text) {
@@ -226,15 +159,16 @@ public enum MarkdownEditing {
             guard canTouchFence || (openFence != nil && fenceQuoteDepth > 0) else { continue }
             let line = text.substring(with: NSRange(location: location, length: contentsEnd - location))
             if let fence = openFence {
-                let (depth, content) = MarkdownStyleScanner.quoteMarkersAndContent(of: line, maximumDepth: fenceQuoteDepth)
+                let (depth, content) = MarkdownQuoteSyntax.markersAndTrimmedContent(of: line, maximumDepth: fenceQuoteDepth)
                 if depth >= fenceQuoteDepth {
-                    if CodeFence.closes(fence, content) { openFence = nil }
+                    if MarkdownFenceSyntax.closes(fence, content) { openFence = nil }
                     continue
                 }
                 openFence = nil
             }
-            let (depth, content) = MarkdownStyleScanner.quoteMarkersAndContent(of: line, maximumDepth: .max)
-            if let (fence, _) = CodeFence.opening(content) {
+            let (depth, content) = MarkdownQuoteSyntax.markersAndTrimmedContent(of: line, maximumDepth: .max)
+            if let (fence, _) = MarkdownFenceSyntax.opening(content),
+               ListItemContainers.allowsFence(indentedBy: ListItemContainers.leadingColumns(of: line), onLineAt: location, in: text) {
                 openFence = fence
                 fenceQuoteDepth = depth
             }
@@ -245,13 +179,13 @@ public enum MarkdownEditing {
         var lineContentsEnd = 0
         text.getLineStart(nil, end: nil, contentsEnd: &lineContentsEnd, for: NSRange(location: lineStart, length: 0))
         let line = text.substring(with: NSRange(location: lineStart, length: lineContentsEnd - lineStart))
-        return MarkdownStyleScanner.quoteMarkersAndContent(of: line, maximumDepth: fenceQuoteDepth).depth >= fenceQuoteDepth
+        return MarkdownQuoteSyntax.markersAndTrimmedContent(of: line, maximumDepth: fenceQuoteDepth).depth >= fenceQuoteDepth
     }
 
     /// Where the note's frontmatter ends, just past its closing line, or nil when the note
     /// has none. A `---` first line without a closing line is a thematic break. Read as
-    /// the rest of the app reads it: trimming each line here let an indented `  ---` in a
-    /// block scalar close it, and took `--- ` with spaces after it for an opening line.
+    /// the rest of the app reads it: lines are not trimmed, so an indented `  ---` in a
+    /// block scalar does not close it, and `--- ` with spaces after it is not an opening line.
     private static func frontmatterEnd(in text: NSString) -> Int? {
         let length = FrontmatterLocator.length(in: text)
         return length > 0 ? length : nil
@@ -283,7 +217,7 @@ public enum MarkdownEditing {
             location = previousRange.location
             guard let previousLine = lineContents(in: text, range: previousRange).first?.content,
                   !previousLine.trimmingCharacters(in: .whitespaces).isEmpty else { continue }
-            let parsed = listLine(previousLine)
+            let parsed = MarkdownListSyntax.listLine(previousLine)
             guard (parsed?.quotePrefix ?? "").filter({ character in character == ">" }).count == quoteDepth else { return nil }
             guard let parsed, parsed.isListItem else {
                 // Text indented past the level belongs to an item above; anything else ends the list.
@@ -302,7 +236,8 @@ public enum MarkdownEditing {
     /// renumbered while they count up one by one, as Obsidian's smart lists do. Numbering
     /// that is not sequential, such as every item written `1.`, is left alone. Returns the
     /// new text from `start` to `end`, or nil when nothing changes.
-    private static func renumberingItems(after start: Int, following item: ListLine, in text: NSString, tabSize: Int) -> (end: Int, replacement: String)? {
+    private static func renumberingItems(after start: Int, following item: MarkdownListSyntax.ListLine, in text: NSString,
+                                         tabSize: Int) -> (end: Int, replacement: String)? {
         guard var previousNumber = item.orderedNumber, let delimiter = item.marker.last else { return nil }
         let targetWidth = indentationWidth(item.indentation, tabSize: tabSize)
         let quoteDepth = item.quotePrefix.filter { character in character == ">" }.count
@@ -316,7 +251,7 @@ public enum MarkdownEditing {
             let wholeLine = text.substring(with: NSRange(location: location, length: lineEnd - location))
             defer { location = lineEnd }
             if line.trimmingCharacters(in: .whitespaces).isEmpty { unchangedSinceLastItem += wholeLine; continue }
-            let parsed = listLine(line)
+            let parsed = MarkdownListSyntax.listLine(line)
             guard (parsed?.quotePrefix ?? "").filter({ character in character == ">" }).count == quoteDepth else { break }
             guard let parsed, parsed.isListItem else {
                 // A continuation line of an item stays in the list; a paragraph ends it.
@@ -343,7 +278,7 @@ public enum MarkdownEditing {
     public static func indenting(in text: NSString, selection: NSRange, indentUnit: String) -> MarkdownTextEdit {
         transformingLines(in: text, selection: selection) { line in
             guard !line.isEmpty else { return nil }
-            let quotePrefixLength = listLine(line)?.quotePrefix.utf16.count ?? 0
+            let quotePrefixLength = MarkdownListSyntax.listLine(line)?.quotePrefix.utf16.count ?? 0
             return LineChange(range: NSRange(location: quotePrefixLength, length: 0), replacement: indentUnit)
         }
     }
@@ -352,7 +287,7 @@ public enum MarkdownEditing {
     /// level is when the vault indents with tabs.
     public static func outdenting(in text: NSString, selection: NSRange, indentUnit: String, tabSize: Int = 4) -> MarkdownTextEdit {
         transformingLines(in: text, selection: selection) { line in
-            let quotePrefixLength = listLine(line)?.quotePrefix.utf16.count ?? 0
+            let quotePrefixLength = MarkdownListSyntax.listLine(line)?.quotePrefix.utf16.count ?? 0
             let whitespaceEnd = leadingWhitespaceEnd(in: line, after: quotePrefixLength)
             let leadingWhitespace = (line as NSString).substring(with: NSRange(location: quotePrefixLength, length: whitespaceEnd - quotePrefixLength))
             let remainingLength = removingOneLevel(from: leadingWhitespace, indentUnit: indentUnit, tabSize: tabSize).utf16.count
@@ -374,10 +309,10 @@ public enum MarkdownEditing {
     /// gets a checkbox, and a task is checked or unchecked.
     public static func togglingTask(in text: NSString, selection: NSRange) -> MarkdownTextEdit {
         let lines = lineContents(in: text, range: lineRange(covering: selection, in: text))
-        let makesDone = lines.contains { line in listLine(line.content)?.taskStatus == " " }
+        let makesDone = lines.contains { line in MarkdownListSyntax.listLine(line.content)?.taskStatus == " " }
         return transformingLines(in: text, selection: selection) { line in
             guard !line.trimmingCharacters(in: .whitespaces).isEmpty || lines.count == 1 else { return nil }
-            let parsed = listLine(line)
+            let parsed = MarkdownListSyntax.listLine(line)
             if let parsed, let status = parsed.taskStatus {
                 let newStatus = makesDone ? "x" : (status == " " ? "x" : " ")
                 let statusOffset = (parsed.quotePrefix + parsed.indentation + parsed.marker + parsed.spacing).utf16.count + 1
@@ -400,13 +335,13 @@ public enum MarkdownEditing {
         let lines = lineContents(in: text, range: lineRange(covering: selection, in: text))
         let nonEmptyLines = lines.filter { line in !line.content.trimmingCharacters(in: .whitespaces).isEmpty }
         let removes = !nonEmptyLines.isEmpty && nonEmptyLines.allSatisfy { line in
-            guard let parsed = listLine(line.content), parsed.isListItem else { return false }
+            guard let parsed = MarkdownListSyntax.listLine(line.content), parsed.isListItem else { return false }
             return (parsed.orderedNumber != nil) == numbered
         }
         var number = 0
         return transformingLines(in: text, selection: selection) { line in
             guard !line.trimmingCharacters(in: .whitespaces).isEmpty || lines.count == 1 else { return nil }
-            let parsed = listLine(line)
+            let parsed = MarkdownListSyntax.listLine(line)
             let markerStart = leadingWhitespaceEnd(in: line, after: parsed?.quotePrefix.utf16.count ?? 0)
             let markerLength = parsed.map { parsed in parsed.isListItem ? (parsed.marker + parsed.spacing).utf16.count : 0 } ?? 0
             let markerRange = NSRange(location: markerStart, length: markerLength)
@@ -469,7 +404,7 @@ public enum MarkdownEditing {
         let closing = closingMarker ?? marker
         let openingLength = marker.utf16.count, closingLength = closing.utf16.count
         // The cursor inside a phrase in this markup, `**hello wo|rld**`, takes the markup off
-        // the phrase: going by the word under the cursor wrapped "world" again.
+        // the whole phrase, not only the word under the cursor.
         if selection.length == 0, closingMarker == nil, let unwrapped = removingEnclosingMarkup(marker, at: selection.location, in: text) { return unwrapped }
         var range = selection
         if range.length == 0 { range = wordRange(at: range.location, in: text) ?? range }
@@ -491,8 +426,8 @@ public enum MarkdownEditing {
                 return MarkdownTextEdit(range: range, replacement: inner, selectionAfter: NSRange(location: range.location, length: inner.utf16.count))
             }
         }
-        // Spans of this markup inside the selection join the one made: `**a** and **b**`
-        // became `a** and **b`, its outer markers taken for one pair.
+        // Spans of this markup inside the selection join the one made, so `**a** and **b**`
+        // becomes one span instead of having its outer markers taken for one pair.
         var wrappedText = selectedText
         if closing == marker, openingLength >= 2, selectedText.contains(marker) { wrappedText = selectedText.replacingOccurrences(of: marker, with: "") }
         let wrapped = marker + wrappedText + closing

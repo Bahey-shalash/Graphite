@@ -78,7 +78,7 @@ public enum ReadingTasks {
 
     /// Group 1 is the quote markers, indentation and list marker before the checkbox, and
     /// group 2 the status character. Any single character is a status, as in Obsidian.
-    static let pattern = try? NSRegularExpression(pattern: "^(\\s*(?:>\\s*)*(?:[-*+]|[0-9]{1,9}[.)])\\s+)\\[([^\\]\\n])\\](?=\\s|$)")
+    static let pattern = ReadingTasksPattern.pattern.compiled()
 
     private static let lineFeed = UInt16(UInt8(ascii: "\n"))
     private static let carriageReturn = UInt16(UInt8(ascii: "\r"))
@@ -91,7 +91,7 @@ public enum ReadingTasks {
     /// of a callout, whose body reading view splits into blocks of its own.
     public static func location(ofTaskStartingAt lineStart: Int, status: Unicode.Scalar, in text: String) -> Location? {
         let source = text as NSString
-        guard let pattern, lineStart >= 0, lineStart <= source.length else { return nil }
+        guard lineStart >= 0, lineStart <= source.length else { return nil }
         let line = lineContentRange(containing: lineStart, in: source)
         let searchRange = NSRange(location: lineStart, length: NSMaxRange(line) - lineStart)
         guard let match = pattern.firstMatch(in: text, options: .anchored, range: searchRange) else { return nil }
@@ -166,7 +166,7 @@ public enum ReadingTasks {
     /// again before each of its status offset and its line checksum. Only markers and
     /// digits, which Markdown leaves as they are.
     static func markedText(for task: MarkedTask) -> String {
-        let marker = String(task.isChecked ? ObsidianInlineMarkup.checkedTaskMarker : ObsidianInlineMarkup.uncheckedTaskMarker)
+        let marker = String(task.isChecked ? ReadingMarkers.checkedTaskMarker : ReadingMarkers.uncheckedTaskMarker)
         var text = marker + String(task.status.value)
         if let location = task.location { text += marker + String(location.statusOffset) + marker + String(location.lineChecksum) }
         return text
@@ -205,6 +205,11 @@ public enum ReadingTasks {
     }
 
     public static func isTaskMarker(_ scalar: Unicode.Scalar) -> Bool {
-        ObsidianInlineMarkup.uncheckedTaskMarker.unicodeScalars.first == scalar || ObsidianInlineMarkup.checkedTaskMarker.unicodeScalars.first == scalar
+        ReadingMarkers.uncheckedTaskMarker.unicodeScalars.first == scalar || ReadingMarkers.checkedTaskMarker.unicodeScalars.first == scalar
     }
+}
+
+/// The constant patterns of `ReadingTasks`; `StaticPatternTests` compiles every case.
+enum ReadingTasksPattern: String, StaticPatternSet {
+    case pattern = #"^(\s*(?:>\s*)*(?:[-*+]|[0-9]{1,9}[.)])\s+)\[([^\]\n])\](?=\s|$)"#
 }

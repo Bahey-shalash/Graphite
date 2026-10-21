@@ -506,9 +506,7 @@ enum PropertyDateText {
     /// Obsidian's stored formats: `YYYY-MM-DD` and `YYYY-MM-DDTHH:mm`.
     static let datePattern = "yyyy-MM-dd"
     static let dateTimePattern = "yyyy-MM-dd'T'HH:mm"
-    /// Fractions longer than nanoseconds are not dates any app writes.
-    private static let maximumFractionDigits = 9
-    private static let shapeExpression = try? NSRegularExpression(pattern: "^\\d{4}-\\d{2}-\\d{2}(?:([T ])\\d{2}:\\d{2}(?::\\d{2}(?:\\.(\\d{1,\(maximumFractionDigits)}))?)?)?$")
+    private static let shapeExpression = PropertyDateTextPattern.shapeExpression.compiled()
 
     /// Nil for text that is not a real date in one of those forms, such as `2026-02-30`.
     @MainActor static func parse(_ text: String) -> ParsedDate? {
@@ -548,7 +546,7 @@ enum PropertyDateText {
 
     private static func pattern(for text: String) -> String? {
         let textRange = NSRange(text.startIndex..., in: text)
-        guard let match = shapeExpression?.firstMatch(in: text, range: textRange) else { return nil }
+        guard let match = shapeExpression.firstMatch(in: text, range: textRange) else { return nil }
         let separatorRange = match.range(at: 1)
         guard separatorRange.location != NSNotFound else { return datePattern }
         let separator = (text as NSString).substring(with: separatorRange) == "T" ? "'T'" : " "
@@ -730,4 +728,10 @@ extension View {
         autocorrectionDisabled()
         #endif
     }
+}
+
+/// The constant pattern of `PropertyDateText`; `StaticPatternTests` compiles it.
+enum PropertyDateTextPattern: String, StaticPatternSet {
+    /// At most 9 fraction digits (`\d{1,9}`): fractions longer than nanoseconds are not dates any app writes.
+    case shapeExpression = #"^\d{4}-\d{2}-\d{2}(?:([T ])\d{2}:\d{2}(?::\d{2}(?:\.(\d{1,9}))?)?)?$"#
 }

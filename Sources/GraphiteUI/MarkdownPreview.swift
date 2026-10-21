@@ -1,3 +1,15 @@
+/**
+ * File: MarkdownPreview.swift
+ * ---------------------------
+ * Layer: UI
+ * Description: The reading view: builds a note's blocks off the main actor (links resolved, embeds read), shows them
+ *              with Textual in a lazy stack, keeps the reading position, folds headings, and follows the word read aloud.
+ *
+ * Authors: Bahey Shalash
+ * Version: 0.36
+ * Date: 21/10/2026
+ */
+
 import SwiftUI
 import Combine
 import Textual
@@ -40,6 +52,9 @@ struct ReadingConfiguration: Equatable, Sendable {
     var runsPluginPostProcessors = false
     /// Whether Wikilinks no file answers are marked, for a theme's unresolved link color.
     var marksUnresolvedLinks = false
+    /// Whether runs of Markdown are divided into Obsidian's sections (paragraphs, lists,
+    /// tables, code blocks), as a note exported to PDF is, so a page can end between them.
+    var dividesMarkdownIntoSections = false
 }
 
 /// A reading-view block after links are resolved and files located.
@@ -194,41 +209,6 @@ enum GraphiteOpenLink {
     }
 }
 
-/// Keeps private-use characters written in a note apart from the markers reading view adds
-/// (`ObsidianInlineMarkup`), so an icon-font glyph in the note is not turned into a checkbox
-/// or removed. Each such character is written as the escape lead followed by a stand-in,
-/// and `ObsidianMarkdownParser` puts the original back after it has read the markers.
-enum ReadingMarkerEscaping {
-    /// `ObsidianInlineMarkup`'s markers, U+E000 to U+E008 and U+E00A to U+E00B, and the
-    /// escape lead, U+E009.
-    static let escapedScalarValues: ClosedRange<UInt32> = 0xE000...0xE00B
-    static let escapeLead: Unicode.Scalar = "\u{E009}"
-    /// A character `escapedScalarValues.lowerBound + n` is written as the lead, then the
-    /// scalar `standInOffset` above it. Stand-ins follow a lead only when written here.
-    private static let standInOffset: UInt32 = 0x10
-
-    static func escaping(_ text: String) -> String {
-        guard text.unicodeScalars.contains(where: { scalar in escapedScalarValues.contains(scalar.value) }) else { return text }
-        var escaped = String.UnicodeScalarView()
-        for scalar in text.unicodeScalars {
-            if escapedScalarValues.contains(scalar.value), let standIn = Unicode.Scalar(scalar.value + standInOffset) {
-                escaped.append(escapeLead)
-                escaped.append(standIn)
-            } else {
-                escaped.append(scalar)
-            }
-        }
-        return String(escaped)
-    }
-
-    /// The character an escape lead followed by `standIn` stands for, or nil when `standIn`
-    /// is not a stand-in.
-    static func original(ofStandIn standIn: Unicode.Scalar) -> Unicode.Scalar? {
-        guard standIn.value >= standInOffset, escapedScalarValues.contains(standIn.value - standInOffset) else { return nil }
-        return Unicode.Scalar(standIn.value - standInOffset)
-    }
-}
-
 /// A note's reading-view blocks, and whether any Wikilink embed in its text could not be
 /// found, so the note is built again once the index knows more files.
 struct ReadingViewBuild: Sendable {
@@ -260,6 +240,26 @@ struct ReadingBlockLocation: Equatable, Sendable {
     /// UTF-16 offsets in the note, frontmatter included.
     let noteOffset: Int
     let lineNoteOffsets: [Int]
+}
+
+/// An open vault as the reading view builds from it: its folder and its index. Views that
+/// build a note away from the reading view (a note's PDF) take it whole, so they need not
+/// know the index.
+struct ReadingVault {
+    let root: URL
+    let index: VaultIndex
+
+    /// Nil while no vault is open.
+    init?(_ root: URL?, _ index: VaultIndex?) {
+        guard let root, let index else { return nil }
+        self.root = root
+        self.index = index
+    }
+
+    /// The note's reading-view blocks, built off the main actor.
+    func build(_ source: String, note: VaultPath, configuration: ReadingConfiguration) async throws -> ReadingViewBuild {
+        try await ReadingViewBuilder().build(source: source, note: note, root: root, index: index, configuration: configuration)
+    }
 }
 
 /// Builds rendered blocks off the main actor: resolves links against the vault and index,
@@ -382,9 +382,9 @@ actor ReadingViewBuilder {
 
     /// While plugins change how notes read, runs of Markdown are divided into Obsidian's
     /// sections, so a plugin's change shows in the section it changed and the rest of the
-    /// run stays Graphite's.
+    /// run stays Graphite's; a note exported to PDF is divided likewise, for its page breaks.
     private static func sectioned(_ blocks: [NotePreviewDocument.LocatedBlock], for configuration: ReadingConfiguration) -> [NotePreviewDocument.LocatedBlock] {
-        configuration.runsPluginPostProcessors ? NotePreviewDocument.dividedIntoSections(blocks) : blocks
+        configuration.runsPluginPostProcessors || configuration.dividesMarkdownIntoSections ? NotePreviewDocument.dividedIntoSections(blocks) : blocks
     }
 
     /// The text of the note a run of blocks was split from, in which their tasks are found.
@@ -505,7 +505,7 @@ actor ReadingViewBuilder {
     private func embeddedNoteLink(to path: VaultPath, subpath: String?) -> RenderedBlock {
         let label = path.stem + (subpath.map { heading in " > " + heading } ?? "")
         let target = exactTarget(for: path, fragment: subpath)
-        return .markdown(id: identifier(), text: "[\(Self.escapedLabel(ReadingMarkerEscaping.escaping(label)))](\(GraphiteOpenLink.markdownDestination(target: target.target, isWiki: target.isWiki)))")
+        return .markdown(id: identifier(), text: "[\(Self.escapedLabel(ReadingMarkers.escaping(label)))](\(GraphiteOpenLink.markdownDestination(target: target.target, isWiki: target.isWiki)))")
     }
 
     private func resolve(_ target: String, isWiki: Bool, note: VaultPath, root: URL, index: VaultIndex) async -> VaultPath? {
@@ -590,7 +590,7 @@ actor ReadingViewBuilder {
     }
 
     private func readingText(_ markdown: String, configuration: ReadingConfiguration, taskLocation: TaskLocation? = nil) -> String {
-        var text = ObsidianInlineMarkup.preparedForReading(ReadingMarkerEscaping.escaping(markdown), colorsEnabled: configuration.colorsEnabled,
+        var text = ObsidianInlineMarkup.preparedForReading(markdown, colorsEnabled: configuration.colorsEnabled,
                                                            paletteHexByName: configuration.paletteHexByName, taskLocation: taskLocation)
         if !configuration.usesStrictLineBreaks { text = ObsidianPreviewText.applyingSoftLineBreaks(to: text) }
         return text
@@ -605,7 +605,7 @@ actor ReadingViewBuilder {
         guard !destination.isEmpty, destination.range(of: "^[A-Za-z][A-Za-z0-9+.-]*:", options: .regularExpression) == nil,
               // The destination follows `](`, possibly inside `<>`; the same text in the label
               // or in a title after the destination is not it.
-              let destinationPattern = try? NSRegularExpression(pattern: "\\]\\([ \\t]*\\n?[ \\t]*<?(" + NSRegularExpression.escapedPattern(for: destination) + ")"),
+              let destinationPattern = try? NSRegularExpression(pattern: "\\]\\([ \\t]*\\n?[ \\t]*<?(" + NSRegularExpression.escapedPattern(for: destination) + ")"), // Escaped note text; malformed: link left as is.
               let match = destinationPattern.matches(in: text as String, range: linkRange).last else { return nil }
         return match.range(at: 1)
     }
@@ -1364,6 +1364,7 @@ extension ReadingConfiguration {
         hasher.combine(pluginCodeBlockLanguages.sorted())
         hasher.combine(marksUnresolvedLinks)
         hasher.combine(runsPluginPostProcessors)
+        hasher.combine(dividesMarkdownIntoSections)
         return hasher.finalize()
     }
 }
@@ -1737,6 +1738,7 @@ private struct ObsidianMarkdownTextContent: View, Equatable {
     /// The word being read, when it is in this text; nil otherwise.
     let activeRange: NSRange?
     @Environment(\.readingHighlightFill) private var readingHighlightFill
+    @Environment(\.readingIsPrinted) private var isPrinted
 
     /// The same text, read at the same word. The closures are left out: their owners make
     /// new ones at every update, which do the same.
@@ -1773,7 +1775,7 @@ private struct ObsidianMarkdownTextContent: View, Equatable {
                 .font(typography.textSwiftUIFont(size: textSize))
                 .foregroundStyle(theme?.textNormal.map { color in AnyShapeStyle(Color(color)) } ?? AnyShapeStyle(.primary))
                 .textual.lineSpacing(.fontScaled(theme?.lineHeight.map { height in max(0, height - 1.2) } ?? ObsidianMarkdownText.graphiteLineSpacing))
-                .textual.textSelection(.enabled)
+                .modifier(ReadingTextPrinting(isPrinted: isPrinted))
                 .textual.inlineStyle(inlineStyle)
                 .textual.codeBlockStyle(ObsidianCodeBlockStyle(monospaceFont: typography.monospaceSwiftUIFont(size: textSize), theme: theme, codeTheme: codeColorTheme))
                 // Code is colored as the editor colors it (`CodeSyntaxColors`).
@@ -1817,10 +1819,31 @@ private struct ObsidianMarkdownTextContent: View, Equatable {
     /// out with its numbers at the right of the column. One the typesetter cannot draw is
     /// left to the Markdown renderer, which shows it as its source.
     private var numberedEquation: NumberedEquation? {
-        guard let equation = ObsidianInlineMarkup.numberedEquation(aloneIn: markdown), NumberedEquationView.canDraw(equation, textSize: textSize) else { return nil }
+        guard let equation = ReadingMathPreparation.numberedEquation(aloneIn: markdown), NumberedEquationView.canDraw(equation, textSize: textSize) else { return nil }
         return equation
     }
 
+}
+
+extension EnvironmentValues {
+    /// Whether the reading view's text is drawn into a PDF, which cannot hold platform views:
+    /// the text is then not selectable, and code and wide tables wrap instead of scrolling.
+    @Entry var readingIsPrinted = false
+}
+
+/// A reading text on screen (selectable, wide content scrolling) or printed. The choice is
+/// made once for a whole view hierarchy and never changes in it, so the two branches never
+/// replace each other's text.
+private struct ReadingTextPrinting: ViewModifier {
+    let isPrinted: Bool
+
+    func body(content: Content) -> some View {
+        if isPrinted {
+            content.textual.textSelection(.disabled).textual.overflowMode(.wrap)
+        } else {
+            content.textual.textSelection(.enabled)
+        }
+    }
 }
 
 struct KeptTextProperty: TextProperty {
@@ -1875,13 +1898,13 @@ struct ObsidianMarkdownParser: MarkupParser {
         if MarkdownNesting.exceedsSafeDepth(input) { return AttributedString(input) }
         // A numbered formula that is a block of its own is drawn by `NumberedEquationView`;
         // one that reaches here is among other text, and takes its numbers after its rows.
-        let markdown = ObsidianInlineMarkup.inliningEquationNumbers(in: input)
+        let markdown = ReadingMathPreparation.inliningEquationNumbers(in: input)
         var attributed = try AttributedStringMarkdownParser(baseURL: baseURL, syntaxExtensions: [.math]).attributedString(for: markdown)
-        Self.applyMarkers(start: ObsidianInlineMarkup.colorStartMarker, hexEnd: ObsidianInlineMarkup.colorHexEndMarker, end: ObsidianInlineMarkup.colorEndMarker, to: &attributed) { hex, range, text in
+        Self.applyMarkers(start: ReadingMarkers.colorStartMarker, hexEnd: ReadingMarkers.colorHexEndMarker, end: ReadingMarkers.colorEndMarker, to: &attributed) { hex, range, text in
             if let color = Color(graphiteHex: hex) { text[range].foregroundColor = color }
         }
         let themeColors = themeColors, textSize = textSize
-        Self.applyMarkers(start: ObsidianInlineMarkup.highlightStartMarker, hexEnd: nil, end: ObsidianInlineMarkup.highlightEndMarker, to: &attributed) { _, range, text in
+        Self.applyMarkers(start: ReadingMarkers.highlightStartMarker, hexEnd: nil, end: ReadingMarkers.highlightEndMarker, to: &attributed) { _, range, text in
             guard let themeColors else { text[range].backgroundColor = Color.yellow.opacity(0.35); return }
             // The theme's highlight, with its rounded ends and text color.
             text[range][RoundedRunBackgroundAttribute.self] = RoundedRunBackground(
@@ -1889,7 +1912,7 @@ struct ObsidianMarkdownParser: MarkupParser {
             if let highlightText = themeColors.highlightText { text[range].foregroundColor = highlightText }
         }
         // A footnote reference is found by its link, not by markers around its number: the
-        // references are added to the note's text before `ReadingMarkerEscaping` escapes it,
+        // references are added to the note's text before `ReadingMarkers` escapes it,
         // so markers added there would be escaped as the note's own characters.
         var footnoteReferenceRanges: [Range<AttributedString.Index>] = []
         for (link, range) in attributed.runs[\.link] where link.flatMap(GraphiteOpenLink.footnoteNumber(of:)) != nil {
@@ -1923,10 +1946,10 @@ struct ObsidianMarkdownParser: MarkupParser {
             linkRuns.append((range, color))
         }
         for (range, color) in linkRuns { text[range].foregroundColor = color }
-        guard let tagColor = colors.tag, let tagPattern = Self.tagPattern else { return }
+        guard let tagColor = colors.tag else { return }
         let plain = String(text.characters)
         let nsPlain = plain as NSString
-        for match in tagPattern.matches(in: plain, range: NSRange(location: 0, length: nsPlain.length)) {
+        for match in Self.tagPattern.matches(in: plain, range: NSRange(location: 0, length: nsPlain.length)) {
             guard let stringRange = Range(match.range, in: plain),
                   let lower = AttributedString.Index(stringRange.lowerBound, within: text),
                   let upper = AttributedString.Index(stringRange.upperBound, within: text) else { continue }
@@ -1947,7 +1970,7 @@ struct ObsidianMarkdownParser: MarkupParser {
 
     /// Obsidian's tags: `#` after a space or the start, then letters, digits, `_`, `-` and `/`,
     /// not only digits.
-    private static let tagPattern = try? NSRegularExpression(pattern: "(?<![\\p{L}\\p{N}_/#&])#(?![\\p{N}]+(?![\\p{L}_/-]))[\\p{L}\\p{N}_/-]+")
+    private static let tagPattern = ObsidianMarkdownParserPattern.tagPattern.compiled()
 
     /// A task marked at the start of a list item becomes that item's checkbox, which
     /// `ObsidianListItemStyle` draws in place of the bullet; a completed task's text is
@@ -2010,17 +2033,17 @@ struct ObsidianMarkdownParser: MarkupParser {
         return false
     }
 
-    /// Puts back the private-use characters of the note that `ReadingMarkerEscaping` kept
+    /// Puts back the private-use characters of the note that `ReadingMarkers` kept
     /// apart from the markers, once the markers are gone.
     private static func restoreEscapedCharacters(in text: inout AttributedString) {
-        guard text.unicodeScalars.contains(ReadingMarkerEscaping.escapeLead) else { return }
+        guard text.unicodeScalars.contains(ReadingMarkers.escapeLead) else { return }
         var restored = AttributedString()
         var sliceStart = text.startIndex
         var scalarIndex = text.unicodeScalars.startIndex
         while scalarIndex < text.unicodeScalars.endIndex {
             let nextIndex = text.unicodeScalars.index(after: scalarIndex)
-            guard text.unicodeScalars[scalarIndex] == ReadingMarkerEscaping.escapeLead, nextIndex < text.unicodeScalars.endIndex,
-                  let original = ReadingMarkerEscaping.original(ofStandIn: text.unicodeScalars[nextIndex]) else {
+            guard text.unicodeScalars[scalarIndex] == ReadingMarkers.escapeLead, nextIndex < text.unicodeScalars.endIndex,
+                  let original = ReadingMarkers.original(ofStandIn: text.unicodeScalars[nextIndex]) else {
                 scalarIndex = nextIndex
                 continue
             }
@@ -2173,7 +2196,7 @@ struct ObsidianCodeBlockStyle: StructuredText.CodeBlockStyle {
 
     @MainActor
     func makeBody(configuration: Configuration) -> some View {
-        let language = configuration.languageHint.map { hint in NotePreviewDocument.codeBlockLanguage(ofFenceInfo: hint) } ?? ""
+        let language = configuration.languageHint.map { hint in MarkdownFenceSyntax.language(ofInfo: hint) } ?? ""
         let cornerRadius = CodeSyntaxColors.blockCornerRadius(theme: theme)
         let palette = CodeSyntaxColors.palette(codeTheme: codeTheme, noteTheme: theme)
         Overflow {
@@ -2627,6 +2650,14 @@ private struct VaultImageLoader: AttachmentLoader {
         let thumbnail = try await ReadingImageCache.shared.thumbnail(for: fileLocation, kind: .inline)
         return VaultImageAttachment(image: thumbnail.image, description: text, displaySize: PreviewImageFragment.displaySize(in: location))
     }
+
+    /// The image the cache made last, drawn at once while `attachment(for:text:environment:)`
+    /// checks it is current; a note exported to PDF loads its images into the cache first.
+    func readyAttachment(for location: URL, text: String, environment: ColorEnvironmentValues) -> VaultImageAttachment? {
+        guard location.isFileURL,
+              let thumbnail = ReadingImageCache.shared.lastThumbnail(for: URL(fileURLWithPath: location.path), kind: .inline) else { return nil }
+        return VaultImageAttachment(image: thumbnail.image, description: text, displaySize: PreviewImageFragment.displaySize(in: location))
+    }
 }
 
 private struct VaultImageAttachment: Attachment {
@@ -3075,4 +3106,9 @@ private struct ReadingImageBlock: View {
             }
         }
     }
+}
+
+/// The constant patterns of `ObsidianMarkdownParser`; `StaticPatternTests` compiles every case.
+enum ObsidianMarkdownParserPattern: String, StaticPatternSet {
+    case tagPattern = #"(?<![\p{L}\p{N}_/#&])#(?![\p{N}]+(?![\p{L}_/-]))[\p{L}\p{N}_/-]+"#
 }

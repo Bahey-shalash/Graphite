@@ -12,6 +12,7 @@ extension WorkspaceModel {
         // snapshots, and an editor laid out again then reports a line further down.
         if previousPhase == .active { rememberPlacesOfOpenDocuments() }
         if phase == .active {
+            windowCameToFront()
             Task { await checkOpenDocumentsForExternalChanges(); await refreshDirectory(); await reloadVaultSettings() }
         } else {
             // Reading goes on in the background and on the lock screen, like an audiobook.

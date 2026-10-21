@@ -3,7 +3,7 @@ import Foundation
 /// Changes one frontmatter property of a note for inline editing in a base, leaving
 /// everything after the frontmatter byte-for-byte unchanged.
 public enum BasePropertyEditing {
-    private static let frontmatterPattern = try? NSRegularExpression(pattern: "\\A---\\r?\\n(?:([\\s\\S]*?)\\r?\\n)?(?:---|\\.\\.\\.)[ \\t]*(?:\\r?\\n|$)")
+    private static let frontmatterPattern = BasePropertyEditingPattern.frontmatterPattern.compiled()
 
     /// The note text with `key` set to `value`, added when missing, or removed when
     /// `value` is nil. Every other property keeps its exact YAML. Refuses rather than risk
@@ -48,7 +48,7 @@ public enum BasePropertyEditing {
 
     public static func frontmatterYAML(in noteText: String) -> String? {
         let foundationText = noteText as NSString
-        guard let match = frontmatterPattern?.firstMatch(in: noteText, range: NSRange(location: 0, length: foundationText.length)) else { return nil }
+        guard let match = frontmatterPattern.firstMatch(in: noteText, range: NSRange(location: 0, length: foundationText.length)) else { return nil }
         let yamlRange = match.range(at: 1)
         return yamlRange.location == NSNotFound ? "" : foundationText.substring(with: yamlRange)
     }
@@ -100,4 +100,9 @@ public enum BasePropertyEditing {
         default: throw refusal
         }
     }
+}
+
+/// The constant patterns of `BasePropertyEditing`; `StaticPatternTests` compiles every case.
+enum BasePropertyEditingPattern: String, StaticPatternSet {
+    case frontmatterPattern = #"\A---\r?\n(?:([\s\S]*?)\r?\n)?(?:---|\.\.\.)[ \t]*(?:\r?\n|$)"#
 }

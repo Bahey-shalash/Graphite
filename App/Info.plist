@@ -37,12 +37,21 @@
 	<string>Record lectures as ordinary video files in your selected vault, and take photos of the board or a page for your notes, and scan paper documents into PDFs.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Record lectures as ordinary audio and video files in your selected vault.</string>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>com.graphite.study.open-window</string>
+	</array>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Save images you share from Graphite to your photo library.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
 		<false/>
+	</dict>
+	<key>UIApplicationSceneManifest~ipad</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<true/>
 	</dict>
 	<key>UIBackgroundModes</key>
 	<array>

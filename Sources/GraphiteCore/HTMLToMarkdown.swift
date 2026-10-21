@@ -100,8 +100,8 @@ public enum HTMLToMarkdown {
     }()
     /// Markdown list numbers have at most nine digits.
     private static let maximumOrderedListNumber = 999_999_999
-    /// Compiled once: compiling it for every tag was most of the conversion time.
-    private static let attributePattern = try? NSRegularExpression(pattern: "([A-Za-z_:][-A-Za-z0-9_:.]*)\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s\"'>]+))")
+    /// Compiled once, not per tag: compiling is the costliest part of matching it.
+    private static let attributePattern = HTMLToMarkdownPattern.attributePattern.compiled()
 
     private struct Converter {
         var output = ""
@@ -444,7 +444,7 @@ public enum HTMLToMarkdown {
         static func attributes(in text: String) -> [String: String] {
             var attributes: [String: String] = [:]
             let source = text as NSString
-            for match in HTMLToMarkdown.attributePattern?.matches(in: text, range: NSRange(location: 0, length: source.length)) ?? [] {
+            for match in HTMLToMarkdown.attributePattern.matches(in: text, range: NSRange(location: 0, length: source.length)) {
                 let name = source.substring(with: match.range(at: 1)).lowercased()
                 let valueRange = [2, 3, 4].map { group in match.range(at: group) }.first { range in range.location != NSNotFound }
                 attributes[name] = valueRange.map { range in decodedEntities(source.substring(with: range)) } ?? ""
@@ -800,3 +800,7 @@ public enum HTMLToMarkdown {
     }
 }
 
+/// The constant patterns of `HTMLToMarkdown`; `StaticPatternTests` compiles every case.
+enum HTMLToMarkdownPattern: String, StaticPatternSet {
+    case attributePattern = #"([A-Za-z_:][-A-Za-z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))"#
+}

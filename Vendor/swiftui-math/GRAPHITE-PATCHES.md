@@ -9,3 +9,21 @@ Upstream: https://github.com/gonzalezreal/swiftui-math at tag 0.1.0 (commit 0b5c
 `Math` measures its formula for the width it is offered, then draws it in a `Canvas` that typesets the formula again at the canvas's own width. That frame is rounded to whole pixels, so it can come out a fraction of a point narrower than the formula it was measured for. Upstream then broke the formula to fit: `g_m` became `g` over `m` (at 22 points, half a point too narrow is enough; `r_o`, `V_A` and `V_{ov}` break at a quarter of a point), and only one of the two lines showed where the formula belonged. In Graphite's reading view, inline formulas such as `$g_m$`, `$r_o$` and `$V_A$` showed only their subscripts, in some paragraphs and not others, since the rounding depends on where the formula lands. Rounding moves each edge of a frame by at most half a pixel, so a frame is at most one pixel (one point at 1x) narrower than asked, which the tolerance covers at every scale. Textual allows display math the same overhang (`MathAttachment.naturalWidthTolerance`).
 
 Regression test: `AppProjectTextualPatchTests.testFormulaInAFrameNarrowerByAFractionOfAPointStaysOnOneLine` draws each formula in a frame 0.4 points narrower than it and checks that it stays on one line, and that a formula genuinely wider than its width still breaks.
+
+## 2. A fraction late in a line breaks onto the next line
+
+`Sources/SwiftUIMath/Internal/Display/Typesetter.swift`: `shouldBreakBeforeDisplay` measures the line from its start, `currentPosition.x` plus the text since the last display, as the interatom check already does, and treats a line that holds only earlier displays as not empty. Upstream measured only the text since the last fraction, radical or other display, so a fraction after earlier ones was never moved to a new line and was drawn past the width. In a callout, `\text{new time} = \frac{1-f}{s} + f, \qquad \text{memory share} = \frac{f}{…}, \qquad \text{overall speedup} = \frac{1}{\frac{1-f}{s} + f}` at 95 % of its width was not broken at all, and the last fraction was cut off at the callout's edge.
+
+Regression test: `AppProjectTextualPatchTests.testFractionAfterEarlierFractionsBreaksOntoANewLine` measures that formula at 95, 80 and 60 % of its width and checks that it is broken into lines no wider than the width.
+
+## 3. `\underbrace` and `\overbrace`
+
+`Sources/SwiftUIMath/Internal/Syntax/Atoms/HorizontalBrace.swift` and `Internal/Display/DisplayHorizontalBrace.swift` (new), `Internal/Syntax/AtomList.swift`, `Internal/Syntax/Parser.swift`, `Internal/Display/Typesetter.swift`, `Internal/Display/CGContext+DisplayNode.swift`: `\underbrace{…}_{label}` and `\overbrace{…}^{label}` are typeset. Upstream did not know either command, so a formula using one could not be parsed and Graphite showed its LaTeX source (Textual patch 5).
+
+The brace is drawn as a stroked path as wide as what it spans: the math fonts' brace glyphs come in a few fixed widths (Latin Modern's widest is 4 em) and the font tables carry no horizontal assembly to build a longer one. Its proportions follow Latin Modern's glyph, about 0.32 em tall and 0.06 em thick, and it stands 0.2 em from what it spans. The label is set in script style below an underbrace or above an overbrace, centred, with the gaps of an operator's limits (`DisplayLargeOperator`); the other script, if any, is an ordinary script at the right. A brace is an ordinary atom for spacing and line breaking.
+
+## 4. A hyphen in `\text` is a hyphen
+
+`Sources/SwiftUIMath/Internal/Syntax/Parser.swift`: inside `\text{…}`, `-` is an ordinary hyphen. Upstream turned it into a minus sign with a binary operator's spaces, so `\text{wear-out}` read "wear − out". A `-` outside `\text` is still a minus.
+
+Regression tests: `AppProjectTextualPatchTests.testUnderbraceAndOverbraceAreTypesetWithTheirLabels` and `testHyphenInsideTextIsAHyphen`.

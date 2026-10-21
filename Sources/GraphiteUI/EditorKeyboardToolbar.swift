@@ -1,3 +1,15 @@
+/**
+ * File: EditorKeyboardToolbar.swift
+ * ---------------------------------
+ * Layer: UI
+ * Description: The row of formatting, insert and editing buttons above the keyboard while a note is written, and
+ *              the camera used to photograph a page or the board into a note.
+ *
+ * Authors: Bahey Shalash
+ * Version: 0.12
+ * Date: 21/10/2026
+ */
+
 import SwiftUI
 import GraphiteCore
 
@@ -126,6 +138,8 @@ final class EditorKeyboardToolbar: UIInputView {
     static let height: CGFloat = 48
     /// Which of the pane's actions the buttons were built for.
     private var builtActions: AvailableActions
+    /// Undo, Redo and the separator after them, on a phone; empty on an iPad.
+    private var undoAndRedoViews: [UIView] = []
 
     /// The pane's optional actions that add buttons; a change rebuilds the row, so no
     /// button stays for a feature that was turned off.
@@ -151,21 +165,7 @@ final class EditorKeyboardToolbar: UIInputView {
         super.init(frame: CGRect(x: 0, y: 0, width: 0, height: Self.height), inputViewStyle: .keyboard)
         allowsSelfSizing = true
         autoresizingMask = .flexibleWidth
-        // The keyboard style draws no background of its own here, so the sidebar would
-        // show through; a bar material sits behind the buttons.
-        let background = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
-        background.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(background)
-        let topSeparator = UIView()
-        topSeparator.backgroundColor = .separator
-        topSeparator.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(topSeparator)
-        NSLayoutConstraint.activate([
-            background.leadingAnchor.constraint(equalTo: leadingAnchor), background.trailingAnchor.constraint(equalTo: trailingAnchor),
-            background.topAnchor.constraint(equalTo: topAnchor), background.bottomAnchor.constraint(equalTo: bottomAnchor),
-            topSeparator.leadingAnchor.constraint(equalTo: leadingAnchor), topSeparator.trailingAnchor.constraint(equalTo: trailingAnchor),
-            topSeparator.topAnchor.constraint(equalTo: topAnchor), topSeparator.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale),
-        ])
+        addBackground()
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         stackView.axis = .horizontal
@@ -185,9 +185,31 @@ final class EditorKeyboardToolbar: UIInputView {
             heightAnchor.constraint(equalToConstant: Self.height),
         ])
         buildButtons(actions: actions)
+        registerForTraitChanges([UITraitHorizontalSizeClass.self]) { (toolbar: EditorKeyboardToolbar, _) in
+            toolbar.updateUndoAndRedoVisibility()
+        }
     }
 
     required init?(coder: NSCoder) { nil }
+
+    /// A bar material behind the buttons, with a hairline along its top.
+    private func addBackground() {
+        // The keyboard style draws no background of its own here, so the sidebar would
+        // show through; a bar material sits behind the buttons.
+        let background = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+        background.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(background)
+        let topSeparator = UIView()
+        topSeparator.backgroundColor = .separator
+        topSeparator.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(topSeparator)
+        NSLayoutConstraint.activate([
+            background.leadingAnchor.constraint(equalTo: leadingAnchor), background.trailingAnchor.constraint(equalTo: trailingAnchor),
+            background.topAnchor.constraint(equalTo: topAnchor), background.bottomAnchor.constraint(equalTo: bottomAnchor),
+            topSeparator.leadingAnchor.constraint(equalTo: leadingAnchor), topSeparator.trailingAnchor.constraint(equalTo: trailingAnchor),
+            topSeparator.topAnchor.constraint(equalTo: topAnchor), topSeparator.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale),
+        ])
+    }
 
     override var intrinsicContentSize: CGSize { CGSize(width: UIView.noIntrinsicMetric, height: Self.height) }
 
@@ -206,11 +228,17 @@ final class EditorKeyboardToolbar: UIInputView {
 
     private func buildButtons(actions: EditorActions) {
         // The iPad keyboard's shortcut bar and the note's toolbar already offer Undo and
-        // Redo; a third pair would crowd the formatting buttons. The iPhone keyboard has none.
+        // Redo; a third pair would crowd the formatting buttons. The iPhone keyboard has none,
+        // and the note's toolbar shows them only in a regular width, as on iPhone Duo's inner
+        // display (`updateUndoAndRedoVisibility`).
+        undoAndRedoViews = []
         if UIDevice.current.userInterfaceIdiom != .pad {
+            let firstIndex = stackView.arrangedSubviews.count
             add("Undo", "arrow.uturn.backward", .undo)
             add("Redo", "arrow.uturn.forward", .redo)
             addSeparator()
+            undoAndRedoViews = Array(stackView.arrangedSubviews[firstIndex...])
+            updateUndoAndRedoVisibility()
         }
         addHeadingMenu()
         add("Bold", "bold", .bold)
@@ -236,6 +264,12 @@ final class EditorKeyboardToolbar: UIInputView {
         addSeparator()
         add("Find in note", "magnifyingglass", .find)
         add("Hide keyboard", "keyboard.chevron.compact.down", .dismissKeyboard)
+    }
+
+    /// A phone's Undo and Redo show while the note's toolbar has none: in a compact width.
+    private func updateUndoAndRedoVisibility() {
+        let isShown = traitCollection.horizontalSizeClass != .regular
+        for view in undoAndRedoViews { view.isHidden = !isShown }
     }
 
     private func makeButton(_ title: String, _ systemImage: String) -> UIButton {

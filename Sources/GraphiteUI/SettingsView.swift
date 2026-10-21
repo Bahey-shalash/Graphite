@@ -12,7 +12,7 @@ struct SettingsView: View {
     @State private var vaultSettingsChanges = VaultSettingsChanges()
 
     enum SettingsPage: Hashable {
-        case general, editor, filesAndLinks, appearance, corePlugins, communityPlugins
+        case general, editor, filesAndLinks, appearance, keyboardShortcuts, corePlugins, communityPlugins
         case plugin(CorePlugin)
         /// A community plugin's own settings tab, by plugin identifier.
         case communityPlugin(String)
@@ -35,6 +35,9 @@ struct SettingsView: View {
                     Label("Editor", systemImage: "pencil.line").tag(SettingsPage.editor)
                     Label("Files and Links", systemImage: "folder").tag(SettingsPage.filesAndLinks)
                     Label("Appearance", systemImage: "paintbrush").tag(SettingsPage.appearance)
+                    if Self.offersKeyboardShortcuts {
+                        Label("Keyboard Shortcuts", systemImage: "keyboard").tag(SettingsPage.keyboardShortcuts)
+                    }
                     Label("Core Plugins", systemImage: "puzzlepiece.extension").tag(SettingsPage.corePlugins)
                     Label("Community Plugins", systemImage: "puzzlepiece").tag(SettingsPage.communityPlugins)
                 }
@@ -94,6 +97,29 @@ struct SettingsView: View {
         .onChange(of: workspace.communityPlugins.requestedSettingsPlugin) { showRequestedCommunityPluginSettings() }
     }
 
+    /// Keyboard shortcuts are for the Mac and the iPad; the iPhone has no page for them.
+    private static var offersKeyboardShortcuts: Bool {
+        #if canImport(UIKit)
+        UIDevice.current.userInterfaceIdiom == .pad
+        #else
+        true
+        #endif
+    }
+
+    private var keyboardShortcutsPage: some View {
+        let communityPlugins = workspace.communityPlugins
+        let preferences = workspace.preferences
+        #if os(macOS)
+        let systemSettingsShortcuts = SystemSettingsAppShortcuts.read(from: workspace.deviceDefaults, applicationIdentifier: Bundle.main.bundleIdentifier)
+        #else
+        let systemSettingsShortcuts: [String: KeyCombination?] = [:]
+        #endif
+        return KeyboardShortcutsSettingsPage(shortcuts: workspace.keyboardShortcuts, pluginCommands: communityPlugins.commands,
+                                             pluginName: { identifier in communityPlugins.pluginName(of: identifier) },
+                                             isCorePluginEnabled: { plugin in preferences.isEnabled(plugin) },
+                                             systemSettingsShortcuts: systemSettingsShortcuts) { change in await workspace.changeKeyboardShortcuts(change) }
+    }
+
     private func showRequestedCommunityPluginSettings() {
         guard let requestedPlugin = workspace.communityPlugins.requestedSettingsPlugin else { return }
         workspace.communityPlugins.requestedSettingsPlugin = nil
@@ -106,6 +132,7 @@ struct SettingsView: View {
         case .editor: EditorSettingsPage(workspace: workspace, preferences: workspace.preferences, vaultSettingsChanges: vaultSettingsChanges)
         case .filesAndLinks: FilesAndLinksSettingsPage(workspace: workspace, vaultSettingsChanges: vaultSettingsChanges)
         case .appearance: AppearanceSettingsPage(workspace: workspace, preferences: workspace.preferences)
+        case .keyboardShortcuts: keyboardShortcutsPage
         case .corePlugins: CorePluginsSettingsPage(workspace: workspace, preferences: workspace.preferences)
         case .communityPlugins: CommunityPluginsSettingsPage(workspace: workspace) { pluginIdentifier in selectedPage = .communityPlugin(pluginIdentifier) }
         case .communityPlugin(let pluginIdentifier): CommunityPluginOptionsPage(host: workspace.communityPlugins, pluginIdentifier: pluginIdentifier)
@@ -165,25 +192,35 @@ private struct GeneralSettingsPage: View {
                 }
             }
             AddOnsSettingsSection()
-            Section("About") {
-                LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development build")
-                Button("Welcome Tour", systemImage: "sparkles") { showsWelcomeTour = true }
-                Button("Guide", systemImage: "book") { showsGuide = true }
-                // Only while Read Aloud is on: reading the voice library builds it.
-                if workspace.preferences.isEnabled(.readAloud), let library = ReadAloudVoices.library {
-                    NavigationLink("Voice Credits") {
-                        Form { Section { NeuralVoiceCredits(voices: library.manifest.voices) } footer: {
-                            Text("Read Aloud’s downloadable voices, by their makers, under these licenses.")
-                                .formFooterAlignment()
-                        } }
-                        .navigationTitle("Voice Credits")
-                    }
-                }
-            }
+            aboutSection
         }
         .navigationTitle("General")
         .welcomeTour(isPresented: $showsWelcomeTour)
         .guide(isPresented: $showsGuide)
+    }
+
+    private var aboutSection: some View {
+        Section("About") {
+            LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development build")
+            Button("Welcome Tour", systemImage: "sparkles") { showsWelcomeTour = true }
+            Button("Guide", systemImage: "book") { showsGuide = true }
+            if let sourceCode = ProjectAddresses.sourceCode {
+                Link(destination: sourceCode) { Label("Source Code", systemImage: "chevron.left.forwardslash.chevron.right") }
+            }
+            if let issues = ProjectAddresses.issues {
+                Link(destination: issues) { Label("Report a Problem", systemImage: "exclamationmark.bubble") }
+            }
+            // Only while Read Aloud is on: reading the voice library builds it.
+            if workspace.preferences.isEnabled(.readAloud), let library = ReadAloudVoices.library {
+                NavigationLink("Voice Credits") {
+                    Form { Section { NeuralVoiceCredits(voices: library.manifest.voices) } footer: {
+                        Text("Read Aloud’s downloadable voices, by their makers, under these licenses.")
+                            .formFooterAlignment()
+                    } }
+                    .navigationTitle("Voice Credits")
+                }
+            }
+        }
     }
 }
 

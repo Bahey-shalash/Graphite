@@ -3,8 +3,6 @@ import CoreGraphics
 import GraphiteCore
 #if os(macOS)
 import AppKit
-#else
-import QuickLookThumbnailing
 #endif
 
 /// Finder's look of the vault's folders, kept in their extended attributes: read and written
@@ -133,27 +131,20 @@ public struct FinderFolderAttributes: Sendable {
     }
 
     /// The folder's icon as the system draws it, with its color, symbol, emoji or picture,
-    /// `pixels` wide: Finder's on the Mac, the Files app's on iOS.
+    /// `pixels` wide: Finder's on the Mac; nil on iOS, where Graphite draws the folder.
     public func systemIcon(of folder: VaultPath, pixels: Int) async -> CGImage? {
         guard let location = try? folder.url(in: root) else { return nil } // A path outside the vault has no icon.
         return await Self.systemIcon(at: location, pixels: pixels)
     }
 
-    /// The system's plain folder, `pixels` wide.
+    /// The system's plain folder, `pixels` wide; nil on iOS, where Graphite draws the folder.
     public static func plainFolderIcon(pixels: Int) async -> CGImage? {
         #if os(macOS)
         return drawPlainFolderIcon(pixels: pixels)
         #else
-        // The Files app's folder comes from a folder without a look: an empty one Graphite keeps
-        // in its temporary items.
-        let plainFolder = FileManager.default.temporaryDirectory.appendingPathComponent(plainFolderName, isDirectory: true)
-        guard (try? FileManager.default.createDirectory(at: plainFolder, withIntermediateDirectories: true)) != nil else { return nil } // No folder: no art.
-        return await systemIcon(at: plainFolder, pixels: pixels)
+        return nil
         #endif
     }
-
-    /// The name of the empty folder whose icon is the plain folder, in the temporary items.
-    static let plainFolderName = "Graphite Plain Folder"
 
     #if os(macOS)
     static func drawPlainFolderIcon(pixels: Int) -> CGImage? {
@@ -179,12 +170,11 @@ public struct FinderFolderAttributes: Sendable {
         return NSWorkspace.shared.icon(forFile: location.path).cgImage(forProposedRect: &proposedRect, context: nil, hints: nil)
     }
     #else
-    /// The icon Quick Look gives for the folder: the Files app's own folder art, with the
-    /// folder's color and symbol or emoji.
+    /// None: iOS has no public call for the Files app's folder art. Quick Look's icon of a
+    /// folder matched it in the simulator, but on a real iPad (iPadOS 27, TestFlight build of
+    /// 2026-10-21) it came back as a gray rounded square, so Graphite draws the folder itself.
     static func systemIcon(at location: URL, pixels: Int) async -> CGImage? {
-        let request = QLThumbnailGenerator.Request(fileAt: location, size: CGSize(width: pixels, height: pixels), scale: 1, representationTypes: .icon)
-        let representation = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request) // No icon: Graphite draws the folder.
-        return representation?.cgImage
+        nil
     }
     #endif
 

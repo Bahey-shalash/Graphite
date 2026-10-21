@@ -61,13 +61,16 @@ final class ReadAloudNavigator {
         self.reader = reader
         self.preferences = preferences
         observeReading()
-        ReadAloudNowPlaying.queueCommands = (
-            next: { [weak self] in self?.advance() ?? false },
-            previous: { [weak self] in
-                guard let self, self.canGoToPreviousItem else { return false }
-                self.goToPreviousItem()
-                return true
-            })
+        takeQueueCommands()
+    }
+
+    /// Gives the headphone and lock screen track buttons this window's listening queue. Each
+    /// window has a navigator; the one whose reader speaks takes them again.
+    private func takeQueueCommands() {
+        ReadAloudNowPlaying.queueCommands = (next: { [weak self] in self?.advance() ?? false }, previous: { [weak self] in
+            guard let self, self.canGoToPreviousItem else { return false }
+            self.goToPreviousItem(); return true
+        })
     }
 
     // MARK: Moving within what is read
@@ -407,6 +410,7 @@ final class ReadAloudNavigator {
     private func readingChanged() {
         guard let identifier = reader.sourceIdentifier else { return }
         let session = reader.session
+        if session.state == .speaking { takeQueueCommands() }
         if reader.readingPDF != nil, let page = reader.sourcePageIndex {
             remember(page, for: identifier)
         } else if session.state == .speaking || session.state == .paused,
