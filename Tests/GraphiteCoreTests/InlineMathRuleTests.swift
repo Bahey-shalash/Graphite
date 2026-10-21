@@ -12,7 +12,7 @@ final class InlineMathRuleTests: XCTestCase {
     }
 
     func testReadingViewProtectsAFormulaWithAnEscapedDollarAsOneFormula() {
-        XCTAssertEqual(ObsidianInlineMarkup.protectingMath(in: "Pay $a\\$b$ now"), "Pay $a\\\\\\$b$ now")
+        XCTAssertEqual(ObsidianInlineMarkup.preparedForReading("Pay $a\\$b$ now", colorsEnabled: false, paletteHexByName: [:]), "Pay $a\\\\\\$b$ now")
     }
 
     func testColorMarkersInsideAFormulaWithAnEscapedDollarAreFormulaText() {
@@ -38,10 +38,10 @@ final class InlineMathRuleTests: XCTestCase {
     /// The reading view finds `$$…$$` and `$…$` in one pass for speed; its inline half is
     /// the owner's rule, written out.
     func testReadingViewMathPatternEndsWithTheInlineMathRule() {
-        XCTAssertTrue(ObsidianInlineMarkupPattern.mathSpanPattern.rawValue.hasSuffix("|" + MarkdownInlineMathPattern.formula.rawValue))
+        XCTAssertTrue(ReadingMathPreparationPattern.mathSpanPattern.rawValue.hasSuffix("|" + MarkdownInlineMathPattern.formula.rawValue))
     }
 
     func testReadingViewProtectsAFormulaEndingInAnEscapedBackslash() {
-        XCTAssertEqual(ObsidianInlineMarkup.protectingMath(in: "Set $a\\\\$ here"), "Set $a\\\\\\\\$ here")
+        XCTAssertEqual(ObsidianInlineMarkup.preparedForReading("Set $a\\\\$ here", colorsEnabled: false, paletteHexByName: [:]), "Set $a\\\\\\\\$ here")
     }
 }

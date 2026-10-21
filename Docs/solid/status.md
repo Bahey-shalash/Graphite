@@ -8,9 +8,9 @@ Every finding and defect with its current state: **Fixed** (the current code no 
 
 | State | Count |
 | --- | ---: |
-| Open | 470 |
-| Partly fixed | 37 |
-| Fixed | 106 |
+| Open | 465 |
+| Partly fixed | 38 |
+| Fixed | 110 |
 | Duplicate | 2 |
 | No change needed | 1 |
 | **All** | **616** |
@@ -19,9 +19,9 @@ Open items by prefix and severity:
 
 | Prefix | High | Medium | Low | Total |
 | --- | ---: | ---: | ---: | ---: |
-| SRP | 13 | 51 | 17 | 81 |
+| SRP | 13 | 49 | 16 | 78 |
 | OCP | 3 | 31 | 21 | 55 |
-| LSP | 3 | 25 | 24 | 52 |
+| LSP | 3 | 25 | 22 | 50 |
 | ISP | 3 | 20 | 18 | 41 |
 | DIP | 2 | 32 | 19 | 53 |
 | CC | 0 | 79 | 108 | 187 |
@@ -31,7 +31,7 @@ Partly fixed items by prefix and severity:
 
 | Prefix | High | Medium | Low | Total |
 | --- | ---: | ---: | ---: | ---: |
-| SRP | 0 | 1 | 1 | 2 |
+| SRP | 0 | 2 | 1 | 3 |
 | OCP | 0 | 0 | 0 | 0 |
 | LSP | 3 | 8 | 0 | 11 |
 | ISP | 0 | 1 | 0 | 1 |
@@ -79,11 +79,11 @@ Partly fixed items by prefix and severity:
 | [SRP-LECTURE-05](areas/lecture.md#srp-lecture-05-pdfpanecontent-mixes-read-aloud-orchestration-banners-toolbar-and-input-policy) | LECTURE | Medium | Open | Present at the snapshot (area document) | `PDFPaneContent` mixes Read Aloud orchestration, banners, toolbar and input policy |
 | [SRP-LECTURE-06](areas/lecture.md#srp-lecture-06-pdfpagemanagerswift-holds-the-edit-vocabulary-the-key-registry-edit-application-export-destinations-and-a-file-io-actor) | LECTURE | Medium | Open | Present at the snapshot (area document) | `PDFPageManager.swift` holds the edit vocabulary, the key registry, edit application, export, destinations and a file I/O actor |
 | [SRP-LECTURE-07](areas/lecture.md#srp-lecture-07-the-health-monitor-repairs-production-state-from-inside-a-diagnostics-component) | LECTURE | Medium | Open | Present at the snapshot (area document) | The health monitor repairs production state from inside a diagnostics component |
-| [SRP-MDCORE-01](areas/mdcore.md#srp-mdcore-01-obsidianinlinemarkup-is-one-enum-with-11-unrelated-reading-view-duties) | MDCORE | Medium | Open | Present at the snapshot (area document) | `ObsidianInlineMarkup` is one enum with 11 unrelated reading-view duties |
+| [SRP-MDCORE-01](areas/mdcore.md#srp-mdcore-01-obsidianinlinemarkup-is-one-enum-with-11-unrelated-reading-view-duties) | MDCORE | Medium | Fixed | Phase 3 step 10 (2026-10-21): `ObsidianInlineMarkup` keeps only the `preparedForReading` pipeline and `lineCount` ([ObsidianInlineMarkup.swift](../../Sources/GraphiteCore/ObsidianInlineMarkup.swift)); its duties are `ReadingMarkers`, `ObsidianComments`, `ReadingMathPreparation` and `ReadingInlineMarking`, one file each; `NotePreviewDocument.swift` went from 809 to 367 lines. | `ObsidianInlineMarkup` is one enum with 11 unrelated reading-view duties |
 | [SRP-MDCORE-02](areas/mdcore.md#srp-mdcore-02-htmltomarkdownconverter-tracks-its-writing-position-with-four-flags-written-at-28-sites) | MDCORE | Medium | Open | Present at the snapshot (area document) | `HTMLToMarkdown.Converter` tracks its writing position with four flags written at 28 sites |
 | [SRP-MDCORE-03](areas/mdcore.md#srp-mdcore-03-textcolormarkup-contains-a-complete-private-block-parser) | MDCORE | Medium | Partly fixed | Phase 3 step 6 (2026-10-21): `TextColorMarkup`'s heading, list, thematic-break, setext, table-delimiter and code-span patterns, its quote, indentation and fence helpers are gone; it asks the line owners. Remains: its own block walk (`codeAndMathBlockRanges`) until `MarkdownBlockLines` (step 8), and the `tableRowLinePattern` no owner has. | `TextColorMarkup` contains a complete private block parser |
-| [SRP-MDCORE-04](areas/mdcore.md#srp-mdcore-04-markdownsemanticsswift-holds-18-types-11-of-them-unrelated-to-semantics) | MDCORE | Low | Open | Present at the snapshot (area document) | `MarkdownSemantics.swift` holds 18 types, 11 of them unrelated to semantics |
-| [SRP-MDCORE-05](areas/mdcore.md#srp-mdcore-05-markdownediting-owns-line-syntax-for-three-block-finders-and-carries-its-own-fence-tracker) | MDCORE | Medium | Open | Present at the snapshot (area document). Delta audit 2026-10-19: worse — `isInCodeOrFrontmatter` dropped `CodeFenceTracker` for a hand-written quoted-fence state machine ([MarkdownEditing.swift:205-249](../../Sources/GraphiteCore/MarkdownEditing.swift#L205-L249), `5199d75`) that repeats `MarkdownStyleScanner.nextState` ([MarkdownStyleScanner.swift:307-330](../../Sources/GraphiteCore/MarkdownStyleScanner.swift#L307-L330)); it agrees with the styler on quoted fences, but by copying the rule, and is now about 44 code lines. | `MarkdownEditing` owns line syntax for three block finders and carries its own fence tracker |
+| [SRP-MDCORE-04](areas/mdcore.md#srp-mdcore-04-markdownsemanticsswift-holds-18-types-11-of-them-unrelated-to-semantics) | MDCORE | Low | Fixed | Phase 3 step 1 (2026-10-21): `MarkdownSemantics.swift` holds `NoteLink`, `NoteSemantics`, `MarkdownSemantics` and their private helpers; the other 14 types have files named after them. | `MarkdownSemantics.swift` holds 18 types, 11 of them unrelated to semantics |
+| [SRP-MDCORE-05](areas/mdcore.md#srp-mdcore-05-markdownediting-owns-line-syntax-for-three-block-finders-and-carries-its-own-fence-tracker) | MDCORE | Medium | Partly fixed | Phase 3 steps 5 and 7 (2026-10-21): `MarkdownEditing`'s line syntax moved to `MarkdownHeadingSyntax` and `MarkdownListSyntax`, and its fence test asks `ListItemContainers.allowsFence`. Remains: `isInCodeOrFrontmatter` is still its own quoted-fence walk until `MarkdownBlockLines` (step 8). | `MarkdownEditing` owns line syntax for three block finders and carries its own fence tracker |
 | [SRP-MDCORE-06](areas/mdcore.md#srp-mdcore-06-codelinescanner-puts-three-grammars-in-one-734-line-struct) | MDCORE | Low | Open | Present at the snapshot (area document) | `CodeLineScanner` puts three grammars in one 734-line struct |
 | [SRP-PLUGIN-01](areas/plugin.md#srp-plugin-01-communitypluginhost-is-one-aggregate-for-the-whole-plugin-runtime) | PLUGIN | High | Open | Present at the snapshot (area document) | `CommunityPluginHost` is one aggregate for the whole plugin runtime |
 | [SRP-PLUGIN-02](areas/plugin.md#srp-plugin-02-stopping-the-runtime-depends-on-a-hand-reset-of-35-fields-that-misses-13) | PLUGIN | Medium | Open | Present at the snapshot (area document). Delta audit 2026-10-19: worse — `hasRestoredViews = false` and `isTurnedOnForVault = false` are each reset in two places. | Stopping the runtime depends on a hand reset of 35 fields that misses 13 |
@@ -209,8 +209,8 @@ Partly fixed items by prefix and severity:
 | [LSP-LECTURE-04](areas/lecture.md#lsp-lecture-04-a-bookmarks-identity-is-read-back-from-its-display-label) | LECTURE | Medium | Open | Present at the snapshot (area document) | A bookmark's identity is read back from its display label |
 | [LSP-LECTURE-05](areas/lecture.md#lsp-lecture-05-failed-folder-reads-in-recording-recovery-are-returned-as-empty-results) | LECTURE | Medium | Open | Present at the snapshot (area document) | Failed folder reads in recording recovery are returned as empty results |
 | [LSP-MDCORE-01](areas/mdcore.md#lsp-mdcore-01-the-same-markdown-line-gets-different-answers-from-parallel-implementations-of-one-rule) | MDCORE | High | Partly fixed | Phase 3 steps 3 and 5 to 7 (2026-10-21). One owner per line rule (`MarkdownHeadingSyntax`, `MarkdownListSyntax`, `MarkdownFenceSyntax`, `MarkdownQuoteSyntax`, `MarkdownTableSyntax`, `MarkdownBlockIdentifierSyntax`), one inline-math rule (`MarkdownInlineMathSyntax`, the editor's escape rule; the reading view's one-pass pattern is held equal to it by a test), `CodeFenceTracker` with the fence indentation limit, and `DisplayMathLines.closesOpenBlock` for `$$` lines. `MarkdownRuleParityTests` measures the rest: 39 expected-divergence rows remain (61 before step 5), in quoted fences, `#` alone, indented code (`LSP-MDCORE-04`) and line splitting (`LSP-MDCORE-05`, `-06`); `MarkdownBlockLines` (step 8) is next. | The same Markdown line gets different answers from parallel implementations of one rule |
-| [LSP-MDCORE-02](areas/mdcore.md#lsp-mdcore-02-private-use-marker-protection-has-two-mechanisms-with-different-results) | MDCORE | Low | Open | Present at the snapshot (area document) | Private-use marker protection has two mechanisms with different results |
-| [LSP-MDCORE-03](areas/mdcore.md#lsp-mdcore-03-tests-pin-two-wrappers-production-never-calls) | MDCORE | Low | Open | Present at the snapshot (area document) | Tests pin two wrappers production never calls |
+| [LSP-MDCORE-02](areas/mdcore.md#lsp-mdcore-02-private-use-marker-protection-has-two-mechanisms-with-different-results) | MDCORE | Low | Fixed | Phase 3 step 10 (2026-10-21): `ReadingMarkers` ([ReadingMarkers.swift](../../Sources/GraphiteCore/ReadingMarkers.swift)) owns the marker scalars, the escape lead U+E009 and the escape and restore; `preparedForReading` escapes through it, and the UI's `ReadingMarkerEscaping` and Core's U+FFFD replacement are deleted. Nothing on screen changed (both views escaped before; the `BUG-MDCORE-06` tests pass). | Private-use marker protection has two mechanisms with different results |
+| [LSP-MDCORE-03](areas/mdcore.md#lsp-mdcore-03-tests-pin-two-wrappers-production-never-calls) | MDCORE | Low | Fixed | Phase 3 step 10 (2026-10-21): `section(of:headingAnchor:)`, `sectionIfPresent` and `protectingMath(in:)` are deleted; their tests call `locatedSectionIfPresent` and `preparedForReading`, and a missing heading now asserts `nil`, the production contract. | Tests pin two wrappers production never calls |
 | [LSP-MDCORE-04](areas/mdcore.md#lsp-mdcore-04-indented-code-is-code-for-the-index-and-for-colors-and-text-for-every-other-consumer) | MDCORE | Medium | Open | Found by `MarkdownRuleParityTests` (2026-10-21, Phase 3 step 3); present at the snapshot | Indented code is code for the index and for colors, and text for every other consumer |
 | [LSP-MDCORE-05](areas/mdcore.md#lsp-mdcore-05-the-reading-views-outline-and-blocks-split-lines-at-n-only-so-a-note-with-lone-r-line-endings-has-no-outline) | MDCORE | Low | Open | Found by `MarkdownRuleParityTests` (2026-10-21, Phase 3 step 3); present at the snapshot | The reading view's outline and blocks split lines at `\n` only, so a note with lone `\r` line endings has no outline |
 | [LSP-MDCORE-06](areas/mdcore.md#lsp-mdcore-06-u2028-ends-a-line-for-the-nsstring-readers-and-stays-inside-it-for-commonmark) | MDCORE | Low | Open | Found by `MarkdownRuleParityTests` (2026-10-21, Phase 3 step 3); present at the snapshot | U+2028 ends a line for the `NSString` readers and stays inside it for CommonMark |

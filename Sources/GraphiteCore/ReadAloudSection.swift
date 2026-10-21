@@ -15,7 +15,7 @@ public struct ReadAloudSection: Equatable, Sendable, Identifiable {
         guard !MarkdownNesting.exceedsSafeDepth(source) else { throw ReadAloudError.excessiveNesting }
         let prepared = NSMutableString(string: source)
         let hiddenRanges = [NSRange(location: 0, length: FrontmatterLocator.length(in: original))]
-            + ObsidianInlineMarkup.commentRanges(in: source)
+            + ObsidianComments.commentRanges(in: source)
         for range in hiddenRanges where range.length > 0 {
             var units = Array(repeating: UInt16(0x2060), count: range.length)
             for index in units.indices {

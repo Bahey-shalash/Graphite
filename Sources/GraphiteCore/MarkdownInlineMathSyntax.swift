@@ -3,7 +3,7 @@ import Foundation
 /// Inline math, `$…$` within one line, as Obsidian reads it. The editor's styling, the
 /// reading view's math protection and text colors all find formulas here; the reading view
 /// writes this pattern into its one pass for `$$…$$` and `$…$`
-/// (`ObsidianInlineMarkupPattern.mathSpanPattern`), and `InlineMathRuleTests` holds the two
+/// (`ReadingMathPreparationPattern.mathSpanPattern`), and `InlineMathRuleTests` holds the two
 /// to the same text.
 ///
 /// The opening `$` is not preceded by `\` or `$` and not followed by whitespace or `$`; the

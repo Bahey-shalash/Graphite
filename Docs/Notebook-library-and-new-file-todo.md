@@ -116,7 +116,7 @@ The owner chose the first two; the rest are defaults taken to start building, ea
 - [x] Sort (the vault's sort order: name, modified, created) and filter (all, notebooks and PDFs, notes, pictures and drawings, canvases and bases).
 - [x] Favorites are Obsidian's bookmarks: Bookmark in an item's menu adds or removes it, and a bookmarked item shows a small star by its date. Not built: a Favorites section of its own in the library (the Bookmarks panel lists them).
 - [x] Layout: adaptive columns; tiles keep the page's aspect ratio. Not checked yet: four columns on a landscape iPad, two on the iPhone.
-- [ ] Accessibility: each tile reads as name, kind and date, and its menu is the context menu; the favorite state is read by the star button only. Not checked with VoiceOver or at the largest text sizes.
+- [x] Accessibility (2026-10-21): a tile reads as name, kind and date (a folder: name, look and item count), its menu's actions are VoiceOver custom actions too, the selection is spoken by the selected trait and the favorite state once, as the tile's value. Checked at the largest text size in the iPad simulator (names wrap, nothing overlaps); not checked with VoiceOver itself. Folder tiles now say "N items" under the name, as the Files app does.
 
 ## Part 2: folder tiles
 
@@ -131,19 +131,20 @@ The owner chose the first two; the rest are defaults taken to start building, ea
 - [x] Image: scaled down with ImageIO while decoding.
 - [x] Drawing: PNG drawings are images; SVG drawings show a picture symbol (not drawn yet).
 - [x] Markdown: the first 4 KB drawn as a page of reading view (headings in their sizes, wrapped text with bold, italic and code, nested lists and tasks, quotes, callouts, code blocks, rules, the first picture where it sits), scaled down to the tile; never the source.
-- [ ] Canvas and Base: a kind symbol for now.
+- [x] Canvas and Base: the kind's symbol on a gray tile, as other files without a preview (seen in the iPad simulator); a preview of a canvas or a base is not built.
 - [x] Other files: a kind symbol (not the system's icon for the type).
 - [x] Under each tile: name and modification date; touch and hold (or a secondary click) opens the file tree's own menu: new tab, other side, rename, move, copy, share, bookmark, delete, ….
 - [x] Previews follow changes: a file listed with a new date or size gets a new preview. External changes reach the library when the workspace lists the vault again (`directoryVersion`).
 - [x] Drag and drop: tiles onto folder tiles to move them; files from Files or the Finder into the grid to import them.
-- [ ] Selection mode for several tiles.
+- [x] Selection mode for several tiles (2026-10-21, branch `notebook-library-leftovers`): Select in the view options menu, tap to choose, Select All, Move to…, Share, Make a Copy, Delete and Done in the library's top row, ⌘-click, ⇧-click and Select All on the Mac as in the Finder. Checked on macOS by tests and in the iPad simulator; not on the Mac app or a device (see `Coverage.md`).
+- [x] Drag and drop everywhere in the library (owner, 2026-10-21): drag one tile or all chosen tiles onto a folder tile, onto the empty grid (into the folder shown) or onto the back button (up a level); the moves are the file tree's (link question, taken names, no folder into itself), and the tree and the library accept each other's drags. Files dropped from Files, the Finder, Photos, Safari or Mail are copied into the folder (text files become notes); a tile dragged out gives Files and the Finder the file. Rules and readers tested on macOS; the drags themselves were not seen (see `Coverage.md`). Not built: spring-loaded folders (a held drag opening a folder needs a clock injected into `LibraryModel` and a hover event SwiftUI's drop destination does not give), and a drop handler for Goodnotes and Notability files, whose place is `DroppedFileImporters.registered`.
 - [x] Cloud files not downloaded are not read; their tile says "In iCloud".
 
 ## Part 4: one New menu that asks what to create
 
 - [x] One New button in the library and in the iPad and iPhone sidebar, opening `NewItemPicker`: Notebook and Note as large choices, then Canvas, Base, Today's Daily Note (each while its core plugin is on), Import and Folder. The Mac's sidebar keeps its menu (a click makes a note), without Import.
 - [x] Scan Documents, shown only where the device can scan (`VNDocumentCameraViewController.isSupported`: an iPhone or iPad with a camera, not the simulator or the Mac): the system scanner, then a new PDF notebook named "Scan 2026-10-21 14.05" in the folder shown (or the vault's location for new files), opened in a tab. Its pages are the scanned pictures at A4 width, with an invisible text layer from on-device recognition. Cancelling saves nothing; a failure is reported like other save errors. The same scanner is in a note's attach menu, Insert menu and context menu as "Scan Document", saving the PDF in the attachment folder and embedding it at the cursor. Not run on a device yet (see `Docs/Coverage.md`).
-- [ ] Later entries, each once the feature exists: Image from Photos, Take Photo, Quick Record.
+- [x] Image from Photos and Take Photo (2026-10-21): each saves the picture as an image file in the folder shown (not a note) and opens it; Take Photo appears only where the device has a camera. Checked on macOS by tests, not in the simulator or on a device (the system photo picker and the camera were not driven). Quick Record is not built.
 - [x] Notebook first in Library mode, Note first in List mode. ⌘N still makes a note.
 - [x] The new file goes into the folder shown, or the vault's location for new files.
 
@@ -151,13 +152,13 @@ The owner chose the first two; the rest are defaults taken to start building, ea
 
 - [x] A large picture of the first page, drawn from the PDF the generator would write.
 - [x] Name; empty means "Untitled Notebook", made unique in the folder.
-- [ ] Cover: not built; the first page is the cover (decision above).
+- [x] Cover (2026-10-21): an optional first page of one of eight colors with the notebook's name, from the New Notebook sheet's Cover row; the pages after it are the chosen paper's or a template's, so the page count is the paper pages plus the cover. Without it the first page is still the cover, as decided before. Checked on macOS by tests; not seen in the iPad simulator (see `Coverage.md`).
 - [x] Paper as a grid of pictures in sections: Essentials (blank, dotted, squared, ruled narrow, ruled wide), Study (Cornell, engineering, isometric), Music. Planners and more templates are not built.
 - [x] Color dots under each paper. The colors are Graphite's four paper colors (white, ivory, yellow, gray); dark paper is not offered, since ink colors would need to change with it.
 - [x] Ruled narrow (6 mm) and ruled wide (8 mm); the other spacings, line color and strength under Lines.
 - [x] Size: A3, A4, A5, A6, A7 (iPhone), Letter, Tabloid and Custom, with Portrait and Landscape in the same menu; custom 1 to 40 inches.
 - [x] Paper color menu.
-- [ ] My Templates (a PDF or image as paper, kept in the vault), with Edit to reorder and hide.
+- [x] My Templates (2026-10-21, branch `notebook-library-leftovers`): a PDF page or a picture as paper, kept in the vault as an ordinary PDF in `.obsidian/graphite-templates/` (why there: `Architecture.md`), shown with its picture beside the built-in papers, with Edit to reorder, rename, hide and delete, and Add from Files or Photos. A notebook of it has the page as every page, copied as it is (vector stays vector). Checked on macOS by tests and in the iPad simulator; not on a device. Not built: inserting a template's page into an existing notebook.
 - [x] The last paper and size are remembered; spacing and colors start as Settings has them.
 - [ ] Not checked yet: the sheet at iPad portrait and landscape and on the iPhone.
 - [ ] Handwriting language (only with handwriting recognition).
@@ -188,7 +189,7 @@ The owner chose the first two; the rest are defaults taken to start building, ea
 
 - Where folder colors and symbols are stored (Part 2, options A to C), and whether they should match an Obsidian plugin so Obsidian shows them too.
 - Library presentation per device only, or also per vault or per folder (a course folder as a grid, a reference folder as a list)?
-- A real cover page in the PDF, or the first page as the cover?
+- A real cover page in the PDF, or the first page as the cover? Answered 2026-10-21: both, the cover is optional.
 - Undo of "insert new notebook" in a note: keep the new PDF or delete it?
 - Is "New Linked Note" from a notebook wanted?
 - Should the library also be offered on the Mac, or only iPad and iPhone?

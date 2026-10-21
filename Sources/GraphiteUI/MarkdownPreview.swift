@@ -209,41 +209,6 @@ enum GraphiteOpenLink {
     }
 }
 
-/// Keeps private-use characters written in a note apart from the markers reading view adds
-/// (`ObsidianInlineMarkup`), so an icon-font glyph in the note is not turned into a checkbox
-/// or removed. Each such character is written as the escape lead followed by a stand-in,
-/// and `ObsidianMarkdownParser` puts the original back after it has read the markers.
-enum ReadingMarkerEscaping {
-    /// `ObsidianInlineMarkup`'s markers, U+E000 to U+E008 and U+E00A to U+E00B, and the
-    /// escape lead, U+E009.
-    static let escapedScalarValues: ClosedRange<UInt32> = 0xE000...0xE00B
-    static let escapeLead: Unicode.Scalar = "\u{E009}"
-    /// A character `escapedScalarValues.lowerBound + n` is written as the lead, then the
-    /// scalar `standInOffset` above it. Stand-ins follow a lead only when written here.
-    private static let standInOffset: UInt32 = 0x10
-
-    static func escaping(_ text: String) -> String {
-        guard text.unicodeScalars.contains(where: { scalar in escapedScalarValues.contains(scalar.value) }) else { return text }
-        var escaped = String.UnicodeScalarView()
-        for scalar in text.unicodeScalars {
-            if escapedScalarValues.contains(scalar.value), let standIn = Unicode.Scalar(scalar.value + standInOffset) {
-                escaped.append(escapeLead)
-                escaped.append(standIn)
-            } else {
-                escaped.append(scalar)
-            }
-        }
-        return String(escaped)
-    }
-
-    /// The character an escape lead followed by `standIn` stands for, or nil when `standIn`
-    /// is not a stand-in.
-    static func original(ofStandIn standIn: Unicode.Scalar) -> Unicode.Scalar? {
-        guard standIn.value >= standInOffset, escapedScalarValues.contains(standIn.value - standInOffset) else { return nil }
-        return Unicode.Scalar(standIn.value - standInOffset)
-    }
-}
-
 /// A note's reading-view blocks, and whether any Wikilink embed in its text could not be
 /// found, so the note is built again once the index knows more files.
 struct ReadingViewBuild: Sendable {
@@ -540,7 +505,7 @@ actor ReadingViewBuilder {
     private func embeddedNoteLink(to path: VaultPath, subpath: String?) -> RenderedBlock {
         let label = path.stem + (subpath.map { heading in " > " + heading } ?? "")
         let target = exactTarget(for: path, fragment: subpath)
-        return .markdown(id: identifier(), text: "[\(Self.escapedLabel(ReadingMarkerEscaping.escaping(label)))](\(GraphiteOpenLink.markdownDestination(target: target.target, isWiki: target.isWiki)))")
+        return .markdown(id: identifier(), text: "[\(Self.escapedLabel(ReadingMarkers.escaping(label)))](\(GraphiteOpenLink.markdownDestination(target: target.target, isWiki: target.isWiki)))")
     }
 
     private func resolve(_ target: String, isWiki: Bool, note: VaultPath, root: URL, index: VaultIndex) async -> VaultPath? {
@@ -625,7 +590,7 @@ actor ReadingViewBuilder {
     }
 
     private func readingText(_ markdown: String, configuration: ReadingConfiguration, taskLocation: TaskLocation? = nil) -> String {
-        var text = ObsidianInlineMarkup.preparedForReading(ReadingMarkerEscaping.escaping(markdown), colorsEnabled: configuration.colorsEnabled,
+        var text = ObsidianInlineMarkup.preparedForReading(markdown, colorsEnabled: configuration.colorsEnabled,
                                                            paletteHexByName: configuration.paletteHexByName, taskLocation: taskLocation)
         if !configuration.usesStrictLineBreaks { text = ObsidianPreviewText.applyingSoftLineBreaks(to: text) }
         return text
@@ -1854,7 +1819,7 @@ private struct ObsidianMarkdownTextContent: View, Equatable {
     /// out with its numbers at the right of the column. One the typesetter cannot draw is
     /// left to the Markdown renderer, which shows it as its source.
     private var numberedEquation: NumberedEquation? {
-        guard let equation = ObsidianInlineMarkup.numberedEquation(aloneIn: markdown), NumberedEquationView.canDraw(equation, textSize: textSize) else { return nil }
+        guard let equation = ReadingMathPreparation.numberedEquation(aloneIn: markdown), NumberedEquationView.canDraw(equation, textSize: textSize) else { return nil }
         return equation
     }
 
@@ -1933,13 +1898,13 @@ struct ObsidianMarkdownParser: MarkupParser {
         if MarkdownNesting.exceedsSafeDepth(input) { return AttributedString(input) }
         // A numbered formula that is a block of its own is drawn by `NumberedEquationView`;
         // one that reaches here is among other text, and takes its numbers after its rows.
-        let markdown = ObsidianInlineMarkup.inliningEquationNumbers(in: input)
+        let markdown = ReadingMathPreparation.inliningEquationNumbers(in: input)
         var attributed = try AttributedStringMarkdownParser(baseURL: baseURL, syntaxExtensions: [.math]).attributedString(for: markdown)
-        Self.applyMarkers(start: ObsidianInlineMarkup.colorStartMarker, hexEnd: ObsidianInlineMarkup.colorHexEndMarker, end: ObsidianInlineMarkup.colorEndMarker, to: &attributed) { hex, range, text in
+        Self.applyMarkers(start: ReadingMarkers.colorStartMarker, hexEnd: ReadingMarkers.colorHexEndMarker, end: ReadingMarkers.colorEndMarker, to: &attributed) { hex, range, text in
             if let color = Color(graphiteHex: hex) { text[range].foregroundColor = color }
         }
         let themeColors = themeColors, textSize = textSize
-        Self.applyMarkers(start: ObsidianInlineMarkup.highlightStartMarker, hexEnd: nil, end: ObsidianInlineMarkup.highlightEndMarker, to: &attributed) { _, range, text in
+        Self.applyMarkers(start: ReadingMarkers.highlightStartMarker, hexEnd: nil, end: ReadingMarkers.highlightEndMarker, to: &attributed) { _, range, text in
             guard let themeColors else { text[range].backgroundColor = Color.yellow.opacity(0.35); return }
             // The theme's highlight, with its rounded ends and text color.
             text[range][RoundedRunBackgroundAttribute.self] = RoundedRunBackground(
@@ -1947,7 +1912,7 @@ struct ObsidianMarkdownParser: MarkupParser {
             if let highlightText = themeColors.highlightText { text[range].foregroundColor = highlightText }
         }
         // A footnote reference is found by its link, not by markers around its number: the
-        // references are added to the note's text before `ReadingMarkerEscaping` escapes it,
+        // references are added to the note's text before `ReadingMarkers` escapes it,
         // so markers added there would be escaped as the note's own characters.
         var footnoteReferenceRanges: [Range<AttributedString.Index>] = []
         for (link, range) in attributed.runs[\.link] where link.flatMap(GraphiteOpenLink.footnoteNumber(of:)) != nil {
@@ -2068,17 +2033,17 @@ struct ObsidianMarkdownParser: MarkupParser {
         return false
     }
 
-    /// Puts back the private-use characters of the note that `ReadingMarkerEscaping` kept
+    /// Puts back the private-use characters of the note that `ReadingMarkers` kept
     /// apart from the markers, once the markers are gone.
     private static func restoreEscapedCharacters(in text: inout AttributedString) {
-        guard text.unicodeScalars.contains(ReadingMarkerEscaping.escapeLead) else { return }
+        guard text.unicodeScalars.contains(ReadingMarkers.escapeLead) else { return }
         var restored = AttributedString()
         var sliceStart = text.startIndex
         var scalarIndex = text.unicodeScalars.startIndex
         while scalarIndex < text.unicodeScalars.endIndex {
             let nextIndex = text.unicodeScalars.index(after: scalarIndex)
-            guard text.unicodeScalars[scalarIndex] == ReadingMarkerEscaping.escapeLead, nextIndex < text.unicodeScalars.endIndex,
-                  let original = ReadingMarkerEscaping.original(ofStandIn: text.unicodeScalars[nextIndex]) else {
+            guard text.unicodeScalars[scalarIndex] == ReadingMarkers.escapeLead, nextIndex < text.unicodeScalars.endIndex,
+                  let original = ReadingMarkers.original(ofStandIn: text.unicodeScalars[nextIndex]) else {
                 scalarIndex = nextIndex
                 continue
             }

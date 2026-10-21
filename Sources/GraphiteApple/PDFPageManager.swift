@@ -522,8 +522,9 @@ private struct ResolvedDestinations {
 public actor PDFFileService {
     private let writer: AtomicFileWriter
     public init(writer: AtomicFileWriter = AtomicFileWriter()) { self.writer = writer }
-    public func create(paper: PaperSpecification, pageCount: Int, at destination: URL) throws -> FileRevision {
-        try writer.write(PDFTemplateGenerator.documentData(paper: paper, pageCount: pageCount), to: destination, expecting: .absent)
+    /// Writes a notebook made by `NewNotebookDocument`, never over a file that is there.
+    public func create(documentData: Data, at destination: URL) throws -> FileRevision {
+        try writer.write(documentData, to: destination, expecting: .absent)
     }
 
     /// Replays `edits` on the baseline snapshot (or the file itself) and replaces the file

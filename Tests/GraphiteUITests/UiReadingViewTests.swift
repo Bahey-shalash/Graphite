@@ -164,7 +164,7 @@ final class UiReadingViewTests: XCTestCase {
         let tasks = attributed.runs.compactMap { run in run[ReadingTaskAttribute.self] }
         XCTAssertEqual(tasks.count, taskCount)
         XCTAssertEqual(tasks.filter(\.isChecked).count, taskCount / 2)
-        XCTAssertFalse(String(attributed.characters).contains(ObsidianInlineMarkup.checkedTaskMarker))
+        XCTAssertFalse(String(attributed.characters).contains(ReadingMarkers.checkedTaskMarker))
         let struckText = attributed.runs.filter { run in run.strikethroughStyle != nil }.map { run in String(attributed[run.range].characters) }.joined()
         XCTAssertTrue(struckText.contains("done 0"))
         XCTAssertFalse(struckText.contains("open 1"))

@@ -332,6 +332,32 @@ extension WorkspaceModel {
         } catch { errorMessage = error.localizedDescription }
     }
 
+    /// Makes a copy of each item beside it, as Make a Copy does for one, without opening any of
+    /// the copies. An item whose copy fails is named in the message; the others are still copied.
+    func duplicate(_ paths: [VaultPath]) async {
+        guard let store, !paths.isEmpty else { return }
+        do { try await saveOpenDocuments() } catch {
+            errorMessage = "Open documents could not be saved before copying, so nothing was copied."
+            return
+        }
+        var copiedFiles: [VaultPath] = []
+        var failedNames: [String] = []
+        for path in paths {
+            do {
+                let filesInFolder = isDirectory(path) ? (try await index?.paths(inside: path) ?? []) : []
+                let copy = try await store.duplicate(path)
+                // A copied file's path is always valid.
+                let copiedInside = filesInFolder.compactMap { file in try? file.replacingPrefix(path, with: copy) } // Not valid: not indexed here.
+                copiedFiles += filesInFolder.isEmpty ? [copy] : copiedInside
+            } catch {
+                failedNames.append("“\(path.name)”")
+            }
+        }
+        refreshIndexAfterFileChanges(copiedFiles)
+        await refreshDirectory()
+        if !failedNames.isEmpty { errorMessage = "Could not make a copy of " + failedNames.joined(separator: ", ") + "." }
+    }
+
     /// Deletes at once, or asks first when "Confirm file deletion" is on.
     func requestDeletion(of path: VaultPath) async {
         if vaultSettings.confirmsDeletion { pendingDeletion = path } else { await delete(path) }
@@ -400,22 +426,28 @@ extension WorkspaceModel {
 
 extension WorkspaceModel {
     /// Copies files chosen outside the vault into `directory`, each under a free name, as
-    /// Goodnotes' Import does. The originals stay where they are. A file that fails is
-    /// reported; the others are still copied.
-    func importFiles(from sources: [URL], into directory: VaultPath) async {
+    /// Goodnotes' Import does. The originals stay where they are. A file of a type an importer
+    /// of `DroppedFileImporters` takes goes to it; a text file becomes a note. A file that fails
+    /// is reported; the others are still copied.
+    func importFiles(from chosenSources: [URL], into directory: VaultPath) async {
         guard let store, let root = folderAccess?.root else { return }
         // Goodnotes and Notability notebooks, and folders of them, are converted rather than copied.
-        let notebookSources = notebookImportSources(in: sources)
+        let notebookSources = notebookImportSources(in: chosenSources)
         if !notebookSources.isEmpty { importNotebooks(notebookSources, into: directory) }
+        let routing = DroppedFileImporters.route(chosenSources.filter { source in !notebookSources.contains(source) },
+                                                 through: DroppedFileImporters.registered)
+        for routed in routing.routed { await routed.importer.importFiles(routed.files, directory) }
+        let sources = routing.remaining
         var importedPaths: [VaultPath] = []
         var failedNames: [String] = []
-        for source in sources where !notebookSources.contains(source) {
+        for source in sources {
             let hasAccess = source.startAccessingSecurityScopedResource()
             defer { if hasAccess { source.stopAccessingSecurityScopedResource() } }
             do {
                 try await store.createDirectory(directory)
                 let stem = source.deletingPathExtension().lastPathComponent
-                let path = try await store.uniquePath(directory: directory, stem: stem, extension: source.pathExtension)
+                let fileExtension = ImportedFileName.fileExtension(forSourceExtension: source.pathExtension)
+                let path = try await store.uniquePath(directory: directory, stem: stem, extension: fileExtension)
                 let destination = try path.url(in: root)
                 let writer = store.writer
                 _ = try await Task.detached { try writer.copy(from: source, to: destination, expecting: .absent) }.value

@@ -47,19 +47,6 @@ enum CreationKind: String, Identifiable {
     }
 }
 
-/// A file or folder dragged within the sidebar.
-struct VaultItemTransfer: Codable, Transferable {
-    let path: String
-    static var transferRepresentation: some TransferRepresentation {
-        CodableRepresentation(contentType: .graphiteVaultItem)
-    }
-}
-
-extension UTType {
-    /// Declared in the app's Info.plist; used only for drags inside Graphite.
-    static let graphiteVaultItem = UTType(exportedAs: "com.graphite.study.vault-item")
-}
-
 // MARK: Sidebar
 
 struct VaultSidebar: View {
@@ -311,7 +298,8 @@ struct VaultSidebar: View {
                        newFolder: { directory in workspace.fileSheet = .newFolder(in: workspace.newFileDirectory(directory)) },
                        importFiles: { sources, directory in Task { await workspace.importFiles(from: sources, into: workspace.newFileDirectory(directory)) } },
                        saveScannedNotebook: workspace.scannedNotebookSaver(),
-                       reportProblem: { [workspace] message in workspace.errorMessage = message })
+                       reportProblem: { [workspace] message in workspace.errorMessage = message },
+                       savePicture: workspace.pictureSaver(), canTakePhoto: WorkspaceModel.canTakePhotos)
     }
 
     @ViewBuilder private var newDocumentMenuItems: some View {
@@ -838,14 +826,14 @@ struct VaultEntryMenu: View {
             Button("Review Versions…", systemImage: "square.on.square") { workspace.conflictVersionsRequest = ConflictVersionsRequest(path: entry.path) }
             Divider()
         }
-        Button("Open in New Tab", systemImage: "plus.rectangle.on.rectangle") { Task { await workspace.open(entry.path, placement: .newTab) } }
-        Button(workspace.openOnOtherSideTitle, systemImage: "rectangle.split.2x1") { Task { await workspace.open(entry.path, placement: .otherGroup) } }
+        actionButton(.openInNewTab)
+        actionButton(.openOnOtherSide)
         OpenInNewWindowButton { Task { await workspace.open(entry.path, placement: .newWindow) } }
         if let navigator = workspace.readAloudNavigator { ReadAloudQueueMenuItems(navigator: navigator, path: entry.path) }
         Divider()
-        Button("Rename…", systemImage: "pencil") { workspace.fileSheet = .rename(entry.path) }
-        Button("Move to…", systemImage: "folder") { workspace.fileSheet = .move(entry.path) }
-        Button("Make a Copy", systemImage: "plus.square.on.square") { Task { await workspace.duplicate(entry.path) } }
+        actionButton(.rename)
+        actionButton(.moveTo)
+        actionButton(.makeCopy)
         if let root = workspace.folderAccess?.root, let location = try? entry.path.url(in: root) {
             ShareLink(item: location) { Label("Share…", systemImage: "square.and.arrow.up") }
         }
@@ -856,7 +844,7 @@ struct VaultEntryMenu: View {
         bookmarkButton
         CommunityPluginFileActionsButton(host: workspace.communityPlugins, path: entry.path)
         Divider()
-        Button("Delete", systemImage: "trash", role: .destructive) { Task { await workspace.requestDeletion(of: entry.path) } }
+        actionButton(.delete)
     }
 
     @ViewBuilder private var folderMenu: some View {
@@ -866,23 +854,27 @@ struct VaultEntryMenu: View {
         if workspace.preferences.isEnabled(.canvas) { Button("New Canvas", systemImage: "rectangle.3.group") { requestCreation(.canvas, entry.path) } }
         Button("New Folder", systemImage: "folder.badge.plus") { workspace.fileSheet = .newFolder(in: entry.path) }
         Divider()
-        Button("Rename…", systemImage: "pencil") { workspace.fileSheet = .rename(entry.path) }
-        Button("Move to…", systemImage: "folder") { workspace.fileSheet = .move(entry.path) }
-        Button("Make a Copy", systemImage: "plus.square.on.square") { Task { await workspace.duplicate(entry.path) } }
+        actionButton(.rename)
+        actionButton(.moveTo)
+        actionButton(.makeCopy)
         Button("Copy Vault Path", systemImage: "doc.on.doc") { Pasteboard.copy(entry.path.rawValue) }
         RevealInFinderButton(path: entry.path, vaultRoot: workspace.folderAccess?.root)
         bookmarkButton
         CommunityPluginFileActionsButton(host: workspace.communityPlugins, path: entry.path)
         Divider()
-        Button("Delete", systemImage: "trash", role: .destructive) { Task { await workspace.requestDeletion(of: entry.path) } }
+        actionButton(.delete)
     }
 
     @ViewBuilder private var bookmarkButton: some View {
         if workspace.preferences.isEnabled(.bookmarks) {
-            let isBookmarked = workspace.isBookmarked(entry.path)
-            Button(isBookmarked ? "Remove Bookmark" : "Bookmark", systemImage: isBookmarked ? "bookmark.slash" : "bookmark") {
-                Task { await workspace.toggleBookmark(entry.path) }
-            }
+            actionButton(workspace.isBookmarked(entry.path) ? .removeBookmark : .bookmark)
+        }
+    }
+
+    /// One of the shared actions, which VoiceOver offers as well.
+    private func actionButton(_ action: VaultEntryAction) -> some View {
+        Button(action.title(otherSideTitle: workspace.openOnOtherSideTitle), systemImage: action.systemImage, role: action.isDestructive ? .destructive : nil) {
+            workspace.perform(action, on: entry.path)
         }
     }
 }
@@ -981,12 +973,15 @@ private extension View {
 enum FileSheet: Identifiable {
     case rename(VaultPath)
     case move(VaultPath)
+    /// Several items chosen in the library, moved into one folder.
+    case moveItems([VaultPath])
     case newFolder(in: VaultPath)
 
     var id: String {
         switch self {
         case .rename(let path): "rename|" + path.rawValue
         case .move(let path): "move|" + path.rawValue
+        case .moveItems(let paths): "moveItems|" + paths.map(\.rawValue).joined(separator: "|")
         case .newFolder(let directory): "folder|" + directory.rawValue
         }
     }
@@ -1002,7 +997,8 @@ struct FileManagementPresentation: ViewModifier {
                 Group {
                     switch sheet {
                     case .rename(let path): RenameSheet(workspace: workspace, path: path)
-                    case .move(let path): MoveSheet(workspace: workspace, path: path)
+                    case .move(let path): MoveSheet(workspace: workspace, paths: [path])
+                    case .moveItems(let paths): MoveSheet(workspace: workspace, paths: paths)
                     case .newFolder(let directory): NewFolderSheet(workspace: workspace, directory: directory)
                     }
                 }
@@ -1032,11 +1028,7 @@ struct FileManagementPresentation: ViewModifier {
                 Button("Delete", role: .destructive) { Task { await workspace.delete(path) } }
                 Button("Cancel", role: .cancel) {}
             } message: { _ in
-                switch workspace.vaultSettings.deletionMethod {
-                case .systemTrash: Text("It goes to the trash, where it can be recovered.")
-                case .vaultTrash: Text("It goes to the vault's .trash folder.")
-                case .permanent: Text("It is deleted for good. This cannot be undone.")
-                }
+                Text(workspace.vaultSettings.deletionMethod.confirmationExplanation(itemCount: 1))
             }
     }
 }
@@ -1154,7 +1146,8 @@ private struct NewFolderSheet: View {
 /// Obsidian's "Move file to…": every folder in the vault, searchable.
 private struct MoveSheet: View {
     @Bindable var workspace: WorkspaceModel
-    let path: VaultPath
+    /// The items to move; one from a menu, several from the library's selection.
+    let paths: [VaultPath]
     @Environment(\.dismiss) private var dismiss
     @State private var folders: [VaultPath] = []
     @State private var query = ""
@@ -1164,7 +1157,10 @@ private struct MoveSheet: View {
 
     private var matchingFolders: [VaultPath] {
         let candidates = [VaultPath.root] + folders
-        let movable = candidates.filter { folder in !folder.isInside(path) && folder != path.parent }
+        // A folder cannot go into itself, and a folder every item is already in changes nothing.
+        let movable = candidates.filter { folder in
+            !paths.contains { path in folder.isInside(path) } && !paths.allSatisfy { path in folder == path.parent }
+        }
         guard !query.isEmpty else { return Array(movable.prefix(Self.maximumListedFolderCount)) }
         return Array(movable.lazy.filter { folder in folder.rawValue.localizedCaseInsensitiveContains(query) }.prefix(Self.maximumListedFolderCount))
     }
@@ -1175,7 +1171,7 @@ private struct MoveSheet: View {
             List(listedFolders, id: \.rawValue) { folder in
                 Button {
                     dismiss()
-                    Task { await workspace.move(path, into: folder) }
+                    Task { for path in paths { await workspace.move(path, into: folder) } }
                 } label: {
                     Label {
                         Text(folder.rawValue.isEmpty ? workspace.title : folder.rawValue).foregroundStyle(Color.primary)
@@ -1189,7 +1185,7 @@ private struct MoveSheet: View {
                 else if listedFolders.isEmpty { ContentUnavailableView.search(text: query) }
             }
             .searchable(text: $query, prompt: "Find a folder")
-            .navigationTitle("Move “\(path.name)”")
+            .navigationTitle(paths.count == 1 ? "Move “\(paths[0].name)”" : "Move \(paths.count) Items")
             #if canImport(UIKit)
             .navigationBarTitleDisplayMode(.inline)
             #endif

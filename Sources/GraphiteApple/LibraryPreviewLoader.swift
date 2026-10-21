@@ -72,16 +72,21 @@ public struct LibraryPreviewLoader: Sendable {
     static func firstPage(of location: URL, longerSidePixels: Int) -> CGImage? {
         coordinatedRead(of: location) { readableLocation in
             guard let document = PDFDocument(url: readableLocation), !document.isLocked, let page = document.page(at: 0) else { return nil }
-            let bounds = page.bounds(for: .cropBox)
-            guard bounds.width > 0, bounds.height > 0 else { return nil }
-            let scale = CGFloat(longerSidePixels) / max(bounds.width, bounds.height)
-            let thumbnail = page.thumbnail(of: CGSize(width: bounds.width * scale, height: bounds.height * scale), for: .cropBox)
-            #if canImport(UIKit)
-            return thumbnail.cgImage
-            #else
-            return thumbnail.cgImage(forProposedRect: nil, context: nil, hints: nil)
-            #endif
+            return thumbnail(of: page, longerSidePixels: longerSidePixels)
         } ?? nil
+    }
+
+    /// A page with its annotations, as PDFKit draws it for any reader.
+    static func thumbnail(of page: PDFPage, longerSidePixels: Int) -> CGImage? {
+        let bounds = page.bounds(for: .cropBox)
+        guard bounds.width > 0, bounds.height > 0 else { return nil }
+        let scale = CGFloat(longerSidePixels) / max(bounds.width, bounds.height)
+        let thumbnail = page.thumbnail(of: CGSize(width: bounds.width * scale, height: bounds.height * scale), for: .cropBox)
+        #if canImport(UIKit)
+        return thumbnail.cgImage
+        #else
+        return thumbnail.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        #endif
     }
 
     /// An image scaled down while it is decoded, never decoded at full size.

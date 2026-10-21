@@ -319,7 +319,7 @@ public struct ReadAloudDocument: Equatable, Sendable {
         mask(NSRange(location: 0, length: FrontmatterLocator.length(in: original)))
         // Folded away by the person (`ReadAloudFolding`): not read.
         for range in hiddenRanges where range.location >= 0 && NSMaxRange(range) <= original.length { mask(range) }
-        for range in ObsidianInlineMarkup.commentRanges(in: source) { mask(range) }
+        for range in ObsidianComments.commentRanges(in: source) { mask(range) }
         let footnotes = Footnotes.parse(prepared as String)
         for definition in footnotes.definitions { mask(definition.range) }
         for reference in footnotes.references { mask(reference.range) }
