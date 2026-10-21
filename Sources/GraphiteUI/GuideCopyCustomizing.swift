@@ -93,7 +93,7 @@ enum GuideCustomizingCopy {
             summary: forPlatform(touch: "With a keyboard attached to iPad, these shortcuts work. Hold ⌘ to see them listed.",
                                  mac: "The shortcuts that work everywhere in Graphite."),
             steps: [
-                GuideStep("Notes and files: ⌘N new note, ⌘O Quick Switcher, ⌘P Command Palette, ⇧⌘F search all files, ⌘E read or write, ⌘S save."),
+                GuideStep("Notes and files: ⌘N new note, ⌘O Quick Switcher, ⌘P Command Palette (⇧⌘P on the Mac, where ⌘P prints), ⇧⌘F search all files, ⌘E read or write, ⌘S save."),
                 GuideStep("Tabs: ⌘T new tab, ⌘W close tab, ⇧⌘T reopen it, ⌃Tab next tab, ⌘1 to ⌘8 a tab, ⌘9 the last tab, ⌘[ and ⌘] back and " +
                           "forward."),
                 GuideStep(forPlatform(

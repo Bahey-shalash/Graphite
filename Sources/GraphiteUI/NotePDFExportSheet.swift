@@ -7,77 +7,13 @@
  *              that saves the PDF where the person picks.
  *
  * Authors: Bahey Shalash
- * Version: 0.1
+ * Version: 0.2
  * Date: 21/10/2026
  */
 
 import SwiftUI
 import UniformTypeIdentifiers
 import GraphiteCore
-
-/// Opens the Export to PDF sheet of the note whose pane gives it.
-struct NotePDFExportAction {
-    let open: () -> Void
-}
-
-extension EnvironmentValues {
-    /// Set by `NotePDFExportPresentation` around a note's pane while its vault is open.
-    @Entry var notePDFExport: NotePDFExportAction? = nil
-}
-
-/// More › Export to PDF… in a note's menu.
-struct NotePDFExportButton: View {
-    @Environment(\.notePDFExport) private var notePDFExport
-
-    var body: some View {
-        Button("Export to PDF…", systemImage: "doc.richtext") { notePDFExport?.open() }
-            .disabled(notePDFExport == nil)
-    }
-}
-
-extension View {
-    /// Lets the note's menus open its Export to PDF sheet (`NotePDFExportPresentation`).
-    func notePDFExport(of note: MarkdownSession, in vault: ReadingVault?, preferences: GraphitePreferences,
-                       readingConfiguration: @escaping () -> ReadingConfiguration) -> some View {
-        modifier(NotePDFExportPresentation(note: note, vault: vault, preferences: preferences, readingConfiguration: readingConfiguration))
-    }
-}
-
-/// Presents a note's Export to PDF sheet, which `NotePDFExportButton` opens. The PDF takes
-/// the note's text as it is when the sheet opens, the vault's fonts and the person's accent
-/// from the environment, and the reading view's configuration from the pane.
-struct NotePDFExportPresentation: ViewModifier {
-    let note: MarkdownSession
-    /// The open vault; nil while none is, which leaves the menu item dimmed.
-    let vault: ReadingVault?
-    let preferences: GraphitePreferences
-    let readingConfiguration: () -> ReadingConfiguration
-    /// The export of the sheet on screen; nil while it is closed.
-    @State private var export: NotePDFExport?
-    @Environment(\.noteTypography) private var typography
-    @Environment(\.codeColorTheme) private var codeColorTheme
-    @Environment(\.accent) private var accent
-
-    func body(content: Content) -> some View {
-        content
-            .environment(\.notePDFExport, vault != nil ? NotePDFExportAction { open() } : nil)
-            .sheet(isPresented: Binding(get: { export != nil }, set: { isShown in if !isShown { export = nil } })) {
-                if let export { NotePDFExportSheet(export: export) }
-            }
-    }
-
-    /// A new export of the note as it is now.
-    private func open() {
-        guard let source else { return }
-        export = NotePDFExport(source: source, defaults: preferences.notePDFExport)
-    }
-
-    private var source: NotePDFSource? {
-        guard let vault else { return nil }
-        return NotePDFSource(text: note.text, path: note.path, vault: vault, readingConfiguration: readingConfiguration(), title: note.path.stem,
-                             appearance: NotePDFAppearance(typography: typography, codeColorTheme: codeColorTheme, accent: accent))
-    }
-}
 
 /// Exports one note to a PDF the person saves where they choose.
 struct NotePDFExportSheet: View {
@@ -136,6 +72,40 @@ struct NotePDFExportSheet: View {
             if case .failed = export.phase { return true }
             return false
         }, set: { isShown in if !isShown { export.dismissFailure() } })
+    }
+}
+
+/// A note's PDF being made to print, with a way to stop it; the print panel follows once it
+/// closes (`NotePDFExportPresentation`).
+struct NotePDFPrintProgressSheet: View {
+    let export: NotePDFExport
+    /// Takes the finished PDF before the sheet closes.
+    let didFinish: (NotePDF) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 16) {
+            switch export.phase {
+            case .failed(let message):
+                Text(message).multilineTextAlignment(.center)
+                Button("OK") { dismiss() }
+            case .exporting(let fractionDone):
+                ProgressView("Preparing “\(export.title)” to print…", value: fractionDone)
+                Button("Stop", role: .cancel) { export.cancelExport() }
+            case .choosing, .saving, .printing:
+                ProgressView("Preparing “\(export.title)” to print…", value: 0)
+                Button("Stop", role: .cancel) { dismiss() }
+            }
+        }
+        .padding(24)
+        .frame(minWidth: 320)
+        .task { export.export() }
+        .onChange(of: export.isFinishedPrinting) { _, isFinished in
+            guard isFinished else { return }
+            if case .printing(let pdf) = export.phase { didFinish(pdf) }
+            dismiss()
+        }
+        .onDisappear { export.stopAllWork() }
     }
 }
 

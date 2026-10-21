@@ -6,7 +6,7 @@
  *              menu (Export to PDF among them), find in note, and the sheets for inserting attachments, photos and drawings.
  *
  * Authors: Bahey Shalash, Félix Chevalier
- * Version: 0.46
+ * Version: 0.47
  * Date: 21/10/2026
  */
 
@@ -122,7 +122,6 @@ struct MarkdownPane: View {
         .modifier(WordCountDisplay(session: session, isShown: preferences.isEnabled(.wordCount) && isFocused,
                                    isCompactWidth: isCompactWidth))
         .toolbar { if isFocused { toolbarContent } }
-        .notePDFExport(of: session, in: ReadingVault(workspace.folderAccess?.root, workspace.index), preferences: preferences) { readingConfiguration }
         .sheet(isPresented: $showsReadingSections, onDismiss: {
             if let pending = pendingReadingSection {
                 pendingReadingSection = nil
@@ -417,9 +416,7 @@ struct MarkdownPane: View {
         #endif
     }
 
-    private var paletteHexByName: [String: String] {
-        Dictionary(preferences.colorPalette.map { color in (color.name, color.hex) }, uniquingKeysWith: { firstHex, _ in firstHex })
-    }
+    private var paletteHexByName: [String: String] { preferences.colorPaletteHexByName }
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {

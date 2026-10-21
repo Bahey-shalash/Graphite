@@ -6,7 +6,7 @@
  *              note's headings, and its web links made clickable where their words were drawn.
  *
  * Authors: Bahey Shalash
- * Version: 0.1
+ * Version: 0.2
  * Date: 21/10/2026
  */
 
@@ -22,6 +22,10 @@ enum NotePDFExportError: Error, Equatable {
     case drawnPDFUnreadable
     /// PDFKit could not write the finished PDF.
     case finishedPDFUnwritable
+    /// No note is in front to print.
+    case noNoteInFront
+    /// The note's file is not UTF-8 text.
+    case noteNotText
 }
 
 /// What PDFKit adds to a PDF a note was drawn into, which drawing cannot: an outline and

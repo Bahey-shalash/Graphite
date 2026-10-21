@@ -19,10 +19,19 @@ extension FocusedValues {
 /// being edited.
 public struct GraphiteCommands: Commands {
     @FocusedValue(\.workspaceMenuActions) private var actions
+    /// Export to PDF and Print for the focused window's note in front (`NotePDFExportPresentation`).
+    @FocusedValue(\.notePDFExport) private var notePDFExport
 
     public init() {}
 
     private var workspace: WorkspaceModel? { actions?.workspace.store == nil ? nil : actions?.workspace }
+
+    /// ⌘P opens the command palette on the iPad, as in Obsidian; on the Mac ⌘P prints, and the palette takes ⇧⌘P.
+    #if os(macOS)
+    private static let commandPaletteModifiers: EventModifiers = [.command, .shift]
+    #else
+    private static let commandPaletteModifiers: EventModifiers = .command
+    #endif
 
     public var body: some Commands {
         CommandGroup(replacing: .newItem) {
@@ -33,6 +42,19 @@ public struct GraphiteCommands: Commands {
             Button("Save") { actions?.save() }
                 .keyboardShortcut("s", modifiers: .command)
                 .disabled(workspace == nil)
+        }
+        CommandGroup(replacing: .printItem) {
+            Button("Export as PDF…") { notePDFExport?.start(nil, .save) }
+                .disabled(notePDFExport == nil || workspace?.markdownSession == nil)
+            // ⌘P prints on the Mac, as in its other apps; the iPad keeps it for the command palette, as Obsidian does.
+            #if os(macOS)
+            Button("Print…") { notePDFExport?.start(nil, .print) }
+                .keyboardShortcut("p", modifiers: .command)
+                .disabled(notePDFExport == nil || workspace?.markdownSession == nil)
+            #else
+            Button("Print…") { notePDFExport?.start(nil, .print) }
+                .disabled(notePDFExport == nil || workspace?.markdownSession == nil)
+            #endif
         }
         #if canImport(UIKit)
         // The Mac's Settings scene puts "Settings…" and ⌘, in the app menu itself.
@@ -120,7 +142,7 @@ public struct GraphiteCommands: Commands {
         .disabled(workspace == nil)
         Divider()
         Button("Command Palette…") { actions?.showCommandPalette() }
-            .keyboardShortcut("p", modifiers: .command)
+            .keyboardShortcut("p", modifiers: Self.commandPaletteModifiers)
             .disabled(workspace == nil)
         Divider()
         // Settings › Appearance › Font › Quick Font Size Adjustment, as in Obsidian; the size
