@@ -52,14 +52,17 @@ struct FolderCustomizationPopover: View {
             Divider()
             symbolGrid
             Divider()
-            HStack {
-                Button("Clear") { change { style in style = FolderStyle() } }
+            // Finder's buttons: equal widths across the bottom, Clear first and Emoji last.
+            HStack(spacing: 8) {
+                Button { change { style in style = FolderStyle() } } label: {
+                    // The plain button style does not dim a disabled button by itself.
+                    Text("Clear").foregroundStyle(draft.isPlain ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary)).bottomButtonLabel()
+                }
                     .disabled(draft.isPlain)
-                Spacer()
                 pictureMenu
                 EmojiInputButton(currentEmoji: currentEmoji) { emoji in change { style in style.mark = .emoji(emoji) } }
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
         }
         .padding(16)
         .frame(width: Self.width)
@@ -90,14 +93,9 @@ struct FolderCustomizationPopover: View {
             Button("Files…", systemImage: "folder") { pictureSource = .files }
             Button("From Vault…", systemImage: "books.vertical") { pictureSource = .vault }
         } label: {
-            Label("Picture", systemImage: "photo")
-                .font(.callout)
-                .padding(.horizontal, 12)
-                .frame(minHeight: 30)
-                .background(.fill.tertiary, in: Capsule())
+            Label("Picture", systemImage: "photo").bottomButtonLabel()
         }
         .menuIndicator(.hidden)
-        .fixedSize()
     }
 
     private func applyPicture(_ framedPicture: CGImage, layout: FolderPictureLayout) {
@@ -181,10 +179,18 @@ private struct FolderColorSwatches: View {
     let color: FolderColor?
     let choose: (FolderColor?) -> Void
 
+    /// Finder's swatch size, at the touch minimum of 28 points on the iPad and the iPhone.
+    #if os(macOS)
     private static let swatchPoints: CGFloat = 24
+    #else
+    private static let swatchPoints: CGFloat = 28
+    #endif
+    /// Each swatch takes touches over a wider square than it draws, as close to the 44-point
+    /// default as the popover's width allows for eight swatches.
+    private static let swatchTouchPoints: CGFloat = 36
 
     var body: some View {
-        HStack(spacing: 9) {
+        HStack(spacing: 0) {
             swatch(for: nil) {
                 Circle().fill(.background)
                     .overlay(Circle().strokeBorder(.tertiary, lineWidth: 1))
@@ -206,7 +212,8 @@ private struct FolderColorSwatches: View {
             fill()
                 .frame(width: Self.swatchPoints, height: Self.swatchPoints)
                 .overlay { if isChosen { ring } }
-                .contentShape(Circle())
+                .frame(width: Self.swatchTouchPoints, height: Self.swatchTouchPoints)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(swatchColor?.title ?? "No Color")
@@ -297,5 +304,16 @@ enum FolderPictureProblem: Error {
         case .notAPicture: "This file is not a picture Graphite can read."
         case .tooLarge: "This picture is too large to use."
         }
+    }
+}
+
+extension View {
+    /// A label of the popover's bottom buttons, which share its width equally as Finder's do.
+    func bottomButtonLabel() -> some View {
+        font(.callout)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, minHeight: 36)
+            .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
