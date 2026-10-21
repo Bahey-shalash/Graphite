@@ -162,7 +162,7 @@ struct VaultManagerView: View {
                     KnownVaultRow(vault: vault, location: workspace.vaultLibrary.readableLocation(of: vault), isOpen: vault.id == workspace.currentVaultIdentifier) {
                         Task { await open { try await workspace.openVault(vault) } }
                     } remove: {
-                        workspace.removeFromVaultList(vault)
+                        Task { await perform(closingSheetOnSuccess: false) { try workspace.removeFromVaultList(vault) } }
                     }
                 }
             } header: {
@@ -190,9 +190,15 @@ struct VaultManagerView: View {
 
     /// Runs an opening action and closes the sheet once the vault is open.
     private func open(_ opening: () async throws -> Void) async {
+        await perform(closingSheetOnSuccess: true, opening)
+    }
+
+    /// Runs an action of the sheet and shows why it failed in the sheet, where the window's
+    /// alert cannot appear.
+    private func perform(closingSheetOnSuccess: Bool, _ action: () async throws -> Void) async {
         do {
-            try await opening()
-            if isPresentedAsSheet { dismiss() }
+            try await action()
+            if closingSheetOnSuccess, isPresentedAsSheet { dismiss() }
         } catch { errorMessage = error.localizedDescription }
     }
 }

@@ -292,7 +292,7 @@ final class UiWorkspaceModelFixTests: XCTestCase {
         XCTAssertNotNil(device.defaults.object(forKey: rememberedKeys[2]))
 
         try await workspace.openFolderAsVault(otherVault)
-        workspace.removeFromVaultList(try XCTUnwrap(workspace.vaultLibrary.vault(withIdentifier: removedIdentifier)))
+        try workspace.removeFromVaultList(try XCTUnwrap(workspace.vaultLibrary.vault(withIdentifier: removedIdentifier)))
 
         XCTAssertNil(workspace.vaultLibrary.vault(withIdentifier: removedIdentifier))
         for key in rememberedKeys { XCTAssertNil(device.defaults.object(forKey: key), key) }
