@@ -1,5 +1,6 @@
 import XCTest
 import GRDB
+import SQLite3
 import GraphiteCore
 @testable import GraphiteIndex
 import GraphiteTestSupport
@@ -16,6 +17,29 @@ final class IndexVaultIndexLinkTests: XCTestCase {
 
     private func note(_ path: String, _ markdown: String?) throws -> IndexedFile {
         IndexedFile(path: try VaultPath(path), size: 10, modified: .now, markdown: markdown)
+    }
+
+    /// Regression: a second process with the vault open (a second copy of the app) holding
+    /// the write lock made every write fail at once with "database is locked".
+    func testAWriteWaitsForAnotherConnectionsLockInsteadOfFailing() async throws {
+        let databasePath = directory.appendingPathComponent("index.sqlite").path
+        var heldConnection: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(databasePath, &heldConnection), SQLITE_OK)
+        XCTAssertEqual(sqlite3_exec(heldConnection, "BEGIN IMMEDIATE", nil, nil, nil), SQLITE_OK, "Another process takes the write lock.")
+        var impatientConnection: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(databasePath, &impatientConnection), SQLITE_OK)
+        XCTAssertEqual(sqlite3_exec(impatientConnection, "BEGIN IMMEDIATE", nil, nil, nil), SQLITE_BUSY, "A connection that does not wait fails.")
+        sqlite3_close(impatientConnection)
+        // The connection crosses to the timer's thread as a plain number and is used only there.
+        let heldHandle = Int(bitPattern: heldConnection)
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) {
+            let connection = OpaquePointer(bitPattern: heldHandle)
+            sqlite3_exec(connection, "COMMIT", nil, nil, nil)
+            sqlite3_close(connection)
+        }
+        try await index.update([try note("Waited.md", "# Waited")], generation: "test")
+        let resolved = try await index.resolve("Waited", from: VaultPath("Other.md"))
+        XCTAssertEqual(resolved.map(\.rawValue), ["Waited.md"], "The write went through once the lock was released.")
     }
 
     /// Regression: backlinks read only links written as the full path, name or stem, so
