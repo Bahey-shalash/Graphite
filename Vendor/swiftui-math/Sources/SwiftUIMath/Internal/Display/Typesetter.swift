@@ -741,8 +741,9 @@ extension Math {
       // No breaking if no width constraint
       guard maxWidth > 0 else { return false }
 
-      // No breaking if line is empty
-      guard currentLine.length > 0 else { return false }
+      // No breaking if line is empty. Graphite patch: a line holding only earlier displays
+      // (a fraction, then a space) has no current text but is not empty.
+      guard currentLine.length > 0 || currentPosition.x > 0 else { return false }
 
       // Calculate spacing between current content and new display
       var interElementSpace: CGFloat = 0
@@ -750,8 +751,11 @@ extension Math {
         interElementSpace = getInterElementSpace(prevNode!.type, right: displayType)
       }
 
-      // Calculate projected width
-      let currentWidth = getCurrentLineWidth()
+      // Calculate projected width. Graphite patch: from where the line's current text
+      // starts, as the interatom check measures, not from the start of the line. The text
+      // since the last display was measured alone, so a fraction late in a long line went
+      // past the width.
+      let currentWidth = currentPosition.x + getCurrentLineWidth()
       let projectedWidth = currentWidth + interElementSpace + display.width
 
       // Break only if it would exceed max width
