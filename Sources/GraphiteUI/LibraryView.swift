@@ -1,3 +1,15 @@
+/**
+ * File: LibraryView.swift
+ * -----------------------
+ * Layer: UI
+ * Description: Library mode's file browser: the folder's files and folders as a grid of pictures, as the Files app
+ *              shows them, with an even number of columns over a display's fold.
+ *
+ * Authors: Bahey Shalash
+ * Version: 0.11
+ * Date: 21/10/2026
+ */
+
 import SwiftUI
 import GraphiteCore
 import GraphiteApple
@@ -56,8 +68,21 @@ struct LibraryView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.libraryWindowActions) private var windowActions
     @State private var isDropTargeted = false
+    /// How many columns the grid has over a display's fold, nil when no fold runs down it.
+    @State private var columnCountOverFold: Int?
 
     private var tileWidth: CGFloat { horizontalSizeClass == .compact ? 110 : 140 }
+    private nonisolated static let gridPaddingPoints: CGFloat = 20
+    private nonisolated static let columnSpacingPoints: CGFloat = 20
+
+    /// As many columns as tiles fit; over a fold an even number, so the fold falls between
+    /// two columns rather than through a row of tiles.
+    private var gridColumns: [GridItem] {
+        let column = GridItem(columnCountOverFold == nil ? .adaptive(minimum: tileWidth, maximum: tileWidth * 1.3)
+                                                         : .flexible(minimum: tileWidth, maximum: tileWidth * 1.3),
+                              spacing: Self.columnSpacingPoints, alignment: .top)
+        return Array(repeating: column, count: columnCountOverFold ?? 1)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -208,12 +233,20 @@ struct LibraryView: View {
                 .contentShape(Rectangle())
                 .modifier(LibraryDropTarget(folder: library.folder, importFiles: actions.importFiles, isTargeted: $isDropTargeted))
         } else {
+            let minimumColumnWidth = tileWidth
             ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: tileWidth, maximum: tileWidth * 1.3), spacing: 20, alignment: .top)], spacing: 28) {
+                LazyVGrid(columns: gridColumns, spacing: 28) {
                     ForEach(library.items) { entry in tile(for: entry) }
                 }
-                .padding(20)
+                .padding(Self.gridPaddingPoints)
             }
+            .onGeometryChange(for: Int?.self) { geometry in
+                guard DisplayFoldLayout.hasFoldDownTheMiddle(DisplayFolds.activeDivisions(in: geometry), widthPoints: geometry.size.width)
+                else { return nil }
+                return DisplayFoldLayout.columnCount(availableWidthPoints: geometry.size.width - 2 * Self.gridPaddingPoints,
+                                                     minimumColumnWidthPoints: minimumColumnWidth, spacingPoints: Self.columnSpacingPoints,
+                                                     isDividedByFold: true)
+            } action: { columnCount in columnCountOverFold = columnCount }
             .modifier(LibraryDropTarget(folder: library.folder, importFiles: actions.importFiles, isTargeted: $isDropTargeted))
         }
     }
