@@ -52,6 +52,8 @@ struct BaseTableView: View {
     @Environment(\.basesScrollVertically) private var scrollsVertically
     @Environment(\.baseRowLimit) private var rowLimit
     @Environment(\.layoutDirection) private var layoutDirection
+    /// On paper the table does not scroll: it is drawn whole, its columns narrowed to the page.
+    @Environment(\.readingIsPrinted) private var isPrinted
     /// The column whose edge is being dragged, or whose new width is being saved.
     @State private var columnResize: BaseColumnResize?
     /// The width the dragged column had when the drag began; nil when no edge is dragged.
@@ -82,9 +84,13 @@ struct BaseTableView: View {
         }
     }
 
-    /// The configured widths, with the column being resized at the width under the finger.
+    /// The configured widths, with the column being resized at the width under the finger;
+    /// on paper, narrowed together to fit the page.
     private var columnWidths: [CGFloat] {
         let configuredColumnWidths = Self.columnWidths(for: result, viewWidth: viewWidth)
+        if isPrinted, let viewWidth, case let totalWidth = configuredColumnWidths.reduce(0, +), totalWidth > viewWidth {
+            return configuredColumnWidths.map { width in width * viewWidth / totalWidth }
+        }
         guard let columnResize, let position = result.columns.firstIndex(where: { column in column.property == columnResize.property }) else { return configuredColumnWidths }
         var widths = configuredColumnWidths
         widths[position] = columnResize.width
@@ -92,6 +98,15 @@ struct BaseTableView: View {
     }
 
     private var isGrouped: Bool { result.view.groupBy != nil }
+
+    /// The table in its scroll view; on paper, which does not scroll, the table alone.
+    @ViewBuilder private func scrolled(@ViewBuilder _ table: () -> some View) -> some View {
+        if isPrinted {
+            table().frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            ScrollView(scrollsVertically ? [.horizontal, .vertical] : .horizontal) { table() }
+        }
+    }
 
     /// Obsidian's row heights: short, medium, tall and extra tall, which it writes as
     /// `extra`.
@@ -108,7 +123,7 @@ struct BaseTableView: View {
         let columnWidths = columnWidths
         let totalWidth = columnWidths.reduce(0, +)
         let pinsFirstColumn = columnWidths.first.map { width in BaseTableLayout.pinsFirstColumn(firstColumnWidth: width, viewWidth: viewWidth) } ?? false
-        return ScrollView(scrollsVertically ? [.horizontal, .vertical] : .horizontal) {
+        return scrolled {
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders, .sectionFooters]) {
                 Section {
                     ForEach(result.visibleGroups(rowLimit: rowLimit)) { visibleGroup in
@@ -164,11 +179,17 @@ struct BaseTableView: View {
                 .overlay(alignment: .trailing) {
                     if resizeColumn != nil { resizeHandle(for: column, width: columnWidths[position]) }
                 }
-                .pinnedToLeadingEdge(position == 0 && pinsFirstColumn, rowBackground: AnyShapeStyle(.bar))
+                .pinnedToLeadingEdge(position == 0 && pinsFirstColumn, rowBackground: headerBackground)
             }
         }
-        .background(.bar)
+        .background(headerBackground)
         .overlay(alignment: .bottom) { Divider() }
+    }
+
+    /// The bar's material on screen; on paper a plain tint, as a material makes the
+    /// table's drawing a picture instead of text.
+    private var headerBackground: AnyShapeStyle {
+        isPrinted ? AnyShapeStyle(Color.secondary.opacity(0.1)) : AnyShapeStyle(.bar)
     }
 
     /// A column's name, with its sort direction and, among several sort keys, its priority.
@@ -285,7 +306,7 @@ struct BaseTableView: View {
                 Text(groupDisplayName).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             }
             groupKeyView(group.key)
-            Text("\(group.rows.count)").font(.caption).foregroundStyle(.secondary)
+            Text("\(group.fullRowCount)").font(.caption).foregroundStyle(.secondary)
         }
         .padding(.horizontal, Self.horizontalCellPadding)
         // The heading stays in sight while the table scrolls sideways.
@@ -343,14 +364,32 @@ extension View {
     ///     it over the page colour, so the cells under it do not show through.
     ///   - drawsBackground: False for content that has nothing beside it to cover.
     fileprivate func pinnedToLeadingEdge(_ isPinned: Bool, rowBackground: AnyShapeStyle?, drawsBackground: Bool = true) -> some View {
+        modifier(PinnedToLeadingEdge(isPinned: isPinned, rowBackground: rowBackground, drawsBackground: drawsBackground))
+    }
+}
+
+private struct PinnedToLeadingEdge: ViewModifier {
+    let isPinned: Bool
+    let rowBackground: AnyShapeStyle?
+    let drawsBackground: Bool
+    /// Paper does not scroll, and a visual effect would make the table's drawing a picture
+    /// instead of text. It never changes while the table is shown, so the cell keeps its identity.
+    @Environment(\.readingIsPrinted) private var isPrinted
+
+    func body(content: Content) -> some View {
         let showsBackground = isPinned && drawsBackground
-        return self
+        let backed = content
             .background(showsBackground ? rowBackground ?? AnyShapeStyle(Color.clear) : AnyShapeStyle(Color.clear))
             .background(showsBackground ? AnyShapeStyle(.background) : AnyShapeStyle(Color.clear))
-            .visualEffect { content, geometry in
-                content.offset(x: isPinned ? max(0, -geometry.frame(in: .scrollView(axis: .horizontal)).minX) : 0)
-            }
-            .zIndex(isPinned ? 1 : 0)
+        if isPrinted {
+            backed
+        } else {
+            backed
+                .visualEffect { content, geometry in
+                    content.offset(x: isPinned ? max(0, -geometry.frame(in: .scrollView(axis: .horizontal)).minX) : 0)
+                }
+                .zIndex(isPinned ? 1 : 0)
+        }
     }
 }
 

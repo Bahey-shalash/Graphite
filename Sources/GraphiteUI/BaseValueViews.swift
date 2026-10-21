@@ -287,9 +287,13 @@ struct BaseImageValueView: View {
     let actions: BaseViewActions
     @State private var resolvedReference: BaseImageReference?
 
+    @Environment(\.readingIsPrinted) private var isPrinted
+
     var body: some View {
+        // A drawing for paper runs no task, so it resolves the image at once.
+        let shownReference = resolvedReference ?? (isPrinted ? Self.reference(for: target) : nil)
         Group {
-            if let resolvedReference {
+            if let resolvedReference = shownReference {
                 BaseCoverImageView(reference: resolvedReference, fit: .contain, thumbnails: actions.thumbnails, vaultRoot: actions.vaultRoot,
                                    contentVersion: actions.contentVersion)
                     .frame(width: 44, height: 32)
@@ -322,6 +326,7 @@ struct BaseCoverImageView: View {
     /// image replaces the old picture or the error.
     let contentVersion: Int
     @Environment(\.accent) private var accent
+    @Environment(\.printedBaseCovers) private var printedCovers
     @State private var loadedCover: LoadedCover?
 
     /// The image shown for `reference`; a nil image means it could not be loaded.
@@ -342,21 +347,34 @@ struct BaseCoverImageView: View {
         case .color(let text):
             Rectangle().fill(BaseMarkerStyle.color(for: text, accent: accent) ?? Color.secondary.opacity(0.15))
         case .remote, .vaultFile:
-            ZStack {
-                if let loadedCover, loadedCover.reference == reference {
-                    if let image = loadedCover.image {
-                        fitted(image.resizable())
-                    } else {
-                        placeholder(systemImage: "photo.badge.exclamationmark")
-                    }
-                } else if case .remote = reference {
-                    ProgressView()
+            if let printedCovers {
+                // On paper: the cover printing decoded beforehand, as a drawing runs no task.
+                if let cover = printedCovers[reference] {
+                    fitted(Image(decorative: cover.image, scale: 1).resizable())
                 } else {
                     placeholder(systemImage: "photo")
                 }
+            } else {
+                loadedCoverView
             }
-            .task(id: CoverRequest(reference: reference, contentVersion: contentVersion)) { await loadCover() }
         }
+    }
+
+    private var loadedCoverView: some View {
+        ZStack {
+            if let loadedCover, loadedCover.reference == reference {
+                if let image = loadedCover.image {
+                    fitted(image.resizable())
+                } else {
+                    placeholder(systemImage: "photo.badge.exclamationmark")
+                }
+            } else if case .remote = reference {
+                ProgressView()
+            } else {
+                placeholder(systemImage: "photo")
+            }
+        }
+        .task(id: CoverRequest(reference: reference, contentVersion: contentVersion)) { await loadCover() }
     }
 
     private func loadCover() async {
@@ -392,6 +410,12 @@ struct BaseCoverImageView: View {
             Image(systemName: systemImage).foregroundStyle(.secondary)
         }
     }
+}
+
+extension EnvironmentValues {
+    /// Covers decoded before a base is drawn for paper, by reference; nil on screen, where
+    /// each cover loads itself. A cover missing from it prints as an empty photo.
+    @Entry var printedBaseCovers: [BaseImageReference: ReadingThumbnail]? = nil
 }
 
 /// Decoded thumbnails for one base view, bounded by a byte budget. Decoding happens on

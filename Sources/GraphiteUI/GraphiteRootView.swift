@@ -151,7 +151,8 @@ struct GraphiteRootView: View {
                                                                           showCommandPalette: { activePalette = .commandPalette },
                                                                           save: { Task { await save() } }))
         // Export to PDF and Print for the note in front or a note in the file list.
-        .notePDFExport(note: workspace.markdownSession, vault: ReadingVault(workspace.folderAccess?.root, workspace.index), preferences: workspace.preferences,
+        .notePDFExport(note: workspace.markdownSession, vault: ReadingVault(workspace.folderAccess?.root, workspace.index, store: workspace.store),
+                       preferences: workspace.preferences,
                        usesStrictLineBreaks: workspace.vaultSettings.usesStrictLineBreaks,
                        appearance: NotePDFAppearance(typography: workspace.noteTypography, codeColorTheme: workspace.preferences.codeColorTheme,
                                                      accent: workspace.preferences.accentColor))

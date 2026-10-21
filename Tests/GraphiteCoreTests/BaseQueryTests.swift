@@ -537,4 +537,26 @@ final class BaseQueryTests: XCTestCase {
                                                      definition: definition, environment: BaseTestRecords.environment(), thisRecord: nil)
         XCTAssertTrue(unfiltered.requirements.isEmpty, "Alternatives cannot narrow the query.")
     }
+
+    func testKeepingSomeRowsKeepsTheirGroupsAndCountsTheRowsLeftOut() throws {
+        let result = try run(BaseDefinitionTests.taskTrackerYAML)
+        XCTAssertGreaterThan(result.groups.count, 1)
+        XCTAssertGreaterThan(result.displayedCount, 2)
+        for start in 0..<result.displayedCount {
+            for end in (start + 1)...result.displayedCount {
+                let kept = result.keepingRows(at: start..<end)
+                XCTAssertEqual(kept.rows.map(\.path), result.rows[start..<end].map(\.path), "Rows \(start)..<\(end), in order")
+                var groupStart = 0
+                for group in result.groups {
+                    defer { groupStart += group.rows.count }
+                    guard let keptGroup = kept.groups.first(where: { keptGroup in keptGroup.id == group.id }) else { continue }
+                    XCTAssertEqual(keptGroup.key, group.key)
+                    XCTAssertEqual(keptGroup.fullRowCount, group.rows.count, "The group's heading still counts all its rows.")
+                    XCTAssertEqual(keptGroup.leftOutRows.before, max(0, start - groupStart), "Numbers go on from the rows before.")
+                    XCTAssertEqual(keptGroup.summaries.isEmpty, keptGroup.leftOutRows.before > 0 || group.summaries.isEmpty, "A group's summaries print where it starts.")
+                }
+                XCTAssertEqual(kept.summaries.isEmpty, end < result.displayedCount || result.summaries.isEmpty, "The whole result's summaries go with its last row.")
+            }
+        }
+    }
 }

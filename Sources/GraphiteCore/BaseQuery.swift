@@ -89,6 +89,9 @@ public struct BaseResultGroup: Identifiable, Hashable, Sendable {
     public let rows: [BaseResultRow]
     /// Summaries for this group's rows, by column.
     public let summaries: [BasePropertyIdentifier: BaseSummaryCell]
+    /// The group's rows a result keeping only some rows (`keepingRows(at:)`, a printed page)
+    /// left out; none otherwise.
+    public var leftOutRows = BaseLeftOutRows()
 }
 
 public struct BaseQueryResult: Sendable {

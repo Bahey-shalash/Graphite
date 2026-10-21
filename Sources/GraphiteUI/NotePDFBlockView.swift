@@ -58,6 +58,8 @@ struct NotePDFBlockView: View {
             EmbeddedImageView(image: thumbnail.image, aspectRatio: thumbnail.aspectRatio,
                               displayWidth: displaySize.map { size in CGFloat(size.fittedWidth(aspectRatio: thumbnail.aspectRatio)) },
                               edit: nil, view: nil)
+        case .base(let base):
+            NotePDFBaseView(base: base, units: units)
         case .pdfPage:
             // Drawn by the renderer from the PDF itself, which keeps its text as text.
             Color.clear

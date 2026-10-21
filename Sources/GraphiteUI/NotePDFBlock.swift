@@ -4,7 +4,7 @@
  * Layer: UI
  * Description: A note's reading-view blocks as a PDF prints them: callouts printed open, lists, tables, code,
  *              callouts and embedded notes divided into the parts a page may end between, pictures and PDF pages
- *              loaded before drawing, and the headings and web links the finished PDF needs.
+ *              loaded before drawing, bases run before drawing, and the headings and web links the finished PDF needs.
  *
  * Authors: Bahey Shalash
  * Version: 0.1
@@ -39,6 +39,8 @@ struct NotePDFBlock: Sendable {
         case picture(ReadingThumbnail, displaySize: EmbedDisplaySize?)
         /// A page of an embedded PDF, drawn as the PDF draws it, its text kept as text.
         case pdfPage(PrintedPDFPage)
+        /// A base's cards, list or table, drawn by runs of its rows (`NotePDFBase`).
+        case base(PrintedBase)
         /// An embed the paper cannot show, such as a video, printed as its file's name.
         case fileName(String, systemImage: String)
     }
@@ -54,6 +56,7 @@ struct NotePDFBlock: Sendable {
         case .section(let units): units.unitCount
         case .callout(_, _, let body), .transclusion(_, _, let body): max(1, body.count)
         case .footnotes(let notes): max(1, notes.count)
+        case .base(let base): base.unitCount
         case .title, .reading, .picture, .pdfPage, .fileName: 1
         }
     }
@@ -63,7 +66,7 @@ struct NotePDFBlock: Sendable {
         switch content {
         case .title: true
         case .reading(let block): if case .heading = block { true } else { false }
-        case .section, .callout, .transclusion, .footnotes, .picture, .pdfPage, .fileName: false
+        case .section, .callout, .transclusion, .footnotes, .picture, .pdfPage, .base, .fileName: false
         }
     }
 
@@ -71,7 +74,7 @@ struct NotePDFBlock: Sendable {
     var scalesToFit: Bool {
         switch content {
         case .picture, .pdfPage: true
-        case .title, .reading, .section, .callout, .transclusion, .footnotes, .fileName: false
+        case .title, .reading, .section, .callout, .transclusion, .footnotes, .base, .fileName: false
         }
     }
 }
@@ -101,13 +104,17 @@ extension PDFPage {
 /// Turns a note's reading-view blocks into printed blocks, loading what drawing them needs.
 enum NotePDFBlocks {
     /// The printed blocks of a note: its title when asked for, then its blocks, with callouts
-    /// opened, pictures and embedded PDF pages read, and inline images loaded into the
-    /// reading view's image cache, so each block draws completely the first time.
-    static func prepared(_ blocks: [RenderedBlock], title: String?, root: URL) async -> [NotePDFBlock] {
+    /// opened, pictures and embedded PDF pages read, bases run, and inline images loaded into
+    /// the reading view's image cache, so each block draws completely the first time.
+    /// - Parameters:
+    ///   - note: The printed note, `this` in its bases.
+    ///   - layoutWidth: The page's layout width, which sets how many cards a row of a base holds.
+    static func prepared(_ blocks: [RenderedBlock], title: String?, vault: ReadingVault, note: VaultPath, layoutWidth: CGFloat) async -> [NotePDFBlock] {
+        let root = vault.root
         var printed: [NotePDFBlock] = title.map { title in [NotePDFBlock(content: .title(title))] } ?? []
         for block in openedForPrinting(blocks) {
             guard !Task.isCancelled else { return printed }
-            var printedBlock = await printedBlock(for: block)
+            var printedBlock = await printedBlock(for: block, vault: vault, note: note, layoutWidth: layoutWidth)
             let scan = await NotePDFTextScan.scanning(markdownTexts(in: block), root: root)
             await scan.loadInlineImages()
             printedBlock.webLinks = scan.webLinks
@@ -119,7 +126,7 @@ enum NotePDFBlocks {
         return printed
     }
 
-    private static func printedBlock(for block: RenderedBlock) async -> NotePDFBlock {
+    private static func printedBlock(for block: RenderedBlock, vault: ReadingVault, note: VaultPath, layoutWidth: CGFloat) async -> NotePDFBlock {
         switch block {
         case .markdown(_, let text), .pluginSection(_, let text, _):
             if let units = MarkdownSectionUnits.units(of: text) { return NotePDFBlock(content: .section(units)) }
@@ -146,13 +153,23 @@ enum NotePDFBlocks {
             return NotePDFBlock(content: .fileName(location.lastPathComponent, systemImage: "film"))
         case .audio(_, _, let name):
             return NotePDFBlock(content: .fileName(name, systemImage: "waveform"))
-        case .baseFile(_, let path, _):
-            return NotePDFBlock(content: .fileName(path.name, systemImage: "tablecells"))
-        case .base:
-            return NotePDFBlock(content: .fileName("Base", systemImage: "tablecells"))
+        case .baseFile(_, let path, let viewName):
+            return await printedBase(.file(path), viewName: viewName, name: path.name, vault: vault, note: note, layoutWidth: layoutWidth)
+        case .base(_, let yaml):
+            return await printedBase(.inline(yaml), viewName: nil, name: "Base", vault: vault, note: note, layoutWidth: layoutWidth)
         case .properties, .displayMath, .heading, .callout, .missingEmbed, .missingSection, .footnotes, .pluginCodeBlock:
             return NotePDFBlock(content: .reading(block))
         }
+    }
+
+    /// A base drawn as the reading view shows it; a map, a kanban, or a base that cannot run
+    /// here prints as its name.
+    private static func printedBase(_ source: BaseSource, viewName: String?, name: String, vault: ReadingVault, note: VaultPath,
+                                    layoutWidth: CGFloat) async -> NotePDFBlock {
+        guard let base = await NotePDFBases.printed(source, viewName: viewName, note: note, vault: vault, layoutWidth: layoutWidth) else {
+            return NotePDFBlock(content: .fileName(name, systemImage: "tablecells"))
+        }
+        return NotePDFBlock(content: .base(base))
     }
 
     /// Reads a file off the main thread.
