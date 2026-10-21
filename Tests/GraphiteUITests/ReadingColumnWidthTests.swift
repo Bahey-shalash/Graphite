@@ -34,6 +34,14 @@ final class ReadingColumnWidthTests: XCTestCase {
         #endif
     }
 
+    func testABaseReachesFromTheReadableColumnToTheReadingViewsMargins() {
+        // A 1,600-point window: 1,600 − 2 × 33 = 1,534 inside the margins, 402 on each side of the 730-point column.
+        XCTAssertEqual(ReadingPaneWideBase.breakoutWidth(paneWidth: 1_600, readableColumnWidth: 730), 402)
+        XCTAssertEqual(ReadingPaneWideBase.breakoutWidth(paneWidth: 796, readableColumnWidth: 730), 0, "The column and its margins fill the view")
+        XCTAssertEqual(ReadingPaneWideBase.breakoutWidth(paneWidth: 400, readableColumnWidth: 730), 0, "A phone's column is the view")
+        XCTAssertEqual(ReadingPaneWideBase.breakoutWidth(paneWidth: .infinity, readableColumnWidth: 730), 0)
+    }
+
     func testAThemesLineWidthIsScaledByTheTextSizeOverSixteenAndNeverBelowAnElevenPointText() {
         var light = ThemeModeTokens()
         light.lineWidth = 640

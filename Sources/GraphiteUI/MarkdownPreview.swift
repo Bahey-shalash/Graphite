@@ -826,6 +826,12 @@ struct MarkdownPreview: View {
     @Environment(\.noteTheme) private var theme
     /// The readable column: Graphite's, or the vault theme's line width at this text size.
     private var readableColumnWidth: CGFloat { theme?.readableColumnWidth(forTextSize: configuration.textSize) ?? ReadingConfiguration.readableColumnWidth }
+    /// The reading view's width, which a base reaches across inside the margins.
+    @State private var paneWidth: CGFloat = 0
+    /// How far a base reaches past each side of the readable column (`ReadingPaneWideBase`).
+    private var baseBreakoutWidth: CGFloat {
+        configuration.usesReadableLineLength ? ReadingPaneWideBase.breakoutWidth(paneWidth: paneWidth, readableColumnWidth: readableColumnWidth) : 0
+    }
     @State private var hasRestoredPosition = false
     @State private var pendingRestorationOffset: CGFloat?
     /// Where this view was before it restored the saved position, when nothing was saved:
@@ -882,6 +888,8 @@ struct MarkdownPreview: View {
                 .frame(maxWidth: .infinity)
             }
             .scrollPosition($scrollPosition)
+            .onGeometryChange(for: CGFloat.self) { geometry in geometry.size.width } action: { width in paneWidth = width }
+            .environment(\.readingBaseBreakoutWidth, baseBreakoutWidth)
             .coordinateSpace(.named(ReadingCoordinateSpace.name))
             .onScrollGeometryChange(for: ReadingViewport.self) { geometry in
                 ReadingViewport(verticalOffset: max(0, geometry.contentOffset.y + geometry.contentInsets.top),
@@ -1483,6 +1491,8 @@ struct ReadingBlocksView: View {
                 ReadingCallout(type: type, title: title, foldKeyTitle: foldKeys.calloutTitlesByBlock[block.id], folding: folding, root: root, textSize: textSize,
                                navigate: navigate, scrollToHeading: scrollToHeading, sourceTokens: readingSourceTokensByBlock[block.id], blocksInside: body) {
                     ReadingBlocksView(blocks: body, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading, openPDF: openPDF, updateProperties: nil)
+                        // A base in a callout stays inside its box.
+                        .environment(\.readingBaseBreakoutWidth, 0)
                 }
             case .video(_, let location):
                 EmbeddedMediaPlayer(location: location)
@@ -1500,13 +1510,16 @@ struct ReadingBlocksView: View {
                     ReadingBlocksView(blocks: body, root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading, openPDF: openPDF, updateProperties: nil)
                         // The embedded note's tasks are ticked in that note.
                         .environment(\.readingTaskContext, taskContext.map { context in ReadingTaskContext(note: path, toggle: context.toggle) })
+                        // A base in an embedded note stays beside its bar.
+                        .environment(\.readingBaseBreakoutWidth, 0)
                 }
                 .padding(.leading, 16)
                 .overlay(alignment: .leading) { Rectangle().fill(.tint.opacity(0.6)).frame(width: 3) }
             case .base(_, let yaml):
-                BaseCodeBlockView(yaml: yaml)
+                BaseCodeBlockView(yaml: yaml).modifier(ReadingPaneWideBase())
             case .baseFile(_, let path, let viewName):
                 BaseFileEmbedView(path: path, viewName: viewName, openWithoutContext: { basePath in navigate(basePath.rawValue, true) })
+                    .modifier(ReadingPaneWideBase())
             case .image(_, let path, let location, let displaySize, let version):
                 ReadingImageBlock(path: path, location: location, displaySize: displaySize, version: version)
             case .footnotes(_, let notes):
@@ -2712,6 +2725,27 @@ extension EnvironmentValues {
     /// The widest, in points, a note's column shows an image on a line of its own; nil when
     /// the column is as wide as the window.
     @Entry var embeddedImageColumnWidth: CGFloat? = nil
+    /// How far, in points, a base in the note reaches past each side of the readable column.
+    @Entry var readingBaseBreakoutWidth: CGFloat = 0
+}
+
+/// A base in a note takes the reading view's whole width inside its margins rather than
+/// the readable column's, as in Live Preview (`RenderedBlockWidths`): a gallery or table
+/// held to the column left four fifths of a wide window empty beside it. Only this view
+/// reads the width, so a resize redraws the bases and not every block of the note.
+struct ReadingPaneWideBase: ViewModifier {
+    @Environment(\.readingBaseBreakoutWidth) private var breakoutWidth
+
+    /// How far a base reaches past each side of the readable column: to the reading view's
+    /// margins, and not at all when the view is no wider than the column and its margins.
+    static func breakoutWidth(paneWidth: CGFloat, readableColumnWidth: CGFloat) -> CGFloat {
+        guard paneWidth.isFinite, readableColumnWidth.isFinite else { return 0 }
+        return max(0, (paneWidth - 2 * ReadingConfiguration.minimumHorizontalMargin - readableColumnWidth) / 2).rounded(.down)
+    }
+
+    func body(content: Content) -> some View {
+        content.padding(.horizontal, -breakoutWidth)
+    }
 }
 
 /// The width an image on a line of its own is decoded for.

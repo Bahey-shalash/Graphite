@@ -11,6 +11,7 @@ final class StubStyledTextView: MarkdownStyledTextView {
     private var selection: NSRange
     var isComposingText = false
     var renderedBlockColumnWidth: CGFloat = 400
+    var renderedBlockPaneWidth: CGFloat = 400
     var typingAttributes: [NSAttributedString.Key: Any] = [:]
 
     var styledSelection: NSRange {

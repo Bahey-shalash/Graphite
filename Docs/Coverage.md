@@ -1842,6 +1842,7 @@ Checked on 2026-09-25 on "Graphite Sidebar iPad", after the bug-fix merge:
 
 ## Implemented but not yet verified
 
+- Bases in a note taking the pane's width inside its margins (2026-10-21): `UiEditorMacRenderedBlocksTests.testABaseSpansThePaneWhileATableKeepsToTheReadableColumn` (a base's view starts at the pane's margin, a table's at the readable column, no code box behind the base), `ReadingColumnWidthTests.testABaseReachesFromTheReadableColumnToTheReadingViewsMargins`, and a render of the Mac editor at 1,500 points with a cards base of eight notes (five cards across, the text in its column). Not yet looked at in the running app on the Mac or iPad, nor with a table or map base.
 - The Pencil palette giving way to screens presented over a PDF or the drawing editor (2026-10-10): checked in the simulators (see its section at the top), not on a device or with a physical Apple Pencil.
 - Recording a lecture and recovering it after Graphite is closed mid-recording, with a real microphone (see the check above).
 
