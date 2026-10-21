@@ -636,6 +636,31 @@ Delta audit of 2026-10-19 at `fff794b` (main), against `FR-01` to `FR-108`. Comm
 - **Why it matters:** a change made in `setextHeadingLevel` does not reach editor styling, whatever the comment says.
 - **Fix direction:** the styler calls it (its underline pre-check stays as the documented fast path); delete the forwarder; the comment lists the real callers.
 
+### Found by the corpus parity harness (2026-10-21)
+
+`MarkdownRuleParityTests` ([MarkdownRuleParityTests.swift](../../../Tests/GraphiteCoreTests/MarkdownRuleParityTests.swift)) asks every consumer of five line rules about one corpus ([MarkdownCorpus.swift](../../../Tests/GraphiteFixtures/MarkdownCorpus.swift)) and records each disagreement as a row tagged with its finding. Most rows fall under `LSP-MDCORE-01`, `BUG-MDCORE-03` and `SRP-MDCORE-03`; these three had no finding.
+
+#### LSP-MDCORE-04 Indented code is code for the index and for colors, and text for every other consumer
+- **Severity:** Medium
+- **Rule:** `FR-12`, `FR-24` (one rule, one owner)
+- **Evidence:** swift-markdown inside `MarkdownSemantics.parse` reads a line indented four spaces after a blank line as an indented code block, so the index excludes its links, tags and headings; `TextColorMarkup` does the same on purpose ([TextColorMarkup.swift:366-374](../../../Sources/GraphiteCore/TextColorMarkup.swift#L366-L374)). `MarkdownCodeRanges.ranges(in:)`, the style scanner, folding, footnotes and the editing commands have no indented-code rule ([MarkdownCodeRanges.swift:10-18](../../../Sources/GraphiteCore/MarkdownCodeRanges.swift#L10-L18)). The harness records it on four corpus notes (`fenceIndentedFourColumns`, `fenceInListItemFourColumnsPastItemContent`, `atxHeadingIndentedFourSpaces`, `spacedDashesIndentedFourSpaces`).
+- **Why it matters:** a `[[link]]` or `#tag` on an indented line is styled and followed in the editor but missing from backlinks, search and the tag pane, and a heading indented four spaces folds in the editor but is absent from the index.
+- **Fix direction:** decide the CommonMark rule once in `MarkdownBlockLines` (`.indentedCode`, MDCORE step 8) and have every consumer read it; the harness rows turn green as each consumer moves.
+
+#### LSP-MDCORE-05 The reading view's outline and blocks split lines at `\n` only, so a note with lone `\r` line endings has no outline
+- **Severity:** Low
+- **Rule:** `FR-12`, `FR-24`
+- **Evidence:** `NotePreviewDocument.outline(of:)`, `headingLineLocation` and `locatedBlocks` split with `components(separatedBy: "\n")` ([NotePreviewDocument.swift:80](../../../Sources/GraphiteCore/NotePreviewDocument.swift#L80), [L232](../../../Sources/GraphiteCore/NotePreviewDocument.swift#L232), [L244](../../../Sources/GraphiteCore/NotePreviewDocument.swift#L244), [L251](../../../Sources/GraphiteCore/NotePreviewDocument.swift#L251)), while Live Preview ends lines at `\n`, `\r\n` or a lone `\r` ([LivePreviewBlocks.swift](../../../Sources/GraphiteCore/LivePreviewBlocks.swift), `lines(in:from:)`) and the index, folding and the editor follow `NSString`'s line rule; the reading builder passes the body without normalising line endings ([MarkdownPreview.swift:304](../../../Sources/GraphiteUI/MarkdownPreview.swift#L304)). The three code-span pattern copies also run across a lone `\r`. Harness rows on `loneCarriageReturnLineEndings`.
+- **Why it matters:** a note written by an old Mac app shows headings in the editor and the index, but its outline, heading links, section embeds and reading-view blocks see one line.
+- **Fix direction:** one line splitter in Core (the one `LivePreviewBlocks.lines(in:from:)` already is) used by every consumer, as part of `MarkdownBlockLines`.
+
+#### LSP-MDCORE-06 U+2028 ends a line for the `NSString` readers and stays inside it for CommonMark
+- **Severity:** Low
+- **Rule:** `FR-12`, `FR-24`
+- **Evidence:** `NSString.lineRange(for:)` and `getLineStart` treat U+2028 as a line end, so `MarkdownCodeRanges` ([MarkdownCodeRanges.swift:18](../../../Sources/GraphiteCore/MarkdownCodeRanges.swift#L18)), `Footnotes` ([Footnotes.swift:47-49](../../../Sources/GraphiteCore/Footnotes.swift#L47-L49)), `NoteFolding` ([NoteFolding.swift:34](../../../Sources/GraphiteCore/NoteFolding.swift#L34)), the style scanner and the Return command split there, close an open fence early and reopen it; `CodeFenceTracker`, swift-markdown, the reading view and Live Preview keep U+2028 inside the line, as CommonMark does. The reading view's heading pattern stops at U+2028, so such a heading is missing from the outline. Harness rows on `lineSeparatorInsideLines`.
+- **Why it matters:** a pasted line separator (Word, web pages) makes the editor style lines after it as text inside a code block, or as code outside it, differently from the reading view.
+- **Fix direction:** the same single line splitter as `LSP-MDCORE-05`, with U+2028 and U+2029 inside a line.
+
 ### State changes of earlier findings
 - `LSP-MDCORE-01`: Open → **Partly fixed** (the setext row): folding, the outline, heading links and reading blocks use `MarkdownStyleScanner.setextHeadingLevel` ([NoteFolding.swift:63](../../../Sources/GraphiteCore/NoteFolding.swift#L63), [NotePreviewDocument.swift:161](../../../Sources/GraphiteCore/NotePreviewDocument.swift#L161)). The fence row is unchanged.
 - `SRP-MDCORE-05`: **Worse**. `isInCodeOrFrontmatter` dropped `CodeFenceTracker` for a hand-written quoted-fence state machine ([MarkdownEditing.swift:205-249](../../../Sources/GraphiteCore/MarkdownEditing.swift#L205-L249), `5199d75`) that repeats `MarkdownStyleScanner.nextState` ([MarkdownStyleScanner.swift:307-330](../../../Sources/GraphiteCore/MarkdownStyleScanner.swift#L307-L330)); it agrees with the styler on quoted fences, but by copying the rule, and is now about 44 code lines.

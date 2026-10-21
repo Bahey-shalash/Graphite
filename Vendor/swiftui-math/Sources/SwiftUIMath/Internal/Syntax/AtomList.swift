@@ -36,6 +36,8 @@ extension Math {
     case overline
     // An accented atom - Accent in TeX
     case accent
+    // Graphite patch: \underbrace or \overbrace, with its label as its script
+    case horizontalBrace
 
     // Atoms after this point do not support subscripts or superscripts
 
@@ -105,6 +107,7 @@ extension Math.AtomType: CustomStringConvertible {
     case .underline: return "Underline"
     case .overline: return "Overline"
     case .accent: return "Accent"
+    case .horizontalBrace: return "Horizontal Brace"
     case .boundary: return "Boundary"
     case .space: return "Space"
     case .style: return "Style"
@@ -242,6 +245,10 @@ extension Math {
         return (self as? Underline).map {
           Underline($0)
         } ?? Underline()
+      case .horizontalBrace:
+        return (self as? HorizontalBrace).map {
+          HorizontalBrace($0)
+        } ?? HorizontalBrace()
       case .accent:
         return (self as? Accent).map {
           Accent($0)

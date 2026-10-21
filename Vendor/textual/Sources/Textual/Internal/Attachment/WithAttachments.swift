@@ -31,7 +31,16 @@ struct WithAttachments<Content: View>: View {
   }
 
   var body: some View {
-    content(model.resolvedAttributedString ?? attributedString)
+    content(
+      model.resolvedAttributedString
+        ?? AttachmentResolutionModel.readyResolved(
+          attributedString,
+          imageAttachmentLoader: imageAttachmentLoader,
+          emojiAttachmentLoader: emojiAttachmentLoader,
+          environment: colorEnvironment
+        )
+        ?? attributedString
+    )
       .task(id: attributedString) {
         await model.resolveAttachments(
           in: attributedString,
@@ -98,6 +107,36 @@ struct WithAttachments<Content: View>: View {
       attributedString: attributedString,
       attachments: Array(zip(ranges, attachments))
     )
+  }
+
+  /// Graphite patch: the string with the attachments its loaders have at hand already, or nil
+  /// when none are, so a text is not drawn first without images it could show.
+  static func readyResolved(
+    _ attributedString: AttributedString,
+    imageAttachmentLoader: any AttachmentLoader,
+    emojiAttachmentLoader: any AttachmentLoader,
+    environment: ColorEnvironmentValues
+  ) -> AttributedString? {
+    guard attributedString.containsValues(for: [\.imageURL, \.textual.emojiURL]) else {
+      return nil
+    }
+    var resolved = attributedString
+    var hasReadyAttachment = false
+    for run in attributedString.runs {
+      let text = String(attributedString[run.range].characters[...])
+      let readyAttachment: (any Attachment)?
+      if let imageURL = run.imageURL {
+        readyAttachment = imageAttachmentLoader.readyAttachment(for: imageURL, text: text, environment: environment)
+      } else if let emojiURL = run.textual.emojiURL {
+        readyAttachment = emojiAttachmentLoader.readyAttachment(for: emojiURL, text: text, environment: environment)
+      } else {
+        continue
+      }
+      guard let readyAttachment else { continue }
+      resolved[run.range].textual.attachment = AnyAttachment(readyAttachment)
+      hasReadyAttachment = true
+    }
+    return hasReadyAttachment ? resolved : nil
   }
 
   private func resolveAttachmentsFinished(
