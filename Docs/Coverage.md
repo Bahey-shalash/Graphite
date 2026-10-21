@@ -27,6 +27,13 @@ Checked: the package's tests on the Mac (`KeyCombinationTests`, `HotkeyFileTests
 ## The repository's new address in the app: 2026-10-21
 
 The repository moved to [github.com/Graphite-Note/Graphite](https://github.com/Graphite-Note/Graphite) under the Apache License 2.0. `ProjectAddresses` holds its address and its issues page. The welcome tour's "Open source" point opens the repository, and its "This is a beta" point now also offers GitHub issues besides TestFlight feedback. Settings › General › About gains **Source Code** and **Report a Problem**. The Guide gains "Source Code and Feedback" under Making It Yours: where the code is, how to report a problem or a security issue, and TestFlight feedback. Checked by `WelcomeTourContentTests` and `GuideContentTests`; the Settings links were not looked at on a device or simulator.
+## Importing Goodnotes and Notability: outline entries and library folders: 2026-10-21
+
+On the branch `notebook-import-in-app`. The readers and planners moved into the standalone package `Packages/NotebookImport` (`FR-110`); Goodnotes outline entries are converted, and a library export's folders are listed for the import (the rest of Phase 3 that does not need text boxes, [the Phase 3 design](Goodnotes-Notability-import-phase-3-design.md)).
+
+- **Automated tests, all passing on macOS**, run as the package alone and as `swift test --filter` of the import classes, no full or hosted suite: the package, 308 tests with the owner's samples configured (none skipped; 302 with 6 skipped without them), among them `GoodnotesOutlinePlannerTests` (4), `NotebookFileFormatTests` (2) and the sample check that each of the samples' 10 outline entries names a page of its notebook, the pages going forward in the entries' order; GraphiteApple, 42 tests of the import classes, among them `ImportedOutlineItemsTests` (3: outline items before the bookmarks at their points, a page left out not written with its entry counted, a notebook of left-out pages writing nothing) and `NotebookLibraryListingTests` (2).
+- **Found:** Goodnotes' outline record is an event of the page it names; the format document had taken the entry's own identifier (field 2) for an unresolved target. `scripts/goodnotes-reader.py` now prints each entry's page.
+- **Not established:** outline entries opened in Graphite's outline view and in other PDF readers by hand; a Notability library export (no sample).
 
 ## Scanning documents: 2026-10-21
 

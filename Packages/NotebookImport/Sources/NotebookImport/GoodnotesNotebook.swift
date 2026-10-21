@@ -116,13 +116,17 @@ public struct GoodnotesTemplateIdentifier: Sendable, Equatable {
     }
 }
 
-/// An outline entry. Its target names no record in the samples, so it is kept as read.
+/// An outline entry: a title for a place on a page, as Goodnotes lists it in its outline.
 public struct GoodnotesOutlineEntry: Sendable, Equatable {
+    /// The entry's own identifier.
+    public let identifier: String
     public let title: String
     /// A fractional index; entries sort by it, byte by byte.
     public let orderKey: String
-    public let pointOnTargetPage: CGPoint
-    public let targetIdentifier: String
+    /// The page the entry names: the identifier its record is an event of.
+    public let pageIdentifier: String
+    /// In Goodnotes units from the page's top-left corner; not finite for an entry that names the page as a whole.
+    public let pointOnPage: CGPoint
 }
 
 /// An audio recording and the time at which each element was written during it.

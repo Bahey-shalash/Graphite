@@ -429,9 +429,10 @@ class GoodnotesNotebook:
         elif kind == EVENT_PAGE_FLAG:
             self.flagged_pages.add(entity)
         elif kind == EVENT_OUTLINE_ENTRY:
+            # The record's entity is the page the entry names; field 2 is the entry's own identifier.
             self.outline_entries.append({"title": text(last(fields, 5)), "order_key": text(last(fields, 6)),
                                          "point": point(last(message_fields(last(fields, 3)), 1)),
-                                         "target": text(last(fields, 2))})
+                                         "identifier": text(last(fields, 2)), "page": entity})
         elif kind == EVENT_LAYER_MEMBERS:
             self.layer_members[entity] = [text(register(member)[0]) for member in fields.get(2, [])]
         elif kind == EVENT_RECORDING:
@@ -710,8 +711,10 @@ def summary(notebook):
     deleted_pages = sum(1 for page in notebook.pages.values() if page.get("deleted", (None,))[0] == 1)
     if deleted_pages:
         lines.append(f"deleted pages left out: {deleted_pages}")
+    page_numbers = {page["id"]: number for number, page in enumerate(notebook.ordered_pages(), start=1)}
     for entry in sorted(notebook.outline_entries, key=lambda entry: entry["order_key"]):
-        lines.append(f"outline entry: {entry['title']!r}")
+        target = f"page {page_numbers[entry['page']]}" if entry["page"] in page_numbers else "a page that is not in the notebook"
+        lines.append(f"outline entry: {entry['title']!r} on {target}")
     for identifier, recording in notebook.recordings.items():
         if identifier in notebook.deleted_recordings:
             continue

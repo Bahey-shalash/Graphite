@@ -79,9 +79,9 @@ final class GoodnotesNotebookReaderTests: XCTestCase {
         builder.events.append(GoodnotesRecord.event(entity: Self.firstPage, kind: 57, body: ProtocolBufferWriter.message { message in
             message.message(3, GoodnotesRecord.register(number: 1, counter: 2))
         }))
-        for (title, orderKey) in [("Second", "b"), ("First", "a")] {
-            builder.events.append(GoodnotesRecord.event(entity: "OUTLINE-\(title)", kind: 62, body: ProtocolBufferWriter.message { message in
-                message.string(2, "TARGET")
+        for (title, orderKey, page) in [("Second", "b", Self.secondPage), ("First", "a", Self.firstPage)] {
+            builder.events.append(GoodnotesRecord.event(entity: page, kind: 62, body: ProtocolBufferWriter.message { message in
+                message.string(2, "OUTLINE-\(title)")
                 message.message(3, ProtocolBufferWriter.message { target in target.message(1, GoodnotesRecord.point(10, 20)) })
                 message.string(5, title)
                 message.string(6, orderKey)
@@ -95,7 +95,9 @@ final class GoodnotesNotebookReaderTests: XCTestCase {
         let notebook = try GoodnotesNotebookReader(archiveBytes: builder.archiveBytes(), limits: .standard).notebook
         XCTAssertEqual(notebook.pages.map(\.isBookmarked), [false, true])
         XCTAssertEqual(notebook.outlineEntries.map(\.title), ["First", "Second"])
-        XCTAssertEqual(notebook.outlineEntries.first?.pointOnTargetPage, CGPoint(x: 10, y: 20))
+        XCTAssertEqual(notebook.outlineEntries.first?.pointOnPage, CGPoint(x: 10, y: 20))
+        XCTAssertEqual(notebook.outlineEntries.map(\.pageIdentifier), [Self.firstPage, Self.secondPage], "The record's entity is the entry's page.")
+        XCTAssertEqual(notebook.outlineEntries.map(\.identifier), ["OUTLINE-First", "OUTLINE-Second"])
         XCTAssertEqual(notebook.recordings.map(\.identifier), ["KEPT"])
         let recording = try XCTUnwrap(notebook.recordings.first)
         XCTAssertEqual(recording.audio?.file?.text, "attachments/AUDIOFILE")

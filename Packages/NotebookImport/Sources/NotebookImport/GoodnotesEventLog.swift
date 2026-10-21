@@ -99,8 +99,9 @@ struct GoodnotesEventLog {
         case .pageFlag:
             flaggedPages.insert(entity)
         case .outlineEntry:
-            outlineEntries.append(GoodnotesOutlineEntry(title: try fields.string(5), orderKey: try fields.string(6),
-                                                        pointOnTargetPage: try fields.fields(3).point(1), targetIdentifier: try fields.string(2)))
+            // The record is an event of the page the entry names; field 2 is the entry's own identifier.
+            outlineEntries.append(GoodnotesOutlineEntry(identifier: try fields.string(2), title: try fields.string(5), orderKey: try fields.string(6),
+                                                        pageIdentifier: entity, pointOnPage: try fields.fields(3).point(1)))
         case .inkLayerMembers:
             var members: Set<String> = []
             // Each member is a register whose value names an element.

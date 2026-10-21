@@ -95,7 +95,8 @@ final class NotebookImportPictureWriterTests: XCTestCase {
                        named name: String = "Pictures.pdf") throws -> (page: PDFPage, writing: NotebookImportWriting) {
         let vault = try TemporaryVault.make(prefix: "NotebookImportPictureWriter", for: self)
         let destination = vault.location(of: name)
-        let writing = try NotebookImportWriter(fileWriter: AtomicFileWriter()).write(pageCount: 1, planForPage: { _ in plan }, sourceFiles: files,
+        let writing = try NotebookImportWriter(fileWriter: AtomicFileWriter()).write(sourcePageCount: 1, outcomeForPage: { _ in .planned(plan) }, outline: [],
+                                                                                     sourceFiles: files,
                                                                                      strokeCreationDate: Date(timeIntervalSinceReferenceDate: 0),
                                                                                      to: destination)
         return (try XCTUnwrap(PDFDocument(url: destination)?.page(at: 0)), writing)
