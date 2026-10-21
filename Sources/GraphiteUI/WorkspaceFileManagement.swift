@@ -404,9 +404,12 @@ extension WorkspaceModel {
     /// reported; the others are still copied.
     func importFiles(from sources: [URL], into directory: VaultPath) async {
         guard let store, let root = folderAccess?.root else { return }
+        // Goodnotes and Notability notebooks, and folders of them, are converted rather than copied.
+        let notebookSources = notebookImportSources(in: sources)
+        if !notebookSources.isEmpty { importNotebooks(notebookSources, into: directory) }
         var importedPaths: [VaultPath] = []
         var failedNames: [String] = []
-        for source in sources {
+        for source in sources where !notebookSources.contains(source) {
             let hasAccess = source.startAccessingSecurityScopedResource()
             defer { if hasAccess { source.stopAccessingSecurityScopedResource() } }
             do {

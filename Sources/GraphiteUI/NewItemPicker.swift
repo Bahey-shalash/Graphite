@@ -189,7 +189,7 @@ struct NewItemButton<Label: View>: View {
                 NewItemPicker(firstKind: firstKind, isEnabled: isEnabled, canScanDocuments: actions.saveScannedNotebook != nil, choose: perform)
             }
             .modifier(scanPresentation)
-            .fileImporter(isPresented: $showsImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+            .fileImporter(isPresented: $showsImporter, allowedContentTypes: [.item, .folder], allowsMultipleSelection: true) { result in
                 // A cancelled chooser imports nothing; there is nothing to report.
                 guard case .success(let sources) = result, !sources.isEmpty else { return }
                 actions.importFiles(sources, actions.directory)

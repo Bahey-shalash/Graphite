@@ -100,6 +100,18 @@ Pages are planned and written one at a time, so the source is never decoded whol
 - **Library folders:** `NotebookLibraryListing` (GraphiteApple) lists a chosen folder, such as a Goodnotes library export (a folder tree of `.goodnotes` files and a hidden `.goodnotesmeta`), with the folders between it and each notebook, in Finder's order; hidden files are skipped and other files counted. The import keeps those folders in the vault (Phase 4). The `.goodnotesmeta` file's folder colours and symbols are not applied (Graphite's folder looks could take them later).
 - **Tests:** `GoodnotesOutlinePlannerTests` (4) and `NotebookFileFormatTests` (2) in the package, the outline case of `GoodnotesNotebookReaderTests`, and `testEveryOutlineEntryOfTheSamplesNamesAPageOfItsNotebook` (opt-in, samples); `ImportedOutlineItemsTests` (3) and `NotebookLibraryListingTests` (2) in GraphiteApple.
 
+## Phase 4 decisions (2026-10-21, taken without the owner, who was away)
+
+- **Where the files go:** a chosen notebook's PDF goes into the folder Import was chosen in (or the folder the files were dropped on), under a free name: the notebook's file name without its extension and without a ".pdf" an app kept ("Past exam.pdf.goodnotes" becomes "Past exam.pdf"). A chosen folder becomes a new folder of its name, under a free name ("Semester 1" when "Semester" is taken), with its subfolders, so importing a library twice never mixes the two.
+- **Recordings** go next to the PDF as "<PDF name> - <recording name>.m4a", not into the vault's attachment folder: they belong to that notebook, and a notebook moved in Files keeps them beside it. A recording that cannot be copied is reported (`recordingsNotCopied`); the PDF stays.
+- **No Markdown note** with properties and an embed (owner decision 4 holds).
+- **A folder imports only its notebooks**: other files in it are counted in the report and left where they are; a folder without notebooks makes nothing.
+- **One import at a time.** Choosing more while one runs is refused with a message; leaving the vault is refused until it ends.
+- **Cancelling** stops at the next page; the notebook being written leaves nothing (the PDF is staged and never moved into place), the ones before stay, the rest are reported as not started.
+- **A core plugin switch**, "Goodnotes and Notability Import", on by default (`FR-109`, decision 16); off, a notebook is copied as the file it is.
+- **Order of work:** notebooks one at a time, never in parallel, so memory stays that of one notebook.
+- **The share sheet** waits for the share extension; it is to call `importFiles(from:into:)` with what it delivers.
+
 ## Order of work, and what each step needs
 
 | Step | What | Needs from Graphite | Exact or reported |

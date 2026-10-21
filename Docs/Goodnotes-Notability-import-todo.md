@@ -78,9 +78,9 @@ Every row of the table above, one element at a time:
 
 ## Phase 4: import experience
 
-- [ ] Import from the Files app, the share sheet (Graphite has no share extension yet; this would add one) and drag and drop, one file or a whole folder.
-- [ ] A progress view for large libraries, cancellable, running off the main thread; the vault stays usable during import.
-- [ ] An import report: what was converted, what was simplified, what was skipped and why. **The report's values are built and tested 2026-10-20 (design step 9)**: `NotebookImportReport`, per page and for the notebook, with a summary by kind; showing it is Phase 4.
+- [ ] Import from the Files app, the share sheet (Graphite has no share extension yet; this would add one) and drag and drop, one file or a whole folder. **Built 2026-10-21 (branch `notebook-import-in-app`) except the share sheet**: the New menu's Import (in the file list and the library; its chooser now takes folders) and files or folders dropped on the library reach `importFiles(from:into:)`, which converts `.goodnotes` and `.note` files and folders of them (`Architecture.md` › "Importing Goodnotes and Notability notebooks"). The share sheet waits for the share extension (branch `share-to-graphite`), which will deliver into the same call. Dropping on the file list (sidebar) is not wired: the sidebar's drop targets take only Graphite's own items, and the library agent is moving drops to a list of importers by file type, which the notebook import joins with one entry. Checked in the iPad simulator; drag and drop not checked.
+- [x] A progress view for large libraries, cancellable, running off the main thread; the vault stays usable during import. **Built 2026-10-21**: a card at the top of the document area (the Pencil palette takes the bottom of an open notebook) with the notebook, its page and Cancel; one notebook at a time in a detached task; each notebook's files appear as soon as it is written; leaving the vault is refused while it runs.
+- [ ] An import report: what was converted, what was simplified, what was skipped and why. **The report's values are built and tested 2026-10-20 (design step 9)**: `NotebookImportReport`, per page and for the notebook, with a summary by kind; showing it is Phase 4. **Shown since 2026-10-21**: a sheet at the end with each notebook's place in the vault or why it was not imported, and one line per kind of entry with its pages.
 
 ## Phase 5: verification
 

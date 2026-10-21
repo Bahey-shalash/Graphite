@@ -28,6 +28,9 @@ public enum ImportReportEntry: Sendable, Hashable {
     case picturesNotDecodable(count: Int)
     /// Recordings whose audio file the notebook does not name; they are left out.
     case recordingFilesMissing(count: Int)
+    /// Recordings the notebook has that could not be copied into the vault (a file that is not MPEG-4 audio, a damaged
+    /// one, a full disk); they are left out.
+    case recordingsNotCopied(count: Int)
     /// Ink and other elements timed against a recording: the recording is kept, the timing is not (owner decision,
     /// 2026-10-20).
     case recordingTimingNotKept(timedElementCount: Int)

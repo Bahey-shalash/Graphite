@@ -10,6 +10,7 @@ The formats are undocumented. What is known about them, and how each statement w
 - Planners: `GoodnotesPagePlanner.plan(_:pageNumber:)` and `NotabilityPagePlanner.plan(_:note:)` give an `ImportedPageOutcome` (an `ImportedPagePlan` or a page left out); `GoodnotesOutlinePlanner` gives a Goodnotes notebook's outline (`ImportedOutlinePlan`); `GoodnotesRecordingPlanner` and `NotabilityRecordingPlanner` the recordings (`ImportedRecordingsPlan`).
 - `ImportSourceFiles`: how a writer reads the files a plan names; both readers conform.
 - `NotebookFileFormat`: the two formats, by the file extension each app gives its notebooks.
+- `NotebookImportName`: the name of the PDF a notebook becomes, from its file name.
 - `NotebookImportReport`: every source page, written or left out, with its entries, and a summary with one line per kind of entry. The words are the caller's: the report holds facts only.
 
 ## Limits

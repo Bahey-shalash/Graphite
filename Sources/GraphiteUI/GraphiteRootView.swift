@@ -327,6 +327,8 @@ struct GraphiteRootView: View {
             .id(workspace.currentVaultIdentifier)
             .overlay { RecordingPreviewOverlay(workspace: workspace) }
             .overlay { NoticeBanner(notice: $workspace.notice).placedBesideDisplayFold(alignment: .top) }
+            .modifier(NotebookImportPresentation(session: workspace.notebookImport, openNotebook: { path in Task { _ = await workspace.open(path) } },
+                                                 close: workspace.endNotebookImport))
             .onChange(of: workspace.selection) { workspace.notice = nil }
             // Editable, so the title bar's menu offers Rename, as for documents in Files.
             .modifier(DocumentTitle(title: titleBinding, isCompactWidth: isCompactWidth))

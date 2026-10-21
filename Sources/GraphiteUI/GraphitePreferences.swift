@@ -22,7 +22,7 @@ import GraphiteApple
 enum CorePlugin: String, CaseIterable, Identifiable, Codable {
     case backlinks, outgoingLinks, outline, properties, tags, wordCount
     case colors, drawings, audioRecorder, readAloud, bases
-    case templates, dailyNotes, footnotes, fileRecovery, bookmarks, graph, map, canvas
+    case templates, dailyNotes, footnotes, fileRecovery, bookmarks, graph, map, canvas, notebookImport
 
     var id: String { rawValue }
 
@@ -47,6 +47,7 @@ enum CorePlugin: String, CaseIterable, Identifiable, Codable {
         case .graph: "Graph View"
         case .map: "Map View"
         case .canvas: "Canvas"
+        case .notebookImport: "Goodnotes and Notability Import"
         }
     }
 
@@ -71,6 +72,7 @@ enum CorePlugin: String, CaseIterable, Identifiable, Codable {
         case .graph: "Draws the vault's notes and links, and each note's neighborhood in the right sidebar."
         case .map: "Places notes with a coordinates or location property on Apple's map, and the open note's linked places in the right sidebar."
         case .canvas: "Opens .canvas files as boards of cards and connections, to read and to edit."
+        case .notebookImport: "Turns Goodnotes and Notability notebooks into PDFs with editable handwriting when they are imported. Off, they are copied as they are."
         }
     }
 
@@ -81,7 +83,7 @@ enum CorePlugin: String, CaseIterable, Identifiable, Codable {
         switch self {
         case .readAloud: false
         case .backlinks, .outgoingLinks, .outline, .properties, .tags, .wordCount, .colors, .drawings, .audioRecorder,
-             .bases, .templates, .dailyNotes, .footnotes, .fileRecovery, .bookmarks, .graph, .map, .canvas: true
+             .bases, .templates, .dailyNotes, .footnotes, .fileRecovery, .bookmarks, .graph, .map, .canvas, .notebookImport: true
         }
     }
 
@@ -106,6 +108,7 @@ enum CorePlugin: String, CaseIterable, Identifiable, Codable {
         case .graph: "point.3.connected.trianglepath.dotted"
         case .map: "map"
         case .canvas: "rectangle.3.group"
+        case .notebookImport: "square.and.arrow.down.on.square"
         }
     }
 }
