@@ -354,8 +354,12 @@ final class CommunityPluginHost {
     /// A vault opened: when the person has turned plugins on for it, its plugins are listed and
     /// run. Otherwise nothing is read: listing reads and scans every plugin's main.js, megabytes
     /// each, so it waits until Settings › Community Plugins is opened or plugins are turned on.
-    func vaultDidOpen(_ workspace: WorkspaceModel) {
+    /// - Parameter loadsPlugins: False for another window on the open vault coming to the
+    ///   front: the plugins act on it (its active editor, file list and alerts) from now on,
+    ///   and nothing loads again (`CommunityPluginHosts`).
+    func vaultDidOpen(_ workspace: WorkspaceModel, loadsPlugins: Bool = true) {
         self.workspace = workspace
+        guard loadsPlugins else { return }
         vaultIdentifier = workspace.currentVaultIdentifier
         isTurnedOnForVault = vaultIdentifier.map { identifier in consentDefaults.bool(forKey: Self.consentKey(for: identifier)) } ?? false
         guard isTurnedOnForVault else { return }
@@ -363,12 +367,6 @@ final class CommunityPluginHost {
             await reloadInventory()
             await startIfNeeded(workspace)
         }
-    }
-
-    /// Another window on the open vault came to the front: the plugins act on it (its
-    /// active editor, its file list, its alerts) from now on (`CommunityPluginHosts`).
-    func adopt(_ workspace: WorkspaceModel) {
-        self.workspace = workspace
     }
 
     /// The vault is being left: plugins unload first, as when Obsidian closes a vault.
