@@ -356,7 +356,9 @@ extension WorkspaceModel {
             switch DocumentKind(path: path) {
             case .markdown:
                 let snapshot = try await store.read(path, maximumBytes: MarkdownSession.maximumEditableBytes)
-                newMarkdown = try MarkdownSession(path: path, snapshot: snapshot, store: store) { [weak self] savedPath in self?.refreshIndex(for: [savedPath]) }
+                newMarkdown = try MarkdownSession(path: path, snapshot: snapshot, store: store, openNotes: processServices.openNotes) { [weak self] savedPath in
+                    self?.refreshIndex(for: [savedPath])
+                }
                 // An edit while the note is read: reading goes on at the same sentence.
                 newMarkdown?.textDidChange = { [weak self, weak newMarkdown] in
                     guard let self, let newMarkdown else { return }
