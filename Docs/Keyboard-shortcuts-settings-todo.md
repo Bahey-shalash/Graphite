@@ -6,7 +6,7 @@ Status: not started. Shortcuts are fixed in code, in three places that do not kn
 
 ## Request
 
-A page in Settings, on the Mac and the iPad, that lists Graphite's commands with their shortcuts and lets the user change, add or remove them. When a shortcut clashes with the system, or with another Graphite command, the page says so next to it.
+A page in Settings, on the Mac and the iPad (not the iPhone), that lists Graphite's commands with their shortcuts and lets the user change, add or remove them. When a shortcut clashes with the system, or with another Graphite command, the page says so next to it.
 
 ## Scope
 
@@ -31,7 +31,4 @@ A page in Settings, on the Mac and the iPad, that lists Graphite's commands with
 ## Decisions
 
 - Shortcuts belong to the vault, in `.obsidian/hotkeys.json`, shared with Obsidian and the same on every device that opens the vault (owner, 2026-10-21).
-
-## Open questions
-
-- The iPhone with a hardware keyboard: the same page, or nothing?
+- Mac and iPad only; the iPhone gets no shortcuts page, even with a hardware keyboard (owner, 2026-10-21).
