@@ -40,6 +40,36 @@ struct LibraryFolderArtwork: View {
     }
 }
 
+/// A folder tile's picture. On the Mac it is the system's own icon of the folder wherever
+/// Finder draws its look, and the system's plain folder for a plain one, so the library looks
+/// like Finder; elsewhere, and for looks Finder cannot draw, it is Graphite's drawing.
+struct LibraryFolderTileArtwork: View {
+    let folder: VaultPath
+    let looks: LibraryFolderLooks
+    let symbolPointSize: CGFloat
+    @Environment(\.displayScale) private var displayScale
+
+    var body: some View {
+        let look = looks.shownLook(of: folder)
+        if let systemIcon = systemIcon(for: look) {
+            Image(decorative: systemIcon, scale: displayScale)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .accessibilityHidden(true)
+        } else {
+            LibraryFolderArtwork(style: look.style, symbolPointSize: symbolPointSize)
+        }
+    }
+
+    private func systemIcon(for look: ShownFolderLook) -> CGImage? {
+        switch look {
+        case .drawnByFinder: looks.systemIcons[folder]
+        case .plain: looks.plainFolderIcon
+        case .drawnByGraphite: nil
+        }
+    }
+}
+
 /// The picture part of a file tile: the page, picture or note text, or the file's kind
 /// while there is nothing to draw. Edged with a hairline, as Files edges its thumbnails.
 struct LibraryFileArtwork: View {

@@ -72,7 +72,11 @@ struct LibraryView: View {
     }
 
     private var noticeTitle: String {
-        library.failure == .styleNotSaved ? "Folder Look Not Saved" : "Folder Colors Reset"
+        switch library.failure {
+        case .styleNotSaved: "Folder Look Not Saved"
+        case .finderLookNotWritten: "Finder Not Updated"
+        case .folderStylesSetAside, .folderStylesUnreadable, .folderUnreadable, nil: "Folder Colors Reset"
+        }
     }
 
     /// What the library tells the person once; a folder it cannot list is shown in place instead.
@@ -80,6 +84,8 @@ struct LibraryView: View {
         switch library.failure {
         case .styleNotSaved:
             "Graphite could not write the folder's color to “.obsidian/graphite-folder-styles.json”. The folder is unchanged."
+        case .finderLookNotWritten:
+            "The folder's look is saved for Graphite, but Finder could not be given it, so Finder still shows the folder as before."
         case .folderStylesSetAside(let keptCopyName):
             "“.obsidian/graphite-folder-styles.json” was not in a form Graphite can read, so it was kept as “\(keptCopyName)” and the folders show plain."
         case .folderStylesUnreadable:
@@ -275,7 +281,7 @@ private struct LibraryTile: View {
 
     @ViewBuilder private var artwork: some View {
         if entry.isDirectory {
-            LibraryFolderArtwork(style: library.style(of: entry.path), symbolPointSize: Self.artworkHeightPoints * 0.8)
+            LibraryFolderTileArtwork(folder: entry.path, looks: library.folderLooks, symbolPointSize: Self.artworkHeightPoints * 0.8)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             LibraryFileArtwork(entry: entry, preview: library.visiblePreviews[entry.path])
@@ -284,7 +290,7 @@ private struct LibraryTile: View {
 
     private func accessibilityTitle(isBookmarked: Bool) -> String {
         let kind = entry.isDirectory ? "Folder" : entry.kind.libraryTitle
-        let look = entry.isDirectory ? library.style(of: entry.path).map { style in ", \(style.spokenDescription)" } ?? "" : ""
+        let look = entry.isDirectory ? library.folderLooks.shownLook(of: entry.path).style.map { style in ", \(style.spokenDescription)" } ?? "" : ""
         let bookmark = isBookmarked ? ", bookmarked" : ""
         return "\(entries.displayName(entry.path)), \(kind)\(look)\(bookmark), \(entry.modified.formatted(date: .abbreviated, time: .shortened))"
     }
@@ -309,7 +315,7 @@ private struct LibraryTileMenu: ViewModifier {
             }
             .accessibilityAction(named: "Customize Folder") { if entry.isDirectory { isCustomizing = true } }
             .popover(isPresented: $isCustomizing) {
-                FolderCustomizationPopover(folderName: entries.displayName(entry.path), style: library.style(of: entry.path)) { style in
+                FolderCustomizationPopover(folderName: entries.displayName(entry.path), style: library.folderLooks.shownLook(of: entry.path).style) { style in
                     Task { await library.setStyle(style, for: entry.path) }
                 }
                 .presentationCompactAdaptation(.sheet)

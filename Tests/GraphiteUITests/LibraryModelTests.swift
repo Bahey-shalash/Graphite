@@ -16,7 +16,7 @@ final class LibraryModelTests: XCTestCase {
 
     private func source(identifier: UUID = UUID()) -> LibraryModel.Source {
         let loader = LibraryPreviewLoader(root: vault) { _, _ in nil }
-        return LibraryModel.Source(vaultIdentifier: identifier, store: VaultStore(root: vault)) { path, longerSidePixels in
+        return LibraryModel.Source(vaultIdentifier: identifier, store: VaultStore(root: vault), finderAttributes: FinderFolderAttributes(root: vault)) { path, longerSidePixels in
             await loader.preview(of: path, longerSidePixels: longerSidePixels)
         }
     }
@@ -60,9 +60,42 @@ final class LibraryModelTests: XCTestCase {
         await library.reload(source: source(), sortOrder: .alphabetical)
         await library.setStyle(FolderStyle(color: .green, mark: .symbol("flask")), for: try VaultPath("Courses"))
         XCTAssertNil(library.failure)
-        XCTAssertEqual(library.style(of: try VaultPath("Courses")), FolderStyle(color: .green, mark: .symbol("flask")))
+        XCTAssertEqual(library.folderLooks.styles.style(for: try VaultPath("Courses")), FolderStyle(color: .green, mark: .symbol("flask")))
         let stored = try FolderStyleList(configurationData: Data(contentsOf: vault.appendingPathComponent(FolderStyleList.configurationPath)))
         XCTAssertEqual(stored.style(for: try VaultPath("Courses"))?.color, .green)
+    }
+
+    #if os(macOS)
+    /// A look chosen in Graphite on the Mac is written where Finder reads it, so the tile
+    /// then shows the system's own icon of the folder.
+    func testOnTheMacALookIsWrittenWhereFinderReadsIt() async throws {
+        let library = LibraryModel()
+        await library.reload(source: source(), sortOrder: .alphabetical)
+        let courses = try VaultPath("Courses")
+        let style = FolderStyle(color: .orange, mark: .emoji("🥸"))
+
+        await library.setStyle(style, for: courses)
+
+        XCTAssertNil(library.failure)
+        XCTAssertEqual(library.folderLooks.finderLooks[courses]?.style, style)
+        XCTAssertEqual(library.folderLooks.shownLook(of: courses), .drawnByFinder(style))
+        await library.setStyle(nil, for: courses)
+        XCTAssertEqual(library.folderLooks.shownLook(of: courses), .plain)
+    }
+    #endif
+
+    /// A look set in Finder, and not in Graphite, shows in the library.
+    func testALookSetOnlyInFinderIsShown() async throws {
+        let path = vault.appendingPathComponent("Courses").path
+        let icon = Data(#"{"sym":"star.fill"}"#.utf8)
+        let information = Data([0, 0, 0, 0, 0, 0, 0, 0, 0x04] + [UInt8](repeating: 0, count: 23))
+        XCTAssertEqual(icon.withUnsafeBytes { buffer in setxattr(path, FinderFolderLook.iconAttributeName, buffer.baseAddress, buffer.count, 0, 0) }, 0)
+        XCTAssertEqual(information.withUnsafeBytes { buffer in setxattr(path, FinderFolderLook.finderInformationAttributeName, buffer.baseAddress, buffer.count, 0, 0) }, 0)
+        let library = LibraryModel()
+
+        await library.reload(source: source(), sortOrder: .alphabetical)
+
+        XCTAssertEqual(library.folderLooks.shownLook(of: try VaultPath("Courses")), .drawnByFinder(FolderStyle(mark: .symbol("star.fill"))))
     }
 
     func testHomeStartsShownAndStepsBackWhenADocumentIsChosen() async {
@@ -133,7 +166,9 @@ private actor RenderProbe {
 
 extension LibraryModelTests {
     private func probedSource(_ probe: RenderProbe) -> LibraryModel.Source {
-        LibraryModel.Source(vaultIdentifier: UUID(), store: VaultStore(root: vault)) { path, _ in await probe.render(path) }
+        LibraryModel.Source(vaultIdentifier: UUID(), store: VaultStore(root: vault), finderAttributes: FinderFolderAttributes(root: vault)) { path, _ in
+            await probe.render(path)
+        }
     }
 
     /// BUG-SHELL-07: a style file that is not Graphite's format made every folder "Can't Show

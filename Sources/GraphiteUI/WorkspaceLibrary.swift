@@ -21,7 +21,7 @@ extension WorkspaceModel {
             guard let matches, matches.count == 1 else { return nil }
             return matches[0]
         }
-        return LibraryModel.Source(vaultIdentifier: vaultIdentifier, store: store) { path, longerSidePixels in
+        return LibraryModel.Source(vaultIdentifier: vaultIdentifier, store: store, finderAttributes: FinderFolderAttributes(root: root)) { path, longerSidePixels in
             await loader.preview(of: path, longerSidePixels: longerSidePixels)
         }
     }
