@@ -385,7 +385,7 @@ public struct ReadAloudDocument: Equatable, Sendable {
             if let range = section.closingMarkerRange { mask(range) }
         }
         let parsedSource = prepared as String
-        let parsed = Document(parsing: parsedSource)
+        guard let parsed = BoundedMarkdownParser.document(parsing: parsedSource) else { throw ReadAloudError.excessiveNesting }
         var converter = MarkdownSourceLocationConverter(parsedSource)
         var leaves: [(node: any Markup, containerIndex: Int?)] = []
         var stack: [(node: any Markup, containerIndex: Int?, followsBreak: Bool)] = [(parsed, nil, false)]
@@ -545,7 +545,7 @@ public struct ReadAloudDocument: Equatable, Sendable {
                     let semicolon = prepared.range(of: ";", range: searchRange)
                     if semicolon.location != NSNotFound {
                         let entityRange = NSRange(location: sourceOffset, length: semicolon.location - sourceOffset + 1)
-                        let decoded = Document(parsing: prepared.substring(with: entityRange)).child(at: 0)?.child(at: 0) as? Text
+                        let decoded = BoundedMarkdownParser.document(parsing: prepared.substring(with: entityRange))?.child(at: 0)?.child(at: 0) as? Text
                         if decoded?.string == characterText { mappedRange = entityRange; hasExactMapping = true }
                     }
                 }

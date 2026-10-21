@@ -250,8 +250,8 @@ public enum MarkdownEditing {
 
     /// Where the note's frontmatter ends, just past its closing line, or nil when the note
     /// has none. A `---` first line without a closing line is a thematic break. Read as
-    /// the rest of the app reads it: trimming each line here let an indented `  ---` in a
-    /// block scalar close it, and took `--- ` with spaces after it for an opening line.
+    /// the rest of the app reads it: lines are not trimmed, so an indented `  ---` in a
+    /// block scalar does not close it, and `--- ` with spaces after it is not an opening line.
     private static func frontmatterEnd(in text: NSString) -> Int? {
         let length = FrontmatterLocator.length(in: text)
         return length > 0 ? length : nil
@@ -469,7 +469,7 @@ public enum MarkdownEditing {
         let closing = closingMarker ?? marker
         let openingLength = marker.utf16.count, closingLength = closing.utf16.count
         // The cursor inside a phrase in this markup, `**hello wo|rld**`, takes the markup off
-        // the phrase: going by the word under the cursor wrapped "world" again.
+        // the whole phrase, not only the word under the cursor.
         if selection.length == 0, closingMarker == nil, let unwrapped = removingEnclosingMarkup(marker, at: selection.location, in: text) { return unwrapped }
         var range = selection
         if range.length == 0 { range = wordRange(at: range.location, in: text) ?? range }
@@ -491,8 +491,8 @@ public enum MarkdownEditing {
                 return MarkdownTextEdit(range: range, replacement: inner, selectionAfter: NSRange(location: range.location, length: inner.utf16.count))
             }
         }
-        // Spans of this markup inside the selection join the one made: `**a** and **b**`
-        // became `a** and **b`, its outer markers taken for one pair.
+        // Spans of this markup inside the selection join the one made, so `**a** and **b**`
+        // becomes one span instead of having its outer markers taken for one pair.
         var wrappedText = selectedText
         if closing == marker, openingLength >= 2, selectedText.contains(marker) { wrappedText = selectedText.replacingOccurrences(of: marker, with: "") }
         let wrapped = marker + wrappedText + closing
