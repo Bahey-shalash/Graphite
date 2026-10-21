@@ -81,8 +81,7 @@ struct LibraryFolderTileArtwork: View {
     }
 }
 
-/// A folder in Apple's art, with what the art could not carry drawn over it (the symbol or
-/// emoji of a color no tag has), or in Graphite's drawing when there is no art.
+/// A folder in Apple's art, or in Graphite's drawing when the system gives no art.
 struct FolderArtView: View {
     let style: FolderStyle?
     let image: FolderTileImage?
@@ -100,31 +99,11 @@ struct FolderArtView: View {
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: artSide, height: artSide)
-                .overlay { markOverArt }
                 .accessibilityHidden(true)
         case .picture(let picture):
             LibraryFolderArtwork(style: style, picture: picture, symbolPointSize: symbolPointSize)
         case nil:
             LibraryFolderArtwork(style: style, picture: nil, symbolPointSize: symbolPointSize)
-        }
-    }
-
-    /// Engraved on the folder's front face as Finder engraves: a darker shade of its color, lit from below.
-    @ViewBuilder private var markOverArt: some View {
-        let frontFaceOffset = artSide * (FolderIconRenderer.pictureOnFolderCenterFromTopFraction - 0.5)
-        switch style.flatMap({ style in AppleFolderArtPlan.plan(for: style).markDrawnOver }) {
-        case .symbol(let symbolName):
-            Image(systemName: symbolName)
-                .font(.system(size: artSide * 0.24, weight: .semibold))
-                .foregroundStyle((style?.color).tileColor.mix(with: .black, by: 0.3))
-                .shadow(color: .white.opacity(0.35), radius: 0, x: 0, y: max(artSide * 0.006, 0.5))
-                .offset(y: frontFaceOffset)
-        case .emoji(let emojiText):
-            Text(emojiText)
-                .font(.system(size: artSide * 0.3))
-                .offset(y: frontFaceOffset)
-        case .picture, nil:
-            EmptyView()
         }
     }
 }

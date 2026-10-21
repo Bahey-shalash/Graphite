@@ -36,7 +36,8 @@ struct FolderCustomizationPopover: View {
     private static let symbolGridHeight: CGFloat = 250
     private static let symbolCellPoints: CGFloat = 38
 
-    init(folderName: String, style: FolderStyle?, previewImage: FolderTileImage?, pictureActions: FolderPictureActions, apply: @escaping (FolderStyle?) -> Void) {
+    init(folderName: String, style: FolderStyle?, previewImage: FolderTileImage?, pictureActions: FolderPictureActions,
+         apply: @escaping (FolderStyle?) -> Void) {
         self.folderName = folderName
         self.pictureActions = pictureActions
         self.apply = apply
@@ -170,17 +171,17 @@ struct FolderCustomizationPopover: View {
     }
 }
 
-/// Finder's row of colors: no color (a crossed-out tag), the seven tag colors, and any other
-/// color from the system's color picker. The chosen one is ringed.
+/// Finder's row of colors: no color (a crossed-out tag) and the seven tag colors, the colors
+/// Finder and the Files app can show. The chosen one is ringed; a color an older build stored
+/// rings the tag color it is written as.
 private struct FolderColorSwatches: View {
     let color: FolderColor?
     let choose: (FolderColor?) -> Void
-    @Environment(\.self) private var environment
 
     private static let swatchPoints: CGFloat = 24
 
     var body: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: 9) {
             swatch(for: nil) {
                 Circle().fill(.background)
                     .overlay(Circle().strokeBorder(.tertiary, lineWidth: 1))
@@ -189,35 +190,15 @@ private struct FolderColorSwatches: View {
             ForEach(FolderColor.tagColors, id: \.self) { tagColor in
                 swatch(for: tagColor) { Circle().fill(tagColor.tileColor) }
             }
-            ColorPicker("Other Color", selection: otherColorSelection, supportsOpacity: false)
-                .labelsHidden()
-                .frame(width: Self.swatchPoints, height: Self.swatchPoints)
-                .overlay { if isOtherColor { ring } }
-                .accessibilityLabel(isOtherColor ? "Other Color, selected" : "Other Color")
         }
         .frame(maxWidth: .infinity)
     }
 
-    /// A color that is not one of the tag colors: chosen with the picker, or kept from an older build.
-    private var isOtherColor: Bool {
-        guard let color else { return false }
-        return !FolderColor.tagColors.contains(color)
-    }
-
-    private var otherColorSelection: Binding<Color> {
-        // The well shows the other color while it is the chosen one, and stays empty otherwise.
-        Binding(get: { isOtherColor ? color.tileColor : .clear }, set: { pickedColor in
-            let resolved = pickedColor.resolve(in: environment)
-            choose(.custom(red: Self.byte(resolved.red), green: Self.byte(resolved.green), blue: Self.byte(resolved.blue)))
-        })
-    }
-
-    private static func byte(_ component: Float) -> UInt8 {
-        UInt8((min(max(component, 0), 1) * 255).rounded())
-    }
+    /// The color as written on the folder.
+    private var writtenColor: FolderColor? { color.flatMap(FinderTagColor.init(nearestTo:))?.folderColor }
 
     private func swatch(for swatchColor: FolderColor?, @ViewBuilder fill: () -> some View) -> some View {
-        let isChosen = swatchColor == color
+        let isChosen = swatchColor == writtenColor
         return Button { choose(swatchColor) } label: {
             fill()
                 .frame(width: Self.swatchPoints, height: Self.swatchPoints)

@@ -103,8 +103,47 @@ final class LibraryModelTests: XCTestCase {
 
         let picture = try XCTUnwrap(style?.picture)
         XCTAssertTrue(FileManager.default.fileExists(atPath: try picture.path.url(in: vault).path))
-        XCTAssertEqual(library.folderLooks.shownLook(of: courses.path), .drawnByGraphite(try XCTUnwrap(style)))
+        // On the Mac the picture becomes Finder's custom icon, so the tile is the system's icon.
+        XCTAssertEqual(library.folderLooks.shownLook(of: courses.path), .drawnByFinder(try XCTUnwrap(style)))
         try await waitUntil("the tile has its picture", timeoutSeconds: 5) { library.folderLooks.tileImages[courses.path] != nil }
+    }
+
+    /// The owner's bug of 2026-10-21: looks chosen before Graphite wrote folder attributes
+    /// showed in Graphite and not in Files. Listing the folder now writes them.
+    func testALookOnlyInGraphitesFileIsWrittenToTheFolderWhenListed() async throws {
+        let styleFile = vault.appendingPathComponent(FolderStyleList.configurationPath)
+        try FileManager.default.createDirectory(at: styleFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"folders": {"Courses": {"color": "red", "emoji": "⚡️"}}}"#.utf8).write(to: styleFile)
+        let library = LibraryModel()
+
+        await library.reload(source: source(), sortOrder: .alphabetical)
+
+        let courses = try VaultPath("Courses")
+        XCTAssertNil(library.failure)
+        let written = FinderFolderAttributes(root: vault).look(of: courses)
+        XCTAssertEqual(written.style, FolderStyle(color: .red, mark: .emoji("⚡️")))
+        XCTAssertEqual(library.folderLooks.shownLook(of: courses), .drawnByFinder(FolderStyle(color: .red, mark: .emoji("⚡️"))))
+    }
+
+    /// A look changed in Finder or Files after Graphite's becomes Graphite's style too.
+    func testALookChangedInFinderIsAdoptedWhenListed() async throws {
+        let styleFile = vault.appendingPathComponent(FolderStyleList.configurationPath)
+        try FileManager.default.createDirectory(at: styleFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"folders": {"Courses": {"color": "orange", "symbol": "airplane"}}}"#.utf8).write(to: styleFile)
+        let path = vault.appendingPathComponent("Courses").path
+        let tags = try PropertyListSerialization.data(fromPropertyList: ["Green\n2"], format: .binary, options: 0)
+        let icon = Data(#"{"sym":"airplane"}"#.utf8)
+        let information = Data([0, 0, 0, 0, 0, 0, 0, 0, 0x04] + [UInt8](repeating: 0, count: 23))
+        for (name, attributeData) in [(FinderFolderLook.tagsAttributeName, tags), (FinderFolderLook.iconAttributeName, icon),
+                                      (FinderFolderLook.finderInformationAttributeName, information)] {
+            XCTAssertEqual(attributeData.withUnsafeBytes { buffer in setxattr(path, name, buffer.baseAddress, buffer.count, 0, 0) }, 0)
+        }
+        let library = LibraryModel()
+
+        await library.reload(source: source(), sortOrder: .alphabetical)
+
+        let stored = try FolderStyleList(configurationData: Data(contentsOf: styleFile)).style(for: try VaultPath("Courses"))
+        XCTAssertEqual(stored, FolderStyle(color: .green, mark: .symbol("airplane")))
     }
 
     /// A look set in Finder, and not in Graphite, shows in the library.

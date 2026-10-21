@@ -133,8 +133,10 @@ public struct FinderFolderLook: Equatable, Sendable {
     public var isCustomized: Bool { mark != nil || (hasCustomIconFlag && hasCustomIconFile) }
 
     /// The look in Graphite's terms, for drawing where the system's icon is not available.
+    /// The look in Graphite's terms: the tag color and the symbol or emoji. A picture set in
+    /// Finder has no place in Graphite's style; the system's icon shows it.
     public var style: FolderStyle {
-        FolderStyle(color: mark == nil ? nil : color?.folderColor, mark: mark)
+        FolderStyle(color: color?.folderColor, mark: mark)
     }
 
     static func tags(from tagsData: Data?) -> [FinderTag] {

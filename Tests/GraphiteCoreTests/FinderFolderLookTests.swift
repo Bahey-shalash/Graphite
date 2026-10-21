@@ -32,7 +32,7 @@ final class FinderFolderLookTests: XCTestCase {
     func testATagAloneDoesNotTintTheFolder() {
         let look = FinderFolderLook(tags: [FinderTag(name: "Red", color: .red)], iconMark: nil, hasCustomIconFlag: false, hasCustomIconFile: false)
         XCTAssertFalse(look.isCustomized)
-        XCTAssertEqual(look.style, FolderStyle())
+        XCTAssertEqual(look.style, FolderStyle(color: .red))
     }
 
     func testTheLastColoredTagIsTheColor() {

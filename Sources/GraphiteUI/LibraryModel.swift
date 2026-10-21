@@ -121,6 +121,34 @@ final class LibraryModel {
         refreshChangedPreviews()
         await loadFolderStyles(from: source.store)
         await folderLooks.readFinderLooks(of: entries.filter(\.isDirectory).map(\.path))
+        await reconcileFolderLooks(store: source.store)
+    }
+
+    /// Brings each listed folder's two copies of its look together, one folder at a time:
+    /// a style only in Graphite's file (chosen before Graphite wrote folder attributes, or on a
+    /// device whose attributes did not sync) is written to the folder; a look changed in Finder
+    /// or Files after Graphite's becomes the style. Failed writes are reported.
+    private func reconcileFolderLooks(store: VaultStore) async {
+        var adoptedLooks: [(folder: VaultPath, style: FolderStyle?)] = []
+        for (folder, action) in folderLooks.reconciliations() {
+            switch action {
+            case .writeAttributes(let style):
+                if await !folderLooks.writeFinderLook(style, of: folder) { failure = .finderLookNotWritten }
+            case .adoptFinderLook(let style):
+                adoptedLooks.append((folder, style))
+            case .none:
+                continue
+            }
+        }
+        guard !adoptedLooks.isEmpty else { return }
+        let adopted = adoptedLooks
+        do {
+            folderLooks.replaceStyles(try await store.updateFolderStyles { @Sendable styles in
+                for look in adopted { styles.setStyle(look.style, for: look.folder) }
+            })
+        } catch {
+            failure = .styleNotSaved
+        }
     }
 
     /// Reads the folder colors. A file that is not Graphite's format is moved aside under a

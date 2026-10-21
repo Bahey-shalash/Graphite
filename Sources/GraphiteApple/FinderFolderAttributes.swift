@@ -61,7 +61,7 @@ public struct FinderFolderAttributes: Sendable {
         var location = try folder.url(in: root)
         // The system writes the custom icon file and its flag itself, so this comes first and
         // the flag is settled below.
-        let hasCustomIconFile = try writeCustomIconFile(change.customIconFile, at: location)
+        let hasCustomIconFile = try writeCustomIconFile(change.customIconFile, color: change.labelColor?.folderColor, at: location)
         let setsCustomIconFlag = change.setsCustomIconFlag && (change.iconAttributeData != nil || hasCustomIconFile)
         var coordinationError: NSError?
         var writeError: (any Error)?
@@ -72,7 +72,8 @@ public struct FinderFolderAttributes: Sendable {
                 try Self.replaceAttribute(FinderFolderLook.iconAttributeName, with: change.iconAttributeData, of: path)
                 let existingInformation = Self.attribute(FinderFolderLook.finderInformationAttributeName, of: path,
                                                          maximumBytes: FinderFolderLook.finderInformationBytes)
-                let information = FinderFolderLook.finderInformation(existingInformation, settingCustomIconFlag: setsCustomIconFlag, labelColor: change.labelColor)
+                let information = FinderFolderLook.finderInformation(existingInformation, settingCustomIconFlag: setsCustomIconFlag,
+                                                                     labelColor: change.labelColor)
                 try Self.replaceAttribute(FinderFolderLook.finderInformationAttributeName, with: information, of: path)
             } catch {
                 writeError = error
@@ -87,7 +88,8 @@ public struct FinderFolderAttributes: Sendable {
     }
 
     /// Writes or removes Finder's custom icon file; returns whether the folder has one after.
-    private func writeCustomIconFile(_ customIconFile: FinderFolderLookChange.CustomIconFileChange, at location: URL) throws -> Bool {
+    /// The picture is placed on Apple's folder art in the folder's color, as Graphite shows it.
+    private func writeCustomIconFile(_ customIconFile: FinderFolderLookChange.CustomIconFileChange, color: FolderColor?, at location: URL) throws -> Bool {
         #if os(macOS)
         switch customIconFile {
         case .keep:
@@ -100,7 +102,7 @@ public struct FinderFolderAttributes: Sendable {
             guard let pictureData = try? Data(contentsOf: pictureLocation, options: .mappedIfSafe), // A missing picture is reported below.
                   let pictureImage = FolderIconRenderer.decodedPicture(from: pictureData),
                   let iconImage = FolderIconRenderer.finderIcon(picture: pictureImage, layout: picture.layout,
-                                                                folderIcon: Self.drawPlainFolderIcon(pixels: Self.finderIconPixels)) else {
+                                                                folderIcon: AppleFolderArt().folderArtNow(color: color, pixels: Self.finderIconPixels)) else {
                 throw Failure.iconNotWritten
             }
             let icon = NSImage(cgImage: iconImage, size: NSSize(width: Self.finderIconPixels, height: Self.finderIconPixels))
@@ -110,6 +112,16 @@ public struct FinderFolderAttributes: Sendable {
         #else
         // The Files app's custom icon file cannot be written with a public API; it is left as it is.
         return FileManager.default.fileExists(atPath: location.appendingPathComponent(FinderFolderLook.customIconFileName).path)
+        #endif
+    }
+
+    /// Whether a picture can become the folder's custom icon here: on the Mac only, where
+    /// `NSWorkspace.setIcon` writes it.
+    public static var canWriteCustomIcons: Bool {
+        #if os(macOS)
+        true
+        #else
+        false
         #endif
     }
 
@@ -150,6 +162,10 @@ public struct FinderFolderAttributes: Sendable {
     }
 
     static func systemIcon(at location: URL, pixels: Int) async -> CGImage? {
+        systemIconNow(at: location, pixels: pixels)
+    }
+
+    static func systemIconNow(at location: URL, pixels: Int) -> CGImage? {
         var proposedRect = CGRect(x: 0, y: 0, width: pixels, height: pixels)
         return NSWorkspace.shared.icon(forFile: location.path).cgImage(forProposedRect: &proposedRect, context: nil, hints: nil)
     }

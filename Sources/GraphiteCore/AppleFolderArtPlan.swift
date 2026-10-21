@@ -1,42 +1,24 @@
 import Foundation
 
-/// How a folder look Graphite draws is made from Apple's own folder art: the system draws a
-/// stand-in folder that carries the look's tag color and mark, so the colors, gradient and
-/// engraving are Apple's; what no tag can hold is added after.
+/// How a folder look is drawn with Apple's own folder art where the folder itself cannot
+/// carry it yet (a preview in the popover, a look not written): the system draws a stand-in
+/// folder that carries exactly the attributes Graphite writes for the look, so the colors,
+/// gradient and engraving are Apple's and the same as on the folder once written. A picture
+/// is placed on that art.
 ///
-/// The stand-in lives in Graphite's temporary items, never in the vault. A color without a
-/// symbol or emoji is drawn by giving the stand-in an emoji of one space, which the system
-/// tints without drawing anything (found by experiment; Graphite never writes it on a
-/// person's folder, where Finder shows a color alone as a tag dot).
+/// The stand-in lives in Graphite's temporary items, never in the vault.
 public struct AppleFolderArtPlan: Equatable, Sendable {
-    /// What the stand-in folder carries.
+    /// What the stand-in folder carries: the look's tag color and symbol or emoji.
     public let standIn: FinderFolderLookChange
-    /// A color no tag has: the stand-in is gray, and its art is tinted to this color.
-    public let tintColor: FolderColor?
-    /// A symbol or emoji drawn over the art, for a color no tag has; nil when the art has it.
-    public let markDrawnOver: FolderMark?
     /// A picture placed on the art, or drawn as the whole icon.
     public let picture: FolderPicture?
 
-    /// The emoji that tints a stand-in folder without drawing anything on it.
-    static let invisibleEmoji = " "
-
     public static func plan(for style: FolderStyle) -> AppleFolderArtPlan {
-        let tagColor = style.color.flatMap(FinderTagColor.init(folderColor:))
-        let tintColor = tagColor == nil ? style.color : nil
-        let standInColor: FinderTagColor? = tintColor == nil ? tagColor : .gray
-        let artMark: FolderMark?
-        switch style.mark {
-        case .symbol, .emoji: artMark = tintColor == nil ? style.mark : nil
-        case .picture, nil: artMark = nil
-        }
-        let markDrawnOver: FolderMark? = artMark == nil && style.picture == nil ? style.mark : nil
-        // Without a mark the stand-in is tinted by the invisible emoji, when it has a color.
-        let standInMark = artMark ?? (standInColor == nil ? nil : .emoji(invisibleEmoji))
-        let tags = standInColor.map { color in [FinderTag(name: color.defaultTagName, color: color)] } ?? []
-        let standIn = FinderFolderLookChange(tags: tags, iconAttributeData: standInMark.flatMap(FinderFolderLook.iconAttributeData(for:)),
-                                             setsCustomIconFlag: standInMark != nil, customIconFile: .keep)
-        return AppleFolderArtPlan(standIn: standIn, tintColor: tintColor, markDrawnOver: markDrawnOver, picture: style.picture)
+        let colorTagNames = Dictionary(uniqueKeysWithValues: FinderTagColor.allCases.map { color in (color, color.defaultTagName) })
+        var withoutPicture = style
+        if style.picture != nil { withoutPicture.mark = nil }
+        let standIn = FinderFolderLookChange.change(for: withoutPicture, from: .plain, colorTagNames: colorTagNames)
+        return AppleFolderArtPlan(standIn: standIn, picture: style.picture)
     }
 
     /// The stand-in folder's name: one per look, so the system's icon cache never mixes two.

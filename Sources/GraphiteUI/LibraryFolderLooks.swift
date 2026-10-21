@@ -25,6 +25,8 @@ final class LibraryFolderLooks {
     private(set) var plainFolderIcon: CGImage?
 
     @ObservationIgnored private let attributes: FinderFolderAttributes?
+    /// Folders whose attributes could not be written, as on a provider that refuses them.
+    @ObservationIgnored private var unwritableFolders: Set<VaultPath> = []
     @ObservationIgnored private let loadPicture: PictureLoader
     @ObservationIgnored private let appleArt: AppleFolderArt
     /// How many tiles of each folder are on screen. SwiftUI shows a rebuilt grid's tile before
@@ -55,7 +57,25 @@ final class LibraryFolderLooks {
     }
 
     func shownLook(of folder: VaultPath) -> ShownFolderLook {
-        ShownFolderLook.resolve(stored: styles.style(for: folder), finder: finderLooks[folder] ?? .plain)
+        ShownFolderLook.resolve(stored: styles.style(for: folder), finder: finderLooks[folder] ?? .plain,
+                                canWritePictures: FinderFolderAttributes.canWriteCustomIcons)
+    }
+
+    /// The listed folders whose style and attributes differ, and what brings them together.
+    /// A folder whose attributes could not be written is not tried again while this vault is open.
+    func reconciliations() -> [(folder: VaultPath, action: FolderLookReconciliation)] {
+        guard attributes != nil else { return [] }
+        return finderLooks.keys.sorted().compactMap { folder in
+            guard !unwritableFolders.contains(folder), let finder = finderLooks[folder] else { return nil }
+            let action = FolderLookReconciliation.action(stored: styles.style(for: folder), finder: finder,
+                                                         canWritePictures: FinderFolderAttributes.canWriteCustomIcons)
+            return action == .none ? nil : (folder, action)
+        }
+    }
+
+    /// The colors of a folder's tags, as Finder and Files show them as dots beside its name.
+    func tagColors(of folder: VaultPath) -> [FolderColor] {
+        (finderLooks[folder]?.tags ?? []).compactMap { tag in tag.color?.folderColor }
     }
 
     func replaceStyles(_ newStyles: FolderStyleList) {
@@ -92,6 +112,7 @@ final class LibraryFolderLooks {
         if finderLooks[folder] != look {
             finderLooks[folder] = look
         }
+        if !isWritten { unwritableFolders.insert(folder) }
         // The system's icon changes even when the look reads the same, as with a new picture.
         redrawImages(of: [folder])
         return isWritten
