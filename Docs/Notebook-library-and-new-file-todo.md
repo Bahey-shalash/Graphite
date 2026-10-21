@@ -8,7 +8,7 @@ Status: first round built on the branch `notebook-library` (2026-10-19); see eac
 
 Before the other open items of this file. The look is Apple's own wherever an API gives it (see "The look is Apple's" below).
 
-- [ ] Customize a folder exactly as Finder does on macOS 27 (owner, 2026-10-21, with screenshots of Finder's popover). The popover from a folder's menu shows, from top to bottom:
+- [x] Customize a folder exactly as Finder does on macOS 27 (owner, 2026-10-21, with screenshots of Finder's popover). Built on the branch `finder-folder-icons` (2026-10-21): Customize Folder… in a folder tile's menu opens `FolderCustomizationPopover` (a sheet on the iPhone); see "Decisions for the Finder folder looks" below. Checked with automated tests on macOS and in the iPad simulator only. The popover from a folder's menu shows, from top to bottom:
   - a large preview of the folder as it will look, with its name under it;
   - one row of round color swatches: no color (a crossed-out tag), the folder's default, the tag colors, and a "+" for more; the chosen one is ringed;
   - a scrolling grid of symbols in sections with headings ("People", "Animals & Nature", …), each symbol drawn engraved on the folder when chosen;
@@ -17,6 +17,18 @@ Before the other open items of this file. The look is Apple's own wherever an AP
 - [ ] The same look in Finder and in Graphite, both ways (owner, 2026-10-21): a color, symbol or emoji chosen in Graphite shows on the folder in Finder, and one chosen in Finder shows in Graphite, on the Mac and, through iCloud Drive, on the iPad. Needs: where Finder stores its folder color and symbol (a tag color is the `com.apple.metadata:_kMDItemUserTags` attribute; the symbol's storage is unknown), whether iCloud Drive carries it, and whether iOS can read it. Graphite's `.obsidian/graphite-folder-styles.json` stays the fallback wherever the Finder data cannot be read or written.
 - [ ] Custom pictures as folder icons, as Finder shows them (owner's screenshot: an "EPFL" folder with the school's logo, app folders with the app's icon on a blue folder). Finder keeps a custom icon in the folder's hidden `Icon\r` file, written on the Mac with `NSWorkspace.shared.setIcon(_:forFile:options:)` and read with `NSWorkspace.shared.icon(forFile:)`. In Graphite: choose a picture (Photos, Files, or an image in the vault) for a folder, show it on the folder tile, write it as Finder's custom icon on the Mac, and on the iPad read the icon Finder wrote if `Icon\r` syncs and can be read there; otherwise keep the picture beside the style in the vault.
 - [ ] An icon maker like Image2icon (owner, 2026-10-21; [img2icnsapp.com](https://img2icnsapp.com), proprietary, so nothing of it can be copied): drop or pick a picture, choose a template (the picture placed on the folder as Finder draws app folders, or the picture as the whole icon), move and zoom it, choose a background, preview it at Finder's sizes, then apply it to the folder. Built on Graphite's own drawing with public APIs only; the result is the custom icon of the item above.
+
+## Decisions for the Finder folder looks (2026-10-21, owner away)
+
+Taken while building the first section above, each easy to change:
+
+- The popover replaces the old Folder Look menu. Its color row is: No Color (the crossed-out tag), Finder's seven tag colors (red, orange, yellow, green, blue, purple, gray) and "+", the system color picker for any other color. The "folder's default" of the owner's description is the No Color swatch: a folder without a color is drawn in the default folder color, so a second default swatch would do the same thing and was left out.
+- Every choice applies at once, as Finder applies it; there is no Done button. Choosing the chosen symbol again takes it off.
+- A folder has a symbol or an emoji, not both; choosing one replaces the other. When a file somehow has both, the symbol is drawn, as Finder does.
+- The symbols are 171 SF Symbols in Finder's seven sections, all present on macOS 27 (checked by `FolderSymbolCatalogTests`); Finder's exact list is not public.
+- Emoji: on iOS the Emoji button is a text field drawn as nothing that asks for the emoji keyboard (`textInputMode` is the input mode whose language is "emoji", the usual way, as no public switch exists); on the Mac a click opens the Character Viewer into a field drawn as nothing. The first emoji typed is taken (`FolderMark.firstEmoji`). A hardware keyboard on the iPad shows no software keyboard; the globe key's emoji picker still types into the field.
+- Stored format: `.obsidian/graphite-folder-styles.json` keeps `color` (a name, `#RRGGBB` for any other color, or `none`), `symbol` and the new `emoji`. "No color" is written as `none` rather than left out, so the build already on TestFlight still reads the entry (as an unknown color, drawn blue) and keeps the symbol. Files written before keep reading the same (`FolderStyleListTests.testTheEarlierFormatStillReads`).
+- Pink, indigo and teal from the earlier menu still read and draw; the popover shows them as the "+" swatch, ringed.
 
 ## Request
 
@@ -71,7 +83,7 @@ The owner chose the first two; the rest are defaults taken to start building, ea
 ## Part 2: folder tiles
 
 - [x] A folder tile: the system folder symbol in its color, an optional SF Symbol engraved on it, the name, the date, and a small star when bookmarked; its menu on touch and hold.
-- [x] Choosing the color (10 system colors) and symbol (16) from the folder's menu (Folder Look). Not checked yet in dark mode on a device.
+- [x] Choosing the color (10 system colors) and symbol (16) from the folder's menu (Folder Look). Not checked yet in dark mode on a device. Replaced on 2026-10-21 by Finder's popover (first section above).
 - [x] Stored in the vault in `.obsidian/graphite-folder-styles.json` (decision above); a folder without a style is blue.
 - [x] Renames, moves and deletions made in Graphite carry the folder's style with them. Renames made in another app lose it.
 

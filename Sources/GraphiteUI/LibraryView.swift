@@ -270,10 +270,7 @@ private struct LibraryTile: View {
         .accessibilityAddTraits(.isButton)
         .draggable(VaultItemTransfer(path: entry.path.rawValue))
         .modifier(FolderTileDropTarget(entry: entry, moveItems: moveItems, isTargeted: $isDropTargeted))
-        .contextMenu {
-            entries.menu(entry)
-            if entry.isDirectory { FolderLookMenu(folder: entry.path, library: library) }
-        }
+        .modifier(LibraryTileMenu(entry: entry, library: library, entries: entries))
     }
 
     @ViewBuilder private var artwork: some View {
@@ -287,43 +284,37 @@ private struct LibraryTile: View {
 
     private func accessibilityTitle(isBookmarked: Bool) -> String {
         let kind = entry.isDirectory ? "Folder" : entry.kind.libraryTitle
+        let look = entry.isDirectory ? library.style(of: entry.path).map { style in ", \(style.spokenDescription)" } ?? "" : ""
         let bookmark = isBookmarked ? ", bookmarked" : ""
-        return "\(entries.displayName(entry.path)), \(kind)\(bookmark), \(entry.modified.formatted(date: .abbreviated, time: .shortened))"
+        return "\(entries.displayName(entry.path)), \(kind)\(look)\(bookmark), \(entry.modified.formatted(date: .abbreviated, time: .shortened))"
     }
 }
 
-/// Folder color and symbol, in a folder's menu.
-private struct FolderLookMenu: View {
-    let folder: VaultPath
+/// A tile's menu, the file tree's own, with Customize Folder… for a folder, which opens
+/// Finder's folder popover over the tile (a sheet on the iPhone).
+private struct LibraryTileMenu: ViewModifier {
+    let entry: VaultEntry
     let library: LibraryModel
+    let entries: LibraryEntryPresentation
+    @State private var isCustomizing = false
 
-    static let symbolNames = ["face.smiling", "compass.drawing", "moon.stars", "flask", "graduationcap", "book", "function", "gearshape",
-                              "atom", "music.note", "paintpalette", "globe.europe.africa", "heart", "briefcase", "laptopcomputer", "leaf"]
-
-    var body: some View {
-        let style = library.style(of: folder)
-        Menu("Folder Look", systemImage: "paintpalette") {
-            Picker("Color", selection: Binding(get: { style?.color ?? .blue }, set: { color in
-                apply(FolderStyle(color: color, symbolName: style?.symbolName))
-            })) {
-                ForEach(FolderColor.knownColors, id: \.self) { color in Text(color.title).tag(color) }
+    func body(content: Content) -> some View {
+        content
+            .contextMenu {
+                if entry.isDirectory {
+                    Button("Customize Folder…", systemImage: "paintpalette") { isCustomizing = true }
+                    Divider()
+                }
+                entries.menu(entry)
             }
-            .pickerStyle(.menu)
-            Picker("Symbol", selection: Binding(get: { style?.symbolName ?? "" }, set: { symbolName in
-                apply(FolderStyle(color: style?.color ?? .blue, symbolName: symbolName.isEmpty ? nil : symbolName))
-            })) {
-                Text("None").tag("")
-                ForEach(Self.symbolNames, id: \.self) { symbolName in Label(symbolName, systemImage: symbolName).labelStyle(.iconOnly).tag(symbolName) }
+            .accessibilityAction(named: "Customize Folder") { if entry.isDirectory { isCustomizing = true } }
+            .popover(isPresented: $isCustomizing) {
+                FolderCustomizationPopover(folderName: entries.displayName(entry.path), style: library.style(of: entry.path)) { style in
+                    Task { await library.setStyle(style, for: entry.path) }
+                }
+                .presentationCompactAdaptation(.sheet)
+                .presentationDetents([.medium, .large])
             }
-            .pickerStyle(.menu)
-            if style != nil {
-                Button("Plain Folder", systemImage: "arrow.uturn.backward") { apply(nil) }
-            }
-        }
-    }
-
-    private func apply(_ style: FolderStyle?) {
-        Task { await library.setStyle(style, for: folder) }
     }
 }
 

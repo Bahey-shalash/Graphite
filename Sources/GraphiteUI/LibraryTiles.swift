@@ -3,26 +3,40 @@ import GraphiteCore
 import GraphiteApple
 
 /// A folder as Files and the Finder draw one: the system's folder symbol in the folder's
-/// color, with its own symbol engraved on it as the Finder shows a folder's symbol.
+/// color, with its symbol engraved on it or its emoji drawn in color, as the Finder shows them.
 struct LibraryFolderArtwork: View {
     let style: FolderStyle?
-    /// The folder symbol's point size; the engraved symbol takes a third of it.
+    /// The folder symbol's point size; the engraved symbol takes about a third of it.
     let symbolPointSize: CGFloat
 
+    /// Where a mark sits: the middle of the folder's body, below its tab.
+    private var markOffset: CGFloat { symbolPointSize * 0.06 }
+
     var body: some View {
-        let tint = (style?.color ?? .blue).tileColor
+        let tint = (style?.color).tileColor
         Image(systemName: "folder.fill")
             .font(.system(size: symbolPointSize))
             .foregroundStyle(tint.gradient)
-            .overlay {
-                if let symbolName = style?.symbolName {
-                    Image(systemName: symbolName)
-                        .font(.system(size: symbolPointSize * 0.3, weight: .semibold))
-                        .foregroundStyle(tint.mix(with: .black, by: 0.35))
-                        .offset(y: symbolPointSize * 0.06)
-                }
-            }
+            .overlay { mark(tint: tint) }
             .accessibilityHidden(true)
+    }
+
+    @ViewBuilder private func mark(tint: Color) -> some View {
+        switch style?.mark {
+        case .symbol(let symbolName):
+            // Engraved: a darker shade of the folder, lit from below as the Finder draws it.
+            Image(systemName: symbolName)
+                .font(.system(size: symbolPointSize * 0.3, weight: .semibold))
+                .foregroundStyle(tint.mix(with: .black, by: 0.3))
+                .shadow(color: .white.opacity(0.35), radius: 0, x: 0, y: max(symbolPointSize * 0.008, 0.5))
+                .offset(y: markOffset)
+        case .emoji(let emojiText):
+            Text(emojiText)
+                .font(.system(size: symbolPointSize * 0.4))
+                .offset(y: markOffset)
+        case nil:
+            EmptyView()
+        }
     }
 }
 
@@ -71,8 +85,13 @@ struct LibraryFileArtwork: View {
 }
 
 
+extension Optional where Wrapped == FolderColor {
+    /// A folder without a color is the system's blue, as in Files and the Finder.
+    var tileColor: Color { self?.tileColor ?? .blue }
+}
+
 extension FolderColor {
-    /// System colors, which adapt to dark mode and increased contrast.
+    /// System colors, which adapt to dark mode and increased contrast; a custom color as chosen.
     var tileColor: Color {
         switch self {
         case .blue, .unknown: .blue
@@ -85,6 +104,8 @@ extension FolderColor {
         case .indigo: .indigo
         case .teal: .teal
         case .gray: .gray
+        case .custom(let red, let green, let blue):
+            Color(.sRGB, red: Double(red) / 255, green: Double(green) / 255, blue: Double(blue) / 255)
         }
     }
 
@@ -100,8 +121,23 @@ extension FolderColor {
         case .indigo: "Indigo"
         case .teal: "Teal"
         case .gray: "Gray"
+        case .custom: "Custom Color"
         case .unknown(let rawValue): rawValue.capitalized
         }
+    }
+}
+
+extension FolderStyle {
+    /// The look as VoiceOver reads it after the folder's name: "green, flask".
+    var spokenDescription: String {
+        var parts: [String] = []
+        if let color { parts.append(color.title.lowercased()) }
+        switch mark {
+        case .symbol(let symbolName): parts.append(FolderSymbolCatalog.spokenName(of: symbolName))
+        case .emoji(let emojiText): parts.append(emojiText)
+        case nil: break
+        }
+        return parts.joined(separator: ", ")
     }
 }
 
