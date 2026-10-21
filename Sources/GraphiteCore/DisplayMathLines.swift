@@ -28,7 +28,6 @@ public struct DisplayMathLines {
     /// the note for each one.
     private let closingLineIndexFromLine: [Int?]
 
-    private static let codeSpanPattern = DisplayMathLinesPattern.codeSpanPattern.compiled()
     private static let dollarSignCodeUnit = UInt16(UInt8(ascii: "$"))
     private static let backslashCodeUnit = UInt16(UInt8(ascii: "\\"))
 
@@ -68,7 +67,7 @@ public struct DisplayMathLines {
         let unquotedLine = line.drop { character in character == ">" || character == " " || character == "\t" || character == "\r" }
         guard let firstCharacter = unquotedLine.first else { return true }
         guard firstCharacter == "`" || firstCharacter == "~" else { return false }
-        return CodeFence.opening(unquotedLine.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
+        return MarkdownFenceSyntax.opening(unquotedLine.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
     }
 
     /// UTF-16 offset of the `$$` that closes an open block on `line`: the first one.
@@ -101,12 +100,8 @@ public struct DisplayMathLines {
             }
         }
         guard skippingCodeSpans, !offsets.isEmpty, line.contains("`") else { return offsets }
-        let codeRanges = codeSpanPattern.matches(in: line, range: NSRange(location: 0, length: (line as NSString).length)).map(\.range)
+        let source = line as NSString
+        let codeRanges = MarkdownCodeRanges.codeSpans(in: source, range: NSRange(location: 0, length: source.length)).map(\.range)
         return offsets.filter { offset in !codeRanges.contains { codeRange in NSLocationInRange(offset, codeRange) } }
     }
-}
-
-/// The constant patterns of `DisplayMathLines`; `StaticPatternTests` compiles every case.
-enum DisplayMathLinesPattern: String, StaticPatternSet {
-    case codeSpanPattern = #"(?<!`)(`+)(?!`)[^\n]*?(?<!`)\1(?!`)"#
 }

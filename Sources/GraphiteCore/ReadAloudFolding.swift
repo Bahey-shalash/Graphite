@@ -31,7 +31,7 @@ public enum ReadAloudFolding {
         guard depth < 8 else { return }
         var index = 0
         while index < lines.count {
-            guard let header = NotePreviewDocument.calloutHeader(in: lines[index].text) else { index += 1; continue }
+            guard let header = MarkdownQuoteSyntax.calloutHeader(in: lines[index].text) else { index += 1; continue }
             var bodyLines: [(text: String, range: NSRange)] = []
             var bodyIndex = index + 1
             while bodyIndex < lines.count, lines[bodyIndex].text.hasPrefix(">") {

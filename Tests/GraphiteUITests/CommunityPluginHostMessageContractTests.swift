@@ -75,9 +75,11 @@ final class CommunityPluginHostMessageContractTests: XCTestCase {
         let host = CommunityPluginHost()
 
         _ = await host.deliver(["operation": "commands.changed", "commands": [
-            ["commandIdentifier": "p:c", "name": "P: C", "needsEditor": true, "pluginIdentifier": "p", "icon": NSNull()] as [String: Any],
+            ["commandIdentifier": "p:c", "name": "P: C", "needsEditor": true, "pluginIdentifier": "p", "icon": NSNull(),
+             "hotkeys": [["modifiers": ["Mod", "Alt"], "key": "g"], ["modifiers": ["Hyper"], "key": "x"]]] as [String: Any],
         ]])
-        XCTAssertEqual(host.commands, [CommunityPluginCommand(id: "p:c", name: "P: C", needsEditor: true, pluginIdentifier: "p")])
+        XCTAssertEqual(host.commands, [CommunityPluginCommand(id: "p:c", name: "P: C", needsEditor: true, pluginIdentifier: "p",
+                                                              defaultCombinations: [KeyCombination([.command, .option], .character("G"))])])
 
         _ = await host.deliver(["operation": "ribbon.changed", "items": [["ribbonIdentifier": "r1", "pluginIdentifier": "p", "title": "Go"]]])
         XCTAssertEqual(host.ribbonActions, [CommunityPluginRibbonAction(id: "r1", pluginIdentifier: "p", title: "Go")])

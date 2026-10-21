@@ -1,8 +1,9 @@
 import Foundation
 
-/// CommonMark code fences: a run of three or more backticks or tildes opens one, and only
-/// a line of the same character, at least as long, closes it.
-public enum CodeFence {
+/// CommonMark code fences, read one line at a time: a run of three or more backticks or
+/// tildes opens one, and only a line of the same character, at least as long, closes it.
+/// Which lines a fence holds is the caller's walk (`CodeFenceTracker`, `ListItemContainers`).
+public enum MarkdownFenceSyntax {
     /// The fence that `trimmedLine` opens, and the info text after it, or nil.
     public static func opening(_ trimmedLine: String) -> (fence: String, info: String)? {
         guard let fenceCharacter = trimmedLine.first, fenceCharacter == "`" || fenceCharacter == "~" else { return nil }
@@ -23,4 +24,10 @@ public enum CodeFence {
     /// list item holding it, or column 0 outside lists. Indented further, a fence line
     /// is indented code or paragraph text.
     public static let maximumIndentation = 3
+
+    /// The language of a fenced code block as Obsidian gives it to code block processors:
+    /// the first word of the fence's info text, so ```` ```dataview table ```` is `dataview`.
+    public static func language(ofInfo info: String) -> String {
+        String(info.prefix { character in !character.isWhitespace })
+    }
 }

@@ -2,7 +2,7 @@ import Foundation
 
 /// The list items a line can belong to, as CommonMark nests blocks: a non-blank line
 /// belongs to the innermost item whose content column it reaches. A fence opens only
-/// within `CodeFence.maximumIndentation` columns of that column (column 0 outside lists),
+/// within `MarkdownFenceSyntax.maximumIndentation` columns of that column (column 0 outside lists),
 /// so "    ```" continuing a paragraph is text while the same line inside a list item
 /// opens a fence. The index, the editor, reading view and Live Preview find fence
 /// openings through this type.
@@ -24,7 +24,7 @@ struct ListItemContainers {
             while let contentColumn = contentColumns.last, contentColumn > indentation { contentColumns.removeLast() }
         }
         let containerColumn = contentColumns.last ?? 0
-        if indentation <= containerColumn + CodeFence.maximumIndentation, let (fence, info) = CodeFence.opening(trimmedLine) {
+        if indentation <= containerColumn + MarkdownFenceSyntax.maximumIndentation, let (fence, info) = MarkdownFenceSyntax.opening(trimmedLine) {
             return (fence, info, containerColumn)
         }
         if let contentColumn = Self.listItemContentColumn(of: line, indentation: indentation) { contentColumns.append(contentColumn) }

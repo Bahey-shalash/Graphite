@@ -6,7 +6,7 @@ import XCTest
 /// `ReadAloudFolding.calloutKey`. Without an entry the callout's `-` or `+` marker decides.
 final class ReadAloudFoldingCalloutKeyTests: XCTestCase {
     func testKeyIsTheLowercasedTypeAndTheTrimmedWrittenTitle() throws {
-        let header = try XCTUnwrap(NotePreviewDocument.calloutHeader(in: "> [!NOTE]-  Title "))
+        let header = try XCTUnwrap(MarkdownQuoteSyntax.calloutHeader(in: "> [!NOTE]-  Title "))
         XCTAssertEqual(header.type, "note")
         XCTAssertEqual(ReadAloudFolding.calloutKey(type: header.type, title: header.title), "note|Title")
         XCTAssertEqual(ReadAloudFolding.calloutKey(type: "WARNING", title: "\t Mixed Case  "), "warning|Mixed Case")
@@ -14,7 +14,7 @@ final class ReadAloudFoldingCalloutKeyTests: XCTestCase {
     }
 
     func testCalloutWithoutATitleHasTheTypeAsTitleInItsKey() throws {
-        let header = try XCTUnwrap(NotePreviewDocument.calloutHeader(in: "> [!note]-"))
+        let header = try XCTUnwrap(MarkdownQuoteSyntax.calloutHeader(in: "> [!note]-"))
         XCTAssertEqual(ReadAloudFolding.calloutKey(type: header.type, title: header.title), "note|Note")
     }
 

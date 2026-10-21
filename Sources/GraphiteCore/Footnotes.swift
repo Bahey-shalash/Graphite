@@ -25,8 +25,10 @@ public enum Footnotes {
         public let text: String
     }
 
-    private static let referencePattern = FootnotesPattern.referencePattern.compiled()
-    private static let inlinePattern = FootnotesPattern.inlinePattern.compiled()
+    /// `[^label]`, not followed by `:`. The editor's styling reads references with it too.
+    static let referencePattern = FootnotesPattern.referencePattern.compiled()
+    /// `^[text]`, an inline footnote. The editor's styling reads inline footnotes with it too.
+    static let inlinePattern = FootnotesPattern.inlinePattern.compiled()
     private static let definitionPattern = FootnotesPattern.definitionPattern.compiled()
 
     /// The definitions and references in `text`, outside code.
