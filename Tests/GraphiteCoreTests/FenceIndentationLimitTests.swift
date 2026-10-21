@@ -38,7 +38,7 @@ final class FenceIndentationLimitTests: XCTestCase {
     }
 
     func testReadingViewDrawsATaskAfterBackticksIndentedFourColumnsAsACheckbox() {
-        let marked = ObsidianInlineMarkup.markingTasks(in: "    ```\n- [ ] task")
+        let marked = ReadingInlineMarking.markingTasks(in: "    ```\n- [ ] task")
         XCTAssertFalse(marked.contains("[ ]"))
     }
 

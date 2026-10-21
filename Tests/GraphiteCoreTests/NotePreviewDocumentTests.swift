@@ -22,8 +22,8 @@ final class NotePreviewDocumentDisplayMathTests: XCTestCase {
             .markdown("Text $$\nE=mc^2\n$$"),
             .heading(level: 2, text: "H", anchor: "h"),
         ])
-        XCTAssertEqual(ObsidianInlineMarkup.protectingMath(in: "Text $$\nE=mc^2\n$$ and more"), "Text $$ E\\=mc\\^2 $$ and more")
-        XCTAssertEqual(ObsidianInlineMarkup.protectingMath(in: "- $$\n  x^2\n  $$\n\nText after the list"), "- $$ x\\^2 $$\n\nText after the list")
+        XCTAssertEqual(ObsidianInlineMarkup.preparedForReading("Text $$\nE=mc^2\n$$ and more", colorsEnabled: false, paletteHexByName: [:]), "Text $$ E\\=mc\\^2 $$ and more")
+        XCTAssertEqual(ObsidianInlineMarkup.preparedForReading("- $$\n  x^2\n  $$\n\nText after the list", colorsEnabled: false, paletteHexByName: [:]), "- $$ x\\^2 $$\n\nText after the list")
     }
 
     func testOneLineFormulaFollowedByTextIsInlineMath() {
@@ -48,7 +48,7 @@ final class NotePreviewDocumentDisplayMathTests: XCTestCase {
             .markdown("Costs $$5 each\n\nLater $$ text"),
             .heading(level: 1, text: "Heading", anchor: "heading"),
         ])
-        XCTAssertEqual(ObsidianInlineMarkup.protectingMath(in: "Costs $$5 each\n\nLater $$ text"), "Costs $$5 each\n\nLater $$ text")
+        XCTAssertEqual(ObsidianInlineMarkup.preparedForReading("Costs $$5 each\n\nLater $$ text", colorsEnabled: false, paletteHexByName: [:]), "Costs $$5 each\n\nLater $$ text")
     }
 
     func testDelimitersSkipEscapesAndCodeSpans() {
@@ -56,21 +56,21 @@ final class NotePreviewDocumentDisplayMathTests: XCTestCase {
         XCTAssertEqual(DisplayMathLines.delimiterOffsets(in: "$$$", skippingCodeSpans: false), [0])
         XCTAssertEqual(DisplayMathLines.delimiterOffsets(in: "Use `$$` to open", skippingCodeSpans: true), [])
         // Counted, the `$$` in code would open a formula closed on the next line.
-        XCTAssertEqual(ObsidianInlineMarkup.protectingMath(in: "Use `$$` here\nmore $$ text"), "Use `$$` here\nmore $$ text")
+        XCTAssertEqual(ObsidianInlineMarkup.preparedForReading("Use `$$` here\nmore $$ text", colorsEnabled: false, paletteHexByName: [:]), "Use `$$` here\nmore $$ text")
     }
 
     func testBlockIdentifierRemovalLeavesDisplayMathAlone() {
         XCTAssertEqual(ObsidianInlineMarkup.preparedForReading("$$\nE = mc ^2\n$$", colorsEnabled: false, paletteHexByName: [:]), "$$ E \\= mc \\^2 $$")
-        XCTAssertEqual(ObsidianInlineMarkup.removingBlockIdentifiers(from: "Paragraph ^id\n$$\nE = mc ^2\n$$ ^eq1\nAfter ^b"),
+        XCTAssertEqual(ReadingInlineMarking.removingBlockIdentifiers(from: "Paragraph ^id\n$$\nE = mc ^2\n$$ ^eq1\nAfter ^b"),
                        "Paragraph\n$$\nE = mc ^2\n$$\nAfter")
     }
 
     func testTableDisplayMathInCodeIsLeftAsWritten() {
-        XCTAssertEqual(ObsidianInlineMarkup.displayMathInTableCellsMadeInline("```\n| $$x$$ |\n```\n| $$y$$ |"), "```\n| $$x$$ |\n```\n| $y$ |")
+        XCTAssertEqual(ReadingMathPreparation.displayMathInTableCellsMadeInline("```\n| $$x$$ |\n```\n| $$y$$ |"), "```\n| $$x$$ |\n```\n| $y$ |")
     }
 
     func testMathAfterALineThatIsNotAFenceIsProtected() {
-        XCTAssertEqual(ObsidianInlineMarkup.protectingMath(in: "``` not`a fence\n$a*b*c$ math"), "``` not`a fence\n$a\\*b\\*c$ math")
+        XCTAssertEqual(ObsidianInlineMarkup.preparedForReading("``` not`a fence\n$a*b*c$ math", colorsEnabled: false, paletteHexByName: [:]), "``` not`a fence\n$a\\*b\\*c$ math")
     }
 }
 
@@ -83,16 +83,16 @@ final class NotePreviewDocumentCommentTests: XCTestCase {
         // A heading's anchor is the same in the outline, its section and reading view.
         let commentedHeading = "## Title %%draft%%\ntext\n## Next"
         XCTAssertEqual(NotePreviewDocument.outline(of: commentedHeading).map(\.anchor), ["title", "next"])
-        XCTAssertEqual(NotePreviewDocument.section(of: commentedHeading, headingAnchor: "title"), "## Title %%draft%%\ntext")
+        XCTAssertEqual(NotePreviewDocument.locatedSectionIfPresent(of: commentedHeading, headingAnchor: "title")?.text, "## Title %%draft%%\ntext")
         XCTAssertEqual(NotePreviewDocument.blocks(from: commentedHeading).first, .heading(level: 2, text: "Title", anchor: "title"))
     }
 
     func testCommentMarkersInCodeAreText() {
         let fencedCode = "```c\nprintf(\"%d%%\\n\", done);\nprintf(\"%%s\", name);\n```\nInline `x %% y` and `a %% b` here."
-        XCTAssertEqual(ObsidianInlineMarkup.removingComments(from: fencedCode), fencedCode)
+        XCTAssertEqual(ObsidianComments.removingComments(from: fencedCode), fencedCode)
         let cells = "```python\n# %% cell one\nx = 1\n# %% cell two\ny = 2\n```"
         XCTAssertEqual(ObsidianInlineMarkup.preparedForReading(cells, colorsEnabled: false, paletteHexByName: [:]), cells)
-        XCTAssertEqual(ObsidianInlineMarkup.removingComments(from: "a %%hidden%% b `%%code%%` %%\nlines\n%%c"), "a  b `%%code%%` c")
+        XCTAssertEqual(ObsidianComments.removingComments(from: "a %%hidden%% b `%%code%%` %%\nlines\n%%c"), "a  b `%%code%%` c")
     }
 
     func testCommentMarkersInCodeInsideACalloutAreText() {
@@ -104,7 +104,7 @@ final class NotePreviewDocumentCommentTests: XCTestCase {
     }
 
     func testUnclosedCommentStaysVisible() {
-        XCTAssertEqual(ObsidianInlineMarkup.removingComments(from: "a %% b\nc"), "a %% b\nc")
+        XCTAssertEqual(ObsidianComments.removingComments(from: "a %% b\nc"), "a %% b\nc")
     }
 }
 
@@ -122,26 +122,25 @@ final class NotePreviewDocumentHeadingAndSectionTests: XCTestCase {
 
     func testSectionIgnoresHeadingLikeLinesInCode() {
         let body = "# Setup\nIntro\n```bash\n# install dependencies\nbrew install x\n```\nAfter code\n# Next"
-        XCTAssertEqual(NotePreviewDocument.section(of: body, headingAnchor: "setup"), "# Setup\nIntro\n```bash\n# install dependencies\nbrew install x\n```\nAfter code")
-        XCTAssertEqual(NotePreviewDocument.section(of: "```\n# Setup\n```\nfake\n# Setup\nreal content", headingAnchor: "setup"), "# Setup\nreal content")
+        XCTAssertEqual(NotePreviewDocument.locatedSectionIfPresent(of: body, headingAnchor: "setup")?.text, "# Setup\nIntro\n```bash\n# install dependencies\nbrew install x\n```\nAfter code")
+        XCTAssertEqual(NotePreviewDocument.locatedSectionIfPresent(of: "```\n# Setup\n```\nfake\n# Setup\nreal content", headingAnchor: "setup")?.text, "# Setup\nreal content")
     }
 
     func testOutlineAndSectionsFollowFencesInCRLFNotes() {
         let body = "# One\r\n```\r\ncode\r\n```\r\n# Two\r\ntext\r\n"
         XCTAssertEqual(NotePreviewDocument.outline(of: body).map(\.text), ["One", "Two"])
-        XCTAssertEqual(NotePreviewDocument.section(of: body, headingAnchor: "one"), "# One\r\n```\r\ncode\r\n```\r")
+        XCTAssertEqual(NotePreviewDocument.locatedSectionIfPresent(of: body, headingAnchor: "one")?.text, "# One\r\n```\r\ncode\r\n```\r")
         // A marked task is its marker and its status character's code point.
-        let unchecked = String(ObsidianInlineMarkup.uncheckedTaskMarker) + "32"
-        XCTAssertEqual(ObsidianInlineMarkup.markingTasks(in: "```\r\n- [ ] code\r\n```\r\n- [ ] real"), "```\r\n- [ ] code\r\n```\r\n- \(unchecked) real")
+        let unchecked = String(ReadingMarkers.uncheckedTaskMarker) + "32"
+        XCTAssertEqual(ReadingInlineMarking.markingTasks(in: "```\r\n- [ ] code\r\n```\r\n- [ ] real"), "```\r\n- [ ] code\r\n```\r\n- \(unchecked) real")
     }
 
     func testSectionsAcceptObsidianHeadingPaths() {
         let body = "# Parent\n## Child\nwanted\n# Other\n## Child\nother\n## C#\nsharp"
-        XCTAssertEqual(NotePreviewDocument.section(of: body, headingAnchor: "other#child"), "## Child\nother")
-        XCTAssertEqual(NotePreviewDocument.section(of: body, headingAnchor: "c#"), "## C#\nsharp")
-        XCTAssertNil(NotePreviewDocument.sectionIfPresent(of: body, headingAnchor: "parent#missing"))
-        XCTAssertNil(NotePreviewDocument.sectionIfPresent(of: body, headingAnchor: "missing"))
-        XCTAssertEqual(NotePreviewDocument.section(of: body, headingAnchor: "missing"), body)
+        XCTAssertEqual(NotePreviewDocument.locatedSectionIfPresent(of: body, headingAnchor: "other#child")?.text, "## Child\nother")
+        XCTAssertEqual(NotePreviewDocument.locatedSectionIfPresent(of: body, headingAnchor: "c#")?.text, "## C#\nsharp")
+        XCTAssertNil(NotePreviewDocument.locatedSectionIfPresent(of: body, headingAnchor: "parent#missing"))
+        XCTAssertNil(NotePreviewDocument.locatedSectionIfPresent(of: body, headingAnchor: "missing"))
     }
 }
 
@@ -187,10 +186,13 @@ private final class BuiltBlocks: @unchecked Sendable {
 final class NotePreviewDocumentInlineMarkupTests: XCTestCase {
     func testMarkerCharactersInTheNoteAreNotReadAsFormatting() {
         let prepared = ObsidianInlineMarkup.preparedForReading("Nerd font glyph \u{E005} here and \u{E000}secret\u{E001} tail", colorsEnabled: true, paletteHexByName: [:])
-        XCTAssertEqual(prepared, "Nerd font glyph \u{FFFD} here and \u{FFFD}secret\u{FFFD} tail")
-        let markers: Set<Character> = [ObsidianInlineMarkup.colorStartMarker, ObsidianInlineMarkup.colorHexEndMarker, ObsidianInlineMarkup.colorEndMarker,
-                                       ObsidianInlineMarkup.highlightStartMarker, ObsidianInlineMarkup.highlightEndMarker,
-                                       ObsidianInlineMarkup.uncheckedTaskMarker, ObsidianInlineMarkup.checkedTaskMarker]
+        // Each is escaped: the escape lead U+E009, then a stand-in the reading view's parser
+        // turns back into the character as written.
+        XCTAssertEqual(prepared, "Nerd font glyph \u{E009}\u{E015} here and \u{E009}\u{E010}secret\u{E009}\u{E011} tail")
+        XCTAssertEqual(ReadingMarkers.original(ofStandIn: "\u{E015}"), "\u{E005}")
+        let markers: Set<Character> = [ReadingMarkers.colorStartMarker, ReadingMarkers.colorHexEndMarker, ReadingMarkers.colorEndMarker,
+                                       ReadingMarkers.highlightStartMarker, ReadingMarkers.highlightEndMarker,
+                                       ReadingMarkers.uncheckedTaskMarker, ReadingMarkers.checkedTaskMarker]
         XCTAssertFalse(prepared.contains { character in markers.contains(character) })
         // Other private-use characters are ordinary text.
         XCTAssertEqual(ObsidianInlineMarkup.preparedForReading("icon \u{E0A0}", colorsEnabled: true, paletteHexByName: [:]), "icon \u{E0A0}")
@@ -198,16 +200,16 @@ final class NotePreviewDocumentInlineMarkupTests: XCTestCase {
 
     func testCustomTaskStatusesAreCheckboxes() {
         // A marked task is its marker and its status character's code point.
-        let unchecked = String(ObsidianInlineMarkup.uncheckedTaskMarker)
-        let checked = String(ObsidianInlineMarkup.checkedTaskMarker)
-        XCTAssertEqual(ObsidianInlineMarkup.markingTasks(in: "- [/] in progress\n- [-] cancelled\n- [x] done\n- [ ] open\n- [] empty"),
+        let unchecked = String(ReadingMarkers.uncheckedTaskMarker)
+        let checked = String(ReadingMarkers.checkedTaskMarker)
+        XCTAssertEqual(ReadingInlineMarking.markingTasks(in: "- [/] in progress\n- [-] cancelled\n- [x] done\n- [ ] open\n- [] empty"),
                        "- \(checked)47 in progress\n- \(checked)45 cancelled\n- \(checked)120 done\n- \(unchecked)32 open\n- [] empty")
     }
 
     func testHighlightsSkipCodeSpans() {
-        let start = String(ObsidianInlineMarkup.highlightStartMarker)
-        let end = String(ObsidianInlineMarkup.highlightEndMarker)
-        XCTAssertEqual(ObsidianInlineMarkup.markingHighlights(in: "==a== `==b==`\n==c=="), "\(start)a\(end) `==b==`\n\(start)c\(end)")
+        let start = String(ReadingMarkers.highlightStartMarker)
+        let end = String(ReadingMarkers.highlightEndMarker)
+        XCTAssertEqual(ReadingInlineMarking.markingHighlights(in: "==a== `==b==`\n==c=="), "\(start)a\(end) `==b==`\n\(start)c\(end)")
     }
 
     func testSoftLineBreaksKeepCRLFLineEndings() {
@@ -348,13 +350,13 @@ final class NotePreviewDocumentTests: XCTestCase {
 
     func testDisplayMathInsideTableCellsBecomesInline() {
         let table = "| $$A \\uparrow$$ | text |\n$$\nx\n$$"
-        XCTAssertEqual(ObsidianInlineMarkup.displayMathInTableCellsMadeInline(table), "| $A \\uparrow$ | text |\n$$\nx\n$$")
+        XCTAssertEqual(ReadingMathPreparation.displayMathInTableCellsMadeInline(table), "| $A \\uparrow$ | text |\n$$\nx\n$$")
     }
 
     func testSectionRunsToTheNextHeadingOfTheSameLevel() {
         let body = "# Top\nintro\n## Saturation Region\ntext\n### Detail\nmore\n## Linear Region\nother"
-        XCTAssertEqual(NotePreviewDocument.section(of: body, headingAnchor: "saturation region"), "## Saturation Region\ntext\n### Detail\nmore")
-        XCTAssertEqual(NotePreviewDocument.section(of: body, headingAnchor: "missing"), body)
+        XCTAssertEqual(NotePreviewDocument.locatedSectionIfPresent(of: body, headingAnchor: "saturation region")?.text, "## Saturation Region\ntext\n### Detail\nmore")
+        XCTAssertNil(NotePreviewDocument.locatedSectionIfPresent(of: body, headingAnchor: "missing"))
     }
 
     func testTableOfContentsLinksFindHeadingsByTheirGitHubSlugs() {
@@ -374,23 +376,23 @@ final class NotePreviewDocumentTests: XCTestCase {
         // The heading's own text still wins, and a slug no heading has finds nothing.
         XCTAssertEqual(NotePreviewDocument.headingLineLocation(ofHeadingWithAnchor: "1. overview", in: body), overviewLocation)
         XCTAssertNil(NotePreviewDocument.headingLineLocation(ofHeadingWithAnchor: "missing-heading", in: body))
-        XCTAssertEqual(NotePreviewDocument.section(of: body, headingAnchor: "21-objectives"), "### 2.1 Objectives\nmore")
+        XCTAssertEqual(NotePreviewDocument.locatedSectionIfPresent(of: body, headingAnchor: "21-objectives")?.text, "### 2.1 Objectives\nmore")
     }
 
     func testDisplayMathBlockBecomesOneLineWithItsLaTeXProtected() {
         let markdown = "Before\n\n$$\n\\frac{a}{b} % half\n\\{x \\mid x > 0\\}\n$$\n\nAfter"
-        XCTAssertEqual(ObsidianInlineMarkup.protectingMath(in: markdown),
+        XCTAssertEqual(ObsidianInlineMarkup.preparedForReading(markdown, colorsEnabled: false, paletteHexByName: [:]),
                        "Before\n\n$$ \\\\frac\\{a\\}\\{b\\}  \\\\\\{x \\\\mid x \\> 0\\\\\\} $$\n\nAfter")
     }
 
     func testQuotedDisplayMathKeepsItsQuotePrefix() {
-        XCTAssertEqual(ObsidianInlineMarkup.protectingMath(in: "> $$\n> x^2\n> $$"), "> $$ x\\^2 $$")
+        XCTAssertEqual(ObsidianInlineMarkup.preparedForReading("> $$\n> x^2\n> $$", colorsEnabled: false, paletteHexByName: [:]), "> $$ x\\^2 $$")
     }
 
     func testInlineMathIsProtectedButDollarAmountsAndCodeAreNot() {
-        XCTAssertEqual(ObsidianInlineMarkup.protectingMath(in: "Area $a*b*c$ costs $5 and $10."), "Area $a\\*b\\*c$ costs $5 and $10.")
-        XCTAssertEqual(ObsidianInlineMarkup.protectingMath(in: "`$a*b$` and\n```\n$$\nx*y\n$$\n```"), "`$a*b$` and\n```\n$$\nx*y\n$$\n```")
-        XCTAssertEqual(ObsidianInlineMarkup.protectingMath(in: "Inline $$x_1$$ display"), "Inline $$x\\_1$$ display")
+        XCTAssertEqual(ObsidianInlineMarkup.preparedForReading("Area $a*b*c$ costs $5 and $10.", colorsEnabled: false, paletteHexByName: [:]), "Area $a\\*b\\*c$ costs $5 and $10.")
+        XCTAssertEqual(ObsidianInlineMarkup.preparedForReading("`$a*b$` and\n```\n$$\nx*y\n$$\n```", colorsEnabled: false, paletteHexByName: [:]), "`$a*b$` and\n```\n$$\nx*y\n$$\n```")
+        XCTAssertEqual(ObsidianInlineMarkup.preparedForReading("Inline $$x_1$$ display", colorsEnabled: false, paletteHexByName: [:]), "Inline $$x\\_1$$ display")
     }
 
     func testMathJaxEnvironmentsBecomeOnesTheTypesetterDraws() {
@@ -405,7 +407,7 @@ final class NotePreviewDocumentTests: XCTestCase {
     }
 
     func testPipeEscapedForATableStaysAPipeInsideMath() {
-        XCTAssertEqual(ObsidianInlineMarkup.protectingMath(in: "| $a \\| b$ | c |"), "| $a \\| b$ | c |")
+        XCTAssertEqual(ObsidianInlineMarkup.preparedForReading("| $a \\| b$ | c |", colorsEnabled: false, paletteHexByName: [:]), "| $a \\| b$ | c |")
     }
 
     func testLongerFencesAreClosedOnlyByLongerOrEqualFences() {
@@ -417,7 +419,7 @@ final class NotePreviewDocumentTests: XCTestCase {
     }
 
     func testBlockIdentifiersAreHiddenWhenReading() {
-        XCTAssertEqual(ObsidianInlineMarkup.removingBlockIdentifiers(from: "Growth was normal. ^7943cj\n| a |\n^table1\n```\ncode ^keep\n```\nx^2"),
+        XCTAssertEqual(ReadingInlineMarking.removingBlockIdentifiers(from: "Growth was normal. ^7943cj\n| a |\n^table1\n```\ncode ^keep\n```\nx^2"),
                        "Growth was normal.\n| a |\n\n```\ncode ^keep\n```\nx^2")
         let text = "Growth was normal. ^7943cj" as NSString
         let spans = MarkdownStyleScanner.spans(in: text, range: NSRange(location: 0, length: text.length))
@@ -426,10 +428,10 @@ final class NotePreviewDocumentTests: XCTestCase {
 
     func testTaskCheckboxesAreMarkedOutsideCode() {
         // A marked task is its marker and its status character's code point.
-        let unchecked = String(ObsidianInlineMarkup.uncheckedTaskMarker)
-        let checked = String(ObsidianInlineMarkup.checkedTaskMarker)
+        let unchecked = String(ReadingMarkers.uncheckedTaskMarker)
+        let checked = String(ReadingMarkers.checkedTaskMarker)
         let markdown = "- [ ] open\n  1. [x] done\n> - [X] quoted\n- [/] other\n[ ] not a list\n```\n- [ ] code\n```"
-        XCTAssertEqual(ObsidianInlineMarkup.markingTasks(in: markdown),
+        XCTAssertEqual(ReadingInlineMarking.markingTasks(in: markdown),
                        "- \(unchecked)32 open\n  1. \(checked)120 done\n> - \(checked)88 quoted\n- \(checked)47 other\n[ ] not a list\n```\n- [ ] code\n```")
     }
 
