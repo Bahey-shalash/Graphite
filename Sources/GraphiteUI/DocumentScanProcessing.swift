@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import GraphiteApple
+import GraphiteCore
 import Observation
 
 /// Makes the PDF of a document scan while the person waits, and hands it to the caller to
@@ -29,7 +30,7 @@ final class DocumentScanProcessing {
         guard !isProcessing else { return nil }
         isProcessing = true
         // The one read of the wall clock for scanning: the time the scanner returned names the file.
-        let scannedAt = Date.now
+        let scannedAt = WallClock.currentDate()
         let builder = ScannedDocumentPDFBuilder(wordRecognizer: wordRecognizer)
         let task = Task { [weak self] in
             do {

@@ -15,7 +15,8 @@ public enum DroppedFileStaging {
             .appendingPathComponent("GraphiteDroppedFiles", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let copy = folder.appendingPathComponent(fileName(suggestedName: suggestedName, fileName: file.lastPathComponent, fileExtension: fileExtension ?? file.pathExtension))
+        let name = fileName(suggestedName: suggestedName, fileName: file.lastPathComponent, fileExtension: fileExtension ?? file.pathExtension)
+        let copy = folder.appendingPathComponent(name)
         do {
             try FileManager.default.copyItem(at: file, to: copy)
         } catch {

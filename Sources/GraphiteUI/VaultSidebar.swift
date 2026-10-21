@@ -298,7 +298,8 @@ struct VaultSidebar: View {
                        newFolder: { directory in workspace.fileSheet = .newFolder(in: workspace.newFileDirectory(directory)) },
                        importFiles: { sources, directory in Task { await workspace.importFiles(from: sources, into: workspace.newFileDirectory(directory)) } },
                        saveScannedNotebook: workspace.scannedNotebookSaver(),
-                       reportProblem: { [workspace] message in workspace.errorMessage = message })
+                       reportProblem: { [workspace] message in workspace.errorMessage = message },
+                       savePicture: workspace.pictureSaver(), canTakePhoto: WorkspaceModel.canTakePhotos)
     }
 
     @ViewBuilder private var newDocumentMenuItems: some View {
