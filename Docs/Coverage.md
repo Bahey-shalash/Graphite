@@ -4,6 +4,30 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-21.
 
+## Scrolling a long note: fewer jumps, a third of the memory: 2026-10-21
+
+Scrolling a long Live Preview note jumped, stuttered and grew memory on the Mac, the iPad and the iPhone (the owner, 2026-10-21; [Editor-scrolling-todo.md](Editor-scrolling-todo.md), issue #57). Two causes were found and fixed:
+
+- **A new block view's first heights.** Each table, formula and callout reported three heights as SwiftUI laid it out for the first time, every time it scrolled into view (a table 8, 135, then 155 points; a formula 8, 22, then 41.5; a callout 56, 70, then 78), and each one restyled the block and moved the text after it; the 8-point reports even replaced the remembered heights. A new view of a block measured before at this width now keeps the measured height until its own reports have stayed the same for 0.12 s (`MarkdownEditorStyling.newViewHeightSettlingDelay`), so a block that comes back is restyled only if its height really changed; a block never measured takes each report at once, while it is still at the edge of the screen. In runs 2 and 3 of the benchmark no block changed height at all, against 360 restyles before.
+- **SwiftUI `Canvas`.** Display formulas, inline formulas and emoji in blocks, and inline-code backgrounds were drawn into canvases, which SwiftUI draws through RenderBox; the first canvas starts a Metal device that held about 200 MB of graphics memory while a note scrolled (twelve canvases in a window peak at 245 MB, the same rows drawn as shapes at 18 MB). They are now SwiftUI shapes and views (Textual patch 19, SwiftUIMath patch 5): a formula is its glyph outlines, so it stays vector in a PDF, stroked by 1.4 % of its size on the Mac to match Core Text's font smoothing. Rendered beside the canvas versions, a formula, a table with inline math and code, and a callout match within anti-aliasing at glyph edges.
+
+Measured with `PerformanceBenchmarkTests.testOpeningScrollingAndTypingInALongNote`, which now also reports jumps (the line at the middle of the screen before a step against where it is after, beyond the distance scrolled): a 40-section lecture note, steps of 40 % of the window, down and back up, three runs; runs 2 and 3, when the note's block heights are known. Before is main d93d23ca, after is these changes on main fe0dc0e4 (measured before the outlines' 1.4 % stroke on the Mac was added); the iPad is the simulator (iPad Pro 11-inch (M5), iOS 27, Release), whose graphics memory the footprint does not show.
+
+| | Mac before | Mac after | iPad before | iPad after |
+| --- | --- | --- | --- | --- |
+| Jumps over 50 pt per run | 9 | 2 | 6–7 | 2 |
+| Largest jump | 377 pt | 377 pt | 437 pt | 193 pt |
+| Total jump distance | 1,819 pt | 575 pt | 1,101–1,426 pt | 353–425 pt |
+| Memory growth scrolling down | 217–228 MB | 71–78 MB | 33–37 MB | 35–38 MB |
+| Peak footprint | 452–488 MB | 273–308 MB | | |
+| Frames over 16 ms, down / up | 44–45 / 16–17 | 40–43 / 11–13 | 46–50 / 28–29 | 34–41 / 23–24 |
+| Frame 95th percentile, whole scroll | 27 ms | 26 ms | 46–51 ms | 28–29 ms |
+| Main thread for the whole scroll | 3,028–3,045 ms | 3,149–3,150 ms | 4,649–5,047 ms | 3,561–3,776 ms |
+
+On the Mac the main thread worked about 4 % more over the whole scroll; why was not investigated, and the frame counts improved. The two jumps left in each run are at the very top of the note, where no block changes height: TextKit's estimate of the text above the viewport. Scroll anchoring (scrolling by what a block above the screen grew) was tried and removed: AppKit already keeps the visible text in place when text above it changes height, and the correction doubled it (more jumps on the Mac). Laying out the whole note at once took 0.05 s and changed nothing.
+
+Checked: the package tests of Textual's and SwiftUIMath's patches, the editor's styling, edit tracking and rendered blocks, the reading view, numbered equations, embeds and tables (`AppProjectTextualPatchTests`, `MarkdownEditorStyling*`, `UiEditor*RenderedBlock*`, `UiEditorEditTrackingTests`, `UiEditorMacTableEditingTests`, `UiStylingFixTests`, `UiReadingViewTests`, `UiNumberedEquationTests`, `UiLivePreviewEmbedContinuityTests`, `ReadingViewBuilder*` and the other Live Preview classes), the iPad benchmark in the simulator through `scripts/run-hosted-suite-silently.sh`. **Not checked:** an iPhone, a physical iPad (where the graphics memory counts), scrolling by hand, the hosted iPad suite, and the PDF export's tests (on its branch). **Open:** the first time a note scrolls in a process, a GPU allocation of about 128 MB still appears (reclaimable afterwards); 140 MB of heap is held after scrolling the note down.
+
 ## Reveal in Finder on the Mac: 2026-10-21
 
 What is built: **Reveal in Finder** opens a Finder window with the item selected (`NSWorkspace.activateFileViewerSelecting`; a folder is selected in its parent). It is in the sidebar's menus of files and folders, a tab's menu, the "…" menus of notes and canvases, and **Reveal Vault in Finder** in the vault switcher's menu. `RevealInFinderButton` and `FileLocationMenuItems` (`FileLocationMenuItems.swift`) take the vault folder, not the workspace. The iPad and iPhone leave the item out. The Guide's "Rename, Move and Delete" topic mentions it on the Mac. The sidebar's file menu now copies through the shared `Pasteboard.copy`.
@@ -1903,6 +1927,7 @@ Checked on 2026-09-25 on "Graphite Sidebar iPad", after the bug-fix merge:
 
 ## Implemented but not yet verified
 
+- Bases in a note taking the pane's width inside its margins (2026-10-21): `UiEditorMacRenderedBlocksTests.testABaseSpansThePaneWhileATableKeepsToTheReadableColumn` (a base's view starts at the pane's margin, a table's at the readable column, no code box behind the base), `ReadingColumnWidthTests.testABaseReachesFromTheReadableColumnToTheReadingViewsMargins`, and a render of the Mac editor at 1,500 points with a cards base of eight notes (five cards across, the text in its column). Checked the same day in the Mac app (a Debug build of main, window filling a 1,485-point screen, sidebar hidden) on a Restaurants note with three cards bases and a map base: in Live Preview and in the reading view the gallery shows seven cards across where it showed three, the map takes the same width, and the text stays in its column. Not yet looked at on the iPad, nor with a table base.
 - The Pencil palette giving way to screens presented over a PDF or the drawing editor (2026-10-10): checked in the simulators (see its section at the top), not on a device or with a physical Apple Pencil.
 - Recording a lecture and recovering it after Graphite is closed mid-recording, with a real microphone (see the check above).
 
