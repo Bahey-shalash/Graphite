@@ -608,7 +608,7 @@ final class ReadAloudController {
     /// Explicit navigation leaves manual scrolling alone during narration.
     func showPDFPassage() -> Bool {
         guard canShowPDFPassage, let pdf = sourcePDF, let view = pdf.pdfView else { return false }
-        if let highlight = highlights(in: pdf).first, case .recognizedText = highlight.location,
+        if let highlight = highlights(in: pdf).first, case .pageArea = highlight.location,
            let page = pdf.document.page(at: highlight.pageIndex), let bounds = highlight.pageBounds(in: pdf.document) {
             view.go(to: bounds.insetBy(dx: -16, dy: -40).intersection(page.bounds(for: view.displayBox)), on: page)
             return true
