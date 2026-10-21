@@ -200,8 +200,9 @@ final class WorkspaceModel {
     /// What every window of the app shares: the place store, the add-on packs and what builds
     /// `readAloud` when the plugin is on at launch or turned on later.
     @ObservationIgnored let processServices: ProcessServices
-    /// The open vault's Obsidian community plugins.
-    let communityPlugins: CommunityPluginHost
+    /// The open vault's Obsidian community plugins, which every window on the vault shares
+    /// (`CommunityPluginHosts`); before a vault opens, an idle host of the window's own.
+    private(set) var communityPlugins: CommunityPluginHost
     /// A window to open on this vault, asked for by "Open in New Window"; the window's scene
     /// opens it and clears the request.
     var newWindowRequest: GraphiteWindowContent?
@@ -398,8 +399,9 @@ final class WorkspaceModel {
             vaultIndexLease.end()
             throw error
         }
-        // The plugins of the vault being left unload before anything of it closes.
-        await communityPlugins.vaultWillClose()
+        // The plugins of the vault being left unload before anything of it closes, unless
+        // another window has that vault open.
+        await leaveVaultsPlugins()
         // The editors stayed editable through the waits above: what was typed meanwhile is
         // saved now, with nothing to wait for between this and the documents closing. A failed
         // save keeps this vault open with its unsaved work, and its plugins load again.
@@ -408,7 +410,7 @@ final class WorkspaceModel {
         } catch {
             vaultMonitor.stop()
             vaultIndexLease.end()
-            communityPlugins.vaultDidOpen(self)
+            joinVaultsPlugins()
             throw error
         }
         forgetStateOfVaultBeingLeft()
@@ -447,7 +449,7 @@ final class WorkspaceModel {
         case .none: layoutVaultIdentifier = currentVaultIdentifier
         }
         checkForUnfinishedRecordings()
-        communityPlugins.vaultDidOpen(self)
+        joinVaultsPlugins()
         if preferences.isEnabled(.dailyNotes), dailyNoteSettings.opensOnStartup { await openDailyNote() }
     }
 
@@ -738,6 +740,31 @@ final class WorkspaceModel {
         externalChangeTask?.cancel()
         stopIndexing()
         processServices.openWindows.remove(openWindow)
+        Task { await leaveVaultsPlugins() }
+    }
+
+    /// The window came to the front: the vault's plugins act on it.
+    func windowCameToFront() {
+        guard let currentVaultIdentifier else { return }
+        processServices.communityPluginHosts.windowCameToFront(vault: currentVaultIdentifier, window: ObjectIdentifier(self))
+    }
+
+    /// Takes the open vault's plugin host, shared with its other windows; the first window on
+    /// the vault loads the plugins.
+    private func joinVaultsPlugins() {
+        guard let currentVaultIdentifier else { return }
+        let joined = processServices.communityPluginHosts.join(vault: currentVaultIdentifier, window: ObjectIdentifier(self)) { [weak self] in
+            guard let self else { return }
+            communityPlugins.adopt(self)
+        }
+        communityPlugins = joined.host
+        if joined.isFirstWindow { joined.host.vaultDidOpen(self) } else { joined.host.adopt(self) }
+    }
+
+    /// Leaves the open vault's plugins to its other windows, or unloads them with the last.
+    private func leaveVaultsPlugins() async {
+        guard let currentVaultIdentifier else { return await communityPlugins.vaultWillClose() }
+        await processServices.communityPluginHosts.leave(vault: currentVaultIdentifier, window: ObjectIdentifier(self))
     }
 
     // MARK: One at a time

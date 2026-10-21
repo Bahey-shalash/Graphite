@@ -365,6 +365,12 @@ final class CommunityPluginHost {
         }
     }
 
+    /// Another window on the open vault came to the front: the plugins act on it (its
+    /// active editor, its file list, its alerts) from now on (`CommunityPluginHosts`).
+    func adopt(_ workspace: WorkspaceModel) {
+        self.workspace = workspace
+    }
+
     /// The vault is being left: plugins unload first, as when Obsidian closes a vault.
     func vaultWillClose() async {
         // A start asked for while the runtime stops must not run in the vault being left.

@@ -34,6 +34,8 @@ public final class ProcessServices {
     let openWindows = OpenWindows()
     /// The notes open in every window, so a note open in two windows is one text.
     let openNotes = OpenNoteFiles()
+    /// One community plugin runtime per open vault, shared by its windows.
+    let communityPluginHosts: CommunityPluginHosts
     /// Builds a window's Read Aloud controller and its speech: the system voice, the
     /// downloaded voices and their renderer, shared by every window. Called only while the
     /// Read Aloud core plugin is on, so a launch with it off creates no speech engine. The
@@ -53,6 +55,7 @@ public final class ProcessServices {
         addOns = .standard(applicationFolders: applicationFolders)
         vaultIndexes = VaultIndexRegistry(cachesFolder: applicationFolders.cachesFolder)
         drawingDrafts = DrawingEditorDraftStore(directory: DrawingEditorDraftStore.directory(in: applicationFolders))
+        communityPluginHosts = CommunityPluginHosts(defaults: defaults)
         self.makeReadAloudController = makeReadAloudController
     }
 
