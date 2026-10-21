@@ -10,12 +10,12 @@ Section 9 of each area document adds the 72 findings of the delta audit of 2026-
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | SRP | 13 | 52 | 18 | 0 | 0 | 83 |
 | OCP | 3 | 32 | 22 | 0 | 0 | 57 |
-| LSP | 8 | 32 | 22 | 0 | 0 | 62 |
+| LSP | 8 | 33 | 24 | 0 | 0 | 65 |
 | ISP | 3 | 21 | 18 | 0 | 0 | 42 |
 | DIP | 4 | 34 | 23 | 0 | 0 | 61 |
 | CC | 2 | 94 | 124 | 0 | 0 | 220 |
 | BUG | 1 | 5 | 4 | 0 | 73 | 83 |
-| **All** | 34 | 270 | 231 | 0 | 73 | **608** |
+| **All** | 34 | 271 | 233 | 0 | 73 | **611** |
 
 | ID | Area | Severity | Title |
 | --- | --- | --- | --- |
@@ -187,6 +187,9 @@ Section 9 of each area document adds the 72 findings of the delta audit of 2026-
 | [LSP-MDCORE-01](areas/mdcore.md#lsp-mdcore-01-the-same-markdown-line-gets-different-answers-from-parallel-implementations-of-one-rule) | MDCORE | High | The same Markdown line gets different answers from parallel implementations of one rule |
 | [LSP-MDCORE-02](areas/mdcore.md#lsp-mdcore-02-private-use-marker-protection-has-two-mechanisms-with-different-results) | MDCORE | Low | Private-use marker protection has two mechanisms with different results |
 | [LSP-MDCORE-03](areas/mdcore.md#lsp-mdcore-03-tests-pin-two-wrappers-production-never-calls) | MDCORE | Low | Tests pin two wrappers production never calls |
+| [LSP-MDCORE-04](areas/mdcore.md#lsp-mdcore-04-indented-code-is-code-for-the-index-and-for-colors-and-text-for-every-other-consumer) | MDCORE | Medium | Indented code is code for the index and for colors, and text for every other consumer |
+| [LSP-MDCORE-05](areas/mdcore.md#lsp-mdcore-05-the-reading-views-outline-and-blocks-split-lines-at-n-only-so-a-note-with-lone-r-line-endings-has-no-outline) | MDCORE | Low | The reading view's outline and blocks split lines at `\n` only, so a note with lone `\r` line endings has no outline |
+| [LSP-MDCORE-06](areas/mdcore.md#lsp-mdcore-06-u2028-ends-a-line-for-the-nsstring-readers-and-stays-inside-it-for-commonmark) | MDCORE | Low | U+2028 ends a line for the `NSString` readers and stays inside it for CommonMark |
 | [LSP-PLUGIN-01](areas/plugin.md#lsp-plugin-01-the-node-tests-vault-host-differs-from-the-swift-bridge-in-seven-behaviours-one-of-which-hides-a-bug) | PLUGIN | High | The Node tests' vault host differs from the Swift bridge in seven behaviours, one of which hides a bug |
 | [LSP-PLUGIN-02](areas/plugin.md#lsp-plugin-02-seven-reads-turn-a-failure-into-an-empty-result) | PLUGIN | Medium | Seven reads turn a failure into an empty result |
 | [LSP-PLUGIN-03](areas/plugin.md#lsp-plugin-03-send-hides-the-runtimes-failure-kinds-and-treats-a-non-object-answer-as-success) | PLUGIN | Medium | `send` hides the runtime's failure kinds and treats a non-object answer as success |
