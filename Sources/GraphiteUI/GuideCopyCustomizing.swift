@@ -104,6 +104,25 @@ enum GuideCustomizingCopy {
                 GuideStep(forPlatform(touch: "Settings: ⌘,.", mac: "Settings: ⌘,. This Guide: ⌘?."))
             ])
     }
+
+    static var sourceCodeAndFeedback: GuideTopicContent {
+        GuideTopicContent(
+            systemImage: "chevron.left.forwardslash.chevron.right",
+            title: "Source Code and Feedback",
+            summary: "Graphite is open source under the Apache License 2.0. Its code and issues are on GitHub at " +
+                     "[github.com/Graphite-Note/Graphite](https://github.com/Graphite-Note/Graphite).",
+            steps: [
+                GuideStep("Settings › General › About has **Source Code**, which opens the repository, and **Report a Problem**, which opens " +
+                          "its issues."),
+                GuideStep("To report a problem, choose **New issue**, then **Bug report**, and say what you did, what you expected and what " +
+                          "happened. A small sample file helps more than a personal note."),
+                GuideStep(forPlatform(
+                    touch: "Testing through TestFlight? Take a screenshot and share it with TestFlight to send feedback straight to the developer.",
+                    mac: "Testing through TestFlight? In the TestFlight app, choose Graphite Note, then **Send Beta Feedback**."))
+            ],
+            tips: ["Report a security problem privately: on the repository's **Security** tab, choose **Report a vulnerability**.",
+                   "To build Graphite yourself, follow **Building** in the repository's README."])
+    }
 }
 
 extension GuideTopic {
@@ -141,6 +160,7 @@ extension GuideTopic {
         case .syncAndObsidian: GuideCustomizingCopy.syncAndObsidian
         case .fileRecovery: GuideCustomizingCopy.fileRecovery
         case .keyboardShortcuts: GuideCustomizingCopy.keyboardShortcuts
+        case .sourceCodeAndFeedback: GuideCustomizingCopy.sourceCodeAndFeedback
         }
     }
 }

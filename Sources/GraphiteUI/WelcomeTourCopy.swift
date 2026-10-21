@@ -3,7 +3,7 @@ import Foundation
 /// The words and pictures of each welcome tour page. Every place named here (a button, a
 /// menu, a settings page) is named as the app labels it, so a reader can find it.
 enum WelcomeTourCopy {
-    static let sourceCodeAddress = URL(string: "https://github.com/Graphite-Note/Graphite")
+    static let sourceCodeAddress = ProjectAddresses.sourceCode
 
     static let welcome = WelcomeTourPageContent(
         systemImage: "pencil.and.scribble",
@@ -221,7 +221,8 @@ enum WelcomeTourCopy {
             WelcomeTourPoint(systemImage: "plus.rectangle.on.folder", title: .words("Create New Vault"),
                              detail: "Start in a new, empty folder, on this device or in iCloud Drive."),
             WelcomeTourPoint(systemImage: "book", title: .words("Learn step by step"), detail: guideLocationDetail),
-            WelcomeTourPoint(systemImage: "exclamationmark.bubble", title: .words("This is a beta"), detail: betaFeedbackDetail)
+            WelcomeTourPoint(systemImage: "exclamationmark.bubble", title: .words("This is a beta"), detail: betaFeedbackDetail,
+                             destination: ProjectAddresses.issues)
         ],
         pointLayout: .list,
         screenshots: [])

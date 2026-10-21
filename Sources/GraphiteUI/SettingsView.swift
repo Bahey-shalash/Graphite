@@ -169,6 +169,12 @@ private struct GeneralSettingsPage: View {
                 LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development build")
                 Button("Welcome Tour", systemImage: "sparkles") { showsWelcomeTour = true }
                 Button("Guide", systemImage: "book") { showsGuide = true }
+                if let sourceCode = ProjectAddresses.sourceCode {
+                    Link(destination: sourceCode) { Label("Source Code", systemImage: "chevron.left.forwardslash.chevron.right") }
+                }
+                if let issues = ProjectAddresses.issues {
+                    Link(destination: issues) { Label("Report a Problem", systemImage: "exclamationmark.bubble") }
+                }
                 // Only while Read Aloud is on: reading the voice library builds it.
                 if workspace.preferences.isEnabled(.readAloud), let library = ReadAloudVoices.library {
                     NavigationLink("Voice Credits") {
