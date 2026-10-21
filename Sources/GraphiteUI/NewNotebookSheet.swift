@@ -14,6 +14,7 @@ struct NewNotebookSheet<PlacementContent: View>: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(MyTemplatesModel.self) private var myTemplates: MyTemplatesModel?
     @State private var name = ""
     @State private var options: NewNotebookOptions
     @State private var pictures = NotebookPaperPictures()
@@ -58,21 +59,33 @@ struct NewNotebookSheet<PlacementContent: View>: View {
         // As large as Goodnotes' sheet, so the page sits beside its settings above the papers.
         .presentationSizing(.page)
         #endif
-        .onAppear { pictures.draw(for: options) }
-        .onChange(of: options) { _, changedOptions in pictures.draw(for: changedOptions) }
-        .onDisappear { pictures.stop() }
+        .modifier(PaperPicturesLifecycle(options: options, pictures: pictures, myTemplates: myTemplates))
+    }
+
+    /// The chosen template's first page, once drawn.
+    private var templatePreview: MyPaperTemplatePreview? {
+        options.myTemplateFileName.flatMap { fileName in myTemplates?.previews[fileName] }
+    }
+
+    /// The first page as it will be made: the chosen template's page, or the chosen paper.
+    private var firstPage: NotebookFirstPagePreview {
+        if let fileName = options.myTemplateFileName {
+            return NotebookFirstPagePreview(picture: templatePreview?.image, pageSize: templatePreview?.pageSize ?? CGSize(width: 595, height: 842),
+                                            title: (fileName as NSString).deletingPathExtension)
+        }
+        return NotebookFirstPagePreview(picture: pictures.chosenPicture, pageSize: options.pageSize.pointSize, title: options.paperChoice.title)
     }
 
     /// The chosen first page beside its settings; one above the other on a narrow screen.
     @ViewBuilder private var summary: some View {
         if horizontalSizeClass == .compact {
             VStack(spacing: 20) {
-                NotebookFirstPagePreview(picture: pictures.chosenPicture, pageSize: options.pageSize.pointSize, title: options.paperChoice.title)
+                firstPage
                 settings
             }
         } else {
             HStack(alignment: .top, spacing: 28) {
-                NotebookFirstPagePreview(picture: pictures.chosenPicture, pageSize: options.pageSize.pointSize, title: options.paperChoice.title)
+                firstPage
                     .frame(width: 240)
                 settings
             }
@@ -88,9 +101,14 @@ struct NewNotebookSheet<PlacementContent: View>: View {
                     .accessibilityLabel("Name")
                     .padding(.vertical, 12)
                 Divider()
-                NotebookPageSizeMenu(pageSize: $options.pageSize)
-                Divider()
-                NotebookPaperColorMenu(paperColorHex: $options.paperStyle.paperColorHex)
+                if options.myTemplateFileName == nil {
+                    NotebookPageSizeMenu(pageSize: $options.pageSize)
+                    Divider()
+                    NotebookPaperColorMenu(paperColorHex: $options.paperStyle.paperColorHex)
+                } else {
+                    // A template is a page as it is: its size and colors are its own.
+                    LabeledContent("Page size", value: "From the template").padding(.vertical, 12)
+                }
                 Divider()
                 Stepper(value: $options.pageCount, in: NewNotebookOptions.pageCountRange) {
                     LabeledContent("Pages", value: options.pageCount.formatted())
@@ -101,8 +119,10 @@ struct NewNotebookSheet<PlacementContent: View>: View {
                 .font(.footnote)
                 .foregroundStyle(problemText == nil ? Color.secondary : Color.red)
                 .padding(.horizontal, 4)
-            NotebookCustomSizeFields(pageSize: $options.pageSize)
-            NotebookPaperStyleSettings(paperStyle: $options.paperStyle, showsLineSettings: options.paperChoice != .blank)
+            if options.myTemplateFileName == nil {
+                NotebookCustomSizeFields(pageSize: $options.pageSize)
+                NotebookPaperStyleSettings(paperStyle: $options.paperStyle, showsLineSettings: options.paperChoice != .blank)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -140,6 +160,30 @@ struct NewNotebookSheet<PlacementContent: View>: View {
 extension NewNotebookSheet where PlacementContent == EmptyView {
     init(folderDescription: String, initialOptions: NewNotebookOptions, create: @escaping (String, NewNotebookOptions) -> Void) {
         self.init(folderDescription: folderDescription, initialOptions: initialOptions, placementContent: { EmptyView() }, create: create)
+    }
+}
+
+/// Draws the sheet's pictures while it is open: the papers' (drawn again when the options change)
+/// and the chosen template's, and gives them back when it closes.
+private struct PaperPicturesLifecycle: ViewModifier {
+    let options: NewNotebookOptions
+    let pictures: NotebookPaperPictures
+    let myTemplates: MyTemplatesModel?
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                pictures.draw(for: options)
+                myTemplates?.refresh()
+            }
+            .onChange(of: options) { _, changedOptions in pictures.draw(for: changedOptions) }
+            .onChange(of: options.myTemplateFileName, initial: true) { _, fileName in
+                if let fileName { myTemplates?.requestPreview(of: fileName) }
+            }
+            .onDisappear {
+                pictures.stop()
+                myTemplates?.forgetPreviews()
+            }
     }
 }
 

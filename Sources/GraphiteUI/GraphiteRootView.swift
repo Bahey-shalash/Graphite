@@ -20,6 +20,8 @@ public struct GraphiteRootView: View {
     @State private var opensVaultManagerAfterSettings = false
     @State private var creation: CreationRequest?
     @State private var library = LibraryModel()
+    /// The person's own paper templates, which the New Notebook sheets of the window read from the environment.
+    @State private var myTemplates = MyTemplatesModel()
     /// What this device has downloaded of the extras Graphite does not carry, such as the
     /// welcome tour's pictures; every sheet of the window reads it from the environment.
     @State private var addOns: AddOnLibrary?
@@ -271,6 +273,8 @@ public struct GraphiteRootView: View {
         // Outermost, so the window's sheets (the welcome tour, Settings) read it too. Made
         // when the window first appears, from the folders of the workspace it belongs to.
         .environment(addOns)
+        .environment(myTemplates)
+        .task(id: workspace.currentVaultIdentifier) { myTemplates.use(workspace.myTemplatesSource) }
         .onAppear { if addOns == nil { addOns = .standard(applicationFolders: workspace.applicationFolders) } }
     }
 
@@ -520,7 +524,7 @@ public struct GraphiteRootView: View {
             NewNotebookSheet(folderDescription: folderDescription, initialOptions: workspace.preferences.notebookCreation.initialOptions()) { name, options in
                 workspace.preferences.notebookCreation.remember(options)
                 if request.opensInNewTab { openTabForLibraryCreation() }
-                Task { await workspace.createNotebook(named: name, paper: options.paper, pageCount: options.pageCount, in: request.directory) }
+                Task { await workspace.createNotebook(named: name, options: options, in: request.directory) }
             }
         case .note, .base, .canvas:
             CreateDocumentSheet(kind: request.kind, folderDescription: folderDescription) { name in

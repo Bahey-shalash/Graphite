@@ -909,14 +909,14 @@ final class WorkspaceModel {
         return Task { await checkOpenDocumentsForExternalChanges(limitedTo: savedPaths) }
     }
 
-    func createNotebook(named name: String, paper: PaperSpecification, pageCount: Int, in directory: VaultPath? = nil) async {
+    func createNotebook(named name: String, options: NewNotebookOptions, in directory: VaultPath? = nil) async {
         guard let store, let root = folderAccess?.root else { return }
         do {
             if let problem = FileNameRules.problem(with: name, isNote: false) { throw GraphiteError.unavailable(problem) }
             let directory = newFileDirectory(directory)
             try await store.createDirectory(directory)
             let path = try await store.uniquePath(directory: directory, stem: name, extension: "pdf")
-            _ = try await PDFFileService(writer: store.writer).create(paper: paper, pageCount: pageCount, at: path.url(in: root))
+            try await writeNotebook(options, at: path, store: store, root: root)
             refreshIndex(for: [path])
             await refreshDirectory(); await open(path)
         } catch { errorMessage = error.localizedDescription }

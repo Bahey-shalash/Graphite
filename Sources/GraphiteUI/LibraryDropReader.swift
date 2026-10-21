@@ -90,8 +90,8 @@ enum LibraryDropReader {
     private static func vaultPath(of provider: NSItemProvider) async -> String? {
         await withCheckedContinuation { continuation in
             provider.loadDataRepresentation(forTypeIdentifier: UTType.graphiteVaultItem.identifier) { data, _ in
-                // A drag whose item cannot be read moves nothing.
-                continuation.resume(returning: data.flatMap { encoded in try? JSONDecoder().decode(VaultItemTransfer.self, from: encoded).path })
+                let transfer = data.flatMap { encoded in try? JSONDecoder().decode(VaultItemTransfer.self, from: encoded) } // An unreadable item moves nothing.
+                continuation.resume(returning: transfer?.path)
             }
         }
     }
@@ -113,7 +113,8 @@ enum LibraryDropReader {
             _ = provider.loadFileRepresentation(forTypeIdentifier: type.identifier) { location, _ in
                 // The system removes its file when this handler returns, so the copy is made here.
                 let staged = location.flatMap { file in
-                    try? DroppedFileStaging.stage(file, namedAfter: suggestedName, fileExtension: type.preferredFilenameExtension) // Not copied: nothing imported.
+                    try? DroppedFileStaging.stage(file, namedAfter: suggestedName,
+                                                  fileExtension: type.preferredFilenameExtension) // Not copied: not imported.
                 }
                 guard let staged else {
                     continuation.resume(returning: nil)
