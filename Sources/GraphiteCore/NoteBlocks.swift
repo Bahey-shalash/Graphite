@@ -23,12 +23,12 @@ public struct NoteBlock: Equatable, Sendable {
 }
 
 public enum NoteBlocks {
-    private static let trailingIdentifierPattern = try? NSRegularExpression(pattern: "(?:^|[ \\t])\\^([A-Za-z0-9-]+)[ \\t]*$")
-    private static let identifierLinePattern = try? NSRegularExpression(pattern: "^[ \\t]*\\^([A-Za-z0-9-]+)[ \\t]*$")
+    private static let trailingIdentifierPattern = NoteBlocksPattern.trailingIdentifierPattern.compiled()
+    private static let identifierLinePattern = NoteBlocksPattern.identifierLinePattern.compiled()
     /// `***`, `---`, `___`, or `- - -`: a thematic break, which is not a block.
-    private static let thematicBreakPattern = try? NSRegularExpression(pattern: "^ {0,3}([-*_])(?:[ \\t]*\\1){2,}[ \\t]*$")
+    private static let thematicBreakPattern = NoteBlocksPattern.thematicBreakPattern.compiled()
     /// The line under a setext heading's text.
-    private static let setextUnderlinePattern = try? NSRegularExpression(pattern: "^ {0,3}(?:=+|-+)[ \\t]*$")
+    private static let setextUnderlinePattern = NoteBlocksPattern.setextUnderlinePattern.compiled()
     /// Indentation that makes a line indented code outside a list.
     private static let indentedCodeColumns = 4
 
@@ -170,7 +170,7 @@ public enum NoteBlocks {
         var identifierRange: NSRange?
         let lastLine = lines[endIndex].content
         if kind == .paragraph || kind == .listItem,
-           let match = trailingIdentifierPattern?.firstMatch(in: lastLine, range: NSRange(location: 0, length: (lastLine as NSString).length)) {
+           let match = trailingIdentifierPattern.firstMatch(in: lastLine, range: NSRange(location: 0, length: (lastLine as NSString).length)) {
             identifier = (lastLine as NSString).substring(with: match.range(at: 1))
             let markerRange = NSRange(location: lastRange.location + match.range.location, length: match.range.length)
             identifierRange = markerRange
@@ -198,7 +198,7 @@ public enum NoteBlocks {
     }
 
     private static func identifierOnOwnLine(_ line: String) -> String? {
-        guard let match = identifierLinePattern?.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) else { return nil }
+        guard let match = identifierLinePattern.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) else { return nil }
         return (line as NSString).substring(with: match.range(at: 1))
     }
 
@@ -206,8 +206,8 @@ public enum NoteBlocks {
         identifierOnOwnLine(trimmedLine) != nil
     }
 
-    private static func matches(_ pattern: NSRegularExpression?, _ line: String) -> Bool {
-        pattern?.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) != nil
+    private static func matches(_ pattern: NSRegularExpression, _ line: String) -> Bool {
+        pattern.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) != nil
     }
 
     /// Whether `line` continues the text above it (a lazy continuation line) rather than
@@ -317,4 +317,12 @@ public enum NoteBlocks {
         guard firstLineFeed.location != NSNotFound, firstLineFeed.location > 0 else { return "\n" }
         return source.character(at: firstLineFeed.location - 1) == 0x0D ? "\r\n" : "\n"
     }
+}
+
+/// The constant patterns of `NoteBlocks`; `StaticPatternTests` compiles every case.
+enum NoteBlocksPattern: String, StaticPatternSet {
+    case trailingIdentifierPattern = #"(?:^|[ \t])\^([A-Za-z0-9-]+)[ \t]*$"#
+    case identifierLinePattern = #"^[ \t]*\^([A-Za-z0-9-]+)[ \t]*$"#
+    case thematicBreakPattern = #"^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$"#
+    case setextUnderlinePattern = #"^ {0,3}(?:=+|-+)[ \t]*$"#
 }

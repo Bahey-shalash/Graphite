@@ -64,11 +64,9 @@ public enum Mentions {
 
     // MARK: Private
 
-    private static let excludedPatterns: [NSRegularExpression] = [
-        // Wikilinks and embeds, Markdown links and images, inline math, comments, tags, web addresses.
-        "!?\\[\\[[^\\]\\n]*\\]\\]", "!?\\[[^\\]\\n]*\\]\\([^)\\n]*\\)", "(?<!\\$)\\$[^$\\n]+\\$(?!\\$)", "%%[\\s\\S]*?%%",
-        "(?<![\\p{L}\\p{N}_/&#])#[\\p{L}\\p{N}_/\\-]+", "[A-Za-z][A-Za-z0-9+.-]*://[^\\s)>\\]]+", "<[^>\\n]+>",
-    ].compactMap { pattern in try? NSRegularExpression(pattern: pattern) }
+    /// Wikilinks and embeds, Markdown links and images, inline math, comments, tags, web addresses
+    /// and HTML tags: every case of `MentionsPattern`.
+    private static let excludedPatterns: [NSRegularExpression] = MentionsPattern.allCases.map { pattern in pattern.compiled() }
 
     private static func excludedRanges(in source: NSString) -> [NSRange] {
         var ranges: [NSRange] = []
@@ -103,4 +101,15 @@ public enum Mentions {
         }
         return !isWordCharacter(at: range.location - 1) && !isWordCharacter(at: NSMaxRange(range))
     }
+}
+
+/// The spans of a note that `Mentions` never links: each case is one kind; `StaticPatternTests` compiles every case.
+enum MentionsPattern: String, StaticPatternSet {
+    case wikilinkOrEmbed = #"!?\[\[[^\]\n]*\]\]"#
+    case markdownLinkOrImage = #"!?\[[^\]\n]*\]\([^)\n]*\)"#
+    case inlineMath = #"(?<!\$)\$[^$\n]+\$(?!\$)"#
+    case comment = #"%%[\s\S]*?%%"#
+    case tag = #"(?<![\p{L}\p{N}_/&#])#[\p{L}\p{N}_/\-]+"#
+    case webAddress = #"[A-Za-z][A-Za-z0-9+.-]*://[^\s)>\]]+"#
+    case htmlTag = #"<[^>\n]+>"#
 }

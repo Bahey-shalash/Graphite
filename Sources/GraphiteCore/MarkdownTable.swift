@@ -227,14 +227,13 @@ public enum MarkdownTableEditing {
     /// The text to show in a cell's editor for `cell.source`: the source as written, except
     /// `<br>` (any case, `<br/>`, `<br />`) shown as a line break. `replacingCell` turns it back.
     public static func editableText(ofCellSource cellSource: String) -> String {
-        guard let lineBreakTag = lineBreakTagPattern else { return cellSource }
         let fullRange = NSRange(location: 0, length: (cellSource as NSString).length)
-        return lineBreakTag.stringByReplacingMatches(in: cellSource, range: fullRange, withTemplate: "\n")
+        return lineBreakTagPattern.stringByReplacingMatches(in: cellSource, range: fullRange, withTemplate: "\n")
     }
 
     // MARK: Cell text
 
-    private static let lineBreakTagPattern = try? NSRegularExpression(pattern: "<br[ \\t]*/?>", options: .caseInsensitive)
+    private static let lineBreakTagPattern = MarkdownTableEditingPattern.lineBreakTagPattern.compiled()
 
     /// Escapes every pipe that is not already escaped (a pipe after a backslash, as the
     /// parser reads it) and writes each line break, `\r\n` included, as one `<br>`.
@@ -605,5 +604,16 @@ private struct MarkdownTableLayout {
             clearedUnits += hasSpaceBefore ? [MarkdownTableUnit.pipe] : [MarkdownTableUnit.space, MarkdownTableUnit.pipe]
         }
         return MarkdownTableReplacement(range: cell.textRange, units: clearedUnits)
+    }
+}
+
+/// The constant patterns of `MarkdownTableEditing`; `StaticPatternTests` compiles every case.
+enum MarkdownTableEditingPattern: String, StaticPatternSet {
+    case lineBreakTagPattern = #"<br[ \t]*/?>"#
+
+    var options: NSRegularExpression.Options {
+        switch self {
+        case .lineBreakTagPattern: [.caseInsensitive]
+        }
     }
 }

@@ -16,7 +16,7 @@ public struct MarkdownTextEdit: Equatable, Sendable {
 /// Line-based editing commands, like Obsidian's editor commands. Each returns one edit
 /// that keeps every character outside the touched lines unchanged.
 public enum MarkdownEditing {
-    private static let headingPrefix = try? NSRegularExpression(pattern: "^( {0,3})(#{1,6})(?:[ \\t]+|$)")
+    private static let headingPrefix = MarkdownEditingPattern.headingPrefix.compiled()
 
     /// Makes every selected line a heading of `level`, replacing any heading marks it has.
     /// When every line already is a heading of that level, the headings are removed, as
@@ -51,12 +51,12 @@ public enum MarkdownEditing {
 
     /// The heading level of a line, or nil when it is not an ATX heading.
     public static func headingLevel(of line: String) -> Int? {
-        guard let match = headingPrefix?.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) else { return nil }
+        guard let match = headingPrefix.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) else { return nil }
         return match.range(at: 2).length
     }
 
     private static func headingPrefixLength(of line: String) -> Int {
-        headingPrefix?.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length))?.range.length ?? 0
+        headingPrefix.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length))?.range.length ?? 0
     }
 
     // MARK: Lists
@@ -84,14 +84,14 @@ public enum MarkdownEditing {
 
     // `[0-9]`, not `\d`: ICU's `\d` matches every script's decimal digits, and CommonMark
     // numbers a list only with ASCII digits.
-    private static let listLinePattern = try? NSRegularExpression(pattern: "^((?:[ \\t]*>[ \\t]?)*)([ \\t]*)(?:([-*+]|[0-9]{1,9}[.)])([ \\t]+|$)(?:(\\[(.)\\])( |$))?)?")
+    private static let listLinePattern = MarkdownEditingPattern.listLinePattern.compiled()
     /// A thematic break such as `- - -` or `* * *`, which CommonMark reads before a list item.
-    private static let thematicBreakPattern = try? NSRegularExpression(pattern: "^[ \\t]*([-*_])(?:[ \\t]*\\1){2,}[ \\t]*$")
+    private static let thematicBreakPattern = MarkdownEditingPattern.thematicBreakPattern.compiled()
 
     /// The list or quote markup of `line` (without its line ending), or nil for plain text.
     public static func listLine(_ line: String) -> ListLine? {
         let text = line as NSString
-        guard let match = listLinePattern?.firstMatch(in: line, range: NSRange(location: 0, length: text.length)) else { return nil }
+        guard let match = listLinePattern.firstMatch(in: line, range: NSRange(location: 0, length: text.length)) else { return nil }
         func group(_ index: Int) -> String { match.range(at: index).location == NSNotFound ? "" : text.substring(with: match.range(at: index)) }
         let quotePrefix = group(1)
         var marker = group(3)
@@ -115,7 +115,7 @@ public enum MarkdownEditing {
     /// Whether `line` (without its line ending or quote markers) is a thematic break such as
     /// `- - -`, `***` or `___`.
     public static func isThematicBreak(_ line: String) -> Bool {
-        thematicBreakPattern?.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) != nil
+        thematicBreakPattern.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) != nil
     }
 
     /// Return in a list, a task list, or a quote, as Obsidian's smart lists do: the next
@@ -765,4 +765,11 @@ public enum MarkdownEditing {
         guard let last = units.last, isLineBreakUnit(last) else { return 0 }
         return last == 10 && units.count == 2 && units[0] == 13 ? 2 : 1
     }
+}
+
+/// The constant patterns of `MarkdownEditing`; `StaticPatternTests` compiles every case.
+enum MarkdownEditingPattern: String, StaticPatternSet {
+    case headingPrefix = #"^( {0,3})(#{1,6})(?:[ \t]+|$)"#
+    case listLinePattern = #"^((?:[ \t]*>[ \t]?)*)([ \t]*)(?:([-*+]|[0-9]{1,9}[.)])([ \t]+|$)(?:(\[(.)\])( |$))?)?"#
+    case thematicBreakPattern = #"^[ \t]*([-*_])(?:[ \t]*\1){2,}[ \t]*$"#
 }

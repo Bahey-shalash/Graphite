@@ -1,10 +1,10 @@
 import Foundation
 
 public enum EmbedLocator {
-    private static let wikiEmbedPattern = try? NSRegularExpression(pattern: "!\\[\\[([^\\]\\n]+)\\]\\]")
+    private static let wikiEmbedPattern = EmbedLocatorPattern.wikiEmbedPattern.compiled()
     /// The parentheses hold a `<…>` destination and an optional title, or text with at
     /// most one balanced `(…)` in it, which is how a `(title)` is written.
-    private static let markdownEmbedPattern = try? NSRegularExpression(pattern: "!\\[([^\\]\\n]*)\\]\\((<[^<>\\n]*>[^)\\n]*|[^()\\n]*(?:\\([^()\\n]*\\)[^()\\n]*)?)\\)")
+    private static let markdownEmbedPattern = EmbedLocatorPattern.markdownEmbedPattern.compiled()
 
     /// The embed whose source text contains `location` (or ends exactly there).
     public static func embed(at location: Int, in text: NSString) -> EmbedReference? {
@@ -14,7 +14,7 @@ public enum EmbedLocator {
         let localLocation = location - lineRange.location
         func contains(_ range: NSRange) -> Bool { localLocation >= range.location && localLocation <= NSMaxRange(range) }
         let lineLength = (line as NSString).length
-        if let match = wikiEmbedPattern?.matches(in: line, range: NSRange(location: 0, length: lineLength)).first(where: { match in contains(match.range) }) {
+        if let match = wikiEmbedPattern.matches(in: line, range: NSRange(location: 0, length: lineLength)).first(where: { match in contains(match.range) }) {
             let content = (line as NSString).substring(with: match.range(at: 1))
             let parts = content.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
             // Only the `\` of a table's escaped `\|` goes: other backslashes are the name's.
@@ -23,7 +23,7 @@ public enum EmbedLocator {
             return EmbedReference(target: target, isWiki: true, displaySize: parts.count > 1 ? EmbedDisplaySize.parse(label: parts[1]) : nil,
                                   range: NSRange(location: lineRange.location + match.range.location, length: match.range.length))
         }
-        if let match = markdownEmbedPattern?.matches(in: line, range: NSRange(location: 0, length: lineLength)).first(where: { match in contains(match.range) }) {
+        if let match = markdownEmbedPattern.matches(in: line, range: NSRange(location: 0, length: lineLength)).first(where: { match in contains(match.range) }) {
             let label = (line as NSString).substring(with: match.range(at: 1))
             let destination = linkDestination(in: (line as NSString).substring(with: match.range(at: 2)))
             guard !destination.isEmpty else { return nil }
@@ -43,4 +43,10 @@ public enum EmbedLocator {
         }
         return trimmedText.split(whereSeparator: \.isWhitespace).first.map(String.init) ?? ""
     }
+}
+
+/// The constant patterns of `EmbedLocator`; `StaticPatternTests` compiles every case.
+enum EmbedLocatorPattern: String, StaticPatternSet {
+    case wikiEmbedPattern = #"!\[\[([^\]\n]+)\]\]"#
+    case markdownEmbedPattern = #"!\[([^\]\n]*)\]\((<[^<>\n]*>[^)\n]*|[^()\n]*(?:\([^()\n]*\)[^()\n]*)?)\)"#
 }

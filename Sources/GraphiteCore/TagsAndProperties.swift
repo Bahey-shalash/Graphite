@@ -118,10 +118,9 @@ public enum PropertyRenaming {
     }
 
     /// A top-level mapping key written plainly or in quotes, up to the colon that ends it.
-    private static let keyLinePattern = try? NSRegularExpression(pattern: "^(\"(?:[^\"\\\\]|\\\\.)*\"|'(?:[^']|'')*'|[^\\s#\"'\\-?:][^\\r\\n]*?|-[^\\s][^\\r\\n]*?)[ \\t]*:(?=[ \\t]|$)")
+    private static let keyLinePattern = PropertyRenamingPattern.keyLinePattern.compiled()
 
     private static func rangeOfKey(_ key: String, in source: NSString, frontmatterLength: Int) -> NSRange? {
-        guard let keyLinePattern else { return nil }
         // The first line is the opening `---`.
         var location = NSMaxRange(source.lineRange(for: NSRange(location: 0, length: 0)))
         while location < frontmatterLength {
@@ -141,4 +140,9 @@ public enum PropertyRenaming {
     private static func decodedKey(_ keyText: String) -> String? {
         (try? Yams.compose(yaml: keyText + ": 0"))?.mapping?.first?.key.string
     }
+}
+
+/// The constant patterns of `PropertyRenaming`; `StaticPatternTests` compiles every case.
+enum PropertyRenamingPattern: String, StaticPatternSet {
+    case keyLinePattern = #"^("(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|[^\s#"'\-?:][^\r\n]*?|-[^\s][^\r\n]*?)[ \t]*:(?=[ \t]|$)"#
 }

@@ -502,7 +502,7 @@ public enum NoteProperties {
 
 /// Where a note's frontmatter block is, matched the way `FrontmatterLocator` matches it.
 private struct FrontmatterRegion {
-    private static let pattern = try? NSRegularExpression(pattern: "\\A---(\\r?\\n)((?:[\\s\\S]*?\\r?\\n)?)(?:---|\\.\\.\\.)[ \\t]*(?:\\r?\\n|$)")
+    private static let pattern = FrontmatterRegionPattern.pattern.compiled()
 
     /// The line ending of the opening `---` line, which rewritten property lines use, so a
     /// single CR LF line in the body does not change the frontmatter's line endings.
@@ -513,9 +513,14 @@ private struct FrontmatterRegion {
     let length: Int
 
     init?(in sourceText: NSString) {
-        guard let match = Self.pattern?.firstMatch(in: sourceText as String, range: NSRange(location: 0, length: sourceText.length)) else { return nil }
+        guard let match = Self.pattern.firstMatch(in: sourceText as String, range: NSRange(location: 0, length: sourceText.length)) else { return nil }
         lineEnding = sourceText.substring(with: match.range(at: 1))
         yamlRange = match.range(at: 2)
         length = match.range.length
     }
+}
+
+/// The constant patterns of `FrontmatterRegion`; `StaticPatternTests` compiles every case.
+enum FrontmatterRegionPattern: String, StaticPatternSet {
+    case pattern = #"\A---(\r?\n)((?:[\s\S]*?\r?\n)?)(?:---|\.\.\.)[ \t]*(?:\r?\n|$)"#
 }
