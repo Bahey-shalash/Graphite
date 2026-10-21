@@ -152,6 +152,8 @@ final class WorkspaceModel {
     /// (`WorkspaceTemplates.swift`). Each is replaced whenever a vault opens.
     var templateSettingsReading = VaultSettingsReading.read(TemplateSettings())
     var dailyNoteSettingsReading = VaultSettingsReading.read(DailyNoteSettings())
+    /// The vault's keyboard shortcuts, with its changes in `.obsidian/hotkeys.json`.
+    let keyboardShortcuts = VaultKeyboardShortcuts()
     /// Obsidian's bookmarks, from `.obsidian/bookmarks.json`.
     var bookmarks = BookmarkList()
     /// The whole vault's graph, built once per index change.
@@ -514,6 +516,7 @@ final class WorkspaceModel {
         // vault's file said: its settings are never used in this vault.
         templateSettingsReading = await Self.settingsReading { try await store.templateSettings() }
         dailyNoteSettingsReading = await Self.settingsReading { try await store.dailyNoteSettings() }
+        await reloadKeyboardShortcuts(from: store)
         if let unreadableSettingsMessage { errorMessage = unreadableSettingsMessage }
         await reloadBookmarks()
         await reloadVaultAppearance()

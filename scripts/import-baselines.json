@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "comment": "Import violations of Docs/solid/rewrite-foundations.md section 3.2 and 3.3 at today's module folders: one count of files per `<module> imports <name>`. They only go down. Lower them with `python3 scripts/check-imports.py --record`.",
   "recordedOn": "2026-10-21",
-  "recordedAtRevision": "7e7b0a5b plus the working tree",
+  "recordedAtRevision": "unknown plus the working tree",
   "violations": {
     "GraphiteApple imports Compression": 1,
     "GraphiteApple imports CoreMedia": 4,
