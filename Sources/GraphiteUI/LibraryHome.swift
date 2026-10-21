@@ -10,7 +10,7 @@ struct LibraryHomeButton: View {
 
     var body: some View {
         Button {
-            library.showHome()
+            Task { await library.showHome() }
         } label: {
             Image(systemName: library.isShownAsHome ? "house.fill" : "house")
                 .font(.system(size: 15, weight: .medium))
