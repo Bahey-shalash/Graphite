@@ -210,3 +210,20 @@ The import session fixed most findings in `471de62`, `6e21dd0` and `c632468`. Ea
 - **Rule:** `FR-80`
 - **Evidence:** [NotebookImportLimits.swift:27-29](../../../Packages/NotebookImport/Sources/NotebookImport/NotebookImportLimits.swift#L27-L29) calls the 256 MiB iPhone and iPad limit "the bounds of the reference readers in `scripts/`", which both use 512 MiB (`scripts/goodnotes-reader.py:25`, `scripts/notability-reader.py:28`). Introduced in `471de62`.
 - **Fix direction:** state the rule the limit keeps (an iPad's memory) and pin each platform's value in a test.
+
+## 7. Found while wiring the import (2026-10-21)
+
+Found on the branch `notebook-import-in-app` while measuring and comparing the samples; not fixed there.
+
+#### BUG-IMPORT-03 A page with thousands of strokes takes minutes to write and gigabytes of memory
+- **Severity:** Medium (verdict: Confirmed, measured)
+- **Rule:** `FR-104`, `FR-105`
+- **Evidence:** measured in a Release build on the Mac (M5 Max) through `NotebookConversion`: the library sample "champs - formulaire" (21.4 MB, 4 pages, 46,101 strokes, up to 11,304 on a page) took 1,841 s and 3.29 GB at its peak; a 39-page sample with 9,843 strokes took 86 s and 1.38 GB; notebooks of under 1,000 strokes take 2 to 3 s and 290 to 390 MB. A sample of the slow run spends it in `-[PDFDocument writeToURL:]`: for each annotation `-[PDFAnnotation addContentsToDictionaryRef:]` asks `-[PDFPage rectIntersectsWithRedactionPath:]`, which rebuilds the page's redaction path from every annotation, so writing a page costs the square of its annotations. The whole document and its annotations are also held until it is written.
+- **Why it matters:** importing a dense formula sheet blocks the import for half an hour and would exceed an iPad's memory; the same writer saves any Graphite PDF, so a page drawn that densely in Graphite saves as slowly.
+- **Fix direction:** write imported pages without PDFKit's annotation writer (draw the page and its `/Ink` annotations through Core Graphics' PDF context or a page-by-page writer that streams finished pages), or keep a page's ink as fewer annotations; measure on the iPad before offering it for large libraries.
+
+#### BUG-IMPORT-04 A Goodnotes pencil stroke written lightly is drawn dark
+- **Severity:** Low (verdict: Confirmed against Goodnotes' export)
+- **Rule:** `FR-29`
+- **Evidence:** in the "fountain, brush, pencil and highlighter" sample, Goodnotes' export draws the pencil line pale grey (light force), while the imported page draws it as solid black (`ImportedPageInk` gives the stroke its planned colour at full opacity); a third of that page's content pixels differ from the export. The report already lists the pencil as "drawn without Goodnotes' grain".
+- **Fix direction:** carry the force into the pencil's PDF appearance (opacity or width) as Goodnotes does, then compare again with the export.
