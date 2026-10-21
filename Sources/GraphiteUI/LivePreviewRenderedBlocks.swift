@@ -197,6 +197,8 @@ final class LivePreviewRenderedBlocks {
     private(set) var blockEditedInItsView: (key: LivePreviewBlockKey, location: Int, owner: ObjectIdentifier)?
     /// Views that passed to a new key and have not yet been given that block's root view.
     private var keysAwaitingRootView: Set<LivePreviewBlockKey> = []
+    /// Blocks whose view was just built and has not yet settled on its height.
+    private var keysOfNewViews: Set<LivePreviewBlockKey> = []
 
     init(detachedViewsBudgetMegabytes: Int) {
         detachedHosts = DetachedWidgetPool(budgetMegabytes: detachedViewsBudgetMegabytes)
@@ -453,6 +455,24 @@ final class LivePreviewRenderedBlocks {
 
     // MARK: Views
 
+    /// Whether the block's view was just built and still lays its content out for the
+    /// first time, reporting heights it then corrects, while the height it will settle on
+    /// is already known: measured by an earlier view of the block at this width.
+    func isNewViewOfMeasuredBlock(withKey key: LivePreviewBlockKey, columnWidth: CGFloat, configuration: EditorConfiguration) -> Bool {
+        guard keysOfNewViews.contains(key) else { return false }
+        guard let measuredKey = Self.measuredHeightKey(for: key, columnWidth: columnWidth, configuration: configuration),
+              Self.measuredHeights.height(for: measuredKey) != nil else {
+            // Never measured: each report is the best height there is, reserved at once.
+            keysOfNewViews.remove(key)
+            return false
+        }
+        return true
+    }
+
+    func markViewSettled(forBlockWithKey key: LivePreviewBlockKey) {
+        keysOfNewViews.remove(key)
+    }
+
     var hasViews: Bool { !hosts.isEmpty || propertiesHost != nil || !detachedHosts.isEmpty }
 
     /// The view for a block on screen, else the one kept since it was last on screen, else
@@ -462,6 +482,7 @@ final class LivePreviewRenderedBlocks {
             let host = propertiesHost ?? RenderedBlockHost.makeRenderedBlockHost(root: makeRootView(entry))
             if propertiesHost == nil {
                 propertiesHost = host
+                keysOfNewViews.insert(entry.key)
             } else if propertiesHostBlockKey != entry.key {
                 host.update(root: makeRootView(entry))
             }
@@ -473,7 +494,13 @@ final class LivePreviewRenderedBlocks {
             if keysAwaitingRootView.remove(entry.key) != nil { host.update(root: makeRootView(entry)) }
             return host
         }
-        let host = detachedHosts.take(entry.key) ?? RenderedBlockHost.makeRenderedBlockHost(root: makeRootView(entry))
+        let host: RenderedBlockHost
+        if let keptHost = detachedHosts.take(entry.key) {
+            host = keptHost
+        } else {
+            host = RenderedBlockHost.makeRenderedBlockHost(root: makeRootView(entry))
+            keysOfNewViews.insert(entry.key)
+        }
         hosts[entry.key] = host
         return host
     }

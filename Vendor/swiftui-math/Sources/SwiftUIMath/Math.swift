@@ -46,27 +46,60 @@ public struct Math: View {
 
   public var body: some View {
     Layout(latex: latex, font: font, style: typesettingStyle) {
-      Canvas { context, size in
-        guard
-          let displayNode = DisplayProvider.shared.display(
-            for: latex,
-            font: font,
-            style: typesettingStyle,
-            proposedWidth: size.width
-          )
-        else {
-          return
-        }
-
-        switch renderingMode {
-        case .monochrome:
-          // Monochrome rendering with foreground style
-          context.draw(displayNode, size: size, with: .foreground)
-        case .multicolor(let base):
-          // Multicolor rendering with base color for uncolored elements
-          context.draw(displayNode, size: size, foregroundColor: base)
+      // Graphite patch: the formula's outlines as shapes, not a `Canvas` (see `MathOutlines`).
+      GeometryReader { geometry in
+        if let displayNode = DisplayProvider.shared.display(
+          for: latex,
+          font: font,
+          style: typesettingStyle,
+          proposedWidth: geometry.size.width
+        ) {
+          switch renderingMode {
+          case .monochrome:
+            // One shape, filled with the foreground style, which may be a gradient.
+            let outlines = MathOutlines(displayNode, size: geometry.size, usesFormulaColors: false)
+            ForEach(outlines.parts.indices, id: \.self) { index in
+              OutlineShape(path: outlines.parts[index].path, style: .foreground, thickening: font.size * Self.glyphThickening)
+            }
+          case .multicolor(let base):
+            // The formula's own colors, and the base color where it sets none.
+            let outlines = MathOutlines(displayNode, size: geometry.size, usesFormulaColors: true)
+            ForEach(outlines.parts.indices, id: \.self) { index in
+              OutlineShape(
+                path: outlines.parts[index].path,
+                style: outlines.parts[index].color.map { color in SwiftUI.Color(cgColor: color) } ?? base,
+                thickening: font.size * Self.glyphThickening
+              )
+            }
+          }
         }
       }
+    }
+  }
+}
+
+extension Math {
+  /// Graphite patch: on the Mac, Core Text thickens glyphs slightly as it draws them (font
+  /// smoothing), which a filled outline does not get; the outline is stroked by this share of
+  /// the font size so a formula looks as it did when its glyphs were drawn (measured against
+  /// Core Text's drawing on a dark background, 2026-10-21). iOS draws glyphs without it.
+  #if os(macOS)
+    static let glyphThickening: CGFloat = 0.014
+  #else
+    static let glyphThickening: CGFloat = 0
+  #endif
+
+  /// One color's outlines: filled, and stroked by `thickening` around their edge.
+  private struct OutlineShape<Style: ShapeStyle>: View {
+    let path: CGPath
+    let style: Style
+    let thickening: CGFloat
+
+    var body: some View {
+      Path(path).fill(style)
+        .overlay {
+          if thickening > 0 { Path(path).stroke(style, lineWidth: thickening) }
+        }
     }
   }
 }

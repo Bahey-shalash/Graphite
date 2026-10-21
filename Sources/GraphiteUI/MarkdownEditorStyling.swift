@@ -415,11 +415,42 @@ final class MarkdownEditorStyling {
                                        restyledRange: restyledRange)
     }
 
-    /// Reserves the height a block's view measured, restyling the block only when it
-    /// differs from what its lines reserve. Styling now would disturb an input method's
-    /// composition, and mid-edit the block's range describes older text; the edit restyles
-    /// the block once it settles.
+    /// How long a new block view's height must stay unchanged before it is reserved.
+    static let newViewHeightSettlingDelay = Duration.milliseconds(120)
+    /// The clock the settling waits on; a test moves it by hand.
+    var heightSettlingClock: any ApplicationClock = LiveApplicationClock()
+    /// The wait for each new block view's latest height, cancelled by the view's next report.
+    private var heightSettlingTasks: [LivePreviewBlockKey: Task<Void, Never>] = [:]
+
+    /// Reserves the height a block's view measured. A view just built reports several
+    /// heights while SwiftUI lays its content out (a table 8, then 135, then 155 points), and
+    /// reserving each one restyled the block three times and moved the text below it every
+    /// time it scrolled into view. When the block's height was measured before, a new view's
+    /// height is reserved only once it has stayed the same for `newViewHeightSettlingDelay`,
+    /// and meanwhile the block keeps the measured height, which it usually settles on. A block
+    /// never measured takes each report at once, while it is still at the edge of the screen;
+    /// and a settled view's later change, as when a callout folds, is reserved at once.
     func reserveMeasuredHeight(_ height: CGFloat, forBlockWithKey key: LivePreviewBlockKey, isFrontmatter: Bool, in textView: any MarkdownStyledTextView) {
+        guard renderedBlocks.isNewViewOfMeasuredBlock(withKey: key, columnWidth: textView.renderedBlockColumnWidth, configuration: configuration) else {
+            reserveSettledHeight(height, forBlockWithKey: key, isFrontmatter: isFrontmatter, in: textView)
+            return
+        }
+        heightSettlingTasks[key]?.cancel()
+        let clock = heightSettlingClock
+        heightSettlingTasks[key] = Task { @MainActor [weak self, weak textView] in
+            do { try await clock.sleep(for: Self.newViewHeightSettlingDelay) } catch { return } // The view reported again.
+            guard let self, let textView else { return }
+            self.heightSettlingTasks[key] = nil
+            self.renderedBlocks.markViewSettled(forBlockWithKey: key)
+            self.reserveSettledHeight(height, forBlockWithKey: key, isFrontmatter: isFrontmatter, in: textView)
+        }
+    }
+
+    /// Reserves a settled height, restyling the block only when it differs from what its
+    /// lines reserve. Styling now would disturb an input method's composition, and mid-edit
+    /// the block's range describes older text; the edit restyles the block once it settles.
+    private func reserveSettledHeight(_ height: CGFloat, forBlockWithKey key: LivePreviewBlockKey, isFrontmatter: Bool,
+                                      in textView: any MarkdownStyledTextView) {
         guard renderedBlocks.recordMeasuredHeight(height, forBlockWithKey: key, isFrontmatter: isFrontmatter,
                                                   columnWidth: textView.renderedBlockColumnWidth, configuration: configuration) else { return }
         guard canStyle(textView), !textState.hasUnstyledEdit else {
