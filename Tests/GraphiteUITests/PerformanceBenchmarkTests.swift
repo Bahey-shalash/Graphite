@@ -48,6 +48,10 @@ final class PerformanceBenchmarkTests: XCTestCase {
     override func setUp() async throws {
         try XCTSkipUnless(ProcessInfo.processInfo.environment["GRAPHITE_BENCHMARKS"] == "1",
                           "Benchmarks run only with GRAPHITE_BENCHMARKS=1.")
+        #if os(macOS)
+        // As the app does before its first window.
+        MacViewDrawing.drawLargeViewsWithoutTheMetalRenderer()
+        #endif
     }
 
     override func tearDown() async throws {
@@ -93,10 +97,12 @@ final class PerformanceBenchmarkTests: XCTestCase {
 
             // Scrolling to the end and back, a step of 40% of the window at a time.
             let scrolling = BenchmarkMeasurement(scenario: "note-scroll", run: run)
+            let jumps = ScrollJumpRecord(scenario: "note-scroll-jumps", run: run)
             for direction in [1.0, -1.0] {
                 // Each way on its own too: down, blocks are drawn the first time; up, again.
                 let way = BenchmarkMeasurement(scenario: direction > 0 ? "note-scroll-down" : "note-scroll-up", run: run)
-                defer { way.finish() }
+                let wayJumps = ScrollJumpRecord(scenario: direction > 0 ? "note-scroll-jumps-down" : "note-scroll-jumps-up", run: run)
+                defer { way.finish(); wayJumps.finish() }
                 var stepCount = 0
                 while stepCount < 2_000 {
                     let viewportHeight = visibleBounds(of: editor).height
@@ -104,12 +110,18 @@ final class PerformanceBenchmarkTests: XCTestCase {
                     let lastOffset = max(0, documentHeight(of: editor) - viewportHeight)
                     let nextOffset = min(lastOffset, max(0, currentOffset + direction * viewportHeight * 0.4))
                     if abs(nextOffset - currentOffset) < 1 { break }
+                    let anchor = scrollAnchor(in: editor)
                     await scrolling.measureFrame { self.scroll(editor, to: nextOffset) }
                     way.recordFrame(from: scrolling)
+                    if let anchor {
+                        let screenPositionAfter = screenPosition(of: anchor.location, in: editor)
+                        for record in [jumps, wayJumps] { record.record(anchor, movedTo: screenPositionAfter, scrolledBy: nextOffset - currentOffset) }
+                    }
                     stepCount += 1
                 }
             }
             scrolling.finish()
+            jumps.finish()
 
             // Typing forty characters in the middle of the note.
             let middle = (text(of: editor) as NSString).range(of: "## Section 20").location
@@ -259,6 +271,27 @@ final class PerformanceBenchmarkTests: XCTestCase {
     }
 
     // MARK: Content
+
+    /// The line at the middle of the screen and where it shows, to tell a scroll that moved
+    /// the text by the amount scrolled from one where the text jumped.
+    private func scrollAnchor(in editor: BenchmarkTextView) -> ScrollAnchor? {
+        guard let textLayoutManager = editor.textLayoutManager else { return nil }
+        let middle = scrollOffset(of: editor) + visibleBounds(of: editor).height / 2 - textContainerTop(of: editor)
+        guard let fragment = textLayoutManager.textLayoutFragment(for: CGPoint(x: 1, y: middle)) else { return nil }
+        let location = fragment.rangeInElement.location
+        return screenPosition(of: location, in: editor).map { position in ScrollAnchor(location: location, screenPosition: position) }
+    }
+
+    private func screenPosition(of location: NSTextLocation, in editor: BenchmarkTextView) -> CGFloat? {
+        guard let fragment = editor.textLayoutManager?.textLayoutFragment(for: location) else { return nil }
+        return fragment.layoutFragmentFrame.minY + textContainerTop(of: editor) - scrollOffset(of: editor)
+    }
+
+    #if canImport(UIKit)
+    private func textContainerTop(of editor: MarkdownTextView) -> CGFloat { editor.textContainerInset.top }
+    #else
+    private func textContainerTop(of editor: MarkdownMacTextView) -> CGFloat { editor.textContainerOrigin.y }
+    #endif
 
     /// A lecture note with properties and, in every section, the elements a lecture has:
     /// headings, emphasis, links, inline and display math, lists, tasks, a callout, code
@@ -567,6 +600,40 @@ final class BenchmarkMeasurement {
     }
 
     private static func format(_ value: Double) -> String { String(format: "%.2f", value) }
+}
+
+struct ScrollAnchor {
+    let location: NSTextLocation
+    let screenPosition: CGFloat
+}
+
+/// How far the text moved on screen beyond what each scroll step asked for: a jump the
+/// person sees as the note leaping, because TextKit laid out text above with another
+/// height than it had estimated, or a block's view took another height than its source.
+@MainActor
+final class ScrollJumpRecord {
+    private let scenario: String
+    private let run: Int
+    private var jumps: [CGFloat] = []
+
+    init(scenario: String, run: Int) {
+        self.scenario = scenario
+        self.run = run
+    }
+
+    func record(_ anchor: ScrollAnchor, movedTo screenPosition: CGFloat?, scrolledBy distance: CGFloat) {
+        guard let screenPosition else { return }
+        jumps.append(abs(screenPosition - (anchor.screenPosition - distance)))
+    }
+
+    func finish() {
+        let fields = [
+            "platform=\(PerformanceBenchmarkTests.platformNameForMeasurement)", "scenario=\(scenario)", "run=\(run)", "steps=\(jumps.count)",
+            "jumps_over_2pt=\(jumps.filter { jump in jump > 2 }.count)", "jumps_over_50pt=\(jumps.filter { jump in jump > 50 }.count)",
+            String(format: "jump_max_pt=%.1f", jumps.max() ?? 0), String(format: "jump_total_pt=%.1f", jumps.reduce(0, +)),
+        ]
+        print("GRAPHITE-BENCH " + fields.joined(separator: " "))
+    }
 }
 
 extension PerformanceBenchmarkTests {

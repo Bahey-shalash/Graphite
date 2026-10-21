@@ -39,15 +39,23 @@ struct RoundedRunBackgrounds: ViewModifier {
           let origin = geometry[anchoredLayout.origin]
           let shapes = Self.shapes(in: anchoredLayout.layout, origin: origin)
           if !shapes.isEmpty {
-            Canvas { context, _ in
-              for shape in shapes {
-                let path = Path(roundedRect: shape.frame, cornerRadius: min(shape.background.cornerRadius, shape.frame.height / 2, shape.frame.width / 2))
-                context.fill(path, with: .color(shape.background.color))
-                if let borderColor = shape.background.borderColor, shape.background.borderWidth > 0 {
-                  context.stroke(path, with: .color(borderColor), lineWidth: shape.background.borderWidth)
-                }
+            // Shapes, not a `Canvas`: a canvas draws through RenderBox, which starts a Metal
+            // device that holds about 200 MB while a note scrolls (Graphite patch 19).
+            ZStack(alignment: .topLeading) {
+              ForEach(shapes.indices, id: \.self) { index in
+                let shape = shapes[index]
+                let rectangle = RoundedRectangle(cornerRadius: min(shape.background.cornerRadius, shape.frame.height / 2, shape.frame.width / 2))
+                rectangle.fill(shape.background.color)
+                  .overlay {
+                    if let borderColor = shape.background.borderColor, shape.background.borderWidth > 0 {
+                      rectangle.stroke(borderColor, lineWidth: shape.background.borderWidth)
+                    }
+                  }
+                  .frame(width: shape.frame.width, height: shape.frame.height)
+                  .offset(x: shape.frame.minX, y: shape.frame.minY)
               }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
           }
