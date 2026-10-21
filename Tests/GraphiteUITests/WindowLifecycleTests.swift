@@ -72,13 +72,32 @@ final class WindowLifecycleTests: XCTestCase {
         let vaultIdentifier = try XCTUnwrap(firstWindow.currentVaultIdentifier)
         let secondWindow = WorkspaceModel(processServices: processServices, clock: LiveApplicationClock())
 
-        await secondWindow.openVaultOfWindow(vaultIdentifier, restoresTabs: false, showing: nil)
+        await secondWindow.openVaultOfWindow(vaultIdentifier, tabs: .none, showing: nil)
 
         XCTAssertEqual(secondWindow.currentVaultIdentifier, vaultIdentifier)
         XCTAssertNil(secondWindow.selection, "A new window starts with an empty tab.")
         XCTAssertEqual(firstWindow.selection, try VaultPath("Lecture.md"))
         let laterLaunch = WorkspaceModel(processServices: processServices, clock: LiveApplicationClock())
-        await laterLaunch.openVaultOfWindow(vaultIdentifier, restoresTabs: true, showing: nil)
+        await laterLaunch.openVaultOfWindow(vaultIdentifier, tabs: .vaultsLast, showing: nil)
         XCTAssertEqual(laterLaunch.selection, try VaultPath("Lecture.md"), "The vault's remembered tabs were not replaced by the empty window's.")
+    }
+
+    func testEachWindowRestoresItsOwnTabsAfterARelaunch() async throws {
+        let vault = try makeVault(note: "Lecture.md")
+        try Data("other".utf8).write(to: vault.appendingPathComponent("Exercises.md"))
+        let (firstWindow, _) = try await window(showing: "Lecture.md", in: vault)
+        let vaultIdentifier = try XCTUnwrap(firstWindow.currentVaultIdentifier)
+        let firstWindowsTabs = try XCTUnwrap(firstWindow.windowTabsToKeep())
+        // A second window on the vault, left later, is what the device remembers for the vault.
+        let (secondWindow, _) = try await window(showing: "Exercises.md", in: vault)
+        XCTAssertNotNil(secondWindow.windowTabsToKeep())
+
+        let relaunchedFirstWindow = WorkspaceModel(processServices: processServices, clock: LiveApplicationClock())
+        let keptTabs = try XCTUnwrap(WindowTabs.layout(in: firstWindowsTabs, forVault: vaultIdentifier))
+        await relaunchedFirstWindow.openVaultOfWindow(vaultIdentifier, tabs: .window(keptTabs), showing: nil)
+
+        XCTAssertEqual(relaunchedFirstWindow.selection, try VaultPath("Lecture.md"), "The first window's own tabs, not the vault's last ones.")
+        XCTAssertNil(WindowTabs.layout(in: firstWindowsTabs, forVault: UUID()), "Tabs kept for another vault are not shown.")
+        withExtendedLifetime((firstWindow, secondWindow)) {}
     }
 }

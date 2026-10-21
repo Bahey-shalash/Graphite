@@ -355,13 +355,13 @@ final class WorkspaceModel {
 
     /// Opens a vault the window was opened on (`GraphiteWindowContent`): with the vault's
     /// remembered tabs, or with one empty tab, or `file`, for a window opened from another.
-    func openVaultOfWindow(_ vaultIdentifier: UUID, restoresTabs: Bool, showing file: VaultPath?) async {
+    func openVaultOfWindow(_ vaultIdentifier: UUID, tabs: WindowTabsToRestore, showing file: VaultPath?) async {
         guard let vault = vaultLibrary.vault(withIdentifier: vaultIdentifier) else { return await restoreVault() }
-        await reopen(vault, restoresTabs: restoresTabs)
+        await reopen(vault, tabs: tabs)
         if let file, currentVaultIdentifier == vaultIdentifier { _ = await open(file) }
     }
 
-    private func openVault(identifier: UUID?, location: VaultLocation, restoresTabs: Bool = true) async throws {
+    private func openVault(identifier: UUID?, location: VaultLocation, tabs: WindowTabsToRestore = .vaultsLast) async throws {
         try await prepareToLeaveCurrentVault(isReopeningCurrentVault: identifier != nil && identifier == currentVaultIdentifier)
         let (access, refreshedLocation) = try await VaultLocator.accessInBackground(location)
         let root = access.root
@@ -441,7 +441,11 @@ final class WorkspaceModel {
         startIndexing(.unlessScanned)
         // Returns to where the user left this vault, as Obsidian restores its workspace. A
         // window opened from another starts empty, and saves its tabs once they change.
-        if restoresTabs { restoreTabLayout() } else { layoutVaultIdentifier = currentVaultIdentifier }
+        switch tabs {
+        case .vaultsLast: restoreTabLayout()
+        case .window(let windowLayout): restoreTabLayout(windowLayout)
+        case .none: layoutVaultIdentifier = currentVaultIdentifier
+        }
         checkForUnfinishedRecordings()
         communityPlugins.vaultDidOpen(self)
         if preferences.isEnabled(.dailyNotes), dailyNoteSettings.opensOnStartup { await openDailyNote() }
@@ -494,11 +498,11 @@ final class WorkspaceModel {
     /// Opens the vault used most recently, at launch.
     func restoreVault() async {
         guard folderAccess == nil, let vault = vaultLibrary.list.mostRecentlyOpened else { return }
-        await reopen(vault, restoresTabs: true)
+        await reopen(vault, tabs: .vaultsLast)
     }
 
-    private func reopen(_ vault: KnownVault, restoresTabs: Bool) async {
-        do { try await openVault(identifier: vault.id, location: vault.location, restoresTabs: restoresTabs) }
+    private func reopen(_ vault: KnownVault, tabs: WindowTabsToRestore) async {
+        do { try await openVault(identifier: vault.id, location: vault.location, tabs: tabs) }
         catch { errorMessage = "Graphite couldn't reopen “\(vault.name)”. " + error.localizedDescription }
     }
 
