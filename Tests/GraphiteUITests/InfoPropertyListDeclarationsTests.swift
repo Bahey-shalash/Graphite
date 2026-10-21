@@ -63,7 +63,7 @@ final class InfoPropertyListDeclarationsTests: XCTestCase {
     func testTheInfoPropertyListHasExactlyTheseTopLevelKeys() throws {
         XCTAssertEqual(Set(try infoPropertyList().keys), [
             "CFBundleDisplayName", "CFBundleExecutable", "CFBundleIdentifier", "CFBundleName", "CFBundlePackageType",
-            "CFBundleShortVersionString", "CFBundleVersion", "CFBundleURLTypes",
+            "CFBundleShortVersionString", "CFBundleVersion", "CFBundleURLTypes", "GraphiteApplicationGroup",
             "ITSAppUsesNonExemptEncryption", "LSApplicationCategoryType", "LSSupportsOpeningDocumentsInPlace",
             "NSCameraUsageDescription", "NSMicrophoneUsageDescription", "NSPhotoLibraryAddUsageDescription",
             "UIApplicationSceneManifest", "UIBackgroundModes", "UIFileSharingEnabled", "UILaunchScreen",

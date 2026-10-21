@@ -47,6 +47,10 @@ FOUNDATIONAL_FRAMEWORKS = {"Foundation", "CoreGraphics", "CryptoKit", "zlib", "S
 # Language and logging runtime that every module except GraphiteCore uses (not in the table; an interpretation, listed here).
 RUNTIME_FRAMEWORKS = {"Swift", "Observation", "os", "OSLog"}
 
+# Standalone packages under Packages/ (section 3.5): they know nothing of Graphite, so every module may import them, and
+# none of them may import a Graphite module.
+STANDALONE_PACKAGES = {"ShareInbox"}
+
 # Section 3.2 rows for today's modules. "modules" are Graphite modules it may import; "frameworks" are the system and
 # third-party frameworks it may import beyond FOUNDATIONAL_FRAMEWORKS and RUNTIME_FRAMEWORKS. `prefixes` allow a family.
 MODULE_ROWS = {
@@ -117,7 +121,7 @@ def imported_modules(file):
 
 
 def framework_is_allowed(row, name):
-    if name in FOUNDATIONAL_FRAMEWORKS or name in row["frameworks"]:
+    if name in FOUNDATIONAL_FRAMEWORKS or name in STANDALONE_PACKAGES or name in row["frameworks"]:
         return True
     if row.get("allows_runtime") and name in RUNTIME_FRAMEWORKS:
         return True
@@ -142,6 +146,10 @@ def collect_violations(tree):
                 for name, why in CONFINED_IN_INTERFACE_MODULE.items():
                     if name in imported_modules(file):
                         violations[f"target-state: GraphiteUI files import {name} ({why})"].append(file.relative_path)
+    for file in tree.files(["Packages"]):
+        for name in imported_modules(file):
+            if name in GRAPHITE_MODULES:
+                violations[f"Packages imports {name} (a standalone package knows nothing of Graphite, 3.5)"].append(file.relative_path)
     for key, files in package_dependency_violations(tree.root).items():
         violations[key].extend(files)
     return violations

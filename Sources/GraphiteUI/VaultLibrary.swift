@@ -20,14 +20,26 @@ final class VaultLibrary {
     @ObservationIgnored private var unreadableEntries: [Any] = []
 
     private(set) var list: VaultList {
-        didSet { if list != oldValue { saveList() } }
+        didSet {
+            guard list != oldValue else { return }
+            saveList()
+            publishForShareExtension()
+        }
     }
+    /// Writes the vaults' names for the share extension; nil where there is none (the Mac,
+    /// a hosted-tests launch).
+    @ObservationIgnored private let sharedVaultListPublisher: SharedVaultListPublisher?
+    /// Numbers the published lists, so only the newest is written.
+    @ObservationIgnored private var publishedListCount = 0
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, sharedVaultListPublisher: SharedVaultListPublisher? = nil) {
         self.defaults = defaults
+        self.sharedVaultListPublisher = sharedVaultListPublisher
         list = VaultList()
         if let storedList = defaults.data(forKey: Self.storageKey) { loadList(from: storedList) }
         adoptSingleVaultBookmark()
+        // A device that knew its vaults before the share extension existed publishes them now.
+        publishForShareExtension()
     }
 
     var vaults: [KnownVault] { list.sortedByName }
@@ -62,6 +74,14 @@ final class VaultLibrary {
     /// The same folder can be reported with or without iOS's `/private` prefix.
     private static func comparablePath(of folder: URL) -> String {
         folder.standardizedFileURL.resolvingSymlinksInPath().path
+    }
+
+    private func publishForShareExtension() {
+        guard let sharedVaultListPublisher else { return }
+        publishedListCount += 1
+        let number = publishedListCount
+        let sharedList = SharedVaultListPublisher.sharedList(of: list.vaults)
+        Task { await sharedVaultListPublisher.publish(sharedList, number: number) }
     }
 
     /// Reads the stored list one entry at a time, so one entry this build cannot decode

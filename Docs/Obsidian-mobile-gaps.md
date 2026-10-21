@@ -121,7 +121,7 @@ Status: **Missing**, **Partial**, or **Done**. "Desktop only" items are left out
 | Pull-down quick action, swipe gestures | Missing | |
 | Hardware keyboard shortcuts | Done | In the iPad menu bar (File, View, Go) and the editor; not configurable, no Hotkeys settings page |
 | Multiple windows (Stage Manager) | Missing | `UIApplicationSupportsMultipleScenes` is off |
-| Share extension (share to Graphite) | Missing | |
+| Share extension (share to Graphite) | Done | iOS and iPadOS (2026-10-21): text, web pages (a Markdown link titled with the page), images, movies and files (attachments with an embed) go to a new note or the end of today's daily note, in the vault chosen in the sheet. The extension cannot reach a vault, so the item waits in the App Group's share inbox until Graphite next opens or becomes active, then lands through the vault's own settings and the new note opens (an iOS share extension cannot open its app itself). No share extension on the Mac (see `Docs/Architecture.md`, Sharing to Graphite). Not yet checked on a device |
 | URL scheme and deep links | Done | `graphite://` with Obsidian's actions and parameters (`open` with `file` or `path`, `search`, `new` with `append`, `overwrite` and `silent`, `daily`, and `vault/…`), so an Obsidian link works once its scheme is changed; Copy Graphite URL from a note, a file, and the command palette. `obsidian://` links written in notes still go to Obsidian; no document types declared for "Open in Graphite" |
 | Siri, Shortcuts, widgets | Missing | |
 | Themes and CSS snippets | Partial | Light, dark and accent color; `.obsidian/appearance.json` not read |

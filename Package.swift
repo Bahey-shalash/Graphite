@@ -18,19 +18,23 @@ let package = Package(
         .package(url: "https://github.com/jpsim/Yams.git", exact: "6.2.2"),
         // A trimmed copy of mlx-audio-swift (MIT) that runs the downloadable Read Aloud voices;
         // its changes from upstream are listed in Vendor/mlx-audio-swift/GRAPHITE-PATCHES.md.
-        .package(path: "Vendor/mlx-audio-swift")
+        .package(path: "Vendor/mlx-audio-swift"),
+        // The share extension's inbox, a standalone package the extension links alone.
+        .package(path: "Packages/ShareInbox")
     ],
     targets: [
         .target(name: "GraphiteCore", dependencies: [
             .product(name: "Markdown", package: "swift-markdown"),
-            .product(name: "Yams", package: "Yams")
+            .product(name: "Yams", package: "Yams"),
+            .product(name: "ShareInbox", package: "ShareInbox")
         ]),
         .target(name: "GraphiteIndex", dependencies: ["GraphiteCore", .product(name: "GRDB", package: "GRDB.swift")]),
         .target(name: "GraphiteApple", dependencies: ["GraphiteCore"], resources: [.copy("Resources/MathSpeech")]),
         // The on-device neural voices: model loading and rendering with MLX.
         .target(name: "GraphiteVoices", dependencies: ["GraphiteCore", "GraphiteApple", .product(name: "MLXAudioTTS", package: "mlx-audio-swift")],
                 resources: [.copy("Resources/NeuralVoices.json"), .copy("Resources/DiaVoicePrompt.json")]),
-        .target(name: "GraphiteUI", dependencies: ["GraphiteCore", "GraphiteIndex", "GraphiteApple", "GraphiteVoices", .product(name: "Textual", package: "textual")],
+        .target(name: "GraphiteUI", dependencies: ["GraphiteCore", "GraphiteIndex", "GraphiteApple", "GraphiteVoices", .product(name: "Textual", package: "textual"),
+                                                .product(name: "ShareInbox", package: "ShareInbox")],
                 // The Obsidian plugin runtime's page, scripts and vendored libraries, copied as
                 // one folder so the page's relative script paths keep working.
                 // The theme resolver's default variables and probe script (`ThemeTokenResolver`).
@@ -42,9 +46,11 @@ let package = Package(
         // Where the checked-in fixture vaults under `Tests/` are found, for every test target that reads one.
         .target(name: "GraphiteFixtures", path: "Tests/GraphiteFixtures"),
         // The babbling clip is a real Qwen3-TTS rendering, to test the checks on real audio.
-        .testTarget(name: "GraphiteCoreTests", dependencies: ["GraphiteCore", "GraphiteTestSupport", "GraphiteFixtures"], resources: [.copy("Resources/QwenBabbling.m4a")]),
+        .testTarget(name: "GraphiteCoreTests", dependencies: ["GraphiteCore", "GraphiteTestSupport", "GraphiteFixtures",
+                                                       .product(name: "ShareInbox", package: "ShareInbox")], resources: [.copy("Resources/QwenBabbling.m4a")]),
         .testTarget(name: "GraphiteIndexTests", dependencies: ["GraphiteIndex", "GraphiteBenchmarks", "GraphiteTestSupport", "GraphiteFixtures"]),
         .testTarget(name: "GraphiteAppleTests", dependencies: ["GraphiteApple", "GraphiteTestSupport"]),
-        .testTarget(name: "GraphiteUITests", dependencies: ["GraphiteUI", "GraphiteTestSupport", .product(name: "Textual", package: "textual")])
+        .testTarget(name: "GraphiteUITests", dependencies: ["GraphiteUI", "GraphiteTestSupport", "GraphiteFixtures", .product(name: "Textual", package: "textual"),
+                                                     .product(name: "ShareInbox", package: "ShareInbox")])
     ]
 )

@@ -58,7 +58,7 @@ extension WorkspaceModel {
             let rendered = TemplateRenderer.render(templateText, title: session.path.stem, date: .now, dateFormat: settings.dateFormat, timeFormat: settings.timeFormat)
             let declaredTypes = await store.propertyTypes()
             session.apply(TemplateInsertion.edit(inserting: rendered, into: session.text, at: session.selection, declaredTypes: declaredTypes))
-        } catch { errorMessage = error.localizedDescription }
+        } catch { errorMessage = Self.templatesFailureMessage(error) }
     }
 
     /// Opens the daily note of `date`, creating it from the daily note template first when
@@ -71,25 +71,20 @@ extension WorkspaceModel {
         }
         do {
             let path = try settings.notePath(for: date)
-            if try await !store.fileExists(path) {
-                var content = ""
-                if let templatePath = settings.templatePath {
-                    guard try await store.fileExists(templatePath) else {
-                        throw GraphiteError.unavailable("The daily note template “\(templatePath.rawValue)” is not in this vault. Choose another in Settings › Daily Notes.")
-                    }
-                    let snapshot = try await store.read(templatePath, maximumBytes: MarkdownSession.maximumEditableBytes)
-                    let templateText = String(data: snapshot.data, encoding: .utf8) ?? ""
-                    // The note's own date, not today's, so earlier and later notes are right.
-                    content = TemplateRenderer.render(templateText, title: path.stem, date: date,
-                                                      dateFormat: settings.format, timeFormat: templateSettings.timeFormat)
-                }
-                try await store.createDirectory(path.parent)
-                _ = try await store.save(Data(content.utf8), at: path, expecting: .absent)
+            let isCreated = try await DailyNoteCreation.createIfMissing(path, for: date, settings: settings, timeFormat: templateSettings.timeFormat,
+                                                                         maximumTemplateBytes: MarkdownSession.maximumEditableBytes, timeZone: .current, store: store)
+            if isCreated {
                 refreshIndex(for: [path])
                 await refreshDirectory()
             }
             await open(path, placement: placement)
-        } catch { errorMessage = error.localizedDescription }
+        } catch { errorMessage = Self.templatesFailureMessage(error) }
+    }
+
+    /// What the person is told when a template or a daily note cannot be used.
+    nonisolated static func templatesFailureMessage(_ error: any Error) -> String {
+        guard case DailyNoteCreation.Failure.templateMissing(let templatePath) = error else { return error.localizedDescription }
+        return "The daily note template “\(templatePath.rawValue)” is not in this vault. Choose another in Settings › Daily Notes."
     }
 
     /// The daily note before or after the one open, or before or after today when the open
@@ -114,7 +109,7 @@ extension WorkspaceModel {
                 return
             }
             await open(path)
-        } catch { errorMessage = error.localizedDescription }
+        } catch { errorMessage = Self.templatesFailureMessage(error) }
     }
 
     func updateTemplateSettings(_ settings: TemplateSettings) async {
@@ -122,7 +117,7 @@ extension WorkspaceModel {
         do {
             try await store.saveTemplateSettings(settings)
             templateSettingsReading = .read(settings)
-        } catch { errorMessage = error.localizedDescription }
+        } catch { errorMessage = Self.templatesFailureMessage(error) }
     }
 
     func updateDailyNoteSettings(_ settings: DailyNoteSettings) async {
@@ -130,6 +125,6 @@ extension WorkspaceModel {
         do {
             try await store.saveDailyNoteSettings(settings)
             dailyNoteSettingsReading = .read(settings)
-        } catch { errorMessage = error.localizedDescription }
+        } catch { errorMessage = Self.templatesFailureMessage(error) }
     }
 }

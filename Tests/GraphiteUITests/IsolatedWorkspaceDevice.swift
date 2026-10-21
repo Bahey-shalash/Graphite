@@ -1,6 +1,7 @@
 import XCTest
 import GraphiteCore
 import GraphiteApple
+import ShareInbox
 @testable import GraphiteUI
 #if canImport(GraphiteTestSupport)
 import GraphiteTestSupport
@@ -45,9 +46,10 @@ struct IsolatedWorkspaceDevice {
     /// is stored now. Read Aloud, when it is on, speaks through a silent fake that makes no
     /// sound (`PenTestSpeech`), keeps its preferences in this device's suite, and stays off
     /// the lock screen.
-    func makeServices(makeReadAloudController: (@MainActor () -> ReadAloudController)? = nil) -> WorkspaceDeviceServices {
+    /// `shareInbox` is the share extension's inbox the workspace takes shared items from; none by default.
+    func makeServices(shareInbox: ShareInbox? = nil, makeReadAloudController: (@MainActor () -> ReadAloudController)? = nil) -> WorkspaceDeviceServices {
         let defaults = defaults
-        return WorkspaceDeviceServices(defaults: defaults, applicationFolders: applicationFolders,
+        return WorkspaceDeviceServices(defaults: defaults, applicationFolders: applicationFolders, shareInbox: shareInbox,
                                        makeReadAloudController: makeReadAloudController ?? {
                                            ReadAloudController(session: ReadAloudSession(speech: PenTestSpeech(), preferences: defaults),
                                                                preferences: defaults)
@@ -55,8 +57,8 @@ struct IsolatedWorkspaceDevice {
     }
 
     /// A workspace on this device whose delays run on `clock`.
-    func makeWorkspace(clock: any ApplicationClock = LiveApplicationClock(),
+    func makeWorkspace(clock: any ApplicationClock = LiveApplicationClock(), shareInbox: ShareInbox? = nil,
                        makeReadAloudController: (@MainActor () -> ReadAloudController)? = nil) -> WorkspaceModel {
-        WorkspaceModel(deviceServices: makeServices(makeReadAloudController: makeReadAloudController), clock: clock)
+        WorkspaceModel(deviceServices: makeServices(shareInbox: shareInbox, makeReadAloudController: makeReadAloudController), clock: clock)
     }
 }

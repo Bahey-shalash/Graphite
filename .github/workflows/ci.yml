@@ -92,6 +92,14 @@ jobs:
       - name: Skipped-test count may not rise
         run: python3 scripts/check-rules.py --test-log swift-test.log
 
+      # Each standalone package under Packages/ builds and tests alone (rewrite-foundations.md section 3.5).
+      - name: Standalone packages build and test alone
+        run: |
+          set -o pipefail
+          for package in Packages/*/; do
+            swift test --package-path "$package" 2>&1 | tail -n 5
+          done
+
       - name: Keep the log
         if: always()
         uses: actions/upload-artifact@v4.6.2

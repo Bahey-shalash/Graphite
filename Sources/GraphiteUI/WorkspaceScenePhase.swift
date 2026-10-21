@@ -12,7 +12,11 @@ extension WorkspaceModel {
         // snapshots, and an editor laid out again then reports a line further down.
         if previousPhase == .active { rememberPlacesOfOpenDocuments() }
         if phase == .active {
-            Task { await checkOpenDocumentsForExternalChanges(); await refreshDirectory(); await reloadVaultSettings() }
+            Task {
+                await checkOpenDocumentsForExternalChanges(); await refreshDirectory(); await reloadVaultSettings()
+                // What was shared to Graphite while it was away.
+                await receiveSharedItems(at: .now)
+            }
         } else {
             // Reading goes on in the background and on the lock screen, like an audiobook.
             saveBeforeLeaving()

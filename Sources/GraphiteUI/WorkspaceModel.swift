@@ -220,6 +220,9 @@ final class WorkspaceModel {
     private var externalChangeTask: Task<Void, Never>?
     private var pendingExternalChanges: Set<URL> = []
     let resolver = AttachmentResolver()
+    /// Takes in what was shared to Graphite from other apps (`WorkspaceSharedItems.swift`);
+    /// nil where there is no share extension.
+    let sharedItemReceiver: SharedItemReceiver?
     /// What the delays of the workspace and of the sessions it opens are counted on: the
     /// settling of external changes and canvas autosave.
     let clock: any ApplicationClock
@@ -236,6 +239,7 @@ final class WorkspaceModel {
         documentPlaceStore = deviceServices.documentPlaceStore
         communityPlugins = CommunityPluginHost(defaults: deviceServices.defaults)
         makeReadAloudController = deviceServices.makeReadAloudController
+        sharedItemReceiver = deviceServices.shareInbox.map(SharedItemReceiver.init(inbox:))
         if let applicationSupportFolder = deviceServices.applicationFolders.applicationSupportFolder {
             recording.recoveryFolderLocation = { try RecordingRecoveryFolder.location(in: applicationSupportFolder) }
         }

@@ -231,6 +231,8 @@ public struct GraphiteRootView: View {
             let links = pendingLinks
             pendingLinks = []
             for link in links { await workspace.handle(link) }
+            // What was shared to Graphite while it was closed goes into the vault that reopened.
+            if restoresLastVault { await workspace.receiveSharedItems(at: .now) }
         }
         // A search asked for from anywhere (⇧⌘F, a tag, a link) shows where it happens.
         .onChange(of: workspace.searchFocusRequest) { showSidebar() }
