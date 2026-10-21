@@ -56,6 +56,23 @@ final class GoodnotesPagePlannerSampleTests: XCTestCase {
         print("GOODNOTES-PICTURES planned \(plannedTotal) missing \(missingTotal)")
     }
 
+    /// Every outline entry of the samples names a page of its notebook, in the reference reader's count.
+    func testEveryOutlineEntryOfTheSamplesNamesAPageOfItsNotebook() throws {
+        let configuration = try NotebookImportSamples.configuration()
+        var entryCount = 0
+        for samplePath in NotebookImportSamples.samplePaths(withExtension: "goodnotes", in: configuration) {
+            let archiveBytes = try Data(contentsOf: configuration.samplesFolder.appendingPathComponent(samplePath), options: .alwaysMapped)
+            let notebook = try GoodnotesNotebookReader(archiveBytes: archiveBytes, limits: .standard).notebook
+            let plan = GoodnotesOutlinePlanner.plan(notebook)
+            XCTAssertEqual(plan.report, [], samplePath)
+            XCTAssertEqual(configuration.referenceCounts[samplePath]?["outline_entries"], .number(Double(plan.entries.count)), samplePath)
+            XCTAssertEqual(plan.entries.map(\.sourcePageNumber), plan.entries.map(\.sourcePageNumber).sorted(),
+                           "In the entries' order the pages only go forward: \(samplePath)")
+            entryCount += plan.entries.count
+        }
+        print("GOODNOTES-OUTLINE entries \(entryCount)")
+    }
+
     private static func assertUsable(_ picture: ImportedPicture, in samplePath: String) {
         let frame = picture.frame
         XCTAssertTrue([frame.minX, frame.minY, frame.width, frame.height, picture.rotationRadiansClockwise].allSatisfy(\.isFinite), samplePath)

@@ -31,6 +31,9 @@ public enum ImportReportEntry: Sendable, Hashable {
     /// Ink and other elements timed against a recording: the recording is kept, the timing is not (owner decision,
     /// 2026-10-20).
     case recordingTimingNotKept(timedElementCount: Int)
+    /// Outline entries whose page is not in the imported notebook, such as a deleted page or one left out; they are
+    /// left out.
+    case outlineEntriesWithoutPage(count: Int)
     /// A paper ruling the import does not describe, drawn as plain paper.
     case paperRulingNotDrawn
     /// The page has no paper record, so its size and background are not known; it is left out.

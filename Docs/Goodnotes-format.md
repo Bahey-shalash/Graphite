@@ -72,7 +72,7 @@ Each message is `{1: entity id, <kind>: body}`, with exactly one body field. The
 | 56 | Page deleted | 3 register; 1 means deleted. The page's records stay in the file |
 | 57 | Page bookmarked | 3 register; 1 means bookmarked ("Add to Favorites"), empty means the bookmark was removed |
 | 63 | Page flag | 3 register, 1 in its one sample; meaning unknown |
-| 62 | Outline entry | 5 title; 6 position among the entries (a fractional index); 3 `{1: point}` on the target page; 2 the target, which matches no record in the samples |
+| 62 | Outline entry | The record's entity is the page the entry names (checked on the three library notebooks with outline entries: each of their 10 entries names a page of its notebook, and in the entries' order the pages only go forward, as a table of contents does). 5 title; 6 position among the entries (a fractional index); 3 `{1: point}` on that page, in units from its top-left corner, infinite (`inf`) for the page as a whole; 2 the entry's own identifier, which no other record names |
 | 102 | Ink layer created | id = page id + 1 |
 | 106 | Ink layer members | 2 repeated: the page's element ids (registers). Not the drawing order, and absent from some notebooks (see Page elements) |
 | 160 | Recording | 2 the audio attachment; 3 document; 4 duration in flicks; 5 `{1: {1: element id, 2: {1: time in flicks from the start, 2: page id}}, …}`, one entry per element written during the recording |
@@ -302,7 +302,7 @@ How each kind of element found in the samples would arrive in Graphite's noteboo
 - Saved drawings: their strokes, as any others. Drawing order mixes pictures and ink freely, and Graphite's pictures always sit under the ink.
 - Text boxes and sticky notes: Graphite has no text boxes yet. The text, fonts, sizes, colours and links are all readable; older text boxes need an RTF reader.
 - Recordings: the MP4 audio as an `.m4a`, with the time of each element written during it (elements since deleted included, so the timings must be matched to live elements).
-- Outline entries: titles and order are readable, but their target is not resolved yet.
+- Outline entries: whether Goodnotes deletes or renames an entry with a later record of the same identifier (the samples have one record per entry).
 
 ## Other readers
 

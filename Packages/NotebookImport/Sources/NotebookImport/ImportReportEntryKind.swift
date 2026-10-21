@@ -15,7 +15,7 @@ public enum ImportReportEntryKind: Sendable, Hashable {
     case highlighterNotMultiplied, pencilTextureNotKept, tapeLeftOut, olderVaryingWidthInkLeftOut, shapesDrawnAsInk, dashesNotKept
     case elementsNotYetConverted(ImportElementKind)
     case picturesMovedUnderInk, animatedPicturesKeptStill, pictureFilesMissing, picturesNotDecodable
-    case recordingFilesMissing, recordingTimingNotKept
+    case recordingFilesMissing, recordingTimingNotKept, outlineEntriesWithoutPage
     case paperRulingNotDrawn, pageWithoutPaper, backgroundFileMissing, pageGeometryUnknown
     case goodnotesReadingIssue(GoodnotesReadingIssue)
     case notabilityReadingIssue(NotabilityReadingIssue)
@@ -26,7 +26,7 @@ public enum ImportReportEntryKind: Sendable, Hashable {
              .paperRulingNotDrawn:
             .simplified
         case .tapeLeftOut, .olderVaryingWidthInkLeftOut, .elementsNotYetConverted, .pictureFilesMissing, .picturesNotDecodable, .recordingFilesMissing,
-             .recordingTimingNotKept, .pageWithoutPaper, .backgroundFileMissing, .pageGeometryUnknown:
+             .recordingTimingNotKept, .outlineEntriesWithoutPage, .pageWithoutPaper, .backgroundFileMissing, .pageGeometryUnknown:
             .leftOut
         case .goodnotesReadingIssue, .notabilityReadingIssue:
             .readingIssue
@@ -50,6 +50,7 @@ extension ImportReportEntry {
         case .picturesNotDecodable: .picturesNotDecodable
         case .recordingFilesMissing: .recordingFilesMissing
         case .recordingTimingNotKept: .recordingTimingNotKept
+        case .outlineEntriesWithoutPage: .outlineEntriesWithoutPage
         case .paperRulingNotDrawn: .paperRulingNotDrawn
         case .pageWithoutPaper: .pageWithoutPaper
         case .backgroundFileMissing: .backgroundFileMissing
@@ -66,7 +67,7 @@ extension ImportReportEntry {
         case .highlighterNotMultiplied(let count), .pencilTextureNotKept(let count), .tapeLeftOut(let count), .olderVaryingWidthInkLeftOut(let count),
              .shapesDrawnAsInk(let count), .dashesNotKept(let count), .elementsNotYetConverted(_, let count), .picturesMovedUnderInk(let count),
              .animatedPicturesKeptStill(let count), .pictureFilesMissing(let count), .picturesNotDecodable(let count),
-             .recordingFilesMissing(let count), .recordingTimingNotKept(let count):
+             .recordingFilesMissing(let count), .recordingTimingNotKept(let count), .outlineEntriesWithoutPage(let count):
             count
         case .paperRulingNotDrawn, .pageWithoutPaper, .backgroundFileMissing, .pageGeometryUnknown, .goodnotesReadingIssue, .notabilityReadingIssue:
             nil

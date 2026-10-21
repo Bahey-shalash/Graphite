@@ -5,7 +5,7 @@ import NotebookImport
 
 /// Why `NotebookImportWriter` wrote no file. Every case leaves the destination as it was and the source unchanged.
 public enum NotebookImportWriterError: Error {
-    /// A notebook needs at least one page.
+    /// A notebook needs at least one page, and at least one that its plan does not leave out.
     case noPages
     /// Something is already at the destination; an import never replaces a file.
     case destinationExists(URL)

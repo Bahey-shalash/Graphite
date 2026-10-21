@@ -70,7 +70,8 @@ final class NotebookImportPaperAndBookmarkWriterTests: XCTestCase {
     private func writtenDocument(_ plans: [ImportedPagePlan]) throws -> PDFDocument {
         let vault = try TemporaryVault.make(prefix: "NotebookImportPaperAndBookmarkWriter", for: self)
         let destination = vault.location(of: "Imported notebook.pdf")
-        _ = try NotebookImportWriter(fileWriter: AtomicFileWriter()).write(pageCount: plans.count, planForPage: { pageIndex in plans[pageIndex] },
+        _ = try NotebookImportWriter(fileWriter: AtomicFileWriter()).write(sourcePageCount: plans.count,
+                                                                           outcomeForPage: { pageIndex in .planned(plans[pageIndex]) }, outline: [],
                                                                            sourceFiles: NoFiles(), strokeCreationDate: Date(timeIntervalSince1970: 0),
                                                                            to: destination)
         return try XCTUnwrap(PDFDocument(url: destination))

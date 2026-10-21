@@ -1,6 +1,6 @@
 # Import Phase 3: conversion to ordinary files (design)
 
-Status: reviewed 2026-10-20, with the owner's decisions below. Steps 1 to 7 and 9 are built and tested ("Built so far" below), except Goodnotes links, which sit on text boxes and wait for step 8 with them; nothing calls them from the app yet. Phase 3 of [the import checklist](Goodnotes-Notability-import-todo.md), on top of the Phase 2 readers (`GoodnotesNotebookReader`, `NotabilityNoteReader`).
+Status: reviewed 2026-10-20, with the owner's decisions below. Steps 1 to 7 and 9 are built and tested ("Built so far" below), outline entries since 2026-10-21, except Goodnotes links, which sit on text boxes and wait for step 8 with them. The app calls them since 2026-10-21 (Phase 4, `Architecture.md` › "Importing Goodnotes and Notability notebooks"). Phase 3 of [the import checklist](Goodnotes-Notability-import-todo.md), on top of the Phase 2 readers (`GoodnotesNotebookReader`, `NotabilityNoteReader`).
 
 ## Shape
 
@@ -72,7 +72,7 @@ Pages are planned and written one at a time, so the source is never decoded whol
   - Reported: every shape drawn as ink (`shapesDrawnAsInk`), and dashes drawn solid.
   - A shape without geometry or width, or of a kind not described, is counted as left out.
 - **Notability paper (step 5):** ruled and grid paper are drawn by Graphite's paper system. `PaperSpecification` has an optional `PaperRuling`: line colour, line width, where the rows start and end, and the grid's column anchor. Without it, every template draws as before, byte for byte (`PDFTemplateGeneratorGoldenTests`), and older data decodes unchanged. `NotabilityPaperRuling` gives the ruling Notability's export draws ("Paper" in `Notability-format.md`). A line style not described is plain paper, reported.
-- **Bookmarks (step 6):** a bookmarked Goodnotes page, or a Notability page made from a bookmarked PDF page, gets the outline item Graphite adds for a bookmark ("Page 3"), in page order. Goodnotes links are on text boxes, so they come with step 8; until then, the report lists the text box as left out. Outline entries are not read into the plan yet.
+- **Bookmarks (step 6):** a bookmarked Goodnotes page, or a Notability page made from a bookmarked PDF page, gets the outline item Graphite adds for a bookmark ("Page 3"), in page order. Goodnotes links are on text boxes, so they come with step 8; until then, the report lists the text box as left out. Outline entries: see below (2026-10-21).
 
 ## Built so far (step 7, 2026-10-20)
 
@@ -92,6 +92,14 @@ Pages are planned and written one at a time, so the source is never decoded whol
 - **Summary:** one `ImportReportSummaryLine` per kind of entry (`ImportReportEntryKind`), in first-seen order, with the counts added up and the pages it occurs on. Each kind has a category: simplified, left out, or a reading issue. Reading issues of one case are one line whatever element they name: on the samples a single case (elements missing from a layer's member list) occurs 10,805 times, and each notebook's summary is at most 7 lines.
 - `isComplete` is true only when at least one page was written and nothing was simplified, left out or unreadable: 14 of the 50 samples.
 
+## Built so far (outline entries and library folders, 2026-10-21)
+
+- **Outline entries (step 6, rest):** an outline record is an event of the page it names (`Docs/Goodnotes-format.md`, kind 62; the earlier reading took field 2, the entry's own identifier, for an unresolved target). `GoodnotesOutlinePlanner` gives each entry its page by the page's place in the notebook and its point in page points (`ImportedOutlineEntry`); an infinite point names the page as a whole. The writer adds them as the PDF's first outline items, in Goodnotes' order, before the bookmarks (invariant PDF-06): a title starting with "Page " would read as a bookmark in Graphite's bookmark list. An entry whose page is not in the notebook (deleted) or was not written (left out) is counted as `outlineEntriesWithoutPage`. On the samples, the three library notebooks with outline entries have 10, each on a page of its notebook, the pages going forward in the entries' order.
+- **Pages left out:** the writer now takes each page's outcome (`write(sourcePageCount:outcomeForPage:outline:…)`): a page its plan leaves out is not written and keeps its report, so `NotebookImportWriting.pageReports` holds every source page; a notebook whose pages are all left out writes nothing (`noPages`).
+- **Page titles and dividers:** Goodnotes keeps a page's title as an outline entry (no other title record is in the samples). Notability's dividers and subjects are its library's folders, not part of a note.
+- **Library folders:** `NotebookLibraryListing` (GraphiteApple) lists a chosen folder, such as a Goodnotes library export (a folder tree of `.goodnotes` files and a hidden `.goodnotesmeta`), with the folders between it and each notebook, in Finder's order; hidden files are skipped and other files counted. The import keeps those folders in the vault (Phase 4). The `.goodnotesmeta` file's folder colours and symbols are not applied (Graphite's folder looks could take them later).
+- **Tests:** `GoodnotesOutlinePlannerTests` (4) and `NotebookFileFormatTests` (2) in the package, the outline case of `GoodnotesNotebookReaderTests`, and `testEveryOutlineEntryOfTheSamplesNamesAPageOfItsNotebook` (opt-in, samples); `ImportedOutlineItemsTests` (3) and `NotebookLibraryListingTests` (2) in GraphiteApple.
+
 ## Order of work, and what each step needs
 
 | Step | What | Needs from Graphite | Exact or reported |
@@ -101,7 +109,7 @@ Pages are planned and written one at a time, so the source is never decoded whol
 | 3 | Pictures: turned, Notability crop (the bitmap cropped before placing), GIF as its first frame | Pictures above ink for Goodnotes' free stacking (checklist: "Graphite features this needs first") | Under the ink until that exists; a picture that Goodnotes draws over ink is reported |
 | 4 | Shapes: lines, arcs, rectangles, ellipses, Notability lines and curves, as ink strokes sampled from their geometry | Editable shapes, dashed ink, filled shapes | Shapes arrive as ink. Dashes and fills are reported |
 | 5 | Notability paper (white or black, ruled every width / 17, grid, #A3B7D3, 0.5 and 0.4 points) | `PaperSpecification` with a free line colour and line width: a small addition to the paper system (`PaperRuling`, added) | Exact on the letter samples |
-| 6 | Links, bookmarks, outline: bookmarks become outline items (`PDFEdit.bookmark`). A link on a Goodnotes text box becomes a `/Link` annotation with step 8, as it sits on the text box. Outline entries are reported (their target is not resolved yet) | Nothing new | Exact for bookmarks; links wait for step 8 |
+| 6 | Links, bookmarks, outline: bookmarks become outline items (`PDFEdit.bookmark`), and outline entries outline items on their page and point (2026-10-21). A link on a Goodnotes text box becomes a `/Link` annotation with step 8, as it sits on the text box | Nothing new | Exact for bookmarks and outline entries; links wait for step 8 |
 | 7 | Audio: Notability `.m4a` and Goodnotes MP4 audio copied as `.m4a` where the vault's attachment policy says; no companion note (owner decision 4) | Synchronised replay for stroke timing (not planned) | The audio is exact (byte for byte on the samples). Stroke timing is not kept, and the report says so |
 | 8 | Text boxes, sticky notes, older RTF text boxes, Notability typed text | Text boxes on PDF pages | Blocked; listed in the report until then (owner decision 1, and "Text boxes" below) |
 | 9 | The import report value (per page: converted, simplified, skipped, with the reason), for Phase 4 to show | Nothing new | Built (`NotebookImportReport`) |

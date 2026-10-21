@@ -6,7 +6,9 @@ import NotebookImport
 /// Writes an imported notebook as a new ordinary PDF that Graphite's own PDF code wrote: each planned page is a PDF
 /// page of its size with its background as page content (`ImportedBackgroundPages`), its pictures are Graphite's
 /// picture stamps (`ImportedPagePictures`), and its strokes are standard `/Ink` annotations over them with Graphite's
-/// re-editing record (`ImportedPageInk`), so the PDF opens, re-edits and saves like a notebook made in Graphite.
+/// re-editing record (`ImportedPageInk`), so the PDF opens, re-edits and saves like a notebook made in Graphite. A page
+/// whose plan leaves it out is not written, and the notebook's outline entries become the PDF's first outline items
+/// (`ImportedOutlineItems`).
 ///
 /// Pages are planned, made and applied one at a time; a page's plan and PencilKit drawing are released once the page
 /// has its ink. The PDFKit document being written still grows with the notebook. The file is written as
@@ -22,30 +24,43 @@ public struct NotebookImportWriter: Sendable {
     }
 
     /// - Parameters:
-    ///   - pageCount: How many pages the notebook has; `planForPage` is asked for each index from 0, in order.
+    ///   - sourcePageCount: How many pages the source has; `outcomeForPage` is asked for each index from 0, in order. A
+    ///     page its outcome leaves out is not written and keeps its report.
+    ///   - outline: The notebook's outline entries, written before the bookmarks.
     ///   - sourceFiles: Reads the files the plans' backgrounds and pictures name.
     ///   - strokeCreationDate: The PencilKit creation date of every imported stroke.
-    public func write(pageCount: Int, planForPage: (Int) throws -> ImportedPagePlan, sourceFiles: any ImportSourceFiles,
-                      strokeCreationDate: Date, to destination: URL) throws -> NotebookImportWriting {
-        guard pageCount > 0 else { throw NotebookImportWriterError.noPages }
+    public func write(sourcePageCount: Int, outcomeForPage: (Int) throws -> ImportedPageOutcome, outline: [ImportedOutlineEntry],
+                      sourceFiles: any ImportSourceFiles, strokeCreationDate: Date, to destination: URL) throws -> NotebookImportWriting {
+        guard sourcePageCount > 0 else { throw NotebookImportWriterError.noPages }
         // Checked first so a notebook is not converted only to be refused; the writer checks again as it moves the file.
         guard !FileManager.default.fileExists(atPath: destination.path) else { throw NotebookImportWriterError.destinationExists(destination) }
         var pageReports: [ImportedPageReport] = []
+        var notebookEntries: [ImportReportEntry] = []
         do {
             let revision = try fileWriter.replace(destination, expecting: .absent) { staging in
                 let document = PDFDocument()
                 var backgrounds = ImportedBackgroundPages(sourceFiles: sourceFiles)
-                for pageIndex in 0..<pageCount {
+                var pageIndexBySourcePageNumber: [Int: Int] = [:]
+                for sourcePageIndex in 0..<sourcePageCount {
                     try Task.checkCancellation()
                     let pageReport = try autoreleasepool {
-                        try appendPage(planForPage(pageIndex), at: pageIndex, to: document, backgrounds: &backgrounds, sourceFiles: sourceFiles,
-                                       strokeCreationDate: strokeCreationDate)
+                        switch try outcomeForPage(sourcePageIndex) {
+                        case .planned(let plan):
+                            pageIndexBySourcePageNumber[plan.sourcePageNumber] = document.pageCount
+                            return try appendPage(plan, at: document.pageCount, to: document, backgrounds: &backgrounds, sourceFiles: sourceFiles,
+                                                  strokeCreationDate: strokeCreationDate)
+                        case .leftOut(let sourcePageNumber, let report):
+                            return ImportedPageReport.leftOut(sourcePageNumber: sourcePageNumber, entries: report)
+                        }
                     }
                     pageReports.append(pageReport)
                 }
-                guard PDFFileService.write(document, to: staging) else { throw NotebookImportWriterError.verificationFailed(pageCount: pageCount) }
+                guard document.pageCount > 0 else { throw NotebookImportWriterError.noPages }
+                let outlineEntriesWithoutPage = ImportedOutlineItems.insert(outline, into: document, pageIndexBySourcePageNumber: pageIndexBySourcePageNumber)
+                if outlineEntriesWithoutPage > 0 { notebookEntries.append(.outlineEntriesWithoutPage(count: outlineEntriesWithoutPage)) }
+                guard PDFFileService.write(document, to: staging) else { throw NotebookImportWriterError.verificationFailed(pageCount: document.pageCount) }
             }
-            return NotebookImportWriting(revision: revision, pageReports: pageReports)
+            return NotebookImportWriting(revision: revision, pageReports: pageReports, notebookEntries: notebookEntries)
         } catch GraphiteError.conflict {
             throw NotebookImportWriterError.destinationExists(destination)
         }

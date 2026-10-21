@@ -139,7 +139,8 @@ final class NotebookImportWriterTests: XCTestCase {
     }
 
     private func writeNotebook(_ plans: [ImportedPagePlan], files: NotebookFiles, to destination: URL) throws -> NotebookImportWriting {
-        try NotebookImportWriter(fileWriter: AtomicFileWriter()).write(pageCount: plans.count, planForPage: { pageIndex in plans[pageIndex] },
+        try NotebookImportWriter(fileWriter: AtomicFileWriter()).write(sourcePageCount: plans.count,
+                                                                       outcomeForPage: { pageIndex in .planned(plans[pageIndex]) }, outline: [],
                                                                        sourceFiles: files, strokeCreationDate: strokeCreationDate, to: destination)
     }
 
@@ -229,7 +230,8 @@ final class NotebookImportWriterTests: XCTestCase {
         let plan = ImportedPagePlan(sourcePageNumber: 1, sizeInPoints: CGSize(width: 300, height: 400), background: .pdfPage(templateFile, pageNumber: 1),
                                     strokes: [], report: [])
         let destination = vault.location(of: "Forty pages.pdf")
-        _ = try NotebookImportWriter(fileWriter: AtomicFileWriter()).write(pageCount: pageCount, planForPage: { _ in plan }, sourceFiles: countingFiles,
+        _ = try NotebookImportWriter(fileWriter: AtomicFileWriter()).write(sourcePageCount: pageCount, outcomeForPage: { _ in .planned(plan) }, outline: [],
+                                                                           sourceFiles: countingFiles,
                                                                            strokeCreationDate: strokeCreationDate, to: destination)
         XCTAssertEqual(countingFiles.readCountsByPath.withLock { readCounts in readCounts }, [templateFile.pathInSource: 1])
         XCTAssertEqual(PDFDocument(url: destination)?.pageCount, pageCount)
