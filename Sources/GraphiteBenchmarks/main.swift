@@ -18,7 +18,12 @@ struct GraphiteBenchmarks {
     }
 
     // Queries the index answers alone, and ones whose candidates are checked one by one.
+    // Words few notes or none contain are as slow as reading every file in name order.
     static let timedQueries: [TimedQuery] = [
+        TimedQuery(text: "nowhere") { _ in false },
+        TimedQuery(text: "file:nowhere") { _ in false },
+        // Names containing the phrase lead (Lecture 4242 and 42420 to 42429); 4243 links 4242.
+        TimedQuery(text: "\"Lecture 4242\"") { noteNumber in String(noteNumber).hasPrefix("4242") || noteNumber == 4_243 },
         TimedQuery(text: "-quantization") { _ in false },
         TimedQuery(text: "quantization OR nothing") { _ in true },
         TimedQuery(text: "path:\"Course 7/\" sampling") { noteNumber in noteNumber % 100 == 7 },
@@ -75,6 +80,17 @@ struct GraphiteBenchmarks {
             print("Search \(query.text): p50 \(percentile(50, ofAscending: durations)) ms; max \(percentile(100, ofAscending: durations)) ms")
         }
         print("Search p50: \(percentile(50, ofAscending: searchDurations)) ms; p95: \(percentile(95, ofAscending: searchDurations)) ms")
+        // The quick switcher ranks up to 3,000 names a keystroke: one letter, a name, and none.
+        for query in ["l", "lec 4242", "zzzq"] {
+            var durations: [Double] = []
+            for _ in 0..<10 {
+                let queryStart = clock.now
+                _ = try await index.quickSwitcherMatches(for: query)
+                durations.append(milliseconds(queryStart.duration(to: clock.now)))
+            }
+            durations.sort()
+            print("Quick switcher \(query): p50 \(percentile(50, ofAscending: durations)) ms; max \(percentile(100, ofAscending: durations)) ms")
+        }
         // The graph view reads every link and resolves each once per folder.
         let graphStart = clock.now
         let graph = try await index.linkGraph()

@@ -144,7 +144,7 @@ Status: **Missing**, **Partial**, or **Done**. "Desktop only" items are left out
 | Aliases | Done | Resolve links, found by the quick switcher and offered in `[[` completion, and searchable as text, since search reads the frontmatter |
 | Graph view | Done | See Graph view under Core plugins |
 
-Scale notes for 10,000–100,000 files: name matching uses `LIKE '%word%'` over the folded names, which reads every row per keystroke; backlinks select candidate rows through the indexed folded link targets and resolve each written target once per folder, reading every linking row; link positions are parsed but not stored, so backlink context needs the note text again.
+Scale notes for 10,000–100,000 files: name matching uses `LIKE '%word%'` over the folded names, which reads every row per keystroke (measured 2026-10-21, release build of `GraphiteBenchmarks 100000` on the owner's Mac while other builds ran: a word no note contains takes 20–26 ms, `file:` with no match 11–16 ms, the quick switcher 14–17 ms, so it is not worth an index of its own yet; an attempt to sort the few candidates of a rare word in memory saved 3–4 ms there and cost 7–15 ms on common words, and was dropped; the iPad is not measured); backlinks select candidate rows through the indexed folded link targets and resolve each written target once per folder, reading every linking row; link positions are parsed but not stored, so backlink context needs the note text again.
 
 ### Media, PDFs and files
 
