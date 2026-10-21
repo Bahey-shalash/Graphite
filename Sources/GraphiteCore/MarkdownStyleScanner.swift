@@ -215,8 +215,8 @@ public enum MarkdownStyleScanner {
     /// string for every earlier line: only a line whose first visible character (after
     /// quote markers) is a fence character or `$` can open or close a block, and only a
     /// line ending in `$` closes display math. The characters are read in chunks, because
-    /// on the editor's text storage every call goes through a slow proxy, and the old
-    /// line-by-line walk dominated each keystroke far down a long note. A code block
+    /// on the editor's text storage every call goes through a slow proxy, and a walk line
+    /// by line would cost each keystroke time in proportion to the note's length. A code block
     /// inside a quote also ends at a line outside the quote, so it is followed line by line.
     ///
     /// A `checkpoint` at or before `targetLineStart`, made after the same frontmatter,

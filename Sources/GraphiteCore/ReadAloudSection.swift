@@ -25,7 +25,7 @@ public struct ReadAloudSection: Equatable, Sendable, Identifiable {
             prepared.replaceCharacters(in: range, with: String(decoding: units, as: UTF16.self))
         }
         let parsedSource = prepared as String
-        let document = Document(parsing: parsedSource)
+        guard let document = BoundedMarkdownParser.document(parsing: parsedSource) else { throw ReadAloudError.excessiveNesting }
         var converter = MarkdownSourceLocationConverter(parsedSource)
         var headings: [(title: String, level: Int, location: Int)] = []
         for node in document.children {

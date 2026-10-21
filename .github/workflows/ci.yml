@@ -7,7 +7,8 @@
 #   hosted-ipad        the hosted suite (target GraphiteIntegrationTests) on an iPad simulator, via xcodebuild
 #   runtime-node       the plugin runtime suite in jsdom (npm ci && npm test)
 #   size-report        scripts/size-report.py (a function, type or file over its threshold needs a review row)
-#   registration-check the rule ratchet (check-rules, check-imports, check-test-registration), SwiftLint, ESLint, Periphery
+#   registration-check the rule ratchet (check-rules, check-imports, check-test-registration), the defect-test, invariant-pin
+#                      and findings-index checks, SwiftLint, ESLint, Periphery
 #   nightly            the device job: real community plugins, the hosted suite on the iPad, the benchmarks
 #
 # Settings the owner provides in the repository (Settings > Secrets and variables > Actions):
@@ -222,6 +223,15 @@ jobs:
 
       - name: Every test file is registered with a test target
         run: python3 scripts/check-test-registration.py
+
+      - name: Every defect fixed before the cleanup has its regression test
+        run: python3 scripts/check-defect-tests.py
+
+      - name: Every persisted-format and security invariant is pinned by a test
+        run: python3 scripts/check-invariant-pins.py
+
+      - name: The findings index matches the area documents
+        run: python3 scripts/findings-index.py --check
 
       # SwiftLint: the first run writes scripts/swiftlint-baseline.json and uploads it; commit it, and later runs fail on new findings only.
       - name: Install SwiftLint

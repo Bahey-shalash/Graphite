@@ -100,7 +100,7 @@ public enum HTMLToMarkdown {
     }()
     /// Markdown list numbers have at most nine digits.
     private static let maximumOrderedListNumber = 999_999_999
-    /// Compiled once: compiling it for every tag was most of the conversion time.
+    /// Compiled once, not per tag: compiling is the costliest part of matching it.
     private static let attributePattern = try? NSRegularExpression(pattern: "([A-Za-z_:][-A-Za-z0-9_:.]*)\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s\"'>]+))")
 
     private struct Converter {

@@ -114,6 +114,18 @@ public enum DrawingMetadataReader {
         return false
     }
 
+    /// The check a save runs before it returns a file: the editing record read back from
+    /// the encoded bytes holds the same strokes, pictures and paper as the payload it was
+    /// written from. A file that fails it is never returned, so a broken encoder cannot
+    /// write a drawing whose strokes are lost (invariant M-18).
+    static func verifyEditingData(in fileData: Data, format: DrawingFormat, payload: DrawingPayload) throws {
+        let reading = try readMetadata(fileData, format: format).payload
+        guard reading?.strokes == payload.strokes, reading?.backgroundImage == payload.backgroundImage,
+              reading?.pictures == payload.pictures, reading?.paper == payload.paper else {
+            throw GraphiteError.invalidFile("The drawing's editing data could not be verified. Nothing was saved.")
+        }
+    }
+
     public static func maximumFileBytes(for format: DrawingFormat) -> Int {
         switch format {
         case .png: GraphitePNG.maximumFileBytes
@@ -166,12 +178,12 @@ public actor DrawingFileService {
             guard BandedPNGEncoder.decodedContentMatches(fileData, reference: encodedImage.reference) else {
                 throw GraphiteError.invalidFile("The drawing failed ordinary PNG decoder verification. Nothing was saved.")
             }
-            try verifyEditingData(in: fileData, format: format, payload: payload)
+            try DrawingMetadataReader.verifyEditingData(in: fileData, format: format, payload: payload)
             return fileData
         case .svg:
             let fileData = try SVGDrawingFile.encode(Self.vectorDrawing(from: drawing, size: exportBounds.size, background: content.background, paper: visiblePaper,
                                                                         backgroundImage: backgroundImage, pictures: pictures), payload: payload)
-            try verifyEditingData(in: fileData, format: format, payload: payload)
+            try DrawingMetadataReader.verifyEditingData(in: fileData, format: format, payload: payload)
             return fileData
         case .pdf:
             // `encode` reads the finished file back and checks its strokes, pictures and digest.
@@ -192,14 +204,6 @@ public actor DrawingFileService {
                              pictures: [backgroundImage].compactMap { picture in picture } + pictures, shapes: inkDrawing.shapes)
     }
 
-    private func verifyEditingData(in fileData: Data, format: DrawingFormat, payload: DrawingPayload) throws {
-        let reading = try DrawingMetadataReader.readMetadata(fileData, format: format).payload
-        guard reading?.strokes == payload.strokes, reading?.backgroundImage == payload.backgroundImage,
-              reading?.pictures == payload.pictures, reading?.paper == payload.paper else {
-            throw GraphiteError.invalidFile("The drawing's editing data could not be verified. Nothing was saved.")
-        }
-    }
-
     /// A draft of unsaved work, kept outside the vault while the app is in the background:
     /// an SVG drawing whose metadata holds the strokes, the paper and the pictures, so the
     /// draft reopens exactly. Its visible content shows only the ink.
@@ -212,7 +216,7 @@ public actor DrawingFileService {
                                      backgroundImage: content.backgroundImage, pictures: content.pictures, paper: content.paper)
         let fileData = try SVGDrawingFile.encode(PencilVectorConverter.vectorDrawing(from: drawing, size: CGSize(width: width, height: height),
                                                                                     background: content.background), payload: payload)
-        try verifyEditingData(in: fileData, format: .svg, payload: payload)
+        try DrawingMetadataReader.verifyEditingData(in: fileData, format: .svg, payload: payload)
         return fileData
     }
 
