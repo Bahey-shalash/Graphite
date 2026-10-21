@@ -523,6 +523,7 @@ final class LivePreviewRenderedBlocks {
         let widget = LivePreviewWidgetView(block: entry.block, environment: environment, revealSource: revealSource, reportHeight: reportHeight,
                                            sourceEditing: entry.block.kind == .table ? sourceEditing : nil)
             .environment(\.lassoNoteDestination, environment.lassoNoteDestination)
+            .environment(\.embeddedPDFSessions, environment.embeddedPDFSessions)
             .environment(\.noteTypography, environment.typography)
             .environment(\.noteTheme, environment.theme)
             .environment(\.codeColorTheme, environment.codeColorTheme)

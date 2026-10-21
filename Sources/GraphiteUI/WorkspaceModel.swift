@@ -202,18 +202,26 @@ final class WorkspaceModel {
     @ObservationIgnored let processServices: ProcessServices
     /// The open vault's Obsidian community plugins.
     let communityPlugins: CommunityPluginHost
+    /// The PDFs embedded in this window's notes, which its views read from the environment.
+    let embeddedPDFSessions = EmbeddedPDFSessions()
+    /// This window among the process's windows (`OpenWindows`), for what one window runs at a time.
+    @ObservationIgnored private(set) lazy var openWindow = OpenWindow(
+        name: { [weak self] in self?.windowName ?? "" },
+        isRecording: { [weak self] in self?.recording.state.isActive ?? false },
+        isReadingAloud: { [weak self] in self?.readAloud?.isReading ?? false },
+        stopReadingAloud: { [weak self] in self?.readAloud?.stop(); self?.readAloud?.showsReader = false })
     /// Set by indexing when a scan of the whole vault finishes; tests that fill the index
     /// themselves set it too.
     var hasCompletedIndexScan = false
     private var monitor: VaultMonitor?
-    private var indexingTask: Task<Void, Never>?
-    /// Identifies the latest indexing run, so a cancelled run for a previous vault cannot report into this one.
-    private var indexingRunIdentifier = UUID()
+    /// This window's hold on the open vault's index, which every window on the vault shares
+    /// with its scans (`VaultIndexRegistry`).
+    @ObservationIgnored private var indexLease: VaultIndexLease?
+    /// Hears the scans of the open vault's index, whichever window asked for them; ended
+    /// with the lease, so a scan of a vault left reports nothing into the next.
+    @ObservationIgnored private var indexEventsTask: Task<Void, Never>?
     /// Notes the last scan found but could not read yet, such as cloud files not downloaded.
     private var pendingContentFileCount = 0
-    /// A scan was asked for while one was running. The running scan may already have
-    /// passed the folders that changed, so another one follows it.
-    private var isIndexScanRequestedDuringScan = false
     private var externalChangeTask: Task<Void, Never>?
     private var pendingExternalChanges: Set<URL> = []
     let resolver = AttachmentResolver()
@@ -236,6 +244,7 @@ final class WorkspaceModel {
             recording.recoveryFolderLocation = { try RecordingRecoveryFolder.location(in: applicationSupportFolder) }
         }
         if preferences.isEnabled(.readAloud) { startReadAloud() }
+        processServices.openWindows.add(openWindow)
     }
 
     /// Turns a core plugin on or off, and starts or ends what it runs, with no relaunch:
@@ -249,7 +258,7 @@ final class WorkspaceModel {
 
     private func startReadAloud() {
         guard readAloud == nil else { return }
-        let reader = processServices.makeReadAloudController()
+        let reader = processServices.makeReadAloudController { [weak self] in self?.readAloudStartRefusal }
         reader.vaultRoot = folderAccess?.root
         let navigator = ReadAloudNavigator(reader: reader)
         navigator.startReading = { [weak self] path, resumeLocation in
@@ -308,9 +317,11 @@ final class WorkspaceModel {
     }
 
     /// Forgets a vault other than the open one, with the folds, recent files, and tabs
-    /// remembered for it. Its folder is not touched.
-    func removeFromVaultList(_ vault: KnownVault) {
+    /// remembered for it. Its folder is not touched. A vault another window has open is
+    /// refused: its index and remembered tabs are in use there.
+    func removeFromVaultList(_ vault: KnownVault) throws {
         guard vault.id != currentVaultIdentifier else { return }
+        guard !processServices.vaultIndexes.isOpen(vault.id) else { throw VaultRemovalRefusal.openInAnotherWindow }
         vaultLibrary.remove(vault.id)
         // Its File recovery copies would otherwise stay on the device with nothing to show them.
         if let fileRecovery = try? FileRecoveryStore.forVault(identifier: vault.id, in: applicationFolders.applicationSupportFolder) {
@@ -351,14 +362,19 @@ final class WorkspaceModel {
         // Writes coordinated with our own presenter are not reported back as external.
         let vaultStore = VaultStore(root: root, filePresenter: vaultMonitor)
         let entries: [VaultEntry]
-        let vaultIndex: VaultIndex
+        let vaultIndexLease: VaultIndexLease
         // Read first so the root is listed once, in this vault's order. A failed read is
         // reported when the settings are read again below, and Obsidian's defaults apply.
         let settings = (try? await vaultStore.settings()) ?? ObsidianSettings()
         do {
             entries = try await vaultStore.children(of: .root, sortedBy: settings.fileSortOrder)
-            let cacheURL = try VaultIndex.cacheURL(forVault: vaultIdentifier, legacyRoot: root, in: applicationFolders.cachesFolder)
-            vaultIndex = try await Task.detached(priority: .utility) { try VaultIndex(databaseURL: cacheURL) }.value
+            // The index another window has open on this vault, or this vault's own.
+            vaultIndexLease = try await processServices.vaultIndexes.lease(forVault: vaultIdentifier, root: root)
+        } catch {
+            vaultMonitor.stop()
+            throw error
+        }
+        do {
             // The open editors stayed usable while the vault was read; what was written in
             // them meanwhile is saved before they close. A failed save keeps this vault open.
             try await saveOpenDocuments()
@@ -366,6 +382,7 @@ final class WorkspaceModel {
             await saveVaultAppearanceNow()
         } catch {
             vaultMonitor.stop()
+            vaultIndexLease.end()
             throw error
         }
         // The plugins of the vault being left unload before anything of it closes.
@@ -377,29 +394,15 @@ final class WorkspaceModel {
             for document in tabDocuments.values { try await document.saveAllChanges() }
         } catch {
             vaultMonitor.stop()
+            vaultIndexLease.end()
             communityPlugins.vaultDidOpen(self)
             throw error
         }
-        monitor?.stop(); stopIndexing(); externalChangeTask?.cancel()
-        pendingExternalChanges.removeAll(); firstPendingExternalChangeTime = nil
-        indexingMessage = ""
-        readAloud?.clear()
-        readAloudNavigator?.clearQueueHistoryAndPenMarks()
-        calloutFolds.forgetEveryNote()
-        folderAccess = access; store = vaultStore; index = vaultIndex; monitor = vaultMonitor
+        forgetStateOfVaultBeingLeft()
+        folderAccess = access; store = vaultStore; monitor = vaultMonitor
+        useIndex(vaultIndexLease)
         readAloud?.vaultRoot = access.root
-        EmbeddedPDFSessions.shared.useVault(root: root, owner: self, saving: embeddedPDFSaving(writer: vaultStore.writer))
-        // Nothing open in the vault being left is saved into the new vault's layout.
-        layoutVaultIdentifier = nil
-        layout = TabLayout(); tabDocuments = [:]; pdfPasswords = [:]; restorableSidebarPluginViews = ([], nil); pickedSidebarFiles = nil
-        markdownEditorRetention.discardHiddenEditors()
-        graphCache = nil; graphPositions = [:]; placedNotesCache = nil
-        embeddedBaseModelCache = EmbeddedBaseModelCache()
-        // `expandedFolders` is replaced below, once the new vault is current: clearing it
-        // here would save an empty list for the vault being left.
-        pendingMove = nil; answeredMoveOutcomes = [:]; pendingDeletion = nil; fileSheet = nil
-        resetConflictVersions()
-        searchQuery = ""; searchResults = []; searchContinuation = nil
+        embeddedPDFSessions.useVault(root: root, saving: embeddedPDFSaving(writer: vaultStore.writer))
         rootEntries = entries
         checkConflictVersions(of: entries.lazy.filter { entry in !entry.isDirectory }.map(\.path))
         hasCompletedIndexScan = false
@@ -421,12 +424,35 @@ final class WorkspaceModel {
         }
         pruneRecoverySnapshots()
         await reloadVaultSettings()
-        startIndexing()
+        // Another window's scan of this vault, finished or running, serves this one.
+        startIndexing(.unlessScanned)
         // Returns to where the user left this vault, as Obsidian restores its workspace.
         restoreTabLayout()
         checkForUnfinishedRecordings()
         communityPlugins.vaultDidOpen(self)
         if preferences.isEnabled(.dailyNotes), dailyNoteSettings.opensOnStartup { await openDailyNote() }
+    }
+
+    /// Stops hearing the vault being left and drops what this window showed of it: its index,
+    /// tabs, caches, pending questions and search. Nothing of it is saved into the next vault.
+    private func forgetStateOfVaultBeingLeft() {
+        monitor?.stop(); stopIndexing(); externalChangeTask?.cancel()
+        pendingExternalChanges.removeAll(); firstPendingExternalChangeTime = nil
+        indexingMessage = ""
+        readAloud?.clear()
+        readAloudNavigator?.clearQueueHistoryAndPenMarks()
+        calloutFolds.forgetEveryNote()
+        // Nothing open in the vault being left is saved into the new vault's layout.
+        layoutVaultIdentifier = nil
+        layout = TabLayout(); tabDocuments = [:]; pdfPasswords = [:]; restorableSidebarPluginViews = ([], nil); pickedSidebarFiles = nil
+        markdownEditorRetention.discardHiddenEditors()
+        graphCache = nil; graphPositions = [:]; placedNotesCache = nil
+        embeddedBaseModelCache = EmbeddedBaseModelCache()
+        // `expandedFolders` is replaced once the new vault is current: clearing it here would
+        // save an empty list for the vault being left.
+        pendingMove = nil; answeredMoveOutcomes = [:]; pendingDeletion = nil; fileSheet = nil
+        resetConflictVersions()
+        searchQuery = ""; searchResults = []; searchContinuation = nil
     }
 
     /// The open vault's folder was moved, renamed, or deleted in another app. Its files,
@@ -600,67 +626,99 @@ final class WorkspaceModel {
 
     // MARK: Index
 
-    func startIndexing() {
-        guard let index, let root = folderAccess?.root else { return }
-        guard !isIndexing else {
-            isIndexScanRequestedDuringScan = true
-            return
-        }
+    /// Asks for a scan of the open vault, which every window on it hears of. A scan asked
+    /// for while one runs follows it, since the running scan may already have passed the
+    /// folders that changed.
+    func startIndexing(_ request: VaultIndexScanRequest = .always) {
+        guard let indexLease else { return }
         isIndexing = true; indexingMessage = "Indexing…"
-        let runIdentifier = UUID()
-        indexingRunIdentifier = runIdentifier
-        // Below the editor's priority, so a scan does not compete with typing and scrolling.
-        indexingTask = Task(priority: .utility) {
-            do {
-                let report = try await index.reconcile(root: root)
-                guard indexingRunIdentifier == runIdentifier else { return }
-                hasCompletedIndexScan = true
-                indexVersion += 1
-                pendingContentFileCount = report.pendingContentFiles
-                describeIndex(fileCount: report.discoveredFiles)
-                if !searchQuery.isEmpty { await search() }
-            } catch is CancellationError {
-                if indexingRunIdentifier == runIdentifier { indexingMessage = "Indexing paused" }
-            } catch {
-                guard indexingRunIdentifier == runIdentifier else { return }
-                indexingMessage = "Index needs attention"; errorMessage = error.localizedDescription
-            }
-            guard indexingRunIdentifier == runIdentifier else { return }
-            isIndexing = false
-            if isIndexScanRequestedDuringScan {
-                isIndexScanRequestedDuringScan = false
-                startIndexing()
+        indexLease.requestScan(request)
+    }
+
+    /// Takes `lease` as the open vault's index and hears its scans.
+    private func useIndex(_ lease: VaultIndexLease) {
+        indexLease = lease
+        index = lease.index
+        // The stream alone, not the lease: a workspace let go of ends its lease, and the
+        // stream with it.
+        let events = lease.events
+        indexEventsTask = Task { [weak self] in
+            for await event in events {
+                await self?.indexDidChange(event)
             }
         }
     }
 
-    /// Cancels the running scan. Its run identifier changes at once, so a scan that
-    /// finishes before it sees the cancellation reports nothing.
-    private func stopIndexing() {
-        indexingTask?.cancel()
-        indexingRunIdentifier = UUID()
-        isIndexing = false; isIndexScanRequestedDuringScan = false
+    private func indexDidChange(_ event: VaultIndexEvent) async {
+        switch event {
+        case .scanStarted:
+            isIndexing = true; indexingMessage = "Indexing…"
+        case .scanFinished(let report, let isAnotherScanQueued):
+            hasCompletedIndexScan = true
+            indexVersion += 1
+            pendingContentFileCount = report.pendingContentFiles
+            describeIndex(fileCount: report.discoveredFiles)
+            if !searchQuery.isEmpty { await search() }
+            isIndexing = isAnotherScanQueued
+        case .scanCancelled:
+            indexingMessage = "Indexing paused"; isIndexing = false
+        case .scanFailed(let error):
+            indexingMessage = "Index needs attention"; errorMessage = error.localizedDescription; isIndexing = false
+        case .emptied:
+            // An index being emptied is not complete: a link followed meanwhile creates no note.
+            hasCompletedIndexScan = false
+        }
     }
 
+    /// Lets go of the open vault's index: it closes when no other window has the vault open.
+    private func stopIndexing() {
+        indexEventsTask?.cancel(); indexEventsTask = nil
+        indexLease?.end(); indexLease = nil
+        isIndexing = false
+    }
+
+    /// The window closed: it stops hearing the vault and lets go of its index, which closes
+    /// unless another window has the vault open.
+    func windowDidClose() {
+        monitor?.stop(); monitor = nil
+        externalChangeTask?.cancel()
+        stopIndexing()
+        processServices.openWindows.remove(openWindow)
+    }
+
+    // MARK: One at a time
+
+    /// The window as its title bar names it: the document it shows and its vault.
+    var windowName: String {
+        guard let selection else { return "“\(title)”" }
+        return "“\(selection.stem)” in \(title)"
+    }
+
+    /// Whether this window or another records: the device has one microphone and camera, and
+    /// narration would reconfigure a lecture recording's audio session.
+    var isRecordingInAnyWindow: Bool {
+        recording.state.isActive || processServices.openWindows.windowRecording(besides: openWindow) != nil
+    }
+
+    /// Why this window may not start reading aloud now, naming the window that records or reads.
+    private var readAloudStartRefusal: OtherWindowActivity? {
+        let openWindows = processServices.openWindows
+        if let recordingWindow = openWindows.windowRecording(besides: openWindow) { return .recording(windowName: recordingWindow.name()) }
+        if let readingWindow = openWindows.windowReadingAloud(besides: openWindow) { return .readingAloud(windowName: readingWindow.name()) }
+        return nil
+    }
+
+    /// Empties the index and scans the vault again, for every window on it.
     func rebuildIndex() async {
-        guard let index, !isIndexing else { return }
+        guard let indexLease, !isIndexing else { return }
         let wasIndexComplete = hasCompletedIndexScan
-        // An index being emptied is not complete: a link followed meanwhile creates no note.
         hasCompletedIndexScan = false
         do {
-            try await index.removeAllEntries()
+            try await indexLease.rebuild()
         } catch {
-            // The removal is one transaction, so the index is as it was.
-            if self.index === index { hasCompletedIndexScan = wasIndexComplete }
+            if self.indexLease === indexLease { hasCompletedIndexScan = wasIndexComplete }
             errorMessage = error.localizedDescription
-            return
         }
-        guard self.index === index else { return }
-        // A scan that ran during the removal counted entries that are gone; the rebuild's
-        // own scan replaces it.
-        stopIndexing()
-        hasCompletedIndexScan = false
-        startIndexing()
     }
 
     /// Updates only the given files, for Graphite's own saves.
@@ -1192,8 +1250,12 @@ final class WorkspaceModel {
         // A recording that could not be saved is waiting; starting would not record, and the
         // note it will be embedded in must stay the one it was started from.
         guard recording.canStartRecording else { return }
-        readAloud?.stop()
-        readAloud?.showsReader = false
+        if let recordingWindow = processServices.openWindows.windowRecording(besides: openWindow) {
+            errorMessage = OtherWindowActivity.recording(windowName: recordingWindow.name()).errorDescription
+            return
+        }
+        // Narration in any window stops: it would reconfigure the recording's audio session.
+        for window in processServices.openWindows.all { window.stopReadingAloud() }
         do {
             let notePath = markdownSession?.path
             let directory = try await recordingDirectory(note: notePath, store: store)
@@ -1555,6 +1617,18 @@ extension WorkspaceModel {
             let remembered = readAloudNavigator.rememberedLocation(for: pdf.location.path) ?? 0
             let first = min(max(0, remembered), max(0, pdf.pageCount - 1))
             readAloud.readPDF(pdf, firstPageIndex: first, lastPageIndex: max(first, pdf.pageCount - 1))
+        }
+    }
+}
+
+/// Why a vault cannot be removed from the vault list.
+enum VaultRemovalRefusal: LocalizedError, Equatable {
+    /// Another window has the vault open.
+    case openInAnotherWindow
+
+    var errorDescription: String? {
+        switch self {
+        case .openInAnotherWindow: "This vault is open in another window. Close it there before removing it from the list."
         }
     }
 }

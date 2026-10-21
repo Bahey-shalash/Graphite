@@ -41,8 +41,8 @@ final class DrawingEditorDraftStorePersistedFormatTests: XCTestCase {
         let fileNames = try FileManager.default.contentsOfDirectory(atPath: draftDirectory.path).sorted()
         XCTAssertEqual(fileNames, ["AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE.json", "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE.svg"])
         XCTAssertEqual(try Data(contentsOf: draftDirectory.appendingPathComponent("AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE.svg")), Data("<svg/>".utf8))
-        XCTAssertEqual(DrawingEditorDraftStore.shared.directory.lastPathComponent, "Drawing Drafts")
-        XCTAssertEqual(DrawingEditorDraftStore.shared.directory.deletingLastPathComponent().standardizedFileURL,
+        XCTAssertEqual(DrawingEditorDraftStore.directory(in: .system).lastPathComponent, "Drawing Drafts")
+        XCTAssertEqual(DrawingEditorDraftStore.directory(in: .system).deletingLastPathComponent().standardizedFileURL,
                        URL.applicationSupportDirectory.standardizedFileURL)
     }
 
