@@ -26,6 +26,6 @@ Open more than one Graphite window at once: on the iPad in Stage Manager and Spl
 
 ## Decisions
 
-- New window: ⌥⌘N on the Mac and the iPad (proposed 2026-10-21, following Mail; awaiting the owner's OK).
+- New window: ⌥⌘N on the Mac and the iPad, following Mail (owner, 2026-10-21).
 - Windows may show the same vault or different vaults (owner, 2026-10-21).
 - Nothing for the iPhone; it stays one window (owner, 2026-10-21).
