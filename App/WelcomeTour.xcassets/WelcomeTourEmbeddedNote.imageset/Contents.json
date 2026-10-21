@@ -1,0 +1,22 @@
+{
+  "images" : [
+    {
+      "filename" : "WelcomeTourEmbeddedNote-light.jpg",
+      "idiom" : "universal"
+    },
+    {
+      "appearances" : [
+        {
+          "appearance" : "luminosity",
+          "value" : "dark"
+        }
+      ],
+      "filename" : "WelcomeTourEmbeddedNote-dark.jpg",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}
