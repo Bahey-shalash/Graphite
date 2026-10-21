@@ -51,7 +51,8 @@ enum NotePDFBases {
         guard let result = model.result, printedViewTypes.contains(result.view.type) else { return nil }
         let cardWidth = result.view.cards.cardSize.map { size in CGFloat(size) } ?? BaseCardsView.defaultCardWidth
         let covers = await decodedCovers(of: result, root: store.root, maximumPixelDimension: Int(cardWidth * coverPixelsPerPoint))
-        let rowsPerPart = result.view.type == .cards ? BaseCardGridMetrics(availableWidth: layoutWidth, preferredCardWidth: cardWidth).columnCount : 1
+        let cardMetrics = BaseCardGridMetrics(availableWidth: layoutWidth, preferredCardWidth: cardWidth, isPrinted: true)
+        let rowsPerPart = result.view.type == .cards ? cardMetrics.columnCount : 1
         return PrintedBase(result: result, covers: covers, partStarts: partStarts(of: result, rowsPerPart: rowsPerPart), vaultRoot: store.root)
     }
 
