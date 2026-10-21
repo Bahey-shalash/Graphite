@@ -24,7 +24,7 @@ public enum MarkdownCodeRanges {
                 isCode = ListItemContainers.leadingColumns(of: line) > openFenceIndentationLimit || tracker.isCodeLine(trimmedLine)
             } else if let opening = listItems.fenceOpening(of: line) {
                 isCode = tracker.isCodeLine(trimmedLine)
-                openFenceIndentationLimit = opening.containerColumn + CodeFence.maximumIndentation
+                openFenceIndentationLimit = opening.containerColumn + MarkdownFenceSyntax.maximumIndentation
             } else {
                 isCode = false
             }

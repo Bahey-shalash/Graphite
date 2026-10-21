@@ -5,6 +5,17 @@ public enum EmbedLocator {
     /// The parentheses hold a `<…>` destination and an optional title, or text with at
     /// most one balanced `(…)` in it, which is how a `(title)` is written.
     private static let markdownEmbedPattern = EmbedLocatorPattern.markdownEmbedPattern.compiled()
+    private static let standaloneEmbedPattern = EmbedLocatorPattern.standaloneEmbedPattern.compiled()
+
+    /// The embed that is alone on `line`, indentation and trailing spaces aside, which the
+    /// reading view and Live Preview draw as a block of its own. Its destination may hold
+    /// one balanced `(…)`, as `embed(at:in:)` reads it, so `![](photo (1).png)` is an image
+    /// block too.
+    static func standaloneEmbed(onLine line: String) -> EmbedReference? {
+        let source = line as NSString
+        guard standaloneEmbedPattern.firstMatch(in: line, range: NSRange(location: 0, length: source.length)) != nil else { return nil }
+        return embed(at: source.range(of: "!").location + 1, in: source)
+    }
 
     /// The embed whose source text contains `location` (or ends exactly there).
     public static func embed(at location: Int, in text: NSString) -> EmbedReference? {
@@ -49,4 +60,5 @@ public enum EmbedLocator {
 enum EmbedLocatorPattern: String, StaticPatternSet {
     case wikiEmbedPattern = #"!\[\[([^\]\n]+)\]\]"#
     case markdownEmbedPattern = #"!\[([^\]\n]*)\]\((<[^<>\n]*>[^)\n]*|[^()\n]*(?:\([^()\n]*\)[^()\n]*)?)\)"#
+    case standaloneEmbedPattern = #"^[ \t]*(!\[\[[^\]\n]+\]\]|!\[[^\]\n]*\]\((?:<[^<>\n]*>[^)\n]*|[^()\n]+(?:\([^()\n]*\)[^()\n]*)?)\))[ \t]*$"#
 }

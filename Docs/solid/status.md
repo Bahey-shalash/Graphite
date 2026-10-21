@@ -8,30 +8,30 @@ Every finding and defect with its current state: **Fixed** (the current code no 
 
 | State | Count |
 | --- | ---: |
-| Open | 470 |
-| Partly fixed | 36 |
-| Fixed | 104 |
+| Open | 471 |
+| Partly fixed | 37 |
+| Fixed | 105 |
 | Duplicate | 2 |
 | No change needed | 1 |
-| **All** | **613** |
+| **All** | **616** |
 
 Open items by prefix and severity:
 
 | Prefix | High | Medium | Low | Total |
 | --- | ---: | ---: | ---: | ---: |
-| SRP | 13 | 52 | 17 | 82 |
+| SRP | 13 | 51 | 17 | 81 |
 | OCP | 3 | 31 | 21 | 55 |
-| LSP | 3 | 24 | 22 | 49 |
+| LSP | 3 | 25 | 24 | 52 |
 | ISP | 3 | 20 | 18 | 41 |
 | DIP | 2 | 32 | 19 | 53 |
-| CC | 0 | 80 | 109 | 189 |
+| CC | 0 | 80 | 108 | 188 |
 | BUG | 0 | 0 | 1 | 1 |
 
 Partly fixed items by prefix and severity:
 
 | Prefix | High | Medium | Low | Total |
 | --- | ---: | ---: | ---: | ---: |
-| SRP | 0 | 0 | 1 | 1 |
+| SRP | 0 | 1 | 1 | 2 |
 | OCP | 0 | 0 | 0 | 0 |
 | LSP | 3 | 8 | 0 | 11 |
 | ISP | 0 | 1 | 0 | 1 |
@@ -81,7 +81,7 @@ Partly fixed items by prefix and severity:
 | [SRP-LECTURE-07](areas/lecture.md#srp-lecture-07-the-health-monitor-repairs-production-state-from-inside-a-diagnostics-component) | LECTURE | Medium | Open | Present at the snapshot (area document) | The health monitor repairs production state from inside a diagnostics component |
 | [SRP-MDCORE-01](areas/mdcore.md#srp-mdcore-01-obsidianinlinemarkup-is-one-enum-with-11-unrelated-reading-view-duties) | MDCORE | Medium | Open | Present at the snapshot (area document) | `ObsidianInlineMarkup` is one enum with 11 unrelated reading-view duties |
 | [SRP-MDCORE-02](areas/mdcore.md#srp-mdcore-02-htmltomarkdownconverter-tracks-its-writing-position-with-four-flags-written-at-28-sites) | MDCORE | Medium | Open | Present at the snapshot (area document) | `HTMLToMarkdown.Converter` tracks its writing position with four flags written at 28 sites |
-| [SRP-MDCORE-03](areas/mdcore.md#srp-mdcore-03-textcolormarkup-contains-a-complete-private-block-parser) | MDCORE | Medium | Open | Present at the snapshot (area document) | `TextColorMarkup` contains a complete private block parser |
+| [SRP-MDCORE-03](areas/mdcore.md#srp-mdcore-03-textcolormarkup-contains-a-complete-private-block-parser) | MDCORE | Medium | Partly fixed | Phase 3 step 6 (2026-10-21): `TextColorMarkup`'s heading, list, thematic-break, setext, table-delimiter and code-span patterns, its quote, indentation and fence helpers are gone; it asks the line owners. Remains: its own block walk (`codeAndMathBlockRanges`) until `MarkdownBlockLines` (step 8), and the `tableRowLinePattern` no owner has. | `TextColorMarkup` contains a complete private block parser |
 | [SRP-MDCORE-04](areas/mdcore.md#srp-mdcore-04-markdownsemanticsswift-holds-18-types-11-of-them-unrelated-to-semantics) | MDCORE | Low | Open | Present at the snapshot (area document) | `MarkdownSemantics.swift` holds 18 types, 11 of them unrelated to semantics |
 | [SRP-MDCORE-05](areas/mdcore.md#srp-mdcore-05-markdownediting-owns-line-syntax-for-three-block-finders-and-carries-its-own-fence-tracker) | MDCORE | Medium | Open | Present at the snapshot (area document). Delta audit 2026-10-19: worse — `isInCodeOrFrontmatter` dropped `CodeFenceTracker` for a hand-written quoted-fence state machine ([MarkdownEditing.swift:205-249](../../Sources/GraphiteCore/MarkdownEditing.swift#L205-L249), `5199d75`) that repeats `MarkdownStyleScanner.nextState` ([MarkdownStyleScanner.swift:307-330](../../Sources/GraphiteCore/MarkdownStyleScanner.swift#L307-L330)); it agrees with the styler on quoted fences, but by copying the rule, and is now about 44 code lines. | `MarkdownEditing` owns line syntax for three block finders and carries its own fence tracker |
 | [SRP-MDCORE-06](areas/mdcore.md#srp-mdcore-06-codelinescanner-puts-three-grammars-in-one-734-line-struct) | MDCORE | Low | Open | Present at the snapshot (area document) | `CodeLineScanner` puts three grammars in one 734-line struct |
@@ -208,9 +208,12 @@ Partly fixed items by prefix and severity:
 | [LSP-LECTURE-03](areas/lecture.md#lsp-lecture-03-tests-drive-recordingcontroller-through-adoptrecording-which-sets-states-production-never-reaches-that-way) | LECTURE | Medium | Open | Present at the snapshot (area document) | Tests drive `RecordingController` through `adoptRecording`, which sets states production never reaches that way |
 | [LSP-LECTURE-04](areas/lecture.md#lsp-lecture-04-a-bookmarks-identity-is-read-back-from-its-display-label) | LECTURE | Medium | Open | Present at the snapshot (area document) | A bookmark's identity is read back from its display label |
 | [LSP-LECTURE-05](areas/lecture.md#lsp-lecture-05-failed-folder-reads-in-recording-recovery-are-returned-as-empty-results) | LECTURE | Medium | Open | Present at the snapshot (area document) | Failed folder reads in recording recovery are returned as empty results |
-| [LSP-MDCORE-01](areas/mdcore.md#lsp-mdcore-01-the-same-markdown-line-gets-different-answers-from-parallel-implementations-of-one-rule) | MDCORE | High | Partly fixed | Setext row: folding, the outline, heading links and reading blocks use `MarkdownStyleScanner.setextHeadingLevel` ([NoteFolding.swift:63](../../Sources/GraphiteCore/NoteFolding.swift#L63), [NotePreviewDocument.swift:161](../../Sources/GraphiteCore/NotePreviewDocument.swift#L161)). The fence row is unchanged. | The same Markdown line gets different answers from parallel implementations of one rule |
+| [LSP-MDCORE-01](areas/mdcore.md#lsp-mdcore-01-the-same-markdown-line-gets-different-answers-from-parallel-implementations-of-one-rule) | MDCORE | High | Partly fixed | Phase 3 steps 3, 5 and 6 (2026-10-21). One owner per line rule: `MarkdownHeadingSyntax`, `MarkdownListSyntax`, `MarkdownFenceSyntax` (was `CodeFence`), `MarkdownQuoteSyntax`, `MarkdownTableSyntax`, `MarkdownBlockIdentifierSyntax` ([Sources/GraphiteCore](../../Sources/GraphiteCore)); `MarkdownEditing`, the style scanner, `NotePreviewDocument`, `LivePreviewBlockScanner`, `NoteBlocks`, `TextColorMarkup`, `MarkdownTableLayout` and `DisplayMathLines` call them instead of their private copies, and the three code-span regex copies became `MarkdownCodeRanges.codeSpans`. `MarkdownRuleParityTests` measures the rest: 51 expected-divergence rows remain (61 before these steps), in fences (`BUG-MDCORE-03`, quoted fences), `#` alone, indented code (`LSP-MDCORE-04`), line splitting (`LSP-MDCORE-05`, `-06`) and `$$` after `\$$`. | The same Markdown line gets different answers from parallel implementations of one rule |
 | [LSP-MDCORE-02](areas/mdcore.md#lsp-mdcore-02-private-use-marker-protection-has-two-mechanisms-with-different-results) | MDCORE | Low | Open | Present at the snapshot (area document) | Private-use marker protection has two mechanisms with different results |
 | [LSP-MDCORE-03](areas/mdcore.md#lsp-mdcore-03-tests-pin-two-wrappers-production-never-calls) | MDCORE | Low | Open | Present at the snapshot (area document) | Tests pin two wrappers production never calls |
+| [LSP-MDCORE-04](areas/mdcore.md#lsp-mdcore-04-indented-code-is-code-for-the-index-and-for-colors-and-text-for-every-other-consumer) | MDCORE | Medium | Open | Found by `MarkdownRuleParityTests` (2026-10-21, Phase 3 step 3); present at the snapshot | Indented code is code for the index and for colors, and text for every other consumer |
+| [LSP-MDCORE-05](areas/mdcore.md#lsp-mdcore-05-the-reading-views-outline-and-blocks-split-lines-at-n-only-so-a-note-with-lone-r-line-endings-has-no-outline) | MDCORE | Low | Open | Found by `MarkdownRuleParityTests` (2026-10-21, Phase 3 step 3); present at the snapshot | The reading view's outline and blocks split lines at `\n` only, so a note with lone `\r` line endings has no outline |
+| [LSP-MDCORE-06](areas/mdcore.md#lsp-mdcore-06-u2028-ends-a-line-for-the-nsstring-readers-and-stays-inside-it-for-commonmark) | MDCORE | Low | Open | Found by `MarkdownRuleParityTests` (2026-10-21, Phase 3 step 3); present at the snapshot | U+2028 ends a line for the `NSString` readers and stays inside it for CommonMark |
 | [LSP-PLUGIN-01](areas/plugin.md#lsp-plugin-01-the-node-tests-vault-host-differs-from-the-swift-bridge-in-seven-behaviours-one-of-which-hides-a-bug) | PLUGIN | High | Open | Present at the snapshot (area document) | The Node tests' vault host differs from the Swift bridge in seven behaviours, one of which hides a bug |
 | [LSP-PLUGIN-02](areas/plugin.md#lsp-plugin-02-seven-reads-turn-a-failure-into-an-empty-result) | PLUGIN | Medium | Partly fixed | Item 2 of 7: an unreadable `community-plugins.json` now throws ([CommunityPluginList.swift:63](../../Sources/GraphiteCore/CommunityPluginList.swift#L63)). | Seven reads turn a failure into an empty result |
 | [LSP-PLUGIN-03](areas/plugin.md#lsp-plugin-03-send-hides-the-runtimes-failure-kinds-and-treats-a-non-object-answer-as-success) | PLUGIN | Medium | Partly fixed | The timeout is a typed `CommunityPluginRuntimeError.didNotAnswerInTime`; runtime failures still become `GraphiteError.unavailable` and a non-object answer `[:]`; the new error carries an English sentence (`FR-55`, `FR-64`). | `send` hides the runtime's failure kinds and treats a non-object answer as success |
@@ -464,7 +467,7 @@ Partly fixed items by prefix and severity:
 | [CC-MDCORE-07](areas/mdcore.md#cc-mdcore-07-limits-are-named-in-some-files-and-literal-in-others) | MDCORE | Low | Open | Present at the snapshot (area document) | Limits are named in some files and literal in others |
 | [CC-MDCORE-08](areas/mdcore.md#cc-mdcore-08-converted-html-is-always-lf-and-is-inserted-unchanged-into-crlf-notes) | MDCORE | Low | Open | Present at the snapshot (area document) | Converted HTML is always LF and is inserted unchanged into CRLF notes |
 | [CC-MDCORE-09](areas/mdcore.md#cc-mdcore-09-parser-bounds-are-decided-per-call-site-instead-of-at-the-parser-boundary) | MDCORE | Medium | Open | Present at the snapshot (area document). Delta audit 2026-10-19: worse — one more per-call-site `MarkdownNesting.exceedsSafeDepth` guard before `Document(parsing:)` ([NotePreviewDocument.swift:820-822](../../Sources/GraphiteCore/NotePreviewDocument.swift#L820-L822), `1798e2c`) instead of one bounded parser entry (`FR-68`). | Parser bounds are decided per call site instead of at the parser boundary |
-| [CC-MDCORE-10](areas/mdcore.md#cc-mdcore-10-the-setext-rules-comment-claims-one-owner-but-the-editor-styler-composes-the-rule-itself-and-notepreviewdocument-adds-a-forwarder) | MDCORE | Low | Open | Delta audit 2026-10-19 (`fff794b`); introduced in `7ad8900` | The setext rule's comment claims one owner, but the editor styler composes the rule itself, and NotePreviewDocument adds a forwarder |
+| [CC-MDCORE-10](areas/mdcore.md#cc-mdcore-10-the-setext-rules-comment-claims-one-owner-but-the-editor-styler-composes-the-rule-itself-and-notepreviewdocument-adds-a-forwarder) | MDCORE | Low | Fixed | Phase 3 step 5 (2026-10-21): the setext rule lives in `MarkdownHeadingSyntax` ([MarkdownHeadingSyntax.swift](../../Sources/GraphiteCore/MarkdownHeadingSyntax.swift)); the styler and Live Preview call `setextHeadingLevel` instead of composing it, and `NotePreviewDocument`'s forwarder is deleted. | The setext rule's comment claims one owner, but the editor styler composes the rule itself, and NotePreviewDocument adds a forwarder |
 | [CC-PLUGIN-01](areas/plugin.md#cc-plugin-01-the-runtime-lifecycle-is-a-set-of-booleans-and-identity-checks-not-a-state-enum) | PLUGIN | High | Partly fixed | `RuntimePhase` with `stopping(startsAgain:)` replaces the flag ([CommunityPluginHost.swift:208-218](../../Sources/GraphiteUI/CommunityPluginHost.swift#L208-L218)); `isPageLoaded`, `pageLoadFailure` and four `webView === pluginWebView` checks remain. | The runtime lifecycle is a set of booleans and identity checks, not a state enum |
 | [CC-PLUGIN-02](areas/plugin.md#cc-plugin-02-four-sleep-polling-loops-wait-for-other-work) | PLUGIN | Medium | Partly fixed | The rename result comes from `FileMoveOutcome`; all four loops still sleep-poll. | Four sleep-polling loops wait for other work |
 | [CC-PLUGIN-03](areas/plugin.md#cc-plugin-03-three-hand-made-first-outcome-wins-primitives-and-41-unowned-tasks) | PLUGIN | Medium | Open | Present at the snapshot (area document). Delta audit 2026-10-19: worse — one more unowned task ([CommunityPluginViews.swift:23](../../Sources/GraphiteUI/CommunityPluginViews.swift#L23)). | Three hand-made "first outcome wins" primitives and 41 unowned tasks |

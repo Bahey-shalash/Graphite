@@ -77,7 +77,7 @@ final class NoteFoldingTests: XCTestCase {
                      "  - indented", "\t- tabbed", "> - quoted", ">- quoted", "> > 2. nested", "> quote only", ">", "- - -", "***", "* * *", "-- dash",
                      "- [ ] task", "- [x] done", "plain", "", "   ", "#- heading?", "-\tTabbed", "1.", "+", "*emphasis*", "- **bold** item", "---"]
         for line in lines {
-            XCTAssertEqual(NoteFolding.isListItem(line), MarkdownEditing.listLine(line)?.isListItem == true, "\(line.debugDescription)")
+            XCTAssertEqual(NoteFolding.isListItem(line), MarkdownListSyntax.listLine(line)?.isListItem == true, "\(line.debugDescription)")
         }
     }
     /// Regions moved across an edit are the regions found again in the edited text, for every

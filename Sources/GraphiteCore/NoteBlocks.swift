@@ -23,12 +23,6 @@ public struct NoteBlock: Equatable, Sendable {
 }
 
 public enum NoteBlocks {
-    private static let trailingIdentifierPattern = NoteBlocksPattern.trailingIdentifierPattern.compiled()
-    private static let identifierLinePattern = NoteBlocksPattern.identifierLinePattern.compiled()
-    /// `***`, `---`, `___`, or `- - -`: a thematic break, which is not a block.
-    private static let thematicBreakPattern = NoteBlocksPattern.thematicBreakPattern.compiled()
-    /// The line under a setext heading's text.
-    private static let setextUnderlinePattern = NoteBlocksPattern.setextUnderlinePattern.compiled()
     /// Indentation that makes a line indented code outside a list.
     private static let indentedCodeColumns = 4
 
@@ -55,12 +49,12 @@ public enum NoteBlocks {
             let trimmedLine = line.trimmingCharacters(in: .whitespaces)
             if trimmedLine.isEmpty { lineIndex += 1; continue }
             let startsIndented = line.first == " " || line.first == "\t"
-            if isIdentifierLine(trimmedLine) { lineIndex += 1; continue }
-            if !isInsideList && indentationColumns(of: line) >= indentedCodeColumns {
+            if MarkdownBlockIdentifierSyntax.identifierOnOwnLine(trimmedLine) != nil { lineIndex += 1; continue }
+            if !isInsideList && ListItemContainers.leadingColumns(of: line) >= indentedCodeColumns {
                 // Indented code: a trailing `^word` in it is code, not an identifier.
                 var endIndex = lineIndex
                 var scanIndex = lineIndex + 1
-                while scanIndex < lines.count, isBlank(scanIndex) || indentationColumns(of: lines[scanIndex].content) >= indentedCodeColumns {
+                while scanIndex < lines.count, isBlank(scanIndex) || ListItemContainers.leadingColumns(of: lines[scanIndex].content) >= indentedCodeColumns {
                     if !isBlank(scanIndex) { endIndex = scanIndex }
                     scanIndex += 1
                 }
@@ -68,17 +62,18 @@ public enum NoteBlocks {
                 lineIndex = endIndex + 1
                 continue
             }
-            if MarkdownEditing.headingLevel(of: line) != nil || matches(thematicBreakPattern, line) {
+            // A thematic break such as `***`, `---` or `- - -` is not a block either.
+            if MarkdownHeadingSyntax.level(of: line) != nil || MarkdownListSyntax.isThematicBreak(line) {
                 if !startsIndented { isInsideList = false }
                 lineIndex += 1
                 continue
             }
             var endIndex = lineIndex
             let kind: NoteBlock.Kind
-            if let (fence, _) = CodeFence.opening(trimmedLine) {
+            if let (fence, _) = MarkdownFenceSyntax.opening(trimmedLine) {
                 kind = .code
                 endIndex += 1
-                while endIndex < lines.count, !CodeFence.closes(fence, lines[endIndex].content.trimmingCharacters(in: .whitespaces)) { endIndex += 1 }
+                while endIndex < lines.count, !MarkdownFenceSyntax.closes(fence, lines[endIndex].content.trimmingCharacters(in: .whitespaces)) { endIndex += 1 }
                 endIndex = min(endIndex, lines.count - 1)
             } else if opensDisplayMath(trimmedLine) {
                 kind = .math
@@ -99,7 +94,7 @@ public enum NoteBlocks {
                     endIndex += 1
                 }
             } else if trimmedLine.hasPrefix("|")
-                        || (lineIndex + 1 < lines.count && LivePreviewBlockScanner.startsTable(header: trimmedLine, delimiter: lines[lineIndex + 1].content)) {
+                        || (lineIndex + 1 < lines.count && MarkdownTableSyntax.startsTable(header: trimmedLine, delimiter: lines[lineIndex + 1].content)) {
                 // A table without outer pipes is a table too, so a block identifier goes
                 // after it rather than into its last cell.
                 kind = .table
@@ -109,7 +104,7 @@ public enum NoteBlocks {
                     guard next.trimmingCharacters(in: .whitespaces).hasPrefix("|") || continuesTextLazily(next) else { break }
                     endIndex += 1
                 }
-            } else if MarkdownEditing.listLine(line)?.isListItem == true {
+            } else if MarkdownListSyntax.isListItem(line) {
                 kind = .listItem
                 if !isInsideList { listStartLineIndex = lineIndex }
                 // Continuation lines indented under the item belong to it. A fenced code block
@@ -118,8 +113,8 @@ public enum NoteBlocks {
                 while endIndex + 1 < lines.count {
                     let next = lines[endIndex + 1].content
                     let trimmedNext = next.trimmingCharacters(in: .whitespaces)
-                    guard !trimmedNext.isEmpty, next.first == " " || next.first == "\t", MarkdownEditing.listLine(next)?.isListItem != true,
-                          CodeFence.opening(trimmedNext) == nil, !opensDisplayMath(trimmedNext) else { break }
+                    guard !trimmedNext.isEmpty, next.first == " " || next.first == "\t", !MarkdownListSyntax.isListItem(next),
+                          MarkdownFenceSyntax.opening(trimmedNext) == nil, !opensDisplayMath(trimmedNext) else { break }
                     endIndex += 1
                 }
             } else {
@@ -129,10 +124,10 @@ public enum NoteBlocks {
                     let trimmedNext = next.trimmingCharacters(in: .whitespaces)
                     // `Text` over `---` or `===` is a heading, which is not a block; adding an
                     // `^id` after the underline would turn it back into text.
-                    if matches(setextUnderlinePattern, next) { isSetextHeading = true; endIndex += 1; break }
-                    guard !trimmedNext.isEmpty, MarkdownEditing.headingLevel(of: next) == nil, CodeFence.opening(trimmedNext) == nil,
-                          !matches(thematicBreakPattern, next), MarkdownEditing.listLine(next) == nil, !trimmedNext.hasPrefix("|"),
-                          !opensDisplayMath(trimmedNext), !isIdentifierLine(trimmedNext) else { break }
+                    if MarkdownHeadingSyntax.setextUnderlineLevel(next) != nil { isSetextHeading = true; endIndex += 1; break }
+                    guard !trimmedNext.isEmpty, MarkdownHeadingSyntax.level(of: next) == nil, MarkdownFenceSyntax.opening(trimmedNext) == nil,
+                          !MarkdownListSyntax.isThematicBreak(next), MarkdownListSyntax.listLine(next) == nil, !trimmedNext.hasPrefix("|"),
+                          !opensDisplayMath(trimmedNext), MarkdownBlockIdentifierSyntax.identifierOnOwnLine(trimmedNext) == nil else { break }
                     endIndex += 1
                 }
                 if isSetextHeading {
@@ -151,8 +146,9 @@ public enum NoteBlocks {
             if kind == .listItem, block.identifier == nil, let identifierLineIndex = identifierLineAfterBlankLines(following: itemEndIndex, in: lines) {
                 let firstRange = lines[listStartLineIndex].range, lastRange = lines[itemEndIndex].range
                 let listRange = NSRange(location: firstRange.location, length: NSMaxRange(lastRange) - firstRange.location)
+                let listIdentifier = MarkdownBlockIdentifierSyntax.identifierOnOwnLine(lines[identifierLineIndex].content)
                 blocks.append(NoteBlock(kind: .list, range: listRange, text: source.substring(with: listRange),
-                                        identifier: identifierOnOwnLine(lines[identifierLineIndex].content), identifierRange: lines[identifierLineIndex].range))
+                                        identifier: listIdentifier, identifierRange: lines[identifierLineIndex].range))
                 endIndex = identifierLineIndex
                 isInsideList = false
             }
@@ -169,20 +165,19 @@ public enum NoteBlocks {
         var identifier: String?
         var identifierRange: NSRange?
         let lastLine = lines[endIndex].content
-        if kind == .paragraph || kind == .listItem,
-           let match = trailingIdentifierPattern.firstMatch(in: lastLine, range: NSRange(location: 0, length: (lastLine as NSString).length)) {
-            identifier = (lastLine as NSString).substring(with: match.range(at: 1))
-            let markerRange = NSRange(location: lastRange.location + match.range.location, length: match.range.length)
+        if kind == .paragraph || kind == .listItem, let trailingIdentifier = MarkdownBlockIdentifierSyntax.trailingIdentifier(in: lastLine) {
+            identifier = trailingIdentifier.identifier
+            let markerRange = NSRange(location: lastRange.location + trailingIdentifier.markerRange.location, length: trailingIdentifier.markerRange.length)
             identifierRange = markerRange
             blockRange.length = markerRange.location - blockRange.location
-        } else if endIndex + 1 < lines.count, let lineIdentifier = identifierOnOwnLine(lines[endIndex + 1].content) {
+        } else if endIndex + 1 < lines.count, let lineIdentifier = MarkdownBlockIdentifierSyntax.identifierOnOwnLine(lines[endIndex + 1].content) {
             identifier = lineIdentifier
             identifierRange = lines[endIndex + 1].range
             endIndex += 1
         } else if kind != .paragraph && kind != .listItem, let identifierLineIndex = identifierLineAfterBlankLines(following: endIndex, in: lines) {
             // Obsidian's documented form for tables, quotes, and callouts: the `^id` on a
             // line of its own with a blank line before it.
-            identifier = identifierOnOwnLine(lines[identifierLineIndex].content)
+            identifier = MarkdownBlockIdentifierSyntax.identifierOnOwnLine(lines[identifierLineIndex].content)
             identifierRange = lines[identifierLineIndex].range
             endIndex = identifierLineIndex
         }
@@ -193,21 +188,9 @@ public enum NoteBlocks {
     private static func identifierLineAfterBlankLines(following lineIndex: Int, in lines: [(range: NSRange, content: String)]) -> Int? {
         var candidateIndex = lineIndex + 1
         while candidateIndex < lines.count, lines[candidateIndex].content.trimmingCharacters(in: .whitespaces).isEmpty { candidateIndex += 1 }
-        guard candidateIndex > lineIndex + 1, candidateIndex < lines.count, identifierOnOwnLine(lines[candidateIndex].content) != nil else { return nil }
+        guard candidateIndex > lineIndex + 1, candidateIndex < lines.count,
+              MarkdownBlockIdentifierSyntax.identifierOnOwnLine(lines[candidateIndex].content) != nil else { return nil }
         return candidateIndex
-    }
-
-    private static func identifierOnOwnLine(_ line: String) -> String? {
-        guard let match = identifierLinePattern.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) else { return nil }
-        return (line as NSString).substring(with: match.range(at: 1))
-    }
-
-    private static func isIdentifierLine(_ trimmedLine: String) -> Bool {
-        identifierOnOwnLine(trimmedLine) != nil
-    }
-
-    private static func matches(_ pattern: NSRegularExpression, _ line: String) -> Bool {
-        pattern.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) != nil
     }
 
     /// Whether `line` continues the text above it (a lazy continuation line) rather than
@@ -215,9 +198,9 @@ public enum NoteBlocks {
     private static func continuesTextLazily(_ line: String) -> Bool {
         let trimmedLine = line.trimmingCharacters(in: .whitespaces)
         return !trimmedLine.isEmpty && !trimmedLine.hasPrefix(">") && !trimmedLine.hasPrefix("|")
-            && MarkdownEditing.headingLevel(of: line) == nil && CodeFence.opening(trimmedLine) == nil
-            && !matches(thematicBreakPattern, line) && MarkdownEditing.listLine(line) == nil
-            && !opensDisplayMath(trimmedLine) && !isIdentifierLine(trimmedLine)
+            && MarkdownHeadingSyntax.level(of: line) == nil && MarkdownFenceSyntax.opening(trimmedLine) == nil
+            && !MarkdownListSyntax.isThematicBreak(line) && MarkdownListSyntax.listLine(line) == nil
+            && !opensDisplayMath(trimmedLine) && MarkdownBlockIdentifierSyntax.identifierOnOwnLine(trimmedLine) == nil
     }
 
     /// Whether a line starting with `$$` opens display math. `$$a$$ and text` is inline
@@ -227,15 +210,6 @@ public enum NoteBlocks {
         let afterOpening = trimmedLine.dropFirst(2)
         guard let closing = afterOpening.range(of: "$$") else { return true }
         return closing.upperBound == afterOpening.endIndex
-    }
-
-    /// Leading indentation in columns, a tab reaching the next multiple of four as in CommonMark.
-    private static func indentationColumns(of line: String) -> Int {
-        var columns = 0
-        for character in line {
-            if character == " " { columns += 1 } else if character == "\t" { columns += 4 - columns % 4 } else { break }
-        }
-        return columns
     }
 
     /// The block with this `^id`, compared without case as Obsidian does.
@@ -317,12 +291,4 @@ public enum NoteBlocks {
         guard firstLineFeed.location != NSNotFound, firstLineFeed.location > 0 else { return "\n" }
         return source.character(at: firstLineFeed.location - 1) == 0x0D ? "\r\n" : "\n"
     }
-}
-
-/// The constant patterns of `NoteBlocks`; `StaticPatternTests` compiles every case.
-enum NoteBlocksPattern: String, StaticPatternSet {
-    case trailingIdentifierPattern = #"(?:^|[ \t])\^([A-Za-z0-9-]+)[ \t]*$"#
-    case identifierLinePattern = #"^[ \t]*\^([A-Za-z0-9-]+)[ \t]*$"#
-    case thematicBreakPattern = #"^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$"#
-    case setextUnderlinePattern = #"^ {0,3}(?:=+|-+)[ \t]*$"#
 }

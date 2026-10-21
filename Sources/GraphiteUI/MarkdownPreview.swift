@@ -2231,7 +2231,7 @@ struct ObsidianCodeBlockStyle: StructuredText.CodeBlockStyle {
 
     @MainActor
     func makeBody(configuration: Configuration) -> some View {
-        let language = configuration.languageHint.map { hint in NotePreviewDocument.codeBlockLanguage(ofFenceInfo: hint) } ?? ""
+        let language = configuration.languageHint.map { hint in MarkdownFenceSyntax.language(ofInfo: hint) } ?? ""
         let cornerRadius = CodeSyntaxColors.blockCornerRadius(theme: theme)
         let palette = CodeSyntaxColors.palette(codeTheme: codeTheme, noteTheme: theme)
         Overflow {
@@ -2689,7 +2689,8 @@ private struct VaultImageLoader: AttachmentLoader {
     /// The image the cache made last, drawn at once while `attachment(for:text:environment:)`
     /// checks it is current; a note exported to PDF loads its images into the cache first.
     func readyAttachment(for location: URL, text: String, environment: ColorEnvironmentValues) -> VaultImageAttachment? {
-        guard location.isFileURL, let thumbnail = ReadingImageCache.shared.lastThumbnail(for: URL(fileURLWithPath: location.path), kind: .inline) else { return nil }
+        guard location.isFileURL,
+              let thumbnail = ReadingImageCache.shared.lastThumbnail(for: URL(fileURLWithPath: location.path), kind: .inline) else { return nil }
         return VaultImageAttachment(image: thumbnail.image, description: text, displaySize: PreviewImageFragment.displaySize(in: location))
     }
 }

@@ -352,7 +352,7 @@ final class MarkdownEditorStyling {
         let block = visited.block
         // The block must still start where it was found: the line before its code opens it.
         guard block.codeStart > 0, block.codeStart <= source.length,
-              let opening = CodeFence.opening(source.substring(with: source.lineRange(for: NSRange(location: block.codeStart - 1, length: 0)))
+              let opening = MarkdownFenceSyntax.opening(source.substring(with: source.lineRange(for: NSRange(location: block.codeStart - 1, length: 0)))
                 .trimmingCharacters(in: .whitespacesAndNewlines)), opening.fence == block.fence,
               let language = CodeLanguage.named(block.language) else { return nil }
         let codeRange = block.codeRange(in: source)

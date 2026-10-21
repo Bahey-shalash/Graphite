@@ -474,8 +474,7 @@ private struct MarkdownTableLayout {
         guard rawLines.count >= 2,
               let header = MarkdownTableLineLayout.make(units: units, contentRange: rawLines[0].content, endingRange: rawLines[0].ending),
               let delimiter = MarkdownTableLineLayout.make(units: units, contentRange: rawLines[1].content, endingRange: rawLines[1].ending),
-              MarkdownTableLayout.isDelimiterRow(delimiter, in: units),
-              MarkdownTableLayout.startsTable(header: header, delimiter: delimiter, in: units)
+              MarkdownTableSyntax.startsTable(trimmedHeaderUnits: units[header.trimmedRange], trimmedDelimiterUnits: units[delimiter.trimmedRange])
         else { return nil }
         var lines = [header, delimiter]
         for rawLine in rawLines.dropFirst(2) {
@@ -485,21 +484,6 @@ private struct MarkdownTableLayout {
         self.units = units
         self.lines = lines
         self.lineEnding = Array(units[header.endingRange])
-    }
-
-    /// The same rule Live Preview uses to find a table: a delimiter row has only pipes,
-    /// dashes, colons and spaces, with a dash among them.
-    private static func isDelimiterRow(_ line: MarkdownTableLineLayout, in units: [UInt16]) -> Bool {
-        let allowed = Set("|-: \t".utf16)
-        let trimmedUnits = units[line.trimmedRange]
-        return trimmedUnits.contains(UInt16(UInt8(ascii: "-"))) && trimmedUnits.allSatisfy { allowed.contains($0) }
-    }
-
-    /// A header row with a pipe over a delimiter row. Without a leading pipe, the delimiter
-    /// row needs a pipe too, so text over a `---` rule is no table.
-    private static func startsTable(header: MarkdownTableLineLayout, delimiter: MarkdownTableLineLayout, in units: [UInt16]) -> Bool {
-        if header.hasLeadingPipe { return true }
-        return units[header.trimmedRange].contains(MarkdownTableUnit.pipe) && units[delimiter.trimmedRange].contains(MarkdownTableUnit.pipe)
     }
 
     var table: MarkdownTable {

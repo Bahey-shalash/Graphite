@@ -25,14 +25,6 @@ public indirect enum NotePreviewBlock: Equatable, Sendable {
 }
 
 public enum NotePreviewDocument {
-    /// An ATX heading. As in CommonMark, trailing `#`s are a closing sequence only after a
-    /// space, so `## Learning C#` keeps its `#`.
-    private static let headingPattern = NotePreviewDocumentPattern.headingPattern.compiled()
-    private static let calloutHeaderPattern = NotePreviewDocumentPattern.calloutHeaderPattern.compiled()
-    /// An embed alone on its line. Its destination may hold one balanced `(…)`, as
-    /// `EmbedLocator` reads it, so `![](photo (1).png)` is an image block too.
-    private static let standaloneEmbedPattern = NotePreviewDocumentPattern.standaloneEmbedPattern.compiled()
-
     /// Callouts nested deeper than this stay quoted Markdown. Each level is split by a
     /// recursive call that walks the rest of the callout again, so without a limit a
     /// crafted note of thousands of levels would exhaust the stack of the thread building
@@ -60,12 +52,6 @@ public enum NotePreviewDocument {
     /// formula hides all of it, as in Obsidian.
     public static func blocks(from body: String) -> [NotePreviewBlock] {
         locatedBlocks(from: body).map(\.block)
-    }
-
-    /// The language of a fenced code block as Obsidian gives it to code block processors:
-    /// the first word of the fence's info text, so ```` ```dataview table ```` is `dataview`.
-    public static func codeBlockLanguage(ofFenceInfo info: String) -> String {
-        String(info.prefix { character in !character.isWhitespace })
     }
 
     /// The blocks of `blocks(from:)`, each with where its lines start in `body`.
@@ -115,11 +101,13 @@ public enum NotePreviewDocument {
             if let (fence, info, _) = listItems.fenceOpening(of: line) {
                 let language = info.lowercased()
                 var closingIndex = lineIndex + 1
-                while closingIndex < lines.count && !CodeFence.closes(fence, lines[closingIndex].trimmingCharacters(in: .whitespaces)) { closingIndex += 1 }
+                while closingIndex < lines.count, !MarkdownFenceSyntax.closes(fence, lines[closingIndex].trimmingCharacters(in: .whitespaces)) {
+                    closingIndex += 1
+                }
                 let lastFenceLineIndex = min(closingIndex, lines.count - 1)
                 let code = lines[lineIndex...lastFenceLineIndex].dropFirst().dropLast(closingIndex < lines.count ? 1 : 0).joined(separator: "\n")
                 // Matched as written, as Obsidian matches a processor's language.
-                let pluginLanguage = codeBlockLanguage(ofFenceInfo: info)
+                let pluginLanguage = MarkdownFenceSyntax.language(ofInfo: info)
                 if language == "base" {
                     flushMarkdown()
                     append(.baseDefinition(code), startingAtLine: lineIndex)
@@ -152,21 +140,21 @@ public enum NotePreviewDocument {
                     continue
                 }
             }
-            if let heading = heading(in: line) {
+            if let heading = MarkdownHeadingSyntax.titledHeading(in: line) {
                 flushMarkdown()
                 append(.heading(level: heading.level, text: heading.text, anchor: anchor(forHeading: heading.text)), startingAtLine: lineIndex)
                 lineIndex += 1
                 continue
             }
             // A setext heading is its text line and its underline, which the block swallows.
-            if let setextLevel = setextHeadingLevel(ofLine: line, nextLine: lineIndex + 1 < lines.count ? lines[lineIndex + 1] : nil) {
+            if let setextLevel = MarkdownHeadingSyntax.setextHeadingLevel(ofLine: line, nextLine: lineIndex + 1 < lines.count ? lines[lineIndex + 1] : nil) {
                 flushMarkdown()
                 let text = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 append(.heading(level: setextLevel, text: text, anchor: anchor(forHeading: text)), startingAtLine: lineIndex)
                 lineIndex += 2
                 continue
             }
-            if calloutDepth < maximumCalloutNestingDepth, let callout = calloutHeader(in: line) {
+            if calloutDepth < maximumCalloutNestingDepth, let callout = MarkdownQuoteSyntax.calloutHeader(in: line) {
                 flushMarkdown()
                 var bodyLines: [String] = []
                 var bodyLineStartOffsets: [Int] = []
@@ -184,7 +172,9 @@ public enum NotePreviewDocument {
                 lineIndex = bodyIndex
                 continue
             }
-            if let embed = standaloneEmbed(in: line) {
+            // A web image (`![](https://…)`) is not a vault file. It stays Markdown, which the
+            // renderer draws from the web as it does an inline one.
+            if let embed = EmbedLocator.standaloneEmbed(onLine: line), !embed.isRemoteImage {
                 flushMarkdown()
                 append(.embed(embed), startingAtLine: lineIndex)
                 lineIndex += 1
@@ -298,9 +288,10 @@ public enum NotePreviewDocument {
                 }
             }
             guard !fenceTracker.isCodeLine(untrimmedLine: line) else { continue }
-            if let heading = heading(in: visibleLine) {
+            if let heading = MarkdownHeadingSyntax.titledHeading(in: visibleLine) {
                 headings.append(HeadingLine(lineIndex: lineIndex, level: heading.level, text: heading.text, anchor: anchor(forHeading: heading.text)))
-            } else if let setextLevel = setextHeadingLevel(ofLine: visibleLine, nextLine: lineIndex + 1 < lines.count ? lines[lineIndex + 1] : nil) {
+            } else if let setextLevel = MarkdownHeadingSyntax.setextHeadingLevel(ofLine: visibleLine,
+                                                                                 nextLine: lineIndex + 1 < lines.count ? lines[lineIndex + 1] : nil) {
                 let text = visibleLine.trimmingCharacters(in: .whitespacesAndNewlines)
                 headings.append(HeadingLine(lineIndex: lineIndex, level: setextLevel, text: text, anchor: anchor(forHeading: text)))
             }
@@ -324,41 +315,6 @@ public enum NotePreviewDocument {
             searchRange = (position + 1)..<sectionEnd
         }
         return matchedPosition
-    }
-
-    /// The level of the setext heading `line` is the text of, when `nextLine` underlines it.
-    private static func setextHeadingLevel(ofLine line: String, nextLine: String?) -> Int? {
-        MarkdownStyleScanner.setextHeadingLevel(ofLine: line, nextLine: nextLine)
-    }
-
-    private static func heading(in line: String) -> (level: Int, text: String)? {
-        guard line.utf8.contains(UInt8(ascii: "#")) else { return nil }
-        let cleanLine = line.hasSuffix("\r") ? String(line.dropLast()) : line
-        guard let match = headingPattern.firstMatch(in: cleanLine, range: NSRange(location: 0, length: (cleanLine as NSString).length)) else { return nil }
-        let source = cleanLine as NSString
-        return (source.substring(with: match.range(at: 1)).count, source.substring(with: match.range(at: 2)))
-    }
-
-    static func calloutHeader(in line: String) -> (type: String, title: String, folding: CalloutFolding)? {
-        guard let match = calloutHeaderPattern.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) else { return nil }
-        let source = line as NSString
-        let type = source.substring(with: match.range(at: 1)).lowercased()
-        let foldMarker = source.substring(with: match.range(at: 2))
-        let writtenTitle = source.substring(with: match.range(at: 3))
-        let title = writtenTitle.isEmpty ? type.prefix(1).uppercased() + type.dropFirst() : writtenTitle
-        return (type, title, foldMarker == "-" ? .collapsed : foldMarker == "+" ? .expanded : .notFoldable)
-    }
-
-    private static func standaloneEmbed(in line: String) -> EmbedReference? {
-        guard standaloneEmbedPattern.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) != nil else { return nil }
-        let embedLocation = (line as NSString).range(of: "!").location
-        guard let embed = EmbedLocator.embed(at: embedLocation + 1, in: line as NSString) else { return nil }
-        // A web image (`![](https://…)`) is not a vault file. It stays Markdown, which the
-        // renderer draws from the web as it does an inline one. Only the destination
-        // counts, not a title written after it.
-        let destination = embed.target.split(whereSeparator: \.isWhitespace).first.map(String.init) ?? embed.target
-        guard embed.isWiki || URL(string: destination)?.scheme == nil else { return nil }
-        return embed
     }
 }
 
@@ -386,13 +342,10 @@ public enum ObsidianInlineMarkup {
     /// inserts them before this rewrite runs.
     private static let markerScalarValues: [ClosedRange<UInt32>] = [0xE000...0xE006, 0xE00A...0xE00B]
     private static let highlightPattern = ObsidianInlineMarkupPattern.highlightPattern.compiled()
-    /// A single-backtick code span, whose `==` is not a highlight.
-    private static let highlightCodeSpanPattern = ObsidianInlineMarkupPattern.highlightCodeSpanPattern.compiled()
     private static let tableDisplayMathPattern = ObsidianInlineMarkupPattern.tableDisplayMathPattern.compiled()
     /// `$$…$$` on one line, or Obsidian's inline `$…$`: no space just inside either `$`, and
     /// no digit after the closing one, so "$5 and $10" is not math.
     private static let mathSpanPattern = ObsidianInlineMarkupPattern.mathSpanPattern.compiled()
-    private static let codeSpanPattern = ObsidianInlineMarkupPattern.codeSpanPattern.compiled()
     private static let quotePrefixPattern = ObsidianInlineMarkupPattern.quotePrefixPattern.compiled()
 
     /// Rewrites color sections, highlights, tasks, and comments for display.
@@ -522,7 +475,7 @@ public enum ObsidianInlineMarkup {
             if commentStart == nil, fenceTracker.isCodeLine(untrimmedLine: unquotedLine) { continue }
             guard line.utf8.contains(UInt8(ascii: "%")) else { continue }
             let lineSource = line as NSString
-            let codeRanges = codeSpanPattern.matches(in: line, range: NSRange(location: 0, length: lineSource.length)).map(\.range)
+            let codeRanges = MarkdownCodeRanges.codeSpans(in: lineSource, range: NSRange(location: 0, length: lineSource.length)).map(\.range)
             var searchStart = 0
             while searchStart < lineSource.length {
                 let marker = lineSource.range(of: "%%", range: NSRange(location: searchStart, length: lineSource.length - searchStart))
@@ -678,7 +631,7 @@ public enum ObsidianInlineMarkup {
         guard line.contains("$") else { return line }
         let source = line as NSString
         let wholeLine = NSRange(location: 0, length: source.length)
-        let codeRanges = codeSpanPattern.matches(in: line, range: wholeLine).map(\.range)
+        let codeRanges = MarkdownCodeRanges.codeSpans(in: source, range: wholeLine).map(\.range)
         let isInTableRow = line.trimmingCharacters(in: .whitespaces).hasPrefix("|")
         let output = NSMutableString(string: line)
         for match in mathSpanPattern.matches(in: line, range: wholeLine).reversed()
@@ -775,7 +728,8 @@ public enum ObsidianInlineMarkup {
             if fenceTracker.isCodeLine(untrimmedLine: line) { return line }
             guard line.contains("==") else { return line }
             let source = line as NSString
-            let codeRanges = highlightCodeSpanPattern.matches(in: line, range: NSRange(location: 0, length: source.length)).map(\.range)
+            // `==` in a code span, of any number of backticks, is not a highlight.
+            let codeRanges = MarkdownCodeRanges.codeSpans(in: source, range: NSRange(location: 0, length: source.length)).map(\.range)
             let output = NSMutableString(string: line)
             for match in highlightPattern.matches(in: line, range: NSRange(location: 0, length: source.length)).reversed()
             where !codeRanges.contains(where: { codeRange in NSIntersectionRange(codeRange, match.range).length > 0 }) {
@@ -840,26 +794,16 @@ extension NotePreviewDocument {
 
 /// The constant patterns of `NotePreviewDocument`; `StaticPatternTests` compiles every case.
 enum NotePreviewDocumentPattern: String, StaticPatternSet {
-    case headingPattern = #"^ {0,3}(#{1,6})[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$"#
-    case calloutHeaderPattern = #"^>[ \t]?\[!([A-Za-z0-9_-]+)\]([+-]?)[ \t]*(.*)$"#
-    case standaloneEmbedPattern = #"^[ \t]*(!\[\[[^\]\n]+\]\]|!\[[^\]\n]*\]\((?:<[^<>\n]*>[^)\n]*|[^()\n]+(?:\([^()\n]*\)[^()\n]*)?)\))[ \t]*$"#
     case referenceDefinitionPattern = #"^ {0,3}\[[^\]]+\]:"#
 
-    var options: NSRegularExpression.Options {
-        switch self {
-        case .headingPattern, .calloutHeaderPattern, .standaloneEmbedPattern: []
-        case .referenceDefinitionPattern: [.anchorsMatchLines]
-        }
-    }
+    var options: NSRegularExpression.Options { [.anchorsMatchLines] }
 }
 
 /// The constant patterns of `ObsidianInlineMarkup`; `StaticPatternTests` compiles every case.
 enum ObsidianInlineMarkupPattern: String, StaticPatternSet {
     case highlightPattern = #"(?<![=~])==(?![\s=~])([^=\n]+?)(?<!\s)==(?!=)"#
-    case highlightCodeSpanPattern = "`[^`]+`"
     case tableDisplayMathPattern = #"\$\$([^$\n]+)\$\$"#
     case mathSpanPattern = #"\$\$(?!\$)([^\n]+?)\$\$|(?<![\\$])\$(?![\s$])([^$\n]*?[^\s\\])?\$(?![\d$])"#
-    case codeSpanPattern = #"(?<!`)(`+)(?!`)[^\n]*?(?<!`)\1(?!`)"#
     case quotePrefixPattern = #"^\s*(?:>\s?)*"#
     case blockIdentifierPattern = #"(?:[ \t]+|^)\^[A-Za-z0-9-]+[ \t]*$"#
 }

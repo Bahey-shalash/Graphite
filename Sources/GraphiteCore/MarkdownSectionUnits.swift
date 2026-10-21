@@ -93,13 +93,13 @@ public struct MarkdownSectionUnits: Equatable, Sendable {
     }
 
     private static func codeUnits(lines: [String]) -> MarkdownSectionUnits? {
-        guard let (fence, _) = CodeFence.opening(lines[0].trimmingCharacters(in: .whitespaces)) else {
+        guard let (fence, _) = MarkdownFenceSyntax.opening(lines[0].trimmingCharacters(in: .whitespaces)) else {
             // Indented code: every run of its lines is indented code too.
             return MarkdownSectionUnits(kind: .codeLines, lines: lines, leadingLines: 0..<0, trailingLines: lines.count..<lines.count,
                                         unitLines: lines.indices.map { line in line..<(line + 1) }, orderedListStart: nil)
         }
         let lastLine = lines.count - 1
-        let hasClosingFence = lastLine > 0 && CodeFence.closes(fence, lines[lastLine].trimmingCharacters(in: .whitespaces))
+        let hasClosingFence = lastLine > 0 && MarkdownFenceSyntax.closes(fence, lines[lastLine].trimmingCharacters(in: .whitespaces))
         let codeEnd = hasClosingFence ? lastLine : lines.count
         guard codeEnd > 1 else { return nil }
         return MarkdownSectionUnits(kind: .codeLines, lines: lines, leadingLines: 0..<1, trailingLines: codeEnd..<lines.count,

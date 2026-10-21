@@ -39,7 +39,8 @@ enum GuideOrganizingCopy {
         steps: [
             GuideStep("The **Quick Switcher** (⌘O) opens a note as you type part of its name. " +
                       "If no note matches, it offers to make one with that name."),
-            GuideStep("The **Command Palette** (⌘P on the iPad, ⇧⌘P on the Mac) runs any command by name: insert a table, open the graph, start a recording, turn on Focus…"),
+            GuideStep("The **Command Palette** (⌘P on the iPad, ⇧⌘P on the Mac) runs any command by name: " +
+                      "insert a table, open the graph, start a recording, turn on Focus…"),
             GuideStep(forPlatform(
                 touch: "Without a keyboard: on iPhone both are in the bar at the bottom; on iPad they are at the end of a document's **More** menu.",
                 mac: "They are also in the menus: File › **Open Quick Switcher…** and View › **Command Palette…**."))

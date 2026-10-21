@@ -198,7 +198,7 @@ public enum LinkCompletion {
 
     private static func endsParagraph(_ line: String) -> Bool {
         let content = quoteMarkers(in: line, maximumDepth: Int.max).content.trimmingCharacters(in: .whitespacesAndNewlines)
-        return content.isEmpty || CodeFence.opening(content) != nil
+        return content.isEmpty || MarkdownFenceSyntax.opening(content) != nil
     }
 
     /// Whether the lines before the cursor's line leave a fenced block or an HTML comment

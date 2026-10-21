@@ -178,6 +178,44 @@ final class AppProjectTextualPatchTests: XCTestCase {
         }
     }
 
+    /// `\underbrace` and `\overbrace` are typeset, with their labels below or above the
+    /// brace. The typesetter did not know them, so a formula using one showed as its source.
+    func testUnderbraceAndOverbraceAreTypesetWithTheirLabels() throws {
+        let fontSize: CGFloat = 22
+        let note = #"t_{\text{wear-out}} = \underbrace{\frac{C}{G}}_{\text{write requests to write every cell once}} \times \underbrace{E}_{\text{writes each cell survives}} \times \underbrace{t_{req}}_{\text{time per write request}}"#
+        XCTAssertTrue(MathAttachment.canTypeset(note))
+        XCTAssertEqual(try mathAttachmentCount(inMarkdown: #"Under $\underbrace{a+b}_{n}$ and over $\overbrace{a+b}^{n}$."#), 2)
+
+        let plain = try XCTUnwrap(DisplayMathRendering.metrics(for: "a+b", fontSize: fontSize))
+        let under = try XCTUnwrap(DisplayMathRendering.metrics(for: #"\underbrace{a+b}"#, fontSize: fontSize))
+        let underLabelled = try XCTUnwrap(DisplayMathRendering.metrics(for: #"\underbrace{a+b}_{\text{a long label}}"#, fontSize: fontSize))
+        let over = try XCTUnwrap(DisplayMathRendering.metrics(for: #"\overbrace{a+b}"#, fontSize: fontSize))
+        let overLabelled = try XCTUnwrap(DisplayMathRendering.metrics(for: #"\overbrace{a+b}^{\text{a long label}}"#, fontSize: fontSize))
+        let label = try XCTUnwrap(DisplayMathRendering.metrics(for: #"\scriptstyle\text{a long label}"#, fontSize: fontSize))
+        // The brace adds height on its side only, and is as wide as what it spans.
+        XCTAssertEqual(under.width, plain.width, accuracy: 0.01)
+        XCTAssertEqual(under.ascent, plain.ascent, accuracy: 0.01)
+        XCTAssertGreaterThan(under.descent, plain.descent + 0.3 * fontSize)
+        XCTAssertEqual(over.descent, plain.descent, accuracy: 0.01)
+        XCTAssertGreaterThan(over.ascent, plain.ascent + 0.3 * fontSize)
+        // The label goes beyond the brace, as wide as it is, and not beside it.
+        XCTAssertGreaterThan(underLabelled.descent, under.descent + label.ascent)
+        XCTAssertEqual(underLabelled.width, label.width, accuracy: 0.5)
+        XCTAssertGreaterThan(overLabelled.ascent, over.ascent + label.descent)
+        XCTAssertEqual(overLabelled.width, label.width, accuracy: 0.5)
+    }
+
+    /// A hyphen inside `\text` stays a hyphen: `\text{wear-out}` read as "wear − out",
+    /// with a minus sign and the spaces of a binary operator.
+    func testHyphenInsideTextIsAHyphen() throws {
+        let fontSize: CGFloat = 22
+        let hyphenated = try XCTUnwrap(DisplayMathRendering.metrics(for: #"\text{wear-out}"#, fontSize: fontSize))
+        let minus = try XCTUnwrap(DisplayMathRendering.metrics(for: #"\text{wear}-\text{out}"#, fontSize: fontSize))
+        let joined = try XCTUnwrap(DisplayMathRendering.metrics(for: #"\text{wearout}"#, fontSize: fontSize))
+        XCTAssertLessThan(hyphenated.width, minus.width - 0.3 * fontSize)
+        XCTAssertLessThan(hyphenated.width - joined.width, 0.4 * fontSize, "one hyphen wide")
+    }
+
     /// The view draws display math at its natural width when it overhangs the column by
     /// up to a point; the measurement used to refit it (and reserve the wrapped height)
     /// as soon as it overhung at all.

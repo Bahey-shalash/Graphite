@@ -99,7 +99,8 @@ struct MarkdownPane: View {
                                      readAloudRange: workspace.readAloud?.highlight(in: session.path),
                                      followsReading: workspace.readAloud?.shouldFollow(session.path) ?? false,
                                      suspendReadingFollow: { workspace.readAloud?.suspendFollowing(in: session.path.rawValue) },
-                                     readAloudHooks: readAloudHooks, contextMenu: editorContextMenuActions) { target, isWiki in
+                                     readAloudHooks: readAloudHooks, contextMenu: editorContextMenuActions,
+                                     keyCommandTable: workspace.keyboardShortcuts.editorKeyCommands) { target, isWiki in
                     follow(target, isWiki: isWiki)
                 }
                 // The suggestions change at every keystroke; only this overlay reads them.
