@@ -64,38 +64,68 @@ struct LibraryFolderArtwork: View {
     }
 }
 
-/// A folder tile's picture. On the Mac it is the system's own icon of the folder wherever
-/// Finder draws its look, and the system's plain folder for a plain one, so the library looks
-/// like Finder; elsewhere, and for looks Finder cannot draw, it is Graphite's drawing.
+/// A folder tile's picture: Apple's own folder art wherever the system gives it (Finder's on
+/// the Mac, the Files app's on iOS), with the folder's look; Graphite's drawing meanwhile.
 struct LibraryFolderTileArtwork: View {
     let folder: VaultPath
     let looks: LibraryFolderLooks
     let symbolPointSize: CGFloat
-    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         let look = looks.shownLook(of: folder)
-        if let systemIcon = systemIcon(for: look) {
-            Image(decorative: systemIcon, scale: displayScale)
+        let image: FolderTileImage? = switch look {
+        case .plain: looks.plainFolderIcon.map(FolderTileImage.appleArt)
+        case .drawnByFinder, .drawnByGraphite: looks.tileImages[folder]
+        }
+        FolderArtView(style: look.style, image: image, symbolPointSize: symbolPointSize)
+    }
+}
+
+/// A folder in Apple's art, with what the art could not carry drawn over it (the symbol or
+/// emoji of a color no tag has), or in Graphite's drawing when there is no art.
+struct FolderArtView: View {
+    let style: FolderStyle?
+    let image: FolderTileImage?
+    /// The point size Graphite's drawing gives the folder symbol; Apple's art fills the same height.
+    let symbolPointSize: CGFloat
+    @Environment(\.displayScale) private var displayScale
+
+    /// Apple's icons leave a margin around the folder; this fills the tile as the symbol does.
+    private var artSide: CGFloat { symbolPointSize * 1.25 }
+
+    var body: some View {
+        switch image {
+        case .appleArt(let art):
+            Image(decorative: art, scale: displayScale)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
+                .frame(width: artSide, height: artSide)
+                .overlay { markOverArt }
                 .accessibilityHidden(true)
-        } else {
-            LibraryFolderArtwork(style: look.style, picture: looks.tileImages[folder], symbolPointSize: symbolPointSize)
+        case .picture(let picture):
+            LibraryFolderArtwork(style: style, picture: picture, symbolPointSize: symbolPointSize)
+        case nil:
+            LibraryFolderArtwork(style: style, picture: nil, symbolPointSize: symbolPointSize)
         }
     }
 
-    /// The system's icon, on the Mac only: `tileImages` holds it for a look Finder draws.
-    private func systemIcon(for look: ShownFolderLook) -> CGImage? {
-        #if os(macOS)
-        switch look {
-        case .drawnByFinder: looks.tileImages[folder]
-        case .plain: looks.plainFolderIcon
-        case .drawnByGraphite: nil
+    /// Engraved on the folder's front face as Finder engraves: a darker shade of its color, lit from below.
+    @ViewBuilder private var markOverArt: some View {
+        let frontFaceOffset = artSide * (FolderIconRenderer.pictureOnFolderCenterFromTopFraction - 0.5)
+        switch style.flatMap({ style in AppleFolderArtPlan.plan(for: style).markDrawnOver }) {
+        case .symbol(let symbolName):
+            Image(systemName: symbolName)
+                .font(.system(size: artSide * 0.24, weight: .semibold))
+                .foregroundStyle((style?.color).tileColor.mix(with: .black, by: 0.3))
+                .shadow(color: .white.opacity(0.35), radius: 0, x: 0, y: max(artSide * 0.006, 0.5))
+                .offset(y: frontFaceOffset)
+        case .emoji(let emojiText):
+            Text(emojiText)
+                .font(.system(size: artSide * 0.3))
+                .offset(y: frontFaceOffset)
+        case .picture, nil:
+            EmptyView()
         }
-        #else
-        nil
-        #endif
     }
 }
 

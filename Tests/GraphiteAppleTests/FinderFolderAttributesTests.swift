@@ -20,7 +20,7 @@ final class FinderFolderAttributesTests: XCTestCase {
 
     #if os(macOS)
     /// The written attributes are the ones the system draws from: the folder's icon changes.
-    func testAWrittenLookIsWhatTheSystemDraws() throws {
+    func testAWrittenLookIsWhatTheSystemDraws() async throws {
         let vault = try TemporaryVault.make(prefix: "FinderLook", files: ["Lab/Note.md": "x"], for: self)
         var tagged = vault.location(of: "Lab")
         var tagValues = URLResourceValues()
@@ -28,7 +28,7 @@ final class FinderFolderAttributesTests: XCTestCase {
         try tagged.setResourceValues(tagValues)
         let attributes = FinderFolderAttributes(root: vault.root)
         let lab = try VaultPath("Lab")
-        let plainIcon = try XCTUnwrap(attributes.systemIcon(of: lab, pixels: 64))
+        let plainIcon = try await systemIcon(attributes, lab)
         let style = FolderStyle(color: .green, mark: .symbol("star.fill"))
 
         try attributes.write(FinderFolderLookChange.change(for: style, from: attributes.look(of: lab), colorTagNames: FinderFolderAttributes.colorTagNames()), to: lab)
@@ -37,7 +37,7 @@ final class FinderFolderAttributesTests: XCTestCase {
         XCTAssertEqual(look.style, style)
         XCTAssertEqual(look.tags.first?.name, "Work")
         XCTAssertEqual(ShownFolderLook.resolve(stored: style, finder: look), .drawnByFinder(style))
-        let styledIcon = try XCTUnwrap(attributes.systemIcon(of: lab, pixels: 64))
+        let styledIcon = try await systemIcon(attributes, lab)
         XCTAssertNotEqual(pixels(of: styledIcon), pixels(of: plainIcon))
 
         try attributes.write(FinderFolderLookChange.change(for: nil, from: look, colorTagNames: FinderFolderAttributes.colorTagNames()), to: lab)
@@ -45,7 +45,8 @@ final class FinderFolderAttributesTests: XCTestCase {
         let cleared = attributes.look(of: lab)
         XCTAssertFalse(cleared.isCustomized)
         XCTAssertEqual(cleared.tags.map(\.name), ["Work"])
-        XCTAssertEqual(pixels(of: try XCTUnwrap(attributes.systemIcon(of: lab, pixels: 64))), pixels(of: plainIcon))
+        let clearedIcon = try await systemIcon(attributes, lab)
+        XCTAssertEqual(pixels(of: clearedIcon), pixels(of: plainIcon))
     }
 
     /// A picture written as Finder's custom icon is the folder's icon, and a symbol chosen
@@ -54,7 +55,7 @@ final class FinderFolderAttributesTests: XCTestCase {
         let vault = try TemporaryVault.make(prefix: "FinderLook", files: ["Lab/Note.md": "x"], for: self)
         let attributes = FinderFolderAttributes(root: vault.root)
         let lab = try VaultPath("Lab")
-        let plainIcon = try XCTUnwrap(attributes.systemIcon(of: lab, pixels: 64))
+        let plainIcon = try await systemIcon(attributes, lab)
         let context = try XCTUnwrap(CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
                                               bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         context.setFillColor(CGColor(red: 1, green: 0, blue: 1, alpha: 1))
@@ -67,11 +68,17 @@ final class FinderFolderAttributesTests: XCTestCase {
         let look = attributes.look(of: lab)
         XCTAssertTrue(look.showsCustomIconFile)
         XCTAssertEqual(ShownFolderLook.resolve(stored: style, finder: look), .drawnByFinder(style))
-        XCTAssertNotEqual(pixels(of: try XCTUnwrap(attributes.systemIcon(of: lab, pixels: 64))), pixels(of: plainIcon))
+        let pictureIcon = try await systemIcon(attributes, lab)
+        XCTAssertNotEqual(pixels(of: pictureIcon), pixels(of: plainIcon))
 
         try attributes.write(FinderFolderLookChange.change(for: FolderStyle(mark: .symbol("star.fill")), from: look, colorTagNames: [:]), to: lab)
         XCTAssertFalse(attributes.look(of: lab).hasCustomIconFile)
         XCTAssertEqual(attributes.look(of: lab).mark, .symbol("star.fill"))
+    }
+
+    private func systemIcon(_ attributes: FinderFolderAttributes, _ folder: VaultPath) async throws -> CGImage {
+        let icon = await attributes.systemIcon(of: folder, pixels: 64)
+        return try XCTUnwrap(icon)
     }
 
     private func pixels(of image: CGImage) -> Data {

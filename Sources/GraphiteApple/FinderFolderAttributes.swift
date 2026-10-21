@@ -3,10 +3,13 @@ import CoreGraphics
 import GraphiteCore
 #if os(macOS)
 import AppKit
+#else
+import QuickLookThumbnailing
 #endif
 
-/// Reads Finder's look of the vault's folders from their extended attributes, on every
-/// platform; on the Mac also writes it, and draws a folder's icon as Finder does.
+/// Finder's look of the vault's folders, kept in their extended attributes: read and written
+/// on every platform (the Files app reads the same attributes), and the folder's icon as the
+/// system draws it.
 public struct FinderFolderAttributes: Sendable {
     public let root: URL
 
@@ -37,73 +40,77 @@ public struct FinderFolderAttributes: Sendable {
         return Data(bytes.prefix(readLength))
     }
 
-    #if os(macOS)
-    /// The names the system gives the color tags, in the person's language.
+    /// The names the system gives the color tags, in the person's language on the Mac; the
+    /// English names elsewhere, where the system offers no list.
     public static func colorTagNames() -> [FinderTagColor: String] {
+        #if os(macOS)
         let labels = NSWorkspace.shared.fileLabels
         var names: [FinderTagColor: String] = [:]
         for tagColor in FinderTagColor.allCases where tagColor.rawValue < labels.count { names[tagColor] = labels[tagColor.rawValue] }
         return names
+        #else
+        return Dictionary(uniqueKeysWithValues: FinderTagColor.allCases.map { tagColor in (tagColor, tagColor.defaultTagName) })
+        #endif
     }
 
-    /// Writes a change so Finder shows it: the tags, the icon attribute, the custom-icon flag
-    /// and the color label, as Finder writes them. The write is coordinated as
-    /// a change of metadata only, so a file provider such as iCloud Drive syncs it.
+    /// Writes a change so Finder and the Files app show it: the tags, the icon attribute, the
+    /// custom-icon flag and the color label, as Finder writes them. The write is coordinated as
+    /// a change of metadata only, so a file provider such as iCloud Drive syncs it. A picture
+    /// becomes the custom icon file on the Mac only; elsewhere it stays Graphite's own.
     public func write(_ change: FinderFolderLookChange, to folder: VaultPath) throws {
         var location = try folder.url(in: root)
         // The system writes the custom icon file and its flag itself, so this comes first and
         // the flag is settled below.
-        try writeCustomIconFile(change.customIconFile, at: location)
+        let hasCustomIconFile = try writeCustomIconFile(change.customIconFile, at: location)
+        let setsCustomIconFlag = change.setsCustomIconFlag && (change.iconAttributeData != nil || hasCustomIconFile)
         var coordinationError: NSError?
         var writeError: (any Error)?
         NSFileCoordinator().coordinate(writingItemAt: location, options: .contentIndependentMetadataOnly, error: &coordinationError) { coordinatedLocation in
             do {
                 let path = coordinatedLocation.path
-                if let tagsData = FinderFolderLook.tagsAttributeData(for: change.tags) {
-                    try Self.setAttribute(FinderFolderLook.tagsAttributeName, to: tagsData, of: path)
-                } else {
-                    try Self.removeAttribute(FinderFolderLook.tagsAttributeName, of: path)
-                }
-                if let iconAttributeData = change.iconAttributeData {
-                    try Self.setAttribute(FinderFolderLook.iconAttributeName, to: iconAttributeData, of: path)
-                } else {
-                    try Self.removeAttribute(FinderFolderLook.iconAttributeName, of: path)
-                }
+                try Self.replaceAttribute(FinderFolderLook.tagsAttributeName, with: FinderFolderLook.tagsAttributeData(for: change.tags), of: path)
+                try Self.replaceAttribute(FinderFolderLook.iconAttributeName, with: change.iconAttributeData, of: path)
                 let existingInformation = Self.attribute(FinderFolderLook.finderInformationAttributeName, of: path,
                                                          maximumBytes: FinderFolderLook.finderInformationBytes)
-                if let information = FinderFolderLook.finderInformation(existingInformation, settingCustomIconFlag: change.setsCustomIconFlag,
-                                                                         labelColor: change.labelColor) {
-                    try Self.setAttribute(FinderFolderLook.finderInformationAttributeName, to: information, of: path)
-                } else {
-                    try Self.removeAttribute(FinderFolderLook.finderInformationAttributeName, of: path)
-                }
+                let information = FinderFolderLook.finderInformation(existingInformation, settingCustomIconFlag: setsCustomIconFlag, labelColor: change.labelColor)
+                try Self.replaceAttribute(FinderFolderLook.finderInformationAttributeName, with: information, of: path)
             } catch {
                 writeError = error
             }
         }
         if let error = coordinationError ?? writeError { throw error }
         location.removeAllCachedResourceValues()
+        #if os(macOS)
         // The system's icons of the folder are drawn again from what was written.
         NSWorkspace.shared.noteFileSystemChanged(location.path)
+        #endif
     }
 
-    private func writeCustomIconFile(_ customIconFile: FinderFolderLookChange.CustomIconFileChange, at location: URL) throws {
+    /// Writes or removes Finder's custom icon file; returns whether the folder has one after.
+    private func writeCustomIconFile(_ customIconFile: FinderFolderLookChange.CustomIconFileChange, at location: URL) throws -> Bool {
+        #if os(macOS)
         switch customIconFile {
         case .keep:
-            return
+            return FileManager.default.fileExists(atPath: location.appendingPathComponent(FinderFolderLook.customIconFileName).path)
         case .remove:
-            guard NSWorkspace.shared.setIcon(nil, forFile: location.path, options: []) else { throw Self.iconNotWritten }
+            guard NSWorkspace.shared.setIcon(nil, forFile: location.path, options: []) else { throw Failure.iconNotWritten }
+            return false
         case .write(let picture):
             let pictureLocation = try picture.path.url(in: root)
             guard let pictureData = try? Data(contentsOf: pictureLocation, options: .mappedIfSafe), // A missing picture is reported below.
                   let pictureImage = FolderIconRenderer.decodedPicture(from: pictureData),
                   let iconImage = FolderIconRenderer.finderIcon(picture: pictureImage, layout: picture.layout,
-                                                                folderIcon: systemIcon(of: nil, pixels: Self.finderIconPixels)) else {
-                throw Self.iconNotWritten
+                                                                folderIcon: Self.drawPlainFolderIcon(pixels: Self.finderIconPixels)) else {
+                throw Failure.iconNotWritten
             }
             let icon = NSImage(cgImage: iconImage, size: NSSize(width: Self.finderIconPixels, height: Self.finderIconPixels))
-            guard NSWorkspace.shared.setIcon(icon, forFile: location.path, options: []) else { throw Self.iconNotWritten }
+            guard NSWorkspace.shared.setIcon(icon, forFile: location.path, options: []) else { throw Failure.iconNotWritten }
+            return true
         }
+        #else
+        // The Files app's custom icon file cannot be written with a public API; it is left as it is.
+        return FileManager.default.fileExists(atPath: location.appendingPathComponent(FinderFolderLook.customIconFileName).path)
+        #endif
     }
 
     /// The side of the custom icon written for Finder, its largest icon view at 2x.
@@ -113,28 +120,55 @@ public struct FinderFolderAttributes: Sendable {
         case iconNotWritten
     }
 
-    private static let iconNotWritten = Failure.iconNotWritten
-
-    /// The folder's icon as Finder draws it, `pixels` wide; the generic folder for nil.
-    public func systemIcon(of folder: VaultPath?, pixels: Int) -> CGImage? {
-        let icon: NSImage
-        if let folder {
-            guard let location = try? folder.url(in: root) else { return nil } // A path outside the vault has no icon.
-            icon = NSWorkspace.shared.icon(forFile: location.path)
-        } else {
-            icon = NSWorkspace.shared.icon(for: .folder)
-        }
-        var proposedRect = CGRect(x: 0, y: 0, width: pixels, height: pixels)
-        return icon.cgImage(forProposedRect: &proposedRect, context: nil, hints: nil)
+    /// The folder's icon as the system draws it, with its color, symbol, emoji or picture,
+    /// `pixels` wide: Finder's on the Mac, the Files app's on iOS.
+    public func systemIcon(of folder: VaultPath, pixels: Int) async -> CGImage? {
+        guard let location = try? folder.url(in: root) else { return nil } // A path outside the vault has no icon.
+        return await Self.systemIcon(at: location, pixels: pixels)
     }
 
-    private static func setAttribute(_ name: String, to attributeData: Data, of path: String) throws {
+    /// The system's plain folder, `pixels` wide.
+    public static func plainFolderIcon(pixels: Int) async -> CGImage? {
+        #if os(macOS)
+        return drawPlainFolderIcon(pixels: pixels)
+        #else
+        // The Files app's folder comes from a folder without a look: an empty one Graphite keeps
+        // in its temporary items.
+        let plainFolder = FileManager.default.temporaryDirectory.appendingPathComponent(plainFolderName, isDirectory: true)
+        guard (try? FileManager.default.createDirectory(at: plainFolder, withIntermediateDirectories: true)) != nil else { return nil } // No folder: no art.
+        return await systemIcon(at: plainFolder, pixels: pixels)
+        #endif
+    }
+
+    /// The name of the empty folder whose icon is the plain folder, in the temporary items.
+    static let plainFolderName = "Graphite Plain Folder"
+
+    #if os(macOS)
+    static func drawPlainFolderIcon(pixels: Int) -> CGImage? {
+        var proposedRect = CGRect(x: 0, y: 0, width: pixels, height: pixels)
+        return NSWorkspace.shared.icon(for: .folder).cgImage(forProposedRect: &proposedRect, context: nil, hints: nil)
+    }
+
+    static func systemIcon(at location: URL, pixels: Int) async -> CGImage? {
+        var proposedRect = CGRect(x: 0, y: 0, width: pixels, height: pixels)
+        return NSWorkspace.shared.icon(forFile: location.path).cgImage(forProposedRect: &proposedRect, context: nil, hints: nil)
+    }
+    #else
+    /// The icon Quick Look gives for the folder: the Files app's own folder art, with the
+    /// folder's color and symbol or emoji.
+    static func systemIcon(at location: URL, pixels: Int) async -> CGImage? {
+        let request = QLThumbnailGenerator.Request(fileAt: location, size: CGSize(width: pixels, height: pixels), scale: 1, representationTypes: .icon)
+        let representation = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request) // No icon: Graphite draws the folder.
+        return representation?.cgImage
+    }
+    #endif
+
+    private static func replaceAttribute(_ name: String, with attributeData: Data?, of path: String) throws {
+        guard let attributeData else {
+            if removexattr(path, name, 0) != 0, errno != ENOATTR { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+            return
+        }
         let status = attributeData.withUnsafeBytes { buffer in setxattr(path, name, buffer.baseAddress, buffer.count, 0, 0) }
         if status != 0 { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
     }
-
-    private static func removeAttribute(_ name: String, of path: String) throws {
-        if removexattr(path, name, 0) != 0, errno != ENOATTR { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-    }
-    #endif
 }

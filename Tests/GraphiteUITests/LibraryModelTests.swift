@@ -104,7 +104,7 @@ final class LibraryModelTests: XCTestCase {
         let picture = try XCTUnwrap(style?.picture)
         XCTAssertTrue(FileManager.default.fileExists(atPath: try picture.path.url(in: vault).path))
         XCTAssertEqual(library.folderLooks.shownLook(of: courses.path), .drawnByGraphite(try XCTUnwrap(style)))
-        try await waitUntil("the tile has its picture", timeoutSeconds: 5) { library.folderLooks.picture(of: courses.path) != nil }
+        try await waitUntil("the tile has its picture", timeoutSeconds: 5) { library.folderLooks.tileImages[courses.path] != nil }
     }
 
     /// A look set in Finder, and not in Graphite, shows in the library.

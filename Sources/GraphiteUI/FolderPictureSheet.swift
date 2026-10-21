@@ -15,11 +15,13 @@ struct FolderPictureSheet: View {
     let picture: CGImage
     let folderName: String
     let folderColor: FolderColor?
+    let drawPreview: (FolderStyle, CGImage) async -> FolderTileImage?
     /// Applies the framed picture, a square of `FolderIconRenderer.outputPixels`.
     let apply: (CGImage, FolderPictureLayout) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var layout = FolderPictureLayout.onFolder
     @State private var framedPicture: CGImage?
+    @State private var previewImage: FolderTileImage?
 
     private static let previewSymbolPoints: CGFloat = 150
 
@@ -32,8 +34,8 @@ struct FolderPictureSheet: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                LibraryFolderArtwork(style: previewStyle, picture: framedPicture, symbolPointSize: Self.previewSymbolPoints)
-                    .frame(height: Self.previewSymbolPoints * 1.15)
+                FolderArtView(style: previewStyle, image: previewImage, symbolPointSize: Self.previewSymbolPoints)
+                    .frame(height: Self.previewSymbolPoints * 1.25)
                 Text(folderName).font(.headline)
                 Spacer(minLength: 0)
             }
@@ -71,6 +73,8 @@ struct FolderPictureSheet: View {
         framedPicture = await Task.detached(priority: .userInitiated) {
             FolderIconRenderer.framedPicture(picture, framing: .filling, layout: layout, background: .none)
         }.value
+        guard let framedPicture else { return }
+        previewImage = await drawPreview(previewStyle, framedPicture)
     }
 }
 
