@@ -227,7 +227,7 @@ The index, thumbnails and caches are disposable (`OBJECTIVE.md`): deleting them 
 | MD-14 | Code formatting never changes text inside strings or comments, never formats Markdown, and keeps the code's own indentation width. | [CodeFormatting.swift:3-8](../../Sources/GraphiteCore/CodeFormatting.swift#L3-L8), [CodeFormatting.swift:82-85](../../Sources/GraphiteCore/CodeFormatting.swift#L82-L85), [CodeFormatting.swift:107-121](../../Sources/GraphiteCore/CodeFormatting.swift#L107-L121) | Existing `CodeFormattingTests`; add "formatting twice equals once" per language. | MDCORE-INV-18 |
 | MD-15 | `CodeLineState.storedValue` round-trips and rule indexes refer to each language's `blockComments`/`strings` order; line-by-line tokens equal whole-block tokens and `advance` reaches the same state as `tokens`, for all 26 languages. | [CodeSyntaxHighlighting.swift:46-64](../../Sources/GraphiteCore/CodeSyntaxHighlighting.swift#L46-L64), [CodeSyntaxHighlighting.swift:83-104](../../Sources/GraphiteCore/CodeSyntaxHighlighting.swift#L83-L104) | Existing `CodeSyntaxHighlightingTests`; add golden state values per language. | MDCORE-INV-06, MDCORE-INV-07 |
 | MD-16 | Style spans are identical with and without a checkpoint at or before the styled range. | [MarkdownStyleScanner.swift:142-143](../../Sources/GraphiteCore/MarkdownStyleScanner.swift#L142-L143) | **No test today.** For every line start of a corpus note, compare spans with checkpoints from every earlier line. | MDCORE-INV-24 |
-| MD-17 | List continuation ends at nine digits and renumbers only sequential items, in one edit with the new item. | [MarkdownEditing.swift:171-186](../../Sources/GraphiteCore/MarkdownEditing.swift#L171-L186), [MarkdownEditing.swift:273-312](../../Sources/GraphiteCore/MarkdownEditing.swift#L273-L312) | Existing `MarkdownEdgeCaseRegressionTests` and the renumbering tests. | MDCORE-INV-25 |
+| MD-17 | List continuation ends at nine digits and renumbers only sequential items, in one edit with the new item. | [MarkdownEditing.swift:171-186](../../Sources/GraphiteCore/MarkdownEditing.swift#L171-L186), [MarkdownEditing.swift:273-312](../../Sources/GraphiteCore/MarkdownEditing.swift#L273-L312) | Existing `MarkdownEdgeCaseTests` and the renumbering tests. | MDCORE-INV-25 |
 | MD-18 | `MarkdownTextEdit.range` is in the original text and `selectionAfter` in the edited text. | [MarkdownEditing.swift:3-14](../../Sources/GraphiteCore/MarkdownEditing.swift#L3-L14) | Apply-and-check helper used by every command test. | MDCORE-INV-08 |
 | MD-19 | Fold regions moved across a plain-text edit equal regions found again; edits that could change a region return nil; notes over 2,000,000 UTF-16 units do not fold. | [NoteFolding.swift:137-180](../../Sources/GraphiteCore/NoteFolding.swift#L137-L180) | Existing exhaustive `NoteFoldingTests`. | MDCORE-INV-02, EDITOR-INV-24 |
 | MD-20 | A callout's expansion key is `type.lowercased() + "\|" + the written title trimmed`, session-only per note path; without an entry the `-`/`+` marker decides; Read Aloud shares the same key. | [ReadAloudFolding.swift:10-12](../../Sources/GraphiteCore/ReadAloudFolding.swift#L10-L12), [CalloutFoldStore.swift:5-21](../../Sources/GraphiteUI/CalloutFoldStore.swift#L5-L21) | **No test today.** Golden key for `> [!NOTE]-  Title `; expand in reading view, Read Aloud hidden ranges exclude the body. | READING-INV-03, VOICE-INV-29 |
@@ -683,7 +683,7 @@ Phase 0 (2026-10-19) added characterization tests for 161 rows of priorities 1 t
 | M-15 | Pinned | PDFAnnotationOrderTests |  |
 | M-16 | Pinned | PDFMarkupQuadPointsTests |  |
 | M-17 | Pinned | PDFStrokeFingerprintTests (UIKit only; run with xctest on the iPad simulator) |  |
-| M-18 | Needs a seam | needs a seam: DrawingFileService.fileData picks its encoders itself (no corrupting-encoder double); partial cover in AppleDrawingFixTests. |  |
+| M-18 | Partly pinned | DrawingEditingDataVerificationTests (the read-back check `DrawingMetadataReader.verifyEditingData` refuses other strokes, lost paper, a lost picture, no record and a cut-off file, in PNG, PDF and SVG); AppleDrawingFixTests | GAP: that `DrawingFileService.fileData` runs the check for PNG and SVG is UIKit-only code (hosted suite), and PDF's own read-back inside `PDFDrawingFile.encode` has no corrupting double. |
 | M-19 | Pinned | PencilStrokeSamplerColorTests (UIKit only); AppleDrawingFixTests |  |
 | M-20 | Pinned | DrawingCanvasGeometryExportRegionTests; DrawingFileServiceExportRegionTests (UIKit only) |  |
 | MD-09 | Pinned | NotePreviewDocumentCodeBlockLanguageTests |  |
@@ -796,11 +796,11 @@ Phase 0 (2026-10-19) added characterization tests for 161 rows of priorities 1 t
 
 ## Rows with no test today: Phase 0 covers these first
 
-21 rows have no test that pins them (195 at the audit; Phase 0 pinned, partly pinned or fixed the rest, see "Pinned by tests").
+17 rows have no test that pins them (195 at the audit; Phase 0 pinned, partly pinned or fixed the rest, see "Pinned by tests").
 
 | Priority | Prefixes | Rows | IDs |
 | --- | --- | ---: | --- |
-| 1. Persisted formats and keys | M, ST, OB, D, NM, IX, PL, EX | 4 | M-18, ST-06, ST-18, D-24 |
+| 1. Persisted formats and keys | M, ST, OB, D, NM, IX, PL, EX | 0 | — (2026-10-21: D-24 and ST-18 are pinned, ST-06 and M-18 in part; `python3 scripts/check-invariant-pins.py` checks priorities 1 and 2) |
 | 2. Security and isolation | SEC | 0 | — |
 | 3. Behaviour with data consequences | LK, MD, ED, INK, PDF, REC, RA, B, C, G, N | 16 | ED-08, ED-09, RA-19, B-12, B-13, B-15, B-16, B-17, B-18, B-19, B-21, B-26, B-30, B-31, N-10, N-12 |
 | 4. Budgets and UX | P, U, TH | 1 | P-05 |

@@ -375,8 +375,6 @@ public enum ObsidianInlineMarkup {
     public static let uncheckedTaskMarker: Character = "\u{E005}"
     public static let checkedTaskMarker: Character = "\u{E006}"
     /// Around a footnote's number, which the reading view raises and shrinks.
-    public static let footnoteStartMarker: Character = "\u{E007}"
-    public static let footnoteEndMarker: Character = "\u{E008}"
     /// Around a display formula that has equation numbers, kept as written with its `\tag`
     /// commands, which the reading view lays out itself. U+E009 is the reading view's own
     /// (`ReadingMarkerEscaping`).
@@ -789,16 +787,6 @@ public enum ObsidianInlineMarkup {
     }
 }
 
-extension CodeFenceTracker {
-    /// `isCodeLine` for a line as written. Only a line whose first character after
-    /// indentation is a backtick or tilde can open or close a fence, so other lines are
-    /// answered without trimming them: long notes are scanned this way on every render.
-    mutating func isCodeLine(untrimmedLine line: some StringProtocol) -> Bool {
-        guard let firstCharacter = line.first(where: { character in !character.isWhitespace }),
-              firstCharacter == "`" || firstCharacter == "~" else { return isInsideFence }
-        return isCodeLine(line.trimmingCharacters(in: .whitespacesAndNewlines))
-    }
-}
 
 extension NotePreviewDocument {
     /// A reference definition (`[label]: destination`), which links elsewhere in the run use.
@@ -829,10 +817,10 @@ extension NotePreviewDocument {
         let lines = markdown.components(separatedBy: "\n")
         guard lines.count > 1, lines.count == located.lineStartOffsets.count,
               referenceDefinitionPattern?.firstMatch(in: markdown, range: NSRange(location: 0, length: (markdown as NSString).length)) == nil else { return [located] }
-        // swift-markdown overflows its stack on a run nested past the limit, so such a run stays whole.
-        guard !MarkdownNesting.exceedsSafeDepth(markdown) else { return [located] }
+        // A run nested too deeply to parse stays whole.
+        guard let document = BoundedMarkdownParser.document(parsing: markdown) else { return [located] }
         var sections: [LocatedBlock] = []
-        for child in Document(parsing: markdown).children {
+        for child in document.children {
             guard let range = child.range else { return [located] }
             let firstLineIndex = range.lowerBound.line - 1
             // The range ends just after the block; at the start of a line, that line is not the block's.

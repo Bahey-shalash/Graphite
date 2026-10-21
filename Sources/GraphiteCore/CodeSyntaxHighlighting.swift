@@ -298,11 +298,11 @@ private struct CodeLineScanner {
         defer { directiveLineKind = nil }
         var index = continueOpenConstruct(lineStart, lineEnd)
         guard index < lineEnd || state != .normal else { return }
-        /// The last unit that is not a space before `index`, or 0.
+        // The last unit that is not a space before `index`, or 0.
         var previousUnit: UInt16 = index > lineStart ? units[index - 1] : 0
         var previousWasIdentifier = false
         var isFirstTokenOfLine = index == lineStart
-        /// The kind a declaration keyword gives the next identifier: `def name`, `class Name`.
+        // The kind a declaration keyword gives the next identifier: `def name`, `class Name`.
         var declaredKind: CodeTokenKind?
         if features.contains(.yamlKeys), isFirstTokenOfLine { index = scanYAMLKey(lineStart, lineEnd) }
 
