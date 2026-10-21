@@ -128,7 +128,11 @@ struct PencilToolRow: View {
         // behind one control, so nothing is cut off and nothing has to be scrolled to; only
         // in a window too narrow even for that do the tools scroll, with fading ends.
         ViewThatFits(in: .horizontal) {
-            fullRow
+            fullRow(foldsToggles: false)
+                .reportingLayout(.full)
+            // The text tool's button takes the room of one toggle: Shapes and Ruler fold into
+            // one menu before the colors leave the bar.
+            fullRow(foldsToggles: true)
                 .reportingLayout(.full)
             compactRow
                 .reportingLayout(.compact)
@@ -148,7 +152,7 @@ struct PencilToolRow: View {
         .background { PencilGestureReceiver(toolbox: toolbox, undoAvailability: undoAvailability) }
     }
 
-    private var fullRow: some View {
+    private func fullRow(foldsToggles: Bool) -> some View {
         HStack(spacing: 2) {
             toolButtons
             separator
@@ -157,7 +161,7 @@ struct PencilToolRow: View {
                 colorButtons
                 separator
             }
-            extraButtons
+            if foldsToggles { foldedExtraButtons } else { extraButtons }
         }
         .padding(.horizontal, 10)
     }
@@ -265,6 +269,24 @@ struct PencilToolRow: View {
             set: { newColor in if let hex = newColor.sRGBHex { toolbox.chooseColor(hex: hex) } }), supportsOpacity: false)
             .labelsHidden()
             .frame(width: buttonSide, height: rowHeight)
+    }
+
+    /// Shapes and Ruler as one menu, then Add Image: the extra buttons in one button's less room.
+    @ViewBuilder private var foldedExtraButtons: some View {
+        Menu {
+            Toggle("Draw Shapes", systemImage: "square.on.circle", isOn: $drawsShapes)
+            Toggle("Ruler", systemImage: "ruler", isOn: $toolbox.isRulerActive)
+        } label: {
+            Image(systemName: drawsShapes || toolbox.isRulerActive ? "ellipsis.circle.fill" : "ellipsis.circle")
+                .frame(width: buttonSide, height: rowHeight)
+        }
+        .menuIndicator(.hidden)
+        .accessibilityLabel("Shapes and Ruler")
+        if let addImage {
+            Button("Add Image", systemImage: "photo.badge.plus", action: addImage)
+                .labelStyle(.iconOnly)
+                .frame(width: buttonSide, height: rowHeight)
+        }
     }
 
     @ViewBuilder private var extraButtons: some View {
