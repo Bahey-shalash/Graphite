@@ -466,6 +466,7 @@ struct VaultSidebar: View {
                     .contextMenu {
                         Button("Open in New Tab", systemImage: "plus.rectangle.on.rectangle") { Task { await workspace.open(result.path, placement: .newTab) } }
                         Button(workspace.openOnOtherSideTitle, systemImage: "rectangle.split.2x1") { Task { await workspace.open(result.path, placement: .otherGroup) } }
+                        OpenInNewWindowButton { Task { await workspace.open(result.path, placement: .newWindow) } }
                     }
                     .onAppear {
                         // More results load as the list reaches its end.
@@ -664,7 +665,7 @@ private struct FileTreeRows: View, Equatable {
                 .selectionDisabled(row.entry.isDirectory)
                 .fileTreeRow()
                 .listRowBackground(contents.dropTargetFolder == row.entry.path ? RoundedRectangle(cornerRadius: GraphiteChrome.cornerRadius).fill(accent.opacity(0.18)) : nil)
-                .draggable(VaultItemTransfer(path: row.entry.path.rawValue)) { VaultItemDragPreview(entry: row.entry, workspace: workspace) }
+                .draggableVaultEntry(row.entry, inVault: workspace.currentVaultIdentifier) { VaultItemDragPreview(entry: row.entry, workspace: workspace) }
         }
     }
 
@@ -827,6 +828,7 @@ struct VaultEntryMenu: View {
         }
         Button("Open in New Tab", systemImage: "plus.rectangle.on.rectangle") { Task { await workspace.open(entry.path, placement: .newTab) } }
         Button(workspace.openOnOtherSideTitle, systemImage: "rectangle.split.2x1") { Task { await workspace.open(entry.path, placement: .otherGroup) } }
+        OpenInNewWindowButton { Task { await workspace.open(entry.path, placement: .newWindow) } }
         if let navigator = workspace.readAloudNavigator { ReadAloudQueueMenuItems(navigator: navigator, path: entry.path) }
         Divider()
         Button("Rename…", systemImage: "pencil") { workspace.fileSheet = .rename(entry.path) }

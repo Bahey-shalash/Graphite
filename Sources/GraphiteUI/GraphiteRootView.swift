@@ -294,9 +294,7 @@ struct GraphiteRootView: View {
     /// used last; from then on the window's content follows the vault it shows.
     private func openVaultOfWindow() async {
         if let windowContent, let vaultIdentifier = windowContent.vaultIdentifier {
-            // A path that no longer reads as one shows no file; the window still opens its vault.
-            let file = windowContent.filePath.flatMap { path in try? VaultPath(path) } // see above
-            await workspace.openVaultOfWindow(vaultIdentifier, restoresTabs: !windowContent.opensFreshTabs, showing: file)
+            await workspace.openVaultOfWindow(vaultIdentifier, restoresTabs: !windowContent.opensFreshTabs, showing: windowContent.file)
         } else {
             await workspace.restoreVault()
         }

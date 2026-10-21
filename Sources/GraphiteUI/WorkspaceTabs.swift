@@ -80,6 +80,17 @@ enum TabPlacement {
     case newTab
     /// The other side of the split, created when needed ("Open to the right").
     case otherGroup
+    /// A window of its own on the same vault, where the app runs several windows (the iPad
+    /// and the Mac); a new tab elsewhere (`GraphiteWindowScene`).
+    case newWindow
+
+    /// Where a clicked link opens, as in Obsidian: ⌘ a new tab, ⌥⌘ beside the note, ⇧⌥⌘ a
+    /// new window; with neither, the current tab.
+    static func forLink(command: Bool, option: Bool, shift: Bool) -> TabPlacement {
+        guard command else { return .currentTab }
+        if option { return shift ? .newWindow : .otherGroup }
+        return .newTab
+    }
 }
 
 /// Tabs and the split, as in Obsidian: each tab has its own file, history, and pin; the

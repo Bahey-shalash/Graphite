@@ -108,6 +108,7 @@ struct TabSwitcher: View {
             Button("Close Other Tabs", systemImage: "xmark.square") { Task { await workspace.closeOtherTabs(keeping: tab.id) } }
                 .disabled(group.tabs.count == 1)
             Button(tab.isPinned ? "Unpin" : "Pin", systemImage: tab.isPinned ? "pin.slash" : "pin") { workspace.togglePin(tab.id) }
+            if let path = tab.path { OpenInNewWindowButton { Task { await workspace.open(path, placement: .newWindow) } } }
         }
     }
 }
