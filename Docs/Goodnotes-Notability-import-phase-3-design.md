@@ -32,7 +32,7 @@ The work is split in two, as `FR-05` asks:
 
    A stroke with a stored outline (Goodnotes' fountain and brush pens) gets that outline as its annotation's appearance (`PortableInkStroke.outline`). Every PDF reader then shows Goodnotes' exact shape, and Graphite's canvas shows PencilKit's rendering of the same points.
 
-Pages are planned and written one at a time, so the source is never decoded whole. The PDFKit document being written still grows with the notebook; memory on a 500-page notebook is measured in Phase 5 before the import is offered.
+Pages are planned and written one at a time, so the source is never decoded whole. The PDFKit document being written still grows with the notebook. Measured 2026-10-21 (Release, Mac): a 4-page notebook of 46,101 strokes takes 1,841 s and 3.29 GB, because PDFKit's writer compares every annotation of a page with every other (BUG-IMPORT-03); notebooks of under 1,000 strokes take seconds. The import is offered with that limit written down; a writer that does not go through PDFKit's annotation writer is the follow-up.
 
 ## Built so far (steps 1 and 2, 2026-10-20)
 
