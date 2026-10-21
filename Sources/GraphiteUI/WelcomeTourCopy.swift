@@ -3,7 +3,7 @@ import Foundation
 /// The words and pictures of each welcome tour page. Every place named here (a button, a
 /// menu, a settings page) is named as the app labels it, so a reader can find it.
 enum WelcomeTourCopy {
-    static let sourceCodeAddress = URL(string: "https://github.com/Bahey-shalash/Graphite")
+    static let sourceCodeAddress = URL(string: "https://github.com/Graphite-Note/Graphite")
 
     static let welcome = WelcomeTourPageContent(
         systemImage: "pencil.and.scribble",
