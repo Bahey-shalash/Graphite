@@ -8,11 +8,15 @@ import GraphiteCore
 /// there reaches the open vault at once.
 public struct GraphiteMacScenes: Scene {
     @State private var workspace: WorkspaceModel
+    /// The Settings window's view of the add-on packs; the main window keeps its own over the
+    /// same folder, which is the truth both read.
+    @State private var settingsAddOns: AddOnLibrary
     private let launchMode: LaunchMode
 
     public init(launchMode: LaunchMode) {
         let workspace = WorkspaceModel(launchMode: launchMode)
         _workspace = State(initialValue: workspace)
+        _settingsAddOns = State(initialValue: .standard(applicationFolders: workspace.applicationFolders))
         self.launchMode = launchMode
         GraphiteApplicationDelegate.workspaceToSave = workspace
     }
@@ -20,6 +24,7 @@ public struct GraphiteMacScenes: Scene {
     /// For checks outside the app: the scenes of a workspace made elsewhere.
     init(workspace: WorkspaceModel) {
         _workspace = State(initialValue: workspace)
+        _settingsAddOns = State(initialValue: .standard(applicationFolders: workspace.applicationFolders))
         launchMode = .normal
     }
 
@@ -46,6 +51,7 @@ public struct GraphiteMacScenes: Scene {
         Settings {
             SettingsView(workspace: workspace) { workspace.isVaultManagerPresented = true }
                 .defaultAppStorage(workspace.deviceDefaults)
+                .environment(settingsAddOns)
                 .tint(workspace.preferences.accentColor)
                 .environment(\.accent, workspace.preferences.accentColor)
                 .preferredColorScheme(workspace.preferences.appearanceMode.colorScheme)

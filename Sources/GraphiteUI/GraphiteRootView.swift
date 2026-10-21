@@ -20,6 +20,9 @@ public struct GraphiteRootView: View {
     @State private var opensVaultManagerAfterSettings = false
     @State private var creation: CreationRequest?
     @State private var library = LibraryModel()
+    /// What this device has downloaded of the extras Graphite does not carry, such as the
+    /// welcome tour's pictures; every sheet of the window reads it from the environment.
+    @State private var addOns: AddOnLibrary?
     @State private var showsInspector = false
     @State private var activePalette: ActivePalette?
     @State private var columnVisibility = NavigationSplitViewVisibility.automatic
@@ -265,6 +268,10 @@ public struct GraphiteRootView: View {
             if let completedLocation { Task { await workspace.recordingDidFinish(at: completedLocation) } }
         }
         .preferredColorScheme(workspace.preferences.appearanceMode.colorScheme)
+        // Outermost, so the window's sheets (the welcome tour, Settings) read it too. Made
+        // when the window first appears, from the folders of the workspace it belongs to.
+        .environment(addOns)
+        .onAppear { if addOns == nil { addOns = .standard(applicationFolders: workspace.applicationFolders) } }
     }
 
     private func recoveryMessage(for unfinished: RecoverableRecording) -> String {

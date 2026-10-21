@@ -1,6 +1,6 @@
 import Foundation
-import CryptoKit
 import GraphiteCore
+import GraphiteApple
 
 /// Where a voice's files live on disk and whether they are complete. A voice is installed
 /// only once every file was downloaded and its checksum matched, which is recorded in a
@@ -38,17 +38,7 @@ public struct NeuralVoiceInstallation: Sendable {
 
     /// Whether a staged file is complete: the right size and the right SHA-256.
     public static func verify(_ fileURL: URL, against file: NeuralVoiceFile) -> Bool {
-        guard let size = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize, Int64(size) == file.byteCount,
-              let handle = try? FileHandle(forReadingFrom: fileURL) else { return false }
-        defer { try? handle.close() }
-        var hasher = SHA256()
-        while true {
-            let chunk: Data
-            do { chunk = try handle.read(upToCount: 8 * 1_024 * 1_024) ?? Data() } catch { return false }
-            if chunk.isEmpty { break }
-            hasher.update(data: chunk)
-        }
-        return hasher.finalize().map { byte in String(format: "%02x", byte) }.joined() == file.sha256.lowercased()
+        DownloadedFileCheck.matches(fileURL, byteCount: file.byteCount, sha256: file.sha256)
     }
 
     /// Moves a fully verified staging folder into place and marks the voice installed.

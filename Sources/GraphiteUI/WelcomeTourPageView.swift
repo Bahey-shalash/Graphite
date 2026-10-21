@@ -1,4 +1,5 @@
 import SwiftUI
+import GraphiteCore
 
 /// One page of the welcome tour. In a wide window the words sit beside the screenshot; in a
 /// narrow one (an iPhone, an iPad in a split) they stack above it. Either way the page
@@ -129,7 +130,7 @@ private struct WelcomeTourPointRow: View {
 }
 
 /// The page's screenshots. With several, a segmented control above them picks which one
-/// shows; each comes from the app's asset catalog in the light and the dark appearance.
+/// shows, in the light or the dark appearance.
 private struct WelcomeTourScreenshots: View {
     let screenshots: [WelcomeTourScreenshot]
     @State private var shownScreenshotName: String?
@@ -149,20 +150,68 @@ private struct WelcomeTourScreenshots: View {
                 .fixedSize()
             }
             if let shownScreenshot {
-                Image(shownScreenshot.assetName, bundle: .main)
-                    .resizable()
-                    .scaledToFit()
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.separator, lineWidth: 1)
-                    }
-                    .shadow(color: .black.opacity(0.14), radius: 18, y: 8)
-                    .accessibilityLabel(shownScreenshot.accessibilityDescription)
+                WelcomeTourPicture(screenshot: shownScreenshot)
                     .id(shownScreenshot.assetName)
                     .transition(.opacity)
             }
         }
         .frame(maxWidth: .infinity)
         .animation(GraphiteMotion.animation(.easeInOut(duration: 0.2)), value: shownScreenshot?.assetName)
+    }
+}
+
+/// One screenshot, from the welcome tour's add-on pack once it is downloaded. Until then a
+/// placeholder of the same shape says the pictures are on their way, or why they are not.
+private struct WelcomeTourPicture: View {
+    let screenshot: WelcomeTourScreenshot
+    @Environment(AddOnLibrary.self) private var addOns: AddOnLibrary?
+    @Environment(\.colorScheme) private var colorScheme
+
+    /// Most tour screenshots are a window's shape; the placeholder takes it until one arrives.
+    private static let placeholderAspectRatio: CGFloat = 1.48
+
+    private var pack: AddOnPack? { WelcomeTourScreenshotPack.forThisPlatform }
+
+    private var location: URL? {
+        guard let pack else { return nil }
+        let name = WelcomeTourScreenshotPack.fileName(of: screenshot.assetName, isDark: colorScheme == .dark)
+        return addOns?.location(ofFileNamed: name, in: pack)
+    }
+
+    var body: some View {
+        AsyncImage(url: location) { phase in
+            if let image = phase.image {
+                image.resizable().scaledToFit()
+            } else {
+                placeholder
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.separator, lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.14), radius: 18, y: 8)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(screenshot.accessibilityDescription)
+    }
+
+    private var placeholder: some View {
+        ZStack {
+            Rectangle().fill(.fill.tertiary)
+            VStack(spacing: 12) {
+                switch pack.map({ pack in addOns?.state(of: pack) ?? .notDownloaded }) ?? .notDownloaded {
+                case .failed(let reason):
+                    Image(systemName: "photo").font(.title).foregroundStyle(.secondary)
+                    Text("The pictures could not be downloaded. \(reason.explanation)")
+                        .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    if let pack, let addOns { Button("Try Again") { addOns.download(pack) }.buttonStyle(.bordered) }
+                case .notDownloaded, .downloading, .downloaded:
+                    ProgressView()
+                    Text("Downloading the pictures…").font(.callout).foregroundStyle(.secondary)
+                }
+            }
+            .padding(24)
+        }
+        .aspectRatio(Self.placeholderAspectRatio, contentMode: .fit)
     }
 }

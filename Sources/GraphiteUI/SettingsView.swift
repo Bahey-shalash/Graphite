@@ -164,6 +164,7 @@ private struct GeneralSettingsPage: View {
                         .formFooterAlignment()
                 }
             }
+            AddOnsSettingsSection()
             Section("About") {
                 LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development build")
                 Button("Welcome Tour", systemImage: "sparkles") { showsWelcomeTour = true }
