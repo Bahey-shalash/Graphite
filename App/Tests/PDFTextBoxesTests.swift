@@ -20,7 +20,10 @@ final class PDFTextBoxesTests: XCTestCase {
         windows = []
         for location in locations { try? FileManager.default.removeItem(at: location) }
         locations = []
-        PaletteInkSelection.tool = .none
+        // Each window keeps its palette's tool, and the tests' windows share the app's scene.
+        for case let windowScene as UIWindowScene in UIApplication.shared.connectedScenes {
+            PaletteInkSelection.of(windowScene).endForChosenTool()
+        }
     }
 
     func testATapOfTheTextToolMakesABoxThatIsTypedMovedTurnedUndoneSavedAndReadBack() async throws {
@@ -154,7 +157,7 @@ final class PDFTextBoxesTests: XCTestCase {
         try await waitUntil("the page's canvas edits it") { coordinator()?.editingCanvas(for: page) != nil }
         // The floating palette's Text Box, chosen once the palette is up (taking up the
         // palette's tool puts Graphite's tools away), which the page's canvas takes at once.
-        PaletteInkSelection.placesTextBoxes = true
+        PaletteInkSelection.of(controller.view.window?.windowScene).placesTextBoxes = true
         try await waitUntil("the canvas places text") { coordinator()?.editingCanvas(for: page)?.placesTextBoxes == true }
         return (session, controller, page)
     }

@@ -835,6 +835,9 @@ struct MarkdownTextStyler {
         textStorage.removeAttribute(ConcealedReplacement.attributeKey, range: block.range)
         textStorage.removeAttribute(ConcealedReplacement.mathAttributeKey, range: block.range)
         textStorage.removeAttribute(.baselineOffset, range: block.range)
+        // Nor a code box behind a base's fence: a base is wider than the column, and the box
+        // showed above and below it at the column's width.
+        textStorage.removeAttribute(ConcealedReplacement.codeBlockKey, range: block.range)
         conceal(block.range, in: textStorage)
         // The rendered view occupies the space after the block's last line.
         let lastLineRange = source.lineRange(for: NSRange(location: max(block.range.location, NSMaxRange(block.range) - 1), length: 0))
