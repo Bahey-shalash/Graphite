@@ -150,7 +150,7 @@ final class CommunityPluginHostTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: vault.appendingPathComponent(".obsidian/community-plugins.json"), encoding: .utf8), "[\n  \"\(Self.pluginIdentifier)\"\n]")
 
         try await run("store-secret", in: workspace)
-        try await waitUntil { CommunityPluginSecretStore(vaultIdentifier: vaultIdentifier).secrets()["test-token"] == "secret-value" }
+        try await waitUntil { (try? CommunityPluginSecretStore(vaultIdentifier: vaultIdentifier).secrets())?["test-token"] == "secret-value" }
 
         let webView = try XCTUnwrap(host.webView)
         XCTAssertEqual(webView.configuration.websiteDataStore.identifier, vaultIdentifier, "Each vault has its own web storage.")
