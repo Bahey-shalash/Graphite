@@ -152,8 +152,6 @@ final class WorkspaceModel {
     /// (`WorkspaceTemplates.swift`). Each is replaced whenever a vault opens.
     var templateSettingsReading = VaultSettingsReading.read(TemplateSettings())
     var dailyNoteSettingsReading = VaultSettingsReading.read(DailyNoteSettings())
-    /// The vault's keyboard shortcuts, with its changes in `.obsidian/hotkeys.json`.
-    let keyboardShortcuts = VaultKeyboardShortcuts()
     /// Obsidian's bookmarks, from `.obsidian/bookmarks.json`.
     var bookmarks = BookmarkList()
     /// The whole vault's graph, built once per index change.
@@ -391,27 +389,11 @@ final class WorkspaceModel {
             communityPlugins.vaultDidOpen(self)
             throw error
         }
-        monitor?.stop(); stopIndexing(); externalChangeTask?.cancel()
-        pendingExternalChanges.removeAll(); firstPendingExternalChangeTime = nil
-        indexingMessage = ""
-        readAloud?.clear()
-        readAloudNavigator?.clearQueueHistoryAndPenMarks()
-        calloutFolds.forgetEveryNote()
+        forgetStateOfVaultBeingLeft()
         folderAccess = access; store = vaultStore; monitor = vaultMonitor
         useIndex(vaultIndexLease)
         readAloud?.vaultRoot = access.root
         EmbeddedPDFSessions.shared.useVault(root: root, owner: self, saving: embeddedPDFSaving(writer: vaultStore.writer))
-        // Nothing open in the vault being left is saved into the new vault's layout.
-        layoutVaultIdentifier = nil
-        layout = TabLayout(); tabDocuments = [:]; pdfPasswords = [:]; restorableSidebarPluginViews = ([], nil); pickedSidebarFiles = nil
-        markdownEditorRetention.discardHiddenEditors()
-        graphCache = nil; graphPositions = [:]; placedNotesCache = nil
-        embeddedBaseModelCache = EmbeddedBaseModelCache()
-        // `expandedFolders` is replaced below, once the new vault is current: clearing it
-        // here would save an empty list for the vault being left.
-        pendingMove = nil; answeredMoveOutcomes = [:]; pendingDeletion = nil; fileSheet = nil
-        resetConflictVersions()
-        searchQuery = ""; searchResults = []; searchContinuation = nil
         rootEntries = entries
         checkConflictVersions(of: entries.lazy.filter { entry in !entry.isDirectory }.map(\.path))
         hasCompletedIndexScan = false
@@ -440,6 +422,28 @@ final class WorkspaceModel {
         checkForUnfinishedRecordings()
         communityPlugins.vaultDidOpen(self)
         if preferences.isEnabled(.dailyNotes), dailyNoteSettings.opensOnStartup { await openDailyNote() }
+    }
+
+    /// Stops hearing the vault being left and drops what this window showed of it: its index,
+    /// tabs, caches, pending questions and search. Nothing of it is saved into the next vault.
+    private func forgetStateOfVaultBeingLeft() {
+        monitor?.stop(); stopIndexing(); externalChangeTask?.cancel()
+        pendingExternalChanges.removeAll(); firstPendingExternalChangeTime = nil
+        indexingMessage = ""
+        readAloud?.clear()
+        readAloudNavigator?.clearQueueHistoryAndPenMarks()
+        calloutFolds.forgetEveryNote()
+        // Nothing open in the vault being left is saved into the new vault's layout.
+        layoutVaultIdentifier = nil
+        layout = TabLayout(); tabDocuments = [:]; pdfPasswords = [:]; restorableSidebarPluginViews = ([], nil); pickedSidebarFiles = nil
+        markdownEditorRetention.discardHiddenEditors()
+        graphCache = nil; graphPositions = [:]; placedNotesCache = nil
+        embeddedBaseModelCache = EmbeddedBaseModelCache()
+        // `expandedFolders` is replaced once the new vault is current: clearing it here would
+        // save an empty list for the vault being left.
+        pendingMove = nil; answeredMoveOutcomes = [:]; pendingDeletion = nil; fileSheet = nil
+        resetConflictVersions()
+        searchQuery = ""; searchResults = []; searchContinuation = nil
     }
 
     /// The open vault's folder was moved, renamed, or deleted in another app. Its files,
@@ -479,7 +483,6 @@ final class WorkspaceModel {
         // vault's file said: its settings are never used in this vault.
         templateSettingsReading = await Self.settingsReading { try await store.templateSettings() }
         dailyNoteSettingsReading = await Self.settingsReading { try await store.dailyNoteSettings() }
-        await reloadKeyboardShortcuts(from: store)
         if let unreadableSettingsMessage { errorMessage = unreadableSettingsMessage }
         await reloadBookmarks()
         await reloadVaultAppearance()
