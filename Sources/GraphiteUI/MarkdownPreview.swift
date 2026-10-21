@@ -695,15 +695,15 @@ struct HeadingScrollRequest: Equatable {
     /// for GitHub link (`[Setup](#2-setup)`). A footnote's anchor stays that footnote.
     static func readingScrollTarget(forLinkAnchor anchor: String, in blocks: [RenderedBlock]) -> String {
         var headingTargets: [String] = []
+        // Only headings and footnotes have anchors; `if case` names them without a `default:`
+        // that would take in kinds of blocks added later (FR-18).
         for block in blocks {
-            switch block {
-            case .heading(_, _, _, let headingTarget?):
+            if case .heading(_, _, _, let headingTarget?) = block {
                 if headingTarget == anchor { return anchor }
                 headingTargets.append(headingTarget)
-            case .footnotes(_, let notes):
-                if notes.contains(where: { footnote in RenderedFootnote.anchor(for: footnote.number) == anchor }) { return anchor }
-            default:
-                continue
+            } else if case .footnotes(_, let notes) = block,
+                      notes.contains(where: { footnote in RenderedFootnote.anchor(for: footnote.number) == anchor }) {
+                return anchor
             }
         }
         // A repeated heading's target is its anchor, a line break and its number.
