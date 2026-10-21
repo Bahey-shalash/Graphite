@@ -23,9 +23,10 @@ final class FinderFolderLookChangeTests: XCTestCase {
         XCTAssertFalse(change.setsCustomIconFlag)
     }
 
-    func testAColorNoTagHasWritesNoColorTag() {
+    /// A color no tag has is written as the nearest tag color, so Finder and Files show what Graphite shows.
+    func testAColorNoTagHasIsWrittenAsItsNearestTagColor() {
         let change = FinderFolderLookChange.change(for: FolderStyle(color: .teal), from: .plain, colorTagNames: systemNames)
-        XCTAssertEqual(change.tags, [])
+        XCTAssertEqual(change.tags, [FinderTag(name: "Blue", color: .blue)])
         XCTAssertFalse(change.setsCustomIconFlag)
     }
 

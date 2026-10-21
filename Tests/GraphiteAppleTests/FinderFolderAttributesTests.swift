@@ -36,7 +36,7 @@ final class FinderFolderAttributesTests: XCTestCase {
         let look = attributes.look(of: lab)
         XCTAssertEqual(look.style, style)
         XCTAssertEqual(look.tags.first?.name, "Work")
-        XCTAssertEqual(ShownFolderLook.resolve(stored: style, finder: look), .drawnByFinder(style))
+        XCTAssertEqual(ShownFolderLook.resolve(stored: style, finder: look, canWritePictures: true), .drawnByFinder(style))
         let styledIcon = try await systemIcon(attributes, lab)
         XCTAssertNotEqual(pixels(of: styledIcon), pixels(of: plainIcon))
 
@@ -67,7 +67,7 @@ final class FinderFolderAttributesTests: XCTestCase {
 
         let look = attributes.look(of: lab)
         XCTAssertTrue(look.showsCustomIconFile)
-        XCTAssertEqual(ShownFolderLook.resolve(stored: style, finder: look), .drawnByFinder(style))
+        XCTAssertEqual(ShownFolderLook.resolve(stored: style, finder: look, canWritePictures: true), .drawnByFinder(style))
         let pictureIcon = try await systemIcon(attributes, lab)
         XCTAssertNotEqual(pixels(of: pictureIcon), pixels(of: plainIcon))
 

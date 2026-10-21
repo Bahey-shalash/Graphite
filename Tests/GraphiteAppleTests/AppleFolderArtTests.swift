@@ -30,15 +30,16 @@ final class AppleFolderArtTests: XCTestCase {
         return (hue / 6 + 1).truncatingRemainder(dividingBy: 1)
     }
 
-    func testAColorAloneIsApplesTintedFolder() async throws {
+    func testASymbolInATagColorIsApplesTintedFolder() async throws {
         let plain = try await art(FolderStyle())
-        let green = try await art(FolderStyle(color: .green))
+        let green = try await art(FolderStyle(color: .green, mark: .symbol("star.fill")))
         XCTAssertEqual(try averageHue(of: plain), 0.58, accuracy: 0.05)
         XCTAssertEqual(try averageHue(of: green), 0.37, accuracy: 0.06)
     }
 
-    func testAColorNoTagHasIsTintedToIt() async throws {
-        let purple = try await art(FolderStyle(color: .custom(red: 140, green: 40, blue: 200)))
-        XCTAssertEqual(try averageHue(of: purple), 0.77, accuracy: 0.05)
+    /// A color alone is a tag: the system draws the plain folder, as Finder and Files do.
+    func testAColorAloneIsThePlainFolder() async throws {
+        let colorOnly = try await art(FolderStyle(color: .red))
+        XCTAssertEqual(try averageHue(of: colorOnly), 0.58, accuracy: 0.05)
     }
 }

@@ -28,7 +28,8 @@ public struct FinderFolderLookChange: Equatable, Sendable {
                               colorTagNames: [FinderTagColor: String]) -> FinderFolderLookChange {
         let knownColorNames = Set(colorTagNames.values).union(FinderTagColor.allCases.map(\.defaultTagName))
         var tags = current.tags.filter { tag in !knownColorNames.contains(tag.name) }
-        if let tagColor = style?.color.flatMap(FinderTagColor.init(folderColor:)) {
+        // A color no tag has is written as the nearest tag color, so every app shows the same.
+        if let tagColor = style?.color.flatMap(FinderTagColor.init(nearestTo:)) {
             tags.append(FinderTag(name: colorTagNames[tagColor] ?? tagColor.defaultTagName, color: tagColor))
         }
         let mark = style?.mark
@@ -39,6 +40,5 @@ public struct FinderFolderLookChange: Equatable, Sendable {
     }
 
     /// The color label Finder keeps beside the tags: the last colored tag's.
-    public var labelColor: FinderTagColor? { tags.last { tag in tag.color != nil }?.color
-    }
+    public var labelColor: FinderTagColor? { tags.last { tag in tag.color != nil }?.color }
 }

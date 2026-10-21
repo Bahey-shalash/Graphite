@@ -260,11 +260,19 @@ private struct LibraryTile: View {
                     .background {
                         if isDropTargeted { RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.fill.secondary) }
                     }
-                Text(entries.displayName(entry.path))
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    // Tag dots, as Finder and Files show them beside a name.
+                    if entry.isDirectory {
+                        ForEach(Array(library.folderLooks.tagColors(of: entry.path).prefix(3).enumerated()), id: \.offset) { _, tagColor in
+                            Circle().fill(tagColor.tileColor).frame(width: 9, height: 9).accessibilityHidden(true)
+                        }
+                    }
+                    Text(entries.displayName(entry.path))
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                }
                 HStack(spacing: 3) {
                     if isBookmarked { Image(systemName: "star.fill").imageScale(.small).accessibilityHidden(true) }
                     Text(entry.modified.formatted(date: .abbreviated, time: .omitted))
