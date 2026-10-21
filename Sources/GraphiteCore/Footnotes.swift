@@ -25,9 +25,9 @@ public enum Footnotes {
         public let text: String
     }
 
-    private static let referencePattern = try? NSRegularExpression(pattern: "\\[\\^([^\\]\\s]+)\\](?!:)")
-    private static let inlinePattern = try? NSRegularExpression(pattern: "(?<![\\\\!\\]])\\^\\[([^\\]\\n]+)\\]")
-    private static let definitionPattern = try? NSRegularExpression(pattern: "^\\[\\^([^\\]\\s]+)\\]:[ \\t]?(.*)$")
+    private static let referencePattern = FootnotesPattern.referencePattern.compiled()
+    private static let inlinePattern = FootnotesPattern.inlinePattern.compiled()
+    private static let definitionPattern = FootnotesPattern.definitionPattern.compiled()
 
     /// The definitions and references in `text`, outside code.
     public static func parse(_ text: String) -> (definitions: [Definition], references: [Reference]) {
@@ -51,7 +51,7 @@ public enum Footnotes {
             defer { lineStart = NSMaxRange(lineRange) }
             if tracker.isCodeLine(line.trimmingCharacters(in: .whitespaces)) { closeDefinition(); continue }
             let lineLength = (line as NSString).length
-            if let match = definitionPattern?.firstMatch(in: line, range: NSRange(location: 0, length: lineLength)) {
+            if let match = definitionPattern.firstMatch(in: line, range: NSRange(location: 0, length: lineLength)) {
                 closeDefinition()
                 openDefinition = ((line as NSString).substring(with: match.range(at: 1)), (line as NSString).substring(with: match.range(at: 2)),
                                   lineRange.location, NSMaxRange(lineRange))
@@ -67,11 +67,11 @@ public enum Footnotes {
             closeDefinition()
             let codeRanges = MarkdownCodeRanges.ranges(in: line as NSString)
             func isInCode(_ range: NSRange) -> Bool { codeRanges.contains { codeRange in NSIntersectionRange(codeRange, range).length > 0 } }
-            for match in referencePattern?.matches(in: line, range: NSRange(location: 0, length: lineLength)) ?? [] where !isInCode(match.range) {
+            for match in referencePattern.matches(in: line, range: NSRange(location: 0, length: lineLength)) where !isInCode(match.range) {
                 references.append(Reference(label: (line as NSString).substring(with: match.range(at: 1)), inlineText: nil,
                                             range: NSRange(location: lineRange.location + match.range.location, length: match.range.length)))
             }
-            for match in inlinePattern?.matches(in: line, range: NSRange(location: 0, length: lineLength)) ?? [] where !isInCode(match.range) {
+            for match in inlinePattern.matches(in: line, range: NSRange(location: 0, length: lineLength)) where !isInCode(match.range) {
                 references.append(Reference(label: nil, inlineText: (line as NSString).substring(with: match.range(at: 1)),
                                             range: NSRange(location: lineRange.location + match.range.location, length: match.range.length)))
             }
@@ -136,4 +136,11 @@ public enum Footnotes {
         }
         return (notes, referenceNumbers, definitions.map(\.range))
     }
+}
+
+/// The constant patterns of `Footnotes`; `StaticPatternTests` compiles every case.
+enum FootnotesPattern: String, StaticPatternSet {
+    case referencePattern = #"\[\^([^\]\s]+)\](?!:)"#
+    case inlinePattern = #"(?<![\\!\]])\^\[([^\]\n]+)\]"#
+    case definitionPattern = #"^\[\^([^\]\s]+)\]:[ \t]?(.*)$"#
 }

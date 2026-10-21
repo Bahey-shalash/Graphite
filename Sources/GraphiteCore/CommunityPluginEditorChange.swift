@@ -74,7 +74,7 @@ public enum CommunityPluginMarkdownRendering {
         }.joined(separator: "\n")
     }
 
-    private static let calloutOpening = try? NSRegularExpression(pattern: "^<blockquote>\\s*<p>\\[!([A-Za-z0-9_-]+)\\]([+-]?)[ \\t]*([^\\n<]*)(?:\\n|(</p>))")
+    private static let calloutOpening = CommunityPluginMarkdownRenderingPattern.calloutOpening.compiled()
 
     /// Quotes that open with `[!type]` as Obsidian's callouts, nested ones too.
     static func calloutsMarked(in html: String) -> String {
@@ -87,7 +87,7 @@ public enum CommunityPluginMarkdownRendering {
             if tagRange.1 {
                 let rest = String(remaining[tagRange.0.lowerBound...])
                 let restRange = NSRange(location: 0, length: (rest as NSString).length)
-                if let match = calloutOpening?.firstMatch(in: rest, range: restRange) {
+                if let match = calloutOpening.firstMatch(in: rest, range: restRange) {
                     let type = (rest as NSString).substring(with: match.range(at: 1)).lowercased()
                     let folding = (rest as NSString).substring(with: match.range(at: 2))
                     var title = (rest as NSString).substring(with: match.range(at: 3)).trimmingCharacters(in: .whitespaces)
@@ -122,4 +122,9 @@ public enum CommunityPluginMarkdownRendering {
         case (nil, nil): return nil
         }
     }
+}
+
+/// The constant patterns of `CommunityPluginMarkdownRendering`; `StaticPatternTests` compiles every case.
+enum CommunityPluginMarkdownRenderingPattern: String, StaticPatternSet {
+    case calloutOpening = #"^<blockquote>\s*<p>\[!([A-Za-z0-9_-]+)\]([+-]?)[ \t]*([^\n<]*)(?:\n|(</p>))"#
 }

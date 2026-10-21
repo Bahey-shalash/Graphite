@@ -605,7 +605,7 @@ actor ReadingViewBuilder {
         guard !destination.isEmpty, destination.range(of: "^[A-Za-z][A-Za-z0-9+.-]*:", options: .regularExpression) == nil,
               // The destination follows `](`, possibly inside `<>`; the same text in the label
               // or in a title after the destination is not it.
-              let destinationPattern = try? NSRegularExpression(pattern: "\\]\\([ \\t]*\\n?[ \\t]*<?(" + NSRegularExpression.escapedPattern(for: destination) + ")"),
+              let destinationPattern = try? NSRegularExpression(pattern: "\\]\\([ \\t]*\\n?[ \\t]*<?(" + NSRegularExpression.escapedPattern(for: destination) + ")"), // Escaped note text; malformed: link left as is.
               let match = destinationPattern.matches(in: text as String, range: linkRange).last else { return nil }
         return match.range(at: 1)
     }
@@ -1923,10 +1923,10 @@ struct ObsidianMarkdownParser: MarkupParser {
             linkRuns.append((range, color))
         }
         for (range, color) in linkRuns { text[range].foregroundColor = color }
-        guard let tagColor = colors.tag, let tagPattern = Self.tagPattern else { return }
+        guard let tagColor = colors.tag else { return }
         let plain = String(text.characters)
         let nsPlain = plain as NSString
-        for match in tagPattern.matches(in: plain, range: NSRange(location: 0, length: nsPlain.length)) {
+        for match in Self.tagPattern.matches(in: plain, range: NSRange(location: 0, length: nsPlain.length)) {
             guard let stringRange = Range(match.range, in: plain),
                   let lower = AttributedString.Index(stringRange.lowerBound, within: text),
                   let upper = AttributedString.Index(stringRange.upperBound, within: text) else { continue }
@@ -1947,7 +1947,7 @@ struct ObsidianMarkdownParser: MarkupParser {
 
     /// Obsidian's tags: `#` after a space or the start, then letters, digits, `_`, `-` and `/`,
     /// not only digits.
-    private static let tagPattern = try? NSRegularExpression(pattern: "(?<![\\p{L}\\p{N}_/#&])#(?![\\p{N}]+(?![\\p{L}_/-]))[\\p{L}\\p{N}_/-]+")
+    private static let tagPattern = ObsidianMarkdownParserPattern.tagPattern.compiled()
 
     /// A task marked at the start of a list item becomes that item's checkbox, which
     /// `ObsidianListItemStyle` draws in place of the bullet; a completed task's text is
@@ -3075,4 +3075,9 @@ private struct ReadingImageBlock: View {
             }
         }
     }
+}
+
+/// The constant patterns of `ObsidianMarkdownParser`; `StaticPatternTests` compiles every case.
+enum ObsidianMarkdownParserPattern: String, StaticPatternSet {
+    case tagPattern = #"(?<![\p{L}\p{N}_/#&])#(?![\p{N}]+(?![\p{L}_/-]))[\p{L}\p{N}_/-]+"#
 }

@@ -69,26 +69,25 @@ public struct NumberedEquation: Equatable, Sendable {
 /// Rewrites LaTeX that Obsidian's MathJax accepts but Graphite's typesetter does not
 /// into an equivalent it can draw. Only the text handed to the renderer changes.
 public enum LaTeXCompatibility {
-    private static let replacements: [(pattern: NSRegularExpression?, template: String)] = [
-        (try? NSRegularExpression(pattern: "\\\\(begin|end)\\{(?:gather|multline)\\*?\\}"), "\\\\$1{gather}"),
+    private static let replacements: [(pattern: NSRegularExpression, template: String)] = [
+        (LaTeXCompatibilityPattern.gatherAndMultlineEnvironmentPattern.compiled(), "\\\\$1{gather}"),
         // The typesetter draws `eqnarray` itself, with its three columns; only the
         // unnumbered spelling is unknown to it.
-        (try? NSRegularExpression(pattern: "\\\\(begin|end)\\{eqnarray\\*\\}"), "\\\\$1{eqnarray}"),
+        (LaTeXCompatibilityPattern.unnumberedEqnarrayEnvironmentPattern.compiled(), "\\\\$1{eqnarray}"),
         // `equation` only numbers its content.
-        (try? NSRegularExpression(pattern: "\\\\(?:begin|end)\\{equation\\*?\\}"), ""),
-        (try? NSRegularExpression(pattern: "\\\\(?:nonumber|notag)\\b"), ""),
+        (LaTeXCompatibilityPattern.equationEnvironmentPattern.compiled(), ""),
+        (LaTeXCompatibilityPattern.numberingSuppressionPattern.compiled(), ""),
     ]
     /// Numbered labels, whose argument may hold braces of its own (`\tag{\ref{a}}`).
-    private static let labelCommandPattern = try? NSRegularExpression(pattern: "\\\\(?:tag\\*?|label)[ \\t]*(?=\\{)")
-    private static let tagCommandPattern = try? NSRegularExpression(pattern: "\\\\tag(\\*?)[ \\t]*(?=\\{)")
+    private static let labelCommandPattern = LaTeXCompatibilityPattern.labelCommandPattern.compiled()
+    private static let tagCommandPattern = LaTeXCompatibilityPattern.tagCommandPattern.compiled()
     /// The environments whose rows MathJax numbers one by one, around a whole formula.
-    private static let numberedRowsEnvironmentPattern = try? NSRegularExpression(
-        pattern: "\\A\\s*\\\\begin\\{((?:align|alignat|flalign|gather|eqnarray|multline)\\*?)\\}(?:\\{\\d+\\})?")
+    private static let numberedRowsEnvironmentPattern = LaTeXCompatibilityPattern.numberedRowsEnvironmentPattern.compiled()
     /// What `normalized` makes of those environments.
-    private static let drawnRowsEnvironmentPattern = try? NSRegularExpression(pattern: "\\A\\s*\\\\begin\\{(aligned|gather|eqnarray)\\}")
+    private static let drawnRowsEnvironmentPattern = LaTeXCompatibilityPattern.drawnRowsEnvironmentPattern.compiled()
     /// Alignment environments MathJax draws as pairs of right- and left-aligned columns.
     /// The typesetter only knows `aligned`, with exactly two columns.
-    private static let alignmentBeginPattern = try? NSRegularExpression(pattern: "\\\\begin\\{(align\\*?|flalign\\*?|alignat\\*?|alignedat|aligned)\\}(?:\\{\\d+\\})?")
+    private static let alignmentBeginPattern = LaTeXCompatibilityPattern.alignmentBeginPattern.compiled()
 
     /// Alignment environments nested deeper than this are left as written, for the typesetter
     /// to draw or reject. Each level is rewritten by a recursive call over its body, so without
@@ -100,8 +99,7 @@ public enum LaTeXCompatibility {
         guard latex.contains("\\") else { return latex }
         var text = removingLabelCommands(from: latex)
         for replacement in replacements {
-            guard let pattern = replacement.pattern else { continue }
-            text = pattern.stringByReplacingMatches(in: text, range: NSRange(location: 0, length: (text as NSString).length), withTemplate: replacement.template)
+            text = replacement.pattern.stringByReplacingMatches(in: text, range: NSRange(location: 0, length: (text as NSString).length), withTemplate: replacement.template)
         }
         return rewritingColorDeclarationsAndOperatorNames(in: rewritingAlignments(in: text, nestingDepth: 1))
     }
@@ -113,7 +111,7 @@ public enum LaTeXCompatibility {
     public static func numberedEquation(_ latex: String) -> NumberedEquation? {
         guard latex.contains("\\tag") else { return nil }
         let source = latex as NSString
-        guard let environmentMatch = numberedRowsEnvironmentPattern?.firstMatch(in: latex, range: NSRange(location: 0, length: source.length)),
+        guard let environmentMatch = numberedRowsEnvironmentPattern.firstMatch(in: latex, range: NSRange(location: 0, length: source.length)),
               let environmentEnd = environmentEnd(named: source.substring(with: environmentMatch.range(at: 1)), in: source, bodyStart: NSMaxRange(environmentMatch.range)),
               source.substring(from: environmentEnd.environmentEnd).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             let (untaggedLatex, tag) = removingFirstTag(from: latex)
@@ -147,7 +145,7 @@ public enum LaTeXCompatibility {
 
     /// `latex` without its first `\tag{…}` or `\tag*{…}`, and what that tag holds.
     private static func removingFirstTag(from latex: String) -> (latex: String, tag: (content: String, hasParentheses: Bool)?) {
-        guard let tagCommandPattern, latex.contains("\\tag") else { return (latex, nil) }
+        guard latex.contains("\\tag") else { return (latex, nil) }
         let source = latex as NSString
         for match in tagCommandPattern.matches(in: latex, range: NSRange(location: 0, length: source.length)) {
             guard let argumentEnd = balancedGroupEnd(in: source, openingBraceAt: NSMaxRange(match.range)) else { continue }
@@ -161,7 +159,7 @@ public enum LaTeXCompatibility {
     /// The rows of a formula that is one environment of rows the typesetter draws.
     private static func rows(ofDrawnEnvironment latex: String) -> (environment: String, rows: [NumberedEquation.Row])? {
         let source = latex as NSString
-        guard let environmentMatch = drawnRowsEnvironmentPattern?.firstMatch(in: latex, range: NSRange(location: 0, length: source.length)),
+        guard let environmentMatch = drawnRowsEnvironmentPattern.firstMatch(in: latex, range: NSRange(location: 0, length: source.length)),
               let environmentEnd = environmentEnd(named: source.substring(with: environmentMatch.range(at: 1)), in: source, bodyStart: NSMaxRange(environmentMatch.range)),
               source.substring(from: environmentEnd.environmentEnd).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         let body = source.substring(with: NSRange(location: NSMaxRange(environmentMatch.range), length: environmentEnd.bodyEnd - NSMaxRange(environmentMatch.range)))
@@ -229,7 +227,7 @@ public enum LaTeXCompatibility {
 
     /// Removes `\tag{…}`, `\tag*{…}` and `\label{…}` with their whole braced argument.
     private static func removingLabelCommands(from latex: String) -> String {
-        guard let labelCommandPattern, latex.contains("\\tag") || latex.contains("\\label") else { return latex }
+        guard latex.contains("\\tag") || latex.contains("\\label") else { return latex }
         let output = NSMutableString(string: latex)
         for match in labelCommandPattern.matches(in: latex, range: NSRange(location: 0, length: output.length)).reversed() {
             guard let argumentEnd = balancedGroupEnd(in: output, openingBraceAt: NSMaxRange(match.range)) else { continue }
@@ -264,7 +262,7 @@ public enum LaTeXCompatibility {
     /// draws, though only the first pair stays aligned across rows. `nestingDepth` is the level
     /// of the environments found in `latex`, 1 for those of the whole formula.
     private static func rewritingAlignments(in latex: String, nestingDepth: Int) -> String {
-        guard nestingDepth <= maximumAlignmentNestingDepth, let alignmentBeginPattern, latex.contains("align") else { return latex }
+        guard nestingDepth <= maximumAlignmentNestingDepth, latex.contains("align") else { return latex }
         let source = latex as NSString
         var output = ""
         var copiedUpTo = 0
@@ -394,4 +392,17 @@ public enum LaTeXCompatibility {
     private static let closingBrace = UInt16(UInt8(ascii: "}"))
     private static let openingBracket = UInt16(UInt8(ascii: "["))
     private static let ampersand = UInt16(UInt8(ascii: "&"))
+}
+
+/// The constant patterns of `LaTeXCompatibility`; `StaticPatternTests` compiles every case.
+enum LaTeXCompatibilityPattern: String, StaticPatternSet {
+    case gatherAndMultlineEnvironmentPattern = #"\\(begin|end)\{(?:gather|multline)\*?\}"#
+    case unnumberedEqnarrayEnvironmentPattern = #"\\(begin|end)\{eqnarray\*\}"#
+    case equationEnvironmentPattern = #"\\(?:begin|end)\{equation\*?\}"#
+    case numberingSuppressionPattern = #"\\(?:nonumber|notag)\b"#
+    case labelCommandPattern = #"\\(?:tag\*?|label)[ \t]*(?=\{)"#
+    case tagCommandPattern = #"\\tag(\*?)[ \t]*(?=\{)"#
+    case numberedRowsEnvironmentPattern = #"\A\s*\\begin\{((?:align|alignat|flalign|gather|eqnarray|multline)\*?)\}(?:\{\d+\})?"#
+    case drawnRowsEnvironmentPattern = #"\A\s*\\begin\{(aligned|gather|eqnarray)\}"#
+    case alignmentBeginPattern = #"\\begin\{(align\*?|flalign\*?|alignat\*?|alignedat|aligned)\}(?:\{\d+\})?"#
 }

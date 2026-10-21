@@ -32,9 +32,9 @@ public struct LivePreviewBlock: Equatable, Sendable {
 public enum LivePreviewBlockScanner {
     /// An embed alone on its line. Its destination may hold one balanced `(…)`, as
     /// `EmbedLocator` reads it, so `![](photo (1).png)` is an image block too.
-    private static let standaloneEmbedPattern = try? NSRegularExpression(pattern: "^[ \\t]*(!\\[\\[[^\\]\\n]+\\]\\]|!\\[[^\\]\\n]*\\]\\((?:<[^<>\\n]*>[^)\\n]*|[^()\\n]+(?:\\([^()\\n]*\\)[^()\\n]*)?)\\))[ \\t]*$")
-    private static let calloutHeaderPattern = try? NSRegularExpression(pattern: "^>[ \\t]?\\[![A-Za-z0-9_-]+\\][+-]?")
-    private static let horizontalRulePattern = try? NSRegularExpression(pattern: "^ {0,3}(?:(?:-[ \\t]*){3,}|(?:\\*[ \\t]*){3,}|(?:_[ \\t]*){3,})$")
+    private static let standaloneEmbedPattern = LivePreviewBlockScannerPattern.standaloneEmbedPattern.compiled()
+    private static let calloutHeaderPattern = LivePreviewBlockScannerPattern.calloutHeaderPattern.compiled()
+    private static let horizontalRulePattern = LivePreviewBlockScannerPattern.horizontalRulePattern.compiled()
 
     /// - Parameter pluginCodeBlockLanguages: Languages community plugins draw. As in Obsidian,
     ///   a fenced block in one of them is drawn by its plugin in Live Preview too.
@@ -102,7 +102,7 @@ public enum LivePreviewBlockScanner {
                     continue
                 }
             }
-            if calloutHeaderPattern?.firstMatch(in: content, range: fullRange) != nil {
+            if calloutHeaderPattern.firstMatch(in: content, range: fullRange) != nil {
                 var lastIndex = lineIndex
                 while lastIndex + 1 < lines.count && lines[lastIndex + 1].content.hasPrefix(">") { lastIndex += 1 }
                 blocks.append(LivePreviewBlock(kind: .callout, range: span(lineIndex, lastIndex), markdown: markdown(lineIndex, lastIndex)))
@@ -125,7 +125,7 @@ public enum LivePreviewBlockScanner {
                 lineIndexAfterBlock = lineIndex
                 continue
             }
-            if standaloneEmbedPattern?.firstMatch(in: content, range: fullRange) != nil,
+            if standaloneEmbedPattern.firstMatch(in: content, range: fullRange) != nil,
                let embed = EmbedLocator.embed(at: (content as NSString).range(of: "!").location + 1, in: content as NSString) {
                 if !isRemoteImage(embed) {
                     blocks.append(LivePreviewBlock(kind: .embed(embed), range: lines[lineIndex].range, markdown: content))
@@ -137,7 +137,7 @@ public enum LivePreviewBlockScanner {
                 // start a formula of its own.
                 lineIndex = closingLineIndex + 1
                 continue
-            } else if horizontalRulePattern?.firstMatch(in: content, range: fullRange) != nil,
+            } else if horizontalRulePattern.firstMatch(in: content, range: fullRange) != nil,
                       MarkdownStyleScanner.setextUnderlineLevel(content) == nil || lineIndex == 0 || lineIndex == lineIndexAfterBlock
                         || !MarkdownStyleScanner.isParagraphText(lines[lineIndex - 1].content) {
                 // Directly after paragraph text, `---` underlines a heading instead of
@@ -235,4 +235,11 @@ public enum LivePreviewBlockScanner {
         let lastLine = lineNumber(at: max(block.range.location, NSMaxRange(block.range) - 1))
         return (firstLine, lastLine - firstLine + 1)
     }
+}
+
+/// The constant patterns of `LivePreviewBlockScanner`; `StaticPatternTests` compiles every case.
+enum LivePreviewBlockScannerPattern: String, StaticPatternSet {
+    case standaloneEmbedPattern = #"^[ \t]*(!\[\[[^\]\n]+\]\]|!\[[^\]\n]*\]\((?:<[^<>\n]*>[^)\n]*|[^()\n]+(?:\([^()\n]*\)[^()\n]*)?)\))[ \t]*$"#
+    case calloutHeaderPattern = #"^>[ \t]?\[![A-Za-z0-9_-]+\][+-]?"#
+    case horizontalRulePattern = #"^ {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$"#
 }

@@ -142,16 +142,16 @@ public enum BaseFrontmatter {
 
     // Compiled once: these run for every property read while a base is evaluated.
     // `\z` rather than `$`, which would also match before a final line break.
-    private static let numberPattern = try? NSRegularExpression(pattern: "^[-+]?(\\.[0-9]+|[0-9]+(\\.[0-9]*)?)([eE][-+]?[0-9]+)?\\z")
+    private static let numberPattern = BaseFrontmatterPattern.numberPattern.compiled()
     /// Obsidian's date detection: a date, optionally with a time and a `Z` or `±HH[:mm]` offset.
-    private static let datePattern = try? NSRegularExpression(pattern: "^\\d{4}-\\d{2}-\\d{2}([T ]\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]\\d{2}(:?\\d{2})?)?)?\\z")
+    private static let datePattern = BaseFrontmatterPattern.datePattern.compiled()
 
     private static func looksLikeDate(_ text: String) -> Bool {
         matches(datePattern, text)
     }
 
-    private static func matches(_ pattern: NSRegularExpression?, _ text: String) -> Bool {
-        pattern?.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+    private static func matches(_ pattern: NSRegularExpression, _ text: String) -> Bool {
+        pattern.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
     }
 
     /// Every internal `[[wikilink]]` or `[label](target)` written in property values.
@@ -307,4 +307,10 @@ public struct BaseInMemoryRecordProvider: BaseRecordProvider {
             return text
         }
     }
+}
+
+/// The constant patterns of `BaseFrontmatter`; `StaticPatternTests` compiles every case.
+enum BaseFrontmatterPattern: String, StaticPatternSet {
+    case numberPattern = #"^[-+]?(\.[0-9]+|[0-9]+(\.[0-9]*)?)([eE][-+]?[0-9]+)?\z"#
+    case datePattern = #"^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}(:?\d{2})?)?)?\z"#
 }

@@ -129,7 +129,7 @@ final class MarkdownEdgeCaseTests: XCTestCase {
     /// A task with digits of another script is no task, as the editor reads it.
     func testReadingTasksNeedASCIIDigits() {
         func isTask(_ line: String) -> Bool {
-            ReadingTasks.pattern?.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) != nil
+            ReadingTasks.pattern.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) != nil
         }
         XCTAssertFalse(isTask("١. [ ] x"))
         XCTAssertTrue(isTask("1. [ ] y"))

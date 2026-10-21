@@ -638,41 +638,62 @@ public enum MarkdownStyleScanner {
         return length
     }
 
-    /// Compiled once. The patterns are fixed, so compilation cannot fail at run time.
+    /// Each compiled once, on first use.
     private enum Patterns {
-        static let quotePrefix = compile("^\\s*(?:>\\s?)+")
-        static let calloutTitle = compile("\\[![A-Za-z0-9_-]+\\][+-]?")
+        static let quotePrefix = MarkdownStyleScannerPattern.quotePrefix.compiled()
+        static let calloutTitle = MarkdownStyleScannerPattern.calloutTitle.compiled()
         /// Up to three spaces before it: indented four, the line is code, as in CommonMark.
-        static let horizontalRule = compile("^ {0,3}(?:(?:-[ \\t]*){3,}|(?:\\*[ \\t]*){3,}|(?:_[ \\t]*){3,})$")
-        static let heading = compile("^\\s{0,3}(#{1,6}\\s+)")
+        static let horizontalRule = MarkdownStyleScannerPattern.horizontalRule.compiled()
+        static let heading = MarkdownStyleScannerPattern.heading.compiled()
         /// Any one-character status, as Obsidian and the Tasks plugin write them (`[>]`,
         /// `[!]`, `[?]`), not only `[ ]`, `[x]`, `[/]` and `[-]`. Ordered markers have one to
         /// nine ASCII digits, as in CommonMark and `MarkdownEditing`.
-        static let task = compile("^\\s*([-*+]|[0-9]{1,9}[.)])\\s+(\\[[^\\]\\n]\\])\\s")
-        static let listMarker = compile("^\\s*([-*+]|[0-9]{1,9}[.)])\\s")
+        static let task = MarkdownStyleScannerPattern.task.compiled()
+        static let listMarker = MarkdownStyleScannerPattern.listMarker.compiled()
         /// A list marker alone on its line, which `listMarker` (needing a space) misses.
-        static let emptyListItem = compile("^\\s*(?:[-*+]|[0-9]{1,9}[.)])$")
-        static let blockIdentifier = compile("(?<=[ \\t])\\^[A-Za-z0-9-]+[ \\t]*$|^\\^[A-Za-z0-9-]+[ \\t]*$")
+        static let emptyListItem = MarkdownStyleScannerPattern.emptyListItem.compiled()
+        static let blockIdentifier = MarkdownStyleScannerPattern.blockIdentifier.compiled()
         /// `$$…$$` inside a line, as Obsidian renders it.
-        static let inlineDisplayMath = compile("(?<![\\\\$])\\$\\$(?:[^$\\n\\\\]|\\\\.)+?\\$\\$")
+        static let inlineDisplayMath = MarkdownStyleScannerPattern.inlineDisplayMath.compiled()
         /// Pandoc's and Obsidian's rules: no space inside either `$`, the closing `$` is not
         /// followed by a digit (so "$5 and $10" are prices), and `\$` is a literal dollar.
-        static let inlineMath = compile("(?<![\\\\$])\\$(?![\\s$])(?:[^$\\n\\\\]|\\\\.)+?(?<!\\s)\\$(?![$\\d])")
-        static let wikilink = compile("(!?)\\[\\[[^\\]\\n]+\\]\\]")
-        static let footnoteDefinition = compile("^\\[\\^[^\\]\\s]+\\]:")
-        static let footnoteReference = compile("\\[\\^([^\\]\\s]+)\\](?!:)")
-        static let inlineFootnote = compile("(?<![\\\\!\\]])\\^\\[([^\\]\\n]+)\\]")
+        static let inlineMath = MarkdownStyleScannerPattern.inlineMath.compiled()
+        static let wikilink = MarkdownStyleScannerPattern.wikilink.compiled()
+        static let footnoteDefinition = MarkdownStyleScannerPattern.footnoteDefinition.compiled()
+        static let footnoteReference = MarkdownStyleScannerPattern.footnoteReference.compiled()
+        static let inlineFootnote = MarkdownStyleScannerPattern.inlineFootnote.compiled()
         /// The destination may hold one level of balanced parentheses, as Wikipedia URLs do.
-        static let markdownLink = compile("(!?)\\[([^\\]\\n]*)\\]\\((?:[^()\\n]|\\([^()\\n]*\\))*\\)")
-        static let strong = compile("(?<![*_])(\\*\\*|__)(?!\\s)[^\\n]+?(?<!\\s)\\1(?![*_])")
+        static let markdownLink = MarkdownStyleScannerPattern.markdownLink.compiled()
+        static let strong = MarkdownStyleScannerPattern.strong.compiled()
         /// Opened and closed by the same character: `*note_` is not emphasis.
-        static let emphasis = compile("(?<![*\\w])([*_])(?![\\s*_])[^*_\\n]+?(?<![\\s])\\1(?![*\\w])")
-        static let strikethrough = compile("~~(?!\\s)[^~\\n]+?(?<!\\s)~~")
-        static let highlight = compile("==(?!\\s)[^=\\n]+?(?<!\\s)==")
-
-        private static func compile(_ pattern: String) -> NSRegularExpression {
-            // Patterns are compile-time constants covered by tests.
-            try! NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines])
-        }
+        static let emphasis = MarkdownStyleScannerPattern.emphasis.compiled()
+        static let strikethrough = MarkdownStyleScannerPattern.strikethrough.compiled()
+        static let highlight = MarkdownStyleScannerPattern.highlight.compiled()
     }
+}
+
+/// The constant patterns of `MarkdownStyleScanner`; `StaticPatternTests` compiles every case.
+enum MarkdownStyleScannerPattern: String, StaticPatternSet {
+    case quotePrefix = #"^\s*(?:>\s?)+"#
+    case calloutTitle = #"\[![A-Za-z0-9_-]+\][+-]?"#
+    case horizontalRule = #"^ {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$"#
+    case heading = #"^\s{0,3}(#{1,6}\s+)"#
+    case task = #"^\s*([-*+]|[0-9]{1,9}[.)])\s+(\[[^\]\n]\])\s"#
+    case listMarker = #"^\s*([-*+]|[0-9]{1,9}[.)])\s"#
+    case emptyListItem = #"^\s*(?:[-*+]|[0-9]{1,9}[.)])$"#
+    case blockIdentifier = #"(?<=[ \t])\^[A-Za-z0-9-]+[ \t]*$|^\^[A-Za-z0-9-]+[ \t]*$"#
+    case inlineDisplayMath = #"(?<![\\$])\$\$(?:[^$\n\\]|\\.)+?\$\$"#
+    case inlineMath = #"(?<![\\$])\$(?![\s$])(?:[^$\n\\]|\\.)+?(?<!\s)\$(?![$\d])"#
+    case wikilink = #"(!?)\[\[[^\]\n]+\]\]"#
+    case footnoteDefinition = #"^\[\^[^\]\s]+\]:"#
+    case footnoteReference = #"\[\^([^\]\s]+)\](?!:)"#
+    case inlineFootnote = #"(?<![\\!\]])\^\[([^\]\n]+)\]"#
+    case markdownLink = #"(!?)\[([^\]\n]*)\]\((?:[^()\n]|\([^()\n]*\))*\)"#
+    case strong = #"(?<![*_])(\*\*|__)(?!\s)[^\n]+?(?<!\s)\1(?![*_])"#
+    case emphasis = #"(?<![*\w])([*_])(?![\s*_])[^*_\n]+?(?<![\s])\1(?![*\w])"#
+    case strikethrough = #"~~(?!\s)[^~\n]+?(?<!\s)~~"#
+    case highlight = #"==(?!\s)[^=\n]+?(?<!\s)=="#
+
+    /// Every pattern reads one line at a time, so `^` and `$` match at each line's ends.
+    var options: NSRegularExpression.Options { [.anchorsMatchLines] }
 }
