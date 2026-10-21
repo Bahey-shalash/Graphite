@@ -131,6 +131,7 @@ private struct GeneralSettingsPage: View {
     @Bindable var workspace: WorkspaceModel
     let manageVaults: () -> Void
     @State private var showsWelcomeTour = false
+    @State private var showsGuide = false
 
     var body: some View {
         Form {
@@ -166,6 +167,7 @@ private struct GeneralSettingsPage: View {
             Section("About") {
                 LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development build")
                 Button("Welcome Tour", systemImage: "sparkles") { showsWelcomeTour = true }
+                Button("Guide", systemImage: "book") { showsGuide = true }
                 // Only while Read Aloud is on: reading the voice library builds it.
                 if workspace.preferences.isEnabled(.readAloud), let library = ReadAloudVoices.library {
                     NavigationLink("Voice Credits") {
@@ -180,6 +182,7 @@ private struct GeneralSettingsPage: View {
         }
         .navigationTitle("General")
         .welcomeTour(isPresented: $showsWelcomeTour)
+        .guide(isPresented: $showsGuide)
     }
 }
 

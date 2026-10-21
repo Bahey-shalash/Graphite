@@ -27,8 +27,7 @@ enum WelcomeTourCopy {
             WelcomeTourPoint(systemImage: "square.grid.2x2", title: .words("List or Library"),
                              detail: "See files as a list, as in Obsidian, or as a library of folders and page thumbnails, as in Files. " +
                                      "Switch with the two buttons at the top of the sidebar, or in Settings › Appearance › Files."),
-            WelcomeTourPoint(systemImage: "plus", title: .words("Make something new"),
-                             detail: "The New button makes a note, a notebook, a canvas, a base or today's daily note, and imports PDFs and images.")
+            WelcomeTourPoint(systemImage: "plus", title: .words("Make something new"), detail: newItemDetail)
         ],
         pointLayout: .list,
         screenshots: vaultScreenshots)
@@ -178,7 +177,7 @@ enum WelcomeTourCopy {
             WelcomeTourPoint(systemImage: "mic", title: .words("Record lectures"),
                              detail: "The microphone button records audio or video into the vault while you keep writing."),
             WelcomeTourPoint(systemImage: "rectangle.3.group", title: .words("Canvas"),
-                             detail: "Arrange notes, images and cards on a board, saved as an Obsidian .canvas file."),
+                             detail: canvasDetail),
             WelcomeTourPoint(systemImage: "point.3.connected.trianglepath.dotted", title: .words("Graph view"),
                              detail: "See how your notes link. Open it from the Command Palette, or the local graph in the right sidebar."),
             WelcomeTourPoint(systemImage: "rectangle.split.2x1", title: .words("Tabs and split view"),
@@ -221,93 +220,9 @@ enum WelcomeTourCopy {
                              detail: "Pick an existing folder, such as an Obsidian vault in iCloud Drive."),
             WelcomeTourPoint(systemImage: "plus.rectangle.on.folder", title: .words("Create New Vault"),
                              detail: "Start in a new, empty folder, on this device or in iCloud Drive."),
+            WelcomeTourPoint(systemImage: "book", title: .words("Learn step by step"), detail: guideLocationDetail),
             WelcomeTourPoint(systemImage: "exclamationmark.bubble", title: .words("This is a beta"), detail: betaFeedbackDetail)
         ],
         pointLayout: .list,
         screenshots: [])
-
-    private static let yourFolderPoint = WelcomeTourPoint(
-        systemImage: "folder", title: .words("Your folder, your files"),
-        detail: "Notes are Markdown, notebooks are PDFs, drawings are images. Obsidian, Files and Preview open every one of them.")
-
-    private static let openSourcePoint = WelcomeTourPoint(
-        systemImage: "chevron.left.forwardslash.chevron.right", title: .words("Open source"),
-        detail: "Every line of Graphite is public on GitHub: read it, build it, improve it.", destination: sourceCodeAddress)
-
-    /// On the Mac, what sets Graphite apart is that it is a Mac app through and through, open
-    /// and light; on iPad and iPhone it is Apple Pencil next to ordinary files. The speed
-    /// point names only what the code does and what was measured (Docs/Coverage.md,
-    /// 2026-10-15: a vault of 36,392 files opens on the Mac).
-    private static var welcomeSummary: String {
-        #if os(macOS)
-        "A native Mac app for Markdown notes and PDFs: open source, light on memory and fast on large vaults. " +
-        "Everything is an ordinary file in a folder you own."
-        #else
-        "Markdown notes, Apple Pencil handwriting, annotated PDFs and lecture recordings, in one app. " +
-        "Everything is an ordinary file in a folder you own."
-        #endif
-    }
-
-    private static var welcomePoints: [WelcomeTourPoint] {
-        #if os(macOS)
-        [
-            WelcomeTourPoint(systemImage: "macwindow", title: .words("Native, not a web page"),
-                             detail: "Written in Swift with SwiftUI and AppKit: real Mac menus, shortcuts, windows and text. " +
-                                     "No browser engine draws your notes; one starts only for community plugins you turn on."),
-            openSourcePoint,
-            WelcomeTourPoint(systemImage: "gauge.with.dots.needle.33percent", title: .words("Fast and light"),
-                             detail: "A vault opens without waiting for a full scan, search reads an index kept on disk, " +
-                                     "and the whole vault is never loaded into memory. Tried on a vault of 36,000 files."),
-            yourFolderPoint
-        ]
-        #else
-        [
-            yourFolderPoint,
-            WelcomeTourPoint(systemImage: "lock.shield", title: .words("No account, no server"),
-                             detail: "Your notes stay on this device, or in iCloud Drive if you keep the vault there. " +
-                                     "Graphite never uploads them."),
-            openSourcePoint
-        ]
-        #endif
-    }
-
-    private static var betaFeedbackDetail: String {
-        #if os(macOS)
-        "Things will break. In the TestFlight app, choose Graphite Note, then Send Beta Feedback, to tell the developer."
-        #else
-        "Things will break. Take a screenshot and share it with TestFlight to send your feedback straight to the developer."
-        #endif
-    }
-
-    private static var settingsSummary: String {
-        #if os(macOS)
-        "Open Settings from the Graphite menu, or with ⌘,. As in Obsidian, every feature is a core plugin you can switch off."
-        #else
-        "Settings is the gear at the top of the sidebar, or ⌘, with a keyboard. As in Obsidian, every feature is a core plugin you can switch off."
-        #endif
-    }
-
-    /// The Mac's New button is a menu, which the iPad's New picture does not show.
-    private static var vaultScreenshots: [WelcomeTourScreenshot] {
-        let library = WelcomeTourScreenshot(label: "Library", assetName: "WelcomeTourLibrary",
-                                            accessibilityDescription: "The vault shown as a library: course folders, a note's thumbnail and a base.")
-        #if os(macOS)
-        return [library]
-        #else
-        return [library, WelcomeTourScreenshot(label: "New", assetName: "WelcomeTourNewItem",
-                                               accessibilityDescription: "The New menu: Notebook, Note, Canvas, Base, Today's Daily Note, Import and Folder.")]
-        #endif
-    }
-
-    private static var settingsScreenshots: [WelcomeTourScreenshot] {
-        let corePlugins = WelcomeTourScreenshot(label: "Core Plugins", assetName: "WelcomeTourCorePlugins",
-                                                accessibilityDescription: "Settings › Core Plugins, a switch for each feature.")
-        #if os(macOS)
-        return [corePlugins]
-        #else
-        return [corePlugins, WelcomeTourScreenshot(label: "Pencil", assetName: "WelcomeTourPencilSettings",
-                                                   accessibilityDescription: "Settings › Pencil Drawings, with the Tools choice and the Apple " +
-                                                                             "Pencil options.")]
-        #endif
-    }
 }
