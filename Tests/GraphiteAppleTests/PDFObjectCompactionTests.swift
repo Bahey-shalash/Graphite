@@ -107,7 +107,7 @@ final class PDFObjectCompactionTests: XCTestCase {
 
     func testMovingTurningAndCroppingAPictureKeepsTheFileSizeBoundedAndStoresTheJPEG() async throws {
         let location = directory.appendingPathComponent("Notebook.pdf")
-        var revision = try await PDFFileService().create(paper: PaperSpecification(template: .blank), pageCount: 1, at: location)
+        var revision = try await PDFFileService().create(documentData: PDFTemplateGenerator.documentData(paper: PaperSpecification(template: .blank), pageCount: 1), at: location)
         let emptySize = try fileSize(location)
         let jpegData = try Self.photoJPEG()
         var picture = PDFPicture(imageData: jpegData, bounds: CGRect(x: 100, y: 300, width: 300, height: 200), quarterTurns: 0)
@@ -147,7 +147,7 @@ final class PDFObjectCompactionTests: XCTestCase {
         ]
         for testCase in cases {
             let location = directory.appendingPathComponent("Turned-\(UUID().uuidString).pdf")
-            var revision = try await PDFFileService().create(paper: PaperSpecification(template: .blank), pageCount: 1, at: location)
+            var revision = try await PDFFileService().create(documentData: PDFTemplateGenerator.documentData(paper: PaperSpecification(template: .blank), pageCount: 1), at: location)
             let emptySize = try fileSize(location)
             var picture = PDFPicture(imageData: jpegData, bounds: CGRect(x: 150, y: 300, width: 300, height: 200), quarterTurns: testCase.quarterTurns,
                                      rotationRadians: testCase.rotationRadians)
@@ -210,7 +210,7 @@ final class PDFObjectCompactionTests: XCTestCase {
 
     func testErasedInkAndRemovedMarkupLeaveNoCopiesBehind() async throws {
         let location = directory.appendingPathComponent("Notebook.pdf")
-        var revision = try await PDFFileService().create(paper: PaperSpecification(template: .ruled), pageCount: 2, at: location)
+        var revision = try await PDFFileService().create(documentData: PDFTemplateGenerator.documentData(paper: PaperSpecification(template: .ruled), pageCount: 2), at: location)
         let keptInk = PDFEdit.updateInk(PDFInkUpdate(pageIndex: 1, group: "kept", removal: .strokes([]), addedStrokes: [Self.stroke(named: "K", at: 200)],
                                                      editableRecord: PDFEditableInkRecord(drawingData: Data([7, 7]), strokeNames: ["K"])))
         revision = try await save([keptInk], to: location, revision: revision)

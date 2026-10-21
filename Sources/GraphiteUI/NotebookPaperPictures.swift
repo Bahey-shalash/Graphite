@@ -15,8 +15,11 @@ final class NotebookPaperPictures {
 
     private(set) var chosenPicture: CGImage?
     private(set) var galleryPictures: [NotebookPaperChoice: CGImage] = [:]
+    /// The cover as it will be made, while the sheet asks for one.
+    private(set) var coverPicture: CGImage?
     @ObservationIgnored private var drawingTask: Task<Void, Never>?
     @ObservationIgnored private var drawnOptions: NewNotebookOptions?
+    @ObservationIgnored private var coverTask: Task<Void, Never>?
 
     /// Draws the pictures for these options, unless they are already drawn for them.
     func draw(for options: NewNotebookOptions) {
@@ -39,10 +42,29 @@ final class NotebookPaperPictures {
         }
     }
 
+    /// Draws the cover for a title, color and page shape; no color forgets the picture.
+    func drawCover(titled title: String, color: NotebookCoverColor?, pageSize: CGSize) {
+        coverTask?.cancel()
+        guard let color else {
+            coverPicture = nil
+            return
+        }
+        let longerSidePixels = Self.chosenPicturePixels
+        coverTask = Task { [weak self] in
+            let picture = await Task.detached(priority: .userInitiated) {
+                NotebookCoverPage.previewImage(title: title, color: color, pageSize: pageSize, longerSidePixels: longerSidePixels)
+            }.value
+            guard !Task.isCancelled else { return }
+            self?.coverPicture = picture
+        }
+    }
+
     /// Stops drawing when the sheet closes.
     func stop() {
         drawingTask?.cancel()
         drawingTask = nil
+        coverTask?.cancel()
+        coverTask = nil
     }
 
     /// The gallery shows every paper, so choosing another one does not change its pictures.

@@ -11,15 +11,13 @@ extension WorkspaceModel {
     }
 
     /// Writes a new notebook of the sheet's options at `path`: `options.pageCount` copies of the
-    /// chosen template's page, or pages of the chosen paper.
-    func writeNotebook(_ options: NewNotebookOptions, at path: VaultPath, store: VaultStore, root: URL) async throws {
-        let service = PDFFileService(writer: store.writer)
-        let destination = try path.url(in: root)
+    /// chosen template's page or pages of the chosen paper, with a cover titled `name` first when asked.
+    func writeNotebook(_ options: NewNotebookOptions, titled name: String, at path: VaultPath, store: VaultStore, root: URL) async throws {
+        var templateLocation: URL?
         if let templateFileName = options.myTemplateFileName {
-            let templateLocation = try VaultPath(MyPaperTemplateList.directory).appending(templateFileName).url(in: root)
-            _ = try await service.create(templateAt: templateLocation, pageCount: options.pageCount, at: destination)
-        } else {
-            _ = try await service.create(paper: options.paper, pageCount: options.pageCount, at: destination)
+            templateLocation = try VaultPath(MyPaperTemplateList.directory).appending(templateFileName).url(in: root)
         }
+        let notebookData = try NewNotebookDocument.data(for: options, titled: name, templateLocation: templateLocation)
+        _ = try await PDFFileService(writer: store.writer).create(documentData: notebookData, at: path.url(in: root))
     }
 }

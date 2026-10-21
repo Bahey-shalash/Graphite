@@ -151,7 +151,7 @@ The owner chose the first two; the rest are defaults taken to start building, ea
 
 - [x] A large picture of the first page, drawn from the PDF the generator would write.
 - [x] Name; empty means "Untitled Notebook", made unique in the folder.
-- [ ] Cover: not built; the first page is the cover (decision above).
+- [x] Cover (2026-10-21): an optional first page of one of eight colors with the notebook's name, from the New Notebook sheet's Cover row; the pages after it are the chosen paper's or a template's, so the page count is the paper pages plus the cover. Without it the first page is still the cover, as decided before. Checked on macOS by tests; not seen in the iPad simulator (see `Coverage.md`).
 - [x] Paper as a grid of pictures in sections: Essentials (blank, dotted, squared, ruled narrow, ruled wide), Study (Cornell, engineering, isometric), Music. Planners and more templates are not built.
 - [x] Color dots under each paper. The colors are Graphite's four paper colors (white, ivory, yellow, gray); dark paper is not offered, since ink colors would need to change with it.
 - [x] Ruled narrow (6 mm) and ruled wide (8 mm); the other spacings, line color and strength under Lines.
@@ -188,7 +188,7 @@ The owner chose the first two; the rest are defaults taken to start building, ea
 
 - Where folder colors and symbols are stored (Part 2, options A to C), and whether they should match an Obsidian plugin so Obsidian shows them too.
 - Library presentation per device only, or also per vault or per folder (a course folder as a grid, a reference folder as a list)?
-- A real cover page in the PDF, or the first page as the cover?
+- A real cover page in the PDF, or the first page as the cover? Answered 2026-10-21: both, the cover is optional.
 - Undo of "insert new notebook" in a note: keep the new PDF or delete it?
 - Is "New Linked Note" from a notebook wanted?
 - Should the library also be offered on the Mac, or only iPad and iPhone?

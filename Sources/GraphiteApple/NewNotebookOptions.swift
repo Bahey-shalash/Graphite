@@ -30,6 +30,8 @@ public struct NewNotebookOptions: Equatable, Sendable {
     public var paperStyle: PaperSpecification
     public var pageSize: NotebookPageSizeChoice
     public var pageCount: Int
+    /// A cover of this color, with the notebook's name, as an extra first page; nil makes none.
+    public var cover: NotebookCoverColor?
 
     public init(paperChoice: NotebookPaperChoice, paperStyle: PaperSpecification, pageSize: NotebookPageSizeChoice, pageCount: Int = 1) {
         self.paperChoice = paperChoice

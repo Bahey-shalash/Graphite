@@ -330,7 +330,7 @@ final class PDFAnnotationTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let location = directory.appendingPathComponent("Notebook.pdf")
         let service = PDFFileService()
-        let createdRevision = try await service.create(paper: PaperSpecification(template: .ruled), pageCount: 2, at: location)
+        let createdRevision = try await service.create(documentData: PDFTemplateGenerator.documentData(paper: PaperSpecification(template: .ruled), pageCount: 2), at: location)
         let baseline = directory.appendingPathComponent("baseline.pdf")
         try FileManager.default.copyItem(at: location, to: baseline)
 
@@ -370,7 +370,7 @@ final class PDFAnnotationTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let location = directory.appendingPathComponent("Notebook.pdf")
         let service = PDFFileService()
-        var revision = try await service.create(paper: PaperSpecification(template: .dotted), pageCount: 3, at: location)
+        var revision = try await service.create(documentData: PDFTemplateGenerator.documentData(paper: PaperSpecification(template: .dotted), pageCount: 3), at: location)
         let inkEdit = PDFEdit.updateInk(PDFInkUpdate(pageIndex: 1, group: PDFInkGroups.defaultGroup, removal: .strokes([]),
                                                      addedStrokes: [stroke(named: "A", from: CGPoint(x: 100, y: 400), to: CGPoint(x: 400, y: 400))],
                                                      editableRecord: PDFEditableInkRecord(drawingData: Data([1]), strokeNames: ["A"])))
