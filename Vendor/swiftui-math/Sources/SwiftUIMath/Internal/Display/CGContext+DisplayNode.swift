@@ -28,6 +28,8 @@ extension CGContext {
       draw(largeOperator, foregroundColor: foregroundColor)
     case let accent as Math.DisplayAccent:
       draw(accent, foregroundColor: foregroundColor)
+    case let brace as Math.DisplayHorizontalBrace:
+      draw(brace, foregroundColor: foregroundColor)
     default:
       break
     }
@@ -182,6 +184,21 @@ extension CGContext {
 
     move(to: lineStart)
     addLine(to: lineEnd)
+    strokePath()
+
+    restoreGState()
+  }
+
+  /// Graphite patch: a brace's center line, stroked with round ends.
+  private func draw(_ brace: Math.DisplayHorizontalBrace, foregroundColor: CGColor) {
+    saveGState()
+
+    translateBy(x: brace.position.x, y: brace.position.y)
+    setStrokeColor(foregroundColor)
+    setLineWidth(brace.thickness)
+    setLineCap(.round)
+    setLineJoin(.round)
+    addPath(brace.centerLine)
     strokePath()
 
     restoreGState()

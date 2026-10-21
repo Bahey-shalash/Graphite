@@ -15,3 +15,15 @@ Regression test: `AppProjectTextualPatchTests.testFormulaInAFrameNarrowerByAFrac
 `Sources/SwiftUIMath/Internal/Display/Typesetter.swift`: `shouldBreakBeforeDisplay` measures the line from its start, `currentPosition.x` plus the text since the last display, as the interatom check already does, and treats a line that holds only earlier displays as not empty. Upstream measured only the text since the last fraction, radical or other display, so a fraction after earlier ones was never moved to a new line and was drawn past the width. In a callout, `\text{new time} = \frac{1-f}{s} + f, \qquad \text{memory share} = \frac{f}{…}, \qquad \text{overall speedup} = \frac{1}{\frac{1-f}{s} + f}` at 95 % of its width was not broken at all, and the last fraction was cut off at the callout's edge.
 
 Regression test: `AppProjectTextualPatchTests.testFractionAfterEarlierFractionsBreaksOntoANewLine` measures that formula at 95, 80 and 60 % of its width and checks that it is broken into lines no wider than the width.
+
+## 3. `\underbrace` and `\overbrace`
+
+`Sources/SwiftUIMath/Internal/Syntax/Atoms/HorizontalBrace.swift` and `Internal/Display/DisplayHorizontalBrace.swift` (new), `Internal/Syntax/AtomList.swift`, `Internal/Syntax/Parser.swift`, `Internal/Display/Typesetter.swift`, `Internal/Display/CGContext+DisplayNode.swift`: `\underbrace{…}_{label}` and `\overbrace{…}^{label}` are typeset. Upstream did not know either command, so a formula using one could not be parsed and Graphite showed its LaTeX source (Textual patch 5).
+
+The brace is drawn as a stroked path as wide as what it spans: the math fonts' brace glyphs come in a few fixed widths (Latin Modern's widest is 4 em) and the font tables carry no horizontal assembly to build a longer one. Its proportions follow Latin Modern's glyph, about 0.32 em tall and 0.06 em thick, and it stands 0.2 em from what it spans. The label is set in script style below an underbrace or above an overbrace, centred, with the gaps of an operator's limits (`DisplayLargeOperator`); the other script, if any, is an ordinary script at the right. A brace is an ordinary atom for spacing and line breaking.
+
+## 4. A hyphen in `\text` is a hyphen
+
+`Sources/SwiftUIMath/Internal/Syntax/Parser.swift`: inside `\text{…}`, `-` is an ordinary hyphen. Upstream turned it into a minus sign with a binary operator's spaces, so `\text{wear-out}` read "wear − out". A `-` outside `\text` is still a minus.
+
+Regression tests: `AppProjectTextualPatchTests.testUnderbraceAndOverbraceAreTypesetWithTheirLabels` and `testHyphenInsideTextIsAHyphen`.
