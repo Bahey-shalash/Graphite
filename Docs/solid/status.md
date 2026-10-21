@@ -8,12 +8,12 @@ Every finding and defect with its current state: **Fixed** (the current code no 
 
 | State | Count |
 | --- | ---: |
-| Open | 470 |
+| Open | 473 |
 | Partly fixed | 36 |
 | Fixed | 104 |
 | Duplicate | 2 |
 | No change needed | 1 |
-| **All** | **613** |
+| **All** | **616** |
 
 Open items by prefix and severity:
 
@@ -21,7 +21,7 @@ Open items by prefix and severity:
 | --- | ---: | ---: | ---: | ---: |
 | SRP | 13 | 52 | 17 | 82 |
 | OCP | 3 | 31 | 21 | 55 |
-| LSP | 3 | 24 | 22 | 49 |
+| LSP | 3 | 25 | 24 | 52 |
 | ISP | 3 | 20 | 18 | 41 |
 | DIP | 2 | 32 | 19 | 53 |
 | CC | 0 | 80 | 109 | 189 |
@@ -211,6 +211,9 @@ Partly fixed items by prefix and severity:
 | [LSP-MDCORE-01](areas/mdcore.md#lsp-mdcore-01-the-same-markdown-line-gets-different-answers-from-parallel-implementations-of-one-rule) | MDCORE | High | Partly fixed | Setext row: folding, the outline, heading links and reading blocks use `MarkdownStyleScanner.setextHeadingLevel` ([NoteFolding.swift:63](../../Sources/GraphiteCore/NoteFolding.swift#L63), [NotePreviewDocument.swift:161](../../Sources/GraphiteCore/NotePreviewDocument.swift#L161)). The fence row is unchanged. | The same Markdown line gets different answers from parallel implementations of one rule |
 | [LSP-MDCORE-02](areas/mdcore.md#lsp-mdcore-02-private-use-marker-protection-has-two-mechanisms-with-different-results) | MDCORE | Low | Open | Present at the snapshot (area document) | Private-use marker protection has two mechanisms with different results |
 | [LSP-MDCORE-03](areas/mdcore.md#lsp-mdcore-03-tests-pin-two-wrappers-production-never-calls) | MDCORE | Low | Open | Present at the snapshot (area document) | Tests pin two wrappers production never calls |
+| [LSP-MDCORE-04](areas/mdcore.md#lsp-mdcore-04-indented-code-is-code-for-the-index-and-for-colors-and-text-for-every-other-consumer) | MDCORE | Medium | Open | Found by `MarkdownRuleParityTests` (2026-10-21, Phase 3 step 3); present at the snapshot | Indented code is code for the index and for colors, and text for every other consumer |
+| [LSP-MDCORE-05](areas/mdcore.md#lsp-mdcore-05-the-reading-views-outline-and-blocks-split-lines-at-n-only-so-a-note-with-lone-r-line-endings-has-no-outline) | MDCORE | Low | Open | Found by `MarkdownRuleParityTests` (2026-10-21, Phase 3 step 3); present at the snapshot | The reading view's outline and blocks split lines at `\n` only, so a note with lone `\r` line endings has no outline |
+| [LSP-MDCORE-06](areas/mdcore.md#lsp-mdcore-06-u2028-ends-a-line-for-the-nsstring-readers-and-stays-inside-it-for-commonmark) | MDCORE | Low | Open | Found by `MarkdownRuleParityTests` (2026-10-21, Phase 3 step 3); present at the snapshot | U+2028 ends a line for the `NSString` readers and stays inside it for CommonMark |
 | [LSP-PLUGIN-01](areas/plugin.md#lsp-plugin-01-the-node-tests-vault-host-differs-from-the-swift-bridge-in-seven-behaviours-one-of-which-hides-a-bug) | PLUGIN | High | Open | Present at the snapshot (area document) | The Node tests' vault host differs from the Swift bridge in seven behaviours, one of which hides a bug |
 | [LSP-PLUGIN-02](areas/plugin.md#lsp-plugin-02-seven-reads-turn-a-failure-into-an-empty-result) | PLUGIN | Medium | Partly fixed | Item 2 of 7: an unreadable `community-plugins.json` now throws ([CommunityPluginList.swift:63](../../Sources/GraphiteCore/CommunityPluginList.swift#L63)). | Seven reads turn a failure into an empty result |
 | [LSP-PLUGIN-03](areas/plugin.md#lsp-plugin-03-send-hides-the-runtimes-failure-kinds-and-treats-a-non-object-answer-as-success) | PLUGIN | Medium | Partly fixed | The timeout is a typed `CommunityPluginRuntimeError.didNotAnswerInTime`; runtime failures still become `GraphiteError.unavailable` and a non-object answer `[:]`; the new error carries an English sentence (`FR-55`, `FR-64`). | `send` hides the runtime's failure kinds and treats a non-object answer as success |
