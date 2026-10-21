@@ -509,7 +509,7 @@ Direction runs one way: a module imports only modules listed in its row. Every r
 | `GraphiteCore` | Values, parsers, policies, planners, and the ports that several layers consume (`DocumentFileAccess`, `ApplicationClock`, `HTTPDownloading`, the lifecycle observer protocols). No I/O. | none | Foundation, CoreGraphics, CryptoKit, zlib, Synchronization, swift-markdown, Yams |
 | `GraphiteStorage` | Vault file I/O and app-private files: `VaultFiles`, `VaultFileManagement`, `AtomicFileWriter`, `VaultBoundary` (symbolic-link and path validation), Obsidian configuration files, `FileRecoveryStore`, `RecordingRecoveryStore`, `DeviceStateStore` | Core | Foundation |
 | `GraphiteIndex` | The disposable SQLite cache and its query families | Core, Storage | GRDB |
-| `GraphiteApple` | Platform adapters: folder access and bookmarks, PDFKit and PencilKit file writers, AVFoundation recording, Vision, keychain, `NSFileVersion`, speech, diagnostics, `URLSessionHTTPDownloader` | Core, Storage | UIKit, AppKit, PDFKit, PencilKit, AVFoundation, Vision, Security, MetricKit, ImageIO |
+| `GraphiteApple` | Platform adapters: folder access and bookmarks, PDFKit and PencilKit file writers, AVFoundation recording, Vision, keychain, `NSFileVersion`, speech, diagnostics, `URLSessionHTTPDownloader`, the scanned PDF's text layer, the system's folder icons and Finder's folder looks | Core, Storage | UIKit, AppKit, PDFKit, PencilKit, AVFoundation, Vision, Security, MetricKit, ImageIO, CoreText, CoreImage, QuickLookThumbnailing, UniformTypeIdentifiers |
 | `GraphiteVoices` | On-device neural voices: model loading, rendering, cache, downloader | Core, Apple | MLXAudioTTS |
 | `GraphiteDesign` | Shared SwiftUI vocabulary: design tokens, chrome, `MessageAlert`, icons derived from descriptors, shared words of the string catalogue | Core | SwiftUI |
 | `GraphiteMarkdownRendering` | Drawing primitives that the editor and the reading view both draw with: `ObsidianMarkdownText`, `CalloutView`, `ReadingImageCache`, `EmbeddedMediaPlayers`, reading text styles, `NoteTypography`, `NoteThemeStyle` | Core, Design | SwiftUI, Textual |
@@ -528,6 +528,8 @@ Direction runs one way: a module imports only modules listed in its row. Every r
 | `GraphiteBenchmarks` (executable) | Index and voice measuring tools; no code from the app imports it | Core, Index, Voices | none |
 | `GraphiteFixtures` (test-only) | In-memory and failing fakes, builders, `ManualClock`, value fixtures; no XCTest, so previews may import it under `#if DEBUG` | Core, Storage, Index, Apple | Foundation |
 | `GraphiteTestSupport` (test-only) | `TemporaryVault`, `IsolatedDeviceState`, `awaitCondition`, hosted windows and touch synthesis, contract suites | Fixtures, every module under test | XCTest |
+
+Added 2026-10-21, for document scanning and folder looks: `GraphiteApple` may import CoreText (the invisible text of a scanned PDF), CoreImage (the mask that removes a picture's background), QuickLookThumbnailing (the system's own icon of a folder on iOS) and UniformTypeIdentifiers (the type of an image it encodes). Today's `GraphiteUI`, until it is cut into the feature modules above, may import VisionKit (the system's document scanner), PhotosUI (the photo picker) and UniformTypeIdentifiers (file types of pickers, drops and exports); `scripts/check-imports.py` lists them in its rows.
 
 ```
 App target ── LaunchMode, live / hosted-test / voice-benchmark compositions, feature registration list
