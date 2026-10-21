@@ -64,13 +64,25 @@ final class CommunityPluginHostTestBed {
     }
 
     /// Opens `vault` in a workspace; community plugins stay off until the test turns them on.
+    /// While they are off, opening the vault lists nothing, so the plugins are listed here as
+    /// Settings › Community Plugins lists them.
     func openWorkspace(at vault: URL, expectedPluginCount: Int, in existingWorkspace: WorkspaceModel? = nil) async throws -> WorkspaceModel {
         let workspace = try existingWorkspace ?? isolatedDevice().makeWorkspace()
         self.workspace = workspace
         try await workspace.openFolderAsVault(vault)
         openedVaultIdentifiers.append(try XCTUnwrap(workspace.currentVaultIdentifier))
         let host = workspace.communityPlugins
+        await host.reloadInventory()
         try await waitUntil("the plugins are listed") { host.inventory.plugins.count == expectedPluginCount }
+        return workspace
+    }
+
+    /// Opens `vault` and returns at once, without listing its plugins.
+    func openWorkspaceWithoutListingPlugins(at vault: URL) async throws -> WorkspaceModel {
+        let workspace = try isolatedDevice().makeWorkspace()
+        self.workspace = workspace
+        try await workspace.openFolderAsVault(vault)
+        openedVaultIdentifiers.append(try XCTUnwrap(workspace.currentVaultIdentifier))
         return workspace
     }
 

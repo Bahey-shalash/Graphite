@@ -364,6 +364,7 @@ final class CommunityPluginHostTests: XCTestCase {
         openedVaultIdentifiers.append(try XCTUnwrap(workspace.currentVaultIdentifier))
         let controller = try host(workspace)
         let host = workspace.communityPlugins
+        await host.reloadInventory() // opening lists nothing while plugins are off
         try await waitUntil { Set(host.inventory.plugins.map(\.id)).isSuperset(of: realPlugins) }
         await host.setTurnedOnForVault(true)
         try await waitUntil(timeoutSeconds: 20) { host.loadStates["dataview"] == .loaded && host.loadStates["obsidian-tasks-plugin"] == .loaded }
@@ -426,6 +427,7 @@ final class CommunityPluginHostTests: XCTestCase {
         openedVaultIdentifiers.append(try XCTUnwrap(workspace.currentVaultIdentifier))
         let controller = try host(workspace)
         let host = workspace.communityPlugins
+        await host.reloadInventory() // opening lists nothing while plugins are off
         try await waitUntil { host.inventory.plugins.contains { plugin in plugin.id == Self.pluginIdentifier } }
         await host.setTurnedOnForVault(true)
         try await waitUntil(timeoutSeconds: 15) { host.loadStates[Self.pluginIdentifier] == .loaded }
