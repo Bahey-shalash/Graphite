@@ -2,7 +2,8 @@ import XCTest
 import GraphiteCore
 @testable import GraphiteUI
 
-/// Tags in the graph: shown unless the person hides them.
+/// Tags in the graph: shown unless the person hides them, drawn larger the more notes carry
+/// them, and named from further out than notes.
 @MainActor
 final class GraphTagsTests: XCTestCase {
     func testTheGraphsShowTagsUnlessThePersonHidesThem() {
@@ -21,5 +22,40 @@ final class GraphTagsTests: XCTestCase {
         XCTAssertTrue(GraphSettingDefault.localShowsNeighborLinks)
         XCTAssertFalse(GraphSettingDefault.localShowsAttachments)
         XCTAssertTrue(GraphSettingDefault.localShowsExistingFilesOnly)
+    }
+
+    func testATagCarriedByMoreNotesIsDrawnLarger() throws {
+        let model = loadedModel()
+        defer { model.stop() }
+        let often = try XCTUnwrap(model.index(of: "#exam"))
+        let once = try XCTUnwrap(model.index(of: "#lab"))
+        XCTAssertGreaterThan(model.radii[often], model.radii[once])
+    }
+
+    func testATagsNameShowsFromFurtherOutThanANotes() {
+        XCTAssertTrue(GraphCanvas.showsName(of: .tag, atScale: 0.7))
+        XCTAssertFalse(GraphCanvas.showsName(of: .note, atScale: 0.7))
+        XCTAssertFalse(GraphCanvas.showsName(of: .tag, atScale: 0.5))
+        XCTAssertTrue(GraphCanvas.showsName(of: .note, atScale: 1.4))
+    }
+
+    // MARK: Helpers
+
+    /// Lecture → Exam; #exam on all three notes, #lab on Lab only.
+    private static let graph: LinkGraph = {
+        let lecture = path("Lecture.md"), exam = path("Exam.md"), lab = path("Lab.md")
+        return LinkGraph.build(files: [lecture, exam, lab], links: [(lecture, exam)], unresolvedLinks: [],
+                               tags: [(lecture, "exam"), (exam, "exam"), (lab, "exam"), (lab, "lab")])
+    }()
+
+    private static func path(_ text: String) -> VaultPath {
+        guard let path = try? VaultPath(text) else { preconditionFailure("Invalid test path \(text)") }
+        return path
+    }
+
+    private func loadedModel() -> GraphCanvasModel {
+        let model = GraphCanvasModel()
+        model.load(Self.graph, forces: GraphLayout.Forces(), previousPositions: [:])
+        return model
     }
 }
