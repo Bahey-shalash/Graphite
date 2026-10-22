@@ -129,9 +129,11 @@ enum GuideOrganizingCopy {
                                        "to see only its notes. The filter at the top of the graph takes tag:#name too.")),
             GuideStep("The right sidebar's **Graph** panel shows only the open note and its neighbours: open it from the note's " +
                       "**More** menu, or with ⌥⌘G. Its **graph** button shows the note in the whole graph."),
-            GuideStep(forPlatform(touch: "Tags are in the graph, in green. Tap one to bring out its notes, and again to let it go; " +
+            GuideStep(forPlatform(touch: "Tags are in the graph, in green (purple with a green or teal accent). " +
+                                         "Tap one to bring out its notes, and again to let it go; " +
                                          "the **#** button over the graph hides them.",
-                                  mac: "Tags are in the graph, in green. Click one to bring out its notes, and again to let it go; " +
+                                  mac: "Tags are in the graph, in green (purple with a green or teal accent). " +
+                                       "Click one to bring out its notes, and again to let it go; " +
                                        "the **#** button over the graph hides them.")),
             GuideStep(forPlatform(touch: "To give a course its color, open the graph's **settings**, tap **New Group** and type its search, " +
                                          "such as path:\"Courses/VLSI/\" or tag:#vlsi. Its notes take the color in both graphs.",
