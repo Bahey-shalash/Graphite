@@ -10,6 +10,8 @@ enum ReadingDiagram: Sendable {
     case unreadable(source: String, failure: ReadingDiagramFailure)
     /// A state diagram drawn natively.
     case stateDiagram(ReadingStateDiagram)
+    /// A class diagram drawn natively.
+    case classDiagram(ReadingClassDiagram)
 
     /// The diagram a block's text describes, laid out in `typography`, or nil when its type is not drawn natively
     /// yet (`MermaidDiagramReadError.unsupportedDiagramType`, a flowchart with subgraphs, a state diagram with
@@ -43,6 +45,15 @@ enum ReadingDiagram: Sendable {
             } catch {
                 self = .unreadable(source: source, failure: .stateLayout(error))
             }
+        case .classDiagram(let classDiagram):
+            do {
+                self = .classDiagram(ReadingClassDiagram(diagram: classDiagram,
+                                                         layout: try ClassDiagramLayoutEngine.layout(classDiagram, typography: typography, limits: .standard)))
+            } catch .namespacesNotLaidOut {
+                return nil
+            } catch {
+                self = .unreadable(source: source, failure: .classLayout(error))
+            }
         }
     }
 }
@@ -52,6 +63,7 @@ enum ReadingDiagramFailure: Equatable, Sendable {
     case reading(MermaidDiagramReadError)
     case layout(FlowchartLayoutError)
     case stateLayout(StateDiagramLayoutError)
+    case classLayout(ClassDiagramLayoutError)
 }
 
 /// A flowchart laid out, its shapes ready to paint, and what a screen reader says of it.

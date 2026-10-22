@@ -18,7 +18,13 @@ public struct CoreTextDiagramTextMeasurer: DiagramTextMeasuring {
     private static let lastPrintableASCII: UInt8 = 126
 
     public init(font diagramFont: DiagramFont) {
-        font = diagramFont.makeCoreTextFont()
+        self.init(font: diagramFont, isBold: false)
+    }
+
+    /// Measures in the bold of `diagramFont` when `isBold`, as a class's name is drawn.
+    init(font diagramFont: DiagramFont, isBold: Bool) {
+        let regular = diagramFont.makeCoreTextFont()
+        font = isBold ? CTFontCreateCopyWithSymbolicTraits(regular, diagramFont.size, nil, .traitBold, .traitBold) ?? regular : regular
         fontSize = diagramFont.size
         lineHeight = (diagramFont.size * Self.lineHeightRatio).rounded()
         let characters = (Self.firstPrintableASCII...Self.lastPrintableASCII).map { byte in UniChar(byte) }

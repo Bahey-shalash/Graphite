@@ -24,6 +24,29 @@ Measured with `MermaidDiagramsBenchmark` (`swift run -c release --package-path P
 - **Size added to the app, ≤ 60 kB per architecture for every type:** not met. The package's Release object (arm64, before linking and dead-code stripping) grows from 231,523 to 362,615 bytes with the state diagram (107,508 of them in `__TEXT`). Not measured in the app itself.
 - **Theme change without parsing or laying out again:** met by design, as for the flowchart (`StateDiagramRendererTests` paints one layout in two palettes).
 
+## Mermaid class diagrams drawn natively in reading view: 2026-10-23
+
+A sub-item of "The other types" in [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48): ` ```mermaid ` class diagrams (`classDiagram`, `classDiagram-v2`) are read, laid out and drawn natively, in Pele's style, by `Packages/MermaidDiagrams`, and the reading view shows them (Architecture, "Native Mermaid diagrams").
+
+- **Done and tested.** The parser (`ClassDiagramParserTests` 24, on Mermaid's documentation examples and the inputs of Mermaid's parser specs as Pele ports them; `ClassDiagramMemberSyntaxTests` 6, on `classTypes.spec.ts`), the layout (`ClassDiagramLayoutEngineTests` 16), the drawing parts and the Core Graphics renderer (`ClassDiagramRendererTests` 9 reading pixels back, `ClassDiagramDrawingPartsTests` 4), Mermaid's 38 class documentation examples (`ClassDiagramCorpusTests`: all read, 33 drawn, the 5 with namespaces refused for that reason), and in Graphite the reading view's build, the block and its shapes and colors (`ReadingClassDiagramTests` 5, `ReadingClassDiagramShapesTests` 3, `ReadingClassDiagramColorsTests` 2, `ReadingViewBuilderDiagramTests` one more). `swift test --package-path Packages/MermaidDiagrams`: 171 tests pass; with the repository built with its tests, the reading view's diagram tests (26) and `NotePreviewDocumentCodeBlockLanguageTests` (9) pass.
+- **Checked by eye.** Six diagrams rendered to PNG with the package's renderer: the documentation's animals with notes, its orders with cardinalities and an interface, every relation operator with its label, `direction RL` with aggregations and cardinalities, lollipop interfaces, generics with static and abstract members and a loop. That check is not in the suite.
+- **Not done or not checked.** Namespaces (a class diagram with `namespace` stays code until they are laid out as clusters), styles (`style`, `classDef`, `cssClass`, `:::`) and `click`, `link` and `callback` (read, not applied), Live Preview, a layout for the pane's width, the iPad simulator, the Mac app, Export to PDF, a physical iPad or iPhone, and Pele's own benchmark on this Mac.
+
+Measured with `MermaidDiagramsBenchmark`, Release, on Apple M3 Max (36 GB, macOS 27): Mermaid's class documentation examples (the 33 laid out), the four-class diagram of Pele's comparison with Mermaid, and hierarchies of 50 and 250 classes generated for scale (Pele's benchmark generates none). The table gives the range of the medians over three runs, and the 99th percentile in brackets, per diagram. Other sessions were compiling on the Mac (load average 7 to 11), so the numbers are at most these.
+
+| Input | Read | Layout | Read and layout | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Documentation examples (33) | 4.7–4.8 µs (≤ 6.8) | 12.1–12.4 µs (≤ 18.5) | 17.4–17.9 µs (≤ 24 in two runs, 43 in one) | 4.2 µs |
+| Four-class diagram | 6.8–7.0 µs (≤ 8.5 in two runs) | 15.0–15.4 µs (≤ 20.2 in two runs) | 22.5–22.9 µs (≤ 27.8 in two runs, 169 in one) | 5.3 µs (10.2 in one run) |
+| Hierarchy, 50 classes | 156–159 µs | 353–376 µs | 515–541 µs | 70–72 µs |
+| Hierarchy, 250 classes | 0.79–0.80 ms | 1.71–1.81 ms | 2.55–2.61 ms | 342–347 µs |
+
+- **Read and layout, 5–30 µs per diagram:** met for the documentation examples (18 µs) and Pele's four-class diagram (23 µs median). A class's members make reading cost about 3 µs per class in the generated hierarchies.
+- **Memory per diagram, ≤ 64 kB of layout data:** met: the heap grows by 3,454 bytes per laid-out four-class diagram (1,000 layouts kept).
+- **Measurers for a font, made once:** 38–39 µs, up from 14 µs: `DiagramTypography` now also makes the bold and the four-fifths measurers class diagrams use.
+- **Drawing:** painting the parts into a 2× bitmap takes 372–409 µs per documentation example and 600–629 µs for the four-class diagram; the hierarchies are too wide to paint into a bitmap of 16 million pixels and are not painted. The reading view's SwiftUI shapes were not timed.
+- **Size added to the app:** not measured for class diagrams.
+
 ## A tap on a link in the reading view follows it at once: 2026-10-22
 
 What is fixed: on the iPad, a tap on a link in the reading view right after switching from Live Preview, or after opening a note in the reading view, followed nothing until something laid the note out again, such as opening and closing Settings (`BUG-READING-06`, `Docs/Rendered-links-todo.md`). The selection model of Graphite's vendored Textual, which finds the link under a tap, took the text's layouts through `onChange`, which SwiftUI runs once per frame, and kept the empty layouts of a text's first update. It now takes them through a hidden platform view's update, at every update (`Vendor/textual/GRAPHITE-PATCHES.md`, 20). The same model serves every selectable rendered text: Live Preview's rendered blocks, embeds and Page Preview's card.
@@ -132,6 +155,7 @@ List to Table, Vault Router, Merge And Open Target and Omnisearch, which the 202
 The Mac app's note editor shows the suggestion list the iPad's shows: notes, headings and blocks after `[[`, tags after `#`, and community plugins' suggestions (`EditorSuggest`), at the cursor, while the note has keyboard focus. The arrow keys move through it, Return or Tab chooses one, Escape closes it, and it closes when the note loses keyboard focus. A chosen suggestion is one edit Undo takes back. Community plugins hear each change and cursor move from the Mac editor, as on the iPad, while it has keyboard focus (before, they heard changes only, and their suggestions went unused). Both editors keep what the list was found for in one type, `EditorCompletionTracking`.
 
 Checked: `UiEditorMacSuggestionsTests` (4, on the Mac), which fail with the Mac editor's handlers as they were; `EditorCompletionTrackingTests` (7), which pin ED-08 now that its rule is out of the UIKit coordinator; the Mac editor's other tests (`UiEditorMac*`, 41); the whole `GraphiteUITests` suite on the Mac twice (1,306 tests): the first run failed 6 tests and the second 1, all of them in image decoding, thumbnails and a PDF page for Read Aloud, different in each run, each passing alone on this branch and on `origin/main`, whose own full run passed; on the iPad simulator, `LivePreviewRevealTests` (its link suggestion test included) and `CommunityPluginHostTests`' typing test, for the iPad editor's move to `EditorCompletionTracking`. Not established: typing in the Mac app by hand, with a hardware keyboard and an input method.
+
 ## Scrolling a long note: fewer jumps, a third of the memory: 2026-10-21
 
 Scrolling a long Live Preview note jumped, stuttered and grew memory on the Mac, the iPad and the iPhone (the owner, 2026-10-21; [Editor-scrolling-todo.md](Editor-scrolling-todo.md), issue #57). Two causes were found and fixed:
@@ -187,6 +211,7 @@ Checked: the package's tests on the Mac (`KeyCombinationTests`, `HotkeyFileTests
 ## The repository's new address in the app: 2026-10-21
 
 The repository moved to [github.com/Graphite-Note/Graphite](https://github.com/Graphite-Note/Graphite) under the Apache License 2.0. `ProjectAddresses` holds its address and its issues page. The welcome tour's "Open source" point opens the repository, and its "This is a beta" point now also offers GitHub issues besides TestFlight feedback. Settings › General › About gains **Source Code** and **Report a Problem**. The Guide gains "Source Code and Feedback" under Making It Yours: where the code is, how to report a problem or a security issue, and TestFlight feedback. Checked by `WelcomeTourContentTests` and `GuideContentTests`; the Settings links were not looked at on a device or simulator.
+
 ## Importing Goodnotes and Notability: verification on the samples: 2026-10-21
 
 On the branch `notebook-import-in-app`: Phase 5 of [the import checklist](Goodnotes-Notability-import-todo.md), as far as it runs without a device.
@@ -215,6 +240,7 @@ On the branch `notebook-import-in-app`. The readers and planners moved into the 
 - **Automated tests, all passing on macOS**, run as the package alone and as `swift test --filter` of the import classes, no full or hosted suite: the package, 308 tests with the owner's samples configured (none skipped; 302 with 6 skipped without them), among them `GoodnotesOutlinePlannerTests` (4), `NotebookFileFormatTests` (2) and the sample check that each of the samples' 10 outline entries names a page of its notebook, the pages going forward in the entries' order; GraphiteApple, 42 tests of the import classes, among them `ImportedOutlineItemsTests` (3: outline items before the bookmarks at their points, a page left out not written with its entry counted, a notebook of left-out pages writing nothing) and `NotebookLibraryListingTests` (2).
 - **Found:** Goodnotes' outline record is an event of the page it names; the format document had taken the entry's own identifier (field 2) for an unresolved target. `scripts/goodnotes-reader.py` now prints each entry's page.
 - **Not established:** outline entries opened in Graphite's outline view and in other PDF readers by hand; a Notability library export (no sample).
+
 ## Text boxes on PDF pages: 2026-10-21
 
 Typed text boxes on every PDF page, stored as standard `/FreeText` annotations. The design, the decisions taken while the owner was away and what is left are in [the text boxes todo](PDF-text-boxes-todo.md); the code is described in [Architecture](Architecture.md) (storage, and the paragraph on text boxes under the PDF view).
@@ -800,6 +826,7 @@ Checked (hosted, iPad simulator):
 - `~/.graphite-tools/fetch-diagnostics.sh` run against the iPad, read only: it reports that `Library/Diagnostics` does not exist yet, as no build with it has run; copying another folder of the container showed the files land directly in the destination.
 
 Not established: 11 AttributeGraph cycle warnings printed as that test's window is first laid out, in full hosted runs only (and in `testReadAloudPenReadsFromATappedWordThenExactlyToASecondTap` on alpha), not seen when the app's own window opens the same PDF; the cause of the PDF that takes no touches on the iPad, and whether the monitor's rebuild revives it there; MetricKit payloads on the iPad (they come a day later); the watchdog's frames in a Release build; the 23:31 tool picker freeze; windowed scenes beyond what the window work tried.
+
 ## A PDF in a side window settles and stays still: 2026-10-13
 
 The owner's recording on alpha 6cff25c (portrait, Graphite in the right half, about 400 points, beside ChatGPT) showed the PDF's zoom and place changing every half second while the title and Pencil bar stayed cut off on the right. The cut-off is the scene laid out wider than the window (next section). Checked whether the refit added in 6cff25c fights with anything:

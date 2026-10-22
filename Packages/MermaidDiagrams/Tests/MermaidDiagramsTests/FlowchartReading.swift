@@ -8,8 +8,12 @@ enum FlowchartReading {
         switch try MermaidDiagramReader.read(source, limits: limits) {
         case .flowchart(let diagram): diagram
         case .stateDiagram: throw NotAFlowchart()
+        case .classDiagram: throw NotAFlowchart()
         }
     }
+
+    /// The text read is a diagram of another type.
+    struct NotAFlowchart: Error {}
 
     /// The error reading `source` throws, or nil when it reads.
     static func readError(_ source: String, limits: MermaidDiagramLimits = .standard) -> MermaidDiagramReadError? {

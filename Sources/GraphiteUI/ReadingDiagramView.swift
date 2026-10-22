@@ -24,6 +24,8 @@ struct ReadingDiagramView: View {
             }
         case .stateDiagram(let stateDiagram):
             ReadingStateDiagramDrawing(diagram: stateDiagram, textSize: textSize)
+        case .classDiagram(let classDiagram):
+            ReadingClassDiagramDrawing(diagram: classDiagram, textSize: textSize)
         }
     }
 }
