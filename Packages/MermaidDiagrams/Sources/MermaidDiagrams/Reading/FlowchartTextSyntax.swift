@@ -25,7 +25,7 @@ enum FlowchartTextSyntax {
         }
         while !cursor.isAtEnd {
             if let closingIndex = closings.firstIndex(where: { closing in cursor.hasPrefix(closing) }) {
-                let text = cursor.text(from: textStart, to: cursor.position).trimmingCharacters(in: .whitespacesAndNewlines)
+                let text = cursor.trimmedText(from: textStart, to: cursor.position)
                 cursor.advance(by: closings[closingIndex].count)
                 return (DiagramLabelDecoder.label(from: text, form: .plain), closingIndex)
             }

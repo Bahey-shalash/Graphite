@@ -61,6 +61,15 @@ struct MermaidTextCursor {
         String(decoding: bytes[start..<end], as: UTF8.self)
     }
 
+    /// The text of the bytes from `start` to `end` without the spaces, tabs and line breaks at either end.
+    func trimmedText(from start: Int, to end: Int) -> String {
+        var first = start
+        var last = end
+        while first < last, MermaidByte.isWhitespace(bytes[first]) { first += 1 }
+        while last > first, MermaidByte.isWhitespace(bytes[last - 1]) { last -= 1 }
+        return text(from: first, to: last)
+    }
+
     /// The text from the position to the end of its line, without the line break and trailing spaces; moves past it.
     mutating func readRestOfLine() -> String {
         let start = position
