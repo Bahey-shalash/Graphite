@@ -177,9 +177,11 @@ private struct TabGroupPane: View {
                             })
             } else {
                 ConflictVersionsBanner(workspace: workspace, path: tab.path)
+                // One view for whichever tab is active, not one per tab: a note's pane, and the
+                // toolbar it declares, stay when another note's tab is chosen, so the window's
+                // toolbar items are updated in place rather than made again.
                 TabDocumentView(workspace: workspace, tab: tab, document: workspace.document(for: tab.id), isFocused: isFocused,
                                 showsLinksInspector: $showsLinksInspector, create: create, showQuickSwitcher: showQuickSwitcher)
-                    .id(tab.id)
                     .environment(\.showsDocumentControlsInTabBar, showsDocumentControlsInTabBar)
                     .environment(\.showsPencilToolsInTabBar, showsPencilToolsInTabBar)
             }
@@ -491,7 +493,13 @@ private struct SplitDivider: View {
 
 // MARK: Tab content
 
-/// The document of one tab, loaded when the tab is first shown.
+/// What `TabDocumentView` loads for: the tab, and the file it shows.
+private struct TabLoadKey: Equatable {
+    let tabID: UUID
+    let path: VaultPath?
+}
+
+/// The document of the active tab, loaded when the tab is first shown.
 private struct TabDocumentView: View {
     @Bindable var workspace: WorkspaceModel
     let tab: WorkspaceTab
@@ -516,7 +524,7 @@ private struct TabDocumentView: View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay { if document.isOpening { DelayedProgressView() } }
-            .task(id: tab.path) {
+            .task(id: TabLoadKey(tabID: tab.id, path: tab.path)) {
                 // A file opened in a tab that showed a plugin's view replaces the view, which closes.
                 if tab.path != nil, let pluginViewIdentifier = document.pluginViewIdentifier {
                     document.pluginViewIdentifier = nil
@@ -562,20 +570,24 @@ private struct TabDocumentView: View {
                 .id(pluginViewIdentifier)
         } else {
             EmptyTabView(workspace: workspace, tabID: tab.id, create: create, showQuickSwitcher: showQuickSwitcher)
+                .id(tab.id)
         }
     }
 
     @ViewBuilder private func loadedContent(_ path: VaultPath) -> some View {
         if let session = document.markdownSession {
+            // The same pane shows the next note; it makes its editor again (see `MarkdownPane`).
             MarkdownPane(session: session, workspace: workspace, document: document, tabID: tab.id, isFocused: isFocused,
                          showsLinksInspector: $showsLinksInspector)
-                .id(ObjectIdentifier(session))
         } else if let session = document.pdfSession {
             PDFPane(session: session, isFocused: isFocused, focus: { workspace.activateTab(tab.id) }, linkActions: pdfLinkActions(for: path),
                     readAloud: workspace.readAloud, readAloudNavigator: workspace.readAloudNavigator,
                     isRecording: workspace.recording.state.isActive) { location in
                 Task { await workspace.resolvePDFConflict(opening: location, inTab: tab.id) }
             }
+            // A PDF's pane keeps state of its own (pages shown, a reading start), which
+            // another PDF must not take over.
+            .id(ObjectIdentifier(session))
         } else if let session = document.canvasSession {
             CanvasPane(session: session, workspace: workspace, tabID: tab.id, isFocused: isFocused)
                 .id(ObjectIdentifier(session))

@@ -316,6 +316,25 @@ The first round of [the notebook library checklist](Notebook-library-and-new-fil
 - Checked by hand in the iPad simulator (iPad Pro 11-inch (M5), iOS 27, portrait, a copy of the test vault without videos): the library as home with the file tree's sidebar folded away; folders in system colors with engraved symbols from `.obsidian/graphite-folder-styles.json`; a folder of PDFs and notes shows first pages and note text; the New menu offers Notebook first; the New Notebook sheet's picture, size and color menus and paper gallery; Create made `Untitled Notebook.pdf` in the folder shown and opened it in a tab with its paper; choosing a tab leaves the library and the house button brings it back. The library first looked like Goodnotes' library; at the owner's request it was redrawn in the Files app's style.
 - Not established: the iPhone layout, landscape, dark mode, Dynamic Type at the largest sizes, VoiceOver, the Mac, drag and drop, Import, folder colors from the menu, creating a notebook from inside a note in the app (tested in the workspace only), undo of that insertion, and anything with Apple Pencil or on a device.
 
+## Switching tabs takes a third of the time on the Mac: 2026-10-18
+
+Asked by the owner: moving from document to document should be much smoother. A new benchmark scenario measures it (`PerformanceBenchmarkTests.testSwitchingBetweenOpenTabs`): five long notes and a 40-page PDF open in tabs, each shown once, then ten switches back and forth between two notes, ten round all five notes (more than the three hidden editors kept), and six between a note and the PDF; a switch lasts from the request to the tab's editor with its rendered blocks (or the PDF's visible pages) laid out, plus the main thread's work it sets off. Optimized builds, three runs each, medians of each run's median switch:
+
+| Scenario | Before | After | Change |
+|---|---|---|---|
+| Mac, between two notes | 193 ms | 57 ms | −70% |
+| Mac, round five notes | 191 ms | 72 ms | −62% |
+| Mac, between a note and a PDF | 178 ms | 192 ms | unchanged (within the runs' spread) |
+| iPad simulator, between two notes | 141 ms | 106 ms | −25% |
+| iPad simulator, round five notes | 170 ms | 135 ms | −21% |
+| iPad simulator, between a note and a PDF | 135 ms | 129 ms | −4% |
+
+What took the time, found with `sample` on the benchmark: on the Mac, half of the main thread's time was AppKit laying out the window's toolbar while SwiftUI made its items again, with their Format, Insert and More menus, because each tab had a view of its own and the new tab's note pane declared the toolbar anew. With the toolbar removed, a switch took 40 ms; with a toolbar declared above the tab's view, 50 ms. Each side now has one document view, and a note's pane stays when another note is shown: only the editor is made again, the toolbar is updated in place (`UiTabSwitchToolbarTests`: the toolbar's items are the same objects after a switch; with the previous panes, they were made again). On the iPad, the note pane asked `UIImagePickerController.isSourceTypeAvailable(.camera)` twice at every update, which reads the device's capabilities and loaded a library each time (about 2 ms each in the simulator); it is asked once. A hidden note on the iPad let go of its rendered blocks' views; the most recently hidden note now keeps them (`MarkdownEditorRetentionTests.testOnlyTheMostRecentlyHiddenEditorKeepsItsRenderedViews`), so going back to it does not make its table, callouts and properties again.
+
+Checked: the benchmark above on the Mac (Apple M3 Max, macOS 27.0.1) and in the iPad Pro 11-inch (M5) simulator on iOS 27.0, before and after; `swift test` on macOS for the UI tests (642, of which the Read Aloud PDF tests failed once on Vision's text recognition errors under load and pass alone), `MarkdownEditorRetentionTests`, `UiWorkspaceAreaHandoffTests`, `UiEditorMacEditorTests`.
+
+Not done: a switch between a note and a PDF still makes the toolbar's items again, since each kind of document declares its own; declaring the documents' toolbars above their panes would remove that, and it is the next step. On the iPad what remains is spread: editors made again for notes not kept, the properties' tag row laid out again (`WrappingRowLayout`), and a PDF's view and its PencilKit canvases made again for each switch. Not measured on a physical iPad.
+
 ## Tables edited in place, scrolling only when wider, and the editor's Color menu: 2026-10-17
 
 Reported by the user, comparing a lecture schedule table in Graphite and Obsidian: in Graphite a tap on a table showed its Markdown, where Obsidian keeps the table drawn and edits its cells; a table swiped sideways also moved slightly up and down; and the editor's right-click menu had no way to color text.
