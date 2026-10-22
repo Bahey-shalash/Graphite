@@ -2,7 +2,30 @@
 
 What Graphite does today, how each part is verified, and what is still missing. `OBJECTIVE.md` describes the complete product; this file tracks progress toward it. Update it with every change that adds, removes, or re-verifies behavior.
 
-Last updated: 2026-10-22.
+Last updated: 2026-10-23.
+
+## Mermaid class diagrams drawn natively in reading view: 2026-10-23
+
+A sub-item of "The other types" in [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48): ` ```mermaid ` class diagrams (`classDiagram`, `classDiagram-v2`) are read, laid out and drawn natively, in Pele's style, by `Packages/MermaidDiagrams`, and the reading view shows them (Architecture, "Native Mermaid diagrams").
+
+- **Done and tested.** The parser (`ClassDiagramParserTests` 24, on Mermaid's documentation examples and the inputs of Mermaid's parser specs as Pele ports them; `ClassDiagramMemberSyntaxTests` 6, on `classTypes.spec.ts`), the layout (`ClassDiagramLayoutEngineTests` 16), the drawing parts and the Core Graphics renderer (`ClassDiagramRendererTests` 9 reading pixels back, `ClassDiagramDrawingPartsTests` 4), Mermaid's 38 class documentation examples (`ClassDiagramCorpusTests`: all read, 33 drawn, the 5 with namespaces refused for that reason), and in Graphite the reading view's build, the block and its shapes and colors (`ReadingClassDiagramTests` 5, `ReadingClassDiagramShapesTests` 3, `ReadingClassDiagramColorsTests` 2, `ReadingViewBuilderDiagramTests` one more). `swift test --package-path Packages/MermaidDiagrams`: 171 tests pass; with the repository built with its tests, the reading view's diagram tests (26) and `NotePreviewDocumentCodeBlockLanguageTests` (9) pass.
+- **Checked by eye.** Six diagrams rendered to PNG with the package's renderer: the documentation's animals with notes, its orders with cardinalities and an interface, every relation operator with its label, `direction RL` with aggregations and cardinalities, lollipop interfaces, generics with static and abstract members and a loop. That check is not in the suite.
+- **Not done or not checked.** Namespaces (a class diagram with `namespace` stays code until they are laid out as clusters), styles (`style`, `classDef`, `cssClass`, `:::`) and `click`, `link` and `callback` (read, not applied), Live Preview, a layout for the pane's width, the iPad simulator, the Mac app, Export to PDF, a physical iPad or iPhone, and Pele's own benchmark on this Mac.
+
+Measured with `MermaidDiagramsBenchmark`, Release, on Apple M3 Max (36 GB, macOS 27): Mermaid's class documentation examples (the 33 laid out), the four-class diagram of Pele's comparison with Mermaid, and hierarchies of 50 and 250 classes generated for scale (Pele's benchmark generates none). The table gives the range of the medians over three runs, and the 99th percentile in brackets, per diagram. Other sessions were compiling on the Mac (load average 7 to 11), so the numbers are at most these.
+
+| Input | Read | Layout | Read and layout | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Documentation examples (33) | 4.7–4.8 µs (≤ 6.8) | 12.1–12.4 µs (≤ 18.5) | 17.4–17.9 µs (≤ 24 in two runs, 43 in one) | 4.2 µs |
+| Four-class diagram | 6.8–7.0 µs (≤ 8.5 in two runs) | 15.0–15.4 µs (≤ 20.2 in two runs) | 22.5–22.9 µs (≤ 27.8 in two runs, 169 in one) | 5.3 µs (10.2 in one run) |
+| Hierarchy, 50 classes | 156–159 µs | 353–376 µs | 515–541 µs | 70–72 µs |
+| Hierarchy, 250 classes | 0.79–0.80 ms | 1.71–1.81 ms | 2.55–2.61 ms | 342–347 µs |
+
+- **Read and layout, 5–30 µs per diagram:** met for the documentation examples (18 µs) and Pele's four-class diagram (23 µs median). A class's members make reading cost about 3 µs per class in the generated hierarchies.
+- **Memory per diagram, ≤ 64 kB of layout data:** met: the heap grows by 3,454 bytes per laid-out four-class diagram (1,000 layouts kept).
+- **Measurers for a font, made once:** 38–39 µs, up from 14 µs: `DiagramTypography` now also makes the bold and the four-fifths measurers class diagrams use.
+- **Drawing:** painting the parts into a 2× bitmap takes 372–409 µs per documentation example and 600–629 µs for the four-class diagram; the hierarchies are too wide to paint into a bitmap of 16 million pixels and are not painted. The reading view's SwiftUI shapes were not timed.
+- **Size added to the app:** not measured for class diagrams.
 
 ## A tap on a link in the reading view follows it at once: 2026-10-22
 
