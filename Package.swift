@@ -55,6 +55,7 @@ let package = Package(
                                                           .product(name: "NotebookImport", package: "NotebookImport")]),
         .testTarget(name: "GraphitePostgreSQLMirrorTests", dependencies: ["GraphitePostgreSQLMirror", "GraphiteIndex", "GraphiteTestSupport", .product(name: "PostgresNIO", package: "postgres-nio")]),
         .testTarget(name: "GraphiteUITests", dependencies: ["GraphiteUI", "GraphiteTestSupport", "GraphiteFixtures", .product(name: "Textual", package: "textual"),
-                                                       .product(name: "NotebookImport", package: "NotebookImport")])
+                                                       .product(name: "NotebookImport", package: "NotebookImport"),
+                                                       .product(name: "PostgresNIO", package: "postgres-nio")])
     ]
 )
