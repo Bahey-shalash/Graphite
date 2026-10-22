@@ -2,7 +2,24 @@
 
 What Graphite does today, how each part is verified, and what is still missing. `OBJECTIVE.md` describes the complete product; this file tracks progress toward it. Update it with every change that adds, removes, or re-verifies behavior.
 
-Last updated: 2026-10-22.
+Last updated: 2026-10-23.
+
+## Mermaid entity relationship diagrams drawn natively in reading view: 2026-10-23
+
+The second diagram type of [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48), on the branch `diagrams-entity-relationship`: a ` ```mermaid ` block that starts with `erDiagram` is read, laid out and drawn natively, in Pele's style, by `Packages/MermaidDiagrams` (its folder `EntityRelationship/`), and the reading view shows it (Architecture, "Native Mermaid diagrams").
+
+- **Done and tested.** The parser, on the inputs of Mermaid 12.1.0's `erDiagram.spec.js` as Pele ports them and on Mermaid's documentation (`EntityRelationshipParserTests` 23, `EntityRelationshipAttributeSyntaxTests` 10, `EntityRelationshipGenericTypeTests` 3, one new `MermaidDiagramReaderTests`); the layout with Pele's measurements (`EntityRelationshipLayoutEngineTests` 13); the drawing parts and the Core Graphics renderer (`EntityRelationshipDrawingPartsTests` 6, `EntityRelationshipRendererTests` 7 reading pixels back); Mermaid's 25 documentation examples from Pele's corpus (`EntityRelationshipCorpusTests` 4: all read, the 19 without subgraphs laid out without overlap, the 6 with them refused for that reason, generated schemas of 10 and 100 tables); and in Graphite the reading view's build and shapes (`ReadingEntityRelationshipDiagramTests` 5, `ReadingEntityRelationshipShapesTests` 4, one new `ReadingViewBuilderDiagramTests`). `swift test --package-path Packages/MermaidDiagrams`: 177 tests pass; the reading view's diagram tests (34) pass after `swift build --build-tests`. The documentation examples and a sample of every cardinality and loop were rendered to PNG and checked by eye; that check is not in the suite.
+- **Not done or not checked.** Subgraphs (still code), styles and classes (counted, not applied), the `direction` quirk of Mermaid's lexer (a line that mentions `direction TB` anywhere is a direction; here only a statement that starts with it is), differential testing against Pele's output, Live Preview (still code), the pane's width (a wide diagram is scaled down), the iPad simulator, the Mac app and a device (not built for this change), the dark appearance and a vault theme on screen, Export to PDF.
+
+Measured with `MermaidDiagramsBenchmark` (`swift run -c release --package-path Packages/MermaidDiagrams MermaidDiagramsBenchmark`), Release, on Apple M3 Max (36 GB, macOS 27), load average 4 to 6.5 from other sessions compiling: the range of the medians over three runs, and the 99th percentile in brackets, per diagram.
+
+| Input | Read | Layout | Read and layout | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Documentation examples (19 laid out) | 5.6–6.0 µs | 18.1–19.5 µs | 24.4–26.0 µs (≤ 33.8) | 6.8–7.1 µs |
+| Schema of 10 tables (4 attributes each) | 48–51 µs | 113–119 µs | 162–171 µs | 36–37 µs |
+| Schema of 100 tables | 0.77–0.78 ms | 1.30–1.32 ms | 2.09–2.14 ms | 0.35–0.37 ms |
+
+Against the checklist's targets: read and layout within 5–30 µs per documentation example (median, with the 99th percentile up to 34 µs); 28,153 bytes of heap per laid-out 10-table schema (1,000 layouts kept), within 64 kB. Painting with Core Graphics into a 2× bitmap, which the reading view does not do, takes 0.61–0.66 ms per documentation example and 8.0–8.4 ms for the 10-table schema, most of it laying out each line of text with Core Text. The size added to the app was not measured.
 
 ## A tap on a link in the reading view follows it at once: 2026-10-22
 

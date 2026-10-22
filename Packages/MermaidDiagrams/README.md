@@ -9,6 +9,7 @@ Graphite's plan for it is `Docs/Native-diagrams-todo.md`; the decisions that sha
 | Type | State |
 | --- | --- |
 | Flowchart (`flowchart`, `graph`) | Drawn. Laid out in ranks, without subgraphs yet. Read: the direction, nodes in the classic shapes (by bracket or `@{ shape: … }`), quoted and Markdown text, entity codes, edges with their strokes, marks, lengths and labels, chains and `&`, groups, `accTitle` and `accDescr`. Styles and `click` are counted and not applied. |
+| Entity relationship (`erDiagram`) | Drawn. Laid out in ranks, without subgraphs yet. Read: entities by bare, quoted or numeric name, aliases, attribute blocks (type with `?`, name, `PK`, `FK` and `UK` keys, comment; backticks and `~` generics), relationships with every cardinality in symbols or words, identifying and non-identifying lines and labels, `direction`, `accTitle` and `accDescr`. Styles and classes are counted and not applied. |
 
 ## Public API
 
@@ -21,6 +22,8 @@ Graphite's plan for it is `Docs/Native-diagrams-todo.md`; the decisions that sha
 - `FlowchartRenderer.draw(_:in:palette:)` paints those parts into a `CGContext` whose y runs down, in a `DiagramPalette` (Pele's color roles: background, foreground, line, surface, border). It parses and measures nothing, so a change of colors only draws again.
 - `FlowchartDiagram`, `FlowchartNode`, `FlowchartNodeShape`, `FlowchartEdge` (with `FlowchartEdgeStroke` and `FlowchartArrowhead`), `FlowchartSubgraph`, `FlowchartDirection`: a flowchart as its text describes it.
 - `DiagramLabel`: the text of a node, an edge or a group as plain lines, drawn as the characters they hold.
+- `EntityRelationshipLayoutEngine.layout(_:typography:limits:)` lays an entity relationship diagram out and returns an `EntityRelationshipLayout` (each entity's box with its name and attribute rows, each relationship's path, cardinality marks and label, the title), or throws `EntityRelationshipLayoutError` for one with subgraphs or past the layout limit. `EntityRelationshipDrawingParts(layout:)` groups its geometry by how it is painted, and `EntityRelationshipRenderer.draw(_:in:palette:)` paints it, types, keys and comments in the text color at `EntityRelationshipDrawingParts.mutedTextOpacity`.
+- `EntityRelationshipDiagram`, `EntityRelationshipEntity`, `EntityRelationshipAttribute` (with `EntityRelationshipAttributeKey`), `EntityRelationship` (with `EntityRelationshipCardinality` and `EntityRelationshipIdentification`): an entity relationship diagram as its text describes it.
 
 ## Limits
 
@@ -40,6 +43,6 @@ The visual style, the spacing and the shapes' geometry follow [Pele](https://git
 
 ## Tests and benchmark
 
-`swift test --package-path Packages/MermaidDiagrams`. `FlowchartCorpusTests` reads and lays out Mermaid's 114 flowchart documentation examples and Pele's generated trees and meshes.
+`swift test --package-path Packages/MermaidDiagrams`. `FlowchartCorpusTests` reads and lays out Mermaid's 114 flowchart documentation examples and Pele's generated trees and meshes; `EntityRelationshipCorpusTests` Mermaid's 25 entity relationship examples and generated schemas.
 
 `swift run -c release --package-path Packages/MermaidDiagrams MermaidDiagramsBenchmark` times reading, layout, the drawing parts and painting, with the median and 99th percentile per diagram, and the heap a layout holds, on the inputs of Pele's benchmark (`FlowchartCorpus`; the documentation examples are its resources). Graphite records the results in its `Docs/Coverage.md`.
