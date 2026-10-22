@@ -23,14 +23,13 @@ enum MindmapNodeSyntax {
         }
         guard let opening = openingDelimiter(at: cursor) else {
             let text = identifier ?? ""
-            return MindmapNodeDefinition(identifier: text, label: DiagramLabelDecoder.label(from: text, form: .markdown), shape: .plain)
+            return MindmapNodeDefinition(identifier: text, label: label(text), shape: .plain)
         }
         let openingLine = cursor.line
         cursor.advance(by: opening.utf8.count)
-        let (written, form) = try readText(&cursor, opening: opening, openingLine: openingLine)
+        let written = try readText(&cursor, opening: opening, openingLine: openingLine)
         let closing = try readClosingDelimiter(&cursor, opening: opening, openingLine: openingLine)
-        let label = DiagramLabelDecoder.label(from: written, form: form)
-        return MindmapNodeDefinition(identifier: identifier ?? written.trimmingCharacters(in: .whitespacesAndNewlines), label: label,
+        return MindmapNodeDefinition(identifier: identifier ?? written.trimmingCharacters(in: .whitespacesAndNewlines), label: label(written),
                                      shape: shape(opening: opening, closing: closing))
     }
 
@@ -71,9 +70,16 @@ enum MindmapNodeSyntax {
         }
     }
 
-    /// The text inside the delimiters, and how it was written. The cursor is left on the closing delimiter.
+    /// A node's text read as Markdown, as Pele reads a mindmap's. Text without an emphasis marker reads the same as
+    /// plain text, which the decoder takes the short way.
+    private static func label(_ text: String) -> DiagramLabel {
+        let hasEmphasisMarker = text.utf8.contains { byte in byte == asterisk || byte == MermaidByte.underscore }
+        return DiagramLabelDecoder.label(from: text, form: hasEmphasisMarker ? .markdown : .plain)
+    }
+
+    /// The text inside the delimiters, quoted or not. The cursor is left on the closing delimiter.
     private static func readText(_ cursor: inout MermaidTextCursor, opening: String,
-                                 openingLine: Int) throws(MermaidDiagramReadError) -> (String, DiagramLabelDecoder.Form) {
+                                 openingLine: Int) throws(MermaidDiagramReadError) -> String {
         if cursor.peek() == MermaidByte.quotationMark {
             let isMarkdown = cursor.peek(1) == MermaidByte.graveAccent
             cursor.advance(by: isMarkdown ? 2 : 1)
@@ -87,13 +93,13 @@ enum MindmapNodeSyntax {
             } else {
                 cursor.advance()
             }
-            return (text, .markdown)
+            return text
         }
         let start = cursor.position
         while let byte = cursor.peek(), !closesText(byte) { cursor.advance() }
         guard !cursor.isAtEnd else { throw .invalidSyntax(line: openingLine, problem: .unclosedShape(closingText: expectedClosing(for: opening))) }
         guard cursor.position > start else { throw .invalidSyntax(line: cursor.line, problem: .unexpectedText(cursor.excerpt())) }
-        return (cursor.text(from: start, to: cursor.position), .markdown)
+        return cursor.text(from: start, to: cursor.position)
     }
 
     /// Text that is not quoted ends at a parenthesis, a closing bracket or a closing brace.
@@ -139,4 +145,5 @@ enum MindmapNodeSyntax {
     private static let openingParenthesis = UInt8(ascii: "(")
     private static let closingParenthesis = UInt8(ascii: ")")
     private static let markdownStringEnd = Array("`\"".utf8)
+    private static let asterisk = UInt8(ascii: "*")
 }
