@@ -22,6 +22,8 @@ public indirect enum NotePreviewBlock: Equatable, Sendable {
     /// such as ```` ```dataview ````: the language as the plugin registered it, and the
     /// code between the fences.
     case pluginCodeBlock(language: String, source: String)
+    /// The text of a ```` ```mermaid ```` code block, which the reading view draws as a diagram.
+    case mermaidDiagram(String)
 }
 
 public enum NotePreviewDocument {
@@ -97,7 +99,8 @@ public enum NotePreviewDocument {
         while lineIndex < lines.count {
             let line = lines[lineIndex]
             let trimmedLine = line.trimmingCharacters(in: .whitespaces)
-            // Fenced code passes through untouched; a base fence becomes a base view.
+            // Fenced code passes through untouched; a base fence becomes a base view, a mermaid
+            // fence a diagram unless a community plugin draws `mermaid`.
             if let (fence, info, _) = listItems.fenceOpening(of: line) {
                 let language = info.lowercased()
                 var closingIndex = lineIndex + 1
@@ -115,6 +118,9 @@ public enum NotePreviewDocument {
                     flushMarkdown()
                     blocks.append(LocatedBlock(block: .pluginCodeBlock(language: pluginLanguage, source: code), startOffset: lineStartOffsets[lineIndex],
                                                lineStartOffsets: [], body: [], lineCount: lastFenceLineIndex - lineIndex + 1))
+                } else if language == "mermaid" {
+                    flushMarkdown()
+                    append(.mermaidDiagram(code), startingAtLine: lineIndex)
                 } else {
                     appendMarkdown(lineIndex...lastFenceLineIndex)
                 }

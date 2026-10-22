@@ -126,6 +126,15 @@ struct NoteTypography: Hashable, Sendable {
         Self.font(monospaceFamily, size: size, weight: weight)
     }
 
+    /// The PostScript name diagrams find the text font by when it is an installed family; nil for the system font,
+    /// which diagrams draw in its standard design (a font of the system's is not found by name).
+    var diagramFontPostScriptName: String? {
+        switch textFamily {
+        case .installed: textFont(ofSize: PlatformFont.systemFontSize).fontName
+        case .system: nil
+        }
+    }
+
     /// A font of `family` at `size`, as close to `weight` as the family has.
     static func font(_ family: ResolvedFontFamily, size: CGFloat, weight: PlatformFont.Weight) -> PlatformFont {
         switch family {
