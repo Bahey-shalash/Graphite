@@ -340,8 +340,11 @@ final class ClassDiagramParserTests: XCTestCase {
         XCTAssertEqual(readError("A --> B\nB --> C", limits: limits), .tooManyEdges(limit: 1))
     }
 
-    func testTheV2KeywordAndAnEmptyDiagramRead() throws {
-        XCTAssertEqual(try ClassDiagramReading.classDiagram("classDiagram-v2\n  Animal <|-- Duck").classes.count, 2)
+    func testBothKeywordsReadAClassDiagramWithTheFrontMattersTitle() throws {
+        let titled = try ClassDiagramReading.classDiagram("---\ntitle: Animals\n---\nclassDiagram-v2\n  Animal <|-- Duck")
+        XCTAssertEqual(titled.title, "Animals")
+        XCTAssertEqual(titled.classes.map(\.identifier), ["Animal", "Duck"])
+        XCTAssertEqual(try ClassDiagramReading.classDiagram("%% Comment\nclassDiagram\nclass A").classes.count, 1)
         XCTAssertEqual(try ClassDiagramReading.classDiagram("classDiagram\n").classes, [])
     }
 }

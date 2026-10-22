@@ -59,8 +59,12 @@ struct MermaidDiagramsBenchmark {
     private static func read(_ source: String) throws -> FlowchartDiagram {
         switch try MermaidDiagramReader.read(source, limits: .standard) {
         case .flowchart(let diagram): diagram
+        case .classDiagram: throw NotAFlowchart()
         }
     }
+
+    /// A flowchart's input read as a diagram of another type.
+    struct NotAFlowchart: Error {}
 
     private static func layout(_ source: String, _ typography: DiagramTypography) throws -> FlowchartLayout {
         try FlowchartLayoutEngine.layout(read(source), typography: typography, limits: .standard)
