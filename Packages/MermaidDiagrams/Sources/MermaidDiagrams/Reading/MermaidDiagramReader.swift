@@ -5,6 +5,7 @@ public enum MermaidDiagram: Equatable, Sendable {
     case flowchart(FlowchartDiagram)
     case stateDiagram(StateDiagram)
     case classDiagram(ClassDiagram)
+    case sequence(SequenceDiagram)
 }
 
 /// Reads Mermaid text: optional front matter (`---` … `---`, whose `title:` is kept), comments and directives
@@ -33,6 +34,11 @@ public enum MermaidDiagramReader {
             var diagram = try ClassDiagramParser.parse(cursor, limits: limits)
             diagram.title = title
             return .classDiagram(diagram)
+        case "sequenceDiagram":
+            var diagram = try SequenceParser.parse(cursor, limits: limits)
+            // A `title` statement in the diagram wins over the front matter's, as in Mermaid.
+            if diagram.title == nil { diagram.title = title }
+            return .sequence(diagram)
         default:
             throw .unsupportedDiagramType(keyword: keyword)
         }

@@ -9,6 +9,7 @@ enum FlowchartReading {
         case .flowchart(let diagram): diagram
         case .stateDiagram: throw NotAFlowchart()
         case .classDiagram: throw NotAFlowchart()
+        case .sequence: throw NotAFlowchart()
         }
     }
 

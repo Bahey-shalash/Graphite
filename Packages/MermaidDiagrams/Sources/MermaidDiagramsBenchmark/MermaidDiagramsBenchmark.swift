@@ -3,8 +3,9 @@ import Darwin
 import Foundation
 import MermaidDiagrams
 
-/// Times reading, laying out and drawing flowcharts on the inputs of Pele's benchmark (`FlowchartCorpus`), and the
-/// memory a layout holds. Each measurement repeats its work until about 300 ms have passed (at least 5 and at most
+/// Times reading, laying out and drawing flowcharts on the inputs of Pele's benchmark (`FlowchartCorpus`), and
+/// sequence diagrams on Mermaid's documentation examples as Pele collects them (`SequenceCorpus`), and the memory a
+/// layout holds. Each measurement repeats its work until about 300 ms have passed (at least 5 and at most
 /// 2,000 runs, as Pele's benchmark does) and prints the median and the 99th percentile of one run, per diagram:
 /// `swift run -c release --package-path Packages/MermaidDiagrams MermaidDiagramsBenchmark`.
 @main
@@ -37,6 +38,7 @@ struct MermaidDiagramsBenchmark {
         }
         try StateDiagramBenchmark.run(typography: typography)
         try reportClassDiagrams(typography: typography)
+        try reportSequenceDiagrams(typography: typography)
     }
 
     private static func report(_ name: String, sources: [String], typography: DiagramTypography) throws {
@@ -61,7 +63,7 @@ struct MermaidDiagramsBenchmark {
     private static func read(_ source: String) throws -> FlowchartDiagram {
         switch try MermaidDiagramReader.read(source, limits: .standard) {
         case .flowchart(let diagram): diagram
-        case .stateDiagram, .classDiagram: throw UnexpectedDiagramType()
+        case .stateDiagram, .classDiagram, .sequence: throw UnexpectedDiagramType()
         }
     }
 

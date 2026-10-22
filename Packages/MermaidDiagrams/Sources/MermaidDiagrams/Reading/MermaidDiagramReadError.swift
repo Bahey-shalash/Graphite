@@ -9,6 +9,11 @@ public enum MermaidDiagramReadError: Error, Equatable, Sendable {
     case invalidSyntax(line: Int, problem: MermaidSyntaxProblem)
     case tooManyNodes(limit: Int)
     case tooManyEdges(limit: Int)
+    /// A sequence diagram names more participants than `MermaidDiagramLimits.maximumNodeCount`.
+    case tooManyParticipants(limit: Int)
+    /// A sequence diagram holds more messages, notes, activations and block lines than
+    /// `MermaidDiagramLimits.maximumEdgeCount`.
+    case tooManySequenceStatements(limit: Int)
 }
 
 /// What a reader found where the syntax broke.
@@ -58,4 +63,6 @@ public enum MermaidSyntaxProblem: Equatable, Sendable {
     case unclosedGenericType
     /// A `<<` that opens an annotation has no closing `>>` on its line.
     case unclosedAnnotation
+    /// A problem of a sequence diagram's own syntax.
+    case sequence(SequenceSyntaxProblem)
 }
