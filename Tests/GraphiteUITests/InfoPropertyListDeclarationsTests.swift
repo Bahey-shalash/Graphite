@@ -70,7 +70,8 @@ final class InfoPropertyListDeclarationsTests: XCTestCase {
             "CFBundleDisplayName", "CFBundleExecutable", "CFBundleIdentifier", "CFBundleName", "CFBundlePackageType",
             "CFBundleShortVersionString", "CFBundleVersion", "CFBundleURLTypes",
             "ITSAppUsesNonExemptEncryption", "LSApplicationCategoryType", "LSSupportsOpeningDocumentsInPlace",
-            "NSCameraUsageDescription", "NSMicrophoneUsageDescription", "NSPhotoLibraryAddUsageDescription", "NSUserActivityTypes",
+            "NSCameraUsageDescription", "NSLocalNetworkUsageDescription", "NSMicrophoneUsageDescription", "NSPhotoLibraryAddUsageDescription",
+            "NSUserActivityTypes",
             "UIApplicationSceneManifest", "UIApplicationSceneManifest~ipad", "UIBackgroundModes", "UIFileSharingEnabled", "UILaunchScreen",
             "UISupportedInterfaceOrientations", "UISupportsDocumentBrowser", "UTExportedTypeDeclarations",
         ])
