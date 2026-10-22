@@ -10,8 +10,9 @@ enum ReadingDiagram: Sendable {
     case unreadable(source: String, failure: ReadingDiagramFailure)
 
     /// The diagram a block's text describes, laid out in `typography`, or nil when its type is not drawn natively
-    /// yet (`MermaidDiagramReadError.unsupportedDiagramType`, a flowchart with subgraphs): the block is then shown
-    /// as code, as it was before diagrams were drawn.
+    /// yet (`MermaidDiagramReadError.unsupportedDiagramType`) or its subgraphs are not laid out
+    /// (`FlowchartLayoutError.subgraphsNotLaidOut`: a collapsed group, an edge between a group and what it holds):
+    /// the block is then shown as code, as it was before diagrams were drawn.
     init?(source: String, typography: DiagramTypography) {
         let diagram: MermaidDiagram
         do {
@@ -24,9 +25,6 @@ enum ReadingDiagram: Sendable {
         }
         switch diagram {
         case .flowchart(let flowchart):
-            // Groups are laid out in boxes the reading view does not paint yet: drawn without them, the flowchart
-            // would look complete and be wrong.
-            guard flowchart.subgraphs.isEmpty else { return nil }
             do {
                 self = .flowchart(ReadingFlowchart(diagram: flowchart, layout: try FlowchartLayoutEngine.layout(flowchart, typography: typography,
                                                                                                             limits: .standard)))
@@ -53,7 +51,7 @@ struct ReadingFlowchart: Sendable {
     let title: String?
     /// `accDescr`, or nil.
     let description: String?
-    /// The text of each node, in the order the diagram names them.
+    /// The text of each node drawn, in the order the diagram names them, then each group's title.
     let nodeTexts: [String]
 
     init(diagram: FlowchartDiagram, layout: FlowchartLayout) {
@@ -61,6 +59,8 @@ struct ReadingFlowchart: Sendable {
         shapes = ReadingFlowchartShapes(parts: FlowchartDrawingParts(layout: layout), font: layout.font)
         title = diagram.accessibilityTitle ?? diagram.title
         description = diagram.accessibilityDescription
-        nodeTexts = diagram.nodes.map(\.label.spokenText)
+        let groupNodes = Set(diagram.subgraphs.compactMap(\.representingNodeIndex))
+        nodeTexts = diagram.nodes.indices.filter { node in !groupNodes.contains(node) }.map { node in diagram.nodes[node].label.spokenText }
+            + diagram.subgraphs.map(\.title.spokenText).filter { title in !title.isEmpty }
     }
 }

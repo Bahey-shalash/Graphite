@@ -47,6 +47,19 @@ final class ReadingViewBuilderDiagramTests: XCTestCase {
         XCTAssertEqual(text, "```mermaid\nsequenceDiagram\n  Alice->>Bob: Hi\n```")
     }
 
+    func testAFlowchartWithSubgraphsBecomesADiagramBlockWithItsBoxes() async throws {
+        let blocks = try await build("```mermaid\nflowchart LR\n  subgraph one [Group]\n    A --> B\n  end\n  B --> C\n```").blocks
+        guard case .diagram(_, .flowchart(let flowchart)) = blocks.first else { return XCTFail("The flowchart is drawn") }
+        XCTAssertEqual(flowchart.layout.clusters.count, 1)
+        XCTAssertEqual(flowchart.layout.clusters[0].title?.lines, ["Group"])
+    }
+
+    func testAFlowchartWithACollapsedGroupStaysACodeBlock() async throws {
+        let source = "```mermaid\nflowchart TD\n  subgraph one\n    A\n  end\n  one@{ view: collapsed }\n```"
+        guard case .markdown(_, let text) = try await build(source).blocks.first else { return XCTFail("Shown as code") }
+        XCTAssertEqual(text, source)
+    }
+
     func testAFlowchartInACalloutIsDrawnInsideIt() async throws {
         let blocks = try await build("> [!example] Flow\n> ```mermaid\n> flowchart TD\n> A --> B\n> ```").blocks
         guard case .callout(_, _, _, _, let body) = blocks.first, case .diagram = body.first else { return XCTFail("Drawn in the callout") }
