@@ -337,38 +337,14 @@ final class CommunityPluginHostTests: XCTestCase {
         XCTAssertEqual(host.sidebarViews.count, 1, "The sidebar's view stays open.")
     }
 
-    /// Dataview and Tasks as built by `npm run build-compatibility-plugins`, read from the
-    /// Mac's checkout (the simulator's apps can read it); skipped when they are not built.
     func testDataviewAndTasksQueriesAreDrawnInTheReadingView() async throws {
-        let builtFolder = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Tests/CommunityPluginRuntimeTests/compatibility/built")
-        let realPlugins = ["dataview", "obsidian-tasks-plugin"]
-        guard realPlugins.allSatisfy({ plugin in FileManager.default.fileExists(atPath: builtFolder.appendingPathComponent(plugin + "/main.js").path) }) else {
-            throw XCTSkip("Dataview and Tasks are not built (npm run build-compatibility-plugins).")
-        }
         let note = "# Queries\n\n```tasks\nnot done\npath includes Queries\n```\n\n```dataview\nTABLE rating, author FROM \"Books\" SORT rating DESC\n```\n\n- [ ] Write the report\n- [x] Book the room\n"
-        let vault = try makeVault(notes: ["Queries.md": note], pluginEnabled: true)
-        try FileManager.default.createDirectory(at: vault.appendingPathComponent("Books"), withIntermediateDirectories: true)
-        try Data("---\nrating: 5\nauthor: Frank Herbert\n---\nDesert.\n".utf8).write(to: vault.appendingPathComponent("Books/Dune.md"))
-        try Data("---\nrating: 4\nauthor: Jane Austen\n---\nMatches.\n".utf8).write(to: vault.appendingPathComponent("Books/Emma.md"))
-        for plugin in realPlugins {
-            let destination = vault.appendingPathComponent(".obsidian/plugins/" + plugin)
-            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
-            for file in ["main.js", "manifest.json", "styles.css"] where FileManager.default.fileExists(atPath: builtFolder.appendingPathComponent(plugin + "/" + file).path) {
-                try FileManager.default.copyItem(at: builtFolder.appendingPathComponent(plugin + "/" + file), to: destination.appendingPathComponent(file))
-            }
-        }
-        try Data("[\n  \"dataview\",\n  \"obsidian-tasks-plugin\"\n]".utf8).write(to: vault.appendingPathComponent(".obsidian/community-plugins.json"))
-        let workspace = WorkspaceModel()
-        self.workspace = workspace
-        try await workspace.openFolderAsVault(vault)
-        openedVaultIdentifiers.append(try XCTUnwrap(workspace.currentVaultIdentifier))
-        let controller = try host(workspace)
+        let (workspace, _, controller) = try await workspaceWithBuiltPlugins(["dataview", "obsidian-tasks-plugin"], notes: [
+            "Queries.md": note,
+            "Books/Dune.md": "---\nrating: 5\nauthor: Frank Herbert\n---\nDesert.\n",
+            "Books/Emma.md": "---\nrating: 4\nauthor: Jane Austen\n---\nMatches.\n",
+        ])
         let host = workspace.communityPlugins
-        await host.reloadInventory() // opening lists nothing while plugins are off
-        try await waitUntil { Set(host.inventory.plugins.map(\.id)).isSuperset(of: realPlugins) }
-        await host.setTurnedOnForVault(true)
-        try await waitUntil(timeoutSeconds: 20) { host.loadStates["dataview"] == .loaded && host.loadStates["obsidian-tasks-plugin"] == .loaded }
         try await waitUntil(timeoutSeconds: 10) { host.codeBlockLanguages.isSuperset(of: ["dataview", "tasks"]) }
         let tab = try await openTab("Queries.md", in: workspace)
         workspace.document(for: tab).markdownSession?.viewMode = .reading
@@ -406,7 +382,11 @@ final class CommunityPluginHostTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("CommunityPluginHost-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         vaultDirectories.append(directory)
-        for (name, text) in notes { try Data(text.utf8).write(to: directory.appendingPathComponent(name)) }
+        for (name, text) in notes {
+            let file = directory.appendingPathComponent(name)
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(text.utf8).write(to: file)
+        }
         guard pluginEnabled else { return directory }
         let pluginFolder = directory.appendingPathComponent(".obsidian/plugins/\(Self.pluginIdentifier)")
         try FileManager.default.createDirectory(at: pluginFolder, withIntermediateDirectories: true)
@@ -433,6 +413,45 @@ final class CommunityPluginHostTests: XCTestCase {
         await host.setTurnedOnForVault(true)
         try await waitUntil(timeoutSeconds: 15) { host.loadStates[Self.pluginIdentifier] == .loaded }
         try await waitUntil { host.commands.contains { command in command.id == Self.pluginIdentifier + ":save-data" } }
+        return (workspace, vault, controller)
+    }
+
+    /// The folder `npm run build-compatibility-plugins` builds real plugins into, in the Mac's
+    /// checkout: the simulator's apps and an unsandboxed Mac test host can read it.
+    private static let builtPluginsFolder = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        .deletingLastPathComponent().appendingPathComponent("Tests/CommunityPluginRuntimeTests/compatibility/built")
+
+    /// A vault with real plugins, built from their sources at the commits the Node tests pin,
+    /// installed as Graphite installs them, turned on and loaded, in a window. Skipped when
+    /// they are not built.
+    private func workspaceWithBuiltPlugins(_ pluginIdentifiers: [String], notes: [String: String]) async throws
+        -> (WorkspaceModel, URL, HostedViewController) {
+        let builtFolders = pluginIdentifiers.map { plugin in Self.builtPluginsFolder.appendingPathComponent(plugin) }
+        guard builtFolders.allSatisfy({ folder in FileManager.default.fileExists(atPath: folder.appendingPathComponent("main.js").path) }) else {
+            throw XCTSkip("\(pluginIdentifiers.joined(separator: ", ")) not built (npm run build-compatibility-plugins).")
+        }
+        let vault = try makeVault(notes: notes, pluginEnabled: false)
+        for (plugin, builtFolder) in zip(pluginIdentifiers, builtFolders) {
+            let destination = vault.appendingPathComponent(".obsidian/plugins/" + plugin)
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            for file in ["main.js", "manifest.json", "styles.css"] where FileManager.default.fileExists(atPath: builtFolder.appendingPathComponent(file).path) {
+                try FileManager.default.copyItem(at: builtFolder.appendingPathComponent(file), to: destination.appendingPathComponent(file))
+            }
+        }
+        let enabledList = try JSONSerialization.data(withJSONObject: pluginIdentifiers, options: [.prettyPrinted])
+        try enabledList.write(to: vault.appendingPathComponent(".obsidian/community-plugins.json"))
+        let workspace = WorkspaceModel()
+        self.workspace = workspace
+        try await workspace.openFolderAsVault(vault)
+        openedVaultIdentifiers.append(try XCTUnwrap(workspace.currentVaultIdentifier))
+        let controller = try host(workspace)
+        let host = workspace.communityPlugins
+        await host.reloadInventory() // opening lists nothing while plugins are off
+        try await waitUntil { Set(host.inventory.plugins.map(\.id)).isSuperset(of: pluginIdentifiers) }
+        await host.setTurnedOnForVault(true)
+        try await waitUntil("\(pluginIdentifiers) loaded", timeoutSeconds: 30) {
+            pluginIdentifiers.allSatisfy { plugin in host.loadStates[plugin] == .loaded }
+        }
         return (workspace, vault, controller)
     }
 
