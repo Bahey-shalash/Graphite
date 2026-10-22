@@ -223,6 +223,7 @@ These rows review every item that had no row at the first 70. They were measured
 | `Sources/GraphiteCore/NoteProperties.swift` | `NoteProperties.splicedYAML` | 63 | one concept | It splices changed properties into the original YAML lines and checks that the result reads back the same, one operation with its own safety check. |
 | `Sources/GraphiteUI/AppIconSettingsSection.swift` | `AppIconSettingsSection.body` | 63 | one concept | It lays out the app icon choices and the failure alert; the icon change itself is `changeIcon`. |
 | `Sources/GraphiteUI/LivePreviewWidgets.swift` | `LivePreviewEmbedView.body` | 63 | one concept | It is a switch from the resolution of an embed to the view that shows it, one case per resolution. |
+| `Sources/GraphiteUI/PostgreSQLMirrorSettingsPage.swift` | `PostgreSQLMirrorSettingsPage.body` | 63 | one concept | It lays out the settings form: the server fields, the schema, Save and Test, and the last copy; saving, testing and the status text are functions of their own. |
 | `Sources/GraphiteUI/BaseDocumentModel.swift` | `BaseDocumentModel.runQuery` | 62 | split planned → `BaseQueryRun` (a pure run off the main actor with its outcome value); the model only publishes the outcome under `LatestRequest` | It builds the environment, runs the query in a detached task, merges the outcome and manages cancellation (`CC-BASES-01`, `SRP-BASES-02`). |
 | `Sources/GraphiteUI/BaseValueViews.swift` | `BaseValueView.body` | 62 | one concept | It chooses the view of one cell value, one case per value kind. |
 | `Sources/GraphiteUI/ReadAloudVoiceSettings.swift` | `ReadAloudVoiceSettings.voiceSection` | 62 | one concept | It is one form section for the voice, speed, sample and Personal Voice rows. |
@@ -366,7 +367,7 @@ These rows review every item that had no row at the first 70. They were measured
 
 | Outcome | Items |
 | --- | ---: |
-| `one concept` | 127 |
+| `one concept` | 128 |
 | `split planned` | 163 |
 | Not yet reviewed | 0 |
 | **Over a threshold in the working tree (2026-10-21)** | **284** |
