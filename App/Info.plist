@@ -35,6 +35,8 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Record lectures as ordinary video files in your selected vault, and take photos of the board or a page for your notes, and scan paper documents into PDFs.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Graphite connects to the PostgreSQL server you set up in Settings › PostgreSQL Mirror, to copy your notes into it.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Record lectures as ordinary audio and video files in your selected vault.</string>
 	<key>NSUserActivityTypes</key>
