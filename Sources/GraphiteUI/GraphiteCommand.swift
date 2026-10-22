@@ -62,6 +62,7 @@ enum GraphiteCommand: String, CaseIterable {
     case goToTab5 = "workspace:goto-tab-5", goToTab6 = "workspace:goto-tab-6", goToTab7 = "workspace:goto-tab-7", goToTab8 = "workspace:goto-tab-8"
     case goToLastTab = "workspace:goto-last-tab", closeOtherTabs = "workspace:close-others", togglePin = "workspace:toggle-pin"
     case moveTabToOtherSide = "graphite:move-tab-to-other-side", focusOtherSide = "graphite:focus-other-side"
+    case toggleStackedTabs = "workspace:toggle-stacked-tabs"
     case todaysDailyNote = "daily-notes", previousDailyNote = "daily-notes:goto-prev", nextDailyNote = "daily-notes:goto-next"
     // Editor
     case toggleBold = "editor:toggle-bold", toggleItalics = "editor:toggle-italics", toggleStrikethrough = "editor:toggle-strikethrough"
@@ -219,6 +220,8 @@ extension GraphiteCommand {
         case .closeOtherTabs: return Descriptor(title: "Close all other tabs", group: .go)
         case .togglePin: return Descriptor(title: "Toggle pin", group: .go)
         case .moveTabToOtherSide: return Descriptor(title: "Move current tab to the other side", group: .go)
+        case .toggleStackedTabs:
+            return Descriptor(title: "Toggle stacked tabs", group: .go, binding: .menuBar, macMenuTitles: ["Stack Tabs", "Unstack Tabs"])
         case .focusOtherSide:
             return Descriptor(title: "Focus the other side of the split", group: .go, binding: .menuBar, macMenuTitles: ["Focus the Other Side"])
         case .todaysDailyNote:
