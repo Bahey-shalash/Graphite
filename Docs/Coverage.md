@@ -4,6 +4,11 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-21.
 
+## Suggestions in the Mac editor: 2026-10-21
+
+The Mac app's note editor shows the suggestion list the iPad's shows: notes, headings and blocks after `[[`, tags after `#`, and community plugins' suggestions (`EditorSuggest`), at the cursor, while the note has keyboard focus. The arrow keys move through it, Return or Tab chooses one, Escape closes it, and it closes when the note loses keyboard focus. A chosen suggestion is one edit Undo takes back. Community plugins hear each change and cursor move from the Mac editor, as on the iPad, while it has keyboard focus (before, they heard changes only, and their suggestions went unused). Both editors keep what the list was found for in one type, `EditorCompletionTracking`.
+
+Checked: `UiEditorMacSuggestionsTests` (4, on the Mac), which fail with the Mac editor's handlers as they were; `EditorCompletionTrackingTests` (7), which pin ED-08 now that its rule is out of the UIKit coordinator; the Mac editor's other tests (`UiEditorMac*`, 41); the whole `GraphiteUITests` suite on the Mac twice (1,306 tests): the first run failed 6 tests and the second 1, all of them in image decoding, thumbnails and a PDF page for Read Aloud, different in each run, each passing alone on this branch and on `origin/main`, whose own full run passed; on the iPad simulator, `LivePreviewRevealTests` (its link suggestion test included) and `CommunityPluginHostTests`' typing test, for the iPad editor's move to `EditorCompletionTracking`. Not established: typing in the Mac app by hand, with a hardware keyboard and an input method.
 ## Scrolling a long note: fewer jumps, a third of the memory: 2026-10-21
 
 Scrolling a long Live Preview note jumped, stuttered and grew memory on the Mac, the iPad and the iPhone (the owner, 2026-10-21; [Editor-scrolling-todo.md](Editor-scrolling-todo.md), issue #57). Two causes were found and fixed:

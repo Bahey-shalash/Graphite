@@ -2924,6 +2924,8 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         }
         /// Set while Graphite changes the text itself, which may change the YAML.
         private var isApplyingOwnEdit = false
+        /// The suggestions at the cursor: what they were found for and what plugins heard.
+        private var completionTracking = EditorCompletionTracking()
 
         init(session: MarkdownSession, configuration: EditorConfiguration) {
             self.session = session
@@ -2996,6 +2998,10 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             if let textView = scrollView.documentView as? NSTextView {
                 observeCharacterEdits(in: textView)
                 reportPlace(of: textView)
+                session.completion.performEdits = { [weak self, weak textView] edits in
+                    guard let self, let textView else { return }
+                    self.performCompletionEdits(edits, in: textView)
+                }
             }
             session.isEditorAttached = true
             session.undoAvailability.follow(noteUndoManager)
@@ -3041,6 +3047,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             textView.didResignFirstResponder = { [weak self, weak textView] in
                 guard let self, let textView else { return }
                 self.followKeyboardFocus(false, in: textView)
+                self.closeCompletion()
             }
             textView.toggleTaskOnClick = { [weak self, weak textView] characterIndex in
                 guard let self, let textView else { return false }
@@ -3056,6 +3063,12 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             textView.didLayOutViewport = { [weak self, weak textView] in
                 guard let self, let textView else { return }
                 self.placeBlockViews(in: textView)
+                // The suggestions follow the cursor as the note scrolls.
+                if self.session.completion.context != nil { self.updateCompletion(in: textView) }
+            }
+            session.completion.performEdits = { [weak self, weak textView] edits in
+                guard let self, let textView else { return }
+                self.performCompletionEdits(edits, in: textView)
             }
             textView.didBecomeMeasurable = { [weak self] measurableView in
                 // Not from inside the window change or layout itself.
@@ -3118,9 +3131,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             guard let textView = notification.object as? NSTextView else { return }
             settleTextChange(in: textView)
             publish(textView)
-            // Plugins hear the note change as in Obsidian's editor (`editor-change`). The
-            // Mac shows no suggestions list, so suggestions plugins answer go unused.
-            _ = actions.pluginEditorDidChange?()
+            updateCompletion(in: textView)
         }
 
         /// Shows the markup at the cursor once the note has keyboard focus, and hides it, the
@@ -3137,6 +3148,10 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             concealPropertiesSourceIfLeft(in: textView)
             styling.restyleRevealedMarkup(in: textView)
             formatCodeBlockLeftBehind(in: textView, editingEnded: false)
+            // During an edit the selection can be reported before the text; `textDidChange`
+            // updates the suggestions for the same selection once the edit is settled.
+            guard !textState.cachesDescribeOldText else { return }
+            updateCompletion(in: textView)
         }
 
         func textDidEndEditing(_ notification: Notification) {
@@ -3464,6 +3479,80 @@ struct NativeMarkdownEditor: NSViewRepresentable {
             textView.didChangeText()
             if NSMaxRange(selection) <= textStorage.length { textView.setSelectedRange(selection) }
             return true
+        }
+
+        // MARK: Suggestions
+
+        /// Shows or hides suggestions for what is typed at the cursor, as the iPad's editor
+        /// does: links after `[[`, tags after `#`, else what community plugins suggest.
+        /// Plugins hear each change and cursor move from here (`editor-change`).
+        func updateCompletion(in textView: NSTextView) {
+            completionTracking.recordAcceptedSuggestion(isListOpen: session.completion.context != nil)
+            defer { completionTracking.listDidUpdate(isOpen: session.completion.context != nil, at: textState.history.revision) }
+            let selection = textView.selectedRange()
+            guard textView.window?.firstResponder === textView, !textView.hasMarkedText(), selection.length == 0 else {
+                session.completion.update(context: nil, caretRect: .zero)
+                return
+            }
+            let context = completionTracking.context(in: currentSource(of: textView), cursor: selection.location,
+                                                     textRevision: textState.history.revision, pluginEditorDidChange: actions.pluginEditorDidChange)
+            session.completion.update(context: context, caretRect: context == nil ? .zero : caretRect(in: textView))
+        }
+
+        /// The cursor in the coordinates of the view that shows the note, from its top left,
+        /// where the pane draws the suggestions.
+        private func caretRect(in textView: NSTextView) -> CGRect {
+            guard let window = textView.window, let noteView = textView.enclosingScrollView?.superview ?? textView.enclosingScrollView else { return .zero }
+            let screenRect = textView.firstRect(forCharacterRange: textView.selectedRange(), actualRange: nil)
+            let rect = noteView.convert(window.convertFromScreen(screenRect), from: nil)
+            return noteView.isFlipped ? rect : CGRect(x: rect.minX, y: noteView.bounds.height - rect.maxY, width: rect.width, height: rect.height)
+        }
+
+        /// While suggestions show, the arrow keys move through them, Return and Tab choose
+        /// one, and Escape closes them, as on the iPad.
+        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            guard session.completion.isVisible else { return false }
+            switch commandSelector {
+            case #selector(NSResponder.moveUp(_:)): session.completion.moveSelection(by: -1)
+            case #selector(NSResponder.moveDown(_:)): session.completion.moveSelection(by: 1)
+            case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertTab(_:)): session.completion.accept()
+            case #selector(NSResponder.cancelOperation(_:)), #selector(NSTextView.complete(_:)):
+                completionTracking.forgetOpenSuggestions()
+                session.completion.dismiss()
+            default: return false
+            }
+            return true
+        }
+
+        /// Closes the suggestions as the note loses keyboard focus; one chosen just before
+        /// still gets its edits.
+        private func closeCompletion() {
+            completionTracking.recordAcceptedSuggestion(isListOpen: session.completion.context != nil)
+            completionTracking.forgetOpenSuggestions()
+            session.completion.update(context: nil, caretRect: .zero)
+        }
+
+        /// An accepted suggestion's edits, moved past what was typed since its suggestions
+        /// were found (`EditorCompletionTracking`), made through the text view so Undo takes
+        /// them back. Each is written against the original text; the last one's selection is kept.
+        func performCompletionEdits(_ edits: [MarkdownTextEdit], in textView: NSTextView) {
+            completionTracking.recordAcceptedSuggestion(isListOpen: session.completion.context != nil)
+            guard let movedEdits = completionTracking.editsMovedPastTyping(edits, history: textState.history) else {
+                session.errorMessage = EditorCompletionTracking.noteChangedMessage
+                return
+            }
+            guard let primary = movedEdits.last, let textStorage = textView.textStorage else { return }
+            textView.breakUndoCoalescing()
+            var selectionShift = 0
+            for edit in movedEdits.sorted(by: { leftEdit, rightEdit in leftEdit.range.location > rightEdit.range.location }) {
+                guard NSMaxRange(edit.range) <= textStorage.length,
+                      textView.shouldChangeText(in: edit.range, replacementString: edit.replacement) else { continue }
+                textStorage.replaceCharacters(in: edit.range, with: edit.replacement)
+                textView.didChangeText()
+                if edit != primary, edit.range.location < primary.range.location { selectionShift += edit.replacement.utf16.count - edit.range.length }
+            }
+            let selection = NSRange(location: primary.selectionAfter.location + selectionShift, length: primary.selectionAfter.length)
+            if NSMaxRange(selection) <= textStorage.length { textView.setSelectedRange(selection) }
         }
 
         // MARK: Links
