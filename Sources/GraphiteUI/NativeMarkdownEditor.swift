@@ -897,21 +897,8 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         private var pinnedHeading: HeadingJumpPin?
         /// Pastes and drops whose content is still loading or saving.
         private var pendingInsertionRequests = PendingInsertionRequests()
-        /// The text revision the open suggestions were found at, and the revisions of accepted
-        /// suggestions whose edits are still being made. Their edits arrive after
-        /// asynchronous work and are moved past typing that happened meanwhile.
-        private var completionContextRevision: Int?
-        /// The text and cursor community plugins last heard of, and the revision they answered
-        /// with suggestions for.
-        private struct PluginEditorState: Equatable {
-            let textRevision: Int
-            let cursor: Int
-        }
-        private var lastPluginEditorState: PluginEditorState?
-        private var pluginSuggestionRevision: Int?
-        private var acceptedCompletionRevisions: [Int] = []
-        /// Only a few are kept: the edits use the latest.
-        private static let maximumAcceptedCompletionRevisions = 8
+        /// The suggestions at the cursor: what they were found for and what plugins heard.
+        private var completionTracking = EditorCompletionTracking()
 
         init(session: MarkdownSession, configuration: EditorConfiguration) {
             self.session = session
@@ -1445,61 +1432,30 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         /// changed the text they replace, none are made: a link without its `^id`, or a
         /// query replaced in the middle of new text, would corrupt the note.
         func performCompletionEdits(_ edits: [MarkdownTextEdit], in textView: UITextView) {
-            recordAcceptedCompletion()
-            // The edits belong to the suggestion accepted last: suggestions are accepted one
-            // at a time, and one whose edits could not be found leaves an older revision
-            // behind, which would move these edits by typing they already account for.
-            let baseRevision = acceptedCompletionRevisions.last
-            acceptedCompletionRevisions.removeAll()
-            guard let baseRevision else {
-                perform(edits, in: textView)
+            completionTracking.recordAcceptedSuggestion(isListOpen: session.completion.context != nil)
+            guard let movedEdits = completionTracking.editsMovedPastTyping(edits, history: textState.history) else {
+                session.errorMessage = EditorCompletionTracking.noteChangedMessage
                 return
-            }
-            var movedEdits: [MarkdownTextEdit] = []
-            for edit in edits {
-                guard let movedRange = textState.history.replacedRange(edit.range, computedAt: baseRevision) else {
-                    session.errorMessage = "The note changed before the suggestion could be inserted. Choose it again."
-                    return
-                }
-                let shift = movedRange.location - edit.range.location
-                movedEdits.append(MarkdownTextEdit(range: movedRange, replacement: edit.replacement, selectionAfter: edit.selectionAfter.shifted(by: shift)))
             }
             perform(movedEdits, in: textView)
         }
 
         /// Closes the suggestions on Escape. They were not accepted, so no edits follow.
         func dismissCompletion() {
-            completionContextRevision = nil
+            completionTracking.forgetOpenSuggestions()
             session.completion.dismiss()
-        }
-
-        /// Suggestions that closed since the last update without Escape were accepted; their
-        /// edits are on the way and belong to the revision the suggestions were found at.
-        private func recordAcceptedCompletion() {
-            guard session.completion.context == nil, let completionContextRevision else { return }
-            acceptedCompletionRevisions.append(completionContextRevision)
-            if acceptedCompletionRevisions.count > Self.maximumAcceptedCompletionRevisions { acceptedCompletionRevisions.removeFirst() }
-            self.completionContextRevision = nil
         }
 
         /// Shows or hides suggestions for what is typed at the cursor.
         func updateCompletion(in textView: UITextView) {
-            recordAcceptedCompletion()
-            defer { completionContextRevision = session.completion.context == nil ? nil : textRevision }
+            completionTracking.recordAcceptedSuggestion(isListOpen: session.completion.context != nil)
+            defer { completionTracking.listDidUpdate(isOpen: session.completion.context != nil, at: textRevision) }
             guard textView.isFirstResponder, textView.markedTextRange == nil, textView.selectedRange.length == 0 else {
                 session.completion.update(context: nil, caretRect: .zero)
                 return
             }
-            var context = LinkCompletion.context(in: currentSource(of: textView), cursor: textView.selectedRange.location)
-            if context == nil, let pluginEditorDidChange = actions.pluginEditorDidChange {
-                // Plugins hear each change and cursor move once; scrolling asks again for the same.
-                let key = PluginEditorState(textRevision: textRevision, cursor: textView.selectedRange.location)
-                if key != lastPluginEditorState {
-                    lastPluginEditorState = key
-                    pluginSuggestionRevision = pluginEditorDidChange()
-                }
-                context = pluginSuggestionRevision.map { revision in CompletionContext.pluginSuggestion(revision: revision) }
-            }
+            let context = completionTracking.context(in: currentSource(of: textView), cursor: textView.selectedRange.location,
+                                                     textRevision: textRevision, pluginEditorDidChange: actions.pluginEditorDidChange)
             var caretRect = CGRect.zero
             if context != nil, let end = textView.selectedTextRange?.end {
                 caretRect = textView.caretRect(for: end).offsetBy(dx: -textView.contentOffset.x, dy: -textView.contentOffset.y)
@@ -1612,8 +1568,8 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             session.isTyping = false
             formatCodeBlockLeftBehind(in: textView, editingEnded: true)
             // A suggestion chosen as the keyboard closes still gets its edits.
-            recordAcceptedCompletion()
-            completionContextRevision = nil
+            completionTracking.recordAcceptedSuggestion(isListOpen: session.completion.context != nil)
+            completionTracking.forgetOpenSuggestions()
             session.completion.update(context: nil, caretRect: .zero)
             updateRevealedMarkup(in: textView)
             // In a split, the other note can take the keyboard without this view being laid
