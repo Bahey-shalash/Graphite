@@ -1,5 +1,6 @@
 import SwiftUI
 import GraphiteCore
+import MermaidDiagrams
 
 /// The colors a diagram is painted in: the note's background and text, and between them the shapes' fill and
 /// outline where Pele's own colors put them (5.4 % and 52 % of the way from its white page to its #1f1f1f text).
@@ -23,5 +24,13 @@ struct ReadingDiagramColors {
     /// The vault theme's background and text where it sets them, else the system's.
     init(theme: NoteThemeStyle?) {
         self.init(background: Color(theme?.background ?? NoteThemeStyle.systemBackground), foreground: Color(theme?.textNormal ?? NoteThemeStyle.systemLabel))
+    }
+
+    /// The colors a mindmap's branches take in turn: Pele's series colors, the same on a light and a dark page, as in Pele.
+    static let series: [Color] = DiagramPalette.peleSeries.map { color in Color(cgColor: color) }
+
+    /// The color of the `index`th series, the colors taken in turn.
+    static func seriesColor(_ index: Int) -> Color {
+        series[index % series.count]
     }
 }

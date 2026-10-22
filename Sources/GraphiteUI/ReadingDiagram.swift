@@ -8,6 +8,8 @@ enum ReadingDiagram: Sendable {
     case flowchart(ReadingFlowchart)
     /// A diagram of a type drawn natively whose text could not be read or laid out: its source is shown with why.
     case unreadable(source: String, failure: ReadingDiagramFailure)
+    /// A mindmap drawn natively.
+    case mindmap(ReadingMindmap)
 
     /// The diagram a block's text describes, laid out in `typography`, or nil when its type is not drawn natively
     /// yet (`MermaidDiagramReadError.unsupportedDiagramType`, a flowchart with subgraphs): the block is then shown
@@ -32,6 +34,8 @@ enum ReadingDiagram: Sendable {
             } catch {
                 self = .unreadable(source: source, failure: .layout(error))
             }
+        case .mindmap(let mindmap):
+            self = .mindmap(ReadingMindmap(diagram: mindmap, layout: MindmapLayoutEngine.layout(mindmap, typography: typography)))
         }
     }
 }

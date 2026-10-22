@@ -171,6 +171,24 @@ final class MindmapParserTests: XCTestCase {
         XCTAssertNil(MindmapReading.readError("mindmap\nroot\n  a\n  b", limits: limits))
     }
 
+    // MARK: Through the reader
+
+    func testTheMindmapKeywordReadsAMindmapWithItsFrontMatterTitle() throws {
+        let diagram = try mindmap("---\ntitle: Plans\n---\nmindmap\n  root\n    child")
+        XCTAssertEqual(diagram.title, "Plans")
+        XCTAssertEqual(diagram.nodes.count, 2)
+    }
+
+    func testRowsAboveTheKeywordAreSkipped() throws {
+        XCTAssertEqual(try mindmap("\n \nmindmap\nroot\n A\n \n\n B").nodes[0].childIndices.count, 2)
+        XCTAssertEqual(try mindmap("\n\n\nmindmap\nroot\n A\n \n\n B").nodes[0].childIndices.count, 2)
+        XCTAssertEqual(try mindmap("%% a comment\nmindmap\nroot").nodes.count, 1)
+    }
+
+    func testLinesAreCountedFromTheTextsFirstLine() {
+        XCTAssertEqual(MindmapReading.readError("---\ntitle: T\n---\nmindmap\n  root\n  second"), .invalidSyntax(line: 6, problem: .secondRoot(text: "second")))
+    }
+
     // MARK: Mermaid's documentation
 
     func testTheDocumentationsFirstExampleReads() throws {
