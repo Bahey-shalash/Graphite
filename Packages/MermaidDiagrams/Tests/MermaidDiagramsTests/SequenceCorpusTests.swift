@@ -41,4 +41,13 @@ final class SequenceCorpusTests: XCTestCase {
         }
         XCTAssertEqual(laidOutCount, 24)
     }
+
+    func testTheGeneratedConversationIsLaidOutWithEveryMessageNoteAndLoop() throws {
+        let diagram = try SequenceReading.sequence(SequenceCorpus.conversation(participantCount: 10, messageCount: 200))
+        let layout = try SequenceLayoutEngine.layout(diagram, typography: DiagramTypography(font: DiagramFont(postScriptName: nil, size: 16)))
+        XCTAssertEqual(layout.messages.count, 200)
+        XCTAssertEqual(layout.notes.count, 20)
+        XCTAssertEqual(layout.blocks.count, 10)
+        XCTAssertEqual(layout.messages.last?.number?.text.lines, ["200"])
+    }
 }
