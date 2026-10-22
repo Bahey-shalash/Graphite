@@ -239,6 +239,33 @@ final class ObsidianAppearanceTests: XCTestCase {
         XCTAssertFalse(ObsidianStyleFiles.isStyleFile(vault.appendingPathComponent(".obsidian/app.json")))
     }
 
+    func testASnippetIsDescribedByTheFirstSentenceOfItsOpeningComment() {
+        XCTAssertEqual(ObsidianStyleFiles.snippetDescription(of: "/* Square bullets for unordered lists */\nul li { list-style-type: square; }"),
+                       "Square bullets for unordered lists")
+        XCTAssertEqual(ObsidianStyleFiles.snippetDescription(of: "\u{FEFF}\n/* Recipe gallery: three lines per card.\n   Applies to notes with `cssclasses: recipes`. */\n.recipes {}"),
+                       "Recipe gallery: three lines per card.", "Only the first sentence is shown.")
+        XCTAssertEqual(ObsidianStyleFiles.snippetDescription(of: "/*\n * ==========\n * Wide tables v1.2\n * ==========\n */\ntable {}"),
+                       "Wide tables v1.2", "Banner lines and the leading stars of a block comment are dropped.")
+        XCTAssertNil(ObsidianStyleFiles.snippetDescription(of: "body { color: red; } /* red text */"), "A comment after the first rule is not the file's description.")
+        XCTAssertNil(ObsidianStyleFiles.snippetDescription(of: "/* @settings\nname: Options\n*/"), "Style Settings' block lists options, not what the snippet does.")
+        XCTAssertNil(ObsidianStyleFiles.snippetDescription(of: "/* ----- */\nbody {}"))
+        XCTAssertNil(ObsidianStyleFiles.snippetDescription(of: "/* never closed"))
+        let longDescription = ObsidianStyleFiles.snippetDescription(of: "/* " + String(repeating: "word ", count: 60) + "*/")
+        XCTAssertEqual(longDescription?.hasSuffix("word…"), true, "A long sentence is cut at a word.")
+        XCTAssertLessThanOrEqual(longDescription?.count ?? 0, ObsidianStyleFiles.maximumSnippetDescriptionCharacters + 1)
+    }
+
+    func testTheStoreListsSnippetsWithTheirDescriptions() async throws {
+        let vault = try TemporaryVault.make(prefix: "Vault", for: self).root
+        let snippets = vault.appendingPathComponent(".obsidian/snippets")
+        try FileManager.default.createDirectory(at: snippets, withIntermediateDirectories: true)
+        try Data("/* Boxes around quotes */\nblockquote { border: 1px solid; }".utf8).write(to: snippets.appendingPathComponent("quote-boxes.css"))
+        try Data("ul li { list-style-type: square; }".utf8).write(to: snippets.appendingPathComponent("bullets.css"))
+        let listedSnippets = await VaultStore(root: vault).snippets()
+        XCTAssertEqual(listedSnippets, [ObsidianSnippet(name: "bullets", description: nil),
+                                        ObsidianSnippet(name: "quote-boxes", description: "Boxes around quotes")])
+    }
+
     func testThemeDirectoryEntriesAreReadAndSearched() throws {
         let entries = try JSONDecoder().decode([ObsidianThemeDirectoryEntry].self, from: Data("""
         [{"name": "Minimal", "author": "kepano", "repo": "kepano/obsidian-minimal", "screenshot": "dark.png", "modes": ["dark", "light"]},

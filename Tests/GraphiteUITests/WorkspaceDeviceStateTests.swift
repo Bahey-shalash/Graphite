@@ -114,6 +114,53 @@ final class WorkspaceDeviceStateTests: XCTestCase {
         XCTAssertEqual(stored, ["Note.md": ["heading-a", "heading-b"]], "Keys are sorted, and kept by the note's vault path.")
     }
 
+    // MARK: Remembered views
+
+    func testPerNoteEachNoteOpensInTheViewItWasLeftInAndOthersInTheDefault() async throws {
+        let workspace = device.makeWorkspace()
+        try await workspace.openFolderAsVault(try makeVault(files: ["Read.md": "read", "Other.md": "other"]))
+        let identifier = try XCTUnwrap(workspace.currentVaultIdentifier)
+        XCTAssertEqual(workspace.preferences.noteViewMemory, .perNote, "Per note is the default.")
+        await workspace.open(try VaultPath("Read.md"))
+        try XCTUnwrap(workspace.markdownSession).viewMode = .reading
+
+        await workspace.open(try VaultPath("Other.md"))
+        XCTAssertEqual(workspace.markdownSession?.viewMode, workspace.preferences.initialNoteViewMode)
+        await workspace.open(try VaultPath("Read.md"))
+        XCTAssertEqual(workspace.markdownSession?.viewMode, .reading)
+
+        let stored = device.defaults.dictionary(forKey: "GraphiteNoteViews." + identifier.uuidString) as? [String: String]
+        XCTAssertEqual(stored, ["Read.md": "reading"])
+    }
+
+    func testPerVaultEveryNoteOpensInTheViewLastChosenInTheVault() async throws {
+        let workspace = device.makeWorkspace()
+        workspace.preferences.noteViewMemory = .perVault
+        try await workspace.openFolderAsVault(try makeVault(files: ["First.md": "first", "Second.md": "second"]))
+        let identifier = try XCTUnwrap(workspace.currentVaultIdentifier)
+        await workspace.open(try VaultPath("First.md"))
+        try XCTUnwrap(workspace.markdownSession).viewMode = .reading
+
+        await workspace.open(try VaultPath("Second.md"))
+
+        XCTAssertEqual(workspace.markdownSession?.viewMode, .reading)
+        XCTAssertEqual(device.defaults.string(forKey: "GraphiteVaultNoteView." + identifier.uuidString), "reading")
+        XCTAssertNil(device.defaults.object(forKey: "GraphiteNoteViews." + identifier.uuidString), "No note keeps a view of its own.")
+    }
+
+    func testARenamedNoteKeepsItsRememberedView() async throws {
+        let workspace = device.makeWorkspace()
+        try await workspace.openFolderAsVault(try makeVault(files: ["Old.md": "text"]))
+        let identifier = try XCTUnwrap(workspace.currentVaultIdentifier)
+        await workspace.open(try VaultPath("Old.md"))
+        try XCTUnwrap(workspace.markdownSession).viewMode = .source
+
+        workspace.followMoveInNavigation(from: try VaultPath("Old.md"), to: try VaultPath("Folder/New.md"))
+
+        let stored = device.defaults.dictionary(forKey: "GraphiteNoteViews." + identifier.uuidString) as? [String: String]
+        XCTAssertEqual(stored, ["Folder/New.md": "source"])
+    }
+
     // MARK: D-24 and what removing a vault takes away
 
     /// The folds of a removed vault name its notes, and nothing would read them again:

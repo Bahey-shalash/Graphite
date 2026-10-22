@@ -71,7 +71,8 @@ enum GuideBasicsCopy {
                      "Do it again to write.")),
             GuideStep("To see the plain Markdown, open the note's **More** menu (…) › **View** › **Source Mode**. " +
                       "**Live Preview** brings the formatting back."),
-            GuideStep("To choose how notes open, go to Settings › Editor › **Default View for New Notes** and **Default Editing Mode**.")
+            GuideStep("To choose how notes open, go to Settings › Editor › **Default View for New Notes** and **Default Editing Mode**. " +
+                      "**Remember View** keeps the view you switch to for that note only (Per Note) or for every note in the vault (Per Vault).")
         ])
 
     static let filesAndFolders = GuideTopicContent(
