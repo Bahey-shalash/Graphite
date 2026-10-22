@@ -872,6 +872,12 @@ struct VaultEntryMenu: View {
         actionButton(.makeCopy)
         Button("Copy Vault Path", systemImage: "doc.on.doc") { Pasteboard.copy(entry.path.rawValue) }
         RevealInFinderButton(path: entry.path, vaultRoot: workspace.folderAccess?.root)
+        if workspace.preferences.isEnabled(.graph) {
+            // The folder's files, as the graph's filter reads a quoted path.
+            Button("Show in Graph", systemImage: "point.3.connected.trianglepath.dotted") {
+                workspace.showGraph(filteredBy: "path:\"" + entry.path.rawValue + "/\"")
+            }
+        }
         bookmarkButton
         CommunityPluginFileActionsButton(host: workspace.communityPlugins, path: entry.path)
         Divider()
