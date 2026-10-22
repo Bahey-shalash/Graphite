@@ -12,7 +12,7 @@ final class GraphiteEntitlementsTests: XCTestCase {
         return try XCTUnwrap(PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any])
     }
 
-    func testTheMacAppIsSandboxedWithExactlyTheSixEntitlements() throws {
+    func testTheMacAppIsSandboxedWithExactlyTheSevenEntitlements() throws {
         let entitlements = try propertyList(named: "Graphite.entitlements")
         let expectedEntitlements: [String: Bool] = [
             "com.apple.security.app-sandbox": true,
@@ -21,6 +21,8 @@ final class GraphiteEntitlementsTests: XCTestCase {
             "com.apple.security.device.audio-input": true,
             "com.apple.security.device.camera": true,
             "com.apple.security.network.client": true,
+            // File › Print… (d896ecd).
+            "com.apple.security.print": true,
         ]
         XCTAssertEqual(Set(entitlements.keys), Set(expectedEntitlements.keys), "No entitlement is added or dropped without a decision.")
         for (key, expectedValue) in expectedEntitlements {

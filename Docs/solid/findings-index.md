@@ -14,8 +14,8 @@ Section 9 of each area document adds the 72 findings of the delta audit of 2026-
 | ISP | 3 | 21 | 18 | 0 | 0 | 42 |
 | DIP | 4 | 34 | 23 | 0 | 0 | 61 |
 | CC | 2 | 94 | 124 | 0 | 0 | 220 |
-| BUG | 1 | 5 | 4 | 0 | 73 | 83 |
-| **All** | 34 | 271 | 233 | 0 | 73 | **611** |
+| BUG | 1 | 6 | 5 | 0 | 73 | 85 |
+| **All** | 34 | 272 | 234 | 0 | 73 | **613** |
 
 | ID | Area | Severity | Title |
 | --- | --- | --- | --- |
@@ -571,6 +571,8 @@ Section 9 of each area document adds the 72 findings of the delta audit of 2026-
 | [BUG-EDITOR-04](areas/editor.md#bug-editor-04-on-the-mac-returning-from-reading-view-to-editing-shows-where-the-editor-was-not-the-passage-that-was-being-read) | EDITOR | — | On the Mac, returning from reading view to editing shows where the editor was, not the passage that was being read |
 | [BUG-IMPORT-01](areas/import.md#bug-import-01-a-goodnotes-notebook-without-its-event-log-opens-as-an-empty-notebook-with-no-issue) | IMPORT | Medium | A Goodnotes notebook without its event log opens as an empty notebook with no issue |
 | [BUG-IMPORT-02](areas/import.md#bug-import-02-a-negative-stored-page-width-gives-a-notability-pagecount-below-1-breaking-its-at-least-1-contract) | IMPORT | Low | A negative stored page width gives a Notability `pageCount` below 1, breaking its "at least 1" contract |
+| [BUG-IMPORT-03](areas/import.md#bug-import-03-a-page-with-thousands-of-strokes-takes-minutes-to-write-and-gigabytes-of-memory) | IMPORT | Medium | A page with thousands of strokes takes minutes to write and gigabytes of memory |
+| [BUG-IMPORT-04](areas/import.md#bug-import-04-a-goodnotes-pencil-stroke-written-lightly-is-drawn-dark) | IMPORT | Low | A Goodnotes pencil stroke written lightly is drawn dark |
 | [BUG-INK-01](areas/ink.md#bug-ink-01-a-recovered-drawing-draft-reopens-with-the-original-background-losing-the-paper-colour-the-user-chose) | INK | — | A recovered drawing draft reopens with the original background, losing the paper colour the user chose |
 | [BUG-INK-02](areas/ink.md#bug-ink-02-the-shape-shown-while-holding-the-pencil-is-not-what-the-stroke-becomes-when-the-canvas-is-zoomed) | INK | — | The shape shown while holding the Pencil is not what the stroke becomes when the canvas is zoomed |
 | [BUG-INK-03](areas/ink.md#bug-ink-03-two-quick-taps-on-rotate-image-right-turn-a-drawings-picture-once-and-leave-two-undo-steps) | INK | — | Two quick taps on "Rotate Image Right" turn a drawing's picture once and leave two undo steps |
