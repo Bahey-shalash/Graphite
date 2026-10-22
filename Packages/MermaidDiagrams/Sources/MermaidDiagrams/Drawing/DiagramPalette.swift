@@ -35,6 +35,10 @@ public struct DiagramPalette: Sendable {
     /// `--pele-series-8` unless set.
     public var series: [CGColor] = DiagramPalette.peleSeries
 
+    /// What is drawn quieter than the rest, such as a timeline's periods before its first section: Pele's
+    /// `--pele-muted` unless set.
+    public var muted: CGColor = DiagramPalette.gray(0x6E)
+
     /// The color of the `index`th series, the colors taken in turn; the line color when `series` is empty.
     public func seriesColor(_ index: Int) -> CGColor {
         series.isEmpty ? line : series[index % series.count]
