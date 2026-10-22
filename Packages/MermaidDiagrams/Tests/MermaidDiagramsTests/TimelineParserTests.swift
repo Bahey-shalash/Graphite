@@ -120,6 +120,20 @@ final class TimelineParserTests: XCTestCase {
         XCTAssertEqual(TimelineReading.readError("timeline\n  section S\n  2002 : one : two", limits: limits), .tooManyNodes(limit: 3))
     }
 
+    // MARK: Through the reader
+
+    func testTheFrontMattersTitleIsTheTitleUnlessTheDiagramGivesOne() throws {
+        XCTAssertEqual(try timeline("---\ntitle: Front\n---\ntimeline\n  2002").title, "Front")
+        XCTAssertEqual(try timeline("---\ntitle: Front\n---\ntimeline\n  title Inside\n  2002").title, "Inside")
+    }
+
+    func testTheDocumentationsExamplesWithFrontMatterAndIndentationRead() throws {
+        let configured = try timeline("---\nconfig:\n  logLevel: 'debug'\n  theme: 'base'\n---\n    timeline\n        title History\n          2002 : LinkedIn\n")
+        XCTAssertEqual(configured.title, "History")
+        XCTAssertEqual(configured.periods.count, 1)
+        XCTAssertEqual(TimelineReading.readError("---\ntitle: T\n---\ntimeline\n  : early"), .invalidSyntax(line: 5, problem: .eventWithoutPeriod))
+    }
+
     // MARK: Mermaid's documentation
 
     func testTheDocumentationsExamplesRead() throws {

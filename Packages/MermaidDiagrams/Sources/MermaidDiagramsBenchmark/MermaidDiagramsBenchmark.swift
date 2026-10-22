@@ -60,7 +60,7 @@ struct MermaidDiagramsBenchmark {
     private static func read(_ source: String) throws -> FlowchartDiagram {
         switch try MermaidDiagramReader.read(source, limits: .standard) {
         case .flowchart(let diagram): diagram
-        case .mindmap: throw NotAFlowchart()
+        case .mindmap, .timeline: throw NotAFlowchart()
         }
     }
 

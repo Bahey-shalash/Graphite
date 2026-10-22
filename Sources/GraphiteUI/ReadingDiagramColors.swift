@@ -8,17 +8,21 @@ import MermaidDiagrams
 struct ReadingDiagramColors {
     static let surfaceShare = 0.054
     static let borderShare = 0.52
+    static let mutedShare = 0.647
 
     let background: Color
     let foreground: Color
     let surface: Color
     let border: Color
+    /// What is drawn quieter, such as a timeline's periods before its first section: Pele's #6e6e6e on its white page.
+    let muted: Color
 
     init(background: Color, foreground: Color) {
         self.background = background
         self.foreground = foreground
         surface = background.mix(with: foreground, by: Self.surfaceShare, in: .device)
         border = background.mix(with: foreground, by: Self.borderShare, in: .device)
+        muted = background.mix(with: foreground, by: Self.mutedShare, in: .device)
     }
 
     /// The vault theme's background and text where it sets them, else the system's.
