@@ -118,6 +118,12 @@ final class GraphCanvasModel {
         return size
     }
 
+    /// A node's radius on screen: its size from its links, the person's node size and the
+    /// zoom. The drawing and the hit testing both use it.
+    func screenRadius(ofNodeAt index: Int, in viewport: GraphViewport, display: GraphDisplayOptions) -> Double {
+        viewport.screenRadius(ofNodeRadius: radii[index] * display.nodeSizeMultiplier)
+    }
+
     /// Takes the groups' coloring of the files, as after a group's search changes.
     func colorNodes(by groupIndexByIdentifier: [String: Int]) {
         groupIndexes = graph.nodes.map { node in groupIndexByIdentifier[node.id] }
