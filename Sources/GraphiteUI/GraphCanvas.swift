@@ -64,7 +64,7 @@ final class GraphCanvasModel {
         }
         neighborIndexes = neighbors
         let linkCounts = graph.linkCounts
-        // Obsidian draws well-linked notes larger.
+        // Obsidian draws well-linked notes larger, and a tag larger the more notes carry it.
         radii = graph.nodes.map { node in 4 + min(Double(linkCounts[node.id] ?? 0).squareRoot(), 8) * 1.3 }
         simulator = GraphSimulator(layout: layout)
         run()
@@ -163,8 +163,15 @@ struct GraphCanvas: View {
     }
     @Environment(\.accent) private var accent
     @Environment(\.colorScheme) private var colorScheme
-    /// From this zoom on, every node shows its name.
+    /// From this zoom on, every note shows its name.
     private static let labelScale = 1.4
+    /// Tags are fewer and gather notes, so their names show from further out.
+    private static let tagLabelScale = 0.7
+
+    /// Whether a node of this kind shows its name at this zoom, without a hover or a choice.
+    static func showsName(of kind: GraphNode.Kind, atScale scale: Double) -> Bool {
+        scale >= (kind == .tag ? tagLabelScale : labelScale)
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -251,7 +258,6 @@ struct GraphCanvas: View {
         if showsArrows { drawArrows(in: &context, points: points) }
 
         let visible = CGRect(origin: .zero, size: size).insetBy(dx: -40, dy: -40)
-        let labelsFromZoom = alwaysShowsLabels || scale >= Self.labelScale
         for index in points.indices where visible.contains(points[index]) {
             let node = model.graph.nodes[index]
             let isNeighborOfFocused = focused.map { focusedIndex in model.neighborIndexes[focusedIndex].contains(index) } ?? false
@@ -264,7 +270,8 @@ struct GraphCanvas: View {
             } else {
                 context.fill(circle, with: .color(color.opacity(isFaded ? 0.25 : 1)))
             }
-            guard labelsFromZoom || index == highlighted || index == focused || isNeighborOfFocused else { continue }
+            let showsNameFromZoom = alwaysShowsLabels || Self.showsName(of: node.kind, atScale: scale)
+            guard showsNameFromZoom || index == highlighted || index == focused || isNeighborOfFocused else { continue }
             let label = Text(node.title).font(.system(size: index == highlighted ? 12 : 11, weight: index == highlighted ? .semibold : .regular))
                 .foregroundStyle(isFaded ? Color.secondary.opacity(0.4) : Color.primary.opacity(0.85))
             context.draw(label, at: CGPoint(x: points[index].x, y: points[index].y + radius + 2), anchor: .top)
@@ -388,11 +395,11 @@ struct GraphCanvas: View {
         let margin = 16.0
         let width = max(upper.x - lower.x, 1), height = max(upper.y - lower.y, 1)
         var fitted = min(max(min((size.width - margin * 2) / width, (size.height - margin * 2) / height), 0.05), 2.2)
-        // Names show on every node when zoomed in this far (see `draw`), so they need room.
-        let showsLabels = alwaysShowsLabels || fitted >= Self.labelScale
-        let labelHeight = showsLabels ? 26.0 : 0
+        // The names that show at this zoom (see `draw`) need room.
+        let showsLabels = model.graph.nodes.map { node in alwaysShowsLabels || Self.showsName(of: node.kind, atScale: fitted) }
+        let labelHeight = showsLabels.contains(true) ? 26.0 : 0
         // A name is about 6 points a letter at 11 points, centered under its node.
-        let labelHalfWidths = model.graph.nodes.map { node in showsLabels ? Double(node.title.count) * 3.2 : 0 }
+        let labelHalfWidths = model.graph.nodes.indices.map { index in showsLabels[index] ? Double(model.graph.nodes[index].title.count) * 3.2 : 0 }
         fitted = min(fitted, max((size.height - margin * 2 - labelHeight) / height, 0.05))
         var screenCenterX = (lower.x + upper.x) / 2 * fitted
         // Names at the edges need room too: shrink until the widest reach fits.
