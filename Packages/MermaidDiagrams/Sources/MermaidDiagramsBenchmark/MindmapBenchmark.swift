@@ -15,7 +15,8 @@ enum MindmapBenchmark {
         ]
         for (name, sources) in cases { try report(name, sources: sources, typography: typography) }
         let tree = try read(MindmapCorpus.tree(nodeCount: 50))
-        print("memory of one laid-out mindmap tree, 50 nodes: \(heapGrowthPerLayout(of: tree, typography: typography)) bytes")
+        let bytes = BenchmarkHeap.growth { MindmapLayoutEngine.layout(tree, typography: typography) }
+        print("memory of one laid-out mindmap tree, 50 nodes: \(bytes) bytes")
     }
 
     private static func report(_ name: String, sources: [String], typography: DiagramTypography) throws {
@@ -29,7 +30,7 @@ enum MindmapBenchmark {
             for source in sources { _ = (try? read(source)).map { diagram in MindmapLayoutEngine.layout(diagram, typography: typography) } } // Read above.
         }
         let parts = measure(count) { for layout in layouts { _ = MindmapDrawingParts(layout: layout) } }
-        let contexts = layouts.map { layout in bitmapContext(size: layout.size) }
+        let contexts = layouts.map { layout in BenchmarkBitmap.context(size: layout.size) }
         let painting = measure(count) {
             for (layout, context) in zip(layouts, contexts) {
                 if let context { MindmapRenderer.draw(layout, in: context, palette: MermaidDiagramsBenchmark.palette) }
@@ -47,25 +48,4 @@ enum MindmapBenchmark {
 
     /// A text of the mindmap corpus that reads as another type.
     struct NotAMindmap: Error {}
-
-    /// The growth of the heap's bytes in use while `MermaidDiagramsBenchmark.keptLayoutCount` layouts are kept, per layout.
-    private static func heapGrowthPerLayout(of diagram: MindmapDiagram, typography: DiagramTypography) -> Int {
-        var kept: [MindmapLayout] = []
-        kept.reserveCapacity(MermaidDiagramsBenchmark.keptLayoutCount)
-        let before = MermaidDiagramsBenchmark.heapBytesInUse()
-        for _ in 0..<MermaidDiagramsBenchmark.keptLayoutCount { kept.append(MindmapLayoutEngine.layout(diagram, typography: typography)) }
-        let growth = MermaidDiagramsBenchmark.heapBytesInUse() - before
-        return kept.isEmpty ? 0 : growth / kept.count
-    }
-
-    /// A bitmap at two pixels per point, its y running down as a layout's does.
-    private static func bitmapContext(size: CGSize) -> CGContext? {
-        let scale: CGFloat = 2
-        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-              let context = CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8,
-                                      bytesPerRow: 0, space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        context.translateBy(x: 0, y: size.height * scale)
-        context.scaleBy(x: scale, y: -scale)
-        return context
-    }
 }
