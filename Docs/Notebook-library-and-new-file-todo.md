@@ -111,6 +111,8 @@ The owner chose the first two; the rest are defaults taken to start building, ea
 
 ## Part 1: the library presentation choice
 
+Issue: [#33](https://github.com/Graphite-Note/Graphite/issues/33)
+
 - [x] A choice per device: a Library | List switch in the library's top row and beside the List sidebar's panels, and Settings › Appearance › Files. In Library mode on the iPad and the Mac there is no sidebar and no sidebar button (owner, 2026-10-19); the library's top row has Settings and Find a File buttons, and Vaults in its options menu.
 - [x] Library view of one folder at a time, with a back button and the folder's name. Opening a folder tile enters it; a file opens as a tab on the iPad and the Mac, and the house button brings the library back; on the iPhone it opens in place.
 - [x] Sort (the vault's sort order: name, modified, created) and filter (all, notebooks and PDFs, notes, pictures and drawings, canvases and bases).
@@ -127,6 +129,8 @@ The owner chose the first two; the rest are defaults taken to start building, ea
 
 ## Part 3: file tiles with previews
 
+Issue: [#34](https://github.com/Graphite-Note/Graphite/issues/34)
+
 - [x] PDF: the first page with its ink annotations, through PDFKit, edged with a hairline as Files does. A chosen cover page is not built.
 - [x] Image: scaled down with ImageIO while decoding.
 - [x] Drawing: PNG drawings are images; SVG drawings show a picture symbol (not drawn yet).
@@ -142,6 +146,8 @@ The owner chose the first two; the rest are defaults taken to start building, ea
 
 ## Part 4: one New menu that asks what to create
 
+Issue: [#35](https://github.com/Graphite-Note/Graphite/issues/35)
+
 - [x] One New button in the library and in the iPad and iPhone sidebar, opening `NewItemPicker`: Notebook and Note as large choices, then Canvas, Base, Today's Daily Note (each while its core plugin is on), Import and Folder. The Mac's sidebar keeps its menu (a click makes a note), without Import.
 - [x] Scan Documents, shown only where the device can scan (`VNDocumentCameraViewController.isSupported`: an iPhone or iPad with a camera, not the simulator or the Mac): the system scanner, then a new PDF notebook named "Scan 2026-10-21 14.05" in the folder shown (or the vault's location for new files), opened in a tab. Its pages are the scanned pictures at A4 width, with an invisible text layer from on-device recognition. Cancelling saves nothing; a failure is reported like other save errors. The same scanner is in a note's attach menu, Insert menu and context menu as "Scan Document", saving the PDF in the attachment folder and embedding it at the cursor. Not run on a device yet (see `Docs/Coverage.md`).
 - [x] Image from Photos and Take Photo (2026-10-21): each saves the picture as an image file in the folder shown (not a note) and opens it; Take Photo appears only where the device has a camera. Checked on macOS by tests, not in the simulator or on a device (the system photo picker and the camera were not driven). Quick Record is not built.
@@ -149,6 +155,8 @@ The owner chose the first two; the rest are defaults taken to start building, ea
 - [x] The new file goes into the folder shown, or the vault's location for new files.
 
 ## Part 5: the New Notebook sheet
+
+Issue: [#36](https://github.com/Graphite-Note/Graphite/issues/36)
 
 - [x] A large picture of the first page, drawn from the PDF the generator would write.
 - [x] Name; empty means "Untitled Notebook", made unique in the folder.
@@ -165,6 +173,8 @@ The owner chose the first two; the rest are defaults taken to start building, ea
 
 ## Part 6: creating a notebook from inside a note
 
+Issue: [#37](https://github.com/Graphite-Note/Graphite/issues/37)
+
 - [x] New Notebook in the keyboard toolbar's Attach menu, More › Insert, and the command palette ("Notebooks: Insert new notebook"). No slash command (the editor has none).
   - [x] Embedded in this note: saved where the note's attachments go, embedded at the cursor.
   - [x] In a folder: the note's folder or one above it, with a link (default) or an embed.
@@ -177,6 +187,8 @@ The owner chose the first two; the rest are defaults taken to start building, ea
 - Removed (owner, 2026-10-19). "How do you take notes?" only picked Library or List and the New menu's order, which the Library | List switch now decides directly; the question and its setting are gone.
 
 ## Verification
+
+Issue: [#38](https://github.com/Graphite-Note/Graphite/issues/38)
 
 - [ ] Hosted tests: library grid model (sorting, filtering, favorites from bookmarks), preview cache budget and invalidation on file change, unique names, notebook size presets in points, template preview equal to the generated first page, insert-notebook placement for each attachment setting.
 - [ ] A 100,000-file vault in the simulator: scrolling the library stays smooth, memory stays within budget, no preview work for tiles not shown, cloud placeholders not downloaded. Partly checked 2026-10-21 (see `Coverage.md`): 110,000 files opened and scrolled in a debug build in the iPad simulator, memory steady at about 400 to 425 MB while the index was still reading the vault; no frame times were measured and no cloud placeholders were tried, so it stays open.
