@@ -842,6 +842,9 @@ struct MarkdownPreview: View {
     @State private var scrollPosition = ScrollPosition(y: 0)
     @Environment(\.noteTypography) private var typography
     @Environment(\.noteTheme) private var theme
+    /// The window's link cards, while Page Preview is on.
+    @Environment(\.linkPreviews) private var linkPreviews
+    @State private var readingLinkPreviews = ReadingLinkPreviews()
     /// The readable column: Graphite's, or the vault theme's line width at this text size.
     private var readableColumnWidth: CGFloat { theme?.readableColumnWidth(forTextSize: configuration.textSize) ?? ReadingConfiguration.readableColumnWidth }
     /// The reading view's width, which a base reaches across inside the margins.
@@ -908,6 +911,7 @@ struct MarkdownPreview: View {
             .scrollPosition($scrollPosition)
             .onGeometryChange(for: CGFloat.self) { geometry in geometry.size.width } action: { width in paneWidth = width }
             .environment(\.readingBaseBreakoutWidth, baseBreakoutWidth)
+            .textual.linkHoverAction(linkPreviews.map(linkHoverAction(for:)))
             .coordinateSpace(.named(ReadingCoordinateSpace.name))
             .onScrollGeometryChange(for: ReadingViewport.self) { geometry in
                 ReadingViewport(verticalOffset: max(0, geometry.contentOffset.y + geometry.contentInsets.top),
@@ -938,6 +942,7 @@ struct MarkdownPreview: View {
                 if phase == .interacting {
                     pendingRestorationOffset = nil
                     suspendReadingFollow?()
+                    linkPreviews?.close()
                 }
             }
             .onPreferenceChange(ReadingHighlightGeometryKey.self) { frames in
@@ -1024,6 +1029,18 @@ struct MarkdownPreview: View {
                 blocksCache?.lastBuild = cachedBuild
             } catch is CancellationError {
             } catch { errorMessage = error.localizedDescription }
+        }
+    }
+
+    /// What the note's text does with the pointer on its links: shows `model`'s cards.
+    private func linkHoverAction(for model: LinkPreviewModel) -> TextLinkHoverAction {
+        TextLinkHoverAction { [readingLinkPreviews, path, weak model] hover in
+            guard let model else { return }
+            switch hover {
+            case .entered(let location, let frame): readingLinkPreviews.pointerEntered(location, frame: frame, sourceNote: path, model: model)
+            case .exited: readingLinkPreviews.pointerLeft(model: model)
+            case .pressed(let location, let frame): readingLinkPreviews.press(location, frame: frame, sourceNote: path, model: model)
+            }
         }
     }
 

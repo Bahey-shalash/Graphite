@@ -19,6 +19,28 @@
       return url
     }
 
+    /// Graphite addition: the link under `point`, and the frame of its text there (the run
+    /// the point is in), in the same space as `point`.
+    func link(for point: CGPoint) -> (url: URL, frame: CGRect)? {
+      guard let layout = layouts.first(where: { $0.frame.contains(point) }) else {
+        return nil
+      }
+
+      let localPoint = CGPoint(
+        x: point.x - layout.origin.x,
+        y: point.y - layout.origin.y
+      )
+
+      guard
+        let run = layout.runs.first(where: { $0.typographicBounds.contains(localPoint) }),
+        let url = run.url
+      else {
+        return nil
+      }
+
+      return (url, run.typographicBounds.offsetBy(dx: layout.origin.x, dy: layout.origin.y))
+    }
+
     func firstRect(for range: TextRange) -> CGRect {
       guard !range.isCollapsed else {
         return caretRect(for: range.start)
