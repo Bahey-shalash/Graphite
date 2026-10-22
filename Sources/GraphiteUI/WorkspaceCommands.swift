@@ -184,6 +184,10 @@ enum WorkspaceCommandList {
                 PaletteCommand(id: "previous-tab", command: .previousTab, systemImage: "arrow.left.square") { workspace.activateNeighborTab(forward: false) },
             ]
         }
+        commands.append(PaletteCommand(id: "toggle-stacked-tabs", command: .toggleStackedTabs,
+                                       systemImage: layout.focusedGroup.isStacked ? "rectangle" : "rectangle.stack") {
+            workspace.toggleStackedTabs()
+        })
         if !layout.closedPaths.isEmpty {
             commands.append(PaletteCommand(id: "reopen-tab", command: .reopenClosedTab, systemImage: "arrow.uturn.backward") {
                 Task { await workspace.reopenClosedTab() }

@@ -152,12 +152,7 @@ public struct GraphiteCommands: Commands {
                 .keyboardShortcut(shortcut(.openMap))
                 .disabled(workspace?.store == nil)
         }
-        Button(workspace?.layout.isSplit == true ? "Close This Side" : "Split Right") {
-            guard let workspace else { return }
-            if workspace.layout.isSplit { Task { await workspace.closeGroup(workspace.layout.focusedGroupID) } } else { workspace.splitRight() }
-        }
-        .keyboardShortcut(shortcut(workspace?.layout.isSplit == true ? .closeThisSide : .splitRight))
-        .disabled(workspace == nil)
+        tabArrangementCommands
         Divider()
         Button("Command Palette…") { actions?.showCommandPalette() }
             .keyboardShortcut(shortcut(.commandPalette))
@@ -178,6 +173,19 @@ public struct GraphiteCommands: Commands {
                 .disabled(workspace.noteBaseFontSize == NoteFontSize.defaultSize)
             Divider()
         }
+    }
+
+    /// How the window's tabs are laid out: split in two, or stacked.
+    @ViewBuilder private var tabArrangementCommands: some View {
+        Button(workspace?.layout.isSplit == true ? "Close This Side" : "Split Right") {
+            guard let workspace else { return }
+            if workspace.layout.isSplit { Task { await workspace.closeGroup(workspace.layout.focusedGroupID) } } else { workspace.splitRight() }
+        }
+        .keyboardShortcut(shortcut(workspace?.layout.isSplit == true ? .closeThisSide : .splitRight))
+        .disabled(workspace == nil)
+        Button(workspace?.layout.focusedGroup.isStacked == true ? "Unstack Tabs" : "Stack Tabs") { workspace?.toggleStackedTabs() }
+            .keyboardShortcut(shortcut(.toggleStackedTabs))
+            .disabled(workspace == nil)
     }
 
     @ViewBuilder private var goCommands: some View {
