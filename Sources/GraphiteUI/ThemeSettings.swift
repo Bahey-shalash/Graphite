@@ -1,12 +1,12 @@
 import SwiftUI
 import GraphiteCore
 
-/// Settings › Appearance › Themes and Snippets: Obsidian's theme and CSS snippet settings,
-/// stored in the vault's `.obsidian/appearance.json`. For now they style community plugins'
-/// panels, blocks and views; Graphite's own notes keep their look.
+/// Settings › Appearance › Obsidian Theme and CSS Snippets: Obsidian's theme and snippet
+/// settings, stored in the vault's `.obsidian/appearance.json`. They style notes and community
+/// plugins' panels; Graphite's buttons, menus and Settings keep their look.
 struct ThemeSettingsSection: View {
     @Bindable var workspace: WorkspaceModel
-    @State private var snippetNames: [String] = []
+    @State private var snippets: [ObsidianSnippet] = []
 
     private var appearance: ObsidianAppearance { workspace.vaultAppearance }
 
@@ -20,31 +20,48 @@ struct ThemeSettingsSection: View {
             if !appearance.cssTheme.isEmpty || !appearance.enabledCssSnippets.isEmpty {
                 Toggle(isOn: Binding(get: { workspace.preferences.usesVaultTheme }, set: { isOn in workspace.preferences.usesVaultTheme = isOn })) {
                     Text("Use the Vault's Obsidian Theme")
-                    Text("Notes take the theme's colors, headings, callouts and spacing. Turn off to keep Graphite's look on this device.")
+                    Text("Notes take the colors, headings, callouts and spacing of the theme and the snippets turned on below. Turn off to keep Graphite's look on this device.")
                 }
             }
-            ForEach(snippetNames, id: \.self) { snippetName in
-                Toggle(snippetName, isOn: Binding(get: { appearance.enabledCssSnippets.contains(snippetName) }, set: { isOn in
-                    workspace.updateVaultAppearance { appearance in
-                        appearance.enabledCssSnippets.removeAll { name in name == snippetName }
-                        if isOn { appearance.enabledCssSnippets.append(snippetName) }
-                    }
-                }))
-            }
         } header: {
-            Text("Themes and Snippets")
+            Text("Obsidian Theme")
         } footer: {
-            Text(snippetNames.isEmpty
-                 ? "Shared with Obsidian through .obsidian/appearance.json. The theme styles notes and community plugins' panels; buttons, menus and Settings stay Graphite's. CSS snippets in .obsidian/snippets appear here."
-                 : "Shared with Obsidian through .obsidian/appearance.json. The theme and snippets style notes and community plugins' panels; buttons, menus and Settings stay Graphite's. Text is kept readable against the theme's page.")
+            Text("Saved in the vault, so Obsidian uses the same theme. Buttons, menus and Settings keep Graphite's look.")
                 .formFooterAlignment()
         }
         .task(id: "\(workspace.directoryVersion)-\(appearance.cssTheme)") { await reload() }
+        if !snippets.isEmpty {
+            Section {
+                ForEach(snippets, id: \.name) { snippet in snippetToggle(snippet) }
+            } header: {
+                Text("CSS Snippets")
+            } footer: {
+                Text(snippetsFooter)
+                    .formFooterAlignment()
+            }
+        }
+    }
+
+    private var snippetsFooter: String {
+        let explanation = "Style files in the vault's .obsidian/snippets folder, each changing how part of your notes looks. The line under a name is the comment at the top of its file. This is Obsidian's list of CSS snippets: turning one on here turns it on in Obsidian too."
+        return workspace.preferences.usesVaultTheme ? explanation : explanation + " Notes show them only while Use the Vault's Obsidian Theme is on."
+    }
+
+    private func snippetToggle(_ snippet: ObsidianSnippet) -> some View {
+        Toggle(isOn: Binding(get: { appearance.enabledCssSnippets.contains(snippet.name) }, set: { isOn in
+            workspace.updateVaultAppearance { appearance in
+                appearance.enabledCssSnippets.removeAll { name in name == snippet.name }
+                if isOn { appearance.enabledCssSnippets.append(snippet.name) }
+            }
+        })) {
+            Text(snippet.name)
+            Text(snippet.description ?? "Its file has no comment at the top saying what it does.")
+        }
     }
 
     private func reload() async {
         guard let store = workspace.store else { return }
-        snippetNames = await store.snippetNames()
+        snippets = await store.snippets()
     }
 }
 

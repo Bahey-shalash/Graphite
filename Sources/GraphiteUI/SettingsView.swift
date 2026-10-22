@@ -247,10 +247,13 @@ private struct EditorSettingsPage: View {
                 Picker("Default Editing Mode", selection: $preferences.defaultEditingMode) {
                     ForEach(EditingMode.allCases) { mode in Text(mode.title).tag(mode) }
                 }
+                Picker("Remember View", selection: $preferences.noteViewMemory) {
+                    ForEach(NoteViewMemory.allCases) { memory in Text(memory.title).tag(memory) }
+                }
             } header: {
                 Text("Behavior")
             } footer: {
-                Text("Live Preview hides Markdown syntax except where your cursor is and shows tables, math, properties, and embeds in place. Source mode shows every character.")
+                Text("Live Preview hides Markdown syntax except where your cursor is and shows tables, math, properties, and embeds in place. Source mode shows every character. Per Note opens each note in the view you left it in; Per Vault opens every note in the view you last chose in this vault.")
                     .formFooterAlignment()
             }
             Section {
