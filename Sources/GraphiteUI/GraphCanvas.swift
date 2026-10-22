@@ -44,6 +44,16 @@ struct GraphCanvas: View {
         case node(String)
         case free
     }
+    /// The open note's ring sits this far outside the node.
+    private static let haloRingGapPoints = 3.0
+    /// Far out, where a node is a dot, the ring keeps this radius.
+    private static let smallestHaloRingRadiusPoints = 9.0
+    /// The glow reaches this far beyond the ring.
+    private static let haloGlowReachPoints = 7.0
+    private static let haloRingWidthPoints = 1.5
+    private static let haloRingOpacity = 0.7
+    /// The glow's strength at the node's edge, fading to nothing at its rim.
+    private static let haloGlowOpacity = 0.35
     /// Nodes this far outside the view are still drawn, so a node and its name slide in whole.
     private static let offScreenMarginPoints = 40.0
     /// The room between a node and its name.
@@ -128,18 +138,45 @@ struct GraphCanvas: View {
         if showsArrows { drawArrows(in: &context, points: points) }
         let visible = CGRect(origin: .zero, size: size).insetBy(dx: -Self.offScreenMarginPoints, dy: -Self.offScreenMarginPoints)
         let visibleIndexes = points.indices.filter { index in visible.contains(points[index]) }
-        for index in visibleIndexes {
-            let radius = screenRadius(ofNodeAt: index)
-            let circle = Path(ellipseIn: CGRect(x: points[index].x - radius, y: points[index].y - radius, width: radius * 2, height: radius * 2))
-            let color = nodeColor(at: index, isHighlighted: emphasis.isAccented(index))
-            let isFaded = emphasis.isDimmed(index)
-            if model.graph.nodes[index].kind == .unresolved {
-                context.stroke(circle, with: .color(color.opacity(isFaded ? 0.2 : 0.6)), lineWidth: 1.2)
-            } else {
-                context.fill(circle, with: .color(color.opacity(isFaded ? 0.25 : 1)))
-            }
+        // The open note goes last, over its halo and over the nodes around it.
+        let openIndex = emphasis.openIndex.flatMap { openIndex in visibleIndexes.contains(openIndex) ? openIndex : nil }
+        for index in visibleIndexes where index != openIndex {
+            drawNode(at: index, in: &context, points: points, emphasis: emphasis)
+        }
+        if let openIndex {
+            drawHalo(in: &context, at: points[openIndex], nodeRadius: screenRadius(ofNodeAt: openIndex))
+            drawNode(at: openIndex, in: &context, points: points, emphasis: emphasis)
         }
         drawNames(in: &context, points: points, indexes: visibleIndexes, emphasis: emphasis)
+    }
+
+    private func drawNode(at index: Int, in context: inout GraphicsContext, points: [CGPoint], emphasis: GraphEmphasis) {
+        let radius = screenRadius(ofNodeAt: index)
+        let circle = Path(ellipseIn: CGRect(x: points[index].x - radius, y: points[index].y - radius, width: radius * 2, height: radius * 2))
+        let color = nodeColor(at: index, isHighlighted: emphasis.isAccented(index))
+        let isFaded = emphasis.isDimmed(index)
+        if model.graph.nodes[index].kind == .unresolved {
+            context.stroke(circle, with: .color(color.opacity(isFaded ? 0.2 : 0.6)), lineWidth: 1.2)
+        } else {
+            context.fill(circle, with: .color(color.opacity(isFaded ? 0.25 : 1)))
+        }
+    }
+
+    /// A soft glow and a ring in the accent around the open note, never smaller than a
+    /// finger's tip, so the note can be found in a vault of thousands.
+    private func drawHalo(in context: inout GraphicsContext, at point: CGPoint, nodeRadius: Double) {
+        let halo = Self.haloRadii(ofNodeRadius: nodeRadius)
+        func circle(_ radius: Double) -> Path { Path(ellipseIn: CGRect(x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2)) }
+        context.fill(circle(halo.glow), with: .radialGradient(Gradient(colors: [accent.opacity(Self.haloGlowOpacity), accent.opacity(0)]),
+                                                              center: point, startRadius: nodeRadius, endRadius: halo.glow))
+        context.stroke(circle(halo.ring), with: .color(accent.opacity(Self.haloRingOpacity)), lineWidth: Self.haloRingWidthPoints)
+    }
+
+    /// The open note's ring, just outside the node, and its glow, which reaches beyond the
+    /// ring; both keep a size that can be seen when the node is a dot.
+    static func haloRadii(ofNodeRadius nodeRadius: Double) -> (ring: Double, glow: Double) {
+        let ring = max(nodeRadius + haloRingGapPoints, smallestHaloRingRadiusPoints)
+        return (ring, ring + haloGlowReachPoints)
     }
 
     private func drawLinks(in context: inout GraphicsContext, points: [CGPoint], emphasis: GraphEmphasis) {

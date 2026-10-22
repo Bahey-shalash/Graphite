@@ -2,7 +2,8 @@ import Foundation
 
 /// Which nodes of a graph stand out while one is focused (under the finger or the pointer,
 /// dragged, or a chosen tag), as in Obsidian: the focused node and its neighbors stay bright
-/// and the rest steps back. It also says whose names are placed first.
+/// and the rest steps back, except the open note, which stays bright so it can always be
+/// found. It also says whose names are placed first.
 public struct GraphEmphasis {
     public let focusedIndex: Int?
     /// The note open in the editor.
@@ -21,9 +22,10 @@ public struct GraphEmphasis {
         return neighborIndexes[focusedIndex].contains(index)
     }
 
-    /// Whether a node steps back because another is focused and it is not one of its neighbors.
+    /// Whether a node steps back because another is focused and it is not one of its
+    /// neighbors; never the open note.
     public func isDimmed(_ index: Int) -> Bool {
-        focusedIndex != nil && focusedIndex != index && !isNeighborOfFocused(index)
+        focusedIndex != nil && focusedIndex != index && index != openIndex && !isNeighborOfFocused(index)
     }
 
     /// Whether a node is drawn in the accent color: the open note and the focused node.
