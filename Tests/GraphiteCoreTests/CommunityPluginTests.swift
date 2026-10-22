@@ -197,6 +197,12 @@ final class CommunityPluginTests: XCTestCase {
         XCTAssertEqual(edit.replacement, "😁")
     }
 
+    func testAPluginsSelectionIsReadEitherWayAndKeptInsideTheText() {
+        XCTAssertEqual(CommunityPluginEditorChange.selection(anchor: 9, head: 4, inTextOfLength: 20), NSRange(location: 4, length: 5))
+        XCTAssertEqual(CommunityPluginEditorChange.selection(anchor: 18, head: 40, inTextOfLength: 20), NSRange(location: 18, length: 2))
+        XCTAssertEqual(CommunityPluginEditorChange.selection(anchor: -3, head: -3, inTextOfLength: 20), NSRange(location: 0, length: 0))
+    }
+
     // MARK: Installing
 
     func testNewestCompatibleReleaseIsChosenFromVersionsFile() {

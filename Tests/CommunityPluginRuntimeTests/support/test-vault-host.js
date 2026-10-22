@@ -109,9 +109,13 @@ class TestVaultHost {
             return this.handle(Object.assign({}, message, { operation: 'vault.rename' }));
         }
         case 'workspace.openFile':
-        case 'workspace.openLinkText':
+        case 'workspace.openLinkText': {
             this.openedFiles.push(message);
-            return {};
+            // As Graphite answers: the note then focused, with its editor.
+            const openedPath = message.operation === 'workspace.openFile' ? message.path : message.resolvedPath;
+            if (!openedPath || !openedPath.endsWith('.md') || !fileSystem.existsSync(this.location(openedPath))) return {};
+            return { activeDocument: { path: openedPath, mode: 'source', editorSnapshot: this.openNote(openedPath, 0) } };
+        }
         case 'editor.apply': return this.applyEditorChange(message);
         case 'markdown.render': return { html: renderMarkdownForTests(message.markdown) };
         case 'menu.show':

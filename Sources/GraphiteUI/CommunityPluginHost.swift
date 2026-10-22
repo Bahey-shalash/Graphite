@@ -867,6 +867,10 @@ final class CommunityPluginHost {
                 failure["snapshot"] = editorSnapshot(of: session)
                 return failure
             }
+        } else {
+            // Only the cursor or the selection moved (`setCursor`, `setSelection`).
+            let selection = CommunityPluginEditorChange.selection(anchor: anchor, head: head, inTextOfLength: (changedText as NSString).length)
+            if selection != session.selection { session.requestSelection(selection) }
         }
         editorSnapshots[snapshotIdentifier] = (path, changedText)
         return ["snapshot": [
@@ -969,15 +973,18 @@ final class CommunityPluginHost {
             case .success(let html): return ["html": html]
             case .failure(let error): return Self.failure("tooLarge", error.localizedDescription)
             }
+        // Both answer with the document then focused, so a plugin that opens a note and goes
+        // on in its editor (Advanced URI puts the cursor at its end) has that note's editor
+        // at once, not the one open before.
         case "workspace.openFile":
             guard let pathText = message["path"] as? String, let path = try? VaultPath(pathText) else { return Self.failure("invalidPath", "The plugin named no file to open.") }
             await workspace?.open(path, placement: message["placement"] as? String == "newTab" ? .newTab : .currentTab)
-            return [:] as [String: Any]
+            return ["activeDocument": activeDocumentDescription(includingEditor: true)] as [String: Any]
         case "workspace.openLinkText":
             guard let workspace, let linktext = message["linktext"] as? String else { return Self.failure("invalidData", "The plugin named no link to open.") }
             let source = (message["sourcePath"] as? String).flatMap { sourcePath in try? VaultPath(sourcePath) } ?? workspace.selection ?? .root
             await workspace.follow(linktext, from: source, placement: message["placement"] as? String == "newTab" ? .newTab : .currentTab)
-            return [:] as [String: Any]
+            return ["activeDocument": activeDocumentDescription(includingEditor: true)] as [String: Any]
         case "workspace.renameFile":
             return await renameFileUpdatingLinks(message)
         case "clipboard.readText":

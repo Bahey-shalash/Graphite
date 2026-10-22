@@ -26,9 +26,16 @@ public enum CommunityPluginEditorChange {
         if suffixLength > 0, UTF16.isTrailSurrogate(original.character(at: original.length - suffixLength)) { suffixLength -= 1 }
         let replacedRange = NSRange(location: prefixLength, length: original.length - prefixLength - suffixLength)
         let replacement = changed.substring(with: NSRange(location: prefixLength, length: changed.length - prefixLength - suffixLength))
-        let selectionStart = min(max(min(selectionAnchor, selectionHead), 0), changed.length)
-        let selectionEnd = min(max(max(selectionAnchor, selectionHead), 0), changed.length)
-        return MarkdownTextEdit(range: replacedRange, replacement: replacement, selectionAfter: NSRange(location: selectionStart, length: selectionEnd - selectionStart))
+        return MarkdownTextEdit(range: replacedRange, replacement: replacement,
+                                selectionAfter: selection(anchor: selectionAnchor, head: selectionHead, inTextOfLength: changed.length))
+    }
+
+    /// The selection a plugin left, from its anchor and head in either order, kept inside the
+    /// text: a plugin that only moves the cursor (`setCursor`, `setSelection`) sends this alone.
+    public static func selection(anchor: Int, head: Int, inTextOfLength length: Int) -> NSRange {
+        let start = min(max(min(anchor, head), 0), length)
+        let end = min(max(max(anchor, head), 0), length)
+        return NSRange(location: start, length: end - start)
     }
 }
 
