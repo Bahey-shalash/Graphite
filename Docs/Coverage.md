@@ -2,7 +2,7 @@
 
 What Graphite does today, how each part is verified, and what is still missing. `OBJECTIVE.md` describes the complete product; this file tracks progress toward it. Update it with every change that adds, removes, or re-verifies behavior.
 
-Last updated: 2026-10-21.
+Last updated: 2026-10-22.
 
 ## Scrolling a long note: fewer jumps, a third of the memory: 2026-10-21
 
@@ -315,6 +315,14 @@ The first round of [the notebook library checklist](Notebook-library-and-new-fil
 - Automated tests, all passing on macOS: `NotebookPageSizeTests` (6), `NotebookPlacementTests` (3), `LibraryListingTests` (3), `NotePreviewSummaryTests` (10, with emphasis kept as style, links without their target, nested lists, callouts, code blocks and the picture placed where it sits), `FolderStyleListTests` (8, with unknown keys, entries and colors kept, a foreign file refused, styles following moves and deletions, no file written for a vault without styles); `NewNotebookOptionsTests` (9, every named size in both orientations makes a valid PDF, the size check agrees with the generator on every side) and `PaperPreviewRendererTests` (5); `CreatableItemTests` (4), `NotebookLibraryPreferencesTests` (3), `LibraryModelTests` (12, with regression tests for previews cancelled when SwiftUI shows a rebuilt grid's tile before removing the old one, and for the delta audit's BUG-SHELL-07 (a style file not in Graphite's format hid every folder; now kept aside), BUG-SHELL-08 (a changed file kept its old preview), BUG-SHELL-09 (renders not cancelled and not limited) and CC-SHELL-11 (no byte budget for the preview cache)) and `WorkspaceNotebookCreationTests` (4: embedded at the cursor with the attachments, in a folder with a link, a taken name, text typed meanwhile kept).
 - Checked by hand in the iPad simulator (iPad Pro 11-inch (M5), iOS 27, portrait, a copy of the test vault without videos): the library as home with the file tree's sidebar folded away; folders in system colors with engraved symbols from `.obsidian/graphite-folder-styles.json`; a folder of PDFs and notes shows first pages and note text; the New menu offers Notebook first; the New Notebook sheet's picture, size and color menus and paper gallery; Create made `Untitled Notebook.pdf` in the folder shown and opened it in a tab with its paper; choosing a tab leaves the library and the house button brings it back. The library first looked like Goodnotes' library; at the owner's request it was redrawn in the Files app's style.
 - Not established: the iPhone layout, landscape, dark mode, Dynamic Type at the largest sizes, VoiceOver, the Mac, drag and drop, Import, folder colors from the menu, creating a notebook from inside a note in the app (tested in the workspace only), undo of that insertion, and anything with Apple Pencil or on a device.
+
+## A note is placed by `coordinates`; `location` only in a vault with Map View: 2026-10-17
+
+Asked by the owner: two properties placing notes made a duplicate. `coordinates`, the property Bases' map view and Obsidian's Maps plugin read, is the one Graphite places notes with. `location` is read only when the vault has the Map View community plugin installed, as that plugin's default (or the property its settings name instead). The Geocoding Properties plugin's property still comes first. The Map View summary in Settings and the map's empty states name `coordinates` alone.
+
+Checked: `PlacedNotePropertyNamesTests` (Core, 5): a vault without map plugins is placed by `coordinates` alone; an installed Map View without settings adds `location` before it; the plugins' properties first; a turned-off property and repeated names; unreadable or oversized settings, with Map View's default standing in. `VaultPlacesTests` (Index, 3): both properties in both forms when a vault reads both, and `location` placing nothing with the default names. `UiMapViewMacTests` (2) with its Lausanne note now written as `coordinates: "46.5197, 6.6323"`. With the previous `PlacedNote.swift`, five of these assertions fail (`["coordinates", "location"]` where `["coordinates"]` is expected; Lausanne and New York placed without Map View); with the change, all ten tests pass.
+
+Not verified: the owner's vault, whose notes use `Coordonnées` through Geocoding Properties, is unaffected by design but was not opened again for this change.
 
 ## Tables edited in place, scrolling only when wider, and the editor's Color menu: 2026-10-17
 
