@@ -10,20 +10,34 @@
   // rebuilt at any time as SwiftUI resolves new `Text.Layout` values. When the layout collection
   // changes, the model attempts to reconcile the current selection into the new layout so the
   // selection stays stable across updates.
+  //
+  // Graphite patch: the layout collection arrives during a view update
+  // (`PlatformTextLayoutModelUpdater`), which must not change observed state. Reconciling keeps
+  // the same text selected, so it updates the stored range without notifying observers; the
+  // views that draw the selection read it again with their new layouts, and the platform view
+  // is told through `selectionWillChange` and `selectionDidChange`.
 
   @Observable
   final class TextSelectionModel {
     var selectedRange: TextRange? {
-      willSet {
-        selectionWillChange?()
+      get {
+        access(keyPath: \.selectedRange)
+        return storedSelectedRange
       }
-      didSet {
-        if selectedRange != nil {
+      set {
+        selectionWillChange?()
+        withMutation(keyPath: \.selectedRange) {
+          storedSelectedRange = newValue
+        }
+        if newValue != nil {
           coordinator?.modelDidSelectText(self)
         }
         selectionDidChange?()
       }
     }
+
+    @ObservationIgnored
+    private var storedSelectedRange: TextRange?
 
     @ObservationIgnored
     var selectionWillChange: (() -> Void)?
@@ -54,17 +68,19 @@
       self.layoutCollection = layoutCollection
 
       guard
-        let selectedRange,
+        let storedSelectedRange,
         layoutCollection.needsPositionReconciliation(with: oldLayoutCollection)
       else {
         return
       }
 
       // Try to reconcile the selected text range
-      self.selectedRange = layoutCollection.reconcileRange(
-        selectedRange,
+      selectionWillChange?()
+      self.storedSelectedRange = layoutCollection.reconcileRange(
+        storedSelectedRange,
         from: oldLayoutCollection
       )
+      selectionDidChange?()
     }
 
     func setCoordinator(_ coordinator: TextSelectionCoordinator?) {

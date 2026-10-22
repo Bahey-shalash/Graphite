@@ -4,6 +4,14 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-22.
 
+## A tap on a link in the reading view follows it at once: 2026-10-22
+
+What is fixed: on the iPad, a tap on a link in the reading view right after switching from Live Preview, or after opening a note in the reading view, followed nothing until something laid the note out again, such as opening and closing Settings (`BUG-READING-06`, `Docs/Rendered-links-todo.md`). The selection model of Graphite's vendored Textual, which finds the link under a tap, took the text's layouts through `onChange`, which SwiftUI runs once per frame, and kept the empty layouts of a text's first update. It now takes them through a hidden platform view's update, at every update (`Vendor/textual/GRAPHITE-PATCHES.md`, 20). The same model serves every selectable rendered text: Live Preview's rendered blocks, embeds and Page Preview's card.
+
+How it is verified: hosted `ReadingLinkFollowingTests.testTapOnALinkRightAfterSwitchingFromLivePreviewFollowsIt` (iPad Pro 11-inch (M5) simulator, iOS 27.0), which taps the link through UIKit's event path and fails without the patch; with it, the hosted `ReadingLinkFollowingTests`, `ReadingTasksAndEquationsTests`, `LivePreviewBlockPlacementTests`, `LivePreviewRevealTests`, `EditingContinuityTests`, `CodeHighlightingTests` and `PDFLinkFollowingTests` (51) and, on macOS, the package tests `AppProjectTextualPatchTests`, `UiReadingViewTests`, `UiReadingTaskTests`, `UiNumberedEquationTests`, `ReadAloudReadingViewTests`, `UiStylingFixTests` and `UiLivePreviewEmbedContinuityTests` (97) pass. Checked by hand in the same simulator with the request's vault: Lausanne in Live Preview, the pencil, one tap on "Geneva" opens Geneva; Start, the pencil, one tap on "Geneva > Old town" opens Geneva; a long press in Lausanne's reading view selects a word with its handles and Copy and Share, and a tap on the link then opens Geneva.
+
+Not established: the Mac app's reading view (no package test shows the defect on the Mac, and its development build was not run), Page Preview's card on the branch `plugin-hover-previews`, selecting text while the note is laid out again (a rotation, a window resize), and a physical iPad (`Docs/Rendered-links-todo.md`, section 2).
+
 ## Mermaid flowcharts drawn natively in reading view: 2026-10-22
 
 The first slice of [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48): ` ```mermaid ` flowcharts are read, laid out and drawn natively, in Pele's style, by the standalone package `Packages/MermaidDiagrams`, and the reading view shows them (Architecture, "Native Mermaid diagrams").
