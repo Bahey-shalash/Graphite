@@ -34,4 +34,14 @@ public enum MermaidSyntaxProblem: Equatable, Sendable {
     case unclosedSubgraph(identifier: String)
     /// Text that fits nowhere in the statement: its first characters.
     case unexpectedText(String)
+    /// A state was expected: after `-->`, after `note left of`, or after `as`.
+    case expectedState
+    /// `state two words {`: a composite state's name is one word. The words before the brace.
+    case stateNameNotOneWord(String)
+    /// A note over several lines has no `end note`.
+    case unclosedNote
+    /// The text ends inside a composite state's body, by the state's identifier.
+    case unclosedCompositeState(identifier: String)
+    /// `}` with no composite state's body open.
+    case closingBraceWithoutCompositeState
 }
