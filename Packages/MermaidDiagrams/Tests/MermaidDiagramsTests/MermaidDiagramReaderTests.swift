@@ -19,7 +19,7 @@ final class MermaidDiagramReaderTests: XCTestCase {
     func testOtherDiagramTypesAreNamedByTheirKeyword() {
         XCTAssertEqual(readError("sequenceDiagram\n  Alice->>Bob: Hi"), .unsupportedDiagramType(keyword: "sequenceDiagram"))
         XCTAssertEqual(readError("stateDiagram-v2\n  [*] --> Still"), .unsupportedDiagramType(keyword: "stateDiagram-v2"))
-        XCTAssertEqual(readError("pie title Pets\n  \"Dogs\" : 386"), .unsupportedDiagramType(keyword: "pie"))
+        XCTAssertEqual(readError("journey\n  title My working day"), .unsupportedDiagramType(keyword: "journey"))
     }
 
     func testTextWithoutADiagramIsNoDiagram() {

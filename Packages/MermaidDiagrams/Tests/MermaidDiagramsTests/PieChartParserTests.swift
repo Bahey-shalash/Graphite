@@ -108,6 +108,35 @@ final class PieChartParserTests: XCTestCase {
         XCTAssertEqual(chart.slices.map(\.value), [386, 85, 15])
     }
 
+    func testMermaidsDocumentationExampleWithItsConfigurationReads() throws {
+        let chart = try pieChart("""
+        ---
+        config:
+          pie:
+            textPosition: 0.5
+            donutHole: 0.2
+            highlightSlice: Potassium
+          themeVariables:
+            pieOuterStrokeWidth: "5px"
+        ---
+        pie showData
+            title Key elements in Product X
+            "Calcium" : 42.96
+            "Potassium" : 50.05
+            "Magnesium" : 10.01
+            "Iron" :  5
+
+        """)
+        XCTAssertTrue(chart.showsValues)
+        XCTAssertEqual(chart.title, "Key elements in Product X")
+        XCTAssertEqual(chart.slices.map(\.value), [42.96, 50.05, 10.01, 5])
+    }
+
+    func testTheFrontMattersTitleIsTheChartsUnlessItHasItsOwn() throws {
+        XCTAssertEqual(try pieChart("---\ntitle: From front matter\n---\npie\n \"A\" : 1").title, "From front matter")
+        XCTAssertEqual(try pieChart("---\ntitle: From front matter\n---\npie title Own\n \"A\" : 1").title, "Own")
+    }
+
     // MARK: Graphite's cases
 
     func testALabelUsedAgainKeepsItsFirstSlice() throws {
