@@ -20,10 +20,11 @@ public struct WorkspaceTab: Identifiable, Equatable, Sendable {
     /// its file.
     public fileprivate(set) var coreView: CoreView?
 
-    init(path: VaultPath? = nil, isPinned: Bool = false) {
+    init(path: VaultPath? = nil, isPinned: Bool = false, coreView: CoreView? = nil) {
         id = UUID()
         self.path = path
         self.isPinned = isPinned
+        self.coreView = path == nil ? coreView : nil
         history = NavigationHistory()
         if let path { history.visit(path) }
     }
@@ -364,7 +365,9 @@ public struct TabLayout: Equatable, Sendable {
 
     public var saved: SavedTabLayout {
         SavedTabLayout(groups: groups.map { group in
-            SavedTabLayout.Group(tabs: group.tabs.map { tab in SavedTabLayout.Tab(path: tab.path?.rawValue, isPinned: tab.isPinned) },
+            SavedTabLayout.Group(tabs: group.tabs.map { tab in
+                SavedTabLayout.Tab(path: tab.path?.rawValue, isPinned: tab.isPinned, coreView: tab.coreView?.rawValue)
+            },
                                  activeTabIndex: group.activeTabIndex)
         }, focusedGroupIndex: groups.firstIndex { group in group.id == focusedGroupID } ?? 0, splitFraction: splitFraction)
     }
@@ -384,7 +387,8 @@ public struct TabLayout: Equatable, Sendable {
                 if savedTab.path != nil {
                     guard let path, fileExists(path), seenPaths.insert(path).inserted else { continue }
                 }
-                let tab = WorkspaceTab(path: path, isPinned: savedTab.isPinned && path != nil)
+                let tab = WorkspaceTab(path: path, isPinned: savedTab.isPinned && path != nil,
+                                       coreView: savedTab.coreView.flatMap(WorkspaceTab.CoreView.init(rawValue:)))
                 tabs.append(tab)
                 if path == nil, let pluginView = savedTab.pluginView { pluginViewsToRestore[tab.id] = pluginView }
                 if tabIndex <= savedGroup.activeTabIndex || activeTabID == nil { activeTabID = tab.id }
@@ -453,8 +457,11 @@ public struct SavedTabLayout: Codable, Equatable, Sendable {
         public var isPinned: Bool
         /// The community plugin view an empty tab showed, opened again when its plugin loads.
         public var pluginView: PluginView?
-        public init(path: String?, isPinned: Bool, pluginView: PluginView? = nil) {
-            self.path = path; self.isPinned = isPinned; self.pluginView = pluginView
+        /// The core plugin view a tab without a file showed (`WorkspaceTab.CoreView`, as
+        /// `graph`). One this build does not know, saved by a newer one, restores an empty tab.
+        public var coreView: String?
+        public init(path: String?, isPinned: Bool, pluginView: PluginView? = nil, coreView: String? = nil) {
+            self.path = path; self.isPinned = isPinned; self.pluginView = pluginView; self.coreView = coreView
         }
     }
 
