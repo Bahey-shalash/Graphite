@@ -10,6 +10,8 @@ Decisions:
 
 ## 1. Layout on the Duo's displays and around the fold
 
+Issue: [#56](https://github.com/Graphite-Note/Graphite/issues/56)
+
 - [x] Done 2026-10-21: the Tabs button is a numbered-square symbol titled "Tabs" (`TabCountLabel`), so the system moves it with the bar to the side instead of keeping it at the bottom of the outer display. Checked on the Duo simulator's outer display.
 - [x] Done 2026-10-21: the phone's bottom bar is separate toolbar items and groups with flexible spacers. Finding a file, a new note and the tabs have a high visibility priority. Checked on the Duo simulator's outer display and on iPhone 17 Pro, where the bar looks as before.
 - [x] Done 2026-10-21: on iOS, the note's, PDF's, canvas's and window's More commands are in the system's overflow menu (`ToolbarOverflowMenu`). Checked on the Duo simulator's outer display (one "•••" holding the Command Palette and the note's commands) and on iPad Pro 11-inch (the window's menu).
@@ -18,6 +20,8 @@ Decisions:
 - [x] Done 2026-10-21: a phone's keyboard toolbar shows Undo and Redo only in a compact width, so the inner display, whose note toolbar has them, does not show two pairs. Built; checked in section 2.
 
 ## 2. Checks on the inner display and folded poses
+
+Issue: [#63](https://github.com/Graphite-Note/Graphite/issues/63)
 
 - [ ] The inner display, open flat, in portrait and landscape: the sidebar and documents split, the tab bar and document controls, a note, a PDF with the Pencil palette, the library. Device Hub's pose buttons did not change the simulator's pose in the session that built section 1.
 - [ ] Partly folded like a book: the workspace's divider on the fold with two sides, the quick switcher, the command palette, a notice banner and the Read Aloud player beside the fold, and the library grid's even columns.

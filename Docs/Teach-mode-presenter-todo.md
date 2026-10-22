@@ -15,6 +15,8 @@ The desired character has friendly, duck-like energy and an original Graphite id
 
 ## Visual reference and original design
 
+Issue: [#13](https://github.com/Graphite-Note/Graphite/issues/13)
+
 User-provided reference: [ETH shop — Bachelor duck / Badeente Bachelor](https://shop.ethz.ch/en/produkt/badeente-bachelor/).
 
 The attached reference shows a yellow duck with an orange beak, graduation cap, diploma, and ETH Zürich branding. Use its approachable academic personality as inspiration for an original design. The shop page could not be fetched during drafting, so these observations come from the image attached to the original discussion.
@@ -27,6 +29,8 @@ The attached reference shows a yellow duck with an orange beak, graduation cap, 
 - [ ] Keep the renderer independent of the duck so other original characters can be supported later.
 
 ## Architecture goals
+
+Issue: [#14](https://github.com/Graphite-Note/Graphite/issues/14)
 
 ```text
 Markdown note + semantic document model
@@ -56,6 +60,8 @@ The teaching intelligence plans explanations. The Teach runtime directs playback
 
 ### Shared semantic targets
 
+Issue: [#15](https://github.com/Graphite-Note/Graphite/issues/15)
+
 Document and character actions should resolve the same `TargetRef`, scoped to a document revision. Targets may identify a section, equation, equation term, figure, SVG element, native diagram object, or a region inside an image.
 
 The runtime resolves targets into current geometry. The planner should not emit DOM selectors or viewport pixel coordinates. For raster figures, a verified region may use normalized image coordinates tied to that figure. Do not assume a screenshot exposes semantic objects such as a transistor's drain.
@@ -79,6 +85,8 @@ Start with a small typed vocabulary. Names below illustrate responsibilities and
 The runtime owns execution order and state transitions. Give viewport control one owner rather than implementing competing zoom behavior in both document and camera actions. Define whether a wait ends on time, user input, or completion of a named cue.
 
 ### Character action contract
+
+Issue: [#16](https://github.com/Graphite-Note/Graphite/issues/16)
 
 ```ts
 // Illustrative sketch. TargetRef belongs to the shared document model.
@@ -111,6 +119,8 @@ The character adapter maps semantic intents onto its supported animations. A min
 
 ### Initial useful set
 
+Issue: [#17](https://github.com/Graphite-Note/Graphite/issues/17)
+
 - [ ] Enter and leave quietly, with a small default footprint near a safe corner or gutter.
 - [ ] Look toward the currently explained target.
 - [ ] Point at a resolved target with a wing or pointer while the document supplies its own highlight.
@@ -123,6 +133,8 @@ The character adapter maps semantic intents onto its supported animations. A min
 
 ### Later exploration
 
+Issue: [#18](https://github.com/Graphite-Note/Graphite/issues/18)
+
 - [ ] Stand near the edge of a figure, lean toward an equation, or hold a teaching pointer.
 - [ ] Visually introduce a temporary explanation panel without changing the note itself.
 - [ ] Support alternative original characters through the same action contract.
@@ -130,6 +142,8 @@ The character adapter maps semantic intents onto its supported animations. A min
 Avoid constant bouncing, unsolicited interruptions, repetitive celebrations, and idle motion that competes with reading. The character should move for a teaching or layout reason.
 
 ## Layout and occlusion handling
+
+Issue: [#19](https://github.com/Graphite-Note/Graphite/issues/19)
 
 Layout decisions belong to the runtime, which has current geometry. A planner may request an anchor, but the runtime can override it to preserve readability.
 
@@ -145,6 +159,8 @@ Layout decisions belong to the runtime, which has current geometry. A planner ma
 - [ ] On pause or interruption, stop stale target gestures and recompute geometry before resuming.
 
 ## Settings and accessibility
+
+Issue: [#20](https://github.com/Graphite-Note/Graphite/issues/20)
 
 Character appearance and audio must be independent settings.
 
@@ -166,6 +182,8 @@ Character appearance and audio must be independent settings.
 - [ ] Ensure character states and highlights remain distinguishable across themes and without relying only on color.
 
 ## Synchronization and interruption
+
+Issue: [#21](https://github.com/Graphite-Note/Graphite/issues/21)
 
 Use the lesson's shared clock and cue system. Narration markers may trigger document and character actions together, while the actual audio lifecycle drives the character's speaking state.
 
@@ -213,6 +231,8 @@ This example requires a resolved drain target. With the character disabled, the 
 
 ### Phase 0 — Inspect and decide
 
+Issue: [#22](https://github.com/Graphite-Note/Graphite/issues/22)
+
 - [ ] Map existing Teach Mode or proposed runtime foundations in the repository.
 - [ ] Identify the shared target resolver, overlay host, playback clock, and settings integration points.
 - [ ] Compare sprite-based, vector/rigged 2D, and other lightweight rendering options with a tiny disposable spike.
@@ -222,6 +242,8 @@ This example requires a resolved drain target. With the character disabled, the 
 
 ### Phase 1 — Deterministic scripted vertical slice
 
+Issue: [#23](https://github.com/Graphite-Note/Graphite/issues/23)
+
 - [ ] Use a placeholder or original draft character with enter, exit, idle, look, and point states.
 - [ ] Run a hand-authored lesson over one equation and one figure with stable targets.
 - [ ] Add safe corner placement, basic collision handling, a None mode, and cancellation.
@@ -229,6 +251,8 @@ This example requires a resolved drain target. With the character disabled, the 
 **Exit:** The same short lesson works with and without the character, leaves the note unchanged, and never obscures the active target in the supported layouts.
 
 ### Phase 2 — Playback, settings, and accessibility
+
+Issue: [#24](https://github.com/Graphite-Note/Graphite/issues/24)
 
 - [ ] Integrate actual narration events, captions, pause/resume, seek, and interruption cleanup.
 - [ ] Add None / Minimal / Full, independent voice controls, reduced motion, and preference persistence.
@@ -238,6 +262,8 @@ This example requires a resolved drain target. With the character disabled, the 
 
 ### Phase 3 — Planner integration and failure handling
 
+Issue: [#25](https://github.com/Graphite-Note/Graphite/issues/25)
+
 - [ ] Expose supported semantic character actions to the teaching planner through capabilities.
 - [ ] Validate generated cues and apply safe fallbacks for unsupported actions or missing targets.
 - [ ] Coordinate question interruptions and optional quiz reactions through the existing lesson runtime.
@@ -245,6 +271,8 @@ This example requires a resolved drain target. With the character disabled, the 
 **Exit:** Invalid optional cues cannot break playback or produce unverified precise pointing.
 
 ### Phase 4 — Polish and evaluate
+
+Issue: [#26](https://github.com/Graphite-Note/Graphite/issues/26)
 
 - [ ] Replace draft assets with the final original Graphite character and consistent animation set.
 - [ ] Tune gesture frequency, movement, expressions, and reading pauses using real study sessions.
@@ -254,6 +282,8 @@ This example requires a resolved drain target. With the character disabled, the 
 **Exit:** Evidence that the presenter helps users follow explanations, with acceptable distraction and performance.
 
 ## Acceptance checklist
+
+Issue: [#27](https://github.com/Graphite-Note/Graphite/issues/27)
 
 - [ ] Disabling the presenter preserves all essential lesson content, playback controls, and document cues.
 - [ ] Switching None / Minimal / Full during playback does not restart narration or leave pending cues blocked.

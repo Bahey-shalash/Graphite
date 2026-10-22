@@ -26,6 +26,8 @@ Found: TextKit 2 estimates the height of text it has not laid out from ordinary 
 
 ## Scope
 
+Issue: [#57](https://github.com/Graphite-Note/Graphite/issues/57)
+
 - [x] Jumps: a block's view takes the height its lines reserve the first time it shows, from the second time it is shown on. Done 2026-10-21: a new view of a block measured before keeps the measured height until its own reports settle (`MarkdownEditorStyling.newViewHeightSettlingDelay`, `LivePreviewRenderedBlocks.isNewViewOfMeasuredBlock`); in runs 2 and 3 of the benchmark no block changed height, against 360 restyles before; jumps over 50 pt per run 9 → 2 on the Mac and 6–7 → 2 in the iPad simulator (`Coverage.md`, "Scrolling a long note"). Not checked by hand or on a device.
 - [x] Memory: no SwiftUI `Canvas` in a note's rendered blocks, which started RenderBox's Metal device (about 200 MB while scrolling). Done 2026-10-21: Textual patch 19 and SwiftUIMath patch 5 (formulas as glyph outlines); Mac growth scrolling down 217–228 → 71–78 MB, peak 452–488 → 273–308 MB; renders compared with the canvas versions; `AppProjectTextualPatchTests` and the Live Preview classes pass. Not checked on a physical iPad, where the graphics memory counts.
 - [ ] ~~Jumps: a block above the top of the screen that takes another height does not move what is on screen (scroll anchoring).~~ Dropped 2026-10-21: AppKit already keeps the visible text in place when text above it changes height, and the correction doubled it (more jumps on the Mac).

@@ -45,6 +45,8 @@ Rules for the comparison:
 
 ## Scope
 
+Issue: [#48](https://github.com/Graphite-Note/Graphite/issues/48)
+
 - [ ] Parsers for every Mermaid 12.1.0 diagram type Pele supports, tested against Mermaid's parser specs (`tests/compat` in Pele, MIT licensed), with differential testing against Pele's output.
 - [ ] Layout engine in pure Swift: value types, no per-node class allocation, nothing on the main thread except drawing.
 - [ ] Renderer drawing with Core Graphics and Core Text; SVG export for sharing and for files Obsidian reads.
