@@ -140,3 +140,29 @@ final class PostgreSQLMirrorController {
         return newMirror
     }
 }
+
+/// The PostgreSQL Mirror core plugin.
+extension WorkspaceModel {
+    /// What a copy of the open vault needs, or nil when there is nothing to copy yet: the
+    /// plugin is off or not set up, no vault is open, or the index has not read the whole
+    /// vault (a note it does not hold yet would be deleted from the database).
+    private var postgreSQLMirrorSource: PostgreSQLMirrorSource? {
+        guard preferences.isEnabled(.postgreSQLMirror), preferences.postgreSQLMirrorConfiguration.missingSetting == nil, hasCompletedIndexScan,
+              let index, let store, let root = folderAccess?.root, let currentVaultIdentifier,
+              let vault = vaultLibrary.vault(withIdentifier: currentVaultIdentifier) else { return nil }
+        return PostgreSQLMirrorSource(vaultName: vault.name, index: index, store: store, vaultRoot: root,
+                                                     configuration: preferences.postgreSQLMirrorConfiguration)
+    }
+
+    /// After the index takes in changes.
+    func schedulePostgreSQLMirrorCopy() {
+        guard let source = postgreSQLMirrorSource else { return }
+        postgreSQLMirror.schedule(source)
+    }
+
+    /// Copy Now, and after the settings change or the plugin is turned on.
+    func copyToPostgreSQLMirrorNow() {
+        guard let source = postgreSQLMirrorSource else { return }
+        postgreSQLMirror.copyNow(source)
+    }
+}
