@@ -56,6 +56,9 @@ Rules for the comparison:
 ## Scope
 
 - [ ] Parsers for every Mermaid 12.1.0 diagram type Pele supports, tested against Mermaid's parser specs (`tests/compat` in Pele, MIT licensed), with differential testing against Pele's output.
+  - [x] The flowchart's parser (`flowchart`, `graph`, `flowchart-elk`), as decision 4 lists. Done 2026-10-22: `MermaidDiagramReader` (front matter, comments, the type keyword; other types named by their keyword) and `FlowchartParser` with its node, link and text syntaxes, over the UTF-8 bytes in one pass, every error a typed case with its line, text, nodes and edges bounded by `MermaidDiagramLimits`. Tests: `FlowchartParserTests` (29: every bracket shape, `@{ … }`, every link operator with marks and span, both label syntaxes, chains, `&`, edge identifiers, groups, style statements, comments, accessibility text, errors and limits), `MermaidDiagramReaderTests` (9), `DiagramLabelDecoderTests` (7), `FlowchartNodeShapeTests` and `FlowchartDirectionTests`. Fourteen examples of Mermaid's flowchart documentation were read by hand once, all as expected; that check is not in the suite.
+  - [ ] The flowchart against Mermaid's flowchart parser specs (`tests/compat` in Pele) and differentially against Pele's output.
+  - [ ] The other types.
 - [ ] Layout engine in pure Swift: value types, no per-node class allocation, nothing on the main thread except drawing.
 - [ ] Renderer drawing with Core Graphics and Core Text; SVG export for sharing and for files Obsidian reads.
 - [ ] Theme from Graphite's appearance (light and dark, accent color, fonts), plus the colors an Obsidian theme or snippet sets with Pele's variables (`--pele-bg`, `--pele-accent`, `--pele-series-1` to `--pele-series-8`).
