@@ -48,6 +48,9 @@ final class GraphCanvasModel {
     /// The group that colors each node, by the node's index; nil where no group does.
     private(set) var groupIndexes: [Int?] = []
     @ObservationIgnored private var indexByIdentifier: [String: Int] = [:]
+    /// Each node's name as measured at the names' font, filled as the names are drawn, which
+    /// needs their sizes every frame to keep them apart; as long as the graph's nodes.
+    @ObservationIgnored private var measuredNameSizes: [CGSize?] = []
     @ObservationIgnored private var simulator: GraphSimulator?
     @ObservationIgnored private var runTask: Task<Void, Never>?
 
@@ -57,6 +60,7 @@ final class GraphCanvasModel {
         runTask = nil
         let layout = GraphLayout(graph: graph, forces: forces, previousPositions: previousPositions)
         self.graph = graph
+        measuredNameSizes = Array(repeating: nil, count: graph.nodes.count)
         colorNodes(by: groupIndexByIdentifier)
         positions = layout.positions
         indexByIdentifier = Dictionary(uniqueKeysWithValues: layout.identifiers.enumerated().map { index, identifier in (identifier, index) })
@@ -79,6 +83,15 @@ final class GraphCanvasModel {
     }
 
     func index(of identifier: String) -> Int? { indexByIdentifier[identifier] }
+
+    /// A node's name size, measured by `measure` the first time it is asked for.
+    func nameSize(ofNodeAt index: Int, measuring measure: () -> CGSize) -> CGSize {
+        guard measuredNameSizes.indices.contains(index) else { return measure() }
+        if let size = measuredNameSizes[index] { return size }
+        let size = measure()
+        measuredNameSizes[index] = size
+        return size
+    }
 
     /// Takes the groups' coloring of the files, as after a group's search changes.
     func colorNodes(by groupIndexByIdentifier: [String: Int]) {

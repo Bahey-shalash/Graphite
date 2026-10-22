@@ -44,6 +44,15 @@ struct GraphCanvas: View {
         case node(String)
         case free
     }
+    /// Nodes this far outside the view are still drawn, so a node and its name slide in whole.
+    private static let offScreenMarginPoints = 40.0
+    /// The room between a node and its name.
+    private static let nameGapPoints = 2.0
+    /// The room a name keeps around it, which no other name may take.
+    private static let nameMarginPoints = 2.0
+    private static let namePoints = 11.0
+    /// The open note's name is a little larger and bold.
+    private static let openNoteNamePoints = 12.0
     /// A touch this far outside a node still takes it.
     private static let nodeReachMarginPoints = 6.0
     /// A finger needs room: a touch this close to a small node's center takes it.
@@ -112,12 +121,29 @@ struct GraphCanvas: View {
     private func draw(in context: inout GraphicsContext, size: CGSize) {
         let positions = model.positions
         guard positions.count == model.graph.nodes.count, !positions.isEmpty else { return }
-        let scale = viewport.scale
         let points = positions.map { position in viewport.screenPoint(position, in: size) }
         let focused = focusedIndex
         let highlighted = highlightedIdentifier.flatMap(model.index(of:))
-        let lineColor = colorScheme == .dark ? Color.white : Color.black
+        drawLinks(in: &context, points: points, focused: focused)
+        if showsArrows { drawArrows(in: &context, points: points) }
+        let visible = CGRect(origin: .zero, size: size).insetBy(dx: -Self.offScreenMarginPoints, dy: -Self.offScreenMarginPoints)
+        let visibleIndexes = points.indices.filter { index in visible.contains(points[index]) }
+        for index in visibleIndexes {
+            let radius = screenRadius(ofNodeAt: index)
+            let circle = Path(ellipseIn: CGRect(x: points[index].x - radius, y: points[index].y - radius, width: radius * 2, height: radius * 2))
+            let color = nodeColor(at: index, isHighlighted: index == highlighted || index == focused)
+            let isFaded = isFaded(index, focused: focused)
+            if model.graph.nodes[index].kind == .unresolved {
+                context.stroke(circle, with: .color(color.opacity(isFaded ? 0.2 : 0.6)), lineWidth: 1.2)
+            } else {
+                context.fill(circle, with: .color(color.opacity(isFaded ? 0.25 : 1)))
+            }
+        }
+        drawNames(in: &context, points: points, indexes: visibleIndexes, focused: focused, highlighted: highlighted)
+    }
 
+    private func drawLinks(in context: inout GraphicsContext, points: [CGPoint], focused: Int?) {
+        let lineColor = colorScheme == .dark ? Color.white : Color.black
         var links = Path()
         var focusedLinks = Path()
         for edge in model.edgeIndexes {
@@ -129,27 +155,64 @@ struct GraphCanvas: View {
         }
         context.stroke(links, with: .color(lineColor.opacity(focused == nil ? 0.18 : 0.08)), lineWidth: viewport.linkWidth(isFocused: false) * display.linkThicknessMultiplier)
         context.stroke(focusedLinks, with: .color(accent.opacity(0.8)), lineWidth: viewport.linkWidth(isFocused: true) * display.linkThicknessMultiplier)
-        if showsArrows { drawArrows(in: &context, points: points) }
+    }
 
-        let visible = CGRect(origin: .zero, size: size).insetBy(dx: -40, dy: -40)
-        for index in points.indices where visible.contains(points[index]) {
-            let node = model.graph.nodes[index]
-            let isNeighborOfFocused = focused.map { focusedIndex in model.neighborIndexes[focusedIndex].contains(index) } ?? false
-            let isFaded = focused != nil && focused != index && !isNeighborOfFocused
-            let radius = screenRadius(ofNodeAt: index)
-            let circle = Path(ellipseIn: CGRect(x: points[index].x - radius, y: points[index].y - radius, width: radius * 2, height: radius * 2))
-            let color = nodeColor(at: index, isHighlighted: index == highlighted || index == focused)
-            if node.kind == .unresolved {
-                context.stroke(circle, with: .color(color.opacity(isFaded ? 0.2 : 0.6)), lineWidth: 1.2)
-            } else {
-                context.fill(circle, with: .color(color.opacity(isFaded ? 0.25 : 1)))
-            }
-            let showsNameFromZoom = alwaysShowsLabels || display.showsName(of: node.kind, atScale: scale)
-            guard showsNameFromZoom || index == highlighted || index == focused || isNeighborOfFocused else { continue }
-            let label = Text(node.title).font(.system(size: index == highlighted ? 12 : 11, weight: index == highlighted ? .semibold : .regular))
-                .foregroundStyle(isFaded ? Color.secondary.opacity(0.4) : Color.primary.opacity(0.85))
-            context.draw(label, at: CGPoint(x: points[index].x, y: points[index].y + radius + 2), anchor: .top)
+    /// The names at this zoom, over the nodes: fading in as the zoom nears the name zoom, and
+    /// whole for the open note, the focused node and its neighbors. A name that would cover
+    /// one placed before it is left out at this zoom (`GraphNamePlacement`).
+    private func drawNames(in context: inout GraphicsContext, points: [CGPoint], indexes: [Int], focused: Int?, highlighted: Int?) {
+        var candidates: [GraphNamePlacement.Candidate] = []
+        var opacities: [Int: Double] = [:]
+        for index in indexes {
+            let importance = nameImportance(of: index, focused: focused, highlighted: highlighted)
+            let zoomOpacity = alwaysShowsLabels ? 1 : display.nameOpacity(of: model.graph.nodes[index].kind, atScale: viewport.scale)
+            guard importance > 0 || zoomOpacity > 0 else { continue }
+            let nameSize = measuredNameSize(at: index, isOpenNote: index == highlighted, in: context)
+            let top = nameTop(at: index, points: points)
+            let frame = CGRect(x: top.x - nameSize.width / 2, y: top.y, width: nameSize.width, height: nameSize.height)
+            candidates.append(GraphNamePlacement.Candidate(nodeIndex: index, frame: frame.insetBy(dx: -Self.nameMarginPoints, dy: -Self.nameMarginPoints),
+                                                           importance: importance, nodeRadius: screenRadius(ofNodeAt: index)))
+            opacities[index] = importance > 0 ? 1 : zoomOpacity
         }
+        for index in GraphNamePlacement.placedNames(candidates) {
+            let color = isFaded(index, focused: focused) ? Color.secondary.opacity(0.4) : Color.primary.opacity(0.85)
+            let name = nameText(of: index, isOpenNote: index == highlighted).foregroundStyle(color.opacity(opacities[index] ?? 1))
+            context.draw(name, at: nameTop(at: index, points: points), anchor: .top)
+        }
+    }
+
+    /// Where a node's name is drawn: centered under it.
+    private func nameTop(at index: Int, points: [CGPoint]) -> CGPoint {
+        CGPoint(x: points[index].x, y: points[index].y + screenRadius(ofNodeAt: index) + Self.nameGapPoints)
+    }
+
+    private func nameText(of index: Int, isOpenNote: Bool) -> Text {
+        Text(model.graph.nodes[index].title)
+            .font(.system(size: isOpenNote ? Self.openNoteNamePoints : Self.namePoints, weight: isOpenNote ? .semibold : .regular))
+    }
+
+    /// A name's size: measured once at the names' font, the open note's at its own.
+    private func measuredNameSize(at index: Int, isOpenNote: Bool, in context: GraphicsContext) -> CGSize {
+        let unbounded = CGSize(width: CGFloat.infinity, height: CGFloat.infinity)
+        guard !isOpenNote else { return context.resolve(nameText(of: index, isOpenNote: true)).measure(in: unbounded) }
+        return model.nameSize(ofNodeAt: index) { context.resolve(nameText(of: index, isOpenNote: false)).measure(in: unbounded) }
+    }
+
+    /// How early a name is placed: the open note's (3), then the focused node's (2), then its
+    /// neighbors' (1), then the others' (0).
+    private func nameImportance(of index: Int, focused: Int?, highlighted: Int?) -> Int {
+        if index == highlighted { return 3 }
+        if index == focused { return 2 }
+        return isNeighbor(index, of: focused) ? 1 : 0
+    }
+
+    private func isNeighbor(_ index: Int, of focused: Int?) -> Bool {
+        focused.map { focusedIndex in model.neighborIndexes[focusedIndex].contains(index) } ?? false
+    }
+
+    /// Whether a node steps back because another is focused and it is not one of its neighbors.
+    private func isFaded(_ index: Int, focused: Int?) -> Bool {
+        focused != nil && focused != index && !isNeighbor(index, of: focused)
     }
 
     /// A node's radius on screen: its size from its links, the person's node size and the zoom.
@@ -263,7 +326,7 @@ struct GraphCanvas: View {
     /// Shows the whole graph, names included, at most a little larger than its natural size.
     private func fit(in size: CGSize, animated: Bool) {
         let names = model.graph.nodes.map { node in
-            GraphViewport.NameRoom(characterCount: node.title.count, shownFromScale: alwaysShowsLabels ? 0 : display.nameScale(of: node.kind))
+            GraphViewport.NameRoom(characterCount: node.title.count, shownFromScale: alwaysShowsLabels ? 0 : display.nameFadeStartScale(of: node.kind))
         }
         guard let fitted = GraphViewport.fitting(model.positions, names: names, in: size) else { return }
         show(fitted, animated: animated)
