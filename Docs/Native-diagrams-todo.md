@@ -2,7 +2,7 @@
 
 Created: 2026-10-18.
 
-Status: started 2026-10-22 on the branch `native-diagrams`. The decisions below unblock the first slice, the flowchart drawn natively in the reading view; nothing in the scope is ticked yet, and `Docs/Obsidian-mobile-gaps.md` still lists Mermaid diagrams as Missing (shown as code).
+Status: started 2026-10-22 on the branch `native-diagrams`. First slice done: the flowchart is read, laid out and drawn natively in the reading view (`Packages/MermaidDiagrams`, decisions below); the sub-items record what is done and how it was checked. Live Preview, subgraphs, the other types, the width, the theme variables, SVG export and the size target are open. `Docs/Obsidian-mobile-gaps.md` lists Mermaid diagrams as Partial, and the measurements are in `Docs/Coverage.md` (2026-10-22).
 
 ## Request
 
@@ -73,7 +73,11 @@ Rules for the comparison:
   - [ ] Live Preview draws the same block over its concealed fence and shows the source when the cursor enters it.
 - [ ] Safety as in Pele: diagram text is escaped, links and styles filtered, source and output size limited. A diagram that fails to parse shows the error and its source, never a crash.
 - [ ] A benchmark test target that runs the comparison above and fails when a target is missed.
+  - [x] A benchmark on Pele's inputs. Done 2026-10-22: `MermaidDiagramsBenchmark` (`swift run -c release`) times reading, layout, drawing parts and painting, median and 99th percentile per diagram, and the heap a layout holds, on Mermaid's documentation examples (Pele's corpus), Pele's 7-node flowchart and its generated trees and meshes. Results in `Docs/Coverage.md`: 7 µs to read and lay out a documentation example, 28 µs for the 7-node flowchart (after an optimization measured before and after), 4,126 bytes per 7-node layout.
+  - [ ] Pele's own benchmark run on the same Mac, its numbers next to ours, on an iPad and an iPhone too, and the benchmark failing when a target is missed.
+  - [ ] The size target: a release executable that reads, lays out and draws a flowchart is 203 KB larger (183 KB with `-Osize`) for the flowchart alone, against 60 kB for every type; find what the code is made of, and measure the app itself with and without the package.
 - [ ] `Architecture.md`, `Coverage.md` and the gaps list updated once each part is built and tested.
+  - [x] For the flowchart in the reading view. Done 2026-10-22: `Architecture.md` "Native Mermaid diagrams", `Coverage.md` with the measurements, the gaps list at Partial.
 
 ## Open questions
 

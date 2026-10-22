@@ -2,7 +2,36 @@
 
 What Graphite does today, how each part is verified, and what is still missing. `OBJECTIVE.md` describes the complete product; this file tracks progress toward it. Update it with every change that adds, removes, or re-verifies behavior.
 
-Last updated: 2026-10-21.
+Last updated: 2026-10-22.
+
+## Mermaid flowcharts drawn natively in reading view: 2026-10-22
+
+The first slice of [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48): ` ```mermaid ` flowcharts are read, laid out and drawn natively, in Pele's style, by the standalone package `Packages/MermaidDiagrams`, and the reading view shows them (Architecture, "Native Mermaid diagrams").
+
+- **Done and tested.** The flowchart's parser (`FlowchartParserTests` 29, `MermaidDiagramReaderTests` 9, `DiagramLabelDecoderTests` 7), the layered layout and the flowchart's layout (`FlowchartLayoutEngineTests` 15 and the layout parts' tests), the drawing parts and the Core Graphics renderer (`FlowchartRendererTests` 6 reading pixels back, `FlowchartDrawingPartsTests` 5, `FlowchartShapeDrawingTests` 3), Mermaid's 114 documentation examples (`FlowchartCorpusTests`: 105 drawn, the 9 with subgraphs refused for that reason), and in Graphite the block split, the reading view's build and the view's shapes and colors (`NotePreviewDocumentCodeBlockLanguageTests`, `ReadingViewBuilderDiagramTests`, `ReadingDiagramTests`, `ReadingFlowchartShapesTests`, `ReadingDiagramColorsTests`). `swift test --package-path Packages/MermaidDiagrams`: 110 tests pass.
+- **Checked in the iPad Pro 11-inch (M5) simulator** (iOS 27, light appearance, a vault of its own): a top-to-bottom flowchart with a decision, a loop back and edge text; every shape from left to right; a flowchart in a callout with an edge to its own node; a flowchart with an error, shown as its source and the reason; a sequence diagram, still code; scrolling the note.
+- **Not done or not checked.** Live Preview (still code), subgraphs, styles and `click`, the other diagram types, SVG export, a layout for the pane's width (a wide flowchart is scaled down until it is too small to read: the fourteen shapes in a row), the dark appearance and a vault theme on screen, the Mac app, Export to PDF, a physical iPad or iPhone, and Pele's own benchmark on this Mac.
+
+Measured with `MermaidDiagramsBenchmark` (`swift run -c release --package-path Packages/MermaidDiagrams MermaidDiagramsBenchmark`), Release, on Apple M3 Max (36 GB, macOS 27), on the inputs of Pele's benchmark (`scripts/bench.mjs` and `bench-mermaid.mjs` in Pele): Mermaid's documentation examples (the 105 drawn), Pele's 7-node flowchart, and its generated tree and mesh with the same seed. Each measurement repeats until about 300 ms have passed (5 to 2,000 runs); the table gives the range of the medians over three runs, and the 99th percentile in brackets, per diagram. Other sessions were compiling on the Mac (load average 4 to 8 during these runs), so the numbers are at most these.
+
+| Input | Read | Layout | Read and layout | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Documentation examples (105) | 1.4 µs (≤ 2.7) | 5.3–5.5 µs (≤ 7.0) | 6.8–7.2 µs (≤ 8.8) | 1.7–1.8 µs |
+| 7-node flowchart | 4.7–4.8 µs (≤ 6.1) | 22.5–23.5 µs (≤ 29.3) | 27.5–28.6 µs (≤ 36.5) | 8.1–8.5 µs |
+| Tree, 50 nodes | 35–36 µs | 66–68 µs | 102–104 µs | 47–49 µs |
+| Mesh, 50 nodes, 20 labelled edges | 30 µs | 461–479 µs | 492–519 µs | 65–68 µs |
+| Tree, 500 nodes | 348–361 µs | 594–606 µs | 0.93–0.98 ms | 0.46–0.48 ms |
+| Mesh, 500 nodes, 200 labelled edges | 286–299 µs | 10.7–11.6 ms | 11.1–11.9 ms | 0.74–0.76 ms |
+
+Against the targets of the checklist:
+
+- **Read and layout, 5–30 µs per diagram (Pele's README: 0.05–0.3 ms):** met for the documentation examples (7 µs) and Pele's 7-node flowchart (28 µs median, 36 µs at the 99th percentile). Large meshes with many labelled edges take milliseconds; the layout's ordering and placement grow with the passing points that edge text adds. Before the optimization of the same day the two first rows were 10.8–11.5 µs and 66.7–68.5 µs, measured back to back under the same load.
+- **Measurers for a font, made once:** 14 µs (`DiagramTypography`).
+- **Memory per diagram, ≤ 64 kB of layout data:** met: the heap grows by 4,126 bytes per laid-out 7-node flowchart and 22,807 bytes per 50-node tree (1,000 layouts kept).
+- **Size added to the app, ≤ 60 kB per architecture for every type:** missed by far for the flowchart alone. A release executable (arm64) that reads, lays out and draws a flowchart has 203 KB more in its sections than one that does not (168 KB of it code), 183 KB built with `-Osize`, 242 KB more once stripped. Not measured yet in the app itself with and without the package.
+- **Theme change without parsing or laying out again:** met by design: colors are given at paint time (`FlowchartRendererTests` draws one layout in two palettes; the reading view paints SwiftUI shapes in the colors of the moment).
+- **Width change within a frame, without parsing again:** not done; the drawing is scaled.
+- **Drawing:** painting the parts with Core Graphics into a 2× bitmap takes 106–107 µs per documentation example and 0.63–0.66 ms for the 7-node flowchart, and grows with the drawing's area (seconds for the 500-node tree, many thousands of points wide). The reading view does not paint this way; its SwiftUI shapes were not timed, nor frames while scrolling on a device.
 
 ## Scrolling a long note: fewer jumps, a third of the memory: 2026-10-21
 
