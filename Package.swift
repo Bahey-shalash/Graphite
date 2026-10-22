@@ -36,7 +36,7 @@ let package = Package(
         // The on-device neural voices: model loading and rendering with MLX.
         .target(name: "GraphiteVoices", dependencies: ["GraphiteCore", "GraphiteApple", .product(name: "MLXAudioTTS", package: "mlx-audio-swift")],
                 resources: [.copy("Resources/NeuralVoices.json"), .copy("Resources/DiaVoicePrompt.json")]),
-        .target(name: "GraphiteUI", dependencies: ["GraphiteCore", "GraphiteIndex", "GraphiteApple", "GraphiteVoices", .product(name: "Textual", package: "textual"),
+        .target(name: "GraphiteUI", dependencies: ["GraphiteCore", "GraphiteIndex", "GraphiteApple", "GraphiteVoices", "GraphitePostgreSQLMirror", .product(name: "Textual", package: "textual"),
                                           .product(name: "NotebookImport", package: "NotebookImport")],
                 // The Obsidian plugin runtime's page, scripts and vendored libraries, copied as
                 // one folder so the page's relative script paths keep working.
