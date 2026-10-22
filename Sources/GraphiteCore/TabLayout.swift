@@ -38,6 +38,9 @@ public struct TabGroup: Identifiable, Equatable, Sendable {
     public let id: UUID
     public fileprivate(set) var tabs: [WorkspaceTab]
     public fileprivate(set) var activeTabID: UUID
+    /// Obsidian's "Stack tabs": the group shows its tabs side by side as sliding panes
+    /// (`StackedPaneGeometry`) rather than the active tab alone.
+    public fileprivate(set) var isStacked = false
 
     fileprivate init(tabs: [WorkspaceTab], activeTabID: UUID? = nil) {
         id = UUID()
@@ -381,6 +384,14 @@ public struct TabLayout: Equatable, Sendable {
         return removedTabs
     }
 
+    // MARK: Stacking
+
+    /// Stacks or unstacks a group's tabs, as Obsidian's "Stack tabs" does for a tab group.
+    public mutating func setStacked(_ isStacked: Bool, inGroup groupID: UUID) {
+        guard let groupIndex = groups.firstIndex(where: { group in group.id == groupID }) else { return }
+        groups[groupIndex].isStacked = isStacked
+    }
+
     // MARK: Saving
 
     public var saved: SavedTabLayout {
@@ -388,7 +399,7 @@ public struct TabLayout: Equatable, Sendable {
             SavedTabLayout.Group(tabs: group.tabs.map { tab in
                 SavedTabLayout.Tab(path: tab.path?.rawValue, isPinned: tab.isPinned, coreView: tab.coreView?.rawValue)
             },
-                                 activeTabIndex: group.activeTabIndex)
+                                 activeTabIndex: group.activeTabIndex, isStacked: group.isStacked)
         }, focusedGroupIndex: groups.firstIndex { group in group.id == focusedGroupID } ?? 0, splitFraction: splitFraction)
     }
 
@@ -415,7 +426,9 @@ public struct TabLayout: Equatable, Sendable {
             }
             guard !tabs.isEmpty else { continue }
             if savedIndex == saved.focusedGroupIndex { focusedGroupIndex = restoredGroups.count }
-            restoredGroups.append(TabGroup(tabs: tabs, activeTabID: activeTabID))
+            var group = TabGroup(tabs: tabs, activeTabID: activeTabID)
+            group.isStacked = savedGroup.isStacked == true
+            restoredGroups.append(group)
         }
         if !restoredGroups.isEmpty {
             groups = restoredGroups
@@ -468,7 +481,14 @@ public struct SavedTabLayout: Codable, Equatable, Sendable {
     public struct Group: Codable, Equatable, Sendable {
         public var tabs: [Tab]
         public var activeTabIndex: Int
-        public init(tabs: [Tab], activeTabIndex: Int) { self.tabs = tabs; self.activeTabIndex = activeTabIndex }
+        /// True for a stacked group; absent otherwise, so layouts saved before stacking
+        /// existed, and unstacked ones, read and write as they did.
+        public var isStacked: Bool?
+        public init(tabs: [Tab], activeTabIndex: Int, isStacked: Bool = false) {
+            self.tabs = tabs
+            self.activeTabIndex = activeTabIndex
+            self.isStacked = isStacked ? true : nil
+        }
     }
 
     public struct Tab: Codable, Equatable, Sendable {

@@ -15,6 +15,8 @@ struct WindowActions {
     let create: (CreationKind) -> Void
     /// Lists the Templates folder's notes to insert one into the current note.
     let showTemplatePicker: () -> Void
+    /// Shows every open tab as a card (`TabOverview`).
+    let showTabOverview: () -> Void
     var toggleFocusMode: (() -> Void)? = nil
 }
 
@@ -54,7 +56,7 @@ enum WorkspaceCommandList {
         if workspace.history.canGoForward {
             commands.append(PaletteCommand(id: "forward", command: .goForward, systemImage: "chevron.right") { Task { await workspace.goForward() } })
         }
-        commands += tabCommands(for: workspace)
+        commands += tabCommands(for: workspace, window: window)
         if workspace.preferences.isEnabled(.fileRecovery) {
             commands.append(PaletteCommand(id: "file-recovery-all", command: .browseSnapshots, systemImage: "clock.arrow.circlepath") {
                 workspace.fileRecoveryRequest = FileRecoveryRequest(path: nil)
@@ -174,7 +176,7 @@ enum WorkspaceCommandList {
     }
 
     /// Obsidian's tab and split commands.
-    private static func tabCommands(for workspace: WorkspaceModel) -> [PaletteCommand] {
+    private static func tabCommands(for workspace: WorkspaceModel, window: WindowActions) -> [PaletteCommand] {
         let layout = workspace.layout
         let tab = layout.activeTab
         var commands = [
@@ -191,6 +193,11 @@ enum WorkspaceCommandList {
                 PaletteCommand(id: "previous-tab", command: .previousTab, systemImage: "arrow.left.square") { workspace.activateNeighborTab(forward: false) },
             ]
         }
+        commands.append(PaletteCommand(id: "show-tab-overview", command: .showTabOverview, systemImage: "square.on.square", run: window.showTabOverview))
+        commands.append(PaletteCommand(id: "toggle-stacked-tabs", command: .toggleStackedTabs,
+                                       systemImage: layout.focusedGroup.isStacked ? "rectangle" : "rectangle.stack") {
+            workspace.toggleStackedTabs()
+        })
         if !layout.closedPaths.isEmpty {
             commands.append(PaletteCommand(id: "reopen-tab", command: .reopenClosedTab, systemImage: "arrow.uturn.backward") {
                 Task { await workspace.reopenClosedTab() }

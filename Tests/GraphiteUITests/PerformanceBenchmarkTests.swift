@@ -13,8 +13,9 @@ import AppKit
 #endif
 
 /// Time, processor and memory use of opening, scrolling and typing in a long note (in a
-/// paragraph, a list item and a callout), of opening and scrolling a long PDF with its pages
-/// sidebar, of an embedded PDF while other files change, and of the map's updates. The same
+/// paragraph, a list item and a callout), of switching between open tabs, of opening and
+/// scrolling a long PDF with its pages sidebar, of an embedded PDF while other files change,
+/// and of the map's updates. The same
 /// file runs on the Mac (`swift test`) and in the hosted iPad tests, so both platforms are
 /// measured the same way.
 ///
@@ -152,6 +153,90 @@ final class PerformanceBenchmarkTests: XCTestCase {
             try? await workspace.document(for: tab).saveAllChanges()
             close(window)
             try await reportMemoryKept(scenario: "note-memory-kept-after-close", run: run, since: footprintBeforeOpening)
+        }
+    }
+
+    // MARK: Switching tabs
+
+    /// Switching between open tabs, from the request to the tab's document laid out and shown
+    /// (a note's editor with its rendered blocks, a PDF's visible pages), plus the main
+    /// thread's work that follows. Three patterns: back and forth between two notes; round all
+    /// five notes, more than the hidden editors kept (`MarkdownEditorRetention`); and between a
+    /// note and a PDF.
+    func testSwitchingBetweenOpenTabs() async throws {
+        for run in 1...Self.runCount {
+            let vault = try makeTemporaryDirectory(named: "TabSwitchBenchmark")
+            let notePaths = try (1...5).map { noteNumber in try VaultPath("Lecture \(noteNumber).md") }
+            for (noteIndex, path) in notePaths.enumerated() {
+                let noteText = Self.longLectureNote(sectionCount: 20).replacingOccurrences(of: "Section ", with: "Part \(noteIndex + 1).")
+                try Data(noteText.utf8).write(to: vault.appendingPathComponent(path.rawValue))
+            }
+            let pdfPath = try VaultPath("Handout.pdf")
+            _ = try Self.makeLecturePDF(at: vault.appendingPathComponent(pdfPath.rawValue), pageCount: 40)
+            let workspace = WorkspaceModel()
+            workspace.folderAccess = FolderAccess(root: vault)
+            workspace.store = VaultStore(root: vault)
+            let index = try VaultIndex(databaseURL: vault.appendingPathComponent("index.sqlite"))
+            workspace.index = index
+            _ = try await index.reconcile(root: vault)
+            let window = host(NavigationStack {
+                WorkspacePanes(workspace: workspace, showsLinksInspector: .constant(false), create: { _ in }, showQuickSwitcher: {})
+            })
+            var noteTabs: [UUID] = []
+            for (noteIndex, path) in notePaths.enumerated() {
+                await workspace.open(path, placement: noteIndex == 0 ? .currentTab : .newTab)
+                let tab = try XCTUnwrap(workspace.layout.tabID(showing: path))
+                workspace.document(for: tab).markdownSession?.viewMode = .livePreview
+                noteTabs.append(tab)
+                try await waitUntilShown(tab, in: window, workspace: workspace)
+            }
+            await workspace.open(pdfPath, placement: .newTab)
+            let pdfTab = try XCTUnwrap(workspace.layout.tabID(showing: pdfPath))
+            try await waitUntilShown(pdfTab, in: window, workspace: workspace)
+            // Every tab has been shown once, as after a while of work.
+
+            let pair = BenchmarkMeasurement(scenario: "tab-switch-pair", run: run)
+            for switchNumber in 0..<10 {
+                try await measureSwitch(to: noteTabs[switchNumber % 2 == 0 ? 3 : 4], in: window, workspace: workspace, measurement: pair)
+            }
+            pair.finish()
+
+            let round = BenchmarkMeasurement(scenario: "tab-switch-round", run: run)
+            for switchNumber in 0..<10 {
+                try await measureSwitch(to: noteTabs[switchNumber % noteTabs.count], in: window, workspace: workspace, measurement: round)
+            }
+            round.finish()
+
+            let withPDF = BenchmarkMeasurement(scenario: "tab-switch-pdf", run: run)
+            for switchNumber in 0..<6 {
+                try await measureSwitch(to: switchNumber % 2 == 0 ? pdfTab : noteTabs[0], in: window, workspace: workspace, measurement: withPDF)
+            }
+            withPDF.finish()
+            close(window)
+        }
+    }
+
+    /// One switch: the time until the tab's document is shown, plus how late a 16 ms timer
+    /// then fires.
+    private func measureSwitch(to tab: UUID, in window: BenchmarkWindow, workspace: WorkspaceModel, measurement: BenchmarkMeasurement) async throws {
+        try await measurement.measureFrame {
+            workspace.activateTab(tab)
+            try await waitUntilShown(tab, in: window, workspace: workspace)
+        }
+    }
+
+    private func waitUntilShown(_ tab: UUID, in window: BenchmarkWindow, workspace: WorkspaceModel) async throws {
+        _ = try await waitForValue(timeout: .seconds(20)) { () -> Bool? in
+            self.layOut(window)
+            let document = workspace.document(for: tab)
+            if let pdfSession = document.pdfSession {
+                guard let pdfView = pdfSession.pdfView, pdfView.window != nil, pdfView.bounds.height > 100, !pdfView.visiblePages.isEmpty else { return nil }
+                return true
+            }
+            guard let session = document.markdownSession,
+                  let editor = self.descendants(of: self.contentView(of: window), matching: BenchmarkTextView.self).first(where: { editor in self.text(of: editor) == session.text }),
+                  self.visibleBounds(of: editor).width > 0, !self.blockViews(in: editor).isEmpty else { return nil }
+            return true
         }
     }
 
@@ -416,6 +501,7 @@ final class PerformanceBenchmarkTests: XCTestCase {
 
     #if canImport(UIKit)
     typealias BenchmarkTextView = MarkdownTextView
+    typealias BenchmarkWindow = UIWindow
 
     private func host(_ view: some View) -> UIWindow {
         let scene = UIApplication.shared.connectedScenes.compactMap { scene in scene as? UIWindowScene }.first
@@ -468,6 +554,7 @@ final class PerformanceBenchmarkTests: XCTestCase {
     }
     #else
     typealias BenchmarkTextView = MarkdownMacTextView
+    typealias BenchmarkWindow = NSWindow
 
     private func host(_ view: some View) -> NSWindow {
         let window = NSWindow(contentRect: CGRect(origin: .zero, size: Self.windowSize), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
@@ -554,9 +641,9 @@ final class BenchmarkMeasurement {
 
     /// The step's own work, and the main thread's work it set off, measured as how late a
     /// timer then fires.
-    func measureFrame(_ step: () -> Void) async {
+    func measureFrame(_ step: () async throws -> Void) async rethrows {
         let stepStart = ContinuousClock.now
-        step()
+        try await step()
         let stepEnd = ContinuousClock.now
         try? await Task.sleep(for: PerformanceBenchmarkTests.frameIntervalForMeasurement)
         let lateness = max(.zero, stepEnd.duration(to: .now) - PerformanceBenchmarkTests.frameIntervalForMeasurement)

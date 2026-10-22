@@ -163,6 +163,7 @@ These rows review every item that had no row at the first 70. They were measured
 | `Sources/GraphiteCore/ShapeRecognizer.swift` | `ShapeRecognizer` | 314 | split planned → the generic polyline helpers (simplification, distance to a segment, signed area) leave for `PolylineGeometry`; the recognizers of lines, arcs, arrows, ellipses and polygons stay | The recognizers are pure and strong, but the helpers are a second concept that is duplicated elsewhere (INK 3.6, `CC-INK-04`). |
 | `Sources/GraphiteUI/ConcealedReplacementLayoutFragment.swift` | `ConcealedReplacementLayoutFragment` | 311 | one concept | It has one job, drawing what the styler marked, with five immutable properties decided once (EDITOR 3.9). |
 | `Sources/GraphiteUI/MarkdownSession.swift` | `MarkdownSession` | 310 | split planned → `MarkdownDocument` (persistence over `DocumentFileAccess`), `NoteInsertionQueue`, `NoteViewState`, `NoteEditorRequests` | The session holds 34 stored properties for five concerns and the whole store for five operations (`SRP-EDITOR-02`, `ISP-EDITOR-01`). |
+| `Sources/GraphiteCore/TabLayout.swift` | `TabLayout` | 306 | one concept | It is the rules of the open tabs in one value: opening beside a tab, closing and reopening, moving, pinning, splitting and stacking, and the saved form `ST-19` pins. The graph's tab and stacked tabs, merged together on 2026-10-22, each added a few lines; the saved form is the part to move out if it grows again. |
 | `Sources/GraphiteUI/MarkdownPreview.swift` | `ReadingViewBuilder` | 304 | split planned → `ReadingLinkRewriter` (pure, shared with Live Preview), `EmbedClassification` (pure), a `ReadingFileLookup` port; the builder keeps block assembly, numbering, locations and token mapping | The builder owns file I/O and a link-rewriting rule that Live Preview writes a second time (`SRP-READING-03`). |
 | `Sources/GraphiteUI/NoteThemeStyle.swift` | `NoteThemeStyle` | 304 | one concept | It is the immutable record of every value a vault theme sets, one stored property each, plus its colour helpers; the initializer that fills it has its own row. |
 | `Sources/GraphiteUI/MarkdownPreview.swift` | `MarkdownPreview` | 304 | split planned → the parts named in the `MarkdownPreview.body` row (`ReadingBuildModel`, `ReadingScrollRestoration` with the heading scroll, `ReadingWordFollower`, `ReadingBlocksView`), and the links' hover action with `ReadingLinkPreviews` once Textual's hover type has a home outside the view | The reading view holds its build, its scroll restoration and heading scroll, Read Aloud following and the link previews' hover beside its layout (`SRP-READING-04`). |
@@ -367,7 +368,7 @@ These rows review every item that had no row at the first 70. They were measured
 
 | Outcome | Items |
 | --- | ---: |
-| `one concept` | 127 |
+| `one concept` | 128 |
 | `split planned` | 164 |
 | Not yet reviewed | 0 |
 | **Over a threshold in the working tree (2026-10-21)** | **284** |

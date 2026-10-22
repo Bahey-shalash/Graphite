@@ -21,7 +21,7 @@
     "files-over-1000-code-lines": 6,
     "graphite-error-prose": 286,
     "hash-value-identity": 3,
-    "lines-over-160-characters": 841,
+    "lines-over-160-characters": 840,
     "localized-description-in-tests": 39,
     "localized-description-in-ui": 175,
     "mutable-statics": 0,
@@ -43,7 +43,7 @@
     "xct-skip-count": 39
   },
   "skippedTestsBaselines": {
-    "hosted-ipad": 40,
+    "hosted-ipad": 41,
     "swift-test": 37
   }
 }

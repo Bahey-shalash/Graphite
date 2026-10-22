@@ -116,8 +116,9 @@ enum DocumentToolbarLayout {
     static let minimumPencilToolsWidthInTabBar: CGFloat = 380
     /// What a tab bar keeps for its tabs beside the tools: one tab at least.
     static let minimumTabsWidthBesidePencilTools: CGFloat = 160
-    /// The tab bar's own buttons, New Tab and Split Right.
-    static let tabBarButtonsWidth: CGFloat = 80
+    /// The tab bar's own buttons: the tab overview with the tab group menu, New Tab, and
+    /// Split Right, 36 points each with their spacing and the bar's end.
+    static let tabBarButtonsWidth: CGFloat = 122
     /// Undo, Redo and Write, when the tab bar holds them, with room to spare for larger
     /// Dynamic Type.
     static let documentControlsWidth: CGFloat = 160
