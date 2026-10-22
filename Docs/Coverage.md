@@ -2,7 +2,13 @@
 
 What Graphite does today, how each part is verified, and what is still missing. `OBJECTIVE.md` describes the complete product; this file tracks progress toward it. Update it with every change that adds, removes, or re-verifies behavior.
 
-Last updated: 2026-10-21.
+Last updated: 2026-10-22.
+
+## The graph in a tab, one click from the file list, and its shortcuts: 2026-10-22
+
+The whole vault's graph opens as a tab of the workspace instead of a sheet on the Mac and a full-screen cover on the iPad: in the empty tab in front, else in a new tab, and asking for it again brings its tab forward. It can sit beside a note in a split, a window restores it with its other tabs, and notes opened from it go to the other side of the split or the tab beside it, so the graph stays where it is. A file opened while it is in front goes to another tab. The filter, Show All and the settings sit over the graph's top. A Graph View button heads the file list's toolbar items (first in the "…" menu where an 11-inch iPad's sidebar folds them). ⇧⌘G opens the graph and ⌥⌘G the local graph, through View › Graph View and View › Local Graph. On a phone the graph's tab shows the document column, as a file opened from the list does.
+
+Checked: `TabLayoutTests` (22, four new), `WorkspaceGraphTabTests` (4), `GraphiteCommandTests` (8, one new), and the package tests of the workspace, commands, library and plugin views (358). In the iPad simulator: the graph opened from the sidebar's menu in a tab beside the open notes, with 19 items and 10 links and the note shown last highlighted, and the window brought it back after a relaunch. The Mac app's menus were read in its process (no item uses G). Not established: the Mac app by hand, the shortcuts on a hardware keyboard, a phone.
 
 ## Scrolling a long note: fewer jumps, a third of the memory: 2026-10-21
 
