@@ -38,7 +38,8 @@ The owner wants it one tap away, tags there without hunting for them, and a grap
 
 ## 2. Tags in the graph
 
-- [ ] Tags shown by default, in the whole-vault graph and in the local graph (`graphShowsTags` and `localGraphShowsTags`, both off today).
+- [x] Tags shown by default, in the whole-vault graph and in the local graph (`graphShowsTags` and `localGraphShowsTags`, both off today).
+  Done 2026-10-22: the graph's defaults are named in `GraphSettingDefault` (`WorkspaceGraph.swift`) and read at the `@AppStorage` sites; tags are on in both graphs, the other defaults stay Obsidian's. A person who turned tags off keeps them off. Tests: `GraphTagsTests.testTheGraphsShowTagsUnlessThePersonHidesThem`, `testTheOtherDefaultsAreObsidians`. Seen in the iPad simulator: the whole graph and Tokyo's local graph showed the vault's tags.
 - [ ] A Tags toggle in the graph's own toolbar, not only inside the Graph Settings popover.
 - [ ] Nested tags: decide whether `#course/vlsi` also draws `#course` and links the two, as the Tags panel nests them, or whether the written tags alone keep the graph readable. The index gives the written tags today (`VaultGraph.linkGraph`). Whichever is chosen is written here and in `Coverage.md`.
 - [ ] Tag nodes drawn as tags: their green, a size from how many notes carry them, and their name shown at a lower zoom than a note's.

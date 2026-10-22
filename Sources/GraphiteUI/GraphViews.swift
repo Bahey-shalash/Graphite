@@ -5,13 +5,13 @@ import GraphiteCore
 struct LocalGraphPanel: View {
     let session: MarkdownSession
     @Bindable var workspace: WorkspaceModel
-    @AppStorage(GraphSettingKey.localDepth) private var depth = 1
-    @AppStorage(GraphSettingKey.localFollowsIncomingLinks) private var followsIncomingLinks = true
-    @AppStorage(GraphSettingKey.localFollowsOutgoingLinks) private var followsOutgoingLinks = true
-    @AppStorage(GraphSettingKey.localShowsNeighborLinks) private var showsNeighborLinks = true
-    @AppStorage(GraphSettingKey.localShowsTags) private var showsTags = false
-    @AppStorage(GraphSettingKey.localShowsAttachments) private var showsAttachments = false
-    @AppStorage(GraphSettingKey.localShowsExistingFilesOnly) private var showsExistingFilesOnly = true
+    @AppStorage(GraphSettingKey.localDepth) private var depth = GraphSettingDefault.localDepth
+    @AppStorage(GraphSettingKey.localFollowsIncomingLinks) private var followsIncomingLinks = GraphSettingDefault.localFollowsIncomingLinks
+    @AppStorage(GraphSettingKey.localFollowsOutgoingLinks) private var followsOutgoingLinks = GraphSettingDefault.localFollowsOutgoingLinks
+    @AppStorage(GraphSettingKey.localShowsNeighborLinks) private var showsNeighborLinks = GraphSettingDefault.localShowsNeighborLinks
+    @AppStorage(GraphSettingKey.localShowsTags) private var showsTags = GraphSettingDefault.localShowsTags
+    @AppStorage(GraphSettingKey.localShowsAttachments) private var showsAttachments = GraphSettingDefault.localShowsAttachments
+    @AppStorage(GraphSettingKey.localShowsExistingFilesOnly) private var showsExistingFilesOnly = GraphSettingDefault.localShowsExistingFilesOnly
     @State private var vaultGraph: LinkGraph?
     @State private var fitRequest = 0
 
@@ -71,11 +71,11 @@ struct VaultGraphView: View {
     /// The tab's document, which keeps the filter while other tabs are in front, and
     /// carries a request to center on a note.
     @Bindable var document: TabDocument
-    @AppStorage(GraphSettingKey.showsTags) private var showsTags = false
-    @AppStorage(GraphSettingKey.showsAttachments) private var showsAttachments = false
-    @AppStorage(GraphSettingKey.showsExistingFilesOnly) private var showsExistingFilesOnly = true
-    @AppStorage(GraphSettingKey.showsOrphans) private var showsOrphans = true
-    @AppStorage(GraphSettingKey.showsArrows) private var showsArrows = false
+    @AppStorage(GraphSettingKey.showsTags) private var showsTags = GraphSettingDefault.showsTags
+    @AppStorage(GraphSettingKey.showsAttachments) private var showsAttachments = GraphSettingDefault.showsAttachments
+    @AppStorage(GraphSettingKey.showsExistingFilesOnly) private var showsExistingFilesOnly = GraphSettingDefault.showsExistingFilesOnly
+    @AppStorage(GraphSettingKey.showsOrphans) private var showsOrphans = GraphSettingDefault.showsOrphans
+    @AppStorage(GraphSettingKey.showsArrows) private var showsArrows = GraphSettingDefault.showsArrows
     @AppStorage(GraphSettingKey.linkDistance) private var linkDistance = GraphLayout.Forces().linkDistance
     @AppStorage(GraphSettingKey.repelStrength) private var repelStrength = GraphLayout.Forces().repelStrength
     @AppStorage(GraphSettingKey.centerStrength) private var centerStrength = GraphLayout.Forces().centerStrength
