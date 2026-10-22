@@ -17,6 +17,7 @@ import AVKit
 import GraphiteCore
 import GraphiteIndex
 import GraphiteApple
+import MermaidDiagrams
 
 /// Settings that shape how a note reads, gathered so the builder stays independent of views.
 struct ReadingConfiguration: Equatable, Sendable {
@@ -55,6 +56,9 @@ struct ReadingConfiguration: Equatable, Sendable {
     /// Whether runs of Markdown are divided into Obsidian's sections (paragraphs, lists,
     /// tables, code blocks), as a note exported to PDF is, so a page can end between them.
     var dividesMarkdownIntoSections = false
+    /// The PostScript name of the note's text font when it is an installed family, which diagrams are measured
+    /// and drawn in; nil for the system font (`NoteTypography.diagramFontPostScriptName`).
+    var diagramFontPostScriptName: String?
 }
 
 /// A reading-view block after links are resolved and files located.
@@ -88,13 +92,15 @@ indirect enum RenderedBlock: Identifiable, Sendable {
     /// A run of Markdown offered to plugins' post-processors: `text` is Graphite's own
     /// rendering of it, shown unless a plugin changes the section.
     case pluginSection(id: Int, text: String, request: CommunityPluginReadingBlockRequest)
+    /// A ```` ```mermaid ```` block of a type drawn natively, read and laid out.
+    case diagram(id: Int, diagram: ReadingDiagram)
 
     var id: String {
         switch self {
         case .properties: "properties"
         case .markdown(let id, _), .displayMath(let id, _), .heading(let id, _, _, _), .callout(let id, _, _, _, _), .video(let id, _), .audio(let id, _, _),
              .pdf(let id, _, _, _), .transclusion(let id, _, _, _), .base(let id, _), .baseFile(let id, _, _), .missingEmbed(let id, _), .missingSection(let id, _, _), .image(let id, _, _, _, _),
-             .footnotes(let id, _), .pluginCodeBlock(let id, _, _, _, _, _), .pluginSection(let id, _, _): "block-\(id)"
+             .footnotes(let id, _), .pluginCodeBlock(let id, _, _, _, _, _), .pluginSection(let id, _, _), .diagram(let id, _): "block-\(id)"
         }
     }
 }
@@ -285,6 +291,9 @@ actor ReadingViewBuilder {
     private var calloutDepth = 0
     /// The written title of each callout built so far, by block (`ReadingFoldKeys`).
     private var calloutTitlesByBlock: [String: String] = [:]
+    /// The measurers of the last font diagrams were laid out in, made when a note first has a diagram and made
+    /// again only when the font or size changes: reading a font's advances costs more than laying a diagram out.
+    private var diagramTypography: DiagramTypography?
 
     func build(source: String, note: VaultPath, root: URL, index: VaultIndex, configuration: ReadingConfiguration, allowsTransclusion: Bool = true) async throws -> ReadingViewBuild {
         hostNote = note
@@ -448,9 +457,26 @@ actor ReadingViewBuilder {
             case .pluginCodeBlock(let language, let source):
                 rendered.append(.pluginCodeBlock(id: identifier(), language: language, source: source, note: note,
                                                  firstLine: taskSource.noteLine(ofBodyOffset: locatedBlock.startOffset), lineCount: locatedBlock.lineCount))
+            case .mermaidDiagram(let source):
+                if let diagram = ReadingDiagram(source: source, typography: typography(for: configuration)) {
+                    rendered.append(.diagram(id: identifier(), diagram: diagram))
+                } else {
+                    // A type not drawn natively yet stays code, as before.
+                    let code = try await prepared("```mermaid\n" + source + "\n```", note: note, root: root, index: index, configuration: configuration)
+                    rendered.append(.markdown(id: identifier(), text: code))
+                }
             }
         }
         return rendered
+    }
+
+    /// The measurers for diagrams in the note's text font at its size, kept while they stay the same.
+    private func typography(for configuration: ReadingConfiguration) -> DiagramTypography {
+        let font = DiagramFont(postScriptName: configuration.diagramFontPostScriptName, size: CGFloat(configuration.textSize))
+        if let diagramTypography, diagramTypography.font == font { return diagramTypography }
+        let typography = DiagramTypography(font: font)
+        diagramTypography = typography
+        return typography
     }
 
     /// What a heading of the note itself is scrolled to by: its anchor for the first heading
@@ -1377,6 +1403,7 @@ extension ReadingConfiguration {
         hasher.combine(marksUnresolvedLinks)
         hasher.combine(runsPluginPostProcessors)
         hasher.combine(dividesMarkdownIntoSections)
+        hasher.combine(diagramFontPostScriptName)
         return hasher.finalize()
     }
 }
@@ -1551,6 +1578,8 @@ struct ReadingBlocksView: View {
                 } else {
                     ObsidianMarkdownText(markdown: "```" + language + "\n" + source + "\n```", root: root, textSize: textSize, navigate: navigate, scrollToHeading: scrollToHeading)
                 }
+            case .diagram(_, let diagram):
+                ReadingDiagramView(diagram: diagram, textSize: textSize, root: root, navigate: navigate, scrollToHeading: scrollToHeading)
             case .missingSection(_, let path, let subpath):
                 Button { navigate(path.rawValue, true) } label: {
                     Label(NoteBlocks.missingSectionMessage(subpath: subpath, noteName: path.stem), systemImage: "questionmark.square.dashed")
