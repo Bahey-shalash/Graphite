@@ -2,7 +2,7 @@ import SwiftUI
 import GraphiteCore
 import MermaidDiagrams
 
-/// A ```` ```mermaid ```` block in the reading view: a flowchart or a mindmap painted in the note's colors and
+/// A ```` ```mermaid ```` block in the reading view: a flowchart, a mindmap or a timeline painted in the note's colors and
 /// centered, scaled down when the column is narrower; or the block's source with why it could not be drawn.
 struct ReadingDiagramView: View {
     let diagram: ReadingDiagram
@@ -24,6 +24,8 @@ struct ReadingDiagramView: View {
             }
         case .mindmap(let mindmap):
             ReadingMindmapDrawing(mindmap: mindmap, textSize: textSize)
+        case .timeline(let timeline):
+            ReadingTimelineDrawing(timeline: timeline, textSize: textSize)
         }
     }
 }

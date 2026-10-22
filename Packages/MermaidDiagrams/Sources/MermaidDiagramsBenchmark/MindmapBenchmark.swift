@@ -41,7 +41,7 @@ enum MindmapBenchmark {
     private static func read(_ source: String) throws -> MindmapDiagram {
         switch try MermaidDiagramReader.read(source, limits: .standard) {
         case .mindmap(let diagram): diagram
-        case .flowchart: throw NotAMindmap()
+        case .flowchart, .timeline: throw NotAMindmap()
         }
     }
 

@@ -10,6 +10,8 @@ enum ReadingDiagram: Sendable {
     case unreadable(source: String, failure: ReadingDiagramFailure)
     /// A mindmap drawn natively.
     case mindmap(ReadingMindmap)
+    /// A timeline drawn natively.
+    case timeline(ReadingTimeline)
 
     /// The diagram a block's text describes, laid out in `typography`, or nil when its type is not drawn natively
     /// yet (`MermaidDiagramReadError.unsupportedDiagramType`, a flowchart with subgraphs): the block is then shown
@@ -36,6 +38,8 @@ enum ReadingDiagram: Sendable {
             }
         case .mindmap(let mindmap):
             self = .mindmap(ReadingMindmap(diagram: mindmap, layout: MindmapLayoutEngine.layout(mindmap, typography: typography)))
+        case .timeline(let timeline):
+            self = .timeline(ReadingTimeline(diagram: timeline, layout: TimelineLayoutEngine.layout(timeline, typography: typography)))
         }
     }
 }

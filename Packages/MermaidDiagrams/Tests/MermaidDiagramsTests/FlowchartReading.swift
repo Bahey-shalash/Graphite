@@ -7,7 +7,7 @@ enum FlowchartReading {
     static func flowchart(_ source: String, limits: MermaidDiagramLimits = .standard) throws -> FlowchartDiagram {
         switch try MermaidDiagramReader.read(source, limits: limits) {
         case .flowchart(let diagram): diagram
-        case .mindmap: throw NotAFlowchart()
+        case .mindmap, .timeline: throw NotAFlowchart()
         }
     }
 
