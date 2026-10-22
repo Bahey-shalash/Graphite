@@ -12,6 +12,27 @@ Checked: the whole `swift test` on macOS against PostgreSQL 18.6 with PostGIS 3.
 
 In the iPad simulator (iPad Pro 11-inch (M5)), after the merge: Settings › Core Plugins showed the mirror off; turned on, its page appeared and a copy started at once, which failed with "127.0.0.1:55432 refused the connection: password authentication failed for user \"graphite\"" (the simulator's keychain held no password); with the password saved, Save and Copy Now copied the Demo vault: "19 notes in the database", and the server held 19 notes, 3 with a PostGIS point. Not verified after the merge: the settings page in the Mac app.
 
+## The note a community plugin opens, and its cursor moves: 2026-10-21
+
+A plugin that opens a note and then works in its editor gets that note's editor at once: Graphite answers `openFile` and `openLinkText` with the document it then has focused, and the runtime adopts it before the plugin goes on. A plugin's change that only moves the cursor or the selection now moves the editor's, through a selection request the note's session holds and the iPad's and the Mac's editors serve. Advanced URI's append link now leaves its note open with the cursor at its end; before, it reopened the note open before and put the cursor at that note's end. Advanced URI 2.2.0 joins `compatibility-plugins.json` and the Node and hosted tests.
+
+Checked: the Node tests of Advanced URI and of a note a plugin opens fail without the runtime's change and pass with it (Node: 143 tests, 142 passing, QuickAdd skipped); `CommunityPluginHostOpenAndSelectTests` (3) fail without the host's changes; `UiEditorMacEditorTests.testASelectionThePluginsAskForMovesTheCursor`; the hosted Advanced URI test in the Mac app (all 19 `CommunityPluginHostTests` pass there) and in the iPad simulator (the same 19, and `LivePreviewRevealTests`, 10, for the iPad editor's new selection request). Not established: a `graphite://advanced-uri` link followed from another app by hand.
+
+## Community plugins in the Mac app: the hosted tests and the sweep's working plugins: 2026-10-21
+
+The app's hosted plugin tests (`CommunityPluginHostTests`), iPad-only until now, run in the Mac app too: the test plugin's commands, editor changes and Undo, `data.json`, secrets and web storage, timers, unloading, code blocks and sections in the reading view, menus, typing with suggestions, views; Dataview and Tasks; and seven plugins the 2026-10-12 sweep found working, built from source at the releases it installed, each on its main feature: Admonition, Highlightr, List to Table, Omnisearch, Notebook Navigator, Vault Router and Merge And Open Target (`Docs/Community-plugins.md`, How it was verified). Admonition, Highlightr and Notebook Navigator join `compatibility-plugins.json` for these tests; Highlightr also has a Node test (jsdom lacks what the other two need). The Mac test host is built unsigned, so it runs outside the sandbox, reads the built plugins in the checkout and uses no container; its hosted-test launch mode restores no vault.
+
+Checked: in the Mac app, 18 tests, all passing; on the iPad simulator (iPad Pro 11-inch (M5), iOS 27.0), the same 18, all passing; Node: `real-plugins.test.js` with every plugin built, 23 tests, 22 passing and QuickAdd skipped (not built here). Not established: any of it by hand in the Mac app (no way to drive the Mac app on this machine), a signed and sandboxed Mac build, and the sweep's other working and partly working plugins.
+
+## Four of the sweep's community plugins in the Node tests: 2026-10-21
+
+List to Table, Vault Router, Merge And Open Target and Omnisearch, which the 2026-10-12 sweep found working in the iPad simulator, are built from source at the commits of the releases it installed (`compatibility-plugins.json`) and checked in `real-plugins.test.js`: a list converted to a table in one editor change; an inbox swept by Vault Router's default rules through Graphite's file manager; a note merged into another, trashed and the target opened; Omnisearch's index searched through its API and its search window, a result opening its note. None reports an unsupported feature. Checked: `npm test` with every plugin built, 140 tests, 139 passing and QuickAdd skipped (not built on this machine: its install outlasted the build script's 15 minutes). In WebKit, in the app, they are checked by the hosted tests (entry above).
+
+## Suggestions in the Mac editor: 2026-10-21
+
+The Mac app's note editor shows the suggestion list the iPad's shows: notes, headings and blocks after `[[`, tags after `#`, and community plugins' suggestions (`EditorSuggest`), at the cursor, while the note has keyboard focus. The arrow keys move through it, Return or Tab chooses one, Escape closes it, and it closes when the note loses keyboard focus. A chosen suggestion is one edit Undo takes back. Community plugins hear each change and cursor move from the Mac editor, as on the iPad, while it has keyboard focus (before, they heard changes only, and their suggestions went unused). Both editors keep what the list was found for in one type, `EditorCompletionTracking`.
+
+Checked: `UiEditorMacSuggestionsTests` (4, on the Mac), which fail with the Mac editor's handlers as they were; `EditorCompletionTrackingTests` (7), which pin ED-08 now that its rule is out of the UIKit coordinator; the Mac editor's other tests (`UiEditorMac*`, 41); the whole `GraphiteUITests` suite on the Mac twice (1,306 tests): the first run failed 6 tests and the second 1, all of them in image decoding, thumbnails and a PDF page for Read Aloud, different in each run, each passing alone on this branch and on `origin/main`, whose own full run passed; on the iPad simulator, `LivePreviewRevealTests` (its link suggestion test included) and `CommunityPluginHostTests`' typing test, for the iPad editor's move to `EditorCompletionTracking`. Not established: typing in the Mac app by hand, with a hardware keyboard and an input method.
 ## Scrolling a long note: fewer jumps, a third of the memory: 2026-10-21
 
 Scrolling a long Live Preview note jumped, stuttered and grew memory on the Mac, the iPad and the iPhone (the owner, 2026-10-21; [Editor-scrolling-todo.md](Editor-scrolling-todo.md), issue #57). Two causes were found and fixed:
@@ -1317,6 +1338,12 @@ iPad-only tests (PencilKit) run on a simulator through the app project. The Grap
 
 ```bash
 xcodebuild -project Graphite.xcodeproj -scheme Graphite -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M5)' test
+```
+
+The same target builds for the Mac (since 2026-10-21; before, four iPad-only files declared code outside their iOS guard), and `CommunityPluginHostTests` runs in the Mac app. Built unsigned, the test host runs outside the sandbox and never opens the installed Graphite's container; its hosted-test launch mode restores no vault:
+
+```bash
+xcodebuild -project Graphite.xcodeproj -scheme Graphite -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO -only-testing:GraphiteIntegrationTests/CommunityPluginHostTests test
 ```
 
 The other files of `Tests/GraphiteAppleTests` are not in that target, so their UIKit-only tests (`testSecondEraserCutInsideAStrokeIsConvertedAgain` and `testDeferredRecordIsWrittenOnceByTheTracker` in `ApplePdfFixTests`) run nowhere yet.
