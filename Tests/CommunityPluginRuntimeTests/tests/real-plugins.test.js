@@ -645,3 +645,26 @@ test('List to Table: converts the selected list to a table through the editor', 
         harness.close();
     }
 });
+
+test('Vault Router: sweeps the inbox, moving each note by the first rule that matches it', { skip: !builtPlugin('vault-router') }, async () => {
+    const { harness, answer, commandNames, unsupported, pageErrors } = await loadInStudyVault('vault-router', { files: {
+        'Inbox/Daily - Monday.md': 'Today.\n',
+        'Inbox/Standup.md': '---\ntags: [meeting]\nproject: Apollo\n---\nNotes.\n',
+        'Inbox/Idea.md': 'No rule for this one.\n',
+    } });
+    try {
+        assert.deepEqual(answer, { isLoaded: true });
+        assert.deepEqual(commandNames, ['Vault Router: Route current note', 'Vault Router: Preview route for current note', 'Vault Router: Sweep inbox']);
+        assert.deepEqual(unsupported, []);
+        assert.deepEqual(pageErrors, []);
+        assert.deepEqual(plain(await harness.send({ operation: 'command.run', commandIdentifier: 'vault-router:route-inbox-now' })), { outcome: 'ran' });
+        await waitUntil(() => harness.vaultFileExists('Journal/Daily/Daily - Monday.md') && harness.vaultFileExists('Meetings/Apollo/Standup.md'), 5000);
+        assert.equal(harness.readVaultFile('Meetings/Apollo/Standup.md'), '---\ntags: [meeting]\nproject: Apollo\n---\nNotes.\n', 'the note moves unchanged');
+        assert.equal(harness.vaultFileExists('Inbox/Standup.md'), false);
+        assert.equal(harness.vaultFileExists('Inbox/Idea.md'), true, 'a note no rule matches stays');
+        assert.deepEqual(plain(harness.host.notificationsOf('workspace.renameFile').map((message) => message.destinationPath)).sort(), ['Journal/Daily/Daily - Monday.md', 'Meetings/Apollo/Standup.md'],
+            'moved through Graphite\'s file manager, which updates links');
+    } finally {
+        harness.close();
+    }
+});
