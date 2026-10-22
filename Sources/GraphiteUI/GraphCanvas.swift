@@ -24,6 +24,8 @@ struct GraphCanvas: View {
     /// is chosen again or the person taps beside the nodes. The owner keeps it, so it stays
     /// when the graph's tab comes back to the front.
     var chosenTag: Binding<String?> = .constant(nil)
+    /// The colors the vault's groups give its files.
+    var groupColoring = GraphGroupColoring()
 
     @State private var model = GraphCanvasModel()
     @State private var viewport = GraphViewport()
@@ -91,9 +93,11 @@ struct GraphCanvas: View {
         .task(id: graph) {
             // Other nodes, as after a filter changes: show them all again, or the node asked for.
             framing = centerRequest.map { request in Framing.node(request.identifier) } ?? .allNodes
-            model.load(graph, forces: forces, previousPositions: previousPositions.isEmpty ? model.positionsByIdentifier : previousPositions)
+            model.load(graph, forces: forces, previousPositions: previousPositions.isEmpty ? model.positionsByIdentifier : previousPositions,
+                       groupIndexByIdentifier: groupColoring.groupIndexByIdentifier)
         }
         .onChange(of: forces) { model.change(forces: forces) }
+        .onChange(of: groupColoring) { model.colorNodes(by: groupColoring.groupIndexByIdentifier) }
         .onDisappear {
             keepPositions?(model.positionsByIdentifier)
             model.stop()
@@ -143,7 +147,7 @@ struct GraphCanvas: View {
             let isFaded = focused != nil && focused != index && !isNeighborOfFocused
             let radius = model.radii[index] * max(0.5, min(scale, 2))
             let circle = Path(ellipseIn: CGRect(x: points[index].x - radius, y: points[index].y - radius, width: radius * 2, height: radius * 2))
-            let color = nodeColor(node, isHighlighted: index == highlighted || index == focused)
+            let color = nodeColor(at: index, isHighlighted: index == highlighted || index == focused)
             if node.kind == .unresolved {
                 context.stroke(circle, with: .color(color.opacity(isFaded ? 0.2 : 0.6)), lineWidth: 1.2)
             } else {
@@ -175,9 +179,12 @@ struct GraphCanvas: View {
         context.fill(arrows, with: .color(.secondary.opacity(0.5)))
     }
 
-    private func nodeColor(_ node: GraphNode, isHighlighted: Bool) -> Color {
+    /// The accent for the open or focused node, else the color of the group that colors it,
+    /// else its kind's.
+    private func nodeColor(at index: Int, isHighlighted: Bool) -> Color {
         if isHighlighted { return accent }
-        switch node.kind {
+        if let groupIndex = model.groupIndexes[index], let groupColor = groupColoring.color(ofGroup: groupIndex) { return groupColor }
+        switch model.graph.nodes[index].kind {
         case .note: return Color.secondary
         case .attachment: return Color(red: 0.85, green: 0.62, blue: 0.12)
         case .tag: return Color(red: 0.25, green: 0.65, blue: 0.35)
