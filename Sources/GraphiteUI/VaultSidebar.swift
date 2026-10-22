@@ -198,6 +198,12 @@ struct VaultSidebar: View {
                 Button("Settings", systemImage: "gearshape") { showsSettings = true }.tint(.primary)
             }
             #endif
+            if workspace.store != nil, workspace.preferences.isEnabled(.graph) {
+                // An item of its own, kept in view when the narrow sidebar folds New and the
+                // list's options into one menu.
+                ToolbarItem(placement: .primaryAction) { graphButton }
+                    .visibilityPriority(.high)
+            }
             if workspace.store != nil {
                 ToolbarItemGroup(placement: .primaryAction) {
                     #if os(macOS)
@@ -266,6 +272,13 @@ struct VaultSidebar: View {
     }
 
     private var isCompactWidth: Bool { horizontalSizeClass == .compact }
+
+    /// One click from the file list to the whole vault's graph, in a tab of its own.
+    private var graphButton: some View {
+        Button("Graph View", systemImage: "point.3.connected.trianglepath.dotted") { workspace.showGraph() }
+            .tint(.primary)
+            .help("Graph View")
+    }
 
     /// The options of the list shown, as each Obsidian sidebar view has its own.
     @ViewBuilder private var panelMenu: some View {
