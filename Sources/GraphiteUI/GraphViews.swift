@@ -14,6 +14,7 @@ struct LocalGraphPanel: View {
     @AppStorage(GraphSettingKey.localShowsExistingFilesOnly) private var showsExistingFilesOnly = GraphSettingDefault.localShowsExistingFilesOnly
     @State private var vaultGraph: LinkGraph?
     @State private var fitRequest = 0
+    @State private var chosenTag: String?
 
     private var localGraph: LinkGraph? {
         guard let vaultGraph else { return nil }
@@ -52,7 +53,7 @@ struct LocalGraphPanel: View {
                                            description: Text(workspace.hasCompletedIndexScan ? "This note has no links yet, in either direction." : "Still reading the vault."))
                 } else {
                     GraphCanvas(graph: localGraph, highlightedIdentifier: session.path.rawValue, alwaysShowsLabels: localGraph.nodes.count <= 60,
-                                open: { node in Task { await workspace.open(node, from: session.path) } }, fitRequest: fitRequest)
+                                open: { node in Task { await workspace.open(node, from: session.path) } }, fitRequest: fitRequest, chosenTag: $chosenTag)
                 }
             } else {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -106,7 +107,7 @@ struct VaultGraphView: View {
                                 alwaysShowsLabels: shownGraph.nodes.count <= 40, previousPositions: workspace.graphPositions,
                                 open: { node in Task { await workspace.open(node, fromGraphTab: tabID) } },
                                 keepPositions: { positions in workspace.graphPositions.merge(positions) { _, newPosition in newPosition } },
-                                fitRequest: fitRequest, centerRequest: document.graphCenterRequest)
+                                fitRequest: fitRequest, centerRequest: document.graphCenterRequest, chosenTag: $document.graphChosenTag)
                     .overlay(alignment: .bottomLeading) {
                         Text("\(shownGraph.nodes.count == 1 ? "1 item" : "\(shownGraph.nodes.count.formatted()) items") · \(shownGraph.edges.count == 1 ? "1 link" : "\(shownGraph.edges.count.formatted()) links")")
                             .font(.caption).foregroundStyle(.secondary)
