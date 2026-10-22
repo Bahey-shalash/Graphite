@@ -2,7 +2,25 @@
 
 What Graphite does today, how each part is verified, and what is still missing. `OBJECTIVE.md` describes the complete product; this file tracks progress toward it. Update it with every change that adds, removes, or re-verifies behavior.
 
-Last updated: 2026-10-22.
+Last updated: 2026-10-23.
+
+## Mermaid sequence diagrams drawn natively in reading view: 2026-10-23
+
+A type of [Native-diagrams-todo.md](Native-diagrams-todo.md) beyond the flowchart (issue #48): ` ```mermaid ` sequence diagrams are read, laid out and drawn natively, in Pele's style, by `Packages/MermaidDiagrams`, and the reading view shows them (Architecture, "Native Mermaid diagrams", Sequence diagrams).
+
+- **Done and tested.** The parser (`SequenceParserTests` 33; `SequenceParserMermaidSpecTests` 27, the parsing cases of Mermaid 12.1.0's `sequenceDiagram.spec.js` with the inputs of Pele's `tests/compat`; `SequenceHighlightColorSyntaxTests` 4; `SequenceBlockKindTests` 2), the layout (`SequenceLayoutEngineTests` 24, `SequenceMessageNumbersTests` 4), the drawing parts and the Core Graphics renderer (`SequenceRendererTests` 10 reading pixels back, `SequenceDrawingPartsTests` 7), Mermaid's 38 sequence documentation examples from Pele's corpus (`SequenceCorpusTests` 3: all 38 read, the 24 without statements not laid out laid out inside their size, the other 14 refused and listing why, and a generated conversation of 200 messages), and in Graphite the reading view's build and the view's shapes (`ReadingViewBuilderDiagramTests`, `ReadingSequenceTests` 4, `ReadingSequenceShapesTests` 4, `ReadingDiagramTests`). `swift test --package-path Packages/MermaidDiagrams`: 225 tests pass. The 24 documentation examples that lay out and a diagram with every arrow, block and numbering were rendered to PNG and checked by eye against Pele's style; that check is not in the suite.
+- **Read but kept as code.** `box`, `create` and `destroy`, `link`, `links`, `properties` and `details`, participant attributes (`@{ "type": "database" }` and the other shapes), Mermaid 12's half arrows and central connections (`()`). Mermaid's `par_over` is drawn as `par`, as Pele draws it. Configuration (`%%{init}%%`, front matter `config:`, `%%{wrap}%%`) is not read: text wraps only after `wrap:`.
+- **Not done or not checked.** The iPad simulator, the Mac app and a device (not run for this change), the dark appearance and a vault theme on screen, Export to PDF, Live Preview (still code), a layout for the pane's width (a wide diagram is scaled down, as a flowchart is), Pele's tight layout for narrow panes, and Pele's own benchmark on this Mac.
+
+Measured with `MermaidDiagramsBenchmark`, Release, on Apple M3 Max (36 GB, macOS 27), three runs while other sessions compiled (load average about 7), range of the medians per diagram, the 99th percentile in brackets:
+
+| Input | Read | Layout | Read and layout | Drawing parts | Painting, 2× bitmap |
+| --- | --- | --- | --- | --- | --- |
+| Documentation examples (24 laid out) | 3.8–3.9 µs | 5.8–5.9 µs | 10.0–10.1 µs (≤ 16.2) | 4.8–4.9 µs | 0.81–0.82 ms |
+| Second example (autonumber, an actor, an activation, a note) | 5.1–5.7 µs | 8.1–8.2 µs | 13.5–13.8 µs (≤ 28.3) | 8.6–8.8 µs | 1.36–1.40 ms |
+| Conversation, 10 participants, 200 messages | 72–75 µs | 161–163 µs | 233–239 µs | 184–189 µs | 235–240 ms |
+
+Against the targets of the checklist: read and layout within 5–30 µs per diagram for the documentation examples (10 µs) and the second example (14 µs); memory met (5,038 bytes of heap per laid-out second example, 1,000 kept); theme change met by design (`SequenceRendererTests` draws one layout in two palettes). Painting grows with the drawing's area, as a flowchart's does (the conversation's bitmap is about 3,000 by 18,000 pixels); the reading view paints SwiftUI shapes instead, not timed. Size: the module's Release object (arm64) has 318,128 bytes of code with the sequence diagram against 166,704 without, so the size target, already missed for the flowchart, is further away.
 
 ## A tap on a link in the reading view follows it at once: 2026-10-22
 
