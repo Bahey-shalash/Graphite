@@ -87,6 +87,10 @@ The long-term plugin goal is to install existing Obsidian community plugin packa
 
 Community plugin installation and the compatibility runtime began on 2026-10-10, at the owner's request (`Docs/Community-plugins.md`). Polished UI and interactions, an excellent Apple Pencil experience, complete essential handwriting tools, and remaining daily Obsidian workflows stay priorities alongside it. Preserve file and syntax compatibility throughout. The runtime must protect native input responsiveness and the ordinary-file storage model: plugins never run on the main thread, never write outside the vault, and never become the only representation of user content.
 
+## Copies for other applications
+
+At both maintainers' request (2026-10-17), a PostgreSQL Mirror core plugin copies the vault's notes, with their properties, tags, aliases, links and places, into a PostgreSQL database the user chooses, so other applications such as QGIS can query them as objects. It is off until the user turns it on and gives a server. It copies one way only and never writes the vault: the database is derived data, like the search index, and can be emptied and rebuilt from the vault at any time. Copying runs off the main thread and must not slow editing.
+
 ## Definition of success
 
 A student can use Graphite as their primary iPad Markdown, handwriting, PDF, and lecture study environment. They retain a normal Obsidian-compatible vault, including complete visible drawings, annotated PDFs, and playable recordings. Graphite earns adoption through its editing experience and performance, never through lock-in.

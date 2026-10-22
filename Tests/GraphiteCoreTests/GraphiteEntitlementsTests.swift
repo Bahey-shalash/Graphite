@@ -38,10 +38,12 @@ final class GraphiteEntitlementsTests: XCTestCase {
         }
     }
 
-    func testTheCameraMicrophoneAndPhotoLibraryAddReasonsStayInInformationPropertyList() throws {
+    func testTheCameraMicrophonePhotoLibraryAddAndLocalNetworkReasonsStayInInformationPropertyList() throws {
         let information = try propertyList(named: "Info.plist")
         let usageDescriptionKeys = Set(information.keys.filter { key in key.hasSuffix("UsageDescription") })
-        XCTAssertEqual(usageDescriptionKeys, ["NSCameraUsageDescription", "NSMicrophoneUsageDescription", "NSPhotoLibraryAddUsageDescription"])
+        // The local network reason is the PostgreSQL Mirror's, for a server on the person's network.
+        XCTAssertEqual(usageDescriptionKeys, ["NSCameraUsageDescription", "NSMicrophoneUsageDescription", "NSPhotoLibraryAddUsageDescription",
+                                              "NSLocalNetworkUsageDescription"])
         for key in usageDescriptionKeys {
             let reason = try XCTUnwrap(information[key] as? String, key)
             XCTAssertFalse(reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, "\(key) states why the app asks.")
