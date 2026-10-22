@@ -22,6 +22,8 @@ Let the user listen to a Markdown note or PDF paper in a normal, human-sounding 
 
 ## 1. Define supported documents and completion evidence
 
+Issue: [#1](https://github.com/Graphite-Note/Graphite/issues/1)
+
 - [ ] Support Markdown notes containing prose, Obsidian syntax, inline LaTeX, and display equations.
 - [ ] Support PDFs containing selectable text, including scientific papers and lecture slides.
 - [ ] Track scanned pages, mixed scanned/text PDFs, and mathematical recognition as a separate implementation increment with its own accuracy evidence.
@@ -33,6 +35,8 @@ Let the user listen to a Markdown note or PDF paper in a normal, human-sounding 
 ## 2. Make the voice sound human
 
 ### Voice selection and listening review
+
+Issue: [#2](https://github.com/Graphite-Note/Graphite/issues/2)
 
 - [ ] Audition native Apple voices, cloud speech services, and suitable on-device speech models against the same passages. Select providers after listening and device measurement.
 - [ ] Evaluate calm, clear narration suited to sustained study. Check sentence intonation, punctuation, paragraph pauses, heading pauses, and emphasis.
@@ -54,6 +58,8 @@ Let the user listen to a Markdown note or PDF paper in a normal, human-sounding 
 
 ### Acceptance gate for natural narration
 
+Issue: [#3](https://github.com/Graphite-Note/Graphite/issues/3)
+
 These are proposed release criteria, not measured results.
 
 - [ ] Agree with the owner on the audition passages and acceptable voice before committing to a provider.
@@ -64,6 +70,8 @@ These are proposed release criteria, not measured results.
 - [ ] If only a fallback voice is available, describe it as a fallback and keep the preferred-quality requirement open.
 
 ### Speech provider capabilities
+
+Issue: [#4](https://github.com/Graphite-Note/Graphite/issues/4)
 
 - [ ] Inspect `AVSpeechSynthesizer` and available device voices for native playback, pause/resume, rate control, and spoken-range callbacks. Verify supported voices on physical devices.
 - [ ] Evaluate cloud services that return audio plus word or character alignment, such as ElevenLabs. Verify timing support for the specific chosen model and endpoint.
@@ -82,6 +90,8 @@ These are proposed release criteria, not measured results.
 
 ## 3. Read exactly the requested passage
 
+Issue: [#5](https://github.com/Graphite-Note/Graphite/issues/5)
+
 - [ ] Add **Read Document**, **Read From Here**, and **Read Selection** to relevant document controls and selection menus.
 - [ ] Add **Set Reading Start**, **Set Reading End**, and **Read Range** for passages that are inconvenient to select in one gesture.
 - [x] Support a range across PDF pages and across Markdown blocks, including an endpoint within a paragraph. PDF endpoints currently come from native text selection; separate start/end markers remain open above.
@@ -99,6 +109,8 @@ These are proposed release criteria, not measured results.
 - [ ] Treat spoken commands such as “read from here” as an optional later input method. The initial controls must work through touch, selection, and keyboard without a microphone.
 
 ## 4. Interpret Markdown and Obsidian syntax
+
+Issue: [#6](https://github.com/Graphite-Note/Graphite/issues/6)
 
 - [x] Use the existing Markdown parser and semantic structures. Avoid stripping punctuation with a single regular expression.
 - [x] Read heading text with a heading pause. `## Introduction` must sound like “Introduction.” (0.6 s before and after; not yet listened to with a Premium voice.)
@@ -134,6 +146,8 @@ These are proposed release criteria, not measured results.
 
 ## 5. Read mathematics with structure
 
+Issue: [#7](https://github.com/Graphite-Note/Graphite/issues/7)
+
 - [x] Parse mathematical expressions into a structure that preserves grouping and operators before producing speech. Production preparation uses MathJax MathML and Speech Rule Engine; unsupported syntax is announced.
 - [x] Evaluate and integrate MathJax and Speech Rule Engine for speech generation. Pinned offline JavaScriptCore bundle, licenses, source inventory and rebuild instructions are in `Vendor/math-speech`; native rendering remains separate.
 - [x] Start from the original equation source for semantics. Rendering compatibility rewrites must not change the mathematical statement being spoken.
@@ -153,6 +167,8 @@ These are proposed release criteria, not measured results.
 - [ ] Review mathematical pronunciation and structural accuracy with the owner using real course material.
 
 ## 6. Extract PDF papers in reading order
+
+Issue: [#8](https://github.com/Graphite-Note/Graphite/issues/8)
 
 - [x] Use PDFKit text extraction, selections, and character bounds for text PDFs. Keep framework object ownership consistent with documented threading constraints.
 - [ ] Build a page-local reading model with stable passage identifiers and page coordinates. Extract only the requested pages and bounded lookahead.
@@ -176,6 +192,8 @@ These are proposed release criteria, not measured results.
 
 ## 7. Synchronize speech and highlights
 
+Issue: [#9](https://github.com/Graphite-Note/Graphite/issues/9)
+
 - [ ] Maintain explicit mappings between source locations, rendered locations, prepared spoken text, and audio timing/spoken-range events.
 - [ ] Handle one-to-many and many-to-one mappings, including symbols, pronunciation overrides, removed markup, joined PDF words, and normalized numbers.
 - [ ] Define Unicode coordinate conversions across Swift strings, UTF-16 framework ranges, provider character offsets, and PDF character indexes. Test combining marks and emoji.
@@ -195,6 +213,8 @@ These are proposed release criteria, not measured results.
 
 ## 8. Playback controls and session behavior
 
+Issue: [#10](https://github.com/Graphite-Note/Graphite/issues/10)
+
 - [x] Provide play, pause, resume, stop, previous/next sentence, repeat passage, speed, voice, and **Follow Reading** controls. Device gesture delivery and sustained playback still require validation.
 - [x] Show the document, active range, current section/page, and buffering or error state without crowding the study interface. (Toolbar Pause/Resume and a Reading Controls popover; Reading Options opens by itself only for errors and scans.)
 - [x] Keep playback session ownership separate from a document view so tab navigation does not recreate the speech engine.
@@ -211,6 +231,8 @@ These are proposed release criteria, not measured results.
 - [ ] Make buffering and failures distinct from pause and completion. Resume without duplicate or omitted sentences.
 
 ## 9. Architecture, storage, and responsiveness
+
+Issue: [#11](https://github.com/Graphite-Note/Graphite/issues/11)
 
 The responsibilities below describe planned boundaries, not existing components or a requirement to introduce a protocol for each responsibility.
 
@@ -233,6 +255,8 @@ The responsibilities below describe planned boundaries, not existing components 
 - [x] Owner decisions on that change (2026-10-19): the switch is kept per device, and turning Read Aloud off still offers to delete the downloaded voices, only on confirmation.
 
 ## 10. Verification and release checklist
+
+Issue: [#12](https://github.com/Graphite-Note/Graphite/issues/12)
 
 - [ ] Unit-test semantic narration and source mappings using expected spoken passages, including the required Markdown examples above.
 - [ ] Test range boundaries, headings, cross-page selections, mathematical endpoints, empty content, and filters that would remove the entire selection.

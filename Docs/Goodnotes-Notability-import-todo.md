@@ -40,6 +40,8 @@ Anything that cannot be kept exactly is named in the import report, never droppe
 
 ## Graphite features this needs first
 
+Issue: [#28](https://github.com/Graphite-Note/Graphite/issues/28)
+
 Element-level import can only be as good as Graphite's own editor: where Graphite has no native equivalent, the import would have to flatten. These have to exist in Graphite before the matching part of the import counts as done (status from `Premium-experience-plan.md` on 2026-10-18):
 
 - [ ] Typed text boxes on PDF pages: a feature of every PDF in Graphite, planned in [PDF-text-boxes-todo.md](PDF-text-boxes-todo.md). Both formats use them: Goodnotes text boxes and sticky notes with fonts, sizes, colours, rotation and links; Notability's typed body text. Until they exist the import leaves typed text out and lists it in the import report (owner decision, 2026-10-20).
@@ -50,6 +52,8 @@ Element-level import can only be as good as Graphite's own editor: where Graphit
 - [ ] Synchronized audio replay for Notability recordings (a candidate in `Premium-experience-plan.md`, not planned yet).
 
 ## Phase 1: collect samples and document the formats
+
+Issue: [#29](https://github.com/Graphite-Note/Graphite/issues/29)
 
 - [ ] Build a sample set from the owner's own notebooks and from files made for the purpose: every paper type, pen, highlighter, eraser, shapes, lasso-moved strokes, colors, widths, pressure, text boxes, images, imported PDFs, page reordering, deleted pages, outlines, links, and (Notability) recordings. Several app versions where possible. **Mostly done 2026-10-19**, on the `samples/import-formats` branch (personal notes, not to be merged): 45 Goodnotes notebooks (schemas 24, 25, 26 and 35; Goodnotes 7.1.28 for Mac and the owner's iPad library) and 10 Notability notes (14.3 and 16.13). A Goodnotes Pencil test written with an Apple Pencil came the same day (schema 27, with its export). **Still needed:** a Notability note written with an Apple Pencil, to show pressure, tilt and azimuth there; Notability rectangles and ellipses (shape recognition did not take mouse strokes), coloured papers, A4 and landscape notes, captions, underline and checklists; Goodnotes links to a page and turned text boxes.
 - [ ] For each sample, export the same notebook to PDF from the app itself; these exports are the reference for visual comparison. **Done** for the 14 made-for-purpose samples and the first Notability note: each format document has a table of the pixel differences per page. Not done for the four first Goodnotes notebooks and the 35 library notebooks.
@@ -66,6 +70,8 @@ Element-level import can only be as good as Graphite's own editor: where Graphit
 
 ## Phase 3: conversion to ordinary files
 
+Issue: [#30](https://github.com/Graphite-Note/Graphite/issues/30)
+
 Every row of the table above, one element at a time:
 
 - [ ] Strokes to PencilKit strokes (for re-editing) and to PDF ink annotations (for every reader), one Graphite stroke per source stroke, with the source's points, pressure, width, color, opacity and tool. **Built and tested 2026-10-20 (design steps 1 and 2)**, not yet in the app: ball pen, fountain and brush pens with Goodnotes' exact outline as the PDF appearance, pencil with force and tilt, highlighter, and Notability pen and highlighter. Shapes arrive as ink along their outline (design step 4), reported. Not converted yet: tape and the older varying-width ink, which are counted in the import report; a whole sample written and compared with its export (Phase 5).
@@ -78,11 +84,15 @@ Every row of the table above, one element at a time:
 
 ## Phase 4: import experience
 
+Issue: [#31](https://github.com/Graphite-Note/Graphite/issues/31)
+
 - [ ] Import from the Files app, the share sheet (Graphite has no share extension yet; this would add one) and drag and drop, one file or a whole folder. **Built 2026-10-21 (branch `notebook-import-in-app`) except the share sheet**: the New menu's Import (in the file list and the library; its chooser now takes folders) and files or folders dropped on the library reach `importFiles(from:into:)`, which converts `.goodnotes` and `.note` files and folders of them (`Architecture.md` › "Importing Goodnotes and Notability notebooks"). The share sheet waits for the share extension (branch `share-to-graphite`), which will deliver into the same call. Dropping on the file list (sidebar) is not wired: the sidebar's drop targets take only Graphite's own items, and the library agent is moving drops to a list of importers by file type, which the notebook import joins with one entry. Checked in the iPad simulator; drag and drop not checked.
 - [x] A progress view for large libraries, cancellable, running off the main thread; the vault stays usable during import. **Built 2026-10-21**: a card at the top of the document area (the Pencil palette takes the bottom of an open notebook) with the notebook, its page and Cancel; one notebook at a time in a detached task; each notebook's files appear as soon as it is written; leaving the vault is refused while it runs.
 - [ ] An import report: what was converted, what was simplified, what was skipped and why. **The report's values are built and tested 2026-10-20 (design step 9)**: `NotebookImportReport`, per page and for the notebook, with a summary by kind; showing it is Phase 4. **Shown since 2026-10-21**: a sheet at the end with each notebook's place in the vault or why it was not imported, and one line per kind of entry with its pages.
 
 ## Phase 5: verification
+
+Issue: [#32](https://github.com/Graphite-Note/Graphite/issues/32)
 
 - [ ] Visual comparison of every imported page against the app's own PDF export, with a pixel-difference threshold, as automated tests on the sample set. **Built 2026-10-21** (`NotebookConversionSampleTests`, opt-in, reading the samples from `GRAPHITE_IMPORT_SAMPLES` at test time, skipped elsewhere): every page of the samples that have an export (19 pages of 14 notebooks), at 100 pixels per inch, each pixel compared with the closest grey within one pixel; at most 5% of content pixels may differ where the report names nothing drawn otherwise or left out. Measured: 0 to 1.8% of content pixels on those 12 pages; up to 75% on the 7 pages with typed text, tape, sticky notes, Goodnotes' pencil or highlighter (33% on the pencil page: BUG-IMPORT-04). The 35 library notebooks have no export.
 - [ ] Element-level comparison, as automated tests: for each sample page, the count and kind of strokes, pictures, text boxes and shapes match the source, each picture is a separate object with its original image data, page size matches to the point, and the paper is page content, not part of the ink. **Built 2026-10-21 for everything but text boxes** (`NotebookConversionSampleTests`, with the readers' and planners' own sample tests in the package): all 49 sample notebooks that have a page written (the typed-text note has none), 352 pages, 109,525 strokes: each page is its plan's size to 0.01 point, each planned stroke is one `/Ink` annotation in one ink group Graphite edits again with one named stroke per annotation, each placed picture is a Graphite picture (158), and the 149 whose file needs no crop, turn or conversion hold the file's own bytes; drawn without annotations, ruled paper shows its lines and a page on a source PDF page draws as that page. Text boxes wait for text on PDF pages.

@@ -10,6 +10,8 @@ A page in Settings, on the Mac and the iPad (not the iPhone), that lists Graphit
 
 ## Scope
 
+Issue: [#55](https://github.com/Graphite-Note/Graphite/issues/55)
+
 - [x] One list of commands: each has a stable identifier (Obsidian's command id where one matches, such as `editor:toggle-bold`), a title, a group (File, View, Go, Editor, Canvas, plugins) and its default shortcut. The menus, the editor's key commands and the palette all read their shortcut from it, so the palette shows the shortcut that actually works.
 - [x] Settings › Keyboard Shortcuts: the commands by group, a search field (by title or by shortcut), each row with its shortcut, a button to record a new one, remove, and reset to default; Reset All at the bottom. On the Mac a pane of the Settings window, on the iPad a page of Settings.
 - [x] Recording: the next key press with its modifiers becomes the shortcut; Escape cancels. A key without ⌘, ⌃ or ⌥ is refused unless it is a function key, so typing is never taken over.
