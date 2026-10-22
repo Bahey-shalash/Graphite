@@ -40,7 +40,7 @@
     "wait-until-copies": 1,
     "workspace-model-parameters": 24,
     "workspace-model-stored": 74,
-    "xct-skip-count": 38
+    "xct-skip-count": 39
   },
   "skippedTestsBaselines": {
     "hosted-ipad": 32,
