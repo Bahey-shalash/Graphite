@@ -2,7 +2,25 @@
 
 What Graphite does today, how each part is verified, and what is still missing. `OBJECTIVE.md` describes the complete product; this file tracks progress toward it. Update it with every change that adds, removes, or re-verifies behavior.
 
-Last updated: 2026-10-22.
+Last updated: 2026-10-23.
+
+## Mermaid mindmaps drawn natively in reading view: 2026-10-23
+
+The second type of [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48), on the branch `diagrams-mindmap-and-timeline`: ` ```mermaid ` mindmaps are read, laid out and drawn natively in Pele's style by `Packages/MermaidDiagrams`, and the reading view shows them (Architecture, "Native Mermaid diagrams").
+
+- **Done and tested.** The parser (`MindmapParserTests` 25, on the inputs of Mermaid 12.1.0's mindmap specs as Pele ports them and on the documentation's examples; `MermaidAccessibilityStatementTests` 4), Pele's layout with branches on both sides of the root (`MindmapLayoutEngineTests` 11), the drawing parts and the Core Graphics renderer in the series colors (`MindmapRendererTests` 6 reading pixels back, `MindmapDrawingPartsTests` 3, `MindmapShapeDrawingTests` 2, `DiagramEllipticalArcTests` 1), Mermaid's 13 mindmap documentation examples all drawn and generated trees without overlap (`MindmapCorpusTests` 2), and in Graphite the reading view's build and the view's shapes (`ReadingMindmapTests` 5, `ReadingMindmapShapesTests` 3). `swift test --package-path Packages/MermaidDiagrams`: 164 tests pass; `swift build --build-tests`, then the reading view's diagram tests (`ReadingDiagram*`, `ReadingFlowchartShapesTests`, `ReadingMindmap*`, `ReadingViewBuilderDiagramTests`, 23, and `NotePreviewDocumentCodeBlockLanguageTests`, 9) pass.
+- **Checked by eye:** the documentation's first example, every shape and the Markdown example, rendered to PNG by the package's renderer.
+- **Not done or not checked.** The reading view in a simulator, the Mac app or a device; the dark appearance and a vault theme on screen; Pele's outline layout, which it uses when the column is too narrow (the width item; a wide mindmap is scaled down); icons and classes (read, not drawn); Live Preview.
+
+Measured with `MermaidDiagramsBenchmark` (`MindmapBenchmark`), Release, Apple M3 Max (36 GB, macOS 27), three runs while other sessions were compiling (load average 5 to 7); medians, the 99th percentile in brackets, per diagram:
+
+| Input | Read | Layout | Read and layout | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Mermaid's 13 mindmap documentation examples | 2.4 µs (≤ 3.5) | 3.5–3.6 µs (≤ 6.9) | 6.0–6.1 µs (≤ 11.3) | 2.7 µs |
+| Tree, 50 nodes | 8.5–8.8 µs (≤ 10.9) | 16.8–17.6 µs (≤ 23.2) | 25.6–26.6 µs (≤ 34.7) | 15.5–15.8 µs |
+| Tree, 500 nodes | 82–84 µs (≤ 114) | 160–164 µs (≤ 215) | 244–251 µs (≤ 310) | 136–139 µs |
+
+Against the checklist's targets: read and layout within 5–30 µs met for the documentation examples (6 µs) and the 50-node tree (26 µs); 17,440 bytes of heap per 50-node layout (≤ 64 kB, 1,000 layouts kept). Reading every label as Markdown, as Pele does, first cost 6.3–6.5 µs per documentation example and 59–60 µs per 50-node tree; text without emphasis markers now takes the plain way (same output), measured before and after under the same load. Painting into a 2× bitmap, which the reading view does not do, takes 0.2 ms per example and 2.1–2.3 ms for the 50-node tree. The size added to the app was not measured.
 
 ## A tap on a link in the reading view follows it at once: 2026-10-22
 
