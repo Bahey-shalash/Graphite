@@ -2,7 +2,7 @@
 
 Created: 2026-10-22.
 
-Status: open. Issues: [#80](https://github.com/Graphite-Note/Graphite/issues/80) (section 1), [#81](https://github.com/Graphite-Note/Graphite/issues/81) (section 2).
+Status: section 1 done (2026-10-22), section 2 open. Issues: [#80](https://github.com/Graphite-Note/Graphite/issues/80) (section 1), [#81](https://github.com/Graphite-Note/Graphite/issues/81) (section 2).
 
 ## Request
 
@@ -23,7 +23,8 @@ With text selection on, a tap on rendered text reaches Textual's text interactio
   Done 2026-10-22: `UIKitTextLayoutModelUpdater` and `AppKitTextLayoutModelUpdater` (new, hidden views) pass each layout collection to the `TextSelectionModel` from their `update…View`, in place of `TextSelectionInteraction`'s `onChange`; carrying a selection over to new layouts updates the stored range without notifying observers, and the coordinator's list of models is not observed. Logged in the iPad simulator before the fix: the overlay received 41 layouts with lines while the model kept 41 without, with SwiftUI's "onChange(of: AnyTextLayoutCollection) action tried to update multiple times per frame"; with the fix that message is gone. `.task(id:)` was tried first and has the same limit. Package tests on macOS: `AppProjectTextualPatchTests`, `UiReadingViewTests`, `UiReadingTaskTests`, `UiNumberedEquationTests`, `ReadAloudReadingViewTests`, `UiStylingFixTests`, `UiLivePreviewEmbedContinuityTests` (97, all passing). Hosted iPad (iPad Pro 11-inch (M5) simulator, iOS 27.0): `ReadingLinkFollowingTests`, `ReadingTasksAndEquationsTests`, `LivePreviewBlockPlacementTests`, `LivePreviewRevealTests`, `EditingContinuityTests`, `CodeHighlightingTests`, `PDFLinkFollowingTests` (51, all passing).
 - [x] A regression test that fails without the patch.
   Done 2026-10-22: hosted `ReadingLinkFollowingTests.testTapOnALinkRightAfterSwitchingFromLivePreviewFollowsIt` opens the request's Lausanne in Live Preview, switches with the pencil's action and taps the link through UIKit's event path (`SynthesizedTouches`); without the patch it times out waiting for Geneva, with it Geneva opens. Opening the note straight in the reading view failed the same way before the patch. No package test shows the defect: on the Mac, a selectable text hosted in a window, alone or as the reading view's text, with one paragraph or forty, has its layouts in one update.
-- [ ] Checked by hand in the iPad simulator, with the request's vault.
+- [x] Checked by hand in the iPad simulator, with the request's vault.
+  Done 2026-10-22, on an iPad Pro 11-inch (M5) simulator of this work (iOS 27.0), the app built from `4524067`, the vault opened with Open Folder as Vault: Lausanne in Live Preview, the pencil, one tap on "Geneva" opens Geneva; Start, the pencil, one tap on "Geneva > Old town" opens Geneva; a long press in Lausanne's reading view selects "Lausanne" with its handles and Copy and Share, and a tap on "Geneva" then opens Geneva.
 
 ## 2. Checks still to make
 
