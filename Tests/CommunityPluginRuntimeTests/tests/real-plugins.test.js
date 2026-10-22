@@ -691,3 +691,41 @@ test('Merge And Open Target: merges the open note into the chosen one, trashes i
         harness.close();
     }
 });
+
+test('Omnisearch: indexes the vault and finds a note by its words, in its API and its search window', { skip: !builtPlugin('omnisearch') }, async () => {
+    const { harness, answer, commandNames, unsupported, pageErrors } = await loadInStudyVault('omnisearch', { withIndexedDatabase: true, files: {
+        'Physics.md': 'Momentum is conserved in every collision.\n', 'Chemistry.md': 'Atoms share electrons.\n',
+    } });
+    try {
+        assert.deepEqual(answer, { isLoaded: true });
+        assert.deepEqual(commandNames, ['Omnisearch: Vault search', 'Omnisearch: In-file search']);
+        assert.deepEqual(unsupported, []);
+        assert.deepEqual(pageErrors, []);
+        // It indexes the vault once layout is ready; its API (`globalThis.omnisearch`) searches the index.
+        let paths = [];
+        for (const deadline = Date.now() + 10000; paths.length === 0 && Date.now() < deadline; await settle()) {
+            paths = (await harness.window.omnisearch.search('momentum')).map((result) => result.path);
+        }
+        assert.deepEqual(plain(paths), ['Physics.md']);
+        // Its search window, on the plugin panel: typing lists the note, and choosing it opens it.
+        assert.deepEqual(plain(await harness.send({ operation: 'command.run', commandIdentifier: 'omnisearch:show-modal' })), { outcome: 'ran' });
+        await waitUntil(() => harness.window.document.querySelector('.modal-container input.prompt-input'), 3000);
+        // On a mobile app it focuses, then selects, its field 200 ms apart after opening, and fails if
+        // its window is gone by then (Obsidian's iPad app too); a person types after that.
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        const field = harness.window.document.querySelector('.modal-container input.prompt-input');
+        field.value = 'momentum';
+        field.dispatchEvent(new harness.window.Event('input', { bubbles: true }));
+        const physicsResult = () => Array.from(harness.window.document.querySelectorAll('.omnisearch-result')).find((result) => result.textContent.includes('Physics'));
+        await waitUntil(physicsResult, 5000);
+        assert.match(physicsResult().textContent, /Momentum is conserved/);
+        physicsResult().click();
+        await waitUntil(() => harness.host.openedFiles.length > 0, 3000);
+        assert.deepEqual(plain(harness.host.openedFiles.map((message) => [message.operation, message.resolvedPath, message.placement])), [['workspace.openLinkText', 'Physics.md', 'currentTab']]);
+        // Its window closes and its search settles before the page goes.
+        await waitUntil(() => !harness.window.document.querySelector('.modal-container'), 3000);
+        for (let turn = 0; turn < 10; turn += 1) await settle();
+    } finally {
+        harness.close();
+    }
+});

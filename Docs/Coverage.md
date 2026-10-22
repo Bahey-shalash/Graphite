@@ -4,6 +4,10 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-21.
 
+## Four of the sweep's community plugins in the Node tests: 2026-10-21
+
+List to Table, Vault Router, Merge And Open Target and Omnisearch, which the 2026-10-12 sweep found working in the iPad simulator, are built from source at the commits of the releases it installed (`compatibility-plugins.json`) and checked in `real-plugins.test.js`: a list converted to a table in one editor change; an inbox swept by Vault Router's default rules through Graphite's file manager; a note merged into another, trashed and the target opened; Omnisearch's index searched through its API and its search window, a result opening its note. None reports an unsupported feature. Checked: `npm test` with every plugin built, 140 tests, 139 passing and QuickAdd skipped (not built on this machine: its install outlasted the build script's 15 minutes). Not established: these four in WebKit, in the app.
+
 ## Suggestions in the Mac editor: 2026-10-21
 
 The Mac app's note editor shows the suggestion list the iPad's shows: notes, headings and blocks after `[[`, tags after `#`, and community plugins' suggestions (`EditorSuggest`), at the cursor, while the note has keyboard focus. The arrow keys move through it, Return or Tab chooses one, Escape closes it, and it closes when the note loses keyboard focus. A chosen suggestion is one edit Undo takes back. Community plugins hear each change and cursor move from the Mac editor, as on the iPad, while it has keyboard focus (before, they heard changes only, and their suggestions went unused). Both editors keep what the list was found for in one type, `EditorCompletionTracking`.
