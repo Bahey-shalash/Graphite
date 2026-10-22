@@ -20,6 +20,9 @@ final class TabDocument {
     /// The graph's filter, as Obsidian's search reads it (`tag:#physics`, `path:"Courses/"`),
     /// kept while other tabs are in front.
     var graphFilterText = ""
+    /// The tag chosen in the graph (`#physics`), whose notes stand out while the person opens
+    /// them one after another.
+    var graphChosenTag: String?
     /// The view a `[[Books.base#Gallery]]` link asked the tab's base to show.
     var baseViewRequest: BaseViewRequest?
     /// A notebook to create from the tab's note, asked for by the note's menus or the

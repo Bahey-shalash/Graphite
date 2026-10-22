@@ -2,8 +2,8 @@ import XCTest
 import GraphiteCore
 @testable import GraphiteUI
 
-/// Tags in the graph: shown unless the person hides them, drawn larger the more notes carry
-/// them, and named from further out than notes.
+/// Tags in the graph: shown unless the person hides them, chosen with a tap to bring out
+/// their notes, drawn larger the more notes carry them, and named from further out than notes.
 @MainActor
 final class GraphTagsTests: XCTestCase {
     func testTheGraphsShowTagsUnlessThePersonHidesThem() {
@@ -22,6 +22,21 @@ final class GraphTagsTests: XCTestCase {
         XCTAssertTrue(GraphSettingDefault.localShowsNeighborLinks)
         XCTAssertFalse(GraphSettingDefault.localShowsAttachments)
         XCTAssertTrue(GraphSettingDefault.localShowsExistingFilesOnly)
+    }
+
+    func testATappedTagIsChosenRatherThanOpenedAndANoteOpensKeepingIt() throws {
+        let model = loadedModel()
+        defer { model.stop() }
+        let tag = try XCTUnwrap(model.index(of: "#exam"))
+        let lecture = try XCTUnwrap(model.index(of: "Lecture.md"))
+
+        XCTAssertEqual(model.tap(nodeAt: tag, chosenTag: nil), .choose("#exam"),
+                       "A tag is not opened: the search would take the person away from the graph.")
+        XCTAssertEqual(model.tap(nodeAt: lecture, chosenTag: "#exam"), .open(GraphNode(id: "Lecture.md", kind: .note)),
+                       "A note opens, and the chosen tag is left as it is, so its notes can be opened one after another.")
+        XCTAssertEqual(model.tap(nodeAt: tag, chosenTag: "#exam"), .choose(nil), "Choosing the tag again lets it go.")
+        XCTAssertEqual(model.tap(nodeAt: try XCTUnwrap(model.index(of: "#lab")), chosenTag: "#exam"), .choose("#lab"))
+        XCTAssertEqual(model.tap(nodeAt: nil, chosenTag: "#exam"), .choose(nil), "A tap beside the nodes lets it go.")
     }
 
     func testATagCarriedByMoreNotesIsDrawnLarger() throws {

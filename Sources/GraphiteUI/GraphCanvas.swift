@@ -72,6 +72,16 @@ final class GraphCanvasModel {
 
     func index(of identifier: String) -> Int? { indexByIdentifier[identifier] }
 
+    /// What a tap does: on a tag, chooses it or lets it go, so its notes stand out rather
+    /// than the graph giving way to a search; on another node, opens it, keeping a chosen
+    /// tag so its notes can be opened one after another. Beside the nodes, lets the tag go.
+    func tap(nodeAt index: Int?, chosenTag: String?) -> GraphTap {
+        guard let index, graph.nodes.indices.contains(index) else { return .choose(nil) }
+        let node = graph.nodes[index]
+        guard node.kind == .tag else { return .open(node) }
+        return .choose(chosenTag == node.id ? nil : node.id)
+    }
+
     func pin(_ identifier: String, at position: SIMD2<Double>) {
         guard let simulator else { return }
         if let index = indexByIdentifier[identifier] { positions[index] = position }
@@ -125,6 +135,13 @@ final class GraphCanvasModel {
     }
 }
 
+/// What a tap on the graph does.
+enum GraphTap: Equatable {
+    case open(GraphNode)
+    /// The tag that stands out with its notes from now on; nil lets it go.
+    case choose(String?)
+}
+
 /// A graph drawn with its links, as Obsidian's graph view: drag to move around, pinch to
 /// zoom, drag a node to move it, tap one to open it.
 struct GraphCanvas: View {
@@ -144,6 +161,10 @@ struct GraphCanvas: View {
     /// A node to center on, as when the local graph opens the whole graph; a new request
     /// centers on its node again.
     var centerRequest: GraphCenterRequest?
+    /// A tag chosen with a tap: it and its notes stay bright, and their names show, until it
+    /// is chosen again or the person taps beside the nodes. The owner keeps it, so it stays
+    /// when the graph's tab comes back to the front.
+    var chosenTag: Binding<String?> = .constant(nil)
 
     @State private var model = GraphCanvasModel()
     @State private var scale = 1.0
@@ -180,8 +201,10 @@ struct GraphCanvas: View {
                 .gesture(dragGesture(in: geometry.size))
                 .simultaneousGesture(magnifyGesture(in: geometry.size))
                 .onTapGesture { location in
-                    guard let index = nodeIndex(at: location, in: geometry.size) else { return }
-                    open(model.graph.nodes[index])
+                    switch model.tap(nodeAt: nodeIndex(at: location, in: geometry.size), chosenTag: chosenTag.wrappedValue) {
+                    case .open(let node): open(node)
+                    case .choose(let tag): chosenTag.wrappedValue = tag
+                    }
                 }
                 .onContinuousHover { phase in
                     switch phase {
@@ -231,9 +254,9 @@ struct GraphCanvas: View {
         SIMD2((point.x - size.width / 2 - offset.width) / scale, (point.y - size.height / 2 - offset.height) / scale)
     }
 
-    /// The node the hover or drag is on, whose links stand out.
+    /// The node the drag or hover is on, else the chosen tag, whose links stand out.
     private var focusedIndex: Int? {
-        draggedIdentifier.flatMap(model.index(of:)) ?? hoveredIndex
+        draggedIdentifier.flatMap(model.index(of:)) ?? hoveredIndex ?? chosenTag.wrappedValue.flatMap(model.index(of:))
     }
 
     private func draw(in context: inout GraphicsContext, size: CGSize) {
