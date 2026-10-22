@@ -64,6 +64,8 @@ Rules for the comparison:
   - [ ] Subgraphs laid out as clusters (until then a flowchart with a `subgraph` stays shown as code).
   - [ ] Off the main thread in the reading view and Live Preview (see the reading view item).
 - [ ] Renderer drawing with Core Graphics and Core Text; SVG export for sharing and for files Obsidian reads.
+  - [x] The flowchart drawn with Core Graphics and Core Text, with Pele's fills, outlines, strokes (one point, 2.5 thick, 3-4 dots), marks (arrow, circle, cross) and text patches, in colors given at draw time. Done 2026-10-22: `FlowchartRenderer`, `FlowchartShapeDrawing`, `DiagramEdgeDrawing`, `DiagramTextDrawing`. Tests: `FlowchartRendererTests` (6, pixels read back from a bitmap: fill and outline, an edge and its arrow, an invisible edge, the patch behind edge text, the same layout in two palettes, every shape inside its frame) and `FlowchartShapeDrawingTests` (3). Six diagrams (every shape, every mark, loops, edge text, bottom to top with a title) were rendered to PNG and checked by eye; that check is not in the suite.
+  - [ ] SVG export.
 - [ ] Theme from Graphite's appearance (light and dark, accent color, fonts), plus the colors an Obsidian theme or snippet sets with Pele's variables (`--pele-bg`, `--pele-accent`, `--pele-series-1` to `--pele-series-8`).
 - [ ] Layout that adapts to the pane width (iPhone, iPad split view, Mac windows).
 - [ ] Reading view and Live Preview render ` ```mermaid ` blocks; Live Preview shows the source when the cursor enters the block, as other blocks do.

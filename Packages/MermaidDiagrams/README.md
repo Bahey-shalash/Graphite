@@ -8,7 +8,7 @@ Graphite's plan for it is `Docs/Native-diagrams-todo.md`; the decisions that sha
 
 | Type | State |
 | --- | --- |
-| Flowchart (`flowchart`, `graph`) | Laid out in ranks, without subgraphs yet. Read: the direction, nodes in the classic shapes (by bracket or `@{ shape: … }`), quoted and Markdown text, entity codes, edges with their strokes, marks, lengths and labels, chains and `&`, groups, `accTitle` and `accDescr`. Styles and `click` are counted and not applied. |
+| Flowchart (`flowchart`, `graph`) | Drawn. Laid out in ranks, without subgraphs yet. Read: the direction, nodes in the classic shapes (by bracket or `@{ shape: … }`), quoted and Markdown text, entity codes, edges with their strokes, marks, lengths and labels, chains and `&`, groups, `accTitle` and `accDescr`. Styles and `click` are counted and not applied. |
 
 ## Public API
 
@@ -17,6 +17,8 @@ Graphite's plan for it is `Docs/Native-diagrams-todo.md`; the decisions that sha
 - `FlowchartLayoutEngine.layout(_:typography:limits:)` lays a flowchart out and returns a `FlowchartLayout`: its size, and each node's shape, frame and text, each edge's path, marks and text, and the title, on a page whose y runs down. It throws `FlowchartLayoutError` for a flowchart with subgraphs or one past the layout limit.
 - `DiagramTypography(font:)`: the measurers of a `DiagramFont` (the system font or one by PostScript name), made once and used for every diagram in that font. `CoreTextDiagramTextMeasurer` measures with Core Text; `DiagramTextMeasuring` is what the layout measures with.
 - `DiagramTextBlock`, `DiagramPath` (with `DiagramPathSegment`) and `DiagramEdgeMark`: placed text, lines and edge marks.
+- `FlowchartDrawingParts(layout:)` groups a layout's geometry by how it is painted: Core Graphics paths for the solid, thick and dotted edges, the filled and stroked marks, the patches behind edge text, the node fills and the node outlines, with the text blocks; a view paints them with its own shapes and colors.
+- `FlowchartRenderer.draw(_:in:palette:)` paints those parts into a `CGContext` whose y runs down, in a `DiagramPalette` (Pele's color roles: background, foreground, line, surface, border). It parses and measures nothing, so a change of colors only draws again.
 - `FlowchartDiagram`, `FlowchartNode`, `FlowchartNodeShape`, `FlowchartEdge` (with `FlowchartEdgeStroke` and `FlowchartArrowhead`), `FlowchartSubgraph`, `FlowchartDirection`: a flowchart as its text describes it.
 - `DiagramLabel`: the text of a node, an edge or a group as plain lines, drawn as the characters they hold.
 
