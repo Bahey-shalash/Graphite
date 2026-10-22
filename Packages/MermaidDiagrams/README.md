@@ -9,6 +9,7 @@ Graphite's plan for it is `Docs/Native-diagrams-todo.md`; the decisions that sha
 | Type | State |
 | --- | --- |
 | Flowchart (`flowchart`, `graph`) | Drawn. Laid out in ranks, without subgraphs yet. Read: the direction, nodes in the classic shapes (by bracket or `@{ shape: … }`), quoted and Markdown text, entity codes, edges with their strokes, marks, lengths and labels, chains and `&`, groups, `accTitle` and `accDescr`. Styles and `click` are counted and not applied. |
+| State diagram (`stateDiagram`, `stateDiagram-v2`) | Drawn, without composite states yet. Read: states with their texts (`Id : text`, `state "text" as Id`), transitions with their text, `[*]` starts and ends, `<<choice>>`, `<<fork>>` and `<<join>>`, notes (`note left of`, `note right of`, on one line or up to `end note`), composite bodies with their regions (`--`), `direction`, `accTitle` and `accDescr`. Styles (`classDef`, `class`, `:::`, `style`) and `click` are counted and not applied; floating notes are read and not drawn, as in Mermaid. |
 
 ## Public API
 
@@ -21,14 +22,19 @@ Graphite's plan for it is `Docs/Native-diagrams-todo.md`; the decisions that sha
 - `FlowchartRenderer.draw(_:in:palette:)` paints those parts into a `CGContext` whose y runs down, in a `DiagramPalette` (Pele's color roles: background, foreground, line, surface, border). It parses and measures nothing, so a change of colors only draws again.
 - `FlowchartDiagram`, `FlowchartNode`, `FlowchartNodeShape`, `FlowchartEdge` (with `FlowchartEdgeStroke` and `FlowchartArrowhead`), `FlowchartSubgraph`, `FlowchartDirection`: a flowchart as its text describes it.
 - `DiagramLabel`: the text of a node, an edge or a group as plain lines, drawn as the characters they hold.
+- `StateDiagramLayoutEngine.layout(_:typography:limits:)` lays a state diagram out and returns a `StateDiagramLayout`: its size, each state's kind, frame, name and other descriptions, each transition's path, arrow and text, each note's frame, text and line to its state, and the title. It throws `StateDiagramLayoutError` for a diagram with composite states or one past the layout limit.
+- `StateDiagramDrawingParts(layout:)` groups a state diagram's geometry by how it is painted, and `StateDiagramRenderer.draw(_:in:palette:)` paints it into a `CGContext`, as the flowchart's do; a note's text is `DiagramPalette.noteText`, between the background and the text.
+- `StateDiagram`, `StateDiagramState` (with `StateDiagramStateKind`), `StateDiagramTransition`, `StateDiagramNote` (with `StateDiagramNoteSide`), `StateDiagramComposite`: a state diagram as its text describes it.
 
 ## Limits
 
-`MermaidDiagramLimits.standard` bounds the text to 50,000 UTF-8 bytes (Mermaid's default), a diagram to 5,000 nodes and 5,000 edges (Pele's edge limit; `A & B --> C & D` makes four edges, so a short text can ask for many), and the layout to 50,000 points. Each count is checked before anything of that count is made, and a diagram past a limit fails with a typed error.
+`MermaidDiagramLimits.standard` bounds the text to 50,000 UTF-8 bytes (Mermaid's default), a diagram to 5,000 nodes (a state diagram's states and notes together) and 5,000 edges (Pele's edge limit; `A & B --> C & D` makes four edges, so a short text can ask for many), and the layout to 50,000 points. Each count is checked before anything of that count is made, and a diagram past a limit fails with a typed error.
 
 ## Layout
 
 A layered layout (Sugiyama's method) on plain values: the edges that close cycles are turned around, nodes get ranks by their longest path (a node no edge enters moves down next to its successor), an edge spanning several ranks passes through a point in each rank between, an edge's text gets a rank of its own between the ranks of nodes, the order across each rank comes from sweeps that sort by the neighbours' mean position, keeping the order with the fewest crossings, and positions across come from a weighted isotonic regression per rank, solved exactly by pooling adjacent violators, then straightened along long edges. The measurements are Pele's: 40 points between nodes, 48 between ranks, 18 and 12 points of padding around a node's text, text wrapped at 200 points and an edge's text seven eighths of the nodes'. Edges meeting a side of a node spread along it, 20 points apart where the side has room, and meet the shape's outline.
+
+A state diagram is laid out the same way, with the measurements of Pele's state renderer: 44 points between ranks, 16 and 10 points of padding around a state's name, starts first in the order, then the states in the order transitions first name them. Transitions to a state itself loop beside it, and notes sit beside their state across the flow, a rank gap away; a state's place in its rank takes both on each side, so that its transitions still meet it in the middle.
 
 ## What the package does not do
 

@@ -3,6 +3,7 @@ import Foundation
 /// A diagram read from Mermaid text, by type.
 public enum MermaidDiagram: Equatable, Sendable {
     case flowchart(FlowchartDiagram)
+    case stateDiagram(StateDiagram)
 }
 
 /// Reads Mermaid text: optional front matter (`---` … `---`, whose `title:` is kept), comments and directives
@@ -23,6 +24,10 @@ public enum MermaidDiagramReader {
             var diagram = try FlowchartParser.parse(cursor, limits: limits)
             diagram.title = title
             return .flowchart(diagram)
+        case "stateDiagram", "stateDiagram-v2":
+            var diagram = try StateDiagramParser.parse(cursor, limits: limits)
+            diagram.title = title
+            return .stateDiagram(diagram)
         default:
             throw .unsupportedDiagramType(keyword: keyword)
         }
