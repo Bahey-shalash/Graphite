@@ -668,3 +668,26 @@ test('Vault Router: sweeps the inbox, moving each note by the first rule that ma
         harness.close();
     }
 });
+
+test('Merge And Open Target: merges the open note into the chosen one, trashes it and opens the target', { skip: !builtPlugin('merge-open-target') }, async () => {
+    const { harness, answer, commandNames, unsupported, pageErrors } = await loadInStudyVault('merge-open-target', { files: { 'Draft.md': 'Draft idea.\n', 'Project.md': '# Project\n' } });
+    try {
+        assert.deepEqual(answer, { isLoaded: true });
+        assert.deepEqual(commandNames, ['Merge And Open Target: Merge current file into another note and open target', 'Merge And Open Target: Merge selected text into another note and open target']);
+        assert.deepEqual(unsupported, []);
+        assert.deepEqual(pageErrors, []);
+        const outcome = plain(await harness.send({ operation: 'command.run', commandIdentifier: 'merge-open-target:merge-current-file-into-another-and-open-target', activeDocument: { path: 'Draft.md', mode: 'source', editorSnapshot: harness.host.openNote('Draft.md', 0) } }));
+        assert.deepEqual(outcome, { outcome: 'ran' });
+        await waitUntil(() => Array.from(harness.window.document.querySelectorAll('.suggestion-item')).some((item) => item.textContent.includes('Project')), 3000);
+        Array.from(harness.window.document.querySelectorAll('.suggestion-item')).find((item) => item.textContent.includes('Project')).click();
+        await waitUntil(() => harness.window.document.querySelector('.modal button.mod-cta'), 3000);
+        harness.window.document.querySelector('.modal button.mod-cta').click();
+        await waitUntil(() => harness.readVaultFile('Project.md').includes('Draft idea.'), 5000);
+        // Its default separator, two line breaks, follows the target's own last one, as in Obsidian.
+        assert.equal(harness.readVaultFile('Project.md'), '# Project\n\n\nDraft idea.\n');
+        assert.equal(harness.vaultFileExists('Draft.md'), false, 'the merged note leaves the vault');
+        assert.deepEqual(harness.host.openedFiles.map((message) => message.path), ['Project.md'], 'the target opens');
+    } finally {
+        harness.close();
+    }
+});
