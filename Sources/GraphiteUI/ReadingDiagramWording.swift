@@ -30,6 +30,13 @@ extension MermaidSyntaxProblem {
         case .endWithoutSubgraph: "“end” closes no subgraph"
         case .unclosedSubgraph(let identifier): "the subgraph “\(identifier)” has no “end”"
         case .unexpectedText(let text): "“\(text)” is not understood here"
+        case .expectedName: "a class’s or a namespace’s name is missing"
+        case .expectedRelationLine: "a relation’s line (“--” or “..”) is missing"
+        case .expectedQuotedText: "text in quotation marks is missing"
+        case .unclosedClassBody(let identifier): "the class “\(identifier)” has no closing “}”"
+        case .unclosedNamespace(let identifier): "the namespace “\(identifier)” has no closing “}”"
+        case .unclosedGenericType: "a generic type’s “~” is not closed"
+        case .unclosedAnnotation: "“<<” is not closed with “>>”"
         }
     }
 }
