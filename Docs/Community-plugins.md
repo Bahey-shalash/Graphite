@@ -262,7 +262,7 @@ Fixed while checking: removing a vault from the list before anything had started
 
 Not verified:
 
-- On a physical iPad or iPhone, on the iPhone simulator, and in the Mac app (built, not run).
+- On a physical iPad or iPhone, on the iPhone simulator, and in the Mac app (built, not run). The Mac app runs them since 2026-10-21 (In the Mac app, above; [#49](https://github.com/Graphite-Note/Graphite/issues/49)).
 - That Safari's Web Inspector lists the runtime's page: `isInspectable` is set (asserted in a hosted test), Safari was not opened.
 - A content process ended by iOS (`webViewWebContentProcessDidTerminate`) and the restart that follows.
 - The runtime's memory, start-up time on a device, and vaults of 100,000 notes.
@@ -304,7 +304,7 @@ The tests with real plugins are skipped until `npm run build-compatibility-plugi
 
 In order of what it unlocks for daily use:
 
-1. Use a real vault with the plugins above on an iPad and an iPhone, and measure the runtime's memory and start-up time there, with several code blocks and views shown.
-2. Check Apple Pencil in Excalidraw on an iPad: pressure, tilt, hover and palm rejection.
-3. From the sweep, still open: hover previews of links. Done 2026-10-21: suggestions in the Mac editor, and the editor of a note right after `openFile` (Advanced URI) (How it was verified, below).
-4. Done 2026-10-21: more real plugins in the Node tests, the ones the sweep found working: List to Table, Vault Router, Merge And Open Target and Omnisearch, each pinned to the release the sweep installed and built from source (What works, above).
+1. Use a real vault with the plugins above on an iPad and an iPhone, and measure the runtime's memory and start-up time there, with several code blocks and views shown. Issue: [#50](https://github.com/Graphite-Note/Graphite/issues/50).
+2. Check Apple Pencil in Excalidraw on an iPad: pressure, tilt, hover and palm rejection. Issue: [#51](https://github.com/Graphite-Note/Graphite/issues/51).
+3. From the sweep, still open: hover previews of links. Done 2026-10-21: suggestions in the Mac editor, and the editor of a note right after `openFile` (Advanced URI) (How it was verified, below). Issue: [#52](https://github.com/Graphite-Note/Graphite/issues/52).
+4. Done 2026-10-21: more real plugins in the Node tests, the ones the sweep found working: List to Table, Vault Router, Merge And Open Target and Omnisearch, each pinned to the release the sweep installed and built from source (What works, above). Issue: [#53](https://github.com/Graphite-Note/Graphite/issues/53).
