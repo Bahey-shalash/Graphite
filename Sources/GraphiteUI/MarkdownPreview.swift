@@ -715,6 +715,26 @@ struct HeadingScrollRequest: Equatable {
         guard let slugPosition = HeadingSlug.position(ofSlug: anchor, amongHeadingAnchors: headingAnchors) else { return anchor }
         return headingTargets[slugPosition]
     }
+
+    /// The identifier of the note's top-level block that holds a scroll target: the heading's
+    /// own block, or the callout or footnotes around it. The reading view's lazy stack finds
+    /// only its rows before it has built them, not the targets inside them.
+    static func readingRowIdentifier(holding target: String, in blocks: [RenderedBlock]) -> String? {
+        blocks.first { block in block.holdsReadingScrollTarget(target) }?.id
+    }
+}
+
+extension RenderedBlock {
+    /// Whether this block is, or contains, the heading or footnote a scroll target names.
+    func holdsReadingScrollTarget(_ target: String) -> Bool {
+        switch self {
+        case .heading(_, _, _, let anchor): anchor == target
+        case .callout(_, _, _, _, let body), .transclusion(_, _, _, let body): body.contains { block in block.holdsReadingScrollTarget(target) }
+        case .footnotes(_, let notes): notes.contains { footnote in RenderedFootnote.anchor(for: footnote.number) == target }
+        case .properties, .markdown, .displayMath, .video, .audio, .pdf, .base, .baseFile, .missingEmbed, .missingSection, .image,
+             .pluginCodeBlock, .pluginSection: false
+        }
+    }
 }
 
 /// A lightweight viewport checkpoint owned by the open note, not by its rendered view. It
@@ -825,6 +845,10 @@ struct MarkdownPreview: View {
     var readingWord: ReadingWordSource? = nil
     var followsReading = false
     var suspendReadingFollow: (() -> Void)? = nil
+    /// How long a jump to a heading lets the lazy stack lay out between its scrolls.
+    static let headingScrollSettlingDelay = Duration.milliseconds(80)
+    /// The clock a jump to a heading waits on; a test moves it by hand.
+    var headingScrollClock: any ApplicationClock = LiveApplicationClock()
     @State private var scrollPosition = ScrollPosition(y: 0)
     @Environment(\.noteTypography) private var typography
     @Environment(\.noteTheme) private var theme
@@ -880,7 +904,7 @@ struct MarkdownPreview: View {
                     let _ = blockActions.update(navigate: navigate, scrollToHeading: { anchor in
                         pendingRestorationOffset = nil
                         let target = HeadingScrollRequest.readingScrollTarget(forLinkAnchor: anchor, in: blocks)
-                        withAnimation(GraphiteMotion.animation()) { scrollProxy.scrollTo(target, anchor: .top) }
+                        Task { await scroll(toTarget: target, scrollProxy: scrollProxy) }
                     }, openPDF: openPDF, updateProperties: updateProperties, toggleFold: folding?.toggle)
                     ReadingNoteBlocks(blocks: blocks, blocksVersion: blocksVersion, root: root, textSize: configuration.textSize,
                                       foldedKeys: folding?.foldedKeys, declaredPropertyTypes: configuration.declaredPropertyTypes,
@@ -982,8 +1006,7 @@ struct MarkdownPreview: View {
                 pendingRestorationOffset = nil
                 handledScrollToken = request.token
                 guard !request.anchor.isEmpty else { return }
-                let target = request.readingScrollTarget(in: blocks)
-                withAnimation(GraphiteMotion.animation()) { scrollProxy.scrollTo(target, anchor: .top) }
+                await scroll(toTarget: request.readingScrollTarget(in: blocks), scrollProxy: scrollProxy)
             }
         }
         .task(id: ReadingBuildRequest(source: source, drawingVersion: configuration.drawingVersion, renderingHash: configuration.hashValueForReload,
@@ -1011,6 +1034,25 @@ struct MarkdownPreview: View {
             } catch is CancellationError {
             } catch { errorMessage = error.localizedDescription }
         }
+    }
+
+    /// Brings a heading or footnote to the top. The lazy stack finds only its rows before it
+    /// has built them, and a heading below the screen is not built yet, so the row holding
+    /// the target is shown first. The stack revises its estimated heights as distant rows
+    /// appear, which moves the row after each scroll, so the row is shown again until it is
+    /// built and stays put, a bounded number of times; then the target inside it.
+    private func scroll(toTarget target: String, scrollProxy: ScrollViewProxy) async {
+        guard let rowIdentifier = HeadingScrollRequest.readingRowIdentifier(holding: target, in: blocks) else { return }
+        scrollProxy.scrollTo(rowIdentifier, anchor: .top)
+        var previousFrame: CGRect?
+        for _ in 0..<6 {
+            do { try await headingScrollClock.sleep(for: Self.headingScrollSettlingDelay) } catch { return } // The view went away.
+            let frame = savedPosition?.frame(ofBlock: rowIdentifier)
+            if let frame, frame == previousFrame { break }
+            previousFrame = frame
+            scrollProxy.scrollTo(rowIdentifier, anchor: .top)
+        }
+        scrollProxy.scrollTo(target, anchor: .top)
     }
 
     /// Brings the note's character to the top: its block first, then as far down the block

@@ -243,6 +243,30 @@ final class UiReadingViewTests: XCTestCase {
         XCTAssertEqual(HeadingScrollRequest(anchor: "1-overview").readingScrollTarget(in: build.blocks), overview)
     }
 
+    /// The lazy stack scrolls to a heading not built yet only by its row, so each scroll
+    /// target names the top-level block it is in.
+    func testEachScrollTargetNamesTheRowThatHoldsIt() async throws {
+        let build = try await build("- [[#Results]]\n\n## Results\nText\n\n> [!note] Box\n> ## Inside\n> More\n\nSee[^1]\n\n[^1]: Footnote\n", note: "Note.md")
+        func rowIdentifier(_ target: String) -> String? { HeadingScrollRequest.readingRowIdentifier(holding: target, in: build.blocks) }
+        let resultsAnchor = NotePreviewDocument.anchor(forHeading: "Results")
+        let results = try XCTUnwrap(build.blocks.first { block in
+            if case .heading(_, _, _, resultsAnchor) = block { return true }
+            return false
+        })
+        let callout = try XCTUnwrap(build.blocks.first { block in
+            if case .callout = block { return true }
+            return false
+        })
+        let footnotes = try XCTUnwrap(build.blocks.first { block in
+            if case .footnotes = block { return true }
+            return false
+        })
+        XCTAssertEqual(rowIdentifier(resultsAnchor), results.id)
+        XCTAssertEqual(rowIdentifier(NotePreviewDocument.anchor(forHeading: "Inside")), callout.id)
+        XCTAssertEqual(rowIdentifier(RenderedFootnote.anchor(for: 1)), footnotes.id)
+        XCTAssertNil(rowIdentifier("missing"))
+    }
+
     func testOnlyTheNotesFirstHeadingOfANameIsAScrollTarget() async throws {
         try write("## Summary\nEmbedded text\n", to: "Template.md")
         let build = try await build("![[Template]]\n\n## Summary\nFirst\n\n## Summary\nSecond\n", note: "Note.md")
