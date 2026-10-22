@@ -52,6 +52,16 @@ final class ReadingViewBuilderDiagramTests: XCTestCase {
         guard case .callout(_, _, _, _, let body) = blocks.first, case .diagram = body.first else { return XCTFail("Drawn in the callout") }
     }
 
+    func testAClassDiagramBecomesADiagramBlockAndOneWithNamespacesStaysCode() async throws {
+        let drawn = "```mermaid\nclassDiagram\n  Animal <|-- Duck\n```"
+        let blocks = try await build(drawn + "\n\n```mermaid\nclassDiagram\nnamespace Shapes {\n  class Square\n}\n```").blocks
+        XCTAssertEqual(blocks.count, 2)
+        guard case .diagram(_, .classDiagram(let classDiagram)) = blocks[0] else { return XCTFail("The class diagram is drawn") }
+        XCTAssertEqual(classDiagram.layout.classes.count, 2)
+        guard case .markdown(_, let text) = blocks[1] else { return XCTFail("Shown as code") }
+        XCTAssertEqual(text, "```mermaid\nclassDiagram\nnamespace Shapes {\n  class Square\n}\n```")
+    }
+
     func testTheFontOfTheDiagramChangesWhatTheReadingViewReloadsFor() {
         var configuration = ReadingConfiguration()
         let systemFontHash = configuration.hashValueForReload

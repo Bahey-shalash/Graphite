@@ -44,4 +44,18 @@ public enum MermaidSyntaxProblem: Equatable, Sendable {
     case unclosedCompositeState(identifier: String)
     /// `}` with no composite state's body open.
     case closingBraceWithoutCompositeState
+    /// A name was expected: a class's after `class`, a relation's line, `note for` or an annotation, or a namespace's.
+    case expectedName
+    /// A relation's line (`--` or `..`) was expected after its first class, cardinality or mark.
+    case expectedRelationLine
+    /// Text in quotation marks was expected: a note's, or a class's label inside `[` `]`.
+    case expectedQuotedText
+    /// A class's `{` has no closing `}`, by the class's identifier.
+    case unclosedClassBody(identifier: String)
+    /// The text ends inside a `namespace`, by the innermost one's identifier.
+    case unclosedNamespace(identifier: String)
+    /// A `~` that opens a generic type has no closing `~` on its line.
+    case unclosedGenericType
+    /// A `<<` that opens an annotation has no closing `>>` on its line.
+    case unclosedAnnotation
 }
