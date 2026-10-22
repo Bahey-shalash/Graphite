@@ -131,6 +131,7 @@ private struct TabGroupPane: View {
     let showQuickSwitcher: () -> Void
     let showsTabBar: Bool
     @Environment(\.usesDocumentControlRow) private var usesDocumentControlRowSetting
+    @Environment(TabOverviewModel.self) private var tabOverview: TabOverviewModel?
     @Environment(LibraryModel.self) private var library: LibraryModel?
     /// The library covers the first side as the window's home in Library mode, on the iPad
     /// and the Mac; the iPhone shows it in place of the file list instead.
@@ -171,12 +172,18 @@ private struct TabGroupPane: View {
                 tabDocuments(activeTab: tab)
                 .environment(\.showsDocumentControlsInTabBar, showsDocumentControlsInTabBar)
                 .environment(\.showsPencilToolsInTabBar, showsPencilToolsInTabBar)
+                // The area the tab overview's thumbnail of this side is captured from.
+                .background {
+                    if let tabOverview { TabThumbnailArea(groupID: group.id, thumbnails: tabOverview.thumbnails) }
+                }
+                .onChange(of: tab.id, initial: true) { captureThumbnailOnceSettled(tab) }
             }
         }
         // Choosing a tab or opening a file on this side steps back from the library.
         .onChange(of: group.activeTabID) { library?.leaveHome() }
         .onChange(of: group.activeTab.path) { if group.activeTab.path != nil { library?.leaveHome() } }
         .onGeometryChange(for: CGFloat.self) { geometry in geometry.size.width } action: { newWidth in width = newWidth }
+        .onDisappear { tabOverview?.cancelSettledCapture(ofGroup: group.id) }
         #if !canImport(UIKit)
         // A click anywhere on this side focuses it, so the toolbar and new files follow.
         .simultaneousGesture(TapGesture().onEnded { workspace.focusGroup(group.id) })
@@ -225,6 +232,20 @@ extension TabGroupPane {
                                  togglePin: workspace.togglePin(_:),
                                  unstack: { withAnimation(GraphiteMotion.animation(.snappy)) { workspace.toggleStackedTabs(inGroup: groupID) } })
     }
+
+    /// Asks for this side's thumbnail once its tab has settled: its file loaded, nothing
+    /// typed, and the side not stacked, since a stacked side shows several tabs.
+    fileprivate func captureThumbnailOnceSettled(_ tab: WorkspaceTab) {
+        guard let tabOverview, !group.isStacked else { return }
+        let workspace = workspace
+        let groupID = group.id
+        tabOverview.captureWhenSettled(groupID: groupID, tabID: tab.id, vaultIdentifier: workspace.currentVaultIdentifier) {
+            let document = workspace.document(for: tab.id)
+            let isLoaded = tab.path == nil || document.loadedPath == tab.path
+            let isStacked = workspace.layout.groups.first { candidate in candidate.id == groupID }?.isStacked ?? true
+            return isLoaded && !isStacked && document.markdownSession?.isTyping != true
+        }
+    }
 }
 
 // MARK: Tab bar
@@ -241,6 +262,7 @@ private struct TabBar: View {
 
     @State private var isDropTargeted = false
     @Environment(\.accent) private var accent
+    @Environment(\.showTabOverview) private var showTabOverview
     @Environment(LibraryModel.self) private var library: LibraryModel?
     private var layout: TabLayout { workspace.layout }
     /// The first side's bar leads with the library's home button in Library mode.
@@ -353,12 +375,13 @@ private struct TabBar: View {
 
     @ViewBuilder private var groupButtons: some View {
         HStack(spacing: 2) {
-            // Obsidian's tab group menu: the side's tabs, and stacking them.
-            Menu { groupMenu } label: {
-                Label("Tabs", systemImage: "chevron.down")
-            }
-            .menuIndicator(.hidden)
-            .help("This side's tabs, and stacking them")
+            // Safari's tab overview button: every tab as a card. Its menu, held on an iPad or
+            // clicked with the right button on a Mac, is Obsidian's tab group menu: the
+            // side's tabs, and stacking them.
+            Button("Show All Tabs", systemImage: "square.on.square") { showTabOverview?.show() }
+                .disabled(showTabOverview == nil)
+                .help("Show all tabs; its menu lists this side's tabs and stacks them")
+                .contextMenu { groupMenu }
             Button("New Tab", systemImage: "plus") { workspace.openNewTab(inGroup: group.id) }
                 .help("New tab (⌘T)")
             if layout.isSplit && !showsBothGroups {
