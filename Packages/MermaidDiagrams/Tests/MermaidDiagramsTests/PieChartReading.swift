@@ -1,13 +1,10 @@
 @testable import MermaidDiagrams
 
-/// Reads a pie chart for a test: the text's `pie` keyword, after any blank start, then its statements.
+/// Reads a pie chart for a test, as the reading view does.
 enum PieChartReading {
     static func pieChart(_ source: String, limits: MermaidDiagramLimits = .standard) throws(MermaidDiagramReadError) -> PieChart {
-        var cursor = MermaidTextCursor(bytes: Array(source.utf8))
-        cursor.skipWhitespace()
-        guard cursor.hasPrefix(Array("pie".utf8)) else { throw .noDiagram }
-        cursor.advance(by: 3)
-        return try PieChartParser.parse(cursor, limits: limits)
+        guard case .pieChart(let chart) = try MermaidDiagramReader.read(source, limits: limits) else { throw .noDiagram }
+        return chart
     }
 
     /// The error reading `source` throws, or nil when it reads.

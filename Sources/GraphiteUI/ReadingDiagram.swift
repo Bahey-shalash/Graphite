@@ -6,6 +6,8 @@ import MermaidDiagrams
 enum ReadingDiagram: Sendable {
     /// A flowchart drawn natively.
     case flowchart(ReadingFlowchart)
+    /// A pie chart drawn natively.
+    case pieChart(ReadingPieChart)
     /// A diagram of a type drawn natively whose text could not be read or laid out: its source is shown with why.
     case unreadable(source: String, failure: ReadingDiagramFailure)
 
@@ -32,6 +34,8 @@ enum ReadingDiagram: Sendable {
             } catch {
                 self = .unreadable(source: source, failure: .layout(error))
             }
+        case .pieChart(let chart):
+            self = .pieChart(ReadingPieChart(chart: chart, layout: PieChartLayoutEngine.layout(chart, typography: typography)))
         }
     }
 }
