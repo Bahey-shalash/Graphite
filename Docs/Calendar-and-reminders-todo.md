@@ -10,6 +10,8 @@ Native integration with Apple Calendar and Reminders through EventKit, on iPadOS
 
 ## Scope
 
+Issue: [#47](https://github.com/Graphite-Note/Graphite/issues/47)
+
 - [ ] Permissions: ask only when the user first uses a calendar or reminders feature, never at launch. Full access for reading (`NSCalendarsFullAccessUsageDescription`, `NSRemindersFullAccessUsageDescription`); consider write-only calendar access where Graphite only adds events. Every feature explains itself and stays usable when access is denied.
 - [ ] Calendar view for daily notes, the gap noted in `Obsidian-mobile-gaps.md` ("no Calendar view"): a month view that opens or creates the daily note for a day and marks the days that have one.
 - [ ] Today's events in the daily note: a command that inserts the day's events as a Markdown list (time, title, optional link to a meeting note), and a template variable for daily-note templates.
