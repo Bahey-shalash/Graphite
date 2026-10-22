@@ -4,9 +4,15 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-21.
 
+## Community plugins in the Mac app: the hosted tests and the sweep's working plugins: 2026-10-21
+
+The app's hosted plugin tests (`CommunityPluginHostTests`), iPad-only until now, run in the Mac app too: the test plugin's commands, editor changes and Undo, `data.json`, secrets and web storage, timers, unloading, code blocks and sections in the reading view, menus, typing with suggestions, views; Dataview and Tasks; and seven plugins the 2026-10-12 sweep found working, built from source at the releases it installed, each on its main feature: Admonition, Highlightr, List to Table, Omnisearch, Notebook Navigator, Vault Router and Merge And Open Target (`Docs/Community-plugins.md`, How it was verified). Admonition, Highlightr and Notebook Navigator join `compatibility-plugins.json` for these tests; Highlightr also has a Node test (jsdom lacks what the other two need). The Mac test host is built unsigned, so it runs outside the sandbox, reads the built plugins in the checkout and uses no container; its hosted-test launch mode restores no vault.
+
+Checked: in the Mac app, 18 tests, all passing; on the iPad simulator (iPad Pro 11-inch (M5), iOS 27.0), the same 18, all passing; Node: `real-plugins.test.js` with every plugin built, 23 tests, 22 passing and QuickAdd skipped (not built here). Not established: any of it by hand in the Mac app (no way to drive the Mac app on this machine), a signed and sandboxed Mac build, and the sweep's other working and partly working plugins.
+
 ## Four of the sweep's community plugins in the Node tests: 2026-10-21
 
-List to Table, Vault Router, Merge And Open Target and Omnisearch, which the 2026-10-12 sweep found working in the iPad simulator, are built from source at the commits of the releases it installed (`compatibility-plugins.json`) and checked in `real-plugins.test.js`: a list converted to a table in one editor change; an inbox swept by Vault Router's default rules through Graphite's file manager; a note merged into another, trashed and the target opened; Omnisearch's index searched through its API and its search window, a result opening its note. None reports an unsupported feature. Checked: `npm test` with every plugin built, 140 tests, 139 passing and QuickAdd skipped (not built on this machine: its install outlasted the build script's 15 minutes). Not established: these four in WebKit, in the app.
+List to Table, Vault Router, Merge And Open Target and Omnisearch, which the 2026-10-12 sweep found working in the iPad simulator, are built from source at the commits of the releases it installed (`compatibility-plugins.json`) and checked in `real-plugins.test.js`: a list converted to a table in one editor change; an inbox swept by Vault Router's default rules through Graphite's file manager; a note merged into another, trashed and the target opened; Omnisearch's index searched through its API and its search window, a result opening its note. None reports an unsupported feature. Checked: `npm test` with every plugin built, 140 tests, 139 passing and QuickAdd skipped (not built on this machine: its install outlasted the build script's 15 minutes). In WebKit, in the app, they are checked by the hosted tests (entry above).
 
 ## Suggestions in the Mac editor: 2026-10-21
 

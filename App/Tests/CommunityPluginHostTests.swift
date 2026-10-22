@@ -368,6 +368,34 @@ final class CommunityPluginHostTests: XCTestCase {
     // Plugins the sweep of Obsidian's directory found working on the iPad (Docs/Community-plugins.md),
     // built from their sources at the commits the Node tests pin, each tried on its main feature.
 
+    func testAdmonitionDrawsItsBlockAsACalloutInTheReadingView() async throws {
+        let note = "Before.\n\n```ad-note\ntitle: Remember\nThe exam is on Friday.\n```\n\nAfter.\n"
+        let (workspace, _, controller) = try await workspaceWithBuiltPlugins(["obsidian-admonition"], notes: ["Callout.md": note])
+        let host = workspace.communityPlugins
+        try await waitUntil { host.codeBlockLanguages.contains("ad-note") }
+        let tab = try await openTab("Callout.md", in: workspace)
+        workspace.document(for: tab).markdownSession?.viewMode = .reading
+        try await waitUntil(timeoutSeconds: 15) { self.codeBlockWebViews(in: controller, host: host).count == 1 }
+        let blockWebView = try XCTUnwrap(codeBlockWebViews(in: controller, host: host).first)
+        let shownHTML = try await shownHTML(of: blockWebView, containing: "The exam is on Friday.")
+        XCTAssertTrue(shownHTML.contains("callout") && shownHTML.contains("Remember"), shownHTML)
+    }
+
+    func testHighlightrWrapsTheSelectionInItsHighlight() async throws {
+        let (workspace, _, controller) = try await workspaceWithBuiltPlugins(["highlightr-plugin"], notes: ["Words.md": "quiet words\n"])
+        let tab = try await openTab("Words.md", in: workspace)
+        let session = try XCTUnwrap(workspace.document(for: tab).markdownSession)
+        session.viewMode = .source
+        let editor = try await visibleEditor(in: controller, showing: session)
+        editor.focus()
+        editor.placeSelection(NSRange(location: 0, length: 5))
+        try await waitUntil { session.selection == NSRange(location: 0, length: 5) }
+        try await run(pluginCommand: "highlightr-plugin:Yellow", in: workspace)
+        try await waitUntil { session.text.hasPrefix("<mark") && session.text.contains(">quiet</mark> words") }
+        editor.undoManager?.undo()
+        try await waitUntil { session.text == "quiet words\n" }
+    }
+
     func testListToTableConvertsTheSelectedListAndUndoTakesItBack() async throws {
         let (workspace, _, controller) = try await workspaceWithBuiltPlugins(["list-to-table"], notes: ["Fruits.md": "Fruits:\n- apple\n- pear\n"])
         let tab = try await openTab("Fruits.md", in: workspace)
@@ -400,6 +428,21 @@ final class CommunityPluginHostTests: XCTestCase {
         XCTAssertEqual(foundPaths, ["Physics.md"], "Problems: \(host.runtimeProblems)")
         try await run(pluginCommand: "omnisearch:show-modal", in: workspace)
         try await waitUntil("Omnisearch's search window on the plugin panel") { host.isPanelPresented }
+    }
+
+    func testNotebookNavigatorListsTheVaultsNotesInTheSidebar() async throws {
+        let (workspace, _, _) = try await workspaceWithBuiltPlugins(["notebook-navigator"], notes: [
+            "Lectures/Mechanics.md": "Forces.\n", "Lectures/Optics.md": "Light.\n",
+        ])
+        let host = workspace.communityPlugins
+        try await waitUntil("its view in the sidebar", timeoutSeconds: 15) { host.sidebarViews.contains { view in view.title == "Notebook Navigator" } }
+        var pageText = ""
+        try await waitUntil("the navigator lists the vault's folder", timeoutSeconds: 10) {
+            let answer = try await host.webView?.callAsyncJavaScript("return document.body.innerText", arguments: [:], in: nil, contentWorld: .page)
+            pageText = answer as? String ?? ""
+            return pageText.contains("Lectures")
+        }
+        XCTAssertTrue(pageText.contains("Lectures"), "The navigator lists the vault's folder: \(pageText.prefix(400))")
     }
 
     func testVaultRouterSweepsTheInboxByItsRules() async throws {
@@ -442,6 +485,16 @@ final class CommunityPluginHostTests: XCTestCase {
 
     private func codeBlockWebViews(in controller: HostedViewController, host: CommunityPluginHost) -> [WKWebView] {
         descendants(of: controller.view, matching: WKWebView.self).filter { webView in webView !== host.webView && webView.window != nil }
+    }
+
+    /// What a copy shows once it shows `text`, read again for up to five seconds.
+    private func shownHTML(of webView: WKWebView, containing text: String) async throws -> String {
+        var shownHTML = ""
+        try await waitUntil("the copy shows \(text)", timeoutSeconds: 5) {
+            shownHTML = try await self.codeBlockHTML(webView)
+            return shownHTML.contains(text)
+        }
+        return shownHTML
     }
 
     /// Clicks, in the plugins' page, the first element matching `selector` whose text has
