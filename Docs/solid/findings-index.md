@@ -14,8 +14,8 @@ Section 9 of each area document adds the 72 findings of the delta audit of 2026-
 | ISP | 3 | 21 | 18 | 0 | 0 | 42 |
 | DIP | 4 | 34 | 23 | 0 | 0 | 61 |
 | CC | 2 | 94 | 124 | 0 | 0 | 220 |
-| BUG | 1 | 6 | 5 | 0 | 73 | 85 |
-| **All** | 34 | 272 | 234 | 0 | 73 | **613** |
+| BUG | 1 | 7 | 5 | 0 | 73 | 86 |
+| **All** | 34 | 273 | 234 | 0 | 73 | **614** |
 
 | ID | Area | Severity | Title |
 | --- | --- | --- | --- |
@@ -598,6 +598,7 @@ Section 9 of each area document adds the 72 findings of the delta audit of 2026-
 | [BUG-READING-03](areas/reading.md#bug-reading-03-reading-view-takes-a-folder-for-the-target-of-a-link-or-embed) | READING | — | Reading view takes a folder for the target of a link or embed |
 | [BUG-READING-04](areas/reading.md#bug-reading-04-link-on-an-unlinked-mention-removes-the-line-from-the-list-even-when-no-link-was-written) | READING | — | "Link" on an unlinked mention removes the line from the list even when no link was written |
 | [BUG-READING-05](areas/reading.md#bug-reading-05-the-same-wikilink-reads-differently-in-reading-view-and-in-live-previews-rendered-blocks) | READING | — | The same Wikilink reads differently in reading view and in Live Preview's rendered blocks |
+| [BUG-READING-06](areas/reading.md#bug-reading-06-a-tap-on-a-link-in-the-reading-view-follows-nothing-until-the-note-is-laid-out-again) | READING | Medium | A tap on a link in the reading view follows nothing until the note is laid out again |
 | [BUG-RUNTIME-01](areas/runtime.md#bug-runtime-01-a-plugins-asynchronous-edit-lands-in-the-note-the-person-switched-to) | RUNTIME | — | A plugin's asynchronous edit lands in the note the person switched to |
 | [BUG-RUNTIME-02](areas/runtime.md#bug-runtime-02-keyboard-shortcuts-plugins-register-with-the-mod-modifier-never-fire) | RUNTIME | — | Keyboard shortcuts plugins register with the `Mod` modifier never fire |
 | [BUG-RUNTIME-03](areas/runtime.md#bug-runtime-03-a-plugin-view-opened-in-the-current-tab-never-appears-and-is-never-closed) | RUNTIME | — | A plugin view opened in the current tab never appears and is never closed |
