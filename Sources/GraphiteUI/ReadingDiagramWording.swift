@@ -30,6 +30,8 @@ extension MermaidSyntaxProblem {
         case .endWithoutSubgraph: "“end” closes no subgraph"
         case .unclosedSubgraph(let identifier): "the subgraph “\(identifier)” has no “end”"
         case .unexpectedText(let text): "“\(text)” is not understood here"
+        case .secondRoot(let text): "“\(text)” is not indented under the root, and a mindmap has one root"
+        case .unclosedIcon: "“::icon(” is not closed with “)”"
         }
     }
 }
