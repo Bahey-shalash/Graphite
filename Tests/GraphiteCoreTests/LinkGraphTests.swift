@@ -73,6 +73,15 @@ final class LinkGraphTests: XCTestCase {
         XCTAssertEqual(nestedOnly.nodes.map(\.id), ["Optics.md", "#course/vlsi"], "No note carries #course, so it is not drawn.")
     }
 
+    func testTheCountsNameWhatTheGraphShowsAndCountAPairLinkedBothWaysOnce() {
+        let graph = sampleGraph()
+        XCTAssertEqual(graph.filtered(by: GraphFilterOptions()).counts, LinkGraph.Counts(notes: 4, links: 2),
+                       "Lecture and Sampling link each other: one link, as one line is drawn.")
+        XCTAssertEqual(graph.filtered(by: GraphFilterOptions(showsTags: true, showsAttachments: true, showsExistingFilesOnly: false)).counts,
+                       LinkGraph.Counts(notes: 4, attachments: 1, tags: 1, unresolved: 1, links: 5),
+                       "The lines to a tag say which notes carry it; they are not links.")
+    }
+
     func testLocalGraphFollowsLinksToTheChosenDepth() {
         let graph = sampleGraph().filtered(by: GraphFilterOptions(showsAttachments: true))
         let firstLevel = graph.neighborhood(of: "Lecture.md", options: LocalGraphOptions())
