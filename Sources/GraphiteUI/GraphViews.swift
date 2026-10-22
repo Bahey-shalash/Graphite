@@ -98,7 +98,7 @@ struct VaultGraphView: View {
             if let shownGraph {
                 if shownGraph.nodes.isEmpty {
                     ContentUnavailableView(searchText.isEmpty ? "No Notes" : "No Matches", systemImage: "point.3.connected.trianglepath.dotted",
-                                           description: Text(searchText.isEmpty ? "The graph shows notes once the vault is read." : "No file's path contains “\(searchText)”."))
+                                           description: Text(searchText.isEmpty ? "The graph shows notes once the vault is read." : "No file matches “\(searchText)”."))
                 } else {
                     // The file opened last keeps its highlight, so the graph shows where the person is.
                     GraphCanvas(graph: shownGraph, highlightedIdentifier: workspace.recentFiles.paths.first?.rawValue, forces: forces, showsArrows: showsArrows,
@@ -131,7 +131,7 @@ struct VaultGraphView: View {
         HStack(spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Filter by path", text: $searchText)
+                TextField("Filter by path or tag:", text: $searchText)
                     .textFieldStyle(.plain)
                     #if canImport(UIKit)
                     .textInputAutocapitalization(.never)
