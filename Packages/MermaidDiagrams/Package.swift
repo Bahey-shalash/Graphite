@@ -11,6 +11,9 @@ let package = Package(
     ],
     targets: [
         .target(name: "MermaidDiagrams"),
-        .testTarget(name: "MermaidDiagramsTests", dependencies: ["MermaidDiagrams"])
+        // Times reading, layout and drawing on the inputs of Pele's benchmark (`swift run -c release MermaidDiagramsBenchmark`);
+        // its resources are the flowchart examples of Mermaid's documentation, as Pele's benchmark collects them.
+        .executableTarget(name: "MermaidDiagramsBenchmark", dependencies: ["MermaidDiagrams"], resources: [.copy("Resources")]),
+        .testTarget(name: "MermaidDiagramsTests", dependencies: ["MermaidDiagrams", "MermaidDiagramsBenchmark"])
     ]
 )
