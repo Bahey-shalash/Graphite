@@ -559,7 +559,7 @@ private struct TabDocumentView: View {
                 Color.clear
             }
         } else if tab.coreView == .graph {
-            VaultGraphView(workspace: workspace, tabID: tab.id)
+            VaultGraphView(workspace: workspace, tabID: tab.id, document: document)
         } else if let pluginViewIdentifier = document.pluginViewIdentifier {
             CommunityPluginViewContent(host: workspace.communityPlugins, viewIdentifier: pluginViewIdentifier, isInFocusedGroup: isFocused)
                 .id(pluginViewIdentifier)

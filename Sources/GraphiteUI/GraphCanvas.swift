@@ -141,6 +141,9 @@ struct GraphCanvas: View {
     var keepPositions: (([String: SIMD2<Double>]) -> Void)?
     /// Changing it shows the whole graph again.
     var fitRequest = 0
+    /// A node to center on, as when the local graph opens the whole graph; a new request
+    /// centers on its node again.
+    var centerRequest: GraphCenterRequest?
 
     @State private var model = GraphCanvasModel()
     @State private var scale = 1.0
@@ -149,8 +152,15 @@ struct GraphCanvas: View {
     @State private var gestureStartOffset: CGSize?
     @State private var draggedIdentifier: String?
     @State private var hoveredIndex: Int?
-    /// Once the person moves or zooms, the view no longer fits itself to the graph.
-    @State private var isFollowingLayout = true
+    /// What the view keeps in sight while the layout settles. Once the person moves or
+    /// zooms, the view no longer follows the layout.
+    @State private var framing = Framing.allNodes
+
+    private enum Framing: Equatable {
+        case allNodes
+        case node(String)
+        case free
+    }
     @Environment(\.accent) private var accent
     @Environment(\.colorScheme) private var colorScheme
     /// From this zoom on, every node shows its name.
@@ -172,19 +182,22 @@ struct GraphCanvas: View {
                     case .ended: hoveredIndex = nil
                     }
                 }
-                .onChange(of: model.positions) {
-                    if isFollowingLayout { fit(in: geometry.size, animated: false) }
-                }
-                .onChange(of: geometry.size) { if isFollowingLayout { fit(in: geometry.size, animated: false) } }
+                .onChange(of: model.positions) { followLayout(in: geometry.size) }
+                .onChange(of: geometry.size) { followLayout(in: geometry.size) }
                 .onChange(of: fitRequest) {
-                    isFollowingLayout = true
+                    framing = .allNodes
                     fit(in: geometry.size, animated: !GraphiteMotion.isReduced)
+                }
+                .onChange(of: centerRequest) {
+                    guard let centerRequest else { return }
+                    framing = .node(centerRequest.identifier)
+                    center(on: centerRequest.identifier, in: geometry.size, animated: !GraphiteMotion.isReduced)
                 }
         }
         .clipped()
         .task(id: graph) {
-            // Other nodes, as after a filter changes: show them all again.
-            isFollowingLayout = true
+            // Other nodes, as after a filter changes: show them all again, or the node asked for.
+            framing = centerRequest.map { request in Framing.node(request.identifier) } ?? .allNodes
             model.load(graph, forces: forces, previousPositions: previousPositions.isEmpty ? model.positionsByIdentifier : previousPositions)
         }
         .onChange(of: forces) { model.change(forces: forces) }
@@ -306,10 +319,10 @@ struct GraphCanvas: View {
                     if let index = nodeIndex(at: value.startLocation, in: size) {
                         draggedIdentifier = model.graph.nodes[index].id
                         // Fitting while dragging would move the graph under the finger.
-                        isFollowingLayout = false
+                        framing = .free
                     } else {
                         gestureStartOffset = offset
-                        isFollowingLayout = false
+                        framing = .free
                     }
                 }
                 if let draggedIdentifier {
@@ -330,7 +343,7 @@ struct GraphCanvas: View {
             .onChanged { value in
                 if gestureStartScale == nil {
                     gestureStartScale = scale
-                    isFollowingLayout = false
+                    framing = .free
                 }
                 guard let startScale = gestureStartScale else { return }
                 // Zooms around the fingers: the point under them stays put.
@@ -341,6 +354,26 @@ struct GraphCanvas: View {
                 offset.height += value.startLocation.y - anchorAfter.y
             }
             .onEnded { _ in gestureStartScale = nil }
+    }
+
+    /// Keeps what the view follows in sight as the nodes move or the view changes size.
+    private func followLayout(in size: CGSize) {
+        switch framing {
+        case .allNodes: fit(in: size, animated: false)
+        case .node(let identifier): center(on: identifier, in: size, animated: false)
+        case .free: break
+        }
+    }
+
+    /// Puts a node in the middle, zoomed in far enough for names to show.
+    private func center(on identifier: String, in size: CGSize, animated: Bool) {
+        guard size.width > 0, size.height > 0, let index = model.index(of: identifier), model.positions.indices.contains(index) else { return }
+        let position = model.positions[index]
+        let change = {
+            scale = max(scale, Self.labelScale)
+            offset = CGSize(width: -position.x * scale, height: -position.y * scale)
+        }
+        if animated { withAnimation(GraphiteMotion.animation(.snappy)) { change() } } else { change() }
     }
 
     /// Shows the whole graph, names included, at most a little larger than its natural size.

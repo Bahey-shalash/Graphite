@@ -29,6 +29,9 @@ struct LocalGraphPanel: View {
                 Spacer()
                 Button("Show All", systemImage: "arrow.up.left.and.arrow.down.right") { fitRequest += 1 }
                     .labelStyle(.iconOnly)
+                Button("Show in Graph View", systemImage: "point.3.connected.trianglepath.dotted") { workspace.showGraph(centeredOn: session.path) }
+                    .labelStyle(.iconOnly)
+                    .help("Show in Graph View")
                 Menu("Filters", systemImage: "line.3.horizontal.decrease.circle") {
                     Toggle("Incoming Links", isOn: $followsIncomingLinks)
                     Toggle("Outgoing Links", isOn: $followsOutgoingLinks)
@@ -65,6 +68,8 @@ struct VaultGraphView: View {
     @Bindable var workspace: WorkspaceModel
     /// The graph's tab, which notes opened from the graph leave in place.
     let tabID: UUID
+    /// The tab's document, which carries a request to center on a note.
+    @Bindable var document: TabDocument
     @AppStorage(GraphSettingKey.showsTags) private var showsTags = false
     @AppStorage(GraphSettingKey.showsAttachments) private var showsAttachments = false
     @AppStorage(GraphSettingKey.showsExistingFilesOnly) private var showsExistingFilesOnly = true
@@ -100,7 +105,7 @@ struct VaultGraphView: View {
                                 alwaysShowsLabels: shownGraph.nodes.count <= 40, previousPositions: workspace.graphPositions,
                                 open: { node in Task { await workspace.open(node, fromGraphTab: tabID) } },
                                 keepPositions: { positions in workspace.graphPositions.merge(positions) { _, newPosition in newPosition } },
-                                fitRequest: fitRequest)
+                                fitRequest: fitRequest, centerRequest: document.graphCenterRequest)
                     .overlay(alignment: .bottomLeading) {
                         Text("\(shownGraph.nodes.count == 1 ? "1 item" : "\(shownGraph.nodes.count.formatted()) items") · \(shownGraph.edges.count == 1 ? "1 link" : "\(shownGraph.edges.count.formatted()) links")")
                             .font(.caption).foregroundStyle(.secondary)
