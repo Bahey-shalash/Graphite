@@ -38,6 +38,8 @@ It imports Foundation, CoreGraphics and CoreText only: no UIKit, AppKit or Swift
 
 The visual style, the spacing and the shapes' geometry follow [Pele](https://github.com/obsidianmd/pele) (MIT licensed, `PELE-LICENSE`). The code is written for this package.
 
-## Tests
+## Tests and benchmark
 
-`swift test --package-path Packages/MermaidDiagrams`.
+`swift test --package-path Packages/MermaidDiagrams`. `FlowchartCorpusTests` reads and lays out Mermaid's 114 flowchart documentation examples and Pele's generated trees and meshes.
+
+`swift run -c release --package-path Packages/MermaidDiagrams MermaidDiagramsBenchmark` times reading, layout, the drawing parts and painting, with the median and 99th percentile per diagram, and the heap a layout holds, on the inputs of Pele's benchmark (`FlowchartCorpus`; the documentation examples are its resources). Graphite records the results in its `Docs/Coverage.md`.
