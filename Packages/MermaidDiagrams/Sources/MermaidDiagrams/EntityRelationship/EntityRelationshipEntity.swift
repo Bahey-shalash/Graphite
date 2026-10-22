@@ -26,10 +26,10 @@ public struct EntityRelationshipAttribute: Equatable, Sendable {
     /// The name as written (`*title`, `author-ref[name](1)`), its pairs of `~` read as the type's are.
     public let name: String
     public let keys: [EntityRelationshipAttributeKey]
-    /// The text between quotation marks at the end of the row, or nil.
-    public let comment: String?
+    /// The text between quotation marks at the end of the row, read as Markdown as Mermaid draws it, or nil.
+    public let comment: DiagramLabel?
 
-    init(type: String, name: String, keys: [EntityRelationshipAttributeKey] = [], comment: String? = nil) {
+    init(type: String, name: String, keys: [EntityRelationshipAttributeKey] = [], comment: DiagramLabel? = nil) {
         self.type = type
         self.name = name
         self.keys = keys
