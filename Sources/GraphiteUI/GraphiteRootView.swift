@@ -554,6 +554,7 @@ struct GraphiteRootView: View {
                       showLinksInspector: { showsInspector = true },
                       create: { kind in creation = CreationRequest(kind: kind) },
                       showTemplatePicker: showTemplatePicker,
+                      showTabOverview: showTabOverview,
                       toggleFocusMode: toggleFocusMode)
     }
 

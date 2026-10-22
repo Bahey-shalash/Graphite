@@ -380,7 +380,7 @@ private struct TabBar: View {
             // side's tabs, and stacking them.
             Button("Show All Tabs", systemImage: "square.on.square") { showTabOverview?.show() }
                 .disabled(showTabOverview == nil)
-                .help("Show all tabs; its menu lists this side's tabs and stacks them")
+                .help("Show all tabs (⇧⌘\\); its menu lists this side's tabs and stacks them")
                 .contextMenu { groupMenu }
             Button("New Tab", systemImage: "plus") { workspace.openNewTab(inGroup: group.id) }
                 .help("New tab (⌘T)")
