@@ -21,5 +21,6 @@
   {"repository": "scambier/obsidian-omnisearch", "commit": "48b7e324d945385495f3f3db92efc0684e033059", "buildCommands": [["node", "esbuild.config.mjs", "production"]], "outputFolders": ["dist", "."]},
   {"repository": "ebullient/obsidian-admonition", "commit": "3d34e89ac15c96dbdd52ad9a78482bb39d24bea9", "buildCommands": [["node", "esbuild.config.mjs", "production"]], "outputFolders": ["build", "."]},
   {"repository": "chetachiezikeuzor/Highlightr-Plugin", "commit": "573c5832807ed92488c3f7ec4dcc46bc0d91b256", "buildCommands": [["npx", "rollup", "--config", "rollup.config.js"]]},
-  {"repository": "johansan/notebook-navigator", "commit": "202330738cf7afeedbf3990f623b44eea992233b", "buildCommands": [["npm", "run", "build"]]}
+  {"repository": "johansan/notebook-navigator", "commit": "202330738cf7afeedbf3990f623b44eea992233b", "buildCommands": [["npm", "run", "build"]]},
+  {"repository": "Vinzent03/obsidian-advanced-uri", "commit": "2f9b9a72f50c8d21182e890044711b6016536ea4", "buildCommands": [["node", "esbuild.config.mjs", "production"]]}
 ]

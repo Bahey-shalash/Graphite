@@ -477,6 +477,30 @@ final class CommunityPluginHostTests: XCTestCase {
         try await waitUntil("Project open") { workspace.layout.tabID(showing: try VaultPath("Project.md")) != nil }
     }
 
+    /// A link handled by Advanced URI that appends to a note, followed while another note is open.
+    func testAdvancedURIAppendsToANoteOpensItAndPutsTheCursorAtItsEnd() async throws {
+        let (workspace, vault, _) = try await workspaceWithBuiltPlugins(["obsidian-advanced-uri"], notes: [
+            "Welcome.md": "# Welcome\n", "Log.md": "# Log\n\nFirst entry.\n",
+        ])
+        _ = try await openTab("Welcome.md", in: workspace)
+        let isHandled = await workspace.communityPlugins.openPluginLink(action: "advanced-uri", parameters: [
+            "filepath": "Log.md", "data": "Second entry.", "mode": "append",
+        ])
+        XCTAssertTrue(isHandled)
+        let appendedText = "# Log\n\nFirst entry.\n\nSecond entry."
+        try await waitUntil("the entry appended") { (try? String(contentsOf: vault.appendingPathComponent("Log.md"), encoding: .utf8)) == appendedText }
+        let logPath = try VaultPath("Log.md")
+        try await waitUntil("Log.md open with the cursor at its end") {
+            guard workspace.selection == logPath, let session = workspace.markdownSession, session.path == logPath else { return false }
+            return session.text == appendedText && session.selection == NSRange(location: (appendedText as NSString).length, length: 0)
+        }
+        let session = workspace.markdownSession
+        XCTAssertEqual(workspace.selection, logPath)
+        XCTAssertEqual(session?.text, appendedText)
+        XCTAssertEqual(session?.selection, NSRange(location: (appendedText as NSString).length, length: 0),
+                       "Problems: \(workspace.communityPlugins.runtimeProblems); tabs: \(workspace.layout.groups.flatMap(\.tabs).map(\.path))")
+    }
+
     // MARK: Helpers
 
     private func XCTUnwrapAsync<Value>(_ value: Value?, file: StaticString = #filePath, line: UInt = #line) async throws -> Value {

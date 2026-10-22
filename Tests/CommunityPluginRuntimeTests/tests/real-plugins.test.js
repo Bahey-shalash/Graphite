@@ -748,3 +748,26 @@ test('Highlightr: a color\'s command wraps the selection in its highlight throug
         harness.close();
     }
 });
+
+test('Advanced URI: an append link writes at the end of the note, opens it and puts the cursor there', { skip: !builtPlugin('obsidian-advanced-uri') }, async () => {
+    const { harness, answer, unsupported, pageErrors } = await loadInStudyVault('obsidian-advanced-uri', { files: { 'Log.md': '# Log\n\nFirst entry.\n' } });
+    try {
+        assert.deepEqual(answer, { isLoaded: true });
+        assert.deepEqual(unsupported, []);
+        assert.deepEqual(pageErrors, []);
+        // The note open beforehand is another one, as when the link is followed from elsewhere.
+        const handled = plain(await harness.send({ operation: 'protocol.open', action: 'advanced-uri', parameters: { filepath: 'Log.md', data: 'Second entry.', mode: 'append' } }));
+        assert.deepEqual(handled, { isHandled: true });
+        await waitUntil(() => harness.readVaultFile('Log.md').includes('Second entry.') && harness.host.openedFiles.length === 3, 3000);
+        assert.equal(harness.readVaultFile('Log.md'), '# Log\n\nFirst entry.\n\nSecond entry.');
+        // Every open names Log.md: before Graphite answered an open with the note it opened, the
+        // second and third reopened the note open before, and the cursor went to its end.
+        assert.deepEqual(harness.host.openedFiles.map((message) => message.resolvedPath || message.path), ['Log.md', 'Log.md', 'Log.md']);
+        await waitUntil(() => harness.host.editorSessions.get('Log.md').appliedChanges.length > 0, 3000);
+        const change = harness.host.editorSessions.get('Log.md').appliedChanges.at(-1);
+        const end = harness.host.editorSessions.get('Log.md').text.length;
+        assert.deepEqual([change.selectionAnchor, change.selectionHead], [end, end]);
+    } finally {
+        harness.close();
+    }
+});
