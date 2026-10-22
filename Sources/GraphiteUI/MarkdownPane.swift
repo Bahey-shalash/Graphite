@@ -63,6 +63,11 @@ struct MarkdownPane: View {
     }
 
     private var preferences: GraphitePreferences { workspace.preferences }
+    #if canImport(UIKit)
+    /// Asked once: each call reads the device's capabilities and loaded a library on the
+    /// way, and the pane asked twice on every update (about 2 ms each in the simulator).
+    private static let canTakePhotos = UIImagePickerController.isSourceTypeAvailable(.camera)
+    #endif
     /// The chosen note text size, grown with the system text size.
     private var noteTextSize: Double { GraphitePreferences.noteTextSize(Double(workspace.noteBaseFontSize), for: dynamicTypeSize) }
     private var isEditing: Bool { viewMode != .reading }
@@ -265,7 +270,7 @@ struct MarkdownPane: View {
         actions.attach = { showsAttachmentPicker = true }
         actions.choosePhoto = { showsPhotoPicker = true }
         #if canImport(UIKit)
-        if UIImagePickerController.isSourceTypeAvailable(.camera) { actions.takePhoto = { showsCamera = true } }
+        if Self.canTakePhotos { actions.takePhoto = { showsCamera = true } }
         if DocumentScanner.isSupported { actions.scanDocument = { showsDocumentScanner = true } }
         #endif
         actions.insertAttachment = { [workspace, session] data, stem, fileExtension, range in
@@ -492,7 +497,7 @@ struct MarkdownPane: View {
         Button("Link to Note…", systemImage: "link") { showsLinkPicker = true }
         Button("Photo Library…", systemImage: "photo.on.rectangle") { showsPhotoPicker = true }
         #if canImport(UIKit)
-        if UIImagePickerController.isSourceTypeAvailable(.camera) { Button("Take Photo…", systemImage: "camera") { showsCamera = true } }
+        if Self.canTakePhotos { Button("Take Photo…", systemImage: "camera") { showsCamera = true } }
         if DocumentScanner.isSupported { Button("Scan Document…", systemImage: "doc.viewfinder") { showsDocumentScanner = true } }
         #endif
         Button("Attachment…", systemImage: "doc.badge.plus") { showsAttachmentPicker = true }
