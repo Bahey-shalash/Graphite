@@ -4,6 +4,14 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-22.
 
+## PostgreSQL Mirror on main's workspace and to its code standard: 2026-10-22
+
+The branch of 2026-10-17 took in main (329 commits): the mirror is off by default through `CorePlugin.isEnabledByDefault` with Read Aloud, turning it on or off goes through `WorkspaceModel.setCorePluginEnabled`, and it stops with the vault being left in `forgetStateOfVaultBeingLeft`. To the `Docs/solid` standard: its delays and timings on the workspace's clock; its failures as values (`PostgreSQLMirrorError`) worded in one place; the settings page holds the mirror's controller, not the workspace, and opens no keychain itself; one keychain item type shared with the plugins' secrets (`KeychainGenericPasswordItem`); no FileManager in Core; its module in the import table; its long lines, quiet failures and large items reviewed. Behaviour is unchanged.
+
+Checked: the whole `swift test` on macOS against PostgreSQL 18.6 with PostGIS 3.6 on this Mac (a server recreated for the tests): 1,532 Core, 159 Index, 541 Apple (2 skipped), 25 PostgreSQL Mirror (the benchmark skipped without its variable) and 1,398 UI tests (6 skipped), 0 failures. New: `UiPostgreSQLMirrorTests.testAChangeWaitsTheSettleDelayAndAFailureHoldsAutomaticCopiesForTheRetryDelay` (both delays on a ManualClock), `testAFailureNamesTheServerAndWhatItAnsweredOrSaysWhatToDo`, `KeychainGenericPasswordItemTests` (2). The workspace test that slept seven seconds now moves the clock (13.7 s to 0.3 s). The tests that need the server skip with `PostgreSQLTestServer` naming what to set: GitHub's runners have none, so 12 tests skip there (reviewed exceptions: the package suite's skipped-test baseline 25 to 37, `xct-skip-count` 38 to 39). To run them, start a server as the 2026-10-17 entry says and set `GRAPHITE_POSTGRESQL_TEST_URL` and `GRAPHITE_POSTGRESQL_TEST_PLAIN_DATABASE`.
+
+In the iPad simulator (iPad Pro 11-inch (M5)), after the merge: Settings › Core Plugins showed the mirror off; turned on, its page appeared and a copy started at once, which failed with "127.0.0.1:55432 refused the connection: password authentication failed for user \"graphite\"" (the simulator's keychain held no password); with the password saved, Save and Copy Now copied the Demo vault: "19 notes in the database", and the server held 19 notes, 3 with a PostGIS point. Not verified after the merge: the settings page in the Mac app.
+
 ## Scrolling a long note: fewer jumps, a third of the memory: 2026-10-21
 
 Scrolling a long Live Preview note jumped, stuttered and grew memory on the Mac, the iPad and the iPhone (the owner, 2026-10-21; [Editor-scrolling-todo.md](Editor-scrolling-todo.md), issue #57). Two causes were found and fixed:
