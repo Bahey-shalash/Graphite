@@ -72,7 +72,7 @@ Checked in the Node tests (jsdom, not WebKit), and the parts listed under How it
 - Code block processors and post-processors in the reading view, plugins' items in file, folder and editor menus, `editor-change` and `EditorSuggest` in the note editor, and plugin views in the sidebar and tabs, as described above.
 - `requestUrl`, `moment`, `parseYaml` and `stringifyYaml`, `debounce`, fuzzy and simple search, `htmlToMarkdown`, `sanitizeHTMLToDom`, base64 and hex helpers, `Platform` (mobile, iOS, tablet or phone).
 
-Twenty-three real plugins, among the most used in Obsidian's directory and, since 2026-10-21, seven the sweep below found working, built from their sources at fixed commits (`Tests/CommunityPluginRuntimeTests/compatibility/compatibility-plugins.json`) with their own lockfiles, and run in the same tests (Admonition and Notebook Navigator only in the app's hosted tests: jsdom has no `document.adoptedStyleSheets`, which Admonition styles itself with, nor `structuredClone`, which Notebook Navigator needs at load):
+Twenty-four real plugins, among the most used in Obsidian's directory and, since 2026-10-21, eight from the sweep below, built from their sources at fixed commits (`Tests/CommunityPluginRuntimeTests/compatibility/compatibility-plugins.json`) with their own lockfiles, and run in the same tests (Admonition and Notebook Navigator only in the app's hosted tests: jsdom has no `document.adoptedStyleSheets`, which Admonition styles itself with, nor `structuredClone`, which Notebook Navigator needs at load):
 
 | Plugin | Commit | What was checked |
 | --- | --- | --- |
@@ -96,6 +96,7 @@ Twenty-three real plugins, among the most used in Obsidian's directory and, sinc
 | List to Table | `c802843c` (1.0.3) | Loads; three commands; "Convert to table with single column" turns the selected list, ticked and nested items included, into a one-column table in one editor change. Nothing reported unsupported. |
 | Vault Router | `b5bd681c` (0.2.1) | Loads; three commands; "Sweep inbox" moves each inbox note by the first of its default rules it matches (`Daily -` titles to `Journal/Daily`, notes tagged `meeting` with a `project` to `Meetings/<project>`) through Graphite's file manager, which updates links, and leaves a note no rule matches. Nothing reported unsupported. |
 | Merge And Open Target | `bed30688` (0.2.4) | Loads; two commands; "Merge current file into another note and open target" lists the vault's notes, asks to confirm, appends the open note to the chosen one after its separator (two line breaks), trashes the merged note and opens the target. Nothing reported unsupported. |
+| Advanced URI | `2f9b9a72` (2.2.0) | Loads; an `advanced-uri` link with `mode=append` (`graphite://advanced-uri?filepath=Log.md&data=…&mode=append`) appends to the note, opens it and puts the cursor at its end. Before 2026-10-21 the note opened but Advanced URI then reopened the note open before and put the cursor at its end, since `openFile` returned before the opened note's editor reached the runtime and Graphite ignored a change that moved only the cursor (How it was verified, below). Also checked in the app (hosted tests, iPad simulator and Mac). Nothing reported unsupported. |
 | Admonition | `3d34e89a` (12.0.10) | In the app (hosted tests, iPad simulator and Mac): an `ad-note` block with a title draws in the reading view as its callout, title and text included. Builds into `build/`. |
 | Highlightr | `573c5832` (1.2.2) | Loads; eleven commands, one per color, "Open Highlightr" and "Remove highlight"; a color's command wraps the selection in its `<mark>` through the editor change, which Graphite's Undo takes back (hosted tests). Nothing reported unsupported. |
 | Notebook Navigator | `20233073` (3.4.3) | In the app (hosted tests, iPad simulator and Mac): opens its navigator as a sidebar panel on first launch, listing the vault's folders. Built with its own `npm run build` (languages and styles first). |
@@ -121,6 +122,15 @@ Each of these is reported to the person, per plugin, when a plugin uses it (Sett
 - Obsidian mobile does not show its status bar; neither does Graphite: `addStatusBarItem` adds an element to `app.statusBar`, which is not shown.
 
 ## How it was verified
+
+### The note a plugin opens, and a plugin's cursor moves (2026-10-21)
+
+On the branch `community-plugins-on-mac`. Advanced URI's append link (top 40 of the sweep, "partly": opening at the end failed) was rebuilt from source at 2.2.0 and followed with another note open. In the Node runtime it wrote the entry, then sent three opens: Log.md, then Welcome.md twice, and an editor change that put the cursor at the end of Welcome.md. `workspace.openLinkText` and `openFile` returned before Graphite told the runtime which note was now focused, so Advanced URI's next step (`getActiveViewOfType(MarkdownView)`, `getViewState`, `setViewState`, `editor.setCursor`) found the note open before. Two changes:
+
+- Graphite answers `workspace.openFile` and `workspace.openLinkText` with the document it then has focused, the report it otherwise sends as `workspace.activeDocument`, and the runtime adopts it before the plugin's `await` returns (`Workspace.adoptOpenedDocument`).
+- A plugin's change that leaves the text as it was, as `editor.setCursor` and `setSelection` alone send, was dropped: `CommunityPluginEditorChange.edit` makes no edit of it. The host now asks the note's session to move the selection (`MarkdownSession.requestSelection`), which the iPad's and the Mac's editors serve after their update, and which an editor made later starts with.
+
+Checked: `real-plugins.test.js`'s Advanced URI test and `workspace-leaves.test.js`'s test of a note a plugin opens both fail without the first change (the opens name Log.md, Welcome.md, Welcome.md) and pass with it; `CommunityPluginHostOpenAndSelectTests` (3, on the Mac) fail without the host's changes; `UiEditorMacEditorTests.testASelectionThePluginsAskForMovesTheCursor`; and `CommunityPluginHostTests.testAdvancedURIAppendsToANoteOpensItAndPutsTheCursorAtItsEnd` in the Mac app and the iPad simulator, which with the first change alone still failed, the cursor at 0. Node: 143 tests, 142 passing, QuickAdd skipped. Not checked by hand: a `graphite://advanced-uri` link from another app.
 
 ### In the Mac app: the hosted tests and the sweep's working plugins (2026-10-21)
 
@@ -184,7 +194,7 @@ Fixed in the runtime, by how many sampled plugins each unblocked (several also h
 | PDF++ 0.40.31 | top 35 | blocked (missing API) | Needs Obsidian's pdf.js. |
 | Periodic Notes 0.0.17 | top 37 | partly | Loads; commands appear once a period is turned on. |
 | Highlightr 1.2.2 | top 39 | works | Edit menu items and color menu wrap the selection in a highlight. |
-| Advanced URI 2.2.0 | top 40 | partly | A `graphite://advanced-uri` link appends to a note; opening at the end fails. |
+| Advanced URI 2.2.0 | top 40 | partly, then works | A `graphite://advanced-uri` link appends to a note; opening at the end failed. Since 2026-10-21 the note opens with the cursor at its end. |
 | Hider 1.7.1 | kepano | blocked (native interface) | Hides Obsidian's bars, which Graphite does not have. |
 | Permalink Opener 1.1.0 | kepano | partly | Builds the address; needs a base URL in its settings. |
 | List to Table 1.0.3 | kepano | works | Converts the selected list to a table; Undo restores it. |
@@ -296,5 +306,5 @@ In order of what it unlocks for daily use:
 
 1. Use a real vault with the plugins above on an iPad and an iPhone, and measure the runtime's memory and start-up time there, with several code blocks and views shown.
 2. Check Apple Pencil in Excalidraw on an iPad: pressure, tilt, hover and palm rejection.
-3. From the sweep, still open: the editor of a note right after `openFile` (Advanced URI); hover previews of links. Done 2026-10-21: suggestions in the Mac editor (How it was verified, below).
+3. From the sweep, still open: hover previews of links. Done 2026-10-21: suggestions in the Mac editor, and the editor of a note right after `openFile` (Advanced URI) (How it was verified, below).
 4. Done 2026-10-21: more real plugins in the Node tests, the ones the sweep found working: List to Table, Vault Router, Merge And Open Target and Omnisearch, each pinned to the release the sweep installed and built from source (What works, above).

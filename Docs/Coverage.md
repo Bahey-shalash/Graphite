@@ -4,6 +4,12 @@ What Graphite does today, how each part is verified, and what is still missing. 
 
 Last updated: 2026-10-21.
 
+## The note a community plugin opens, and its cursor moves: 2026-10-21
+
+A plugin that opens a note and then works in its editor gets that note's editor at once: Graphite answers `openFile` and `openLinkText` with the document it then has focused, and the runtime adopts it before the plugin goes on. A plugin's change that only moves the cursor or the selection now moves the editor's, through a selection request the note's session holds and the iPad's and the Mac's editors serve. Advanced URI's append link now leaves its note open with the cursor at its end; before, it reopened the note open before and put the cursor at that note's end. Advanced URI 2.2.0 joins `compatibility-plugins.json` and the Node and hosted tests.
+
+Checked: the Node tests of Advanced URI and of a note a plugin opens fail without the runtime's change and pass with it (Node: 143 tests, 142 passing, QuickAdd skipped); `CommunityPluginHostOpenAndSelectTests` (3) fail without the host's changes; `UiEditorMacEditorTests.testASelectionThePluginsAskForMovesTheCursor`; the hosted Advanced URI test in the Mac app (all 19 `CommunityPluginHostTests` pass there) and in the iPad simulator (the same 19, and `LivePreviewRevealTests`, 10, for the iPad editor's new selection request). Not established: a `graphite://advanced-uri` link followed from another app by hand.
+
 ## Community plugins in the Mac app: the hosted tests and the sweep's working plugins: 2026-10-21
 
 The app's hosted plugin tests (`CommunityPluginHostTests`), iPad-only until now, run in the Mac app too: the test plugin's commands, editor changes and Undo, `data.json`, secrets and web storage, timers, unloading, code blocks and sections in the reading view, menus, typing with suggestions, views; Dataview and Tasks; and seven plugins the 2026-10-12 sweep found working, built from source at the releases it installed, each on its main feature: Admonition, Highlightr, List to Table, Omnisearch, Notebook Navigator, Vault Router and Merge And Open Target (`Docs/Community-plugins.md`, How it was verified). Admonition, Highlightr and Notebook Navigator join `compatibility-plugins.json` for these tests; Highlightr also has a Node test (jsdom lacks what the other two need). The Mac test host is built unsigned, so it runs outside the sandbox, reads the built plugins in the checkout and uses no container; its hosted-test launch mode restores no vault.
