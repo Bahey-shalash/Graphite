@@ -32,6 +32,8 @@ enum ReadingDiagram: Sendable {
             } catch {
                 self = .unreadable(source: source, failure: .layout(error))
             }
+        case .stateDiagram:
+            return nil
         }
     }
 }
