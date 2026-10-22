@@ -36,4 +36,9 @@ final class DiagramLabelDecoderTests: XCTestCase {
     func testRunsOfSpacesBecomeOneAndLinesAreTrimmed() {
         XCTAssertEqual(lines("  wide \t  gap  "), ["wide gap"])
     }
+
+    func testLiteralTextKeepsItsTagsAndStillBreaksAtBreakTags() {
+        XCTAssertEqual(lines("<b>kept</b> &amp; <i>as written</i><br/>next  line", form: .literal), ["<b>kept</b> & <i>as written</i>", "next line"])
+        XCTAssertEqual(lines("plain", form: .literal), ["plain"])
+    }
 }
