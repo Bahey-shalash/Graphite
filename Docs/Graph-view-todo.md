@@ -21,6 +21,8 @@ The owner wants it one tap away, tags there without hunting for them, and a grap
 
 ## 1. Ways in
 
+Issue: [#64](https://github.com/Graphite-Note/Graphite/issues/64)
+
 - [x] The whole-vault graph opens as a tab of the workspace, as a note does, instead of the modal it is today. It can sit beside a note in a split, it stays open while notes are opened from it, and a window restores it with its other tabs (`TabLayout`, `GraphiteWindows`).
   Done 2026-10-22: a tab can show a core plugin's view in place of a file (`WorkspaceTab.CoreView.graph`, Core), saved with the layout as `"coreView": "graph"` (a view a newer build saved and this one does not know restores an empty tab). `WorkspaceModel.showGraph()` brings the graph's tab forward, else shows it in the empty tab in front, else in a new tab; `VaultGraphView` draws it there with the filter, Show All and settings over its top, the file opened last highlighted. The sheet and full-screen cover are gone; View › Graph View and the palette open the tab. A file opened while the graph is in front goes to another tab, as from a pinned tab. Tests: `TabLayoutTests` (4 new: a tab of its own, the empty tab, beside it, saved and restored), `WorkspaceGraphTabTests` (4). Seen in the iPad simulator: the graph in a tab beside the open notes, and the window brought it back with them after a relaunch. Not seen by hand on the Mac.
 - [x] Opening a node from a graph tab opens the note on the other side of the split, or in the neighboring tab, and leaves the graph where it is; today the sheet is dismissed first (`VaultGraphScreen`'s open closure).
@@ -38,6 +40,8 @@ The owner wants it one tap away, tags there without hunting for them, and a grap
 
 ## 2. Tags in the graph
 
+Issue: [#65](https://github.com/Graphite-Note/Graphite/issues/65)
+
 - [x] Tags shown by default, in the whole-vault graph and in the local graph (`graphShowsTags` and `localGraphShowsTags`, both off today).
   Done 2026-10-22: the graph's defaults are named in `GraphSettingDefault` (`WorkspaceGraph.swift`) and read at the `@AppStorage` sites; tags are on in both graphs, the other defaults stay Obsidian's. A person who turned tags off keeps them off. Tests: `GraphTagsTests.testTheGraphsShowTagsUnlessThePersonHidesThem`, `testTheOtherDefaultsAreObsidians`. Seen in the iPad simulator: the whole graph and Tokyo's local graph showed the vault's tags.
 - [x] A Tags toggle in the graph's own toolbar, not only inside the Graph Settings popover.
@@ -53,6 +57,8 @@ The owner wants it one tap away, tags there without hunting for them, and a grap
 
 ## 3. A graph worth looking at
 
+Issue: [#66](https://github.com/Graphite-Note/Graphite/issues/66)
+
 - [ ] Obsidian's groups: colored groups from a search, added and removed in the graph's settings and kept per vault with the other graph settings; every node a group matches takes its color. The owner's vault is mostly courses, so a group per course is the first thing he will make.
 - [ ] The display settings Obsidian has and Graphite lacks, each beside Arrows: node size, link thickness, and the zoom at which names appear (`GraphCanvas.labelScale`, 1.4 today).
 - [ ] Names fade in rather than appearing all at once, and never overlap: at the drawn scale a name is left out when it would cover one already drawn.
@@ -62,6 +68,8 @@ The owner wants it one tap away, tags there without hunting for them, and a grap
 
 ## 4. A vault of this size
 
+Issue: [#67](https://github.com/Graphite-Note/Graphite/issues/67)
+
 - [ ] Measure first, on the Mac and on the iPad, with tags on and off: time to the first drawing, time to a settled layout, and the frame rate while dragging and pinching. The numbers go in this file.
 - [ ] A vault of about 4,700 notes settles in a couple of seconds, and nothing blocks the main thread while it does (the simulation already steps in an actor off the main thread).
 - [ ] The forces' defaults are tuned on a vault that size rather than on the test vault, so clusters stay apart and the ring of notes without links does not take the outer third of the screen, as it does in the owner's photo of 2026-10-21.
@@ -69,6 +77,8 @@ The owner wants it one tap away, tags there without hunting for them, and a grap
 - [ ] Drawing cost at this size: nodes gathered into one path per color where that measures faster than a path each.
 
 ## 5. Verification
+
+Issue: [#68](https://github.com/Graphite-Note/Graphite/issues/68)
 
 - [ ] Unit tests: a group filters and colors the nodes its search matches; the tag defaults; a name left out because another covers it; the count line.
 - [ ] Hosted tests on the iPad simulator: the graph as a tab, split beside a note, restored with the window; a node opened from it without the graph closing.
