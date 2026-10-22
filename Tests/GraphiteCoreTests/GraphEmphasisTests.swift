@@ -25,10 +25,11 @@ final class GraphEmphasisTests: XCTestCase {
         XCTAssertFalse(emphasis.isAccented(0))
     }
 
-    func testTheOpenNoteStepsBackLikeTheOthersWhenItIsNotANeighborOfTheFocusedNode() {
+    func testTheOpenNoteNeverStepsBackSoItCanAlwaysBeFound() {
         let emphasis = GraphEmphasis(focusedIndex: 0, openIndex: 4, neighborIndexes: neighbors)
-        XCTAssertTrue(emphasis.isDimmed(4))
-        XCTAssertTrue(emphasis.isAccented(4), "It keeps the accent while it steps back.")
+        XCTAssertFalse(emphasis.isDimmed(4), "Not a neighbor of the focused node, and still bright.")
+        XCTAssertTrue(emphasis.isAccented(4))
+        XCTAssertTrue(emphasis.isDimmed(3))
     }
 
     func testNamesArePlacedOpenNoteFirstThenTheFocusedNodeThenItsNeighbors() {
