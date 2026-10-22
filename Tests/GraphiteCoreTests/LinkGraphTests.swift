@@ -64,6 +64,15 @@ final class LinkGraphTests: XCTestCase {
         XCTAssertEqual(graph.filtered(by: GraphFilterOptions(searchText: "mes cours")).nodes.count, 3, "Unquoted, each word is matched alone.")
     }
 
+    func testANestedTagIsItsWrittenTagAloneAsInObsidian() {
+        let graph = LinkGraph.build(files: [path("Optics.md"), path("Course.md")], links: [], unresolvedLinks: [],
+                                    tags: [(path("Optics.md"), "course/vlsi"), (path("Course.md"), "course")])
+        XCTAssertEqual(graph.nodes.filter { node in node.kind == .tag }.map(\.id), ["#course/vlsi", "#course"])
+        XCTAssertFalse(graph.edges.contains { edge in edge.source.hasPrefix("#") }, "Obsidian draws no link from a nested tag to its parent.")
+        let nestedOnly = LinkGraph.build(files: [path("Optics.md")], links: [], unresolvedLinks: [], tags: [(path("Optics.md"), "course/vlsi")])
+        XCTAssertEqual(nestedOnly.nodes.map(\.id), ["Optics.md", "#course/vlsi"], "No note carries #course, so it is not drawn.")
+    }
+
     func testLocalGraphFollowsLinksToTheChosenDepth() {
         let graph = sampleGraph().filtered(by: GraphFilterOptions(showsAttachments: true))
         let firstLevel = graph.neighborhood(of: "Lecture.md", options: LocalGraphOptions())
