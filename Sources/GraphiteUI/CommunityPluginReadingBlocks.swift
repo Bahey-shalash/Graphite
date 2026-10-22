@@ -155,31 +155,38 @@ final class CommunityPluginShownCodeBlock {
     /// A tap on the copy, as the path of element positions from the block down to the
     /// element tapped, delivered to that element in the plugin's block.
     func tap(elementPath: [Int]) {
-        deliver(["eventType": "tap", "elementPath": elementPath])
+        deliver(["eventType": "tap", "elementPath": elementPath], linkHovered: nil)
     }
 
     /// Text typed into a field of the copy (a query's filter), given to the plugin's field.
     func enter(_ value: String, elementPath: [Int]) {
-        deliver(["eventType": "input", "elementPath": elementPath, "value": value])
+        deliver(["eventType": "input", "elementPath": elementPath, "value": value], linkHovered: nil)
     }
 
     /// A key pressed in a field of the copy, delivered to the plugin's field.
     func press(_ key: String, elementPath: [Int]) {
-        deliver(["eventType": "key", "elementPath": elementPath, "key": key])
+        deliver(["eventType": "key", "elementPath": elementPath, "key": key], linkHovered: nil)
     }
 
     /// A context menu, hover or drag in the copy, delivered to the plugin's block: `details`
-    /// carries the element's path, the position in the block, and a drag's phase.
-    func forward(_ type: String, details: [String: Any]) {
+    /// carries the element's path, the position in the block, the keys held, and a drag's
+    /// phase. For a hover, `linkHovered` receives the link a plugin asked Graphite to preview
+    /// there meanwhile (`hover-link`).
+    func forward(_ type: String, details: [String: Any], linkHovered: ((CommunityPluginHoveredLink) -> Void)?) {
         guard ["contextmenu", "hover", "gesture"].contains(type) else { return }
         var event: [String: Any] = ["eventType": type, "x": details["x"] as? Double ?? 0, "y": details["y"] as? Double ?? 0]
         if let path = details["path"] as? [Int] { event["elementPath"] = path }
         for key in ["phase", "pointerType"] { if let value = details[key] as? String { event[key] = value } }
+        for key in ["metaKey", "ctrlKey", "shiftKey", "altKey"] { if let isHeld = details[key] as? Bool { event[key] = isHeld } }
         if let overPath = details["overPath"] as? [Int] { event["overPath"] = overPath }
-        deliver(event)
+        deliver(event, linkHovered: linkHovered)
     }
 
-    private func deliver(_ event: [String: Any]) {
+    /// The note an internal link drawn in the copy starts from: a block's note, the vault's
+    /// root for a view.
+    var linkSourceNote: VaultPath { request?.note ?? .root }
+
+    private func deliver(_ event: [String: Any], linkHovered: ((CommunityPluginHoveredLink) -> Void)?) {
         guard let host else { return }
         var message = event
         message["operation"] = "codeBlock.event"
@@ -194,6 +201,8 @@ final class CommunityPluginShownCodeBlock {
             guard let answer = try? await host.send(message, timeout: Self.tapTimeout) else { return }
             if let taskLine = answer["taskLine"] as? Int { tickTask?(taskLine) }
             if let html = answer["html"] as? String { receive(html: html) }
+            if let linkHovered, let hoverAnswer = CommunityPluginRuntimeMessage.decoded(CommunityPluginCopyHoverAnswer.self, from: answer),
+               let link = hoverAnswer.linkHover { linkHovered(link) }
         }
     }
 
@@ -568,8 +577,17 @@ enum CommunityPluginCodeBlockPage {
         }
         /// A tap that ended a long press or a drag is not a tap.
         let suppressesNextClick = false;
+        /// The keys held, which plugins check (Calendar previews a day's note while ⌘ is held).
+        function keysOf(event) {
+            return { metaKey: event.metaKey === true, ctrlKey: event.ctrlKey === true, shiftKey: event.shiftKey === true, altKey: event.altKey === true };
+        }
         function send(type, element, event, extra) {
-            handler.postMessage(Object.assign({ kind: 'event', type, path: element ? pathTo(element) : null }, positionOf(event), extra || {}));
+            handler.postMessage(Object.assign({ kind: 'event', type, path: element ? pathTo(element) : null }, positionOf(event), keysOf(event), extra || {}));
+        }
+        /// Where an element is in this web view, which a preview card is placed beside.
+        function rectOf(element) {
+            const bounds = element.getBoundingClientRect();
+            return { x: bounds.left, y: bounds.top, width: bounds.width, height: bounds.height };
         }
 
         // A right-click, or a two-finger click on a trackpad.
@@ -606,16 +624,37 @@ enum CommunityPluginCodeBlockPage {
         // an element and off it (link previews, buttons that show on hover).
         let hovered = null;
         let hoverFrame = 0;
+        // An internal link the plugin drew where it does not listen for hovering itself shows
+        // Graphite's preview card, as a link of the reading view does.
+        let hoveredLink = null;
+        function internalLinkAt(element) {
+            const link = element && !listener(element, 'hover') ? element.closest('a.internal-link') : null;
+            return link && blockElement().contains(link) ? link : null;
+        }
+        function sendLinkHover(link) {
+            let linktext = link ? link.getAttribute('data-href') || link.getAttribute('href') || '' : null;
+            try { if (linktext) linktext = decodeURI(linktext); } catch (error) { /* kept as written */ }
+            handler.postMessage({ kind: 'linkHover', linktext: linktext || null, rect: link ? rectOf(link) : null });
+        }
         document.addEventListener('pointermove', (event) => {
             if (event.buttons !== 0 || event.pointerType === 'touch') return;
             const element = inBlock(event);
+            const link = internalLinkAt(element);
+            if (link !== hoveredLink) {
+                hoveredLink = link;
+                sendLinkHover(link);
+            }
             const target = element && listener(element, 'hover') ? element : null;
             if (target === hovered) return;
             hovered = target;
             cancelAnimationFrame(hoverFrame);
-            hoverFrame = requestAnimationFrame(() => send('hover', hovered, event));
+            hoverFrame = requestAnimationFrame(() => send('hover', hovered, event, hovered ? { rect: rectOf(hovered) } : {}));
         }, true);
         document.addEventListener('pointerleave', (event) => {
+            if (hoveredLink) {
+                hoveredLink = null;
+                sendLinkHover(null);
+            }
             if (!hovered) return;
             hovered = null;
             send('hover', null, event);
@@ -691,6 +730,7 @@ enum CommunityPluginCodeBlockPage {
 @MainActor
 final class CommunityPluginCodeBlockDisplayCoordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     weak var block: CommunityPluginShownCodeBlock?
+    let linkPreviews = CommunityPluginCopyLinkPreviews()
     var isLoaded = false
     /// What the page should show once it has loaded.
     var pendingPresentation: [String: Any]?
@@ -708,10 +748,28 @@ final class CommunityPluginCodeBlockDisplayCoordinator: NSObject, WKScriptMessag
         case "key":
             if let path = body["path"] as? [Int], let key = body["key"] as? String { block?.press(key, elementPath: path) }
         case "event":
-            if let type = body["type"] as? String { block?.forward(type, details: body) }
+            guard let type = body["type"] as? String else { return }
+            guard type == "hover" else { block?.forward(type, details: body, linkHovered: nil); return }
+            // The card shown for the element the pointer left closes; the plugin may ask for one where it is now.
+            let moveNumber = linkPreviews.pointerMoved()
+            let rect = CommunityPluginRuntimeMessage.decoded(CommunityPluginCopyPointer.self, from: body)?.rect
+            block?.forward(type, details: body) { [weak self] link in self?.showLinkPreview(link, beside: rect, forMove: moveNumber) }
+        case "linkHover":
+            let moveNumber = linkPreviews.pointerMoved()
+            guard let block, let pointer = CommunityPluginRuntimeMessage.decoded(CommunityPluginCopyPointer.self, from: body),
+                  let linktext = pointer.linktext, !linktext.isEmpty else { return }
+            let link = CommunityPluginHoveredLink(linktext: linktext, sourcePath: block.linkSourceNote.rawValue)
+            showLinkPreview(link, beside: pointer.rect, forMove: moveNumber)
         default:
             break
         }
+    }
+
+    /// Shows `link`'s card beside an element of the copy, measured in its page, while the
+    /// pointer is where move `moveNumber` put it.
+    private func showLinkPreview(_ link: CommunityPluginHoveredLink, beside rect: CommunityPluginMeasuredRect?, forMove moveNumber: Int) {
+        guard let rect, let webView, webView.window != nil else { return }
+        linkPreviews.show(link, anchoredAt: webView.convert(rect.frame, to: nil), forMove: moveNumber)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
@@ -749,6 +807,7 @@ struct CommunityPluginCodeBlockDisplay {
     var bodyStyle = ""
     /// Whether the vault's theme is among `styleSheets`, so the theme decides the accent's shades.
     var hasTheme = false
+    @Environment(\.linkPreviews) private var linkPreviews
 
     /// One store for every block page: no page keeps anything, and sharing it lets WebKit
     /// share its processes between blocks.
@@ -791,6 +850,7 @@ struct CommunityPluginCodeBlockDisplay {
 
     @MainActor private func update(_ coordinator: CommunityPluginCodeBlockDisplayCoordinator) {
         coordinator.block = block
+        coordinator.linkPreviews.linkPreviews = linkPreviews
         coordinator.present(["html": html, "styleSheets": styleSheets, "isDark": isDark, "textSize": textSize, "accent": accentHex ?? "", "fillsSpace": fillsSpace,
                              "bodyClasses": bodyClasses, "bodyStyle": bodyStyle, "hasTheme": hasTheme])
     }

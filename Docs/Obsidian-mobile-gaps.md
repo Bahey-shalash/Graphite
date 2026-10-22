@@ -66,7 +66,7 @@ Status: **Missing**, **Partial**, or **Done**. "Desktop only" items are left out
 | Note composer | Missing | Merge notes, extract a selection to a new note |
 | Outgoing links | Partial | Raw targets; unresolved links not marked; no unlinked mentions |
 | Outline | Partial | No drag to reorder sections, no current-heading highlight |
-| Page preview | Missing | Hover-based; limited use on touch |
+| Page preview | Partial | A core plugin: a link's note in a card beside the link, in the editor and the reading view, by pointer or Apple Pencil hover and by a long press; plugins' `hover-link` and `link-hover` show the same card. A link inside the card follows nothing on the iPad (Textual finds no layout for the card's text); hover on the iPad not yet tried by hand |
 | Properties view | Done | Every property in the vault with its type and count in the left sidebar; tap to search, change the type (written to `types.json`), rename in every note. No property autocompletion yet |
 | Quick switcher | Done | |
 | Random note | Missing | |

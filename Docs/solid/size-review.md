@@ -165,6 +165,7 @@ These rows review every item that had no row at the first 70. They were measured
 | `Sources/GraphiteUI/MarkdownSession.swift` | `MarkdownSession` | 310 | split planned → `MarkdownDocument` (persistence over `DocumentFileAccess`), `NoteInsertionQueue`, `NoteViewState`, `NoteEditorRequests` | The session holds 34 stored properties for five concerns and the whole store for five operations (`SRP-EDITOR-02`, `ISP-EDITOR-01`). |
 | `Sources/GraphiteUI/MarkdownPreview.swift` | `ReadingViewBuilder` | 304 | split planned → `ReadingLinkRewriter` (pure, shared with Live Preview), `EmbedClassification` (pure), a `ReadingFileLookup` port; the builder keeps block assembly, numbering, locations and token mapping | The builder owns file I/O and a link-rewriting rule that Live Preview writes a second time (`SRP-READING-03`). |
 | `Sources/GraphiteUI/NoteThemeStyle.swift` | `NoteThemeStyle` | 304 | one concept | It is the immutable record of every value a vault theme sets, one stored property each, plus its colour helpers; the initializer that fills it has its own row. |
+| `Sources/GraphiteUI/MarkdownPreview.swift` | `MarkdownPreview` | 304 | split planned → the parts named in the `MarkdownPreview.body` row (`ReadingBuildModel`, `ReadingScrollRestoration` with the heading scroll, `ReadingWordFollower`, `ReadingBlocksView`), and the links' hover action with `ReadingLinkPreviews` once Textual's hover type has a home outside the view | The reading view holds its build, its scroll restoration and heading scroll, Read Aloud following and the link previews' hover beside its layout (`SRP-READING-04`). |
 | `Sources/GraphiteUI/ReadAloudFloatingPlayer.swift` | `ReadAloudFloatingPlayer` | 303 | split planned → `ReadAloudPlayerStatus` (a pure function of controller and navigator state that the view switches over), `ReadAloudPageMenu` as its own view, transport actions through the single transport | One view computes an eight-branch status chain, schedules sleeps, writes the navigator's frames and calls the session on 15 lines (VOICE 3.6). |
 | `Sources/GraphiteUI/WorkspaceFileManagement.swift` | `WorkspaceModel` | 302 | split planned → the move (`move(_:to:)` and its pending answers, link updates, open documents saved first and edits made during the move put back) into a `FileMove` model; creating, renaming, duplicating, deleting, revealing and importing stay | The move and its recovery of edits made while it ran are half of this extension (lines 118 to 320), a second responsibility beside the plain file operations (`SRP-SHELL-07`). |
 | `Sources/GraphiteCore/ReadAloudDocument.swift` | `ReadAloudDocument.markdown` | 273 | split planned → `MarkdownNarrationMasking`, `MarkdownNarrationLeaves`, `NarrationAssembler`, `TextRunSourceMapper`, `SpokenReplacements`, each a pure step with its own tests | 273 code lines of shared mutable locals mix masking, leaf extraction, assembly and source mapping (`SRP-VOICE-02`). |
@@ -368,7 +369,7 @@ These rows review every item that had no row at the first 70. They were measured
 | Outcome | Items |
 | --- | ---: |
 | `one concept` | 128 |
-| `split planned` | 163 |
+| `split planned` | 164 |
 | Not yet reviewed | 0 |
 | **Over a threshold in the working tree (2026-10-21)** | **284** |
 

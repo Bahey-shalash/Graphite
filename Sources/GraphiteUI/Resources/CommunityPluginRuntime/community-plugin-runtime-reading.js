@@ -66,12 +66,16 @@
         return originalAddEventListener.call(this, type, listener, options);
     };
 
-    /// Where a position in the copy, measured from the block's top left corner, is here.
+    /// Where a position in the copy, measured from the block's top left corner, is here, with
+    /// the keys held there: plugins check them (Calendar previews a day's note while ⌘ is held).
     function pointIn(entry, message) {
         const bounds = followReplacement(entry).getBoundingClientRect();
         const clientX = bounds.left + (Number(message.x) || 0);
         const clientY = bounds.top + (Number(message.y) || 0);
-        return { clientX, clientY, screenX: clientX, screenY: clientY };
+        return {
+            clientX, clientY, screenX: clientX, screenY: clientY,
+            metaKey: message.metaKey === true, ctrlKey: message.ctrlKey === true, shiftKey: message.shiftKey === true, altKey: message.altKey === true,
+        };
     }
 
     function mouseOptions(point, extra) {
@@ -121,6 +125,18 @@
                 entered.dispatchEvent(new globalScope.MouseEvent('mouseenter', enterOptions));
             }
         }
+    }
+
+    /// Replays a hover the copy forwarded, and answers the link a plugin asked Graphite to
+    /// preview there meanwhile (`hover-link`), which the copy shows beside the element; null
+    /// for none, and always while the core plugin Page Preview is off.
+    function linkHoveredDuring(entry, replay) {
+        const app = runtime.app;
+        if (!app || !app.internalPlugins.getEnabledPluginById('page-preview')) {
+            replay();
+            return null;
+        }
+        return app.workspace.pagePreview.linkHoveredDuring(followReplacement(entry), replay);
     }
 
     /// A data transfer for a drag, Obsidian's own where the page has one, otherwise a
@@ -699,8 +715,9 @@
             if (message.sectionIsCurrent) entry.section = sectionInformation(message);
             const eventType = message.eventType || 'tap';
             if (eventType === 'hover') {
-                hover(entry, message.elementPath ? elementAtPath(entry, message.elementPath) : null, message);
-                return { isHandled: true };
+                const element = message.elementPath ? elementAtPath(entry, message.elementPath) : null;
+                const linkHover = linkHoveredDuring(entry, () => hover(entry, element, message));
+                return linkHover ? { isHandled: true, linkHover } : { isHandled: true };
             }
             if (eventType === 'gesture') {
                 gesture(entry, message);

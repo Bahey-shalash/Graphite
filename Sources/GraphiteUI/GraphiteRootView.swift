@@ -118,6 +118,8 @@ struct GraphiteRootView: View {
             isWindowTallerThanWide = isTallerThanWide
         }
         .tint(workspace.preferences.accentColor)
+        // Links' preview cards, while the core plugin Page Preview is on.
+        .modifier(LinkPreviewLayer(isEnabled: workspace.preferences.isEnabled(.pagePreview), vault: workspace.linkPreviewVault))
         // Once per device, over the reopened vault or the welcome screen.
         .modifier(FirstLaunchWelcomeTour(isReadyToShow: presentsWelcomeTour && !isRestoringVault))
         // The settings the views keep with `@AppStorage` are read from the preferences the
