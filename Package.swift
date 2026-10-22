@@ -22,7 +22,8 @@ let package = Package(
         // its changes from upstream are listed in Vendor/mlx-audio-swift/GRAPHITE-PATCHES.md.
         .package(path: "Vendor/mlx-audio-swift"),
         // Standalone packages (Docs/solid/rewrite-foundations.md section 3.5): they know nothing of Graphite.
-        .package(path: "Packages/NotebookImport")
+        .package(path: "Packages/NotebookImport"),
+        .package(path: "Packages/MermaidDiagrams")
     ],
     targets: [
         .target(name: "GraphiteCore", dependencies: [
@@ -37,7 +38,8 @@ let package = Package(
         .target(name: "GraphiteVoices", dependencies: ["GraphiteCore", "GraphiteApple", .product(name: "MLXAudioTTS", package: "mlx-audio-swift")],
                 resources: [.copy("Resources/NeuralVoices.json"), .copy("Resources/DiaVoicePrompt.json")]),
         .target(name: "GraphiteUI", dependencies: ["GraphiteCore", "GraphiteIndex", "GraphiteApple", "GraphiteVoices", "GraphitePostgreSQLMirror", .product(name: "Textual", package: "textual"),
-                                          .product(name: "NotebookImport", package: "NotebookImport")],
+                                          .product(name: "NotebookImport", package: "NotebookImport"),
+                                          .product(name: "MermaidDiagrams", package: "MermaidDiagrams")],
                 // The Obsidian plugin runtime's page, scripts and vendored libraries, copied as
                 // one folder so the page's relative script paths keep working.
                 // The theme resolver's default variables and probe script (`ThemeTokenResolver`).
@@ -56,6 +58,7 @@ let package = Package(
         .testTarget(name: "GraphitePostgreSQLMirrorTests", dependencies: ["GraphitePostgreSQLMirror", "GraphiteIndex", "GraphiteTestSupport", .product(name: "PostgresNIO", package: "postgres-nio")]),
         .testTarget(name: "GraphiteUITests", dependencies: ["GraphiteUI", "GraphiteTestSupport", "GraphiteFixtures", .product(name: "Textual", package: "textual"),
                                                        .product(name: "NotebookImport", package: "NotebookImport"),
-                                                       .product(name: "PostgresNIO", package: "postgres-nio")])
+                                                       .product(name: "PostgresNIO", package: "postgres-nio"),
+                                                       .product(name: "MermaidDiagrams", package: "MermaidDiagrams")])
     ]
 )
