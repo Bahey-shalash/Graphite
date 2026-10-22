@@ -308,6 +308,7 @@ These rows review every item that had no row at the first 70. They were measured
 | `Sources/GraphiteUI/ReadAloudPronunciationEditor.swift` | `ReadAloudPronunciationEditor.sections` | 46 | one concept | It is two list sections of pronunciation entries, one for the vault and one for the built-in expansions. |
 | `Sources/GraphiteUI/GraphiteCommand.swift` | `GraphiteCommand.descriptor` | 151 | one concept | It is one exhaustive table, a line per command of its title, group, default shortcut, binding and menu titles; `FR-76` lets an exhaustive single-switch mapper stay whole, and splitting it would scatter the one list of commands (`ED-28`). |
 | `Sources/GraphiteUI/SettingsView.swift` | `GeneralSettingsPage.body` | 57 | one concept | It is a form of four sections (vault, search, add-ons, about with the tour, the Guide, the source code and problem links) with no logic of its own. Reviewed again at 57 on 2026-10-21, after the repository's address joined About. |
+| `Sources/GraphiteIndex/VaultNoteCopies.swift` | `VaultIndex.resolvedLinks` | 46 | one concept | One read of the links of the text and of the properties, each resolved as the graph resolves it, a chunk of notes at a time. |
 | `Sources/GraphiteCore/BaseEvaluator.swift` | `BaseEvaluator.field` | 45 | one concept | It is a mapping from a value kind and a field name to the field's value, one case per kind. |
 | `Sources/GraphiteUI/BaseViewEditorSheet.swift` | `BaseViewEditorSheet.body` | 45 | one concept | It is one form whose sections are separate views of the draft. |
 | `Sources/GraphiteUI/GraphitePDFView.swift` | `PDFAnnotationCoordinator.attach` | 45 | split planned → `PDFTouchRouting` installs the recognizers and palm rejection, `PDFToolPaletteController` the tool picker host, `PDFCanvasRepair` the health monitor; the coordinator keeps one wiring call each | It installs eight collaborators and four observers in one function (`SRP-LECTURE-01`). |
@@ -362,7 +363,7 @@ These rows review every item that had no row at the first 70. They were measured
 
 | Outcome | Items |
 | --- | ---: |
-| `one concept` | 125 |
+| `one concept` | 126 |
 | `split planned` | 161 |
 | Not yet reviewed | 0 |
 | **Over a threshold in the working tree (2026-10-21)** | **284** |
