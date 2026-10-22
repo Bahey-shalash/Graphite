@@ -33,4 +33,21 @@ final class StateDiagramCorpusTests: XCTestCase {
         }
         XCTAssertEqual(laidOutCount, 15)
     }
+
+    func testTheGeneratedMachinesAreLaidOutWithoutOverlap() throws {
+        let typography = DiagramTypography(font: DiagramFont(postScriptName: nil, size: 16))
+        for (stateCount, extraTransitionCount) in [(50, 20), (500, 200)] {
+            let diagram = try StateDiagramReading.stateDiagram(StateDiagramCorpus.machine(stateCount: stateCount, extraTransitionCount: extraTransitionCount))
+            XCTAssertEqual(diagram.states.count, stateCount + 2)
+            XCTAssertEqual(diagram.transitions.count, stateCount + 1 + extraTransitionCount)
+            let layout = try StateDiagramLayoutEngine.layout(diagram, typography: typography, limits: .standard)
+            let frames = layout.states.map(\.frame).sorted { first, second in first.minX < second.minX }
+            for (index, frame) in frames.enumerated() {
+                for other in frames[(index + 1)...] {
+                    if other.minX >= frame.maxX { break }
+                    XCTAssertFalse(frame.intersects(other))
+                }
+            }
+        }
+    }
 }
