@@ -149,7 +149,7 @@ struct VaultGraphView: View {
                                 open: { node in Task { await workspace.open(node, fromGraphTab: tabID) } },
                                 keepPositions: { positions in workspace.graphPositions.merge(positions) { _, newPosition in newPosition } },
                                 fitRequest: fitRequest, centerRequest: document.graphCenterRequest, chosenTag: $document.graphChosenTag,
-                                groupColoring: groupColoring, display: display)
+                                groupColoring: groupColoring, display: display, keptPlace: $document.graphPlace)
                     .overlay(alignment: .bottomLeading) {
                         Text(shownGraph.counts.summary)
                             .font(.caption).foregroundStyle(.secondary)

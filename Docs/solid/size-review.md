@@ -166,6 +166,7 @@ These rows review every item that had no row at the first 70. They were measured
 | `Sources/GraphiteUI/NoteThemeStyle.swift` | `NoteThemeStyle` | 304 | one concept | It is the immutable record of every value a vault theme sets, one stored property each, plus its colour helpers; the initializer that fills it has its own row. |
 | `Sources/GraphiteUI/ReadAloudFloatingPlayer.swift` | `ReadAloudFloatingPlayer` | 303 | split planned → `ReadAloudPlayerStatus` (a pure function of controller and navigator state that the view switches over), `ReadAloudPageMenu` as its own view, transport actions through the single transport | One view computes an eight-branch status chain, schedules sleeps, writes the navigator's frames and calls the session on 15 lines (VOICE 3.6). |
 | `Sources/GraphiteUI/WorkspaceFileManagement.swift` | `WorkspaceModel` | 302 | split planned → the move (`move(_:to:)` and its pending answers, link updates, open documents saved first and edits made during the move put back) into a `FileMove` model; creating, renaming, duplicating, deleting, revealing and importing stay | The move and its recovery of edits made while it ran are half of this extension (lines 118 to 320), a second responsibility beside the plain file operations (`SRP-SHELL-07`). |
+| `Sources/GraphiteUI/GraphCanvas.swift` | `GraphCanvas` | 302 | split planned → `GraphCanvasRenderer` draws a frame (links, nodes, the open note's halo, names, arrows, the palette and the drawing sizes) from the values the view hands it; `GraphCanvas` keeps its state, gestures and framing | The view holds two responsibilities, keeping and moving the view of the graph, and drawing each frame, which share only the values a frame needs. |
 | `Sources/GraphiteCore/ReadAloudDocument.swift` | `ReadAloudDocument.markdown` | 273 | split planned → `MarkdownNarrationMasking`, `MarkdownNarrationLeaves`, `NarrationAssembler`, `TextRunSourceMapper`, `SpokenReplacements`, each a pure step with its own tests | 273 code lines of shared mutable locals mix masking, leaf extraction, assembly and source mapping (`SRP-VOICE-02`). |
 | `Sources/GraphiteCore/HTMLToMarkdown.swift` | `Converter.handleTag` | 176 | split planned → one function per tag family (blocks, lists, tables, inline formatting, links and images) with the `switch` as one line per case | One `switch` over 41 tag names holds the logic of every family (`CC-MDCORE-03`). |
 | `Sources/GraphiteUI/GraphiteRootView.swift` | `GraphiteRootView.body` | 172 | split planned → `WorkspaceWindowLayout` (column and inspector changes), `WorkspacePresentations` (the twelve sheets, covers and alerts), `DeepLinkInbox` (links queued until the vault is restored), `SceneLifecycleSaver` (scene phase), `DrawingDraftRecovery` | One `body` lays out the window, presents twelve screens, queues deep links and saves on scene changes (`SRP-SHELL-04`, `CC-SHELL-01`). |
@@ -326,7 +327,6 @@ These rows review every item that had no row at the first 70. They were measured
 | `Sources/GraphiteCore/CommunityPluginInstaller.swift` | `CommunityPluginInstaller.install` | 43 | one concept | It is one install sequence at one level: check the repository, choose a compatible release, download, verify and write the files. |
 | `Sources/GraphiteUI/BaseDocumentView.swift` | `BaseToolbar.body` | 43 | one concept | It lays out the toolbar's view menu, count, sort reset and actions. |
 | `Sources/GraphiteUI/CanvasInteraction.swift` | `CanvasSession.beginDrag` | 43 | one concept | It decides which drag a touch starts (a handle, a card, or a marquee), in that order of precedence. |
-| `Sources/GraphiteUI/GraphCanvas.swift` | `GraphCanvas.body` | 43 | one concept | It is one canvas with its gestures and accessibility, and the layout work belongs to its model. |
 | `Sources/GraphiteUI/MarkdownPreview.swift` | `ReadingViewBuilder.render` | 43 | one concept | It renders one block, recursing into callouts, with a case per block kind. |
 | `Sources/GraphiteUI/NativeMarkdownEditor.swift` | `MarkdownTextView.insertDroppedItems` | 43 | split planned → `PastedContentClassifier` and `PastedContentImporter`, shared with paste | The view loads dropped items and decides their kind itself (`SRP-EDITOR-03`). |
 | `Sources/GraphiteUI/PencilGestures.swift` | `PencilPalette.body` | 43 | one concept | It is the squeeze palette: tools, sizes, colours and undo. |
@@ -362,8 +362,8 @@ These rows review every item that had no row at the first 70. They were measured
 
 | Outcome | Items |
 | --- | ---: |
-| `one concept` | 125 |
-| `split planned` | 161 |
+| `one concept` | 124 |
+| `split planned` | 162 |
 | Not yet reviewed | 0 |
 | **Over a threshold in the working tree (2026-10-21)** | **284** |
 
