@@ -32,6 +32,9 @@ extension MermaidSyntaxProblem {
         case .unexpectedText(let text): "“\(text)” is not understood here"
         case .expectedSliceValue: "a slice’s label is not followed by “:” and a number"
         case .negativeSliceValue(let label): "the slice “\(label)” has a value below zero"
+        case .expectedTaskData: "a task’s text is not followed by “:” and its dates"
+        case .taskWithoutEnd(let task): "the task “\(task)” has no end date or duration"
+        case .taskWithTooManyFields(let task): "the task “\(task)” has more than an identifier, a start and an end"
         }
     }
 }
