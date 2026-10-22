@@ -12,6 +12,8 @@ extension ReadingDiagramFailure {
         case .reading(.unsupportedDiagramType(let keyword)): "Diagrams of type “\(keyword)” are not drawn yet."
         case .layout(.tooManyLayoutPoints): "This diagram is too large to lay out."
         case .layout(.subgraphsNotLaidOut): "Diagrams with subgraphs are not drawn yet."
+        case .stateLayout(.tooManyLayoutPoints): "This state diagram is too large to lay out."
+        case .stateLayout(.compositeStatesNotLaidOut): "State diagrams with composite states are not drawn yet."
         }
     }
 }
@@ -30,6 +32,11 @@ extension MermaidSyntaxProblem {
         case .endWithoutSubgraph: "“end” closes no subgraph"
         case .unclosedSubgraph(let identifier): "the subgraph “\(identifier)” has no “end”"
         case .unexpectedText(let text): "“\(text)” is not understood here"
+        case .expectedState: "a state is missing"
+        case .stateNameNotOneWord(let words): "a composite state’s name is one word, not “\(words)”"
+        case .unclosedNote: "a note is not closed with “end note”"
+        case .unclosedCompositeState(let identifier): "the composite state “\(identifier)” is not closed with “}”"
+        case .closingBraceWithoutCompositeState: "“}” closes no composite state"
         }
     }
 }

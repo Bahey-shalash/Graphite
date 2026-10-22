@@ -2,7 +2,27 @@
 
 What Graphite does today, how each part is verified, and what is still missing. `OBJECTIVE.md` describes the complete product; this file tracks progress toward it. Update it with every change that adds, removes, or re-verifies behavior.
 
-Last updated: 2026-10-22.
+Last updated: 2026-10-23.
+
+## Mermaid state diagrams drawn natively in reading view: 2026-10-23
+
+The second type of [Native-diagrams-todo.md](Native-diagrams-todo.md) (issue #48): ` ```mermaid ` blocks holding a `stateDiagram` or `stateDiagram-v2` are read, laid out and drawn natively in `Packages/MermaidDiagrams`, in Pele's style, and the reading view shows them (Architecture, "Native Mermaid diagrams", state diagrams).
+
+- **Done and tested.** The parser (`StateDiagramParserTests` 21, `StateDiagramDeclarationSyntaxTests` 10, `StateDiagramNoteSyntaxTests` 7, `StateDiagramBuilderTests` 6, `StateDiagramStateTests` 3, on Mermaid's documentation examples and the parser specs of Pele's `tests/compat/state`), the layout on `LayeredLayout` with Pele's state measurements (`StateDiagramLayoutEngineTests` 10, `StateDiagramEdgePortsTests` 7, `StateDiagramSelfLoopsTests` 5, `StateDiagramSurroundingsTests` 7), the drawing parts and the Core Graphics renderer (`StateDiagramRendererTests` 8 reading pixels back, `StateDiagramDrawingPartsTests` 5), the corpus (`StateDiagramCorpusTests` 3: Pele's 22 documentation examples all read, the 15 without composite states laid out without overlap, the generated machines), and the reading view (`ReadingStateDiagramTests` 4, `ReadingStateDiagramShapesTests` 4, `ReadingViewBuilderDiagramTests` 1 new, `ReadingDiagramTests` explaining every new failure). The package's 202 tests pass with `swift test --package-path Packages/MermaidDiagrams`. The documentation examples and two diagrams of notes, loops, a fork and a join, in both directions, were rendered to PNG and checked by eye; that check is not in the suite.
+- **Not done or not checked.** Composite states and concurrent regions (a diagram that has them stays code until clusters are laid out), styles and `click`, Live Preview (still code), a layout for the pane's width, the iPad simulator, the dark appearance and a vault theme on screen, the Mac app, Export to PDF, a physical iPad or iPhone.
+
+Measured with `MermaidDiagramsBenchmark` (`swift run -c release --package-path Packages/MermaidDiagrams MermaidDiagramsBenchmark`), Release, on Apple M3 Max (36 GB, macOS 27), three runs while other builds ran on the machine (load average 5 to 7), median per diagram (99th percentile in brackets). Pele's benchmark has no state diagrams; its inputs here are Mermaid's documentation examples as Pele collects them (the 15 drawn) and state machines generated with the generator and seed of Pele's meshes.
+
+| Input | Read | Layout | Read and layout | Drawing parts |
+| --- | --- | --- | --- | --- |
+| Documentation examples (15) | 2.7–2.8 µs (≤ 3.9) | 11.5–11.6 µs (≤ 15.2) | 14.4–14.6 µs (≤ 17.7) | 3.8–3.9 µs |
+| Machine, 50 states, 20 labelled transitions | 21 µs | 497–503 µs | 514–525 µs | 67–70 µs |
+| Machine, 500 states, 200 labelled transitions | 204–205 µs | 11.4–11.8 ms | 11.5–11.7 ms | 0.76–0.78 ms |
+
+- **Read and layout, 5–30 µs per diagram:** met for the documentation examples (14.5 µs). The generated machines cost what the flowchart's meshes of the same size cost in the same runs (512 µs and 12.3 ms), the layered layout's ordering and placement growing with the passing points that transition text adds.
+- **Memory per diagram, ≤ 64 kB of layout data:** met: the heap grows by 2,623 bytes per laid-out first documentation example (five states, six transitions) and 42,809 bytes per 50-state machine (1,000 layouts kept).
+- **Size added to the app, ≤ 60 kB per architecture for every type:** not met. The package's Release object (arm64, before linking and dead-code stripping) grows from 231,523 to 362,615 bytes with the state diagram (107,508 of them in `__TEXT`). Not measured in the app itself.
+- **Theme change without parsing or laying out again:** met by design, as for the flowchart (`StateDiagramRendererTests` paints one layout in two palettes).
 
 ## A tap on a link in the reading view follows it at once: 2026-10-22
 
