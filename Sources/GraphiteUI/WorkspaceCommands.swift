@@ -20,8 +20,9 @@ struct WindowActions {
 
 extension WindowActions {
     /// Shows a panel of the note's right sidebar, as the local graph and the local map open.
+    @MainActor
     func showLinksInspector(_ panel: NoteLinksInspector.InspectorPanel, deviceDefaults: UserDefaults) {
-        deviceDefaults.set(panel.rawValue, forKey: NoteLinksInspector.panelSettingKey)
+        NoteLinksInspector.choose(panel, deviceDefaults: deviceDefaults)
         showLinksInspector()
     }
 }
