@@ -182,7 +182,7 @@ final class FlowchartParserTests: XCTestCase {
 
     // MARK: Groups
 
-    func testAGroupTakesTheNodesWrittenInsideIt() throws {
+    func testAGroupTakesTheNodesWrittenInsideItAndItsDirection() throws {
         let diagram = try flowchart("""
         A --> B
         subgraph outer [The outside]
@@ -200,12 +200,19 @@ final class FlowchartParserTests: XCTestCase {
         end
         """)
         XCTAssertEqual(diagram.subgraphs, [
-            FlowchartSubgraph(identifier: "outer", title: DiagramLabel("The outside"), nodeIndices: [1, 2]),
+            FlowchartSubgraph(identifier: "outer", title: DiagramLabel("The outside"), nodeIndices: [1, 2], childSubgraphIndices: [1],
+                              direction: .leftToRight),
             FlowchartSubgraph(identifier: "inner", title: DiagramLabel("inner"), nodeIndices: [3]),
             FlowchartSubgraph(identifier: "subGraph2", title: DiagramLabel("Quoted title"), nodeIndices: [4]),
             FlowchartSubgraph(identifier: "subGraph3", title: DiagramLabel("Two words"), nodeIndices: [5]),
         ])
-        XCTAssertEqual(diagram.unappliedStatementCount, 1, "The group's direction")
+        XCTAssertEqual(diagram.unappliedStatementCount, 0)
+    }
+
+    func testADirectionOutsideAGroupOrNamingNoDirectionIsLeft() throws {
+        let diagram = try flowchart("direction LR\nsubgraph one\ndirection sideways\nA\nend")
+        XCTAssertNil(diagram.subgraphs[0].direction)
+        XCTAssertEqual(diagram.unappliedStatementCount, 2)
     }
 
     func testEndWithoutAGroupAndAGroupLeftOpenAreErrors() {
