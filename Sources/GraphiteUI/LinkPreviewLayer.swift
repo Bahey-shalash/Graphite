@@ -23,6 +23,8 @@ struct LinkPreviewVault {
     /// The open vault's notes as cards read them at a text size; nil while no vault is open.
     let reading: @MainActor (DynamicTypeSize) -> LinkPreviewReading?
     let actions: LinkPreviewActions
+    /// Tells community plugins listening for `hover-link` of a link the pointer rests on in a note.
+    let announceHover: (LinkPreviewRequest) -> Void
 }
 
 /// Preview cards over a window, while the core plugin Page Preview is on: the window's
@@ -46,7 +48,7 @@ struct LinkPreviewLayer: ViewModifier {
             }
             .onChange(of: isEnabled, initial: true) { _, isEnabled in
                 model?.close()
-                model = isEnabled ? LinkPreviewModel(clock: vault.clock) : nil
+                model = isEnabled ? LinkPreviewModel(clock: vault.clock, announceHover: vault.announceHover) : nil
                 model?.useReading(currentReading)
             }
             .onChange(of: currentReading) { _, newReading in model?.useReading(newReading) }
