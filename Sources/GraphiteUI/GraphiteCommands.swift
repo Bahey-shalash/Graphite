@@ -175,7 +175,7 @@ public struct GraphiteCommands: Commands {
         }
     }
 
-    /// How the window's tabs are laid out: split in two, or stacked.
+    /// How the window's tabs are laid out: split in two, stacked, or seen all at once.
     @ViewBuilder private var tabArrangementCommands: some View {
         Button(workspace?.layout.isSplit == true ? "Close This Side" : "Split Right") {
             guard let workspace else { return }
@@ -185,6 +185,9 @@ public struct GraphiteCommands: Commands {
         .disabled(workspace == nil)
         Button(workspace?.layout.focusedGroup.isStacked == true ? "Unstack Tabs" : "Stack Tabs") { workspace?.toggleStackedTabs() }
             .keyboardShortcut(shortcut(.toggleStackedTabs))
+            .disabled(workspace == nil)
+        Button("Show All Tabs") { actions?.window.showTabOverview() }
+            .keyboardShortcut(shortcut(.showTabOverview))
             .disabled(workspace == nil)
     }
 
