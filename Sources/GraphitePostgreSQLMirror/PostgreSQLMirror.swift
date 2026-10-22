@@ -45,8 +45,8 @@ public struct PostgreSQLServerDescription: Equatable, Sendable {
 }
 
 /// Copies a vault's notes from the index into PostgreSQL, one way: notes, typed properties,
-/// tags, aliases, links resolved to files, and places, in a schema of tables other apps read
-/// (QGIS among them). The vault is never written; the database can be emptied and
+/// tags, aliases, links resolved to files, and places, in a schema of tables and views other
+/// apps read (QGIS among them). The vault is never written; the database can be emptied and
 /// copied again at any time.
 ///
 /// Each copy writes only what changed, in one transaction, under a lock per vault, so a copy
@@ -360,7 +360,12 @@ public actor PostgreSQLMirror {
                 rewrittenLinkSourceCount += linkSourcePaths.count
             }
 
-            if !plan.isEmpty || addsGeometry {
+            let changesColumns = try await replacePropertyColumns(of: vault, with: columns, on: connection)
+            let viewExists = try await exists(statements.notesWithPropertiesExistence, on: connection)
+            if changesColumns || addsGeometry || !viewExists {
+                try await replaceViews(postGISSchema: server.postGISSchema, validatesInput: server.validatesInput, on: connection)
+            }
+            if !plan.isEmpty || changesColumns || addsGeometry || !viewExists {
                 for try await number in try await query(statements.copyNumberIncrement, on: connection, vault.name).decode(Int64.self) { copyNumber = number }
                 try await run(PostgreSQLMirrorStatements.notification, on: connection)
             }
@@ -376,7 +381,7 @@ public actor PostgreSQLMirror {
     }
 
     /// Creates the schema the first time, and the geometry column once PostGIS is installed.
-    /// Returns whether the geometry column was added now.
+    /// Returns whether the geometry column was added now, which the views must then show.
     private func prepareSchema(on connection: PostgresConnection, postGISSchema: String?) async throws -> Bool {
         if !hasPreparedSchema {
             let propertyColumnsTable = PostgreSQLMirrorStatements.quotedLiteral(statements.schema + ".property_columns")
@@ -398,6 +403,38 @@ public actor PostgreSQLMirror {
         guard !hasGeometry else { return false }
         for statement in statements.geometryColumnCreation(postGISSchema: postGISSchema) { try await run(statement, on: connection) }
         return true
+    }
+
+    /// Records the vault's properties for the view; returns whether their names or types changed.
+    private func replacePropertyColumns(of vault: MirroredVault, with columns: [MirroredPropertyColumn],
+                                        on connection: PostgresConnection) async throws -> Bool {
+        var storedTypes: [String: String] = [:]
+        let storedColumns = try await query(statements.vaultPropertyColumnSelection, on: connection, vault.name).decode((String, String).self)
+        for try await (propertyName, propertyType) in storedColumns {
+            storedTypes[propertyName] = propertyType
+        }
+        let currentTypes = Dictionary(columns.map { column in (column.propertyName, column.propertyType.rawValue) }, uniquingKeysWith: { first, _ in first })
+        try await run(statements.vaultPropertyColumnDeletion, on: connection, vault.name)
+        let rows = columns.map { column in
+            MirroredPropertyColumnRow(propertyName: column.propertyName, propertyType: column.propertyType.rawValue, noteCount: column.noteCount)
+        }
+        if !rows.isEmpty { try await run(statements.vaultPropertyColumnInsertion, on: connection, vault.name, try MirrorJSON.encodedText(rows)) }
+        return storedTypes != currentTypes
+    }
+
+    /// Defines `notes_with_properties` from every vault's properties, and `links_on_map` with PostGIS.
+    private func replaceViews(postGISSchema: String?, validatesInput: Bool, on connection: PostgresConnection) async throws {
+        var columns: [MirroredPropertyColumn] = []
+        for try await (propertyName, propertyTypeText, noteCount) in try await query(statements.allPropertyColumnSelection, on: connection)
+            .decode((String, String, Int32).self) {
+            guard let propertyType = PropertyType(rawValue: propertyTypeText) else { continue }
+            columns.append(MirroredPropertyColumn(propertyName: propertyName, propertyType: propertyType, noteCount: Int(noteCount)))
+        }
+        // Dropped and created, not replaced: a replaced view cannot lose or retype a column.
+        // A view of the person's own that reads this one makes the drop fail, and the copy says so.
+        try await run("DROP VIEW IF EXISTS \(statements.schema).notes_with_properties", on: connection)
+        try await run(statements.notesWithPropertiesView(columns: columns, postGISSchema: postGISSchema, validatesInput: validatesInput), on: connection)
+        if let postGISSchema { try await run(statements.linksOnMapView(postGISSchema: postGISSchema), on: connection) }
     }
 
     // MARK: Digests

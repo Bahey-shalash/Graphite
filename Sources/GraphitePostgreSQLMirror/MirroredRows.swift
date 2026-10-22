@@ -92,6 +92,17 @@ struct MirroredLinkRow: Encodable {
     }
 }
 
+/// One row of `property_columns`.
+struct MirroredPropertyColumnRow: Encodable {
+    let propertyName: String
+    let propertyType: String
+    let noteCount: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case propertyName = "property_name", propertyType = "property_type", noteCount = "note_count"
+    }
+}
+
 /// JSON as the mirror writes it: keys sorted, so equal rows give equal digests, and dates as
 /// ISO 8601, which PostgreSQL reads as `timestamptz`.
 enum MirrorJSON {
