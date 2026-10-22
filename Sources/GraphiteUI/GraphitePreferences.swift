@@ -22,7 +22,7 @@ import GraphiteApple
 enum CorePlugin: String, CaseIterable, Identifiable, Codable {
     case backlinks, outgoingLinks, outline, properties, tags, wordCount
     case colors, drawings, audioRecorder, readAloud, bases
-    case templates, dailyNotes, footnotes, fileRecovery, bookmarks, graph, map, canvas, notebookImport
+    case templates, dailyNotes, footnotes, fileRecovery, bookmarks, graph, map, canvas, notebookImport, pagePreview
 
     var id: String { rawValue }
 
@@ -48,6 +48,7 @@ enum CorePlugin: String, CaseIterable, Identifiable, Codable {
         case .map: "Map View"
         case .canvas: "Canvas"
         case .notebookImport: "Goodnotes and Notability Import"
+        case .pagePreview: "Page Preview"
         }
     }
 
@@ -74,6 +75,8 @@ enum CorePlugin: String, CaseIterable, Identifiable, Codable {
         case .canvas: "Opens .canvas files as boards of cards and connections, to read and to edit."
         case .notebookImport:
             "Turns Goodnotes and Notability notebooks into PDFs with editable handwriting when they are imported. Off, they are copied as they are."
+        case .pagePreview:
+            "Shows a note beside a link to it while the pointer or Apple Pencil rests on the link, or when the link is held."
         }
     }
 
@@ -84,7 +87,7 @@ enum CorePlugin: String, CaseIterable, Identifiable, Codable {
         switch self {
         case .readAloud: false
         case .backlinks, .outgoingLinks, .outline, .properties, .tags, .wordCount, .colors, .drawings, .audioRecorder,
-             .bases, .templates, .dailyNotes, .footnotes, .fileRecovery, .bookmarks, .graph, .map, .canvas, .notebookImport: true
+             .bases, .templates, .dailyNotes, .footnotes, .fileRecovery, .bookmarks, .graph, .map, .canvas, .notebookImport, .pagePreview: true
         }
     }
 
@@ -110,6 +113,7 @@ enum CorePlugin: String, CaseIterable, Identifiable, Codable {
         case .map: "map"
         case .canvas: "rectangle.3.group"
         case .notebookImport: "square.and.arrow.down.on.square"
+        case .pagePreview: "doc.text.magnifyingglass"
         }
     }
 }

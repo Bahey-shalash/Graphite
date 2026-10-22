@@ -264,6 +264,12 @@ struct ReadingVault {
     func build(_ source: String, note: VaultPath, configuration: ReadingConfiguration) async throws -> ReadingViewBuild {
         try await ReadingViewBuilder().build(source: source, note: note, root: root, index: index, configuration: configuration)
     }
+
+    /// The block an embed of `target`, written in `note`, is drawn as, built off the main
+    /// actor: what a preview card of a link to `target` shows.
+    func embedPreview(of target: String, isWiki: Bool, from note: VaultPath, configuration: ReadingConfiguration) async throws -> RenderedBlock {
+        try await ReadingViewBuilder().embedPreview(of: target, isWiki: isWiki, from: note, root: root, index: index, configuration: configuration)
+    }
 }
 
 /// Builds rendered blocks off the main actor: resolves links against the vault and index,
@@ -451,6 +457,14 @@ actor ReadingViewBuilder {
             }
         }
         return rendered
+    }
+
+    /// The block an embed of `target` written in `note` is drawn as, on its own.
+    func embedPreview(of target: String, isWiki: Bool, from note: VaultPath, root: URL, index: VaultIndex,
+                      configuration: ReadingConfiguration) async throws -> RenderedBlock {
+        hostNote = note
+        let embed = EmbedReference(target: target, isWiki: isWiki, displaySize: nil, range: NSRange(location: 0, length: 0))
+        return try await renderEmbed(embed, note: note, root: root, index: index, configuration: configuration, allowsTransclusion: true)
     }
 
     /// What a heading of the note itself is scrolled to by: its anchor for the first heading
