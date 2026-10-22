@@ -30,6 +30,11 @@ extension MermaidSyntaxProblem {
         case .endWithoutSubgraph: "“end” closes no subgraph"
         case .unclosedSubgraph(let identifier): "the subgraph “\(identifier)” has no “end”"
         case .unexpectedText(let text): "“\(text)” is not understood here"
+        case .expectedRelationshipLine: "a relationship’s line (“--” or “..”) is missing"
+        case .expectedCardinality: "a relationship’s cardinality (such as “||” or “o{”) is missing"
+        case .expectedRelationshipLabel: "a relationship has no label after “:”"
+        case .expectedAttribute: "an attribute is not written as a type and a name"
+        case .unclosedAttributeBlock(let entity): "the attributes of “\(entity)” are not closed with “}”"
         }
     }
 }

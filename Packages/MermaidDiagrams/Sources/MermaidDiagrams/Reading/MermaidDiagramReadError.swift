@@ -34,4 +34,15 @@ public enum MermaidSyntaxProblem: Equatable, Sendable {
     case unclosedSubgraph(identifier: String)
     /// Text that fits nowhere in the statement: its first characters.
     case unexpectedText(String)
+    /// An entity relationship's first cardinality is not followed by its line: `--`, `..`, `.-`, `-.`, `to` or
+    /// `optionally to`.
+    case expectedRelationshipLine
+    /// An entity relationship's line is not followed by a cardinality (`||`, `o{`, `one or more` …).
+    case expectedCardinality
+    /// An entity relationship has no label: `:` then a word or quoted text after the second entity.
+    case expectedRelationshipLabel
+    /// An entity's `{ … }` holds something other than attributes: a type and a name, then keys and a comment.
+    case expectedAttribute
+    /// The text ends inside an entity's `{ … }`, by the entity's name.
+    case unclosedAttributeBlock(entity: String)
 }
