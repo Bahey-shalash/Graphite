@@ -48,10 +48,10 @@ final class GraphTagsTests: XCTestCase {
     }
 
     func testATagsNameShowsFromFurtherOutThanANotes() {
-        XCTAssertTrue(GraphCanvas.showsName(of: .tag, atScale: 0.7))
-        XCTAssertFalse(GraphCanvas.showsName(of: .note, atScale: 0.7))
-        XCTAssertFalse(GraphCanvas.showsName(of: .tag, atScale: 0.5))
-        XCTAssertTrue(GraphCanvas.showsName(of: .note, atScale: 1.4))
+        XCTAssertTrue(GraphDisplayOptions().showsName(of: .tag, atScale: 0.7))
+        XCTAssertFalse(GraphDisplayOptions().showsName(of: .note, atScale: 0.7))
+        XCTAssertFalse(GraphDisplayOptions().showsName(of: .tag, atScale: 0.5))
+        XCTAssertTrue(GraphDisplayOptions().showsName(of: .note, atScale: 1.4))
     }
 
     func testTheCornerNamesWhatItCounts() {
