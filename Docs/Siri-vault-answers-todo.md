@@ -19,6 +19,8 @@ Sources: [Apple newsroom, Siri AI](https://www.apple.com/newsroom/2026/06/apple-
 
 ## Scope
 
+Issue: [#45](https://github.com/Graphite-Note/Graphite/issues/45)
+
 - [ ] Device check first (one to two days): a minimal `NoteEntity` with the `.notes.note` schema and `IndexedEntity`, about 50 notes of a test vault indexed. Kill Graphite, ask Siri the questions above on the iPad and an iPhone with Siri AI on. Record whether Siri uses note bodies and not only titles, whether the answer links to the note, how long a note can be before it is cut, and how fast an edit reaches the answers. If Siri ignores third-party note content, build the fallback below instead.
 - [ ] `NoteEntity` (`.notes.note` plus `IndexedEntity`): identifier is the vault-relative path, name is the title, content is the Markdown body as plain text (front matter removed, wikilinks reduced to their visible text), dates from the file, folder from a `FolderEntity` with the `.notes.folder` schema.
 - [ ] `NoteEntityQuery` resolves identifiers, strings and suggestions through `VaultIndex`, so it works when Siri launches Graphite in the background.
@@ -32,6 +34,8 @@ Sources: [Apple newsroom, Siri AI](https://www.apple.com/newsroom/2026/06/apple-
 - [ ] `Architecture.md`, `Coverage.md` and `Docs/solid/invariants.md` updated once built and tested; `python3 scripts/size-report.py` passes.
 
 ## Fallback or addition: Graphite's own answers ("Ask Graphite …")
+
+Issue: [#46](https://github.com/Graphite-Note/Graphite/issues/46)
 
 Only reachable when the user names the app, so it is the fallback if Siri ignores note bodies, or an addition for answers that quote sources closely.
 
