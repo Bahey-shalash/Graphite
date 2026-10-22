@@ -23,8 +23,8 @@ final class FlowchartCorpusTests: XCTestCase {
                 refusals["\(error)", default: 0] += 1
             }
         }
-        // The examples with subgraphs are not laid out yet, and a few use syntax not read yet; the counts only rise.
-        XCTAssertGreaterThanOrEqual(drawnCount, 95, "Refused: \(refusals)")
+        // The example with a collapsed subgraph is not laid out yet; the counts only rise.
+        XCTAssertGreaterThanOrEqual(drawnCount, 113, "Refused: \(refusals)")
         print("FLOWCHART-CORPUS drawn \(drawnCount) of \(examples.count); refused \(refusals)")
     }
 

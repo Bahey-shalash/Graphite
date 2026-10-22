@@ -21,18 +21,21 @@ struct FlowchartEdgePorts {
     private(set) var sourcePoints: [CGPoint?]
     private(set) var targetPoints: [CGPoint?]
 
-    init(ends: [End], edgeCount: Int, nodeCenters: [CGPoint], shapes: [FlowchartNodeShape], shapeSizes: [CGSize]) {
+    /// - Parameter keptClear: By `sideKey`, points of a side, as offsets from its middle, that the ends there keep half
+    ///   a port gap from: where other edges cross a box's border on that side.
+    init(ends: [End], edgeCount: Int, nodeCenters: [CGPoint], shapes: [FlowchartNodeShape], shapeSizes: [CGSize], keptClear: [Int: [CGFloat]] = [:]) {
         sourcePoints = Array(repeating: nil, count: edgeCount)
         targetPoints = Array(repeating: nil, count: edgeCount)
         var endsBySide = [[End]](repeating: [], count: nodeCenters.count * DiagramSide.allCases.count)
-        for end in ends { endsBySide[end.node * DiagramSide.allCases.count + Self.sideNumber(end.side)].append(end) }
+        for end in ends { endsBySide[Self.sideKey(node: end.node, side: end.side)].append(end) }
         for sideEnds in endsBySide where !sideEnds.isEmpty {
             let ordered = sideEnds.sorted { first, second in (first.neighborAcross, first.edgeIndex) < (second.neighborAcross, second.edgeIndex) }
             guard let side = ordered.first?.side, let node = ordered.first?.node else { continue }
             let span = FlowchartShapeGeometry.span(of: shapes[node], size: shapeSizes[node], side: side)
             let step = ordered.count > 1 ? min(Self.portSeparation, span / CGFloat(ordered.count - 1)) : 0
-            for (position, end) in ordered.enumerated() {
-                let offset = (CGFloat(position) - CGFloat(ordered.count - 1) / 2) * step
+            let spread = ordered.indices.map { position in (CGFloat(position) - CGFloat(ordered.count - 1) / 2) * step }
+            let offsets = Self.clear(spread, of: keptClear[Self.sideKey(node: node, side: side)] ?? [], reach: span / 2)
+            for (end, offset) in zip(ordered, offsets) {
                 let point = Self.outlinePoint(center: nodeCenters[node], shape: shapes[node], size: shapeSizes[node], side: side, offset: offset)
                 if end.isSourceEnd { sourcePoints[end.edgeIndex] = point } else { targetPoints[end.edgeIndex] = point }
             }
@@ -48,6 +51,27 @@ struct FlowchartEdgePorts {
         case .left: return CGPoint(x: center.x - size.width / 2 + inset, y: center.y + offset)
         case .right: return CGPoint(x: center.x + size.width / 2 - inset, y: center.y + offset)
         }
+    }
+
+    /// The ends spread along a side, moved together by the fewest whole points that keep each half a port gap from
+    /// every kept point and within `reach` of the side's middle; unmoved when no such move exists.
+    static func clear(_ offsets: [CGFloat], of kept: [CGFloat], reach: CGFloat) -> [CGFloat] {
+        guard !kept.isEmpty else { return offsets }
+        let clearance = portSeparation / 2
+        func fits(_ shift: CGFloat) -> Bool {
+            offsets.allSatisfy { offset in
+                abs(offset + shift) <= max(reach, abs(offset)) && kept.allSatisfy { keptOffset in abs(offset + shift - keptOffset) >= clearance }
+            }
+        }
+        for distance in 0...Int(2 * max(reach, 0)) {
+            for shift in [CGFloat(distance), -CGFloat(distance)] where fits(shift) { return offsets.map { offset in offset + shift } }
+        }
+        return offsets
+    }
+
+    /// A side of a node (or of a box numbered after the nodes) as one number.
+    static func sideKey(node: Int, side: DiagramSide) -> Int {
+        node * DiagramSide.allCases.count + sideNumber(side)
     }
 
     private static func sideNumber(_ side: DiagramSide) -> Int {

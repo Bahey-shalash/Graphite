@@ -12,9 +12,20 @@ enum DiagramRouteDrawing {
     /// - Returns: The path, and the unit directions the edge leaves its source and arrives at its target in.
     static func path(through points: [CGPoint], flowIsVertical: Bool, startTrim: CGFloat,
                      endTrim: CGFloat) -> (path: DiagramPath, startDirection: CGVector, endDirection: CGVector) {
+        path(through: points, segmentsRunVertically: repeatElement(flowIsVertical, count: points.count - 1), startTrim: startTrim, endTrim: endTrim)
+    }
+
+    /// The path through a route whose segments follow flows of their own, as an edge does that crosses into a box
+    /// laid out in another direction: each S leaves and arrives along its own segment's flow.
+    /// - Parameter segmentsRunVertically: For each segment, whether the flow it follows runs vertically.
+    static func path<Axes: RandomAccessCollection<Bool>>(through points: [CGPoint], segmentsRunVertically: Axes, startTrim: CGFloat,
+                                                         endTrim: CGFloat) -> (path: DiagramPath, startDirection: CGVector, endDirection: CGVector)
+        where Axes.Index == Int {
         var points = points
-        let startDirection = direction(from: points[0], to: points[1], flowIsVertical: flowIsVertical)
-        let endDirection = direction(from: points[points.count - 2], to: points[points.count - 1], flowIsVertical: flowIsVertical)
+        let firstAxis = segmentsRunVertically[segmentsRunVertically.startIndex]
+        let lastAxis = segmentsRunVertically[segmentsRunVertically.endIndex - 1]
+        let startDirection = direction(from: points[0], to: points[1], flowIsVertical: firstAxis)
+        let endDirection = direction(from: points[points.count - 2], to: points[points.count - 1], flowIsVertical: lastAxis)
         points[0] = CGPoint(x: points[0].x + startDirection.dx * startTrim, y: points[0].y + startDirection.dy * startTrim)
         let last = points.count - 1
         points[last] = CGPoint(x: points[last].x - endDirection.dx * endTrim, y: points[last].y - endDirection.dy * endTrim)
@@ -24,7 +35,7 @@ enum DiagramRouteDrawing {
             let to = points[index]
             if isInLine(from, to) {
                 segments.append(.line(to: to))
-            } else if flowIsVertical {
+            } else if segmentsRunVertically[segmentsRunVertically.startIndex + index - 1] {
                 let half = (to.y - from.y) / 2
                 segments.append(.curve(to: to, control1: CGPoint(x: from.x, y: from.y + half), control2: CGPoint(x: to.x, y: to.y - half)))
             } else {
