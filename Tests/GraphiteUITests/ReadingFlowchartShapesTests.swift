@@ -31,6 +31,19 @@ final class ReadingFlowchartShapesTests: XCTestCase {
         XCTAssertEqual(flowchart.shapes.nodeTextLines.last?.isBold, true)
     }
 
+    func testGroupsArePaintedAsBoxesWithTheirTitles() throws {
+        let flowchart = try flowchart("flowchart TD\nsubgraph outer [Outer]\nA\nsubgraph inner [Inner]\nB\nend\nend")
+        let clusters = flowchart.shapes.clusters
+        XCTAssertEqual(clusters.fillsByDepth.count, 2)
+        XCTAssertEqual(clusters.fillsByDepth[1].boundingRect.width, flowchart.layout.clusters[1].frame.width, accuracy: 0.01)
+        XCTAssertFalse(clusters.outlines.isEmpty)
+        XCTAssertEqual(clusters.titleLines.map(\.text), ["Outer", "Inner"])
+        XCTAssertTrue(clusters.crossedTitleLines.isEmpty)
+        let crossed = try self.flowchart("flowchart TD\nX --> A\nsubgraph S [A title as wide as its box]\nA\nend").shapes.clusters
+        XCTAssertEqual(crossed.crossedTitleLines.map(\.text), ["A title as wide as its box"])
+        XCTAssertFalse(crossed.crossedTitlePatchesByDepth[0].isEmpty)
+    }
+
     func testTheShapesAreTheLayoutsOutlinesAndLines() throws {
         let flowchart = try flowchart("flowchart TD\nA ==> B\nB -.-> C")
         XCTAssertFalse(flowchart.shapes.nodeFills.isEmpty)
