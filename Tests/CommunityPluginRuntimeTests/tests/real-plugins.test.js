@@ -729,3 +729,22 @@ test('Omnisearch: indexes the vault and finds a note by its words, in its API an
         harness.close();
     }
 });
+
+test('Highlightr: a color\'s command wraps the selection in its highlight through the editor', { skip: !builtPlugin('highlightr-plugin') }, async () => {
+    const { harness, answer, commandNames, unsupported, pageErrors } = await loadInStudyVault('highlightr-plugin', { files: { 'Words.md': 'quiet words\n' } });
+    try {
+        assert.deepEqual(answer, { isLoaded: true });
+        assert.deepEqual(commandNames, [
+            'Highlightr: Open Highlightr', 'Highlightr: Pink', 'Highlightr: Remove highlight', 'Highlightr: Red', 'Highlightr: Orange', 'Highlightr: Yellow',
+            'Highlightr: Green', 'Highlightr: Cyan', 'Highlightr: Blue', 'Highlightr: Purple', 'Highlightr: Grey',
+        ]);
+        assert.deepEqual(unsupported, []);
+        assert.deepEqual(pageErrors, []);
+        const outcome = plain(await harness.send({ operation: 'command.run', commandIdentifier: 'highlightr-plugin:Yellow', activeDocument: { path: 'Words.md', mode: 'source', editorSnapshot: harness.host.openNote('Words.md', 0, 5) } }));
+        assert.deepEqual(outcome, { outcome: 'ran' });
+        await settle();
+        assert.match(harness.host.editorSessions.get('Words.md').text, /^<mark style="background: #[0-9A-F]{8};">quiet<\/mark> words\n$/);
+    } finally {
+        harness.close();
+    }
+});
