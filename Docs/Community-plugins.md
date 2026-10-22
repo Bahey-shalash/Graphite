@@ -72,7 +72,7 @@ Checked in the Node tests (jsdom, not WebKit), and the parts listed under How it
 - Code block processors and post-processors in the reading view, plugins' items in file, folder and editor menus, `editor-change` and `EditorSuggest` in the note editor, and plugin views in the sidebar and tabs, as described above.
 - `requestUrl`, `moment`, `parseYaml` and `stringifyYaml`, `debounce`, fuzzy and simple search, `htmlToMarkdown`, `sanitizeHTMLToDom`, base64 and hex helpers, `Platform` (mobile, iOS, tablet or phone).
 
-Sixteen real plugins, among the most used in Obsidian's directory, built from their sources at fixed commits (`Tests/CommunityPluginRuntimeTests/compatibility/compatibility-plugins.json`) with their own lockfiles, and run in the same tests:
+Twenty real plugins, among the most used in Obsidian's directory and, since 2026-10-21, four the sweep below found working, built from their sources at fixed commits (`Tests/CommunityPluginRuntimeTests/compatibility/compatibility-plugins.json`) with their own lockfiles, and run in the same tests:
 
 | Plugin | Commit | What was checked |
 | --- | --- | --- |
@@ -96,6 +96,7 @@ Sixteen real plugins, among the most used in Obsidian's directory, built from th
 | List to Table | `c802843c` (1.0.3) | Loads; three commands; "Convert to table with single column" turns the selected list, ticked and nested items included, into a one-column table in one editor change. Nothing reported unsupported. |
 | Vault Router | `b5bd681c` (0.2.1) | Loads; three commands; "Sweep inbox" moves each inbox note by the first of its default rules it matches (`Daily -` titles to `Journal/Daily`, notes tagged `meeting` with a `project` to `Meetings/<project>`) through Graphite's file manager, which updates links, and leaves a note no rule matches. Nothing reported unsupported. |
 | Merge And Open Target | `bed30688` (0.2.4) | Loads; two commands; "Merge current file into another note and open target" lists the vault's notes, asks to confirm, appends the open note to the chosen one after its separator (two line breaks), trashes the merged note and opens the target. Nothing reported unsupported. |
+| Omnisearch | `48b7e324` (1.31.0) | Loads with IndexedDB (in memory in jsdom); indexes the vault once layout is ready; its API (`globalThis.omnisearch`) finds a note by a word; its search window lists the note as the word is typed, and choosing it opens it through Graphite. On a mobile app it focuses, then selects, its field 200 ms apart after opening and fails if its window is gone by then, in Obsidian's iPad app too. Nothing reported unsupported. |
 
 Coverage of Obsidian's published API (`Docs/Community-plugin-API-coverage.md`, generated against `obsidian.d.ts` 1.14.4): all 103 exported classes, 422 of 442 class methods, all 56 exported functions and constants (the editor state fields since 2026-10-12). Presence is not behavior: several present methods report themselves as unsupported when called.
 
@@ -117,6 +118,10 @@ Each of these is reported to the person, per plugin, when a plugin uses it (Sett
 - Obsidian mobile does not show its status bar; neither does Graphite: `addStatusBarItem` adds an element to `app.statusBar`, which is not shown.
 
 ## How it was verified
+
+### Four of the sweep's plugins in the Node tests (2026-10-21)
+
+On the branch `community-plugins-on-mac`, Node 24.21, macOS 27. List to Table, Vault Router, Merge And Open Target and Omnisearch were added to `compatibility-plugins.json` at the commits of the releases the sweep installed, built from source by `npm run build-compatibility-plugins` (Omnisearch with pnpm, the others with npm; Omnisearch writes its build to `dist/`), and each checked on its main feature in `real-plugins.test.js` (What works, above). `npm test` with every plugin built: 140 tests, 139 passing, QuickAdd skipped because its npm install outlasted the build script's 15 minutes on this machine (its package manager's install failed first, then npm's from `package.json`). No runtime change was needed.
 
 ### Suggestions in the Mac editor (2026-10-21)
 
@@ -275,4 +280,4 @@ In order of what it unlocks for daily use:
 1. Use a real vault with the plugins above on an iPad and an iPhone, and measure the runtime's memory and start-up time there, with several code blocks and views shown.
 2. Check Apple Pencil in Excalidraw on an iPad: pressure, tilt, hover and palm rejection.
 3. From the sweep, still open: the editor of a note right after `openFile` (Advanced URI); hover previews of links. Done 2026-10-21: suggestions in the Mac editor (How it was verified, below).
-4. More real plugins in the Node tests, starting with the ones the sweep found working (List to Table, Vault Router, Merge And Open Target, Omnisearch), each pinned to a commit and built from source.
+4. Done 2026-10-21: more real plugins in the Node tests, the ones the sweep found working: List to Table, Vault Router, Merge And Open Target and Omnisearch, each pinned to the release the sweep installed and built from source (What works, above).

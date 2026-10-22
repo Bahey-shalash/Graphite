@@ -17,5 +17,6 @@
   {"repository": "FlorianWoelki/obsidian-iconize", "commit": "09fb17720b7ad9eac64869617191be449b42d0d3", "buildCommands": [["node", "esbuild.config.mjs", "production"], ["npx", "rollup", "-c"], ["npm", "run", "build"]], "outputFolders": [".", "dist", "build"], "filesBeforeBuilding": {"env.js": "export const obsidianExportPath = 'build';\n"}},
   {"repository": "kepano/list-to-table", "commit": "c802843cd0a4bb17ecff82878847e3fbae183a8d", "buildCommands": [["node", "esbuild.config.mjs", "production"]]},
   {"repository": "israerusan/vault-router", "commit": "b5bd681cd9fa54f6814de75475a589afd38cf720", "buildCommands": [["node", "esbuild.config.mjs", "production"]]},
-  {"repository": "zhaoscsc/merge-open-target-plugin", "commit": "bed3068859524286cb035caa810b097d55e1e046", "buildCommands": [["node", "esbuild.config.mjs", "production"]]}
+  {"repository": "zhaoscsc/merge-open-target-plugin", "commit": "bed3068859524286cb035caa810b097d55e1e046", "buildCommands": [["node", "esbuild.config.mjs", "production"]]},
+  {"repository": "scambier/obsidian-omnisearch", "commit": "48b7e324d945385495f3f3db92efc0684e033059", "buildCommands": [["node", "esbuild.config.mjs", "production"]], "outputFolders": ["dist", "."]}
 ]
