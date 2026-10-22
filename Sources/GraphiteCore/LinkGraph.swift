@@ -129,6 +129,45 @@ public struct LinkGraph: Equatable, Sendable {
         return LinkGraph(nodes: nodes, edges: edges)
     }
 
+    /// What a graph shows, as the corner of the graph view names it.
+    public struct Counts: Equatable, Sendable {
+        public var notes = 0
+        public var attachments = 0
+        public var tags = 0
+        /// Link targets without a file.
+        public var unresolved = 0
+        /// The lines between files and link targets, a pair linked both ways counted once.
+        /// A tag's lines say which notes carry it and are not counted.
+        public var links = 0
+
+        public init(notes: Int = 0, attachments: Int = 0, tags: Int = 0, unresolved: Int = 0, links: Int = 0) {
+            self.notes = notes
+            self.attachments = attachments
+            self.tags = tags
+            self.unresolved = unresolved
+            self.links = links
+        }
+    }
+
+    public var counts: Counts {
+        var counts = Counts()
+        var tagIdentifiers: Set<String> = []
+        for node in nodes {
+            switch node.kind {
+            case .note: counts.notes += 1
+            case .attachment: counts.attachments += 1
+            case .tag: counts.tags += 1; tagIdentifiers.insert(node.id)
+            case .unresolved: counts.unresolved += 1
+            }
+        }
+        var linkedPairs: Set<GraphEdge> = []
+        for edge in edges where !tagIdentifiers.contains(edge.source) && !tagIdentifiers.contains(edge.target) {
+            linkedPairs.insert(edge.source < edge.target ? edge : GraphEdge(source: edge.target, target: edge.source))
+        }
+        counts.links = linkedPairs.count
+        return counts
+    }
+
     /// How many links each node has, in either direction.
     public var linkCounts: [String: Int] {
         var counts: [String: Int] = [:]
