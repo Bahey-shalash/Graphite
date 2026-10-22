@@ -22,7 +22,7 @@ import GraphiteApple
 enum CorePlugin: String, CaseIterable, Identifiable, Codable {
     case backlinks, outgoingLinks, outline, properties, tags, wordCount
     case colors, drawings, audioRecorder, readAloud, bases
-    case templates, dailyNotes, footnotes, fileRecovery, bookmarks, graph, map, canvas, notebookImport
+    case templates, dailyNotes, footnotes, fileRecovery, bookmarks, graph, map, canvas, notebookImport, postgreSQLMirror
 
     var id: String { rawValue }
 
@@ -48,6 +48,7 @@ enum CorePlugin: String, CaseIterable, Identifiable, Codable {
         case .map: "Map View"
         case .canvas: "Canvas"
         case .notebookImport: "Goodnotes and Notability Import"
+        case .postgreSQLMirror: "PostgreSQL Mirror"
         }
     }
 
@@ -72,6 +73,9 @@ enum CorePlugin: String, CaseIterable, Identifiable, Codable {
         case .graph: "Draws the vault's notes and links, and each note's neighborhood in the right sidebar."
         case .map: "Places notes with a coordinates property on Apple's map, and the open note's linked places in the right sidebar."
         case .canvas: "Opens .canvas files as boards of cards and connections, to read and to edit."
+        case .postgreSQLMirror:
+            "Copies the notes, their properties, tags, links and places into a PostgreSQL database, to query them in QGIS or other apps. "
+                + "The notes themselves are never changed."
         case .notebookImport:
             "Turns Goodnotes and Notability notebooks into PDFs with editable handwriting when they are imported. Off, they are copied as they are."
         }
@@ -79,10 +83,11 @@ enum CorePlugin: String, CaseIterable, Identifiable, Codable {
 
     /// Whether the plugin is on until the person turns it off. Read Aloud is off until it is
     /// turned on (owner decision 2026-10-19): its voices, models and audio are heavy, and many
-    /// people never use it.
+    /// people never use it. The PostgreSQL Mirror sends the vault's notes to a server, which
+    /// only the person can choose to do.
     var isEnabledByDefault: Bool {
         switch self {
-        case .readAloud: false
+        case .readAloud, .postgreSQLMirror: false
         case .backlinks, .outgoingLinks, .outline, .properties, .tags, .wordCount, .colors, .drawings, .audioRecorder,
              .bases, .templates, .dailyNotes, .footnotes, .fileRecovery, .bookmarks, .graph, .map, .canvas, .notebookImport: true
         }
@@ -110,6 +115,7 @@ enum CorePlugin: String, CaseIterable, Identifiable, Codable {
         case .map: "map"
         case .canvas: "rectangle.3.group"
         case .notebookImport: "square.and.arrow.down.on.square"
+        case .postgreSQLMirror: "cylinder.split.1x2"
         }
     }
 }

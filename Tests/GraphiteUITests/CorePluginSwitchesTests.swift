@@ -17,11 +17,12 @@ final class CorePluginSwitchesTests: XCTestCase {
         device = nil
     }
 
-    func testAFreshDeviceHasReadAloudOffAndEveryOtherPluginOn() {
+    func testAFreshDeviceHasReadAloudAndThePostgreSQLMirrorOffAndEveryOtherPluginOn() {
         let preferences = device.makeServices().preferences
 
         XCTAssertFalse(preferences.isEnabled(.readAloud))
-        for plugin in CorePlugin.allCases where plugin != .readAloud {
+        XCTAssertFalse(preferences.isEnabled(.postgreSQLMirror))
+        for plugin in CorePlugin.allCases where plugin != .readAloud && plugin != .postgreSQLMirror {
             XCTAssertTrue(preferences.isEnabled(plugin), "\(plugin.rawValue) is on until it is turned off.")
         }
     }
@@ -35,10 +36,10 @@ final class CorePluginSwitchesTests: XCTestCase {
         XCTAssertNil(device.defaults.object(forKey: "GraphiteDisabledCorePlugins"), "The migration records nothing as turned off.")
     }
 
-    func testOnlyReadAloudIsOffByDefault() {
+    func testOnlyReadAloudAndThePostgreSQLMirrorAreOffByDefault() {
         let offByDefault = CorePlugin.allCases.filter { plugin in !plugin.isEnabledByDefault }
 
-        XCTAssertEqual(offByDefault, [.readAloud])
+        XCTAssertEqual(offByDefault, [.readAloud, .postgreSQLMirror], "The mirror sends notes to a server only once the person turns it on.")
     }
 
     func testTurningReadAloudOnStoresItInTheEnabledListAndAnotherLaunchReadsItBack() {
