@@ -55,7 +55,7 @@ test('suggestions at the cursor come from the plugin that triggers, and the chos
     try {
         await installAndLoadPlugin(harness, { manifest, mainSource: emojiPlugin });
         await settle();
-        assert.deepEqual(plain(harness.host.notificationsOf('editor.listenersChanged').at(-1)), { operation: 'editor.listenersChanged', hasEditorChangeListeners: true, hasPasteListeners: false, hasDropListeners: false, hasEditorSuggestions: true });
+        assert.deepEqual(plain(harness.host.notificationsOf('editor.listenersChanged').at(-1)), { operation: 'editor.listenersChanged', hasEditorChangeListeners: true, hasPasteListeners: false, hasDropListeners: false, hasHoverLinkListeners: false, hasEditorSuggestions: true });
         assert.deepEqual(plain(harness.host.notificationsOf('plugin.unsupportedFeature')), []);
 
         await editorUpdate(harness, 'Hi\n', 2, false);

@@ -523,6 +523,22 @@ final class MarkdownTextView: UITextView {
 
 /// Hosts a note's text view for one SwiftUI view. The text view can outlive it: a hidden
 /// note's text view is kept by `MarkdownEditorRetention` and shown again in a new container.
+extension MarkdownTextView: EditorLinkPreviewSurface {
+    var linkPreviewSource: NSString { textStorage.string as NSString }
+
+    func characterIndex(atWindowPoint windowPoint: CGPoint) -> Int? {
+        let point = convert(windowPoint, from: nil)
+        guard bounds.contains(point), let position = closestPosition(to: point) else { return nil }
+        return offset(from: beginningOfDocument, to: position)
+    }
+
+    func windowFrames(ofCharacters range: NSRange) -> [CGRect] {
+        guard let start = position(from: beginningOfDocument, offset: range.location), let end = position(from: start, offset: range.length),
+              let characters = textRange(from: start, to: end) else { return [] }
+        return selectionRects(for: characters).map(\.rect).filter { rect in rect.width > 0 && rect.height > 0 }.map { rect in convert(rect, to: nil) }
+    }
+}
+
 final class MarkdownEditorContainerView: UIView {
     private(set) weak var hostedTextView: MarkdownTextView?
     /// The latest update of this container's SwiftUI view, made while an earlier view of
@@ -567,6 +583,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
     var contextMenu: EditorContextMenuActions?
     /// The vault's editing shortcuts.
     var keyCommandTable: EditorKeyCommandTable
+    @Environment(\.linkPreviews) private var linkPreviews
 
     init(session: MarkdownSession, configuration: EditorConfiguration, environment: LivePreviewEnvironment? = nil,
          headingScrollRequest: HeadingScrollRequest?, actions: EditorActions = EditorActions(),
@@ -716,6 +733,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         textView.followsReading = followsReading
         coordinator.suspendReadingFollow = suspendReadingFollow
         coordinator.installReadAloudHooks(readAloudHooks, in: textView)
+        if coordinator.linkPreviews.use(linkPreviews, sourceNote: session.path) { coordinator.watchPointerForLinks(in: textView) }
         coordinator.contextMenu = contextMenu
         let previousBlockPolicy = coordinator.renderedBlockPolicy
         coordinator.environment = environment
@@ -792,6 +810,11 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         /// The text's styling, markup revealed at the selection, and rendered blocks, shared
         /// with the Mac's editor. Views kept off screen are dropped on a memory warning.
         let styling: MarkdownEditorStyling
+        /// The cards of the links the pointer, Apple Pencil hovering or a long press rests on,
+        /// as the Mac's editor shows them.
+        let linkPreviews = EditorLinkPreviews()
+        private var linkHoverRecognizer: UIHoverGestureRecognizer?
+        private var linkPressRecognizer: UILongPressGestureRecognizer?
         var configuration: EditorConfiguration {
             get { styling.configuration }
             set { styling.configuration = newValue }
@@ -1555,6 +1578,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         }
 
         func textViewDidChange(_ textView: UITextView) {
+            linkPreviews.closeCard()
             // The insertion settles its own change once it is complete.
             guard !isApplyingInsertion else { return }
             settleTextChange(in: textView)
@@ -1815,6 +1839,7 @@ struct NativeMarkdownEditor: UIViewRepresentable {
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
             pinnedHeading = nil
             suspendReadingFollow?()
+            linkPreviews.closeCard()
         }
 
         /// Gives the rendered blocks on screen, and those kept off screen, the environment and
@@ -2103,9 +2128,42 @@ struct NativeMarkdownEditor: UIViewRepresentable {
             textView.addGestureRecognizer(recognizer)
         }
 
+        /// While Page Preview is on, the pointer of a trackpad or mouse, or Apple Pencil
+        /// hovering, resting on a link shows its card, and a long press on a link whose
+        /// markup is hidden (one a tap follows) shows it at once. Nothing is installed before.
+        func watchPointerForLinks(in textView: MarkdownTextView) {
+            if linkPreviews.isWatchingPointer, linkHoverRecognizer == nil {
+                let hoverRecognizer = UIHoverGestureRecognizer(target: self, action: #selector(handleLinkHover(_:)))
+                textView.addGestureRecognizer(hoverRecognizer)
+                linkHoverRecognizer = hoverRecognizer
+                let pressRecognizer = UILongPressGestureRecognizer(target: self, action: #selector(handleLinkPress(_:)))
+                pressRecognizer.delegate = self
+                textView.addGestureRecognizer(pressRecognizer)
+                linkPressRecognizer = pressRecognizer
+            }
+            linkHoverRecognizer?.isEnabled = linkPreviews.isWatchingPointer
+            linkPressRecognizer?.isEnabled = linkPreviews.isWatchingPointer
+        }
+
+        @objc private func handleLinkHover(_ recognizer: UIHoverGestureRecognizer) {
+            guard let textView = recognizer.view as? MarkdownTextView else { return }
+            switch recognizer.state {
+            case .began, .changed: linkPreviews.pointerMoved(to: recognizer.location(in: nil), over: textView)
+            case .ended, .cancelled, .failed: linkPreviews.pointerLeft()
+            case .possible, .recognized: break
+            @unknown default: break
+            }
+        }
+
+        @objc private func handleLinkPress(_ recognizer: UILongPressGestureRecognizer) {
+            guard recognizer.state == .began, let textView = recognizer.view as? MarkdownTextView else { return }
+            _ = linkPreviews.press(at: recognizer.location(in: nil), in: textView)
+        }
+
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
             guard let textView = gestureRecognizer.view as? UITextView else { return false }
             let point = gestureRecognizer.location(in: textView)
+            if gestureRecognizer === linkPressRecognizer { return link(at: point, in: textView) != nil }
             return taskCheckboxRange(at: point, in: textView) != nil || link(at: point, in: textView) != nil
         }
 
@@ -2402,6 +2460,42 @@ final class MarkdownMacTextView: NSTextView {
     var keyCommandTable = EditorKeyCommandTable.defaults
     /// The editor's coordinator, which runs the editing command a shortcut names.
     weak var keyCommandOwner: NativeMarkdownEditor.Coordinator?
+    /// The preview cards of the links the pointer rests on, which the coordinator owns.
+    weak var linkPreviews: EditorLinkPreviews?
+    private var linkTrackingArea: NSTrackingArea?
+
+    /// The pointer is watched for links only while Page Preview is on.
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let linkTrackingArea {
+            removeTrackingArea(linkTrackingArea)
+            self.linkTrackingArea = nil
+        }
+        guard linkPreviews?.isWatchingPointer == true else { return }
+        let options: NSTrackingArea.Options = [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect]
+        let trackingArea = NSTrackingArea(rect: .zero, options: options, owner: self, userInfo: nil)
+        addTrackingArea(trackingArea)
+        linkTrackingArea = trackingArea
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        linkPreviews?.pointerMoved(to: event.locationInWindow, over: self)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        linkPreviews?.pointerLeft()
+    }
+
+    /// Escape closes a link's card before anything else.
+    override func cancelOperation(_ sender: Any?) {
+        if let linkPreviews, linkPreviews.isShowingCard {
+            linkPreviews.closeCard()
+            return
+        }
+        super.cancelOperation(sender)
+    }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if window?.firstResponder === self, runKeyCommand(for: event) { return true }
@@ -2425,6 +2519,8 @@ final class MarkdownMacTextView: NSTextView {
         // Control-scrolling changes the font size and does not scroll, so reading keeps following.
         if quickFontSizeInput.handleScroll(event, adjustment: quickFontSize) { return }
         suspendReadingFollow?()
+        // A link's card stays where the link was; the note moves away from it.
+        linkPreviews?.closeCard()
         super.scrollWheel(with: event)
     }
 
@@ -2693,6 +2789,28 @@ enum MacPastedAttachment: Equatable {
 }
 
 /// Hosts a note's scroll view and text view for one SwiftUI view; see the iPad container.
+extension MarkdownMacTextView: EditorLinkPreviewSurface {
+    var linkPreviewSource: NSString { (textStorage?.string ?? "") as NSString }
+
+    func characterIndex(atWindowPoint windowPoint: CGPoint) -> Int? {
+        let point = convert(windowPoint, from: nil)
+        guard bounds.contains(point) else { return nil }
+        return characterIndexForInsertion(at: point)
+    }
+
+    func windowFrames(ofCharacters range: NSRange) -> [CGRect] {
+        guard let textLayoutManager, let contentManager = textLayoutManager.textContentManager,
+              let start = contentManager.location(contentManager.documentRange.location, offsetBy: range.location),
+              let end = contentManager.location(start, offsetBy: range.length), let textRange = NSTextRange(location: start, end: end) else { return [] }
+        var frames: [CGRect] = []
+        textLayoutManager.enumerateTextSegments(in: textRange, type: .standard, options: []) { _, frame, _, _ in
+            frames.append(self.convert(frame.offsetBy(dx: self.textContainerOrigin.x, dy: self.textContainerOrigin.y), to: nil))
+            return true
+        }
+        return frames
+    }
+}
+
 final class MarkdownEditorContainerView: NSView {
     private(set) weak var hostedScrollView: NSScrollView?
     /// The latest update of this container's SwiftUI view, made while an earlier view of
@@ -2736,6 +2854,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
     var contextMenu: EditorContextMenuActions?
     /// The vault's editing shortcuts.
     var keyCommandTable: EditorKeyCommandTable
+    @Environment(\.linkPreviews) private var linkPreviews
 
     /// The Mac has no keyboard toolbar: of `actions`, it uses pasting, dropping, following
     /// links elsewhere, and focusing the note's side.
@@ -2836,6 +2955,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         (textView as? MarkdownMacTextView)?.readAloudRange = readAloudRange
         (textView as? MarkdownMacTextView)?.keyCommandTable = keyCommandTable
         (textView as? MarkdownMacTextView)?.keyCommandOwner = coordinator
+        if coordinator.linkPreviews.use(linkPreviews, sourceNote: session.path) { textView.updateTrackingAreas() }
         (textView as? MarkdownMacTextView)?.quickFontSize = actions.quickFontSize
         (textView as? MarkdownMacTextView)?.readableColumnWidth = configuration.usesReadableLineLength
             ? (configuration.theme?.readableColumnWidth(forTextSize: configuration.textSize).map { width in width + 10 } ?? MarkdownMacTextView.graphiteReadableColumnWidth) : nil
@@ -2891,6 +3011,8 @@ struct NativeMarkdownEditor: NSViewRepresentable {
         /// The text's styling, markup revealed at the selection, and rendered blocks, shared
         /// with the iPad's editor; the Mac has the memory to keep more views off screen.
         let styling: MarkdownEditorStyling
+        /// The cards of the links the pointer rests on, as the iPad's editor shows them.
+        let linkPreviews = EditorLinkPreviews()
         var configuration: EditorConfiguration {
             get { styling.configuration }
             set { styling.configuration = newValue }
@@ -3048,6 +3170,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
                 insertLinkToVaultFile(path, range)
             }
             textView.reportUnreadableItem = { [weak self] in self?.session.errorMessage = NativeMarkdownEditor.unreadableItemMessage }
+            textView.linkPreviews = linkPreviews
             textView.followLinkOnClick = { [weak self, weak textView] characterIndex, modifierFlags in
                 guard let self, let textView else { return false }
                 return self.followLink(atCharacter: characterIndex, modifierFlags: modifierFlags, in: textView)
@@ -3145,6 +3268,7 @@ struct NativeMarkdownEditor: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
+            linkPreviews.closeCard()
             settleTextChange(in: textView)
             publish(textView)
             updateCompletion(in: textView)

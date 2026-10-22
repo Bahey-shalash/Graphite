@@ -77,6 +77,13 @@ extension CommunityPluginHost {
         return answer?["isShown"] as? Bool == true
     }
 
+    /// Where a frame the plugins' page measured is in the window showing the page, as a live
+    /// view; nil while the page is in no window.
+    func windowFrame(ofPageFrame pageFrame: CGRect) -> CGRect? {
+        guard let webView, webView.window != nil else { return nil }
+        return webView.convert(pageFrame, to: nil)
+    }
+
     /// The live view's tab went away: the page shows the plugins' panel content again.
     func hideLive(_ identifier: String) {
         guard liveViewIdentifier == identifier else { return }
@@ -421,6 +428,7 @@ struct CommunityPluginLiveViewContent: View {
     /// A live view on the side not focused does not take the web view from one already
     /// shown as it appears (both sides restored at launch); a tap there takes it.
     var isInFocusedGroup = true
+    @Environment(\.linkPreviews) private var linkPreviews
 
     var body: some View {
         Group {
@@ -457,7 +465,12 @@ struct CommunityPluginLiveViewContent: View {
             if !isInFocusedGroup, let shownView = host.liveViewIdentifier, shownView != viewIdentifier { return }
             _ = await host.showLive(viewIdentifier)
         }
-        .onDisappear { host.hideLive(viewIdentifier) }
+        // Links the plugin asks to preview here show this window's cards.
+        .onChange(of: linkPreviews.map(ObjectIdentifier.init), initial: true) { host.useLinkPreviews(linkPreviews, forLiveView: viewIdentifier) }
+        .onDisappear {
+            host.useLinkPreviews(nil, forLiveView: viewIdentifier)
+            host.hideLive(viewIdentifier)
+        }
     }
 }
 

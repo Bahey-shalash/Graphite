@@ -30,7 +30,7 @@ const studyVault = {
 /// Loads a plugin as Graphite does at launch: vault read, a note open, layout ready.
 async function loadInStudyVault(pluginIdentifier, options) {
     const pluginPackage = builtPlugin(pluginIdentifier);
-    const harness = await startRuntime({ files: Object.assign({}, studyVault, options && options.files) });
+    const harness = await startRuntime({ files: Object.assign({}, studyVault, options && options.files), corePlugins: options && options.corePlugins });
     if (options && options.withWorkerStandIn) installWorkerStandIn(harness.window);
     if (options && options.withRunningWorkers) installRunningWorkers(harness.window);
     if (options && options.withIndexedDatabase) installIndexedDatabase(harness.window);
@@ -180,6 +180,17 @@ function elementPathInBlock(harness, blockIdentifier, selector) {
     return path;
 }
 
+/// The path of element positions from the block or view `element` is drawn in down to it,
+/// as Graphite's copy reports where the pointer is.
+function elementPathTo(element) {
+    const blockElement = element.closest('.graphite-reading-block').firstElementChild;
+    const path = [];
+    for (let current = element; current !== blockElement; current = current.parentElement) {
+        path.unshift(Array.prototype.indexOf.call(current.parentElement.children, current));
+    }
+    return path;
+}
+
 async function settingRowCount(harness, pluginIdentifier) {
     const answer = plain(await harness.send({ operation: 'settings.show', pluginIdentifier }));
     await settle();
@@ -267,7 +278,8 @@ test('Tag Wrangler: loads without commands; the editor menu on a tag offers rena
     try {
         assert.deepEqual(answer, { isLoaded: true });
         assert.deepEqual(commandNames, []);
-        assert.deepEqual(unsupported, ['Hover previews']);
+        assert.deepEqual(unsupported, []);
+        assert.deepEqual(Object.values(plain(harness.app.workspace.hoverLinkSources)), [{ display: 'Tags View', defaultMod: true }], 'its tags view is a source of hover previews');
         assert.deepEqual(pageErrors, []);
         // The cursor on `#tag` in "A note with #tag and [[Other]]."
         const onTag = plain(await harness.send({ operation: 'menu.editor', menuIdentifier: 'tag-menu', activeDocument: { path: 'Welcome.md', mode: 'source', editorSnapshot: harness.host.openNote('Welcome.md', 25) } }));
@@ -492,6 +504,27 @@ test('Recent Files: lists the notes opened in Graphite in its view and keeps the
     }
 });
 
+test('Recent Files: the pointer on a note in its view asks Graphite to preview it (hover-link), from its hover link source', { skip: !builtPlugin('recent-files-obsidian') }, async () => {
+    const { harness } = await loadInStudyVault('recent-files-obsidian', { corePlugins: [{ identifier: 'page-preview', isEnabled: true }] });
+    try {
+        assert.deepEqual(plain(harness.app.workspace.hoverLinkSources), { 'recent-files': { display: 'Recent Files', defaultMod: true } });
+        await harness.send({ operation: 'workspace.activeDocument', activeDocument: { path: 'Other.md', mode: 'livePreview', editorSnapshot: harness.host.openNote('Other.md', 0) } });
+        await settle();
+        assert.deepEqual(plain(await harness.send({ operation: 'command.run', commandIdentifier: 'recent-files-obsidian:recent-files-open' })), { outcome: 'ran' });
+        await settle();
+        const leafIdentifier = plain(harness.host.notificationsOf('views.changed').at(-1).views)[0].leafIdentifier;
+        const blockIdentifier = 'view-' + leafIdentifier;
+        assert.match(await attachedViewText(harness, leafIdentifier), /Other/);
+        const rows = Array.from(harness.window.document.querySelectorAll('.graphite-plugin-view [data-graphite-listens~="hover"]'));
+        const otherRow = rows.find((row) => row.textContent.includes('Other'));
+        assert.ok(otherRow, 'the copy forwards hovering on each note of the list');
+        const onRow = plain(await harness.send({ operation: 'codeBlock.event', blockIdentifier, eventType: 'hover', elementPath: elementPathTo(otherRow), x: 10, y: 10 }));
+        assert.deepEqual(onRow, { isHandled: true, linkHover: { linktext: 'Other.md', sourcePath: '', source: 'recent-files' } }, 'the note under the pointer, by its path');
+    } finally {
+        harness.close();
+    }
+});
+
 test('Style Settings: loads and says no theme or snippet offers settings', { skip: !builtPlugin('obsidian-style-settings') }, async () => {
     const { harness, answer, commandNames, unsupported, pageErrors } = await loadInStudyVault('obsidian-style-settings');
     try {
@@ -566,6 +599,37 @@ test('Calendar: opens its view with the current month', { skip: !builtPlugin('ca
         await harness.send({ operation: 'view.close', leafIdentifier: views[0].leafIdentifier });
         await settle();
         assert.deepEqual(plain(harness.host.notificationsOf('views.changed').at(-1).views), [], 'closing its panel closes the view');
+    } finally {
+        harness.close();
+    }
+});
+
+test('Calendar: the pointer on a day with ⌘ held asks Graphite to preview its daily note (link-hover); without ⌘ it asks nothing', { skip: !builtPlugin('calendar') }, async () => {
+    const { harness } = await loadInStudyVault('calendar', { corePlugins: [{ identifier: 'page-preview', isEnabled: true }] });
+    try {
+        // Calendar's days listen for `pointerover`, which WebKit sends and jsdom has no event for.
+        const { MouseEvent } = harness.window;
+        harness.window.PointerEvent = class PointerEvent extends MouseEvent {
+            constructor(type, init) {
+                super(type, init);
+                this.pointerType = (init && init.pointerType) || '';
+            }
+        };
+        const leafIdentifier = plain(harness.host.notificationsOf('views.changed').at(-1).views)[0].leafIdentifier;
+        const blockIdentifier = 'view-' + leafIdentifier;
+        await attachedViewText(harness, leafIdentifier);
+        const day = harness.window.moment().date(15);
+        const dayElement = Array.from(harness.window.document.querySelectorAll('.graphite-plugin-view .day')).find((cell) => cell.textContent.trim() === '15'
+            && !cell.classList.contains('adjacent-month'));
+        assert.ok(dayElement, 'the month grid shows the 15th');
+        assert.match(dayElement.getAttribute('data-graphite-listens'), /hover/, 'the copy forwards hovering on the day');
+        const elementPath = elementPathTo(dayElement);
+        const withoutCommand = plain(await harness.send({ operation: 'codeBlock.event', blockIdentifier, eventType: 'hover', elementPath, x: 10, y: 10 }));
+        assert.deepEqual(withoutCommand, { isHandled: true });
+        await harness.send({ operation: 'codeBlock.event', blockIdentifier, eventType: 'hover', elementPath: null, x: 0, y: 0 });
+        const withCommand = plain(await harness.send({ operation: 'codeBlock.event', blockIdentifier, eventType: 'hover', elementPath, x: 10, y: 10, metaKey: true, ctrlKey: true }));
+        assert.deepEqual(withCommand, { isHandled: true, linkHover: { linktext: day.format('YYYY-MM-DD'), sourcePath: '', source: '' } },
+            'Calendar names the daily note by its date, with Obsidian\'s older link-hover');
     } finally {
         harness.close();
     }

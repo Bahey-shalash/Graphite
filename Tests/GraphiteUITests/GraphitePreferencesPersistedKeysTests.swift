@@ -337,6 +337,7 @@ final class GraphitePreferencesPersistedKeysTests: XCTestCase {
             "backlinks", "outgoingLinks", "outline", "properties", "tags", "wordCount", "colors", "drawings", "audioRecorder", "readAloud",
             "bases", "templates", "dailyNotes", "footnotes", "fileRecovery", "bookmarks", "graph", "map", "canvas", "notebookImport",
             "postgreSQLMirror",
+            "pagePreview",
         ])
     }
 
