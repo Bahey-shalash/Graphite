@@ -18,6 +18,8 @@ struct LinkPreviewCard: View {
 
     private static let cornerRadiusPoints: CGFloat = 12
     private static let bodyPaddingPoints: CGFloat = 16
+    /// The room between blocks, the reading view's own.
+    private static let blockSpacingPoints: CGFloat = 14
     private static let dividerThicknessPoints: CGFloat = 1
 
     var body: some View {
@@ -29,21 +31,24 @@ struct LinkPreviewCard: View {
                 }
             Divider()
             ScrollView {
-                ReadingBlocksView(blocks: content.blocks, root: root, textSize: textSize,
-                                  navigate: { target, isWiki in follow(target, isWiki: isWiki, from: content.path) },
-                                  // The card shows part of the note; its own headings are found in the note itself.
-                                  scrollToHeading: { _ in follow(request.target, isWiki: request.isWiki, from: request.sourceNote) },
-                                  openPDF: { path, pageIndex in
-                                      model.close()
-                                      actions.openPDF(path, pageIndex)
-                                  },
-                                  updateProperties: nil)
-                    .padding(Self.bodyPaddingPoints)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                    .onGeometryChange(for: CGFloat.self) { geometry in geometry.size.height } action: { height in
-                        bodyHeight = height
-                        naturalHeightDidChange(headerHeight + Self.dividerThicknessPoints + bodyHeight)
-                    }
+                // The blocks are stacked as the reading view stacks them.
+                VStack(alignment: .leading, spacing: Self.blockSpacingPoints) {
+                    ReadingBlocksView(blocks: content.blocks, root: root, textSize: textSize,
+                                      navigate: { target, isWiki in follow(target, isWiki: isWiki, from: content.path) },
+                                      // The card shows part of the note; its own headings are found in the note itself.
+                                      scrollToHeading: { _ in follow(request.target, isWiki: request.isWiki, from: request.sourceNote) },
+                                      openPDF: { path, pageIndex in
+                                          model.close()
+                                          actions.openPDF(path, pageIndex)
+                                      },
+                                      updateProperties: nil)
+                }
+                .padding(Self.bodyPaddingPoints)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .onGeometryChange(for: CGFloat.self) { geometry in geometry.size.height } action: { height in
+                    bodyHeight = height
+                    naturalHeightDidChange(headerHeight + Self.dividerThicknessPoints + bodyHeight)
+                }
             }
             .scrollBounceBehavior(.basedOnSize)
         }
