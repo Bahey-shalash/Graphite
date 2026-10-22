@@ -9,21 +9,22 @@ struct LibraryNotePage: View {
     let summary: NotePreviewSummary
     let picture: CGImage?
     let displayScale: CGFloat
+    /// Width over height: a portrait page in the library, the card's shape in the tab overview.
+    var pageAspectRatio: CGFloat = Self.portraitAspectRatio
 
     /// The width the note is laid out at before scaling, in points: about a phone's reading
     /// width, so lines wrap as they would on a page.
     private static let pageWidthPoints: CGFloat = 300
-    /// Width over height, as a portrait page.
-    private static let pageAspectRatio: CGFloat = 0.77
+    private static let portraitAspectRatio: CGFloat = 0.77
     private static let pageMarginPoints: CGFloat = 20
 
     var body: some View {
         Color.white
-            .aspectRatio(Self.pageAspectRatio, contentMode: .fit)
+            .aspectRatio(pageAspectRatio, contentMode: .fit)
             .overlay(alignment: .topLeading) {
                 GeometryReader { geometry in
                     page
-                        .frame(width: Self.pageWidthPoints, height: Self.pageWidthPoints / Self.pageAspectRatio, alignment: .topLeading)
+                        .frame(width: Self.pageWidthPoints, height: Self.pageWidthPoints / pageAspectRatio, alignment: .topLeading)
                         .scaleEffect(geometry.size.width / Self.pageWidthPoints, anchor: .topLeading)
                 }
             }
