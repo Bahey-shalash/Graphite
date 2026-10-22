@@ -585,6 +585,12 @@ struct MarkdownPane: View {
         Button("Unfold All", systemImage: "rectangle.expand.vertical") { session.unfoldAll() }
             .disabled(session.foldedKeys.isEmpty)
         Button("Save Now", systemImage: "square.and.arrow.down") { Task { try? await session.save() } }
+        if preferences.isEnabled(.graph) {
+            Button("Local Graph", systemImage: "point.3.filled.connected.trianglepath.dotted") {
+                NoteLinksInspector.choose(.graph, deviceDefaults: workspace.deviceDefaults)
+                showsLinksInspector = true
+            }
+        }
         FileLocationMenuItems(path: session.path, openingLink: workspace.openingLink(to: session.path), vaultRoot: workspace.folderAccess?.root)
         NotePDFExportButton()
         if preferences.isEnabled(.bookmarks) {

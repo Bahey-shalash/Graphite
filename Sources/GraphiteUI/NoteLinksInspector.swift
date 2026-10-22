@@ -6,6 +6,11 @@ struct NoteLinksInspector: View {
     /// The device setting that keeps the panel shown, which commands set to open one.
     static let panelSettingKey = "GraphiteInspectorPanel"
 
+    /// Makes `panel` the one the sidebar shows when it opens.
+    static func choose(_ panel: InspectorPanel, deviceDefaults: UserDefaults) {
+        deviceDefaults.set(panel.rawValue, forKey: panelSettingKey)
+    }
+
     let session: MarkdownSession
     @Bindable var workspace: WorkspaceModel
     @AppStorage(NoteLinksInspector.panelSettingKey) private var selectedPanel: InspectorPanel = .outline
